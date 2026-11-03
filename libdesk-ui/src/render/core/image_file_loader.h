@@ -16,3 +16,6 @@ struct LoadedImageFile {
 
 [[nodiscard]] std::expected<LoadedImageFile, std::string>
 loadImageFile(const std::string& path, int targetSize = 0, bool centerSquareCrop = false);
+
+// Approximate Gaussian blur (three box passes) of a tightly packed RGBA buffer, in place.
+void blurRgba(std::vector<std::uint8_t>& rgba, int width, int height, int radius);

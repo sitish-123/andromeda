@@ -520,3 +520,86 @@ loadImageFile(const std::string& path, int targetSize, bool centerSquareCrop) {
       std::move(fileData), path.ends_with(".svg") || path.ends_with(".SVG"), targetSize, centerSquareCrop
   );
 }
+
+namespace {
+
+  void boxBlurHorizontal(
+      const std::vector<std::uint8_t>& source, std::vector<std::uint8_t>& destination, int width, int height, int radius
+  ) {
+    const auto diameter = static_cast<std::uint32_t>(radius * 2 + 1);
+    for (int y = 0; y < height; ++y) {
+      for (int channel = 0; channel < 4; ++channel) {
+        std::uint32_t sum = 0;
+        for (int offset = -radius; offset <= radius; ++offset) {
+          const int sampleX = std::clamp(offset, 0, width - 1);
+          const auto index =
+              (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(sampleX)) * 4U
+              + static_cast<std::size_t>(channel);
+          sum += source[index];
+        }
+        for (int x = 0; x < width; ++x) {
+          const auto index =
+              (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U
+              + static_cast<std::size_t>(channel);
+          destination[index] = static_cast<std::uint8_t>((sum + diameter / 2U) / diameter);
+          const int removeX = std::clamp(x - radius, 0, width - 1);
+          const int addX = std::clamp(x + radius + 1, 0, width - 1);
+          const auto removeIndex =
+              (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(removeX)) * 4U
+              + static_cast<std::size_t>(channel);
+          const auto addIndex =
+              (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(addX)) * 4U
+              + static_cast<std::size_t>(channel);
+          sum = sum - source[removeIndex] + source[addIndex];
+        }
+      }
+    }
+  }
+
+  void boxBlurVertical(
+      const std::vector<std::uint8_t>& source, std::vector<std::uint8_t>& destination, int width, int height, int radius
+  ) {
+    const auto diameter = static_cast<std::uint32_t>(radius * 2 + 1);
+    for (int x = 0; x < width; ++x) {
+      for (int channel = 0; channel < 4; ++channel) {
+        std::uint32_t sum = 0;
+        for (int offset = -radius; offset <= radius; ++offset) {
+          const int sampleY = std::clamp(offset, 0, height - 1);
+          const auto index =
+              (static_cast<std::size_t>(sampleY) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U
+              + static_cast<std::size_t>(channel);
+          sum += source[index];
+        }
+        for (int y = 0; y < height; ++y) {
+          const auto index =
+              (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U
+              + static_cast<std::size_t>(channel);
+          destination[index] = static_cast<std::uint8_t>((sum + diameter / 2U) / diameter);
+          const int removeY = std::clamp(y - radius, 0, height - 1);
+          const int addY = std::clamp(y + radius + 1, 0, height - 1);
+          const auto removeIndex =
+              (static_cast<std::size_t>(removeY) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U
+              + static_cast<std::size_t>(channel);
+          const auto addIndex =
+              (static_cast<std::size_t>(addY) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U
+              + static_cast<std::size_t>(channel);
+          sum = sum - source[removeIndex] + source[addIndex];
+        }
+      }
+    }
+  }
+
+} // namespace
+
+void blurRgba(std::vector<std::uint8_t>& rgba, int width, int height, int radius) {
+  if (rgba.empty() || width <= 0 || height <= 0 || radius <= 0) {
+    return;
+  }
+  const int passRadius = std::max(1, radius / 2);
+  std::vector<std::uint8_t> scratch(rgba.size());
+  constexpr int kBlurPasses = 3;
+  for (int pass = 0; pass < kBlurPasses; ++pass) {
+    boxBlurHorizontal(rgba, scratch, width, height, passRadius);
+    boxBlurVertical(scratch, rgba, width, height, passRadius);
+  }
+}

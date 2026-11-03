@@ -44,6 +44,8 @@ struct SharedTextureRequest {
   std::string path;
   SharedTextureKind kind = SharedTextureKind::Color;
   TextureCoverage coverage;
+  // Blur radius as a fraction of the texture's longer side (0 = sharp), so it looks the same at every reduction.
+  float blur = 0.0F;
 
   bool operator==(const SharedTextureRequest&) const = default;
 };
@@ -155,6 +157,7 @@ private:
     int sourceWidth = 0;
     int sourceHeight = 0;
     bool opaque = false;
+    float brightLuminance = -1.0F;
     bool failed = false;
   };
 

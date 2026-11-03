@@ -28,6 +28,8 @@ struct TextureHandle {
   std::uint64_t generation = 0;
   // Every pixel has full alpha. Only image files decoded by loadFromFile report it; other sources leave it false.
   bool opaque = false;
+  // 90th-percentile relative luminance (0..1) of a SharedTextureCache colour image; -1 when not measured.
+  float brightLuminance = -1.0F;
 
   [[nodiscard]] constexpr bool valid() const noexcept { return id.valid(); }
 };

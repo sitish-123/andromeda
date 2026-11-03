@@ -294,6 +294,8 @@ private:
   std::string m_wallpaperPath;
   std::string m_shownWallpaperPath;
   std::string m_pendingWallpaperPath;
+  float m_shownWallpaperBlur = 0.0F;
+  float m_pendingWallpaperBlur = 0.0F;
   WallpaperFillMode m_wallpaperFillMode = WallpaperFillMode::Crop;
   TextureCoverage m_wallpaperCoverage;
   Color m_wallpaperFillColor = rgba(0.0F, 0.0F, 0.0F, 0.0F);

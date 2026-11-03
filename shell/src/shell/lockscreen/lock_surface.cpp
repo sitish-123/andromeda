@@ -59,6 +59,8 @@ namespace {
 
   constexpr float kMediaArtSize = lockscreen_login_box::kRegularMediaArtSize;
   constexpr float kWeatherGlyphSize = 28.0F;
+  // Own-image blur at blur_intensity 1, as a fraction of the image's longer side (about the compositor blur).
+  constexpr float kOwnImageBlur = 0.03F;
   constexpr float kForecastGlyphSize = lockscreen_login_box::kRegularForecastGlyphSize;
   constexpr float kLayoutChipMaxWidth = 96.0F;
   constexpr int kForecastDayCountPaired = 3;
@@ -826,6 +828,7 @@ void LockSurface::setOwnWallpaper(bool own) {
     return;
   }
   m_ownWallpaper = own;
+  m_wallpaperDirty = true;
   requestLayout();
 }
 
@@ -1815,11 +1818,16 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   m_loginPanel->setOpacity(0.0F);
   // The old widget layer gives way to the rulebook layouts (lock widgets return in L3).
   m_widgetLayer->setVisible(false);
-  // Dim = black at tint_intensity (rulebook 9.15 Dim; the legibility clamp comes with the wallpaper work).
-  if (m_tintOverlay != nullptr && m_tintIntensity > 0.0F) {
-    m_tintOverlay->setStyle(
-        RoundedRectStyle{.fill = rgba(0.0F, 0.0F, 0.0F, std::min(m_tintIntensity, 0.6F)), .fillMode = FillMode::Solid}
-    );
+  // Dim = black at tint_intensity (rulebook 9.15), raised until white text on the image's bright areas reaches 4.5:1.
+  if (m_tintOverlay != nullptr) {
+    float dim = std::min(m_tintIntensity, 0.6F);
+    const float bright = m_wallpaperLease.texture().brightLuminance;
+    if (bright > 0.0F) {
+      constexpr float kMaxBackground = 1.05F / 4.5F - 0.05F;
+      dim = std::clamp(1.0F - kMaxBackground / bright, dim, 0.85F);
+    }
+    m_tintOverlay->setVisible(dim > 0.0F);
+    m_tintOverlay->setStyle(RoundedRectStyle{.fill = rgba(0.0F, 0.0F, 0.0F, dim), .fillMode = FillMode::Solid});
   }
   if (m_authPanel != nullptr) {
     m_authPanel->setVisible(false);
@@ -2494,18 +2502,23 @@ void LockSurface::applyWallpaperTexture() {
   } else if (m_textureCache != nullptr && !m_wallpaperPath.empty()) {
     m_wallpaperLease.setCoverage(m_wallpaperCoverage);
     m_pendingWallpaperLease.setCoverage(m_wallpaperCoverage);
-    if (m_shownWallpaperPath == m_wallpaperPath) {
+    // The compositor blurs only what lies behind the lock surface, so an own image is blurred here.
+    const float blur = m_ownWallpaper ? m_blurIntensity * kOwnImageBlur : 0.0F;
+    if (m_shownWallpaperPath == m_wallpaperPath && m_shownWallpaperBlur == blur) {
       m_pendingWallpaperLease.reset();
       m_pendingWallpaperPath.clear();
-    } else if (m_pendingWallpaperPath != m_wallpaperPath && renderContext() != nullptr) {
+    } else if ((m_pendingWallpaperPath != m_wallpaperPath || m_pendingWallpaperBlur != blur)
+               && renderContext() != nullptr) {
       m_pendingWallpaperLease = m_textureCache->acquire(
-          SharedTextureRequest{.path = m_wallpaperPath, .coverage = m_wallpaperCoverage}, &renderContext()->backend(),
+          SharedTextureRequest{.path = m_wallpaperPath, .coverage = m_wallpaperCoverage, .blur = blur},
+          &renderContext()->backend(),
           [this] {
             m_wallpaperDirty = true;
             requestLayout();
           }
       );
       m_pendingWallpaperPath = m_pendingWallpaperLease.empty() ? std::string{} : m_wallpaperPath;
+      m_pendingWallpaperBlur = blur;
     }
 
     if (!m_pendingWallpaperLease.empty()) {
@@ -2515,6 +2528,7 @@ void LockSurface::applyWallpaperTexture() {
       } else if (m_pendingWallpaperLease.texture().id != 0) {
         m_wallpaperLease = std::move(m_pendingWallpaperLease);
         m_shownWallpaperPath = std::move(m_pendingWallpaperPath);
+        m_shownWallpaperBlur = m_pendingWallpaperBlur;
         m_pendingWallpaperPath.clear();
       }
     }
