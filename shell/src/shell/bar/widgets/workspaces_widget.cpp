@@ -15,6 +15,7 @@
 #include "system/internal_app_metadata.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/builders.h"
+#include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
 
@@ -1519,7 +1520,7 @@ bool WorkspacesWidget::workspaceUsesFocusedStyle(const Workspace& workspace, wl_
 
 ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_output* output) const {
   if (m_islandDots && workspace.active) {
-    return m_occupiedColor; // the capsule (m_lens) carries the current workspace
+    return clearColorSpec(); // the capsule (m_lens) alone draws the current workspace, so no second pill shows while it travels
   }
   if (workspace.active) {
     return workspaceUsesFocusedStyle(workspace, output) ? m_focusedColor : m_occupiedColor;
