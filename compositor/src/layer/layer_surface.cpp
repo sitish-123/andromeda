@@ -28,6 +28,43 @@ extern "C" {
 namespace andromeda {
 
   namespace {
+
+    struct RoundedShape {
+      wlr_box box;
+      int radius;
+    };
+
+    // A client blur region that is one rounded rectangle, sent as a pixel staircase (one band per row inside the
+    // curve, e.g. Surface::tessellateRoundedRect) -> its box and corner radius, so the blur gets the shader's
+    // anti-aliased edge instead of the staircase. Several shapes, holes or an asymmetric band -> nullopt.
+    std::optional<RoundedShape> roundedShapeOf(const pixman_region32_t* region) {
+      int count = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(region, &count);
+      if (count == 0) {
+        return std::nullopt;
+      }
+      const pixman_box32_t* e = pixman_region32_extents(region);
+      const int width = e->x2 - e->x1;
+      const int height = e->y2 - e->y1;
+      std::optional<int> radius;
+      for (int i = 0; i < count; ++i) {
+        const pixman_box32_t& r = rects[i];
+        const bool sameBand = i > 0 && rects[i - 1].y1 == r.y1;
+        const bool gap = i > 0 && rects[i - 1].y2 != r.y1;
+        const int left = r.x1 - e->x1;
+        const int right = e->x2 - r.x2;
+        if (sameBand || gap || std::abs(left - right) > 1) {
+          return std::nullopt;
+        }
+        // The last row of a corner band reaches the full width; pixman merges it into the straight band below.
+        if (!radius && left == 0 && right == 0) {
+          const int offset = r.y1 - e->y1;
+          radius = offset > 0 ? offset + 1 : 0;
+        }
+      }
+      // No full-width band: a capsule, the curve spans the whole short side.
+      return RoundedShape{{e->x1, e->y1, width, height}, radius.value_or(std::min(width, height) / 2)};
+    }
     constexpr Logger kLog("layer");
 
     // Unknown values fall back to the top layer, matching Output::layerTree.
@@ -206,6 +243,7 @@ namespace andromeda {
       // A fade-in leads with the blur (ease-out cubic), so the backdrop is frosted before the fill is opaque; a
       // fade-out keeps the blur with the fill, or the frost and its tint recipe outlast the content. The fade scales
       // the blur size: an alpha fade would show the sharp backdrop and a blurred copy at once.
+      const bool fadingOut = state->motion.target(SurfaceMotion::Property::Opacity)[0] < opacity;
       const float lead = 1.0F - opacity;
       m_blur.setFade(fadingOut ? opacity : 1.0F - lead * lead * lead);
     }
@@ -243,7 +281,6 @@ namespace andromeda {
     }
     using Property = SurfaceMotion::Property;
     const SurfaceMotion& motion = state->motion;
-      const bool fadingOut = state->motion.target(SurfaceMotion::Property::Opacity)[0] < opacity;
     const double scale = std::max(0.01, motion.value(Property::Scale)[0]);
     const auto& translate = motion.value(Property::Translate);
     const double width = m_layerSurface->surface->current.width;
@@ -580,9 +617,17 @@ namespace andromeda {
       clip = dskClip;
       options.enabled = true;
     } else if (region != nullptr && m_rule.blur.value_or(true)) {
-      // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to the
-      // region extents would misalign it. The region clips the blur instead.
-      if (!pixman_region32_not_empty(region)) {
+      if (const auto shape = roundedShapeOf(region)) {
+        const auto scaled = [motionScale](int v) { return static_cast<int>(std::lround(v * motionScale)); };
+        clip = wlr_box{
+            nodeBox.x + scaled(shape->box.x), nodeBox.y + scaled(shape->box.y), scaled(shape->box.width),
+            scaled(shape->box.height)
+        };
+        corners = corner_radii_all(scaled(shape->radius));
+        region = nullptr;
+      } else if (!pixman_region32_not_empty(region)) {
+        // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to
+        // the region extents would misalign it. The region clips the blur instead.
         clip = wlr_box{0, 0, 0, 0};
       }
       options.enabled = true;
