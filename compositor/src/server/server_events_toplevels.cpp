@@ -468,6 +468,9 @@ namespace andromeda {
 
   // token: the launch token of the window; a window without one ends the oldest pending launch.
   void Server::endLaunchBusy(const std::optional<std::string>& token) {
+    if (token && m_cpuBoost != nullptr) {
+      m_cpuBoost->launchMapped(*token);
+    }
     const auto match = token ? std::ranges::find(m_launchBusy, *token, &LaunchBusy::token) : m_launchBusy.begin();
     if (match == m_launchBusy.end()) {
       return;

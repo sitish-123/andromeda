@@ -1129,6 +1129,8 @@ namespace andromeda {
 
   // Event sources hold a Server pointer; they go once nothing that fires them is left.
   void Server::removeEventSources() {
+    // Its bus fd and launch timer live on the display's event loop, which destroyDisplay frees.
+    m_cpuBoost.reset();
     if (m_launchBusyTimer != nullptr) {
       wl_event_source_remove(m_launchBusyTimer);
       m_launchBusyTimer = nullptr;
@@ -1640,6 +1642,8 @@ namespace andromeda {
       }
     }
 
+    const char* launchWeight =
+        !launchTokenName.empty() && m_cpuBoost != nullptr && m_cpuBoost->active() ? kLaunchWeightProperty : nullptr;
     pid_t pid = fork();
     if (pid < 0) {
       if (launchToken != nullptr) {
@@ -1678,13 +1682,16 @@ namespace andromeda {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
             m_applicationScopeBindsToProperty.c_str(), m_applicationScopeAfterProperty.c_str(),
-            m_applicationScopeEnvironmentArguments, command
+            m_applicationScopeEnvironmentArguments, command, launchWeight
         );
       }
       execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
       _exit(1);
     }
 
+    if (scopeRequired && launchWeight != nullptr) {
+      m_cpuBoost->beginLaunch(launchTokenName, scopeUnitArgument.substr(std::string_view("--unit=").size()));
+    }
     if (scopeRequired) {
       wlr_log(
           WLR_INFO, "launch requested for '%s' on WAYLAND_DISPLAY=%s", description == nullptr ? command : description,

@@ -3,6 +3,7 @@
 #include "core/application_scope.h"
 #include "core/log.h"
 
+#include <algorithm>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -34,6 +35,8 @@ namespace andromeda {
     // cgroup v2 cpu.weight: default 100; the launching app gets 10x and the focused app 4x a busy terminal's share.
     constexpr unsigned kDefaultWeight = 100;
     constexpr unsigned kFocusWeight = 400;
+    // As Server::beginLaunchBusy: a launch without a window by then is not waiting on its first frame.
+    constexpr std::chrono::seconds kLaunchLimit{5};
 
     std::string unitOfPid(pid_t pid) {
       std::ifstream stream(std::format("/proc/{}/cgroup", pid));
@@ -61,7 +64,7 @@ namespace andromeda {
   } // namespace
 
 #if ANDROMEDA_HAS_SD_BUS
-  CpuBoost::CpuBoost(wl_event_loop* loop) {
+  CpuBoost::CpuBoost(wl_event_loop* loop) : m_loop(loop) {
     logSchedExt();
     if (loop == nullptr || sd_bus_open_user(&m_bus) < 0) {
       m_bus = nullptr;
@@ -72,6 +75,9 @@ namespace andromeda {
   }
 
   CpuBoost::~CpuBoost() {
+    if (m_launchTimer != nullptr) {
+      wl_event_source_remove(m_launchTimer);
+    }
     if (m_source != nullptr) {
       wl_event_source_remove(m_source);
     }
@@ -165,6 +171,60 @@ namespace andromeda {
   void CpuBoost::setWeight(const std::string& /*unit*/, unsigned /*weight*/) {}
   void CpuBoost::expireLaunch(std::string_view /*appId*/) {}
 #endif
+
+  void CpuBoost::beginLaunch(std::string token, std::string unit) {
+    if (m_bus == nullptr || m_loop == nullptr || token.empty() || unit.empty()) {
+      return;
+    }
+    m_launches.push_back({std::move(token), std::move(unit), std::chrono::steady_clock::now() + kLaunchLimit});
+    armLaunchTimer();
+  }
+
+  void CpuBoost::launchMapped(std::string_view token) {
+    const auto match = std::ranges::find(m_launches, token, &Launch::token);
+    if (match == m_launches.end()) {
+      return;
+    }
+    endLaunch(*match);
+    m_launches.erase(match);
+    armLaunchTimer();
+  }
+
+  void CpuBoost::endLaunch(const Launch& launch) {
+    if (launch.unit != m_focused) {
+      setWeight(launch.unit, kDefaultWeight);
+    }
+  }
+
+  void CpuBoost::armLaunchTimer() {
+    if (m_launchTimer == nullptr) {
+      m_launchTimer = wl_event_loop_add_timer(m_loop, onLaunchTimer, this);
+    }
+    if (m_launchTimer == nullptr) {
+      return;
+    }
+    int delayMs = 0;
+    if (!m_launches.empty()) {
+      const auto next = std::ranges::min(m_launches, {}, &Launch::deadline).deadline;
+      const auto left = std::chrono::ceil<std::chrono::milliseconds>(next - std::chrono::steady_clock::now());
+      delayMs = std::max(1, static_cast<int>(left.count()));
+    }
+    wl_event_source_timer_update(m_launchTimer, delayMs);
+  }
+
+  int CpuBoost::onLaunchTimer(void* data) {
+    auto* self = static_cast<CpuBoost*>(data);
+    const auto now = std::chrono::steady_clock::now();
+    std::erase_if(self->m_launches, [self, now](const Launch& launch) {
+      if (launch.deadline > now) {
+        return false;
+      }
+      self->endLaunch(launch);
+      return true;
+    });
+    self->armLaunchTimer();
+    return 0;
+  }
 
   void CpuBoost::focus(pid_t pid) {
     const std::string unit = pid > 0 ? unitOfPid(pid) : std::string();
