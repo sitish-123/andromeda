@@ -17,6 +17,7 @@
 #include "shell/settings/color_spec_picker.h"
 #include "shell/settings/font_weight_catalog.h"
 #include "shell/wallpaper/wallpaper_paths.h"
+#include "ui/auth/clock_style.h"
 #include "system/sysmon_threshold_profile.h"
 #include "theme/builtin_palettes.h"
 #include "theme/builtin_templates.h"
@@ -113,6 +114,65 @@ namespace settings {
       );
       e.visibleWhen = lockscreenOn;
       entries.push_back(std::move(e));
+    }
+    {
+      // Andromeda-only rows: Ryoku draws its own dial and ignores layout and clock options.
+      const SettingVisibility andromedaOn = [](const Config& c) {
+        return c.lockscreen.enabled && c.lockscreen.theme == "andromeda";
+      };
+      const auto select = [&](const char* key, const char* path, std::vector<SelectOption> options,
+                              const std::string& value, const char* search) {
+        auto e = makeEntry(
+            SettingsSection::Security, "lock-screen", tr(std::format("settings.schema.lockscreen.{}.label", key)),
+            tr(std::format("settings.schema.lockscreen.{}.description", key)), {"lockscreen", path},
+            SelectSetting{std::move(options), value}, search
+        );
+        e.visibleWhen = andromedaOn;
+        entries.push_back(std::move(e));
+      };
+      const auto option = [&](const char* key, const char* value) {
+        return SelectOption{.value = value, .label = tr(std::format("settings.schema.lockscreen.{}.{}", key, value))};
+      };
+      select(
+          "layout", "layout",
+          {option("layout", "centered"), option("layout", "glance"), option("layout", "split"),
+           option("layout", "minimal")},
+          cfg.lockscreen.layout, "lock screen layout centered glance split minimal"
+      );
+      std::vector<SelectOption> styles;
+      for (const ClockStyle& style : clockStyles()) {
+        styles.push_back(option("clock-style", std::string(style.id).c_str()));
+      }
+      select("clock-style", "clock_style", std::move(styles), cfg.lockscreen.clockStyle, "lock screen clock style font");
+      select(
+          "clock-size", "clock_size",
+          {SelectOption{.value = "", .label = tr("settings.schema.lockscreen.clock-size.auto")},
+           option("clock-size", "s"), option("clock-size", "m"), option("clock-size", "l"), option("clock-size", "xl")},
+          cfg.lockscreen.clockSize, "lock screen clock size"
+      );
+      const auto toggle = [&](const char* key, const char* path, bool value, const char* search) {
+        auto e = makeEntry(
+            SettingsSection::Security, "lock-screen", tr(std::format("settings.schema.lockscreen.{}.label", key)),
+            tr(std::format("settings.schema.lockscreen.{}.description", key)), {"lockscreen", path},
+            ToggleSetting{value}, search
+        );
+        e.visibleWhen = andromedaOn;
+        entries.push_back(std::move(e));
+      };
+      toggle("clock-format-24h", "clock_format_24h", cfg.lockscreen.clockFormat24h, "lock screen clock 24 hour 12");
+      toggle("clock-seconds", "clock_seconds", cfg.lockscreen.clockSeconds, "lock screen clock seconds");
+      select(
+          "notification-content", "notification_content",
+          {option("notification-content", "hidden"), option("notification-content", "shown")},
+          cfg.lockscreen.notificationContent, "lock screen notification content privacy preview"
+      );
+      auto owner = makeEntry(
+          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.owner-message.label"),
+          tr("settings.schema.lockscreen.owner-message.description"), {"lockscreen", "owner_message"},
+          TextSetting{.value = cfg.lockscreen.ownerMessage}, "lock screen owner message lost found contact"
+      );
+      owner.visibleWhen = andromedaOn;
+      entries.push_back(std::move(owner));
     }
     {
       auto e = makeEntry(

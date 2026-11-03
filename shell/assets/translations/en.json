@@ -3113,6 +3113,43 @@
           "description": "How much the lock screen background is blurred",
           "label": "Blur Intensity"
         },
+        "clock-format-24h": {
+          "label": "24-Hour Clock",
+          "description": "Off shows 12-hour time without AM or PM"
+        },
+        "clock-seconds": {
+          "label": "Show Seconds",
+          "description": "Adds seconds to the lock screen clock"
+        },
+        "clock-size": {
+          "label": "Clock Size",
+          "description": "Auto follows the layout",
+          "auto": "Auto",
+          "s": "Small",
+          "m": "Medium",
+          "l": "Large",
+          "xl": "Extra Large"
+        },
+        "clock-style": {
+          "label": "Clock Style",
+          "description": "Font and look of the lock screen clock",
+          "classic": "Classic",
+          "bold": "Bold",
+          "editorial": "Editorial",
+          "italic": "Italic",
+          "stacked": "Stacked",
+          "wide": "Wide",
+          "two-tone": "Two-tone",
+          "words": "Words",
+          "mono": "Mono",
+          "condensed": "Condensed",
+          "live": "Live",
+          "dot-matrix": "Dot matrix",
+          "gradient": "Gradient",
+          "analog": "Analog",
+          "flip": "Flip",
+          "outline": "Outline"
+        },
         "edge-smoothness": {
           "description": "Feathering of the lock screen transition edges",
           "label": "Transition Edge Smoothness"
@@ -3133,6 +3170,14 @@
           "description": "Allow passwordless unlock for this many seconds after locking; any keypress or mouse movement unlocks. Set to 0 to always require the password",
           "label": "Grace Period"
         },
+        "layout": {
+          "label": "Layout",
+          "description": "Where the clock and the password field sit",
+          "centered": "Centered",
+          "glance": "Glance",
+          "split": "Split",
+          "minimal": "Minimal"
+        },
         "lock-before-suspend": {
           "description": "Lock the session before sleep (lid close, systemctl suspend, hibernate); Lock & Suspend actions still lock first",
           "label": "Lock Before Suspend"
@@ -3140,6 +3185,16 @@
         "monitors": {
           "description": "Choose which monitors show the lock screen; leave empty to show on all monitors",
           "label": "Monitors"
+        },
+        "notification-content": {
+          "label": "Notification Content",
+          "description": "Hidden shows only the app and the count",
+          "hidden": "Hidden",
+          "shown": "Shown"
+        },
+        "owner-message": {
+          "label": "Owner Message",
+          "description": "Shown under the password field, for example a phone number if the device is lost"
         },
         "theme": {
           "andromeda": "Andromeda",
