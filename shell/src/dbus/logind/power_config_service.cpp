@@ -328,7 +328,16 @@ void PowerConfigService::set(const std::string& key, const std::string& value, R
                   return;
                 }
                 m_state.lastExit = result.exitCode;
-                m_state.lastError = result ? std::string{} : trimmed(result.err);
+                m_state.lastError.clear();
+                m_state.lastGuide.clear();
+                std::istringstream err(result ? std::string{} : result.err);
+                for (std::string line; std::getline(err, line);) {
+                  if (line.starts_with("guide: https://")) {
+                    m_state.lastGuide = trimmed(line.substr(7));
+                  } else if (m_state.lastError.empty()) {
+                    m_state.lastError = trimmed(line);
+                  }
+                }
                 if (!result) {
                   kLog.warn("power config {}={} failed (exit {}): {}", key, value, result.exitCode, result.err);
                 }

@@ -25,6 +25,14 @@ esac
 logind_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/logind.conf.d
 sleep_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/sleep.conf.d
 
+# Exit 3 = not supported here: a reason line, then "guide: <url>" from .agent/power-sources.md when an official
+# source covers the manual steps. Settings shows both.
+manual() {
+  echo "$1" >&2
+  [ -z "${2:-}" ] || echo "guide: $2" >&2
+  exit 3
+}
+
 # Commands that change the running system; the test root only prints them.
 sys() { if [ -n "${ANDROMEDA_POWER_ETC:-}" ]; then echo "would run: $*"; else "$@"; fi; }
 
@@ -51,48 +59,52 @@ if [ "$key" = resume-apply ] || [ "$key" = resume-rollback ]; then
   # The initramfs must read resume=: mkinitcpio needs the systemd or resume hook; dracut reads it (dracut.cmdline(7)).
   if [ -f "$root/etc/mkinitcpio.conf" ]; then
     grep -Eq '^HOOKS=.*[( ](systemd|resume)[ )]' "$root/etc/mkinitcpio.conf" \
-      || { echo "the initramfs has no resume support (mkinitcpio HOOKS lack systemd or resume)" >&2; exit 3; }
+      || manual "the initramfs has no resume support (mkinitcpio HOOKS lack systemd or resume)" https://www.freedesktop.org/software/systemd/man/latest/systemd-hibernate-resume-generator.html
   elif ! command -v dracut >/dev/null; then
-    echo "initramfs generator not supported" >&2; exit 3
+    manual "initramfs generator not supported" https://www.freedesktop.org/software/systemd/man/latest/systemd-hibernate-resume-generator.html
   fi
   loader=$(bootctl status 2>/dev/null | awk -F': *' '/Product:/ { print $2; exit }')
   esp=$(bootctl --print-esp-path 2>/dev/null || true)
   case $loader in
     Limine*)
       conf=$root/etc/default/limine
-      [ -f "$conf" ] || { echo "no $conf" >&2; exit 3; }
+      [ -f "$conf" ] || manual "no $conf" https://wiki.cachyos.org/configuration/boot_manager_configuration/
       # Per-kernel KERNEL_CMDLINE["name"] entries may not take the default line: not supported.
-      if grep -Eq '^KERNEL_CMDLINE\[[^d]' "$conf"; then echo "per-kernel command lines" >&2; exit 3; fi
+      if grep -Eq '^KERNEL_CMDLINE\[[^d]' "$conf"; then manual "per-kernel command lines in $conf" https://wiki.cachyos.org/configuration/boot_manager_configuration/; fi
       # Without a base default line, += would replace the command line taken from /etc/kernel/cmdline.
       grep -Eq '^KERNEL_CMDLINE\[default\]=.*root=' "$conf" \
-        || { echo "no KERNEL_CMDLINE[default] line with root= in $conf" >&2; exit 3; }
+        || manual "no KERNEL_CMDLINE[default] line with root= in $conf" https://wiki.cachyos.org/configuration/boot_manager_configuration/
       entries=$esp/limine.conf
       rebuild() { limine-mkinitcpio; }
       ;;
     systemd-boot*)
       conf=$root/etc/kernel/cmdline
-      [ -f "$conf" ] || { echo "no $conf" >&2; exit 3; }
+      [ -f "$conf" ] || manual "no $conf" https://www.freedesktop.org/software/systemd/man/latest/kernel-install.html
       entries=$(bootctl --print-boot-path)/loader/entries
       rebuild() { kernel-install add-all; }
       ;;
-    *) echo "boot loader not supported: ${loader:-unknown}" >&2; exit 3 ;;
+    *) manual "boot loader not supported: ${loader:-unknown}; add resume= to its kernel command line by hand" https://docs.kernel.org/admin-guide/kernel-parameters.html ;;
   esac
   backup=$conf.andromeda-backup
   if [ "$key" = resume-rollback ]; then
-    [ -f "$backup" ] || { echo "no backup" >&2; exit 3; }
+    [ -f "$backup" ] || manual "no backup"
     mv "$backup" "$conf"
     rebuild
     exit 0
   fi
   dev=$(awk '$2 == "partition" && $1 !~ /^\/dev\/zram/ { print $1; exit }' "$swaps")
-  [ -n "$dev" ] || { echo "no swap partition (swap files are not supported)" >&2; exit 3; }
+  [ -n "$dev" ] || manual "no swap partition; a swap file also needs resume_offset=" https://docs.kernel.org/power/swsusp.html
   case $dev in
-    /dev/dm-* | /dev/mapper/*) echo "encrypted or LVM swap needs crypttab/initramfs steps by hand" >&2; exit 3 ;;
+    /dev/dm-* | /dev/mapper/*)
+      guide=
+      # Debian's page covers RESUME= for LVM; other distros have no verified source yet.
+      if grep -qsE '^(ID|ID_LIKE)=.*debian' /etc/os-release; then guide=https://wiki.debian.org/Hibernation; fi
+      manual "encrypted or LVM swap needs crypttab/initramfs steps by hand" "$guide" ;;
   esac
   uuid=$(blkid -s UUID -o value "$dev")
-  [ -n "$uuid" ] || { echo "no UUID for $dev" >&2; exit 3; }
-  if grep -q 'resume=' "$conf"; then echo "resume= is already set in $conf" >&2; exit 3; fi
-  if grep -rqs "resume=UUID=$uuid" "$entries"; then echo "a boot entry already has resume=UUID=$uuid" >&2; exit 3; fi
+  [ -n "$uuid" ] || manual "no UUID for $dev" https://docs.kernel.org/power/swsusp.html
+  if grep -q 'resume=' "$conf"; then manual "resume= is already set in $conf"; fi
+  if grep -rqs "resume=UUID=$uuid" "$entries"; then manual "a boot entry already has resume=UUID=$uuid"; fi
   cp -p "$conf" "$backup"
   case $loader in
     Limine*) printf 'KERNEL_CMDLINE[default]+=" resume=UUID=%s"\n' "$uuid" >>"$conf" ;;
@@ -114,14 +126,15 @@ fi
 if [ "$key" = swapfile ]; then
   case $value in [1-9] | [1-9][0-9] | [1-2][0-9][0-9]) ;; *) echo "bad size: $value" >&2; exit 2 ;; esac
   # A new file has new extents; a resume_offset= on the command line would then point at the wrong blocks.
-  if grep -q 'resume_offset=' /proc/cmdline; then echo "resume_offset= is set; resize the swap file by hand" >&2; exit 3; fi
+  if grep -q 'resume_offset=' /proc/cmdline; then manual "resume_offset= is set; resize the swap file by hand" https://docs.kernel.org/power/swsusp.html; fi
   path=$(awk '$2 == "file" && $1 !~ /^\/dev\/zram/ { print $1; exit }' /proc/swaps)
   [ -n "$path" ] || path=/swapfile
   path=${ANDROMEDA_POWER_ETC:-}$path
   fs=$(findmnt -no FSTYPE -T "$(dirname "$path")")
   case $fs in
     ext4 | xfs | f2fs) ;;
-    *) echo "not supported on $fs" >&2; exit 3 ;;
+    btrfs) manual "swap files on btrfs block snapshots of their subvolume; set one up by hand" https://btrfs.readthedocs.io/en/latest/Swapfile.html ;;
+    *) manual "swap files are not supported on $fs" ;;
   esac
   old_kib=0
   [ -f "$path" ] && old_kib=$(($(stat -c %s "$path") / 1024))

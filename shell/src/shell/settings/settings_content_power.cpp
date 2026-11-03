@@ -1,5 +1,6 @@
 #include "shell/settings/settings_content_power.h"
 
+#include "core/process/process.h"
 #include "dbus/logind/power_config_service.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/upower/upower_service.h"
@@ -208,6 +209,15 @@ namespace settings {
       // Exit 3: the helper does not support this setup; its reason tells the user what to do by hand.
       if (state.lastExit == 3 && !state.lastError.empty()) {
         addValueRow(*card, i18n::tr("settings.power.not-supported"), state.lastError, scale);
+        if (!state.lastGuide.empty()) {
+          auto guideRow = row(scale);
+          guideRow->addChild(title(i18n::tr("settings.power.guide"), scale));
+          guideRow->addChild(plainButton(i18n::tr("settings.power.open-guide"), ButtonVariant::Default, scale,
+                                         [url = state.lastGuide] {
+                                           (void)process::runAsync(std::vector<std::string>{"xdg-open", url});
+                                         }));
+          card->addChild(std::move(guideRow));
+        }
       }
       if (!checksPass) {
         return;

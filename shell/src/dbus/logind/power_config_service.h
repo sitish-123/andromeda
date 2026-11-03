@@ -40,6 +40,8 @@ struct PowerConfigState {
   std::string trial;
   // stderr of the last helper run that failed; exit 3 means "not supported here, show the guide".
   std::string lastError;
+  // The helper's "guide: <url>" line for an exit 3: official manual steps for this setup.
+  std::string lastGuide;
   int lastExit = 0;
 };
 
