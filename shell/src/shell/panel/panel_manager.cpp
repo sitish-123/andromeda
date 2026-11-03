@@ -1598,8 +1598,11 @@ void PanelManager::closePanel(bool animateClose) {
   // During the close animation we want clicks on apps to behave normally.
   deactivateOutsideClickHandlers();
 
-  // Disable input during close animation
+  // Disable input during close animation; the window below gets keyboard focus back now, not when the spring settles.
   m_inputDispatcher.setSceneRoot(nullptr);
+  if (m_layerSurface != nullptr) {
+    m_layerSurface->setKeyboardInteractivity(LayerShellKeyboard::None);
+  }
   m_closing = true;
   m_attachedOpenAnimationPending = false;
 
