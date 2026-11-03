@@ -629,9 +629,10 @@ void GreeterSurface::initialize(RenderContext* context) {
     }
   }
   m_inputDispatcher.setSceneRoot(&m_root);
-  m_inputDispatcher.setCursorShapeCallback([](std::uint32_t serial, std::uint32_t shape) {
-    (void)serial;
-    (void)shape;
+  m_inputDispatcher.setCursorShapeCallback([this](std::uint32_t serial, std::uint32_t shape) {
+    if (m_onCursorShape) {
+      m_onCursorShape(serial, shape);
+    }
   });
 
   loadUsers();
@@ -883,6 +884,10 @@ void GreeterSurface::setWindow(GreeterWindow* window) { m_window = window; }
 void GreeterSurface::setGreetdClient(GreetdClient* client) { m_greetdClient = client; }
 
 void GreeterSurface::setUsername(const std::string& username) { m_username = username; }
+
+void GreeterSurface::setOnCursorShape(std::function<void(std::uint32_t, std::uint32_t)> callback) {
+  m_onCursorShape = std::move(callback);
+}
 
 void GreeterSurface::setOnExitRequested(std::function<void()> callback) { m_onExitRequested = std::move(callback); }
 
