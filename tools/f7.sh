@@ -41,6 +41,11 @@ else
   union=${union:-$targets}
 fi
 rm -f "$state/queue.taken"
+# An object with an empty deps record (a cut .ninja_deps) never rebuilds on a header change, and a stale struct
+# layout crashes the shell at start. Delete such objects so this build compiles them again with their deps.
+stale=$(ninja -C shell/build-f7 -t deps 2>/dev/null | awk '/#deps 0,/ { sub(/:$/, "", $1); print $1 }')
+for obj in $stale; do rm -f "shell/build-f7/$obj"; done
+[ -z "$stale" ] || echo "f7: rebuilding $(wc -w <<<"$stale") object(s) with no deps record"
 start=$(date +%s.%N)
 echo "f7: building [$union] (log $state/last.log)"
 if [ "$union" = all ]; then
