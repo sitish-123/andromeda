@@ -31,29 +31,38 @@ int main(int argc, char** argv) {
   if (argc < 2) {
     return usage();
   }
-  IndexDb db(dbPath());
-  if (!db.ok()) {
-    return 1;
-  }
   const std::string command = argv[1];
   if (command == "crawl") {
-    const std::filesystem::path home = envPath("HOME", "");
-    const std::filesystem::path root = argc > 2 ? std::filesystem::path(argv[2]) : home;
-    std::vector<std::filesystem::path> first;
-    for (const char* folder : {"Desktop", "Documents", "Downloads"}) {
-      if (std::filesystem::is_directory(root / folder)) {
-        first.push_back(root / folder);
-      }
-    }
+    const std::filesystem::path root = argc > 2 ? std::filesystem::path(argv[2]) : envPath("HOME", "");
+    // A crawl builds a fresh file and swaps it in, so readers never see a half-built index.
+    const std::filesystem::path target = dbPath();
+    std::filesystem::path fresh = target;
+    fresh += ".new";
+    std::filesystem::remove(fresh);
     const auto start = std::chrono::steady_clock::now();
-    const CrawlStats stats = crawl(db, root, first);
+    CrawlStats stats;
+    {
+      IndexDb bulk(fresh, true);
+      if (!bulk.ok()) {
+        return 1;
+      }
+      stats = crawl(bulk, root);
+      bulk.finishBulk();
+    }
+    std::filesystem::rename(fresh, target);
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    std::printf("%lld files, %lld folders, %lld skipped folders in %lld ms\n", static_cast<long long>(stats.files),
-                static_cast<long long>(stats.folders), static_cast<long long>(stats.skippedFolders),
-                static_cast<long long>(ms.count()));
+    std::printf("%lld files, %lld folders, %lld skipped folders in %lld ms (walk %lld, db writer %lld, name index %lld)\n",
+                static_cast<long long>(stats.files), static_cast<long long>(stats.folders),
+                static_cast<long long>(stats.skippedFolders), static_cast<long long>(ms.count()),
+                static_cast<long long>(stats.walkMs), static_cast<long long>(stats.dbMs),
+                static_cast<long long>(stats.indexMs));
     return 0;
   }
   if (command == "query" && argc > 2) {
+    const IndexDb db(dbPath());
+    if (!db.ok()) {
+      return 1;
+    }
     const int limit = argc > 3 ? std::atoi(argv[3]) : 20;
     const auto start = std::chrono::steady_clock::now();
     const auto rows = db.queryNames(argv[2], limit);

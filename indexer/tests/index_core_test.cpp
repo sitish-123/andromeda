@@ -50,7 +50,7 @@ int main() {
   touch(root / ".git/HEAD");
 
   {
-    IndexDb db(root / "state/index.db");
+    IndexDb db(root / "state/index.db", true);
     check(db.ok(), "database opens");
     crawl(db, root);
 
@@ -59,7 +59,7 @@ int main() {
     check(!found(db, "report", "secret-report.c"), "folder with .git is skipped");
     check(!found(db, "report", "report.txt"), "hidden folder is skipped");
     check(!found(db, "report", "report.js"), "node_modules is skipped");
-    check(found(db, "ab", "ab.txt"), "two-character query matches a prefix");
+    check(db.queryNames("ab", 50).empty(), "a query under 3 characters returns nothing");
     check(found(db, "quart", "Quarterly Report.pdf"), "a root that is a git checkout is still indexed");
 
     const auto rows = db.queryNames("report", 10);
