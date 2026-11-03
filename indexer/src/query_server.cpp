@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <charconv>
 #include <cstdlib>
@@ -16,6 +17,8 @@ namespace andromeda::index {
 
   namespace {
     constexpr std::size_t kMaxLine = 4096;
+    constexpr std::size_t kContentRows = 3;
+    constexpr long kMinTextQuery = 4;
     constexpr int kFirstPassedFd = 3; // SD_LISTEN_FDS_START
 
     int passedSocket() {
@@ -143,18 +146,39 @@ namespace andromeda::index {
       return "\n";
     }
     const std::string_view text = line.substr(static_cast<std::size_t>(rest - line.data()) + 1);
+    limit = std::clamp(limit, 1, kMaxLimit);
+    std::vector<FileRow> names = m_db.queryNames(text, limit);
+    std::vector<std::string> named;
+    named.reserve(names.size());
+    for (const FileRow& row : names) {
+      named.push_back(row.path);
+    }
+    // Three letters match words in nearly every document: noise that costs ~8 ms per query.
+    const bool searchText = std::ranges::count_if(text, [](char c) { return std::isspace(static_cast<unsigned char>(c)) == 0; })
+        >= kMinTextQuery;
+    const std::vector<FileRow> content = searchText ? m_db.queryContent(text, limit, named) : std::vector<FileRow>{};
+    // Names first; up to kContentRows rows stay free for files that match by their text.
+    names.resize(std::min(names.size(), static_cast<std::size_t>(limit) - std::min(content.size(), kContentRows)));
     std::string out;
-    for (const FileRow& row : m_db.queryNames(text, std::clamp(limit, 1, kMaxLimit))) {
+    const auto add = [&out](const FileRow& row, char match) {
       // A path with a tab or a newline cannot be framed in this protocol.
       if (row.path.find_first_of("\t\n") != std::string::npos) {
-        continue;
+        return;
       }
       out += row.path;
       out += '\t';
       out += std::to_string(row.mtime);
       out += '\t';
       out += std::to_string(row.size);
-      out += row.isDir ? "\td\n" : "\tf\n";
+      out += row.isDir ? "\td\t" : "\tf\t";
+      out += match;
+      out += '\n';
+    };
+    for (const FileRow& row : names) {
+      add(row, 'n');
+    }
+    for (std::size_t i = 0; names.size() + i < static_cast<std::size_t>(limit) && i < content.size(); ++i) {
+      add(content[i], 'c');
     }
     out += '\n';
     return out;

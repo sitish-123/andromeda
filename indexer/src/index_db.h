@@ -28,6 +28,12 @@ namespace andromeda::index {
     bool isDir = false;
   };
 
+  struct ContentTask {
+    std::int64_t id = 0;
+    std::int64_t mtime = 0;
+    std::string path;
+  };
+
   struct Folder {
     std::int64_t id = 0;
     std::string path;
@@ -72,6 +78,22 @@ namespace andromeda::index {
     [[nodiscard]] std::vector<FileRow> queryNames(std::string_view text, int limit) const;
     void loadNames() const;
     [[nodiscard]] std::int64_t count() const;
+
+    // Content index (FTS5, unicode61 without diacritics): words in file text, prefix match on the last word.
+    // Files whose text is missing or older than the file, extractable by name and at most kMaxContentFile bytes.
+    [[nodiscard]] std::vector<ContentTask> contentTasks() const;
+    // Marks a file as being read before extraction starts, so a crash in an extractor skips the file next time.
+    void markExtracting(std::int64_t id, std::int64_t mtime);
+    // Replaces the text of a file; nullopt records a file that could not be read.
+    void storeContent(std::int64_t id, std::int64_t mtime, const std::optional<std::string>& text);
+    // Files left marked by a crashed extraction are recorded as unreadable.
+    void failInterrupted();
+    // Gives back the page cache of this connection.
+    void releaseMemory();
+    // Files whose text holds every word of text, best match first; skips the paths in excludePaths.
+    [[nodiscard]] std::vector<FileRow> queryContent(std::string_view text, int limit,
+                                                    const std::vector<std::string>& excludePaths = {}) const;
+    static constexpr std::int64_t kMaxContentFile = 50LL * 1024 * 1024;
 
   private:
     // Entries sorted by id (add() never reuses an id held here, removed or not), so offsets grow too. 16 bytes:

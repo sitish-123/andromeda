@@ -14,7 +14,8 @@ namespace andromeda::index {
 
   // Answers name queries on a Unix stream socket, one line per request:
   //   query <limit> <text>\n
-  // Each answer is one row per line, "path\tmtime_ns\tsize\tkind" (kind f or d), and ends with an empty line.
+  // Each answer is one row per line, "path\tmtime_ns\tsize\tkind\tmatch" (kind f or d; match n = name, c = text
+  // inside the file, searched from 4 characters), and ends with an empty line.
   // An unknown request gets the empty line only. Limit is clamped to 1..kMaxLimit.
   class QueryServer {
   public:

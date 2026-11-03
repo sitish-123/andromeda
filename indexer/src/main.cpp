@@ -1,3 +1,4 @@
+#include "content_worker.h"
 #include "crawler.h"
 #include "index_db.h"
 #include "live_index.h"
@@ -7,6 +8,7 @@
 #include <poll.h>
 
 #include <chrono>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -77,6 +79,10 @@ int main(int argc, char** argv) {
     constexpr int kQuietMs = 200;
     constexpr int kSweepMs = 10 * 60 * 1000;
     const bool serve = command == "serve";
+    // A write to an extract helper that died must fail with EPIPE, not end the daemon.
+    std::signal(SIGPIPE, SIG_IGN);
+    // One heap for both threads, so malloc_trim gives back what the content worker freed.
+    mallopt(M_ARENA_MAX, 1);
     const std::filesystem::path root = argc > 2 ? std::filesystem::path(argv[2]) : envPath("HOME", "");
     // The socket listens before the first crawl, so early clients wait in the backlog instead of failing.
     const int listenFd = serve ? QueryServer::listenSocket(socketPath()) : -1;
@@ -92,9 +98,11 @@ int main(int argc, char** argv) {
       return 1;
     }
     std::optional<QueryServer> server;
+    std::optional<ContentWorker> content;
     if (serve) {
       db.loadNames();
       server.emplace(db, listenFd);
+      content.emplace(dbPath());
     }
     LiveIndex live(db, root);
     const int fd = live.start();
@@ -134,8 +142,14 @@ int main(int argc, char** argv) {
       const auto now = Clock::now();
       if (live.dirty() && now >= quietAt) {
         live.flush();
+        if (content) {
+          content->wake();
+        }
       } else if (!live.dirty() && now >= nextSweep) {
         live.sweep();
+        if (content) {
+          content->wake();
+        }
         malloc_trim(0);
         nextSweep = Clock::now() + std::chrono::milliseconds(kSweepMs);
       }

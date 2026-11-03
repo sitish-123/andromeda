@@ -1,4 +1,5 @@
 // Crawl a temp tree and check what name search finds: skip rules, short queries, ranking, re-crawl after delete.
+#include "content_worker.h"
 #include "crawler.h"
 #include "index_db.h"
 
@@ -80,6 +81,22 @@ int main() {
     db.removeTree((root / "Documents").string());
     check(!found(db, "quart", "Quarterly Report.pdf"), "removed tree is gone");
   }
+
+  // The content worker pauses only for a discharging battery under the limit.
+  const fs::path supplies = root / "power_supply";
+  const auto supply = [&](const char* name, const char* type, const char* status, const char* capacity) {
+    fs::create_directories(supplies / name);
+    std::ofstream(supplies / name / "type") << type << "\n";
+    std::ofstream(supplies / name / "status") << status << "\n";
+    std::ofstream(supplies / name / "capacity") << capacity << "\n";
+  };
+  supply("AC", "Mains", "Unknown", "0");
+  supply("BAT0", "Battery", "Charging", "10");
+  check(!batteryLow(20, supplies), "a charging battery does not pause");
+  supply("BAT0", "Battery", "Discharging", "35");
+  check(!batteryLow(20, supplies), "a discharging battery above the limit does not pause");
+  supply("BAT0", "Battery", "Discharging", "12");
+  check(batteryLow(20, supplies), "a discharging battery below the limit pauses");
 
   fs::remove_all(root);
   std::printf(g_failures == 0 ? "PASS\n" : "%d failures\n", g_failures);

@@ -1,5 +1,7 @@
 #include "index_db.h"
 
+#include "extract.h"
+
 #include <emmintrin.h>
 #include <sqlite3.h>
 
@@ -8,6 +10,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <format>
 
 namespace andromeda::index {
 
@@ -23,7 +26,53 @@ namespace andromeda::index {
         UNIQUE (parent, name)
       );
       DROP TABLE IF EXISTS names;
+      -- state: 0 being read, 1 done, 2 unreadable
+      CREATE TABLE IF NOT EXISTS extracted (id INTEGER PRIMARY KEY, mtime INTEGER NOT NULL, state INTEGER NOT NULL);
+      CREATE VIRTUAL TABLE IF NOT EXISTS content USING fts5(body, content='', contentless_delete=1,
+                                                            tokenize='unicode61 remove_diacritics 2', prefix='3');
     )sql";
+    // Version 2: content index with word positions (BM25 ranking) and a 3-letter prefix index.
+    constexpr int kSchemaVersion = 2;
+    constexpr const char* kDropContent = "DROP TABLE IF EXISTS content; DROP TABLE IF EXISTS extracted;";
+
+    // An older content index is dropped; the content worker reads the documents again.
+    bool migrate(sqlite3* db) {
+      sqlite3_stmt* stmt = nullptr;
+      sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nullptr);
+      const int version = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int(stmt, 0) : 0;
+      sqlite3_finalize(stmt);
+      return version >= kSchemaVersion || sqlite3_exec(db, kDropContent, nullptr, nullptr, nullptr) == SQLITE_OK;
+    }
+
+    void extractableFunction(sqlite3_context* context, int /*argc*/, sqlite3_value** argv) {
+      const auto* name = reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+      sqlite3_result_int(context, name != nullptr && extractable(name) ? 1 : 0);
+    }
+
+    // An FTS5 query: every word must appear, the last one as a prefix (it may be half typed).
+    std::string contentMatch(std::string_view text) {
+      std::vector<std::string> words;
+      std::string word;
+      for (const char c : text) {
+        if (std::isalnum(static_cast<unsigned char>(c)) != 0 || static_cast<unsigned char>(c) >= 0x80) {
+          word += c;
+        } else if (!word.empty()) {
+          words.push_back(std::move(word));
+          word.clear();
+        }
+      }
+      if (!word.empty()) {
+        words.push_back(std::move(word));
+      }
+      std::string match;
+      for (std::size_t i = 0; i < words.size(); ++i) {
+        match += (i == 0 ? "\"" : " \"") + words[i] + "\"";
+        if (i + 1 == words.size()) {
+          match += '*';
+        }
+      }
+      return match;
+    }
 
     std::string trimmed(std::string_view text) {
       while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
@@ -70,7 +119,9 @@ namespace andromeda::index {
     const char* pragmas = bulk ? "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;"
                                : "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;";
     if (sqlite3_open(file.c_str(), &m_db) != SQLITE_OK || sqlite3_exec(m_db, pragmas, nullptr, nullptr, nullptr) != SQLITE_OK
-        || sqlite3_exec(m_db, kSchema, nullptr, nullptr, nullptr) != SQLITE_OK) {
+        || !migrate(m_db) || sqlite3_exec(m_db, kSchema, nullptr, nullptr, nullptr) != SQLITE_OK
+        || sqlite3_exec(m_db, std::format("PRAGMA user_version = {}", kSchemaVersion).c_str(), nullptr, nullptr, nullptr)
+            != SQLITE_OK) {
       std::fprintf(stderr, "andromeda-index: %s: %s\n", file.c_str(), m_db != nullptr ? sqlite3_errmsg(m_db) : "open failed");
       sqlite3_close(m_db);
       m_db = nullptr;
@@ -83,6 +134,9 @@ namespace andromeda::index {
     sqlite3_prepare_v3(m_db, "SELECT name, mtime, size, is_dir FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_row, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT parent, name FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_parentOf, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT id FROM files WHERE parent = ?1 AND name = ?2", -1, SQLITE_PREPARE_PERSISTENT, &m_child, nullptr);
+    sqlite3_busy_timeout(m_db, 5000); // the content worker writes on its own connection
+    sqlite3_create_function(m_db, "extractable", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, nullptr, extractableFunction,
+                            nullptr, nullptr);
   }
 
   IndexDb::~IndexDb() {
@@ -263,7 +317,11 @@ namespace andromeda::index {
       }
       sqlite3_finalize(stmt);
     }
-    sqlite3_exec(m_db, "DELETE FROM files WHERE id IN (SELECT id FROM doomed);", nullptr, nullptr, nullptr);
+    sqlite3_exec(m_db,
+                 "DELETE FROM content WHERE rowid IN (SELECT id FROM doomed);"
+                 "DELETE FROM extracted WHERE id IN (SELECT id FROM doomed);"
+                 "DELETE FROM files WHERE id IN (SELECT id FROM doomed);",
+                 nullptr, nullptr, nullptr);
     // Removed names stay in m_folded as dead space until it is half dead.
     if (m_removed * 2 > m_entries.size()) {
       m_loaded = false;
@@ -358,6 +416,102 @@ namespace andromeda::index {
       }
       sqlite3_reset(m_row);
     }
+    return rows;
+  }
+
+  std::vector<ContentTask> IndexDb::contentTasks() const {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+                       "SELECT f.id, f.mtime FROM files f LEFT JOIN extracted e ON e.id = f.id "
+                       "WHERE f.is_dir = 0 AND f.size <= ?1 AND (e.id IS NULL OR e.mtime != f.mtime) AND extractable(f.name) "
+                       "ORDER BY f.mtime DESC",
+                       -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, kMaxContentFile);
+    std::vector<ContentTask> tasks;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      tasks.push_back({.id = sqlite3_column_int64(stmt, 0), .mtime = sqlite3_column_int64(stmt, 1), .path = {}});
+    }
+    sqlite3_finalize(stmt);
+    for (ContentTask& task : tasks) {
+      task.path = pathOf(task.id);
+    }
+    return tasks;
+  }
+
+  void IndexDb::markExtracting(std::int64_t id, std::int64_t mtime) {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "INSERT OR REPLACE INTO extracted(id, mtime, state) VALUES (?1, ?2, 0)", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    sqlite3_bind_int64(stmt, 2, mtime);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+  }
+
+  void IndexDb::storeContent(std::int64_t id, std::int64_t mtime, const std::optional<std::string>& text) {
+    // IMMEDIATE: the write lock from the start, so the live index cannot remove the file between check and write.
+    sqlite3_exec(m_db, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr);
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT 1 FROM files WHERE id = ?1", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    const bool exists = sqlite3_step(stmt) == SQLITE_ROW;
+    sqlite3_finalize(stmt);
+    if (!exists) {
+      commit();
+      return;
+    }
+    sqlite3_prepare_v2(m_db, "DELETE FROM content WHERE rowid = ?1", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (text && !text->empty()) {
+      sqlite3_prepare_v2(m_db, "INSERT INTO content(rowid, body) VALUES (?1, ?2)", -1, &stmt, nullptr);
+      sqlite3_bind_int64(stmt, 1, id);
+      sqlite3_bind_text(stmt, 2, text->data(), static_cast<int>(text->size()), SQLITE_STATIC);
+      sqlite3_step(stmt);
+      sqlite3_finalize(stmt);
+    }
+    sqlite3_prepare_v2(m_db, "INSERT OR REPLACE INTO extracted(id, mtime, state) VALUES (?1, ?2, ?3)", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    sqlite3_bind_int64(stmt, 2, mtime);
+    sqlite3_bind_int(stmt, 3, text ? 1 : 2);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    commit();
+  }
+
+  void IndexDb::releaseMemory() { sqlite3_db_release_memory(m_db); }
+
+  void IndexDb::failInterrupted() {
+    sqlite3_exec(m_db, "UPDATE extracted SET state = 2 WHERE state = 0", nullptr, nullptr, nullptr);
+  }
+
+  std::vector<FileRow> IndexDb::queryContent(std::string_view text, int limit,
+                                             const std::vector<std::string>& excludePaths) const {
+    const std::string match = contentMatch(text);
+    if (match.empty() || limit <= 0) {
+      return {};
+    }
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db,
+                       "SELECT f.id, f.name, f.mtime, f.size FROM content c JOIN files f ON f.id = c.rowid "
+                       "WHERE content MATCH ?1 ORDER BY rank LIMIT ?2",
+                       -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, match.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, limit + static_cast<int>(excludePaths.size()));
+    std::vector<FileRow> rows;
+    while (sqlite3_step(stmt) == SQLITE_ROW && static_cast<int>(rows.size()) < limit) {
+      FileRow row{
+          .path = pathOf(sqlite3_column_int64(stmt, 0)),
+          .name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
+          .mtime = sqlite3_column_int64(stmt, 2),
+          .size = sqlite3_column_int64(stmt, 3),
+          .isDir = false,
+      };
+      if (std::ranges::find(excludePaths, row.path) == excludePaths.end()) {
+        rows.push_back(std::move(row));
+      }
+    }
+    sqlite3_finalize(stmt);
     return rows;
   }
 
