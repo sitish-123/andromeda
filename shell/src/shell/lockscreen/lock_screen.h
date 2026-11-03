@@ -147,6 +147,8 @@ private:
   void applyOutputRestriction();
   void applyWallpaperStyleToSurfaces();
   [[nodiscard]] bool isInteractiveOutput(const WaylandOutput& output) const;
+  // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
+  [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
   [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
   void createInstance(const WaylandOutput& output);
   void chooseTransition();

@@ -85,6 +85,8 @@ public:
   void setClockGradient(std::uint32_t from, std::uint32_t to);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
+  // The compositor blurs only the desktop wallpaper behind the lock; a lock image of its own is drawn here, sharp.
+  void setOwnWallpaper(bool own);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
   void setWallpaperCoverage(TextureCoverage coverage);
   void setWallpaperFillColor(Color fillColor);
@@ -260,6 +262,7 @@ private:
   bool m_pointerMoved = false;
   AuthExtras m_authExtras;
   AuthColumn::Status m_statusIsland;
+  bool m_ownWallpaper = false;
   std::uint32_t m_clockGradientFrom = 0;
   std::uint32_t m_clockGradientTo = 0;
   Timer m_andromedaClock;

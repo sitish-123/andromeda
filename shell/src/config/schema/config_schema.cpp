@@ -181,6 +181,7 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::blurIntensity, "blur_intensity", kUnitRange),
         field(&LockscreenConfig::tintIntensity, "tint_intensity", kUnitRange),
         pathStringField(&LockscreenConfig::wallpaper, "wallpaper"),
+        field(&LockscreenConfig::wallpaperOutputs, "wallpaper_outputs"),
         field(&LockscreenConfig::monitors, "monitors"),
     };
     return s;

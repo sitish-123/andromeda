@@ -821,6 +821,14 @@ void LockSurface::setKeyboardIndicators(
   requestUpdate();
 }
 
+void LockSurface::setOwnWallpaper(bool own) {
+  if (m_ownWallpaper == own) {
+    return;
+  }
+  m_ownWallpaper = own;
+  requestLayout();
+}
+
 void LockSurface::setWallpaperPath(std::string wallpaperPath) {
   if (m_wallpaperPath == wallpaperPath) {
     return;
@@ -1415,7 +1423,8 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
   applyWallpaperTexture();
   // Ryoku paints an opaque scene over the background, so a blur behind it is never seen.
-  const bool compositorBlur = m_ryoku == nullptr && m_blurIntensity > 0.0F && m_connection.hasBackgroundEffectBlur();
+  const bool compositorBlur =
+      m_ryoku == nullptr && !m_ownWallpaper && m_blurIntensity > 0.0F && m_connection.hasBackgroundEffectBlur();
   syncBlurRegion(compositorBlur, width, height);
 
   m_backgroundLayer->setVisible(true);

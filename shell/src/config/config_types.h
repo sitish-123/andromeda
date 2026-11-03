@@ -587,6 +587,8 @@ struct LockscreenConfig {
   float blurIntensity = 0.5F;
   float tintIntensity = 0.3F;
   std::string wallpaper;
+  // Per display: connector name -> image path; wins over `wallpaper` on that display.
+  std::unordered_map<std::string, std::string> wallpaperOutputs;
   std::vector<std::string> monitors;
 
   bool operator==(const LockscreenConfig&) const = default;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Screenshots of the Andromeda lock screen in a headless session: idle, typing, caps-lock hint, lock from phone.
-# Usage: SCALE=1.5 LAYOUT=split CLOCK=stacked CLOCK_SIZE=xl CARDS=1 WALL=path PHONE=1 tools/lock-shots.sh [out-dir]; PHONE=1 locks the way the phone does;
+# Usage: SCALE=1.5 LAYOUT=split CLOCK=stacked CLOCK_SIZE=xl CARDS=1 WALL=path PHONE=1 tools/lock-shots.sh [out-dir]; PHONE=1 locks the way the phone does; OUTPUT_WALL=path sets a lock wallpaper for HEADLESS-1 only;
 # CARDS=1 plays the E2E MPRIS player and posts notifications first; MENU=1 also opens the power menu (menu.png); INHIBIT=1 (with MENU=1) starts a mock logind with a shutdown block and clicks Shut down (alert.png). Never submits a password (the real faillock count stays).
 set -euo pipefail
 OUT=${1:-$(pwd)/artifacts/lock-shots}
@@ -15,6 +15,7 @@ boot_headless 1
 printf '\n[output.HEADLESS-1]\nscale = %s\n' "$SCALE" >> "$RUNTIME/andromeda.toml"
 printf '\n[lockscreen]\ntheme = "andromeda"\nlayout = "%s"\nclock_style = "%s"\nclock_size = "%s"\nwallpaper = "%s"\nowner_message = "If found, call +977 98XX XXX XXX"\n' "$LAYOUT" "$CLOCK" "$CLOCK_SIZE" "$WALL" \
   >> "$RUNTIME/home/.config/noctalia/config.toml"
+[[ -z ${OUTPUT_WALL:-} ]] || printf 'wallpaper_outputs = { "HEADLESS-1" = "%s" }\n' "$OUTPUT_WALL" >> "$RUNTIME/home/.config/noctalia/config.toml"
 
 KEYS=${KEYS:-$ROOT/compositor/build-debug/tests/pointer-client}
 with_noctalia '

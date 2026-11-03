@@ -520,9 +520,6 @@ void LockScreen::onWallpaperChanged() {
   if (!isActive() || m_configService == nullptr) {
     return;
   }
-  if (!m_configService->config().lockscreen.wallpaper.empty()) {
-    return;
-  }
   applyWallpaperStyleToSurfaces();
   requestLayout();
 }
@@ -717,6 +714,9 @@ void LockScreen::setStatus(AuthColumn::Status status) {
     if (instance.surface != nullptr) {
       instance.surface->setStatus(m_statusIsland);
     }
+  }
+}
+
 void LockScreen::setClockGradient(std::uint32_t from, std::uint32_t to) {
   m_clockGradientFrom = from;
   m_clockGradientTo = to;
@@ -724,9 +724,6 @@ void LockScreen::setClockGradient(std::uint32_t from, std::uint32_t to) {
     if (instance.surface != nullptr) {
       instance.surface->setClockGradient(from, to);
     }
-  }
-}
-
   }
 }
 
@@ -1364,11 +1361,24 @@ void LockScreen::applyOutputRestriction() {
   requestLayout();
 }
 
+bool LockScreen::hasOwnWallpaper(const std::string& connectorName) const {
+  if (m_configService == nullptr) {
+    return false;
+  }
+  const auto& lock = m_configService->config().lockscreen;
+  const auto it = lock.wallpaperOutputs.find(connectorName);
+  return !lock.wallpaper.empty() || (it != lock.wallpaperOutputs.end() && !it->second.empty());
+}
+
 std::string LockScreen::wallpaperPathForOutput(const std::string& connectorName) const {
   if (m_configService == nullptr) {
     return {};
   }
   const auto& config = m_configService->config();
+  if (const auto it = config.lockscreen.wallpaperOutputs.find(connectorName);
+      it != config.lockscreen.wallpaperOutputs.end() && !it->second.empty()) {
+    return it->second;
+  }
   const std::string& customWallpaper = config.lockscreen.wallpaper;
   if (!customWallpaper.empty()) {
     return customWallpaper;
@@ -1391,6 +1401,7 @@ void LockScreen::applyWallpaperStyleToSurfaces() {
       continue;
     }
     instance.surface->setWallpaperPath(wallpaperPathForOutput(instance.connectorName));
+    instance.surface->setOwnWallpaper(hasOwnWallpaper(instance.connectorName));
     instance.surface->setWallpaperFillMode(fillMode);
     instance.surface->setWallpaperCoverage(
         wallpaperTextureCoverage(m_wayland->outputs(), instance.outputName, fillMode)
@@ -1408,6 +1419,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setOutputKey(desktop_widgets::outputKey(output));
   if (m_configService != nullptr) {
     surface->setWallpaperPath(wallpaperPathForOutput(output.connectorName));
+    surface->setOwnWallpaper(hasOwnWallpaper(output.connectorName));
     const WallpaperFillMode fillMode = m_configService->config().wallpaper.fillMode;
     surface->setWallpaperFillMode(fillMode);
     surface->setWallpaperCoverage(wallpaperTextureCoverage(m_wayland->outputs(), output.name, fillMode));
@@ -1498,9 +1510,9 @@ void LockScreen::updatePromptOnSurfaces() {
     instance.surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
     instance.surface->setAuthExtras(extras);
     instance.surface->setStatus(m_statusIsland);
+    instance.surface->setClockGradient(m_clockGradientFrom, m_clockGradientTo);
   }
 }
-    instance.surface->setClockGradient(m_clockGradientFrom, m_clockGradientTo);
 
 void LockScreen::applyIndicatorsToSurface(LockSurface& surface) const {
   const bool capsLock = m_wayland != nullptr && m_wayland->keyboardLockKeysState().capsLock;
