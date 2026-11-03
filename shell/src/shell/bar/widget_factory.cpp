@@ -169,6 +169,9 @@ std::unique_ptr<Widget> WidgetFactory::create(
             options.minWidth = 0;
             options.appName = true;
             options.iconGap = Tokens::componentIslandGap * context.contentScale;
+            // The island lane has no spacer before the title: the inset is that spacer plus its flex gap, so it
+            // leaves and returns with the title on one spring.
+            options.leadingInset = Tokens::componentIslandGroupGap * context.contentScale + Tokens::componentIslandGap;
             return createWidget<ActiveWindowWidget>(context.contentScale, f.m_configService, f.m_platform, options);
           }},
       {"island_battery", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {

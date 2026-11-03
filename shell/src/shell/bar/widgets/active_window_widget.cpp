@@ -25,7 +25,8 @@ ActiveWindowWidget::ActiveWindowWidget(ConfigService& config, CompositorPlatform
     : m_config(config), m_platform(platform), m_maxWidth(static_cast<float>(options.maxWidth)),
       m_minWidth(static_cast<float>(options.minWidth)), m_iconSize(static_cast<float>(options.iconSize)),
       m_titleScrollMode(options.titleScrollMode), m_displayMode(options.displayMode),
-      m_showEmptyLabel(options.showEmptyLabel), m_iconGap(options.iconGap), m_appName(options.appName) {
+      m_showEmptyLabel(options.showEmptyLabel), m_iconGap(options.iconGap), m_appName(options.appName),
+      m_leadingInset(options.leadingInset) {
   buildDesktopIconIndex();
 }
 
@@ -132,11 +133,12 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     const float iconY = showIcon ? std::round((contentHeight - m_icon->height()) * 0.5F) : 0.0F;
     const float labelY = std::round((contentHeight - m_title->height()) * 0.5F);
 
-    m_icon->setPosition(0.0F, iconY);
-    m_title->setPosition(showIcon ? m_icon->width() + spacing : 0.0F, labelY);
+    const float lead = m_leadingInset + m_contentShift;
+    m_icon->setPosition(lead, iconY);
+    m_title->setPosition(lead + (showIcon ? m_icon->width() + spacing : 0.0F), labelY);
 
-    const float contentWidth = showTitle ? m_title->x() + m_title->width() : iconWidth;
-    const float target = std::clamp(contentWidth, minLength, maxLength);
+    const float contentWidth = showTitle ? m_title->x() + m_title->width() - lead : iconWidth;
+    const float target = std::clamp(contentWidth, minLength, maxLength) + m_leadingInset;
     const auto [gapsShown, gapsHidden] = gapsBeside();
     m_targetContent = target;
     if (m_animations == nullptr || (m_shownWidth <= 0.0F && !m_fromHidden && m_widthAnimId == 0)) {
@@ -225,6 +227,21 @@ void ActiveWindowWidget::setGapExcluded(bool excluded) {
   }
   section->setChildGapExcluded(bounds, excluded);
   m_gapExcluded = excluded;
+  // Without its gap the widget starts one gap earlier; the content moves by that gap so it does not jump.
+  bool before = false;
+  for (const auto& child : section->children()) {
+    if (child.get() == bounds) {
+      break;
+    }
+    before = before || (child->visible() && child->participatesInLayout());
+  }
+  const float shift = excluded && before ? section->gap() : 0.0F;
+  const float delta = shift - m_contentShift;
+  m_contentShift = shift;
+  if (delta != 0.0F && m_icon != nullptr && m_title != nullptr) {
+    m_icon->setPosition(m_icon->x() + delta, m_icon->y());
+    m_title->setPosition(m_title->x() + delta, m_title->y());
+  }
 }
 
 void ActiveWindowWidget::morphWidth(float fromExtent, float toExtent) {
