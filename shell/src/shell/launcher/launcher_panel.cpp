@@ -3047,7 +3047,8 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   }
   bool imageReady = false;
   const bool media = isMediaPresentation(result);
-  if (!emoji && !media && !result.iconPath.empty()) {
+  // A clipboard image row keeps its thumbnail in iconPath; the preview shows the full picture instead.
+  if (!emoji && !media && !result.iconPath.empty() && result.presentation != "clipboard-image") {
     if (result.iconPath != m_previewIconPath) {
       m_previewImage->clear(renderer);
       m_previewIconPath = result.iconPath;

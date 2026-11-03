@@ -5,6 +5,7 @@
 #include "time/time_format.h"
 #include "util/string_utils.h"
 
+#include <algorithm>
 #include <chrono>
 
 namespace {
@@ -49,6 +50,11 @@ namespace {
 
 std::string ClipboardProvider::displayName() const { return i18n::tr("launcher.providers.clipboard.title"); }
 
+namespace {
+  // Image rows that get a thumbnail: the newest ones, about one screen of rows.
+  constexpr std::size_t kMaxThumbs = 8;
+} // namespace
+
 std::vector<LauncherResult> ClipboardProvider::query(std::string_view text) const {
   std::vector<LauncherResult> results;
   if (m_clipboard == nullptr) {
@@ -57,6 +63,7 @@ std::vector<LauncherResult> ClipboardProvider::query(std::string_view text) cons
   const std::string needle = StringUtils::toLower(StringUtils::trim(text));
   const auto& history = m_clipboard->history();
   results.reserve(history.size());
+  std::size_t thumbCount = 0;
   // Pinned entries first, then newest first; history() keeps newest at the front.
   for (const bool pinnedPass : {true, false}) {
     for (const ClipboardEntry& entry : history) {
@@ -75,10 +82,43 @@ std::vector<LauncherResult> ClipboardProvider::query(std::string_view text) cons
       r.category = dayGroup(entry);
       r.presentation = entry.isImage() ? "clipboard-image" : "clipboard-text";
       r.pinned = entry.pinned;
+      if (entry.isImage()) {
+        if (const auto thumb = m_thumbs.find(entry.storageId); thumb != m_thumbs.end()) {
+          r.iconPath = thumb->second;
+        } else if (thumbCount < kMaxThumbs && !std::ranges::contains(m_pendingThumbs, entry.storageId)) {
+          m_pendingThumbs.push_back(entry.storageId);
+        }
+        ++thumbCount;
+      }
       results.push_back(std::move(r));
     }
   }
+  if (!m_pendingThumbs.empty() && !m_thumbTimer.active()) {
+    m_thumbTimer.start(std::chrono::milliseconds(0), [this] { loadNextThumbnail(); });
+  }
   return results;
+}
+
+void ClipboardProvider::loadNextThumbnail() const {
+  if (m_pendingThumbs.empty() || m_clipboard == nullptr) {
+    return;
+  }
+  const std::string id = m_pendingThumbs.front();
+  m_pendingThumbs.erase(m_pendingThumbs.begin());
+  const auto& history = m_clipboard->history();
+  for (std::size_t i = 0; i < history.size(); ++i) {
+    if (history[i].storageId == id) {
+      if (auto uri = m_clipboard->imageDataUri(i)) {
+        m_thumbs[id] = std::move(*uri);
+      }
+      break;
+    }
+  }
+  if (!m_pendingThumbs.empty()) {
+    m_thumbTimer.start(std::chrono::milliseconds(0), [this] { loadNextThumbnail(); });
+  } else if (m_onResultsChanged) {
+    m_onResultsChanged();
+  }
 }
 
 std::size_t ClipboardProvider::indexOf(const LauncherResult& result) const {

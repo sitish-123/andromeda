@@ -1,8 +1,12 @@
 #pragma once
 
+#include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
 
 #include <cstdint>
+#include <functional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 class ClipboardService;
@@ -19,6 +23,7 @@ public:
   [[nodiscard]] bool supportsAutoPaste() const override { return true; }
 
   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
+  void setResultsChangedCallback(std::function<void()> callback) override { m_onResultsChanged = std::move(callback); }
 
   bool activate(const LauncherResult& result) override;
   // Pin or unpin, and delete, by result id; the launcher's preview buttons call these.
@@ -33,6 +38,13 @@ public:
 
 private:
   [[nodiscard]] std::size_t indexOf(const LauncherResult& result) const;
+  void loadNextThumbnail() const;
 
   ClipboardService* m_clipboard = nullptr;
+  std::function<void()> m_onResultsChanged;
+  // Row thumbnails as data URIs (the texture cache decodes them off the main thread), by storage id. They load one
+  // per timer tick after the first frame: a payload read decrypts it from disk.
+  mutable std::unordered_map<std::string, std::string> m_thumbs;
+  mutable std::vector<std::string> m_pendingThumbs;
+  mutable Timer m_thumbTimer;
 };
