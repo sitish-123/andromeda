@@ -44,6 +44,7 @@ public:
   };
 
   ActiveWindowWidget(ConfigService& config, CompositorPlatform& platform, Options options);
+  ~ActiveWindowWidget() override;
 
   void create() override;
 
@@ -94,6 +95,7 @@ private:
   float m_collapseFrom = 0.0F;
   std::uint32_t m_widthAnimId = 0;
   bool m_collapsing = false;
+  float m_contentFade = 1.0F; // owner key and value of the title and icon fade on a window change
   bool m_fromHidden = false;
   bool m_gapExcluded = false;
   bool m_vertical = false;

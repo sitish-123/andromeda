@@ -1009,8 +1009,9 @@ void WorkspacesWidget::syncLens(bool animate) {
   }
   for (const auto& item : m_items) {
     if (!item.exiting && workspaceUsesFocusedStyle(item.workspace, item.output)) {
+      // The capsule follows the dot as it is now, so it cannot settle before the dots it sits between.
       m_lens.moveTo(
-          item.targetX, item.targetX + item.targetWidth, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F, animate
+          item.currentX, item.currentX + item.currentWidth, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F, animate
       );
       return;
     }
@@ -1044,6 +1045,7 @@ void WorkspacesWidget::startAnimation() {
         updateItemFlowPositions();
         applyItemLayouts();
         updateContainerSize();
+        syncLens(true);
         if (root() != nullptr) {
           root()->markPaintDirty();
         }

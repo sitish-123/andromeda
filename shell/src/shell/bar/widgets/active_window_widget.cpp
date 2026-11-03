@@ -29,6 +29,13 @@ ActiveWindowWidget::ActiveWindowWidget(ConfigService& config, CompositorPlatform
   buildDesktopIconIndex();
 }
 
+ActiveWindowWidget::~ActiveWindowWidget() {
+  if (m_animations != nullptr) {
+    m_animations->cancelForOwner(this);
+    m_animations->cancelForOwner(&m_contentFade);
+  }
+}
+
 void ActiveWindowWidget::create() {
   auto rootNode = ui::inputArea({});
   rootNode->setOnEnter([this](const InputArea::PointerData&) {
@@ -360,7 +367,26 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
 
   std::string iconPath = emptyState ? std::string{} : resolveIconPath(appId);
 
+  // A new window's title and icon fade in while the width springs, so the text never pops in under the clip.
+  const bool swapping = m_animations != nullptr && m_shownWidth > 0.0F && !m_collapsing && m_title->text() != m_lastTitle;
   m_title->setText(m_lastTitle);
+  if (swapping) {
+    m_animations->cancelForOwner(&m_contentFade);
+    m_contentFade = 0.0F;
+    m_animations->animateSpring(
+        0.0F, 1.0F, Style::spring(Tokens::springFade),
+        [this](float v) {
+          m_contentFade = v;
+          m_title->setOpacity(v);
+          m_icon->setOpacity(v);
+          requestRedraw();
+        },
+        {}, &m_contentFade
+    );
+    m_title->setOpacity(0.0F);
+    m_icon->setOpacity(0.0F);
+    requestFrameTick();
+  }
   m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_title->setVisible(!m_lastTitle.empty());
   applyTitleScrollMode(m_title->visible());
