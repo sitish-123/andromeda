@@ -158,6 +158,7 @@ private:
   void syncKindTabs();
   void syncModeTabs();
   void syncEmojiStrip();
+  void syncPackStrip();
   [[nodiscard]] bool pillExpanded() const;
   void activatePreviewAction();
   [[nodiscard]] FilesProvider* filesProvider() const;
@@ -225,6 +226,7 @@ private:
   std::string m_modeProviderId;
   Flex* m_modeTabs = nullptr;
   Flex* m_emojiStrip = nullptr;
+  Flex* m_packStrip = nullptr;
   Separator* m_modeTabsLine = nullptr;
   std::vector<std::pair<std::string, Flex*>> m_modeTabItems;
   // Direction C preview pane (right of the result list).
@@ -241,6 +243,7 @@ private:
   Button* m_previewAction = nullptr;
   Button* m_previewDelete = nullptr;
   Label* m_previewBody = nullptr;
+  Flex* m_previewBodyBox = nullptr;
   Image* m_previewShot = nullptr;
   std::string m_previewShotId;
   // Last liquid strength sent to the panel surface; -1 = none since open.
@@ -275,7 +278,6 @@ private:
   std::vector<Flex*> m_kindTabItems;
   std::size_t m_kindIndex = 0;
   std::size_t m_packIndex = 0;
-  bool m_kindTabsArePacks = false;
   Flex* m_pillKindHint = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;

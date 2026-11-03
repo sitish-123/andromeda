@@ -532,6 +532,7 @@ cell_height = 112.0
 icon = 64.0
 section_header = 28.0
 row = 40.0
+row_tall = 48.0  # two-line rows (clipboard)
 row_icon = 24.0
 emoji = 26.0
 emoji_preview = 88.0

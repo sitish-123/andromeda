@@ -101,6 +101,7 @@ namespace {
         + rows * Tokens::componentLauncherCellHeight + rows * Tokens::spaceP8 + Tokens::componentPageDotsRow;
   }
   [[nodiscard]] bool isAppsQuery(std::string_view query) { return query == "apps"; }
+  [[nodiscard]] bool isTwoLineRow(const LauncherResult& result) { return result.presentation.starts_with("clipboard"); }
   [[nodiscard]] std::string formatByteSize(std::size_t bytes) {
     if (bytes < 1024) {
       return std::format("{} B", bytes);
@@ -446,6 +447,13 @@ namespace {
 
       const bool showSubtitle = !m_style.compact && (!m_style.pill || result.presentation.starts_with("clipboard") || result.presentation == "symbol-wide")
           && !result.subtitle.empty();
+      // Clipboard rows put the subtitle under the title (row_tall); other pill rows put it after the title.
+      const bool twoLine = m_style.pill && isTwoLineRow(result);
+      if (m_style.pill) {
+        m_textCol->setDirection(twoLine ? FlexDirection::Vertical : FlexDirection::Horizontal);
+        m_textCol->setAlign(twoLine ? FlexAlign::Start : FlexAlign::Center);
+        m_textCol->setGap(twoLine ? 0.0F : Tokens::spaceP8 * m_style.scale);
+      }
       if (!showSubtitle) {
         m_subtitle->setVisible(false);
         m_subtitle->setText("");
@@ -454,7 +462,8 @@ namespace {
         m_subtitle->setText(singleLinePreview(result.subtitle));
         // A pill row puts the kind after the title on one line; the title keeps its width first.
         m_subtitle->setMaxWidth(
-            m_style.pill ? std::max(0.0F, textWidth - m_title->width() - Tokens::spaceP8 * m_style.scale) : textWidth
+            m_style.pill && !twoLine ? std::max(0.0F, textWidth - m_title->width() - Tokens::spaceP8 * m_style.scale)
+                                     : textWidth
         );
       }
 
@@ -1491,6 +1500,15 @@ public:
     }
   }
 
+  // Unscaled height of a result row: a media cell row, a two-line row or a plain row.
+  [[nodiscard]] float resultRowHeight(const LauncherSectionRowData& row) const {
+    if (m_cellGrid == CellGrid::None && m_results != nullptr && row.resultCount > 0
+        && row.resultIndices[0] < m_results->size() && isTwoLineRow((*m_results)[row.resultIndices[0]])) {
+      return Tokens::componentLauncherRowTall;
+    }
+    return cellRowHeight(m_cellGrid);
+  }
+
   // Height of the first `maxRows` result rows and the headers between them.
   [[nodiscard]] float pillContentHeight(std::size_t maxRows) const {
     float height = 0.0F;
@@ -1503,7 +1521,7 @@ public:
       if (row.kind == LauncherSectionRowData::Kind::Header) {
         height += Tokens::componentLauncherSectionHeader * m_style.scale;
       } else if (rows++ < maxRows) {
-        height += cellRowHeight(m_cellGrid) * m_style.scale;
+        height += resultRowHeight(row) * m_style.scale;
       } else {
         break;
       }
@@ -1597,7 +1615,7 @@ public:
     }
     if (m_pillStyle) {
       return (m_rows[index].kind == LauncherSectionRowData::Kind::Header ? Tokens::componentLauncherSectionHeader
-                                                                         : cellRowHeight(m_cellGrid))
+                                                                         : resultRowHeight(m_rows[index]))
           * m_style.scale;
     }
     if (m_rows[index].kind == LauncherSectionRowData::Kind::Header) {
@@ -1681,7 +1699,7 @@ float LauncherPanel::measureContentHeight(Renderer& /*renderer*/, float /*conten
     return preferredHeight();
   }
   // Field, the taller of the list (p 8, 8 rows visible) and the preview, footer (rulebook 9.14, direction C).
-  const bool strip = m_emojiStrip != nullptr && m_emojiStrip->visible();
+  const bool strip = (m_emojiStrip != nullptr && m_emojiStrip->visible()) || (m_packStrip != nullptr && m_packStrip->visible());
   const float list = 2.0F * Tokens::spaceP8 * scale + m_launcherSectionsAdapter->pillContentHeight(8)
       + (strip ? Tokens::componentLauncherTabs * scale : 0.0F);
   // A clipboard image replaces the 64 icon with a 160 high picture.
@@ -1886,6 +1904,18 @@ void LauncherPanel::create() {
           },
       })
   );
+
+  // Stickers mode: pack chips under the grid; a click filters to that pack (DESIGN.md media modes).
+  resultsViewport->addChild(ui::row({
+      .out = &m_packStrip,
+      .align = FlexAlign::Center,
+      .gap = Tokens::spaceP4 * scale,
+      .paddingH = Tokens::spaceP4 * scale,
+      .minHeight = Tokens::componentLauncherTabs * scale,
+      .fillWidth = true,
+      .visible = false,
+      .participatesInLayout = false,
+  }));
 
   // Emoji mode: one button per group under the grid; a click scrolls to that group (DESIGN.md media modes).
   resultsViewport->addChild(ui::row({
@@ -2143,15 +2173,28 @@ void LauncherPanel::create() {
           image.setRadius(Tokens::radiusR12 * scale);
         },
     }));
-    preview->addChild(ui::label({
-        .out = &m_previewBody,
-        .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::Label1),
-        .maxLines = 8,
-        .ellipsize = TextEllipsize::End,
-        .visible = false,
-        .participatesInLayout = false,
-    }));
+    // Clipboard text: monospace in a fill_1 box (.agent/mockups/launcher-media.html clipboard).
+    preview->addChild(ui::column(
+        {
+            .out = &m_previewBodyBox,
+            .align = FlexAlign::Start,
+            .padding = Tokens::spaceP12 * scale,
+            .fill = colorSpecFromRole(ColorRole::Fill1),
+            .radius = Tokens::radiusR8 * scale,
+            .minHeight = Tokens::componentLauncherPreviewMedia * 0.75F * scale,
+            .fillWidth = true,
+            .visible = false,
+            .participatesInLayout = false,
+        },
+        ui::label({
+            .out = &m_previewBody,
+            .fontSize = Style::fontSizeCaption * scale,
+            .fontFamily = std::string("monospace"),
+            .color = colorSpecFromRole(ColorRole::Label1),
+            .maxLines = 6,
+            .ellipsize = TextEllipsize::End,
+        })
+    ));
     auto tones = ui::row({
         .out = &m_previewTones,
         .align = FlexAlign::Center,
@@ -2799,6 +2842,31 @@ void LauncherPanel::syncModeTabs() {
   }
 }
 
+void LauncherPanel::syncPackStrip() {
+  if (m_packStrip == nullptr) {
+    return;
+  }
+  const bool show = m_browserMode && m_modeProviderId == "Stickers";
+  m_packStrip->setVisible(show);
+  m_packStrip->setParticipatesInLayout(show);
+  if (show && m_packStrip->children().empty()) {
+    const float scale = contentScale();
+    for (std::size_t i = 0; i < kStickerPacks.size(); ++i) {
+      m_packStrip->addChild(ui::button({
+          .text = i18n::tr(std::format("launcher.stickers.packs.{}", kStickerPacks[i].second)),
+          .controlHeight = Tokens::sizeControlS * scale,
+          .variant = ButtonVariant::Ghost,
+          .onClick = [this, i] { setStickerPack(i); },
+      }));
+    }
+  }
+  for (std::size_t i = 0; i < m_packStrip->children().size(); ++i) {
+    if (auto* chip = dynamic_cast<Button*>(m_packStrip->children()[i].get())) {
+      chip->setVariant(i == m_packIndex ? ButtonVariant::Tonal : ButtonVariant::Ghost);
+    }
+  }
+}
+
 void LauncherPanel::syncEmojiStrip() {
   if (m_emojiStrip == nullptr) {
     return;
@@ -2841,7 +2909,6 @@ void LauncherPanel::setMode(std::string_view providerId) {
   m_modeProviderId = std::string(providerId);
   m_selectedIndex = 0;
   syncModeTabs();
-  syncKindTabs();
   if (m_input != nullptr && !m_input->value().empty()) {
     m_input->setValue("");
   }
@@ -2895,7 +2962,7 @@ void LauncherPanel::setStickerPack(std::size_t index) {
     stickers->setPack(std::string(kStickerPacks[m_packIndex].first));
   }
   m_selectedIndex = 0;
-  syncKindTabs();
+  syncPackStrip();
   onInputChanged(m_query);
 }
 
@@ -2909,18 +2976,8 @@ void LauncherPanel::syncKindTabs() {
     return;
   }
   const float scale = contentScale();
-  // One chip row serves the Files scope (kinds) and the Stickers mode (packs).
-  const bool packs = m_browserMode && m_modeProviderId == "Stickers";
-  if (packs != m_kindTabsArePacks) {
-    for (Flex* tab : m_kindTabItems) {
-      (void)m_kindTabs->removeChild(tab);
-    }
-    m_kindTabItems.clear();
-    m_kindTabsArePacks = packs;
-  }
   if (m_kindTabItems.empty()) {
-    const std::size_t count = packs ? kStickerPacks.size() : kFileKinds.size();
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t i = 0; i < kFileKinds.size(); ++i) {
       auto tab = ui::row({
           .align = FlexAlign::Center,
           .paddingH = Tokens::spaceP12 * scale,
@@ -2928,35 +2985,28 @@ void LauncherPanel::syncKindTabs() {
           .minHeight = Tokens::sizeControlS * scale,
       });
       tab->addChild(ui::label({
-          .text = packs ? i18n::tr(std::format("launcher.stickers.packs.{}", kStickerPacks[i].second))
-                        : i18n::tr(std::format("launcher.files.kinds.{}", kFileKinds[i].second)),
+          .text = i18n::tr(std::format("launcher.files.kinds.{}", kFileKinds[i].second)),
           .fontSize = Style::fontSizeBody * scale,
           .color = colorSpecFromRole(ColorRole::Label2),
       }));
       auto area = std::make_unique<InputArea>();
       area->setParticipatesInLayout(false);
       area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
-      area->setOnClick([this, i, packs](const InputArea::PointerData&) {
-        if (packs) {
-          setStickerPack(i);
-        } else {
-          setFilesKind(i);
-        }
-      });
+      area->setOnClick([this, i](const InputArea::PointerData&) { setFilesKind(i); });
       Flex* tabPtr = tab.get();
       tab->addChild(std::move(area));
       m_kindTabs->addChild(std::move(tab));
       m_kindTabItems.push_back(tabPtr);
     }
   }
-  const bool show = (m_browserMode && m_filesScope) || packs;
+  const bool show = m_browserMode && m_filesScope;
   m_kindTabs->setVisible(show);
   m_kindTabs->setParticipatesInLayout(show);
   m_kindTabsLine->setVisible(show);
   m_kindTabsLine->setParticipatesInLayout(show);
   for (std::size_t i = 0; i < m_kindTabItems.size(); ++i) {
     Flex* tab = m_kindTabItems[i];
-    const bool on = i == (packs ? m_packIndex : m_kindIndex);
+    const bool on = i == m_kindIndex;
     tab->setFill(on ? colorSpecFromRole(ColorRole::Lens) : clearColorSpec());
     if (auto* label = dynamic_cast<Label*>(tab->children().front().get())) {
       label->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
@@ -3046,15 +3096,15 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
   m_previewDelete->setVisible(clip || file);
   m_previewDelete->setParticipatesInLayout(clip || file);
   const bool body = result.presentation == "clipboard-text";
-  m_previewBody->setVisible(body);
-  m_previewBody->setParticipatesInLayout(body);
+  m_previewBodyBox->setVisible(body);
+  m_previewBodyBox->setParticipatesInLayout(body);
   m_previewTitle->setVisible(!body);
   m_previewTitle->setParticipatesInLayout(!body);
   if (body) {
     const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
     const auto* clipboard = provider == m_providers.end() ? nullptr : dynamic_cast<const ClipboardProvider*>(provider->get());
     m_previewBody->setText(clipboard == nullptr ? result.title : clipboard->text(result));
-    m_previewBody->setMaxWidth(m_previewPane->width() - 2.0F * Tokens::spaceP20 * scale);
+    m_previewBody->setMaxWidth(m_previewPane->width() - 2.0F * (Tokens::spaceP20 + Tokens::spaceP12) * scale);
   }
   bool shot = result.presentation == "clipboard-image";
   std::string gif;
@@ -3094,7 +3144,7 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
       m_previewShot->clear(renderer);
     }
   }
-  if (shot || media) {
+  if (shot || media || body) {
     m_previewGlyph->setVisible(false);
     m_previewGlyph->setParticipatesInLayout(false);
   }
@@ -4357,6 +4407,7 @@ void LauncherPanel::applyEmptyState() {
   m_emptyLabel->setVisible(empty);
   m_emptyLabel->setParticipatesInLayout(empty);
   syncEmojiStrip();
+  syncPackStrip();
   if (m_browserMode && m_body != nullptr && m_pillSeparator != nullptr && m_pillFooter != nullptr) {
     const bool expanded = pillExpanded();
     m_body->setVisible(expanded);
