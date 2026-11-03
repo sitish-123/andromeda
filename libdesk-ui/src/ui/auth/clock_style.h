@@ -20,6 +20,8 @@ struct ClockStyle {
   ClockLayout layout = ClockLayout::Line;
   // Letter spacing in em.
   float tracking = 0.0F;
+  // Outline style: stroke width in em; 0 = filled.
+  float stroke = 0.0F;
   // Two-tone: the minutes in accent_text.
   bool twoTone = false;
 };

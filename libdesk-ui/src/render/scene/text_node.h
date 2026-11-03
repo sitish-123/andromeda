@@ -5,6 +5,7 @@
 #include "render/core/renderer.h"
 #include "render/scene/node.h"
 
+#include <optional>
 #include <string>
 
 class TextNode : public Node {
@@ -38,7 +39,26 @@ public:
       return;
     }
     m_fontSize = size;
-    m_font.tracking = dynamicTracking(size);
+    m_font.tracking = m_trackingOverride.value_or(dynamicTracking(size));
+    markContentDirty();
+  }
+
+  // Glyph outlines only, `em` wide; 0 = filled glyphs.
+  void setStroke(float em) {
+    if (m_font.stroke == em) {
+      return;
+    }
+    m_font.stroke = em;
+    markContentDirty();
+  }
+
+  // Letter spacing in em in place of the Inter dynamic tracking; nullopt restores it.
+  void setTracking(std::optional<float> em) {
+    if (m_trackingOverride == em) {
+      return;
+    }
+    m_trackingOverride = em;
+    m_font.tracking = em.value_or(dynamicTracking(m_fontSize));
     markContentDirty();
   }
 
@@ -151,6 +171,7 @@ private:
   std::string m_text;
   TextFont m_font;
   float m_fontSize = 14.0F;
+  std::optional<float> m_trackingOverride;
   float m_maxWidth = 0.0F;
   int m_maxLines = 0;
   Color m_color;

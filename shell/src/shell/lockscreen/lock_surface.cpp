@@ -1856,6 +1856,8 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
     state.clockFamily = clockFontFamily(clock);
     state.clockWeight = clock.weight;
+    state.clockTracking = clock.tracking;
+    state.clockStroke = clock.stroke;
     state.clockTwoTone = clock.twoTone;
     state.date = formatLocalTime("%A, %-d %B");
     if (m_authExtras.passwordOnly) {

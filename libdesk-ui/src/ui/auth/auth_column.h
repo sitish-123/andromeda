@@ -53,6 +53,10 @@ public:
     std::vector<std::string> clockLines;
     std::string clockFamily;
     int clockWeight = 300;
+    // Letter spacing in em (the wide style).
+    float clockTracking = 0.0F;
+    // Outline width in em (the outline style); 0 = filled.
+    float clockStroke = 0.0F;
     // Two-tone: the part after the first ':' in accent_text.
     bool clockTwoTone = false;
     std::string date;

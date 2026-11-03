@@ -91,6 +91,16 @@ void Label::setFontFeatures(std::string features) {
   m_measureCached = false;
 }
 
+void Label::setTracking(std::optional<float> em) {
+  m_textNode->setTracking(em);
+  m_measureCached = false;
+}
+
+void Label::setStroke(float em) {
+  m_textNode->setStroke(em);
+  m_measureCached = false;
+}
+
 void Label::setColor(const ColorSpec& color) {
   m_color = color;
   applyPalette();

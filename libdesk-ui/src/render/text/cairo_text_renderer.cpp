@@ -53,6 +53,7 @@ namespace {
     hashCombine(seed, std::hash<int>{}(static_cast<int>(font.weight)));
     hashCombine(seed, std::hash<std::string>{}(font.features));
     hashCombine(seed, std::hash<float>{}(font.tracking));
+    hashCombine(seed, std::hash<float>{}(font.stroke));
     return seed;
   }
 
@@ -353,9 +354,8 @@ void CairoTextRenderer::setBaseDirection(bool rtl) {
 void CairoTextRenderer::notifyFontConfigChanged() {
   text::invalidateFontWeightCatalogCache();
   if (m_fontMap != nullptr && PANGO_IS_FC_FONT_MAP(m_fontMap)) {
-    // PangoFcFontMap caches its fontconfig view; this forces it to re-read the
-    // current FcConfig (which is where FcConfigAppFontAddFile added the font).
-    pango_fc_font_map_config_changed(PANGO_FC_FONT_MAP(m_fontMap));
+    // Pango loads its own FcConfig; FcConfigAppFontAddFile adds app fonts to the current one, so point the map at it.
+    pango_fc_font_map_set_config(PANGO_FC_FONT_MAP(m_fontMap), FcConfigGetCurrent());
   }
   clearCaches();
 }
@@ -714,7 +714,7 @@ void CairoTextRenderer::measureCharSpans(
 // ── Rasterization ───────────────────────────────────────────────────────────
 
 void CairoTextRenderer::rasterizeLayout(
-    float contentScale, PangoLayout* layout, const Color& color, bool tinted, CacheEntry& entry
+    float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, CacheEntry& entry
 ) {
   entry.tinted = tinted;
   // Pixel-sized surface: ceil the logical rect up.
@@ -878,7 +878,17 @@ void CairoTextRenderer::rasterizeLayout(
       const auto baselineInTile = static_cast<double>(ls.baselinePx - tilePlan.yTopPx);
       cairo_save(cr);
       cairo_translate(cr, static_cast<double>(ls.xLeftPx - blockLeftPx + extraLeftPx), baselineInTile);
-      pango_cairo_show_layout_line(cr, ls.line);
+      if (strokePx > 0.0F) {
+        // Variable fonts overlap contours: stroke twice as wide, then clear the fill, so only the outer edge stays.
+        pango_cairo_layout_line_path(cr, ls.line);
+        cairo_set_line_width(cr, strokePx * 2.0F);
+        cairo_stroke_preserve(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+        cairo_fill(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+      } else {
+        pango_cairo_show_layout_line(cr, ls.line);
+      }
       cairo_restore(cr);
     }
 
@@ -1008,7 +1018,7 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
     rasterColor.a = 1.0F;
   }
   CacheEntry entry{};
-  rasterizeLayout(contentScale, layout, rasterColor, tinted, entry);
+  rasterizeLayout(contentScale, layout, rasterColor, tinted, font.stroke * fontSize * contentScale, entry);
   g_object_unref(layout);
 
   MetricsKey mkey;

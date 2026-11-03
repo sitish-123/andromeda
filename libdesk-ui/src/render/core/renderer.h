@@ -43,6 +43,7 @@ struct TextFont {
   std::string family;
   std::string features;
   float tracking = 0.0F; // letter spacing in em, from dynamicTracking(size)
+  float stroke = 0.0F;   // > 0: glyph outlines only, this wide in em
 
   bool operator==(const TextFont&) const = default;
 };

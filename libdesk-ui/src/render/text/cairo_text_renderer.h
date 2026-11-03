@@ -196,7 +196,9 @@ private:
   // coverage so the color is applied via u_tint at draw time. When false,
   // rasterizes as CAIRO_FORMAT_ARGB32 with `color` baked in (for COLR emoji
   // content).
-  void rasterizeLayout(float contentScale, PangoLayout* layout, const Color& color, bool tinted, CacheEntry& entry);
+  void rasterizeLayout(
+      float contentScale, PangoLayout* layout, const Color& color, bool tinted, float strokePx, CacheEntry& entry
+  );
   // Extract logical metrics from a laid-out PangoLayout, dividing by PANGO_SCALE and by scale.
   TextMetrics metricsFromLayout(float contentScale, PangoLayout* layout) const;
 

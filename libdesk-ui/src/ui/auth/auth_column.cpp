@@ -384,6 +384,8 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     label->setFontFamily(m_state.clockFamily);
     label->setFontWeight(weight);
     label->setFontSize(place.clockSize);
+    label->setTracking(m_state.clockTracking);
+    label->setStroke(m_state.clockStroke);
     label->setLineHeight(heroLine);
     label->setColor(color);
     label->setText(text);

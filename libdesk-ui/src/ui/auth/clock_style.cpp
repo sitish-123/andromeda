@@ -5,7 +5,7 @@
 
 namespace {
 
-  constexpr std::array<ClockStyle, 8> kStyles{{
+  constexpr std::array<ClockStyle, 9> kStyles{{
       {.id = "classic", .family = "Inter", .file = "", .weight = 300},
       {.id = "editorial", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 300},
       {.id = "italic", .family = "Instrument Serif", .file = "InstrumentSerif-Italic.ttf", .weight = 400},
@@ -16,6 +16,7 @@ namespace {
       {.id = "two-tone", .family = "Inter", .file = "", .weight = 600, .twoTone = true},
       {.id = "words", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 400, .layout = ClockLayout::Words},
       {.id = "mono", .family = "JetBrains Mono", .file = "JetBrainsMono-Variable.ttf", .weight = 300},
+      {.id = "outline", .family = "Space Grotesk", .file = "SpaceGrotesk-Variable.ttf", .weight = 600, .stroke = 0.02F},
   }};
 
   constexpr std::array<std::string_view, 20> kOnes{

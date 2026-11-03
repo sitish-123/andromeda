@@ -43,6 +43,10 @@ public:
   void setFontSize(float size);
   void setFontFamily(std::string family);
   void setFontFeatures(std::string features);
+  // Letter spacing in em; nullopt = the Inter dynamic tracking.
+  void setTracking(std::optional<float> em);
+  // Glyph outlines only, `em` wide; 0 = filled glyphs.
+  void setStroke(float em);
   void setColor(const ColorSpec& color);
   // Explicit fixed color.
   void setColor(const Color& color);
