@@ -351,7 +351,7 @@ static const struct wlr_render_timer_impl render_timer_impl = {
 };
 
 void push_fx_debug_(struct fx_renderer* renderer, const char* file, const char* func) {
-  if (!renderer->procs.glPushDebugGroupKHR) {
+  if (!renderer->gl_debug || !renderer->procs.glPushDebugGroupKHR) {
     return;
   }
 
@@ -362,7 +362,7 @@ void push_fx_debug_(struct fx_renderer* renderer, const char* file, const char* 
 }
 
 void pop_fx_debug(struct fx_renderer* renderer) {
-  if (renderer->procs.glPopDebugGroupKHR) {
+  if (renderer->gl_debug && renderer->procs.glPopDebugGroupKHR) {
     renderer->procs.glPopDebugGroupKHR();
   }
 }
@@ -684,7 +684,9 @@ struct wlr_renderer* fx_renderer_create_egl(struct wlr_egl* egl) {
     TRACY_FN(load_gl_proc(&renderer->procs.glGetQueryivEXT, "glGetQueryivEXT");)
   }
 
-  if (renderer->exts.KHR_debug) {
+  // Synchronous debug output costs CPU on every GL call (Mesa formats iris perf messages) and turns glthread off.
+  renderer->gl_debug = renderer->exts.KHR_debug && (getenv("ANDROMEDA_GL_DEBUG") != NULL || wlr_log_get_verbosity() >= WLR_DEBUG);
+  if (renderer->gl_debug) {
     glEnable(GL_DEBUG_OUTPUT_KHR);
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
     renderer->procs.glDebugMessageCallbackKHR(fx_log, NULL);

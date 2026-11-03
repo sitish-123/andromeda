@@ -207,6 +207,8 @@ struct fx_renderer {
   // spins on i915 forcewake, too slow for every frame.
   int64_t gl_clock_offset_ns;
   int64_t gl_clock_synced_ns;
+  // KHR_debug output and debug groups: ANDROMEDA_GL_DEBUG or a debug log level.
+  bool gl_debug;
 
   struct wlr_drm_format_set shm_texture_formats;
 
