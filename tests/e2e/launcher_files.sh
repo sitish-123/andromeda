@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Launcher Files section end to end: andromeda-index serves a private home; a file written after the daemon started
-# is found from the launcher within 1 s of the write, and Enter opens it with its default app. Artifacts in $OUT
+# is found from the launcher by a word inside within 5 s and by name within 1 s of the write, and Enter opens it with
+# its default app. Artifacts in $OUT
 # (default ./artifacts/launcher-files).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/launcher-files}
@@ -23,23 +24,32 @@ with_noctalia '
   "$INDEX" serve > "$OUT/index.log" 2>&1 &
   wait_for "the index daemon did not start" "grep -q watching \"$OUT/index.log\""
   wtype -s 3600000 &
+  : > "$OUT/result.txt"
 
   file=$HOME/Documents/zebra-ledger-2026.txt
+  # find_file QUERY WITHIN_NS: open the launcher on QUERY until the index answers with one file. The daemon indexes a write
+  # 200 ms after its last event (text later, on its idle worker); a launcher opened sooner sees nothing and opens again.
+  find_file() {
+    answers() { grep -c "files for \"$1\"" "$OUT/noctalia.log" || true; }
+    while true; do
+      before=$(answers "$1")
+      "$NOCTALIA" msg panel-open launcher "$1" > /dev/null
+      wait_for "the launcher got no answer from the index" "(( \$(answers \"$1\") > before ))"
+      grep "files for \"$1\"" "$OUT/noctalia.log" | tail -1 | grep -q "\] 1 files" && break
+      (( ($(date +%s%N) - written) < $2 )) || { echo "FAIL: \"$1\" was not found in time"; exit 1; }
+      "$NOCTALIA" msg panel-close > /dev/null
+    done
+    echo "\"$1\" found $(( ($(date +%s%N) - written) / 1000000 )) ms after the write" | tee -a "$OUT/result.txt"
+  }
+
+  printf "the quokkaberry harvest\n" > "$HOME/Documents/harvest-notes.txt"
+  written=$(date +%s%N)
+  find_file quokkaberry 5000000000
+  "$NOCTALIA" msg panel-close > /dev/null
+
   printf "totals\n" > "$file"
   written=$(date +%s%N)
-  # The daemon indexes a write 200 ms after its last event; a launcher opened sooner sees no file and opens again.
-  answers() { grep -c "files for \"zebra-ledger\"" "$OUT/noctalia.log" || true; }
-  while true; do
-    before=$(answers)
-    "$NOCTALIA" msg panel-open launcher "zebra-ledger" > /dev/null
-    wait_for "the launcher got no answer from the index" "(( \$(answers) > before ))"
-    grep "files for \"zebra-ledger\"" "$OUT/noctalia.log" | tail -1 | grep -q "\] 1 files" && break
-    (( ($(date +%s%N) - written) < 1000000000 )) || { echo "FAIL: the new file was not found within 1 s"; exit 1; }
-    "$NOCTALIA" msg panel-close > /dev/null
-  done
-  found_ms=$(( ($(date +%s%N) - written) / 1000000 ))
-  echo "found ${found_ms} ms after the write" | tee "$OUT/result.txt"
-  ((found_ms < 1000)) || { echo "FAIL: found after ${found_ms} ms"; exit 1; }
+  find_file zebra-ledger 1000000000
 
   wtype -k Return
   wait_for "Enter did not open the file" "[[ -s \"$RUNTIME/opened\" ]]"

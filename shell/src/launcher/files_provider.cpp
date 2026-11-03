@@ -196,13 +196,13 @@ void FilesProvider::onAnswer(const std::string& text, const std::string& body) c
   for (std::size_t end = body.find('\n'); end != std::string::npos; end = body.find('\n', start)) {
     const std::string_view row = std::string_view(body).substr(start, end - start);
     start = end + 1;
-    // path \t mtime_ns \t size \t f|d
+    // path \t mtime_ns \t size \t f|d \t n|c (name or text match)
     const std::size_t tab = row.find('\t');
-    if (tab == std::string_view::npos || row.empty()) {
+    if (tab == std::string_view::npos || row.size() < 4 || row[row.size() - 2] != '\t') {
       continue;
     }
     const std::string path(row.substr(0, tab));
-    const bool folder = row.ends_with("\td");
+    const bool folder = row.substr(row.size() - 4, 2) == "\td";
     LauncherResult r;
     r.id = path;
     r.title = std::filesystem::path(path).filename().string();
