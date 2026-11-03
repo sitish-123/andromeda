@@ -372,8 +372,6 @@ endforeach
 # ── Main sources ──────────────────────────────────────────────────────────────
 _noctalia_sources = files(
   'src/app/application.cpp',
-  'src/greeter/greetd_client.cpp',
-  'src/greeter/greeter_host.cpp',
   'src/app/application_events.cpp',
   'src/app/application_ipc.cpp',
   'src/app/application_plugins.cpp',
@@ -1056,12 +1054,28 @@ noctalia_core_dep = declare_dependency(
   sources: _protocol_headers,
 )
 
-noctalia_exe = executable('noctalia',
-  sources: files('src/main.cpp') + _protocol_headers,
+# The shell and its library tree; `noctalia` loads it with dlopen except in greeter mode. -Bsymbolic binds the
+# module to its own libdesk-ui copy, never the launcher's.
+noctalia_shell_module = shared_module('noctalia-shell',
+  sources: files('src/app/shell_main.cpp') + _protocol_headers,
   dependencies: _noctalia_dependencies,
   include_directories: _noctalia_inc,
   cpp_args: _noctalia_cpp_args,
   objects: noctalia_core_lib.extract_all_objects(recursive: false),
+  link_args: ['-Wl,-Bsymbolic'],
+  name_prefix: '',
+  install: true,
+  install_dir: get_option('libdir') / 'noctalia',
+)
+
+# Small on purpose: greeter mode runs from it before any login (.agent/DESIGN.md "Shell greeter mode").
+noctalia_exe = executable('noctalia',
+  sources: files('src/main.cpp', 'src/greeter/greeter_host.cpp', 'src/greeter/greetd_client.cpp')
+    + _protocol_headers,
+  dependencies: [desk_ui_dep, tomlplusplus_dep, nlohmann_dep, libsodium_dep, xkbcommon_dep]
+    + jemalloc_deps + (dl_dep.found() ? [dl_dep] : []),
+  include_directories: _noctalia_inc,
+  cpp_args: _noctalia_cpp_args,
   install: true,
 )
 
@@ -1458,7 +1472,7 @@ if build_tests
   test('config_validate_cli',
     sh_program,
     args: ['tests/config_validate_cli_test.sh', noctalia_exe.full_path()],
-    depends: noctalia_exe,
+    depends: [noctalia_exe, noctalia_shell_module],
     workdir: meson.current_source_dir(),
     env: config_validate_env,
   )

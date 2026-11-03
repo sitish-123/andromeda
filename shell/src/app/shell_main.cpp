@@ -8,7 +8,6 @@
 #include "core/build_info.h"
 #include "core/log.h"
 #include "core/process/process_fds.h"
-#include "greeter/greeter_host.h"
 #include "ipc/cli.h"
 #include "launcher/dmenu_cli.h"
 #include "scripting/plugin_lint.h"
@@ -18,7 +17,6 @@
 
 #include <array>
 #include <cerrno>
-#include <clocale>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -29,13 +27,6 @@
 #include <string>
 #include <unistd.h>
 
-#ifdef __GLIBC__
-#ifdef NOCTALIA_USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#else
-#include <malloc.h>
-#endif
-#endif
 
 namespace {
 
@@ -258,20 +249,8 @@ namespace {
 
 } // namespace
 
-#ifdef NOCTALIA_USE_JEMALLOC
-// jemalloc reads this before its first allocation; the background thread runs
-// decay even while the shell is idle.
-const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
-#endif
-
-int main(int argc, char* argv[]) {
-
-#if defined(__GLIBC__) && !defined(NOCTALIA_USE_JEMALLOC)
-  mallopt(M_ARENA_MAX, 2);
-#endif
-
-  std::setlocale(LC_ALL, "");
-  std::setlocale(LC_NUMERIC, "C");
+// The shell behind the `noctalia` launcher (src/main.cpp), which has already set the allocator and the locale.
+extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int argc, char* argv[]) {
 
   const bool isDaemonChild = takeDaemonPipeFromEnv();
   bool shouldDaemonize = false;
@@ -304,8 +283,6 @@ int main(int argc, char* argv[]) {
     // Internal mode for PAM authentication after re-exec.
     if (std::strcmp(argv[1], "pam-helper") == 0)
       return PamAuthenticator::runHelperMode(argc, argv);
-    if (std::strcmp(argv[1], "greeter") == 0)
-      return runGreeterHost(argc, argv);
     if (std::strcmp(argv[1], "config") == 0)
       return noctalia::config::runCli(argc, argv);
     if (std::strcmp(argv[1], "dmenu") == 0)
