@@ -1,0 +1,10 @@
+[Unit]
+Description=Andromeda file index query socket
+PartOf=andromeda-session.target
+
+[Socket]
+ListenStream=%t/andromeda-index.sock
+SocketMode=0600
+
+[Install]
+WantedBy=andromeda-session.target

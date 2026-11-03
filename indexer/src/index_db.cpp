@@ -1,10 +1,13 @@
 #include "index_db.h"
 
+#include <emmintrin.h>
 #include <sqlite3.h>
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 
 namespace andromeda::index {
 
@@ -19,12 +22,8 @@ namespace andromeda::index {
         is_dir INTEGER NOT NULL,
         UNIQUE (parent, name)
       );
-      CREATE VIRTUAL TABLE IF NOT EXISTS names USING fts5(name, content='files', content_rowid='id',
-                                                          tokenize='trigram case_sensitive 0', detail=none,
-                                                          columnsize=0);
+      DROP TABLE IF EXISTS names;
     )sql";
-
-    constexpr const char* kSelect = "SELECT f.id, f.name, f.mtime, f.size, f.is_dir FROM files f ";
 
     std::string trimmed(std::string_view text) {
       while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
@@ -36,16 +35,30 @@ namespace andromeda::index {
       return std::string(text);
     }
 
-    // LIKE wildcards in the query itself; such a query cannot use the trigram index.
-    bool hasWildcard(std::string_view text) { return text.find_first_of("%_") != std::string_view::npos; }
-
-    std::string escapeLike(std::string_view text) {
-      std::string out;
-      for (const char c : text) {
-        if (c == '%' || c == '_' || c == '\\') {
-          out += '\\';
+    // First match of needle (3 bytes or more) in [at, end). An SSE2 filter on its first and last byte reads about
+    // 16 bytes per step; glibc memmem manages about 3 GB/s on short needles.
+    const char* findIn(const char* at, const char* end, std::string_view needle) {
+      const std::size_t n = needle.size();
+      const __m128i first = _mm_set1_epi8(needle.front());
+      const __m128i last = _mm_set1_epi8(needle.back());
+      for (; end - at >= static_cast<std::ptrdiff_t>(n + 15); at += 16) {
+        const __m128i a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(at));
+        const __m128i b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(at + n - 1));
+        auto mask = static_cast<unsigned>(_mm_movemask_epi8(_mm_and_si128(_mm_cmpeq_epi8(a, first), _mm_cmpeq_epi8(b, last))));
+        for (; mask != 0; mask &= mask - 1) {
+          const char* candidate = at + std::countr_zero(mask);
+          if (std::memcmp(candidate + 1, needle.data() + 1, n - 2) == 0) {
+            return candidate;
+          }
         }
-        out += c;
+      }
+      return static_cast<const char*>(memmem(at, static_cast<std::size_t>(end - at), needle.data(), n));
+    }
+
+    std::string folded(std::string_view text) {
+      std::string out(text);
+      for (char& c : out) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       }
       return out;
     }
@@ -67,14 +80,14 @@ namespace andromeda::index {
         m_db, "INSERT INTO files(id, parent, name, mtime, size, is_dir) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", -1,
         SQLITE_PREPARE_PERSISTENT, &m_insert, nullptr
     );
-    sqlite3_prepare_v3(m_db, "INSERT INTO names(rowid, name) VALUES (?1, ?2)", -1, SQLITE_PREPARE_PERSISTENT, &m_insertName, nullptr);
+    sqlite3_prepare_v3(m_db, "SELECT name, mtime, size, is_dir FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_row, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT parent, name FROM files WHERE id = ?1", -1, SQLITE_PREPARE_PERSISTENT, &m_parentOf, nullptr);
     sqlite3_prepare_v3(m_db, "SELECT id FROM files WHERE parent = ?1 AND name = ?2", -1, SQLITE_PREPARE_PERSISTENT, &m_child, nullptr);
   }
 
   IndexDb::~IndexDb() {
     sqlite3_finalize(m_insert);
-    sqlite3_finalize(m_insertName);
+    sqlite3_finalize(m_row);
     sqlite3_finalize(m_parentOf);
     sqlite3_finalize(m_child);
     sqlite3_close(m_db);
@@ -92,10 +105,6 @@ namespace andromeda::index {
     sqlite3_bind_int(m_insert, 6, isDir ? 1 : 0);
     sqlite3_step(m_insert);
     sqlite3_reset(m_insert);
-    sqlite3_bind_int64(m_insertName, 1, id);
-    sqlite3_bind_text(m_insertName, 2, name.data(), static_cast<int>(name.size()), SQLITE_STATIC);
-    sqlite3_step(m_insertName);
-    sqlite3_reset(m_insertName);
   }
 
   void IndexDb::finishBulk() { sqlite3_exec(m_db, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;", nullptr, nullptr, nullptr); }
@@ -163,6 +172,9 @@ namespace andromeda::index {
     const std::int64_t id = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 1;
     sqlite3_finalize(stmt);
     insert(id, parent, name, mtime, size, isDir);
+    if (m_loaded) {
+      appendName(id, name, mtime);
+    }
     return id;
   }
 
@@ -174,6 +186,9 @@ namespace andromeda::index {
     sqlite3_bind_int64(stmt, 3, size);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
+    if (NameEntry* entry = entryOf(id)) {
+      entry->mtime = mtime;
+    }
   }
 
   std::vector<Child> IndexDb::children(std::int64_t parent) const {
@@ -234,58 +249,110 @@ namespace andromeda::index {
     sqlite3_bind_int64(stmt, 1, id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    sqlite3_exec(
-        m_db,
-        "INSERT INTO names(names, rowid, name) SELECT 'delete', f.id, f.name FROM files f JOIN doomed d ON d.id = f.id;"
-        "DELETE FROM files WHERE id IN (SELECT id FROM doomed);",
-        nullptr, nullptr, nullptr
-    );
+    if (m_loaded) {
+      sqlite3_prepare_v2(m_db, "SELECT id FROM doomed", -1, &stmt, nullptr);
+      while (sqlite3_step(stmt) == SQLITE_ROW) {
+        if (NameEntry* entry = entryOf(sqlite3_column_int64(stmt, 0)); entry != nullptr && entry->mtime != kRemoved) {
+          entry->mtime = kRemoved;
+          ++m_removed;
+        }
+      }
+      sqlite3_finalize(stmt);
+    }
+    sqlite3_exec(m_db, "DELETE FROM files WHERE id IN (SELECT id FROM doomed);", nullptr, nullptr, nullptr);
+    // Removed names stay in m_folded as dead space until it is half dead.
+    if (m_removed * 2 > m_entries.size()) {
+      m_loaded = false;
+      loadNames();
+    }
+  }
+
+  void IndexDb::loadNames() const {
+    if (m_loaded || m_db == nullptr) {
+      return;
+    }
+    m_folded.clear();
+    m_entries.clear();
+    m_removed = 0;
+    sqlite3_stmt* stmt = nullptr;
+    // Exact sizes up front: growth by doubling would leave up to twice the memory in the heap.
+    sqlite3_prepare_v2(m_db, "SELECT count(*), coalesce(sum(length(CAST(name AS BLOB))), 0) FROM files", -1, &stmt, nullptr);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      m_entries.reserve(static_cast<std::size_t>(sqlite3_column_int64(stmt, 0)) + 64);
+      m_folded.reserve(static_cast<std::size_t>(sqlite3_column_int64(stmt, 0) + sqlite3_column_int64(stmt, 1)) + 4096);
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_prepare_v2(m_db, "SELECT id, name, mtime FROM files ORDER BY id", -1, &stmt, nullptr);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+      appendName(sqlite3_column_int64(stmt, 0), {name, static_cast<std::size_t>(sqlite3_column_bytes(stmt, 1))},
+                 sqlite3_column_int64(stmt, 2));
+    }
+    sqlite3_finalize(stmt);
+    m_loaded = true;
+  }
+
+  void IndexDb::appendName(std::int64_t id, std::string_view name, std::int64_t mtime) const {
+    m_entries.push_back({.id = static_cast<std::uint32_t>(id), .offset = static_cast<std::uint32_t>(m_folded.size()),
+                         .mtime = mtime});
+    m_folded += folded(name);
+    m_folded += '\0';
+  }
+
+  IndexDb::NameEntry* IndexDb::entryOf(std::int64_t id) const {
+    if (!m_loaded) {
+      return nullptr;
+    }
+    const auto it = std::ranges::lower_bound(m_entries, static_cast<std::uint32_t>(id), {}, &NameEntry::id);
+    return it != m_entries.end() && it->id == id ? &*it : nullptr;
   }
 
   std::vector<FileRow> IndexDb::queryNames(std::string_view text, int limit) const {
-    const std::string needle = trimmed(text);
-    if (needle.empty() || m_db == nullptr) {
+    const std::string needle = folded(trimmed(text));
+    if (needle.size() < 3 || m_db == nullptr) {
       return {};
     }
-    // Ranks: 0 exact name, 1 name prefix, 2 substring; newest first within a rank.
-    constexpr const char* kOrder =
-        "ORDER BY (f.name = ?2 COLLATE NOCASE) DESC, (f.name LIKE ?3 ESCAPE '\\') DESC, f.mtime DESC LIMIT ?4";
-    std::string sql = kSelect;
-    std::string match;
-    if (needle.size() < 3) {
-      return {};
+    loadNames();
+    struct Hit {
+      int rank; // 0 exact name, 1 name prefix, 2 substring
+      std::int64_t mtime;
+      std::int64_t id;
+    };
+    std::vector<Hit> hits;
+    const char* const begin = m_folded.data();
+    const char* const end = begin + m_folded.size();
+    auto entry = m_entries.begin();
+    for (const char* at = begin; at < end;) {
+      const char* found = findIn(at, end, needle);
+      if (found == nullptr) {
+        break;
+      }
+      const auto offset = static_cast<std::uint32_t>(found - begin);
+      entry = std::ranges::upper_bound(entry, m_entries.end(), offset, {}, &NameEntry::offset) - 1;
+      const auto next = entry + 1;
+      at = next != m_entries.end() ? begin + next->offset : end;
+      if (entry->mtime == kRemoved) {
+        continue;
+      }
+      const int rank = offset != entry->offset ? 2 : (found[needle.size()] == '\0' ? 0 : 1);
+      hits.push_back({.rank = rank, .mtime = entry->mtime, .id = entry->id});
     }
-    if (hasWildcard(needle)) {
-      sql += "WHERE f.name LIKE ?1 ESCAPE '\\' ";
-      match = "%" + escapeLike(needle) + "%";
-    } else {
-      // No ESCAPE clause: SQLite uses the trigram index only for a plain LIKE.
-      sql += "JOIN names n ON n.rowid = f.id WHERE n.name LIKE ?1 ";
-      match = "%" + needle + "%";
-    }
-    sql += kOrder;
-    sqlite3_stmt* stmt = nullptr;
-    sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr);
-    const std::string prefix = escapeLike(needle) + "%";
-    sqlite3_bind_text(stmt, 1, match.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, needle.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, prefix.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 4, limit);
+    const auto better = [](const Hit& a, const Hit& b) { return a.rank != b.rank ? a.rank < b.rank : a.mtime > b.mtime; };
+    const auto keep = std::min(hits.size(), static_cast<std::size_t>(std::max(limit, 0)));
+    std::ranges::partial_sort(hits, hits.begin() + static_cast<std::ptrdiff_t>(keep), better);
     std::vector<FileRow> rows;
-    std::vector<std::int64_t> ids;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-      ids.push_back(sqlite3_column_int64(stmt, 0));
-      rows.push_back({
-          .path = {},
-          .name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
-          .mtime = sqlite3_column_int64(stmt, 2),
-          .size = sqlite3_column_int64(stmt, 3),
-          .isDir = sqlite3_column_int(stmt, 4) != 0,
-      });
-    }
-    sqlite3_finalize(stmt);
-    for (std::size_t i = 0; i < rows.size(); ++i) {
-      rows[i].path = pathOf(ids[i]);
+    for (std::size_t i = 0; i < keep; ++i) {
+      sqlite3_bind_int64(m_row, 1, hits[i].id);
+      if (sqlite3_step(m_row) == SQLITE_ROW) {
+        rows.push_back({
+            .path = pathOf(hits[i].id),
+            .name = reinterpret_cast<const char*>(sqlite3_column_text(m_row, 0)),
+            .mtime = sqlite3_column_int64(m_row, 1),
+            .size = sqlite3_column_int64(m_row, 2),
+            .isDir = sqlite3_column_int(m_row, 3) != 0,
+        });
+      }
+      sqlite3_reset(m_row);
     }
     return rows;
   }

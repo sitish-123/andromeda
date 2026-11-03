@@ -12,11 +12,23 @@ core = static_library('index-core',
   'src/skip_rules.cpp',
   'src/folder_reader.cpp',
   'src/live_index.cpp',
+  'src/query_server.cpp',
   dependencies: sqlite_dep,
 )
 core_dep = declare_dependency(link_with: core, include_directories: include_directories('src'), dependencies: sqlite_dep)
 
-executable('andromeda-index', 'src/main.cpp', dependencies: core_dep, install: true)
+index_exe = executable('andromeda-index', 'src/main.cpp', dependencies: core_dep, install: true)
+
+user_unit_dir = get_option('prefix') / 'lib' / 'systemd' / 'user'
+configure_file(
+  input: 'data/andromeda-index.service.in',
+  output: 'andromeda-index.service',
+  configuration: {'bindir': get_option('prefix') / get_option('bindir')},
+  install_dir: user_unit_dir,
+)
+install_data('data/andromeda-index.socket', install_dir: user_unit_dir)
 
 test('index_core', executable('index_core_test', 'tests/index_core_test.cpp', dependencies: core_dep))
 test('live_index', executable('live_index_test', 'tests/live_index_test.cpp', dependencies: core_dep))
+test('serve', find_program('python3'), args: [files('tests/serve_test.py'), index_exe], timeout: 60)
+benchmark('query_100k', executable('query_bench', 'tests/query_bench.cpp', dependencies: core_dep), timeout: 300)

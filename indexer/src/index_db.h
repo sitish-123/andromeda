@@ -35,7 +35,8 @@ namespace andromeda::index {
   };
 
   // The file index: one SQLite database in WAL mode. Files form a tree (parent id + name, roots have parent 0 and
-  // their absolute path as name), so no full path is stored; an FTS5 trigram index (detail=none) covers names.
+  // their absolute path as name), so no full path is stored. Name search scans an in-memory copy of all names
+  // (about 50 B per entry): SQLite FTS5 costs about 1 us per match, too slow for 3-letter queries.
   class IndexDb {
   public:
     // bulk: a fresh file built by one crawl; no journal until finishBulk(), so a crash leaves only a temp file.
@@ -48,36 +49,54 @@ namespace andromeda::index {
 
     void begin();
     void commit();
-    // Inserts a row with a known id into a bulk database, name index included.
+    // Inserts a row with a known id into a bulk database.
     void insert(std::int64_t id, std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir);
     // Ends a bulk build: switches the file to WAL for normal use.
     void finishBulk();
-    // Live updates: add a new entry (name index included) and return its id; change size and time of an entry.
+    // Live updates: add a new entry and return its id; change size and time of an entry.
     std::int64_t add(std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir);
     void update(std::int64_t id, std::int64_t mtime, std::int64_t size);
     [[nodiscard]] std::vector<Child> children(std::int64_t parent) const;
     // Every indexed folder with its absolute path, roots first.
     [[nodiscard]] std::vector<Folder> folders() const;
-    // Removes an entry and everything below it, from the files table and the name index.
+    // Removes an entry and everything below it.
     void removeTree(std::int64_t id);
     // Id of an absolute path, or nullopt when it is not indexed.
     [[nodiscard]] std::optional<std::int64_t> idOf(std::string_view path) const;
-    // Removes path and everything below it, from the files table and the name index.
+    // Removes path and everything below it.
     void removeTree(std::string_view path);
 
-    // Name search: exact name first, then name prefix, then substring; newer files first within each group.
-    // Queries need 3 characters (the trigram length); shorter ones return nothing.
+    // Name search, case-insensitive for ASCII: exact name first, then name prefix, then substring; newer files
+    // first within each group. Queries need 3 characters; shorter ones return nothing. The first query loads the
+    // names into memory; loadNames() does it ahead of time. Writes by insert() after the load are not seen.
     [[nodiscard]] std::vector<FileRow> queryNames(std::string_view text, int limit) const;
+    void loadNames() const;
     [[nodiscard]] std::int64_t count() const;
 
   private:
+    // Entries sorted by id (crawl ids and add() ids only grow), so offsets grow too. 16 bytes: ids fit 32 bits,
+    // as each id is one more than the largest so far.
+    struct NameEntry {
+      std::uint32_t id;
+      std::uint32_t offset; // into m_folded
+      std::int64_t mtime;   // kRemoved once removed
+    };
+    static constexpr std::int64_t kRemoved = INT64_MIN;
+
     [[nodiscard]] std::string pathOf(std::int64_t id) const;
+    [[nodiscard]] NameEntry* entryOf(std::int64_t id) const;
+    void appendName(std::int64_t id, std::string_view name, std::int64_t mtime) const;
 
     sqlite3* m_db = nullptr;
     sqlite3_stmt* m_insert = nullptr;
-    sqlite3_stmt* m_insertName = nullptr;
+    sqlite3_stmt* m_row = nullptr;
     sqlite3_stmt* m_parentOf = nullptr;
     sqlite3_stmt* m_child = nullptr;
+    // ASCII-lowercased names, each followed by a NUL (names never hold one), so a match never spans two names.
+    mutable std::string m_folded;
+    mutable std::vector<NameEntry> m_entries;
+    mutable std::size_t m_removed = 0;
+    mutable bool m_loaded = false;
   };
 
 } // namespace andromeda::index
