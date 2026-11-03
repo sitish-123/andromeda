@@ -1,0 +1,55 @@
+#!/bin/sh
+# Runs as root through pkexec (org.andromeda.power.configure). Accepts only whitelisted keys and values.
+# Usage: andromeda-power-config <key> <value>
+#   lid-battery|lid-power|lid-docked  suspend|hibernate|suspend-then-hibernate|lock|ignore
+#   power-key                         same, plus poweroff
+#   hibernate-delay                   off|30min|1h|2h|3h
+#   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
+set -eu
+PATH=/usr/bin
+[ $# -eq 2 ] || { echo "usage: $0 <key> <value>" >&2; exit 2; }
+key=$1 value=$2
+# ANDROMEDA_POWER_ETC is a test root; root always writes /etc.
+[ "$(id -u)" -ne 0 ] || ANDROMEDA_POWER_ETC=
+logind_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/logind.conf.d
+sleep_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/sleep.conf.d
+
+case $key in
+  lid-battery) section=Login dir=$logind_dir name=HandleLidSwitch ;;
+  lid-power) section=Login dir=$logind_dir name=HandleLidSwitchExternalPower ;;
+  lid-docked) section=Login dir=$logind_dir name=HandleLidSwitchDocked ;;
+  power-key) section=Login dir=$logind_dir name=HandlePowerKey ;;
+  hibernate-delay) section=Sleep dir=$sleep_dir name=HibernateDelaySec ;;
+  sleep-mode) section=Sleep dir=$sleep_dir name=MemorySleepMode ;;
+  *) echo "unknown key: $key" >&2; exit 2 ;;
+esac
+
+case $key:$value in
+  lid-*:suspend | lid-*:hibernate | lid-*:suspend-then-hibernate | lid-*:lock | lid-*:ignore) ;;
+  power-key:suspend | power-key:hibernate | power-key:suspend-then-hibernate | power-key:lock | power-key:ignore) ;;
+  power-key:poweroff) ;;
+  hibernate-delay:off | hibernate-delay:30min | hibernate-delay:1h | hibernate-delay:2h | hibernate-delay:3h) ;;
+  sleep-mode:default) value=off ;;
+  sleep-mode:s2idle | sleep-mode:deep)
+    grep -qw "$value" /sys/power/mem_sleep || { echo "kernel does not offer $value" >&2; exit 2; } ;;
+  *) echo "bad value for $key: $value" >&2; exit 2 ;;
+esac
+
+file=$dir/60-andromeda.conf
+mkdir -p "$dir"
+tmp=$(mktemp "$dir/.60-andromeda.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+{
+  echo "# Written by Settings › Power (andromeda-power-config)."
+  echo "[$section]"
+  [ -f "$file" ] && grep -E '^[A-Za-z]+=' "$file" | grep -v "^$name=" || true
+  [ "$value" = off ] || echo "$name=$value"
+} >"$tmp"
+chmod 644 "$tmp"
+mv "$tmp" "$file"
+trap - EXIT
+
+# logind rereads its drop-ins on SIGHUP; sleep.conf is read at each sleep.
+if [ "$section" = Login ] && [ -z "${ANDROMEDA_POWER_ETC:-}" ]; then
+  systemctl kill -s HUP systemd-logind.service
+fi
