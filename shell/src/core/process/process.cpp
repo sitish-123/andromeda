@@ -694,6 +694,8 @@ namespace {
       if (!uuid.empty()) {
         systemdArgs.push_back(std::format("--unit=app-{}@{}.service", escapeSystemdUnitName(appName), uuid));
       }
+      // Launch boost; the compositor resets it (cpu_boost.cpp) when the first window maps or the launch expires.
+      systemdArgs.emplace_back("--property=CPUWeight=1000");
     }
     if (!workingDir.empty()) {
       systemdArgs.push_back("--working-directory=" + workingDir);

@@ -1,3 +1,4 @@
+#include "core/cpu_boost.h"
 #include "server/server.h"
 
 #include "config/config.h"
@@ -1297,6 +1298,7 @@ namespace andromeda {
       wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
+    m_cpuBoost = std::make_unique<CpuBoost>(wl_display_get_event_loop(m_display));
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);

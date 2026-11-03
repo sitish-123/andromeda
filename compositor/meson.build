@@ -871,6 +871,7 @@ core_sources = files(
   'src/core/animation.cpp',
   'src/motion/desk_motion.cpp',
   'src/core/application_scope.cpp',
+  'src/core/cpu_boost.cpp',
   'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',
   'src/core/log.cpp',

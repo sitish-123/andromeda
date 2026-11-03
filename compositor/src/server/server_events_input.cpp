@@ -1,3 +1,4 @@
+#include "core/cpu_boost.h"
 #include "config/change.h"
 #include "config/config.h"
 #include "config/config_watcher.h"
@@ -1301,6 +1302,10 @@ namespace andromeda {
           }
         }
       }
+    }
+
+    if (m_cpuBoost != nullptr && surface != nullptr) {
+      m_cpuBoost->focus(surfaceClientPid(surface));
     }
 
     // An active grab's enter handler decides where focus goes; an xdg_popup grab ignores it entirely.

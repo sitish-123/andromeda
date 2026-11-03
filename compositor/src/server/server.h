@@ -94,6 +94,7 @@ struct wlr_virtual_pointer_manager_v1;
 struct wlr_virtual_pointer_v1;
 
 namespace andromeda {
+  class CpuBoost;
   enum class ContentType;
   struct ConfigEffects;
 
@@ -963,11 +964,13 @@ namespace andromeda {
     wl_event_source* m_backgroundFrameTimer = nullptr;
     struct LaunchBusy {
       std::string token;
+      std::string appId;
       std::chrono::steady_clock::time_point deadline;
     };
     std::vector<LaunchBusy> m_launchBusy;
     wl_event_source* m_launchBusyTimer = nullptr;
-    void beginLaunchBusy(std::string token);
+    std::unique_ptr<CpuBoost> m_cpuBoost;
+    void beginLaunchBusy(std::string token, std::string appId);
     void syncLaunchBusy();
     static int onLaunchBusyTimer(void* data);
     // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.

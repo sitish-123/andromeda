@@ -1,3 +1,4 @@
+#include "core/cpu_boost.h"
 #include "config/change.h"
 #include "config/config.h"
 #include "config/config_watcher.h"
@@ -457,9 +458,11 @@ namespace andromeda {
     );
   }
 
-  void Server::beginLaunchBusy(std::string token) {
+  void Server::beginLaunchBusy(std::string token, std::string appId) {
     constexpr auto kBusyLimit = std::chrono::seconds(5);
-    m_launchBusy.push_back({.token = std::move(token), .deadline = std::chrono::steady_clock::now() + kBusyLimit});
+    m_launchBusy.push_back(
+        {.token = std::move(token), .appId = std::move(appId), .deadline = std::chrono::steady_clock::now() + kBusyLimit}
+    );
     syncLaunchBusy();
   }
 
@@ -475,7 +478,16 @@ namespace andromeda {
 
   void Server::syncLaunchBusy() {
     const auto now = std::chrono::steady_clock::now();
-    std::erase_if(m_launchBusy, [now](const LaunchBusy& busy) { return busy.deadline <= now; });
+    // A launch without a window by its deadline loses its launch CPU weight.
+    std::erase_if(m_launchBusy, [this, now](const LaunchBusy& busy) {
+      if (busy.deadline > now) {
+        return false;
+      }
+      if (m_cpuBoost != nullptr) {
+        m_cpuBoost->expireLaunch(busy.appId);
+      }
+      return true;
+    });
     if (m_launchBusyTimer != nullptr) {
       int delayMs = 0;
       if (!m_launchBusy.empty()) {
@@ -544,7 +556,7 @@ namespace andromeda {
     // A launch shows the busy cursor: the shell's dock and launcher set the app id hint. Compositor spawns do not:
     // most spawn keybinds run commands without a window (volume, brightness).
     if (!watch->tokenName.empty() && token->app_id != nullptr) {
-      beginLaunchBusy(watch->tokenName);
+      beginLaunchBusy(watch->tokenName, token->app_id);
     }
     watch->destroy.notify = onActivationTokenDestroy;
     wl_signal_add(&token->events.destroy, &watch->destroy);
