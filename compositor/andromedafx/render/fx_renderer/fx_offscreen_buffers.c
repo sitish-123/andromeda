@@ -73,11 +73,12 @@ static void clear_animation_buffers(struct fx_target_buffers* buffers) {
   }
   drop_framebuffer(&buffers->animation_backdrop);
   drop_framebuffer(&buffers->in_place_source);
-  drop_framebuffer(&buffers->lens_source);
 }
 
 static void clear_target_buffers(struct fx_target_buffers* buffers) {
   clear_animation_buffers(buffers);
+  // Lives with the effects buffers: a liquid node copies into it every frame, so dropping it per frame reallocated 8 MB.
+  drop_framebuffer(&buffers->lens_source);
   drop_framebuffer(&buffers->effects_buffer);
   drop_framebuffer(&buffers->effects_buffer_swapped);
 }
