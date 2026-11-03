@@ -2099,6 +2099,11 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     glUniform2f(shader->effects.clip_position, clipped_region_box.x, clipped_region_box.y);
     uniform_corner_radii_set(&shader->effects.clip_radius, &clipped_region_corners);
     glUniform1f(shader->effects.liquid, fx_options->liquid);
+    const bool liquid_shape = !wlr_box_empty(&fx_options->liquid_box);
+    const struct wlr_box liquid_box = liquid_shape ? fx_options->liquid_box : *clip_box;
+    glUniform2f(shader->effects.liquid_size, liquid_box.width, liquid_box.height);
+    glUniform2f(shader->effects.liquid_position, liquid_box.x, liquid_box.y);
+    glUniform1f(shader->effects.liquid_radius, liquid_shape ? fx_options->liquid_radius : -1.0f);
     glUniform2f(shader->effects.liquid_texel, 1.0f / (float)texture->wlr_texture.width,
                 1.0f / (float)texture->wlr_texture.height);
   }
@@ -3007,6 +3012,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     tex_options->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     tex_options->clipped_region = fx_options->clipped_region;
     tex_options->liquid = fx_options->liquid;
+    tex_options->liquid_box = fx_options->liquid_box;
+    tex_options->liquid_radius = fx_options->liquid_radius;
     fx_render_pass_add_texture(pass, tex_options);
   }
 

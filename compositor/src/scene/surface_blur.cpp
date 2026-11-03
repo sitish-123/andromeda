@@ -121,6 +121,15 @@ namespace andromeda {
     }
     wlr_scene_blur_set_liquid(m_node, m_liquid);
     wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid));
+    // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
+    // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
+    if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
+      const pixman_box32_t* e = pixman_region32_extents(clipRegion);
+      const wlr_box shape{e->x1 + nodeBox.x - drawBox.x, e->y1 + nodeBox.y - drawBox.y, e->x2 - e->x1, e->y2 - e->y1};
+      wlr_scene_blur_set_liquid_shape(m_node, &shape, std::min(shape.width, shape.height) / 2);
+    } else {
+      wlr_scene_blur_set_liquid_shape(m_node, nullptr, 0);
+    }
     wlr_scene_buffer* shapeSource = wlr_scene_blur_get_transparency_mask_source(m_node);
     const pixman_region32_t* shape =
         shapeSource != nullptr ? wlr_scene_node_get_clip_region(&shapeSource->node) : nullptr;

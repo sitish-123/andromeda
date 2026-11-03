@@ -159,6 +159,9 @@ struct tex_shader {
     struct shader_corner_radii clip_radius;
     GLint liquid;
     GLint liquid_texel;
+    GLint liquid_size;
+    GLint liquid_position;
+    GLint liquid_radius;
   } effects;
 };
 

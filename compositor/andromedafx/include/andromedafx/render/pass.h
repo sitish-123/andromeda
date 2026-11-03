@@ -134,6 +134,9 @@ struct fx_render_texture_options {
   bool map_hdr_to_sdr;
   // Liquid glass strength, 0 to 1; draws with the effects shader. Used for blurred backdrops.
   float liquid;
+  // The liquid shape (render coords, radius in render px) whose edge gets the rim; empty = clip_box and corners.
+  struct wlr_box liquid_box;
+  float liquid_radius;
 };
 
 struct fx_render_rect_options {
@@ -191,6 +194,8 @@ struct fx_render_blur_pass_options {
   struct fx_corner_fradii corners;
   struct clipped_fregion clipped_region;
   float liquid; // 0 to 1, see fx_render_texture_options.liquid
+  struct wlr_box liquid_box;
+  float liquid_radius;
 };
 
 struct fx_gles_render_pass* fx_get_render_pass(struct wlr_render_pass* render_pass);

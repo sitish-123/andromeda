@@ -237,6 +237,8 @@ struct wlr_scene_blur {
   float alpha;
   float ignore_alpha;
   float liquid; // liquid glass strength, 0 to 1
+  struct wlr_box liquid_box; // node-local; empty = the node box and corners
+  int liquid_radius;
 
   bool should_only_blur_bottom_layer;
 
@@ -891,6 +893,12 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha);
  * Sets the liquid glass strength, 0 to 1: refraction at the rim and a soft specular rim.
  */
 void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
+
+/**
+ * Sets the shape whose edge gets the liquid rim (node-local, logical px), when it differs from the node box.
+ * NULL box = the node box and its corners.
+ */
+void wlr_scene_blur_set_liquid_shape(struct wlr_scene_blur* blur, const struct wlr_box* box, int radius);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

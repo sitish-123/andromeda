@@ -2483,6 +2483,16 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_liquid_shape(struct wlr_scene_blur* blur, const struct wlr_box* box, int radius) {
+  const struct wlr_box next = box != NULL ? *box : (struct wlr_box){0};
+  if (wlr_box_equal(&blur->liquid_box, &next) && blur->liquid_radius == radius) {
+    return;
+  }
+  blur->liquid_box = next;
+  blur->liquid_radius = radius;
+  scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
   if (blur->liquid == liquid) {
     return;
@@ -3927,6 +3937,16 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
         .liquid = blur->liquid,
+        .liquid_box =
+            wlr_box_empty(&blur->liquid_box)
+                ? (struct wlr_box){0}
+                : (struct wlr_box){
+                      .x = dst_box.x + (int)lround(blur->liquid_box.x * data->scale),
+                      .y = dst_box.y + (int)lround(blur->liquid_box.y * data->scale),
+                      .width = (int)lround(blur->liquid_box.width * data->scale),
+                      .height = (int)lround(blur->liquid_box.height * data->scale),
+                  },
+        .liquid_radius = (float)blur->liquid_radius * data->scale,
     };
     fx_render_pass_add_blur(fx_pass, &blur_options);
     break;

@@ -58,6 +58,10 @@ uniform float clip_radius_bottom_right;
 uniform float liquid;
 // UV step of one framebuffer pixel; the y sign follows the texture orientation.
 uniform vec2 liquid_texel;
+// The shape whose edge gets the rim; liquid_radius < 0 = the quad's own corners.
+uniform vec2 liquid_size;
+uniform vec2 liquid_position;
+uniform float liquid_radius;
 #endif
 
 uniform float discard_transparent;
@@ -182,6 +186,11 @@ float rounded_rect_distance_at(
 );
 
 float liquid_distance(vec2 point) {
+  if (liquid_radius >= 0.0) {
+    return rounded_rect_distance_at(
+        point, liquid_size, liquid_position, liquid_radius, liquid_radius, liquid_radius, liquid_radius
+    );
+  }
   return rounded_rect_distance_at(
       point, size, position, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right
   );
@@ -194,7 +203,7 @@ void main() {
   float rim = 0.0;
   if (liquid > 0.0) {
     // Rim band: a quarter of the short side, at most 16 px. t = 1 at the edge, 0 at the band's inner end.
-    float band = min(min(size.x, size.y) * 0.25, 16.0);
+    float band = min(min(liquid_size.x, liquid_size.y) * 0.25, 16.0);
     vec2 p = gl_FragCoord.xy;
     float d = liquid_distance(p);
     vec2 normal = vec2(liquid_distance(p + vec2(1.0, 0.0)) - liquid_distance(p - vec2(1.0, 0.0)),
