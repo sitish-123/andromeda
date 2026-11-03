@@ -48,6 +48,11 @@ int main() {
   touch(root / ".hidden/report.txt");
   touch(root / "app/node_modules/report.js");
   touch(root / "ab.txt");
+  touch(root / "Sdk/build-tools/NOTICE-tools.txt");
+  touch(root / "code/app/builddir/build.ninja");
+  touch(root / "code/app/builddir/generated-notice.txt");
+  touch(root / "code/crate/target/CACHEDIR.TAG");
+  touch(root / "code/crate/target/cargo-notice.txt");
   touch(root / ".git/HEAD");
 
   {
@@ -60,6 +65,9 @@ int main() {
     check(!found(db, "report", "secret-report.c"), "folder with .git is skipped");
     check(!found(db, "report", "report.txt"), "hidden folder is skipped");
     check(!found(db, "report", "report.js"), "node_modules is skipped");
+    check(found(db, "notice-tools", "NOTICE-tools.txt"), "a folder named build-something is indexed");
+    check(!found(db, "generated-notice", "generated-notice.txt"), "a Ninja build folder is skipped");
+    check(!found(db, "cargo-notice", "cargo-notice.txt"), "a folder with CACHEDIR.TAG is skipped");
     check(db.queryNames("ab", 50).empty(), "a query under 3 characters returns nothing");
     check(found(db, "quart", "Quarterly Report.pdf"), "a root that is a git checkout is still indexed");
 
