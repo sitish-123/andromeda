@@ -15,9 +15,23 @@ namespace andromeda::index {
   struct FileRow {
     std::string path;
     std::string name;
-    std::int64_t mtime = 0; // seconds since the epoch
+    std::int64_t mtime = 0; // nanoseconds since the epoch
     std::int64_t size = 0;
     bool isDir = false;
+  };
+
+  struct Child {
+    std::int64_t id = 0;
+    std::string name;
+    std::int64_t mtime = 0;
+    std::int64_t size = 0;
+    bool isDir = false;
+  };
+
+  struct Folder {
+    std::int64_t id = 0;
+    std::string path;
+    std::int64_t mtime = 0;
   };
 
   // The file index: one SQLite database in WAL mode. Files form a tree (parent id + name, roots have parent 0 and
@@ -38,6 +52,14 @@ namespace andromeda::index {
     void insert(std::int64_t id, std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir);
     // Ends a bulk build: switches the file to WAL for normal use.
     void finishBulk();
+    // Live updates: add a new entry (name index included) and return its id; change size and time of an entry.
+    std::int64_t add(std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir);
+    void update(std::int64_t id, std::int64_t mtime, std::int64_t size);
+    [[nodiscard]] std::vector<Child> children(std::int64_t parent) const;
+    // Every indexed folder with its absolute path, roots first.
+    [[nodiscard]] std::vector<Folder> folders() const;
+    // Removes an entry and everything below it, from the files table and the name index.
+    void removeTree(std::int64_t id);
     // Id of an absolute path, or nullopt when it is not indexed.
     [[nodiscard]] std::optional<std::int64_t> idOf(std::string_view path) const;
     // Removes path and everything below it, from the files table and the name index.

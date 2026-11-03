@@ -10,6 +10,8 @@ core = static_library('index-core',
   'src/index_db.cpp',
   'src/crawler.cpp',
   'src/skip_rules.cpp',
+  'src/folder_reader.cpp',
+  'src/live_index.cpp',
   dependencies: sqlite_dep,
 )
 core_dep = declare_dependency(link_with: core, include_directories: include_directories('src'), dependencies: sqlite_dep)
@@ -17,3 +19,4 @@ core_dep = declare_dependency(link_with: core, include_directories: include_dire
 executable('andromeda-index', 'src/main.cpp', dependencies: core_dep, install: true)
 
 test('index_core', executable('index_core_test', 'tests/index_core_test.cpp', dependencies: core_dep))
+test('live_index', executable('live_index_test', 'tests/live_index_test.cpp', dependencies: core_dep))

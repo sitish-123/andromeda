@@ -1,11 +1,8 @@
 #include "crawler.h"
 
-#include "skip_rules.h"
+#include "folder_reader.h"
 
-#include <dirent.h>
-#include <fcntl.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
@@ -96,51 +93,22 @@ namespace andromeda::index {
       }
 
       void readFolder(const Job& job, std::vector<Row>& rows, std::vector<Job>& children) {
-        const int fd = open(job.path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-        if (fd < 0) {
+        std::vector<DiskEntry> entries;
+        const FolderRead read = andromeda::index::readFolder(job.path, job.root, m_device, entries);
+        if (read != FolderRead::Ok) {
+          m_skipped.fetch_add(read == FolderRead::Skipped ? 1 : 0);
           return;
-        }
-        DIR* stream = fdopendir(fd);
-        if (stream == nullptr) {
-          close(fd);
-          return;
-        }
-        std::vector<std::string> names;
-        while (const dirent* e = readdir(stream)) {
-          const std::string_view name = e->d_name;
-          if (name == "." || name == "..") {
-            continue;
-          }
-          if (skipMarkerName(name) && !job.root) {
-            m_skipped.fetch_add(1);
-            closedir(stream);
-            return;
-          }
-          if (!hiddenName(name)) {
-            names.emplace_back(name);
-          }
         }
         m_folders.fetch_add(1);
-        for (std::string& name : names) {
-          struct stat st {};
-          if (fstatat(fd, name.c_str(), &st, AT_SYMLINK_NOFOLLOW) != 0 || S_ISLNK(st.st_mode)) {
-            continue;
-          }
-          const bool isDir = S_ISDIR(st.st_mode);
-          // Another filesystem below home is a mount (phone, network share, removable drive): never crossed.
-          if ((!isDir && !S_ISREG(st.st_mode)) || (isDir && (skipFolderName(name) || st.st_dev != m_device))) {
-            m_skipped.fetch_add(isDir ? 1 : 0);
-            continue;
-          }
+        for (DiskEntry& entry : entries) {
           const std::int64_t id = newId();
-          if (isDir) {
-            children.push_back({job.path == "/" ? "/" + name : job.path + "/" + name, id, false});
+          if (entry.isDir) {
+            children.push_back({job.path == "/" ? "/" + entry.name : job.path + "/" + entry.name, id, false});
           } else {
             m_files.fetch_add(1);
           }
-          rows.push_back({id, job.id, std::move(name), st.st_mtim.tv_sec, isDir ? 0 : st.st_size, isDir});
+          rows.push_back({id, job.id, std::move(entry.name), entry.mtime, entry.size, entry.isDir});
         }
-        closedir(stream);
       }
 
       void flush(std::vector<Row>& rows) {
@@ -209,7 +177,7 @@ namespace andromeda::index {
     stat(root.c_str(), &rootStat);
     ParallelCrawl walk(db, stats, rootStat.st_dev);
     const std::int64_t rootId = walk.newId();
-    db.insert(rootId, 0, root.string(), rootStat.st_mtim.tv_sec, 0, true);
+    db.insert(rootId, 0, root.string(), mtimeOf(root.string()), 0, true);
     walk.push({root.string(), rootId, true});
     walk.run();
     stats.walkMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();

@@ -157,11 +157,71 @@ namespace andromeda::index {
     return id;
   }
 
-  void IndexDb::removeTree(std::string_view path) {
-    const auto id = idOf(path);
-    if (!id) {
-      return;
+  std::int64_t IndexDb::add(std::int64_t parent, std::string_view name, std::int64_t mtime, std::int64_t size, bool isDir) {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT coalesce(max(id), 0) + 1 FROM files", -1, &stmt, nullptr);
+    const std::int64_t id = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 1;
+    sqlite3_finalize(stmt);
+    insert(id, parent, name, mtime, size, isDir);
+    return id;
+  }
+
+  void IndexDb::update(std::int64_t id, std::int64_t mtime, std::int64_t size) {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "UPDATE files SET mtime = ?2, size = ?3 WHERE id = ?1", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, id);
+    sqlite3_bind_int64(stmt, 2, mtime);
+    sqlite3_bind_int64(stmt, 3, size);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+  }
+
+  std::vector<Child> IndexDb::children(std::int64_t parent) const {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(m_db, "SELECT id, name, mtime, size, is_dir FROM files WHERE parent = ?1", -1, &stmt, nullptr);
+    sqlite3_bind_int64(stmt, 1, parent);
+    std::vector<Child> out;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      out.push_back({
+          .id = sqlite3_column_int64(stmt, 0),
+          .name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
+          .mtime = sqlite3_column_int64(stmt, 2),
+          .size = sqlite3_column_int64(stmt, 3),
+          .isDir = sqlite3_column_int(stmt, 4) != 0,
+      });
     }
+    sqlite3_finalize(stmt);
+    return out;
+  }
+
+  std::vector<Folder> IndexDb::folders() const {
+    sqlite3_stmt* stmt = nullptr;
+    sqlite3_prepare_v2(
+        m_db,
+        "WITH RECURSIVE t(id, path, mtime) AS (SELECT id, name, mtime FROM files WHERE parent = 0 "
+        "UNION ALL SELECT f.id, t.path || '/' || f.name, f.mtime FROM files f JOIN t ON f.parent = t.id WHERE f.is_dir) "
+        "SELECT id, path, mtime FROM t",
+        -1, &stmt, nullptr
+    );
+    std::vector<Folder> out;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+      out.push_back({
+          .id = sqlite3_column_int64(stmt, 0),
+          .path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1)),
+          .mtime = sqlite3_column_int64(stmt, 2),
+      });
+    }
+    sqlite3_finalize(stmt);
+    return out;
+  }
+
+  void IndexDb::removeTree(std::string_view path) {
+    if (const auto id = idOf(path)) {
+      removeTree(*id);
+    }
+  }
+
+  void IndexDb::removeTree(std::int64_t id) {
     // External-content FTS5 needs the old value to delete a row from the index.
     sqlite3_exec(m_db, "CREATE TEMP TABLE IF NOT EXISTS doomed(id INTEGER PRIMARY KEY); DELETE FROM doomed;", nullptr, nullptr, nullptr);
     sqlite3_stmt* stmt = nullptr;
@@ -171,7 +231,7 @@ namespace andromeda::index {
         "SELECT id FROM sub",
         -1, &stmt, nullptr
     );
-    sqlite3_bind_int64(stmt, 1, *id);
+    sqlite3_bind_int64(stmt, 1, id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     sqlite3_exec(
