@@ -743,8 +743,11 @@ namespace andromeda {
     }
     // A client blur region is the exact shape, so the alpha test of blur_ignore_alpha must not cut it: a clear liquid
     // tint (alpha 0.34) would lose its whole blur.
+    // Client glass opens over windows, so it blurs the live content behind it, not the cached wallpaper blur, unless
+    // a layer rule sets blur_optimized.
     if (region != nullptr && m_rule.blur.value_or(true)) {
       options.ignoreAlpha = 0.0F;
+      options.optimized = m_rule.optimized.value_or(false);
     }
     std::vector<RoundedShape> shapes;
     std::vector<wlr_box> shapeClips;
