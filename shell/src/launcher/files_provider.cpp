@@ -27,6 +27,8 @@
 namespace {
 
   constexpr Logger kLog("files");
+  // docs/search.md debounce for async providers: longer than key repeat (25/s = 40 ms), short enough to feel instant.
+  constexpr auto kTypingDebounce = std::chrono::milliseconds(60);
 
   std::string fileUri(const std::string& path) {
     gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
@@ -131,9 +133,11 @@ void FilesProvider::disconnect() const {
   m_pending.clear();
   m_requested.reset();
   m_loading = false;
+  m_debounce.stop();
 }
 
 void FilesProvider::reset() {
+  m_debounce.stop();
   m_requested.reset();
   m_answered.reset();
   m_results.clear();
@@ -155,31 +159,41 @@ std::vector<LauncherResult> FilesProvider::request(std::string_view text, bool s
     m_requested.reset();
     m_results.clear();
     m_loading = false;
+    m_debounce.stop();
     return {};
   }
   if (m_answered == key.first && m_answeredScope == key.second) {
     // Back to an answered query: an answer still on its way is for another text now.
     m_requested.reset();
     m_loading = false;
+    m_debounce.stop();
     return m_results;
   }
+  // Until the new answer arrives, the last one stays, so the section does not blink out on each keystroke.
   if (m_requested == key) {
-    return {};
+    return m_results;
   }
   const std::string kind = scoped && !m_scopeKind.empty() ? "kind:" + m_scopeKind + " " : std::string();
   const std::string line = "query " + std::to_string(scoped ? kScopedLimit : kLimit) + " " + kind + needle + "\n";
-  // Without the daemon there is no Files section; the next query tries to connect again.
-  if (!connect() || send(m_fd, line.data(), line.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(line.size())) {
-    disconnect();
-    m_answered = key.first;
-    m_answeredScope = key.second;
-    m_results.clear();
-    return {};
-  }
-  m_pending.push_back(key);
   m_requested = key;
   m_loading = true;
-  return {};
+  m_debounce.start(needle.empty() ? std::chrono::milliseconds(0) : kTypingDebounce, [this, key, line] { send(key, line); });
+  return m_results;
+}
+
+void FilesProvider::send(const Request& request, const std::string& line) const {
+  // Without the daemon there is no Files section; the next query tries to connect again.
+  if (!connect() || ::send(m_fd, line.data(), line.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(line.size())) {
+    disconnect();
+    m_answered = request.first;
+    m_answeredScope = request.second;
+    m_results.clear();
+    if (m_onResultsChanged) {
+      m_onResultsChanged();
+    }
+    return;
+  }
+  m_pending.push_back(request);
 }
 
 void FilesProvider::doAddPollFds(std::vector<pollfd>& fds) {

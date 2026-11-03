@@ -3065,7 +3065,12 @@ void LauncherPanel::cycleMode(int direction) {
 }
 
 void LauncherPanel::bindPreview(Renderer& renderer) {
-  if (m_previewPane == nullptr || !m_previewPane->visible() || m_selectedIndex >= m_results.size()) {
+  if (m_previewPane == nullptr || !m_previewPane->visible()) {
+    return;
+  }
+  // No row, no preview: the last bound result must not stay beside an empty list.
+  m_previewPane->setOpacity(m_selectedIndex < m_results.size() ? 1.0F : 0.0F);
+  if (m_selectedIndex >= m_results.size()) {
     return;
   }
   const LauncherResult& result = m_results[m_selectedIndex];
@@ -4384,8 +4389,9 @@ void LauncherPanel::refreshResults() {
     return;
   }
 
-  if (m_browserMode && m_modeProviderId.empty() && m_results.empty() && !m_query.empty() && !m_anyProviderLoading) {
-    // Rulebook 9.14 / docs/search.md §1: never an empty sheet; offer the web search row.
+  if (m_browserMode && m_modeProviderId.empty() && m_results.empty() && !m_query.empty()) {
+    // Rulebook 9.14 / docs/search.md §1: never an empty sheet, also while a slow provider answers; offer the web
+    // search row.
     const auto web = std::ranges::find(m_providers, "Web", [](const auto& provider) { return provider->id(); });
     if (web != m_providers.end()) {
       for (auto& result : (*web)->query(m_query)) {

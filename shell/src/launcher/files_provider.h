@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/poll_source.h"
+#include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
 
 #include <deque>
@@ -72,6 +73,7 @@ private:
 
   [[nodiscard]] std::vector<LauncherResult> request(std::string_view text, bool scoped) const;
   void onAnswer(const Request& request, const std::string& body) const;
+  void send(const Request& request, const std::string& line) const;
 
   ClipboardService* m_clipboard = nullptr;
   SessionBus* m_bus = nullptr;
@@ -85,5 +87,6 @@ private:
   std::string m_scopeKind;
   mutable std::vector<LauncherResult> m_results;
   mutable bool m_loading = false;
+  mutable Timer m_debounce;
   mutable std::unique_ptr<sdbus::IProxy> m_fileManager; // kept alive for pending ShowItems replies
 };
