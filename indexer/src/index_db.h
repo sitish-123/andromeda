@@ -1,5 +1,7 @@
 #pragma once
 
+#include "file_kind.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -73,9 +75,10 @@ namespace andromeda::index {
     void removeTree(std::string_view path);
 
     // Name search, without case or accents (foldName): exact name first, then name prefix, then substring; newer files
-    // first within each group. Queries need 3 characters; shorter ones return nothing. The first query loads the
-    // names into memory; loadNames() does it ahead of time. Writes by insert() after the load are not seen.
-    [[nodiscard]] std::vector<FileRow> queryNames(std::string_view text, int limit) const;
+    // first within each group. Queries need 3 characters, or 1 with a kind; shorter ones return nothing. With a kind
+    // and no text: the newest entries of that kind. The first query loads the names into memory; loadNames() does it
+    // ahead of time. Writes by insert() after the load are not seen.
+    [[nodiscard]] std::vector<FileRow> queryNames(std::string_view text, int limit, FileKind kind = FileKind::Any) const;
     void loadNames() const;
     [[nodiscard]] std::int64_t count() const;
 
@@ -104,13 +107,15 @@ namespace andromeda::index {
     struct NameEntry {
       std::uint32_t id;
       std::uint32_t offset; // into m_folded
-      std::int64_t mtime;   // kRemoved once removed
+      std::uint32_t mtime;  // seconds, for ranking only
+      FileKind kind;
+      bool removed;
     };
-    static constexpr std::int64_t kRemoved = INT64_MIN;
+    static_assert(sizeof(NameEntry) == 16);
 
     [[nodiscard]] std::string pathOf(std::int64_t id) const;
     [[nodiscard]] NameEntry* entryOf(std::int64_t id) const;
-    void appendName(std::int64_t id, std::string_view name, std::int64_t mtime) const;
+    void appendName(std::int64_t id, std::string_view name, std::int64_t mtime, bool isDir) const;
 
     sqlite3* m_db = nullptr;
     sqlite3_stmt* m_insert = nullptr;

@@ -19,6 +19,7 @@ namespace andromeda::index {
     constexpr std::size_t kMaxLine = 4096;
     constexpr std::size_t kContentRows = 3;
     constexpr long kMinTextQuery = 4;
+    constexpr std::string_view kKindPrefix = "kind:";
     constexpr int kFirstPassedFd = 3; // SD_LISTEN_FDS_START
 
     int passedSocket() {
@@ -145,9 +146,28 @@ namespace andromeda::index {
     if (error != std::errc{} || rest == line.data() + line.size() || *rest != ' ') {
       return "\n";
     }
-    const std::string_view text = line.substr(static_cast<std::size_t>(rest - line.data()) + 1);
+    // A kind:<word> token filters by kind; the other words are the text.
+    std::string text;
+    FileKind kind = FileKind::Any;
+    for (std::string_view words = line.substr(static_cast<std::size_t>(rest - line.data()) + 1); !words.empty();) {
+      const std::string_view word = words.substr(0, words.find(' '));
+      words.remove_prefix(std::min(words.size(), word.size() + 1));
+      if (word.empty()) {
+        continue;
+      }
+      if (!word.starts_with(kKindPrefix)) {
+        text += text.empty() ? "" : " ";
+        text += word;
+        continue;
+      }
+      const auto parsed = parseKind(word.substr(kKindPrefix.size()));
+      if (!parsed) {
+        return "\n";
+      }
+      kind = *parsed;
+    }
     limit = std::clamp(limit, 1, kMaxLimit);
-    std::vector<FileRow> names = m_db.queryNames(text, limit);
+    std::vector<FileRow> names = m_db.queryNames(text, limit, kind);
     std::vector<std::string> named;
     named.reserve(names.size());
     for (const FileRow& row : names) {
@@ -156,7 +176,13 @@ namespace andromeda::index {
     // Three letters match words in nearly every document: noise that costs ~8 ms per query.
     const bool searchText = std::ranges::count_if(text, [](char c) { return std::isspace(static_cast<unsigned char>(c)) == 0; })
         >= kMinTextQuery;
-    const std::vector<FileRow> content = searchText ? m_db.queryContent(text, limit, named) : std::vector<FileRow>{};
+    const bool kindHasText = kind == FileKind::Any || kind == FileKind::Pdf || kind == FileKind::Doc
+        || kind == FileKind::Sheet || kind == FileKind::Slides;
+    std::vector<FileRow> content =
+        searchText && kindHasText ? m_db.queryContent(text, kind == FileKind::Any ? limit : kMaxLimit, named) : std::vector<FileRow>{};
+    if (kind != FileKind::Any) {
+      std::erase_if(content, [kind](const FileRow& row) { return fileKind(row.name, row.isDir) != kind; });
+    }
     // Names first; up to kContentRows rows stay free for files that match by their text.
     names.resize(std::min(names.size(), static_cast<std::size_t>(limit) - std::min(content.size(), kContentRows)));
     std::string out;

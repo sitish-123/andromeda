@@ -2,6 +2,7 @@
 #include "content_worker.h"
 #include "crawler.h"
 #include "index_db.h"
+#include "query_server.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -77,6 +78,19 @@ int main() {
     check(!found(db, "cargo-notice", "cargo-notice.txt"), "a folder with CACHEDIR.TAG is skipped");
     check(db.queryNames("ab", 50).empty(), "a query under 3 characters returns nothing");
     check(found(db, "quart", "Quarterly Report.pdf"), "a root that is a git checkout is still indexed");
+
+    // The launcher's kind filter: kind:<word> in the query line, alone = newest of that kind.
+    const QueryServer server(db, -1);
+    const std::string pdfs = server.answer("query 20 kind:pdf");
+    check(pdfs.find("Quarterly Report.pdf") != std::string::npos && pdfs.find("Résumé Élan.pdf") != std::string::npos
+              && pdfs.find(".txt") == std::string::npos,
+          "kind alone lists only that kind");
+    const std::string pdfReport = server.answer("query 20 report kind:pdf");
+    check(pdfReport.find("Quarterly Report.pdf") != std::string::npos && pdfReport.find("report-draft.txt") == std::string::npos
+              && pdfReport.find("/Report\t") == std::string::npos,
+          "kind filters a text query");
+    check(server.answer("query 20 kind:folder notes").find("/notes\t") != std::string::npos, "kind:folder finds folders");
+    check(server.answer("query 20 kind:nope report") == "\n", "an unknown kind answers nothing");
 
     const auto rows = db.queryNames("report", 10);
     check(!rows.empty() && rows.front().name == "Report", "exact name ranks first");

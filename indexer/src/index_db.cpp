@@ -36,6 +36,10 @@ namespace andromeda::index {
     constexpr int kSchemaVersion = 2;
     constexpr const char* kDropContent = "DROP TABLE IF EXISTS content; DROP TABLE IF EXISTS extracted;";
 
+    std::uint32_t seconds(std::int64_t nanos) {
+      return static_cast<std::uint32_t>(std::clamp<std::int64_t>(nanos / 1'000'000'000, 0, UINT32_MAX));
+    }
+
     // An older content index is dropped; the content worker reads the documents again.
     bool migrate(sqlite3* db) {
       sqlite3_stmt* stmt = nullptr;
@@ -226,7 +230,7 @@ namespace andromeda::index {
     }
     insert(id, parent, name, mtime, size, isDir);
     if (m_loaded) {
-      appendName(id, name, mtime);
+      appendName(id, name, mtime, isDir);
     }
     return id;
   }
@@ -240,7 +244,7 @@ namespace andromeda::index {
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     if (NameEntry* entry = entryOf(id)) {
-      entry->mtime = mtime;
+      entry->mtime = seconds(mtime);
     }
   }
 
@@ -305,8 +309,8 @@ namespace andromeda::index {
     if (m_loaded) {
       sqlite3_prepare_v2(m_db, "SELECT id FROM doomed", -1, &stmt, nullptr);
       while (sqlite3_step(stmt) == SQLITE_ROW) {
-        if (NameEntry* entry = entryOf(sqlite3_column_int64(stmt, 0)); entry != nullptr && entry->mtime != kRemoved) {
-          entry->mtime = kRemoved;
+        if (NameEntry* entry = entryOf(sqlite3_column_int64(stmt, 0)); entry != nullptr && !entry->removed) {
+          entry->removed = true;
           ++m_removed;
         }
       }
@@ -339,19 +343,19 @@ namespace andromeda::index {
       m_folded.reserve(static_cast<std::size_t>(sqlite3_column_int64(stmt, 0) + sqlite3_column_int64(stmt, 1)) + 4096);
     }
     sqlite3_finalize(stmt);
-    sqlite3_prepare_v2(m_db, "SELECT id, name, mtime FROM files ORDER BY id", -1, &stmt, nullptr);
+    sqlite3_prepare_v2(m_db, "SELECT id, name, mtime, is_dir FROM files ORDER BY id", -1, &stmt, nullptr);
     while (sqlite3_step(stmt) == SQLITE_ROW) {
       const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
       appendName(sqlite3_column_int64(stmt, 0), {name, static_cast<std::size_t>(sqlite3_column_bytes(stmt, 1))},
-                 sqlite3_column_int64(stmt, 2));
+                 sqlite3_column_int64(stmt, 2), sqlite3_column_int(stmt, 3) != 0);
     }
     sqlite3_finalize(stmt);
     m_loaded = true;
   }
 
-  void IndexDb::appendName(std::int64_t id, std::string_view name, std::int64_t mtime) const {
+  void IndexDb::appendName(std::int64_t id, std::string_view name, std::int64_t mtime, bool isDir) const {
     m_entries.push_back({.id = static_cast<std::uint32_t>(id), .offset = static_cast<std::uint32_t>(m_folded.size()),
-                         .mtime = mtime});
+                         .mtime = seconds(mtime), .kind = fileKind(name, isDir), .removed = false});
     m_folded += foldName(name);
     m_folded += '\0';
   }
@@ -364,22 +368,30 @@ namespace andromeda::index {
     return it != m_entries.end() && it->id == id ? &*it : nullptr;
   }
 
-  std::vector<FileRow> IndexDb::queryNames(std::string_view text, int limit) const {
+  std::vector<FileRow> IndexDb::queryNames(std::string_view text, int limit, FileKind kind) const {
     const std::string needle = foldName(trimmed(text));
-    if (needle.size() < 3 || m_db == nullptr) {
+    const bool anyKind = kind == FileKind::Any;
+    if ((anyKind && needle.size() < 3) || m_db == nullptr) {
       return {};
     }
     loadNames();
     struct Hit {
       int rank; // 0 exact name, 1 name prefix, 2 substring
-      std::int64_t mtime;
+      std::uint32_t mtime;
       std::int64_t id;
     };
     std::vector<Hit> hits;
+    if (needle.empty()) {
+      for (const NameEntry& entry : m_entries) {
+        if (!entry.removed && entry.kind == kind) {
+          hits.push_back({.rank = 0, .mtime = entry.mtime, .id = entry.id});
+        }
+      }
+    }
     const char* const begin = m_folded.data();
     const char* const end = begin + m_folded.size();
     auto entry = m_entries.begin();
-    for (const char* at = begin; at < end;) {
+    for (const char* at = needle.empty() ? end : begin; at < end;) {
       const char* found = findIn(at, end, needle);
       if (found == nullptr) {
         break;
@@ -388,7 +400,7 @@ namespace andromeda::index {
       entry = std::ranges::upper_bound(entry, m_entries.end(), offset, {}, &NameEntry::offset) - 1;
       const auto next = entry + 1;
       at = next != m_entries.end() ? begin + next->offset : end;
-      if (entry->mtime == kRemoved) {
+      if (entry->removed || (!anyKind && entry->kind != kind)) {
         continue;
       }
       const int rank = offset != entry->offset ? 2 : (found[needle.size()] == '\0' ? 0 : 1);
