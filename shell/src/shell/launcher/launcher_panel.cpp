@@ -112,6 +112,11 @@ namespace {
   }
   // Tab order of the media modes; a mode shows only when its provider is registered.
   constexpr std::array<std::string_view, 5> kModeProviders{"Clipboard", "Emoji", "Gifs", "Stickers", "Symbols"};
+  // Files scope kind chips: the daemon's kind word ("" = all) and the label key under launcher.files.kinds.
+  constexpr std::array<std::pair<std::string_view, std::string_view>, 9> kFileKinds{{
+      {"", "all"}, {"folder", "folder"}, {"pdf", "pdf"}, {"image", "image"}, {"video", "video"},
+      {"audio", "audio"}, {"doc", "doc"}, {"sheet", "sheet"}, {"slides", "slides"},
+  }};
   constexpr std::string_view kModeContextPrefix = "mode:";
   constexpr std::int32_t kCompactNavigationWidth = 680;
   constexpr float kLauncherAvatarSize = 44.0F;
@@ -1998,6 +2003,7 @@ void LauncherPanel::create() {
           .participatesInLayout = m_filesScope,
       });
       token->addChild(ui::label({
+          .out = &m_filesTokenLabel,
           .text = i18n::tr("launcher.files.title"),
           .fontSize = Style::fontSizeCaption * scale,
           .color = colorSpecFromRole(ColorRole::Label1),
@@ -2045,6 +2051,24 @@ void LauncherPanel::create() {
         .participatesInLayout = false,
     }));
     m_modeTabItems.clear();
+    container->addChild(ui::row({
+        .out = &m_kindTabs,
+        .align = FlexAlign::Center,
+        .gap = Tokens::spaceP4 * scale,
+        .paddingH = Tokens::spaceP12 * scale,
+        .minHeight = Tokens::componentLauncherTabs * scale,
+        .fillWidth = true,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    container->addChild(ui::separator({
+        .out = &m_kindTabsLine,
+        .color = colorSpecFromRole(ColorRole::Separator),
+        .thickness = 1.0F,
+        .visible = false,
+        .participatesInLayout = false,
+    }));
+    m_kindTabItems.clear();
     body->setPadding(Tokens::componentLauncherPadding * scale);
     body->setVisible(false);
     body->setParticipatesInLayout(false);
@@ -2225,6 +2249,9 @@ void LauncherPanel::create() {
     }));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.open"), "↩", &m_pillOpenHint));
     footerRow->addChild(keyHint(i18n::tr("launcher.pill.actions-hint"), "⌘K"));
+    auto kindHint = keyHint(i18n::tr("launcher.pill.kind-hint"), "⇥");
+    m_pillKindHint = kindHint.get();
+    footerRow->addChild(std::move(kindHint));
     auto backHint = keyHint(i18n::tr("launcher.pill.back-hint"), "⌫");
     m_pillBackHint = backHint.get();
     footerRow->addChild(std::move(backHint));
@@ -2817,6 +2844,16 @@ void LauncherPanel::setMode(std::string_view providerId) {
 void LauncherPanel::setFilesScope(bool on) {
   m_filesScope = on;
   m_selectedIndex = 0;
+  if (!on) {
+    m_kindIndex = 0;
+    if (auto* files = filesProvider()) {
+      files->setScopeKind({});
+    }
+    if (m_filesTokenLabel != nullptr) {
+      m_filesTokenLabel->setText(i18n::tr("launcher.files.title"));
+    }
+  }
+  syncKindTabs();
   if (m_filesToken != nullptr) {
     m_filesToken->setVisible(on);
     m_filesToken->setParticipatesInLayout(on);
@@ -2826,6 +2863,69 @@ void LauncherPanel::setFilesScope(bool on) {
   }
   queueResultsTransition(on ? ResultsTransition::NavigationForward : ResultsTransition::NavigationBackward);
   onInputChanged(m_query);
+}
+
+void LauncherPanel::setFilesKind(std::size_t index) {
+  m_kindIndex = index % kFileKinds.size();
+  const auto& [word, key] = kFileKinds[m_kindIndex];
+  if (auto* files = filesProvider()) {
+    files->setScopeKind(std::string(word));
+  }
+  if (m_filesTokenLabel != nullptr) {
+    m_filesTokenLabel->setText(
+        word.empty() ? i18n::tr("launcher.files.title")
+                     : i18n::tr("launcher.files.title") + " · " + i18n::tr(std::format("launcher.files.kinds.{}", key))
+    );
+  }
+  m_selectedIndex = 0;
+  syncKindTabs();
+  onInputChanged(m_query);
+}
+
+void LauncherPanel::syncKindTabs() {
+  if (m_kindTabs == nullptr) {
+    return;
+  }
+  const float scale = contentScale();
+  if (m_kindTabItems.empty()) {
+    for (std::size_t i = 0; i < kFileKinds.size(); ++i) {
+      auto tab = ui::row({
+          .align = FlexAlign::Center,
+          .paddingH = Tokens::spaceP12 * scale,
+          .radius = Tokens::sizeControlS * 0.5F * scale,
+          .minHeight = Tokens::sizeControlS * scale,
+      });
+      tab->addChild(ui::label({
+          .text = i18n::tr(std::format("launcher.files.kinds.{}", kFileKinds[i].second)),
+          .fontSize = Style::fontSizeBody * scale,
+          .color = colorSpecFromRole(ColorRole::Label2),
+      }));
+      auto area = std::make_unique<InputArea>();
+      area->setParticipatesInLayout(false);
+      area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
+      area->setOnClick([this, i](const InputArea::PointerData&) { setFilesKind(i); });
+      Flex* tabPtr = tab.get();
+      tab->addChild(std::move(area));
+      m_kindTabs->addChild(std::move(tab));
+      m_kindTabItems.push_back(tabPtr);
+    }
+  }
+  const bool show = m_browserMode && m_filesScope;
+  m_kindTabs->setVisible(show);
+  m_kindTabs->setParticipatesInLayout(show);
+  m_kindTabsLine->setVisible(show);
+  m_kindTabsLine->setParticipatesInLayout(show);
+  for (std::size_t i = 0; i < m_kindTabItems.size(); ++i) {
+    Flex* tab = m_kindTabItems[i];
+    const bool on = i == m_kindIndex;
+    tab->setFill(on ? colorSpecFromRole(ColorRole::Lens) : clearColorSpec());
+    if (auto* label = dynamic_cast<Label*>(tab->children().front().get())) {
+      label->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
+    }
+    if (auto* area = dynamic_cast<InputArea*>(tab->children().back().get())) {
+      area->setFrameSize(tab->width(), tab->height());
+    }
+  }
 }
 
 void LauncherPanel::cycleMode(int direction) {
@@ -3361,6 +3461,10 @@ void LauncherPanel::onClose() {
   m_scopedProviderId.clear();
   m_scopedPlaceholder.clear();
   m_filesScope = false;
+  m_kindIndex = 0;
+  if (auto* files = filesProvider()) {
+    files->setScopeKind({});
+  }
   m_activeCategoryType = All;
   m_activeCategorySlotIndex = 0;
   m_activeCategory.clear();
@@ -4226,6 +4330,9 @@ void LauncherPanel::applyEmptyState() {
     );
     m_pillBackHint->setVisible(m_filesScope);
     m_pillBackHint->setParticipatesInLayout(m_filesScope);
+    m_pillKindHint->setVisible(m_filesScope);
+    m_pillKindHint->setParticipatesInLayout(m_filesScope);
+    syncKindTabs();
     if (m_filesToken != nullptr) {
       if (auto* area = dynamic_cast<InputArea*>(m_filesToken->children().back().get())) {
         area->setFrameSize(m_filesToken->width(), m_filesToken->height());
@@ -4527,6 +4634,11 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
     }
   };
 
+  if (m_filesScope && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
+    const bool back = sym == XKB_KEY_ISO_Left_Tab || (modifiers & KeyMod::Shift) != 0;
+    setFilesKind(m_kindIndex + (back ? kFileKinds.size() - 1 : 1));
+    return true;
+  }
   if (!m_modeProviderId.empty() && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
     cycleMode((sym == XKB_KEY_ISO_Left_Tab || (modifiers & KeyMod::Shift) != 0) ? -1 : 1);
     return true;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Launcher "Show all files": with 12 matching files the Files section shows 8 and a "Show all files" row; Enter on it
-# opens the Files scope, which lists all 12; Backspace on the empty field leaves the scope. Captures in $OUT
-# (default ./artifacts/launcher-files-show-all): sections.png, scope.png, left.png.
+# Launcher "Show all files": with 13 matching files the Files section shows 8 and a "Show all files" row; Enter on it
+# opens the Files scope, which lists all 13; Tab twice picks the PDFs chip (1 file); Backspace on the empty field
+# leaves the scope. Captures in $OUT (default ./artifacts/launcher-files-show-all): sections, scope, kind, left.png.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/launcher-files-show-all}
 source "$(dirname "$0")/lib.sh"
@@ -14,6 +14,7 @@ for i in $(seq -w 1 12); do
   printf 'kiwi %s\n' "$i" > "$home/Documents/kiwi-report-$i.txt"
   touch -d "2026-10-$i 12:00" "$home/Documents/kiwi-report-$i.txt"
 done
+printf '%%PDF-1.4\n' > "$home/Documents/kiwi-report-scan.pdf"
 
 export NOCTALIA_LOG_LEVEL=debug INDEX
 with_noctalia '
@@ -30,10 +31,18 @@ with_noctalia '
   # 8 file rows, then "Show all files".
   for _ in $(seq 8); do wtype -k Down; done
   wtype -k Return
-  wait_for "the Files scope did not list 12 files" \
-    "grep -q \"\] 12 files for \\\"kiwi-report\\\" in the Files scope\" \"$OUT/noctalia.log\""
+  wait_for "the Files scope did not list 13 files" \
+    "grep -q \"\] 13 files for \\\"kiwi-report\\\" in the Files scope\$\" \"$OUT/noctalia.log\""
   sleep 0.4
   grim "$OUT/scope.png"
+
+  # Kind chips: All, Folders, PDFs.
+  wtype -k Tab
+  wtype -k Tab
+  wait_for "the PDFs chip did not filter to 1 file" \
+    "grep -q \"\] 1 files for \\\"kiwi-report\\\" in the Files scope kind pdf\" \"$OUT/noctalia.log\""
+  sleep 0.4
+  grim "$OUT/kind.png"
 
   for _ in $(seq 11); do wtype -k BackSpace; done
   sleep 0.2

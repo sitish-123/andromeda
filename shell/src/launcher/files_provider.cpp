@@ -146,18 +146,18 @@ std::vector<LauncherResult> FilesProvider::queryPrefixed(std::string_view text) 
 
 std::vector<LauncherResult> FilesProvider::request(std::string_view text, bool scoped) const {
   // The broker matches answers to the text it asked, so the raw text is the key; the daemon gets it trimmed.
-  const Request key{std::string(text), scoped};
+  const Request key{std::string(text), scoped ? std::optional(m_scopeKind) : std::nullopt};
   std::string needle = StringUtils::trim(text);
   std::erase(needle, '\n');
-  if (needle.size() < kMinQuery) {
+  if (needle.size() < kMinQuery && (!scoped || m_scopeKind.empty() || !needle.empty())) {
     m_answered = key.first;
-    m_answeredScoped = scoped;
+    m_answeredScope = key.second;
     m_requested.reset();
     m_results.clear();
     m_loading = false;
     return {};
   }
-  if (m_answered == key.first && m_answeredScoped == scoped) {
+  if (m_answered == key.first && m_answeredScope == key.second) {
     // Back to an answered query: an answer still on its way is for another text now.
     m_requested.reset();
     m_loading = false;
@@ -166,12 +166,13 @@ std::vector<LauncherResult> FilesProvider::request(std::string_view text, bool s
   if (m_requested == key) {
     return {};
   }
-  const std::string line = "query " + std::to_string(scoped ? kScopedLimit : kLimit) + " " + needle + "\n";
+  const std::string kind = scoped && !m_scopeKind.empty() ? "kind:" + m_scopeKind + " " : std::string();
+  const std::string line = "query " + std::to_string(scoped ? kScopedLimit : kLimit) + " " + kind + needle + "\n";
   // Without the daemon there is no Files section; the next query tries to connect again.
   if (!connect() || send(m_fd, line.data(), line.size(), MSG_NOSIGNAL) != static_cast<ssize_t>(line.size())) {
     disconnect();
     m_answered = key.first;
-    m_answeredScoped = scoped;
+    m_answeredScope = key.second;
     m_results.clear();
     return {};
   }
@@ -232,7 +233,8 @@ void FilesProvider::dispatch(const std::vector<pollfd>& fds, std::size_t startId
 }
 
 void FilesProvider::onAnswer(const Request& request, const std::string& body) const {
-  const auto& [text, scoped] = request;
+  const auto& [text, scope] = request;
+  const bool scoped = scope.has_value();
   m_results.clear();
   std::vector<std::int64_t> mtimes;
   std::size_t start = 0;
@@ -263,7 +265,8 @@ void FilesProvider::onAnswer(const Request& request, const std::string& body) co
     r.category = displayName();
     m_results.push_back(std::move(r));
   }
-  kLog.debug("{} files for \"{}\"{}", m_results.size(), text, scoped ? " in the Files scope" : "");
+  kLog.debug("{} files for \"{}\"{}{}", m_results.size(), text, scoped ? " in the Files scope" : "",
+             scoped && !scope->empty() ? " kind " + *scope : std::string());
   if (scoped) {
     std::vector<std::size_t> order(m_results.size());
     for (std::size_t i = 0; i < order.size(); ++i) {
@@ -288,7 +291,7 @@ void FilesProvider::onAnswer(const Request& request, const std::string& body) co
     m_results.push_back(std::move(all));
   }
   m_answered = text;
-  m_answeredScoped = scoped;
+  m_answeredScope = scope;
   m_requested.reset();
   m_loading = false;
   if (m_onResultsChanged) {

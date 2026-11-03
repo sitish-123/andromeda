@@ -49,6 +49,9 @@ public:
   [[nodiscard]] std::vector<LauncherResult> query(std::string_view text) const override;
   // The Files scope: the launcher routes every query here while its scope token shows.
   [[nodiscard]] std::vector<LauncherResult> queryPrefixed(std::string_view text) const override;
+  // Kind filter of the Files scope: a daemon kind word (pdf, image, ...) or empty for all. With a kind, an empty
+  // query lists the newest files of that kind.
+  void setScopeKind(std::string kind) { m_scopeKind = std::move(kind); }
   bool activate(const LauncherResult& result) override;
 
   // Opens the folder of a result with the file selected.
@@ -64,8 +67,8 @@ protected:
 private:
   [[nodiscard]] bool connect() const;
   void disconnect() const;
-  // A request is the asked text plus whether it came from the Files scope.
-  using Request = std::pair<std::string, bool>;
+  // A request is the asked text plus its scope: nullopt = the general search, else the Files scope's kind word.
+  using Request = std::pair<std::string, std::optional<std::string>>;
 
   [[nodiscard]] std::vector<LauncherResult> request(std::string_view text, bool scoped) const;
   void onAnswer(const Request& request, const std::string& body) const;
@@ -78,7 +81,8 @@ private:
   mutable std::deque<Request> m_pending; // queries sent, oldest first
   mutable std::optional<Request> m_requested;
   mutable std::optional<std::string> m_answered;
-  mutable bool m_answeredScoped = false;
+  mutable std::optional<std::string> m_answeredScope;
+  std::string m_scopeKind;
   mutable std::vector<LauncherResult> m_results;
   mutable bool m_loading = false;
   mutable std::unique_ptr<sdbus::IProxy> m_fileManager; // kept alive for pending ShowItems replies

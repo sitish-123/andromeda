@@ -153,6 +153,8 @@ private:
   void setMode(std::string_view providerId);
   void cycleMode(int direction);
   void setFilesScope(bool on);
+  void setFilesKind(std::size_t index);
+  void syncKindTabs();
   void syncModeTabs();
   void syncEmojiStrip();
   [[nodiscard]] bool pillExpanded() const;
@@ -263,6 +265,13 @@ private:
   // "Show all files" scope: a "Files" token in the field; every query goes to Files only (50 rows, newest first).
   bool m_filesScope = false;
   Flex* m_filesToken = nullptr;
+  Label* m_filesTokenLabel = nullptr;
+  // Kind chips of the Files scope (DESIGN.md "Show all" B, kind filter A); index into kFileKinds.
+  Flex* m_kindTabs = nullptr;
+  Separator* m_kindTabsLine = nullptr;
+  std::vector<Flex*> m_kindTabItems;
+  std::size_t m_kindIndex = 0;
+  Flex* m_pillKindHint = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
   std::optional<BrowserViewState> m_sessionReturnView;

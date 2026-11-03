@@ -1088,6 +1088,7 @@
     "pill": {
       "actions-hint": "Actions",
       "back-hint": "Back",
+      "kind-hint": "Kind",
       "category": "Category",
       "close-hint": "Close",
       "open": "Open",
@@ -1119,6 +1120,17 @@
       "copy-path": "Copy Path",
       "count": "{count} file",
       "count-plural": "{count} files",
+      "kinds": {
+        "all": "All",
+        "audio": "Audio",
+        "doc": "Docs",
+        "folder": "Folders",
+        "image": "Images",
+        "pdf": "PDFs",
+        "sheet": "Sheets",
+        "slides": "Slides",
+        "video": "Videos"
+      },
       "modified": "Modified",
       "reveal": "Reveal",
       "show-all": "Show all files",
