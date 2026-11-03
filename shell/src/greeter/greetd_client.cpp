@@ -10,6 +10,7 @@
 #include <limits>
 #include <nlohmann/json.hpp>
 #include <poll.h>
+#include <sodium.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -215,10 +216,14 @@ bool GreetdClient::sendRequest(const std::string& request, const GreetdRequestTy
   }
 
   const std::uint32_t len = static_cast<std::uint32_t>(request.size());
-  std::string frame(sizeof(len), '\0');
-  std::memcpy(frame.data(), &len, sizeof(len));
+  std::string frame;
+  frame.reserve(sizeof(len) + request.size());
+  frame.append(reinterpret_cast<const char*>(&len), sizeof(len));
   frame.append(request);
-  if (!writeAll(frame.data(), frame.size())) {
+  const bool written = writeAll(frame.data(), frame.size());
+  // The frame may carry a password.
+  sodium_memzero(frame.data(), frame.size());
+  if (!written) {
     // A partial stream frame cannot be recovered. Close it so callers fail
     // closed instead of issuing another request on a corrupted connection.
     disconnect();
@@ -316,12 +321,32 @@ bool GreetdClient::requestCreateSession(const std::string& username) {
 }
 
 bool GreetdClient::requestPostAuthData(const std::string& data) {
-  json req;
-  req["type"] = "post_auth_message_response";
-  if (!data.empty()) {
-    req["response"] = data;
+  if (data.empty()) {
+    return sendRequest(R"({"type":"post_auth_message_response"})", GreetdRequestType::PostAuthMessageResponse);
   }
-  return sendRequest(req.dump(), GreetdRequestType::PostAuthMessageResponse);
+  // Built by hand into one buffer of final capacity, so no reallocation leaves a copy of the secret behind; wiped
+  // after the write.
+  std::string body;
+  body.reserve(64 + data.size() * 6);
+  body += R"({"type":"post_auth_message_response","response":")";
+  for (const char c : data) {
+    const auto u = static_cast<unsigned char>(c);
+    if (c == '"' || c == '\\') {
+      body += '\\';
+      body += c;
+    } else if (u < 0x20) {
+      constexpr char kHex[] = "0123456789abcdef";
+      body += "\\u00";
+      body += kHex[u >> 4];
+      body += kHex[u & 0xF];
+    } else {
+      body += c;
+    }
+  }
+  body += "\"}";
+  const bool sent = sendRequest(body, GreetdRequestType::PostAuthMessageResponse);
+  sodium_memzero(body.data(), body.size());
+  return sent;
 }
 
 bool GreetdClient::requestStartSession(const GreetdSessionCommand& command) {

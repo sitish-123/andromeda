@@ -35,6 +35,7 @@
 #include <memory>
 #include <optional>
 #include <poll.h>
+#include <unistd.h>
 #include <sodium.h>
 #include <sstream>
 #include <string>
@@ -50,6 +51,8 @@ namespace {
   constexpr const char* kDefaultStateDir = "/var/lib/noctalia-greeter";
 
   std::atomic<bool> g_quit{false};
+  // Fixed capacity, so typing never reallocates and leaves password prefixes in freed memory.
+  constexpr std::size_t kPasswordCapacity = 1024;
 
   void onSignal(int /*signal*/) { g_quit.store(true, std::memory_order_relaxed); }
 
@@ -91,7 +94,59 @@ namespace {
     return config;
   }
 
-  // The session to start: andromeda.desktop when installed, else the first wayland session found.
+  // Exec= split per the Desktop Entry spec: double quotes group, a backslash escapes the next character, and field
+  // codes (%f, %U...) drop out.
+  std::vector<std::string> splitExec(const std::string& exec) {
+    std::vector<std::string> words;
+    std::string word;
+    bool inWord = false;
+    bool quoted = false;
+    for (std::size_t i = 0; i < exec.size(); ++i) {
+      const char c = exec[i];
+      if (quoted) {
+        if (c == '\\' && i + 1 < exec.size()) {
+          word += exec[++i];
+        } else if (c == '"') {
+          quoted = false;
+        } else {
+          word += c;
+        }
+      } else if (c == '"') {
+        quoted = true;
+        inWord = true;
+      } else if (c == ' ' || c == '\t') {
+        if (inWord) {
+          words.push_back(std::move(word));
+          word.clear();
+          inWord = false;
+        }
+      } else {
+        word += c;
+        inWord = true;
+      }
+    }
+    if (inWord) {
+      words.push_back(std::move(word));
+    }
+    std::erase_if(words, [](const std::string& w) { return w.size() == 2 && w[0] == '%'; });
+    return words;
+  }
+
+  bool onPath(const std::string& program) {
+    if (program.find('/') != std::string::npos) {
+      return access(program.c_str(), X_OK) == 0;
+    }
+    const char* path = std::getenv("PATH");
+    std::stringstream dirs(path != nullptr ? path : "/usr/local/bin:/usr/bin");
+    for (std::string dir; std::getline(dirs, dir, ':');) {
+      if (access((std::filesystem::path(dir) / program).c_str(), X_OK) == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // The session to start: andromeda.desktop when installed, else the first other wayland session by file name.
   std::optional<GreetdSessionCommand> findSession() {
     const char* env = std::getenv("XDG_DATA_DIRS");
     std::stringstream dirs(env != nullptr && env[0] != '\0' ? env : "/usr/local/share:/usr/share");
@@ -104,33 +159,40 @@ namespace {
         }
       }
     }
+    std::ranges::sort(entries, {}, [](const auto& p) { return p.filename(); });
     std::ranges::stable_partition(entries, [](const auto& p) { return p.filename() == "andromeda.desktop"; });
     for (const auto& path : entries) {
       std::ifstream in(path);
       std::string exec;
+      std::string tryExec;
       std::string desktopNames;
+      bool hidden = false;
+      bool inEntry = false;
       for (std::string line; std::getline(in, line);) {
-        if (line.starts_with("Exec=") && exec.empty()) {
-          exec = line.substr(5);
-        } else if (line.starts_with("DesktopNames=") && desktopNames.empty()) {
-          desktopNames = line.substr(13);
-        }
-      }
-      std::stringstream words(exec);
-      GreetdSessionCommand command;
-      for (std::string word; words >> word;) {
-        if (word.starts_with('%')) {
+        if (line.starts_with('[')) {
+          inEntry = line == "[Desktop Entry]";
+        } else if (!inEntry) {
           continue;
-        }
-        if (command.command.empty()) {
-          command.command = word;
-        } else {
-          command.arguments.push_back(word);
+        } else if (line.starts_with("Exec=")) {
+          exec = line.substr(5);
+        } else if (line.starts_with("TryExec=")) {
+          tryExec = line.substr(8);
+        } else if (line.starts_with("DesktopNames=")) {
+          desktopNames = line.substr(13);
+        } else if (line == "Hidden=true" || line == "NoDisplay=true") {
+          hidden = true;
         }
       }
-      if (command.command.empty()) {
+      if (hidden || (!tryExec.empty() && !onPath(tryExec))) {
         continue;
       }
+      auto words = splitExec(exec);
+      if (words.empty()) {
+        continue;
+      }
+      GreetdSessionCommand command;
+      command.command = words.front();
+      command.arguments.assign(words.begin() + 1, words.end());
       std::ranges::replace(desktopNames, ';', ':');
       while (desktopNames.ends_with(':')) {
         desktopNames.pop_back();
@@ -215,7 +277,9 @@ namespace {
 
   class GreeterHost {
   public:
-    explicit GreeterHost(std::string user) : m_user(std::move(user)), m_config(loadGreeterConfig()) {}
+    explicit GreeterHost(std::string user) : m_user(std::move(user)), m_config(loadGreeterConfig()) {
+      m_password.reserve(kPasswordCapacity);
+    }
     ~GreeterHost() { wipe(m_password); }
 
     bool initialize() {
@@ -295,7 +359,10 @@ namespace {
         if (const auto late = m_greetd.timedOutRequest()) {
           kLog.error("greetd did not answer {} in time", greetdRequestTypeName(late->request));
           m_greetd.disconnect();
-          setHint("Login is not available", true);
+          m_greetdLost = true;
+        }
+        if (m_greetdLost) {
+          return 1;
         }
         if (m_sessionStarted) {
           kLog.info("session started; greeter exits");
@@ -426,6 +493,11 @@ namespace {
     enum class Phase : std::uint8_t { Idle, Creating, Waiting, Posting, Starting, Cancelling };
 
     void createSession() {
+      if (m_user.empty()) {
+        setHint("No user selected", true);
+        m_phase = Phase::Idle;
+        return;
+      }
       m_phase = m_greetd.requestCreateSession(m_user) ? Phase::Creating : Phase::Idle;
     }
 
@@ -454,6 +526,9 @@ namespace {
 
     void postPassword() {
       m_submitQueued = false;
+      if (m_password.empty()) {
+        return;
+      }
       const bool sent = m_greetd.requestPostAuthData(m_password);
       wipe(m_password);
       m_phase = sent ? Phase::Posting : Phase::Idle;
@@ -476,7 +551,8 @@ namespace {
         }
       } else if (event.sym == XKB_KEY_Escape) {
         wipe(m_password);
-      } else if (event.utf32 >= 0x20 && event.utf32 != 0x7F) {
+        m_submitQueued = false;
+      } else if (event.utf32 >= 0x20 && event.utf32 != 0x7F && m_password.size() + 4 <= kPasswordCapacity) {
         appendUtf8(m_password, event.utf32);
       } else {
         return;
@@ -488,9 +564,12 @@ namespace {
       while (auto response = m_greetd.readMessage()) {
         onGreetdResponse(*response);
       }
-      if (const auto& error = m_greetd.lastError(); error.has_value() && !m_greetd.isConnected()) {
+      // A closed socket or a frame that does not parse leaves the connection unusable. The greeter exits: the
+      // compositor ends the greeter session and greetd starts a new one.
+      if (const auto& error = m_greetd.lastError(); error.has_value()) {
         kLog.error("greetd connection lost: {}", error->description);
-        setHint("Login is not available", true);
+        m_greetd.disconnect();
+        m_greetdLost = true;
       }
     }
 
@@ -535,7 +614,13 @@ namespace {
         } else {
           setHint(response.error.description, true);
         }
-        m_phase = m_greetd.requestCancelSession() ? Phase::Cancelling : Phase::Idle;
+        // A failed create_session (unknown user) is not retried: that would loop as fast as greetd answers.
+        if (m_phase == Phase::Creating || m_phase == Phase::Cancelling) {
+          kLog.error("greetd refused a session for '{}': {}", m_user, response.error.description);
+          m_phase = Phase::Idle;
+        } else {
+          m_phase = m_greetd.requestCancelSession() ? Phase::Cancelling : Phase::Idle;
+        }
         break;
       }
     }
@@ -550,6 +635,7 @@ namespace {
     bool m_submitQueued = false;
     bool m_sessionStarted = false;
     bool m_trimmed = false;
+    bool m_greetdLost = false;
     WaylandConnection m_wayland;
     GlSharedContext m_gl;
     RenderContext m_render;
