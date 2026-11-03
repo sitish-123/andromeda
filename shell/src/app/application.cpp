@@ -112,6 +112,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstring>
+#include <dlfcn.h>
 #include <filesystem>
 #include <limits>
 #include <malloc.h>
@@ -292,15 +293,21 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
 #ifdef __GLIBC__
   runStartupPhase("allocator_trim", [] {
 #ifdef NOCTALIA_USE_JEMALLOC
-    // jemalloc exports no malloc_trim; purge unused pages in every arena.
-    const int purgeResult =
-        mallctl("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
-    if (purgeResult != 0) {
-      kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+    // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
+    // looked up; without it the shell runs on glibc malloc.
+    using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
+    if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
+      Mallctl mallctlFn = nullptr;
+      std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
+      const int purgeResult =
+          mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+      if (purgeResult != 0) {
+        kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+      }
+      return;
     }
-#else
-    malloc_trim(0);
 #endif
+    malloc_trim(0);
   });
 #endif
 

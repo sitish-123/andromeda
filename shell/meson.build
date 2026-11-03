@@ -116,7 +116,10 @@ if is_glibc
   jemalloc_dep = dependency('jemalloc', required: jemalloc_option)
   if jemalloc_dep.found()
     jemalloc_deps += [jemalloc_dep]
-    jemalloc_cpp_args += ['-DNOCTALIA_USE_JEMALLOC=1']
+    jemalloc_cpp_args += [
+      '-DNOCTALIA_USE_JEMALLOC=1',
+      '-DNOCTALIA_JEMALLOC_PATH="' + (jemalloc_dep.get_variable(pkgconfig: 'libdir', default_value: '/usr/lib') / 'libjemalloc.so.2') + '"',
+    ]
   endif
 endif
 
@@ -1013,7 +1016,7 @@ _noctalia_system_dependencies = [
   libjxl_threads_dep,
   sndfile_dep,
   qrencode_dep,
-] + jemalloc_deps + (dl_dep.found() ? [dl_dep] : [])
+] + (dl_dep.found() ? [dl_dep] : [])
 
 _noctalia_dependencies = _noctalia_system_dependencies + [
   mcu_dep,
@@ -1055,14 +1058,15 @@ noctalia_core_dep = declare_dependency(
 )
 
 # The shell and its library tree; `noctalia` loads it with dlopen except in greeter mode. -Bsymbolic binds the
-# module to its own libdesk-ui copy, never the launcher's.
+# module to its own libdesk-ui copy, never the launcher's; -z defs keeps an undefined symbol a link error, as it was
+# for the executable, instead of a dlopen failure at start.
 noctalia_shell_module = shared_module('noctalia-shell',
   sources: files('src/app/shell_main.cpp') + _protocol_headers,
   dependencies: _noctalia_dependencies,
   include_directories: _noctalia_inc,
   cpp_args: _noctalia_cpp_args,
   objects: noctalia_core_lib.extract_all_objects(recursive: false),
-  link_args: ['-Wl,-Bsymbolic'],
+  link_args: ['-Wl,-Bsymbolic', '-Wl,-z,defs'],
   name_prefix: '',
   install: true,
   install_dir: get_option('libdir') / 'noctalia',
@@ -1073,7 +1077,7 @@ noctalia_exe = executable('noctalia',
   sources: files('src/main.cpp', 'src/greeter/greeter_host.cpp', 'src/greeter/greetd_client.cpp')
     + _protocol_headers,
   dependencies: [desk_ui_dep, tomlplusplus_dep, nlohmann_dep, libsodium_dep, xkbcommon_dep]
-    + jemalloc_deps + (dl_dep.found() ? [dl_dep] : []),
+    + (dl_dep.found() ? [dl_dep] : []),
   include_directories: _noctalia_inc,
   cpp_args: _noctalia_cpp_args,
   install: true,

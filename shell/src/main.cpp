@@ -1,25 +1,62 @@
 #include "greeter/greeter_host.h"
 
+#include <cerrno>
 #include <clocale>
+#include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
 #include <print>
+#include <string>
 #include <system_error>
+#include <unistd.h>
 
 #ifdef __GLIBC__
-#ifndef NOCTALIA_USE_JEMALLOC
 #include <malloc.h>
-#endif
-#endif
-
-#ifdef NOCTALIA_USE_JEMALLOC
-// jemalloc reads this before its first allocation; the background thread runs
-// decay even while the shell is idle.
-const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
 #endif
 
 namespace {
+
+#ifdef NOCTALIA_USE_JEMALLOC
+  // The long-running shell runs on jemalloc (lower fragmentation over days). Greeter mode and CLI calls stay on glibc
+  // malloc and save jemalloc's ~8 MB of fixed metadata. jemalloc must replace malloc before the first allocation, so a
+  // shell run re-execs once with it preloaded; shell_main.cpp removes the preload so launched apps never inherit it.
+  constexpr const char* kJemallocConf =
+      "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
+
+  bool isShellRun(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+      if (std::strcmp(argv[i], "-d") != 0 && std::strcmp(argv[i], "--daemon") != 0
+          && std::strcmp(argv[i], "--daemonize") != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void execWithJemalloc(char* argv[]) {
+    if (std::getenv("NOCTALIA_JEMALLOC") != nullptr || access(NOCTALIA_JEMALLOC_PATH, R_OK) != 0) {
+      return;
+    }
+    std::string preload = NOCTALIA_JEMALLOC_PATH;
+    if (const char* own = std::getenv("LD_PRELOAD"); own != nullptr && own[0] != '\0') {
+      setenv("NOCTALIA_LD_PRELOAD_ORIG", own, 1);
+      preload += ':';
+      preload += own;
+    }
+    setenv("LD_PRELOAD", preload.c_str(), 1);
+    if (std::getenv("MALLOC_CONF") == nullptr) {
+      setenv("MALLOC_CONF", kJemallocConf, 1);
+      setenv("NOCTALIA_MALLOC_CONF_SET", "1", 1);
+    }
+    setenv("NOCTALIA_JEMALLOC", "1", 1);
+    // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep noctalia` must work.
+    std::error_code ec;
+    const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    execv(ec ? "/proc/self/exe" : self.c_str(), argv);
+    std::println(stderr, "warning: cannot re-exec with jemalloc ({}); running on glibc malloc", std::strerror(errno));
+  }
+#endif
 
   constexpr const char* kShellModule = "noctalia-shell.so";
   constexpr const char* kShellEntry = "noctalia_shell_main_v1";
@@ -34,9 +71,13 @@ namespace {
     for (const auto& path :
          {exeDir / kShellModule,
           std::filesystem::path(NOCTALIA_INSTALL_PREFIX) / NOCTALIA_INSTALL_LIBDIR / "noctalia" / kShellModule}) {
+      if (!std::filesystem::exists(path, ec)) {
+        continue;
+      }
       void* module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
       if (module == nullptr) {
-        continue;
+        std::println(stderr, "error: cannot load {}", dlerror());
+        return nullptr;
       }
       void* symbol = dlsym(module, kShellEntry);
       if (symbol == nullptr) {
@@ -47,14 +88,19 @@ namespace {
       std::memcpy(&entry, &symbol, sizeof(entry));
       return entry;
     }
-    std::println(stderr, "error: cannot load {}: {}", kShellModule, dlerror());
+    std::println(stderr, "error: {} is not installed next to noctalia or in the noctalia libdir", kShellModule);
     return nullptr;
   }
 
 } // namespace
 
 int main(int argc, char* argv[]) {
-#if defined(__GLIBC__) && !defined(NOCTALIA_USE_JEMALLOC)
+#ifdef NOCTALIA_USE_JEMALLOC
+  if (isShellRun(argc, argv)) {
+    execWithJemalloc(argv);
+  }
+#endif
+#ifdef __GLIBC__
   mallopt(M_ARENA_MAX, 2);
 #endif
 

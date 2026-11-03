@@ -18,11 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#ifdef NOCTALIA_USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#else
 #include <malloc.h>
-#endif
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -30,7 +26,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -229,35 +224,8 @@ namespace {
     }
   }
 
-  // The shell's malloc_conf (main.cpp) keeps freed pages for seconds; the greeter allocates little after start, so it
-  // returns them at once.
-  void returnFreedPagesAtOnce() {
-#ifdef NOCTALIA_USE_JEMALLOC
-    ssize_t zero = 0;
-    unsigned arenas = 0;
-    std::size_t size = sizeof(arenas);
-    (void)mallctl("arenas.dirty_decay_ms", nullptr, nullptr, &zero, sizeof(zero));
-    (void)mallctl("arenas.muzzy_decay_ms", nullptr, nullptr, &zero, sizeof(zero));
-    if (mallctl("arenas.narenas", &arenas, &size, nullptr, 0) == 0) {
-      for (unsigned i = 0; i < arenas; ++i) {
-        (void)mallctl(std::format("arena.{}.dirty_decay_ms", i).c_str(), nullptr, nullptr, &zero, sizeof(zero));
-        (void)mallctl(std::format("arena.{}.muzzy_decay_ms", i).c_str(), nullptr, nullptr, &zero, sizeof(zero));
-      }
-    }
-#endif
-  }
-
   // Startup leaves freed pages in the allocator; give them back once the first frames are on screen.
-  void trimAllocator() {
-#ifdef NOCTALIA_USE_JEMALLOC
-    const std::string purge = std::format("arena.{}.purge", MALLCTL_ARENAS_ALL);
-    if (const int rc = mallctl(purge.c_str(), nullptr, nullptr, nullptr, 0); rc != 0) {
-      kLog.warn("jemalloc purge failed: {}", std::strerror(rc));
-    }
-#else
-    malloc_trim(0);
-#endif
-  }
+  void trimAllocator() { malloc_trim(0); }
 
   void wipe(std::string& secret) {
     sodium_memzero(secret.data(), secret.size());
@@ -654,7 +622,6 @@ int runGreeterHost(int argc, char* argv[]) {
       return 2;
     }
   }
-  returnFreedPagesAtOnce();
   std::signal(SIGTERM, onSignal);
   std::signal(SIGINT, onSignal);
   kLog.info("greeter mode start");

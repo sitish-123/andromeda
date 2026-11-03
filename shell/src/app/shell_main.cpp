@@ -251,6 +251,20 @@ namespace {
 
 // The shell behind the `noctalia` launcher (src/main.cpp), which has already set the allocator and the locale.
 extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int argc, char* argv[]) {
+  // Undo the launcher's jemalloc preload in the environment: apps the shell starts must not inherit it.
+  if (std::getenv("NOCTALIA_JEMALLOC") != nullptr) {
+    if (const char* orig = std::getenv("NOCTALIA_LD_PRELOAD_ORIG"); orig != nullptr) {
+      setenv("LD_PRELOAD", orig, 1);
+    } else {
+      unsetenv("LD_PRELOAD");
+    }
+    if (std::getenv("NOCTALIA_MALLOC_CONF_SET") != nullptr) {
+      unsetenv("MALLOC_CONF");
+    }
+    unsetenv("NOCTALIA_LD_PRELOAD_ORIG");
+    unsetenv("NOCTALIA_MALLOC_CONF_SET");
+    unsetenv("NOCTALIA_JEMALLOC");
+  }
 
   const bool isDaemonChild = takeDaemonPipeFromEnv();
   bool shouldDaemonize = false;
