@@ -252,7 +252,8 @@ void LockscreenWidgetsHost::createInstance(
   if (m_factory == nullptr || m_renderContext == nullptr) {
     return;
   }
-  if (scripting::isValidPluginEntryId(state.type)) {
+  // Plugin code and user shaders run only in the lock helper.
+  if (scripting::isValidPluginEntryId(state.type) || state.type == "shader") {
     createStreamInstance(state, surface);
     return;
   }

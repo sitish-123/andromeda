@@ -7,6 +7,7 @@
 #include "core/toml.h"
 #include "ipc/pixel_stream_server.h"
 #include "render/animation/animation_manager.h"
+#include "render/backend/render_backend.h"
 #include "render/gl_shared_context.h"
 #include "render/render_context.h"
 #include "render/render_target.h"
@@ -14,6 +15,8 @@
 #include "scripting/plugin_registry.h"
 #include "scripting/script_api_context.h"
 #include "shell/desktop/desktop_widget_factory.h"
+#include "shell/lockscreen/lock_shader.h"
+#include "util/file_utils.h"
 #include "ui/builders.h"
 
 #include <algorithm>
@@ -22,6 +25,8 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <poll.h>
 #include <string>
@@ -45,6 +50,9 @@ namespace {
     AnimationManager animations;
     Node root;
     std::unique_ptr<DesktopWidget> widget;
+    // Set instead of widget for a `shader` slot.
+    std::unique_ptr<LockShader> shader;
+    std::chrono::steady_clock::time_point lastShaderFrame;
     Timer secondTimer;
     bool needsUpdate = true;
     bool needsLayout = true;
@@ -60,6 +68,11 @@ namespace {
     return text;
   }
 
+  std::string readFileText(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+  }
+
   SettingsMap readSettings(const toml::table* table) {
     SettingsMap settings;
     if (table != nullptr) {
@@ -73,6 +86,19 @@ namespace {
   }
 
   void render(RenderContext& context, Slot& slot, float deltaMs) {
+    if (slot.shader != nullptr) {
+      const auto pixels = slot.server.frameBuffer(slot.shader->width(), slot.shader->height());
+      if (!pixels.empty() && slot.shader->render(pixels)) {
+        slot.server.sendFrame();
+        slot.lastShaderFrame = std::chrono::steady_clock::now();
+      }
+      // The shader leaves its own context current; widget code expects the renderer's.
+      (void)context.backend().makeCurrentNoSurface();
+      return;
+    }
+    if (slot.widget == nullptr) {
+      return;
+    }
     if (!context.makeCurrent(slot.target)) {
       return;
     }
@@ -96,7 +122,10 @@ namespace {
   }
 
   [[nodiscard]] bool animating(const Slot& slot) {
-    return slot.widget->needsFrameTick() || slot.animations.hasActive();
+    if (slot.shader != nullptr) {
+      return true;
+    }
+    return slot.widget != nullptr && (slot.widget->needsFrameTick() || slot.animations.hasActive());
   }
 
 } // namespace
@@ -171,10 +200,32 @@ int runLockHelper(int argc, char* argv[]) {
       const float height = (*table)["height"].value_or(0.0F);
       const float scale = (*table)["scale"].value_or(1.0F);
       const std::string type = (*table)["type"].value_or(std::string{});
+      if (slot->server.fd() < 0 || width < 1.0F || height < 1.0F) {
+        kLog.warn("skipping slot '{}'", type);
+        continue;
+      }
+      if (type == "shader") {
+        const SettingsMap settings = readSettings((*table)["settings"].as_table());
+        const auto it = settings.find("path");
+        const std::string* path = it != settings.end() ? std::get_if<std::string>(&it->second) : nullptr;
+        const std::string source = path != nullptr ? readFileText(FileUtils::expandUserPath(*path)) : "";
+        try {
+          slot->shader = std::make_unique<LockShader>(
+              shared, source, static_cast<std::uint32_t>(std::lround(width * scale)),
+              static_cast<std::uint32_t>(std::lround(height * scale))
+          );
+        } catch (const std::exception& e) {
+          // The slot stays open with no frames, so the shell keeps its placeholder and does not restart.
+          kLog.warn("shader slot '{}': {}", path != nullptr ? *path : std::string{}, e.what());
+        }
+        (void)context.backend().makeCurrentNoSurface();
+        slots.push_back(std::move(slot));
+        continue;
+      }
       slot->widget = factory.create(
           type, readSettings((*table)["settings"].as_table()), (*table)["content_scale"].value_or(1.0F)
       );
-      if (slot->server.fd() < 0 || slot->widget == nullptr || width < 1.0F || height < 1.0F) {
+      if (slot->widget == nullptr) {
         kLog.warn("skipping slot '{}'", type);
         continue;
       }
@@ -222,7 +273,8 @@ int runLockHelper(int argc, char* argv[]) {
     bool rendered = false;
     bool waitingAnimation = false;
     for (auto& slot : slots) {
-      if (slot->server.requested() && (slot->dirty || animating(*slot))) {
+      const bool shaderDue = slot->shader == nullptr || now - slot->lastShaderFrame >= std::chrono::milliseconds(kFrameIntervalMs);
+      if (slot->server.requested() && (slot->dirty || animating(*slot)) && shaderDue) {
         render(context, *slot, deltaMs);
         rendered = true;
       }
