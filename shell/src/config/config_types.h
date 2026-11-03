@@ -1324,7 +1324,7 @@ struct ShellConfig {
   bool andromedaAudioProviderEnabled = false;
   bool niriOverviewCloseOnLaunchEnabled = false;
   bool andromedaOverviewCloseOnLaunchEnabled = false;
-  bool polkitAgent = false;
+  bool polkitAgent = true;
   bool automountDrives = true;
   PasswordMaskStyle passwordMaskStyle = PasswordMaskStyle::CircleFilled;
   /// Readline-style editing shortcuts in every text input (Ctrl+A moves to the start instead of selecting all).
