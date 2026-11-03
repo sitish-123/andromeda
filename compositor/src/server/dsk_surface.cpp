@@ -10,17 +10,19 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 4;
-    constexpr uint32_t kPropertyCount = 6;
+    constexpr int kVersion = 5;
+    constexpr uint32_t kPropertyCount = 7;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
 
     constexpr int kElevationPropertySince = 4;
+    constexpr int kLiquidPropertySince = 5;
 
     bool validProperty(wl_resource* resource, uint32_t property) {
+      const int version = wl_resource_get_version(resource);
       return property < kPropertyCount
-          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Elevation)
-              || wl_resource_get_version(resource) >= kElevationPropertySince);
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Elevation) || version >= kElevationPropertySince)
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Liquid) || version >= kLiquidPropertySince);
     }
 
     SurfaceMotion::Value toValue(int32_t a, int32_t b, int32_t c, int32_t d) {

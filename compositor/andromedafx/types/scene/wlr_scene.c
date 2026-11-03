@@ -2483,6 +2483,15 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
+  if (blur->liquid == liquid) {
+    return;
+  }
+
+  blur->liquid = liquid;
+  scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_ignore_alpha(struct wlr_scene_blur* blur, float ignore_alpha) {
   if (blur->ignore_alpha == ignore_alpha) {
     return;
@@ -3917,6 +3926,7 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .blur_data = &scene->blur_data,
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
+        .liquid = blur->liquid,
     };
     fx_render_pass_add_blur(fx_pass, &blur_options);
     break;

@@ -10,6 +10,9 @@
 namespace andromeda {
 
   namespace {
+    // Liquid glass needs a light blur, or the refraction bends a smear (.agent/mockups/launcher-material.html: liquid
+    // blur 10 px against the frosted sheet's strong blur).
+    float liquidBlurStrength(float liquid) { return 1.0F - 0.65F * liquid; }
 
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
@@ -116,6 +119,8 @@ namespace andromeda {
     if (m_node->alpha != m_alpha) {
       wlr_scene_blur_set_alpha(m_node, m_alpha);
     }
+    wlr_scene_blur_set_liquid(m_node, m_liquid);
+    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid));
     wlr_scene_buffer* shapeSource = wlr_scene_blur_get_transparency_mask_source(m_node);
     const pixman_region32_t* shape =
         shapeSource != nullptr ? wlr_scene_node_get_clip_region(&shapeSource->node) : nullptr;
@@ -151,6 +156,14 @@ namespace andromeda {
     m_alpha = alpha;
     if (m_node != nullptr && m_node->alpha != alpha) {
       wlr_scene_blur_set_alpha(m_node, alpha);
+    }
+  }
+
+  void SurfaceBlur::setLiquid(float liquid) {
+    m_liquid = liquid;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_liquid(m_node, liquid);
+      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid));
     }
   }
 

@@ -40,6 +40,8 @@ namespace andromeda {
     // Opacity of the blur effect itself. Keep this independent from surface
     // opacity so compositor opacity matches equivalent client alpha.
     void setAlpha(float alpha);
+    // Liquid glass strength, 0 to 1 (dsk_surface_v1 property liquid).
+    void setLiquid(float liquid);
     // Forces a live blur of everything below, overriding the optimized option, for a surface drawn over scene
     // content the cached background blur lacks.
     void setLive(bool live);
@@ -54,6 +56,7 @@ namespace andromeda {
     bool m_optimized = false;
     bool m_live = false;
     float m_alpha = 1.0F;
+    float m_liquid = 0.0F;
   };
 
 } // namespace andromeda

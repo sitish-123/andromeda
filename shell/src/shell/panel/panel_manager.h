@@ -83,6 +83,9 @@ public:
   void setToggleSettingsWindowCallback(std::function<void(std::string)> callback);
   void setCloseDesktopWidgetsEditorCallback(std::function<void()> callback);
   void openSettingsWindow(std::string context = "");
+  // Liquid glass strength (0..1) of the open panel's backdrop; animates on the open spring. No-op on compositors
+  // without dsk_surface_v1 version 5.
+  void setPanelLiquid(float liquid);
   // Closes any open panel, then opens the settings window at the plugin's settings.
   // False when the settings window is unavailable, or the plugin is unknown, disabled, or
   // exposes no settings.
@@ -236,6 +239,8 @@ private:
   [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
   // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
   [[nodiscard]] float detachedBackgroundOpacity() const;
+  // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
+  [[nodiscard]] float detachedFillAlpha() const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
@@ -300,6 +305,7 @@ private:
   // Room above the sheet up to the island top, so the clip starts as the whole island (P5).
   std::int32_t m_morphMarginUp = 0;
   std::optional<float> m_islandBackgroundOpacity;
+  float m_panelLiquid = 0.0F; // 0..1, see setPanelLiquid
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().

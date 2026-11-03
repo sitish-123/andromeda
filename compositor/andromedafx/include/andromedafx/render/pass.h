@@ -132,6 +132,8 @@ struct fx_render_texture_options {
   // Compress HDR highlights into the SDR range before blending this content.
   // Intermediate textures leave this unset so a scene is not mapped twice.
   bool map_hdr_to_sdr;
+  // Liquid glass strength, 0 to 1; draws with the effects shader. Used for blurred backdrops.
+  float liquid;
 };
 
 struct fx_render_rect_options {
@@ -188,6 +190,7 @@ struct fx_render_blur_pass_options {
   float blur_strength;
   struct fx_corner_fradii corners;
   struct clipped_fregion clipped_region;
+  float liquid; // 0 to 1, see fx_render_texture_options.liquid
 };
 
 struct fx_gles_render_pass* fx_get_render_pass(struct wlr_render_pass* render_pass);

@@ -534,7 +534,12 @@ namespace andromeda {
     wlr_box nodeBox = box;
     fx_corner_radii corners = corner_radii_none();
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
-    if (const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr) {
+    const DskSurfaceManager::State* state = dsk != nullptr ? dsk->state(m_layerSurface->surface) : nullptr;
+    m_blur.setLiquid(
+        state != nullptr ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[0], 0.0, 1.0))
+                         : 0.0F
+    );
+    if (state != nullptr) {
       const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
       const double scale = std::max(0.01, state->motion.value(SurfaceMotion::Property::Scale)[0]);
       const wlr_box scaled{

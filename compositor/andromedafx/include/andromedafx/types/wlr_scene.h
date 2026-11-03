@@ -236,6 +236,7 @@ struct wlr_scene_blur {
   float strength;
   float alpha;
   float ignore_alpha;
+  float liquid; // liquid glass strength, 0 to 1
 
   bool should_only_blur_bottom_layer;
 
@@ -885,6 +886,11 @@ struct wlr_scene_buffer* wlr_scene_blur_get_transparency_mask_source(struct wlr_
  * fade-out effect.
  */
 void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha);
+
+/**
+ * Sets the liquid glass strength, 0 to 1: refraction at the rim and a soft specular rim.
+ */
+void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
 
 /**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is

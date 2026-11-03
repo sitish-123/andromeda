@@ -1,7 +1,7 @@
-float rounded_rect_distance(
-    vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
+float rounded_rect_distance_at(
+    vec2 point, vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
 ) {
-  vec2 relative_pos = gl_FragCoord.xy - position;
+  vec2 relative_pos = point - position;
   vec2 centered_pos = relative_pos - size * 0.5;
 
   float radius;
@@ -23,6 +23,12 @@ float rounded_rect_distance(
     return (pow(pow(u.x, n) + pow(u.y, n), 1.0 / n) - 1.0) * e;
   }
   return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - e;
+}
+
+float rounded_rect_distance(
+    vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
+) {
+  return rounded_rect_distance_at(gl_FragCoord.xy, size, position, radius_tl, radius_tr, radius_bl, radius_br);
 }
 
 // Returns 0.0 outside and 1.0 inside the rounded rectangle. A cutout reverses

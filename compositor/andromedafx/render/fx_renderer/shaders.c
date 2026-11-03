@@ -118,7 +118,7 @@ void uniform_corner_radii_set(const struct shader_corner_radii* uniform, const s
 
 bool link_quad_program(struct quad_shader* shader, bool clip) {
   GLchar quad_src_part[2048];
-  GLchar quad_src[4096];
+  GLchar quad_src[8192];
   snprintf(quad_src_part, sizeof(quad_src_part), quad_frag_src, clip);
   snprintf(quad_src, sizeof(quad_src), "%s\n%s\n", quad_src_part, clip ? corner_alpha_frag_src : "");
 
@@ -147,7 +147,7 @@ bool link_quad_program(struct quad_shader* shader, bool clip) {
 
 bool link_quad_grad_program(struct quad_grad_shader* shader, int max_len) {
   GLchar quad_src_part[2048];
-  GLchar quad_src[4096];
+  GLchar quad_src[8192];
   snprintf(quad_src_part, sizeof(quad_src_part), quad_grad_frag_src, max_len);
   snprintf(quad_src, sizeof(quad_src), "%s\n%s", quad_src_part, gradient_frag_src);
 
@@ -174,7 +174,7 @@ bool link_quad_grad_program(struct quad_grad_shader* shader, int max_len) {
 }
 
 bool link_quad_round_program(struct quad_round_shader* shader) {
-  GLchar quad_src[4096];
+  GLchar quad_src[8192];
   snprintf(quad_src, sizeof(quad_src), "%s\n%s", quad_round_frag_src, corner_alpha_frag_src);
 
   GLuint prog;
@@ -274,8 +274,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader* shader, int max
 }
 
 bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source source, bool effects, bool sample_clamp) {
-  GLchar frag_src_part[8192];
-  GLchar frag_src[12288];
+  GLchar frag_src_part[12288];
+  GLchar frag_src[16384];
   snprintf(frag_src_part, sizeof(frag_src_part), tex_frag_src, source, effects, sample_clamp);
   snprintf(frag_src, sizeof(frag_src), "%s\n%s\n", frag_src_part, effects ? corner_alpha_frag_src : "");
 
@@ -316,6 +316,8 @@ bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source sourc
   shader->effects.clip_radius.top_right = glGetUniformLocation(prog, "clip_radius_top_right");
   shader->effects.clip_radius.bottom_left = glGetUniformLocation(prog, "clip_radius_bottom_left");
   shader->effects.clip_radius.bottom_right = glGetUniformLocation(prog, "clip_radius_bottom_right");
+  shader->effects.liquid = glGetUniformLocation(prog, "liquid");
+  shader->effects.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
 
   return true;
 }
@@ -384,8 +386,8 @@ bool link_blur1_program(struct blur_shader* shader) {
 
 // Links one variant of blur2.frag and loads the uniforms every variant shares.
 static bool link_blur2_variant(struct blur2_with_effects_shader* shader, bool effects, bool composite, bool corners) {
-  GLchar frag_src_part[8192];
-  GLchar frag_src[12288];
+  GLchar frag_src_part[12288];
+  GLchar frag_src[16384];
   snprintf(frag_src_part, sizeof(frag_src_part), blur2_frag_src, effects, composite, corners);
   snprintf(frag_src, sizeof(frag_src), "%s\n%s\n", frag_src_part, corners ? corner_alpha_frag_src : "");
 

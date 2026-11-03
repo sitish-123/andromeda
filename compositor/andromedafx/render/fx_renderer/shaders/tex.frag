@@ -53,6 +53,11 @@ uniform float clip_radius_top_left;
 uniform float clip_radius_top_right;
 uniform float clip_radius_bottom_left;
 uniform float clip_radius_bottom_right;
+
+// Liquid glass (0 = off): the backdrop bends toward the centre near the rim and a soft specular rim lights the edge.
+uniform float liquid;
+// UV step of one framebuffer pixel; the y sign follows the texture orientation.
+uniform vec2 liquid_texel;
 #endif
 
 uniform float discard_transparent;
@@ -67,16 +72,16 @@ uniform float discard_transparent;
 // The clamp is compiled only into the variants selected for such crops, so
 // every other draw keeps the exact fetch drivers already handle well.
 uniform vec4 sample_bounds;
-#define SAMPLE_UV clamp(v_texcoord, sample_bounds.xy, sample_bounds.zw)
+#define SAMPLE_UV(uv) clamp(uv, sample_bounds.xy, sample_bounds.zw)
 #else
-#define SAMPLE_UV v_texcoord
+#define SAMPLE_UV(uv) (uv)
 #endif
 
-vec4 sample_texture() {
+vec4 sample_texture(vec2 uv) {
 #if SOURCE == SOURCE_TEXTURE_RGBA || SOURCE == SOURCE_TEXTURE_EXTERNAL
-  return texture2D(tex, SAMPLE_UV);
+  return texture2D(tex, SAMPLE_UV(uv));
 #elif SOURCE == SOURCE_TEXTURE_RGBX
-  return vec4(texture2D(tex, SAMPLE_UV).rgb, 1.0);
+  return vec4(texture2D(tex, SAMPLE_UV(uv)).rgb, 1.0);
 #endif
 }
 
@@ -172,10 +177,42 @@ vec4 convert_color(vec4 color) {
 float corner_alpha(
     vec2 size, vec2 position, bool is_cutout, float radius_tl, float radius_tr, float radius_bl, float radius_br
 );
+float rounded_rect_distance_at(
+    vec2 point, vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
+);
+
+float liquid_distance(vec2 point) {
+  return rounded_rect_distance_at(
+      point, size, position, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right
+  );
+}
 #endif
 
 void main() {
-  vec4 color = convert_color(sample_texture());
+  vec2 uv = v_texcoord;
+#if EFFECTS
+  float rim = 0.0;
+  if (liquid > 0.0) {
+    // Rim band: a quarter of the short side, at most 16 px. t = 1 at the edge, 0 at the band's inner end.
+    float band = min(min(size.x, size.y) * 0.25, 16.0);
+    vec2 p = gl_FragCoord.xy;
+    float d = liquid_distance(p);
+    vec2 normal = vec2(liquid_distance(p + vec2(1.0, 0.0)) - liquid_distance(p - vec2(1.0, 0.0)),
+                       liquid_distance(p + vec2(0.0, 1.0)) - liquid_distance(p - vec2(0.0, 1.0)));
+    normal = length(normal) > 0.0 ? normalize(normal) : vec2(0.0);
+    float t = clamp(1.0 + d / band, 0.0, 1.0);
+    // Refraction: sample from further inside, strongest at the rim (up to 0.75 band).
+    uv -= normal * (t * t * band * 0.75 * liquid) * liquid_texel;
+    // Specular: a thin bright line along the edge, brighter on the top and left (light from the top left).
+    float edge = smoothstep(-3.0, -0.5, d) * (1.0 - smoothstep(-0.5, 0.5, d));
+    float facing = 0.55 + 0.45 * max(dot(normal, normalize(vec2(-1.0, 1.0))), 0.0);
+    rim = liquid * (0.18 * t * t + 0.5 * edge) * facing;
+  }
+  vec4 color = convert_color(sample_texture(uv));
+  color.rgb += rim * color.a;
+#else
+  vec4 color = convert_color(sample_texture(uv));
+#endif
 #if EFFECTS
   float quad_corner_alpha = corner_alpha(
       size - 0.5, position + 0.25, false, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right

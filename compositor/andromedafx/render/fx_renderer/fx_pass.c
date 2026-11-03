@@ -1924,7 +1924,8 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   struct tex_shader* shader = NULL;
 
   bool use_effects =
-      !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region);
+      !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region)
+      || fx_options->liquid > 0.0f;
   // A non-empty sample box selects the clamp variant. Everything else runs
   // the same fetch as before the clamp existed, so a driver only ever sees
   // the extra uniform on fractionally cropped surfaces.
@@ -2097,6 +2098,9 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     glUniform2f(shader->effects.clip_size, clipped_region_box.width, clipped_region_box.height);
     glUniform2f(shader->effects.clip_position, clipped_region_box.x, clipped_region_box.y);
     uniform_corner_radii_set(&shader->effects.clip_radius, &clipped_region_corners);
+    glUniform1f(shader->effects.liquid, fx_options->liquid);
+    glUniform2f(shader->effects.liquid_texel, 1.0f / (float)texture->wlr_texture.width,
+                1.0f / (float)texture->wlr_texture.height);
   }
 
   set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
@@ -2933,7 +2937,9 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   // The final upsample draws straight into the pass target unless the
   // optimized buffer already holds the finished blur or the composite would do
   // more than copy it.
-  const bool fuse = (!use_optimized || has_strength) && blur_composite_is_copy(pass, tex_options);
+  // Liquid glass needs the composite draw: the fused upsample has no refraction.
+  const bool fuse =
+      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && blur_composite_is_copy(pass, tex_options);
   struct blur_data final_upsample = {0};
   TRACY_ZONE_TEXT_f("Use Optimized Blur: %d", fx_options->use_optimized_blur);
   TRACY_ZONE_TEXT_f("Fused Composite: %d", fuse);
@@ -3000,6 +3006,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     // since we're capturing from the fbo, transform will always be normal
     tex_options->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     tex_options->clipped_region = fx_options->clipped_region;
+    tex_options->liquid = fx_options->liquid;
     fx_render_pass_add_texture(pass, tex_options);
   }
 

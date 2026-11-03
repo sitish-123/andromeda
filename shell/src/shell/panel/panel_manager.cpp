@@ -1735,6 +1735,7 @@ void PanelManager::destroyPanel() {
   m_selectPopup.reset();
   m_sceneRoot.reset();
   m_dsk.reset();
+  m_panelLiquid = 0.0F;
   m_scaleMode = false;
   m_morphExtend = false;
   m_morphClipRunning = false;
@@ -2429,6 +2430,17 @@ float PanelManager::detachedBackgroundOpacity() const {
   return m_islandBackgroundOpacity.value_or(shell::panel_surface::backgroundOpacity(m_config));
 }
 
+float PanelManager::detachedFillAlpha() const {
+  const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
+  if (Style::reduceTransparency()) {
+    return thick;
+  }
+  // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html):
+  // light white 30 %, dark 34 %.
+  const float liquid = isLightPalette() ? 0.30F : 0.34F;
+  return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
+}
+
 DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
   return {
       static_cast<double>(m_panelInsetX), static_cast<double>(m_panelInsetY), static_cast<double>(m_panelVisualWidth),
@@ -2538,6 +2550,24 @@ DskSurfaceClient::Value PanelManager::detachedScaleShift(double scale) const {
   const double ax = centered ? cx : (cx < sw * 0.5 ? sheet[0] : sheet[0] + sheet[2]);
   const double ay = cy < sh * 0.5 ? sheet[1] : sheet[1] + sheet[3];
   return {(1.0 - scale) * (ax - sw * 0.5), (1.0 - scale) * (ay - sh * 0.5), 0.0, 0.0};
+}
+
+void PanelManager::setPanelLiquid(float liquid) {
+  if (m_panelLiquid != liquid) {
+    m_panelLiquid = liquid;
+    if (!m_attachedToBar && m_bgNode != nullptr) {
+      static_cast<Box*>(m_bgNode)->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
+    }
+    requestLayout();
+  }
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  if (m_dsk == nullptr && manager != nullptr && m_wlSurface != nullptr) {
+    m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  }
+  if (m_dsk == nullptr || !m_dsk->hasLiquidProperty()) {
+    return;
+  }
+  m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, {liquid, 0.0, 0.0, 0.0});
 }
 
 bool PanelManager::startDetachedScaleOpen() {
@@ -3010,7 +3040,7 @@ void PanelManager::onConfigReloaded() {
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(panelBackgroundOpacity)));
+    bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
           shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
@@ -3129,7 +3159,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
         const float backgroundOpacity = detachedBackgroundOpacity();
-        bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(backgroundOpacity)));
+        bg->setFill(colorSpecFromRole(panelMaterialRole(), detachedFillAlpha()));
         bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(

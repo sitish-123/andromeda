@@ -62,6 +62,8 @@ bool DskSurfaceClient::hasElevationProperty() const {
   return dsk_surface_v1_get_version(m_surface) >= 4;
 }
 
+bool DskSurfaceClient::hasLiquidProperty() const { return dsk_surface_v1_get_version(m_surface) >= 5; }
+
 DskSurfaceClient::Curve DskSurfaceClient::effectiveCurve(Curve curve) const {
   return compatCurve(curve, dsk_surface_v1_get_version(m_surface));
 }
