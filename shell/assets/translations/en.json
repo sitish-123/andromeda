@@ -1902,8 +1902,8 @@
       "power-key": "Power Button",
       "sleep": "Sleep",
       "sleep-mode": "Sleep Mode",
-      "sleep-mode-deep": "Deep Sleep (S3)",
-      "sleep-mode-s2idle": "Modern Standby (s2idle)",
+      "sleep-mode-deep": "Deep Sleep",
+      "sleep-mode-s2idle": "Modern Standby",
       "sleep-mode-shallow": "Standby",
       "hibernate-after": "Hibernate After Sleeping",
       "delay": {

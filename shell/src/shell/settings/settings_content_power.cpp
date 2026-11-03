@@ -95,8 +95,11 @@ namespace settings {
           .selectedIndex = selected,
           .clearSelection = !selected.has_value(),
           .fontSize = Style::fontSizeBody * scale,
+          .controlHeight = Style::controlHeight * scale,
           .glyphSize = Style::fontSizeBody * scale,
           .enabled = config.state().helperInstalled,
+          // The width of every Settings select (settings_control_factory.cpp).
+          .width = 190.0F * scale,
           .onSelectionChanged =
               [&config, key, values, current](std::size_t index, std::string_view /*label*/) {
                 if (index < values.size() && values[index] != current) {
