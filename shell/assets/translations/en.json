@@ -1177,7 +1177,6 @@
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
-    "power": {
     "alert": {
       "cancel": "Cancel",
       "restart-title": "Restart anyway?",
@@ -1186,6 +1185,7 @@
       "sleep-body": "An app is preventing sleep.",
       "sleep-title": "Sleep anyway?"
     },
+    "power": {
       "restart": "Restart",
       "blocked": "Can't do that: an app is blocking it",
       "shutdown": "Shut down",
@@ -4324,13 +4324,13 @@
           "label": "{device} Warning Threshold"
         },
         "battery-warning-threshold": {
+          "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
+          "label": "Battery Warning Threshold"
+        },
         "app-priority": {
           "button": "Learn More",
           "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
           "label": "App Priority"
-        },
-          "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
-          "label": "Battery Warning Threshold"
         }
       },
       "templates": {
