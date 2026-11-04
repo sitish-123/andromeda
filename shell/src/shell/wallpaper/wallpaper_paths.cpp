@@ -3,6 +3,14 @@
 #include "config/config_types.h"
 #include "util/file_utils.h"
 
+#include <filesystem>
+#include <system_error>
+
+namespace {
+  // Installed by the andromeda-wallpapers package (pkg/wallpapers).
+  constexpr const char* kPackagedWallpaperDirectory = "/usr/share/backgrounds/andromeda";
+} // namespace
+
 ThemeMode wallpaper::effectiveThemeMode(ThemeMode mode, bool isLight) noexcept {
   if (mode == ThemeMode::Auto) {
     return isLight ? ThemeMode::Light : ThemeMode::Dark;
@@ -47,6 +55,10 @@ std::string wallpaper::resolveGlobalWallpaperDirectory(const WallpaperConfig& co
   }
   if (!config.directory.empty()) {
     return config.directory;
+  }
+  std::error_code ec;
+  if (std::filesystem::is_directory(kPackagedWallpaperDirectory, ec)) {
+    return kPackagedWallpaperDirectory;
   }
   return FileUtils::defaultPicturesDirectory().string();
 }

@@ -1,0 +1,19 @@
+# Local-only package: the images come from the builder's own folder and are not redistributable.
+pkgname=andromeda-wallpapers
+pkgver=r7ef13bb6
+pkgrel=1
+pkgdesc='Wallpapers for the Andromeda desktop (local build only)'
+arch=('any')
+license=('custom')
+: "${WALLPAPER_SRC:=$HOME/Pictures/Wallpapers}"
+
+pkgver() {
+  find "$WALLPAPER_SRC" -maxdepth 1 -type f -printf '%f %s\n' | sort | md5sum | cut -c1-8 | sed 's/^/r/'
+}
+
+package() {
+  install -d "$pkgdir/usr/share/backgrounds/andromeda"
+  find "$WALLPAPER_SRC" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) \
+    -exec install -m644 -t "$pkgdir/usr/share/backgrounds/andromeda" {} +
+}

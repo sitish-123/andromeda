@@ -3,3 +3,6 @@
 !PKGBUILD
 !andromeda-link.install
 !andromeda-compositor.install
+!wallpapers/
+wallpapers/*
+!wallpapers/PKGBUILD
