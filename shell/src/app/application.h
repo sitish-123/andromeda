@@ -120,6 +120,7 @@
 #include <cstdint>
 #include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -138,6 +139,7 @@ class KeyboardBacklightService;
 class DebugService;
 class AndromedaShellService;
 class EasyEffectsService;
+class SystemHealthService;
 class INetworkService;
 class IwdSecretAgent;
 class LogindService;
@@ -374,6 +376,10 @@ private:
   PluginIdleWatches m_pluginIdleWatches;
   IdleGraceOverlay m_idleGraceOverlay;
   std::uint64_t m_idleGraceOverlayGeneration = 0;
+  std::unique_ptr<SystemHealthService> m_systemHealthService;
+  // display.brightness_step: the brightness each display had before a rule dimmed it one step.
+  std::map<std::string, float> m_dimmedFrom;
+  void applyBrightnessStep();
   HookManager m_hookManager;
   DependencyService m_dependencyService;
   GammaService m_gammaService;

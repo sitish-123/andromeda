@@ -479,6 +479,7 @@ _noctalia_sources = files(
   'src/dbus/udisks/udisks_service.cpp',
   'src/dbus/upower/upower_service.cpp',
   'src/dbus/andromeda/shell_service.cpp',
+  'src/dbus/andromeda/system_health_service.cpp',
   'src/debug/debug_service.cpp',
   'src/hooks/battery_hook_state.cpp',
   'src/hooks/hook_manager.cpp',

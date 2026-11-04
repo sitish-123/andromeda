@@ -1532,6 +1532,10 @@
     }
   },
   "osd": {
+    "power": {
+      "charging": "Charging · {percent} %",
+      "on-battery": "On battery · {percent} %"
+    },
     "bluetooth": {
       "off": "Bluetooth Off",
       "on": "Bluetooth On"

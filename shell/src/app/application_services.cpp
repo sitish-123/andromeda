@@ -13,6 +13,7 @@
 #include "core/process/process.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/andromeda/shell_service.h"
+#include "dbus/andromeda/system_health_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
@@ -569,14 +570,29 @@ void Application::syncPolkitAgent() {
 }
 
 void Application::applyPowerSourceProfile() {
-  if (upower() == nullptr || powerProfiles() == nullptr) {
+  if (upower() == nullptr) {
     return;
   }
-  const bool onBattery = upower()->state().onBattery;
+  const UPowerState& power = upower()->state();
+  const bool onBattery = power.onBattery;
   if (m_profileAppliedOnBattery == onBattery) {
     return;
   }
+  const bool sourceChanged = m_profileAppliedOnBattery.has_value();
   m_profileAppliedOnBattery = onBattery;
+  // power.charger (docs/system-health.md §4.3): a text OSD in the center island when the charger is plugged or pulled.
+  if (sourceChanged && power.isPresent) {
+    m_osdOverlay.show(OsdContent{
+        .kind = OsdKind::PowerProfile,
+        .icon = batteryGlyphName(power.percentage, power.state),
+        .value = i18n::tr(onBattery ? "osd.power.on-battery" : "osd.power.charging", "percent",
+                          std::format("{:.0f}", power.percentage)),
+        .showProgress = false,
+    });
+  }
+  if (powerProfiles() == nullptr) {
+    return;
+  }
   const BatteryConfig& battery = m_configService.config().battery;
   const std::string& profile = onBattery ? battery.profileOnBattery : battery.profileOnAc;
   if (!profile.empty() && profile != powerProfiles()->activeProfile()) {
@@ -1848,6 +1864,36 @@ void Application::initEarlySessionBusAndTray() {
   startTrayService();
 }
 
+// Low Power Mode dims each display one step (0.1, not below 0.1) and restores it when the hold ends, unless the user
+// moved the brightness meanwhile.
+void Application::applyBrightnessStep() {
+  if (m_systemHealthService == nullptr || m_brightnessService == nullptr) {
+    return;
+  }
+  constexpr float kStep = 0.1F;
+  const bool dim = m_systemHealthService->knob("display.brightness_step").value_or(0.0) < 0.0;
+  if (dim == !m_dimmedFrom.empty()) {
+    return;
+  }
+  const std::vector<BrightnessDisplay> displays = m_brightnessService->displays();
+  if (dim) {
+    for (const auto& d : displays) {
+      if (d.controllable && d.brightness > kStep) {
+        m_dimmedFrom[d.id] = d.brightness;
+        m_brightnessService->setBrightness(d.id, std::max(kStep, d.brightness - kStep));
+      }
+    }
+    return;
+  }
+  for (const auto& d : displays) {
+    const auto it = m_dimmedFrom.find(d.id);
+    if (it != m_dimmedFrom.end() && std::abs(d.brightness - std::max(kStep, it->second - kStep)) < 0.02F) {
+      m_brightnessService->setBrightness(d.id, it->second);
+    }
+  }
+  m_dimmedFrom.clear();
+}
+
 void Application::initSessionBusServices() {
   auto shouldRefreshControlCenter = [this] { return m_panelManager.isOpenPanel("control-center"); };
 
@@ -1867,6 +1913,14 @@ void Application::initSessionBusServices() {
     } catch (const std::exception& e) {
       kLog.warn("org.andromeda.Shell1 disabled: {}", e.what());
       m_andromedaShellService.reset();
+    }
+    try {
+      m_systemHealthService = std::make_unique<SystemHealthService>(*m_bus);
+      m_systemHealthService->setChangeCallback([this] { m_settingsWindow.onPowerChanged(); });
+      m_systemHealthService->setKnobCallback([this] { applyBrightnessStep(); });
+    } catch (const std::exception& e) {
+      kLog.warn("system health client disabled: {}", e.what());
+      m_systemHealthService.reset();
     }
 
     try {
