@@ -3,10 +3,11 @@
 
 Each ActiveProfile write is appended to argv[1]. dsk.test.Power.SetOnBattery(b) flips the power source and emits
 PropertiesChanged the way UPower does. MOCK_BATTERY=1 adds a laptop battery (battery_BAT0, charge limit supported) and a keyboard backlight (0-3);
-dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1].
+MOCK_HISTORY=0 empties the battery history; dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1].
 """
 import os
 import sys
+import time
 
 import dbus
 import dbus.mainloop.glib
@@ -87,6 +88,25 @@ class Device(PropertyObject):
             out.write(f"EnableChargeThreshold={bool(enabled)}\n")
         self.props["ChargeThresholdEnabled"] = dbus.Boolean(enabled)
         self.changed({"ChargeThresholdEnabled": dbus.Boolean(enabled)})
+
+    @dbus.service.method(DEVICE, in_signature="suu", out_signature="a(udu)")
+    def GetHistory(self, kind, timespan, resolution):
+        # A day like mockup A: discharge to 45 %, charge 06-11, discharge to 50 %, charge from 21. Newest first.
+        now = int(time.time())
+        points = []
+        if os.environ.get("MOCK_HISTORY") == "0":
+            return dbus.Array(points, signature="(udu)")
+        for i in range(min(int(resolution), 96)):
+            t = now - i * (int(timespan) // 96)
+            hour = (t % 86400) / 3600
+            charging = 6 <= hour < 11 or hour >= 21
+            if kind == "rate":
+                value = 12.0 if charging else 6.0 + 4.0 * ((i * 7) % 5) / 5
+            else:
+                value = min(100.0, 45 + (hour - 6) * 11) if 6 <= hour < 11 else (
+                    100 - (hour - 11) * 5 if 11 <= hour < 21 else (50 + (hour - 21) * 10 / 3 if hour >= 21 else 60 - hour * 2.5))
+            points.append((dbus.UInt32(t), dbus.Double(value), dbus.UInt32(1 if charging else 2)))
+        return dbus.Array(points, signature="(udu)")
 
 
 KBD = "org.freedesktop.UPower.KbdBacklight"

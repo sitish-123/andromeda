@@ -35,6 +35,7 @@
 
 #include <nlohmann/json.hpp>
 #include "server/server.h"
+#include "core/screen_activity_recorder.h"
 #include "server/server_events_internal.h"
 #include "view/popup.h"
 #include "view/view.h"
@@ -777,7 +778,12 @@ namespace andromeda {
     }
   }
 
-  void Server::notifyIdleActivity() { wlr_idle_notifier_v1_notify_activity(m_idleNotifier, m_seat->wlr()); }
+  void Server::notifyIdleActivity() {
+    wlr_idle_notifier_v1_notify_activity(m_idleNotifier, m_seat->wlr());
+    if (m_screenActivity != nullptr) {
+      m_screenActivity->inputActivity();
+    }
+  }
 
   void Server::notifyInputActivity() {
     wakeDpmsOutputs();

@@ -35,6 +35,8 @@ struct SystemExplainEntry {
   std::vector<std::pair<std::string, std::string>> trigger;
   std::vector<std::pair<std::string, std::string>> holds;
   std::string note;
+  // The app unit of a per-app rule's episode; empty for other rules.
+  std::string instance;
 };
 
 // Client of org.andromeda.System1 on the session bus: rules (Settings rows) and the explain log of the last 24 h.

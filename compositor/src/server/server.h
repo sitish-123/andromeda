@@ -95,6 +95,8 @@ struct wlr_virtual_pointer_manager_v1;
 struct wlr_virtual_pointer_v1;
 
 namespace andromeda {
+
+  class ScreenActivityRecorder;
   class CpuBoost;
   class SystemdUnits;
   namespace qos {
@@ -810,6 +812,7 @@ namespace andromeda {
     wlr_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
     wlr_idle_notifier_v1* m_idleNotifier = nullptr;
     bool m_idleInhibited = false;
+    std::unique_ptr<ScreenActivityRecorder> m_screenActivity;
     wlr_xdg_activation_v1* m_xdgActivation = nullptr;
     wlr_gamma_control_manager_v1* m_gammaManager = nullptr;
     wlr_output_manager_v1* m_outputManager = nullptr;

@@ -273,6 +273,12 @@ void SettingsWindow::addPowerContent(float scale) {
           .upower = m_upower,
           .profiles = m_powerProfilesProvider ? m_powerProfilesProvider() : nullptr,
           .powerConfig = m_powerConfigProvider ? m_powerConfigProvider() : nullptr,
+          .health = m_systemHealthProvider ? m_systemHealthProvider() : nullptr,
+          .activity = m_activityProvider ? m_activityProvider() : nullptr,
+          .activityDetails = m_activityDetails,
+          .screenTime = m_screenTime,
+          .openActivity = m_openActivityApp,
+          .rebuild = [this] { onPowerChanged(); },
       }
   );
 }

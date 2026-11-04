@@ -1,5 +1,7 @@
 #include "shell/activity/activity_window.h"
 
+#include "system/battery_impact.h"
+
 #include "compositors/shell_wayland_connection.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -153,25 +155,6 @@ namespace {
       return std::format("{} h {} min", seconds / 3600, (seconds % 3600) / 60);
     }
     return std::format("{} min", std::max<std::uint64_t>(1, seconds / 60));
-  }
-
-  struct RowIdentity {
-    std::string name;
-    std::string icon;
-  };
-
-  RowIdentity identityFor(const ActivityRow& row) {
-    if (!row.appId.empty()) {
-      if (auto entry = app_identity::findDesktopEntry(row.appId, desktopEntries()); entry.has_value()) {
-        return {.name = entry->name.empty() ? row.appId : entry->name, .icon = entry->icon};
-      }
-      return {.name = row.appId, .icon = row.appId};
-    }
-    std::string name = row.key;
-    if (const auto dot = name.rfind('.'); dot != std::string::npos) {
-      name.resize(dot);
-    }
-    return {.name = std::move(name), .icon = {}};
   }
 
   std::unique_ptr<Label> cell(std::string text, float scale, ColorRole role = ColorRole::Label2) {
@@ -1169,25 +1152,9 @@ void ActivityWindow::addBatteryCards(Renderer& /*renderer*/, Flex& list, float s
       })
   );
 
-  // Impact = each row's share of all CPU time its units used since they started, plus its GPU share now.
-  std::vector<std::pair<double, const ActivityRow*>> ranked;
-  double total = 0.0;
-  for (const auto& row : m_monitor->activity().rows()) {
-    if (!inTab(row, Tab::Battery)) {
-      continue;
-    }
-    const double weight = static_cast<double>(row.cpuUsageUsec) / 1e6
-        + (m_details != nullptr ? m_details->gpuPercent(row.key) * 2.0 : 0.0);
-    total += weight;
-    ranked.emplace_back(weight, &row);
-  }
-  std::ranges::sort(ranked, std::greater{}, &std::pair<double, const ActivityRow*>::first);
   Flex* card = nullptr;
-  for (const auto& [weight, row] : ranked) {
-    const double share = total > 0.0 ? weight / total * 100.0 : 0.0;
-    if (share < 0.5) {
-      break;
-    }
+  for (const auto& [row, share] :
+       rankBatteryImpact(m_monitor->activity().rows(), m_details, [this](const ActivityRow& r) { return inTab(r, Tab::Battery); })) {
     if (card == nullptr) {
       card = settings::addSettingsGroupCard(list, i18n::tr("activity.battery-since-start"), scale);
     }

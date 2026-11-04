@@ -50,6 +50,10 @@ class Button;
 class AccountsService;
 class PowerProfilesService;
 class PowerConfigService;
+class SystemHealthService;
+class ActivityMonitor;
+class ActivityDetails;
+class ScreenTimeService;
 class CalendarService;
 class ClipboardService;
 class NotificationManager;
@@ -161,6 +165,15 @@ public:
     m_powerProfilesProvider = std::move(profiles);
   }
   void setPowerConfigProvider(std::function<PowerConfigService*()> config) { m_powerConfigProvider = std::move(config); }
+  // Battery page Apps card: the Activity monitor (created on demand), its details, screen time, and opening Activity.
+  void setBatteryAppsSources(std::function<ActivityMonitor*()> activity, const ActivityDetails* details,
+                             ScreenTimeService* screenTime, std::function<void(const std::string&)> openActivity) {
+    m_activityProvider = std::move(activity);
+    m_activityDetails = details;
+    m_screenTime = screenTime;
+    m_openActivityApp = std::move(openActivity);
+  }
+  void setSystemHealthProvider(std::function<SystemHealthService*()> health) { m_systemHealthProvider = std::move(health); }
   // Battery level, charge limit or power mode changed: the Battery and Power page shows them.
   void onPowerChanged();
   // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
@@ -512,6 +525,11 @@ private:
   std::function<PipeWireService*()> m_audioProvider;
   std::function<PowerProfilesService*()> m_powerProfilesProvider;
   std::function<PowerConfigService*()> m_powerConfigProvider;
+  std::function<SystemHealthService*()> m_systemHealthProvider;
+  std::function<ActivityMonitor*()> m_activityProvider;
+  const ActivityDetails* m_activityDetails = nullptr;
+  ScreenTimeService* m_screenTime = nullptr;
+  std::function<void(const std::string&)> m_openActivityApp;
   std::string m_soundSignature;
   Slider* m_soundOutputSlider = nullptr;
   Slider* m_soundInputSlider = nullptr;

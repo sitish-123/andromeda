@@ -4,6 +4,8 @@
 #include "server/server.h"
 #include "server/apps_bus.h"
 
+#include "core/screen_activity_recorder.h"
+
 #include "config/config.h"
 #include "config/config_diag.h"
 #include "config/config_watcher.h"
@@ -896,6 +898,7 @@ namespace andromeda {
     m_tabletManager = wlr_tablet_v2_create(m_display);
 
     m_idleNotifier = wlr_idle_notifier_v1_create(m_display);
+    m_screenActivity = std::make_unique<ScreenActivityRecorder>(wl_display_get_event_loop(m_display));
     m_idleInhibitManager = wlr_idle_inhibit_v1_create(m_display);
     m_newIdleInhibitor.notify = onNewIdleInhibitor;
     wl_signal_add(&m_idleInhibitManager->events.new_inhibitor, &m_newIdleInhibitor);
@@ -1029,6 +1032,8 @@ namespace andromeda {
       wl_list_remove(&m_sessionActive.link);
     }
     m_keyboardLeds.reset();
+    // Its timer belongs to the display's event loop, which is destroyed below.
+    m_screenActivity.reset();
     if (m_cursor != nullptr) {
       m_cursor->finishToplevelDrag(false);
     }

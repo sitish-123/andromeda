@@ -190,6 +190,7 @@ void SystemHealthService::loadEntries() {
                 .trigger = pairs(item, "trigger"),
                 .holds = pairs(item, "holds"),
                 .note = field<std::string>(item, "note", ""),
+                .instance = field<std::string>(item, "instance", ""),
             });
           }
           std::ranges::reverse(m_entries);
