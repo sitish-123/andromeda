@@ -147,6 +147,14 @@ void IdleManager::setSessionLocked(bool locked) {
   }
 }
 
+void IdleManager::setOnBattery(bool onBattery) {
+  if (m_onBattery == onBattery) {
+    return;
+  }
+  m_onBattery = onBattery;
+  recreateBehaviorNotifications();
+}
+
 double IdleManager::effectiveTimeoutSeconds(const IdleBehaviorConfig& config) const {
   if (m_sessionLocked && std::isfinite(config.lockedTimeoutSeconds) && config.lockedTimeoutSeconds > 0.0) {
     return config.lockedTimeoutSeconds;
@@ -156,7 +164,8 @@ double IdleManager::effectiveTimeoutSeconds(const IdleBehaviorConfig& config) co
 
 std::uint32_t IdleManager::effectiveTimeoutMilliseconds(const IdleBehaviorConfig& config) const {
   const double timeout = effectiveTimeoutSeconds(config);
-  if (!config.enabled || !std::isfinite(timeout) || timeout <= 0.0) {
+  const bool sourceMatches = config.power == "any" || (config.power == "battery") == m_onBattery;
+  if (!config.enabled || !sourceMatches || !std::isfinite(timeout) || timeout <= 0.0) {
     return 0;
   }
   return timeoutSecondsToMilliseconds(timeout);

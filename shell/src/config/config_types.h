@@ -300,6 +300,8 @@ struct IdleBehaviorConfig {
   bool lockBeforeSuspend = true;
   /// Shorter timeout (seconds) applied only while the session is locked; 0 = always use timeoutSeconds.
   double lockedTimeoutSeconds = 0.0;
+  /// any | battery | ac: the behavior runs only while the machine is on that power source.
+  std::string power = "any";
 
   bool operator==(const IdleBehaviorConfig&) const = default;
 };

@@ -575,6 +575,7 @@ void Application::applyPowerSourceProfile() {
   }
   const UPowerState& power = upower()->state();
   const bool onBattery = power.onBattery;
+  m_idleManager.setOnBattery(onBattery);
   if (m_profileAppliedOnBattery == onBattery) {
     return;
   }

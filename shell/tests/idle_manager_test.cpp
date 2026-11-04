@@ -299,6 +299,27 @@ namespace {
     TEST_CHECK(fixture.server.notification(60000) != screen);
   }
 
+  void checkPowerSource() {
+    Fixture fixture({
+        {.name = "battery", .timeoutSeconds = 180, .action = "screen_off", .power = "battery"},
+        {.name = "ac", .timeoutSeconds = 600, .action = "screen_off", .power = "ac"},
+        {.name = "any", .timeoutSeconds = 60, .action = "screen_off"},
+    });
+    const auto live = [&fixture](std::uint32_t timeoutMs) {
+      return std::ranges::count_if(fixture.server.notifications(), [timeoutMs](const auto& item) {
+        return item.timeoutMs == timeoutMs && item.resource != nullptr;
+      });
+    };
+    TEST_CHECK(live(180000) == 0);
+    TEST_CHECK(live(600000) == 1);
+    TEST_CHECK(live(60000) == 1);
+    fixture.idle.setOnBattery(true);
+    fixture.sync();
+    TEST_CHECK(live(180000) == 1);
+    TEST_CHECK(live(600000) == 0);
+    TEST_CHECK(live(60000) == 1);
+  }
+
   void checkAlreadyIdledUsesLockedTimeoutAfterResume() {
     Fixture fixture({
         {.name = "screen-off", .timeoutSeconds = 60, .action = "screen_off", .lockedTimeoutSeconds = 5},
@@ -407,6 +428,7 @@ namespace {
 int main() {
   checkLockPreservesIdleActionsAndTimers();
   checkLockedTimeouts();
+  checkPowerSource();
   checkAlreadyIdledUsesLockedTimeoutAfterResume();
   checkLockDuringFade();
   checkLockDuringCancelledFade();

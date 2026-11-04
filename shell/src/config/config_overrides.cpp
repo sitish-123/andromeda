@@ -596,6 +596,9 @@ namespace {
               if (item.lockedTimeoutSeconds > 0.0) {
                 row.insert_or_assign("locked_timeout", item.lockedTimeoutSeconds);
               }
+              if (item.power != "any") {
+                row.insert_or_assign("power", item.power);
+              }
               if (!item.action.empty()) {
                 row.insert_or_assign("action", item.action);
               }

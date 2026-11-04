@@ -141,19 +141,30 @@ std::vector<IdleBehaviorConfig> defaultIdleBehaviors() {
       },
       IdleBehaviorConfig{
           .name = "screen-off",
-          .enabled = false,
-          .timeoutSeconds = 660,
+          .enabled = true,
+          .timeoutSeconds = 180,
           .action = "screen_off",
           .command = "",
           .resumeCommand = "",
+          .power = "battery",
+      },
+      IdleBehaviorConfig{
+          .name = "screen-off-ac",
+          .enabled = true,
+          .timeoutSeconds = 600,
+          .action = "screen_off",
+          .command = "",
+          .resumeCommand = "",
+          .power = "ac",
       },
       IdleBehaviorConfig{
           .name = "lock-and-suspend",
-          .enabled = false,
+          .enabled = true,
           .timeoutSeconds = 900,
           .action = "lock_and_suspend",
           .command = "",
           .resumeCommand = "",
+          .power = "battery",
       },
   };
 }

@@ -1932,6 +1932,12 @@
         "locked-timeout-label": "Timeout while locked (seconds, 0 = off)",
         "name-label": "Name",
         "name-placeholder": "idle-behavior",
+        "power": {
+          "ac": "On power adapter",
+          "any": "Always",
+          "battery": "On battery"
+        },
+        "power-label": "Power source",
         "resume-command-label": "Resume command",
         "resume-command-placeholder": "notify-send 'Back from idle'",
         "summary": "{name} · {seconds}s",
