@@ -245,6 +245,11 @@ namespace andromeda {
       std::optional<std::string_view> xdgTag, ContentType contentType, const WindowRuleState& state, uint64_t uptimeMs
   ) {
     ResolvedWindowRule resolved;
+    // Built-in rule, before the user's: Zen Browser declares its translucent sidebar opaque.
+    static const std::regex kZen(R"(^(zen|zen-.*|app\.zen_browser\.zen)$)");
+    if (appId && std::regex_match(appId->begin(), appId->end(), kZen)) {
+      resolved.ignoreOpaqueRegion = true;
+    }
 
     for (const auto& rule : config.windowRules) {
       if (!patternMatches(rule.appIdPatterns, appId)
@@ -360,6 +365,9 @@ namespace andromeda {
       }
       if (rule.hdr) {
         resolved.hdr = rule.hdr;
+      }
+      if (rule.ignoreOpaqueRegion) {
+        resolved.ignoreOpaqueRegion = rule.ignoreOpaqueRegion;
       }
       if (rule.opacity) {
         resolved.opacity = rule.opacity;

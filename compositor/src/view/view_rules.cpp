@@ -713,6 +713,10 @@ namespace andromeda {
       m_borderColorAnim.snap(targetBorder);
       m_decoration.setBorderColor(m_borderFocusedState, effectiveOpacity());
     }
+    if (m_contentTree != nullptr
+        && !wlr_scene_node_set_surface_opaque_region_ignored(&m_contentTree->node, rule.ignoreOpaqueRegion.value_or(false))) {
+      kLog.error("failed to store the opaque-region rule");
+    }
     const float newOpacity = rule.opacity ? static_cast<float>(*rule.opacity) : 1.0F;
     if (newOpacity != m_ruleOpacity) {
       m_ruleOpacity = newOpacity;

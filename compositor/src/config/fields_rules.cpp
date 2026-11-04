@@ -207,6 +207,7 @@ namespace andromeda {
           boolean("blur_popups", &W::blurPopups),
           boolean("blur_optimized", &W::blurOptimized),
           real("opacity", 0.0, 1.0, &W::opacity),
+          boolean("ignore_opaque_region", &W::ignoreOpaqueRegion),
           real("blur_ignore_alpha", 0.0, 1.0, &W::blurIgnoreAlpha),
           color("border_color_focused", &W::borderColorFocused),
           color("border_color_unfocused", &W::borderColorUnfocused),

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A window whose ARGB8888 buffer is half transparent premultiplied white and whose opaque region still covers the whole
-# surface (as Zen Browser's sidebar does) blends over the backdrop: white over white stays white, not mid grey.
+# surface (as Zen Browser's sidebar does) blends over the backdrop under an ignore_opaque_region rule: white over white
+# stays white, not mid grey.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 
@@ -22,6 +23,10 @@ corner_radius = 0
 
 [appearance.shadow]
 enabled = false
+
+[[window_rule]]
+match.title = "^opaque-lie$"
+ignore_opaque_region = true
 CONF
 "$ANDROMEDA" msg config-reload > /dev/null
 

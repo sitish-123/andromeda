@@ -714,6 +714,11 @@ struct wlr_scene_surface* wlr_scene_surface_create(struct wlr_scene_tree* parent
  * scenes displaying the same wlr_surface. Returns false on allocation failure.
  */
 bool wlr_scene_node_set_surface_opacity(struct wlr_scene_node* node, float opacity);
+/**
+ * Makes the surfaces under node ignore their clients' opaque regions, so they blend everywhere and cull nothing below
+ * (for a client that declares translucent pixels opaque). Returns false on allocation failure.
+ */
+bool wlr_scene_node_set_surface_opaque_region_ignored(struct wlr_scene_node* node, bool ignored);
 
 struct wlr_scene_surface_color_state {
   // Zero leaves the transfer function unspecified and follows output SDR policy.

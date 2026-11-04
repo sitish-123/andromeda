@@ -469,6 +469,8 @@ namespace andromeda {
     std::optional<bool> allowTearing;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity; // 0.0-1.0
+    // Blend the window everywhere and cull nothing below it, for a client that declares translucent pixels opaque.
+    std::optional<bool> ignoreOpaqueRegion;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
@@ -534,6 +536,7 @@ namespace andromeda {
           && allowTearing == other.allowTearing
           && hdr == other.hdr
           && opacity == other.opacity
+          && ignoreOpaqueRegion == other.ignoreOpaqueRegion
           && blur == other.blur
           && blurPopups == other.blurPopups
           && blurIgnoreAlpha == other.blurIgnoreAlpha
@@ -582,6 +585,7 @@ namespace andromeda {
     std::optional<bool> allowTearing;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity;
+    std::optional<bool> ignoreOpaqueRegion;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
