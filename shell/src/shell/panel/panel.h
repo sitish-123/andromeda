@@ -39,6 +39,8 @@ public:
   }
   // The page or tab the open panel shows, as its open context names it; empty when it has none.
   [[nodiscard]] virtual std::string activeContext() const { return {}; }
+  // The open context that brings this panel back as it is now after a shell restart (docs/resilience.md §7).
+  [[nodiscard]] virtual std::string handoffContext() const { return activeContext(); }
   [[nodiscard]] virtual bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
     (void)sym;
     (void)modifiers;

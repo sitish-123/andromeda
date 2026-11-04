@@ -58,6 +58,7 @@ public:
 
   void create() override;
   void onOpen(std::string_view context) override;
+  [[nodiscard]] std::string handoffContext() const override;
   void onClose() override;
   void onIconThemeChanged() override;
 

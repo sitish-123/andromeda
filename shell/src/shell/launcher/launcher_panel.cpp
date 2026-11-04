@@ -3436,6 +3436,10 @@ void LauncherPanel::showSessionActions() {
   onInputChanged("");
 }
 
+std::string LauncherPanel::handoffContext() const {
+  return m_modeProviderId.empty() ? m_query : std::string(kModeContextPrefix) + m_modeProviderId;
+}
+
 void LauncherPanel::onOpen(std::string_view context) {
   for (auto& provider : m_providers) {
     applyProviderConfig(*provider);

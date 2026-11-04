@@ -116,6 +116,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <malloc.h>
 #ifdef NOCTALIA_USE_JEMALLOC
@@ -125,6 +126,8 @@
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+
+#include <nlohmann/json.hpp>
 
 #ifdef NOCTALIA_USE_JEMALLOC
 #define NOCTALIA_STRINGIFY_HELPER(x) #x
@@ -160,7 +163,55 @@ namespace {
       kLog.debug("startup phase {} took {:.1F}ms", label, ms);
     }
   }
+
+  // The open panel at a compositor crash, for the next shell process (docs/resilience.md §7).
+  std::filesystem::path runtimePath(std::string_view name) {
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    return runtime != nullptr && *runtime != '\0' ? std::filesystem::path(runtime) / name : std::filesystem::path{};
+  }
+
+  // A handoff older than this belongs to a log-out, not a crash.
+  constexpr auto kHandoffMaxAge = std::chrono::seconds(30);
 } // namespace
+
+void Application::writeShellHandoff() const {
+  const std::filesystem::path path = runtimePath("noctalia/handoff.json");
+  const std::string& panel = m_panelManager.activePanelId();
+  if (path.empty() || panel.empty() || m_panelManager.activePanel() == nullptr) {
+    return;
+  }
+  const nlohmann::json handoff{
+      {"version", 1}, {"panel", panel}, {"context", m_panelManager.activePanel()->handoffContext()}
+  };
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  const std::filesystem::path tmp = path.string() + ".tmp";
+  std::ofstream(tmp) << handoff.dump();
+  std::filesystem::rename(tmp, path, ec);
+  kLog.info("saved the open panel '{}' for the next shell", panel);
+}
+
+void Application::restoreShellHandoff() {
+  const std::filesystem::path path = runtimePath("noctalia/handoff.json");
+  std::error_code ec;
+  if (path.empty() || !std::filesystem::exists(path, ec)) {
+    return;
+  }
+  const auto age = std::filesystem::file_time_type::clock::now() - std::filesystem::last_write_time(path, ec);
+  const nlohmann::json handoff = nlohmann::json::parse(std::ifstream(path), nullptr, false);
+  std::filesystem::remove(path, ec);
+  if (ec || age > kHandoffMaxAge || handoff.is_discarded() || !handoff.contains("panel")) {
+    return;
+  }
+  // The compositor's relock event brings the lock screen back; a panel must not open under it.
+  if (std::filesystem::exists(runtimePath("andromeda/locked"), ec)) {
+    return;
+  }
+  const std::string panel = handoff.value("panel", "");
+  const std::string context = handoff.value("context", "");
+  kLog.info("reopening the panel '{}' open before the compositor restart", panel);
+  m_panelManager.openPanel(panel, PanelOpenRequest{.context = context});
+}
 
 Application::Application()
     : m_lockKeysService(m_wayland),
@@ -325,6 +376,10 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
   if (startupReadyCallback) {
     startupReadyCallback();
   }
+  m_handoffTimer.start(std::chrono::milliseconds(0), [this] { restoreShellHandoff(); });
   m_mainLoop->run();
+  if (s_displayLost) {
+    writeShellHandoff();
+  }
   kLog.info("shutdown");
 }
