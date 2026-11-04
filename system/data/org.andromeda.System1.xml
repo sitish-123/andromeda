@@ -115,6 +115,7 @@
   </interface>
   <interface name="org.andromeda.System1.Storage">
     <property name="FailingDrives" type="a(ss)" access="read" />
+    <property name="FsErrors" type="a(st)" access="read" />
     <property name="Mounts" type="a(sstt)" access="read" />
   </interface>
   <interface name="org.andromeda.System1.Thermal">

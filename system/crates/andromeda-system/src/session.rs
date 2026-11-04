@@ -51,6 +51,10 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         "thermal_hot" => {
             ("The computer is hot", "It runs slower to cool down. Background apps use less power until it cools.")
         }
+        "fs_errors" => (
+            "The file system on {fsmount} has errors",
+            "Back up your files soon. A check at the next start can repair it.",
+        ),
         "drive_failing" => ("A disk is failing", "Back up your files now. {drive} reports a hardware fault."),
         "captive_portal" => ("Sign in to the network", "This network asks you to sign in before it lets you online."),
         "storage_low" => {
@@ -262,6 +266,7 @@ impl Session {
                 .replace("{free}", &field("storage.free_gb"))
                 .replace("{mount}", &field("storage.mount"))
                 .replace("{drive}", &field("storage.drive"))
+                .replace("{fsmount}", &field("storage.fs_mount"))
                 .replace("{cache}", &human_bytes(cache))
                 .replace("{trash}", &human_bytes(trash))
         };

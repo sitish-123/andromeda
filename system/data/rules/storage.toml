@@ -16,3 +16,12 @@ priority = "safety"
 when = "storage.drive_failing"
 clear = "not storage.drive_failing"
 alert = { urgency = "critical", text = "drive_failing" }
+
+# The `/` or `/home` file system counted errors (ext4 errors_count, btrfs error_stats).
+[[rule]]
+id = "storage.fs_errors"
+scope = "session"
+priority = "safety"
+when = "storage.fs_errors > 0"
+clear = "storage.fs_errors == 0"
+alert = { urgency = "normal", text = "fs_errors" }

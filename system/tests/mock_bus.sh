@@ -163,7 +163,7 @@ RULES=(call org.andromeda.System1 /org/andromeda/System1/Rules org.andromeda.Sys
 until_has 10 '"power.low_power_plan" true ""' "${S[@]}" "${RULES[@]}" List
 # Every shipped rule loads: an empty third field is no load error.
 for rule in apps.drainer memory.relief thermal.relief thermal.fps_cap thermal.hot storage.low battery.optimized_charging \
-  storage.drive_failing network.captive_portal; do
+  storage.drive_failing storage.fs_errors network.captive_portal; do
   until_has 10 "\"$rule\" true \"\"" "${S[@]}" "${RULES[@]}" List
 done
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan true 1 low_pct d 10

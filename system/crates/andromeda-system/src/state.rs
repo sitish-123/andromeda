@@ -35,6 +35,9 @@ const FIELDS: &[(&str, Type)] = &[
     // A drive whose SMART data fails, as "<model> (<what fails>)"; empty when none does.
     ("storage.drive_failing", Type::Bool),
     ("storage.drive", Type::Str),
+    // Errors the `/` or `/home` file system counted, and that mount point.
+    ("storage.fs_errors", Type::Num),
+    ("storage.fs_mount", Type::Str),
     // From org.andromeda.System1.Network (NetworkManager): unknown, none, portal, limited or full.
     ("network.connectivity", Type::Str),
     ("network.metered", Type::Bool),
@@ -137,6 +140,11 @@ impl Snapshot {
         self.put("storage.drive_failing", failing.as_ref().map(|f| Value::Bool(!f.is_empty())));
         let first = failing.and_then(|f| f.into_iter().next()).map(|(model, what)| format!("{model} ({what})"));
         self.put("storage.drive", Some(Value::Str(first.unwrap_or_default())));
+        let errors = props.and_then(|p| bus::get::<Vec<(String, u64)>>(p, "FsErrors"));
+        #[allow(clippy::cast_precision_loss)] // an error count
+        self.put("storage.fs_errors", errors.as_ref().map(|e| Value::Num(e.iter().map(|(_, n)| *n as f64).sum())));
+        let mount = errors.and_then(|e| e.into_iter().next()).map(|(m, _)| m).unwrap_or_default();
+        self.put("storage.fs_mount", Some(Value::Str(mount)));
     }
 
     /// From `org.andromeda.System1.Network`.
