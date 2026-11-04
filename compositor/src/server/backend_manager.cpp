@@ -34,6 +34,25 @@ namespace andromeda {
 
     constexpr Logger kLog("drm");
 
+    // The overlay plane needs wlroots' libliftoff path, taken only with WLR_DRM_FORCE_LIBLIFTOFF. It is set only
+    // around backend creation so clients never inherit it, never over a user value or WLR_DRM_NO_ATOMIC, and creation
+    // retries without it: forced liftoff fails on drivers without atomic modesetting or builds without libliftoff.
+    template <typename Create> auto createWithLiftoff(Create&& create) {
+      const bool force = std::getenv("WLR_DRM_FORCE_LIBLIFTOFF") == nullptr && std::getenv("WLR_DRM_NO_ATOMIC") == nullptr;
+      if (force) {
+        setenv("WLR_DRM_FORCE_LIBLIFTOFF", "1", 1);
+      }
+      auto backend = create();
+      if (force) {
+        unsetenv("WLR_DRM_FORCE_LIBLIFTOFF");
+        if (backend == nullptr) {
+          kLog.warn("backend creation with libliftoff failed; retrying without overlay planes");
+          backend = create();
+        }
+      }
+      return backend;
+    }
+
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
     constexpr auto kDeviceWaitTimeout = std::chrono::seconds(10);
     // Linux reserves this character-device major for DRM, including removed nodes.
@@ -243,7 +262,7 @@ namespace andromeda {
       }
 
       if (!m_policyActive) {
-        m_backend = wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session);
+        m_backend = createWithLiftoff([&] { return wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session); });
         return m_backend != nullptr;
       }
 
@@ -625,7 +644,7 @@ namespace andromeda {
       // A parent makes wlroots create an internal multi-GPU renderer through
       // EGL device enumeration. Independent backends keep exclusions strict;
       // secondary outputs import the compositor's DMA-BUFs directly instead.
-      wlr_backend* drm = wlr_drm_backend_create(m_session, device, nullptr);
+      wlr_backend* drm = createWithLiftoff([&] { return wlr_drm_backend_create(m_session, device, nullptr); });
       if (drm == nullptr) {
         closeDeviceIfOwned(device);
         kLog.warn("failed to create a DRM backend for {}", identity->node);
