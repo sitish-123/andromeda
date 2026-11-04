@@ -536,9 +536,8 @@ namespace andromeda {
     wlr_scene_node_set_enabled(&card.shadowTree->node, true);
 
     const auto scaled = [zoom](int value) { return static_cast<int>(std::lround(value * zoom)); };
-    const auto scaledCorner = [zoom](uint16_t value) {
-      return static_cast<uint16_t>(std::lround(static_cast<double>(value) * zoom));
-    };
+    // Signed: a negative radius is a concave flare (fx_corner_radii).
+    const auto scaledCorner = [zoom](int16_t value) { return static_cast<int16_t>(std::lround(value * zoom)); };
     wlr_scene_node_set_position(&card.shadow->node, scaled(source->node.x), scaled(source->node.y));
     wlr_scene_shadow_set_size(card.shadow, std::max(0, scaled(source->width)), std::max(0, scaled(source->height)));
     wlr_scene_shadow_set_blur_sigma(card.shadow, static_cast<float>(source->blur_sigma * zoom));
