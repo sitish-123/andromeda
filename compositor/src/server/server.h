@@ -99,7 +99,6 @@ namespace andromeda {
   class ScreenActivityRecorder;
   class CpuBoost;
   class SystemdUnits;
-  class LaunchFeedback;
   namespace qos {
     class Controller;
   }

@@ -270,7 +270,10 @@ namespace andromeda {
 
   void Server::handleConfigReload(const ConfigReloadResult& result) {
     cancelModifierTap();
-    if (result.success) {
+    // A reload that changed nothing (the watcher seeing the compositor's own settings write) wakes no client.
+    if (result.success && !result.change.any() && !result.effects.any()) {
+      kLog.info("config reloaded (sections: none; effects: none)");
+    } else if (result.success) {
       // The localed query is a blocking D-Bus round trip plus a keymap compile (~10 ms on an HD 520 laptop): only an
       // input edit asks for it, not every appearance change.
       const bool systemKeymapChanged = result.change.input && refreshSystemKeymap();
