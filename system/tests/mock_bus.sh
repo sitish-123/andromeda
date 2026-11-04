@@ -121,7 +121,7 @@ until_has 50 unix: cat "$OUT/session-addr"
 SESSION_BUS=$(head -n1 "$OUT/session-addr")
 python3 "$ROOT/system/tests/mock_notifications.py" "$OUT/notes.log" "$SESSION_BUS" >"$OUT/notes.out" 2>&1 & PIDS+=($!)
 until_has 50 ready cat "$OUT/notes.out"
-DBUS_SESSION_BUS_ADDRESS=$SESSION_BUS XDG_STATE_HOME=$OUT ANDROMEDA_RULES_DIR=$ROOT/system/data/rules \
+DBUS_SESSION_BUS_ADDRESS=$SESSION_BUS XDG_STATE_HOME=$OUT XDG_CONFIG_HOME=$OUT ANDROMEDA_RULES_DIR=$ROOT/system/data/rules \
   "$BIN" --session >"$OUT/session.log" 2>&1 & PIDS+=($!)
 S=(busctl --address="$SESSION_BUS")
 until_has 30 'aa{sv}' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
@@ -137,4 +137,11 @@ until_has 10 's "balanced"' get /org/andromeda/System1/Power Power Profile
 until_has 10 '"undone"' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
   org.andromeda.System1.Explain List t 0
 grep -c '^notify' "$OUT/notes.log" | grep -qx 1 || fail "the rule alerted more than once in one episode"
+# Settings rows: the rules list, and a threshold change stored in the user's settings file.
+RULES=(call org.andromeda.System1 /org/andromeda/System1/Rules org.andromeda.System1.Rules)
+until_has 10 '"power.low_power_plan" true ""' "${S[@]}" "${RULES[@]}" List
+"${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan true 1 low_pct d 10
+grep -q 'low_pct = 10' "$OUT/andromeda/system-rules.toml" || fail "the threshold was not stored"
+"${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan false 0
+until_has 10 '"power.low_power_plan" false ""' "${S[@]}" "${RULES[@]}" List
 echo PASS

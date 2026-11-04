@@ -15,6 +15,7 @@ struct Slot {
     holds: Vec<(&'static str, KnobValue)>,
     episode: Episode,
     id: u64,
+    enabled: bool,
 }
 
 /// What one call changed: entries for the explain log, and the knobs whose effective value moved (`None` = no
@@ -69,7 +70,7 @@ impl Engine {
                 Ok(_) if rule.priority == Priority::User => {
                     refused.push((rule.id.clone(), "a rule is automatic or safety".to_owned()));
                 }
-                Ok(holds) => slots.push(Slot { rule, holds, episode: Episode::default(), id: 0 }),
+                Ok(holds) => slots.push(Slot { rule, holds, episode: Episode::default(), id: 0, enabled: true }),
                 Err(why) => refused.push((rule.id.clone(), why)),
             }
         }
@@ -89,6 +90,9 @@ impl Engine {
         let mut changes = Changes::default();
         for i in 0..self.slots.len() {
             let slot = &mut self.slots[i];
+            if !slot.enabled {
+                continue;
+            }
             if let Some(event) = slot.episode.step(&slot.rule, values, now) {
                 let read = match event {
                     Event::Started => &slot.rule.when,
@@ -186,9 +190,50 @@ impl Engine {
         changes
     }
 
+    /// Each rule with whether it is on.
+    pub fn rules(&self) -> impl Iterator<Item = (&Rule, bool)> {
+        self.slots.iter().map(|s| (&s.rule, s.enabled))
+    }
+
+    /// The user's settings for one rule: on or off, and declared params of the same type. Turning a running rule
+    /// off ends its episode like an Undo; the next `step` applies new params.
+    pub fn configure(
+        &mut self,
+        rule: &str,
+        enabled: bool,
+        params: &[(String, crate::expr::Value)],
+        time_ms: u64,
+    ) -> Result<Changes, String> {
+        let i = self.slots.iter().position(|s| s.rule.id == rule).ok_or_else(|| format!("unknown rule {rule:?}"))?;
+        let slot = &mut self.slots[i];
+        for (name, value) in params {
+            let same_type = matches!(
+                (slot.rule.params.get(name), value),
+                (Some(crate::expr::Value::Num(_)), crate::expr::Value::Num(_))
+                    | (Some(crate::expr::Value::Bool(_)), crate::expr::Value::Bool(_))
+            );
+            if !same_type {
+                return Err(format!("{rule} has no {name} of this type"));
+            }
+        }
+        for (name, value) in params {
+            slot.rule.params.insert(name.clone(), value.clone());
+        }
+        let mut changes = Changes::default();
+        if !enabled && let Some(event) = slot.episode.undo() {
+            self.apply(i, event, Vec::new(), "turned off".to_owned(), time_ms, &mut changes);
+        }
+        let slot = &mut self.slots[i];
+        if !enabled {
+            slot.episode = Episode::default();
+        }
+        slot.enabled = enabled;
+        Ok(changes)
+    }
+
     /// The next time `step` must run with no state change.
     pub fn deadline(&self) -> Option<Instant> {
-        self.slots.iter().filter_map(|s| s.episode.deadline(&s.rule)).min()
+        self.slots.iter().filter(|s| s.enabled).filter_map(|s| s.episode.deadline(&s.rule)).min()
     }
 
     fn apply(
@@ -339,6 +384,19 @@ holds = [{ knob = "power.nope", value = "x" }]
         assert_eq!(cleared.apply, vec![("power.profile", profile("balanced"))]);
         assert_eq!(cleared.entries[0].event, "cleared");
         assert_eq!(cleared.entries[0].episode, entry.episode);
+    }
+
+    #[test]
+    fn a_new_threshold_applies_and_turning_off_ends_the_episode() {
+        let mut engine = engine();
+        let t0 = Instant::now();
+        engine.configure("power.low_power_plan", true, &[("low_pct".to_owned(), Value::Num(15.0))], 0).unwrap();
+        assert!(engine.step(&at(true, 18.0), t0, 1000).apply.is_empty());
+        assert_eq!(engine.step(&at(true, 14.0), t0, 2000).apply, vec![("power.profile", profile("power-saver"))]);
+        let off = engine.configure("power.low_power_plan", false, &[], 3000).unwrap();
+        assert_eq!(off.apply, vec![("power.profile", profile("balanced"))]);
+        assert!(engine.step(&at(true, 10.0), t0, 4000).entries.is_empty());
+        assert!(engine.configure("power.low_power_plan", true, &[("low_pct".to_owned(), Value::Bool(true))], 0).is_err());
     }
 
     #[test]

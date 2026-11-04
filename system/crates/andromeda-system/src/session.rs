@@ -19,10 +19,12 @@ use crate::explain::{self, Entry, Log};
 use crate::holds::{Knob, Merge};
 use crate::policy::now_ms;
 use crate::rules::{self, Alert, Scope};
+use crate::expr::Value;
 use crate::state::{Fields, Snapshot};
 use crate::{NAME, knobs, power};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
+const RULES: &str = "/org/andromeda/System1/Rules";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
@@ -212,8 +214,17 @@ fn rules_dir() -> PathBuf {
     std::env::var_os("ANDROMEDA_RULES_DIR").map_or_else(|| "/usr/share/andromeda/system/rules".into(), PathBuf::from)
 }
 
-fn load_rules() -> (Engine, HashMap<String, Spec>) {
+fn settings_path() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .map(|c| c.join("andromeda/system-rules.toml"))
+}
+
+/// The rules, their alert specs, and the rules that failed to load with why.
+fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
     let mut rules = Vec::new();
+    let mut broken = Vec::new();
     let mut paths: Vec<PathBuf> = std::fs::read_dir(rules_dir())
         .map(|dir| dir.filter_map(|e| e.ok().map(|e| e.path())).collect())
         .unwrap_or_default();
@@ -227,32 +238,120 @@ fn load_rules() -> (Engine, HashMap<String, Spec>) {
                     match rule {
                         Ok(rule) if rule.scope == Scope::Session => rules.push(rule),
                         Ok(_) => {}
-                        Err((id, why)) => log::warn!("rule {id} is off: {why}"),
+                        Err((id, why)) => {
+                            log::warn!("rule {id} is off: {why}");
+                            broken.push((id, why));
+                        }
                     }
                 }
             }
             Err(e) => log::warn!("{}: {e}", path.display()),
         }
     }
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    if let Some(text) = config.and_then(|c| std::fs::read_to_string(c.join("andromeda/system-rules.toml")).ok()) {
-        for warning in rules::apply_settings(&mut rules, &text) {
-            log::warn!("{warning}");
-        }
-    }
     let specs = rules.iter().map(|r| (r.id.clone(), Spec { holds: r.holds.clone(), alert: r.alert.clone() })).collect();
-    let (engine, refused) = Engine::new(vec![Knob::new("power.profile", Merge::LowestPower)], rules, now_ms());
+    let (mut engine, refused) = Engine::new(vec![Knob::new("power.profile", Merge::LowestPower)], rules, now_ms());
     for (id, why) in refused {
         log::warn!("rule {id} is off: {why}");
+        broken.push((id, why));
     }
-    (engine, specs)
+    let text = settings_path().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    match rules::parse_settings(&text) {
+        Ok(settings) => {
+            for (id, setting) in settings {
+                if let Err(e) = engine.configure(&id, setting.enabled, &setting.params, now_ms()) {
+                    log::warn!("settings: {e}");
+                }
+            }
+        }
+        Err(e) => log::warn!("{e}"),
+    }
+    (engine, specs, broken)
+}
+
+/// `/org/andromeda/System1/Rules` on the session bus: the rules as Settings rows.
+struct RulesObject {
+    shared: Shared,
+    system: Connection,
+    broken: Vec<(String, String)>,
+}
+
+fn param_variant(value: &Value) -> Option<OwnedVariant> {
+    let variant: Variant<'_> = match value {
+        Value::Num(n) => (*n).into(),
+        Value::Bool(b) => (*b).into(),
+        Value::Str(s) => s.as_str().into(),
+    };
+    OwnedVariant::try_from(variant).ok()
+}
+
+#[interface(name = "org.andromeda.System1.Rules")]
+impl RulesObject {
+    /// Each rule: id, on, why it cannot run ("" when it loaded), and its params.
+    async fn list(&self) -> Vec<(String, bool, String, HashMap<String, OwnedVariant>)> {
+        let inner = self.shared.lock().await;
+        let mut out: Vec<_> = inner
+            .engine
+            .rules()
+            .map(|(rule, enabled)| {
+                let params = rule.params.iter().filter_map(|(k, v)| Some((k.clone(), param_variant(v)?))).collect();
+                (rule.id.clone(), enabled, String::new(), params)
+            })
+            .collect();
+        out.extend(self.broken.iter().map(|(id, why)| (id.clone(), false, why.clone(), HashMap::new())));
+        out
+    }
+
+    /// Turns a rule on or off and sets its params (numbers as d, switches as b); stored in
+    /// ~/.config/andromeda/system-rules.toml.
+    async fn set(
+        &self,
+        id: &str,
+        enabled: bool,
+        params: HashMap<String, OwnedVariant>,
+        #[zbus(connection)] session: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        let params: Vec<(String, Value)> = params
+            .into_iter()
+            .map(|(k, v)| {
+                let value = f64::try_from(&v).map(Value::Num).or_else(|_| bool::try_from(&v).map(Value::Bool));
+                value.map(|value| (k.clone(), value)).map_err(|_| zbus::fdo::Error::InvalidArgs(format!("{k}: d or b")))
+            })
+            .collect::<zbus::fdo::Result<_>>()?;
+        let mut inner = self.shared.lock().await;
+        let changes = inner.engine.configure(id, enabled, &params, now_ms()).map_err(zbus::fdo::Error::InvalidArgs)?;
+        let (rule, _) = inner.engine.rules().find(|(r, _)| r.id == id).ok_or_else(|| zbus::fdo::Error::Failed(id.into()))?;
+        let mut entry = toml::Table::new();
+        entry.insert("enabled".into(), toml::Value::Boolean(enabled));
+        for (k, v) in &rule.params {
+            match v {
+                Value::Num(n) => entry.insert(k.clone(), toml::Value::Float(*n)),
+                Value::Bool(b) => entry.insert(k.clone(), toml::Value::Boolean(*b)),
+                Value::Str(_) => None,
+            };
+        }
+        save_setting(id, entry).map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))?;
+        inner.commit(&self.system, session, changes).await;
+        Ok(())
+    }
+}
+
+fn save_setting(id: &str, entry: toml::Table) -> Result<()> {
+    let path = settings_path().context("no XDG_CONFIG_HOME or HOME")?;
+    let mut table: toml::Table =
+        std::fs::read_to_string(&path).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or_default();
+    table.insert(id.to_owned(), toml::Value::Table(entry));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, toml::to_string(&table)?)?;
+    std::fs::rename(tmp, path)?;
+    Ok(())
 }
 
 pub async fn run() -> Result<()> {
     let system = Connection::system().await?;
-    let (engine, specs) = load_rules();
+    let (engine, specs, broken) = load_rules();
     let state_dir = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
@@ -267,6 +366,7 @@ pub async fn run() -> Result<()> {
     }));
     let session = zbus::connection::Builder::session()
         .serve_at(explain::PATH, SessionExplain { shared: shared.clone(), system: system.clone() })
+        .serve_at(RULES, RulesObject { shared: shared.clone(), system: system.clone(), broken })
         .name(NAME)
         .build()
         .await?;

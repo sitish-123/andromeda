@@ -172,33 +172,30 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
     })
 }
 
-/// Applies the user's settings file (`[<rule id>]` tables with `enabled` and declared params): drops the disabled
-/// rules and sets the params. Returns a warning per setting it ignored; an unknown key never turns a rule off.
-pub fn apply_settings(rules: &mut Vec<Rule>, text: &str) -> Vec<String> {
-    let table: toml::Table = match toml::from_str(text) {
-        Ok(t) => t,
-        Err(e) => return vec![format!("settings: {e}")],
-    };
-    let mut warnings = Vec::new();
-    rules.retain_mut(|rule| {
-        let Some(settings) = table.get(&rule.id).and_then(toml::Value::as_table) else { return true };
-        for (key, value) in settings {
-            if key == "enabled" {
-                continue;
-            }
-            let same_type = matches!(
-                (rule.params.get(key), param_value(value)),
-                (Some(Value::Num(_)), Some(Value::Num(_))) | (Some(Value::Bool(_)), Some(Value::Bool(_)))
-            );
-            if same_type {
-                rule.params.insert(key.clone(), param_value(value).unwrap_or(Value::Bool(false)));
-            } else {
-                warnings.push(format!("{}: {key} is not a param of this type", rule.id));
-            }
-        }
-        settings.get("enabled").and_then(toml::Value::as_bool) != Some(false)
-    });
-    warnings
+/// One rule's entry in the user's settings file.
+#[derive(Debug, PartialEq)]
+pub struct Setting {
+    pub enabled: bool,
+    pub params: Vec<(String, Value)>,
+}
+
+/// Parses the user's settings file: `["<rule id>"]` tables with `enabled` and param values (numbers or bools).
+/// Keys of other types are skipped; the engine checks each param against the rule.
+pub fn parse_settings(text: &str) -> Result<BTreeMap<String, Setting>, String> {
+    let table: toml::Table = toml::from_str(text).map_err(|e| format!("settings: {e}"))?;
+    Ok(table
+        .iter()
+        .filter_map(|(id, value)| {
+            let entries = value.as_table()?;
+            let enabled = entries.get("enabled").and_then(toml::Value::as_bool).unwrap_or(true);
+            let params = entries
+                .iter()
+                .filter(|(k, _)| *k != "enabled")
+                .filter_map(|(k, v)| Some((k.clone(), param_value(v)?)))
+                .collect();
+            Some((id.clone(), Setting { enabled, params }))
+        })
+        .collect())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -295,7 +292,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
-    use super::{End, Episode, Event, apply_settings, load};
+    use super::{End, Episode, Event, load, parse_settings};
     use crate::expr::{Schema, Type, Value, Values};
 
     struct State(HashMap<&'static str, Value>);
@@ -373,16 +370,11 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
     }
 
     #[test]
-    fn settings_change_params_and_turn_rules_off() {
-        let mut rules: Vec<_> = load(RULE, &at(false, 0.0)).unwrap().into_iter().map(Result::unwrap).collect();
-        let warnings = apply_settings(&mut rules, "[\"power.low_power_plan\"]\nlow_pct = 15\nnope = 1\n");
-        assert_eq!(warnings.len(), 1);
-        let mut ep = Episode::default();
-        let t0 = Instant::now();
-        ep.step(&rules[0], &at(true, 18.0), t0);
-        assert_eq!(ep.step(&rules[0], &at(true, 18.0), t0 + Duration::from_secs(20)), None);
-        assert!(apply_settings(&mut rules, "[\"power.low_power_plan\"]\nenabled = false\n").is_empty());
-        assert!(rules.is_empty());
+    fn settings_parse_enabled_and_params() {
+        let settings = parse_settings("[\"power.low_power_plan\"]\nenabled = false\nlow_pct = 15\n").unwrap();
+        let setting = &settings["power.low_power_plan"];
+        assert!(!setting.enabled);
+        assert_eq!(setting.params, vec![("low_pct".to_owned(), Value::Num(15.0))]);
     }
 
     #[test]
