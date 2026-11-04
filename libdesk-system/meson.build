@@ -40,6 +40,10 @@ _deps = [
 ]
 
 _sources = files(
+  'src/core/process/process.cpp',
+  'src/dbus/logind/logind_service.cpp',
+  'src/dbus/logind/power_config_service.cpp',
+  'src/dbus/power/power_profiles_service.cpp',
   'src/dbus/session_bus.cpp',
   'src/dbus/system_bus.cpp',
   'src/dbus/system_interactive_call.cpp',

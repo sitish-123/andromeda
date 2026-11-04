@@ -10,7 +10,6 @@
 #include <vector>
 
 class SystemBus;
-class IpcService;
 
 namespace sdbus {
   class IProxy;
@@ -38,7 +37,6 @@ enum class PowerProfilesChangeOrigin : std::uint8_t {
 class PowerProfilesService {
 public:
   using ChangeCallback = std::function<void(const PowerProfilesState&, PowerProfilesChangeOrigin)>;
-  using StateFeedbackCallback = std::function<void(std::string_view profile)>;
 
   explicit PowerProfilesService(SystemBus& bus);
   ~PowerProfilesService();
@@ -57,8 +55,6 @@ public:
   /// Returns false when no active profile is known and UPower returned no profile list,
   /// or when the D-Bus set dispatch fails synchronously.
   [[nodiscard]] bool cycleActiveProfile(int direction = 1);
-
-  void registerIpc(IpcService& ipc, const StateFeedbackCallback& stateFeedback = {});
 
 private:
   [[nodiscard]] PowerProfilesChangeOrigin consumeActiveProfileChangeOrigin(std::string_view profile);

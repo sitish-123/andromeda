@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include "application.h"
+#include "ipc/service_ipc.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
 #include "cli/schema_msg.h"
@@ -789,7 +790,7 @@ void Application::initIpc() {
   registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
 
   if (powerProfiles() != nullptr) {
-    powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {
+    registerPowerProfilesIpc(m_ipcService, *powerProfiles(), [this](std::string_view profile) {
       m_osdOverlay.show(powerProfileOsdContent(profile));
     });
   }
