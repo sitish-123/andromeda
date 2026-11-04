@@ -3,15 +3,26 @@
 
 mod battery;
 mod bus;
+#[allow(dead_code)] // rule loading and stepping come in TASK-system.md 2e-2f
+mod engine;
+#[allow(dead_code)] // rule loading and stepping come in TASK-system.md 2e-2f
+mod expr;
+mod explain;
+mod holds;
 mod kbd_backlight;
 mod knobs;
 mod manager;
 mod memory;
 mod network;
+mod policy;
 mod polkit;
 mod power;
+#[allow(dead_code)] // wired to the D-Bus objects in TASK-system.md 2c-2e
+mod rules;
 mod storage;
 mod thermal;
+
+use std::path::PathBuf;
 
 use anyhow::Result;
 use tokio::signal::unix::{SignalKind, signal};
@@ -21,6 +32,9 @@ pub const NAME: &str = "org.andromeda.System1";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // systemd sets STATE_DIRECTORY from StateDirectory=; tests point it at a temp dir.
+    let state = std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-system".into(), PathBuf::from);
+    let policy = policy::new(state.join("explain.jsonl"));
     let conn = zbus::connection::Builder::system()
         .serve_at(manager::PATH, zbus::fdo::ObjectManager)
         .serve_at(manager::PATH, manager::Manager::default())
@@ -29,10 +43,12 @@ async fn main() -> Result<()> {
         .serve_at(network::PATH, network::Network::default())
         .serve_at(storage::PATH, storage::Storage::default())
         .serve_at(thermal::PATH, thermal::Thermal::default())
-        .serve_at(knobs::PATH, knobs::Knobs)
+        .serve_at(knobs::PATH, knobs::Knobs { policy: policy.clone() })
+        .serve_at(explain::PATH, explain::Explain { policy: policy.clone() })
         .name(NAME)
         .build()
         .await?;
+    tokio::spawn(knobs::release_on_exit(conn.clone(), policy));
     tokio::spawn(power::run(conn.clone()));
     tokio::spawn(battery::run(conn.clone()));
     tokio::spawn(kbd_backlight::run(conn.clone()));

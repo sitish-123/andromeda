@@ -33,6 +33,18 @@
     <property name="Vendor" type="s" access="read" />
     <property name="Warning" type="s" access="read" />
   </interface>
+  <interface name="org.andromeda.System1.Explain">
+    <method name="List">
+      <arg name="since_usec" type="t" direction="in" />
+      <arg type="aa{sv}" direction="out" />
+    </method>
+    <method name="Undo">
+      <arg name="entry" type="s" direction="in" />
+    </method>
+    <signal name="Entry">
+      <arg name="entry" type="a{sv}" />
+    </signal>
+  </interface>
   <interface name="org.andromeda.System1.KbdBacklight">
     <method name="SetBrightness">
       <arg name="value" type="i" direction="in" />
@@ -44,6 +56,22 @@
     <method name="Set">
       <arg name="knob" type="s" direction="in" />
       <arg name="value" type="v" direction="in" />
+    </method>
+    <signal name="Released">
+      <arg name="id" type="s" />
+      <arg name="owner" type="s" />
+    </signal>
+    <method name="Hold">
+      <arg name="knob" type="s" direction="in" />
+      <arg name="value" type="v" direction="in" />
+      <arg name="reason" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Release">
+      <arg name="id" type="s" direction="in" />
+    </method>
+    <method name="List">
+      <arg type="a(sva(ssvst))" direction="out" />
     </method>
   </interface>
   <interface name="org.andromeda.System1.Manager">

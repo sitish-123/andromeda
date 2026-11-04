@@ -31,4 +31,13 @@
       <allow_active>yes</allow_active>
     </defaults>
   </action>
+  <action id="org.andromeda.system.undo">
+    <description>Undo an automatic system action</description>
+    <message>Authentication is required to undo a system action</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

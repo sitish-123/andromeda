@@ -203,6 +203,19 @@ pub async fn sample_rapl(conn: Connection) {
     }
 }
 
+/// Places a power-profiles-daemon hold; it ends with [`release_profile`] or when this daemon leaves the bus.
+pub async fn hold_profile(conn: &Connection, profile: &str, reason: &str) -> Result<u32> {
+    let reply = conn
+        .call_method(Some(PPD), PPD_PATH, Some(PPD), "HoldProfile", &(profile, reason, crate::NAME))
+        .await?;
+    Ok(reply.body().deserialize()?)
+}
+
+pub async fn release_profile(conn: &Connection, cookie: u32) -> Result<()> {
+    conn.call_method(Some(PPD), PPD_PATH, Some(PPD), "ReleaseProfile", &(cookie,)).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::rapl_watts;

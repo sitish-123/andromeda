@@ -160,12 +160,42 @@ class Profiles(PropertyObject):
         super().__init__(bus, "/org/freedesktop/UPower/PowerProfiles",
                          {"ActiveProfile": dbus.String("balanced"), "Profiles": profiles})
         self.log = log
+        self.holds = {}
+        self.chosen = "balanced"
+        self.next_cookie = 1
+
+    def write(self, line):
+        with open(self.log, "a") as out:
+            out.write(line + "\n")
 
     @dbus.service.method(PROPS, in_signature="ssv")
     def Set(self, interface, name, value):
-        with open(self.log, "a") as out:
-            out.write(f"{name}={value}\n")
+        self.write(f"{name}={value}")
+        # As power-profiles-daemon: a profile set drops every hold.
+        self.holds.clear()
+        self.chosen = str(value)
         super().Set(interface, name, value)
+
+    def follow_holds(self):
+        held = set(self.holds.values())
+        active = "power-saver" if "power-saver" in held else "performance" if held else self.chosen
+        self.props["ActiveProfile"] = dbus.String(active)
+        self.changed({"ActiveProfile": self.props["ActiveProfile"]})
+
+    @dbus.service.method(PROFILES, in_signature="sss", out_signature="u")
+    def HoldProfile(self, profile, reason, application_id):
+        if profile not in ("power-saver", "performance"):
+            raise dbus.exceptions.DBusException("only power-saver and performance", name=PROFILES + ".Error")
+        cookie, self.next_cookie = self.next_cookie, self.next_cookie + 1
+        self.holds[cookie] = str(profile)
+        self.write(f"Hold={profile}")
+        self.follow_holds()
+        return cookie
+
+    @dbus.service.method(PROFILES, in_signature="u")
+    def ReleaseProfile(self, cookie):
+        self.write(f"Release={self.holds.pop(int(cookie), 'unknown')}")
+        self.follow_holds()
 
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
