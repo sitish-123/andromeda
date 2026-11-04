@@ -326,6 +326,8 @@ namespace andromeda {
     bool allowTearing = false;
     // Allow eligible fullscreen buffers to bypass composition on this output.
     bool directScanout = true;
+    // Put a covering, updating buffer (video) on the primary plane and the UI above it on one overlay plane.
+    bool overlayPlanes = true;
     HdrMode hdr = HdrMode::Off;
     float sdrWhite = 203.0F;
     SdrTransfer sdrTransfer = SdrTransfer::Gamma22;

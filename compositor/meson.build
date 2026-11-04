@@ -1050,7 +1050,7 @@ andromeda_core_dep = declare_dependency(
 # every test links.
 andromeda = executable(
   'andromeda',
-  ['src/main.cpp', 'src/core/build_info.cpp', andromeda_git_revision_h],
+  ['src/main.cpp', 'src/core/build_info.cpp', 'src/server/liftoff_deadline.cpp', andromeda_git_revision_h],
   cpp_args: jemalloc_cpp_args + ['-DANDROMEDA_VERSION="' + meson.project_version() + '"'],
   dependencies: [andromeda_core_dep] + jemalloc_deps,
   install: true,
@@ -1104,6 +1104,7 @@ configure_file(
 )
 
 install_data(
+  'data/andromeda.socket',
   'data/andromeda-session.target',
   'data/andromeda-shutdown.target',
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',

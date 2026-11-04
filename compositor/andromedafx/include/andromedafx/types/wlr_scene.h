@@ -29,6 +29,7 @@
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_damage_ring.h>
 #include <wlr/types/wlr_linux_dmabuf_v1.h>
+#include <wlr/types/wlr_output_layer.h>
 #include <wlr/util/addon.h>
 #include <wlr/util/box.h>
 
@@ -120,6 +121,8 @@ enum wlr_scene_direct_scanout_status {
   // The backend test rejected the buffer, for instance its format or modifier.
   WLR_SCENE_DIRECT_SCANOUT_REJECTED,
   WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE,
+  // The buffer is on the primary plane and the nodes above it are composited into one overlay plane.
+  WLR_SCENE_DIRECT_SCANOUT_OVERLAY,
 };
 
 /**
@@ -440,6 +443,29 @@ struct wlr_scene_output {
     bool hdr_white_point_active;
     bool hdr_white_point_cursor_locked;
     struct wl_listener output_destroy;
+    bool overlay_planes_enabled;
+    struct wlr_output_layer* overlay_layer;
+    struct wlr_swapchain* overlay_swapchain;
+    // Points into the committed state; the buffer stays locked until the next frame is built.
+    struct wlr_output_layer_state overlay_layer_state;
+    // The overlay buffer the last committed layer state shows: locked, so the swapchain never renders into it on screen.
+    struct wlr_buffer* overlay_shown_buffer;
+    // The one overlay attempt that may modeset (to settle the display clock) is spent.
+    bool overlay_modeset_tried;
+    // A commit left the layer to composition before that modeset: the next attempt may modeset.
+    bool overlay_modeset_next;
+    // The plane layout of the last overlay test that passed and of a commit that kept the layer on its plane since;
+    // identity only. A matching frame skips the atomic test (1-2 ms on i915), re-testing every 120 frames.
+    const void* overlay_tested_candidate;
+    uint32_t overlay_tested_format;
+    uint64_t overlay_tested_modifier;
+    uint8_t overlay_untested_frames;
+    // Frames left before the next overlay attempt after a rejected one.
+    uint8_t overlay_backoff;
+    // Identity only, never dereferenced: the last bottom candidate, its buffer, and frames built without a new one.
+    const void* overlay_candidate;
+    const void* overlay_candidate_buffer;
+    uint8_t overlay_candidate_still;
   } WLR_PRIVATE;
 };
 
@@ -1154,6 +1180,12 @@ void wlr_scene_output_set_position(struct wlr_scene_output* scene_output, int lx
 void wlr_scene_output_set_direct_scanout_enabled(struct wlr_scene_output* scene_output, bool enabled);
 
 /**
+ * Allow a covering client buffer on the primary plane with the nodes above it in one overlay plane. Needs direct
+ * scanout enabled and a backend with output layers (DRM with WLR_DRM_FORCE_LIBLIFTOFF=1).
+ */
+void wlr_scene_output_set_overlay_planes_enabled(struct wlr_scene_output* scene_output, bool enabled);
+
+/**
  * The outcome of the latest frame's direct scanout attempt. Frames that change nothing keep the previous outcome.
  */
 enum wlr_scene_direct_scanout_status
@@ -1227,6 +1259,9 @@ struct wlr_scene_output_state_options {
   // Participating roots supply the workspace isolation identities and transition slot.
   // Render each complete output scene, then composite the pair once.
   struct wlr_scene_node *workspace_from, *workspace_to;
+  // Render locks taken only to keep animated outputs off direct scanout. An overlay frame still renders every node
+  // above the plane buffer, so these locks do not block it.
+  int animation_render_locks;
 };
 
 /**

@@ -101,7 +101,7 @@ namespace andromeda {
       static const OutputRule defaults;
       const OutputRule& lhs = before != nullptr ? *before : defaults;
       const OutputRule& rhs = after != nullptr ? *after : defaults;
-      return lhs.directScanout == rhs.directScanout;
+      return lhs.directScanout == rhs.directScanout && lhs.overlayPlanes == rhs.overlayPlanes;
     }
 
     bool sameOutputLayout(const OutputRule* before, const OutputRule* after) {

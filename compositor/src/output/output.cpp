@@ -102,6 +102,8 @@ namespace andromeda {
         return "rejected";
       case WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE:
         return "debug_damage";
+      case WLR_SCENE_DIRECT_SCANOUT_OVERLAY:
+        return "overlay";
       }
       return "unknown";
     }
@@ -200,7 +202,7 @@ namespace andromeda {
       m_heldFrameTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onHeldFrameTimer, this);
       wl_event_source_timer_update(m_heldFrameTimer, 3000);
     }
-    wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
+    applyDirectScanoutConfig();
 
     m_frame.connect(&m_output->events.frame, this, onFrame);
 
@@ -594,6 +596,8 @@ namespace andromeda {
 
   void Output::applyDirectScanoutConfig() {
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
+    const OutputRule* rule = findOutputRule(config(), identity());
+    wlr_scene_output_set_overlay_planes_enabled(m_sceneOutput, rule == nullptr || rule->overlayPlanes);
   }
 
   void Output::setHdrFallbackReason(std::string_view reason) {
@@ -2308,6 +2312,7 @@ namespace andromeda {
       sceneOptions.effect_capture_pending = effectCapturePending(captureLocks);
       m_effectCaptureBuilt = sceneOptions.effect_capture_pending;
       sceneOptions.require_animation_success = m_workspaceGroup != nullptr && m_workspaceGroup->revealActive();
+      sceneOptions.animation_render_locks = m_animationRenderLocked ? 1 : 0;
       if (sceneOptions.require_animation_success) {
         sceneOptions.workspace_from = m_workspaceGroup->revealRoot(false);
         sceneOptions.workspace_to = m_workspaceGroup->revealRoot(true);
