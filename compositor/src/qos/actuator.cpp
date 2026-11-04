@@ -131,7 +131,9 @@ namespace andromeda::qos {
       // Tasks exit and threads come and go during the walk: a missing one is skipped.
       for (std::filesystem::directory_iterator task("/proc/" + pid + "/task", ec), end; !ec && task != end;
            task.increment(ec)) {
-        const int fd = open((task->path() / "timerslack_ns").c_str(), O_WRONLY | O_CLOEXEC);
+        // The kernel has timerslack_ns only in /proc/<tid>, not in /proc/<pid>/task/<tid>.
+        const auto path = std::filesystem::path("/proc") / task->path().filename() / "timerslack_ns";
+        const int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
         if (fd < 0) {
           continue;
         }
