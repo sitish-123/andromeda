@@ -102,6 +102,7 @@ namespace {
     dsk_surface_manager_v1* dskManager = nullptr;
     dsk_surface_v1* dskSurface = nullptr;
     dsk_tracker_v1* dskTracker = nullptr;
+    dsk_shape_v1* dskShape = nullptr;
     wl_surface* popupSurface = nullptr;
     xdg_surface* popupXdgSurface = nullptr;
     xdg_popup* popup = nullptr;
@@ -337,6 +338,50 @@ namespace {
       } else {
         dsk_surface_v1_set(
             state.dskSurface, property, wl_fixed_from_double(a), wl_fixed_from_double(b), wl_fixed_from_double(c),
+            wl_fixed_from_double(d)
+        );
+      }
+    } else if (action == "dsk-shape" || action == "dsk-shape-loop") {
+      // dsk-shape <label> <property> <a> <b> <c> <d>: sets a property of one dsk_shape_v1 (made on first use).
+      // dsk-shape-loop <label> <serial> <property> <wave> <period_ms> <seed> <a> <b> <c> <d>: loops it.
+      if (state.dskManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      if (state.dskShape == nullptr) {
+        state.dskShape = dsk_surface_v1_get_shape(state.dskSurface);
+      }
+      uint32_t serial = 0;
+      uint32_t property = 0;
+      uint32_t wave = 0;
+      uint32_t period = 0;
+      uint32_t seed = 0;
+      double a = 0.0;
+      double b = 0.0;
+      double c = 0.0;
+      double d = 0.0;
+      if (action == "dsk-shape-loop") {
+        command >> serial >> property >> wave >> period >> seed;
+      } else {
+        command >> property;
+      }
+      command >> a >> b >> c >> d;
+      if (command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (action == "dsk-shape-loop") {
+        dsk_shape_v1_loop(
+            state.dskShape, serial, property, wave, period, seed, wl_fixed_from_double(a), wl_fixed_from_double(b),
+            wl_fixed_from_double(c), wl_fixed_from_double(d)
+        );
+      } else {
+        dsk_shape_v1_set(
+            state.dskShape, property, wl_fixed_from_double(a), wl_fixed_from_double(b), wl_fixed_from_double(c),
             wl_fixed_from_double(d)
         );
       }

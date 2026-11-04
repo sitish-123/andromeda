@@ -83,11 +83,12 @@ namespace andromeda {
   private:
     struct Op {
       // ClipFrom: value is a clip in layout coordinates, made surface-local at commit.
-      enum class Kind : uint8_t { Set, Animate, ClipFrom } kind;
+      enum class Kind : uint8_t { Set, Animate, ClipFrom, Loop } kind;
       uint32_t serial;
       SurfaceMotion::Property property;
       SurfaceMotion::Curve curve;
       SurfaceMotion::Value value;
+      SurfaceMotion::LoopSpec loop; // Loop only
     };
 
     struct Surface;
@@ -184,6 +185,10 @@ namespace andromeda {
     static void handleShapeAnimate(
         wl_client* client, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t curve, int32_t a,
         int32_t b, int32_t c, int32_t d
+    );
+    static void handleShapeLoop(
+        wl_client* client, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t wave,
+        uint32_t periodMs, uint32_t seed, int32_t a, int32_t b, int32_t c, int32_t d
     );
     static void handleShapeResourceDestroyed(wl_resource* resource);
     // Applies `ops` to `motion` as a commit does.

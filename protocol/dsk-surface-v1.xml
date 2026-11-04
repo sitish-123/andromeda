@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="11">
+  <interface name="dsk_surface_manager_v1" version="12">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="11">
+  <interface name="dsk_surface_v1" version="12">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -78,7 +78,7 @@
       <entry name="stroke" value="7" since="7" summary="a, b, c, d = r, g, b, alpha 0..1 of a 1 px hairline inside the clip shape; drawn only while a clip is set"/>
       <entry name="tint" value="8" since="9" summary="a, b, c, d = r, g, b, alpha 0..1 of the material tint the compositor draws over the blur, under the surface; it raises alpha over a same-tone backdrop; a client that sends alpha &gt; 0 paints no tint of its own"/>
       <entry name="join" value="9" since="10" summary="a = the clip edge that joins another shape: 0 none, 1 top, 2 right, 3 bottom, 4 left; b = flare radius, px: the two corners on that edge curve outward (concave) along the edge, outside the clip"/>
-      <entry name="fill" value="10" since="10" summary="a, b, c, d = r, g, b, alpha 0..1 of a flat fill the compositor draws in the clip shape under the surface, with no blur (cards on glass)"/>
+      <entry name="fill" value="10" since="10" summary="a, b, c, d = r, g, b, alpha 0..1 of a flat fill the compositor draws in the clip shape, over the surface glass and under its content, with no blur; on a dsk_shape_v1 a fill makes a flat shape: it draws no glass and does not replace the surface glass"/>
       <entry name="fill_dense" value="11" since="10" summary="a = fill alpha at full glass density; the fill alpha follows the density of the glass under it from the fill alpha to this one"/>
     </enum>
 
@@ -226,7 +226,7 @@
         A surface can hold several glass shapes (islands of a bar, cards of a
         sheet), each with its own clip, corners, tint, liquid, elevation,
         stroke and fill. Shapes draw in creation order, under the surface
-        content. While a surface has a shape with a clip, its own clip,
+        content. While a surface has a glass shape (a shape with a clip and no fill), its own clip,
         radius, tint, liquid, elevation and stroke draw no glass, and the
         compositor ignores its blur region for glass. The surface translate,
         scale and opacity move and fade every shape with it.
@@ -250,7 +250,7 @@
     </request>
   </interface>
 
-  <interface name="dsk_shape_v1" version="10">
+  <interface name="dsk_shape_v1" version="12">
     <description summary="one glass shape of a dsk_surface_v1">
       Uses the property, curve and reason enums of dsk_surface_v1. Requests
       are double-buffered on the parent wl_surface commit. translate, scale
@@ -298,6 +298,33 @@
       <arg name="serial" type="uint"/>
       <arg name="reason" type="uint" enum="dsk_surface_v1.reason"/>
     </event>
+
+    <enum name="wave" since="12">
+      <entry name="sine" value="0" summary="0.5 - 0.5 cos: low at the start, high at half the period"/>
+      <entry name="noise" value="1" summary="a smooth pseudo-random level from a sum of sines; the seed decorrelates shapes"/>
+    </enum>
+
+    <request name="loop" since="12">
+      <description summary="repeat a motion until replaced">
+        The property moves between its current value (low) and a, b, c, d
+        (high) with t = wave(time / period) in 0..1, each component linear in
+        t, from the frame the loop starts (started event) until a set, animate
+        or loop on the property replaces it (done, reason cancelled or
+        retargeted). The loop never finishes on its own. The compositor draws
+        its frames only while the surface is mapped, on an enabled output and
+        not fully transparent: a hidden loop costs no frames. Use it for
+        decorative motion that would otherwise need a client frame per tick.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="property" type="uint" enum="dsk_surface_v1.property"/>
+      <arg name="wave" type="uint" enum="wave"/>
+      <arg name="period_ms" type="uint" summary="one cycle, 100..60000"/>
+      <arg name="seed" type="uint"/>
+      <arg name="a" type="fixed"/>
+      <arg name="b" type="fixed"/>
+      <arg name="c" type="fixed"/>
+      <arg name="d" type="fixed"/>
+    </request>
   </interface>
 
   <interface name="dsk_tracker_v1" version="4">

@@ -352,10 +352,23 @@ namespace andromeda {
       return false;
     }
     const DskSurfaceManager::State* state = dsk->state(m_layerSurface->surface);
-    if (state != nullptr && std::ranges::any_of(state->shapes, [](const SurfaceMotion* shape) { return shape->animating(); })) {
+    if (state == nullptr) {
+      return dsk->driven(m_layerSurface->surface);
+    }
+    // Loops never settle: they get frames only while someone can see them (dsk_shape_v1.loop).
+    const Output* out = output();
+    int sceneX = 0;
+    int sceneY = 0;
+    // wlr_scene_node_coords is false when the node or a parent is disabled.
+    const bool shows = m_mapped && m_scene != nullptr && wlr_scene_node_coords(&m_scene->tree->node, &sceneX, &sceneY) && out != nullptr
+        && out->wlr()->enabled && state->motion.value(SurfaceMotion::Property::Opacity)[0] > 0.0;
+    const auto needsFrames = [shows](const SurfaceMotion& motion) {
+      return motion.settling() || (shows && motion.looping());
+    };
+    if (std::ranges::any_of(state->shapes, [&](const SurfaceMotion* shape) { return needsFrames(*shape); })) {
       return true;
     }
-    return (state != nullptr && state->motion.animating()) || dsk->driven(m_layerSurface->surface);
+    return needsFrames(state->motion) || dsk->driven(m_layerSurface->surface);
   }
 
   bool LayerSurface::tickAnimations(double nowMsec) {
@@ -486,6 +499,12 @@ namespace andromeda {
     wlr_scene_tree* tree = state != nullptr ? surfaceTree() : nullptr;
     if (tree == nullptr) {
       applyStroke(nullptr, nullptr, 0);
+      for (wlr_scene_rect* fill : m_shapeFills) {
+        wlr_scene_node_set_enabled(&fill->node, false);
+      }
+      for (auto& shadow : m_shapeShadows) {
+        shadow->hide();
+      }
       return;
     }
     using Property = SurfaceMotion::Property;
@@ -553,6 +572,40 @@ namespace andromeda {
     }
     for (std::size_t i = shadowCount; i < m_shapeShadows.size(); ++i) {
       m_shapeShadows[i]->hide();
+    }
+    // dsk_shape_v1 fill: a flat rounded rect over the glass and under the content; it fades with the surface.
+    const double surfaceOpacity = std::clamp(motion.value(Property::Opacity)[0], 0.0, 1.0);
+    std::size_t fillCount = 0;
+    for (const SurfaceMotion* shapeMotion : state->shapes) {
+      const auto& c = shapeMotion->value(Property::Clip);
+      const auto& fill = shapeMotion->value(Property::Fill);
+      if (c[2] <= 0.0 || c[3] <= 0.0 || fill[3] <= 0.0) {
+        continue;
+      }
+      if (m_shapeFills.size() <= fillCount) {
+        static constexpr float kClear[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+        wlr_scene_rect* created = wlr_scene_rect_create(m_scene->tree, 1, 1, kClear);
+        if (created == nullptr) {
+          break;
+        }
+        m_shapeFills.push_back(created);
+      }
+      wlr_scene_rect* rect = m_shapeFills[fillCount++];
+      const auto px = [scale](double v) { return static_cast<int>(std::lround(v * scale)); };
+      const double alpha = std::clamp(fill[3], 0.0, 1.0) * surfaceOpacity;
+      // Premultiplied, as the scene renders rects.
+      const float color[4] = {static_cast<float>(std::clamp(fill[0], 0.0, 1.0) * alpha),
+                              static_cast<float>(std::clamp(fill[1], 0.0, 1.0) * alpha),
+                              static_cast<float>(std::clamp(fill[2], 0.0, 1.0) * alpha), static_cast<float>(alpha)};
+      wlr_scene_rect_set_size(rect, px(c[2]), px(c[3]));
+      wlr_scene_rect_set_color(rect, color);
+      wlr_scene_rect_set_corner_radius(rect, px(shapeMotion->value(Property::Radius)[0]));
+      wlr_scene_node_set_position(&rect->node, tree->node.x + px(c[0]), tree->node.y + px(c[1]));
+      wlr_scene_node_place_below(&rect->node, &tree->node);
+      wlr_scene_node_set_enabled(&rect->node, true);
+    }
+    for (std::size_t i = fillCount; i < m_shapeFills.size(); ++i) {
+      wlr_scene_node_set_enabled(&m_shapeFills[i]->node, false);
     }
     const double level = std::clamp(motion.value(Property::Elevation)[0], 0.0, 2.0);
     if (level < 0.005) {
@@ -708,6 +761,7 @@ namespace andromeda {
       shadow->reset();
     }
     self->m_stroke = nullptr; // a child of the destroyed scene tree
+    self->m_shapeFills.clear(); // children of the destroyed scene tree
     wlr_scene_node_destroy(&self->m_popupTree->node);
     self->m_popupTree = nullptr;
   }
@@ -923,7 +977,8 @@ namespace andromeda {
     if (state != nullptr && m_rule.blur.value_or(true)) {
       for (const SurfaceMotion* shape : state->shapes) {
         const auto& c = shape->value(SurfaceMotion::Property::Clip);
-        if (c[2] <= 0.0 || c[3] <= 0.0) {
+        // A fill makes a flat shape (applySurfaceMotion): no glass, and the surface keeps its own.
+        if (c[2] <= 0.0 || c[3] <= 0.0 || shape->value(SurfaceMotion::Property::Fill)[3] > 0.0) {
           continue;
         }
         RoundedShape rounded{

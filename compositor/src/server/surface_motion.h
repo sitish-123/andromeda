@@ -22,6 +22,13 @@ namespace andromeda {
       SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast
     };
     enum class Reason : uint8_t { Finished, Retargeted, Cancelled };
+    // Values match dsk_shape_v1.wave.
+    enum class Wave : uint8_t { Sine, Noise };
+    struct LoopSpec {
+      Wave wave = Wave::Sine;
+      uint32_t periodMs = 1000;
+      uint32_t seed = 0;
+    };
     static constexpr std::size_t kPropertyCount = 12;
 
     using Value = std::array<double, 4>;
@@ -41,11 +48,16 @@ namespace andromeda {
     // Where the property ends: the running animation's target, else the current value.
     [[nodiscard]] const Value& target(Property property) const;
     [[nodiscard]] bool animating() const;
+    // A spring runs: it needs frames until it settles. Loops need frames only while their surface shows.
+    [[nodiscard]] bool settling() const;
+    [[nodiscard]] bool looping() const;
 
     // Jumps; a running animation on the property ends as Cancelled.
     void set(Property property, const Value& value);
     // Starts from the current value; a spring already running on the property keeps its velocity.
     void animate(uint32_t serial, Property property, Curve curve, const Value& to);
+    // Repeats between the current value and `high` until a set, animate or loop on the property replaces it.
+    void loop(uint32_t serial, Property property, Wave wave, uint32_t periodMs, uint32_t seed, const Value& high);
     // Advances to `nowMs` (CLOCK_MONOTONIC). The first tick after animate() is the animation's start frame.
     // Returns true when a value changed.
     bool tick(uint32_t nowMs);
@@ -62,6 +74,13 @@ namespace andromeda {
       bool stepOnStart = false;
       Value to{};
       std::array<desk::motion::Spring, 4> springs{};
+      // A loop: value = low + (to - low) * wave(elapsed / period), from the start frame on.
+      bool loop = false;
+      Wave wave = Wave::Sine;
+      uint32_t periodMs = 1000;
+      uint32_t seed = 0;
+      uint32_t startMs = 0;
+      Value low{};
     };
 
     void finish(Track& track, Reason reason);

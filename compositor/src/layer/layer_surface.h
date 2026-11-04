@@ -15,6 +15,7 @@
 struct wlr_layer_surface_v1;
 struct wlr_scene_layer_surface_v1;
 struct wlr_scene_tree;
+struct wlr_scene_rect;
 struct wlr_scene_border;
 struct wlr_box;
 struct wlr_surface;
@@ -136,6 +137,7 @@ namespace andromeda {
     std::vector<std::unique_ptr<SurfaceShadow>> m_shapeShadows; // dsk_shape_v1 elevation, one per shape
     // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.
     wlr_scene_border* m_stroke = nullptr;
+    std::vector<wlr_scene_rect*> m_shapeFills; // dsk_shape_v1 flat shapes (fill alpha > 0), reused per frame
     float m_surfaceAlpha = 1.0F;
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};

@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 11;
+    constexpr int kVersion = 12;
     constexpr uint32_t kPropertyCount = 12;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
@@ -57,6 +57,7 @@ namespace andromeda {
       .destroy = handleShapeDestroy,
       .set = handleShapeSet,
       .animate = handleShapeAnimate,
+      .loop = handleShapeLoop,
   };
 
   const wlr_addon_interface DskSurfaceManager::kAddonInterface = {
@@ -236,7 +237,8 @@ namespace andromeda {
          .serial = 0,
          .property = SurfaceMotion::Property::Elevation,
          .curve = SurfaceMotion::Curve::None,
-         .value = {static_cast<double>(level), 0.0, 0.0, 0.0}}
+         .value = {static_cast<double>(level), 0.0, 0.0, 0.0},
+         .loop = {}}
     );
   }
 
@@ -256,7 +258,8 @@ namespace andromeda {
          .serial = 0,
          .property = static_cast<SurfaceMotion::Property>(property),
          .curve = SurfaceMotion::Curve::None,
-         .value = toValue(a, b, c, d)}
+         .value = toValue(a, b, c, d),
+         .loop = {}}
     );
   }
 
@@ -280,7 +283,8 @@ namespace andromeda {
          .property = SurfaceMotion::Property::Clip,
          .curve = SurfaceMotion::Curve::None,
          .value = {wl_fixed_to_double(x) + from->first, wl_fixed_to_double(y) + from->second,
-                   wl_fixed_to_double(width), wl_fixed_to_double(height)}}
+                   wl_fixed_to_double(width), wl_fixed_to_double(height)},
+         .loop = {}}
     );
   }
 
@@ -303,7 +307,8 @@ namespace andromeda {
          .serial = serial,
          .property = static_cast<SurfaceMotion::Property>(property),
          .curve = static_cast<SurfaceMotion::Curve>(curve),
-         .value = toValue(a, b, c, d)}
+         .value = toValue(a, b, c, d),
+         .loop = {}}
     );
   }
 
@@ -369,7 +374,8 @@ namespace andromeda {
            .serial = 0,
            .property = static_cast<SurfaceMotion::Property>(property),
            .curve = SurfaceMotion::Curve::None,
-           .value = toValue(a, b, c, d)}
+           .value = toValue(a, b, c, d),
+           .loop = {}}
       );
     }
   }
@@ -390,7 +396,30 @@ namespace andromeda {
            .serial = serial,
            .property = static_cast<SurfaceMotion::Property>(property),
            .curve = static_cast<SurfaceMotion::Curve>(curve),
-           .value = toValue(a, b, c, d)}
+           .value = toValue(a, b, c, d),
+           .loop = {}}
+      );
+    }
+  }
+
+  void DskSurfaceManager::handleShapeLoop(
+      wl_client* /*client*/, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t wave,
+      uint32_t periodMs, uint32_t seed, int32_t a, int32_t b, int32_t c, int32_t d
+  ) {
+    if (!validProperty(resource, property) || wave > DSK_SHAPE_V1_WAVE_NOISE) {
+      wl_resource_post_error(
+          resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u or wave %u", property, wave
+      );
+      return;
+    }
+    if (Shape* shape = shapeFromResource(resource)) {
+      shape->pending.push_back(
+          {.kind = Op::Kind::Loop,
+           .serial = serial,
+           .property = static_cast<SurfaceMotion::Property>(property),
+           .curve = SurfaceMotion::Curve::None,
+           .value = toValue(a, b, c, d),
+           .loop = {.wave = static_cast<SurfaceMotion::Wave>(wave), .periodMs = periodMs, .seed = seed}}
       );
     }
   }
@@ -415,6 +444,9 @@ namespace andromeda {
         // Reduce motion: spatial properties jump; opacity keeps its fade.
         const bool still = config().appearance.reduceMotion && op.property != SurfaceMotion::Property::Opacity;
         motion.animate(op.serial, op.property, still ? SurfaceMotion::Curve::None : op.curve, op.value);
+      } else if (op.kind == Op::Kind::Loop && !config().appearance.reduceMotion) {
+        // Reduce motion: the property stays at its low value.
+        motion.loop(op.serial, op.property, op.loop.wave, op.loop.periodMs, op.loop.seed, op.value);
       }
     }
   }
