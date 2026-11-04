@@ -165,6 +165,9 @@ def main(binary, mode):
                         await_notify(notify, b"READY=1", 10)
                         await_callback(client, 5)
                     assert (root / "imported").read_text().split() == ["wayland-andromeda"] * 2
+                    crash_list = root / "state" / "andromeda" / "session-crash.json"
+                    assert crash_list.exists() and "restart.test" in crash_list.read_text(), \
+                        "the restart lost the window list from before the crash"
 
                 else:
                     # R3: a crash while locked restarts into the lock; only a lock client's unlock ends it.

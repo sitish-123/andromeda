@@ -61,6 +61,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <filesystem>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -1354,6 +1355,16 @@ namespace andromeda {
       const std::string running = std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/running";
       if (access(running.c_str(), F_OK) == 0) {
         m_desktopShell->setRestarted();
+        // The first save after start overwrites session.json; restore reads the list from before the crash.
+        const char* stateHome = std::getenv("XDG_STATE_HOME");
+        const char* home = std::getenv("HOME");
+        const std::filesystem::path dir = stateHome != nullptr && *stateHome != '\0'
+            ? std::filesystem::path(stateHome) / "andromeda"
+            : std::filesystem::path(home != nullptr ? home : "") / ".local/state/andromeda";
+        std::error_code error;
+        std::filesystem::copy_file(
+            dir / "session.json", dir / "session-crash.json", std::filesystem::copy_options::overwrite_existing, error
+        );
       }
       mkdir(running.substr(0, running.rfind('/')).c_str(), 0700);
       if (const int fd = open(running.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
