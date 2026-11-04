@@ -30,6 +30,9 @@
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/ipc.h"
+#include "server/ipc_commands.h"
+
+#include <nlohmann/json.hpp>
 #include "server/server.h"
 #include "server/server_events_internal.h"
 #include "view/popup.h"
@@ -41,6 +44,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -785,6 +789,7 @@ namespace andromeda {
   }
 
   void Server::scheduleIpcWindowsEvent() {
+    scheduleSessionSave();
     if (m_ipc == nullptr || m_ipcWindowsIdle != nullptr) {
       return;
     }
@@ -792,6 +797,57 @@ namespace andromeda {
     if (m_ipcWindowsIdle == nullptr) {
       kLog.error("failed to register IPC windows idle source");
     }
+  }
+
+  // docs/resilience.md §5: the window list is current at a crash, at most one write per second.
+  void Server::scheduleSessionSave() {
+    if (!m_lockFileManaged || m_stopping) {
+      return;
+    }
+    if (m_sessionSaveTimer == nullptr) {
+      m_sessionSaveTimer = wl_event_loop_add_timer(
+          wl_display_get_event_loop(m_display),
+          [](void* data) {
+            static_cast<Server*>(data)->saveSession();
+            return 0;
+          },
+          this
+      );
+      if (m_sessionSaveTimer == nullptr) {
+        return;
+      }
+    }
+    if (!m_sessionSavePending) {
+      m_sessionSavePending = true;
+      wl_event_source_timer_update(m_sessionSaveTimer, 1000);
+    }
+  }
+
+  void Server::saveSession() {
+    m_sessionSavePending = false;
+    const char* state = std::getenv("XDG_STATE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path dir = state != nullptr && *state != '\0' ? std::filesystem::path(state) / "andromeda"
+        : home != nullptr ? std::filesystem::path(home) / ".local/state/andromeda"
+                          : std::filesystem::path();
+    if (dir.empty()) {
+      return;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    const nlohmann::json windows = IpcCommands::windows(*this, "")["ok"];
+    const std::filesystem::path path = dir / "session.json";
+    const std::filesystem::path temporary = dir / "session.json.tmp";
+    {
+      std::ofstream out(temporary, std::ios::trunc);
+      out << nlohmann::json{{"version", 1}, {"windows", windows}}.dump();
+      if (!out) {
+        kLog.warn("cannot write {}", temporary.string());
+        return;
+      }
+    }
+    // rename is atomic: a crash mid-write keeps the previous list.
+    std::filesystem::rename(temporary, path, error);
   }
 
   void Server::onIpcWindowsIdle(void* data) {

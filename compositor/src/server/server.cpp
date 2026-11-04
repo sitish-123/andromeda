@@ -1169,6 +1169,10 @@ namespace andromeda {
       wl_event_source_remove(m_restartLockEscape);
       m_restartLockEscape = nullptr;
     }
+    if (m_sessionSaveTimer != nullptr) {
+      wl_event_source_remove(m_sessionSaveTimer);
+      m_sessionSaveTimer = nullptr;
+    }
     for (wl_event_source*& source : m_signalSources) {
       if (source != nullptr) {
         wl_event_source_remove(source);

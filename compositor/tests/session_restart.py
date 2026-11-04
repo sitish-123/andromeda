@@ -3,6 +3,7 @@ the test owns the listening socket like andromeda.socket, kills the compositor w
 the same socket, and a client that connected during the gap is served."""
 
 import fcntl
+import json
 import os
 from pathlib import Path
 import signal
@@ -93,6 +94,7 @@ def main(binary, mode):
             PATH=str(root / "bin") + ":" + os.environ["PATH"],
             XDG_RUNTIME_DIR=str(root),
             XDG_CACHE_HOME=str(root / "cache"),
+            XDG_STATE_HOME=str(root / "state"),
             DBUS_SESSION_BUS_ADDRESS="unix:path=" + str(root / "no-session-bus"),
             SYSTEMD_BUS_ADDRESS="unix:path=" + str(root / "no-manager-bus"),
             DBUS_SYSTEM_BUS_ADDRESS="unix:path=" + str(root / "no-system-bus"),
@@ -137,6 +139,19 @@ def main(binary, mode):
                         client.connect(str(root / "wayland-andromeda"))
                         wl_sync(client)
                         await_callback(client, 5)
+
+                    # R6: the window list reaches session.json within about a second of a map.
+                    window_env = {k: v for k, v in environment.items() if not k.startswith(("LISTEN_", "WATCHDOG_"))}
+                    window_env.update(WAYLAND_DISPLAY="wayland-andromeda", SEAT_LOG_APP_ID="restart.test")
+                    out = (root / "window.log").open("w")
+                    clients.append(subprocess.Popen([os.environ["ANDROMEDA_SEAT_LOG_CLIENT"], "key-window"],
+                                                    env=window_env, stdout=out, stderr=out))
+                    saved = root / "state" / "andromeda" / "session.json"
+                    deadline = time.monotonic() + 3
+                    while not (saved.exists() and "restart.test" in saved.read_text()):
+                        assert time.monotonic() < deadline, "the mapped window never reached session.json"
+                        time.sleep(0.05)
+                    assert json.loads(saved.read_text())["windows"][0]["app_id"] == "restart.test"
 
                     os.kill(first, signal.SIGSEGV)
                     processes[0].wait(timeout=10)
