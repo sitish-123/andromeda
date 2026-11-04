@@ -61,6 +61,22 @@ void DamageRegion::add(const DamageRegion& region) {
   }
 }
 
+void DamageRegion::collapseIfCompact(float maxGrowth) {
+  if (m_count < 2) {
+    return;
+  }
+  DamageRect box = m_rects[0];
+  float area = 0.0F;
+  for (std::size_t i = 0; i < m_count; ++i) {
+    box = uniteRects(box, m_rects[i]);
+    area += m_rects[i].area();
+  }
+  if (box.area() <= area * maxGrowth) {
+    m_rects[0] = box;
+    m_count = 1;
+  }
+}
+
 void DamageRegion::clipTo(const DamageRect& bounds) {
   for (std::size_t i = 0; i < m_count;) {
     DamageRect& r = m_rects[i];

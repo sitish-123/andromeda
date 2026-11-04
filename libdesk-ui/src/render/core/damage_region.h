@@ -34,6 +34,9 @@ public:
   void add(const DamageRect& rect);
   void add(const DamageRegion& region);
   void clipTo(const DamageRect& bounds);
+  // Replaces the rects with their bounding box when the box is at most `maxGrowth` times their area, so one scene
+  // walk repaints them all (GTK GSK repaints the damage extents in one pass).
+  void collapseIfCompact(float maxGrowth);
   void clear() noexcept { m_count = 0; }
   [[nodiscard]] bool empty() const noexcept { return m_count == 0; }
   [[nodiscard]] std::span<const DamageRect> rects() const noexcept { return {m_rects.data(), m_count}; }

@@ -31,6 +31,20 @@ namespace {
 } // namespace
 
 int main() {
+  {
+    // Two near rects repaint as one box; two far corners keep separate walks.
+    DamageRegion near;
+    near.add({0.0F, 0.0F, 100.0F, 20.0F});
+    near.add({0.0F, 24.0F, 100.0F, 44.0F});
+    near.collapseIfCompact(1.5F);
+    TEST_CHECK(near.rects().size() == 1);
+    TEST_CHECK(near.rects()[0] == (DamageRect{0.0F, 0.0F, 100.0F, 44.0F}));
+    DamageRegion far;
+    far.add({0.0F, 0.0F, 20.0F, 20.0F});
+    far.add({1000.0F, 600.0F, 1020.0F, 620.0F});
+    far.collapseIfCompact(1.5F);
+    TEST_CHECK(far.rects().size() == 2);
+  }
   DamageRegion region;
   std::vector<DamageRect> added;
   for (int i = 0; i < 20; ++i) {

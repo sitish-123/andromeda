@@ -43,6 +43,8 @@ namespace {
   constexpr float kSlowRenderOperationDebugMs = 50.0F;
   constexpr float kSlowRenderOperationWarnMs = 1000.0F;
   constexpr float kPaintCullSlack = 16.0F;
+  // Damage rects merge into one repaint box when the box is at most this many times their area.
+  constexpr float kSingleWalkMaxGrowth = 1.5F;
 
 } // namespace
 
@@ -305,6 +307,9 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
     repaint = target.damageHistory().regionFor(bufferAge, damage);
     if (!repaint) {
       fullReason = "buffer-age";
+    } else {
+      // Each rect costs a full scene walk; a few extra pixels cost less.
+      repaint->collapseIfCompact(kSingleWalkMaxGrowth);
     }
   }
   if (full) {
