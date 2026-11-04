@@ -158,6 +158,8 @@ private:
   void updateWidgets(BarInstance& instance);
   void applyBarCompositorBlur(BarInstance& instance) const;
   void syncBarSlideLayerTransform(BarInstance& instance) const;
+  // Slides the bar to shown or hidden on a compositor spring; false when the compositor cannot (the shell slides).
+  bool slideOnCompositor(BarInstance& instance, bool visible, std::function<void()> onSettled);
   void syncBarAutoHideInputRegion(BarInstance& instance) const;
   void syncSheetTracker(BarInstance& instance);
   void openSheetFromTracker(BarInstance& instance);

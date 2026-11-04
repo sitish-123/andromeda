@@ -807,23 +807,25 @@ void Bar::setInstanceIpcVisible(BarInstance& instance, bool visible) {
   }
   const float current = instance.hideOpacity;
   const float target = visible ? 1.0F : 0.0F;
-  instance.slideAnimId = instance.animations.drive(
-      instance.slideAnimId, current, target, Style::spring(visible ? Tokens::springMove : Tokens::springClose),
-      [inst = &instance, this](float v) {
-        inst->hideOpacity = v;
-        syncBarSlideLayerTransform(*inst);
-        syncBarSurfaceChrome(*inst);
-      },
-      [inst = &instance, this] {
-        syncBarSlideLayerTransform(*inst);
-        syncBarAutoHideInputRegion(*inst);
-        syncBarSurfaceChrome(*inst);
-        if (inst->surface != nullptr) {
-          inst->surface->requestRedraw();
-        }
-      },
-      instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
-  );
+  const auto settled = [inst = &instance, this] {
+    syncBarSlideLayerTransform(*inst);
+    syncBarAutoHideInputRegion(*inst);
+    syncBarSurfaceChrome(*inst);
+    if (inst->surface != nullptr) {
+      inst->surface->requestRedraw();
+    }
+  };
+  if (!slideOnCompositor(instance, visible, settled)) {
+    instance.slideAnimId = instance.animations.drive(
+        instance.slideAnimId, current, target, Style::spring(visible ? Tokens::springMove : Tokens::springClose),
+        [inst = &instance, this](float v) {
+          inst->hideOpacity = v;
+          syncBarSlideLayerTransform(*inst);
+          syncBarSurfaceChrome(*inst);
+        },
+        settled, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
+    );
+  }
   syncBarAutoHideInputRegion(instance);
   syncBarSurfaceChrome(instance);
   instance.surface->requestRedraw();
@@ -848,6 +850,9 @@ void Bar::syncIdleInhibitorAnchors() {
 
 bool Bar::barContentVisuallyShown(const BarInstance& instance) const noexcept {
   constexpr float kShownThreshold = 0.02F;
+  if (instance.compositorSliding) {
+    return true;
+  }
   if (barSupportsSlideBehavior(instance.barConfig)) {
     return instance.hideOpacity > kShownThreshold;
   }
@@ -1084,7 +1089,7 @@ bool Bar::isAttachedPanelBarSettled(wl_output* output, std::string_view barName)
     return true;
   }
   constexpr float kSettledThreshold = 0.999F;
-  return instance->hideOpacity >= kSettledThreshold;
+  return !instance->compositorSliding && instance->hideOpacity >= kSettledThreshold;
 }
 
 void Bar::revealAutoHideForAttachedPanel(wl_output* output, std::string_view barName) {

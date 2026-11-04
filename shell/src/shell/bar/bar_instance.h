@@ -83,6 +83,10 @@ struct BarInstance {
   noctalia::bar::WidgetActionBindings deadZoneBindings;
   InputArea deadZoneAxisSink;
   float hideOpacity = 1.0F;
+  // The auto-hide slide runs as a dsk Translate spring in the compositor (slideRoot stays at 0); `compositorSliding`
+  // while that spring runs: the glass stays shown and an attached panel waits.
+  bool compositorSlide = false;
+  bool compositorSliding = false;
   AnimationManager::Id slideAnimId = 0;
   bool compositorTint = false; // the compositor draws the island tint (dsk v9); islands paint no fill
   std::vector<InputRect> islandBlurStrips; // last blur region sent (islands or bar body); empty = none sent

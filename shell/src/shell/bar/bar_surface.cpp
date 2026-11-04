@@ -1138,6 +1138,9 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     if (instance.barConfig.smartAutoHide && m_platform != nullptr) {
       instance.smartAutoHidePinnedVisible = smartAutoHideWantsPinnedVisible(*m_platform, instance.output);
     }
+    // A new surface starts with no compositor translate: the shell places the content again.
+    instance.compositorSlide = false;
+    instance.compositorSliding = false;
     if (barConfigUsesSlideSurface(instance.barConfig)) {
       instance.slideRoot->setOpacity(1.0F);
       const bool startHidden =

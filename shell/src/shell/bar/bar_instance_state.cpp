@@ -23,6 +23,7 @@
 #include "shell/bar/widgets/spacer_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
+#include "render/animation/motion_service.h"
 #include "wayland/dsk_surface_client.h"
 #include "wayland/glass_surface.h"
 #include "ui/surface_shadow.h"
@@ -471,15 +472,17 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
     return;
   }
 
-  instance.slideAnimId = instance.animations.drive(
-      instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
-      [inst = &instance, this](float v) {
-        inst->hideOpacity = v;
-        syncBarSlideLayerTransform(*inst);
-        syncBarSurfaceChrome(*inst);
-      },
-      notifyAttachedPanel, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
-  );
+  if (!slideOnCompositor(instance, true, notifyAttachedPanel)) {
+    instance.slideAnimId = instance.animations.drive(
+        instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
+        [inst = &instance, this](float v) {
+          inst->hideOpacity = v;
+          syncBarSlideLayerTransform(*inst);
+          syncBarSurfaceChrome(*inst);
+        },
+        notifyAttachedPanel, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
+    );
+  }
   const int surfW = static_cast<int>(instance.surface->width());
   const int surfH = static_cast<int>(instance.surface->height());
   instance.clickThroughInputRegion.reset();
@@ -488,8 +491,60 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
   instance.surface->requestRedraw();
 }
 
+bool Bar::slideOnCompositor(BarInstance& instance, bool visible, std::function<void()> onSettled) {
+  using Property = DskSurfaceClient::Property;
+  const bool can = instance.dsk != nullptr && instance.surface != nullptr && MotionService::instance().enabled();
+  if (!can) {
+    if (instance.compositorSlide) {
+      // Hand the slide back to the shell where the compositor left it.
+      instance.compositorSlide = false;
+      instance.compositorSliding = false;
+      if (instance.dsk != nullptr) {
+        instance.dsk->set(Property::Translate, {});
+      }
+    }
+    return false;
+  }
+  instance.animations.cancel(instance.slideAnimId);
+  instance.slideAnimId = 0;
+  if (!instance.compositorSlide) {
+    // Take over from the shell slide: the compositor starts where the shell left the content.
+    const double t = 1.0 - instance.hideOpacity;
+    instance.dsk->set(Property::Translate, {instance.slideHiddenDx * t, instance.slideHiddenDy * t, 0.0, 0.0});
+    instance.compositorSlide = true;
+    syncBarSlideLayerTransform(instance);
+  }
+  instance.compositorSliding = true;
+  const double t = visible ? 0.0 : 1.0;
+  instance.dsk->animate(
+      Property::Translate, visible ? DskSurfaceClient::Curve::SpringStandard : DskSurfaceClient::Curve::SpringClose,
+      {instance.slideHiddenDx * t, instance.slideHiddenDy * t, 0.0, 0.0},
+      [this, inst = &instance, visible, onSettled = std::move(onSettled)](DskSurfaceClient::EndReason reason) {
+        if (reason != DskSurfaceClient::EndReason::Finished) {
+          return;
+        }
+        inst->compositorSliding = false;
+        inst->hideOpacity = visible ? 1.0F : 0.0F;
+        syncBarSurfaceChrome(*inst);
+        if (inst->surface != nullptr) {
+          inst->surface->requestRedraw();
+        }
+        if (onSettled) {
+          onSettled();
+        }
+      }
+  );
+  syncBarSurfaceChrome(instance);
+  instance.surface->requestRedraw();
+  return true;
+}
+
 void Bar::syncBarSlideLayerTransform(BarInstance& instance) const {
   if (instance.slideRoot == nullptr) {
+    return;
+  }
+  if (instance.compositorSlide) {
+    instance.slideRoot->setPosition(0.0F, 0.0F);
     return;
   }
   if (instance.barConfig.autoHide
@@ -595,6 +650,17 @@ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
     return;
   }
   instance.autoHideDelayTimer.stop();
+  const auto settled = [inst = &instance, this] {
+    if (inst->surface == nullptr) {
+      return;
+    }
+    syncBarAutoHideInputRegion(*inst);
+    syncBarSurfaceChrome(*inst);
+    inst->surface->requestRedraw();
+  };
+  if (slideOnCompositor(instance, false, settled)) {
+    return;
+  }
   const float current = instance.hideOpacity;
   instance.slideAnimId = instance.animations.drive(
       instance.slideAnimId, current, 0.0F, Style::spring(Tokens::springClose),
@@ -603,15 +669,7 @@ void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {
         syncBarSlideLayerTransform(*inst);
         syncBarSurfaceChrome(*inst);
       },
-      [inst = &instance, this] {
-        if (inst->surface == nullptr) {
-          return;
-        }
-        syncBarAutoHideInputRegion(*inst);
-        syncBarSurfaceChrome(*inst);
-        inst->surface->requestRedraw();
-      },
-      instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
+      settled, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
   );
   syncBarSurfaceChrome(instance);
   if (instance.surface != nullptr) {
