@@ -1,0 +1,10 @@
+# Low disk space (docs/system-health.md §4.3): read every 10 min from `/` and a separate `/home`.
+# Not built from the doc yet: the alert again at each further 1 %.
+[[rule]]
+id = "storage.low"
+scope = "session"
+priority = "automatic"
+params = { low_pct = 5, low_gb = 5, ok_pct = 8 }
+when = "storage.free_pct < low_pct and storage.free_gb < low_gb"
+clear = "storage.free_pct > ok_pct"
+alert = { urgency = "normal", text = "storage_low" }

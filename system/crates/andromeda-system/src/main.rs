@@ -33,7 +33,7 @@ pub const NAME: &str = "org.andromeda.System1";
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     if std::env::args().nth(1).as_deref() == Some("--session") {
-        return session::run().await;
+        return Box::pin(session::run()).await;
     }
     // systemd sets STATE_DIRECTORY from StateDirectory=; tests point it at a temp dir.
     let state = std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-system".into(), PathBuf::from);

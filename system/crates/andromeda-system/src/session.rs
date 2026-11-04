@@ -16,13 +16,13 @@ use zbus::{Connection, MatchRule, MessageStream, OwnedVariant, Variant, interfac
 use crate::bus::{self, Remote};
 use crate::engine::{Changes, Engine};
 use crate::explain::{self, Entry, Log};
-use crate::expr::Value;
+use crate::expr::{Value, Values};
 use crate::holds::{Knob, KnobValue, Merge};
 use crate::policy::now_ms;
 use crate::rules::RuleValues;
 use crate::rules::{self, Alert, Scope};
 use crate::state::{AppRow, AppValues, Fields, Snapshot};
-use crate::{NAME, knobs, memory, nm, power, thermal};
+use crate::{NAME, knobs, memory, nm, power, storage, thermal};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
@@ -46,8 +46,39 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         }
         "battery_critical" => ("Battery critically low", "Plug in now. The computer will soon shut down."),
         "drainer" => ("{app} uses a lot of energy", "It used {cpu} % of a CPU core for 2 minutes."),
+        "storage_low" => {
+            ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
+        }
         _ => ("The desktop changed a setting", "Open Settings > Battery and Power to see why."),
     }
+}
+
+/// Bytes of the user's app caches and Trash, for the low storage alert; read once per alert, off the event loop.
+async fn cleanup_sizes() -> (u64, u64) {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let cache = std::env::var_os("XDG_CACHE_HOME").map_or_else(|| home.join(".cache"), PathBuf::from);
+    let data = std::env::var_os("XDG_DATA_HOME").map_or_else(|| home.join(".local/share"), PathBuf::from);
+    tokio::task::spawn_blocking(move || (dir_size(&cache), dir_size(&data.join("Trash")))).await.unwrap_or((0, 0))
+}
+
+/// Bytes of the regular files under `path`; symlinks are not followed.
+fn dir_size(path: &std::path::Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else { return 0 };
+    entries
+        .filter_map(Result::ok)
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => dir_size(&e.path()),
+            Ok(m) if m.is_file() => m.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// `1.2 GB`, `340 MB`.
+fn human_bytes(bytes: u64) -> String {
+    #[allow(clippy::cast_precision_loss)] // shown to one decimal
+    let b = bytes as f64;
+    if b >= 1e9 { format!("{:.1} GB", b / 1e9) } else { format!("{:.0} MB", b / 1e6) }
 }
 
 /// Opens Activity on one app, as its alert's Open action asks.
@@ -192,9 +223,19 @@ impl Session {
         let Some(alert) = self.specs.get(&entry.rule).and_then(|s| s.alert.clone()) else { return };
         let (summary, body) = alert_text(&alert.text);
         let cpu = entry.trigger.iter().find(|(k, _)| k == "app.cpu_pct").and_then(|(_, v)| v.parse::<f64>().ok());
+        let (cache, trash) = if alert.text == "storage_low" { cleanup_sizes().await } else { (0, 0) };
+        let field = |name: &str| match self.state.value_of(name) {
+            Some(Value::Num(n)) => format!("{n:.1}"),
+            Some(Value::Str(s)) => s,
+            _ => String::new(),
+        };
         let fill = |text: &str| {
             text.replace("{app}", &app_name(&entry.instance))
                 .replace("{cpu}", &cpu.map_or_else(String::new, |c| format!("{c:.0}")))
+                .replace("{free}", &field("storage.free_gb"))
+                .replace("{mount}", &field("storage.mount"))
+                .replace("{cache}", &human_bytes(cache))
+                .replace("{trash}", &human_bytes(trash))
         };
         let (summary, body) = (fill(summary), fill(body));
         let actions: Vec<&str> = match alert.action.as_deref() {
@@ -603,10 +644,24 @@ pub async fn run() -> Result<()> {
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     log::info!("serving {NAME} on the session bus");
     loop {
-        if let Err(e) = follow(&system, &session, &shared).await {
+        if let Err(e) = Box::pin(follow(&system, &session, &shared)).await {
             log::warn!("session: {e:#}");
         }
         bus::appeared(&system, NAME).await?;
+    }
+}
+
+/// The state setters of the optional sources in `follow`, in the order of its `extra` remotes.
+const EXTRA_SETTERS: [fn(&mut Snapshot, Option<&bus::Props>); 3] =
+    [Snapshot::set_memory, Snapshot::set_thermal, Snapshot::set_storage];
+
+/// The first property change among optional remotes: its index, and false when its stream ended.
+async fn changed_any(remotes: &mut [Option<Remote>; 3]) -> (usize, bool) {
+    let [memory, thermal, storage] = remotes;
+    tokio::select! {
+        alive = changed(memory) => (0, alive),
+        alive = changed(thermal) => (1, alive),
+        alive = changed(storage) => (2, alive),
     }
 }
 
@@ -634,8 +689,11 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
     // The system part exports the battery once UPower reports it, which can be after this starts.
     let mut added = signals(system, Some(NAME), "org.freedesktop.DBus.ObjectManager", "InterfacesAdded").await?;
     let mut battery = Remote::new(system, NAME, BATTERY.to_owned(), "org.andromeda.System1.Battery").await.ok();
-    let mut memory = Remote::new(system, NAME, memory::PATH.to_owned(), "org.andromeda.System1.Memory").await.ok();
-    let mut thermal = Remote::new(system, NAME, thermal::PATH.to_owned(), "org.andromeda.System1.Thermal").await.ok();
+    let mut extra = [
+        Remote::new(system, NAME, memory::PATH.to_owned(), "org.andromeda.System1.Memory").await.ok(),
+        Remote::new(system, NAME, thermal::PATH.to_owned(), "org.andromeda.System1.Thermal").await.ok(),
+        Remote::new(system, NAME, storage::PATH.to_owned(), "org.andromeda.System1.Storage").await.ok(),
+    ];
     let mut released = signals(system, Some(NAME), "org.andromeda.System1.Knobs", "Released").await?;
     let mut actions = signals(session, None, NOTIFICATIONS, "ActionInvoked").await?;
     let me = system.unique_name().map(ToString::to_string).unwrap_or_default();
@@ -643,8 +701,9 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
         let mut inner = shared.lock().await;
         inner.state.set_power(&power.props);
         inner.state.set_battery(battery.as_ref().map(|b| &b.props));
-        inner.state.set_memory(memory.as_ref().map(|m| &m.props));
-        inner.state.set_thermal(thermal.as_ref().map(|t| &t.props));
+        for (remote, set) in extra.iter().zip(EXTRA_SETTERS) {
+            set(&mut inner.state, remote.as_ref().map(|r| &r.props));
+        }
         inner.resume(system).await;
     }
     tokio::pin!(gone);
@@ -694,17 +753,11 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
                     shared.lock().await.released(system, session, &id).await;
                 }
             }
-            alive = changed(&mut memory) => {
+            (i, alive) = changed_any(&mut extra) => {
                 if !alive {
-                    memory = None;
+                    extra[i] = None;
                 }
-                shared.lock().await.state.set_memory(memory.as_ref().map(|m| &m.props));
-            }
-            alive = changed(&mut thermal) => {
-                if !alive {
-                    thermal = None;
-                }
-                shared.lock().await.state.set_thermal(thermal.as_ref().map(|t| &t.props));
+                EXTRA_SETTERS[i](&mut shared.lock().await.state, extra[i].as_ref().map(|r| &r.props));
             }
             message = actions.next() => {
                 let message = message.context("ActionInvoked stream ended")??;

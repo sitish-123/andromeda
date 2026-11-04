@@ -22,6 +22,10 @@ const FIELDS: &[(&str, Type)] = &[
     ("power.profile_by_rule", Type::Bool),
     ("memory.level", Type::Level(MEMORY_LEVELS)),
     ("thermal.throttled", Type::Bool),
+    // The filesystem (`/` or a separate `/home`) with the least free space, by percent.
+    ("storage.free_pct", Type::Num),
+    ("storage.free_gb", Type::Num),
+    ("storage.mount", Type::Str),
     // One app, for per-app rules (`per = "app"`): from org.andromeda.Compositor1.Apps.
     ("app.cpu_pct", Type::Num),
     ("app.rss_mb", Type::Num),
@@ -82,6 +86,20 @@ impl Snapshot {
     /// From `org.andromeda.System1.Thermal`: a zone is past a trip point.
     pub fn set_thermal(&mut self, props: Option<&Props>) {
         self.put("thermal.throttled", props.and_then(|p| bus::get::<bool>(p, "Throttled")).map(Value::Bool));
+    }
+
+    /// From `org.andromeda.System1.Storage.Mounts` (mount point, type, free bytes, size bytes).
+    pub fn set_storage(&mut self, props: Option<&Props>) {
+        let mounts = props.and_then(|p| bus::get::<Vec<(String, String, u64, u64)>>(p, "Mounts")).unwrap_or_default();
+        #[allow(clippy::cast_precision_loss)] // bytes as a percent and GB
+        let least = mounts
+            .iter()
+            .filter(|(_, _, _, size)| *size > 0)
+            .map(|(point, _, free, size)| (point.clone(), *free as f64 * 100.0 / *size as f64, *free as f64 / 1e9))
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        self.put("storage.free_pct", least.as_ref().map(|l| Value::Num(l.1)));
+        self.put("storage.free_gb", least.as_ref().map(|l| Value::Num(l.2)));
+        self.put("storage.mount", least.map(|l| Value::Str(l.0)));
     }
 
     /// A field the session part computes itself.
