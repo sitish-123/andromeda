@@ -207,6 +207,8 @@ struct wlr_scene_rect {
   struct fx_corner_radii corners;
   bool accepts_input;
   struct clipped_region clipped_region;
+  // Skip the draw while opaque content in the siblings above covers the rect.
+  bool skip_when_covered;
 };
 
 /** A scene-graph node displaying a two-color rounded border in one pass */
@@ -814,6 +816,12 @@ void wlr_scene_rect_set_size(struct wlr_scene_rect* rect, int width, int height)
  * Change the corner radius of all corners of an existing rectangle node.
  */
 void wlr_scene_rect_set_corner_radius(struct wlr_scene_rect* rect, int corner_radius);
+
+/**
+ * Skip drawing the rectangle while opaque content in the sibling nodes above it covers it. The check runs at draw
+ * time, so it also holds inside an effect capture of a common ancestor, which transforms both alike.
+ */
+void wlr_scene_rect_set_skip_when_covered(struct wlr_scene_rect* rect, bool skip);
 
 /**
  * Change the rounded corners of an existing rectangle node.

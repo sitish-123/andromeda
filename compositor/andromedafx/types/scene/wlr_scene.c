@@ -903,6 +903,61 @@ static void scene_node_opaque_region(
   pixman_region32_init_rect(opaque, x, y, width, height);
 }
 
+// Opaque area of a subtree in its parent's coordinates. Ignores effects on common ancestors, which transform the
+// caller's sibling alike.
+static void scene_subtree_opaque_region(struct wlr_scene_node* node, int x, int y, pixman_region32_t* out) {
+  // A node's own effect (a window shader) may change alpha or shape: only a common ancestor's is ignored.
+  if (!node->enabled || scene_animation_get(node) != NULL) {
+    return;
+  }
+  x += node->x;
+  y += node->y;
+  pixman_region32_t region;
+  pixman_region32_init(&region);
+  if (node->type == WLR_SCENE_NODE_TREE) {
+    struct wlr_scene_node* child;
+    wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+      scene_subtree_opaque_region(child, x, y, &region);
+    }
+  } else {
+    // over_black counts a buffer as opaque because a backdrop is under it: here that backdrop is the question.
+    struct wlr_scene_buffer* buffer = node->type == WLR_SCENE_NODE_BUFFER ? wlr_scene_buffer_from_node(node) : NULL;
+    const bool over_black = buffer != NULL && buffer->over_black;
+    if (over_black) {
+      buffer->over_black = false;
+    }
+    scene_node_opaque_region(NULL, node, x, y, &region);
+    if (over_black) {
+      buffer->over_black = true;
+    }
+  }
+  pixman_region32_t clip;
+  pixman_region32_init(&clip);
+  if (scene_node_local_clip(node, x, y, &clip)) {
+    pixman_region32_intersect(&region, &region, &clip);
+  }
+  pixman_region32_fini(&clip);
+  pixman_region32_union(out, out, &region);
+  pixman_region32_fini(&region);
+}
+
+static bool scene_rect_covered_by_siblings(struct wlr_scene_rect* rect) {
+  struct wlr_scene_node* node = &rect->node;
+  if (node->parent == NULL) {
+    return false;
+  }
+  pixman_region32_t opaque;
+  pixman_region32_init(&opaque);
+  for (struct wl_list* link = node->link.next; link != &node->parent->children; link = link->next) {
+    struct wlr_scene_node* sibling = wl_container_of(link, sibling, link);
+    scene_subtree_opaque_region(sibling, 0, 0, &opaque);
+  }
+  const pixman_box32_t box = {node->x, node->y, node->x + rect->width, node->y + rect->height};
+  const bool covered = pixman_region32_contains_rectangle(&opaque, &box) == PIXMAN_REGION_IN;
+  pixman_region32_fini(&opaque);
+  return covered;
+}
+
 struct scene_update_data {
   const struct scene_effects* effects;
   pixman_region32_t* visible;
@@ -2325,6 +2380,14 @@ void wlr_scene_rect_set_corner_radii(struct wlr_scene_rect* rect, struct fx_corn
   scene_node_update(&rect->node, NULL);
 }
 
+void wlr_scene_rect_set_skip_when_covered(struct wlr_scene_rect* rect, bool skip) {
+  if (rect->skip_when_covered == skip) {
+    return;
+  }
+  rect->skip_when_covered = skip;
+  scene_node_update(&rect->node, NULL);
+}
+
 void wlr_scene_rect_set_clipped_region(struct wlr_scene_rect* rect, struct clipped_region clipped_region) {
   if (fx_corner_radii_eq(rect->clipped_region.corners, clipped_region.corners)
       && wlr_box_equal(&rect->clipped_region.area, &clipped_region.area)) {
@@ -3561,6 +3624,9 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
       break;
     }
     struct wlr_scene_rect* scene_rect = wlr_scene_rect_from_node(node);
+    if (scene_rect->skip_when_covered && scene_rect_covered_by_siblings(scene_rect)) {
+      break;
+    }
     struct fx_corner_radii rect_corners = scene_rect->corners;
 
     fx_corner_radii_transform(node_transform, &rect_corners);

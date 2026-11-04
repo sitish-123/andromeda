@@ -72,6 +72,9 @@ namespace andromeda {
   void ViewPresentation::createBackdrop(wlr_scene_tree* parent) {
     m_backdrop = wlr_scene_rect_create(parent, 0, 0, config().colors.backdrop.data());
     wlr_scene_rect_set_corner_radius(m_backdrop, 0);
+    // Under an opaque client that fills the tile the backdrop is hidden; open and close effects capture the whole
+    // view, where culling does not reach.
+    wlr_scene_rect_set_skip_when_covered(m_backdrop, true);
     wlr_scene_node_lower_to_bottom(&m_backdrop->node);
     wlr_scene_node_set_enabled(&m_backdrop->node, false);
   }
