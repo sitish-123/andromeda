@@ -1,6 +1,5 @@
 # Built-in power rules (docs/system-health.md §4.3). Users change only `enabled` and the params.
-# The other low_power_plan holds (background tier, refresh cap, Wi-Fi power save, paused units, dim) join as their
-# knobs are built.
+# The compositor holds of low_power_plan (background tier, refresh cap) and paused units join as their knobs are built.
 [[rule]]
 id = "power.low_power_plan"
 scope = "session"
@@ -9,5 +8,20 @@ params = { low_pct = 20, margin_pct = 5 }
 when = "power.on_battery and (battery.percent <= low_pct or battery.warning >= 'low')"
 clear = "not power.on_battery or battery.percent >= low_pct + margin_pct"
 dwell = "2m"
-holds = [{ knob = "power.profile", value = "power-saver" }]
+holds = [
+  { knob = "power.profile", value = "power-saver" },
+  { knob = "network.wifi_power_save", value = true },
+  { knob = "display.brightness_step", value = -1 },
+]
 alert = { urgency = "normal", action = "undo", text = "low_power_plan" }
+
+# The user picked Power Saver: the same savings as low_power_plan, without the dim and without an alert.
+# `for` waits out the moment between a low_power_plan release and the profile change that follows it.
+[[rule]]
+id = "power.user_saver"
+scope = "session"
+priority = "automatic"
+when = "power.profile == 'power-saver' and not power.profile_by_rule"
+for = "5s"
+clear = "power.profile != 'power-saver'"
+holds = [{ knob = "network.wifi_power_save", value = true }]

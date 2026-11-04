@@ -12,6 +12,7 @@ mod knobs;
 mod manager;
 mod memory;
 mod network;
+mod nm;
 mod policy;
 mod polkit;
 mod power;

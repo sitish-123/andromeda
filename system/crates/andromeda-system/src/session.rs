@@ -16,15 +16,19 @@ use zbus::{Connection, MatchRule, MessageStream, OwnedVariant, Variant, interfac
 use crate::bus::{self, Remote};
 use crate::engine::{Changes, Engine};
 use crate::explain::{self, Entry, Log};
-use crate::holds::{Knob, Merge};
+use crate::holds::{Knob, KnobValue, Merge};
 use crate::policy::now_ms;
 use crate::rules::{self, Alert, Scope};
 use crate::expr::Value;
 use crate::state::{Fields, Snapshot};
-use crate::{NAME, knobs, power};
+use crate::{NAME, knobs, nm, power};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
+/// Knobs the system part owns; the session part holds them with `Knobs.Hold`. The others it applies itself.
+const SYSTEM_KNOBS: [&str; 1] = ["power.profile"];
+/// A synthetic state field: a session rule holds the profile, so the profile shown is not the user's pick.
+const PROFILE_BY_RULE: &str = "power.profile_by_rule";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
@@ -72,6 +76,9 @@ impl Session {
     async fn place(&self, system: &Connection, rule: &str) -> Vec<String> {
         let mut ids = Vec::new();
         for hold in self.specs.get(rule).map(|s| s.holds.as_slice()).unwrap_or_default() {
+            if !SYSTEM_KNOBS.contains(&hold.knob.as_str()) {
+                continue;
+            }
             let Some(value) = variant(&hold.value) else { continue };
             let reply = system
                 .call_method(Some(NAME), knobs::PATH, Some("org.andromeda.System1.Knobs"), "Hold", &(
@@ -126,7 +133,8 @@ impl Session {
     }
 
     async fn commit(&mut self, system: &Connection, session: &Connection, changes: Changes) {
-        for entry in changes.entries {
+        let Changes { entries, apply, .. } = changes;
+        for entry in entries {
             if let Err(e) = self.log.append(&entry) {
                 log::warn!("explain log: {e}");
             }
@@ -155,6 +163,18 @@ impl Session {
                     .await;
             }
         }
+        for (knob, value) in apply {
+            if SYSTEM_KNOBS.contains(&knob) {
+                continue;
+            }
+            if knob == "network.wifi_power_save" {
+                let on = value == Some(KnobValue::Bool(true));
+                if let Err(e) = nm::set_wifi_power_save(system, on).await {
+                    log::warn!("session: Wi-Fi power save: {e:#}");
+                }
+            }
+            publish(session, knob, value.as_ref()).await;
+        }
     }
 
     async fn undo(&mut self, system: &Connection, session: &Connection, episode: u64) -> bool {
@@ -162,6 +182,34 @@ impl Session {
         self.commit(system, session, changes).await;
         true
     }
+}
+
+/// `/org/andromeda/System1/Knobs` on the session bus: the effective value of each knob the session part owns, for
+/// the clients that apply one (the shell for `display.brightness_step`).
+#[derive(Default)]
+struct SessionKnobs {
+    effective: HashMap<String, OwnedVariant>,
+}
+
+#[interface(name = "org.andromeda.System1.Knobs")]
+impl SessionKnobs {
+    /// Knob -> value while a hold sets it; a knob with no hold is absent.
+    #[zbus(property)]
+    fn effective(&self) -> HashMap<String, OwnedVariant> {
+        self.effective.iter().filter_map(|(k, v)| Some((k.clone(), v.try_clone().ok()?))).collect()
+    }
+}
+
+async fn publish(session: &Connection, knob: &str, value: Option<&KnobValue>) {
+    let Ok(iface) = session.object_server().interface::<_, SessionKnobs>(knobs::PATH).await else { return };
+    {
+        let mut knobs = iface.get_mut().await;
+        match value.and_then(|v| OwnedVariant::try_from(Variant::from(v)).ok()) {
+            Some(v) => knobs.effective.insert(knob.to_owned(), v),
+            None => knobs.effective.remove(knob),
+        };
+    }
+    let _ = iface.get().await.effective_changed(iface.signal_emitter()).await;
 }
 
 /// The session's explain log merged with the system part's.
@@ -249,7 +297,12 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
         }
     }
     let specs = rules.iter().map(|r| (r.id.clone(), Spec { holds: r.holds.clone(), alert: r.alert.clone() })).collect();
-    let (mut engine, refused) = Engine::new(vec![Knob::new("power.profile", Merge::LowestPower)], rules, now_ms());
+    let knobs = vec![
+        Knob::new("power.profile", Merge::LowestPower),
+        Knob::new("network.wifi_power_save", Merge::AnyTrue),
+        Knob::new("display.brightness_step", Merge::Min),
+    ];
+    let (mut engine, refused) = Engine::new(knobs, rules, now_ms());
     for (id, why) in refused {
         log::warn!("rule {id} is off: {why}");
         broken.push((id, why));
@@ -366,6 +419,7 @@ pub async fn run() -> Result<()> {
     }));
     let session = zbus::connection::Builder::session()
         .serve_at(explain::PATH, SessionExplain { shared: shared.clone(), system: system.clone() })
+        .serve_at(knobs::PATH, SessionKnobs::default())
         .serve_at(RULES, RulesObject { shared: shared.clone(), system: system.clone(), broken })
         .name(NAME)
         .build()
@@ -421,6 +475,10 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
     loop {
         {
             let mut inner = shared.lock().await;
+            let by_rule = inner.held.values().any(|(rule, _)| {
+                inner.specs.get(rule).is_some_and(|s| s.holds.iter().any(|h| h.knob == "power.profile"))
+            });
+            inner.state.set_flag(PROFILE_BY_RULE, by_rule);
             let state = inner.state.clone();
             let changes = inner.engine.step(&state, Instant::now(), now_ms());
             inner.commit(system, session, changes).await;

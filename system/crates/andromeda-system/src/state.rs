@@ -17,6 +17,7 @@ const FIELDS: &[(&str, Type)] = &[
     ("battery.warning", Type::Level(WARNINGS)),
     ("battery.state", Type::Str),
     ("battery.time_to_empty_s", Type::Num),
+    ("power.profile_by_rule", Type::Bool),
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -61,6 +62,11 @@ impl Snapshot {
         #[allow(clippy::cast_precision_loss)] // seconds
         let tte = props.and_then(|p| bus::get::<i64>(p, "TimeToEmptyS")).filter(|s| *s > 0).map(|s| s as f64);
         self.put("battery.time_to_empty_s", tte.map(Value::Num));
+    }
+
+    /// A field the session part computes itself.
+    pub fn set_flag(&mut self, name: &'static str, on: bool) {
+        self.put(name, Some(Value::Bool(on)));
     }
 
     fn put(&mut self, name: &'static str, value: Option<Value>) {
