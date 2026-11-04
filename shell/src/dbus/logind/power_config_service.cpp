@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <sdbus-c++/Error.h>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
@@ -25,6 +26,7 @@ namespace {
   constexpr auto kHelperPath = "/usr/lib/noctalia/andromeda-power-config";
   constexpr auto kSystemHelperPath = "/usr/lib/noctalia/andromeda-power-system";
   constexpr auto kSleepDropIn = "/etc/systemd/sleep.conf.d/60-andromeda.conf";
+  constexpr auto kUPowerDropIn = "/etc/UPower/UPower.conf.d/60-andromeda.conf";
 
   std::string readFile(const char* path) {
     std::ifstream in(path);
@@ -218,8 +220,19 @@ void PowerConfigService::finishTrial() {
       kLog.info("hibernate trial: {}", ok ? "resumed from the image" : "no restore in the kernel log");
       writeTrial(ok ? "ok" : "failed");
       notify();
+      syncCriticalAction();
     }
   });
+}
+
+// UPower's critical battery action follows the trial: Hibernate only on a machine that proved it resumes.
+void PowerConfigService::syncCriticalAction() {
+  std::ifstream file(kUPowerDropIn);
+  const bool hibernate = std::string(std::istreambuf_iterator<char>(file), {}).find("CriticalPowerAction=Hibernate")
+      != std::string::npos;
+  if (hibernate != hibernateVerified()) {
+    set("critical-action", hibernateVerified() ? "hibernate" : "poweroff", {});
+  }
 }
 
 void PowerConfigService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
@@ -338,6 +351,7 @@ void PowerConfigService::set(const std::string& key, const std::string& value, R
                 // Swap or boot entries changed: a passed trial no longer proves resume.
                 if (result && isSystemKey(key)) {
                   writeTrial("");
+                  syncCriticalAction();
                 }
                 refresh();
                 if (*shared) {

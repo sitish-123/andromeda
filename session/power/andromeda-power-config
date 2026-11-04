@@ -13,6 +13,8 @@
 #   sleep-mode                        default|s2idle|deep (only a mode the kernel lists in /sys/power/mem_sleep)
 #   trial-debug                       on (/sys/power/pm_debug_messages, so a trial hibernate can prove the restore)
 #   trial-check                       <unix time the trial began>: exit 0 when the restored kernel logged the restore
+#   critical-action                   hibernate|poweroff (UPower at critical battery; hibernate only after a passed
+#                                     trial; poweroff drops our line, so the packaged 50-andromeda.conf applies)
 set -eu
 PATH=/usr/bin
 [ $# -eq 2 ] || { echo "usage: $0 <key> <value>" >&2; exit 2; }
@@ -26,6 +28,7 @@ esac
 [ "$(id -u)" -ne 0 ] || ANDROMEDA_POWER_ETC=
 logind_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/logind.conf.d
 sleep_dir=${ANDROMEDA_POWER_ETC:-/etc}/systemd/sleep.conf.d
+upower_dir=${ANDROMEDA_POWER_ETC:-/etc}/UPower/UPower.conf.d
 
 # Exit 3 = not supported here: a reason line, then "guide: <url>" from .agent/power-sources.md when an official
 # source covers the manual steps. Settings shows both.
@@ -249,6 +252,7 @@ case $key in
   power-key) section=Login dir=$logind_dir name=HandlePowerKey ;;
   hibernate-delay) section=Sleep dir=$sleep_dir name=HibernateDelaySec ;;
   sleep-mode) section=Sleep dir=$sleep_dir name=MemorySleepMode ;;
+  critical-action) section=UPower dir=$upower_dir name=CriticalPowerAction ;;
   *) echo "unknown key: $key" >&2; exit 2 ;;
 esac
 
@@ -258,6 +262,8 @@ case $key:$value in
   power-key:poweroff) ;;
   hibernate-delay:off | hibernate-delay:30min | hibernate-delay:1h | hibernate-delay:2h | hibernate-delay:3h) ;;
   sleep-mode:default) value=off ;;
+  critical-action:hibernate) value=Hibernate ;;
+  critical-action:poweroff) value=off ;;
   sleep-mode:s2idle | sleep-mode:deep)
     grep -qw "$value" /sys/power/mem_sleep || { echo "kernel does not offer $value" >&2; exit 2; } ;;
   *) echo "bad value for $key: $value" >&2; exit 2 ;;
@@ -276,6 +282,11 @@ trap 'rm -f "$tmp"' EXIT
 chmod 644 "$tmp"
 mv "$tmp" "$file"
 trap - EXIT
+
+# upowerd reads UPower.conf.d only at start.
+if [ "$section" = UPower ]; then
+  sys systemctl try-restart upower.service
+fi
 
 # logind rereads its config on SIGHUP (systemd-logind.service(8)).
 if [ "$section" = Login ] && [ -z "${ANDROMEDA_POWER_ETC:-}" ]; then

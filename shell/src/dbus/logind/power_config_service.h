@@ -66,6 +66,8 @@ public:
   void startTrial();
   // CanHibernate, a passed trial, and no change since to the kernel, command line or disk swap.
   [[nodiscard]] bool hibernateVerified() const;
+  // Sets UPower's critical action to Hibernate when hibernateVerified(), else Power Off; asks polkit only on a change.
+  void syncCriticalAction();
   void reboot();
 
   [[nodiscard]] const PowerConfigState& state() const noexcept { return m_state; }
