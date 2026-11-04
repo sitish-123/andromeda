@@ -483,6 +483,14 @@ struct wlr_scene_output {
     const void* overlay_candidate;
     uint32_t overlay_candidate_seq;
     uint8_t overlay_candidate_still;
+    // Damage history of the overlay swapchain. The overlay draws the entries under it only inside its clip, so the
+    // buffer content damage of those entries goes to under_damage_ring and counts only inside the clip.
+    struct wlr_damage_ring overlay_damage_ring;
+    struct wlr_damage_ring overlay_under_damage_ring;
+    // Identity only: the overlay entry and primary entry nodes of the last overlay frame, and that frame's clip.
+    const void* overlay_under_nodes[2];
+    pixman_region32_t overlay_last_clip;
+    bool overlay_last_opaque;
   } WLR_PRIVATE;
 };
 

@@ -1081,7 +1081,10 @@ static void transform_output_box(struct wlr_box* box, const struct render_data* 
   box->y += data->capture_y;
 }
 
-static void scene_output_damage(struct wlr_scene_output* scene_output, const pixman_region32_t* damage) {
+// `under`: buffer content damage of an entry the last overlay frame drew only inside its clip.
+static void scene_output_damage_from(
+    struct wlr_scene_output* scene_output, const pixman_region32_t* damage, bool under
+) {
   struct wlr_output* output = scene_output->output;
 
   pixman_region32_t clipped;
@@ -1091,11 +1094,16 @@ static void scene_output_damage(struct wlr_scene_output* scene_output, const pix
   if (!pixman_region32_empty(&clipped)) {
     wlr_output_schedule_frame(scene_output->output);
     wlr_damage_ring_add(&scene_output->damage_ring, &clipped);
+    wlr_damage_ring_add(under ? &scene_output->overlay_under_damage_ring : &scene_output->overlay_damage_ring, &clipped);
 
     pixman_region32_union(&scene_output->pending_commit_damage, &scene_output->pending_commit_damage, &clipped);
   }
 
   pixman_region32_fini(&clipped);
+}
+
+static void scene_output_damage(struct wlr_scene_output* scene_output, const pixman_region32_t* damage) {
+  scene_output_damage_from(scene_output, damage, false);
 }
 
 static void scene_output_damage_whole(struct wlr_scene_output* scene_output) {
@@ -3028,7 +3036,9 @@ void wlr_scene_buffer_set_buffer_with_options(
         (int)round((ly - scene_output->y) * output_scale)
     );
     output_to_buffer_coords(&output_damage, scene_output->output);
-    scene_output_damage(scene_output, &output_damage);
+    const bool under = &scene_buffer->node == scene_output->overlay_under_nodes[0]
+        || &scene_buffer->node == scene_output->overlay_under_nodes[1];
+    scene_output_damage_from(scene_output, &output_damage, under);
     pixman_region32_fini(&output_damage);
   }
 
@@ -5440,6 +5450,9 @@ struct wlr_scene_output* wlr_scene_output_create(struct wlr_scene* scene, struct
   wlr_addon_init(&scene_output->addon, &output->addons, scene, &output_addon_impl);
 
   wlr_damage_ring_init(&scene_output->damage_ring);
+  wlr_damage_ring_init(&scene_output->overlay_damage_ring);
+  wlr_damage_ring_init(&scene_output->overlay_under_damage_ring);
+  pixman_region32_init(&scene_output->overlay_last_clip);
   pixman_region32_init(&scene_output->pending_commit_damage);
   wl_list_init(&scene_output->damage_highlight_regions);
 
@@ -5527,6 +5540,9 @@ void wlr_scene_output_destroy(struct wlr_scene_output* scene_output) {
   wlr_output_layer_destroy(scene_output->overlay_layer);
   wlr_addon_finish(&scene_output->addon);
   wlr_damage_ring_finish(&scene_output->damage_ring);
+  wlr_damage_ring_finish(&scene_output->overlay_damage_ring);
+  wlr_damage_ring_finish(&scene_output->overlay_under_damage_ring);
+  pixman_region32_fini(&scene_output->overlay_last_clip);
   pixman_region32_fini(&scene_output->pending_commit_damage);
   wl_list_remove(&scene_output->link);
   wl_list_remove(&scene_output->output_commit.link);
@@ -6736,6 +6752,7 @@ static void scene_output_damage_box_quiet(struct wlr_scene_output* scene_output,
   pixman_region32_init_rect(&damage, box->x, box->y, box->width, box->height);
   pixman_region32_intersect_rect(&damage, &damage, 0, 0, scene_output->output->width, scene_output->output->height);
   wlr_damage_ring_add(&scene_output->damage_ring, &damage);
+  wlr_damage_ring_add(&scene_output->overlay_damage_ring, &damage);
   pixman_region32_union(&scene_output->pending_commit_damage, &scene_output->pending_commit_damage, &damage);
   pixman_region32_fini(&damage);
 }
@@ -7333,8 +7350,36 @@ static bool scene_output_build_state(
 
   pixman_region32_init(&render_data.damage);
   if (overlay) {
-    // The overlay swapchain keeps no damage history: redraw it whole.
-    pixman_region32_union_rect(&render_data.damage, &render_data.damage, 0, 0, buffer->width, buffer->height);
+    // ANDROMEDA_OVERLAY_DAMAGE=0 redraws the whole overlay buffer every frame, for A/B runs.
+    static int overlay_damage = -1;
+    if (overlay_damage < 0) {
+      const char* env = getenv("ANDROMEDA_OVERLAY_DAMAGE");
+      overlay_damage = env == NULL || strcmp(env, "0") != 0;
+    }
+    const void* under[2] = {render_data.overlay_entry->node, render_data.overlay_primary->node};
+    if (!overlay_damage || under[0] != scene_output->overlay_under_nodes[0]
+        || under[1] != scene_output->overlay_under_nodes[1] || overlay_opaque != scene_output->overlay_last_opaque) {
+      // Another layout draws other entries: no buffer of the swapchain holds it.
+      wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
+    } else if (!pixman_region32_equal(&overlay_clip, &scene_output->overlay_last_clip)) {
+      // Inside the old clip the buffers show the entries under the overlay; outside the new one they must not.
+      pixman_region32_t changed;
+      pixman_region32_init(&changed);
+      pixman_region32_union(&changed, &overlay_clip, &scene_output->overlay_last_clip);
+      wlr_damage_ring_add(&scene_output->overlay_damage_ring, &changed);
+      pixman_region32_fini(&changed);
+    }
+    scene_output->overlay_under_nodes[0] = under[0];
+    scene_output->overlay_under_nodes[1] = under[1];
+    scene_output->overlay_last_opaque = overlay_opaque;
+    pixman_region32_copy(&scene_output->overlay_last_clip, &overlay_clip);
+    wlr_damage_ring_rotate_buffer(&scene_output->overlay_damage_ring, buffer, &render_data.damage);
+    pixman_region32_t under_damage;
+    pixman_region32_init(&under_damage);
+    wlr_damage_ring_rotate_buffer(&scene_output->overlay_under_damage_ring, buffer, &under_damage);
+    pixman_region32_intersect(&under_damage, &under_damage, &overlay_clip);
+    pixman_region32_union(&render_data.damage, &render_data.damage, &under_damage);
+    pixman_region32_fini(&under_damage);
   } else {
     wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer, &render_data.damage);
   }
@@ -7436,6 +7481,9 @@ static bool scene_output_build_state(
       fx_pass->animation_failed = true;
       fx_pass->has_blur = false;
       should_compensate_blur = false;
+      // This frame draws blur nodes without blur: the next one must redraw them.
+      wlr_damage_ring_add_whole(&scene_output->damage_ring);
+      wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
     }
   }
   struct fx_framebuffer* blur_saved_pixels = NULL;
@@ -7456,18 +7504,22 @@ static bool scene_output_build_state(
   // scene nodes above. Those scene nodes will just render atop having us
   // never see the background.
   if (overlay) {
-    // The primary plane shows through wherever nothing above it is drawn. The damage is the whole buffer, so no clip:
-    // that takes the fast clear.
+    // The primary plane shows through wherever nothing above it is drawn. Outside the damage the buffer keeps it.
     wlr_render_pass_add_rect(
         render_pass, &(struct wlr_render_rect_options){
                          .box = {.width = buffer->width, .height = buffer->height},
                          .color = {0},
+                         .clip = &render_data.damage,
                          .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
                      }
     );
     if (!overlay_opaque) {
       // Under the plane buffer's alpha the composite shows the background: the overlay must too inside its clip.
-      render_background(render_pass, scene_output->scene, buffer, &overlay_clip, WLR_RENDER_BLEND_MODE_NONE);
+      pixman_region32_t background_clip;
+      pixman_region32_init(&background_clip);
+      pixman_region32_intersect(&background_clip, &overlay_clip, &render_data.damage);
+      render_background(render_pass, scene_output->scene, buffer, &background_clip, WLR_RENDER_BLEND_MODE_NONE);
+      pixman_region32_fini(&background_clip);
     }
     pixman_region32_clear(&background);
   } else if (scene_output->scene->calculate_visibility) {
@@ -7587,6 +7639,7 @@ static bool scene_output_build_state(
     // if we failed to render the buffer, it will have undefined contents
     // Trash the damage ring
     wlr_damage_ring_add_whole(&scene_output->damage_ring);
+    wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
 
     TRACY_MARK_FRAME;
     return false;
