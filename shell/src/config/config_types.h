@@ -961,8 +961,6 @@ constexpr EnumOption<PanelTransparencyMode> kPanelTransparencyModes[] = {
     {PanelTransparencyMode::Glass, "glass", "settings.options.shell.panel-transparency.glass"},
 };
 
-[[nodiscard]] float
-panelCardOpacityForTransparencyMode(PanelTransparencyMode mode, float panelBackgroundOpacity) noexcept;
 [[nodiscard]] float detachedPanelBackgroundOpacityForTransparencyMode(PanelTransparencyMode mode) noexcept;
 
 enum class PanelPlacement : std::uint8_t {

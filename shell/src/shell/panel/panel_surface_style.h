@@ -63,10 +63,9 @@ namespace shell::panel_surface {
     return std::max(0.0F, configService->config().shell.panel.borderWidth);
   }
 
-  [[nodiscard]] inline float cardOpacity(const ConfigService* configService, float panelBackgroundOpacity) noexcept {
-    const auto mode =
-        configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
-    return Style::glassTint(glass::Kind::Sheet, panelCardOpacityForTransparencyMode(mode, panelBackgroundOpacity));
+  // Cards draw their translucent fill token as is; the compositor tint under them follows the glass slider.
+  [[nodiscard]] inline float cardOpacity(const ConfigService* /*configService*/, float /*panelBackgroundOpacity*/) noexcept {
+    return 1.0F;
   }
 
 } // namespace shell::panel_surface

@@ -190,19 +190,6 @@ std::vector<KeyChord> defaultKeybindSet(KeybindAction action) {
   return {};
 }
 
-float panelCardOpacityForTransparencyMode(PanelTransparencyMode mode, float panelBackgroundOpacity) noexcept {
-  const float backgroundOpacity = std::clamp(panelBackgroundOpacity, 0.0F, 1.0F);
-  switch (mode) {
-  case PanelTransparencyMode::Solid:
-    return 1.0F;
-  case PanelTransparencyMode::Soft:
-    return std::clamp(backgroundOpacity + 0.08F, 0.82F, 0.92F);
-  case PanelTransparencyMode::Glass:
-    return std::clamp(backgroundOpacity + 0.10F, 0.62F, 0.75F);
-  }
-  return 1.0F;
-}
-
 float detachedPanelBackgroundOpacityForTransparencyMode(PanelTransparencyMode mode) noexcept {
   switch (mode) {
   case PanelTransparencyMode::Solid:
