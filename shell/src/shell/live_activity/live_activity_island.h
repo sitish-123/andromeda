@@ -237,6 +237,7 @@ private:
     } mirror;
     Timer mirrorStop;
     double dskLevel = 0.0; // last elevation level sent (protocol version 4)
+    bool compositorTint = false; // the compositor draws the glass tint; the fills paint nothing
   };
 
   struct BannerItem {
@@ -272,6 +273,8 @@ private:
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;
   void syncDsk(Instance& inst, bool animate);
+  // The glass tint of `face`: the pill material at rest, the sheet tint expanded; alpha 0 when the shell paints it.
+  [[nodiscard]] static DskSurfaceClient::Value islandTint(const Instance& inst, Face face);
   void startMirror(Instance& inst, const Rect& target, bool grow, bool waitForStart);
   void stepMirror(Instance& inst);
   void ensureMirrorDriver(Instance& inst);

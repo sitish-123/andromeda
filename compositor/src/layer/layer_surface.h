@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <vector>
 
 #include "config/config.h"
@@ -115,6 +116,14 @@ namespace andromeda {
     bool m_backdropDark = false;
     // dsk_surface_v1 tint (v9): the client's tint over the blur, rgba; the compositor adds the density to it.
     std::array<float, 4> m_tint{};
+    // Per blur node (m_blur, then m_shapeBlurs) material from dsk_shape_v1 (v10); empty = the surface material.
+    struct ShapeMaterial {
+      float liquid = 0.0F;
+      float rim = 0.0F;
+      float lens = 0.0F;
+      std::array<float, 4> tint{};
+    };
+    std::vector<ShapeMaterial> m_shapeMaterials;
     bool m_tintLight = false;
     // Glass density, 0 to 1: how far the tint is raised over a same-tone backdrop. Rises only while mapped.
     AnimatedValue m_density{0.0};
@@ -124,6 +133,7 @@ namespace andromeda {
     float m_tintFade = 1.0F;
     float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
+    std::vector<std::unique_ptr<SurfaceShadow>> m_shapeShadows; // dsk_shape_v1 elevation, one per shape
     // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.
     wlr_scene_border* m_stroke = nullptr;
     float m_surfaceAlpha = 1.0F;

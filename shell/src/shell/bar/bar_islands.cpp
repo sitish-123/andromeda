@@ -297,7 +297,8 @@ namespace bar_detail {
       island->setVisible(shown);
       Box* shadow = instance.islandShadows[i];
       if (shadow != nullptr) {
-        shadow->setVisible(shown);
+        // With dsk shapes the compositor draws each island's shadow from its elevation.
+        shadow->setVisible(shown && instance.islandShapes.empty());
       }
       if (!shown) {
         continue;

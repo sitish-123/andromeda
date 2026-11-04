@@ -192,19 +192,51 @@ namespace shell::dock {
     instance.sentBlur = std::move(region);
   }
 
-  void applyDockCompositorBlur(DockInstance& instance, const DockConfig& cfg) {
-    if (instance.surface == nullptr) {
+  // The hide spring calls this every frame; send only a changed clip. An empty clip hides the shape.
+  void setDockShapeClip(DockInstance& instance, const DockConfig& cfg, const DskSurfaceClient::Value& clip) {
+    if (instance.shapeClip == clip) {
       return;
     }
-    if (!cfg.compositorBlur) {
-      sendDockBlur(instance, {});
+    instance.shapeClip = clip;
+    instance.shape->set(DskSurfaceClient::Property::Clip, clip);
+    const auto concave = dockConcaveShape(cfg);
+    // One radius per shape: the convex corners'. The concave corners face the screen edge.
+    int edge = 0;
+    double flare = 0.0;
+    double radius = concave.radii.tl;
+    if (concave.corners.bl == CornerShape::Concave && concave.corners.br == CornerShape::Concave) {
+      edge = 3;
+      flare = concave.logicalInset.left;
+    } else if (concave.corners.tl == CornerShape::Concave && concave.corners.tr == CornerShape::Concave) {
+      edge = 1;
+      flare = concave.logicalInset.left;
+      radius = concave.radii.bl;
+    } else if (concave.corners.tl == CornerShape::Concave && concave.corners.bl == CornerShape::Concave) {
+      edge = 4;
+      flare = concave.logicalInset.top;
+      radius = concave.radii.tr;
+    } else if (concave.corners.tr == CornerShape::Concave && concave.corners.br == CornerShape::Concave) {
+      edge = 2;
+      flare = concave.logicalInset.top;
+    }
+    instance.shape->set(DskSurfaceClient::Property::Radius, {std::min({radius, clip[2] * 0.5, clip[3] * 0.5}), 0.0, 0.0, 0.0});
+    instance.shape->set(DskSurfaceClient::Property::Join, {static_cast<double>(edge), flare, 0.0, 0.0});
+  }
+
+  void applyDockCompositorBlur(DockInstance& instance, const DockConfig& cfg) {
+    if (instance.surface == nullptr) {
       return;
     }
     // Compositor blur is independent of scene opacity — clear it while auto-hide
     // has faded the dock out so a transparent buffer does not leave a blur halo.
     constexpr float kBlurVisibleOpacity = 0.02F;
-    if (dockUsesAnyAutoHide(cfg) && instance.hideOpacity < kBlurVisibleOpacity) {
-      sendDockBlur(instance, {});
+    const bool hidden = !cfg.compositorBlur || (dockUsesAnyAutoHide(cfg) && instance.hideOpacity < kBlurVisibleOpacity);
+    if (hidden) {
+      if (instance.shape != nullptr) {
+        setDockShapeClip(instance, cfg, {});
+      } else {
+        sendDockBlur(instance, {});
+      }
       return;
     }
     if (instance.panel == nullptr) {
@@ -223,6 +255,13 @@ namespace shell::dock {
     const int py = static_cast<int>(std::lround(absY + insetT));
     const int pw = static_cast<int>(std::lround(instance.panel->width() - insetL - insetR));
     const int ph = static_cast<int>(std::lround(instance.panel->height() - insetT - insetB));
+    if (instance.shape != nullptr) {
+      setDockShapeClip(
+          instance, cfg,
+          {static_cast<double>(px), static_cast<double>(py), static_cast<double>(pw), static_cast<double>(ph)}
+      );
+      return;
+    }
     sendDockBlur(instance, Surface::tessellateShape(px, py, pw, ph, concave.corners, concave.logicalInset, concave.radii));
   }
 
@@ -238,6 +277,9 @@ namespace shell::dock {
         instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
       }
     }
+    if (instance.dsk != nullptr && instance.dsk->hasShapes() && instance.shape == nullptr) {
+      instance.shape = std::make_unique<DskShapeClient>(*instance.dsk);
+    }
 
     Renderer& renderer = instance.surface->renderTarget().renderer();
 
@@ -250,6 +292,11 @@ namespace shell::dock {
     const auto& shadowConfig = deps.config.config().shell.shadow;
     const auto panelGeometry = shell::dock::computePanelGeometry(cfg, shadowConfig, w, h);
     const auto concave = shell::dock::dockConcaveShape(cfg);
+    if (instance.shape != nullptr) {
+      // Level 1 = the float plane (tokens elevation.e2), as the bar islands.
+      const bool shadow = ui::surface_shadow::enabled(cfg.shadow, shadowConfig);
+      instance.shape->set(DskSurfaceClient::Property::Elevation, {shadow ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+    }
 
     if (instance.sceneRoot == nullptr) {
       instance.sceneRoot = ui::node({});
@@ -262,7 +309,8 @@ namespace shell::dock {
       instance.slideRoot = instance.sceneRoot->addChild(std::move(slide));
 
       // Shadow
-      if (ui::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
+      // A dock shape gets its shadow from the compositor (elevation).
+      if (instance.shape == nullptr && ui::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
         instance.shadow = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
       }
 
@@ -446,7 +494,15 @@ namespace shell::dock {
     // A small shape: liquid glass with the launcher pill's clear tint.
     const bool liquid = instance.dsk != nullptr && instance.dsk->hasLiquidProperty() && !Style::reduceTransparency();
     bool compositorTint = false;
-    if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
+    if (instance.shape != nullptr) {
+      // A surface with shapes draws no surface glass: the material goes on the shape.
+      const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
+      compositorTint = liquid && cfg.compositorBlur && Style::compositorDrawsTint();
+      instance.shape->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
+      instance.shape->set(
+          DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F)
+      );
+    } else if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
       const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
       instance.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
       if (instance.dsk->hasTintProperty()) {

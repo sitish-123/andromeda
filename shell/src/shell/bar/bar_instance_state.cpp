@@ -329,7 +329,56 @@ bool Bar::syncIslandLiquid(BarInstance& instance) {
         DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), instance.compositorTint ? material.tint : 0.0F)
     );
   }
+  syncIslandShapes(instance, true);
   return want;
+}
+
+bool Bar::syncIslandShapes(BarInstance& instance, bool material) const {
+  if (instance.dsk == nullptr || !instance.dsk->hasShapes() || !instance.barConfig.compositorBlur) {
+    return false;
+  }
+  if (!instance.islandBlurStrips.empty() && instance.surface != nullptr) {
+    instance.surface->clearBlurRegion();
+    instance.islandBlurStrips.clear();
+  }
+  const bool shown = barContentVisuallyShown(instance);
+  const glass::Material shapeGlass = Style::glassMaterial(glass::Kind::Shape);
+  const bool want = !Style::reduceTransparency();
+  while (instance.islandShapes.size() < instance.islands.size()) {
+    instance.islandShapes.push_back(std::make_unique<DskShapeClient>(*instance.dsk));
+    instance.islandShapeClips.push_back({});
+    material = true;
+  }
+  for (std::size_t i = 0; i < instance.islandShapes.size(); ++i) {
+    DskShapeClient& shape = *instance.islandShapes[i];
+    const Box* island = i < instance.islands.size() ? instance.islands[i] : nullptr;
+    DskSurfaceClient::Value clip{};
+    if (shown && island != nullptr && island->visible()) {
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(island, x, y);
+      clip = {std::round(x), std::round(y), std::round(island->width()), std::round(island->height())};
+    }
+    if (clip != instance.islandShapeClips[i]) {
+      material = true;
+      shape.set(DskSurfaceClient::Property::Clip, clip);
+      shape.set(DskSurfaceClient::Property::Radius, {std::min(clip[2], clip[3]) * 0.5, 0.0, 0.0, 0.0});
+      instance.islandShapeClips[i] = clip;
+    }
+    if (material) {
+      // Level 1 = the float plane (tokens elevation.e2), the island shadow of the rulebook.
+      shape.set(
+          DskSurfaceClient::Property::Elevation,
+          {instance.islandShadowStyle.has_value() ? 1.0 : 0.0, 0.0, 0.0, 0.0}
+      );
+      shape.set(DskSurfaceClient::Property::Liquid, want ? glassLiquid(shapeGlass) : DskSurfaceClient::Value{});
+      shape.set(
+          DskSurfaceClient::Property::Tint,
+          glassTintValue(materialRole(), instance.compositorTint ? shapeGlass.tint : 0.0F)
+      );
+    }
+  }
+  return true;
 }
 
 void Bar::applyBackgroundPalette(BarInstance& instance) {
@@ -465,6 +514,9 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
   }
 
   if (instance.bg == nullptr) {
+    return;
+  }
+  if (instance.barConfig.islands && syncIslandShapes(instance, false)) {
     return;
   }
   if (instance.barConfig.islands) {

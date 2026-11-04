@@ -77,6 +77,8 @@ bool DskSurfaceClient::hasStrokeProperty() const { return dsk_surface_v1_get_ver
 
 bool DskSurfaceClient::hasTintProperty() const { return dsk_surface_v1_get_version(m_surface) >= 9; }
 
+bool DskSurfaceClient::hasShapes() const { return dsk_surface_v1_get_version(m_surface) >= 10; }
+
 bool DskSurfaceClient::managerHasTint(dsk_surface_manager_v1* manager) {
   return manager != nullptr && dsk_surface_manager_v1_get_version(manager) >= 9;
 }
@@ -146,6 +148,53 @@ void DskSurfaceClient::handleDone(void* data, dsk_surface_v1* /*surface*/, uint3
   DoneCallback callback = std::move(it->second);
   self->m_pending.erase(it);
   callback(static_cast<EndReason>(reason));
+}
+
+const dsk_shape_v1_listener DskShapeClient::kListener = {
+    .started = handleStarted,
+    .done = handleDone,
+};
+
+DskShapeClient::DskShapeClient(const DskSurfaceClient& surface)
+    : m_shape(dsk_surface_v1_get_shape(surface.resource())) {
+  dsk_shape_v1_add_listener(m_shape, &kListener, this);
+}
+
+DskShapeClient::~DskShapeClient() { dsk_shape_v1_destroy(m_shape); }
+
+void DskShapeClient::set(Property property, const Value& value) {
+  dsk_shape_v1_set(
+      m_shape, static_cast<uint32_t>(property), fixed(value[0]), fixed(value[1]), fixed(value[2]), fixed(value[3])
+  );
+}
+
+void DskShapeClient::animate(Property property, Curve curve, const Value& to, DskSurfaceClient::DoneCallback onDone) {
+  // Rulebook 7.8, as DskSurfaceClient::animate.
+  const auto& motion = MotionService::instance();
+  if (!motion.enabled() || (motion.reduced() && property != Property::Opacity)) {
+    curve = Curve::None;
+  }
+  const uint32_t serial = m_nextSerial++;
+  if (onDone) {
+    m_pending.emplace(serial, std::move(onDone));
+  }
+  dsk_shape_v1_animate(
+      m_shape, serial, static_cast<uint32_t>(property), static_cast<uint32_t>(curve), fixed(to[0]), fixed(to[1]),
+      fixed(to[2]), fixed(to[3])
+  );
+}
+
+void DskShapeClient::handleStarted(void* /*data*/, dsk_shape_v1* /*shape*/, uint32_t /*serial*/, uint32_t /*time*/) {}
+
+void DskShapeClient::handleDone(void* data, dsk_shape_v1* /*shape*/, uint32_t serial, uint32_t reason) {
+  auto* self = static_cast<DskShapeClient*>(data);
+  const auto it = self->m_pending.find(serial);
+  if (it == self->m_pending.end()) {
+    return;
+  }
+  DskSurfaceClient::DoneCallback callback = std::move(it->second);
+  self->m_pending.erase(it);
+  callback(static_cast<DskSurfaceClient::EndReason>(reason));
 }
 
 const dsk_tracker_v1_listener DskTrackerClient::kListener = {

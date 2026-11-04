@@ -700,6 +700,14 @@ void LiveActivityIsland::hoverLeave(Instance& inst) {
   });
 }
 
+DskSurfaceClient::Value LiveActivityIsland::islandTint(const Instance& inst, Face face) {
+  if (!inst.compositorTint) {
+    return glassTintValue(materialRole(), 0.0F);
+  }
+  return face == Face::Rest ? glassTintValue(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint)
+                            : glassTintValue(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint);
+}
+
 void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
   if (inst.dsk == nullptr) {
     return;
@@ -721,6 +729,9 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
   if (jump) {
     inst.dsk->set(DskSurfaceClient::Property::Clip, clip);
     inst.dsk->set(DskSurfaceClient::Property::Radius, radius);
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.face));
+    }
     inst.mirror.active = false;
     if (inst.revealAnimId != 0) {
       inst.animations.cancel(inst.revealAnimId);
@@ -756,6 +767,9 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
       instPtr->surface->requestRedraw();
     });
     inst.dsk->animate(DskSurfaceClient::Property::Radius, curve, radius);
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->animate(DskSurfaceClient::Property::Tint, curve, islandTint(inst, inst.face));
+    }
     if (level) {
       inst.dsk->animate(DskSurfaceClient::Property::Elevation, curve, {elevation, 0.0, 0.0, 0.0});
     }
@@ -1401,14 +1415,20 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
     const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
     inst.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
-    // The island paints its own tint until its morph moves to the compositor (two tint layers while expanded).
+    inst.compositorTint = liquid && inst.dsk->hasTintProperty() && Style::compositorDrawsTint();
     if (inst.dsk->hasTintProperty()) {
-      inst.dsk->set(DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), 0.0F));
+      inst.dsk->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.face));
     }
   }
-  inst.material->setFill(colorSpecFromRole(
-      materialRole(), liquid ? Style::glassMaterial(glass::Kind::Shape).tint
-                 : Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity)
+  inst.material->setFill(
+      inst.compositorTint ? colorSpecFromRole(materialRole(), 0.0F)
+                          : colorSpecFromRole(
+                                materialRole(), liquid ? Style::glassMaterial(glass::Kind::Shape).tint
+                                                       : Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity)
+                            )
+  );
+  inst.tint->setFill(colorSpecFromRole(
+      panelMaterialRole(), inst.compositorTint ? 0.0F : Style::glassMaterial(glass::Kind::Sheet).tint
   ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 

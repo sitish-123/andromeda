@@ -1625,18 +1625,20 @@ void PanelManager::closePanel(bool animateClose) {
   if (animateClose && m_sceneRoot != nullptr && m_activePanel != nullptr && m_activePanel->wantsCloseAnimation()) {
     const std::uint64_t gen = ++m_destroyGeneration;
     if (m_attachedToBar && m_attachedRevealClipNode != nullptr) {
-      m_attachedRevealAnimId = m_animations.drive(
-          m_attachedRevealAnimId, m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
-          [this](float v) { applyAttachedReveal(v); },
-          [this, gen] {
-            DeferredCall::callLater([this, gen] {
-              if (m_destroyGeneration == gen) {
-                destroyPanel();
-              }
-            });
-          },
-          m_attachedRevealClipNode, 0.0F, Threshold::px(attachedRevealTravelPx())
-      );
+      if (!startAttachedCompositorClose(gen)) {
+        m_attachedRevealAnimId = m_animations.drive(
+            m_attachedRevealAnimId, m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
+            [this](float v) { applyAttachedReveal(v); },
+            [this, gen] {
+              DeferredCall::callLater([this, gen] {
+                if (m_destroyGeneration == gen) {
+                  destroyPanel();
+                }
+              });
+            },
+            m_attachedRevealClipNode, 0.0F, Threshold::px(attachedRevealTravelPx())
+        );
+      }
     } else if (!startDetachedMorphClose(gen) && !startDetachedScaleClose(gen)) {
       m_animations.cancelForOwner(m_sceneRoot.get());
       fadeSceneRoot(
@@ -2329,6 +2331,70 @@ void PanelManager::onKeyboardEvent(const KeyboardEvent& event) {
       m_surface->requestRedraw();
     }
   }
+}
+
+bool PanelManager::attachedRevealOnCompositor() const {
+  return m_attachedToBar && m_dsk != nullptr && m_sceneRoot != nullptr && MotionService::instance().enabled();
+}
+
+double PanelManager::attachedRevealMaxTravel() const {
+  // One px short of the surface: a zero-size clip means no clip.
+  const bool horizontal = m_attachedRevealDirection == AttachedRevealDirection::Left
+      || m_attachedRevealDirection == AttachedRevealDirection::Right;
+  return std::max(0.0, static_cast<double>(horizontal ? m_sceneRoot->width() : m_sceneRoot->height()) - 1.0);
+}
+
+DskSurfaceClient::Value PanelManager::attachedRevealShift(double travel) const {
+  switch (m_attachedRevealDirection) {
+  case AttachedRevealDirection::Down:
+    return {0.0, -travel, 0.0, 0.0};
+  case AttachedRevealDirection::Up:
+    return {0.0, travel, 0.0, 0.0};
+  case AttachedRevealDirection::Right:
+    return {-travel, 0.0, 0.0, 0.0};
+  case AttachedRevealDirection::Left:
+    return {travel, 0.0, 0.0, 0.0};
+  }
+  return {};
+}
+
+DskSurfaceClient::Value PanelManager::attachedRevealClip(double travel) const {
+  // Surface-local, so it moves with the shift; offsetting it by the travel keeps it still on screen.
+  const double w = m_sceneRoot->width();
+  const double h = m_sceneRoot->height();
+  switch (m_attachedRevealDirection) {
+  case AttachedRevealDirection::Down:
+    return {0.0, travel, w, h - travel};
+  case AttachedRevealDirection::Up:
+    return {0.0, 0.0, w, h - travel};
+  case AttachedRevealDirection::Right:
+    return {travel, 0.0, w - travel, h};
+  case AttachedRevealDirection::Left:
+    return {0.0, 0.0, w - travel, h};
+  }
+  return {};
+}
+
+bool PanelManager::startAttachedCompositorClose(std::uint64_t gen) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (!attachedRevealOnCompositor()) {
+    return false;
+  }
+  m_animations.cancel(m_attachedRevealAnimId);
+  m_attachedRevealAnimId = 0;
+  const double travel = attachedRevealMaxTravel();
+  m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->set(Property::Clip, attachedRevealClip(0.0));
+  m_dsk->animate(Property::Translate, Curve::SpringClose, attachedRevealShift(travel));
+  m_dsk->animate(Property::Clip, Curve::SpringClose, attachedRevealClip(travel), [this, gen](DskSurfaceClient::EndReason) {
+    DeferredCall::callLater([this, gen] {
+      if (m_destroyGeneration == gen) {
+        destroyPanel();
+      }
+    });
+  });
+  return true;
 }
 
 float PanelManager::attachedRevealTravelPx() const {
@@ -3032,6 +3098,26 @@ void PanelManager::startAttachedOpenAnimation() {
   }
 
   m_attachedOpenAnimationPending = false;
+  if (attachedRevealOnCompositor()) {
+    using Property = DskSurfaceClient::Property;
+    using Curve = DskSurfaceClient::Curve;
+    // The shell draws the open panel once; the bar cuts its shadow at the final shape for the whole reveal.
+    applyAttachedReveal(1.0F);
+    const double travel = attachedRevealMaxTravel();
+    m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
+    m_dsk->set(Property::Translate, attachedRevealShift(travel));
+    m_dsk->set(Property::Clip, attachedRevealClip(travel));
+    m_dsk->animate(Property::Translate, Curve::SpringOpen, attachedRevealShift(0.0));
+    m_dsk->animate(Property::Clip, Curve::SpringOpen, attachedRevealClip(0.0), [this](DskSurfaceClient::EndReason reason) {
+      if (reason == DskSurfaceClient::EndReason::Finished && m_dsk != nullptr && !m_closing) {
+        m_dsk->set(DskSurfaceClient::Property::Clip, {0.0, 0.0, 0.0, 0.0});
+      }
+    });
+    if (m_surface != nullptr) {
+      m_surface->requestRedraw();
+    }
+    return;
+  }
   m_attachedRevealAnimId = m_animations.drive(
       m_attachedRevealAnimId, m_attachedRevealProgress, 1.0F, Style::spring(Tokens::springOpen),
       [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode, 0.0F,

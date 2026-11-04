@@ -96,7 +96,9 @@ namespace andromeda {
       if (currentMask != maskSource) {
         wlr_scene_blur_set_transparency_mask_source(m_node, maskSource);
       }
-    } else if (currentMask == nullptr) {
+    } else if (currentMask == nullptr && options.ignoreAlpha > 0.0F) {
+      // Only the alpha test reads the mask (fx_pass.c), and a buffer masks one blur node at a time: two nodes of one
+      // surface (bar islands) would take it from each other on every update, each take a repaint.
       if (wlr_scene_buffer* mask = findSurfaceBuffer(parent->node, surface)) {
         wlr_scene_blur_set_transparency_mask_source(m_node, mask);
       }

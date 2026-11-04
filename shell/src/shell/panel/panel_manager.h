@@ -264,6 +264,13 @@ private:
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
+  // The attached reveal on compositor springs: the surface slides by `travel` px under a clip that stays put at the
+  // bar edge. False without dsk or with reduced motion; the shell reveal runs then.
+  [[nodiscard]] bool attachedRevealOnCompositor() const;
+  [[nodiscard]] double attachedRevealMaxTravel() const;
+  [[nodiscard]] DskSurfaceClient::Value attachedRevealShift(double travel) const;
+  [[nodiscard]] DskSurfaceClient::Value attachedRevealClip(double travel) const;
+  bool startAttachedCompositorClose(std::uint64_t gen);
   void publishAttachedPanelGeometry(float revealProgress);
   // Restyle the attached-panel decoration nodes (bg fill, drop shadow, contact shadow)
   // using the cached attached background opacity and bar position. Geometry/positions are not touched.

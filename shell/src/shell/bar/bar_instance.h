@@ -12,6 +12,7 @@
 #include "shell/bar/widget.h"
 #include "shell/panel/attached_panel_context.h"
 #include "ui/signal.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 
 #include <array>
@@ -85,6 +86,9 @@ struct BarInstance {
   AnimationManager::Id slideAnimId = 0;
   bool compositorTint = false; // the compositor draws the island tint (dsk v9); islands paint no fill
   std::vector<InputRect> islandBlurStrips; // last blur region sent (islands or bar body); empty = none sent
+  // dsk v10: one glass shape per island; the compositor draws its blur, rim and tint, so no blur region is sent.
+  std::vector<std::unique_ptr<DskShapeClient>> islandShapes;
+  std::vector<DskSurfaceClient::Value> islandShapeClips; // last clip sent per shape
   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
   bool ipcLayoutReleased = false;
   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.

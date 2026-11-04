@@ -54,14 +54,40 @@ namespace andromeda {
     // the client's anti-aliased curve, and the blurred backdrop then shows past it as bright dots on the corners.
     constexpr int kBlurCornerSlack = 1;
 
+    // Level 0..1 grows the float plane (e2) from nothing at constant blur; 1..2 blends float into over (e3).
+    ShadowStyle elevationStyle(double level) {
+      const Tokens::Elevation& from = Tokens::elevationE2;
+      const Tokens::Elevation& to = Tokens::elevationE3;
+      const auto mix = [](double a, double b, double t) { return a + (b - a) * t; };
+      const auto round = [](double v) { return static_cast<int>(std::lround(v)); };
+      const double up = std::clamp(level - 1.0, 0.0, 1.0);
+      const double base = std::min(level, 1.0);
+      const auto opacity = [&](double a, double b) { return static_cast<float>(mix(a * base, b, up)); };
+      return ShadowStyle{
+          .softness = round(mix(from.keyBlur, to.keyBlur, up)),
+          .offsetX = 0,
+          .offsetY = round(mix(from.keyY * base, to.keyY, up)),
+          .opacity = {.light = opacity(from.keyLight, to.keyLight), .dark = opacity(from.keyDark, to.keyDark)},
+          .contactSoftness = round(mix(from.contactBlur, to.contactBlur, up)),
+          .contactOffsetY = round(mix(from.contactY * base, to.contactY, up)),
+          .contactOpacity = {.light = opacity(from.contactLight, to.contactLight),
+                             .dark = opacity(from.contactDark, to.contactDark)},
+      };
+    }
+
     struct RoundedShape {
       wlr_box box;
       int radius;
+      // A body with concave flares of `flare` px along its `joinEdge` (1 top, 2 right, 3 bottom, 4 left): an attached
+      // panel, an edge dock. The box includes the flares.
+      int joinEdge = 0;
+      int flare = 0;
     };
 
     // One rounded rectangle sent as a pixel staircase (one band per row inside the curve, e.g.
-    // Surface::tessellateRoundedRect; rects in band order) -> its box and corner radius. Holes or an asymmetric band
-    // -> nullopt.
+    // Surface::tessellateRoundedRect; rects in band order) -> its box and corner radius; or such a rectangle whose top
+    // or bottom corners flare outward (Surface::tessellateShape of an attached panel). Holes, an asymmetric band or
+    // any other shape -> nullopt.
     std::optional<RoundedShape> roundedShapeOf(const std::vector<pixman_box32_t>& rects) {
       pixman_box32_t e = rects.front();
       for (const pixman_box32_t& r : rects) {
@@ -69,24 +95,55 @@ namespace andromeda {
       }
       const int width = e.x2 - e.x1;
       const int height = e.y2 - e.y1;
-      std::optional<int> radius;
+      const int middle = (e.y1 + e.y2) / 2;
+      int body = -1;
       for (std::size_t i = 0; i < rects.size(); ++i) {
         const pixman_box32_t& r = rects[i];
         const bool sameBand = i > 0 && rects[i - 1].y1 == r.y1;
         const bool gap = i > 0 && rects[i - 1].y2 != r.y1;
         const int left = r.x1 - e.x1;
-        const int right = e.x2 - r.x2;
-        if (sameBand || gap || std::abs(left - right) > 1) {
+        if (sameBand || gap || std::abs(left - (e.x2 - r.x2)) > 1) {
           return std::nullopt;
         }
-        // The last row of a corner band reaches the full width; pixman merges it into the straight band below.
-        if (!radius && left == 0 && right == 0) {
-          const int offset = r.y1 - e.y1;
-          radius = offset > 0 ? offset + 1 : 0;
+        if (r.y1 <= middle && middle < r.y2) {
+          body = left;
+        }
+      }
+      // The body inset from the box: 0 for a plain rounded rectangle, the flare size for a joined one.
+      const auto inset = [&e](const pixman_box32_t& r) { return r.x1 - e.x1; };
+      RoundedShape shape{{e.x1, e.y1, width, height}, 0};
+      std::vector<pixman_box32_t> order = rects;
+      if (body > 0) {
+        if (inset(rects.front()) == 0) {
+          shape.joinEdge = 1;
+          // The rounded corners are at the far edge: measure them from there.
+          std::ranges::reverse(order);
+        } else if (inset(rects.back()) != 0) {
+          return std::nullopt;
+        } else {
+          shape.joinEdge = 3;
+        }
+        shape.flare = body;
+      }
+      // The last row of a corner band reaches the body width; pixman merges it into the straight band next to it.
+      const int edgeY = order.front().y1 == e.y1 ? e.y1 : e.y2;
+      for (const pixman_box32_t& r : order) {
+        if (inset(r) == body) {
+          const int offset = edgeY == e.y1 ? r.y1 - e.y1 : e.y2 - r.y2;
+          shape.radius = offset > 0 ? offset + 1 : 0;
+          return shape;
         }
       }
       // No full-width band: a capsule, the curve spans the whole short side.
-      return RoundedShape{{e.x1, e.y1, width, height}, radius.value_or(std::min(width, height) / 2)};
+      shape.radius = std::min(width, height) / 2;
+      return shape;
+    }
+
+    fx_corner_radii shapeCorners(const RoundedShape& shape, double scale, int slack) {
+      const int radius = static_cast<int>(std::lround(shape.radius * scale)) + slack;
+      return shape.flare > 0
+          ? corner_radii_joined(radius, shape.joinEdge, static_cast<int>(std::lround(shape.flare * scale)))
+          : corner_radii_all(radius);
     }
 
     // A client blur region made of rounded rectangles (a bar sends all its islands in one region) -> one shape each,
@@ -267,6 +324,9 @@ namespace andromeda {
       return false;
     }
     const DskSurfaceManager::State* state = dsk->state(m_layerSurface->surface);
+    if (state != nullptr && std::ranges::any_of(state->shapes, [](const SurfaceMotion* shape) { return shape->animating(); })) {
+      return true;
+    }
     return (state != nullptr && state->motion.animating()) || dsk->driven(m_layerSurface->surface);
   }
 
@@ -444,29 +504,34 @@ namespace andromeda {
     applyStroke(tree, clipped ? &clipBox : nullptr, radius);
 
     updateBlur();
+    // dsk_shape_v1 elevation: one shadow per shape, under its clip, moved with the surface.
+    std::size_t shadowCount = 0;
+    for (const SurfaceMotion* shapeMotion : state->shapes) {
+      const auto& c = shapeMotion->value(Property::Clip);
+      const double shapeLevel = std::clamp(shapeMotion->value(Property::Elevation)[0], 0.0, 2.0);
+      if (c[2] <= 0.0 || c[3] <= 0.0 || shapeLevel < 0.005) {
+        continue;
+      }
+      if (m_shapeShadows.size() <= shadowCount) {
+        m_shapeShadows.push_back(std::make_unique<SurfaceShadow>());
+      }
+      SurfaceShadow& shadow = *m_shapeShadows[shadowCount++];
+      shadow.setStyle(elevationStyle(shapeLevel));
+      const auto px = [scale](double v) { return static_cast<int>(std::lround(v * scale)); };
+      shadow.update(
+          m_scene->tree, px(c[2]), px(c[3]), 0, px(shapeMotion->value(Property::Radius)[0]), 0, tree->node.x + px(c[0]),
+          tree->node.y + px(c[1])
+      );
+    }
+    for (std::size_t i = shadowCount; i < m_shapeShadows.size(); ++i) {
+      m_shapeShadows[i]->hide();
+    }
     const double level = std::clamp(motion.value(Property::Elevation)[0], 0.0, 2.0);
     if (level < 0.005) {
       m_shadow.hide();
       return;
     }
-    // Level 0..1 grows the float plane (e2) from nothing at constant blur; 1..2 blends float into over (e3).
-    const Tokens::Elevation& from = Tokens::elevationE2;
-    const Tokens::Elevation& to = Tokens::elevationE3;
-    const auto mix = [](double a, double b, double t) { return a + (b - a) * t; };
-    const auto round = [](double v) { return static_cast<int>(std::lround(v)); };
-    const double up = std::clamp(level - 1.0, 0.0, 1.0);
-    const double base = std::min(level, 1.0);
-    const auto opacity = [&](double a, double b) { return static_cast<float>(mix(a * base, b, up)); };
-    m_shadow.setStyle(ShadowStyle{
-        .softness = round(mix(from.keyBlur, to.keyBlur, up)),
-        .offsetX = 0,
-        .offsetY = round(mix(from.keyY * base, to.keyY, up)),
-        .opacity = {.light = opacity(from.keyLight, to.keyLight), .dark = opacity(from.keyDark, to.keyDark)},
-        .contactSoftness = round(mix(from.contactBlur, to.contactBlur, up)),
-        .contactOffsetY = round(mix(from.contactY * base, to.contactY, up)),
-        .contactOpacity = {.light = opacity(from.contactLight, to.contactLight),
-                           .dark = opacity(from.contactDark, to.contactDark)},
-    });
+    m_shadow.setStyle(elevationStyle(level));
     // The shadow follows the visible rect: the clip when set, else the whole surface, after translate and scale.
     const wlr_box shape = clipped ? clipBox
                                   : wlr_box{0, 0, static_cast<int>(std::lround(width * scale)),
@@ -611,6 +676,9 @@ namespace andromeda {
     self->m_sceneUpdate.link.next = nullptr;
     self->m_sceneDestroy.link.next = nullptr;
     self->m_shadow.reset();
+    for (auto& shadow : self->m_shapeShadows) {
+      shadow->reset();
+    }
     self->m_stroke = nullptr; // a child of the destroyed scene tree
     wlr_scene_node_destroy(&self->m_popupTree->node);
     self->m_popupTree = nullptr;
@@ -736,8 +804,16 @@ namespace andromeda {
     const float amount = t <= 0.0F ? 0.0F : glass::denser(t, static_cast<float>(m_density.current())) * m_tintFade;
     const std::array<float, 3> rgb{m_tint[0], m_tint[1], m_tint[2]};
     m_blur.setTintMix(rgb, amount);
-    for (SurfaceBlur& blur : m_shapeBlurs) {
-      blur.setTintMix(rgb, amount);
+    for (std::size_t i = 0; i < m_shapeBlurs.size(); ++i) {
+      if (i + 1 < m_shapeMaterials.size()) {
+        // A shape's own tint, raised by the density the first shape measured.
+        const auto& own = m_shapeMaterials[i + 1].tint;
+        const float ownAmount =
+            own[3] <= 0.0F ? 0.0F : glass::denser(own[3], static_cast<float>(m_density.current())) * m_tintFade;
+        m_shapeBlurs[i].setTintMix({own[0], own[1], own[2]}, ownAmount);
+      } else {
+        m_shapeBlurs[i].setTintMix(rgb, amount);
+      }
     }
   }
 
@@ -751,6 +827,7 @@ namespace andromeda {
     const pixman_region32_t* region = effects != nullptr ? effects->blurRegion(m_layerSurface->surface) : nullptr;
     // The blur is not under the surface tree, so a dsk_surface_v1 clip and its corners are applied here too.
     std::optional<wlr_box> dskClip;
+    bool dskClipRounded = false;
     // The surface tree moves with the dsk translate; the blur node is its sibling, so it moves by the same offset.
     wlr_box nodeBox = box;
     fx_corner_radii corners = corner_radii_none();
@@ -799,6 +876,7 @@ namespace andromeda {
         dskClip->x += nodeBox.x;
         dskClip->y += nodeBox.y;
         const double radius = state->motion.value(SurfaceMotion::Property::Radius)[0] * scale;
+        dskClipRounded = radius > 0.0;
         corners = corner_radii_all(radius > 0.0 ? static_cast<int>(std::ceil(radius)) + kBlurCornerSlack : 0);
       }
     }
@@ -812,7 +890,75 @@ namespace andromeda {
     }
     std::vector<RoundedShape> shapes;
     std::vector<wlr_box> shapeClips;
-    if (region != nullptr && m_rule.blur.value_or(true) && dskClip && pixman_region32_not_empty(region)) {
+    // dsk_shape_v1 (v10): the client names its glass shapes, so its blur region is not used for glass.
+    m_shapeMaterials.clear();
+    if (state != nullptr && m_rule.blur.value_or(true)) {
+      for (const SurfaceMotion* shape : state->shapes) {
+        const auto& c = shape->value(SurfaceMotion::Property::Clip);
+        if (c[2] <= 0.0 || c[3] <= 0.0) {
+          continue;
+        }
+        RoundedShape rounded{
+            .box = wlr_box{static_cast<int>(std::lround(c[0])), static_cast<int>(std::lround(c[1])),
+                           static_cast<int>(std::lround(c[2])), static_cast<int>(std::lround(c[3]))},
+            .radius = static_cast<int>(std::lround(shape->value(SurfaceMotion::Property::Radius)[0])),
+        };
+        // join: the flares lie outside the clip along the joined edge; the blur box takes them in.
+        const auto& join = shape->value(SurfaceMotion::Property::Join);
+        const int edge = static_cast<int>(std::lround(join[0]));
+        const int flare = static_cast<int>(std::lround(join[1]));
+        if (edge >= 1 && edge <= 4 && flare > 0) {
+          rounded.joinEdge = edge;
+          rounded.flare = flare;
+          if (edge == 1 || edge == 3) {
+            rounded.box.x -= flare;
+            rounded.box.width += 2 * flare;
+          } else {
+            rounded.box.y -= flare;
+            rounded.box.height += 2 * flare;
+          }
+        }
+        shapes.push_back(rounded);
+        const auto& liquid = shape->value(SurfaceMotion::Property::Liquid);
+        const auto& tint = shape->value(SurfaceMotion::Property::Tint);
+        m_shapeMaterials.push_back(ShapeMaterial{
+            .liquid = static_cast<float>(std::clamp(liquid[0], 0.0, 1.0)),
+            .rim = static_cast<float>(std::clamp(liquid[1], 0.0, 1.0)),
+            .lens = static_cast<float>(std::clamp(liquid[2], 0.0, 1.0)),
+            .tint = {static_cast<float>(tint[0]), static_cast<float>(tint[1]), static_cast<float>(tint[2]),
+                     static_cast<float>(std::clamp(tint[3], 0.0, 1.0))},
+        });
+      }
+    }
+    if (!shapes.empty()) {
+      const auto scaled = [motionScale](int v) { return static_cast<int>(std::lround(v * motionScale)); };
+      for (const RoundedShape& shape : shapes) {
+        wlr_box shapeClip{
+            nodeBox.x + scaled(shape.box.x), nodeBox.y + scaled(shape.box.y), scaled(shape.box.width),
+            scaled(shape.box.height)
+        };
+        wlr_box cut = shapeClip;
+        // The surface clip still cuts every shape (a slide under a fixed clip).
+        if (dskClip && !wlr_box_intersection(&cut, &shapeClip, &*dskClip)) {
+          cut = wlr_box{dskClip->x, dskClip->y, 0, 0};
+        }
+        shapeClips.push_back(cut);
+      }
+      clip = shapeClips.front();
+      corners = shapeCorners(shapes.front(), motionScale, kBlurCornerSlack);
+      region = nullptr;
+      options.enabled = true;
+      options.ignoreAlpha = 0.0F;
+      const ShapeMaterial& first = m_shapeMaterials.front();
+      m_liquid = first.liquid;
+      m_rim = first.rim;
+      m_lens = first.lens;
+      m_tint = first.tint;
+      m_blur.setLiquid(m_liquid);
+      m_blur.setRim(m_rim);
+      m_blur.setLens(m_lens);
+      m_blur.setBackdropSampling(m_liquid > 0.0F || m_rim > 0.0F);
+    } else if (region != nullptr && m_rule.blur.value_or(true) && dskClip && dskClipRounded && pixman_region32_not_empty(region)) {
       // The clip and its corner radius are the exact shape; a client region is a pixel staircase that shows past the
       // anti-aliased corner.
       region = nullptr;
@@ -829,7 +975,7 @@ namespace andromeda {
           });
         }
         clip = shapeClips.front();
-        corners = corner_radii_all(scaled(shapes.front().radius) + kBlurCornerSlack);
+        corners = shapeCorners(shapes.front(), motionScale, kBlurCornerSlack);
         region = nullptr;
       } else if (!pixman_region32_not_empty(region)) {
         // The blur keeps the full surface box: the alpha mask is stretched over the blur node, so a node shrunk to
@@ -837,6 +983,23 @@ namespace andromeda {
         clip = wlr_box{0, 0, 0, 0};
       }
       options.enabled = true;
+      if (dskClip) {
+        const auto cut = [&dskClip](wlr_box& box) {
+          wlr_box out{};
+          if (!wlr_box_intersection(&out, &box, &*dskClip)) {
+            out = wlr_box{dskClip->x, dskClip->y, 0, 0};
+          }
+          box = out;
+        };
+        if (!clip) {
+          clip = dskClip;
+        } else if (clip->width > 0) {
+          cut(*clip);
+        }
+        for (wlr_box& shapeClip : shapeClips) {
+          cut(shapeClip);
+        }
+      }
     } else {
       region = nullptr;
       clip = dskClip;
@@ -873,13 +1036,14 @@ namespace andromeda {
         blur.hide();
         continue;
       }
-      blur.setLiquid(m_liquid);
-      blur.setRim(m_rim);
-      blur.setLens(m_lens);
+      const bool own = i + 1 < m_shapeMaterials.size();
+      blur.setLiquid(own ? m_shapeMaterials[i + 1].liquid : m_liquid);
+      blur.setRim(own ? m_shapeMaterials[i + 1].rim : m_rim);
+      blur.setLens(own ? m_shapeMaterials[i + 1].lens : m_lens);
       blur.setFade(m_blurFade);
       blur.update(
           m_scene->tree, m_layerSurface->surface, nodeBox, box,
-          corner_radii_all(static_cast<int>(std::lround(shapes[i + 1].radius * motionScale)) + kBlurCornerSlack), &shapeClips[i + 1],
+          shapeCorners(shapes[i + 1], motionScale, kBlurCornerSlack), &shapeClips[i + 1],
           options
       );
     }

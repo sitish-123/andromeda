@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 
@@ -10,6 +11,8 @@ struct wl_surface;
 struct dsk_surface_manager_v1;
 struct dsk_surface_v1;
 struct dsk_tracker_v1;
+struct dsk_shape_v1;
+struct dsk_shape_v1_listener;
 struct wl_region;
 struct dsk_surface_v1_listener;
 struct dsk_tracker_v1_listener;
@@ -20,7 +23,9 @@ struct dsk_tracker_v1_listener;
 class DskSurfaceClient {
 public:
   // Values match the protocol enums.
-  enum class Property : uint32_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke, Tint };
+  enum class Property : uint32_t {
+    Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke, Tint, Join, Fill, FillDense
+  };
   enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose, SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast };
   // A compositor that binds protocol version < 3 knows only the first seven curves: use the closest one.
   [[nodiscard]] static Curve compatCurve(Curve curve, uint32_t version);
@@ -50,6 +55,8 @@ public:
   [[nodiscard]] bool hasStrokeProperty() const;
   // Protocol version 9: liquid [2] = lens, and the tint property (the compositor adapts its density).
   [[nodiscard]] bool hasTintProperty() const;
+  // Protocol version 10: glass shapes (DskShapeClient), and the join, fill and fill_dense properties.
+  [[nodiscard]] bool hasShapes() const;
   // hasTintProperty for surfaces of `manager`, before a DskSurfaceClient exists.
   [[nodiscard]] static bool managerHasTint(dsk_surface_manager_v1* manager);
   // The curve the compositor runs for `curve` on this connection's protocol version.
@@ -85,6 +92,34 @@ private:
   std::function<void(bool)> m_onBackdrop;
   std::unordered_map<uint32_t, DoneCallback> m_pending;
   std::unordered_map<uint32_t, StartedCallback> m_started;
+};
+
+// One glass shape of a surface (dsk_shape_v1, protocol version 10): its own clip, corners, tint, liquid, elevation,
+// stroke and fill, with the surface's property enum and curves. Requests apply on the parent surface's next commit.
+// Create it only when DskSurfaceClient::hasShapes().
+class DskShapeClient {
+public:
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  using Value = DskSurfaceClient::Value;
+
+  explicit DskShapeClient(const DskSurfaceClient& surface);
+  ~DskShapeClient();
+
+  DskShapeClient(const DskShapeClient&) = delete;
+  DskShapeClient& operator=(const DskShapeClient&) = delete;
+
+  void set(Property property, const Value& value);
+  void animate(Property property, Curve curve, const Value& to, DskSurfaceClient::DoneCallback onDone = {});
+
+private:
+  static const dsk_shape_v1_listener kListener;
+  static void handleStarted(void* data, dsk_shape_v1* shape, uint32_t serial, uint32_t time);
+  static void handleDone(void* data, dsk_shape_v1* shape, uint32_t serial, uint32_t reason);
+
+  dsk_shape_v1* m_shape = nullptr;
+  uint32_t m_nextSerial = 1;
+  std::unordered_map<uint32_t, DskSurfaceClient::DoneCallback> m_pending;
 };
 
 // A compositor-owned gesture on a surface: the compositor tracks the input, runs inertia to a snap, and writes the
