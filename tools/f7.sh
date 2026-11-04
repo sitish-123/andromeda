@@ -48,11 +48,12 @@ for obj in $stale; do rm -f "shell/build-f7/$obj"; done
 [ -z "$stale" ] || echo "f7: rebuilding $(wc -w <<<"$stale") object(s) with no deps record"
 start=$(date +%s.%N)
 echo "f7: building [$union] (log $state/last.log)"
+# tools/build.sh queues this build behind any other heavy build on the machine.
 if [ "$union" = all ]; then
-  ninja -C shell/build-f7 2>&1 | tee "$state/last.log"
+  tools/build.sh ninja -C shell/build-f7 2>&1 | tee "$state/last.log"
 else
   # shellcheck disable=SC2086
-  ninja -C shell/build-f7 $union 2>&1 | tee "$state/last.log"
+  tools/build.sh ninja -C shell/build-f7 $union 2>&1 | tee "$state/last.log"
 fi
 rc=${PIPESTATUS[0]}
 [ "$rc" -ne 0 ] || echo "$start $union" >"$state/last-ok"
