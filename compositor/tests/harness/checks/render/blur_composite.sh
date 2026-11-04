@@ -133,6 +133,11 @@ compare "half-faded blur with blur controls"
 "$ANDROMEDA" clock-advance 5000
 compare "settled blur with blur controls"
 
+# The cards blur the overview's background blur, so both paths start from inputs that already differ by its rounding;
+# contrast 1.3 would scale that to 2. Neutral controls keep each composite's own rounding the only difference.
+sed -i 's/^brightness = 1.6$/brightness = 1.0/; s/^contrast = 1.3$/contrast = 1.0/; s/^saturation = 0.5$/saturation = 1.0/' \
+  "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
 "$ANDROMEDA" msg overview-open > /dev/null
 "$ANDROMEDA" clock-advance 2000
 compare "opening overview"
