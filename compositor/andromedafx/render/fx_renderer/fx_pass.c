@@ -2296,6 +2296,8 @@ void fx_render_pass_add_rect(struct fx_gles_render_pass* pass, const struct fx_r
 
     apply_clip_region(&clip_region, clipped_region_box, clipped_region_corners);
     render_pass_mark_updated(pass, &box, &clip_region);
+    frame_stats.rects += pixman_region32_n_rects(&clip_region);
+    frame_stats.rect_px += region_area(&clip_region);
 
     setup_blending(blend_mode);
     struct quad_shader* shader = should_clip ? &renderer->shaders.quad_clip : &renderer->shaders.quad;

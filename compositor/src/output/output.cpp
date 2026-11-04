@@ -1525,12 +1525,13 @@ namespace andromeda {
           int64_t cpuNs = -1;
           int64_t gpuExecNs = -1;
           (void)fx_render_timer_split(timer->render_timer, &cpuNs, &gpuExecNs);
-          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld\n", static_cast<long long>(startNs[next]),
+          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld %u %llu\n", static_cast<long long>(startNs[next]),
                        output, static_cast<long long>(timer->pre_render_duration),
                        static_cast<long long>(total - timer->pre_render_duration), st.blurs,
                        static_cast<unsigned long long>(st.blur_px), st.lens, static_cast<unsigned long long>(st.lens_px),
                        st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes,
-                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs));
+                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs), st.rects,
+                       static_cast<unsigned long long>(st.rect_px));
         }
       }
       built = next;
