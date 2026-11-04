@@ -36,6 +36,17 @@ float rounded_rect_distance(
 float corner_alpha(
     vec2 size, vec2 position, bool is_cutout, float radius_tl, float radius_tr, float radius_bl, float radius_br
 ) {
+  // Exact shortcuts: 1 px inside the part no corner curve reaches, or 1 px outside the box, the smoothstep below is
+  // 0 or 1. Most fragments of a large surface take the first one.
+  vec2 rel = gl_FragCoord.xy - position;
+  float radius = max(max(radius_tl, radius_tr), max(radius_bl, radius_br));
+  float inset = min(radius * (1.0 + 0.88 * TOKEN_RADIUS_SMOOTHING), min(size.x, size.y) * 0.5) + 1.0;
+  if (rel.x >= inset && rel.y >= inset && rel.x <= size.x - inset && rel.y <= size.y - inset) {
+    return is_cutout ? 0.0 : 1.0;
+  }
+  if (rel.x <= -1.0 || rel.y <= -1.0 || rel.x >= size.x + 1.0 || rel.y >= size.y + 1.0) {
+    return is_cutout ? 1.0 : 0.0;
+  }
   float dist = rounded_rect_distance(size, position, radius_tl, radius_tr, radius_bl, radius_br);
   float result = smoothstep(0.0, 1.0, dist);
   return is_cutout ? result : 1.0 - result;
