@@ -147,6 +147,7 @@ void PixelStreamClient::disconnect() {
     unmap(buffer);
   }
   m_frameBuffer.reset();
+  closeReleaseFence();
   m_requested = false;
   m_retryAt = std::chrono::steady_clock::now() + kRetryInterval;
 }
@@ -162,6 +163,7 @@ void PixelStreamClient::reconnect() {
     // An adopted socket cannot reconnect; a second HELLO asks for the current frame again.
     if (connected() && send(kHello, kDmabufProtocolVersion)) {
       m_frameBuffer.reset();
+      closeReleaseFence();
       if (!m_requested && send(kRequest, 0)) {
         m_requested = true;
       }
@@ -395,13 +397,41 @@ std::optional<PixelStreamClient::Frame> PixelStreamClient::frame() const {
   };
 }
 
-void PixelStreamClient::releaseFrame() {
+void PixelStreamClient::releaseFrame(int fenceFd) {
   if (!m_frameBuffer.has_value()) {
+    if (fenceFd >= 0) {
+      ::close(fenceFd);
+    }
     return;
   }
   m_frameBuffer.reset();
+  if (fenceFd >= 0 && connected()) {
+    closeReleaseFence();
+    m_releaseFence = fenceFd;
+    return;
+  }
+  if (fenceFd >= 0) {
+    ::close(fenceFd);
+  }
   if (connected() && send(kRequest, 0)) {
     m_requested = true;
+  }
+}
+
+void PixelStreamClient::dispatchReleaseFence() {
+  if (m_releaseFence < 0) {
+    return;
+  }
+  closeReleaseFence();
+  if (connected() && !m_requested && send(kRequest, 0)) {
+    m_requested = true;
+  }
+}
+
+void PixelStreamClient::closeReleaseFence() {
+  if (m_releaseFence >= 0) {
+    ::close(m_releaseFence);
+    m_releaseFence = -1;
   }
 }
 

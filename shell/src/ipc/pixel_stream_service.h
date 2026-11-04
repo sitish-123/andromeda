@@ -31,7 +31,11 @@ private:
   static PixelStreamService* s_instance;
 
   std::vector<PixelStreamClient*> m_clients;
-  // Clients whose fd was appended by the last doAddPollFds, in fd order. A client removed
+  struct Polled {
+    PixelStreamClient* client = nullptr;
+    bool fence = false;
+  };
+  // Socket and release-fence fds appended by the last doAddPollFds, in fd order. A client removed
   // before dispatch is nulled rather than erased so the indices stay aligned.
-  std::vector<PixelStreamClient*> m_polled;
+  std::vector<Polled> m_polled;
 };

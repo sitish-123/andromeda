@@ -73,8 +73,14 @@ public:
 
   // The most recent frame, valid until releaseFrame(), a disconnect, or a path change.
   [[nodiscard]] std::optional<Frame> frame() const;
-  // Returns the frame's buffer to the companion and requests the next frame.
-  void releaseFrame();
+  // Returns the frame's buffer to the companion and requests the next frame. With a sync_file
+  // fence (taken over), the REQUEST waits until the fence signals: a dmabuf REQUEST lets the
+  // companion draw into buffers the consumer's GPU may still read.
+  void releaseFrame(int fenceFd = -1);
+  // The fence a released frame waits on, or -1; poll it for POLLIN.
+  [[nodiscard]] int releaseFence() const noexcept { return m_releaseFence; }
+  // Called when releaseFence() is readable: sends the deferred REQUEST.
+  void dispatchReleaseFence();
   // Asks the companion for memfd buffers from now on (the dmabuf could not be imported).
   void refuseDmabuf();
   // Sends PAUSE on an adopted (version 2) socket, now and after each adopt().
@@ -111,6 +117,7 @@ private:
   );
   void unmap(Buffer& buffer);
   void notify();
+  void closeReleaseFence();
 
   std::string m_path;
   int m_fd = -1;
@@ -118,6 +125,7 @@ private:
   std::array<Buffer, kMaxBuffers> m_buffers{};
   std::optional<std::uint32_t> m_frameBuffer;
   bool m_requested = false;
+  int m_releaseFence = -1;
   bool m_paused = false;
   std::uint64_t m_serial = 0;
   ChangeCallback m_onChange;

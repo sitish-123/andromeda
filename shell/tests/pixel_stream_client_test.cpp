@@ -180,6 +180,25 @@ int main() {
   client.dispatch(POLLIN);
   TEST_CHECK(client.frame().has_value() && client.frame()->pixels[0] == 3);
 
+  // With a release fence the REQUEST waits until the fence signals (a pipe stands in for a sync_file).
+  {
+    std::array<int, 2> fence{};
+    TEST_CHECK(::pipe2(fence.data(), O_CLOEXEC) == 0);
+    client.releaseFrame(fence[0]);
+    TEST_CHECK(!client.frame().has_value());
+    TEST_CHECK(client.releaseFence() == fence[0]);
+    companion.expectNothing();
+    TEST_CHECK(::write(fence[1], "x", 1) == 1);
+    client.dispatchReleaseFence();
+    TEST_CHECK(client.releaseFence() < 0);
+    companion.expect(2, 0);
+    ::close(fence[1]);
+  }
+  attach(companion, client, 1, 3);
+  companion.send({kFrame, 1});
+  client.dispatch(POLLIN);
+  TEST_CHECK(client.frame().has_value());
+
   // The companion going away disconnects, drops the frame, and schedules a retry.
   companion.closePeer();
   client.dispatch(POLLIN | POLLHUP);

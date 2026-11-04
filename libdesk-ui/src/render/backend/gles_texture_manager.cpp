@@ -296,6 +296,33 @@ TextureHandle GlesTextureManager::importDmabuf(const DmabufImage& image) {
   };
 }
 
+int GlesTextureManager::submittedWorkFence() {
+  static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(eglGetProcAddress("eglCreateSyncKHR"));
+  static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(eglGetProcAddress("eglDestroySyncKHR"));
+  static const auto dupFence =
+      reinterpret_cast<PFNEGLDUPNATIVEFENCEFDANDROIDPROC>(eglGetProcAddress("eglDupNativeFenceFDANDROID"));
+  const EGLDisplay display = eglGetCurrentDisplay();
+  if (createSync == nullptr || destroySync == nullptr || dupFence == nullptr || display == EGL_NO_DISPLAY) {
+    return -1;
+  }
+  static const bool supported = [display] {
+    const char* extensions = eglQueryString(display, EGL_EXTENSIONS);
+    return extensions != nullptr && std::strstr(extensions, "EGL_ANDROID_native_fence_sync") != nullptr;
+  }();
+  if (!supported) {
+    return -1;
+  }
+  const EGLSyncKHR sync = createSync(display, EGL_SYNC_NATIVE_FENCE_ANDROID, nullptr);
+  if (sync == EGL_NO_SYNC_KHR) {
+    return -1;
+  }
+  // The fence fd exists only once the fence command reaches the kernel.
+  glFlush();
+  const int fd = dupFence(display, sync);
+  destroySync(display, sync);
+  return fd == EGL_NO_NATIVE_FENCE_FD_ANDROID ? -1 : fd;
+}
+
 void GlesTextureManager::unload(TextureHandle& handle) {
   if (handle.id != 0) {
     const auto it = std::ranges::find(m_textures, handle.id);

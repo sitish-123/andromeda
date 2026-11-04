@@ -268,7 +268,8 @@ void PixelStreamView::doLayout(Renderer& renderer) {
       m_client.refuseDmabuf();
     }
     // The image keeps sampling this buffer; the companion leaves it alone until a later frame shows.
-    m_client.releaseFrame();
+    // The REQUEST frees the older buffers, so it waits until the GPU has finished the paints that sampled them.
+    m_client.releaseFrame(textures.submittedWorkFence());
   } else if (frame.has_value()) {
     const bool sameSize = m_texture.valid() && m_texture.width == frame->width && m_texture.height == frame->height;
     const bool uploaded = (sameSize
