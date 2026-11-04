@@ -1758,7 +1758,11 @@ void PipeWireService::onDeviceParam(
   route.available = routeAvailable;
   route.muted = muted;
   route.portType = routePortType(param);
+  const bool unplugged = headphonesUnplugged(it->second.routes, route);
   upsertRoute(it->second.routes, std::move(route));
+  if (unplugged && m_headphonesUnplugged) {
+    m_headphonesUnplugged();
+  }
 
   // Device volume is authoritative through mixer-api; only route mute feeds effective mute here.
   for (auto& [nid, node] : m_nodes) {

@@ -1384,6 +1384,12 @@ void Application::initWidgetControllersAndCallbacks() {
         m_privacyOsd.onPrivacyStateChanged(*pipewire());
       }
     });
+    // Headphones out of the jack: the music stops instead of moving to the speakers (docs/system-health.md §12.2).
+    pipewire()->setHeadphonesUnpluggedCallback([this] {
+      if (mpris() != nullptr) {
+        (void)mpris()->pauseActive();
+      }
+    });
     pipewire()->setVolumePreviewCallback([this](bool isInput, std::uint32_t id, float volume, bool muted) {
       if (isInput) {
         m_audioOsd.showInput(id, volume, muted);

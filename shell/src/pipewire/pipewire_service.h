@@ -100,6 +100,8 @@ public:
 
   void setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
   void setVolumePreviewCallback(VolumePreviewCallback callback) { m_volumePreviewCallback = std::move(callback); }
+  // Runs when headphones leave a card's jack (headphonesUnplugged in audio_route_selection.h).
+  void setHeadphonesUnpluggedCallback(ChangeCallback callback) { m_headphonesUnplugged = std::move(callback); }
 
   // WirePlumber mixer used for device volume/mute (keeps pavucontrol/pulse in sync). Writes made
   // before it finishes connecting are queued and flushed on activation.
@@ -324,6 +326,7 @@ private:
   PrivacyState m_privacyState;
   ChangeCallback m_changeCallback;
   VolumePreviewCallback m_volumePreviewCallback;
+  ChangeCallback m_headphonesUnplugged;
   WirePlumberMixer* m_wpMixer = nullptr;
   std::uint64_t m_changeSerial = 0;
 
