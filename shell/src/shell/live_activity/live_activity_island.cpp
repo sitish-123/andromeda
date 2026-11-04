@@ -573,7 +573,8 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
     w = std::max(inst.restWidth, std::min(inst.faceWidth[static_cast<std::size_t>(face)], inst.liveWidth));
     break;
   case Face::Osd:
-    if (!inst.osdBar->visible()) {
+    // From the model: an OSD can arrive before the first configure builds osdBar.
+    if (m_osd.has_value() && !m_osd->showProgress) {
       w = std::clamp(inst.faceWidth[static_cast<std::size_t>(face)], inst.restWidth, inst.liveWidth);
       h = std::max(kMinCardHeight, inst.faceHeight[static_cast<std::size_t>(face)]);
       radius = h * 0.5F;

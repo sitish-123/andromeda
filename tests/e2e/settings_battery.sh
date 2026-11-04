@@ -44,7 +44,7 @@ with_noctalia '
   sysbus=$!
   for _ in $(seq 50); do grep -q unix: "$OUT/system-bus" && break; sleep 0.1; done
   export DBUS_SYSTEM_BUS_ADDRESS=$(head -n1 "$OUT/system-bus")
-  MOCK_BATTERY=1 python3 '"$MOCK"' "$OUT/profiles.txt" > "$OUT/mock.log" 2>&1 &
+  MOCK_BATTERY=1 MOCK_UNPLUGGED_HOURS=6 python3 '"$MOCK"' "$OUT/profiles.txt" > "$OUT/mock.log" 2>&1 &
   mock=$!
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done
   RUST_LOG=debug ANDROMEDA_SYSTEM_TEST=1 STATE_DIRECTORY="$OUT" '"$SYSTEM_BIN"' > "$OUT/system.log" 2>&1 &

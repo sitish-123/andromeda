@@ -3,7 +3,7 @@
 
 Each ActiveProfile write is appended to argv[1]. dsk.test.Power.SetOnBattery(b) flips the power source and emits
 PropertiesChanged the way UPower does. MOCK_BATTERY=1 adds a laptop battery (battery_BAT0, charge limit supported) and a keyboard backlight (0-3);
-MOCK_HISTORY=0 empties the battery history; dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1].
+MOCK_HISTORY=0 empties the battery history, MOCK_UNPLUGGED_HOURS=h ends it with h hours on battery; dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1].
 """
 import os
 import sys
@@ -97,6 +97,8 @@ class Device(PropertyObject):
         if os.environ.get("MOCK_HISTORY") == "0":
             return dbus.Array(points, signature="(udu)")
         # A sample each 15 min (UPower logs each change), thinned evenly to `resolution`.
+        # MOCK_UNPLUGGED_HOURS=h: full for the hour before, then a steady discharge to the present Percentage.
+        unplugged = float(os.environ.get("MOCK_UNPLUGGED_HOURS", "-1"))
         samples = max(1, int(timespan) // 900)
         count = min(int(resolution), samples)
         for i in range(count):
@@ -109,6 +111,15 @@ class Device(PropertyObject):
                 value = min(100.0, 45 + (hour - 6) * 13.75) if 6 <= hour < 11 else (
                     100 - (hour - 11) * 5 if 11 <= hour < 21 else (50 + (hour - 21) * 10 / 3 if hour >= 21 else 60 - hour * 2.5))
             state = (4 if value >= 100 else 1) if charging else 2
+            age = (now - t) / 3600
+            if age < unplugged + 1:
+                charging = age >= unplugged
+                level = float(self.props["Percentage"])
+                if kind == "rate":
+                    value = 12.0 if charging else 7.0
+                else:
+                    value = 100.0 if charging else level + (100 - level) * age / unplugged
+                state = 4 if charging else 2
             points.append((dbus.UInt32(t), dbus.Double(value), dbus.UInt32(state)))
         return dbus.Array(points, signature="(udu)")
 

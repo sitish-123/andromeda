@@ -553,6 +553,10 @@ namespace settings {
     }
 
     std::string hoursMinutes(std::int64_t seconds) {
+      // formatDuration says "<1m" for 0, which reads as some time on a measured total.
+      if (seconds <= 0) {
+        return i18n::trp("time.units.minute", 0);
+      }
       return formatDuration(std::chrono::seconds{std::max<std::int64_t>(seconds, 0)});
     }
 
@@ -972,7 +976,8 @@ namespace settings {
         return;
       }
       cache.pending = true;
-      upower.requestHistory(path, "charge", 10 * kDay, 400, [rebuild](std::vector<UPowerHistoryPoint> points) {
+      // 2-minute bins: the period starts at the first discharging bin, so coarser bins move the unplug time.
+      upower.requestHistory(path, "charge", 10 * kDay, 7200, [rebuild](std::vector<UPowerHistoryPoint> points) {
         SotCache& c = sotCache();
         c.charge = std::move(points);
         c.pending = false;
