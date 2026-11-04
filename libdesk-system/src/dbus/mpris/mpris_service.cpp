@@ -4,8 +4,6 @@
 #include "core/log.h"
 #include "core/timer_manager.h"
 #include "dbus/session_bus.h"
-#include "ipc/ipc_arg_parse.h"
-#include "ipc/ipc_service.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
@@ -44,16 +42,10 @@ namespace {
   constexpr auto kMprisPlayerInterface = "org.mpris.MediaPlayer2.Player";
   constexpr auto kNoctaliaMprisInterface = "dev.noctalia.Mpris";
   constexpr auto kPropertiesDebounceWindow = std::chrono::milliseconds{120};
-  constexpr float kMediaVolumeStepDefault = 0.05F;
   constexpr auto kVolumeHoldWindow = std::chrono::milliseconds{800};
   constexpr auto kVolumeHoldMinIpcInterval = std::chrono::milliseconds{50};
   constexpr auto kVolumeWriteGuard = std::chrono::milliseconds{400};
   constexpr double kVolumeWriteGuardEpsilon = 0.02;
-  constexpr auto kMediaVolumeStepError =
-      "error: invalid volume step (use percent like 5 or 5%, or normalized like 0.05)\n";
-  constexpr auto kMediaVolumeValueError =
-      "error: invalid volume value (use percent like 65 or 65%, or normalized like 0.65)\n";
-  constexpr auto kMediaVolumeUnsupportedOrNoActive = "error: no active player or volume unsupported\n";
   constexpr auto kMetadataStabilizeWindow = std::chrono::milliseconds{900};
   const sdbus::ServiceName kDbusName{"org.freedesktop.DBus"};
   const sdbus::ObjectPath kDbusPath{"/org/freedesktop/DBus"};
@@ -703,79 +695,20 @@ void MprisService::refreshPlayers() {
   discoverPlayers();
 }
 
-void MprisService::registerIpc(IpcService& ipc) {
-  ipc.bindCycle(noctalia::cli::msg::media, [this](const std::string& args) -> std::string {
-    const auto parts = noctalia::ipc::splitWords(args);
-    if (parts.empty() || parts.size() > 2) {
-      return "error: media requires an action "
-             "<next|previous|toggle|play|pause|stop|next-player|previous-player|volume-up|volume-down|volume-set>\n";
-    }
-
-    const std::string& action = parts[0];
-    if (action == "volume-set") {
-      if (parts.size() != 2) {
-        return "error: media volume-set requires <value>\n";
-      }
-      const auto amount = noctalia::ipc::parseNormalizedOrPercent(parts[1]);
-      if (!amount.has_value()) {
-        return kMediaVolumeValueError;
-      }
-      return setVolumeActive(*amount) ? "ok\n" : kMediaVolumeUnsupportedOrNoActive;
-    }
-    if (action == "volume-up" || action == "volume-down") {
-      const auto step = parts.size() == 1 ? std::optional<float>(kMediaVolumeStepDefault)
-                                          : noctalia::ipc::parseNormalizedOrPercent(parts[1]);
-      if (!step.has_value()) {
-        return kMediaVolumeStepError;
-      }
-
-      const auto active = chooseActivePlayer();
-      if (!active.has_value()) {
-        return kMediaVolumeUnsupportedOrNoActive;
-      }
-      const auto current = volume(*active);
-      if (!current.has_value()) {
-        return kMediaVolumeUnsupportedOrNoActive;
-      }
-      const float direction = action == "volume-up" ? 1.0F : -1.0F;
-      const double newVolume = relativeAdjustTarget(
-          *active, static_cast<int>(direction), *step, direction, static_cast<float>(*current),
-          std::max(1.0F, static_cast<float>(*current))
-      );
-      return setVolume(*active, newVolume) ? "ok\n" : kMediaVolumeUnsupportedOrNoActive;
-    }
-    if (parts.size() != 1) {
-      return "error: media requires exactly one action "
-             "<next|previous|toggle|play|pause|stop|next-player|previous-player|volume-up|volume-down|volume-set>\n";
-    }
-    if (action == "next") {
-      return nextActive() ? "ok\n" : "error: no active player or Next unsupported\n";
-    }
-    if (action == "previous") {
-      return previousActive() ? "ok\n" : "error: no active player or Previous unsupported\n";
-    }
-    if (action == "toggle" || action == "playPause" || action == "play-pause") {
-      return playPauseActive() ? "ok\n" : "error: no active player or PlayPause unsupported\n";
-    }
-    if (action == "play") {
-      return playActive() ? "ok\n" : "error: no active player or Play unsupported\n";
-    }
-    if (action == "pause") {
-      return pauseActive() ? "ok\n" : "error: no active player or Pause unsupported\n";
-    }
-    if (action == "stop") {
-      return stopActive() ? "ok\n" : "error: no active player or Stop unsupported\n";
-    }
-    if (action == "next-player") {
-      return cycleActivePlayer(1) ? "ok\n" : "error: no media players available\n";
-    }
-    if (action == "previous-player") {
-      return cycleActivePlayer(-1) ? "ok\n" : "error: no media players available\n";
-    }
-
-    return "error: invalid media action (use next, previous, toggle, play, pause, stop, next-player, "
-           "previous-player, volume-up, volume-down, volume-set)\n";
-  });
+bool MprisService::stepActiveVolume(int direction, float step) {
+  const auto active = chooseActivePlayer();
+  if (!active.has_value()) {
+    return false;
+  }
+  const auto current = volume(*active);
+  if (!current.has_value()) {
+    return false;
+  }
+  const double newVolume = relativeAdjustTarget(
+      *active, direction, step, static_cast<float>(direction), static_cast<float>(*current),
+      std::max(1.0F, static_cast<float>(*current))
+  );
+  return setVolume(*active, newVolume);
 }
 
 std::function<void(std::optional<sdbus::Error>)>

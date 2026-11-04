@@ -6,6 +6,7 @@
 class BluetoothService;
 class INetworkService;
 class IpcService;
+class MprisService;
 class PowerProfilesService;
 
 // IPC commands for libdesk-system services: the services hold no shell IPC code.
@@ -18,3 +19,4 @@ void registerBluetoothIpc(
 void registerNetworkIpc(
     IpcService& ipc, INetworkService& service, const std::function<void(bool)>& wirelessFeedback = {}
 );
+void registerMprisIpc(IpcService& ipc, MprisService& service);

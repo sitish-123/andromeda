@@ -1010,7 +1010,7 @@ void Application::initIpc() {
       [this] { return m_logindService != nullptr; }
   );
   if (mpris() != nullptr) {
-    mpris()->registerIpc(m_ipcService);
+    registerMprisIpc(m_ipcService, *mpris());
   }
   if (pipewire() != nullptr) {
     pipewire()->registerIpc(m_ipcService, m_configService);

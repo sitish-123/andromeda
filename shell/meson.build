@@ -435,7 +435,6 @@ _noctalia_sources = files(
   'src/core/shared_worker.cpp',
   'src/core/inotify/inotify.cpp',
   'src/dbus/mpris/mpris_art.cpp',
-  'src/dbus/mpris/mpris_service.cpp',
   'src/dbus/network/external_ip_service.cpp',
   'src/dbus/notification/kde_notification_client.cpp',
   'src/dbus/notification/notification_poll_source.cpp',

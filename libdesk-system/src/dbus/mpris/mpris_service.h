@@ -16,7 +16,6 @@
 #include <vector>
 
 class SessionBus;
-class IpcService;
 
 namespace sdbus {
   class Error;
@@ -67,7 +66,10 @@ public:
   [[nodiscard]] std::vector<MprisPlayerInfo> listPlayers() const;
   [[nodiscard]] std::optional<MprisPlayerInfo> activePlayer() const;
   void refreshPlayers();
-  void registerIpc(IpcService& ipc);
+  // Moves the active player's volume one step up (direction 1) or down (-1); false without an active player
+  // that reports a volume.
+  bool stepActiveVolume(int direction, float step);
+  bool cycleActivePlayer(int direction);
 
   bool playPause(const std::string& busName);
   bool play(const std::string& busName);
@@ -143,7 +145,6 @@ private:
   [[nodiscard]] MprisPlayerInfo projectedPlayerInfo(const MprisPlayerInfo& player) const;
   [[nodiscard]] std::int64_t projectedPositionUs(const MprisPlayerInfo& player) const;
   [[nodiscard]] std::optional<std::string> chooseActivePlayer() const;
-  bool cycleActivePlayer(int direction);
   [[nodiscard]] bool isBlacklisted(const MprisPlayerInfo& player) const;
   std::function<void(std::optional<sdbus::Error>)> makeAsyncReplyHandler(std::string op, std::string busName);
   std::function<void(std::optional<sdbus::Error>)>

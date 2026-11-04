@@ -1,8 +1,10 @@
 #include "ipc/service_ipc.h"
 
 #include "dbus/bluetooth/bluetooth_service.h"
+#include "dbus/mpris/mpris_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/power/power_profiles_service.h"
+#include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
 
@@ -11,6 +13,13 @@
 #include <string>
 
 namespace {
+
+  constexpr float kMediaVolumeStepDefault = 0.05F;
+  constexpr auto kMediaVolumeStepError =
+      "error: invalid volume step (use percent like 5 or 5%, or normalized like 0.05)\n";
+  constexpr auto kMediaVolumeValueError =
+      "error: invalid volume value (use percent like 65 or 65%, or normalized like 0.65)\n";
+  constexpr auto kMediaVolumeUnsupportedOrNoActive = "error: no active player or volume unsupported\n";
 
   std::optional<std::string> rejectArgs(std::string_view command, const std::string& args) {
     if (StringUtils::trim(args).empty()) {
@@ -220,5 +229,68 @@ void registerNetworkIpc(IpcService& ipc, INetworkService& service, const std::fu
       return "ok\n";
     }
     return "error: nothing to toggle (Wi-Fi is on and no wired or cellular connection is available)\n";
+  });
+}
+
+void registerMprisIpc(IpcService& ipc, MprisService& service) {
+  ipc.bindCycle(noctalia::cli::msg::media, [&service](const std::string& args) -> std::string {
+    const auto parts = noctalia::ipc::splitWords(args);
+    if (parts.empty() || parts.size() > 2) {
+      return "error: media requires an action "
+             "<next|previous|toggle|play|pause|stop|next-player|previous-player|volume-up|volume-down|volume-set>\n";
+    }
+
+    const std::string& action = parts[0];
+    if (action == "volume-set") {
+      if (parts.size() != 2) {
+        return "error: media volume-set requires <value>\n";
+      }
+      const auto amount = noctalia::ipc::parseNormalizedOrPercent(parts[1]);
+      if (!amount.has_value()) {
+        return kMediaVolumeValueError;
+      }
+      return service.setVolumeActive(*amount) ? "ok\n" : kMediaVolumeUnsupportedOrNoActive;
+    }
+    if (action == "volume-up" || action == "volume-down") {
+      const auto step = parts.size() == 1 ? std::optional<float>(kMediaVolumeStepDefault)
+                                          : noctalia::ipc::parseNormalizedOrPercent(parts[1]);
+      if (!step.has_value()) {
+        return kMediaVolumeStepError;
+      }
+
+      const int direction = action == "volume-up" ? 1 : -1;
+      return service.stepActiveVolume(direction, *step) ? "ok\n" : kMediaVolumeUnsupportedOrNoActive;
+    }
+    if (parts.size() != 1) {
+      return "error: media requires exactly one action "
+             "<next|previous|toggle|play|pause|stop|next-player|previous-player|volume-up|volume-down|volume-set>\n";
+    }
+    if (action == "next") {
+      return service.nextActive() ? "ok\n" : "error: no active player or Next unsupported\n";
+    }
+    if (action == "previous") {
+      return service.previousActive() ? "ok\n" : "error: no active player or Previous unsupported\n";
+    }
+    if (action == "toggle" || action == "playPause" || action == "play-pause") {
+      return service.playPauseActive() ? "ok\n" : "error: no active player or PlayPause unsupported\n";
+    }
+    if (action == "play") {
+      return service.playActive() ? "ok\n" : "error: no active player or Play unsupported\n";
+    }
+    if (action == "pause") {
+      return service.pauseActive() ? "ok\n" : "error: no active player or Pause unsupported\n";
+    }
+    if (action == "stop") {
+      return service.stopActive() ? "ok\n" : "error: no active player or Stop unsupported\n";
+    }
+    if (action == "next-player") {
+      return service.cycleActivePlayer(1) ? "ok\n" : "error: no media players available\n";
+    }
+    if (action == "previous-player") {
+      return service.cycleActivePlayer(-1) ? "ok\n" : "error: no media players available\n";
+    }
+
+    return "error: invalid media action (use next, previous, toggle, play, pause, stop, next-player, "
+           "previous-player, volume-up, volume-down, volume-set)\n";
   });
 }
