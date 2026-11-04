@@ -2,7 +2,9 @@
   "activity": {
     "action-force-quit": "Force Quit",
     "action-ignore": "Ignore",
+    "action-pause": "Pause",
     "action-quit": "Quit",
+    "action-resume": "Resume",
     "action-stop": "Stop",
     "action-unignore": "Stop Ignoring",
     "battery-discharging": "On battery: {percent} %, using {watts} W now.",
@@ -16,6 +18,7 @@
     "caption-units": "{count} units",
     "chip-high-energy": "High energy",
     "chip-no-window": "No window",
+    "chip-paused": "Paused",
     "column-24h": "Memory, 24 h",
     "column-cpu": "CPU",
     "column-energy": "Energy",

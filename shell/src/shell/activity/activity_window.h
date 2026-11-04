@@ -89,6 +89,8 @@ private:
   [[nodiscard]] std::string structureKey() const;
   [[nodiscard]] std::string captionFor(const ActivityRow& row) const;
   [[nodiscard]] const ActivityRow* findRow(const std::string& key) const;
+  // True when the row's first unit cgroup reports "frozen 1" in cgroup.events (Pause).
+  [[nodiscard]] bool isFrozen(const ActivityRow& row) const;
   void updateLive();
   void forceQuitSelected();
   [[nodiscard]] const ActivityRow* selectedRow() const;

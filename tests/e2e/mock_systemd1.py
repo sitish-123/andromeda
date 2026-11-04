@@ -112,6 +112,18 @@ class Manager(dbus.service.Object):
         if name in self.mirrored:
             subprocess.run(["systemctl", "--user", "kill", f"--signal={signal}", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
 
+    @dbus.service.method(MANAGER, in_signature="s")
+    def FreezeUnit(self, name):
+        self.record(f"FreezeUnit {name}")
+        if name in self.mirrored:
+            subprocess.run(["systemctl", "--user", "freeze", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
+
+    @dbus.service.method(MANAGER, in_signature="s")
+    def ThawUnit(self, name):
+        self.record(f"ThawUnit {name}")
+        if name in self.mirrored:
+            subprocess.run(["systemctl", "--user", "thaw", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
+
     def set_file_state(self, names, state):
         for n in names:
             if n in self.units:

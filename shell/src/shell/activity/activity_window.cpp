@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <fstream>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -517,6 +518,23 @@ const ActivityRow* ActivityWindow::findRow(const std::string& key) const {
   return it != rows.end() ? &*it : nullptr;
 }
 
+bool ActivityWindow::isFrozen(const ActivityRow& row) const {
+  const auto& units = m_monitor->userUnits().units();
+  for (const auto& name : row.units) {
+    if (const auto it = std::ranges::find(units, name, &SystemdUnit::name);
+        it != units.end() && !it->controlGroup.empty()) {
+      std::ifstream events(m_monitor->activity().cgroupRoot() + it->controlGroup + "/cgroup.events");
+      for (std::string line; std::getline(events, line);) {
+        if (line == "frozen 1") {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
 std::string ActivityWindow::structureKey() const {
   // Everything that decides which nodes exist: row order and membership, captions, chips, meters, counts, groups.
   std::string key = std::format(
@@ -547,6 +565,7 @@ std::string ActivityWindow::structureKey() const {
   if (const ActivityRow* row = selectedRow(); row != nullptr && m_details != nullptr) {
     const auto* history = m_details->history(row->key);
     key += history != nullptr && history->memoryMb.size() > 1 ? "|graph" : "|nograph";
+    key += isFrozen(*row) ? "|frozen" : "";
   }
   if (m_sysmon != nullptr) {
     const auto history = m_sysmon->history();
@@ -1207,6 +1226,10 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (row->units.size() > 1) {
     chips->addChild(chip(i18n::tr("activity.caption-units", "count", std::to_string(row->units.size())), scale));
   }
+  const bool frozen = isFrozen(*row);
+  if (frozen) {
+    chips->addChild(chip(i18n::tr("activity.chip-paused"), scale));
+  }
   if (energyBars(row->cpuPercent, gpu) >= 3) {
     chips->addChild(chip(i18n::tr("activity.chip-high-energy"), scale, ColorRole::Warning, ColorRole::AccentText));
   }
@@ -1362,6 +1385,34 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
                 refreshRowStates(true);
                 requestRebuild();
               });
+            },
+        })
+    );
+  }
+  if (state != nullptr && !row->hasWindow && m_actions != nullptr) {
+    inspector->addChild(
+        ui::button({
+            .text = i18n::tr(frozen ? "activity.action-resume" : "activity.action-pause"),
+            .fontSize = Style::fontSizeBody * scale,
+            .variant = ButtonVariant::Default,
+            .minHeight = Style::controlHeight * scale,
+            .radius = Style::controlHeight * scale / 2.0F,
+            .onClick = [this, frozen] {
+              const ActivityRow* selected = selectedRow();
+              if (selected == nullptr) {
+                return;
+              }
+              const auto& known = m_monitor->userUnits().units();
+              for (const auto& name : selected->units) {
+                if (const auto it = std::ranges::find(known, name, &SystemdUnit::name); it != known.end()) {
+                  m_actions->setFrozen(*it, !frozen, [this](const ActivityActionResult& result) {
+                    m_actionError = result.ok ? ""
+                        : result.accessDenied ? i18n::tr("activity.error-admin")
+                                              : result.error;
+                    requestRebuild();
+                  });
+                }
+              }
             },
         })
     );

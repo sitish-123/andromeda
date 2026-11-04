@@ -75,6 +75,11 @@ int main(int argc, char** argv) {
   r = run([&](auto reply) { actions.disableAtLogin(*socketed, {}, {}, reply); });
   check(r.ok && r.stillStartsOnDemand, "disable socketed: a socket still starts it on demand");
 
+  r = run([&](auto reply) { actions.setFrozen(*opencode, true, reply); });
+  check(r.ok, "pause opencode (" + r.error + ")");
+  r = run([&](auto reply) { actions.setFrozen(*opencode, false, reply); });
+  check(r.ok, "resume opencode (" + r.error + ")");
+
   r = run([&](auto reply) { actions.stop(*opencode, reply); });
   check(r.ok, "stop opencode (" + r.error + ")");
 

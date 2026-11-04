@@ -41,6 +41,8 @@ public:
   void stop(const SystemdUnit& unit, Reply reply);
   // SIGKILL to every process of the unit (KillUnit "all"): for an app that ignores Stop.
   void forceQuit(const SystemdUnit& unit, Reply reply);
+  // Pause: FreezeUnit stops every process of the unit (cgroup freezer) until ThawUnit; memory stays allocated.
+  void setFrozen(const SystemdUnit& unit, bool frozen, Reply reply);
   // An autostart unit (app-*@autostart.service) gets the XDG override in autostartUserDir; any other unit gets
   // DisableUnitFiles, which keeps the unit file and removes only its [Install] links.
   void disableAtLogin(const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply);

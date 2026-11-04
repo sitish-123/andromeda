@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Activity actions reach the systemd user manager: mock_systemd1.py on a private session bus records each call while
-# activity_actions (built against the shell's own ActivityActions) disables, re-enables and stops units, checks the
+# activity_actions (built against the shell's own ActivityActions) disables, re-enables, pauses, resumes and stops units, checks the
 # "still starts on demand" result for a socket-activated unit, and writes and undoes XDG autostart overrides in a
 # scratch dir. System units (polkit) are covered by face_polkit.sh. Writes artifacts to $OUT
 # (default ./artifacts/activity-actions). Needs no compositor.
@@ -29,7 +29,7 @@ dbus-run-session -- bash -c '
 ' _ "$MOCK" "$OUT" "$BIN"
 grep -q "^PASS" "$OUT/activity-actions.txt" && ! grep -q "^FAIL" "$OUT/activity-actions.txt" \
   || { echo "activity-actions reported a failure" >&2; exit 1; }
-for call in "DisableUnitFiles opencode.service False" "EnableUnitFiles opencode.service False False" "StopUnit opencode.service replace" "Reload"; do
+for call in "DisableUnitFiles opencode.service False" "EnableUnitFiles opencode.service False False" "FreezeUnit opencode.service" "ThawUnit opencode.service" "StopUnit opencode.service replace" "Reload"; do
   grep -qx "$call" "$OUT/calls.txt" || { echo "FAIL: mock never received: $call" >&2; exit 1; }
 done
 echo "PASS: stop, disable, undo and autostart override; artifacts: $OUT"
