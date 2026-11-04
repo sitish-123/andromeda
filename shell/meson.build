@@ -1153,8 +1153,8 @@ install_data(
 install_data(
   'assets/dev.noctalia.Noctalia.desktop',
   'assets/dev.noctalia.Noctalia.Annotator.desktop',
-  install_dir: get_option('datadir') / 'applications',
   'assets/dev.andromeda.Activity.desktop',
+  install_dir: get_option('datadir') / 'applications',
 )
 
 install_data(
