@@ -12,6 +12,9 @@ const WARNINGS: &[&str] = &["none", "discharging", "low", "critical", "action"];
 /// `org.andromeda.System1.Memory.Level`, from PSI.
 const MEMORY_LEVELS: &[&str] = &["normal", "medium", "critical"];
 
+/// Not a rule field: the source of `battery.unplug_in_min`.
+const LEARNED_UNPLUG: &str = "power.learned_unplug_min";
+
 const FIELDS: &[(&str, Type)] = &[
     ("power.on_battery", Type::Bool),
     ("power.profile", Type::Level(PROFILES)),
@@ -19,6 +22,9 @@ const FIELDS: &[(&str, Type)] = &[
     ("battery.warning", Type::Level(WARNINGS)),
     ("battery.state", Type::Str),
     ("battery.time_to_empty_s", Type::Num),
+    ("battery.charge_limit_supported", Type::Bool),
+    // Minutes to the learned unplug time; absent before 14 days of plug history.
+    ("battery.unplug_in_min", Type::Num),
     ("power.profile_by_rule", Type::Bool),
     ("memory.level", Type::Level(MEMORY_LEVELS)),
     ("thermal.throttled", Type::Bool),
@@ -62,6 +68,26 @@ impl Snapshot {
         self.put("power.on_battery", bus::get::<bool>(props, "OnBattery").map(Value::Bool));
         let profile = bus::get::<String>(props, "Profile").filter(|p| PROFILES.contains(&p.as_str()));
         self.put("power.profile", profile.map(Value::Str));
+        let supported = bus::get::<bool>(props, "ChargeLimitSupported");
+        self.put("battery.charge_limit_supported", supported.map(Value::Bool));
+        let learned = bus::get::<i32>(props, "LearnedUnplugMin").filter(|m| *m >= 0);
+        self.put(LEARNED_UNPLUG, learned.map(|m| Value::Num(m.into())));
+    }
+
+    /// Sets the fields that follow the clock; `now_s` is unix time. Call before each step.
+    pub fn set_clock(&mut self, now_s: u64) {
+        #[allow(clippy::cast_precision_loss)] // minutes of a day
+        let now_min = (now_s % 86_400 / 60) as f64;
+        let left = match self.0.get(LEARNED_UNPLUG) {
+            Some(Value::Num(at)) => Some(Value::Num((at - now_min).rem_euclid(1440.0))),
+            _ => None,
+        };
+        self.put("battery.unplug_in_min", left);
+    }
+
+    /// Whether a field moves with the clock now, so steps must come without a state change.
+    pub fn clock_runs(&self) -> bool {
+        self.0.contains_key("battery.unplug_in_min") && self.0.get("power.on_battery") == Some(&Value::Bool(false))
     }
 
     /// From the display device's `org.andromeda.System1.Battery`; a missing or absent battery clears the fields.

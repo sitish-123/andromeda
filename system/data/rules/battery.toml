@@ -7,3 +7,15 @@ priority = "safety"
 when = "power.on_battery and battery.warning >= 'critical'"
 clear = "not power.on_battery"
 alert = { urgency = "critical", text = "battery_critical" }
+
+# Optimized charging: while the charger is in and the learned unplug time is more than release_min away, the
+# battery stops at its charge limit; it fills to 100 % just before use. The session part runs it, not the system
+# part as the doc says: the system part has no rule runner yet. The user's own charge-limit change undoes it.
+[[rule]]
+id = "battery.optimized_charging"
+scope = "session"
+priority = "automatic"
+params = { release_min = 60 }
+when = "battery.charge_limit_supported and not power.on_battery and battery.unplug_in_min > release_min"
+clear = "power.on_battery or battery.unplug_in_min <= release_min"
+holds = [{ knob = "battery.charge_limit", value = true }]

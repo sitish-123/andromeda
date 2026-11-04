@@ -9,8 +9,8 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedVariant, Variant, interface};
 
 use crate::holds::{KnobValue, Merge};
-use crate::policy::{self, PROFILE, Shared};
-use crate::polkit;
+use crate::policy::{self, CHARGE_LIMIT, PROFILE, Shared};
+use crate::{battery, polkit};
 
 pub const PATH: &str = "/org/andromeda/System1/Knobs";
 
@@ -25,6 +25,7 @@ fn failed(e: &anyhow::Error) -> Error {
 fn action(knob: &str) -> Result<&'static str> {
     match knob {
         PROFILE => Ok("org.andromeda.system.power-profile"),
+        CHARGE_LIMIT => Ok("org.andromeda.system.charge-limit"),
         _ => Err(Error::InvalidArgs(format!("unknown knob {knob:?}"))),
     }
 }
@@ -57,8 +58,8 @@ fn to_toml(value: OwnedVariant) -> Option<toml::Value> {
 #[interface(name = "org.andromeda.System1.Knobs")]
 impl Knobs {
     /// The user's choice for a knob, stored by its backend:
-    /// `power.profile` (s): power-saver, balanced or performance. It undoes each automatic episode that holds the
-    /// knob; safety holds still win.
+    /// `power.profile` (s): power-saver, balanced or performance; `battery.charge_limit` (b): on or off for each
+    /// battery that has a limit. It undoes each automatic episode that holds the knob; safety holds still win.
     async fn set(
         &self,
         knob: &str,
@@ -67,21 +68,14 @@ impl Knobs {
         #[zbus(connection)] conn: &Connection,
     ) -> Result<()> {
         polkit::check(conn, &header, action(knob)?).await?;
-        let bad = || Error::InvalidArgs("power.profile takes power-saver, balanced or performance".into());
-        let profile = String::try_from(value).map_err(|_| bad())?;
-        let choice = KnobValue::from_toml(&toml::Value::String(profile.clone()), Merge::LowestPower).ok_or_else(bad)?;
-        let mut policy = self.policy.lock().await;
-        let changes = policy
-            .engine
-            .set_baseline(knob, choice, policy::now_ms())
-            .ok_or_else(|| Error::InvalidArgs(format!("unknown knob {knob:?}")))?;
-        let released = changes.released.clone();
-        policy.commit(conn, changes, Some(&profile)).await.map_err(|e| failed(&e))?;
-        let emitter = SignalEmitter::new(conn, PATH)?;
-        for (id, owner) in released {
-            Self::released(&emitter, &id.to_string(), &owner).await?;
-        }
-        Ok(())
+        let choice = if knob == CHARGE_LIMIT {
+            KnobValue::Bool(bool::try_from(&value).map_err(|_| Error::InvalidArgs(format!("{knob} takes a bool")))?)
+        } else {
+            let bad = || Error::InvalidArgs("power.profile takes power-saver, balanced or performance".into());
+            let profile = String::try_from(value).map_err(|_| bad())?;
+            KnobValue::from_toml(&toml::Value::String(profile), Merge::LowestPower).ok_or_else(bad)?
+        };
+        set_user(conn, &self.policy, knob, choice).await
     }
 
     /// A user change ended the client hold `id` of `owner`.
@@ -102,6 +96,10 @@ impl Knobs {
         let value = to_toml(value).ok_or_else(|| Error::InvalidArgs("value is s, b, a number or as".into()))?;
         let owner = sender(&header)?;
         let mut policy = self.policy.lock().await;
+        if knob == CHARGE_LIMIT && policy.engine.knob(knob).is_some_and(|k| k.baseline.is_none()) {
+            let on = battery::charge_limit_enabled(conn).await.map_err(|e| failed(&e))?;
+            policy.engine.init_baseline(knob, KnobValue::Bool(on));
+        }
         let (id, changes) =
             policy.engine.hold(knob, &owner, reason, &value, policy::now_ms()).map_err(Error::InvalidArgs)?;
         policy.commit(conn, changes, None).await.map_err(|e| failed(&e))?;
@@ -144,6 +142,30 @@ impl Knobs {
             })
             .collect()
     }
+}
+
+/// The user's choice for `knob`: it ends the automatic episodes and client holds on it, then applies.
+pub async fn set_user(conn: &Connection, policy: &Shared, knob: &str, choice: KnobValue) -> Result<()> {
+    let mut policy = policy.lock().await;
+    let changes = policy
+        .engine
+        .set_baseline(knob, choice.clone(), policy::now_ms())
+        .ok_or_else(|| Error::InvalidArgs(format!("unknown knob {knob:?}")))?;
+    let released = changes.released.clone();
+    let profile = match &choice {
+        KnobValue::Str(p) if knob == PROFILE => Some(p.as_str()),
+        _ => None,
+    };
+    policy.commit(conn, changes, profile).await.map_err(|e| failed(&e))?;
+    if let (CHARGE_LIMIT, KnobValue::Bool(on)) = (knob, &choice) {
+        // The knob may not move, but each battery must follow the user's choice.
+        battery::set_charge_limit(conn, *on).await.map_err(|e| failed(&e))?;
+    }
+    let emitter = SignalEmitter::new(conn, PATH)?;
+    for (id, owner) in released {
+        Knobs::released(&emitter, &id.to_string(), &owner).await?;
+    }
+    Ok(())
 }
 
 /// Ends the holds of each client that leaves the bus.

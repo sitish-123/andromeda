@@ -25,6 +25,9 @@ pub struct PowerData {
     pub profile_choices: Vec<String>,
     pub performance_degraded: String,
     pub package_power_w: f64,
+    /// Minutes after midnight UTC; -1 until 14 days of plug history.
+    pub learned_unplug_min: i32,
+    pub charge_limit_supported: bool,
 }
 
 impl Default for PowerData {
@@ -35,6 +38,8 @@ impl Default for PowerData {
             profile_choices: Vec::new(),
             performance_degraded: String::new(),
             package_power_w: f64::NAN,
+            learned_unplug_min: -1,
+            charge_limit_supported: false,
         }
     }
 }
@@ -74,6 +79,19 @@ impl Power {
     fn package_power_w(&self) -> f64 {
         self.data.package_power_w
     }
+
+    /// The usual time the charger comes out after an overnight charge, in minutes after midnight UTC, learned from
+    /// 14 days of plug history; -1 before that.
+    #[zbus(property)]
+    fn learned_unplug_min(&self) -> i32 {
+        self.data.learned_unplug_min
+    }
+
+    /// Whether the machine's battery has a charge limit (UPower charge thresholds).
+    #[zbus(property)]
+    fn charge_limit_supported(&self) -> bool {
+        self.data.charge_limit_supported
+    }
 }
 
 /// Applies `change` and emits `PropertiesChanged` for the fields that differ.
@@ -101,6 +119,12 @@ pub async fn update(conn: &Connection, change: impl FnOnce(&mut PowerData)) -> z
     }
     if old.package_power_w.to_bits() != new.package_power_w.to_bits() {
         power.package_power_w_changed(emitter).await?;
+    }
+    if old.learned_unplug_min != new.learned_unplug_min {
+        power.learned_unplug_min_changed(emitter).await?;
+    }
+    if old.charge_limit_supported != new.charge_limit_supported {
+        power.charge_limit_supported_changed(emitter).await?;
     }
     Ok(())
 }

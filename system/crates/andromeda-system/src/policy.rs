@@ -13,9 +13,11 @@ use zbus::object_server::SignalEmitter;
 use crate::engine::{Changes, Engine};
 use crate::explain::{self, Log};
 use crate::holds::{Knob, KnobValue, Merge, Source};
-use crate::power;
+use crate::{battery, power};
 
 pub const PROFILE: &str = "power.profile";
+/// On: each battery that has a charge limit stops at its end value.
+pub const CHARGE_LIMIT: &str = "battery.charge_limit";
 
 pub struct Policy {
     pub engine: Engine,
@@ -31,7 +33,8 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn new(log: PathBuf) -> Shared {
-    let (engine, _) = Engine::new(vec![Knob::new(PROFILE, Merge::LowestPower)], Vec::new(), now_ms());
+    let knobs = vec![Knob::new(PROFILE, Merge::LowestPower), Knob::new(CHARGE_LIMIT, Merge::AnyTrue)];
+    let (engine, _) = Engine::new(knobs, Vec::new(), now_ms());
     Arc::new(Mutex::new(Policy { engine, log: Log::new(log), ppd_hold: None }))
 }
 
@@ -52,6 +55,9 @@ impl Policy {
         }
         if user_profile.is_some() || changes.apply.iter().any(|(k, _)| *k == PROFILE) {
             self.apply_profile(conn).await?;
+        }
+        if let Some((_, Some(KnobValue::Bool(on)))) = changes.apply.iter().find(|(k, _)| *k == CHARGE_LIMIT) {
+            battery::set_charge_limit(conn, *on).await?;
         }
         Ok(())
     }

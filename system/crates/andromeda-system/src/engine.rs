@@ -174,6 +174,14 @@ impl Engine {
         Some(changes)
     }
 
+    /// The knob's baseline before the user's first choice: the backend's own state, so that the last hold's release
+    /// goes back to it. A baseline the user set stays.
+    pub fn init_baseline(&mut self, knob: &str, value: KnobValue) {
+        if let Some(k) = self.knobs.get_mut(knob) {
+            k.baseline.get_or_insert(value);
+        }
+    }
+
     /// An automatic hold from a client (the session part for its rules). `owner` is the client's bus name: its
     /// holds end when it leaves the bus. Returns the hold id and the knob value to apply, if it moved.
     pub fn hold(

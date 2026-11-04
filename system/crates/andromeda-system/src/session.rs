@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -27,7 +27,9 @@ use crate::{NAME, knobs, memory, nm, power, storage, thermal};
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
 /// Knobs the system part owns; the session part holds them with `Knobs.Hold`. The others it applies itself.
-const SYSTEM_KNOBS: [&str; 1] = ["power.profile"];
+/// How often the clock fields (`battery.unplug_in_min`) are read again while one matters (on AC only).
+const CLOCK_STEP: Duration = Duration::from_secs(5 * 60);
+const SYSTEM_KNOBS: [&str; 2] = ["power.profile", "battery.charge_limit"];
 /// A synthetic state field: a session rule holds the profile, so the profile shown is not the user's pick.
 const PROFILE_BY_RULE: &str = "power.profile_by_rule";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
@@ -353,6 +355,7 @@ impl Session {
             .values()
             .any(|(rule, _)| self.specs.get(rule).is_some_and(|s| s.holds.iter().any(|h| h.knob == "power.profile")));
         self.state.set_flag(PROFILE_BY_RULE, by_rule);
+        self.state.set_clock(now_ms() / 1000);
         let state = self.state.clone();
         let changes = self.engine.step(&state, Instant::now(), now_ms());
         self.commit(system, session, changes).await;
@@ -541,6 +544,7 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
         Knob::new("power.profile", Merge::LowestPower),
         Knob::new("network.wifi_power_save", Merge::AnyTrue),
         Knob::new("display.brightness_step", Merge::Min),
+        Knob::new("battery.charge_limit", Merge::AnyTrue),
     ];
     let (mut engine, refused) = Engine::new(knobs, rules, now_ms());
     for (id, why) in refused {
@@ -740,7 +744,9 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
         shared.lock().await.step_all(system, session).await;
         let (deadline, wake) = {
             let inner = shared.lock().await;
-            (inner.engine.deadline(), inner.wake.clone())
+            let clock = inner.state.clock_runs().then(|| Instant::now() + CLOCK_STEP);
+            let deadline = [inner.engine.deadline(), clock].into_iter().flatten().min();
+            (deadline, inner.wake.clone())
         };
         let sleep = async {
             match deadline {

@@ -11,7 +11,9 @@ use zbus::object_server::InterfaceRef;
 use zbus::{Connection, OwnedObjectPath, interface};
 
 use crate::bus::{self, Props, Remote};
-use crate::{manager, polkit, power};
+use crate::holds::KnobValue;
+use crate::policy::{CHARGE_LIMIT, Shared};
+use crate::{knobs, manager, plugs, polkit, power};
 
 pub const AREA: &str = "battery";
 pub const UPOWER: &str = "org.freedesktop.UPower";
@@ -39,6 +41,43 @@ pub trait UPower {
 trait Device {
     fn get_history(&self, kind: &str, timespan: u32, resolution: u32) -> zbus::Result<Vec<(u32, f64, u32)>>;
     fn enable_charge_threshold(&self, enabled: bool) -> zbus::Result<()>;
+    #[zbus(property)]
+    fn charge_threshold_supported(&self) -> zbus::Result<bool>;
+    #[zbus(property)]
+    fn charge_threshold_enabled(&self) -> zbus::Result<bool>;
+}
+
+async fn devices(conn: &Connection) -> Result<Vec<DeviceProxy<'static>>> {
+    let mut list = Vec::new();
+    for path in UPowerProxy::new(conn).await?.enumerate_devices().await? {
+        let device = DeviceProxy::builder(conn).path(path).cache_properties(zbus::proxy::CacheProperties::No);
+        list.push(device.build().await?);
+    }
+    Ok(list)
+}
+
+/// The `battery.charge_limit` backend: turns the limit on or off on each battery that has one.
+pub async fn set_charge_limit(conn: &Connection, on: bool) -> Result<()> {
+    for device in devices(conn).await? {
+        if device.charge_threshold_supported().await.unwrap_or_default()
+            && device.charge_threshold_enabled().await.ok() != Some(on)
+        {
+            device.enable_charge_threshold(on).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether a battery has its limit on: the knob's state before the user's first choice.
+pub async fn charge_limit_enabled(conn: &Connection) -> Result<bool> {
+    for device in devices(conn).await? {
+        if device.charge_threshold_supported().await.unwrap_or_default()
+            && device.charge_threshold_enabled().await.unwrap_or_default()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 const KINDS: [&str; 29] = [
@@ -139,6 +178,7 @@ impl BatteryData {
 pub struct Battery {
     upower_path: OwnedObjectPath,
     data: BatteryData,
+    policy: Shared,
 }
 
 #[interface(name = "org.andromeda.System1.Battery")]
@@ -228,8 +268,9 @@ impl Battery {
         self.data.charge_limit
     }
 
-    /// The user's charge-limit choice for this battery: on or off. Start and end take 4294967295 (keep); values
-    /// come from UPower (hwdb or sysfs) until the system part writes them (docs/system-health.md §5).
+    /// The user's charge-limit choice: on or off, as `Knobs.Set` of `battery.charge_limit`, so it applies to each
+    /// battery with a limit and ends the automatic holds on it. Start and end take 4294967295 (keep); values come
+    /// from UPower (hwdb or sysfs) until the system part writes them (docs/system-health.md §5).
     async fn set_charge_limit(
         &self,
         enabled: bool,
@@ -245,8 +286,7 @@ impl Battery {
         if !self.data.charge_limit.0 {
             return Err(zbus::fdo::Error::NotSupported("this battery has no charge limit".into()));
         }
-        let device = DeviceProxy::builder(conn).path(self.upower_path.clone()).build().await?;
-        Ok(device.enable_charge_threshold(enabled).await?)
+        knobs::set_user(conn, &self.policy, CHARGE_LIMIT, KnobValue::Bool(enabled)).await
     }
 
     /// UPower's history: kind `rate` or `charge`, timespan in seconds, resolution in points; returns
@@ -292,14 +332,22 @@ async fn update(iface: &InterfaceRef<Battery>, data: BatteryData) -> zbus::Resul
 }
 
 /// Follows one UPower device until its task is aborted. Line-power devices get no object.
-async fn follow_device(conn: Connection, upower_path: OwnedObjectPath) -> Result<()> {
+async fn follow_device(conn: Connection, upower_path: OwnedObjectPath, policy: Shared) -> Result<()> {
     let mut remote = Remote::new(&conn, UPOWER, upower_path.to_string(), DEVICE_IFACE).await?;
     if bus::get::<u32>(&remote.props, "Type") == Some(LINE_POWER) {
         return Ok(());
     }
     let path = object_path(upower_path.as_str());
-    let battery = Battery { upower_path, data: BatteryData::from_props(&remote.props) };
+    let battery = Battery { upower_path, data: BatteryData::from_props(&remote.props), policy };
+    // The composite DisplayDevice has no charge limit of its own.
+    let system = battery.data.power_supply
+        && battery.data.kind == "battery"
+        && !battery.upower_path.as_str().ends_with("/DisplayDevice");
+    let supported = battery.data.charge_limit.0;
     conn.object_server().at(path.as_str(), battery).await?;
+    if system {
+        power::update(&conn, |d| d.charge_limit_supported = supported).await?;
+    }
     let iface: InterfaceRef<Battery> = conn.object_server().interface(path.as_str()).await?;
     while let Some(change) = remote.next().await {
         change?;
@@ -310,6 +358,7 @@ async fn follow_device(conn: Connection, upower_path: OwnedObjectPath) -> Result
 
 struct Devices {
     conn: Connection,
+    policy: Shared,
     tasks: HashMap<OwnedObjectPath, JoinHandle<()>>,
 }
 
@@ -318,10 +367,10 @@ impl Devices {
         if self.tasks.contains_key(&path) || crate::kbd_backlight::is_kbd_path(path.as_str()) {
             return;
         }
-        let conn = self.conn.clone();
+        let (conn, policy) = (self.conn.clone(), self.policy.clone());
         let key = path.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = follow_device(conn.clone(), path.clone()).await {
+            if let Err(e) = follow_device(conn.clone(), path.clone(), policy).await {
                 log::warn!("battery {path}: {e:#}");
             }
             let _ = conn.object_server().remove::<Battery, _>(object_path(path.as_str())).await;
@@ -344,9 +393,21 @@ impl Devices {
     }
 }
 
+/// Publishes the power source and records it in the plug history.
+async fn on_battery(conn: &Connection, on_battery: bool) -> zbus::Result<()> {
+    let now = crate::policy::now_ms() / 1000;
+    plugs::record(!on_battery, now);
+    let learned = plugs::learned(now).and_then(|m| i32::try_from(m).ok()).unwrap_or(-1);
+    power::update(conn, |d| {
+        d.on_battery = on_battery;
+        d.learned_unplug_min = learned;
+    })
+    .await
+}
+
 /// Follows UPower for the life of the daemon.
-pub async fn run(conn: Connection) {
-    let devices = &tokio::sync::Mutex::new(Devices { conn: conn.clone(), tasks: HashMap::new() });
+pub async fn run(conn: Connection, policy: Shared) {
+    let devices = &tokio::sync::Mutex::new(Devices { conn: conn.clone(), policy, tasks: HashMap::new() });
     let conn = &conn;
     bus::supervise(
         conn,
@@ -367,7 +428,7 @@ async fn follow(conn: &Connection, devices: &mut Devices) -> Result<()> {
     let mut added = upower.receive_device_added().await?;
     let mut removed = upower.receive_device_removed().await?;
     let mut manager = Remote::new(conn, UPOWER, UPOWER_PATH.to_owned(), UPOWER).await?;
-    power::update(conn, |d| d.on_battery = bus::get(&manager.props, "OnBattery").unwrap_or_default()).await?;
+    on_battery(conn, bus::get(&manager.props, "OnBattery").unwrap_or_default()).await?;
     devices.add(upower.get_display_device().await?);
     for path in upower.enumerate_devices().await? {
         devices.add(path);
@@ -378,10 +439,7 @@ async fn follow(conn: &Connection, devices: &mut Devices) -> Result<()> {
         tokio::select! {
             result = &mut gone => return result,
             change = manager.next() => match change {
-                Some(Ok(())) => {
-                    let on_battery = bus::get(&manager.props, "OnBattery").unwrap_or_default();
-                    power::update(conn, |d| d.on_battery = on_battery).await?;
-                }
+                Some(Ok(())) => on_battery(conn, bus::get(&manager.props, "OnBattery").unwrap_or_default()).await?,
                 Some(Err(e)) => return Err(e),
                 None => return Err(anyhow!("signal stream ended")),
             },

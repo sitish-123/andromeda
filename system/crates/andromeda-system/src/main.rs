@@ -13,6 +13,7 @@ mod manager;
 mod memory;
 mod network;
 mod nm;
+mod plugs;
 mod policy;
 mod polkit;
 mod power;
@@ -38,6 +39,7 @@ async fn main() -> Result<()> {
     // systemd sets STATE_DIRECTORY from StateDirectory=; tests point it at a temp dir.
     let state = std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-system".into(), PathBuf::from);
     let policy = policy::new(state.join("explain.jsonl"));
+    plugs::init(state.join("plugs.jsonl"), policy::now_ms() / 1000);
     let conn = zbus::connection::Builder::system()
         .serve_at(manager::PATH, zbus::fdo::ObjectManager)
         .serve_at(manager::PATH, manager::Manager::default())
@@ -51,9 +53,9 @@ async fn main() -> Result<()> {
         .name(NAME)
         .build()
         .await?;
-    tokio::spawn(knobs::release_on_exit(conn.clone(), policy));
+    tokio::spawn(knobs::release_on_exit(conn.clone(), policy.clone()));
     tokio::spawn(power::run(conn.clone()));
-    tokio::spawn(battery::run(conn.clone()));
+    tokio::spawn(battery::run(conn.clone(), policy));
     tokio::spawn(kbd_backlight::run(conn.clone()));
     tokio::spawn(power::sample_rapl(conn.clone()));
     tokio::spawn(memory::run(conn.clone()));

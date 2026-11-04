@@ -99,6 +99,8 @@
     <property name="Vpn" type="b" access="read" />
   </interface>
   <interface name="org.andromeda.System1.Power">
+    <property name="ChargeLimitSupported" type="b" access="read" />
+    <property name="LearnedUnplugMin" type="i" access="read" />
     <property name="OnBattery" type="b" access="read" />
     <property name="PackagePowerW" type="d" access="read" />
     <property name="PerformanceDegraded" type="s" access="read" />
