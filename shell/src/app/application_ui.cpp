@@ -87,8 +87,11 @@
 #include "shell/tray/tray_drawer_panel.h"
 #include "shell/wallpaper/panel/wallpaper_panel.h"
 #include "shell/wallpaper/wallpaper_paths.h"
+#include "system/app_identity.h"
 #include "system/brightness_poll_source.h"
 #include "system/brightness_service.h"
+#include "system/desktop_entry.h"
+#include "system/desktop_entry_launch.h"
 #include "system/distro_info.h"
 #include "system/easyeffects_service.h"
 #include "system/system_monitor_service.h"
@@ -111,14 +114,42 @@
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <memory>
 #include <malloc.h>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace {
+
+  // App ids of the windows open before the last compositor crash (written by the compositor, docs/resilience.md §5).
+  std::vector<std::string> crashSessionAppIds() {
+    const char* state = std::getenv("XDG_STATE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path path = state != nullptr && *state != '\0'
+        ? std::filesystem::path(state) / "andromeda/session-crash.json"
+        : std::filesystem::path(home != nullptr ? home : "") / ".local/state/andromeda/session-crash.json";
+    std::ifstream in(path);
+    const nlohmann::json session = nlohmann::json::parse(in, nullptr, false);
+    std::vector<std::string> ids;
+    if (session.is_discarded() || !session.contains("windows") || !session["windows"].is_array()) {
+      return ids;
+    }
+    for (const auto& window : session["windows"]) {
+      const std::string id = window.value("app_id", "");
+      if (!id.empty() && std::ranges::find(ids, id) == ids.end()) {
+        ids.push_back(id);
+      }
+    }
+    return ids;
+  }
+
   constexpr Logger kLog("app");
 
   [[nodiscard]] bool overviewTypeToLaunchEnabled(const ConfigService& configService) {
@@ -528,10 +559,41 @@ void Application::initInputDispatch() {
       m_lockScreen.lock();
     }
   });
-  m_wayland.setRestartedCallback([this] {
-    m_notificationManager.addInternal(
-        "Desktop", "The desktop restarted after a problem", "Apps that could not reconnect were closed."
-    );
+  // One notification per restart; "restore" relaunches every saved app that has no window when it is clicked, so
+  // apps that reconnected meanwhile (Qt) are not started twice.
+  auto restoreId = std::make_shared<std::uint32_t>(0);
+  m_notificationManager.addInternalActionCallback(
+      [this, restoreId](std::uint32_t id, const std::string& action, const std::string& token, const std::string&) {
+        if (id != *restoreId || action != "restore") {
+          return;
+        }
+        const std::vector<std::string> running = m_wayland.runningAppIds();
+        for (const std::string& appId : crashSessionAppIds()) {
+          if (std::ranges::find(running, appId) != running.end()) {
+            continue;
+          }
+          if (const auto entry = app_identity::findDesktopEntry(appId, desktopEntries()); entry.has_value()) {
+            (void)desktop_entry_launch::launchEntry(*entry, {.activationToken = token});
+          }
+        }
+      }
+  );
+  m_wayland.setRestartedCallback([this, restoreId] {
+    const std::vector<std::string> saved = crashSessionAppIds();
+    kLog.info("the compositor restarted after a crash; {} apps were open", saved.size());
+    NotificationRequest request;
+    request.appName = i18n::tr("notifications.internal.desktop");
+    request.summary = i18n::tr("notifications.internal.desktop-restarted");
+    request.body = saved.empty() ? i18n::tr("notifications.internal.desktop-restarted-none")
+                                 : i18n::tr("notifications.internal.desktop-restarted-body", "count",
+                                            std::to_string(saved.size()));
+    request.origin = NotificationOrigin::Internal;
+    request.timeout = 0; // stays until dismissed: the user may come back to it after the restart
+    request.persistInHistory = true;
+    if (!saved.empty()) {
+      request.actions = {"restore", i18n::tr("notifications.internal.desktop-restore")};
+    }
+    *restoreId = m_notificationManager.addOrReplace(std::move(request));
   });
   m_wayland.setLockKeysChangeCallback([this] {
     if (m_lockScreen.isActive()) {

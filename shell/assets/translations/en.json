@@ -1506,7 +1506,12 @@
       "wallpaper-palette-export": "Custom Palette",
       "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom.",
       "shell-restarted": "The desktop shell restarted",
-      "shell-restarted-body": "It stopped unexpectedly. Your windows were not affected."
+      "shell-restarted-body": "It stopped unexpectedly. Your windows were not affected.",
+      "desktop-restarted": "The desktop restarted after a problem",
+      "desktop-restarted-body": "{count} apps closed.",
+      "desktop-restarted-none": "Your apps kept their windows.",
+      "desktop-restore": "Restore apps",
+      "desktop": "Desktop"
     }
   },
   "osd": {
