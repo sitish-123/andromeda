@@ -114,4 +114,27 @@ python3 "$ROOT/system/tests/contract.py" "$OUT"/introspect*.xml >"$OUT/contract.
 CONTRACT=$ROOT/system/data/org.andromeda.System1.xml
 if [[ ${UPDATE_CONTRACT:-0} == 1 ]]; then cp "$OUT/contract.xml" "$CONTRACT"; fi
 diff -u "$CONTRACT" "$OUT/contract.xml" || fail "API differs from $CONTRACT"
+# The session part: the low battery rule holds power-saver through the system part, alerts once, and the alert's
+# Undo releases the hold.
+dbus-daemon --session --nofork --print-address=3 3>"$OUT/session-addr" & PIDS+=($!)
+until_has 50 unix: cat "$OUT/session-addr"
+SESSION_BUS=$(head -n1 "$OUT/session-addr")
+python3 "$ROOT/system/tests/mock_notifications.py" "$OUT/notes.log" "$SESSION_BUS" >"$OUT/notes.out" 2>&1 & PIDS+=($!)
+until_has 50 ready cat "$OUT/notes.out"
+DBUS_SESSION_BUS_ADDRESS=$SESSION_BUS XDG_STATE_HOME=$OUT ANDROMEDA_RULES_DIR=$ROOT/system/data/rules \
+  "$BIN" --session >"$OUT/session.log" 2>&1 & PIDS+=($!)
+S=(busctl --address="$SESSION_BUS")
+until_has 30 'aa{sv}' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
+  org.andromeda.System1.Explain List t 0
+"${B[@]}" call org.freedesktop.UPower /org/freedesktop/UPower dsk.test.Power SetBattery du 15 2
+"${B[@]}" call org.freedesktop.UPower /org/freedesktop/UPower dsk.test.Power SetOnBattery b true
+until_has 20 's "power-saver"' get /org/andromeda/System1/Power Power Profile
+until_has 10 'notify 1 Low Power Mode is on undo,Undo power.low_power_plan' cat "$OUT/notes.log"
+until_has 10 '"started"' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
+  org.andromeda.System1.Explain List t 0
+"${S[@]}" call org.freedesktop.Notifications /org/freedesktop/Notifications dsk.test.Notifications Invoke us 1 undo
+until_has 10 's "balanced"' get /org/andromeda/System1/Power Power Profile
+until_has 10 '"undone"' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
+  org.andromeda.System1.Explain List t 0
+grep -c '^notify' "$OUT/notes.log" | grep -qx 1 || fail "the rule alerted more than once in one episode"
 echo PASS

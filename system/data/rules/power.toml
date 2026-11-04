@@ -1,0 +1,13 @@
+# Built-in power rules (docs/system-health.md §4.3). Users change only `enabled` and the params.
+# The other low_power_plan holds (background tier, refresh cap, Wi-Fi power save, paused units, dim) join as their
+# knobs are built.
+[[rule]]
+id = "power.low_power_plan"
+scope = "session"
+priority = "automatic"
+params = { low_pct = 20, margin_pct = 5 }
+when = "power.on_battery and (battery.percent <= low_pct or battery.warning >= 'low')"
+clear = "not power.on_battery or battery.percent >= low_pct + margin_pct"
+dwell = "2m"
+holds = [{ knob = "power.profile", value = "power-saver" }]
+alert = { urgency = "normal", action = "undo", text = "low_power_plan" }

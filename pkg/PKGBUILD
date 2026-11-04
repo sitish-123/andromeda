@@ -66,6 +66,12 @@ package_andromeda-system-git() {
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.system.policy"
   install -Dm644 desktop/system/data/org.andromeda.System1.xml \
     "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.System1.xml"
+  install -Dm644 desktop/system/data/andromeda-system-session.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-system-session.service"
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../andromeda-system-session.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-system-session.service"
+  install -Dm644 -t "$pkgdir/usr/share/andromeda/system/rules" desktop/system/data/rules/*.toml
 }
 
 package_andromeda() {

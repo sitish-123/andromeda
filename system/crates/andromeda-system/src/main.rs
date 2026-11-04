@@ -3,9 +3,7 @@
 
 mod battery;
 mod bus;
-#[allow(dead_code)] // rule loading and stepping come in TASK-system.md 2e-2f
 mod engine;
-#[allow(dead_code)] // rule loading and stepping come in TASK-system.md 2e-2f
 mod expr;
 mod explain;
 mod holds;
@@ -17,8 +15,9 @@ mod network;
 mod policy;
 mod polkit;
 mod power;
-#[allow(dead_code)] // wired to the D-Bus objects in TASK-system.md 2c-2e
 mod rules;
+mod session;
+mod state;
 mod storage;
 mod thermal;
 
@@ -32,6 +31,9 @@ pub const NAME: &str = "org.andromeda.System1";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    if std::env::args().nth(1).as_deref() == Some("--session") {
+        return session::run().await;
+    }
     // systemd sets STATE_DIRECTORY from StateDirectory=; tests point it at a temp dir.
     let state = std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-system".into(), PathBuf::from);
     let policy = policy::new(state.join("explain.jsonl"));

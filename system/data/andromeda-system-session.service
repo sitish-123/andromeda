@@ -1,0 +1,11 @@
+[Unit]
+Description=Andromeda system health, session part (user rules, alerts, explain log)
+PartOf=andromeda-session.target
+After=andromeda-session.target
+
+[Service]
+Type=notify
+Slice=background.slice
+ExecStart=/usr/lib/andromeda/andromeda-system --session
+Restart=on-failure
+RestartSec=2
