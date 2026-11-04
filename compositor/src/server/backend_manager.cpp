@@ -592,6 +592,24 @@ namespace andromeda {
       return true;
     }
 
+    // Connectors are cardN-<name> entries in the card's sysfs directory; when it cannot be read, assume a display.
+    [[nodiscard]] bool hasDrmConnectors(dev_t device) const {
+      UdevDevice card(udev_device_new_from_devnum(m_session->udev, 'c', device));
+      const char* syspath = card ? udev_device_get_syspath(card.get()) : nullptr;
+      const char* sysname = card ? udev_device_get_sysname(card.get()) : nullptr;
+      if (syspath == nullptr || sysname == nullptr) {
+        return true;
+      }
+      const std::string prefix = std::string(sysname) + "-";
+      std::error_code error;
+      for (const auto& entry : std::filesystem::directory_iterator(syspath, error)) {
+        if (entry.path().filename().string().starts_with(prefix)) {
+          return true;
+        }
+      }
+      return error.value() != 0;
+    }
+
     void openCandidate(const DrmDeviceIdentity& candidate) {
       struct stat preOpenStat{};
       if (stat(candidate.node.c_str(), &preOpenStat) != 0 || !S_ISCHR(preOpenStat.st_mode)) {
@@ -616,6 +634,11 @@ namespace andromeda {
         return;
       }
 
+      // A render-only GPU (a laptop's discrete GPU) has no connectors; opening it would wake it from runtime suspend.
+      if (!hasDrmConnectors(identity->device)) {
+        kLog.info("skipping {}: no display connectors", identity->node);
+        return;
+      }
       wlr_device* device = wlr_session_open_file(m_session, identity->node.c_str());
       if (device == nullptr) {
         kLog.warn("failed to open allowed DRM card {}", identity->node);
