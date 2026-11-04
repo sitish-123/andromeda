@@ -20,6 +20,8 @@
 #include "workspace/workspace.h"
 
 #include <algorithm>
+#include <cctype>
+#include <functional>
 #include <array>
 #include <cerrno>
 #include <csignal>
@@ -522,6 +524,42 @@ namespace andromeda {
     bool actionSpawn(Server& server, const Keybind& bind, std::string* /*error*/) {
       const auto* arg = payloadIf<SpawnArg>(bind);
       server.spawn(arg != nullptr ? arg->command.c_str() : "", nullptr, true);
+      return true;
+    }
+
+    // "<app-id> <cmd>": the app's most recently focused window takes focus; with none, the command runs as spawn does.
+    // When that window already has focus, the next most recent one of the app takes it.
+    bool actionFocusOrSpawn(Server& server, const Keybind& bind, std::string* error) {
+      const auto* arg = payloadIf<SpawnArg>(bind);
+      const std::string_view value = arg != nullptr ? std::string_view(arg->command) : std::string_view{};
+      const size_t split = value.find(' ');
+      const std::string_view appId = value.substr(0, split);
+      const std::string_view command = split == std::string_view::npos ? std::string_view{} : value.substr(split + 1);
+      if (appId.empty() || command.find_first_not_of(' ') == std::string_view::npos) {
+        if (error != nullptr) {
+          *error = "focus-or-spawn requires an app id and a command";
+        }
+        return false;
+      }
+      std::vector<View*> matches;
+      for (const auto& view : server.views()) {
+        const char* id = view->appId();
+        if (view->mapped() && id != nullptr && std::ranges::equal(std::string_view(id), appId, [](char a, char b) {
+              return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+            })) {
+          matches.push_back(view.get());
+        }
+      }
+      if (matches.empty()) {
+        server.spawn(std::string(command).c_str(), nullptr, true);
+        return true;
+      }
+      std::ranges::sort(matches, std::greater{}, &View::focusSerial);
+      View* target = matches.front();
+      if (target == seatFocusedWindow(server) && matches.size() > 1) {
+        target = matches[1];
+      }
+      server.focusView(target, FocusReason::ForeignActivation);
       return true;
     }
 
@@ -2400,6 +2438,7 @@ namespace andromeda {
         &actionZoom<1>,
         &actionZoom<-1>,
         &actionZoom<0>,
+        &actionFocusOrSpawn,
     };
 
     consteval bool everyActionHasHandler() {

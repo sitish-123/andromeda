@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <cstdint>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -206,6 +207,8 @@ namespace andromeda {
     // Seat-global activation, tracked independently of the per-workspace focus
     // state the IPC `focused` field reports.
     [[nodiscard]] bool activated() const { return m_activated; }
+    // Grows each time the view takes seat focus; the largest value is the most recently focused view.
+    [[nodiscard]] std::uint64_t focusSerial() const { return m_focusSerial; }
     // Window-geometry box the client has pixels for: its committed geometry, widened towards the size this view was
     // configured to when the surface already holds those pixels. A tiled client that acks a configure and redraws
     // without updating set_window_geometry would otherwise be presented, and cropped, at its old size.
@@ -1063,6 +1066,7 @@ namespace andromeda {
     bool m_inScratchpad = false;
     bool m_urgent = false;
     bool m_activated = false;
+    std::uint64_t m_focusSerial = 0;
     // nullopt means no pre-map request, false means untrusted, true means trusted. A trusted request wins if both
     // arrive before map. Window-rule policy is deliberately resolved only after the window maps.
     std::optional<bool> m_deferredActivationTrusted;

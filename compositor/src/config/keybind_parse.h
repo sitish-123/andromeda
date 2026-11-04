@@ -214,6 +214,7 @@ namespace andromeda {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    FocusOrSpawn,
     Count,
   };
 

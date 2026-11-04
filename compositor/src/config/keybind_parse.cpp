@@ -329,6 +329,8 @@ namespace andromeda {
          KeybindAction::EffectWindowSet, ActionArgKind::WindowEffectSet},
         {"effect-window-toggle", "[<window-id>]", "Toggle window-slot suppression", KeybindAction::EffectWindowToggle,
          ActionArgKind::OptionalWindowId},
+        {"focus-or-spawn", "<cmd>", "Focus the app's latest window, or run the command",
+         KeybindAction::FocusOrSpawn, ActionArgKind::Command},
         {"fps-overlay-toggle", "", "Show or hide each output's refresh rate and presented frames",
          KeybindAction::FpsOverlayToggle},
         {"keyboard-layout-next", "", "Switch one keyboard to its next configured layout",
