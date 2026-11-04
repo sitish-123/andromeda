@@ -41,6 +41,7 @@ namespace andromeda::qos {
       std::vector<int> allowedCpus;
       std::uint64_t timerSlackNs = 0;
       std::uint64_t memoryLow = 0;
+      std::uint64_t memoryMin = 0;
       bool frozenWanted = false;
       std::optional<bool> frozenDone = false; // the state systemd last confirmed; empty after a failed call
       bool freezerBusy = false;

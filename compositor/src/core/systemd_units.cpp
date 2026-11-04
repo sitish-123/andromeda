@@ -195,6 +195,9 @@ namespace andromeda {
     if (built && properties.ioWeight) {
       built = sd_bus_message_append(message, "(sv)", "IOWeight", "t", *properties.ioWeight) >= 0;
     }
+    if (built && properties.memoryMin) {
+      built = sd_bus_message_append(message, "(sv)", "MemoryMin", "t", *properties.memoryMin) >= 0;
+    }
     if (built && properties.memoryLow) {
       built = sd_bus_message_append(message, "(sv)", "MemoryLow", "t", *properties.memoryLow) >= 0;
     }

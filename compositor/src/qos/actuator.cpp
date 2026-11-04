@@ -35,7 +35,7 @@ namespace andromeda::qos {
         writeThaw(applied.cgroupDir);
         m_units.setFrozen(unit, false);
       }
-      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0});
+      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0, .memoryMin = 0});
       if (applied.timerSlackNs != 0) {
         writeTimerSlack(applied.cgroupDir, 0);
       }
@@ -59,6 +59,9 @@ namespace andromeda::qos {
     if (fresh || applied.allowedCpus != settings.allowedCpus) {
       properties.allowedCpus = settings.allowedCpus;
     }
+    if (fresh || applied.memoryMin != settings.memoryMin) {
+      properties.memoryMin = settings.memoryMin;
+    }
     if (fresh || applied.memoryLow != settings.memoryLow) {
       properties.memoryLow = settings.memoryLow;
     }
@@ -66,6 +69,7 @@ namespace andromeda::qos {
     applied.ioWeight = settings.ioWeight;
     applied.allowedCpus = settings.allowedCpus;
     applied.memoryLow = settings.memoryLow;
+    applied.memoryMin = settings.memoryMin;
     if (fresh || applied.timerSlackNs != settings.timerSlackNs) {
       applied.timerSlackNs = settings.timerSlackNs;
       writeTimerSlack(cgroupDir, settings.timerSlackNs);
@@ -77,7 +81,7 @@ namespace andromeda::qos {
     if (!frozen) {
       syncFreezer(unit);
     }
-    if (properties.cpuWeight || properties.ioWeight || properties.allowedCpus || properties.memoryLow) {
+    if (properties.cpuWeight || properties.ioWeight || properties.allowedCpus || properties.memoryLow || properties.memoryMin) {
       m_units.setProperties(unit, properties);
     }
     if (frozen) {
@@ -160,7 +164,7 @@ namespace andromeda::qos {
       if (skip(unit)) {
         return;
       }
-      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0});
+      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0, .memoryMin = 0});
       m_units.setFrozen(unit, false);
     });
   }

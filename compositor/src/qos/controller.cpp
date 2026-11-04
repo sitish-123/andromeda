@@ -99,7 +99,7 @@ namespace andromeda::qos {
     // shares the user manager.
     m_pinsBackground = ownsSession && !m_efficiencyCpus.empty();
     if (m_pinsBackground) {
-      units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = m_efficiencyCpus, .memoryLow = std::nullopt});
+      units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = m_efficiencyCpus, .memoryLow = std::nullopt, .memoryMin = std::nullopt});
     }
     registry().changed = [this] { schedule(); };
   }
@@ -107,7 +107,7 @@ namespace andromeda::qos {
   Controller::~Controller() {
     registry().changed = nullptr;
     if (m_pinsBackground) {
-      m_units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = std::vector<int>{}, .memoryLow = std::nullopt});
+      m_units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = std::vector<int>{}, .memoryLow = std::nullopt, .memoryMin = std::nullopt});
     }
     if (m_idle != nullptr) {
       wl_event_source_remove(m_idle);
@@ -319,7 +319,11 @@ namespace andromeda::qos {
         }
         discharging = *battery;
       }
-      const Decision decision = registry().holds.apply(unit, scope.policy.update(inputs, discharging, now), exempt || inputs.focused);
+      // Optimize off: a Normal app keeps the visible tier; its own rule and system-health holds still apply.
+      const Decision policy = snapshot.optimizeBackgroundApps || inputs.rule != Rule::Normal
+          ? scope.policy.update(inputs, discharging, now)
+          : Decision{};
+      const Decision decision = registry().holds.apply(unit, policy, exempt || inputs.focused);
       registry().apps[unit] = AppState{
           .dir = scope.dir, .visible = inputs.visible, .focused = inputs.focused, .exempt = exempt,
           .tier = decision.tier, .frozen = decision.frozen,
