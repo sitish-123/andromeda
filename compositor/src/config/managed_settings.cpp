@@ -414,6 +414,7 @@ namespace andromeda {
         Spec{"overview.shortcuts", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.shortcuts); }},
         Spec{"general.focus_on_activate", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.focusOnActivate); }},
         Spec{"general.freeze_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeBackgroundApps); }},
+        Spec{"general.optimize_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.optimizeBackgroundApps); }},
         Spec{"hot_corners.top_left.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[0].enabled); }},
         Spec{"hot_corners.top_left.delay_ms", Kind::Int, 0, 10000, {}, [](const Config& c) { return text(c.hotCorners.corners[0].delayMs); }},
         Spec{"hot_corners.top_left.action", Kind::Action, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[0].action); }},
@@ -669,6 +670,74 @@ namespace andromeda {
         root.erase("keybinds");
       }
     });
+  }
+
+  namespace {
+    std::string appIdPattern(std::string_view appId) {
+      std::string out = "^";
+      for (const char c : appId) {
+        if (std::string_view(".^$|()[]{}*+?\\").contains(c)) {
+          out += '\\';
+        }
+        out += c;
+      }
+      return out + "$";
+    }
+
+    // The app id of a rule saveManagedAppQos wrote; nullopt for any other rule, which it never touches.
+    std::optional<std::string> appQosRuleId(const toml::table& rule) {
+      const toml::table* match = rule["match"].as_table();
+      const std::optional<std::string> pattern = match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
+      if (rule.size() != 2 || !rule.contains("qos") || match->size() != 1 || !pattern || pattern->size() < 2
+          || !pattern->starts_with('^') || !pattern->ends_with('$')) {
+        return std::nullopt;
+      }
+      std::string id;
+      for (std::size_t i = 1; i + 1 < pattern->size(); ++i) {
+        if ((*pattern)[i] == '\\' && i + 2 < pattern->size()) {
+          ++i;
+        }
+        id += (*pattern)[i];
+      }
+      return appIdPattern(id) == *pattern ? std::optional(id) : std::nullopt;
+    }
+  } // namespace
+
+  bool saveManagedAppQos(const std::filesystem::path& file, std::string_view appId, std::string_view qos) {
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+      if (root["window_rule"].as_array() == nullptr) {
+        root.insert_or_assign("window_rule", toml::array{});
+      }
+      toml::array& rules = *root["window_rule"].as_array();
+      for (auto it = rules.begin(); it != rules.end();) {
+        const toml::table* rule = it->as_table();
+        it = rule != nullptr && appQosRuleId(*rule) == appId ? rules.erase(it) : it + 1;
+      }
+      if (qos != "normal") {
+        rules.push_back(toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}});
+      }
+      if (rules.empty()) {
+        root.erase("window_rule");
+      }
+    });
+  }
+
+  std::vector<std::pair<std::string, std::string>> documentAppQos(std::string_view document) {
+    std::vector<std::pair<std::string, std::string>> out;
+    try {
+      const toml::table table = toml::parse(document);
+      if (const toml::array* rules = table["window_rule"].as_array()) {
+        for (const toml::node& node : *rules) {
+          const toml::table* rule = node.as_table();
+          if (const auto id = rule != nullptr ? appQosRuleId(*rule) : std::nullopt) {
+            out.emplace_back(*id, (*rule)["qos"].value_or(std::string()));
+          }
+        }
+      }
+    } catch (const toml::parse_error&) {
+      return {};
+    }
+    return out;
   }
 
   std::vector<std::pair<std::string, std::string>> documentKeybinds(std::string_view document) {

@@ -263,7 +263,7 @@ void SettingsWindow::leaveDetail() {
 }
 
 void SettingsWindow::addPowerContent(float scale) {
-  if (m_selectedSection != "power" || !m_detail.empty()) {
+  if (m_selectedSection != "power" || (!m_detail.empty() && !m_detail.starts_with("app-rules:"))) {
     return;
   }
   settings::addSettingsPower(
@@ -279,6 +279,8 @@ void SettingsWindow::addPowerContent(float scale) {
           .screenTime = m_screenTime,
           .openActivity = m_openActivityApp,
           .rebuild = [this] { onPowerChanged(); },
+          .detail = m_detail,
+          .openDetail = [this](std::string detail) { openDetail(std::move(detail)); },
       }
   );
 }

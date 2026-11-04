@@ -2103,6 +2103,14 @@
       "cycle-count": "Cycle count",
       "limited-by": "Limited by {rule}",
       "low-power-below": "Low power on battery below",
+      "app-rules": "App Rules",
+      "app-rules-none": "None",
+      "app-rules-custom": "{count} custom",
+      "app-rules-custom-plural": "{count} custom",
+      "app-rules-empty": "No apps yet",
+      "app-rule-normal": "Normal",
+      "app-rule-never_throttle": "Never throttle",
+      "app-rule-freeze_when_hidden": "Freeze when hidden",
       "low-power-off": "Off",
       "what-happened": "What the desktop did",
       "rule-low-power": "Low Power Mode",
@@ -2116,6 +2124,7 @@
       "rule-thermal-hot": "Overheating alert",
       "rule-thermal-fps": "Slower hidden animations when hot",
       "rule-captive-portal": "Open network sign-in pages",
+      "rule-drive-failing": "Failing disk alert",
       "sot": "Screen on time",
       "sot-since-unplugged": "Since unplugged",
       "sot-since-full": "Since full charge",
@@ -5068,6 +5077,10 @@
         "general-focus-on-activate": {
           "label": "Focus on Activation",
           "description": "Focus and reveal a window when an app asks for attention"
+        },
+        "general-optimize-background-apps": {
+          "label": "Optimize Background Apps",
+          "description": "Hidden apps get lower CPU priority and efficiency cores"
         },
         "general-freeze-background-apps": {
           "label": "Freeze Idle Background Services",

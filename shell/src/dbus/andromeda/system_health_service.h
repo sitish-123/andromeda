@@ -62,18 +62,26 @@ public:
   void setKnobCallback(std::function<void()> callback) { m_knobCallback = std::move(callback); }
 
   void setRule(const std::string& id, bool enabled, const std::map<std::string, double>& params);
+
+  // Per-app CPU rules the user set in Settings (org.andromeda.Compositor1.Apps): app id -> never_throttle or
+  // freeze_when_hidden; an app with no entry is normal.
+  [[nodiscard]] const std::map<std::string, std::string>& appRules() const noexcept { return m_appRules; }
+  void setAppRule(const std::string& appId, const std::string& rule);
   void undo(const std::string& entryId);
 
 private:
   void loadRules();
   void loadEntries();
   void loadKnobs();
+  void loadAppRules();
   void notify();
 
   SessionBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_explain;
   std::unique_ptr<sdbus::IProxy> m_rulesProxy;
   std::unique_ptr<sdbus::IProxy> m_knobs;
+  std::unique_ptr<sdbus::IProxy> m_apps;
+  std::map<std::string, std::string> m_appRules;
   std::map<std::string, double> m_knobValues;
   std::function<void()> m_knobCallback;
   std::vector<SystemRule> m_rules;

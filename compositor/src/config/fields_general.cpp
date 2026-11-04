@@ -338,6 +338,7 @@ namespace andromeda {
           boolean("attach_modal_dialogs", &G::attachModalDialogs),
           boolean("honor_restored_maximize", &G::honorRestoredMaximize),
           boolean("freeze_background_apps", &G::freezeBackgroundApps),
+          boolean("optimize_background_apps", &G::optimizeBackgroundApps),
           registry::strings("autostart", &G::autostart),
       };
       return fields;

@@ -1571,14 +1571,17 @@ namespace andromeda {
           }
         }
         snapshot.freezeBackgroundApps = config().general.freezeBackgroundApps;
+        snapshot.optimizeBackgroundApps = config().general.optimizeBackgroundApps;
         return snapshot;
+      });
+      m_appsBus = std::make_unique<AppsBus>(wl_display_get_event_loop(m_display), [this] {
+        handleConfigReload(reloadConfig());
       });
       if (m_applicationScopesRequired) {
         // The reply comes after autostart spawns: their launch weight stays.
         m_qos->resetAppUnits([this](const std::string& unit) {
           return m_cpuBoost != nullptr && m_cpuBoost->launching(unit);
         });
-      m_appsBus = std::make_unique<AppsBus>(wl_display_get_event_loop(m_display));
       }
     }
     m_cpuBoost = std::make_unique<CpuBoost>(

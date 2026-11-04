@@ -42,6 +42,7 @@ namespace andromeda::qos {
     std::vector<pid_t> idleInhibitorPids;
     std::vector<Activity> activity; // dsk_shell_v1 app_activity
     bool freezeBackgroundApps = false;
+    bool optimizeBackgroundApps = true;
   };
 
   // Owns the tier of every app unit that has mapped a window (docs/qos.md §3): its CPU and I/O weights, its CPUs and

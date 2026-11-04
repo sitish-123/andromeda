@@ -19,6 +19,9 @@ namespace {
   constexpr auto kKnobsInterface = "org.andromeda.System1.Knobs";
   constexpr auto kExplainInterface = "org.andromeda.System1.Explain";
   constexpr auto kRulesInterface = "org.andromeda.System1.Rules";
+  const sdbus::ServiceName kCompositorName{"org.andromeda.Compositor1"};
+  const sdbus::ObjectPath kAppsPath{"/org/andromeda/Compositor1/Apps"};
+  constexpr auto kAppsInterface = "org.andromeda.Compositor1.Apps";
 
   using VariantMap = std::map<std::string, sdbus::Variant>;
   using Pairs = std::vector<sdbus::Struct<std::string, std::string>>;
@@ -57,6 +60,7 @@ SystemHealthService::SystemHealthService(SessionBus& bus) : m_bus(bus) {
   m_explain = sdbus::createProxy(m_bus.connection(), kName, kExplainPath);
   m_rulesProxy = sdbus::createProxy(m_bus.connection(), kName, kRulesPath);
   m_knobs = sdbus::createProxy(m_bus.connection(), kName, kKnobsPath);
+  m_apps = sdbus::createProxy(m_bus.connection(), kCompositorName, kAppsPath);
   m_explain->uponSignal("Entry").onInterface(kExplainInterface).call([this](const VariantMap& /*entry*/) {
     loadEntries();
   });
@@ -76,6 +80,47 @@ SystemHealthService::~SystemHealthService() = default;
 void SystemHealthService::refresh() {
   loadRules();
   loadEntries();
+  loadAppRules();
+}
+
+void SystemHealthService::loadAppRules() {
+  const std::weak_ptr<int> alive = m_lifetimeToken;
+  try {
+    m_apps->callMethodAsync("AppRules").onInterface(kAppsInterface).uponReplyInvoke(
+        [this, alive](const std::optional<sdbus::Error>& error, const std::vector<sdbus::Struct<std::string, std::string>>& rules) {
+          if (alive.expired() || error.has_value()) {
+            return;
+          }
+          m_appRules.clear();
+          for (const auto& rule : rules) {
+            m_appRules[rule.get<0>()] = rule.get<1>();
+          }
+          notify();
+        }
+    );
+  } catch (const sdbus::Error& e) {
+    kLog.warn("app rules: {}", e.what());
+  }
+}
+
+void SystemHealthService::setAppRule(const std::string& appId, const std::string& rule) {
+  const std::weak_ptr<int> alive = m_lifetimeToken;
+  try {
+    m_apps->callMethodAsync("SetAppRule")
+        .onInterface(kAppsInterface)
+        .withArguments(appId, rule)
+        .uponReplyInvoke([this, alive, appId](std::optional<sdbus::Error> error) {
+          if (alive.expired()) {
+            return;
+          }
+          if (error.has_value()) {
+            kLog.warn("app rule {}: {}", appId, error->what());
+          }
+          loadAppRules();
+        });
+  } catch (const sdbus::Error& e) {
+    kLog.warn("app rule {}: {}", appId, e.what());
+  }
 }
 
 void SystemHealthService::notify() {

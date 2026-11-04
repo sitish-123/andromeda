@@ -29,6 +29,9 @@ namespace settings {
     std::function<void(const std::string&)> openActivity;
     // Rebuilds the page (battery history arrives after the first build).
     std::function<void()> rebuild;
+    // The open detail ("app-rules:<title>": the App Rules list) and how to open one.
+    std::string detail;
+    std::function<void(std::string)> openDetail;
   };
 
   // Battery and Power page head (direction A, .agent/DESIGN.md): battery hero, Power Mode, Battery card, Lid & Power Button.

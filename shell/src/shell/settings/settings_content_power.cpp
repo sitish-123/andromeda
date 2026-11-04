@@ -73,6 +73,9 @@ namespace settings {
       if (id == "storage.low") {
         return i18n::tr("settings.power.rule-storage");
       }
+      if (id == "storage.drive_failing") {
+        return i18n::tr("settings.power.rule-drive-failing");
+      }
       if (id == "network.captive_portal") {
         return i18n::tr("settings.power.rule-captive-portal");
       }
@@ -108,8 +111,86 @@ namespace settings {
       return std::min(bytes, text.size());
     }
 
-    // Energy saving card (mockup A): power mode, the rule that limits it, and the low power threshold.
-    void addEnergySaving(Flex& content, PowerProfilesService& profiles, SystemHealthService* health, float scale) {
+    // Energy saving card (mockup A): power mode, the rule that limits it, and the low power threshold. Returns the card.
+    // "App rules" row: how many apps have their own CPU rule; opens the App Rules list.
+    void addAppRulesRow(Flex& card, SystemHealthService& health, const SettingsPowerContext& ctx) {
+      const float scale = ctx.scale;
+      const std::size_t custom = health.appRules().size();
+      auto r = row(scale);
+      r->addChild(title(i18n::tr("settings.power.app-rules"), scale));
+      r->addChild(ui::label({
+          .text = custom == 0 ? i18n::tr("settings.power.app-rules-none")
+                              : i18n::trp("settings.power.app-rules-custom", static_cast<long>(custom)),
+          .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label2),
+      }));
+      if (ctx.openDetail) {
+        r->addChild(iconButton("chevron-right", i18n::tr("settings.power.app-rules"), scale, [open = ctx.openDetail] {
+          open("app-rules:" + i18n::tr("settings.power.app-rules"));
+        }));
+      }
+      card.addChild(std::move(r));
+    }
+
+    // App Rules detail (mockup A note: Normal, Never throttle, Freeze when hidden): apps with a rule first, then the
+    // other apps Activity knows, each with its rule.
+    void addAppRules(Flex& content, SystemHealthService& health, const SettingsPowerContext& ctx) {
+      const float scale = ctx.scale;
+      static constexpr std::array<std::string_view, 3> kRules = {"normal", "never_throttle", "freeze_when_hidden"};
+      std::vector<std::pair<std::string, std::string>> apps; // app id, name
+      for (const auto& [appId, rule] : health.appRules()) {
+        apps.emplace_back(appId, appId);
+      }
+      if (ctx.activity != nullptr) {
+        for (const auto& activityRow : ctx.activity->activity().rows()) {
+          if (activityRow.appId.empty() || activityRow.systemManager) {
+            continue;
+          }
+          const std::string name = identityFor(activityRow).name;
+          const auto known = std::ranges::find(apps, activityRow.appId, &std::pair<std::string, std::string>::first);
+          if (known != apps.end()) {
+            known->second = name;
+          } else if (activityRow.hasWindow) {
+            apps.emplace_back(activityRow.appId, name);
+          }
+        }
+      }
+      Flex* card = addCard(content, scale);
+      if (apps.empty()) {
+        auto r = row(scale);
+        r->addChild(title(i18n::tr("settings.power.app-rules-empty"), scale));
+        card->addChild(std::move(r));
+        return;
+      }
+      std::vector<std::string> labels;
+      for (const std::string_view rule : kRules) {
+        labels.push_back(i18n::tr("settings.power.app-rule-" + std::string(rule)));
+      }
+      for (const auto& [appId, name] : apps) {
+        const auto set = health.appRules().find(appId);
+        const std::size_t current = set == health.appRules().end()
+            ? 0
+            : static_cast<std::size_t>(std::ranges::find(kRules, set->second) - kRules.begin()) % kRules.size();
+        auto r = row(scale);
+        r->addChild(twoLines(name, appId, scale));
+        r->addChild(ui::select({
+            .options = labels,
+            .selectedIndex = current,
+            .fontSize = Style::fontSizeBody * scale,
+            .controlHeight = Style::controlHeight * scale,
+            .glyphSize = Style::fontSizeBody * scale,
+            .width = 176.0F * scale,
+            .onSelectionChanged =
+                [&health, appId, current](std::size_t index, std::string_view /*label*/) {
+                  if (index != current && index < kRules.size()) {
+                    health.setAppRule(appId, std::string(kRules[index]));
+                  }
+                },
+        }));
+        card->addChild(std::move(r));
+      }
+    }
+
+    Flex* addEnergySaving(Flex& content, PowerProfilesService& profiles, SystemHealthService* health, float scale) {
       std::vector<std::string> shown;
       for (const std::string_view id : powerProfileOrder()) {
         if (std::ranges::contains(profiles.profiles(), id)) {
@@ -117,7 +198,7 @@ namespace settings {
         }
       }
       if (shown.empty()) {
-        return;
+        return nullptr;
       }
       std::vector<ui::SegmentedOption> options;
       std::size_t selected = 0;
@@ -148,7 +229,7 @@ namespace settings {
 
       const SystemRule* rule = health != nullptr ? health->rule(kLowPowerRule) : nullptr;
       if (rule == nullptr || !rule->error.empty()) {
-        return;
+        return card;
       }
       static constexpr int kThresholds[] = {10, 15, 20, 25, 30};
       std::vector<std::string> labels{i18n::tr("settings.power.low-power-off")};
@@ -182,6 +263,7 @@ namespace settings {
               },
       }));
       card->addChild(std::move(t));
+      return card;
     }
 
     std::string entryTime(std::uint64_t usec) {
@@ -1298,6 +1380,12 @@ namespace settings {
 
   void addSettingsPower(Flex& content, const SettingsPowerContext& ctx) {
     const float scale = ctx.scale;
+    if (ctx.detail.starts_with("app-rules:")) {
+      if (ctx.health != nullptr) {
+        addAppRules(content, *ctx.health, ctx);
+      }
+      return;
+    }
     const UPowerDeviceInfo* battery = ctx.upower != nullptr ? ctx.upower->defaultSystemBattery() : nullptr;
     if (battery != nullptr && battery->isPresent) {
       const UPowerState& state = battery->state;
@@ -1337,7 +1425,10 @@ namespace settings {
     }
     if (ctx.profiles != nullptr && ctx.profiles->hasStateSnapshot() && !ctx.profiles->profiles().empty()) {
       addHeader(content, i18n::tr("settings.power.energy-saving"), nullptr, scale);
-      addEnergySaving(content, *ctx.profiles, ctx.health, scale);
+      Flex* card = addEnergySaving(content, *ctx.profiles, ctx.health, scale);
+      if (card != nullptr && ctx.health != nullptr) {
+        addAppRulesRow(*card, *ctx.health, ctx);
+      }
     }
     if (ctx.health != nullptr) {
       addWhatHappened(content, *ctx.health, ctx.activity, scale);

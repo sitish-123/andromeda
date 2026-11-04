@@ -1081,6 +1081,9 @@ namespace andromeda {
       bool honorRestoredMaximize = false;
       // Let app units with no mapped window freeze when hidden long on battery (docs/qos.md §3, T3).
       bool freezeBackgroundApps = false;
+      // Hidden apps drop to lower CPU tiers (docs/qos.md §3); off keeps every app at the visible tier unless its own
+      // qos rule or a system-health hold says otherwise.
+      bool optimizeBackgroundApps = true;
       bool operator==(const General&) const = default;
     } general;
 

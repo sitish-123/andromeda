@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
@@ -19,7 +20,8 @@ namespace andromeda {
   // called List() in the last 2 minutes.
   class AppsBus {
   public:
-    explicit AppsBus(wl_event_loop* loop);
+    // `reloadConfig` runs after SetAppRule rewrote the settings file.
+    AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig);
     ~AppsBus();
     AppsBus(const AppsBus&) = delete;
     AppsBus& operator=(const AppsBus&) = delete;
@@ -37,6 +39,8 @@ namespace andromeda {
     static int onSample(void* data);
     static int onHoldTier(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onHoldFreeze(sd_bus_message* message, void* data, sd_bus_error* error);
+    static int onSetAppRule(sd_bus_message* message, void* data, sd_bus_error* error);
+    static int onAppRules(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onSetHiddenFpsCap(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onRelease(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onList(sd_bus_message* message, void* data, sd_bus_error* error);
@@ -50,6 +54,7 @@ namespace andromeda {
     int appendApps(sd_bus_message* message);
     void changed();
 
+    std::function<void()> m_reloadConfig;
     sd_bus* m_bus = nullptr;
     sd_bus_slot* m_object = nullptr;
     sd_bus_slot* m_ownerMatch = nullptr;

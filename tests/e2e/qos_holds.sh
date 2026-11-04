@@ -123,4 +123,11 @@ sleep 0.5
 free=$(ten_frames)
 ((free < 800)) || fail "after the capper left, ten hidden frames took ${free} ms, want < 800"
 echo "fps cap: ten hidden frames ${capped} ms at 5 Hz, ${free} ms after the owner left" | tee -a "$OUT/result.txt"
+# Settings > Battery app rules: SetAppRule writes a window rule to the settings file, AppRules lists it, normal removes it.
+busctl --user call "${APPS[@]}" SetAppRule ss org.example.Tool never_throttle > /dev/null
+[[ $(busctl --user call "${APPS[@]}" AppRules) == *'"org.example.Tool" "never_throttle"'* ]] || fail "AppRules: $(busctl --user call "${APPS[@]}" AppRules)"
+grep -q 'never_throttle' "$RUNTIME/settings.toml" || fail "settings.toml has no app rule: $(cat "$RUNTIME/settings.toml" 2>&1)"
+busctl --user call "${APPS[@]}" SetAppRule ss org.example.Tool normal > /dev/null
+[[ $(busctl --user call "${APPS[@]}" AppRules) == "a(ss) 0" ]] || fail "normal did not remove the rule"
+echo "app rules: set, listed, removed" | tee -a "$OUT/result.txt"
 echo "PASS: $OUT/result.txt"

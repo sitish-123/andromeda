@@ -319,7 +319,11 @@ namespace andromeda::qos {
         }
         discharging = *battery;
       }
-      const Decision decision = registry().holds.apply(unit, scope.policy.update(inputs, discharging, now), exempt || inputs.focused);
+      // Optimize off: a Normal app keeps the visible tier; its own rule and system-health holds still apply.
+      const Decision policy = snapshot.optimizeBackgroundApps || inputs.rule != Rule::Normal
+          ? scope.policy.update(inputs, discharging, now)
+          : Decision{};
+      const Decision decision = registry().holds.apply(unit, policy, exempt || inputs.focused);
       registry().apps[unit] = AppState{
           .dir = scope.dir, .visible = inputs.visible, .focused = inputs.focused, .exempt = exempt,
           .tier = decision.tier, .frozen = decision.frozen,

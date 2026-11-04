@@ -76,7 +76,9 @@ with_noctalia '
     grim "$OUT/battery-$mode-1.png"
     scroll 8
     grim "$OUT/battery-$mode-2.png"
-    scroll 30
+    scroll 10
+    grim "$OUT/battery-$mode-2b.png"
+    scroll 20
     grim "$OUT/battery-$mode-3.png"
     "$NOCTALIA" msg settings-close > /dev/null
   done

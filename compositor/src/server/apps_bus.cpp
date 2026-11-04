@@ -1,5 +1,7 @@
 #include "server/apps_bus.h"
 
+#include "config/config.h"
+#include "config/managed_settings.h"
 #include "core/log.h"
 #include "qos/holds.h"
 
@@ -10,7 +12,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -107,11 +111,13 @@ namespace andromeda {
     }
   } // namespace
 
-  AppsBus::AppsBus(wl_event_loop* loop) {
+  AppsBus::AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig) : m_reloadConfig(std::move(reloadConfig)) {
     static const sd_bus_vtable kVtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("HoldTier", "sss", "s", onHoldTier, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("HoldFreeze", "ss", "s", onHoldFreeze, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("SetAppRule", "ss", "", onSetAppRule, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("AppRules", "", "a(ss)", onAppRules, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("SetHiddenFpsCap", "u", "", onSetHiddenFpsCap, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("Release", "s", "", onRelease, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -323,6 +329,44 @@ namespace andromeda {
     self->watch();
     self->changed();
     return sd_bus_reply_method_return(message, "s", id->c_str());
+  }
+
+  // An app's CPU rule from Settings (docs/qos.md §3): normal, never_throttle or freeze_when_hidden, saved as a
+  // [[window_rule]] in the settings file.
+  int AppsBus::onSetAppRule(sd_bus_message* message, void* data, sd_bus_error* error) {
+    auto* self = static_cast<AppsBus*>(data);
+    const char* appId = nullptr;
+    const char* rule = nullptr;
+    if (const int r = sd_bus_message_read(message, "ss", &appId, &rule); r < 0) {
+      return r;
+    }
+    const std::string_view qos = rule;
+    if (*appId == '\0' || (qos != "normal" && qos != "never_throttle" && qos != "freeze_when_hidden")) {
+      return sd_bus_error_set(error, SD_BUS_ERROR_INVALID_ARGS, "an app id and normal, never_throttle or freeze_when_hidden");
+    }
+    const std::filesystem::path file = managedSettingsFile(configRootPath());
+    if (!saveManagedAppQos(file, appId, qos)) {
+      return sd_bus_error_setf(error, SD_BUS_ERROR_IO_ERROR, "cannot write %s", file.c_str());
+    }
+    if (self->m_reloadConfig) {
+      self->m_reloadConfig();
+    }
+    return sd_bus_reply_method_return(message, "");
+  }
+
+  int AppsBus::onAppRules(sd_bus_message* message, void* /*data*/, sd_bus_error* /*error*/) {
+    std::ifstream in(managedSettingsFile(configRootPath()));
+    const std::string document{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    sd_bus_message* reply = nullptr;
+    int r = sd_bus_message_new_method_return(message, &reply);
+    r = r < 0 ? r : sd_bus_message_open_container(reply, 'a', "(ss)");
+    for (const auto& [app, qos] : documentAppQos(document)) {
+      r = r < 0 ? r : sd_bus_message_append(reply, "(ss)", app.c_str(), qos.c_str());
+    }
+    r = r < 0 ? r : sd_bus_message_close_container(reply);
+    r = r < 0 ? r : sd_bus_send(nullptr, reply, nullptr);
+    sd_bus_message_unref(reply);
+    return r;
   }
 
   int AppsBus::onSetHiddenFpsCap(sd_bus_message* message, void* /*data*/, sd_bus_error* /*error*/) {
