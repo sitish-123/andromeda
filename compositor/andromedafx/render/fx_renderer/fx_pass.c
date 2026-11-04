@@ -3073,8 +3073,18 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   // Glass fuses through the glass composite variants, except on a frame its backdrop probe reads the full-resolution
   // level.
   const bool glass = fx_options->liquid > 0.0f || fx_options->rim > 0.0f || fx_options->tint_mix[3] > 0.0f;
-  const bool probe_due = fx_options->backdrop_probe != NULL && pass->group_depth == 0
-      && fx_backdrop_probe_due(fx_options->backdrop_probe);
+  // The probe reads the full-resolution level, which is fresh only inside this frame's damage: a partial redraw (a
+  // caret blink) that does not hold the whole probe box captures nothing and keeps the fused path.
+  const struct wlr_box probe_box = tex_options->clip_box == NULL ? (struct wlr_box){0}
+      : wlr_box_empty(&fx_options->liquid_box)                  ? *tex_options->clip_box
+                                                                : fx_options->liquid_box;
+  const pixman_box32_t probe_extents = {
+      probe_box.x, probe_box.y, probe_box.x + probe_box.width, probe_box.y + probe_box.height
+  };
+  const bool probe_due = fx_options->backdrop_probe != NULL && pass->group_depth == 0 && !wlr_box_empty(&probe_box)
+      && fx_backdrop_probe_due(fx_options->backdrop_probe)
+      && (tex_options->base.clip == NULL
+          || pixman_region32_contains_rectangle(tex_options->base.clip, &probe_extents) == PIXMAN_REGION_IN);
   // ANDROMEDA_GLASS_FUSE=0 draws glass through the stored level, for A/B runs.
   static int glass_fuse = -1;
   if (glass_fuse < 0) {
@@ -3126,17 +3136,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   }
   struct fx_texture* blur_texture = fx_get_texture(wlr_texture);
 
-  // A fused blur holds a half-size image the probe box does not address. The blur buffer is
-  // fresh only inside this frame's damage, so a partial redraw (a caret blink) samples nothing.
-  const struct wlr_box probe_box = tex_options->clip_box == NULL ? (struct wlr_box){0}
-      : wlr_box_empty(&fx_options->liquid_box)                  ? *tex_options->clip_box
-                                                                : fx_options->liquid_box;
-  const pixman_box32_t probe_extents = {
-      probe_box.x, probe_box.y, probe_box.x + probe_box.width, probe_box.y + probe_box.height
-  };
-  if (probe_due && !fuse && !wlr_box_empty(&probe_box)
-      && (tex_options->base.clip == NULL
-          || pixman_region32_contains_rectangle(tex_options->base.clip, &probe_extents) == PIXMAN_REGION_IN)) {
+  if (probe_due && !fuse) {
     fx_backdrop_probe_capture(
         fx_options->backdrop_probe, blur_texture->tex, blur_texture->target, buffer->buffer->width,
         buffer->buffer->height, &probe_box, pass->has_color_transform
