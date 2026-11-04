@@ -978,6 +978,20 @@ namespace andromeda {
     };
     std::vector<LaunchBusy> m_launchBusy;
     wl_event_source* m_launchBusyTimer = nullptr;
+    // dsk_surface_v1.launch_from: the icon the next app launch token takes (the shell sends it just before).
+    struct LaunchFrom {
+      wlr_buffer* buffer = nullptr; // locked
+      wlr_fbox source{};            // buffer pixels
+      wlr_box from{};               // layout
+      Output* output = nullptr;
+      std::chrono::steady_clock::time_point at;
+    };
+    std::optional<LaunchFrom> m_launchFrom;
+    std::vector<std::pair<std::string, std::unique_ptr<LaunchFeedback>>> m_launchFeedback; // by launch token
+    void setLaunchFrom(wlr_surface* surface, const wlr_box& box);
+    void dropLaunchFrom();
+    void beginLaunchFeedback(const std::string& token);
+    void finishLaunchFeedback(const std::optional<std::string>& token);
     std::unique_ptr<SystemdUnits> m_systemdUnits;
     std::unique_ptr<CpuBoost> m_cpuBoost;
     std::unique_ptr<qos::Controller> m_qos;

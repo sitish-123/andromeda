@@ -67,6 +67,9 @@ public:
   // Protocol version 8: the surface-local area outside of which every pixel is transparent, shadows included; null
   // = the whole surface. Applies on the next commit. False when the compositor lacks it.
   bool setVisibleRegion(wl_region* region);
+  // Protocol version 11: an app launch starts from the icon at this surface-local rect. Send it just before the
+  // launch's activation token. False when the compositor lacks it.
+  bool launchFrom(int x, int y, int width, int height);
   // The clip the last setClipFrom computed, in this surface's coordinates; empty until the compositor reports it.
   [[nodiscard]] const std::optional<Value>& mappedClip() const noexcept { return m_mappedClip; }
   // Runs when the compositor reports the clip of the last setClipFrom.

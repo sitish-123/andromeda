@@ -24,6 +24,7 @@
 #include "overview/overview.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
+#include "scene/launch_feedback.h"
 #include "scene/quit_confirm.h"
 #include "server/allocator.h"
 #include "server/backend_manager.h"
@@ -465,8 +466,64 @@ namespace andromeda {
     syncLaunchBusy();
   }
 
+  void Server::setLaunchFrom(wlr_surface* surface, const wlr_box& box) {
+    const LayerSurface* layer = LayerSurface::fromSurface(surface);
+    if (layer == nullptr || layer->scene() == nullptr || surface->buffer == nullptr || surface->current.width <= 0
+        || surface->current.height <= 0) {
+      return;
+    }
+    dropLaunchFrom();
+    int x = 0;
+    int y = 0;
+    wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
+    const double scaleX = static_cast<double>(surface->current.buffer_width) / surface->current.width;
+    const double scaleY = static_cast<double>(surface->current.buffer_height) / surface->current.height;
+    m_launchFrom = LaunchFrom{
+        .buffer = wlr_buffer_lock(&surface->buffer->base),
+        .source = {box.x * scaleX, box.y * scaleY, box.width * scaleX, box.height * scaleY},
+        .from = {x + box.x, y + box.y, box.width, box.height},
+        .output = layer->output(),
+        .at = std::chrono::steady_clock::now(),
+    };
+    kLog.debug("launch from {},{} {}x{}", m_launchFrom->from.x, m_launchFrom->from.y, box.width, box.height);
+  }
+
+  void Server::dropLaunchFrom() {
+    if (m_launchFrom) {
+      wlr_buffer_unlock(m_launchFrom->buffer);
+      m_launchFrom.reset();
+    }
+  }
+
+  void Server::beginLaunchFeedback(const std::string& token) {
+    constexpr auto kLaunchFromLimit = std::chrono::seconds(1);
+    if (!m_launchFrom || m_launchFrom->output == nullptr
+        || std::chrono::steady_clock::now() - m_launchFrom->at > kLaunchFromLimit) {
+      dropLaunchFrom();
+      return;
+    }
+    kLog.debug("launch feedback for token '{}'", token);
+    m_launchFeedback.emplace_back(
+        token, std::make_unique<LaunchFeedback>(
+                   *this, m_launchFrom->output, shellLayerTree(ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY), m_launchFrom->buffer,
+                   m_launchFrom->source, m_launchFrom->from, m_launchFrom->output->usableArea()
+               )
+    );
+    dropLaunchFrom();
+  }
+
+  void Server::finishLaunchFeedback(const std::optional<std::string>& token) {
+    for (auto& [name, feedback] : m_launchFeedback) {
+      if (!token || name == *token) {
+        feedback->finish();
+        return;
+      }
+    }
+  }
+
   // token: the launch token of the window; a window without one ends the oldest pending launch.
   void Server::endLaunchBusy(const std::optional<std::string>& token) {
+    finishLaunchFeedback(token);
     if (token && m_cpuBoost != nullptr) {
       m_cpuBoost->launchMapped(*token);
     }
@@ -488,6 +545,7 @@ namespace andromeda {
       if (m_cpuBoost != nullptr) {
         m_cpuBoost->expireLaunch(busy.appId);
       }
+      finishLaunchFeedback(busy.token);
       return true;
     });
     if (m_launchBusyTimer != nullptr) {
@@ -559,6 +617,7 @@ namespace andromeda {
     // most spawn keybinds run commands without a window (volume, brightness).
     if (!watch->tokenName.empty() && token->app_id != nullptr) {
       beginLaunchBusy(watch->tokenName, token->app_id);
+      beginLaunchFeedback(watch->tokenName);
     }
     watch->destroy.notify = onActivationTokenDestroy;
     wl_signal_add(&token->events.destroy, &watch->destroy);

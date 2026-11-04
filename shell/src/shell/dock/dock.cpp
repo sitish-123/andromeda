@@ -19,6 +19,7 @@
 #include "system/desktop_entry_launch.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/style.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
 #include "compositors/wayland_toplevels.h"
@@ -27,6 +28,8 @@
 #include <cassert>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
+#include <functional>
 #include <format>
 #include <optional>
 #include <wayland-client-core.h>
@@ -51,20 +54,29 @@ namespace {
     assert(config != nullptr);
   }
 
-  desktop_entry_launch::LaunchOptions
-  dockLaunchOptions(const CompositorPlatform& platform, const ConfigService& config, const DesktopEntry& entry = {}) {
-    std::string token;
-    if (platform.hasXdgActivation()) {
-      // No layer-shell surface — binding it can misplace first launches on Hyprland.
-      token = platform.requestActivationToken(nullptr, desktopEntryAppId(entry.id));
-    }
-    return desktop_entry_launch::LaunchOptions{
-        .activationToken = std::move(token),
+  // Runs `launch` with the dock's launch options once the activation token arrives.
+  void launchWithDockToken(
+      const CompositorPlatform& platform, const ConfigService& config, const DesktopEntry& entry,
+      std::function<void(desktop_entry_launch::LaunchOptions)> launch
+  ) {
+    desktop_entry_launch::LaunchOptions options{
         .runAsSystemdService = config.config().shell.launchAppsAsSystemdServices,
         .customCommand = config.config().shell.launchAppsCustomCommand,
         .dbusActivatable = entry.dbusActivatable,
         .dbusAppId = entry.id,
     };
+    if (!platform.hasXdgActivation()) {
+      launch(std::move(options));
+      return;
+    }
+    // No layer-shell surface — binding it can misplace first launches on Hyprland.
+    platform.requestActivationTokenAsync(
+        nullptr, desktopEntryAppId(entry.id),
+        [options = std::move(options), launch = std::move(launch)](std::string token) mutable {
+          options.activationToken = std::move(token);
+          launch(std::move(options));
+        }
+    );
   }
 
   template <typename T> void appendOptionalStackPart(std::string& out, const std::optional<T>& value) {
@@ -1207,7 +1219,19 @@ void Dock::activateOrLaunchItem(shell::dock::DockInstance& instance, const shell
         .deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8),
     };
     m_platform->prepareAppLaunchOnOutput(instance.output);
-    (void)desktop_entry_launch::launchEntry(action.entry, dockLaunchOptions(*m_platform, *m_config, action.entry));
+    if (instance.clickedItem != nullptr && instance.dsk != nullptr) {
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(instance.clickedItem, x, y);
+      (void)instance.dsk->launchFrom(
+          static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
+          static_cast<int>(std::lround(instance.clickedItem->width())),
+          static_cast<int>(std::lround(instance.clickedItem->height()))
+      );
+    }
+    launchWithDockToken(*m_platform, *m_config, action.entry, [entry = action.entry](auto options) {
+      (void)desktop_entry_launch::launchEntry(entry, options);
+    });
     return;
   }
 
@@ -1302,9 +1326,13 @@ void Dock::openItemMenu(shell::dock::DockInstance& instance, const shell::dock::
           [this, entryId, entryWorkingDir, entryTerminal, entryForPin,
            output = instance.output](const DesktopAction& desktopAction) {
             m_platform->prepareAppLaunchOnOutput(output);
-            (void)desktop_entry_launch::launchAction(
-                desktopAction, entryId, entryWorkingDir, entryTerminal,
-                dockLaunchOptions(*m_platform, *m_config, entryForPin)
+            launchWithDockToken(
+                *m_platform, *m_config, entryForPin,
+                [desktopAction, entryId, entryWorkingDir, entryTerminal](auto options) {
+                  (void)desktop_entry_launch::launchAction(
+                      desktopAction, entryId, entryWorkingDir, entryTerminal, options
+                  );
+                }
             );
           },
       .setEntryPinned =

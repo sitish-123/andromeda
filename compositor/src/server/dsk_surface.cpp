@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 10;
+    constexpr int kVersion = 11;
     constexpr uint32_t kPropertyCount = 12;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
@@ -50,6 +50,7 @@ namespace andromeda {
       .set_clip_from = handleSetClipFrom,
       .set_visible_region = handleSetVisibleRegion,
       .get_shape = handleGetShape,
+      .launch_from = handleLaunchFrom,
   };
 
   const struct dsk_shape_v1_interface DskSurfaceManager::kShapeImplementation = {
@@ -318,6 +319,17 @@ namespace andromeda {
     int count = 0;
     const pixman_box32_t* boxes = pixman_region32_rectangles(wlr_region_from_resource(region), &count);
     state->pendingVisibleRegion = std::vector<pixman_box32_t>(boxes, boxes + count);
+  }
+
+  void DskSurfaceManager::handleLaunchFrom(
+      wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height
+  ) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr || state->surface == nullptr || width <= 0 || height <= 0
+        || !state->manager->m_launchFromHandler) {
+      return;
+    }
+    state->manager->m_launchFromHandler(client, state->surface, wlr_box{x, y, width, height});
   }
 
   void DskSurfaceManager::handleGetShape(wl_client* client, wl_resource* resource, uint32_t id) {

@@ -622,21 +622,21 @@ void TaskbarWidget::launchDesktopEntry(const TaskModel& task) {
   auto& configService = m_configService;
   wl_output* const launchOutput = m_output;
   DeferredCall::callLater([&platform, &configService, entry = std::move(*entry), launchOutput] mutable {
-    std::string token;
-    if (platform.hasXdgActivation()) {
-      token = platform.requestActivationToken(nullptr);
-    }
     platform.prepareAppLaunchOnOutput(launchOutput);
-    (void)desktop_entry_launch::launchEntry(
-        entry,
-        desktop_entry_launch::LaunchOptions{
-            .activationToken = std::move(token),
-            .runAsSystemdService = configService.config().shell.launchAppsAsSystemdServices,
-            .customCommand = configService.config().shell.launchAppsCustomCommand,
-            .dbusActivatable = entry.dbusActivatable,
-            .dbusAppId = entry.id,
-        }
-    );
+    auto launch = [entry, options = desktop_entry_launch::LaunchOptions{
+                              .runAsSystemdService = configService.config().shell.launchAppsAsSystemdServices,
+                              .customCommand = configService.config().shell.launchAppsCustomCommand,
+                              .dbusActivatable = entry.dbusActivatable,
+                              .dbusAppId = entry.id,
+                          }](std::string token) mutable {
+      options.activationToken = std::move(token);
+      (void)desktop_entry_launch::launchEntry(entry, options);
+    };
+    if (platform.hasXdgActivation()) {
+      platform.requestActivationTokenAsync(nullptr, {}, std::move(launch));
+    } else {
+      launch({});
+    }
   });
 }
 
@@ -3190,20 +3190,21 @@ void TaskbarWidget::openTaskContextMenu(const TaskModel& task, InputArea& area, 
         const bool dbusActivatable = menuEntry.has_value() && menuEntry->dbusActivatable;
         DeferredCall::callLater([action, appName = entryAppName, workingDir = entryWorkingDir, terminal = entryTerminal,
                                  dbusActivatable, &platform, &configService] {
-          std::string token;
+          auto launch = [action, appName, workingDir, terminal,
+                         options = desktop_entry_launch::LaunchOptions{
+                             .runAsSystemdService = configService.config().shell.launchAppsAsSystemdServices,
+                             .customCommand = configService.config().shell.launchAppsCustomCommand,
+                             .dbusActivatable = dbusActivatable,
+                             .dbusAppId = appName,
+                         }](std::string token) mutable {
+            options.activationToken = std::move(token);
+            (void)desktop_entry_launch::launchAction(action, appName, workingDir, terminal, options);
+          };
           if (platform.hasXdgActivation()) {
-            token = platform.requestActivationToken(nullptr);
+            platform.requestActivationTokenAsync(nullptr, {}, std::move(launch));
+          } else {
+            launch({});
           }
-          (void)desktop_entry_launch::launchAction(
-              action, appName, workingDir, terminal,
-              desktop_entry_launch::LaunchOptions{
-                  .activationToken = std::move(token),
-                  .runAsSystemdService = configService.config().shell.launchAppsAsSystemdServices,
-                  .customCommand = configService.config().shell.launchAppsCustomCommand,
-                  .dbusActivatable = dbusActivatable,
-                  .dbusAppId = appName,
-              }
-          );
         });
       }
       return;

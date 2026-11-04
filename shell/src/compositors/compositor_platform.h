@@ -69,6 +69,9 @@ public:
   [[nodiscard]] bool hasXdgShell() const noexcept;
   [[nodiscard]] bool hasXdgActivation() const noexcept;
   [[nodiscard]] std::string requestActivationToken(wl_surface* surface, const std::string& appId = {}) const;
+  void requestActivationTokenAsync(
+      wl_surface* surface, const std::string& appId, std::function<void(std::string token)> done
+  ) const;
   [[nodiscard]] bool hasGammaControl() const noexcept;
   [[nodiscard]] const std::vector<WaylandOutput>& outputs() const noexcept;
   [[nodiscard]] const WaylandOutput* findOutputByWl(wl_output* output) const;

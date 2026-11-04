@@ -205,6 +205,10 @@ public:
   [[nodiscard]] bool hasXdgActivation() const noexcept;
   // appId marks the token as an app launch (the compositor shows the busy cursor until its window maps).
   [[nodiscard]] std::string requestActivationToken(wl_surface* surface, const std::string& appId = {}) const;
+  // The same token without a blocking roundtrip: `done` runs from the event loop with it ("" without xdg-activation).
+  void requestActivationTokenAsync(
+      wl_surface* surface, const std::string& appId, std::function<void(std::string token)> done
+  ) const;
   void activateSurface(wl_surface* surface);
 
   [[nodiscard]] wl_output* lastPointerOutput() const noexcept;

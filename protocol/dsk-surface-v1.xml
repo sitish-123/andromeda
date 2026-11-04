@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="10">
+  <interface name="dsk_surface_manager_v1" version="11">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="10">
+  <interface name="dsk_surface_v1" version="11">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -232,6 +232,21 @@
         scale and opacity move and fade every shape with it.
       </description>
       <arg name="id" type="new_id" interface="dsk_shape_v1"/>
+    </request>
+
+    <request name="launch_from" since="11">
+      <description summary="the icon an app launch starts from">
+        The client starts an app from the icon at this surface-local
+        rectangle (a dock item, a launcher row). The next xdg_activation_v1
+        token with an app id that the same client commits within 1 second
+        takes it: the compositor shows the icon's pixels, as committed when
+        this request arrives, moving away from the icon until the app's first
+        window maps or the launch expires. Takes effect at once, not on commit.
+      </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
     </request>
   </interface>
 

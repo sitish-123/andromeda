@@ -71,6 +71,8 @@ public:
   PanelManager& operator=(const PanelManager&) = delete;
 
   static PanelManager& instance();
+  // An app launch from the open panel starts from `node` (dsk_surface_v1.launch_from); call it just before launching.
+  void launchFrom(const Node& node) const;
   static PanelManager* current() noexcept;
 
   void initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext);

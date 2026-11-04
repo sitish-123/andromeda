@@ -975,6 +975,7 @@ core_sources = files(
   'src/scene/surface_blur.cpp',
   'src/scene/surface_shape.cpp',
   'src/scene/hint_rect.cpp',
+  'src/scene/launch_feedback.cpp',
   'src/scene/border_rect.cpp',
   'src/scene/surface_shadow.cpp',
   'src/scene/config_banner.cpp',

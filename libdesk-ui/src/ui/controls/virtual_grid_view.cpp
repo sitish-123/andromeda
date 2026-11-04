@@ -783,6 +783,15 @@ void VirtualGridView::onSecondaryPointerPress(float localX, float localY) {
   }
 }
 
+Node* VirtualGridView::nodeForIndex(std::size_t index) const noexcept {
+  for (std::size_t slot = 0; slot < m_pool.size() && slot < m_slotBoundIndex.size(); ++slot) {
+    if (m_slotBoundIndex[slot] == index) {
+      return m_pool[slot];
+    }
+  }
+  return nullptr;
+}
+
 bool VirtualGridView::absoluteAnchorForIndex(std::size_t index, float& outX, float& outY) const noexcept {
   if (m_inputArea == nullptr
       || m_layoutColumns == 0

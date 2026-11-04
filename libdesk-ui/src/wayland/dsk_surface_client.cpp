@@ -41,6 +41,14 @@ bool DskSurfaceClient::setVisibleRegion(wl_region* region) {
   return true;
 }
 
+bool DskSurfaceClient::launchFrom(int x, int y, int width, int height) {
+  if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_surface)) < DSK_SURFACE_V1_LAUNCH_FROM_SINCE_VERSION) {
+    return false;
+  }
+  dsk_surface_v1_launch_from(m_surface, x, y, width, height);
+  return true;
+}
+
 bool DskSurfaceClient::setClipFrom(wl_surface* source, const Value& rect) {
   if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_surface)) < DSK_SURFACE_V1_SET_CLIP_FROM_SINCE_VERSION) {
     return false;

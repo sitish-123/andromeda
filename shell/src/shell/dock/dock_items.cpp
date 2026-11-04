@@ -824,7 +824,8 @@ namespace shell::dock {
           clickContext->callbacks.beginDrag(*instPtr, itemIndex, mainPos);
         }
       });
-      areaNode->setOnClick([action = std::move(action), instPtr, clickContext](const InputArea::PointerData& d) {
+      areaNode->setOnClick([action = std::move(action), instPtr, clickContext,
+                            item = static_cast<Node*>(areaNode.get())](const InputArea::PointerData& d) {
         if (d.button == BTN_RIGHT) {
           if (clickContext->callbacks.openItemMenu) {
             clickContext->callbacks.openItemMenu(*instPtr, action);
@@ -841,7 +842,9 @@ namespace shell::dock {
         if (instPtr->drag.active || instPtr->drag.armed) {
           return;
         }
+        instPtr->clickedItem = item;
         handleItemClick(*instPtr, action, *clickContext);
+        instPtr->clickedItem = nullptr;
       });
 
       item.area = static_cast<InputArea*>(instance.row->addChild(std::move(areaNode)));

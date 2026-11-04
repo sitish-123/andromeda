@@ -14,6 +14,7 @@
 
 extern "C" {
 #include <wlr/util/addon.h>
+#include <wlr/util/box.h>
 }
 
 struct wlr_surface;
@@ -47,6 +48,11 @@ namespace andromeda {
     // Layout position of a layer surface (mapped or about to map), nullopt otherwise; set_clip_from does nothing until the server sets it.
     void setOriginLookup(std::function<std::optional<std::pair<int, int>>(wlr_surface*)> lookup) {
       m_originLookup = std::move(lookup);
+    }
+
+    // dsk_surface_v1.launch_from (v11): `box` is surface-local.
+    void setLaunchFromHandler(std::function<void(wl_client*, wlr_surface*, const wlr_box&)> handler) {
+      m_launchFromHandler = std::move(handler);
     }
 
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
@@ -156,6 +162,7 @@ namespace andromeda {
     static void handleGetTracker(wl_client* client, wl_resource* resource, uint32_t id, wl_resource* surface);
     static void handleSurfaceDestroy(wl_client* client, wl_resource* resource);
     static void handleSetElevation(wl_client* client, wl_resource* resource, uint32_t level);
+    static void handleLaunchFrom(wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height);
     static void handleSetVisibleRegion(wl_client* client, wl_resource* resource, wl_resource* region);
     static void
     handleSet(wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d);
@@ -214,6 +221,7 @@ namespace andromeda {
 
     wl_global* m_global = nullptr;
     std::function<std::optional<std::pair<int, int>>(wlr_surface*)> m_originLookup;
+    std::function<void(wl_client*, wlr_surface*, const wlr_box&)> m_launchFromHandler;
   };
 
 } // namespace andromeda

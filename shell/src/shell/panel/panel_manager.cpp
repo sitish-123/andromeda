@@ -2674,6 +2674,19 @@ DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
   };
 }
 
+void PanelManager::launchFrom(const Node& node) const {
+  if (m_dsk == nullptr) {
+    return;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(&node, x, y);
+  (void)m_dsk->launchFrom(
+      static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)), static_cast<int>(std::lround(node.width())),
+      static_cast<int>(std::lround(node.height()))
+  );
+}
+
 std::chrono::milliseconds PanelManager::openContentGate(const Tokens::Spring& spring) {
   constexpr double kGateProgress = 0.35;
   const desk::motion::SpringConfig config = Style::spring(spring);

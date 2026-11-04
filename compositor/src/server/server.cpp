@@ -29,6 +29,7 @@
 #include "scene/fps_overlay.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
+#include "scene/launch_feedback.h"
 #include "scene/quit_confirm.h"
 #include "server/allocator.h"
 #include "server/backend_manager.h"
@@ -725,6 +726,9 @@ namespace andromeda {
       wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
       return std::pair{x, y};
     });
+    m_dskSurfaces->setLaunchFromHandler([this](wl_client* /*client*/, wlr_surface* surface, const wlr_box& box) {
+      setLaunchFrom(surface, box);
+    });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
@@ -1102,7 +1106,11 @@ namespace andromeda {
 
   void Server::clearLayerSurfaces() { m_layerSurfaces.clear(); }
 
-  void Server::clearCloseSnapshots() { m_closeSnapshots.clear(); }
+  void Server::clearCloseSnapshots() {
+    m_closeSnapshots.clear();
+    m_launchFeedback.clear();
+    dropLaunchFrom();
+  }
 
   void Server::dropMirrorSources() {
     for (const auto& output : m_outputs) {
@@ -2392,6 +2400,7 @@ namespace andromeda {
       active = owner->tickAnimations(nowMsec) || active;
     }
 
+    std::erase_if(m_launchFeedback, [](const auto& entry) { return entry.second->finished(); });
     // A snapshot only exists while fading out, so a settled one is finished.
     // Erasing destroys its scene tree and unregisters it.
     std::erase_if(m_closeSnapshots, [this](const std::unique_ptr<CloseSnapshot>& snap) {

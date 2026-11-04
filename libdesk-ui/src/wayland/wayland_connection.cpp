@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
+#include <memory>
 #include <poll.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -992,6 +993,34 @@ std::string WaylandConnection::requestActivationToken(wl_surface* surface, const
   return tokenData.token;
 }
 
+void WaylandConnection::requestActivationTokenAsync(
+    wl_surface* surface, const std::string& appId, std::function<void(std::string token)> done
+) const {
+  if (m_xdgActivation == nullptr || m_display == nullptr) {
+    done({});
+    return;
+  }
+  using Done = std::function<void(std::string)>;
+  auto* token = xdg_activation_v1_get_activation_token(m_xdgActivation);
+  static const xdg_activation_token_v1_listener tokenListener = {
+      .done = [](void* data, xdg_activation_token_v1* activationToken, const char* tokenStr) {
+        const std::unique_ptr<Done> callback(static_cast<Done*>(data));
+        xdg_activation_token_v1_destroy(activationToken);
+        (*callback)(tokenStr);
+      },
+  };
+  xdg_activation_token_v1_add_listener(token, &tokenListener, new Done(std::move(done)));
+  xdg_activation_token_v1_set_serial(token, m_seatHandler.lastSerial(), m_seatHandler.seat());
+  if (surface != nullptr) {
+    xdg_activation_token_v1_set_surface(token, surface);
+  }
+  if (!appId.empty()) {
+    xdg_activation_token_v1_set_app_id(token, appId.c_str());
+  }
+  xdg_activation_token_v1_commit(token);
+  wl_display_flush(m_display);
+}
+
 void WaylandConnection::activateSurface(wl_surface* surface) {
   if (m_xdgActivation == nullptr || surface == nullptr) {
     return;
@@ -1380,7 +1409,7 @@ void WaylandConnection::bindGlobal(
 
   if (interfaceName == dsk_surface_manager_v1_interface.name) {
     m_dskSurfaceManager =
-        static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 10U)));
+        static_cast<dsk_surface_manager_v1*>(wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, std::min(version, 11U)));
     return;
   }
 

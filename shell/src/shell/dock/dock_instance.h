@@ -98,6 +98,7 @@ namespace shell::dock {
     bool smartAutoHidePinnedVisible = false;
     Signal<>::ScopedConnection paletteConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
+    Node* clickedItem = nullptr;    // the item cell during its click handler: a launch starts from it
 
     // Drag-to-reorder state.
     struct DragState {

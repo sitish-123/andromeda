@@ -5,7 +5,8 @@
 // a bar opening a menu: the first left press switches the layer to on-demand and opens a grabbing xdg_popup.
 // `popup-on-release` batches the release until the pointer frame and anchors its menu at the last valid position.
 // LAYER_CONTROL enables stdin commands: frames LABEL COUNT, color LABEL AARRGGBB, child-color LABEL AARRGGBB,
-// child-move LABEL X Y, and margins LABEL TOP RIGHT BOTTOM LEFT. Each prints done after its frame callbacks arrive.
+// child-move LABEL X Y, margins LABEL TOP RIGHT BOTTOM LEFT, and dsk-launch-from LABEL X Y W H. Each prints done
+// after its frame callbacks arrive.
 // LAYER_NAMESPACE sets the layer surface namespace.
 
 #include <wayland-client.h>
@@ -379,6 +380,22 @@ namespace {
           state.dskSurface, state.sourceSurface, wl_fixed_from_double(x), wl_fixed_from_double(y),
           wl_fixed_from_double(w), wl_fixed_from_double(h)
       );
+    } else if (action == "dsk-launch-from") {
+      // dsk-launch-from <label> <x> <y> <w> <h>: the next app launch token starts from this surface-local rect (v11).
+      int x = 0;
+      int y = 0;
+      int w = 0;
+      int h = 0;
+      command >> x >> y >> w >> h;
+      if (state.dskManager == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_launch_from(state.dskSurface, x, y, w, h);
     } else if (action == "dsk-elevation") {
       // dsk-elevation <label> <level>: 0 none, 1 e1, 2 e2.
       uint32_t level = 0;

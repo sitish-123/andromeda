@@ -23,7 +23,10 @@
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "shell/dock/pinned_apps.h"
+#include "core/log.h"
 #include "shell/panel/panel_manager.h"
+#include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "shell/profile/avatar_path.h"
 #include "system/desktop_entry.h"
 #include "time/time_format.h"
@@ -53,6 +56,30 @@
 #include <utility>
 
 namespace {
+
+  constexpr Logger kLog("launcher");
+
+  // The first visible node of type T in a launcher cell, depth first.
+  template <typename T> const Node* firstVisible(const Node& node) {
+    if (!node.visible()) {
+      return nullptr;
+    }
+    if (dynamic_cast<const T*>(&node) != nullptr) {
+      return &node;
+    }
+    for (const auto& child : node.children()) {
+      if (const Node* found = firstVisible<T>(*child); found != nullptr) {
+        return found;
+      }
+    }
+    return nullptr;
+  }
+
+  // The cell's icon, an image or else a symbol: the pixels an app launch starts from.
+  const Node* cellIcon(const Node& cell) {
+    const Node* image = firstVisible<Image>(cell);
+    return image != nullptr ? image : firstVisible<Glyph>(cell);
+  }
 
   constexpr std::size_t kRowOverscan = 3;
   // Minimum trimmed query length before prefixed opt-in providers join the global search.
@@ -1069,6 +1096,17 @@ namespace {
       }
     }
 
+  public:
+    // The cell showing result `resultIndex`; nullptr when this row does not show it.
+    [[nodiscard]] const Node* nodeForResult(std::size_t resultIndex) const {
+      for (std::size_t slot = 0; slot < kMaxSectionColumns; ++slot) {
+        if (m_boundResultIndices[slot] == resultIndex && m_areas[slot] != nullptr) {
+          return m_areas[slot];
+        }
+      }
+      return nullptr;
+    }
+
   private:
     LauncherListStyle m_style{};
     bool m_pillStyle = false;
@@ -1092,6 +1130,21 @@ namespace {
     bool m_gridView = false;
   };
 
+} // namespace
+
+namespace {
+  // The section cell that shows result `resultIndex` among the rows under `root`.
+  const Node* sectionCellForResult(const Node& root, std::size_t resultIndex) {
+    if (const auto* row = dynamic_cast<const LauncherSectionRow*>(&root); row != nullptr && row->visible()) {
+      return row->nodeForResult(resultIndex);
+    }
+    for (const auto& child : root.children()) {
+      if (const Node* cell = sectionCellForResult(*child, resultIndex); cell != nullptr) {
+        return cell;
+      }
+    }
+    return nullptr;
+  }
 } // namespace
 
 class LauncherResultAdapter final : public VirtualGridAdapter {
@@ -4719,6 +4772,20 @@ void LauncherPanel::activateSelected() {
       continue;
     }
 
+    if (!result.desktopEntryPath.empty()) {
+      const Node* cell = m_launcherSections != nullptr && m_launcherSections->visible()
+          ? sectionCellForResult(*m_launcherSections, m_selectedIndex)
+          : nullptr;
+      if (cell == nullptr && m_grid != nullptr) {
+        cell = m_grid->nodeForIndex(m_selectedIndex);
+      }
+      const Node* icon = cell != nullptr ? cellIcon(*cell) : nullptr;
+      if (icon != nullptr) {
+        PanelManager::instance().launchFrom(*icon);
+      } else {
+        kLog.debug("launch from: no icon cell for result {}", m_selectedIndex);
+      }
+    }
     if (!provider->activate(result)) {
       return;
     }
