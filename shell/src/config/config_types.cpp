@@ -130,6 +130,8 @@ std::vector<SessionPanelActionConfig> defaultSessionPanelActions() {
 }
 
 std::vector<IdleBehaviorConfig> defaultIdleBehaviors() {
+  // docs/qos.md §7: on battery the screen dims at 2 min, goes off at 3 min and the machine suspends at 15 min; on AC
+  // the screen goes off at 10 min and the machine stays awake.
   return {
       IdleBehaviorConfig{
           .name = "lock",
@@ -138,6 +140,15 @@ std::vector<IdleBehaviorConfig> defaultIdleBehaviors() {
           .action = "lock",
           .command = "",
           .resumeCommand = "",
+      },
+      IdleBehaviorConfig{
+          .name = "dim",
+          .enabled = true,
+          .timeoutSeconds = 120,
+          .action = "dim",
+          .command = "",
+          .resumeCommand = "",
+          .power = "battery",
       },
       IdleBehaviorConfig{
           .name = "screen-off",
@@ -228,6 +239,13 @@ ResolvedIdleBehavior resolveIdleBehaviorActions(const IdleBehaviorConfig& behavi
     return {
         .idleAction = idleAction(IdleActionKind::Lock),
         .resumeAction = {},
+        .resumeCommand = tmp.resumeCommand,
+    };
+  }
+  if (act == "dim") {
+    return {
+        .idleAction = idleAction(IdleActionKind::Dim),
+        .resumeAction = idleAction(IdleActionKind::Undim),
         .resumeCommand = tmp.resumeCommand,
     };
   }

@@ -214,6 +214,9 @@ namespace {
     if (norm.action == "lock") {
       return i18n::tr("settings.idle.behavior.kind.lock");
     }
+    if (norm.action == "dim") {
+      return i18n::tr("settings.idle.behavior.kind.dim");
+    }
     if (norm.action == "screen_off") {
       return i18n::tr("settings.idle.behavior.kind.screen-off");
     }

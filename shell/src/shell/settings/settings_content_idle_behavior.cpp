@@ -28,6 +28,7 @@ namespace settings {
 
     std::vector<SelectOption> idleActionOptions = {
         {"lock", i18n::tr("settings.idle.behavior.kind.lock"), {}},
+        {"dim", i18n::tr("settings.idle.behavior.kind.dim"), {}},
         {"screen_off", i18n::tr("settings.idle.behavior.kind.screen-off"), {}},
         {"suspend", i18n::tr("settings.idle.behavior.kind.suspend"), {}},
         {"lock_and_suspend", i18n::tr("settings.idle.behavior.kind.lock-and-suspend"), {}},

@@ -385,6 +385,13 @@ private:
   // display.brightness_step: the brightness each display had before a rule dimmed it one step.
   std::map<std::string, float> m_dimmedFrom;
   void applyBrightnessStep();
+  // The idle "dim" action: per display the brightness before the dim and the dimmed level.
+  struct IdleDim {
+    float from = 0.0F;
+    float to = 0.0F;
+  };
+  std::map<std::string, IdleDim> m_idleDimmed;
+  void applyIdleDim(bool dim);
   HookManager m_hookManager;
   DependencyService m_dependencyService;
   GammaService m_gammaService;

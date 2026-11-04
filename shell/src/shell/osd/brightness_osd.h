@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -16,6 +17,8 @@ public:
   void endBatch();
   void onBrightnessChanged(const BrightnessService& service);
   void showValue(float brightness);
+  // Changes within this time show no OSD (the idle dim and Low Power Mode change brightness, not the user).
+  void suppressFor(std::chrono::milliseconds duration);
 
 private:
   struct DisplaySnapshot {
@@ -27,4 +30,5 @@ private:
   std::vector<DisplaySnapshot> m_snapshots;
   std::size_t m_batchDepth = 0;
   std::optional<float> m_batchBrightness;
+  std::chrono::steady_clock::time_point m_suppressUntil;
 };

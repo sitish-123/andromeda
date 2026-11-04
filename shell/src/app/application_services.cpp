@@ -1866,7 +1866,7 @@ void Application::initEarlySessionBusAndTray() {
 }
 
 // Low Power Mode dims each display one step (0.1, not below 0.1) and restores it when the hold ends, unless the user
-// moved the brightness meanwhile.
+// moved the brightness meanwhile. While the idle dim holds a display, the step changes the level it restores to.
 void Application::applyBrightnessStep() {
   if (m_systemHealthService == nullptr || m_brightnessService == nullptr) {
     return;
@@ -1877,22 +1877,58 @@ void Application::applyBrightnessStep() {
     return;
   }
   const std::vector<BrightnessDisplay> displays = m_brightnessService->displays();
-  if (dim) {
-    for (const auto& d : displays) {
-      if (d.controllable && d.brightness > kStep) {
-        m_dimmedFrom[d.id] = d.brightness;
-        m_brightnessService->setBrightness(d.id, std::max(kStep, d.brightness - kStep));
+  m_brightnessOsd.suppressFor(std::chrono::seconds(2));
+  for (const auto& d : displays) {
+    const auto idle = m_idleDimmed.find(d.id);
+    const float current = idle != m_idleDimmed.end() ? idle->second.from : d.brightness;
+    float target = current;
+    if (dim) {
+      if (!d.controllable || current <= kStep) {
+        continue;
       }
+      m_dimmedFrom[d.id] = current;
+      target = std::max(kStep, current - kStep);
+    } else {
+      const auto it = m_dimmedFrom.find(d.id);
+      if (it == m_dimmedFrom.end() || std::abs(current - std::max(kStep, it->second - kStep)) >= 0.02F) {
+        continue;
+      }
+      target = it->second;
     }
+    if (idle != m_idleDimmed.end()) {
+      idle->second.from = target;
+    } else {
+      m_brightnessService->setBrightness(d.id, target);
+    }
+  }
+  if (!dim) {
+    m_dimmedFrom.clear();
+  }
+}
+
+// The idle "dim" behavior halves each display's brightness (not below 0.05) and restores it on input, unless the user
+// moved the brightness meanwhile.
+void Application::applyIdleDim(bool dim) {
+  if (m_brightnessService == nullptr || dim == !m_idleDimmed.empty()) {
     return;
   }
-  for (const auto& d : displays) {
-    const auto it = m_dimmedFrom.find(d.id);
-    if (it != m_dimmedFrom.end() && std::abs(d.brightness - std::max(kStep, it->second - kStep)) < 0.02F) {
-      m_brightnessService->setBrightness(d.id, it->second);
+  constexpr float kFloor = 0.05F;
+  m_brightnessOsd.suppressFor(std::chrono::seconds(2));
+  for (const auto& d : m_brightnessService->displays()) {
+    if (dim) {
+      if (d.controllable && d.brightness > kFloor) {
+        const float to = std::max(kFloor, d.brightness * 0.5F);
+        m_idleDimmed[d.id] = {.from = d.brightness, .to = to};
+        m_brightnessService->setBrightness(d.id, to);
+      }
+    } else if (const auto it = m_idleDimmed.find(d.id);
+               it != m_idleDimmed.end() && std::abs(d.brightness - it->second.to) < 0.02F) {
+      m_brightnessService->setBrightness(d.id, it->second.from);
     }
   }
-  m_dimmedFrom.clear();
+  if (!dim) {
+    m_idleDimmed.clear();
+  }
 }
 
 void Application::initSessionBusServices() {

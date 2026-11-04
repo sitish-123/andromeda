@@ -292,7 +292,7 @@ struct IdleBehaviorConfig {
   std::string name;
   bool enabled = true;
   double timeoutSeconds = 0.0;
-  /// lock | screen_off | suspend | lock_and_suspend | hibernate | command (custom shell strings)
+  /// lock | dim | screen_off | suspend | lock_and_suspend | hibernate | command (custom shell strings)
   std::string action;
   std::string command;
   std::string resumeCommand;
@@ -345,6 +345,8 @@ enum class IdleActionKind : std::uint8_t {
   Lock,
   ScreenOff,
   ScreenOn,
+  Dim,
+  Undim,
   Suspend,
   LockAndSuspend,
   Hibernate,

@@ -1922,6 +1922,7 @@
         "command-placeholder": "notify-send \"Idle\"",
         "kind": {
           "custom": "Custom",
+          "dim": "Dim Screen",
           "hibernate": "Hibernate",
           "lock": "Lock",
           "lock-and-suspend": "Lock & Suspend",

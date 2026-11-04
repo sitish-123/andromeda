@@ -1084,6 +1084,12 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
     return setOutputPower(false);
   case IdleActionKind::ScreenOn:
     return setOutputPower(true);
+  case IdleActionKind::Dim:
+    applyIdleDim(true);
+    return true;
+  case IdleActionKind::Undim:
+    applyIdleDim(false);
+    return true;
   case IdleActionKind::Suspend:
     return m_sessionActionRunner.requestSuspendDetached();
   case IdleActionKind::LockAndSuspend:
