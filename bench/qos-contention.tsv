@@ -1,0 +1,6 @@
+qos=off	round=1	frames=600	p50=10.84	p99=47.12	max=50.67	missed=191
+qos=on	round=1	frames=600	p50=9.75	p99=14.56	max=24.71	missed=4
+qos=off	round=2	frames=600	p50=11.79	p99=71.83	max=81.77	missed=70
+qos=on	round=2	frames=600	p50=14.31	p99=26.34	max=30.65	missed=84
+qos=off	round=3	frames=600	p50=7.70	p99=54.12	max=63.84	missed=26
+qos=on	round=3	frames=600	p50=12.82	p99=19.11	max=23.13	missed=22

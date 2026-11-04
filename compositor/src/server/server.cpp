@@ -1519,7 +1519,9 @@ namespace andromeda {
     }
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
     m_systemdUnits = std::make_unique<SystemdUnits>(wl_display_get_event_loop(m_display));
-    if (m_systemdUnits->active()) {
+    // ANDROMEDA_QOS_DISABLE=1: no QoS tiers, for the with/without measurement (tests/qos-contention.sh).
+    const char* qosDisable = std::getenv("ANDROMEDA_QOS_DISABLE");
+    if (m_systemdUnits->active() && (qosDisable == nullptr || std::string_view(qosDisable) != "1")) {
       m_qos = std::make_unique<qos::Controller>(wl_display_get_event_loop(m_display), *m_systemdUnits, m_applicationScopesRequired, [this] {
         qos::Snapshot snapshot;
         for (const auto& view : views()) {
