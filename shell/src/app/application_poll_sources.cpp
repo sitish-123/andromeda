@@ -69,6 +69,9 @@ std::vector<PollSource*> Application::currentPollSources() {
   if (m_brightnessPollSource != nullptr) {
     sources.push_back(m_brightnessPollSource.get());
   }
+  if (m_memoryPressurePollSource != nullptr) {
+    sources.push_back(m_memoryPressurePollSource.get());
+  }
   sources.push_back(&m_fileWatchPollSource);
   sources.push_back(&m_ipcPollSource);
   sources.push_back(&m_dmenuIpc);
@@ -128,10 +131,10 @@ std::vector<PollSource*> Application::buildPollSources() {
   } else {
     m_brightnessPollSource.reset();
   }
-  return currentPollSources();
-}
   if (m_memoryPressurePollSource == nullptr) {
     m_memoryPressurePollSource = std::make_unique<MemoryPressurePollSource>([this] {
       trimAllocator();
     });
   }
+  return currentPollSources();
+}
