@@ -44,6 +44,17 @@ namespace settings {
 
   // A group card; an empty title leaves the heading to the page tab that selects it.
   [[nodiscard]] Flex* addSettingsCard(Flex& parent, std::string_view title, float scale);
+  // A caption above a card (direction A); the returned body takes the rows. Empty caption: card only.
+  [[nodiscard]] Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale);
+  // Wallpaper stand-in for previews (Displays, Dock): the mockup gradient of the resolved light or dark scheme.
+  void applyWallpaperIllustration(Flex& flex);
+  // A live miniature of the dock on a wallpaper-like plane: edge, icon size and magnification follow `dock`.
+  [[nodiscard]] std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale);
+  // Hairline between the rows of a card body.
+  void addSettingsRowSeparators(Flex& body, float scale);
+  // A full-width chevron row that opens another view; `trailing` is a muted value or count.
+  [[nodiscard]] std::unique_ptr<Button>
+  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick);
 
   [[nodiscard]] std::optional<std::size_t>
   optionIndex(const std::vector<SelectOption>& options, std::string_view value);

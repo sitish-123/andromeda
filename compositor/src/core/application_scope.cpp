@@ -105,9 +105,10 @@ namespace andromeda {
 
   void execApplicationInScope(
       const char* systemdRun, const char* unitArgument, const char* partOfProperty, const char* bindsToProperty,
-      const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command
+      const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command,
+      const char* cpuWeightProperty
   ) {
-    std::array<char*, 21> arguments{};
+    std::array<char*, 22> arguments{};
     size_t argumentCount = 0;
     const auto append = [&arguments, &argumentCount](const char* argument) {
       arguments[argumentCount++] = const_cast<char*>(argument);
@@ -125,6 +126,9 @@ namespace andromeda {
     append(partOfProperty);
     append(bindsToProperty);
     append(afterProperty);
+    if (cpuWeightProperty != nullptr) {
+      append(cpuWeightProperty);
+    }
     for (const std::string& argument : environmentArguments) {
       if (!argument.empty()) {
         append(argument.c_str());

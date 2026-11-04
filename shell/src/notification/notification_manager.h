@@ -3,6 +3,7 @@
 #include "config/config_types.h"
 #include "core/timer_manager.h"
 #include "notification.h"
+#include "security/storage_key_provider.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -161,17 +162,29 @@ public:
   void setHistoryRetentionHours(int hours);
   void setDoNotDisturb(bool enabled);
   [[nodiscard]] bool doNotDisturb() const noexcept;
+  // Counts every change of the Do Not Disturb state, so a holder of a timed choice can tell it was overridden.
+  [[nodiscard]] std::uint64_t doNotDisturbRevision() const noexcept { return m_doNotDisturbRevision; }
   [[nodiscard]] bool toggleDoNotDisturb();
   void setStateCallback(StateCallback callback);
+  // Runs whenever the unread count changes, not only when the any-unread flag flips.
+  int addUnreadCountCallback(std::function<void()> callback);
+  void removeUnreadCountCallback(int token);
   void setSoundPlayer(class SoundPlayer* soundPlayer);
 
   // Bar indicator: true when at least one notification was added since the user last
   // viewed the notification history (control center notifications tab).
   [[nodiscard]] bool hasUnreadNotificationHistory() const noexcept;
+  [[nodiscard]] std::size_t unreadNotificationCount() const noexcept;
   void markNotificationHistorySeen();
 
-  /// Loads persisted history from disk (call once at startup before emitting events).
+  // Secure existing files at startup; load history when its encryption key is ready.
   void loadPersistedHistory();
+  void syncHistoryPersistence(security::StorageKeyProvider& provider);
+  [[nodiscard]] bool hasEncryptedHistory() const;
+  [[nodiscard]] bool historyNeedsRecovery() const noexcept { return m_historyNeedsRecovery; }
+  bool clearEncryptedHistoryForRecovery();
+  [[nodiscard]] bool historyPersistenceReady() const noexcept { return m_historyWritable; }
+  void retryHistoryPersistence();
   /// Writes pending history to disk immediately (e.g. shutdown).
   void flushPersistedHistory();
 
@@ -207,6 +220,12 @@ private:
   int m_historyRetentionHours = 0;
   bool m_keepDismissedInHistory = true;
   bool m_persistScheduled = false;
+  bool m_historyLoaded = false;
+  bool m_historyWritable = false;
+  bool m_historyNeedsRecovery = false;
+  bool m_historyCleared = false;
+  security::StorageKeyProvider* m_historyKeyProvider = nullptr;
+  std::optional<security::SecureKey> m_historyKey;
   Timer m_historyRetentionTimer;
 
   std::deque<Notification> m_notifications;
@@ -224,10 +243,13 @@ private:
   CloseCallback m_closeCallback;
   std::vector<CloseCallback> m_closeObservers;
   StateCallback m_stateCallback;
+  std::vector<std::pair<int, std::function<void()>>> m_unreadCountCallbacks;
+  std::size_t m_lastUnreadCount = 0;
   ReplyCallback m_replyCallback;
   int m_nextCallbackToken{0};
   uint32_t m_nextId{1};
   std::uint64_t m_changeSerial{0};
   bool m_doNotDisturb = false;
+  std::uint64_t m_doNotDisturbRevision = 0;
   class SoundPlayer* m_soundPlayer = nullptr;
 };

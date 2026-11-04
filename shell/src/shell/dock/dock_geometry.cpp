@@ -1,6 +1,7 @@
 #include "shell/dock/dock_geometry.h"
 
-#include "shell/surface/shadow.h"
+#include "ui/style.h"
+#include "ui/surface_shadow.h"
 #include "wayland/layer_surface.h"
 
 #include <algorithm>
@@ -9,7 +10,7 @@
 namespace shell::dock {
   namespace {
 
-    constexpr std::int32_t kCellPad = 6;
+    constexpr std::int32_t kCellPad = 0; // keep in sync with dock_items.cpp
     constexpr std::int32_t kAutoHideTriggerPx = 2;
     // A non-integer output scale can round the flush edge a device pixel short of the output and
     // leave a visible gap. One logical pixel of overlap covers it. At integer scales the edge
@@ -17,10 +18,10 @@ namespace shell::dock {
     constexpr std::int32_t kScreenEdgeOverlapPx = 1;
     constexpr float kAutoHideSlideExtraPx = 16.0F;
     // Keep in sync with dock_items instance-count badge geometry.
-    constexpr float kBadgeSizeRatio = 0.30F;
+    TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
     constexpr float kBadgeMinSize = 16.0F;
     // Badge hangs past its icon corner by this fraction of its diameter.
-    constexpr float kBadgeCornerOverhang = 0.45F;
+    TOKENS_LIVE(kBadgeCornerOverhang, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
 
     [[nodiscard]] int dockAutoHideEdgeGutter(const DockConfig& cfg) noexcept {
       if ((!cfg.autoHide && !cfg.smartAutoHide) || cfg.marginEdge <= 0) {
@@ -154,13 +155,14 @@ namespace shell::dock {
     }
   }
 
-  std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount) {
+  std::int32_t dockContentSize(const DockConfig& cfg, std::size_t itemCount, bool separator) {
     const auto n = static_cast<std::int32_t>(itemCount);
     const std::int32_t cellSize = cfg.iconSize + kCellPad * 2;
     if (n == 0) {
       return cellSize + cfg.mainAxisPadding * 2;
     }
-    return n * cellSize + std::max(0, n - 1) * cfg.itemSpacing + cfg.mainAxisPadding * 2;
+    const std::int32_t sepSize = separator ? 1 + cfg.itemSpacing : 0;
+    return n * cellSize + std::max(0, n - 1) * cfg.itemSpacing + sepSize + cfg.mainAxisPadding * 2;
   }
 
   std::int32_t dockThickness(const DockConfig& cfg) { return cfg.iconSize + kCellPad * 2 + cfg.crossAxisPadding * 2; }
@@ -194,17 +196,17 @@ namespace shell::dock {
 
   DockSurfaceGeometry computeSurfaceGeometry(
       const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, std::size_t itemCount, bool fractionalScale,
-      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight
+      std::int32_t outputLogicalWidth, std::int32_t outputLogicalHeight, bool separator
   ) {
     const DockEdge edge = cfg.position;
     const bool vertical = isVerticalEdge(edge);
-    const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+    const auto sb = ui::surface_shadow::bleed(cfg.shadow, shadow);
     const auto concave = dockConcaveShape(cfg);
     const int insetL = static_cast<int>(concave.logicalInset.left);
     const int insetT = static_cast<int>(concave.logicalInset.top);
     const int insetR = static_cast<int>(concave.logicalInset.right);
     const int insetB = static_cast<int>(concave.logicalInset.bottom);
-    const auto panelW = dockContentSize(cfg, itemCount);
+    const auto panelW = dockContentSize(cfg, itemCount, separator);
     const auto panelH = dockThickness(cfg);
     const std::int32_t zoomPad = dockHoverZoomCrossPad(cfg);
     const std::int32_t mainPad = dockHoverZoomMainPad(cfg);
@@ -290,7 +292,7 @@ namespace shell::dock {
   computePanelGeometry(const DockConfig& cfg, const ShellConfig::ShadowConfig& shadow, float surfaceW, float surfaceH) {
     const DockEdge edge = cfg.position;
     const bool vertical = isVerticalEdge(edge);
-    const auto sb = shell::surface_shadow::bleed(cfg.shadow, shadow);
+    const auto sb = ui::surface_shadow::bleed(cfg.shadow, shadow);
     const auto concave = dockConcaveShape(cfg);
     const float insetL = concave.logicalInset.left;
     const float insetT = concave.logicalInset.top;
@@ -347,7 +349,7 @@ namespace shell::dock {
     float contentTop = panel.panelY;
     float contentRight = panel.panelX + panel.panelW;
     float contentBottom = panel.panelY + panel.panelH;
-    if (shell::surface_shadow::enabled(cfg.shadow, shadow)) {
+    if (ui::surface_shadow::enabled(cfg.shadow, shadow)) {
       const auto offset = shadowDirectionOffset(shadow.direction);
       const float sx = panel.panelX + static_cast<float>(offset.x);
       const float sy = panel.panelY + static_cast<float>(offset.y);

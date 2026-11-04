@@ -117,7 +117,7 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
   case State::Stopping:
     return "a recording is being saved";
   case State::Recording:
-    m_state = State::Stopping;
+    setState(State::Stopping);
     m_stopDeadline = std::chrono::steady_clock::now() + kStopTimeout;
     gst_element_send_event(m_pipeline, gst_event_new_eos());
     return {};
@@ -128,7 +128,7 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
   if (!gst_is_initialized()) {
     gst_init(nullptr, nullptr);
   }
-  m_state = State::Starting;
+  setState(State::Starting);
   m_region = region;
   if (std::getenv("NOCTALIA_RECORD_TEST_SOURCE") != nullptr) {
     m_crop.stream = {.x = 0, .y = 0, .width = kTestSourceWidth, .height = kTestSourceHeight};
@@ -312,7 +312,7 @@ void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
     finish(error);
     return;
   }
-  m_state = State::Recording;
+  setState(State::Recording);
   kLog.info("recording to {}{}", m_path, withAudio ? " with desktop audio" : "");
   m_notifications.addInternal(
       "Noctalia", withAudio ? "Recording started" : "Recording started without audio",
@@ -361,7 +361,7 @@ void ScreenRecorder::finish(const std::string& error) {
   m_request.reset();
   m_stopDeadline.reset();
   const bool saved = m_state == State::Stopping && error.empty();
-  m_state = State::Idle;
+  setState(State::Idle);
   if (saved) {
     kLog.info("recording saved to {}", m_path);
     m_notifications.addInternal("Noctalia", "Recording saved", m_path);
@@ -424,5 +424,13 @@ void ScreenRecorder::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*
       return;
     }
     gst_message_unref(message);
+  }
+}
+
+void ScreenRecorder::setState(State state) {
+  const bool wasActive = active();
+  m_state = state;
+  if (wasActive != active() && m_activeCallback) {
+    m_activeCallback();
   }
 }

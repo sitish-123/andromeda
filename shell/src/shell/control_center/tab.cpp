@@ -21,7 +21,7 @@ namespace control_center {
         .text = text,
         .fontSize = Style::fontSizeTitle * scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
     });
     parent.addChild(std::move(label));
     return ptr;
@@ -32,19 +32,19 @@ namespace control_center {
         ui::label({
             .text = text,
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
   }
 
   std::unique_ptr<Flex> makeCardHeaderRow(const std::string& title, float scale) {
     return ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = Style::controlHeightSm * scale},
+        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .minHeight = Style::controlHeight * scale},
         ui::label({
             .text = title,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );

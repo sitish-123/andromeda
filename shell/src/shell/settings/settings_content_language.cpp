@@ -3,6 +3,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_control_factory.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -16,16 +17,6 @@ namespace settings {
   namespace {
 
     constexpr float kSelectWidth = 260.0F;
-
-    std::unique_ptr<Flex> makeRow(std::string_view title, std::unique_ptr<Node> control, float scale) {
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
-      );
-      row->addChild(ui::spacer());
-      row->addChild(std::move(control));
-      return row;
-    }
 
     std::string currentLang(const LocaleService& locale) {
       for (const std::string& assignment : locale.locale()) {
@@ -49,7 +40,7 @@ namespace settings {
     const std::vector<std::string> langs = LocaleService::supportedLocales();
     const std::string lang = currentLang(locale);
     const auto langIt = std::ranges::find(langs, lang);
-    body->addChild(makeRow(
+    body->addChild(SettingsControlFactory::makeRow(
         i18n::tr("settings.language.language"),
         ui::select({
             .options = langs,
@@ -75,7 +66,7 @@ namespace settings {
       layoutNames.push_back(layout.name);
       layoutLabels.push_back(layout.description);
     }
-    body->addChild(makeRow(
+    body->addChild(SettingsControlFactory::makeRow(
         i18n::tr("settings.language.keyboard-layout"),
         ui::select({
             .options = std::move(layoutLabels),
@@ -94,7 +85,7 @@ namespace settings {
 
     if (!locale.lastError().empty()) {
       body->addChild(
-          makeLabel(locale.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Error))
+          makeLabel(locale.lastError(), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::DangerText))
       );
     }
   }

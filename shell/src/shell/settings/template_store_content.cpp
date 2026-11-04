@@ -458,7 +458,7 @@ namespace settings {
             .text =
                 i18n::tr("settings.templates.store.results-count", "count", std::to_string(m_filteredIndices.size())),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     summaryRow.addChild(
@@ -506,7 +506,7 @@ namespace settings {
     probe->bind("Mg", "category", false, false, false, true, {});
     const float cardHeight = std::ceil(probe->measure(renderer, LayoutConstraints{}).height);
     // Floor above checkbox+tight padding — two caption lines need more than controlHeightSm alone.
-    const float minCardHeight = (Style::controlHeightSm + Style::spaceSm * 2.0F) * scale;
+    const float minCardHeight = (Style::controlHeight + Style::spaceSm * 2.0F) * scale;
     auto grid = ui::virtualGridView({
         .out = &m_grid,
         .contentScale = scale,
@@ -537,7 +537,7 @@ namespace settings {
               .text = m_catalog.empty() ? i18n::tr("settings.schema.templates.community-ids.empty")
                                         : i18n::tr("settings.templates.store.empty"),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }

@@ -75,7 +75,8 @@ BatteryWidget::BatteryWidget(UPowerService* upower, Options options)
     : m_upower(upower), m_deviceSelector(std::move(options.deviceSelector)),
       m_warningThreshold(options.warningThreshold), m_warningColor(options.warningColor),
       m_displayMode(options.displayMode), m_labelContent(options.labelContent), m_showLabel(options.showLabel),
-      m_hideWhenPlugged(options.hideWhenPlugged), m_hideWhenFull(options.hideWhenFull) {}
+      m_hideWhenPlugged(options.hideWhenPlugged), m_hideWhenFull(options.hideWhenFull),
+      m_islandStyle(options.islandStyle) {}
 
 // Vertical bars are too narrow for time or rate text, so they always show the bare percentage; the
 // tooltip carries the full detail. Time and rate are only known while the battery is actively charging
@@ -150,7 +151,7 @@ void BatteryWidget::createGraphicMode() {
             .out = &m_overlayLabel,
             .fontWeight = labelFontWeight(),
             .fontFamily = labelFontFamily(),
-            .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
             .textAlign = TextAlign::Center,
         })
     );
@@ -159,7 +160,7 @@ void BatteryWidget::createGraphicMode() {
   container->addChild(
       ui::glyph({
           .out = &m_overlayGlyph,
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .visible = false,
       })
   );
@@ -179,7 +180,7 @@ void BatteryWidget::createGlyphMode() {
           .out = &m_glyph,
           .glyph = "battery-4",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -228,6 +229,24 @@ void BatteryWidget::doLayout(Renderer& renderer, float containerWidth, float con
 void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
   auto* rootNode = root();
   if (m_bodyBg == nullptr || m_fillRect == nullptr || m_terminalNub == nullptr || rootNode == nullptr) {
+    return;
+  }
+
+  if (m_islandStyle && !m_isVertical) {
+    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height, centered in a 22 px box; units are
+    // symbol units times s.
+    const float s = Tokens::componentIslandIcon / 24.0F * m_contentScale;
+    const float boxW = 22.0F * m_contentScale;
+    const float offX = (boxW - 26.0F * s) * 0.5F;
+    m_bodyBg->setRadius(4.4F * s);
+    m_bodyBg->setPosition(offX + 0.1F * s, 5.1F * s);
+    m_bodyBg->setSize(21.8F * s, 13.8F * s);
+    m_terminalNub->setRadius(0.9F * s);
+    m_terminalNub->setPosition(offX + 22.6F * s, 9.1F * s);
+    m_terminalNub->setSize(1.8F * s, 5.8F * s);
+    m_fillRect->setRadius(1.5F * s);
+    updateFillGeometry();
+    rootNode->setSize(boxW, 24.0F * s);
     return;
   }
 
@@ -358,6 +377,13 @@ void BatteryWidget::updateFillGeometry() {
 
   const float fraction = std::clamp(m_animatedPct / 100.0F, 0.0F, 1.0F);
 
+  if (m_islandStyle && !m_isVertical) {
+    const float s = m_bodyBg->height() / 13.8F;
+    m_fillRect->setPosition(m_bodyBg->x() + 3.4F * s, 8.5F * s);
+    m_fillRect->setSize(12.0F * s * fraction, 7.0F * s);
+    return;
+  }
+
   if (m_isVertical) {
     const float bodyW = m_bodyBg->width();
     const float bodyH = m_bodyBg->height();
@@ -374,22 +400,27 @@ void BatteryWidget::updateFillGeometry() {
 }
 
 void BatteryWidget::syncPalette() {
-  const ColorSpec normalFg = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+  const ColorSpec normalFg = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
   const bool isWarning = m_warningThreshold > 0
       && m_lastPct >= 0.0
       && std::round(m_lastPct) <= m_warningThreshold
       && !batteryStatePlugged(m_lastState).value_or(false);
   const ColorSpec foreground = isWarning ? m_warningColor : normalFg;
 
-  if (m_showLabel) {
+  if (m_islandStyle && !m_isVertical) {
+    m_bodyBg->setFill(Color{0.0F, 0.0F, 0.0F, 0.0F});
+    m_bodyBg->setBorder(foreground, 1.8F * Tokens::componentIslandIcon / 24.0F * m_contentScale);
+    m_fillRect->setFill(foreground);
+    m_terminalNub->setFill(foreground);
+  } else if (m_showLabel) {
     // Same light-on-dark body as the unlabelled battery, so it matches neighbouring glyphs. The track stays opaque and
     // light enough that surface-colored text reads on both sides of the moving fill boundary.
     const Color fg = resolveColorSpec(foreground);
-    const Color track = lerpColor(fg, colorForRole(ColorRole::Surface), 0.35F);
+    const Color track = lerpColor(fg, colorForRole(ColorRole::SolidRegular), 0.35F);
     m_bodyBg->setFill(track);
     m_fillRect->setFill(foreground);
     m_terminalNub->setFill(foreground);
-    m_overlayLabel->setColor(colorSpecFromRole(ColorRole::Surface));
+    m_overlayLabel->setColor(colorSpecFromRole(ColorRole::SolidRegular));
   } else {
     m_bodyBg->setFill(scaleAlpha(foreground, 0.3F));
     m_fillRect->setFill(foreground);
@@ -462,15 +493,15 @@ void BatteryWidget::syncState(Renderer& renderer) {
     const auto newPct = static_cast<float>(s.percentage);
     if (m_animations != nullptr && std::abs(m_animatedPct - newPct) > 0.5F) {
       m_animations->cancel(m_fillAnim);
-      m_fillAnim = m_animations->animate(
-          m_animatedPct, newPct, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+      m_fillAnim = m_animations->animateSpring(
+          m_animatedPct, newPct, Style::spring(Tokens::springMove),
           [this](float v) {
             m_animatedPct = v;
             updateFillGeometry();
             requestRedraw();
           },
           [this] { m_fillAnim = 0; }, this
-      );
+      , 0.0F, Unit::Px);
       requestFrameTick();
     } else {
       m_animatedPct = newPct;
@@ -498,9 +529,9 @@ void BatteryWidget::syncState(Renderer& renderer) {
       m_overlayGlyph->setVisible(stateGlyph != nullptr);
     }
   } else if (m_displayMode == BatteryDisplayMode::Glyph) {
-    const ColorSpec iconColor = isWarning ? m_warningColor : widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec iconColor = isWarning ? m_warningColor : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1));
     const ColorSpec labelColor =
-        isWarning ? m_warningColor : widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        isWarning ? m_warningColor : widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
 
     if (m_glyph != nullptr) {
       m_glyph->setGlyph(batteryGlyphName(s.percentage, s.state));
@@ -516,7 +547,7 @@ void BatteryWidget::syncState(Renderer& renderer) {
       m_label->measure(renderer);
     }
   } else if (m_displayMode == BatteryDisplayMode::None) {
-    const ColorSpec normalFgColor = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    const ColorSpec normalFgColor = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     const ColorSpec fgColor = isWarning ? m_warningColor : normalFgColor;
 
     if (m_label != nullptr && m_showLabel) {

@@ -14,6 +14,8 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
+#include <pthread.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -38,7 +40,6 @@ namespace noctalia::theme {
     // been quiet for kRequestQuietWindow, and at the latest kMaxRequestDeferral after the
     // first request of the burst.
     constexpr auto kRequestQuietWindow = std::chrono::milliseconds(100);
-    constexpr auto kWorkerIdleExit = std::chrono::seconds(30);
     constexpr auto kMaxRequestDeferral = std::chrono::milliseconds(500);
 
     std::filesystem::path builtinTemplateConfigPath() { return paths::assetPath("templates/builtin.toml"); }
@@ -174,8 +175,10 @@ namespace noctalia::theme {
 
   } // namespace
 
-  TemplateApplyService::TemplateApplyService(ConfigService& config, std::chrono::milliseconds hookShutdownGrace)
-      : m_config(config), m_hookShutdownGrace(hookShutdownGrace),
+  TemplateApplyService::TemplateApplyService(
+      ConfigService& config, std::chrono::milliseconds hookShutdownGrace, std::chrono::milliseconds workerIdleExit
+  )
+      : m_config(config), m_hookShutdownGrace(hookShutdownGrace), m_workerIdleExit(workerIdleExit),
         m_hookRunner(std::make_unique<HookRunner>(HookRunner::kDefaultMaxConcurrent, m_hookCancel)) {}
 
   TemplateApplyService::~TemplateApplyService() {
@@ -372,16 +375,12 @@ namespace noctalia::theme {
       });
     }
 
-    // GTK extensions of community templates load through the built-in GTK templates, so they
-    // follow those toggles.
-    GtkToolkits gtkToolkits;
-    if (request.templates.enableBuiltinTemplates) {
-      gtkToolkits.gtk3 = std::ranges::contains(request.templates.builtinIds, "gtk3");
-      gtkToolkits.gtk4 = std::ranges::contains(request.templates.builtinIds, "gtk4");
-    }
+    // GTK extensions of community templates load through andromeda.css (toolkit_theme_files), which the shell
+    // always writes, so both toolkits take them.
+    const GtkToolkits gtkToolkits{.gtk3 = true, .gtk4 = true};
     const std::filesystem::path gtk3Dir = gtkConfigDir(GtkToolkit::Gtk3);
     const std::filesystem::path gtk4Dir = gtkConfigDir(GtkToolkit::Gtk4);
-    // noctalia.css imports the extension index; it has to exist before that import is written.
+    // andromeda.css imports the extension index; it has to exist before that import is written.
     if (gtkToolkits.gtk3)
       (void)ensureGtkExtensionIndex(gtk3Dir);
     if (gtkToolkits.gtk4)
@@ -618,13 +617,19 @@ namespace noctalia::theme {
     return resolved;
   }
 
+  bool TemplateApplyService::running() const {
+    std::scoped_lock lock(m_mutex);
+    return m_workerRunning;
+  }
+
   void TemplateApplyService::workerLoop() const {
+    pthread_setname_np(pthread_self(), "dsk-template");
     while (true) {
       ApplyRequest request;
       {
         std::unique_lock lock(m_mutex);
 
-        if (!m_cv.wait_for(lock, kWorkerIdleExit, [this]() { return m_shutdown || m_pendingRequest.has_value(); })) {
+        if (!m_cv.wait_for(lock, m_workerIdleExit, [this]() { return m_shutdown || m_pendingRequest.has_value(); })) {
           m_workerRunning = false;
           return;
         }

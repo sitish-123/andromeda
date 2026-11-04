@@ -8,8 +8,8 @@
 
 namespace noctalia::cli {
 
-  inline constexpr std::array<std::string_view, 10> kBuiltinPaletteNames{
-      "Ayu", "Catppuccin", "Dracula", "Eldritch", "Gruvbox", "Kanagawa", "Noctalia", "Nord", "Rosé Pine", "Tokyo-Night",
+  inline constexpr std::array<std::string_view, 11> kBuiltinPaletteNames{
+      "Andromeda", "Ayu", "Catppuccin", "Dracula", "Eldritch", "Gruvbox", "Kanagawa", "Noctalia", "Nord", "Rosé Pine", "Tokyo-Night",
   };
 
   inline constexpr std::array kMsgColorSchemeSetBuiltinPositionals{
@@ -173,6 +173,9 @@ namespace noctalia::cli {
       Positional{"summary", {}, {}, true, false, false},
       Positional{"body", {}, {}, true, false, true},
   };
+  inline constexpr std::array kMsgLiveActivityActionPositionals{
+      Positional{"button", {}, {}, true, false, false},
+  };
   inline constexpr std::array kMsgNotificationActionLatestPositionals{
       Positional{"action", {}, {}, true, false, false},
   };
@@ -181,7 +184,7 @@ namespace noctalia::cli {
   };
   inline constexpr std::array kMsgOsdShowPositionals{
       Positional{"icon", {}, {}, true, false, false},
-      Positional{"value", "Text shown next to the icon", {}, false, false, true},
+      Positional{"value", "Text shown next to the icon; NN% or a decimal 0.0 to 1.0 also draws the level bar", {}, false, false, true},
   };
   inline constexpr std::array kMsgPanelClosePositionals{
       Positional{"id", {}, {}, false, false, false},
@@ -261,6 +264,9 @@ namespace noctalia::cli {
   };
   inline constexpr std::array kMsgSettingsOpenPositionals{
       Positional{"context", {}, {}, false, false, false},
+  };
+  inline constexpr std::array kMsgActivityOpenPositionals{
+      Positional{"row", {}, {}, false, false, false},
   };
   inline constexpr std::array kMsgSettingsOpenPluginPositionals{
       Positional{"plugin-id", {}, {}, true, false, false},
@@ -387,6 +393,16 @@ namespace noctalia::cli {
   };
 
   namespace msg {
+    inline constexpr Command activityCheck{
+        "activity-check", "Run the background-activity check now and post any new warnings", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command activityOpen{
+        "activity-open", "Open the Activity window, optionally with a row (app ID or unit name) selected", {}, {}, {},
+        kMsgActivityOpenPositionals, {}, false
+    };
+    inline constexpr Command activityDump{
+        "activity-dump", "Print Activity rows as JSON and keep sampling for 10 s", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command annotate{
         "annotate",
         "Draw on the screen over running apps, or annotate an image file; press Z or the Freeze button to capture the "
@@ -502,7 +518,7 @@ namespace noctalia::cli {
     };
     inline constexpr Command colorSchemeSet{
         "color-scheme-set",
-        "Set palette source and selection in settings.toml (builtin name, wallpaper generator scheme, community id, "
+        "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, "
         "or custom scheme folder name)",
         {},
         {},
@@ -622,6 +638,9 @@ namespace noctalia::cli {
     inline constexpr Command logLevelStatus{
         "log-level-status", "Print the current console log level", {}, {}, {}, {}, {}, false
     };
+    inline constexpr Command debugThreads{
+        "debug-threads", "List the threads the shell created (dsk- prefix)", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command media{"media", "Control active media playback", {}, {}, {}, kMsgMediaPositionals, {},
                                    false};
     inline constexpr Command micMute{"mic-mute", "Toggle microphone mute", {}, {}, {}, {}, {}, false};
@@ -696,6 +715,19 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command liveActivityStatus{
+        "live-activity", "Print the center island live activity: title, subtitle and its buttons, or none", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command liveActivityAction{
+        "live-activity-action",
+        "Press a button of the center island live activity: secondary (mute) or primary (decline, stop)",
+        {},
+        {},
+        {},
+        kMsgLiveActivityActionPositionals,
+        {},
+        false
+    };
     inline constexpr Command notificationActionLatest{
         "notification-action-latest",
         "Invoke an action of the most recent active notification that has it",
@@ -747,6 +779,12 @@ namespace noctalia::cli {
         {},           {},
         {},           kMsgPanelOpenPositionals,
         {},           false
+    };
+    inline constexpr Command panelState{
+        "panel-state", "Print the open panel id and its page, or none", {}, {}, {}, {}, {}, false
+    };
+    inline constexpr Command panelRect{
+        "panel-rect", "Print the open panel card as x y width height and the island top, in output pixels, or none", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command panelToggle{
         "panel-toggle",
@@ -874,7 +912,7 @@ namespace noctalia::cli {
         "theme-mode-get", "Print the current resolved theme mode", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command themeModeSet{"theme-mode-set",
-                                          "Set theme mode and persist to settings.toml",
+                                          "Set theme mode and persist to overrides.toml",
                                           {},
                                           {},
                                           {},
@@ -1115,6 +1153,9 @@ namespace noctalia::cli {
   } // namespace msg
 
   inline constexpr std::array kMsgSubcommands{
+      msg::activityCheck,
+      msg::activityDump,
+      msg::activityOpen,
       msg::airplaneStatus,
       msg::airplaneToggle,
       msg::annotate,
@@ -1176,6 +1217,8 @@ namespace noctalia::cli {
       msg::linkRinging,
       msg::linkShare,
       msg::linkUnpair,
+      msg::liveActivityAction,
+      msg::liveActivityStatus,
       msg::quickShareVisible,
       msg::locationStatus,
       msg::quickShareNearby,
@@ -1185,6 +1228,7 @@ namespace noctalia::cli {
       msg::lockscreenWidgetsToggleEdit,
       msg::logLevelSet,
       msg::logLevelStatus,
+      msg::debugThreads,
       msg::media,
       msg::micMute,
       msg::micVolumeDown,
@@ -1212,6 +1256,8 @@ namespace noctalia::cli {
       msg::osdToggle,
       msg::panelClose,
       msg::panelOpen,
+      msg::panelRect,
+      msg::panelState,
       msg::panelToggle,
       msg::plugin,
       msg::plugins,

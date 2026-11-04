@@ -1,11 +1,10 @@
 // docs/user/actions.md is the action reference. Its tables are the same strings `andromeda msg --help` prints, so a new
 // action, a renamed one, or a reworded summary that never reaches the doc is a failure here rather than a silently
-// stale page. The doc is also required to group actions exactly as the cheatsheet and the CLI do: one taxonomy, three
-// renderings.
+// stale page. The doc is also required to group actions exactly as the CLI does: one taxonomy, two renderings.
 
 #include "check.h"
 #include "config/keybind_parse.h"
-#include "scene/cheatsheet_rows.h"
+#include "config/action_groups.h"
 
 #include <algorithm>
 #include <fstream>
@@ -193,7 +192,7 @@ ANDROMEDA_TEST(actionsDocListsEveryActionOnceAndNothingElse) {
   }
 }
 
-ANDROMEDA_TEST(actionsDocSectionsFollowTheCheatsheetOrder) {
+ANDROMEDA_TEST(actionsDocSectionsFollowTheCliOrder) {
   std::vector<std::string> expected;
   for (const Group group : fixedGroupOrder()) {
     expected.emplace_back(groupTitle(group));

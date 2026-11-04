@@ -10,6 +10,9 @@
 namespace andromeda {
 
   namespace {
+    // Liquid is the glass slider's clarity (1 Clear, 0.5 Tinted, 0 Frosted): Clear blurs at 30 %, Tinted at 65 %, so
+    // the rim refraction bends shapes, not a smear, yet the backdrop stays calm behind text.
+    float liquidBlurStrength(float liquid) { return 1.0F - 0.7F * liquid; }
 
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
@@ -46,7 +49,7 @@ namespace andromeda {
   void SurfaceBlur::update(
       wlr_scene_tree* parent, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& surfaceBox,
       fx_corner_radii corners, const wlr_box* clipBox, const SurfaceBlurOptions& options, float surfaceOpacity,
-      wlr_scene_buffer* maskSource
+      wlr_scene_buffer* maskSource, const pixman_region32_t* clipRegion
   ) {
     const Config::Appearance::Blur& cfg = config().appearance.blur;
     wlr_box drawBox = nodeBox;
@@ -116,12 +119,25 @@ namespace andromeda {
     if (m_node->alpha != m_alpha) {
       wlr_scene_blur_set_alpha(m_node, m_alpha);
     }
+    wlr_scene_blur_set_liquid(m_node, m_liquid);
+    wlr_scene_blur_set_rim(m_node, m_rim);
+    wlr_scene_blur_set_backdrop_sampling(m_node, m_backdropSampling);
+    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * m_fade);
+    // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
+    // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
+    if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
+      const pixman_box32_t* e = pixman_region32_extents(clipRegion);
+      const wlr_box shape{e->x1 + nodeBox.x - drawBox.x, e->y1 + nodeBox.y - drawBox.y, e->x2 - e->x1, e->y2 - e->y1};
+      wlr_scene_blur_set_liquid_shape(m_node, &shape, std::min(shape.width, shape.height) / 2);
+    } else {
+      wlr_scene_blur_set_liquid_shape(m_node, nullptr, 0);
+    }
     wlr_scene_buffer* shapeSource = wlr_scene_blur_get_transparency_mask_source(m_node);
     const pixman_region32_t* shape =
         shapeSource != nullptr ? wlr_scene_node_get_clip_region(&shapeSource->node) : nullptr;
+    pixman_region32_t clip;
+    pixman_region32_init(&clip);
     if (shape != nullptr) {
-      pixman_region32_t clip;
-      pixman_region32_init(&clip);
       pixman_region32_copy(&clip, shape);
       int sourceX = 0;
       int sourceY = 0;
@@ -130,17 +146,62 @@ namespace andromeda {
       wlr_scene_node_coords(&shapeSource->node, &sourceX, &sourceY);
       wlr_scene_node_coords(&m_node->node, &blurX, &blurY);
       pixman_region32_translate(&clip, sourceX - blurX, sourceY - blurY);
-      wlr_scene_node_set_clip_region(&m_node->node, &clip);
-      pixman_region32_fini(&clip);
-    } else {
-      wlr_scene_node_set_clip_region(&m_node->node, nullptr);
+    }
+    if (clipRegion != nullptr) {
+      pixman_region32_t region;
+      pixman_region32_init(&region);
+      pixman_region32_copy(&region, clipRegion);
+      pixman_region32_translate(&region, nodeBox.x - drawBox.x, nodeBox.y - drawBox.y);
+      if (shape != nullptr) {
+        pixman_region32_intersect(&clip, &clip, &region);
+      } else {
+        pixman_region32_copy(&clip, &region);
+      }
+      pixman_region32_fini(&region);
+    }
+    wlr_scene_node_set_clip_region(&m_node->node, shape != nullptr || clipRegion != nullptr ? &clip : nullptr);
+    pixman_region32_fini(&clip);
+  }
+
+  void SurfaceBlur::setBackdropSampling(bool enabled) {
+    m_backdropSampling = enabled;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_backdrop_sampling(m_node, enabled);
     }
   }
+
+  bool SurfaceBlur::pollBackdrop(float* luminance) {
+    return m_node != nullptr && wlr_scene_blur_poll_backdrop(m_node, luminance);
+  }
+
+  bool SurfaceBlur::backdropPending() const { return m_node != nullptr && wlr_scene_blur_backdrop_pending(m_node); }
 
   void SurfaceBlur::setAlpha(float alpha) {
     m_alpha = alpha;
     if (m_node != nullptr && m_node->alpha != alpha) {
       wlr_scene_blur_set_alpha(m_node, alpha);
+    }
+  }
+
+  void SurfaceBlur::setLiquid(float liquid) {
+    m_liquid = liquid;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_liquid(m_node, liquid);
+      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid) * m_fade);
+    }
+  }
+
+  void SurfaceBlur::setRim(float rim) {
+    m_rim = rim;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_rim(m_node, rim);
+    }
+  }
+
+  void SurfaceBlur::setFade(float fade) {
+    m_fade = fade;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * fade);
     }
   }
 
@@ -156,5 +217,7 @@ namespace andromeda {
       wlr_scene_node_set_enabled(&m_node->node, false);
     }
   }
+
+  bool SurfaceBlur::active() const { return m_node != nullptr && m_node->node.enabled; }
 
 } // namespace andromeda

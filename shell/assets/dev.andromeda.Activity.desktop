@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Activity
+GenericName=Task Manager
+Comment=See what uses CPU, memory, GPU and energy; stop apps and background services
+Exec=noctalia msg activity-open
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=task manager;process;system monitor;cpu;memory;gpu;background;services;kill;
+StartupNotify=false
+StartupWMClass=dev.andromeda.Activity

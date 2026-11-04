@@ -1,0 +1,241 @@
+<!doctype html>
+<!-- The design reference. Every size and color comes from tokens.css (generated from protocol/design-tokens.toml);
+     `just design-reference` regenerates tokens.css and renders reference.png. Shell captures are compared with it. -->
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="tokens.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { width: 1600px; display: flex; font: var(--type-body); font-feature-settings: "cv11", "ss01"; }
+.pane { width: 800px; padding: 24px 20px 32px; color: var(--label-1); display: flex; flex-direction: column; gap: 22px;
+  background:
+    radial-gradient(circle at 18% 12%, #ff9a6b 0, transparent 30%), radial-gradient(circle at 80% 10%, #6f8bff 0, transparent 34%),
+    radial-gradient(circle at 62% 60%, #2fd3b4 0, transparent 32%), radial-gradient(circle at 22% 80%, #b06bff 0, transparent 30%),
+    linear-gradient(135deg, #f6c9a8, #9fb6ff 55%, #8fe6d2); }
+.pane.dark { background:
+    radial-gradient(circle at 18% 12%, #6a2f4a 0, transparent 30%), radial-gradient(circle at 80% 10%, #1e2f7a 0, transparent 34%),
+    radial-gradient(circle at 62% 60%, #0d5a50 0, transparent 32%), radial-gradient(circle at 22% 80%, #3d1f6e 0, transparent 30%),
+    linear-gradient(135deg, #24161c, #121a33 55%, #0c2a28); }
+.h { font: var(--type-large); color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.spec { font: var(--type-caption); color: rgba(255,255,255,.95); text-shadow: 0 1px 3px rgba(0,0,0,.4); margin-top: 6px; }
+.row-x { display: flex; gap: 16px; align-items: flex-start; }
+.col { display: flex; flex-direction: column; }
+svg.i { width: var(--component-island-icon); height: var(--component-island-icon); fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* Material: tint over the compositor blur (the blur radius here only approximates the compositor recipe). */
+.glass { background: var(--tint-regular); backdrop-filter: blur(28px) saturate(var(--blur-saturation));
+  box-shadow: 0 calc(var(--elevation-e2-offset-y) * 1px) calc(var(--elevation-e2-softness) * 1px) var(--shadow),
+    inset 0 0.5px 0 var(--edge); border: 0.5px solid var(--stroke); }
+#light .glass { backdrop-filter: blur(28px) saturate(var(--blur-light-saturation)) brightness(var(--blur-light-brightness))
+  contrast(var(--blur-light-contrast)); }
+/* Smooth corners, the shader formula (radius.smoothing): set --r (radius) and, when the box may be too small to grow the
+   corner, --half (half its shorter side). */
+.sheet, .card, .art, .app, .board, .sl, .sl .fill, .sw i, .radii div {
+  --half: 999px; --s: min(var(--radius-smoothing), max(0, (var(--half) / var(--r) - 1) / 0.88));
+  border-radius: calc(var(--r) * (1 + 0.88 * var(--s))); corner-shape: superellipse(log(2 + 5 * var(--s), 2)); }
+.t { font: var(--type-title); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st { font: var(--type-caption); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.txt { min-width: 0; }
+
+/* Bar islands */
+.bar { display: flex; justify-content: space-between; align-items: flex-start; height: var(--component-live-height); }
+.island { height: var(--component-island-height); border-radius: var(--radius-pill); display: flex; align-items: center;
+  gap: var(--component-island-gap); padding: 0 var(--component-island-padding-x); }
+.island b { font-weight: 700; }
+.logo { width: var(--component-island-logo); height: var(--component-island-logo); border-radius: 50%;
+  background: conic-gradient(#2f6bff, #9b5cff, #ff7a59, #2f6bff); }
+.ws { display: flex; gap: var(--component-island-dot-gap); }
+.ws i { width: var(--component-island-dot); height: var(--component-island-dot); border-radius: 50%; background: var(--label-3); }
+.ws i.on { width: var(--component-island-dot-active-width); border-radius: var(--component-island-dot-active-radius); background: var(--label-1); }
+.clock { font-weight: 600; }
+.live { height: var(--component-live-height); border-radius: var(--component-live-radius); padding: 0 var(--component-live-padding);
+  gap: var(--component-live-gap); display: flex; align-items: center; background: var(--component-live-tint); color: #fff;
+  box-shadow: 0 calc(var(--elevation-e2-offset-y) * 1px) calc(var(--elevation-e2-softness) * 1px) var(--shadow); }
+.live .lead { width: var(--component-live-lead); height: var(--component-live-lead); border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); }
+.live .st { color: rgba(255,255,255,.7); }
+.live .prog { width: var(--component-live-progress-width); height: var(--component-live-progress-height); border-radius: var(--radius-pill);
+  background: rgba(255,255,255,.2); overflow: hidden; }
+.live .prog i { display: block; height: 100%; width: 62%; background: #fff; border-radius: inherit; }
+.live .btn { width: var(--component-live-button); height: var(--component-live-button); border-radius: 50%; display: grid; place-items: center;
+  background: rgba(255,255,255,.14); }
+.live .btn.danger { background: var(--danger); }
+
+/* Control center sheet */
+.sheet { width: var(--component-sheet-width); padding: var(--component-sheet-padding); --r: var(--component-sheet-radius);
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--component-sheet-gap); }
+.card { background: var(--fill-1); --r: var(--component-card-radius); padding: var(--component-card-padding); min-width: 0; }
+.conn { grid-row: span 2; display: flex; flex-direction: column; justify-content: center; gap: var(--component-card-row-gap); }
+.wide { display: flex; align-items: center; gap: var(--component-card-row-gap); min-width: 0; }
+.small { display: flex; align-items: center; gap: var(--component-card-small-gap); }
+.dot { width: var(--component-round-icon-size); height: var(--component-round-icon-size); border-radius: 50%; display: grid;
+  place-items: center; background: var(--fill-3); color: var(--label-1); flex: none; }
+.dot svg.i { width: var(--component-round-icon-glyph); height: var(--component-round-icon-glyph); }
+.dot.on { background: var(--accent); color: var(--on-accent); }
+.sl { grid-column: span 2; height: var(--component-slider-height); --r: var(--component-slider-radius);
+  --half: calc(var(--component-slider-height) / 2); background: var(--fill-1);
+  position: relative; overflow: hidden; display: flex; align-items: center; }
+.sl .fill { position: absolute; inset: 0 auto 0 0; background: var(--component-slider-fill); --r: var(--component-slider-radius);
+  --half: calc(var(--component-slider-height) / 2);
+  box-shadow: 0 1px 4px rgba(0,0,0,.10); }
+.sl svg { position: relative; margin-left: var(--component-slider-icon-inset); color: rgba(0,0,0,.6); }
+.sl span { position: relative; margin-left: auto; margin-right: var(--component-slider-value-inset); font: var(--type-caption); color: var(--label-2); }
+.span2 { grid-column: span 2; display: flex; align-items: center; gap: var(--component-card-row-gap); }
+.art { width: var(--component-media-art); height: var(--component-media-art); --r: var(--component-media-art-radius);
+  background: linear-gradient(135deg, #ff7a59, #b06bff); flex: none; }
+.ctl { margin-left: auto; display: flex; gap: var(--component-media-controls-gap); }
+.acts { margin-left: auto; display: flex; gap: var(--component-round-icon-action-gap); }
+.acts span { width: var(--component-round-icon-action); height: var(--component-round-icon-action); border-radius: 50%;
+  background: var(--fill-3); display: grid; place-items: center; }
+
+/* Dock */
+.dock { align-self: flex-start; padding: var(--component-dock-padding); border-radius: var(--component-dock-radius); display: flex;
+  gap: var(--component-dock-gap); align-items: flex-end; }
+.app { width: var(--component-dock-icon); height: var(--component-dock-icon); --r: var(--component-dock-icon-radius);
+  --half: calc(var(--component-dock-icon) / 2);
+  position: relative; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+.app.run::after { content: ""; position: absolute; left: 50%; width: var(--component-dock-running-width); height: var(--component-dock-running-height);
+  bottom: calc(-1 * (var(--component-dock-running-offset) + var(--component-dock-running-height))); transform: translateX(-50%);
+  border-radius: 2px; background: var(--label-2); }
+.badge { position: absolute; top: calc(-1 * var(--component-badge-overhang)); right: calc(-1 * var(--component-badge-overhang)); min-width: var(--component-badge-height); height: var(--component-badge-height);
+  padding: 0 var(--component-badge-padding-x); border-radius: var(--radius-pill); background: var(--danger); color: #fff;
+  font: var(--component-badge-font-weight) var(--component-badge-font)/var(--component-badge-height) var(--font-family); text-align: center; }
+.sep { width: 1px; align-self: stretch; margin: var(--component-dock-separator-inset) 2px; background: var(--separator); }
+
+/* Foundations */
+.found { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.board { padding: var(--component-sheet-padding); --r: var(--component-sheet-radius); display: flex; flex-direction: column; gap: 10px; }
+.sw { display: flex; flex-wrap: wrap; gap: 6px; }
+.sw div { width: 52px; font: var(--type-mini); color: var(--label-2); text-align: center; }
+.sw i { display: block; height: 28px; --r: var(--radius-xs); margin-bottom: 3px; border: 0.5px solid var(--stroke); }
+.radii { display: flex; gap: 8px; align-items: flex-end; }
+.radii div { width: 40px; height: 40px; background: var(--fill-3); font: var(--type-mini); color: var(--label-2); display: grid; place-items: center; }
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="wifi" viewBox="0 0 24 24"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1"/></symbol>
+  <symbol id="wifi-off" viewBox="0 0 24 24"><path d="M8.5 15.5a5 5 0 0 1 7 0M5 12a10 10 0 0 1 5-2.8M2 8.5a15 15 0 0 1 6-3.5M3 3l18 18"/><circle cx="12" cy="19" r="1"/></symbol>
+  <symbol id="bt" viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></symbol>
+  <symbol id="moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></symbol>
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></symbol>
+  <symbol id="vol" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/></symbol>
+  <symbol id="prev" viewBox="0 0 24 24"><path d="M19 5L9 12l10 7zM5 5v14"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z" fill="currentColor"/></symbol>
+  <symbol id="next" viewBox="0 0 24 24"><path d="M5 5l10 7-10 7zM19 5v14"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="mic-off" viewBox="0 0 24 24"><path d="M3 3l18 18M9 5a3 3 0 0 1 6 0v5M15 13a3 3 0 0 1-6-1V9M5 10a7 7 0 0 0 12 4M12 17v4"/></symbol>
+  <symbol id="batt" viewBox="0 0 26 24"><rect x="1" y="6" width="20" height="12" rx="3.5"/><rect x="3.5" y="8.5" width="12" height="7" rx="1.5" fill="currentColor"/><path d="M23.5 10v4"/></symbol>
+</svg>
+
+<template id="scene">
+  <div class="h"></div>
+
+  <div class="col">
+    <div class="bar">
+      <div class="island glass"><span class="logo"></span><b>Files</b><span class="ws"><i class="on"></i><i></i><i></i><i></i></span></div>
+      <div class="live">
+        <span class="lead"><svg class="i"><use href="#phone"/></svg></span>
+        <div class="txt"><div class="t">Sending to Pixel 9</div><div class="st">3 photos, 41 MB of 66 MB</div></div>
+        <div class="prog"><i></i></div>
+        <span class="btn"><svg class="i"><use href="#x"/></svg></span>
+      </div>
+      <div class="island glass"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg>
+        <svg class="i" viewBox="0 0 26 24" style="width:22px"><use href="#batt"/></svg><span class="clock">14:05</span></div>
+    </div>
+    <div class="spec">Islands: h 34, pill, padding 0 16, gap 12, margin 8, regular material, elev-2. Live: h 52, r26, padding 8, lead and button 36, progress 150 x 6.</div>
+  </div>
+
+  <div class="row-x">
+    <div class="col">
+      <div class="sheet glass">
+        <div class="card conn">
+          <div class="wide"><span class="dot on"><svg class="i"><use href="#wifi"/></svg></span><div class="txt"><div class="t">Wi-Fi</div><div class="st">Home 5G</div></div></div>
+          <div class="wide"><span class="dot on"><svg class="i"><use href="#bt"/></svg></span><div class="txt"><div class="t">Bluetooth</div><div class="st">AirPods Pro</div></div></div>
+        </div>
+        <div class="card small"><span class="dot"><svg class="i"><use href="#moon"/></svg></span><div class="txt"><div class="t">Focus</div><div class="st">Off</div></div></div>
+        <div class="card small"><span class="dot"><svg class="i"><use href="#contrast"/></svg></span><div class="txt"><div class="t">Dark Mode</div><div class="st">Off</div></div></div>
+        <div class="sl"><div class="fill" style="width:68%"></div><svg class="i"><use href="#sun"/></svg><span>68%</span></div>
+        <div class="sl"><div class="fill" style="width:42%"></div><svg class="i"><use href="#vol"/></svg><span>AirPods Pro</span></div>
+        <div class="card span2"><div class="art"></div><div class="txt"><div class="t">Midnight City</div><div class="st">M83</div></div>
+          <div class="ctl"><svg class="i"><use href="#prev"/></svg><svg class="i"><use href="#play"/></svg><svg class="i"><use href="#next"/></svg></div></div>
+        <div class="card span2"><span class="dot on"><svg class="i"><use href="#phone"/></svg></span>
+          <div class="txt"><div class="t">Pixel 9</div><div class="st">82%, Wi-Fi, 2 notifications</div></div>
+          <div class="acts"><span><svg class="i"><use href="#bell"/></svg></span><span><svg class="i"><use href="#screen"/></svg></span></div></div>
+      </div>
+      <div class="spec">Sheet 360 x 376, r28, padding 12, gap 8. Cards fill-1, r16 (28 - 12), padding 12.<br>Round icon 30 (glyph 16); row gap 12, small card gap 8. Slider 40, r16. Art r4 (16 - 12). Smooth corners 0.6.</div>
+    </div>
+
+    <div class="col">
+      <div class="sheet glass" style="grid-template-columns: 1fr 1fr">
+        <div class="card conn">
+          <div class="wide"><span class="dot"><svg class="i"><use href="#wifi-off"/></svg></span><div class="txt"><div class="t">Wi-Fi</div><div class="st">Off</div></div></div>
+          <div class="wide"><span class="dot on"><svg class="i"><use href="#bt"/></svg></span><div class="txt"><div class="t">Bluetooth</div><div class="st">Sennheiser Momentum True Wireless 4</div></div></div>
+        </div>
+        <div class="card small"><span class="dot on"><svg class="i"><use href="#moon"/></svg></span><div class="txt"><div class="t">Focus</div><div class="st">On</div></div></div>
+        <div class="card small"><span class="dot on"><svg class="i"><use href="#contrast"/></svg></span><div class="txt"><div class="t">Dark Mode</div><div class="st">On</div></div></div>
+        <div class="sl"><div class="fill" style="width:0"></div><svg class="i"><use href="#vol"/></svg><span></span></div>
+      </div>
+      <div class="spec">States: Wi-Fi off, longest name (ellipsis), toggles on.<br>No backlight, no player, no phone: those rows hide. No sink: value 0, no label.</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="row-x" style="align-items:center">
+      <div class="live">
+        <span class="lead"><svg class="i"><use href="#phone"/></svg></span>
+        <div class="txt"><div class="t">Mum</div><div class="st">Incoming call</div></div>
+        <span class="btn"><svg class="i"><use href="#mic-off"/></svg></span><span class="btn danger"><svg class="i"><use href="#x"/></svg></span>
+      </div>
+      <div class="dock glass">
+        <div class="app run" style="background:linear-gradient(160deg,#5ab0ff,#2f6bff)"></div>
+        <div class="app run" style="background:linear-gradient(160deg,#ffcf6b,#ff8a3d)"><span class="badge">3</span></div>
+        <div class="app" style="background:linear-gradient(160deg,#7af0c8,#21b38a)"></div>
+        <div class="app run" style="background:linear-gradient(160deg,#c59bff,#7b4dff)"><span class="badge">9+</span></div>
+        <div class="sep"></div>
+        <div class="app" style="background:linear-gradient(160deg,#e9eef7,#b8c3d6)"></div>
+      </div>
+    </div>
+    <div class="spec">Live call: decline is danger. Dock: padding 10, r30, gap 10, icons 54 (r20 = 30 - 10), running bar 14 x 3 at 4 below, badge 18 pill (danger, 11/600, 9+ cap), margin 12.</div>
+  </div>
+
+  <div class="found">
+    <div class="board glass">
+      <div class="t">Color roles</div>
+      <div class="sw">
+        <div><i style="background:var(--label-1)"></i>label 1</div><div><i style="background:var(--label-2)"></i>label 2</div>
+        <div><i style="background:var(--label-3)"></i>label 3</div><div><i style="background:var(--fill-1)"></i>fill 1</div>
+        <div><i style="background:var(--fill-2)"></i>fill 2</div><div><i style="background:var(--fill-3)"></i>fill 3</div>
+        <div><i style="background:var(--accent)"></i>accent</div><div><i style="background:var(--danger)"></i>danger</div>
+        <div><i style="background:var(--solid-regular)"></i>solid</div><div><i style="background:var(--separator)"></i>separator</div>
+      </div>
+      <div class="t">Radius</div>
+      <div class="radii"><div style="--r:var(--radius-xs)">6</div><div style="--r:var(--radius-sm)">10</div>
+        <div style="--r:var(--radius-md)">14</div><div style="--r:var(--component-card-radius)">16</div>
+        <div style="--r:var(--radius-lg)">20</div><div style="--r:var(--radius-xl)">28</div></div>
+    </div>
+    <div class="board glass">
+      <div class="t">Type (Inter)</div>
+      <div style="font:var(--type-header)">Header 20/600</div>
+      <div style="font:var(--type-large)">Large 15/600</div>
+      <div style="font:var(--type-title)">Title 13.5/600, line 1.25</div>
+      <div style="font:var(--type-body)">Body 13/500, line 1.3</div>
+      <div style="font:var(--type-caption);color:var(--label-2)">Caption 11.5/500, line 1.25, label 2</div>
+      <div style="font:var(--type-mini);color:var(--label-3)">Mini 11/500, label 3</div>
+    </div>
+  </div>
+</template>
+
+<div class="pane" id="light"></div>
+<div class="pane dark" id="dark"></div>
+<script>
+for (const [id, title] of [["light", "Light"], ["dark", "Dark"]]) {
+  const pane = document.getElementById(id);
+  pane.append(document.getElementById("scene").content.cloneNode(true));
+  pane.querySelector(".h").textContent = title;
+}
+  document.body.dataset.sheet = [...document.querySelectorAll(".sheet, .card, .island, .live, .dock")].map(e => ((r) => `${e.closest(".pane").id} ${e.className} ${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.width.toFixed(1)}x${r.height.toFixed(1)}`)(e.getBoundingClientRect())).join("; ");
+</script>
+</body></html>

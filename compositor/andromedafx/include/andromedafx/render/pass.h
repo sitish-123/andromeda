@@ -132,6 +132,15 @@ struct fx_render_texture_options {
   // Compress HDR highlights into the SDR range before blending this content.
   // Intermediate textures leave this unset so a scene is not mapped twice.
   bool map_hdr_to_sdr;
+  // Liquid glass strength, 0 to 1; draws with the effects shader. Used for blurred backdrops.
+  float liquid;
+  // Specular rim only, 0 to 1 (frosted shapes); the shader draws the larger of rim and liquid.
+  float rim;
+  // Sharp backdrop for the liquid lens, same size and orientation as texture; NULL = no lens.
+  struct wlr_texture* lens_texture;
+  // The liquid shape (render coords, radius in render px) whose edge gets the rim; empty = clip_box and corners.
+  struct wlr_box liquid_box;
+  float liquid_radius;
 };
 
 struct fx_render_rect_options {
@@ -179,6 +188,8 @@ struct fx_render_box_shadow_options {
   struct wlr_render_color color;
 };
 
+struct fx_backdrop_probe;
+
 struct fx_render_blur_pass_options {
   struct fx_render_texture_options tex_options;
   struct fx_framebuffer* current_buffer;
@@ -188,6 +199,11 @@ struct fx_render_blur_pass_options {
   float blur_strength;
   struct fx_corner_fradii corners;
   struct clipped_fregion clipped_region;
+  float liquid; // 0 to 1, see fx_render_texture_options.liquid
+  float rim;    // 0 to 1, see fx_render_texture_options.rim
+  struct wlr_box liquid_box;
+  float liquid_radius;
+  struct fx_backdrop_probe* backdrop_probe; // optional: sampled from the blurred region, see backdrop_probe.h
 };
 
 struct fx_gles_render_pass* fx_get_render_pass(struct wlr_render_pass* render_pass);
@@ -270,6 +286,9 @@ bool fx_render_pass_add_optimized_blur(
  * light or the other way round.
  */
 bool fx_render_pass_optimized_blur_stale(const struct fx_gles_render_pass* pass);
+
+/** True when the optimized blur cache holds a valid blur for this pass, so a partial re-render can update it. */
+bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pass);
 
 /**
  * Render from one buffer to another. False when the source cannot be sampled.

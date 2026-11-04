@@ -41,9 +41,9 @@ namespace {
   constexpr float kMediaUnit = 36.0F;
 
   constexpr float kArtworkSize = kMediaUnit * 6;
-  constexpr float kMediaNowCardMinHeight = kMediaUnit * 11 + Style::spaceSm * 2;
-  constexpr float kMediaControlsHeight = kMediaUnit + Style::spaceXs;
-  constexpr float kMediaPlayPauseHeight = kMediaUnit + Style::spaceSm;
+  TOKENS_LIVE(kMediaNowCardMinHeight, kMediaUnit * 11 + Style::spaceSm * 2);
+  TOKENS_LIVE(kMediaControlsHeight, kMediaUnit + Style::spaceXs);
+  TOKENS_LIVE(kMediaPlayPauseHeight, kMediaUnit + Style::spaceSm);
   constexpr float kMediaArtworkMinHeight = kMediaUnit * 4;
   constexpr auto kNoActivePlayerGrace = std::chrono::milliseconds(2000);
   constexpr auto kTransientPositionRegressionWindow = std::chrono::milliseconds(1500);
@@ -203,12 +203,12 @@ std::unique_ptr<Flex> MediaTab::create() {
       {.align = FlexAlign::Center,
        .justify = FlexJustify::SpaceBetween,
        .gap = Style::spaceSm * scale,
-       .minHeight = Style::controlHeightSm * scale},
+       .minHeight = Style::controlHeight * scale},
       ui::label({
           .text = i18n::tr("control-center.media.now-playing"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .flexGrow = 1.0F,
       }),
       ui::button({
@@ -217,8 +217,8 @@ std::unique_ptr<Flex> MediaTab::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .enabled = false,
           .variant = ButtonVariant::Ghost,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .onClick = [this] {
             if (m_playerBusNames.empty()) {
@@ -262,19 +262,19 @@ std::unique_ptr<Flex> MediaTab::create() {
               .text = i18n::tr("control-center.media.nothing-playing"),
               .fontSize = Style::fontSizeTitle * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::label({
               .out = &m_trackArtist,
               .text = i18n::tr("control-center.media.start-playback"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           }),
           ui::label({
               .out = &m_trackAlbum,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Secondary),
+              .color = colorSpecFromRole(ColorRole::AccentText),
               .visible = false,
           })
       )
@@ -466,7 +466,7 @@ std::unique_ptr<Flex> MediaTab::create() {
   });
 
   auto visualizerSpectrum = std::make_unique<AudioVisualizer>();
-  visualizerSpectrum->setGradient(colorForRole(ColorRole::Secondary), colorForRole(ColorRole::Tertiary));
+  visualizerSpectrum->setGradient(colorForRole(ColorRole::Accent), colorForRole(ColorRole::Accent));
   visualizerSpectrum->setOrientation(AudioSpectrumOrientation::Vertical);
   visualizerSpectrum->setMirrored(true);
   visualizerSpectrum->setCentered(true);

@@ -776,14 +776,14 @@
       "calendar-google-connect-start-failed": "تعذر بدء مصادقة Google. تحقق من اتصال الشبكة وحاول مجدداً.",
       "calendar-google-connect-start-http": "تعذر بدء مصادقة Google. أعاد وسيط OAuth الخطأ HTTP {status}.",
       "calendar-google-connect-timeout": "انتهت مهلة مصادقة Google. ابدأ الاتصال مجدداً عندما تكون مستعداً للتسجيل.",
-      "config-migration-body": "حدّث {path} في الملف المصدر. يطبّق Noctalia هذا الاستبدال مؤقتاً فقط. شغّل noctalia config validate لعرض جميع التغييرات المطلوبة.",
+      "config-migration-body": "حدّث {path} في الملف المصدر. يطبّق Andromeda هذا الاستبدال مؤقتاً فقط. شغّل noctalia config validate لعرض جميع التغييرات المطلوبة.",
       "config-migration-title": "يلزم تحديث الإعدادات",
       "dbus-disabled": "إشعارات D-Bus معطلة",
       "desktop-widgets-editor": "محرر ودجت",
       "desktop-widgets-editor-enabled": "محرر ودجات سطح المكتب مفعّل. انتقل إلى مساحة عمل فارغة حتى لا تغطي النوافذ المفتوحة المحرر.",
       "greeter-sync": "مزامنة شاشة الدخول",
       "greeter-sync-pending": "مزامنة المظهر مع شاشة الترحيب. إذا ظهرت مطالبة من المسؤول، فقم بالموافقة عليها؛ حيث تتبع عملية المصادقة بدون كلمة مرور سياسة النظام.",
-      "greeter-sync-pending-console": "مزامنة الهوية مع برنامج الترحيب. إذا كانت هناك حاجة إلى تفويض، فقم بالموافقة على موجه polkit في Noctalia أو على TTY أو على وحدة التحكم.",
+      "greeter-sync-pending-console": "مزامنة الهوية مع برنامج الترحيب. إذا كانت هناك حاجة إلى تفويض، فقم بالموافقة على موجه polkit في Andromeda أو على TTY أو على وحدة التحكم.",
       "greeter-sync-pending-legacy": "المزامنة من خلال أداة المساعدة القديمة التي تتطلب المصادقة. يلزم الحصول على موافقة المسؤول.",
       "greeter-sync-pending-manual": "يتم تجهيز الملفات للمزامنة القديمة التي تتطلب المصادقة. قم بتشغيل الأداة المساعدة «apply» في محطة طرفية، مع الحفاظ على NOCTALIA_GREETER_STATE_DIR إذا كنت تستخدم مسارًا مخصصًا، أو قم بتكوين shell.greeter_sync.privilege_command ثم أعد المزامنة.",
       "greeter-sync-pending-manual-pkexec": "مزامنة المظهر مع شاشة الترحيب. إذا كانت هناك حاجة إلى تفويض من المسؤول ولم تظهر أي مطالبة، فقم بتشغيل الأمر التالي في محطة طرفية: pkexec noctalia-greeter-apply-appearance --sync ”/run/user/$(id -u)/noctalia-greeter-sync“.",
@@ -791,7 +791,7 @@
       "greeter-sync-timeout": "لا تزال عملية مزامنة Greeter في انتظار الحصول على التفويض. تحقق من وجود موجه polkit على جهاز TTY أو وحدة التحكم، أو قم بتمكين وكيل polkit في إعدادات الأمان، أو قم بتشغيل pkexec يدويًّا.",
       "greeter-sync-timeout-manual": "لا تزال عملية المزامنة القديمة المصادق عليها تتطلب موافقة المسؤول. قم بتشغيل أداة المساعدة «positional apply» في نافذة الأوامر واحتفظ بـ NOCTALIA_GREETER_STATE_DIR إذا كنت تستخدم مسارًا مخصصًا.",
       "greeter-sync-timeout-manual-pkexec": "لا تزال عملية مزامنة Greeter بحاجة إلى ترخيص. قم بتشغيل الأمر التالي في محطة الأوامر: pkexec noctalia-greeter-apply-appearance --sync ”/run/user/$(id -u)/noctalia-greeter-sync“",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "يقبل هذا الاختصار مفتاحاً واحداً بدون معدّلات.",
       "keybind-invalid-printable": "المفاتيح القابلة للطباعة (أحرف، أرقام، رموز) تتطلب معدّلاً مثل Ctrl أو Alt.",
       "keybind-invalid-super": "لا يمكن استخدام مفتاح Super/Windows في اختصارات الغلاف (واجهة الأوامر).",
@@ -863,7 +863,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} يستهدف واجهة API للإضافات {version}؛ يدعم هذا الإصدار من Noctalia واجهة API من {oldest} إلى {current}.",
+      "body-incompatible": "{plugin} يستهدف واجهة API للإضافات {version}؛ يدعم هذا الإصدار من Andromeda واجهة API من {oldest} إلى {current}.",
       "body-timeout": "استغرق تثبيت {plugin} وقتاً طويلاً.",
       "title": "لم يتم تفعيل الإضافة"
     }
@@ -991,7 +991,7 @@
       "bar": {
         "create": "إنشاء",
         "delete": "حذف",
-        "delete-confirm-desc": "سيتم إزالة هذا الشريط المصنوع عبر الواجهة من settings.toml.",
+        "delete-confirm-desc": "سيتم إزالة هذا الشريط المصنوع عبر الواجهة من overrides.toml.",
         "delete-confirm-title": "حذف \"{name}\"؟",
         "id-placeholder": "معرّف الشريط",
         "label": "الشريط: {name}",
@@ -1005,7 +1005,7 @@
       "monitor-override": {
         "create": "إنشاء",
         "delete": "حذف",
-        "delete-confirm-desc": "سيتم إزالة تجاوز الشاشة هذا من settings.toml.",
+        "delete-confirm-desc": "سيتم إزالة تجاوز الشاشة هذا من overrides.toml.",
         "delete-confirm-title": "حذف \"{name}\"؟",
         "label": "الشاشة: {name}",
         "management": "تجاوز إعدادات الشاشة",
@@ -1154,7 +1154,7 @@
       },
       "reset-page": "فشل إعادة ضبط بعض الإعدادات.",
       "support-report": "فشل حفظ تقرير الدعم.",
-      "sync-greeter": "تعذرت مزامنة المظهر مع Noctalia Greeter.",
+      "sync-greeter": "تعذرت مزامنة المظهر مع Andromeda Greeter.",
       "sync-greeter-timeout": "لا تزال عملية مزامنة Greeter في انتظار الحصول على التفويض. تحقق من وجود موجه polkit على جهاز TTY أو وحدة التحكم، أو قم بتمكين وكيل polkit في إعدادات الأمان، أو قم بتشغيل pkexec يدويًّا.",
       "sync-greeter-timeout-manual": "لا تزال عملية المزامنة القديمة المصادق عليها تتطلب موافقة المسؤول. قم بتشغيل أداة المساعدة «positional apply» في نافذة الأوامر واحتفظ بـ NOCTALIA_GREETER_STATE_DIR إذا كنت تستخدم مسارًا مخصصًا.",
       "widget": {
@@ -1528,7 +1528,7 @@
         "deprecated": "مهجور",
         "empty": "لا توجد إضافات مفعّلة.",
         "held-back": "إصدار أقدم",
-        "held-back-hint": "يحتاج v{version} إلى واجهة API للإضافات {required}؛ هذا الإصدار من Noctalia يدعم حتى {current}. قم بترقية Noctalia للحصول عليه.",
+        "held-back-hint": "يحتاج v{version} إلى واجهة API للإضافات {required}؛ هذا الإصدار من Andromeda يدعم حتى {current}. قم بترقية Andromeda للحصول عليه.",
         "incompatible-plugin-api": "واجهة API للإضافات غير متوافقة",
         "remove": "إزالة الإضافة",
         "requires": "يتطلب: {dependencies}",
@@ -1570,15 +1570,15 @@
         "update": "تحديث"
       },
       "store": {
-        "add": "إضافة إلى Noctalia",
+        "add": "إضافة إلى Andromeda",
         "back-to-catalog": "العودة إلى كتالوج الإضافات",
         "categories": "الفئات",
         "category-all": "الكل",
         "empty": "لم يتم العثور على إضافات",
         "held-back": "إصدار أقدم",
-        "held-back-hint": "يثبّت v{version} لواجهة API للإضافات {resolved}. يتطلب أحدث إصدار v{latest} واجهة API للإضافات {latestRequired}؛ ويدعم هذا الإصدار من Noctalia حتى {current}.",
+        "held-back-hint": "يثبّت v{version} لواجهة API للإضافات {resolved}. يتطلب أحدث إصدار v{latest} واجهة API للإضافات {latestRequired}؛ ويدعم هذا الإصدار من Andromeda حتى {current}.",
         "incompatible": "غير متوافق",
-        "incompatible-hint": "يتطلب واجهة API للإضافات {required}؛ ويدعم هذا الإصدار من Noctalia من {oldest} إلى {current}.",
+        "incompatible-hint": "يتطلب واجهة API للإضافات {required}؛ ويدعم هذا الإصدار من Andromeda من {oldest} إلى {current}.",
         "installed": "مثبت",
         "loading": "جاري تحميل الكتالوج...",
         "no-readme": "لا يوجد وصف متاح.",
@@ -2120,7 +2120,7 @@
             "label": "عند إيقاف التشغيل"
           },
           "started": {
-            "description": "أمر للتشغيل بعد بدء Noctalia",
+            "description": "أمر للتشغيل بعد بدء Andromeda",
             "label": "عند البدء"
           },
           "theme-mode-changed": {
@@ -2205,10 +2205,6 @@
         "blur-intensity": {
           "description": "درجة ضبابية خلفية شاشة القفل",
           "label": "شدة الضبابية"
-        },
-        "blurred-desktop": {
-          "description": "استخدام لقطة من سطح المكتب كخلفية لشاشة القفل",
-          "label": "التقاط سطح المكتب"
         },
         "enabled": {
           "description": "تفعيل قفل الجلسة وإجراءات القفل",
@@ -2880,9 +2876,9 @@
           "label": "تسميات تخطيطات لوحة المفاتيح"
         },
         "launch-apps-as-systemd-services": {
-          "description": "تشغيل التطبيقات كخدمات systemd منفصلة لتفادي مشاركة مجموعات Noctalia",
+          "description": "تشغيل التطبيقات كخدمات systemd منفصلة لتفادي مشاركة مجموعات Andromeda",
           "label": "تشغيل التطبيقات كخدمات systemd",
-          "requires-systemd-session": "يتطلب تشغيل Noctalia كخدمة مستخدم systemd (uwsm أو وحدة مستخدم systemd)"
+          "requires-systemd-session": "يتطلب تشغيل Andromeda كخدمة مستخدم systemd (uwsm أو وحدة مستخدم systemd)"
         },
         "launch-apps-custom-command": {
           "description": "أمر مخصص بواسطة مشغل التطبيقات، يستبدل $CMD بالأمر الأصلي.",
@@ -3078,8 +3074,8 @@
         },
         "sync-greeter": {
           "button": "مزامنة الآن",
-          "description": "انسخ المظهر الحالي وترتيب الشاشات إلى «Noctalia Greeter». يلزم الحصول على موافقة المسؤول ما لم تسمح سياسة النظام بالمزامنة بدون كلمة مرور لمستخدمك.",
-          "label": "Noctalia Greeter"
+          "description": "انسخ المظهر الحالي وترتيب الشاشات إلى «Andromeda Greeter». يلزم الحصول على موافقة المسؤول ما لم تسمح سياسة النظام بالمزامنة بدون كلمة مرور لمستخدمك.",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "إرسال إشارة مجهولة عند بدء التشغيل تتضمن معلومات النظام والإصدار",
@@ -4064,8 +4060,8 @@
       "export-config": "تصدير الإعدادات…",
       "export-config-saved": "تم حفظ تصدير الإعدادات.",
       "filter-overridden": "تم تجاوزه",
-      "legacy-config-warning": "إعداد قديم: {issue}. عدّل هذا الإدخال في المصدر؛ يطبّق Noctalia الاستبدال مؤقتاً فقط. شغّل noctalia config validate لعرض جميع التغييرات المطلوبة.",
-      "native-title": "إعدادات Noctalia",
+      "legacy-config-warning": "إعداد قديم: {issue}. عدّل هذا الإدخال في المصدر؛ يطبّق Andromeda الاستبدال مؤقتاً فقط. شغّل noctalia config validate لعرض جميع التغييرات المطلوبة.",
+      "native-title": "إعدادات Andromeda",
       "no-results": "لم يتم العثور على إعدادات",
       "no-results-hint": "جرب البحث باسم إعداد آخر أو مفتاح تهيئة مختلف.",
       "offline-mode-notice": {
@@ -4100,7 +4096,7 @@
     "no-wallpaper-selected": "لم يتم تحديد خلفية",
     "select-wallpaper": "اختر خلفية",
     "subtitle": "بضع خيارات سريعة لمساعدتك على البدء.",
-    "title": "مرحبًا بك في Noctalia",
+    "title": "مرحبًا بك في Andromeda",
     "wallpaper": "خلفية الشاشة",
     "wallpaper-scheme": "مخطط ألوان الخلفية"
   },

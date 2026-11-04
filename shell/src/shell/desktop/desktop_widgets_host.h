@@ -1,5 +1,6 @@
 #pragma once
 
+#include "wayland/glass_surface.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/scene/input_dispatcher.h"
@@ -50,6 +51,7 @@ private:
     std::string effectiveOutputName;
     wl_output* output = nullptr;
     std::unique_ptr<LayerSurface> surface;
+    GlassSurface glass; // after surface: destroyed first
     AnimationManager animations;
     InputDispatcher inputDispatcher;
     std::unique_ptr<Node> sceneRoot;

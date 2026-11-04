@@ -32,6 +32,8 @@ struct LauncherResult {
   // A short string drawn in the leading icon slot in place of an icon (e.g. an
   // emoji or a single symbol). When set, it replaces glyphName/iconName/iconPath.
   std::string badge;
+  // Variants of the badge the user can pick in the preview (emoji skin tones: light .. dark).
+  std::vector<std::string> variants;
   // AppProvider source desktop file path; empty for other providers.
   std::string desktopEntryPath;
   // When launching an application via AppProvider, matches DesktopAction::id (primary Exec leaves this empty).
@@ -95,6 +97,10 @@ public:
   // Overrides take ownership of the callback.
   // NOLINTNEXTLINE(performance-unnecessary-value-param)
   virtual void setResultsChangedCallback(std::function<void()> /*callback*/) {}
+
+  // The query that the results of an async provider answer; nullopt for synchronous providers, whose results always
+  // answer the current query. The search broker drops results that answer another query.
+  [[nodiscard]] virtual std::optional<std::string> answeredQuery() const { return std::nullopt; }
 
   // True while an async provider is still producing results. The launcher uses
   // it to show a loading state instead of "No results found".

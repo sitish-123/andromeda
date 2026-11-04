@@ -15,6 +15,7 @@
 #include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
+#include "core/process/process.h"
 #include "ipc/ipc_service.h"
 #include "notification/notification.h"
 #include "notification/notification_manager.h"
@@ -26,8 +27,8 @@
 #include "time/time_format.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
-#include "wayland/wayland_connection.h"
+#include "clipboard/clipboard_service.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -36,7 +37,6 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
-#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <expected>
@@ -47,8 +47,6 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stb/stb_image_resize2.h>
-#include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
 #include <utility>
 
@@ -233,7 +231,7 @@ namespace {
     };
   }
 
-  [[nodiscard]] const WaylandOutput* findOutput(const WaylandConnection& wayland, wl_output* output) {
+  [[nodiscard]] const WaylandOutput* findOutput(const ShellWaylandConnection& wayland, wl_output* output) {
     for (const auto& entry : wayland.outputs()) {
       if (entry.output == output) {
         return &entry;
@@ -281,103 +279,30 @@ namespace {
     return nullptr;
   }
 
-  void attachStdioToDevNull() {
-    const int devnull = ::open("/dev/null", O_RDWR);
-    if (devnull >= 0) {
-      ::dup2(devnull, STDOUT_FILENO);
-      ::dup2(devnull, STDERR_FILENO);
-      if (devnull > STDERR_FILENO) {
-        ::close(devnull);
-      }
-    }
-  }
-
-  bool writeAll(int fd, const std::uint8_t* data, std::size_t size) {
-    std::size_t offset = 0;
-    while (offset < size) {
-      const ssize_t written = ::write(fd, data + offset, size - offset);
-      if (written < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return false;
-      }
-      if (written == 0) {
-        return false;
-      }
-      offset += static_cast<std::size_t>(written);
-    }
-    return true;
-  }
-
   void pipePngToCommandAsync(
       std::string command, std::vector<std::uint8_t> png, const std::optional<std::filesystem::path>& screenshotPath
   ) {
     if (command.empty() || png.empty()) {
       return;
     }
-    std::string screenshotPathString = screenshotPath.has_value() ? screenshotPath->string() : std::string{};
-
-    std::thread([command = std::move(command), png = std::move(png),
-                 screenshotPathString = std::move(screenshotPathString)] {
-      // Block SIGPIPE on this thread so a command that stops reading stdin makes
-      // write() fail with EPIPE instead of terminating the whole process.
-      sigset_t pipeMask;
-      sigemptyset(&pipeMask);
-      sigaddset(&pipeMask, SIGPIPE);
-      pthread_sigmask(SIG_BLOCK, &pipeMask, nullptr);
-
-      int stdinPipe[2] = {-1, -1};
-      if (::pipe2(stdinPipe, O_CLOEXEC) != 0) {
-        kLog.warn("screenshot pipe: failed to create stdin pipe");
-        return;
+    process::RunOptions options;
+    options.stdinData = std::string(reinterpret_cast<const char*>(png.data()), png.size());
+    options.maxOutputBytes = 0;
+    options.env.push_back(
+        {kScreenshotPathEnv, screenshotPath.has_value() ? std::optional<std::string>(screenshotPath->string())
+                                                        : std::nullopt}
+    );
+    process::RunCallbacks callbacks{.onExit = [](process::RunResult result) {
+      if (result.exitCode != 0 || result.timedOut) {
+        kLog.warn("screenshot pipe: command exited with code {}", result.exitCode);
       }
-
-      const pid_t child = ::fork();
-      if (child < 0) {
-        kLog.warn("screenshot pipe: fork failed");
-        ::close(stdinPipe[0]);
-        ::close(stdinPipe[1]);
-        return;
-      }
-
-      if (child == 0) {
-        ::close(stdinPipe[1]);
-        if (::dup2(stdinPipe[0], STDIN_FILENO) < 0) {
-          ::_exit(126);
-        }
-        ::close(stdinPipe[0]);
-        attachStdioToDevNull();
-        if (screenshotPathString.empty()) {
-          ::unsetenv(kScreenshotPathEnv);
-        } else if (::setenv(kScreenshotPathEnv, screenshotPathString.c_str(), 1) != 0) {
-          ::_exit(126);
-        }
-        // Restore default SIGPIPE handling for the spawned command.
-        ::signal(SIGPIPE, SIG_DFL);
-        pthread_sigmask(SIG_UNBLOCK, &pipeMask, nullptr);
-        const char* argv[] = {"/bin/sh", "-lc", command.c_str(), nullptr};
-        ::execv("/bin/sh", const_cast<char* const*>(argv));
-        ::_exit(127);
-      }
-
-      ::close(stdinPipe[0]);
-      const bool wrote = writeAll(stdinPipe[1], png.data(), png.size());
-      ::close(stdinPipe[1]);
-      if (!wrote) {
-        kLog.warn("screenshot pipe: failed to write PNG to command stdin");
-      }
-
-      int status = 0;
-      while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
-      }
-      if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        kLog.warn("screenshot pipe: command exited with status {}", status);
-      }
-    }).detach();
+    }};
+    if (!process::runAsync({"/bin/sh", "-lc", command.c_str()}, std::move(callbacks), std::move(options))) {
+      kLog.warn("screenshot pipe: failed to start command");
+    }
   }
 
-  [[nodiscard]] std::vector<wl_output*> validOutputs(const WaylandConnection& wayland) {
+  [[nodiscard]] std::vector<wl_output*> validOutputs(const ShellWaylandConnection& wayland) {
     std::vector<wl_output*> outputs;
     for (const auto& output : wayland.outputs()) {
       if (output.output != nullptr && output.logicalWidth > 0 && output.logicalHeight > 0) {
@@ -388,7 +313,7 @@ namespace {
   }
 
   [[nodiscard]] std::expected<wl_output*, std::string>
-  resolveOutputSelector(const WaylandConnection& wayland, std::string_view selector) {
+  resolveOutputSelector(const ShellWaylandConnection& wayland, std::string_view selector) {
     const std::string token = StringUtils::trim(selector);
     if (token.empty()) {
       return std::unexpected("error: empty monitor selector\n");
@@ -520,7 +445,7 @@ namespace {
   }
 
   [[nodiscard]] std::vector<RegionIntersectTarget>
-  intersectGlobalRegion(const WaylandConnection& wayland, LogicalRect globalRegion) {
+  intersectGlobalRegion(const ShellWaylandConnection& wayland, LogicalRect globalRegion) {
     const int globalX0 = globalRegion.x;
     const int globalY0 = globalRegion.y;
     const int globalX1 = globalRegion.x + globalRegion.width;
@@ -779,7 +704,7 @@ std::expected<ScreenshotIpcRequest, std::string> parseScreenshotIpcRequest(
 }
 
 ScreenshotService::ScreenshotService(
-    WaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
+    ShellWaylandConnection& wayland, CompositorPlatform& platform, ConfigService& configService,
     NotificationManager& notifications, ClipboardService* clipboard
 )
     : m_wayland(wayland), m_platform(platform), m_notifications(notifications), m_configService(configService),

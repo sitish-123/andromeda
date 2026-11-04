@@ -76,9 +76,9 @@ log-test: build
 uninstall:
   sudo ninja uninstall -C build
 
-# Run under the built-in compositor (same as greetd should use)
+# Run under `andromeda --greeter` (same as greetd uses)
 run: build
-  dbus-run-session -- ./build/noctalia-greeter-compositor ./build/noctalia-greeter
+  dbus-run-session -- andromeda --greeter -s ./build/noctalia-greeter
 
 # Run under the compositor on your login session. Logs to ~/.cache/noctalia-greeter.log
 run-local: build
@@ -89,7 +89,7 @@ run-local: build
   echo "user=$USER log=$log"
   echo "Recovery: just recover"
   env NOCTALIA_GREETER_LOG="$log" NOCTALIA_GREETER_DUMMY_USERS=15 dbus-run-session -- \
-    ./build/noctalia-greeter-compositor ./build/noctalia-greeter
+    andromeda --greeter -s ./build/noctalia-greeter
 
 # Configure AddressSanitizer build dir
 configure-asan:
@@ -102,7 +102,7 @@ build-asan: configure-asan
 # Run under the compositor with AddressSanitizer enabled
 run-asan: build-asan
   ASAN_OPTIONS=abort_on_error=1:fast_unwind_on_malloc=0:symbolize=1 \
-  dbus-run-session -- ./build-asan/noctalia-greeter-compositor ./build-asan/noctalia-greeter
+  dbus-run-session -- andromeda --greeter -s ./build-asan/noctalia-greeter
 
 # Run in your current Wayland session (niri, sway, etc.), no nested compositor
 run-niri: build
@@ -122,7 +122,6 @@ run-niri: build
 recover:
   #!/usr/bin/env bash
   sudo killall noctalia-greeter 2>/dev/null || true
-  sudo killall noctalia-greeter-compositor 2>/dev/null || true
   sudo sv stop greetd 2>/dev/null || true
   echo "If the screen is still wrong: sudo chvt 2"
 
@@ -130,9 +129,9 @@ recover:
 run-greeter bin="/usr/local/bin/noctalia-greeter":
   @echo "Ensure greetd is stopped: sudo sv stop greetd"
   sudo -u greeter dbus-run-session -- \
-    /usr/local/bin/noctalia-greeter-compositor {{bin}}
+    andromeda --greeter -s {{bin}}
 
 run-greeter-dev: build
   @echo "Ensure greetd is stopped: sudo sv stop greetd"
   sudo -u greeter dbus-run-session -- \
-    ./build/noctalia-greeter-compositor ./build/noctalia-greeter
+    andromeda --greeter -s ./build/noctalia-greeter

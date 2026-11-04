@@ -112,6 +112,10 @@ class Login(dbus.service.Object):
     def Sleep(self, sleeping):
         self.PrepareForSleep(sleeping)
 
+    @dbus.service.method(LOGIN, in_signature="u", out_signature="o")
+    def GetSessionByPID(self, pid):
+        return "/org/freedesktop/login1/session/test"
+
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
 bus = dbus.bus.BusConnection(os.environ["DBUS_SYSTEM_BUS_ADDRESS"])

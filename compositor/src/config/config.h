@@ -1,4 +1,5 @@
 #pragma once
+#include "design_tokens.h"
 #include "config/config_diag.h"
 #include "config/effects.h"
 #include "config/keybind_parse.h"
@@ -69,6 +70,11 @@ namespace andromeda {
     Scroll,
     // Narrow the slots until every tab fits.
     Shrink,
+  };
+
+  enum class ColorScheme : uint8_t {
+    Dark,
+    Light,
   };
 
   enum class TitleAlign : uint8_t {
@@ -647,8 +653,7 @@ namespace andromeda {
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
-    // cheatsheet, the diagnostics banner, the quit confirmation, and overview
-    // badge text.
+    // diagnostics banner, the quit confirmation, and overview badge text.
     struct Colors {
       struct TitleBar {
         std::array<float, 4> background{0.1607843F, 0.1607843F, 0.2F, 1.0F};
@@ -722,7 +727,7 @@ namespace andromeda {
       } titleBar;
       int borderWidth = 2;
       int outerBorderWidth = 0;
-      int cornerRadius = 10;
+      int cornerRadius = static_cast<int>(Tokens::componentWindowRadius);
       double dragOpacity = 0.75;
       // Fullscreen windows ignore window rule opacity and draw over the backdrop. When false, a fullscreen window with
       // rule or client transparency shows the desktop instead.
@@ -730,19 +735,20 @@ namespace andromeda {
       struct Blur {
         bool enabled = true;
         bool optimized = true;
-        int passes = 2;
-        int radius = 5;
-        double noise = 0.02;
-        double brightness = 0.9;
-        double contrast = 0.9;
-        double saturation = 1.1;
+        int passes = Tokens::blurPasses;
+        int radius = Tokens::blurRadius;
+        double noise = Tokens::blurNoise;
+        double brightness = Tokens::blurBrightness;
+        double contrast = Tokens::blurContrast;
+        double saturation = Tokens::blurSaturation;
         bool operator==(const Blur&) const = default;
       } blur;
       struct Shadow {
         bool enabled = true;
-        int softness = 10;
-        int offsetX = 2;
-        int offsetY = 2;
+        // Window shadows keep the pre-rulebook look until they move to elevation.e4.
+        int softness = 48;
+        int offsetX = 0;
+        int offsetY = 18;
         bool operator==(const Shadow&) const = default;
       } shadow;
       // The strip a tabbed column draws across one edge.
@@ -776,6 +782,15 @@ namespace andromeda {
         bool operator==(const TabBar&) const = default;
       } tabBar;
       bool preferNoCsd = true;
+      // Live appearance state (docs/architecture-v2.md): the shell, greeter and our apps read it as managed settings.
+      ColorScheme scheme = ColorScheme::Dark;
+      // Unset: the design-token accent.
+      std::optional<std::array<float, 4>> accent;
+      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with solids.
+      double glass = 0.5;
+      bool reduceTransparency = false;
+      bool increaseContrast = false;
+      bool reduceMotion = false;
 
       [[nodiscard]] int totalBorderWidth() const { return borderWidth + outerBorderWidth; }
       bool operator==(const Appearance&) const = default;
@@ -1047,8 +1062,6 @@ namespace andromeda {
       bool xwaylandNativeResolution = false;
       // Run an XSETTINGS manager in Xwayland that announces the X screen scale and cursor theme. Requires restart.
       bool xwaylandXsettings = true;
-      // Show the keybinds cheatsheet overlay on startup.
-      bool showCheatsheet = true;
       // Honor activation requests by focusing and revealing the target window.
       bool focusOnActivate = false;
       // Hang a modal dialog on its parent's frame, so it follows the parent and holds its input.
@@ -1278,6 +1291,11 @@ namespace andromeda {
   [[nodiscard]] const std::vector<std::filesystem::path>& configWatchPaths();
   [[nodiscard]] const std::vector<ConfigDiagnostic>& configDiagnostics();
   [[nodiscard]] const std::filesystem::path& configRootPath();
-  [[nodiscard]] bool configFileMissing();
   [[nodiscard]] bool configHasMissingIncludes();
+  // Applies the live appearance keys to the settings they govern: appearance.accent replaces colors.accent_primary;
+  // reduce_transparency turns blur off; increase_contrast draws borders at least 2 px wide;
+  // reduce_motion turns window open and close into fades and drops the sliding and zooming animations (workspaces,
+  // window move and resize, overview, scratchpad); fades, such as layer fades, stay.
+  void applyLiveAppearance(Config& config);
+
 } // namespace andromeda

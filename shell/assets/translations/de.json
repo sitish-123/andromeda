@@ -763,19 +763,19 @@
       "calendar-google-connect-start-failed": "Die Google-Autorisierung konnte nicht gestartet werden. Überprüfe deine Netzwerkverbindung und versuche es erneut.",
       "calendar-google-connect-start-http": "Die Google-Autorisierung konnte nicht gestartet werden. Der OAuth-Broker gab HTTP {status} zurück.",
       "calendar-google-connect-timeout": "Bei der Google-Autorisierung ist eine Zeitüberschreitung aufgetreten. Starte die Verbindung erneut, wenn du bereit bist, dich anzumelden.",
-      "config-migration-body": "Aktualisiere {path} in der Quelldatei. Noctalia wendet diesen Ersatz nur vorübergehend an. Führe noctalia config validate aus, um alle erforderlichen Änderungen aufzulisten.",
+      "config-migration-body": "Aktualisiere {path} in der Quelldatei. Andromeda wendet diesen Ersatz nur vorübergehend an. Führe noctalia config validate aus, um alle erforderlichen Änderungen aufzulisten.",
       "config-migration-title": "Konfigurationsupdate erforderlich",
       "dbus-disabled": "DBus-Benachrichtigungen deaktiviert",
       "desktop-widgets-editor": "Widget-Editor",
       "desktop-widgets-editor-enabled": "Der Desktop-Widget-Editor ist aktiv. Wechsle zu einem leeren Arbeitsbereich, damit offene Fenster den Editor nicht verdecken.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Das Erscheinungsbild wird mit dem Greeter synchronisiert. Falls eine Administratorabfrage erscheint, bestätige sie; passwortlose Autorisierung folgt der Systemrichtlinie.",
-      "greeter-sync-pending-console": "Das Erscheinungsbild wird mit dem Greeter synchronisiert. Falls eine Autorisierung erforderlich ist, bestätige die Polkit-Anfrage in Noctalia, auf einem TTY oder in einer Konsole.",
+      "greeter-sync-pending-console": "Das Erscheinungsbild wird mit dem Greeter synchronisiert. Falls eine Autorisierung erforderlich ist, bestätige die Polkit-Anfrage in Andromeda, auf einem TTY oder in einer Konsole.",
       "greeter-sync-pending-manual": "Dateien sind für die authentifizierte Legacy-Synchronisierung vorbereitet. Führe den positionalen Apply-Helfer in einem Terminal aus und übergib dabei NOCTALIA_GREETER_STATE_DIR, falls du einen benutzerdefinierten Pfad verwendest oder lege shell.greeter_sync.privilege_command fest und synchronisiere erneut.",
       "greeter-sync-success": "Erscheinungsbild synchronisiert. Änderungen werden beim nächsten Anmeldebildschirm angewendet.",
       "greeter-sync-timeout": "Die Greeter-Synchronisierung wartet weiterhin auf Autorisierung. Prüfe ein TTY oder eine Konsole auf eine Polkit-Anfrage, aktiviere den Polkit-Agenten in den Sicherheitseinstellungen oder führe pkexec manuell aus.",
       "greeter-sync-timeout-manual": "Die authentifizierte Legacy-Synchronisierung benötigt weiterhin Administratorfreigabe. Führe den positionalen Apply-Helfer in einem Terminal aus und behalte NOCTALIA_GREETER_STATE_DIR bei, falls du einen benutzerdefinierten Pfad verwendest.",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Dieses Tastenkürzel akzeptiert eine einzelne Taste ohne Zusatztasten.",
       "keybind-invalid-printable": "Druckbare Tasten (Buchstaben, Zahlen, Symbole) benötigen einen Modifikator wie Ctrl oder Alt.",
       "keybind-invalid-super": "Die Super-/Windows-Taste kann nicht für Shell-Tastenkombinationen verwendet werden.",
@@ -847,7 +847,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} erfordert Plugin-API {version}; diese Noctalia-Version unterstützt API {oldest}–{current}.",
+      "body-incompatible": "{plugin} erfordert Plugin-API {version}; diese Andromeda-Version unterstützt API {oldest}–{current}.",
       "body-timeout": "{plugin} hat zu lange zum Installieren benötigt.",
       "title": "Plugin nicht aktiviert"
     }
@@ -973,7 +973,7 @@
       "bar": {
         "create": "Erstellen",
         "delete": "Löschen",
-        "delete-confirm-desc": "Diese über die GUI erstellte Leiste wird aus settings.toml entfernt.",
+        "delete-confirm-desc": "Diese über die GUI erstellte Leiste wird aus overrides.toml entfernt.",
         "delete-confirm-title": "„{name}“ löschen?",
         "id-placeholder": "Leisten-ID",
         "label": "Leiste: {name}",
@@ -987,7 +987,7 @@
       "monitor-override": {
         "create": "Erstellen",
         "delete": "Löschen",
-        "delete-confirm-desc": "Diese über die GUI erstellte Monitor-Überschreibung wird aus settings.toml entfernt.",
+        "delete-confirm-desc": "Diese über die GUI erstellte Monitor-Überschreibung wird aus overrides.toml entfernt.",
         "delete-confirm-title": "„{name}“ löschen?",
         "label": "Monitor: {name}",
         "management": "Monitor-Überschreibung",
@@ -1136,7 +1136,7 @@
       },
       "reset-page": "Zurücksetzen einiger Einstellungen fehlgeschlagen.",
       "support-report": "Speichern des Supportberichts fehlgeschlagen.",
-      "sync-greeter": "Erscheinungsbild konnte nicht mit Noctalia Greeter synchronisiert werden.",
+      "sync-greeter": "Erscheinungsbild konnte nicht mit Andromeda Greeter synchronisiert werden.",
       "sync-greeter-timeout": "Die Greeter-Synchronisierung wartet weiterhin auf Administratorfreigabe. Prüfe einen TTY oder eine Konsole auf eine Polkit-Anfrage, aktiviere den Polkit-Agenten in den Sicherheitseinstellungen oder führe pkexec manuell aus.",
       "sync-greeter-timeout-manual": "Die Greeter-Synchronisierung benötigt weiterhin Administratorfreigabe. Führe in einem Terminal aus: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "widget": {
@@ -1501,7 +1501,7 @@
         "deprecated": "veraltet",
         "empty": "Keine aktivierten Plugins.",
         "held-back": "ältere Version",
-        "held-back-hint": "v{version} benötigt Plugin-API {required}; diese Noctalia-Version unterstützt bis zu {current}. Aktualisiere Noctalia, um es zu erhalten.",
+        "held-back-hint": "v{version} benötigt Plugin-API {required}; diese Andromeda-Version unterstützt bis zu {current}. Aktualisiere Andromeda, um es zu erhalten.",
         "incompatible-plugin-api": "inkompatible Plugin-API",
         "remove": "Plugin entfernen",
         "requires": "Erfordert: {dependencies}",
@@ -1543,15 +1543,15 @@
         "update": "Quelle aktualisieren"
       },
       "store": {
-        "add": "Zu Noctalia hinzufügen",
+        "add": "Zu Andromeda hinzufügen",
         "back-to-catalog": "Zurück zum Plugin-Katalog",
         "categories": "Kategorien",
         "category-all": "Alle",
         "empty": "Keine Plugins gefunden",
         "held-back": "Ältere Version",
-        "held-back-hint": "Installiert v{version} für Plugin-API {resolved}. Das neueste v{latest} benötigt Plugin-API {latestRequired}; diese Noctalia-Version unterstützt bis zu {current}.",
+        "held-back-hint": "Installiert v{version} für Plugin-API {resolved}. Das neueste v{latest} benötigt Plugin-API {latestRequired}; diese Andromeda-Version unterstützt bis zu {current}.",
         "incompatible": "Inkompatibel",
-        "incompatible-hint": "Benötigt Plugin-API {required}; diese Noctalia-Version unterstützt {oldest}–{current}.",
+        "incompatible-hint": "Benötigt Plugin-API {required}; diese Andromeda-Version unterstützt {oldest}–{current}.",
         "loading": "Katalog wird geladen…",
         "no-readme": "Keine Beschreibung vorhanden.",
         "open-page": "Plugin-Seite auf noctalia.dev öffnen",
@@ -2088,7 +2088,7 @@
             "label": "Beim Herunterfahren"
           },
           "started": {
-            "description": "Befehl, der nach dem Start von Noctalia ausgeführt wird",
+            "description": "Befehl, der nach dem Start von Andromeda ausgeführt wird",
             "label": "Nach dem Start"
           },
           "theme-mode-changed": {
@@ -2173,10 +2173,6 @@
         "blur-intensity": {
           "description": "Wie stark der Hintergrund des Sperrbildschirms weichgezeichnet wird",
           "label": "Unschärfeintensität"
-        },
-        "blurred-desktop": {
-          "description": "Verwende einen Schnappschuss des Desktops als Hintergrund des Sperrbildschirms",
-          "label": "Desktopaufnahme"
         },
         "enabled": {
           "description": "Aktiviere Sitzungssperre, Logind-Integration und Sperraktionen",
@@ -2848,9 +2844,9 @@
           "label": "Tastaturlayout-Beschriftungen"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Startet Anwendungen in separaten systemd-Diensten, damit sie sich keine cgroup mit Noctalia teilen",
+          "description": "Startet Anwendungen in separaten systemd-Diensten, damit sie sich keine cgroup mit Andromeda teilen",
           "label": "Apps als systemd-Dienste starten",
-          "requires-systemd-session": "Erfordert, dass Noctalia als systemd-Benutzerdienst ausgeführt wird (uwsm oder eine systemd-Benutzereinheit)"
+          "requires-systemd-session": "Erfordert, dass Andromeda als systemd-Benutzerdienst ausgeführt wird (uwsm oder eine systemd-Benutzereinheit)"
         },
         "launch-apps-custom-command": {
           "description": "Wird für Apps verwendet, die vom Launcher, Dock und der Taskleiste gestartet werden; ersetzt $CMD durch den ursprünglichen Befehl",
@@ -3046,8 +3042,8 @@
         },
         "sync-greeter": {
           "button": "Jetzt synchronisieren",
-          "description": "Kopiere das aktuelle Hintergrundbild und die Farben in den Noctalia Greeter (erfordert Administratorgenehmigung)",
-          "label": "Noctalia Greeter"
+          "description": "Kopiere das aktuelle Hintergrundbild und die Farben in den Andromeda Greeter (erfordert Administratorgenehmigung)",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Sendet einen kleinen anonymen Start-Ping mit Version, OS, Compositor, Monitorauflösungen, RAM und UI-Skalierung",
@@ -3938,8 +3934,8 @@
       "export-config": "Konfiguration exportieren…",
       "export-config-saved": "Konfigurationsexport gespeichert.",
       "filter-overridden": "Überschreiben",
-      "legacy-config-warning": "Veraltete Einstellung: {issue}. Bearbeite diesen Quelleintrag; Noctalia wendet den Ersatz nur vorübergehend an. Führe noctalia config validate aus, um alle erforderlichen Änderungen aufzulisten.",
-      "native-title": "Noctalia-Einstellungen",
+      "legacy-config-warning": "Veraltete Einstellung: {issue}. Bearbeite diesen Quelleintrag; Andromeda wendet den Ersatz nur vorübergehend an. Führe noctalia config validate aus, um alle erforderlichen Änderungen aufzulisten.",
+      "native-title": "Andromeda-Einstellungen",
       "no-results": "Keine Einstellungen gefunden",
       "no-results-hint": "Versuche einen anderen Einstellungsnamen oder Konfigurationsschlüssel.",
       "offline-mode-notice": {
@@ -3974,7 +3970,7 @@
     "no-wallpaper-selected": "Kein Hintergrundbild ausgewählt",
     "select-wallpaper": "Hintergrundbild auswählen",
     "subtitle": "Ein paar schnelle Auswahlmöglichkeiten für den Einstieg.",
-    "title": "Willkommen bei Noctalia",
+    "title": "Willkommen bei Andromeda",
     "wallpaper": "Hintergrundbild",
     "wallpaper-scheme": "Hintergrundbild-Farbschema"
   },

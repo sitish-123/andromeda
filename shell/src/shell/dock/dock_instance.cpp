@@ -9,11 +9,12 @@
 #include "render/scene/node.h"
 #include "shell/dock/dock_geometry.h"
 #include "shell/dock/dock_items.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
 
@@ -212,10 +213,22 @@ namespace shell::dock {
     instance.surface->setBlurRegion(blurStrips);
   }
 
+  void applyPanelPalette(DockInstance& instance, const DockConfig& cfg);
+
   void buildScene(DockInstance& instance, DockInstanceDependencies deps, const DockInstanceCallbacks& callbacks) {
     uiAssertNotRendering("shell::dock::buildScene");
     if (instance.surface == nullptr) {
       return;
+    }
+    if (instance.dsk == nullptr && instance.surface->wlSurface() != nullptr) {
+      if (auto* manager = deps.platform.wayland().dskSurfaceManager(); manager != nullptr) {
+        instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
+        instance.dsk->setOnBackdrop([inst = &instance](bool dark) {
+          inst->backdropDark = dark;
+          applyPanelPalette(*inst, inst->config);
+          inst->surface->requestRedraw();
+        });
+      }
     }
 
     Renderer& renderer = instance.surface->renderTarget().renderer();
@@ -241,7 +254,7 @@ namespace shell::dock {
       instance.slideRoot = instance.sceneRoot->addChild(std::move(slide));
 
       // Shadow
-      if (shell::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
+      if (ui::surface_shadow::enabled(cfg.shadow, shadowConfig)) {
         instance.shadow = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
       }
 
@@ -318,8 +331,8 @@ namespace shell::dock {
       } else {
         instance.slideRoot->setOpacity(0.0F);
         instance.hideOpacity = 1.0F;
-        instance.animations.animate(
-            0.0F, 1.0F, Style::animSlow, Easing::EaseOutCubic,
+        instance.animations.animateSpatial(
+            0.0F, 1.0F, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
             [slide = instance.slideRoot](float v) { slide->setOpacity(v); }, {}, instance.slideRoot
         );
       }
@@ -343,9 +356,9 @@ namespace shell::dock {
       const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
       const auto shadowOffsetX = static_cast<float>(shadowOff.x);
       const auto shadowOffsetY = static_cast<float>(shadowOff.y);
-      const RoundedRectStyle shadowStyle = shell::surface_shadow::style(
-          shadowConfig, cfg.backgroundOpacity,
-          shell::surface_shadow::Shape{
+      const RoundedRectStyle shadowStyle = ui::surface_shadow::style(
+          shadowConfig, Style::glassAlpha(cfg.backgroundOpacity),
+          ui::surface_shadow::Shape{
               .corners = concave.corners, .logicalInset = concave.logicalInset, .radius = concave.radii
           }
       );
@@ -374,7 +387,8 @@ namespace shell::dock {
     // The viewport follows the visible pill on its main axis and spans the surface on its cross axis,
     // allowing magnified icons to grow away from the screen edge without escaping past the pill ends.
     const auto contentLength = static_cast<float>(
-        shell::dock::dockContentSize(cfg, instance.items.size() + shell::dock::dockLauncherButtonCount(cfg))
+        shell::dock::dockContentSize(cfg, instance.items.size() + shell::dock::dockLauncherButtonCount(cfg),
+        instance.snapshot.hasSeparator())
     );
     if (vert) {
       instance.viewport->setPosition(0.0F, panelGeometry.panelY);
@@ -421,8 +435,13 @@ namespace shell::dock {
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg) {
     if (instance.panel == nullptr)
       return;
-    const float opacity = cfg.backgroundOpacity;
-    instance.panel->setFill(colorSpecFromRole(ColorRole::Surface, opacity));
+    // A small shape: liquid glass with the launcher pill's clear tint.
+    const bool liquid = instance.dsk != nullptr && instance.dsk->hasLiquidProperty() && !Style::reduceTransparency();
+    if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
+      instance.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
+    }
+    const float opacity = liquid ? Style::liquidTintFor(instance.backdropDark) : Style::glassAlpha(cfg.backgroundOpacity);
+    instance.panel->setFill(colorSpecFromRole(materialRole(), opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }
 
@@ -433,7 +452,7 @@ namespace shell::dock {
 
     const auto surfaceGeometry = shell::dock::computeSurfaceGeometry(
         cfg, shadowConfig, instance.items.size() + shell::dock::dockLauncherButtonCount(cfg), instance.fractionalScale,
-        instance.outputLogicalWidth, instance.outputLogicalHeight
+        instance.outputLogicalWidth, instance.outputLogicalHeight, instance.snapshot.hasSeparator()
     );
 
     if (instance.surface->width() != surfaceGeometry.surfaceW
@@ -442,34 +461,40 @@ namespace shell::dock {
     }
   }
 
+  void animateDockHide(DockInstance& inst, float target) {
+    const desk::motion::SpringConfig spring = target > 0.5F ? dockShowSpring() : dockHideSpring();
+    if (inst.hideAnimId != 0 && inst.animations.retarget(inst.hideAnimId, target, spring)) {
+      return;
+    }
+    if (inst.hideAnimId != 0) {
+      inst.animations.cancel(inst.hideAnimId);
+    }
+    inst.hideAnimId = inst.animations.animateSpatial(
+        inst.hideOpacity, target, spring,
+        [&inst](float v) {
+          inst.hideOpacity = std::clamp(v, 0.0F, 1.0F);
+          syncDockSlideLayerTransform(inst, inst.config);
+          applyDockCompositorBlur(inst, inst.config);
+        },
+        [&inst] { inst.hideAnimId = 0; }
+    );
+  }
+
   void revealAutoHideDock(DockInstance& inst) {
     const auto& cfg = inst.config;
     if (!dockUsesAnyAutoHide(cfg) || inst.surface == nullptr || inst.slideRoot == nullptr) {
       return;
     }
 
-    if (inst.hideAnimId != 0) {
-      inst.animations.cancel(inst.hideAnimId);
-      inst.hideAnimId = 0;
-    }
-
     constexpr float kSettledThreshold = 0.999F;
     const float current = inst.hideOpacity;
-    if (current >= kSettledThreshold) {
+    if (current >= kSettledThreshold && inst.hideAnimId == 0) {
       syncDockAutoHideInputRegion(inst, cfg, DockPanelGeometry{});
       inst.surface->requestRedraw();
       return;
     }
 
-    inst.hideAnimId = inst.animations.animate(
-        current, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-        [&inst](float v) {
-          inst.hideOpacity = v;
-          syncDockSlideLayerTransform(inst, inst.config);
-          applyDockCompositorBlur(inst, inst.config);
-        },
-        [&inst] { inst.hideAnimId = 0; }
-    );
+    animateDockHide(inst, 1.0F);
     syncDockAutoHideInputRegion(inst, cfg, DockPanelGeometry{});
     inst.surface->requestRedraw();
   }
@@ -478,20 +503,7 @@ namespace shell::dock {
     // xdg tooltips are not parent-transformed with the slide; destroy immediately
     // so they cannot remain pinned after auto-hide starts (#4177).
     TooltipManager::instance().forceDestroy();
-    if (inst.hideAnimId != 0) {
-      inst.animations.cancel(inst.hideAnimId);
-      inst.hideAnimId = 0;
-    }
-    const float current = inst.hideOpacity;
-    inst.hideAnimId = inst.animations.animate(
-        current, 0.0F, Style::animNormal, Easing::EaseInQuad,
-        [&inst](float v) {
-          inst.hideOpacity = v;
-          syncDockSlideLayerTransform(inst, inst.config);
-          applyDockCompositorBlur(inst, inst.config);
-        },
-        [&inst] { inst.hideAnimId = 0; }
-    );
+    animateDockHide(inst, 0.0F);
     syncDockAutoHideInputRegion(inst, inst.config, DockPanelGeometry{});
     if (inst.surface) {
       inst.surface->requestRedraw();

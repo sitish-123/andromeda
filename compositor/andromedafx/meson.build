@@ -28,6 +28,7 @@ andromedafx_sources = files(
   'render/color.c',
   'render/egl.c',
   'render/pixel_format.c',
+  'render/fx_renderer/backdrop_probe.c',
   'render/fx_renderer/fx_framebuffer.c',
   'render/fx_renderer/fx_offscreen_buffers.c',
   'render/fx_renderer/fx_pass.c',
@@ -138,13 +139,29 @@ andromedafx_shader_embed = find_program(
   'render/fx_renderer/shaders/embed.sh',
   native: true,
 )
+# corner_alpha.frag reads radius.smoothing: the token #defines go in front of it.
+andromedafx_tokens_glsl = custom_target(
+  'design_tokens.glsl',
+  input: ['../protocols/gen-design-tokens.py', '../protocols/design-tokens.toml'],
+  output: 'design_tokens.glsl',
+  command: [find_program('python3'), '@INPUT0@', '@INPUT1@', '@OUTPUT@'],
+)
+andromedafx_sources += custom_target(
+  'corner_alpha_frag_src.h',
+  input: [andromedafx_tokens_glsl, 'render/fx_renderer/shaders/corner_alpha.frag'],
+  output: 'corner_alpha_frag_src.h',
+  command: [
+    'sh', '-c', 'a=$1 b=$2; shift 2; cat "$a" "$b" | "$@" corner_alpha_frag_src', 'embed', '@INPUT0@', '@INPUT1@',
+    andromedafx_shader_embed,
+  ],
+  capture: true,
+)
 foreach shader : [
   'blur1.frag',
   'blur2.frag',
   'border.frag',
   'box_shadow.frag',
   'common.vert',
-  'corner_alpha.frag',
   'effect_light.frag',
   'gradient.frag',
   'output.frag',

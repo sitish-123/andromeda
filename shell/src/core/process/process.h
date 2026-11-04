@@ -48,6 +48,8 @@ namespace process {
     std::shared_ptr<std::atomic<bool>> cancel;
     // Child-only environment changes. `nullopt` unsets the variable.
     std::vector<EnvOverride> env;
+    // AsyncProcessManager only: fed to the child's stdin from the polling loop, then EOF.
+    std::optional<std::string> stdinData;
   };
 
   [[nodiscard]] bool commandExists(const char* name);

@@ -11,6 +11,7 @@
 #include "render/scene/node.h"
 #include "shell/control_center/tabs/screen_time_tab.h"
 #include "shell/panel/panel_button_style.h"
+#include "render/animation/motion_service.h"
 #include "shell/panel/panel_manager.h"
 #include "system/dependency_service.h"
 #include "system/easyeffects_service.h"
@@ -37,6 +38,8 @@ namespace {
   constexpr auto kMprisRefreshMinInterval = std::chrono::milliseconds(750);
   // Full-height cards need room for rounded-rect AA before the tab viewport clips them.
   constexpr float kTabViewportClipInset = 1.0F;
+  // The quick sheet: 360 px of cards plus the panel padding on both sides.
+  TOKENS_LIVE(kQuickSheetWidth, Tokens::componentSheetWidth);
 
   float tabContentHeight(float viewportHeight) {
     return std::max(1.0F, std::floor(viewportHeight - kTabViewportClipInset));
@@ -51,6 +54,10 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_mpris = services.mpris;
   m_notificationManager = services.notifications;
   m_dependencies = services.dependencies;
+  m_tabs[tabIndex(TabId::Quick)] = std::make_unique<QuickTab>(services, [this](std::string_view tabKey) {
+    selectTab(tabFromContext(tabKey), /*animated=*/true);
+    PanelManager::instance().refresh();
+  });
   m_tabs[tabIndex(TabId::Home)] = std::make_unique<HomeTab>(services);
   m_tabs[tabIndex(TabId::Media)] = std::make_unique<MediaTab>(
       services.mpris, services.httpClient, services.spectrum, services.config, wayland,
@@ -65,18 +72,42 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::Notifications)] =
       std::make_unique<NotificationsTab>(services.notifications, services.platform);
   m_tabs[tabIndex(TabId::Network)] =
-      std::make_unique<NetworkTab>(services.network, services.networkSecrets, services.externalIp, services.modem);
+      std::make_unique<NetworkTab>(
+          services.network, services.networkSecrets, services.externalIp, services.modem, services.hotspot
+      );
   m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
   m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
   m_tabs[tabIndex(TabId::Power)] = std::make_unique<PowerTab>(services.upower, services.powerProfiles);
+  const auto back = [this] {
+    selectTab(TabId::Quick, /*animated=*/true);
+    PanelManager::instance().refresh();
+  };
+  const auto addDetail = [this, &back](TabId id, auto page) {
+    page->setOnBack(back);
+    m_tabs[tabIndex(id)] = std::move(page);
+  };
+  addDetail(TabId::DetailWifi, std::make_unique<control_center::WifiDetailPage>(services.network));
+  addDetail(TabId::DetailBluetooth, std::make_unique<control_center::BluetoothDetailPage>(services.bluetooth));
+  addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio));
+  addDetail(TabId::DetailPower,
+            std::make_unique<control_center::PowerDetailPage>(services.powerProfiles, services.upower));
+  addDetail(TabId::DetailSearch, std::make_unique<control_center::SearchDetailPage>(services.network, [this](std::string_view key) {
+    selectTab(tabFromContext(key), /*animated=*/true);
+    PanelManager::instance().refresh();
+  }));
+  addDetail(TabId::DetailFocus, std::make_unique<control_center::FocusDetailPage>(services.notifications));
+  addDetail(TabId::DetailPhone, std::make_unique<control_center::PhoneDetailPage>(services.link, services.notifications));
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
 }
 
 float ControlCenterPanel::preferredWidth() const {
+  if (isSheetContext(pendingOpenContext())) {
+    return kQuickSheetWidth * m_contentScale;
+  }
   const float fullSize = m_config != nullptr ? static_cast<float>(m_config->config().controlCenter.width)
                                              : static_cast<float>(ControlCenterConfig::kDefaultWidth);
   switch (sidebarModeForOpen(pendingOpenContext())) {
@@ -88,6 +119,31 @@ float ControlCenterPanel::preferredWidth() const {
   case ControlCenterSidebarMode::Compact:
     return fullSize * 0.85F * m_contentScale;
   }
+}
+
+bool ControlCenterPanel::fitsContentHeight() const noexcept {
+  const TabId tab = tabFromContext(pendingOpenContext());
+  return tab == TabId::Quick || isDetailTab(tab);
+}
+
+float ControlCenterPanel::preferredHeight() const {
+  // The sheet is the slot a detail page may grow into: the manager clamps it to the room it grants.
+  return scaled(fitsContentHeight() ? 4096.0F : 520.0F);
+}
+
+float ControlCenterPanel::measureContentHeight(Renderer& renderer, float contentWidth) {
+  if (isDetailTab(m_activeTab) && m_contentHeader != nullptr && m_content != nullptr) {
+    auto* page = dynamic_cast<control_center::DetailPage*>(m_tabs[tabIndex(m_activeTab)].get());
+    if (page != nullptr) {
+      return std::max(m_contentHeader->height(), Tokens::componentSheetDetailHeader * contentScale()) + m_content->gap() + m_content->paddingTop() + m_content->paddingBottom()
+          + kTabViewportClipInset + page->measureHeight(renderer, contentWidth);
+    }
+  }
+  auto* quick = dynamic_cast<QuickTab*>(m_tabs[tabIndex(TabId::Quick)].get());
+  if (m_activeTab != TabId::Quick || quick == nullptr || m_contentHeader == nullptr || m_content == nullptr) {
+    return preferredHeight();
+  }
+  return quick->measureHeight(renderer, contentWidth);
 }
 
 PanelPlacement ControlCenterPanel::panelPlacement() const noexcept {
@@ -126,7 +182,7 @@ void ControlCenterPanel::create() {
         .fillWidth = false,
         .fillHeight = true,
         .configure = [this, scale](Flex& column) {
-          column.setFill(colorSpecFromRole(ColorRole::SurfaceContainer, panelCardOpacity()));
+          column.setFill(colorSpecFromRole(ColorRole::Fill2, panelCardOpacity()));
           column.setRadius(Style::scaledRadiusXl(scale));
         },
     });
@@ -139,7 +195,7 @@ void ControlCenterPanel::create() {
     sidebar->addChild(std::move(sidebarScrollArea));
 
     const std::optional<float> sidebarScrollWidth =
-        m_compact ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt;
+        m_compact ? std::optional<float>{Style::controlHeight * scale} : std::nullopt;
 
     auto sidebarScroll = ui::scrollView({
         .out = &m_sidebarScrollView,
@@ -176,6 +232,9 @@ void ControlCenterPanel::create() {
     m_sidebarNav = sidebarNav.get();
 
     for (const auto& tab : kTabs) {
+      if (isDetailTab(tab.id)) {
+        continue;
+      }
       const std::size_t idx = tabIndex(tab.id);
       const auto onClick = [this, id = tab.id] {
         selectTab(id, true);
@@ -190,8 +249,8 @@ void ControlCenterPanel::create() {
               .contentAlign = m_compact ? ButtonContentAlign::Center : ButtonContentAlign::Start,
               .variant = ButtonVariant::Tab,
               .tooltip = m_compact ? i18n::tr(tab.titleKey) : std::string{},
-              .minWidth = m_compact ? std::optional<float>{Style::controlHeightSm * scale} : std::optional<float>{},
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = m_compact ? std::optional<float>{Style::controlHeight * scale} : std::optional<float>{},
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = (m_compact ? Style::spaceXs : Style::spaceSm) * scale,
               .gap = Style::spaceSm * scale,
@@ -247,13 +306,23 @@ void ControlCenterPanel::create() {
       .gap = Style::spaceSm * scale,
   });
 
+  if (!m_showSidebar) {
+    header->setMinHeight(Tokens::componentSheetDetailHeader * scale);
+  }
+  header->addChild(ui::button({
+      .out = &m_backButton,
+      .glyph = "chevron-left",
+      .onClick = [this] { selectTab(TabId::Quick, /*animated=*/true); },
+      .configure = [scale](Button& button) { panel_button_style::configureHeaderIconButton(button, scale); },
+  }));
   header->addChild(
       ui::label({
           .out = &m_contentTitle,
           .text = i18n::tr("control-center.tabs.home"),
-          .fontSize = Style::fontSizeTitle * scale,
-          .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeTitle3.size) * scale,
+          .fontWeight = m_showSidebar ? FontWeight::Bold
+                                      : static_cast<FontWeight>(Style::glassWeight(Tokens::typeTitle3.weight)),
+          .color = colorSpecFromRole(m_showSidebar ? ColorRole::AccentText : ColorRole::Label1),
           .flexGrow = 1.0F,
       })
   );
@@ -273,7 +342,7 @@ void ControlCenterPanel::create() {
     }
   }
 
-  if (Style::closeButtonsEnabled()) {
+  if (Style::closeButtonsEnabled() && m_showSidebar) {
     m_contentHeaderActions->addChild(
         ui::button({
             .out = &m_closeButton,
@@ -324,7 +393,7 @@ void ControlCenterPanel::onPanelCardOpacityChanged(float opacity) {
     }
   }
   if (m_sidebar != nullptr) {
-    m_sidebar->setFill(colorSpecFromRole(ColorRole::SurfaceContainer, opacity));
+    m_sidebar->setFill(colorSpecFromRole(ColorRole::Fill2, opacity));
   }
 }
 
@@ -399,6 +468,7 @@ void ControlCenterPanel::doUpdate(Renderer& renderer) {
   if (m_tabs[activeIdx] != nullptr) {
     m_tabs[activeIdx]->update(renderer);
   }
+  runTitleMove();
 }
 
 void ControlCenterPanel::onFrameTick(float deltaMs) {
@@ -442,12 +512,16 @@ bool ControlCenterPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifi
 }
 
 void ControlCenterPanel::onClose() {
+  if (m_titleMove.animation != 0 && m_animations != nullptr) {
+    m_animations->cancel(m_titleMove.animation);
+  }
+  m_titleMove = {};
   if (m_tabTransitionAnimId != 0 && m_animations != nullptr) {
     m_animations->cancel(m_tabTransitionAnimId);
     m_tabTransitionAnimId = 0;
   }
   m_tabTransitionActive = false;
-  m_activeTab = TabId::Home;
+  m_activeTab = TabId::Quick;
   for (auto& tab : m_tabs) {
     tab->setActive(false);
     tab->onClose();
@@ -464,6 +538,7 @@ void ControlCenterPanel::onClose() {
   m_contentHeaderActions = nullptr;
   m_contentTitle = nullptr;
   m_closeButton = nullptr;
+  m_backButton = nullptr;
   m_tabBodies = nullptr;
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
@@ -508,11 +583,11 @@ bool ControlCenterPanel::isTabFeatureAvailable(TabId tab) const {
 }
 
 bool ControlCenterPanel::isTabVisible(TabId tab) const {
-  if (!isTabFeatureAvailable(tab)) {
+  if (isDetailTab(tab) || !isTabFeatureAvailable(tab)) {
     return false;
   }
   // Home is always shown so the panel never opens to an empty surface.
-  if (tab == TabId::Home || m_config == nullptr) {
+  if (tab == TabId::Quick || tab == TabId::Home || m_config == nullptr) {
     return true;
   }
   const auto& hidden = m_config->config().controlCenter.hiddenTabs;
@@ -530,7 +605,7 @@ std::vector<ControlCenterPanel::TabCatalogEntry> ControlCenterPanel::hideableTab
   std::vector<TabCatalogEntry> out;
   out.reserve(kTabCount - 1);
   for (const auto& meta : kTabs) {
-    if (meta.id == TabId::Home) {
+    if (meta.id == TabId::Quick || meta.id == TabId::Home || isDetailTab(meta.id)) {
       continue;
     }
     out.push_back({.key = meta.key, .titleKey = meta.titleKey});
@@ -542,7 +617,7 @@ std::vector<ControlCenterPanel::LauncherTabEntry> ControlCenterPanel::visibleTab
   std::vector<LauncherTabEntry> out;
   out.reserve(kTabCount - 1);
   for (const auto& meta : kTabs) {
-    if (meta.id == TabId::Home || !isTabVisible(meta.id)) {
+    if (meta.id == TabId::Quick || meta.id == TabId::Home || !isTabVisible(meta.id)) {
       continue;
     }
     out.push_back({.key = meta.key, .titleKey = meta.titleKey, .glyph = meta.glyph});
@@ -565,7 +640,7 @@ ControlCenterPanel::TabId ControlCenterPanel::firstVisibleTab() const {
       return meta.id;
     }
   }
-  return TabId::Home;
+  return TabId::Quick;
 }
 
 void ControlCenterPanel::syncTabVisibility() {
@@ -598,18 +673,20 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
       m_tabButtons[idx]->setVariant(meta.id == tab ? ButtonVariant::TabActive : ButtonVariant::Tab);
     }
     if (meta.id == tab && m_contentTitle != nullptr) {
-      m_contentTitle->setText(i18n::tr(meta.titleKey));
+      const std::string dynamicTitle = m_tabs[idx] != nullptr ? m_tabs[idx]->headerTitle() : std::string{};
+      m_contentTitle->setText(!dynamicTitle.empty() ? dynamicTitle
+          : i18n::tr(!m_showSidebar && tab == TabId::Network ? "control-center.network.wifi" : meta.titleKey));
     }
     if (m_tabHeaderActions[idx] != nullptr) {
       m_tabHeaderActions[idx]->setVisible(tabEnabled && meta.id == tab);
     }
   }
 
-  if (m_contentTitle != nullptr) {
-    m_contentTitle->setVisible(true);
+  if (m_backButton != nullptr) {
+    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick);
   }
-  if (m_contentHeaderActions != nullptr) {
-    m_contentHeaderActions->setVisible(true);
+  if (m_contentHeader != nullptr) {
+    m_contentHeader->setVisible(tab != TabId::Quick);
   }
   if (m_sidebarNav != nullptr) {
     m_sidebarNav->notifyExternalSelectionChanged();
@@ -627,7 +704,10 @@ void ControlCenterPanel::applyTabContainerVisibility(TabId activeTab) {
 }
 
 void ControlCenterPanel::layoutTabContainers(float bodyWidth, float bodyHeight) {
-  const float travel = bodyHeight > 0.0F ? bodyHeight : 0.0F;
+  // P12: pages slide side by side with a 32 gap; a deeper level moves the lower page 30 % and dims it.
+  constexpr float kPageGap = 32.0F;
+  constexpr float kParallax = 0.3F;
+  const float travel = bodyWidth > 0.0F ? bodyWidth + kPageGap * m_contentScale : 0.0F;
   const float contentHeight = tabContentHeight(bodyHeight);
   for (std::size_t i = 0; i < kTabCount; ++i) {
     auto* container = m_tabContainers[i];
@@ -637,24 +717,39 @@ void ControlCenterPanel::layoutTabContainers(float bodyWidth, float bodyHeight) 
 
     container->setSize(bodyWidth, contentHeight);
 
-    float offsetY = 0.0F;
+    float offsetX = 0.0F;
     float opacity = 1.0F;
+    int z = 0;
     const auto tabId = static_cast<TabId>(i);
     if (m_tabTransitionActive && travel > 0.0F) {
       const auto direction = static_cast<float>(m_tabTransitionDirection);
-      if (tabId == m_tabTransitionOutgoing) {
-        offsetY = -direction * travel * m_tabTransitionProgress;
-        opacity = 1.0F - 0.3F * m_tabTransitionProgress;
-      } else if (tabId == m_activeTab) {
-        offsetY = direction * travel * (1.0F - m_tabTransitionProgress);
-        opacity = 0.7F + 0.3F * m_tabTransitionProgress;
+      const float p = m_tabTransitionProgress;
+      const bool outgoing = tabId == m_tabTransitionOutgoing;
+      const bool incoming = tabId == m_activeTab;
+      if (m_tabTransitionDeeper) {
+        // The detail page is the upper layer; the sheet is glass, so the lower page fades out under it.
+        const bool forward = direction > 0.0F;
+        const bool upper = forward ? incoming : outgoing;
+        const float shown = forward ? p : 1.0F - p;
+        if (upper && (incoming || outgoing)) {
+          offsetX = bodyWidth * (1.0F - shown);
+          z = 1;
+        } else if (incoming || outgoing) {
+          offsetX = -kParallax * bodyWidth * shown;
+          opacity = 1.0F - shown;
+        }
+      } else if (outgoing) {
+        offsetX = -direction * travel * p;
+      } else if (incoming) {
+        offsetX = direction * travel * (1.0F - p);
+        z = 1;
       }
     }
 
-    container->setPosition(0.0F, offsetY);
+    container->setPosition(offsetX, 0.0F);
     container->setOpacity(opacity);
     if (m_tabTransitionActive) {
-      container->setZIndex(tabId == m_activeTab ? 1 : 0);
+      container->setZIndex(z);
     } else {
       container->setZIndex(0);
     }
@@ -706,11 +801,12 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
 
   const int fromOrdinal = visibleTabOrdinal(from);
   const int toOrdinal = visibleTabOrdinal(to);
-  m_tabTransitionDirection = toOrdinal >= fromOrdinal ? 1 : -1;
+  m_tabTransitionDeeper = (from == TabId::Quick && isDetailTab(to)) || (isDetailTab(from) && to == TabId::Quick);
+  m_tabTransitionDirection = m_tabTransitionDeeper ? (isDetailTab(to) ? 1 : -1) : (toOrdinal >= fromOrdinal ? 1 : -1);
 
   for (const auto& meta : kTabs) {
     const std::size_t idx = tabIndex(meta.id);
-    if (m_tabContainers[idx] == nullptr || !isTabVisible(meta.id)) {
+    if (m_tabContainers[idx] == nullptr) {
       continue;
     }
     const bool show = meta.id == from || meta.id == to;
@@ -722,8 +818,8 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
   PanelManager::instance().requestRedraw();
   PanelManager::instance().requestFrameTick();
 
-  m_tabTransitionAnimId = m_animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animNormal), Easing::EaseOutCubic,
+  m_tabTransitionAnimId = m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         m_tabTransitionProgress = progress;
         applyTabTransitionLayout();
@@ -736,7 +832,7 @@ void ControlCenterPanel::startTabTransition(TabId from, TabId to) {
         PanelManager::instance().requestRedraw();
       },
       m_tabBodies
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void ControlCenterPanel::finishTabTransition() {
@@ -800,6 +896,13 @@ void ControlCenterPanel::selectTab(TabId tab, bool animated) {
     finishTabTransition();
   }
 
+  endTitleMove();
+  if (animated && previousTab == TabId::Quick && isDetailTab(tab) && m_tabs[tabIndex(previousTab)] != nullptr
+      && MotionService::instance().enabled()) {
+    if (Label* source = m_tabs[tabIndex(previousTab)]->sharedTitleFor(kTabs[tabIndex(tab)].key); source != nullptr) {
+      beginTitleMove(*source);
+    }
+  }
   m_activeTab = tab;
   if (tab == TabId::Notifications && m_notificationManager != nullptr) {
     m_notificationManager->markNotificationHistorySeen();
@@ -818,8 +921,96 @@ void ControlCenterPanel::selectTab(TabId tab, bool animated) {
   scheduleMprisRefreshFor(tab);
 }
 
+void ControlCenterPanel::beginTitleMove(Label& source) {
+  if (m_rootLayout == nullptr || m_contentTitle == nullptr || source.text().empty()) {
+    return;
+  }
+  float sx = 0.0F;
+  float sy = 0.0F;
+  float rx = 0.0F;
+  float ry = 0.0F;
+  Node::absolutePosition(&source, sx, sy);
+  Node::absolutePosition(m_rootLayout, rx, ry);
+  auto overlay = std::make_unique<Label>();
+  overlay->setParticipatesInLayout(false);
+  overlay->setText(source.text());
+  overlay->setMaxLines(1);
+  overlay->setFontSize(Tokens::typeHeadline.size * m_contentScale);
+  overlay->setLineHeight(Tokens::typeHeadline.line * m_contentScale);
+  overlay->setFontWeight(static_cast<FontWeight>(Style::glassWeight(Tokens::typeHeadline.weight)));
+  overlay->setColor(colorSpecFromRole(ColorRole::Label1));
+  overlay->setZIndex(100);
+  overlay->setPosition(sx - rx, sy - ry);
+  m_titleMove = TitleMove{
+      .overlay = static_cast<Label*>(m_rootLayout->addChild(std::move(overlay))),
+      .fromX = sx - rx,
+      .fromY = sy - ry,
+      .fromSize = Tokens::typeHeadline.size * m_contentScale,
+      .fromLine = Tokens::typeHeadline.line * m_contentScale,
+      .pending = true,
+  };
+  m_contentTitle->setOpacity(0.0F);
+}
+
+// The header has its place after the next layout: fly the overlay there, then hand over to the real title.
+void ControlCenterPanel::runTitleMove() {
+  if (!m_titleMove.pending || m_titleMove.overlay == nullptr || m_contentTitle == nullptr || m_rootLayout == nullptr
+      || m_animations == nullptr) {
+    return;
+  }
+  float tx = 0.0F;
+  float ty = 0.0F;
+  float rx = 0.0F;
+  float ry = 0.0F;
+  Node::absolutePosition(m_contentTitle, tx, ty);
+  Node::absolutePosition(m_rootLayout, rx, ry);
+  if (m_contentTitle->width() <= 0.0F) {
+    constexpr int kMaxWaitFrames = 30;
+    if (++m_titleMove.waitedFrames > kMaxWaitFrames) {
+      endTitleMove();
+    }
+    return;
+  }
+  m_titleMove.pending = false;
+  const float toX = tx - rx;
+  const float toY = ty - ry;
+  const float toSize = Tokens::typeTitle3.size * m_contentScale;
+  const float toLine = Tokens::typeTitle3.line * m_contentScale;
+  const TitleMove start = m_titleMove;
+  m_titleMove.animation = m_animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
+      [this, start, toX, toY, toSize, toLine](float p) {
+        if (m_titleMove.overlay == nullptr) {
+          return;
+        }
+        m_titleMove.overlay->setPosition(start.fromX + (toX - start.fromX) * p, start.fromY + (toY - start.fromY) * p);
+        m_titleMove.overlay->setFontSize(start.fromSize + (toSize - start.fromSize) * p);
+        m_titleMove.overlay->setLineHeight(start.fromLine + (toLine - start.fromLine) * p);
+        PanelManager::instance().requestRedraw();
+      },
+      [this] {
+        m_titleMove.animation = 0;
+        endTitleMove();
+      },
+      m_rootLayout, 0.0F, Unit::Progress
+  );
+}
+
+void ControlCenterPanel::endTitleMove() {
+  if (m_titleMove.animation != 0 && m_animations != nullptr) {
+    m_animations->cancel(m_titleMove.animation);
+  }
+  if (m_titleMove.overlay != nullptr && m_rootLayout != nullptr) {
+    m_rootLayout->removeChild(m_titleMove.overlay);
+  }
+  m_titleMove = {};
+  if (m_contentTitle != nullptr) {
+    m_contentTitle->setOpacity(1.0F);
+  }
+}
+
 void ControlCenterPanel::scheduleMprisRefreshFor(TabId tab) {
-  if (m_mpris == nullptr || m_mprisRefreshScheduled || (tab != TabId::Home && tab != TabId::Media)) {
+  if (m_mpris == nullptr || m_mprisRefreshScheduled || (tab != TabId::Quick && tab != TabId::Home && tab != TabId::Media)) {
     return;
   }
 
@@ -845,12 +1036,20 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
   if (context.empty() || context == "home") {
     return false;
   }
-  return std::ranges::any_of(kTabs, [&](const auto& tab) { return tab.id != TabId::Home && context == tab.key; });
+  return std::ranges::any_of(kTabs, [&](const auto& tab) { return tab.id != TabId::Quick && tab.id != TabId::Home && context == tab.key; });
+}
+
+bool ControlCenterPanel::isSheetContext(std::string_view context) const {
+  const TabId tab = tabFromContext(context);
+  return tab == TabId::Quick || tab == TabId::Network || isDetailTab(tab);
 }
 
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {
   if (m_config == nullptr) {
     return ControlCenterSidebarMode::Compact;
+  }
+  if (isSheetContext(context)) {
+    return ControlCenterSidebarMode::None;
   }
   const auto& cc = m_config->config().controlCenter;
   return isDirectSectionOpenContext(context) ? cc.sidebarSectionMode : cc.sidebarMode;
@@ -862,7 +1061,7 @@ ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view co
       return tab.id;
     }
   }
-  return TabId::Home;
+  return TabId::Quick;
 }
 
 std::size_t ControlCenterPanel::tabIndex(TabId id) { return static_cast<std::size_t>(id); }
@@ -887,7 +1086,7 @@ void ControlCenterPanel::layoutFullSidebarWidth(Renderer& renderer) {
     maxTabWidth = std::max(maxTabWidth, paddingH + glyphW + gap + text.width);
   }
 
-  const float minWidth = Style::controlHeightSm * scale;
+  const float minWidth = Style::controlHeight * scale;
   const float contentWidth = std::max(minWidth, std::ceil(maxTabWidth));
 
   // Scrollbar gutter lives inside the scroll viewport; reserve it only when the nav overflows.
@@ -930,7 +1129,8 @@ void ControlCenterPanel::scrollFocusedInputIntoView(InputArea* area) {
     }
   }
 
-  if (ScrollView* scrollView = findEnclosingScrollView(area)) {
+  // A horizontal view is the quick sheet's pager: it rests on whole pages, so a margin scroll would leave it 12 px off.
+  if (ScrollView* scrollView = findEnclosingScrollView(area); scrollView != nullptr && scrollView->orientation() == ScrollOrientation::Vertical) {
     scrollNodeIntoScrollView(*scrollView, nullptr, *area, Style::spaceMd * contentScale());
     PanelManager::instance().requestLayout();
   }

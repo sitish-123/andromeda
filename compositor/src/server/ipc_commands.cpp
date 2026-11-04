@@ -882,6 +882,7 @@ namespace andromeda {
       entry["keyboard_interactivity"] = keyboardInteractivityName(state.keyboard_interactive);
       entry["focused"] = l->hasKeyboardFocus();
       entry["exclusive_zone"] = state.exclusive_zone;
+      entry["blur"] = l->blurActive();
       nlohmann::json anchor = nlohmann::json::array();
       for (const auto& [edge, name] : kLayerAnchors) {
         if ((state.anchor & edge) != 0) {
@@ -977,6 +978,7 @@ namespace andromeda {
             {"window", std::move(window)},
             {"commits", tracker.commits()},
             {"scanout_commits", tracker.scanoutCommits()},
+            {"grouped_events", tracker.groupedEvents()},
             {"commit_seq", tracker.commitSeq()},
         };
       }
@@ -1358,6 +1360,16 @@ namespace andromeda {
     return nlohmann::json{{"ok", {{"outputs", std::move(outputs)}}}};
   }
 
+  nlohmann::json IpcCommands::blurCachePixels(Server& server, std::string_view /*arg*/) {
+    nlohmann::json pixels = nlohmann::json::object();
+    nlohmann::json nodes = nlohmann::json::object();
+    for (const auto& output : server.outputs()) {
+      pixels[output->wlr()->name] = fx_output_optimized_blur_pixels_for_test(output->wlr());
+      nodes[output->wlr()->name] = output->blurNodeCount();
+    }
+    return nlohmann::json{{"ok", {{"pixels", std::move(pixels)}, {"nodes", std::move(nodes)}}}};
+  }
+
   nlohmann::json IpcCommands::cursorState(Server& server, std::string_view /*arg*/) {
     const Cursor* cursor = server.cursor();
     nlohmann::json image = nullptr;
@@ -1375,6 +1387,7 @@ namespace andromeda {
             {"source", cursor->clientCursorSourceForTest()},
             {"name", cursor->clientCursorNameForTest()},
             {"xwayland", cursor->clientCursorFromXwaylandForTest()},
+            {"xcursor", cursor->xcursorNameForTest()},
             {"image", std::move(image)},
         },
     }};
@@ -1467,6 +1480,8 @@ namespace andromeda {
        &IpcCommands::planeCursor, nullptr},
       {"effect-frames", "", "count frames drawn for persistent effects per output", IpcCommandGroup::Harness, false,
        &IpcCommands::effectFrames, nullptr},
+      {"blur-cache-pixels", "", "pixels the optimized blur cache re-rendered and background nodes tracked, per output (harness only)",
+       IpcCommandGroup::Harness, false, &IpcCommands::blurCachePixels, nullptr},
       {"output-commits", "", "committed frame count per output", IpcCommandGroup::Harness, false,
        &IpcCommands::outputCommits, nullptr},
       {"cursor-state", "", "inspect the current client cursor source (harness only)", IpcCommandGroup::Harness, false,

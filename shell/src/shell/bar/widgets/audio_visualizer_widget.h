@@ -18,8 +18,8 @@ public:
     bool centered = true;
     bool wave = false;
     bool showWhenIdle = false;
-    ColorSpec color1 = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec color2 = colorSpecFromRole(ColorRole::Primary);
+    ColorSpec color1 = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec color2 = colorSpecFromRole(ColorRole::Accent);
   };
 
   AudioVisualizerWidget(PipeWireSpectrum* spectrum, Options options);
@@ -47,8 +47,8 @@ private:
   bool m_centered = true;
   bool m_wave = false;
   bool m_showWhenIdle = false;
-  ColorSpec m_color1 = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_color2 = colorSpecFromRole(ColorRole::Primary);
+  ColorSpec m_color1 = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_color2 = colorSpecFromRole(ColorRole::Accent);
   std::uint64_t m_listenerId = 0;
   AudioVisualizer* m_visualizer = nullptr;
   bool m_pendingSpectrumUpdate = false;

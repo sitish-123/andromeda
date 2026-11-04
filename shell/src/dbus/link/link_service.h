@@ -68,6 +68,24 @@ struct LinkText {
   bool sent = false;
 };
 
+// A recent photo on a phone; `path` feeds photoThumbnail and savePhoto.
+struct LinkPhoto {
+  std::string path;
+  std::string name;
+  std::uint64_t added = 0;
+};
+
+// What the last recent-photos request for a phone found.
+enum class LinkPhotosState : std::uint8_t {
+  Unknown, // not asked yet
+  Loading,
+  Ready,
+  Denied, // Android withholds photo access on the phone
+  Unavailable, // browse switch off, an old phone, or the phone is away
+};
+
+enum class LinkSaveResult : std::uint8_t { Saved, Denied, Failed };
+
 // A LocalSend device on the LAN, which takes files like a Link device does.
 struct LinkNearby {
   std::string id;
@@ -112,6 +130,34 @@ public:
   LinkService& operator=(const LinkService&) = delete;
 
   void setChangeCallback(ChangeCallback callback);
+
+  struct TransferStatus {
+    std::string transferId;
+    std::string title;
+    std::string subtitle;
+    float progress = 0.0F;
+  };
+  // The transfer that reported progress last; empty when none runs.
+  [[nodiscard]] std::optional<TransferStatus> activeTransfer() const;
+  void cancelTransfer(const std::string& transferId);
+
+  struct CallStatus {
+    std::string deviceId;
+    std::string caller;
+    // The phone's name, after the app for an app call: "Messenger · OnePlus 12".
+    std::string device;
+    bool ringing = false;
+    // When the call was answered; unset while it rings.
+    std::optional<std::chrono::steady_clock::time_point> since;
+  };
+  // The phone call that is ringing or active; empty when none.
+  [[nodiscard]] std::optional<CallStatus> activeCall() const;
+  void declineCall(const std::string& deviceId);
+  void muteCall(const std::string& deviceId);
+
+  // Runs on each transfer progress or finish and on each call state change. While it is set, transfer progress
+  // shows in the live activity island instead of a toast.
+  void setActivityCallback(ChangeCallback callback);
   void startPairing();
   void cancelPairing();
   // Whether a phone with a Link session reported this code for the Bluetooth pairing under way; `done` runs once.
@@ -168,6 +214,22 @@ public:
   [[nodiscard]] const std::optional<LinkPairing>& pairing() const noexcept { return m_pairing; }
   // How the last pairing attempt ended; cleared by the next startPairing().
   [[nodiscard]] const std::optional<LinkPairingOutcome>& outcome() const noexcept { return m_outcome; }
+  // The user paused the phone here: it stays paired but is refused until connect().
+  [[nodiscard]] bool paused(const std::string& deviceId) const { return m_paused.contains(deviceId); }
+  // connect() ran and the phone has not dialed back yet; the phone retries within 30 s.
+  [[nodiscard]] bool connecting(const std::string& deviceId) const;
+  // `done` gets whether the daemon accepted the call.
+  void connect(const std::string& deviceId, std::function<void(bool)> done = {});
+  void disconnect(const std::string& deviceId, std::function<void(bool)> done = {});
+  // Asks the phone for its newest photos; the answer arrives through the change callback.
+  void requestPhotos(const std::string& deviceId, std::uint16_t count);
+  [[nodiscard]] LinkPhotosState photosState(const std::string& deviceId) const;
+  [[nodiscard]] const std::vector<LinkPhoto>* photos(const std::string& deviceId) const;
+  // The decoded thumbnail of a listed photo, or null while it loads (asked on the first call).
+  [[nodiscard]] std::shared_ptr<const NotificationImageData>
+  photoThumbnail(const std::string& deviceId, const std::string& path, std::uint16_t size);
+  // Copies a listed photo into the downloads folder; `done` runs once.
+  void savePhoto(const std::string& deviceId, const std::string& path, std::function<void(LinkSaveResult)> done);
   [[nodiscard]] bool phoneRinging(const std::string& deviceId) const { return m_phonesRinging.contains(deviceId); }
   // The phone's newest texts, newest first, while its messages switch is on.
   [[nodiscard]] const std::vector<LinkText>* texts(const std::string& deviceId) const;
@@ -196,8 +258,10 @@ private:
   void onHotspot(const std::string& deviceId, const std::string& ssid);
   void onHotspotRequested(const std::string& deviceId, const std::string& ssid);
   void onPinged(const std::string& deviceId, const std::string& message);
-  void
-  onCall(const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name);
+  void onCall(
+      const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name,
+      const std::string& app
+  );
   void stopRinging();
   [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
 
@@ -213,6 +277,10 @@ private:
     std::uint32_t progressNotification = 0;
     // The user closed the progress toast; it is not shown again.
     bool progressDismissed = false;
+    std::uint64_t bytes = 0;
+    std::uint64_t total = 0;
+    // Order of the last progress report; 0 before the first.
+    std::uint64_t progressSerial = 0;
   };
 
   // What a transfer notification's actions act on: the transfer, or the files it delivered.
@@ -228,10 +296,26 @@ private:
   // Received shares by the id of the notification that offers them, until it closes.
   std::unordered_map<std::uint32_t, ReceivedShare> m_received;
   std::unordered_map<std::string, Transfer> m_transfers;
+  std::uint64_t m_progressSerial = 0;
+  ChangeCallback m_activityCallback;
+  std::optional<CallStatus> m_call;
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
   std::map<std::string, std::vector<std::string>> m_grants;
   std::map<std::string, LinkStatus> m_status;
+  std::set<std::string> m_paused;
+  std::map<std::string, std::chrono::steady_clock::time_point> m_connectDeadline;
+  struct PhotoList {
+    LinkPhotosState state = LinkPhotosState::Unknown;
+    std::vector<LinkPhoto> photos;
+  };
+  std::map<std::string, PhotoList> m_photoLists;
+  // Decoded thumbnails by device and path; null while the request runs.
+  std::map<std::pair<std::string, std::string>, std::shared_ptr<const NotificationImageData>> m_thumbnails;
+  // Counts requests per phone so that a reply of an older request is dropped.
+  std::map<std::string, std::uint64_t> m_photoGeneration;
+  Timer m_connectTimer;
+  void forgetPhotos(const std::string& deviceId);
   std::map<std::string, LinkDeviceInfo> m_info;
   std::map<std::string, LinkControls> m_controls;
   std::map<std::string, std::uint32_t> m_notificationCounts;

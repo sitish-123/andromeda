@@ -913,14 +913,14 @@
       "calendar-reminder-open": "Deschide",
       "calendar-reminder-untitled": "Eveniment fără titlu",
       "calendar-reminder-with-location": "{when}\n{location}",
-      "config-migration-body": "Actualizează {path} în fișierul sursă. Noctalia aplică această înlocuire doar temporar. Rulează noctalia config validate pentru a lista toate modificările necesare.",
+      "config-migration-body": "Actualizează {path} în fișierul sursă. Andromeda aplică această înlocuire doar temporar. Rulează noctalia config validate pentru a lista toate modificările necesare.",
       "config-migration-title": "Este necesară actualizarea configurației",
       "dbus-disabled": "Notificările DBus sunt dezactivate",
       "desktop-widgets-editor": "Editor de widgeturi",
       "desktop-widgets-editor-enabled": "Editorul de widgeturi desktop este pornit. Treci la un spațiu de lucru gol pentru ca ferestrele deschise să nu acopere editorul.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Se sincronizează aspectul cu ecranul de autentificare. Dacă apare o cerere de administrator, aprobă-o; autorizarea fără parolă urmează politica sistemului.",
-      "greeter-sync-pending-console": "Se sincronizează aspectul cu ecranul de autentificare. Dacă este necesară autorizarea, aprobă solicitarea polkit în Noctalia, pe un TTY sau pe o consolă.",
+      "greeter-sync-pending-console": "Se sincronizează aspectul cu ecranul de autentificare. Dacă este necesară autorizarea, aprobă solicitarea polkit în Andromeda, pe un TTY sau pe o consolă.",
       "greeter-sync-pending-legacy": "Se sincronizează prin instrumentul auxiliar autentificat vechi. Este necesară aprobarea administratorului.",
       "greeter-sync-pending-manual": "Fișierele sunt pregătite pentru sincronizarea autentificată veche. Rulează instrumentul auxiliar de aplicare pozițional într-un terminal, păstrând NOCTALIA_GREETER_STATE_DIR dacă folosești o cale personalizată, sau configurează shell.greeter_sync.privilege_command și sincronizează din nou.",
       "greeter-sync-pending-manual-pkexec": "Se sincronizează aspectul cu ecranul de autentificare. Dacă este necesară autorizarea administratorului și nu apare nicio solicitare, rulează într-un terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\".",
@@ -928,7 +928,7 @@
       "greeter-sync-timeout": "Sincronizarea cu ecranul de autentificare așteaptă încă autorizarea. Verifică un TTY sau o consolă pentru o solicitare polkit, activează agentul polkit din setările de securitate sau rulează pkexec manual.",
       "greeter-sync-timeout-manual": "Sincronizarea autentificată veche necesită încă aprobarea administratorului. Rulează instrumentul auxiliar de aplicare pozițional într-un terminal și păstrează NOCTALIA_GREETER_STATE_DIR dacă folosești o cale personalizată.",
       "greeter-sync-timeout-manual-pkexec": "Sincronizarea cu ecranul de autentificare necesită încă autorizare. Rulează într-un terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Această comandă rapidă acceptă o singură tastă fără modificatori.",
       "keybind-invalid-printable": "Tastele imprimabile (litere, cifre, simboluri) necesită un modificator precum Ctrl sau Alt.",
       "keybind-invalid-super": "Tasta Super/Windows nu poate fi folosită în comenzile rapide ale shell-ului.",
@@ -1009,7 +1009,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} vizează API-ul de pluginuri {version}; această versiune Noctalia acceptă API-ul {oldest}–{current}.",
+      "body-incompatible": "{plugin} vizează API-ul de pluginuri {version}; această versiune Andromeda acceptă API-ul {oldest}–{current}.",
       "body-timeout": "{plugin} a durat prea mult să se instaleze.",
       "title": "Pluginul nu a fost activat"
     }
@@ -1140,7 +1140,7 @@
       "bar": {
         "create": "Creează",
         "delete": "Șterge",
-        "delete-confirm-desc": "Această bară creată din interfață va fi eliminată din settings.toml.",
+        "delete-confirm-desc": "Această bară creată din interfață va fi eliminată din overrides.toml.",
         "delete-confirm-title": "Ștergi „{name}”?",
         "id-placeholder": "ID bară",
         "label": "Bară: {name}",
@@ -1155,7 +1155,7 @@
         "create": "Creează",
         "custom": "Personalizat",
         "delete": "Șterge",
-        "delete-confirm-desc": "Această suprascriere de monitor creată din interfață va fi eliminată din settings.toml.",
+        "delete-confirm-desc": "Această suprascriere de monitor creată din interfață va fi eliminată din overrides.toml.",
         "delete-confirm-title": "Ștergi „{name}”?",
         "exists": "Există deja o suprascriere pentru acest monitor.",
         "label": "Monitor: {name}",
@@ -1312,7 +1312,7 @@
       },
       "reset-page": "Resetarea unor setări a eșuat.",
       "support-report": "Salvarea raportului de asistență a eșuat.",
-      "sync-greeter": "Nu s-a putut sincroniza aspectul cu Noctalia Greeter.",
+      "sync-greeter": "Nu s-a putut sincroniza aspectul cu Andromeda Greeter.",
       "sync-greeter-timeout": "Sincronizarea cu ecranul de autentificare așteaptă încă autorizarea. Verifică un TTY sau o consolă pentru o solicitare polkit, activează agentul polkit din setările de securitate sau rulează pkexec manual.",
       "sync-greeter-timeout-manual": "Sincronizarea autentificată veche necesită încă aprobarea administratorului. Rulează instrumentul auxiliar de aplicare pozițional într-un terminal și păstrează NOCTALIA_GREETER_STATE_DIR dacă folosești o cale personalizată.",
       "sync-greeter-timeout-manual-pkexec": "Sincronizarea cu ecranul de autentificare necesită încă autorizare. Rulează într-un terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -1765,7 +1765,7 @@
         "deprecated": "învechit",
         "empty": "Niciun plugin activat.",
         "held-back": "versiune mai veche",
-        "held-back-hint": "v{version} necesită API-ul de pluginuri {required}; această versiune Noctalia acceptă până la {current}. Actualizează Noctalia pentru a-l obține.",
+        "held-back-hint": "v{version} necesită API-ul de pluginuri {required}; această versiune Andromeda acceptă până la {current}. Actualizează Andromeda pentru a-l obține.",
         "incompatible-plugin-api": "API de pluginuri incompatibil",
         "remove": "Elimină pluginul",
         "requires": "Necesită: {dependencies}",
@@ -1809,15 +1809,15 @@
         "update": "Actualizează sursa"
       },
       "store": {
-        "add": "Adaugă în Noctalia",
+        "add": "Adaugă în Andromeda",
         "back-to-catalog": "Înapoi la catalogul de pluginuri",
         "categories": "Categorii",
         "category-all": "Toate",
         "empty": "Niciun plugin găsit",
         "held-back": "Versiune mai veche",
-        "held-back-hint": "Instalează v{version} pentru API-ul de pluginuri {resolved}. Cea mai nouă versiune v{latest} necesită API-ul {latestRequired}; această versiune Noctalia acceptă până la {current}.",
+        "held-back-hint": "Instalează v{version} pentru API-ul de pluginuri {resolved}. Cea mai nouă versiune v{latest} necesită API-ul {latestRequired}; această versiune Andromeda acceptă până la {current}.",
         "incompatible": "Incompatibil",
-        "incompatible-hint": "Necesită API-ul de pluginuri {required}; această versiune Noctalia acceptă {oldest}–{current}.",
+        "incompatible-hint": "Necesită API-ul de pluginuri {required}; această versiune Andromeda acceptă {oldest}–{current}.",
         "installed": "Instalat",
         "loading": "Se încarcă catalogul…",
         "no-readme": "Nicio descriere disponibilă.",
@@ -1943,7 +1943,7 @@
           "label": "Negru pur"
         },
         "shell-theme-mode": {
-          "description": "Fixează modul luminos sau întunecat propriu Noctalia; Urmează îl menține sincronizat cu modul de temă",
+          "description": "Fixează modul luminos sau întunecat propriu Andromeda; Urmează îl menține sincronizat cu modul de temă",
           "label": "Modul de temă al shell-ului"
         },
         "show-close-buttons": {
@@ -2405,7 +2405,7 @@
             "label": "La oprire"
           },
           "started": {
-            "description": "Comandă de executat după pornirea Noctalia",
+            "description": "Comandă de executat după pornirea Andromeda",
             "label": "La pornire"
           },
           "theme-mode-changed": {
@@ -2490,10 +2490,6 @@
         "blur-intensity": {
           "description": "Cât de mult este estompat fundalul ecranului de blocare",
           "label": "Intensitatea estompării"
-        },
-        "blurred-desktop": {
-          "description": "Folosește o instantanee a desktopului ca fundal al ecranului de blocare",
-          "label": "Captură desktop"
         },
         "edge-smoothness": {
           "description": "Finețea marginilor tranziției ecranului de blocare",
@@ -2826,7 +2822,7 @@
           "label": "Arată butonul de sesiune"
         },
         "launcher-show-settings-button": {
-          "description": "Arată o comandă rapidă către Setările Noctalia",
+          "description": "Arată o comandă rapidă către Setările Andromeda",
           "label": "Arată butonul de setări"
         },
         "launcher-sort-by-usage": {
@@ -3334,9 +3330,9 @@
           "label": "Etichete pentru aspectele tastaturii"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Lansează aplicațiile în servicii systemd separate, astfel încât să nu împartă cgroup-ul Noctalia",
+          "description": "Lansează aplicațiile în servicii systemd separate, astfel încât să nu împartă cgroup-ul Andromeda",
           "label": "Lansează aplicațiile ca servicii systemd",
-          "requires-systemd-session": "Necesită ca Noctalia să ruleze ca serviciu de utilizator systemd (uwsm sau o unitate de utilizator systemd)"
+          "requires-systemd-session": "Necesită ca Andromeda să ruleze ca serviciu de utilizator systemd (uwsm sau o unitate de utilizator systemd)"
         },
         "launch-apps-custom-command": {
           "description": "Învelește aplicațiile lansate din lansator, dock și bara de activități; înlocuiește $CMD cu comanda originală",
@@ -3615,8 +3611,8 @@
         },
         "sync-greeter": {
           "button": "Sincronizează acum",
-          "description": "Copiază aspectul curent și aranjarea monitoarelor în Noctalia Greeter. Aprobarea administratorului este solicitată dacă politica sistemului nu autorizează sincronizarea fără parolă pentru utilizatorul tău.",
-          "label": "Noctalia Greeter"
+          "description": "Copiază aspectul curent și aranjarea monitoarelor în Andromeda Greeter. Aprobarea administratorului este solicitată dacă politica sistemului nu autorizează sincronizarea fără parolă pentru utilizatorul tău.",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Trimite un mic ping anonim la pornire cu versiunea, sistemul de operare, compositorul, rezoluțiile monitoarelor, RAM-ul și scara interfeței",
@@ -3929,7 +3925,7 @@
             "label": "Obține schema de culori"
           },
           "color-scheme-set": {
-            "description": "Setează sursa paletei și selecția în settings.toml (nume integrat, schema generatorului de fundal, ID din comunitate sau numele folderului unei scheme personalizate)",
+            "description": "Setează sursa paletei și selecția în overrides.toml (nume integrat, schema generatorului de fundal, ID din comunitate sau numele folderului unei scheme personalizate)",
             "label": "Setează schema de culori"
           },
           "config-reload": {
@@ -3989,7 +3985,7 @@
             "label": "Setează profilul EasyEffects"
           },
           "greeter-sync": {
-            "description": "Sincronizează fundalul, culorile și aranjarea monitoarelor cu Noctalia Greeter",
+            "description": "Sincronizează fundalul, culorile și aranjarea monitoarelor cu Andromeda Greeter",
             "label": "Sincronizează aspectul ecranului de autentificare"
           },
           "keyboard-backlight-down": {
@@ -4105,7 +4101,7 @@
             "label": "Declanșează acțiunea ultimei notificări"
           },
           "notification-show": {
-            "description": "Arată o notificare internă Noctalia",
+            "description": "Arată o notificare internă Andromeda",
             "label": "Arată o notificare"
           },
           "osd-disable": {
@@ -4209,7 +4205,7 @@
             "label": "Obține modul de temă"
           },
           "theme-mode-set": {
-            "description": "Setează modul de temă și îl salvează în settings.toml",
+            "description": "Setează modul de temă și îl salvează în overrides.toml",
             "label": "Setează modul de temă"
           },
           "theme-mode-toggle": {
@@ -5076,8 +5072,8 @@
       "export-config": "Exportă configurația…",
       "export-config-saved": "Exportul configurației a fost salvat.",
       "filter-overridden": "Suprascris",
-      "legacy-config-warning": "Setare veche: {issue}. Editează această intrare sursă; Noctalia aplică înlocuirea doar temporar. Rulează noctalia config validate pentru a lista toate modificările necesare.",
-      "native-title": "Setările Noctalia",
+      "legacy-config-warning": "Setare veche: {issue}. Editează această intrare sursă; Andromeda aplică înlocuirea doar temporar. Rulează noctalia config validate pentru a lista toate modificările necesare.",
+      "native-title": "Setările Andromeda",
       "no-results": "Nicio setare găsită",
       "no-results-hint": "Încearcă un alt nume de setare sau o altă cheie de configurare.",
       "offline-mode-notice": {
@@ -5113,7 +5109,7 @@
     "no-wallpaper-selected": "Niciun fundal selectat",
     "select-wallpaper": "Selectează fundalul",
     "subtitle": "Câteva alegeri rapide pentru a începe.",
-    "title": "Bun venit la Noctalia",
+    "title": "Bun venit la Andromeda",
     "wallpaper": "Fundal",
     "wallpaper-scheme": "Schemă de fundal"
   },

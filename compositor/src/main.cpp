@@ -6,19 +6,25 @@
 #include "core/fdlimit.h"
 #include "core/log.h"
 #include "core/process.h"
-#include "scene/cheatsheet_rows.h"
+#include "config/action_groups.h"
 #include "server/ipc.h"
 #include "server/ipc_commands.h"
+#include "server/greeter_mode.h"
 #include "server/server.h"
 
 #include <algorithm>
 #include <csignal>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <sched.h>
+#include <sys/auxv.h>
+#include <sys/prctl.h>
 #include <print>
 #include <string>
 #include <string_view>
@@ -108,6 +114,7 @@ namespace {
     heading("Compositor options");
     row("-s <command>", "spawn <command> once the compositor starts");
     row("-c <config>", "use <config> instead of the default config path");
+    row("--greeter", "login screen session: run only the -s client, exit with it (default config /etc/andromeda/greeter.toml)");
 
     heading("Control the running compositor");
     specRows(andromeda::IpcCommandGroup::Control);
@@ -155,7 +162,58 @@ const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,
 #define ANDROMEDA_STRINGIFY(x) ANDROMEDA_STRINGIFY_HELPER(x)
 #endif
 
+namespace {
+
+  // The cap_sys_nice file capability (GPU high priority, SCHED_RR) makes this a secure-exec process: glibc drops LD_*,
+  // TMPDIR, LOCPATH, GLIBC_TUNABLES and more from environ, and the kernel marks it non-dumpable. Spawned apps would
+  // inherit the trimmed environment, and core dumps and perf attach would stop. The kernel keeps the full initial
+  // environment in /proc/self/environ: put back each variable glibc removed, and allow dumps again.
+  void restoreSecureExecState() {
+    if (getauxval(AT_SECURE) == 0) {
+      return;
+    }
+    if (FILE* initial = std::fopen("/proc/self/environ", "r")) {
+      std::string entry;
+      for (int c = std::fgetc(initial);; c = std::fgetc(initial)) {
+        if (c != EOF && c != '\0') {
+          entry.push_back(static_cast<char>(c));
+          continue;
+        }
+        const std::size_t eq = entry.find('=');
+        if (eq != std::string::npos && eq > 0) {
+          const std::string name = entry.substr(0, eq);
+          if (std::getenv(name.c_str()) == nullptr) {
+            setenv(name.c_str(), entry.c_str() + eq + 1, 0);
+          }
+        }
+        entry.clear();
+        if (c == EOF) {
+          break;
+        }
+      }
+      std::fclose(initial);
+    }
+    prctl(PR_SET_DUMPABLE, 1);
+  }
+
+  // Frames must not wait behind CPU-bound clients: under a 32-job build the main thread waited 0.65 ms per wake-up at
+  // SCHED_OTHER (15 us idle). SCHED_RR runs it before every normal task, as KWin does. RESET_ON_FORK keeps worker
+  // threads and spawned clients at normal priority. Kernel RT throttling still leaves 5% of each CPU to normal tasks.
+  void raiseMainThreadPriority() {
+    constexpr int kPriority = 2;
+    sched_param param{};
+    param.sched_priority = kPriority;
+    if (sched_setscheduler(0, SCHED_RR | SCHED_RESET_ON_FORK, &param) != 0) {
+      kLog.warn("real-time scheduling unavailable ({}); frames may stall under CPU load", std::strerror(errno));
+      return;
+    }
+    kLog.info("main thread runs SCHED_RR priority {}", kPriority);
+  }
+
+} // namespace
+
 int main(int argc, char** argv) {
+  restoreSecureExecState();
 #if defined(__GLIBC__) && !defined(ANDROMEDA_USE_JEMALLOC)
   // glibc fallback when jemalloc is unavailable: a bounded arena count keeps a
   // long-running compositor from fragmenting across per-thread arenas.
@@ -266,7 +324,7 @@ int main(int argc, char** argv) {
         std::println("");
         std::println("Send an action to the running compositor.");
         std::println("Use `msg spawn <cmd...>` as shorthand for `msg spawn:<cmd...>`.");
-        std::println("Available actions, grouped as the cheatsheet groups them:");
+        std::println("Available actions, grouped by area:");
         for (const andromeda::Group group : andromeda::fixedGroupOrder()) {
           std::vector<std::string> names;
           std::vector<std::string_view> summaries;
@@ -362,15 +420,29 @@ int main(int argc, char** argv) {
       startupCmd = argv[++i];
     } else if (std::strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
       configPath = argv[++i];
+    } else if (std::strcmp(argv[i], "--greeter") == 0) {
+      andromeda::setGreeterMode(true);
     } else {
       printHelp(stderr);
       return EXIT_FAILURE;
     }
   }
 
+  if (andromeda::greeterMode()) {
+    if (startupCmd == nullptr) {
+      std::println(stderr, "error: --greeter needs -s <greeter command>");
+      return EXIT_FAILURE;
+    }
+    // Optional file: an explicit path that is missing raises the config error banner on the login screen.
+    if (configPath == nullptr && std::filesystem::exists("/etc/andromeda/greeter.toml")) {
+      configPath = "/etc/andromeda/greeter.toml";
+    }
+  }
+
   try {
     kLog.info("starting andromeda version={} commit={}", andromeda::build_info::version(), andromeda::build_info::revision());
     andromeda::loadConfig(configPath);
+    raiseMainThreadPriority();
     andromeda::Server server;
 
     // SIGINT and SIGTERM are handled on the event loop by the server itself.

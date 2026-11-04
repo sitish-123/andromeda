@@ -43,70 +43,6 @@ namespace settings {
       });
     }
 
-    std::unique_ptr<Button> makeConfirmButton(
-        std::string text, ButtonVariant variant, float scale, std::function<void()> onClick, std::string glyph = {}
-    ) {
-      ui::ButtonProps props;
-      props.text = std::move(text);
-      if (!glyph.empty()) {
-        props.glyph = std::move(glyph);
-        props.glyphSize = Style::fontSizeBody * scale;
-      }
-      props.fontSize = Style::fontSizeCaption * scale;
-      props.variant = variant;
-      props.minHeight = Style::controlHeightSm * scale;
-      props.paddingV = Style::spaceXs * scale;
-      props.paddingH = Style::spaceSm * scale;
-      props.radius = Style::scaledRadiusSm(scale);
-      props.onClick = std::move(onClick);
-      return ui::button(std::move(props));
-    }
-
-    std::unique_ptr<Flex>
-    pluginDeleteConfirmPanel(const scripting::PluginStatus& plugin, const SettingsPluginsContext& ctx, float scale) {
-      auto panel = ui::column({
-          .align = FlexAlign::Stretch,
-          .gap = Style::spaceXs * scale,
-          .padding = Style::spaceSm * scale,
-          .configure = [scale](Flex& p) {
-            p.setRadius(Style::scaledRadiusSm(scale));
-            p.setFill(colorSpecFromRole(ColorRole::ErrorContainer));
-            p.setBorder(colorSpecFromRole(ColorRole::Error), Style::borderWidth);
-          },
-      });
-      panel->addChild(makeLabel(
-          i18n::tr("settings.plugins.plugins.delete-confirm-title", "name", plugin.name), Style::fontSizeBody * scale,
-          ColorRole::OnErrorContainer, FontWeight::Bold
-      ));
-      panel->addChild(makeLabel(
-          i18n::tr("settings.plugins.plugins.delete-confirm-desc"), Style::fontSizeCaption * scale,
-          ColorRole::OnErrorContainer
-      ));
-      panel->addChild(
-          ui::row(
-              {.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, ui::spacer(),
-              makeConfirmButton(
-                  i18n::tr("common.actions.cancel"), ButtonVariant::Ghost, scale,
-                  [cb = ctx.cancelDelete] {
-                    if (cb) {
-                      cb();
-                    }
-                  }
-              ),
-              makeConfirmButton(
-                  i18n::tr("settings.plugins.plugins.delete"), ButtonVariant::Destructive, scale,
-                  [cb = ctx.onRemove, id = plugin.id] {
-                    if (cb) {
-                      cb(id);
-                    }
-                  },
-                  "trash"
-              )
-          )
-      );
-      return panel;
-    }
-
     bool pluginEnabled(const scripting::PluginStatus& plugin, const SettingsPluginsContext& ctx) {
       if (ctx.config == nullptr) {
         return plugin.enabled;
@@ -152,12 +88,12 @@ namespace settings {
       auto info = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
       info->addChild(makeLabel(
           pluginSourceDisplayName(source.name), Style::fontSizeBody * scale,
-          source.enabled ? ColorRole::OnSurface : ColorRole::OnSurfaceVariant, FontWeight::Medium
+          source.enabled ? ColorRole::Label1 : ColorRole::Label2, FontWeight::Medium
       ));
       const std::string kind = source.kind == PluginSourceKind::Git ? i18n::tr("settings.plugins.sources.kind.git")
                                                                     : i18n::tr("settings.plugins.sources.kind.path");
       info->addChild(
-          makeLabel(kind + " · " + source.location, Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant)
+          makeLabel(kind + " · " + source.location, Style::fontSizeCaption * scale, ColorRole::Label2)
       );
       r->addChild(std::move(info));
 
@@ -228,9 +164,9 @@ namespace settings {
           ui::glyph({
               .glyph = plugin.icon.empty() ? std::string("apps") : plugin.icon,
               .glyphSize = Style::fontSizeHeader * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
-              .width = Style::controlHeightSm * scale,
-              .height = Style::controlHeightSm * scale,
+              .color = colorSpecFromRole(ColorRole::AccentText),
+              .width = Style::controlHeight * scale,
+              .height = Style::controlHeight * scale,
           })
       );
 
@@ -238,28 +174,28 @@ namespace settings {
       auto title = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * scale});
       const std::string version = plugin.version.empty() ? std::string("?") : plugin.version;
       title->addChild(
-          makeLabel(pluginDisplayName(plugin), Style::fontSizeBody * scale, ColorRole::OnSurface, FontWeight::Medium)
+          makeLabel(pluginDisplayName(plugin), Style::fontSizeBody * scale, ColorRole::Label1, FontWeight::Medium)
       );
       if (plugin.source == "official") {
-        title->addChild(makeRoleBadge(i18n::tr("settings.badges.official"), ColorRole::Primary, scale));
+        title->addChild(makeRoleBadge(i18n::tr("settings.badges.official"), ColorRole::Accent, scale));
       } else if (plugin.source == "community") {
-        title->addChild(makeRoleBadge(i18n::tr("settings.badges.community"), ColorRole::Secondary, scale));
+        title->addChild(makeRoleBadge(i18n::tr("settings.badges.community"), ColorRole::Accent, scale));
       } else if (!plugin.source.empty()) {
-        title->addChild(makeRoleBadge(pluginSourceDisplayName(plugin.source), ColorRole::Tertiary, scale));
+        title->addChild(makeRoleBadge(pluginSourceDisplayName(plugin.source), ColorRole::Accent, scale));
       }
-      title->addChild(makeLabel("v" + version, Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant));
+      title->addChild(makeLabel("v" + version, Style::fontSizeCaption * scale, ColorRole::Label2));
       if (!plugin.compatible) {
         title->addChild(makeLabel(
-            i18n::tr("settings.plugins.plugins.incompatible-plugin-api"), Style::fontSizeMini * scale, ColorRole::Error,
+            i18n::tr("settings.plugins.plugins.incompatible-plugin-api"), Style::fontSizeMini * scale, ColorRole::DangerText,
             FontWeight::Bold
         ));
       }
       if (plugin.heldBack) {
-        title->addChild(makeRoleBadge(i18n::tr("settings.plugins.plugins.held-back"), ColorRole::Tertiary, scale));
+        title->addChild(makeRoleBadge(i18n::tr("settings.plugins.plugins.held-back"), ColorRole::Accent, scale));
       }
       if (plugin.deprecated) {
         title->addChild(makeLabel(
-            i18n::tr("settings.plugins.plugins.deprecated"), Style::fontSizeMini * scale, ColorRole::Secondary,
+            i18n::tr("settings.plugins.plugins.deprecated"), Style::fontSizeMini * scale, ColorRole::AccentText,
             FontWeight::Bold
         ));
       }
@@ -267,7 +203,7 @@ namespace settings {
         const std::string badge = plugin.availableVersion.empty()
             ? i18n::tr("settings.plugins.plugins.update-available")
             : i18n::tr("settings.plugins.plugins.update-to", "version", plugin.availableVersion);
-        title->addChild(makeRoleBadge(badge, ColorRole::Tertiary, scale));
+        title->addChild(makeRoleBadge(badge, ColorRole::Accent, scale));
       }
       info->addChild(std::move(title));
       if (plugin.heldBack) {
@@ -276,16 +212,16 @@ namespace settings {
                 "settings.plugins.plugins.held-back-hint", "version", plugin.latestVersion, "required",
                 plugin.latestPluginApiVersion, "current", scripting::kCurrentPluginApiVersion
             ),
-            Style::fontSizeMini * scale, ColorRole::Tertiary
+            Style::fontSizeMini * scale, ColorRole::AccentText
         ));
       }
       if (!plugin.description.empty()) {
-        info->addChild(makeLabel(plugin.description, Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant));
+        info->addChild(makeLabel(plugin.description, Style::fontSizeCaption * scale, ColorRole::Label2));
       }
       if (!plugin.dependencies.empty()) {
         info->addChild(makeLabel(
             i18n::tr("settings.plugins.plugins.requires", "dependencies", StringUtils::join(plugin.dependencies, ", ")),
-            Style::fontSizeCaption * scale, ColorRole::Secondary
+            Style::fontSizeCaption * scale, ColorRole::AccentText
         ));
       }
       r->addChild(std::move(info));
@@ -331,9 +267,9 @@ namespace settings {
                 .glyphSize = Style::fontSizeBody * scale,
                 .variant = ButtonVariant::Ghost,
                 .tooltip = i18n::tr("settings.plugins.plugins.remove"),
-                .onClick = [cb = ctx.requestDeleteConfirm, id = plugin.id] {
+                .onClick = [cb = ctx.requestDeleteConfirm, id = plugin.id, name = plugin.name] {
                   if (cb) {
-                    cb(id);
+                    cb(id, name);
                   }
                 },
             })
@@ -344,7 +280,7 @@ namespace settings {
       if (busy) {
         r->addChild(
             ui::spinner({
-                .spinnerSize = Style::controlHeightSm * scale * 0.7F,
+                .spinnerSize = Style::controlHeight * scale * 0.7F,
                 .spinning = true,
             })
         );
@@ -672,7 +608,7 @@ namespace settings {
     }
     if (!rendered) {
       body.addChild(makeLabel(
-          i18n::tr("settings.plugins.settings.empty"), Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant
+          i18n::tr("settings.plugins.settings.empty"), Style::fontSizeCaption * scale, ColorRole::Label2
       ));
     }
   }
@@ -693,24 +629,6 @@ namespace settings {
     Flex* section = sectionCol.get();
     content.addChild(std::move(sectionCol));
 
-    auto titleRow = ui::row(
-        {.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true},
-        ui::glyph({
-            .glyph = "puzzle",
-            .glyphSize = Style::fontSizeHeader * scale,
-            .color = colorSpecFromRole(ColorRole::Primary),
-        }),
-        makeLabel(
-            i18n::tr("settings.navigation.sections.plugins"), Style::fontSizeHeader * scale, ColorRole::Primary,
-            FontWeight::Bold
-        )
-    );
-    if (ctx.pageTitleRow != nullptr && !ctx.searchActive && ctx.pageTitleRow->children().empty()) {
-      ctx.pageTitleRow->addChild(std::move(titleRow));
-    } else {
-      section->addChild(std::move(titleRow));
-    }
-
     const std::string sourcesTitle = i18n::tr("settings.plugins.sources.title");
     const std::string pluginsTitle = i18n::tr("settings.plugins.plugins.title");
     // Sources and Plugins are tabs like every registry page; settings_expand_all_groups shows both.
@@ -722,20 +640,17 @@ namespace settings {
     const bool showSources = !tabbed || openTab.contains("sources");
     const bool showPlugins = !tabbed || openTab.contains("plugins");
     if (tabbed && ctx.groupJumpRow != nullptr) {
-      for (const auto& [group, title] : {std::pair{"plugins", pluginsTitle}, std::pair{"sources", sourcesTitle}}) {
-        ctx.groupJumpRow->addChild(
-            ui::button({
-                .text = title,
-                .fontSize = Style::fontSizeCaption * scale,
-                .variant = openTab.contains(group) ? ButtonVariant::TabActive : ButtonVariant::Tab,
-                .radius = Style::scaledRadiusMd(scale),
-                .onClick = [&openTab, tab = std::string(group), rebuild = ctx.requestContentRebuild]() {
-                  openTab = {tab};
-                  rebuild();
-                },
-            })
-        );
-      }
+      // The two tabs are one segmented control; the open one is the lens (rulebook 9.6).
+      ctx.groupJumpRow->addChild(ui::segmented({
+          .options = std::vector<ui::SegmentedOption>{ui::SegmentedOption{.label = std::string(pluginsTitle)},
+                                                      ui::SegmentedOption{.label = std::string(sourcesTitle)}},
+          .selectedIndex = openTab.contains("sources") ? std::size_t{1} : std::size_t{0},
+          .scale = scale,
+          .onChange = [&openTab, rebuild = ctx.requestContentRebuild](std::size_t index) {
+            openTab = {index == 1 ? std::string("sources") : std::string("plugins")};
+            rebuild();
+          },
+      }));
     }
 
     if (ctx.config != nullptr && ctx.config->shell.offlineMode) {
@@ -770,12 +685,12 @@ namespace settings {
       sourcesBody->addChild(std::move(sourcesHeaderNode));
       if (ctx.sources.empty()) {
         sourcesBody->addChild(makeLabel(
-            i18n::tr("settings.plugins.sources.empty"), Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant
+            i18n::tr("settings.plugins.sources.empty"), Style::fontSizeCaption * scale, ColorRole::Label2
         ));
       } else if (ctx.sources.size() > 1) {
         sourcesBody->addChild(makeLabel(
             i18n::tr("settings.plugins.sources.precedence-hint"), Style::fontSizeCaption * scale,
-            ColorRole::OnSurfaceVariant
+            ColorRole::Label2
         ));
       }
       // Render in config order so the list mirrors the file. Precedence is last-wins
@@ -792,12 +707,12 @@ namespace settings {
         auto autoRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
         auto autoInfo = ui::column({.align = FlexAlign::Start, .gap = 2.0F * scale, .flexGrow = 1.0F});
         autoInfo->addChild(makeLabel(
-            i18n::tr("settings.plugins.sources.auto-update"), Style::fontSizeBody * scale, ColorRole::OnSurface,
+            i18n::tr("settings.plugins.sources.auto-update"), Style::fontSizeBody * scale, ColorRole::Label1,
             FontWeight::Medium
         ));
         autoInfo->addChild(makeLabel(
             i18n::tr("settings.plugins.sources.auto-update-desc"), Style::fontSizeCaption * scale,
-            ColorRole::OnSurfaceVariant
+            ColorRole::Label2
         ));
         std::vector<ui::SegmentedOption> modeOptions;
         modeOptions.reserve(std::size(kPluginAutoUpdateModes));
@@ -924,7 +839,7 @@ namespace settings {
     pluginsBody->addChild(std::move(pluginsHeaderNode));
     if (!ctx.pluginsLoading && ctx.plugins.empty()) {
       pluginsBody->addChild(makeLabel(
-          i18n::tr("settings.plugins.plugins.empty"), Style::fontSizeCaption * scale, ColorRole::OnSurfaceVariant
+          i18n::tr("settings.plugins.plugins.empty"), Style::fontSizeCaption * scale, ColorRole::Label2
       ));
     }
     std::ranges::sort(plugins, [&](const auto& a, const auto& b) {
@@ -942,14 +857,11 @@ namespace settings {
     });
     for (const auto& plugin : plugins) {
       pluginsBody->addChild(pluginRow(plugin, ctx, scale));
-      if (!ctx.pendingDeletePluginId.empty() && ctx.pendingDeletePluginId == plugin.id) {
-        pluginsBody->addChild(pluginDeleteConfirmPanel(plugin, ctx, scale));
-      }
     }
     if (!ctx.pluginsLoading && hasInstalledPlugins && plugins.empty() && !ctx.searchQuery.empty()) {
       section->addChild(makeLabel(
           i18n::tr("settings.plugins.plugins.search-empty", "query", ctx.searchQuery), Style::fontSizeCaption * scale,
-          ColorRole::OnSurfaceVariant
+          ColorRole::Label2
       ));
     }
   }

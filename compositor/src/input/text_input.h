@@ -1,8 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <vector>
 #include <wayland-server-core.h>
+#include <wlr/util/box.h>
 
 struct wlr_input_method_keyboard_grab_v2;
 struct wlr_input_method_manager_v2;
@@ -33,6 +36,8 @@ namespace andromeda {
     [[nodiscard]] wlr_input_method_keyboard_grab_v2* grabForKeyboard(wlr_keyboard* keyboard) const;
     [[nodiscard]] bool ownsKeyboard(wlr_keyboard* keyboard) const;
     void canonicalizeOwnedKeyboardKeymap(wlr_keyboard* keyboard) const;
+    // Sends text to the active text input as a commit_string. False when no text input is active.
+    bool commitText(std::string_view text);
 
   private:
     struct TextInput {
@@ -86,6 +91,10 @@ namespace andromeda {
     void sendStateToInputMethod();
     void updatePopupPosition(Popup& popup);
     void updatePopupPositions();
+    // The active text input's cursor rectangle in output coordinates; empty when the focused surface has no layout
+    // position.
+    [[nodiscard]] std::optional<wlr_box> cursorRectInLayout() const;
+    void reportTextInputState();
 
     Server* m_server = nullptr;
     wlr_text_input_manager_v3* m_textInputManager = nullptr;
@@ -93,6 +102,21 @@ namespace andromeda {
     wlr_input_method_v2* m_inputMethod = nullptr;
     wlr_surface* m_focusedSurface = nullptr;
     wlr_text_input_v3* m_activeTextInput = nullptr;
+    struct ReportedState {
+      bool enabled = false;
+      uint32_t purpose = 0;
+      uint32_t hint = 0;
+      wlr_box rect{};
+      bool operator==(const ReportedState& other) const {
+        return enabled == other.enabled
+            && purpose == other.purpose
+            && hint == other.hint
+            && rect.x == other.rect.x
+            && rect.y == other.rect.y
+            && rect.width == other.rect.width
+            && rect.height == other.rect.height;
+      }
+    } m_reported;
     std::vector<std::unique_ptr<TextInput>> m_textInputs;
     std::vector<std::unique_ptr<Popup>> m_popups;
     wl_listener m_newTextInput{};

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "wayland/mirror_control.h"
-#include "wayland/output_management.h"
+#include "compositors/mirror_control.h"
+#include "compositors/output_management.h"
 
 #include <cstdint>
 #include <functional>
@@ -24,6 +24,10 @@ namespace settings {
     bool dirty = false;
     int confirmSecondsLeft = 0; // > 0 while a just-applied change awaits Keep or Revert
     std::string error;
+    std::string selected; // head name of the display whose card is shown; empty = the first
+    bool nightLight = false;
+    std::function<void(std::string)> select;
+    std::function<void(bool)> setNightLight;
     std::function<void(OutputHeadConfig)> edit;
     std::function<void()> apply;
     std::function<void()> discard;

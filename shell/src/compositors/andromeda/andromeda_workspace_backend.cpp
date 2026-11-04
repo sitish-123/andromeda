@@ -173,6 +173,7 @@ std::vector<WorkspaceWindow> AndromedaWorkspaceBackend::workspaceWindows(const s
             .y = window.y,
             .outputName = {},
             .minimizeState = window.minimizeState,
+            .pid = window.pid,
         }
     );
   }
@@ -256,6 +257,7 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
       window.active = entry.value("active", false);
       window.x = entry.value("x", 0);
       window.y = entry.value("y", 0);
+      window.pid = entry.value("pid", 0);
       window.minimizeState = parseMinimizeState(entry);
       if (window.active && !focused.has_value()) {
         focused = id;

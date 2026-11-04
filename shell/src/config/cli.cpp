@@ -7,6 +7,7 @@
 #include "config/config_validate.h"
 #include "core/log.h"
 #include "core/toml.h" // IWYU pragma: keep
+#include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_registry.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -92,7 +93,9 @@ namespace noctalia::config {
       if (parsed->has("--list")) {
         for (const auto& entry : registry) {
           std::println(
-              "{}\t{}\t{}", settings::settingsSectionId(entry.section), entry.group, StringUtils::join(entry.path, ".")
+              "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", settings::settingsSectionId(entry.section), entry.group,
+              StringUtils::join(entry.path, "."), settings::settingEntryIsExpert(entry) ? "expert" : "main",
+              entry.control.index(), settings::settingsPageForEntry(entry).id, entry.title, entry.subtitle
           );
         }
         return 0;
@@ -284,7 +287,7 @@ namespace noctalia::config {
         }
         if (stateExists && state != nullptr) {
           const auto content = (*state)["content"].value<std::string>().value_or("");
-          if (auto written = writeTextFile(stateDir / "settings.toml", content); !written) {
+          if (auto written = writeTextFile(resolveOverridesPath(stateDir.string()), content); !written) {
             std::println(stderr, "error: {}", written.error());
             return 1;
           }
@@ -354,7 +357,7 @@ namespace noctalia::config {
         const std::string configDir = FileUtils::configDir();
         std::string settingsPath;
         if (const std::string stateDir = FileUtils::stateDir(); !stateDir.empty()) {
-          settingsPath = stateDir + "/settings.toml";
+          settingsPath = resolveOverridesPath(stateDir);
         }
         diagnostics = validateConfigSources(configDir, settingsPath);
       } else {
@@ -424,7 +427,7 @@ namespace noctalia::config {
       const std::string configDir = FileUtils::configDir();
       std::string settingsPath;
       if (const std::string stateDir = FileUtils::stateDir(); !stateDir.empty()) {
-        settingsPath = stateDir + "/settings.toml";
+        settingsPath = resolveOverridesPath(stateDir);
       }
 
       std::string error;

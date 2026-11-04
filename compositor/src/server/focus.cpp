@@ -296,7 +296,7 @@ namespace andromeda {
     // returns there, e.g. when an exclusive layer releases the seat.
     if (ScratchpadManager* pad = m_server.scratchpadManager()) {
       if (View* view = pad->focusedOn(m_server.outputFromWlr(m_server.preferredOutput()))) {
-        focusView(view);
+        focusView(view, FocusReason::Startup);
         return;
       }
     }
@@ -355,7 +355,7 @@ namespace andromeda {
             && focused->onActiveWorkspace()
             && !focused->minimized()
             && focused->inputDelegate()->acceptsKeyboardFocus()) {
-          focusView(focused);
+          focusView(focused, FocusReason::Startup);
           return true;
         }
       }
@@ -364,7 +364,7 @@ namespace andromeda {
             && !entry->minimized()
             && entry->workspace() == workspace
             && entry->inputDelegate()->acceptsKeyboardFocus()) {
-          focusView(entry.get());
+          focusView(entry.get(), FocusReason::Startup);
           return true;
         }
       }

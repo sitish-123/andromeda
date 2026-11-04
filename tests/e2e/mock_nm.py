@@ -27,6 +27,10 @@ class Object(dbus.service.Object):
     def GetAll(self, interface):
         return self.props.get(interface, {})
 
+    @dbus.service.signal(PROPS, signature="sa{sv}as")
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
 
 class Profile(Object):
     def __init__(self, bus, path, settings):
@@ -62,8 +66,9 @@ class Manager(Object):
     def activate(self, profile):
         self.activations += 1
         path = f"{BASE}/ActiveConnection/{self.activations}"
-        self.actives.append(Object(self.bus, path, {NM + ".Connection.Active": {"Connection": dbus.ObjectPath(profile)}}))
+        self.actives.append(Object(self.bus, path, {NM + ".Connection.Active": {"Connection": dbus.ObjectPath(profile), "Type": "802-11-wireless"}}))
         self.props[NM]["ActiveConnections"] = dbus.Array([a.__dbus_object_path__ for a in self.actives], signature="o")
+        self.PropertiesChanged(NM, {"ActiveConnections": self.props[NM]["ActiveConnections"]}, [])
         return dbus.ObjectPath(path)
 
     @dbus.service.method(NM, out_signature="ao")
@@ -89,6 +94,7 @@ class Manager(Object):
         self.record(f"Deactivate {active}")
         self.actives = [a for a in self.actives if a.__dbus_object_path__ != active]
         self.props[NM]["ActiveConnections"] = dbus.Array([a.__dbus_object_path__ for a in self.actives], signature="o")
+        self.PropertiesChanged(NM, {"ActiveConnections": self.props[NM]["ActiveConnections"]}, [])
 
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)

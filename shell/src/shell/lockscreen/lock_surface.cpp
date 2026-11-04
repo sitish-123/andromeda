@@ -4,16 +4,22 @@
 #include "core/files/resource_paths.h"
 #include "core/log.h"
 #include "core/ui_phase.h"
+#include "dbus/link/link_service.h"
+#include "shell/session/power_inhibitors.h"
+
+#include <unistd.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "ext-session-lock-v1-client-protocol.h"
 #include "i18n/i18n.h"
-#include "render/core/blur_cache.h"
+#include "render/backend/render_backend.h"
 #include "render/core/render_styles.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/render_context.h"
 #include "render/scene/wallpaper_node.h"
 #include "render/text/font_registry.h"
+#include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "shell/lockscreen/lockscreen_session_actions.h"
 #include "shell/lockscreen/lockscreen_widgets_host.h"
@@ -53,6 +59,8 @@ namespace {
 
   constexpr float kMediaArtSize = lockscreen_login_box::kRegularMediaArtSize;
   constexpr float kWeatherGlyphSize = 28.0F;
+  // Own-image blur at blur_intensity 1, as a fraction of the image's longer side (about the compositor blur).
+  constexpr float kOwnImageBlur = 0.03F;
   constexpr float kForecastGlyphSize = lockscreen_login_box::kRegularForecastGlyphSize;
   constexpr float kLayoutChipMaxWidth = 96.0F;
   constexpr int kForecastDayCountPaired = 3;
@@ -166,6 +174,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   auto wallpaper = std::make_unique<WallpaperNode>();
   m_wallpaper = static_cast<WallpaperNode*>(m_backgroundLayer->addChild(std::move(wallpaper)));
   m_wallpaper->setZIndex(0);
+  m_liveWallpaperLayer = m_backgroundLayer->addChild(ui::node({}));
 
   m_backgroundLayer->addChild(
       ui::box({
@@ -251,7 +260,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_mediaFallbackGlyph,
           .glyph = "disc",
           .glyphSize = 18.0F,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
       })
   );
@@ -275,7 +284,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_mediaTitle,
           .fontSize = Style::fontSizeBody,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -284,7 +293,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_mediaArtist,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -325,7 +334,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherGlyph,
           .glyph = "weather-cloud",
           .glyphSize = kWeatherGlyphSize,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
   m_weatherCurrent->addChild(
@@ -347,7 +356,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
           .out = &m_weatherTemp,
           .fontSize = Style::fontSizeBody,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -356,7 +365,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_weatherMeta,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Start,
       })
@@ -394,7 +403,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
         ui::label({
             .out = &column.day,
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .textAlign = TextAlign::Center,
         })
@@ -404,14 +413,14 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
             .out = &column.glyph,
             .glyph = "weather-cloud",
             .glyphSize = kForecastGlyphSize,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
     column.column->addChild(
         ui::label({
             .out = &column.temps,
             .fontSize = Style::fontSizeCaption,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .textAlign = TextAlign::Center,
         })
@@ -442,7 +451,7 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
       ui::label({
           .out = &m_authLabel,
           .fontSize = Style::fontSizeCaption,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
           .textAlign = TextAlign::Center,
           .configure = [](Label& label) {
@@ -589,11 +598,19 @@ LockSurface::LockSurface(WaylandConnection& connection, ConfigService* config) :
   });
   setPrepareFrameCallback([this](bool needsUpdate, bool needsLayout) { prepareFrame(needsUpdate, needsLayout); });
 
-  if (m_config != nullptr && m_config->config().lockscreen.style == "ryoku") {
+  if (m_config != nullptr && m_config->config().lockscreen.theme == "ryoku") {
     (void)text::registerFontFile(paths::assetPath("fonts/Outfit-Black.ttf"));
-    m_ryoku = std::make_unique<LockRyokuScene>();
+    m_ryoku = std::make_unique<RyokuAuthScene>();
     m_ryoku->build(m_root, m_animations);
     startRyokuLive();
+  } else {
+    m_auth = std::make_unique<AuthColumn>();
+    m_auth->build(m_root, m_animations);
+    m_cards.build(m_auth->glanceLayer());
+    m_callCard.build(m_root);
+    m_chrome.build(m_root);
+    m_alert.build(m_root);
+    startAndromedaClock();
   }
   requestUpdate();
 }
@@ -608,6 +625,7 @@ void LockSurface::startRyokuLive() {
   if (m_ryokuLive != 0) {
     m_animations.cancel(m_ryokuLive);
   }
+  // Timer: continuous loop that drives the Ryoku scene clock.
   m_ryokuLive = m_animations.animateTimer(
       0.0F, 1.0F, 20000.0F, Easing::Linear,
       [this](float /*progress*/) {
@@ -640,6 +658,7 @@ void LockSurface::startRyokuIdleClock() {
 }
 
 LockSurface::~LockSurface() {
+  LockScreen::clearSensitiveString(m_password);
   invalidateSleepFrame();
   m_aliveGuard.reset();
   releaseCaptureTextures();
@@ -661,7 +680,13 @@ LockSurface::~LockSurface() {
   }
 }
 
+void LockSurface::setNotificationManager(const NotificationManager* notifications) {
+  m_notifications = notifications;
+  requestUpdate();
+}
+
 void LockSurface::setPhoneServices(const LinkService* link) {
+  m_link = link;
   m_phoneRow.setServices(link);
   requestUpdate();
 }
@@ -735,6 +760,10 @@ void LockSurface::setLockedState(bool locked) {
   }
   m_locked = locked;
   if (m_locked) {
+    m_pointerMoved = false;
+    if (m_auth != nullptr) {
+      m_auth->setSheetOpen(false, true);
+    }
     // Never carry a revealed password across lock cycles.
     if (m_passwordField != nullptr) {
       m_passwordField->setPasswordRevealed(false);
@@ -761,7 +790,7 @@ void LockSurface::focusPasswordField() {
 }
 
 void LockSurface::setPromptState(
-    std::string user, std::string password, std::string status, bool error, bool authenticating
+    std::string user, const std::string& password, std::string status, bool error, bool authenticating
 ) {
   if (m_user == user
       && m_password == password
@@ -771,7 +800,8 @@ void LockSurface::setPromptState(
     return;
   }
   m_user = std::move(user);
-  m_password = std::move(password);
+  LockScreen::clearSensitiveString(m_password);
+  m_password = password;
   m_status = std::move(status);
   m_error = error;
   m_authenticating = authenticating;
@@ -794,15 +824,18 @@ void LockSurface::setKeyboardIndicators(
   requestUpdate();
 }
 
+void LockSurface::setOwnWallpaper(bool own) {
+  if (m_ownWallpaper == own) {
+    return;
+  }
+  m_ownWallpaper = own;
+  m_wallpaperDirty = true;
+  requestLayout();
+}
+
 void LockSurface::setWallpaperPath(std::string wallpaperPath) {
   if (m_wallpaperPath == wallpaperPath) {
     return;
-  }
-
-  if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-    renderContext()->backend().makeCurrentNoSurface();
-    renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-    m_blurredWallpaperTexture = {};
   }
 
   // Keep the current wallpaper visible until applyWallpaperTexture() loads the new path.
@@ -851,16 +884,10 @@ void LockSurface::setWallpaperFillColor(Color fillColor) {
   requestRedraw();
 }
 
-void LockSurface::setDesktopCapture(std::optional<ScreencopyImage> capture, bool useAsBackground) {
+void LockSurface::setDesktopCapture(std::optional<ScreencopyImage> capture) {
   m_desktopCapture = std::move(capture);
-  m_useDesktopCaptureBackground = useAsBackground && m_desktopCapture.has_value() && !m_desktopCapture->rgba.empty();
-  m_captureDirty = true;
   releaseCaptureTextures();
   requestLayout();
-}
-
-bool LockSurface::usesDesktopCaptureBackground() const noexcept {
-  return m_useDesktopCaptureBackground && m_desktopCapture.has_value() && !m_desktopCapture->rgba.empty();
 }
 
 void LockSurface::configureTransition(
@@ -938,6 +965,7 @@ void LockSurface::startExitTransition() {
   m_transitionPhase = TransitionPhase::Exiting;
   syncTransitionCover();
   const float durationMs = m_transitionDurationMs * m_transitionProgress;
+  // Timer: the shader transition runs for the user-configured duration.
   m_transitionAnimation = m_animations.animateTimer(
       m_transitionProgress, 0.0F, durationMs, Easing::EaseInOutCubic,
       [this](float progress) {
@@ -976,10 +1004,7 @@ void LockSurface::suppressEntryTransition() {
     renderContext()->backend().makeCurrentNoSurface();
     renderContext()->textureManager().unload(captureTexture);
   }
-  if (!m_useDesktopCaptureBackground) {
-    m_desktopCapture.reset();
-  }
-  m_captureDirty = true;
+  m_desktopCapture.reset();
   requestLayout();
   requestRedraw();
 }
@@ -998,10 +1023,7 @@ void LockSurface::setBackgroundStyle(float blurIntensity, float tintIntensity) {
   }
   m_blurIntensity = blurIntensity;
   m_tintIntensity = tintIntensity;
-  m_captureDirty = true;
-  m_blurCache.invalidate();
   m_wallpaperDirty = true;
-  m_wallpaperBlurCache.invalidate();
   requestLayout();
 }
 
@@ -1023,6 +1045,10 @@ void LockSurface::setBlackout(bool blackout) {
 }
 
 void LockSurface::setOnLogin(std::function<void()> onLogin) { m_onLogin = std::move(onLogin); }
+
+void LockSurface::setOnDeclineCall(std::function<void(const std::string&)> onDeclineCall) {
+  m_onDeclineCall = std::move(onDeclineCall);
+}
 
 void LockSurface::setOnCycleLayout(std::function<void()> onCycleLayout) { m_onCycleLayout = std::move(onCycleLayout); }
 
@@ -1063,11 +1089,68 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
     break;
   case PointerEvent::Type::Motion:
     m_inputDispatcher.pointerMotion(static_cast<float>(event.sx), static_cast<float>(event.sy), event.serial);
+    if (!m_pointerMoved) {
+      m_pointerMoved = true;
+      requestLayout();
+    }
+    if (m_powerMenuOpen) {
+      const AuthChrome::Hit hit = m_chrome.hitTest(static_cast<float>(event.sx), static_cast<float>(event.sy));
+      const int hover = hit.target == AuthChrome::Target::Item ? hit.index : -1;
+      if (hover != m_powerHover) {
+        m_powerHover = hover;
+        requestLayout();
+      }
+    }
+    wakeGlance();
     break;
   case PointerEvent::Type::Button: {
     const bool pressed = event.pressed;
     const auto x = static_cast<float>(event.sx);
     const auto y = static_cast<float>(event.sy);
+    // The inhibitor alert is modal: it takes every press until Cancel or the destructive button.
+    if (m_locked && pressed && m_alert.shown()) {
+      const LockAlert::Hit hit = m_alert.hitTest(x, y);
+      if (hit == LockAlert::Hit::Cancel || hit == LockAlert::Hit::Confirm) {
+        const int index = m_powerAlert;
+        m_powerAlert = -1;
+        if (hit == LockAlert::Hit::Confirm) {
+          runPower(index, true);
+        }
+        requestLayout();
+      }
+      break;
+    }
+    if (m_locked && pressed && m_auth != nullptr && handleChromePress(x, y)) {
+      requestLayout();
+      break;
+    }
+    if (m_locked && pressed && m_callCard.declineHit(x, y)) {
+      m_declinePending = m_callCard.state().deviceId;
+      if (m_onDeclineCall) {
+        m_onDeclineCall(m_declinePending);
+      }
+      focusPasswordField();
+      requestLayout();
+    }
+    if (m_locked && pressed) {
+      wakeGlance();
+      if (m_auth != nullptr && m_mpris != nullptr && m_cards.data().media.has_value()) {
+        const std::string& bus = m_cards.data().media->busName;
+        switch (m_cards.hitTest(x, y)) {
+        case LockCards::Control::Previous:
+          (void)m_mpris->previous(bus);
+          break;
+        case LockCards::Control::PlayPause:
+          (void)m_mpris->playPause(bus);
+          break;
+        case LockCards::Control::Next:
+          (void)m_mpris->next(bus);
+          break;
+        case LockCards::Control::None:
+          break;
+        }
+      }
+    }
     if (m_locked && pressed && passwordFieldContainsPoint(x, y)) {
       focusPasswordField();
     }
@@ -1096,7 +1179,6 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
 }
 
 void LockSurface::onThemeChanged() {
-  m_captureDirty = true;
   requestLayout();
 }
 
@@ -1108,6 +1190,21 @@ void LockSurface::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   }
 
+  if (m_locked && event.pressed && m_powerAlert >= 0) {
+    // Modal alert: Escape and Enter cancel (Cancel is the default button); other keys do nothing.
+    if (event.sym == XKB_KEY_Escape || event.sym == XKB_KEY_Return || event.sym == XKB_KEY_KP_Enter) {
+      m_powerAlert = -1;
+      requestLayout();
+    }
+    return;
+  }
+  if (m_locked && event.pressed && !m_powerError.empty()) {
+    m_powerError.clear();
+    requestLayout();
+  }
+  if (m_locked && event.pressed) {
+    wakeGlance();
+  }
   if (m_locked
       && event.pressed
       && m_passwordField != nullptr
@@ -1215,6 +1312,7 @@ void LockSurface::beginEnterAnimation() {
   m_transitionPhase = TransitionPhase::Entering;
   m_transitionProgress = 0.0F;
   syncTransitionCover();
+  // Timer: the shader transition runs for the user-configured duration.
   m_transitionAnimation = m_animations.animateTimer(
       0.0F, 1.0F, m_transitionDurationMs, Easing::EaseInOutCubic,
       [this](float progress) {
@@ -1328,9 +1426,13 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
 
   applyWallpaperTexture();
+  // Ryoku paints an opaque scene over the background, so a blur behind it is never seen.
+  const bool compositorBlur =
+      m_ryoku == nullptr && !m_ownWallpaper && m_blurIntensity > 0.0F && m_connection.hasBackgroundEffectBlur();
+  syncBlurRegion(compositorBlur, width, height);
 
   m_backgroundLayer->setVisible(true);
-  m_wallpaper->setVisible(true);
+  m_wallpaper->setVisible(!compositorBlur);
   m_widgetLayer->setVisible(true);
   const bool loginVisible = isLoginBoxEnabled();
   const lockscreen_login_box::LoginBoxStyle loginStyle = resolveLoginStyle();
@@ -1388,7 +1490,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
   m_backdrop->setPosition(0.0F, 0.0F);
   m_backdrop->setSize(sw, sh);
-  m_backdrop->setVisible(m_wallpaperFillColor.a > 0.0F);
+  m_backdrop->setVisible(!compositorBlur && m_wallpaperFillColor.a > 0.0F);
   m_backdrop->setStyle(
       RoundedRectStyle{
           .fill = m_wallpaperFillColor,
@@ -1405,7 +1507,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     if (showTint) {
       m_tintOverlay->setStyle(
           RoundedRectStyle{
-              .fill = colorForRole(ColorRole::Surface, tintIntensity),
+              .fill = colorForRole(ColorRole::SolidRegular, tintIntensity),
               .fillMode = FillMode::Solid,
           }
       );
@@ -1413,7 +1515,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
 
   m_loginPanel->setFill(loginStyle.panelFill);
-  m_loginPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
+  m_loginPanel->setBorder(colorForRole(ColorRole::Stroke, loginStyle.panelOpacity), Style::borderWidth);
   m_loginPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
   m_loginPanel->setSoftness(1.0F);
   m_loginPanel->setClipChildren(true);
@@ -1630,7 +1732,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
     m_authLabel->setVisible(showAuth);
     if (showAuth) {
       m_authLabel->setText(authText);
-      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::Error : ColorRole::OnSurfaceVariant));
+      m_authLabel->setColor(colorSpecFromRole(statusError ? ColorRole::DangerText : ColorRole::Label2));
       const float authFontSize = captionSize + (regular ? contentScale : 1.0F);
       m_authLabel->setFontSize(authFontSize);
       m_authLabel->setEllipsize(TextEllipsize::End);
@@ -1643,7 +1745,7 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
 
       m_authPanel->setPadding(authPadV, authPadH);
       m_authPanel->setFill(loginStyle.panelFill);
-      m_authPanel->setBorder(colorForRole(ColorRole::OutlineVariant, loginStyle.panelOpacity), Style::borderWidth);
+      m_authPanel->setBorder(colorForRole(ColorRole::Stroke, loginStyle.panelOpacity), Style::borderWidth);
       m_authPanel->setRadius(Style::scaledRadius(loginStyle.panelRadius));
       m_authPanel->setSoftness(1.0F);
       m_authPanel->setMinWidth(authW);
@@ -1662,8 +1764,11 @@ void LockSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   }
   if (m_ryoku != nullptr) {
     layoutRyoku(renderer, sw, sh, loginStyle);
+  } else if (m_auth != nullptr) {
+    layoutAndromeda(renderer, sw, sh);
   }
-  m_phoneRow.layout(renderer, sw, sh, m_locked);
+  // Andromeda shows the phone in its cards; the corner row stays for Ryoku.
+  m_phoneRow.layout(renderer, sw, sh, m_locked && m_auth == nullptr);
   layoutTransitionCover();
   syncTransitionCover();
 }
@@ -1696,7 +1801,7 @@ void LockSurface::layoutRyoku(
   m_ryokuShownError = statusError;
   m_ryoku->setPasswordLength(m_password.size());
 
-  std::vector<LockRyokuScene::Action> actions;
+  std::vector<RyokuAuthScene::Action> actions;
   if (m_sessionActions != nullptr) {
     for (const auto& cfg : resolveSessionActions()) {
       const std::string label =
@@ -1706,6 +1811,345 @@ void LockSurface::layoutRyoku(
   }
   m_ryoku->setActions(std::move(actions));
   m_ryoku->layout(renderer, sw, sh);
+}
+
+// Andromeda keeps the real password field laid out but invisible (as Ryoku does), so it keeps focus and input,
+// and draws rulebook 9.15's auth column instead of the old login panel.
+void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
+  m_loginPanel->setOpacity(0.0F);
+  // Lock widgets show only in the Free layout ("custom"); the editor keeps them off the auth area.
+  m_widgetLayer->setVisible(m_config != nullptr && m_config->config().lockscreen.layout == "custom");
+  // Dim = black at tint_intensity (rulebook 9.15), raised until white text on the image's bright areas reaches 4.5:1.
+  if (m_tintOverlay != nullptr) {
+    float dim = std::min(m_tintIntensity, 0.6F);
+    const float bright = m_wallpaperLease.texture().brightLuminance;
+    if (bright > 0.0F) {
+      constexpr float kMaxBackground = 1.05F / 4.5F - 0.05F;
+      dim = std::clamp(1.0F - kMaxBackground / bright, dim, 0.85F);
+    }
+    m_tintOverlay->setVisible(dim > 0.0F);
+    m_tintOverlay->setStyle(RoundedRectStyle{.fill = rgba(0.0F, 0.0F, 0.0F, dim), .fillMode = FillMode::Solid});
+  }
+  if (m_authPanel != nullptr) {
+    m_authPanel->setVisible(false);
+  }
+  const bool visible = m_locked && !m_blackout;
+  AuthColumn::State state;
+  if (visible) {
+    const auto& lock = m_config != nullptr ? m_config->config().lockscreen : LockscreenConfig{};
+    const bool typing = !m_password.empty();
+    state.user = m_user;
+    state.passwordLength = m_password.size();
+    state.ownerMessage = lock.ownerMessage;
+    if (m_authExtras.failDelay) {
+      state.placeholder = m_status;
+      state.inputOff = true;
+      state.hint = i18n::tr("lockscreen.failed-attempts", "count", m_authExtras.failures);
+    } else {
+      state.placeholder = i18n::tr("lockscreen.password-placeholder");
+      state.hint = m_status == i18n::tr("lockscreen.ready") ? std::string{} : m_status;
+      state.hintError = m_error;
+      if (!m_error && typing && m_capsLock) {
+        state.hint = i18n::tr("lockscreen.caps-lock-on");
+      }
+    }
+    if (m_authenticating) {
+      state.trailing = AuthColumn::Trailing::Checking;
+      state.hint.clear();
+    } else if (typing) {
+      state.trailing = AuthColumn::Trailing::Go;
+    } else if (m_authExtras.face) {
+      state.trailing = AuthColumn::Trailing::Face;
+    } else if (m_authExtras.fingerprint) {
+      state.trailing = AuthColumn::Trailing::Fingerprint;
+    }
+    state.status = m_statusIsland;
+    state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
+    state.glanceHint = i18n::tr(m_authExtras.face ? "lockscreen.glance-hint-face" : "lockscreen.glance-hint");
+    fillLockClockState(state, lock, m_clockGradientFrom, m_clockGradientTo);
+    if (m_authExtras.passwordOnly) {
+      state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");
+      state.reasonBody = i18n::tr("lockscreen.phone-lock.body");
+    }
+  }
+  const bool shake = visible && m_error && m_authExtras.rejected && !m_authShownError;
+  m_authShownError = m_error;
+  const float scale = m_config != nullptr ? m_config->config().accessibility.uiScale : 1.0F;
+  LockCards::Data cards;
+  if (visible) {
+    cards = collectLockCards(m_mpris, m_link, m_notifications);
+    if (cards.media.has_value() && !cards.media->artUrl.empty()) {
+      cards.media->artPath = mpris::resolveArtworkSource(
+          m_httpClient, m_pendingArtDownloads, cards.media->artUrl, [this] { requestLayout(); }, m_aliveGuard
+      );
+    }
+  }
+  cards.charging = visible ? m_statusIsland.chargingText : std::string{};
+  if (visible && m_config != nullptr) {
+    fillLockWidgetData(cards, m_config->config().lockscreen, m_weather, m_statusIsland);
+  }
+  m_cards.setData(std::move(cards));
+  // A ringing phone call (rulebook 9.15 call card); it takes the reason card's place above the account.
+  LockCallCard::State call;
+  if (visible && m_link != nullptr) {
+    if (const auto active = m_link->activeCall(); active.has_value() && active->ringing) {
+      const bool content = m_config != nullptr && m_config->config().lockscreen.notificationContent == "shown";
+      call.deviceId = active->deviceId;
+      call.title = content && !active->caller.empty() ? active->caller : i18n::tr("lockscreen.call.incoming");
+      call.detail = active->device;
+      call.declinePending = m_declinePending == active->deviceId;
+    }
+  }
+  if (call.deviceId.empty()) {
+    m_declinePending.clear();
+  } else {
+    state.reasonTitle.clear();
+    state.reasonBody.clear();
+    if (call.declinePending && !state.hintError && m_powerError.empty()) {
+      state.hint = i18n::tr("lockscreen.call.decline-pending");
+    }
+  }
+  if (visible && !m_powerError.empty()) {
+    state.hint = m_powerError;
+    state.hintError = true;
+  }
+  AuthPlacementInput input{
+      .layout = authLayoutFromName(m_config != nullptr ? m_config->config().lockscreen.layout : std::string{}),
+      .sw = sw,
+      .sh = sh,
+      .scale = scale,
+      .pointerMoved = m_pointerMoved,
+      .reasonCard = !state.reasonTitle.empty(),
+      .callBlock = call.deviceId.empty() ? 0.0F : LockCallCard::kBlockHeight,
+  };
+  if (m_config != nullptr) {
+    input.clockSize = clockSizeFor(m_config->config().lockscreen.clockSize);
+  }
+  input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
+  m_cards.fillPlacementInput(input);
+  const AuthPlacement place = placeAuth(input);
+  m_auth->setState(std::move(state));
+  m_auth->layout(renderer, place, sw, scale);
+  m_cards.layout(renderer, place, scale);
+  m_callCard.setState(std::move(call));
+  m_callCard.layout(renderer, place.columnCx, place.cardBottom, scale);
+
+  AuthChrome::State chrome;
+  if (m_powerMenuOpen) {
+    chrome.menu = AuthChrome::Menu::Power;
+    chrome.items = {
+        {"moon", i18n::tr("lockscreen.power.sleep"), {}},
+        {"refresh", i18n::tr("lockscreen.power.restart"), {}},
+        {"power", i18n::tr("lockscreen.power.shutdown"), {}},
+    };
+    chrome.hover = m_powerHover;
+  }
+  const bool chromeShown = visible && place.chrome && m_sessionActions != nullptr;
+  if (!chromeShown) {
+    m_powerMenuOpen = false;
+    chrome = {};
+  }
+  m_chrome.setVisible(chromeShown);
+  LockAlert::State alert;
+  if (visible && m_powerAlert >= 0) {
+    static constexpr std::array<const char*, 3> kTitles{
+        "lockscreen.alert.sleep-title", "lockscreen.alert.restart-title", "lockscreen.alert.shutdown-title"
+    };
+    static constexpr std::array<const char*, 3> kConfirms{
+        "lockscreen.power.sleep", "lockscreen.power.restart", "lockscreen.power.shutdown"
+    };
+    const auto i = static_cast<std::size_t>(m_powerAlert);
+    alert.title = i18n::tr(kTitles[i]);
+    alert.body = i18n::tr(m_powerAlert == 0 ? "lockscreen.alert.sleep-body" : "lockscreen.alert.shutdown-body");
+    alert.confirm = i18n::tr(kConfirms[i]);
+  }
+  m_alert.setState(std::move(alert));
+  m_alert.layout(renderer, sw, sh, scale);
+  m_chrome.setState(std::move(chrome));
+  m_chrome.layout(renderer, sw, sh, scale);
+  if (shake) {
+    m_auth->playRejected();
+  }
+}
+
+void LockSurface::requestPower(int index) {
+  if (index < 0 || index > 2) {
+    return;
+  }
+  // Sleep checks sleep inhibitors; Restart and Shut down check shutdown ones. The shell's own locks never count.
+  const char* what = index == 0 ? "sleep" : "shutdown";
+  if (powerActionBlocked(listLogindInhibitors(), what, static_cast<std::uint32_t>(::getpid()))) {
+    m_powerAlert = index;
+    return;
+  }
+  runPower(index, false);
+}
+
+void LockSurface::runPower(int index, bool skipInhibitors) {
+  if (m_sessionActions == nullptr) {
+    return;
+  }
+  static constexpr std::array<const char*, 3> kActions{"suspend", "reboot", "shutdown"};
+  const auto i = static_cast<std::size_t>(index);
+  bool ok = false;
+  if (skipInhibitors) {
+    ok = m_sessionActions->requestPowerSkippingInhibitors(kActions[i]);
+  } else if (index == 0) {
+    ok = m_sessionActions->requestSuspendDetached();
+  } else if (index == 1) {
+    ok = m_sessionActions->requestRebootDetached();
+  } else {
+    ok = m_sessionActions->requestShutdownDetached();
+  }
+  m_powerError = ok ? std::string{} : i18n::tr("lockscreen.power.blocked");
+}
+
+bool LockSurface::handleChromePress(float x, float y) {
+  const AuthChrome::Hit hit = m_chrome.hitTest(x, y);
+  switch (hit.target) {
+  case AuthChrome::Target::Power:
+    m_powerMenuOpen = !m_powerMenuOpen;
+    m_powerHover = -1;
+    return true;
+  case AuthChrome::Target::Item: {
+    m_powerMenuOpen = false;
+    m_powerHover = -1;
+    if (m_sessionActions == nullptr) {
+      return true;
+    }
+    requestPower(hit.index);
+    return true;
+  }
+  case AuthChrome::Target::Menu:
+    return true;
+  case AuthChrome::Target::Session:
+  case AuthChrome::Target::Users:
+  case AuthChrome::Target::None:
+    break;
+  }
+  if (m_powerMenuOpen) {
+    m_powerMenuOpen = false;
+    return true;
+  }
+  return false;
+}
+
+// Glance: any key, click or pointer move Grows the auth sheet; it Returns after 10 s idle with an empty field.
+void LockSurface::wakeGlance() {
+  if (m_auth == nullptr || m_ryoku != nullptr || !m_locked || m_config == nullptr
+      || authLayoutFromName(m_config->config().lockscreen.layout) != AuthLayout::Glance) {
+    return;
+  }
+  if (!m_auth->sheetOpen()) {
+    m_auth->setSheetOpen(true);
+    requestRedraw();
+  }
+  m_glanceIdle.start(std::chrono::seconds(10), [this] {
+    if (m_password.empty() && !m_authenticating && m_auth != nullptr) {
+      m_auth->setSheetOpen(false);
+      requestRedraw();
+    }
+  });
+}
+
+// A clock style's bundled font is registered on first use, not at shell start, so the start budget pays nothing.
+std::string lockClockFontFamily(const ClockStyle& clock) {
+  if (clock.file.empty()) {
+    return std::string(clock.family);
+  }
+  // Each bundled font file registers once per process.
+  static std::unordered_map<std::string, std::string> families;
+  const std::string key(clock.file);
+  if (const auto it = families.find(key); it != families.end()) {
+    return it->second;
+  }
+  std::string family = text::registerFontFile(paths::assetPath("fonts/lock/" + key));
+  if (family.empty()) {
+    family = std::string(clock.family);
+  }
+  families.emplace(key, family);
+  return family;
+}
+
+void fillLockWidgetData(
+    LockCards::Data& data, const LockscreenConfig& lock, const WeatherService* weather, const AuthColumn::Status& status
+) {
+  data.widgetIds = LockCards::widgetList(lock.widgets);
+  data.bottomSlot = lock.bottomSlot;
+  data.battery = status.batteryText;
+  if (weather != nullptr && weather->enabled() && weather->hasData()) {
+    const auto& current = weather->snapshot().current;
+    data.weather = std::format("{}°", static_cast<int>(std::lround(weather->displayTemperature(current.temperatureC))));
+    data.weatherLabel = WeatherService::shortDescriptionForCode(current.weatherCode);
+  }
+}
+
+void fillLockClockState(
+    AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
+) {
+  state.time = formatLocalTime("%H:%M");
+  const ClockStyle& clock = clockStyleById(lock.clockStyle);
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  state.clockLines = clockLines(clock, local, {.h24 = lock.clockFormat24h, .seconds = lock.clockSeconds});
+  state.clockFamily = lockClockFontFamily(clock);
+  state.clockWeight = clockWeightAt(clock, local.tm_sec);
+  state.clockTracking = clock.tracking;
+  state.clockStroke = clock.stroke;
+  if (clock.gradient) {
+    state.clockGradientFrom = gradientFrom;
+    state.clockGradientTo = gradientTo;
+  }
+  state.clockVariations = std::string(clock.variations);
+  state.clockTwoTone = clock.twoTone;
+  state.flip = clock.layout == ClockLayout::Flip;
+  if (clock.live && !lock.clockSeconds) {
+    state.liveSeconds = std::format("{:02}", local.tm_sec);
+  }
+  if (clock.layout == ClockLayout::Analog) {
+    state.analogHour = local.tm_hour;
+    state.analogMinute = local.tm_min;
+  }
+  state.date = formatLocalTime("%A, %-d %B");
+}
+
+// One layout at each minute (or second, with clock_seconds) boundary keeps the clock right without idle frames.
+void LockSurface::startAndromedaClock() {
+  const bool seconds = m_config != nullptr
+      && (m_config->config().lockscreen.clockSeconds || clockStyleById(m_config->config().lockscreen.clockStyle).live);
+  const std::int64_t period = seconds ? 1000 : 60000;
+  const auto now = std::chrono::system_clock::now();
+  const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % period;
+  m_andromedaClock.start(std::chrono::milliseconds(period - into + 5), [this] {
+    requestLayout();
+    startAndromedaClock();
+  });
+}
+
+void LockSurface::setClockGradient(std::uint32_t from, std::uint32_t to) {
+  if (m_clockGradientFrom == from && m_clockGradientTo == to) {
+    return;
+  }
+  m_clockGradientFrom = from;
+  m_clockGradientTo = to;
+  requestLayout();
+}
+
+void LockSurface::setStatus(const AuthColumn::Status& status) {
+  if (m_statusIsland == status) {
+    return;
+  }
+  m_statusIsland = status;
+  requestUpdate();
+}
+
+void LockSurface::setAuthExtras(const AuthExtras& extras) {
+  if (m_authExtras == extras) {
+    return;
+  }
+  m_authExtras = extras;
+  requestUpdate();
 }
 
 void LockSurface::updateCopy() {
@@ -1733,7 +2177,7 @@ void LockSurface::updateCopy() {
     m_authLabel->setVisible(show);
     if (show) {
       m_authLabel->setText(text);
-      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::Error : ColorRole::OnSurfaceVariant));
+      m_authLabel->setColor(colorSpecFromRole(isError ? ColorRole::DangerText : ColorRole::Label2));
     }
   }
 
@@ -2062,13 +2506,6 @@ std::string LockSurface::resolveStatusText(const lockscreen_login_box::LoginBoxS
 }
 
 void LockSurface::applyWallpaperTexture() {
-  if (usesDesktopCaptureBackground()) {
-    applyBlurredDesktopTexture();
-    if (m_blurredDesktopTexture.id != 0) {
-      return;
-    }
-  }
-
   if (!m_wallpaperDirty) {
     return;
   }
@@ -2080,11 +2517,6 @@ void LockSurface::applyWallpaperTexture() {
     m_pendingWallpaperLease.reset();
     m_shownWallpaperPath.clear();
     m_pendingWallpaperPath.clear();
-    if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-      renderContext()->backend().makeCurrentNoSurface();
-      renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-      m_blurredWallpaperTexture = {};
-    }
     m_wallpaper->setSources(
         WallpaperSourceKind::Color, {}, color, WallpaperSourceKind::Image, {}, rgba(0.0F, 0.0F, 0.0F, 1.0F), 0.0F, 0.0F,
         0.0F, 0.0F
@@ -2095,18 +2527,23 @@ void LockSurface::applyWallpaperTexture() {
   } else if (m_textureCache != nullptr && !m_wallpaperPath.empty()) {
     m_wallpaperLease.setCoverage(m_wallpaperCoverage);
     m_pendingWallpaperLease.setCoverage(m_wallpaperCoverage);
-    if (m_shownWallpaperPath == m_wallpaperPath) {
+    // The compositor blurs only what lies behind the lock surface, so an own image is blurred here.
+    const float blur = m_ownWallpaper ? m_blurIntensity * kOwnImageBlur : 0.0F;
+    if (m_shownWallpaperPath == m_wallpaperPath && m_shownWallpaperBlur == blur) {
       m_pendingWallpaperLease.reset();
       m_pendingWallpaperPath.clear();
-    } else if (m_pendingWallpaperPath != m_wallpaperPath && renderContext() != nullptr) {
+    } else if ((m_pendingWallpaperPath != m_wallpaperPath || m_pendingWallpaperBlur != blur)
+               && renderContext() != nullptr) {
       m_pendingWallpaperLease = m_textureCache->acquire(
-          SharedTextureRequest{.path = m_wallpaperPath, .coverage = m_wallpaperCoverage}, &renderContext()->backend(),
+          SharedTextureRequest{.path = m_wallpaperPath, .coverage = m_wallpaperCoverage, .blur = blur},
+          &renderContext()->backend(),
           [this] {
             m_wallpaperDirty = true;
             requestLayout();
           }
       );
       m_pendingWallpaperPath = m_pendingWallpaperLease.empty() ? std::string{} : m_wallpaperPath;
+      m_pendingWallpaperBlur = blur;
     }
 
     if (!m_pendingWallpaperLease.empty()) {
@@ -2116,6 +2553,7 @@ void LockSurface::applyWallpaperTexture() {
       } else if (m_pendingWallpaperLease.texture().id != 0) {
         m_wallpaperLease = std::move(m_pendingWallpaperLease);
         m_shownWallpaperPath = std::move(m_pendingWallpaperPath);
+        m_shownWallpaperBlur = m_pendingWallpaperBlur;
         m_pendingWallpaperPath.clear();
       }
     }
@@ -2125,28 +2563,9 @@ void LockSurface::applyWallpaperTexture() {
       loaded = false;
     } else {
       loaded = m_pendingWallpaperLease.empty();
-
-      if (m_blurredWallpaperTexture.id != 0 && renderContext() != nullptr) {
-        renderContext()->backend().makeCurrentNoSurface();
-        renderContext()->textureManager().unload(m_blurredWallpaperTexture);
-        m_blurredWallpaperTexture = {};
-      }
-      if (m_blurIntensity > 0.0F && renderContext() != nullptr) {
-        auto* renderer = renderContext();
-        renderer->makeCurrent(renderTarget());
-        static constexpr int kBlurRounds = 3;
-        const float blurRadius = m_blurIntensity * 40.0F;
-        const std::uint32_t blurWidth = renderTarget().bufferWidth();
-        const std::uint32_t blurHeight = renderTarget().bufferHeight();
-        m_blurredWallpaperTexture = m_wallpaperBlurCache.get(
-            renderer->backend(), wallpaperTexture, blurWidth, blurHeight, blurRadius, kBlurRounds
-        );
-      }
-      const TextureHandle textureToDisplay =
-          m_blurredWallpaperTexture.id != 0 ? m_blurredWallpaperTexture : wallpaperTexture;
       m_wallpaper->setTextures(
-          textureToDisplay.id, {}, static_cast<float>(textureToDisplay.width),
-          static_cast<float>(textureToDisplay.height), 0.0F, 0.0F
+          wallpaperTexture.id, {}, static_cast<float>(wallpaperTexture.width),
+          static_cast<float>(wallpaperTexture.height), 0.0F, 0.0F
       );
       m_wallpaper->setTransition(WallpaperTransition::Fade, 0.0F, TransitionParams{});
       m_wallpaper->setFillMode(m_wallpaperFillMode);
@@ -2167,90 +2586,27 @@ void LockSurface::applyWallpaperTexture() {
 
 void LockSurface::releaseCaptureTextures() {
   if (renderContext() == nullptr) {
-    m_blurredWallpaperTexture = {};
-    m_captureSourceTexture = {};
-    m_blurredDesktopTexture = {};
     m_transitionCaptureTexture = {};
-    m_blurCache.destroy();
-    m_wallpaperBlurCache.destroy();
     return;
-  }
-
-  auto& tm = renderContext()->textureManager();
-  renderContext()->backend().makeCurrentNoSurface();
-  if (m_blurredWallpaperTexture.id != 0) {
-    tm.unload(m_blurredWallpaperTexture);
-    m_blurredWallpaperTexture = {};
-  }
-  if (m_captureSourceTexture.id != 0) {
-    tm.unload(m_captureSourceTexture);
-    m_captureSourceTexture = {};
-  }
-  if (m_blurredDesktopTexture.id != 0) {
-    tm.unload(m_blurredDesktopTexture);
-    m_blurredDesktopTexture = {};
   }
   if (m_transitionCaptureTexture.id != 0) {
-    tm.unload(m_transitionCaptureTexture);
+    renderContext()->backend().makeCurrentNoSurface();
+    renderContext()->textureManager().unload(m_transitionCaptureTexture);
     m_transitionCaptureTexture = {};
   }
-  m_blurCache.destroy();
-  m_wallpaperBlurCache.destroy();
 }
 
-void LockSurface::applyBlurredDesktopTexture() {
-  if (!m_captureDirty || !usesDesktopCaptureBackground()) {
+void LockSurface::syncBlurRegion(bool enabled, std::uint32_t width, std::uint32_t height) {
+  const std::uint64_t key = enabled ? (static_cast<std::uint64_t>(width) << 32) | height : 0;
+  if (key == m_blurRegionKey) {
     return;
   }
-
-  auto* renderer = renderContext();
-  if (renderer == nullptr) {
-    return;
+  m_blurRegionKey = key;
+  if (enabled) {
+    setBlurRegion({InputRect{.x = 0, .y = 0, .width = static_cast<int>(width), .height = static_cast<int>(height)}});
+  } else {
+    clearBlurRegion();
   }
-
-  const ScreencopyImage& capture = *m_desktopCapture;
-  const int texW = capture.width;
-  const int texH = capture.height;
-  if (texW <= 0 || texH <= 0) {
-    return;
-  }
-
-  renderer->makeCurrent(renderTarget());
-  auto& tm = renderer->textureManager();
-  if (m_captureSourceTexture.id != 0) {
-    tm.unload(m_captureSourceTexture);
-    m_captureSourceTexture = {};
-  }
-  if (m_blurredDesktopTexture.id != 0) {
-    tm.unload(m_blurredDesktopTexture);
-    m_blurredDesktopTexture = {};
-  }
-
-  m_captureSourceTexture = tm.loadFromRgba(capture.rgba.data(), texW, texH, false);
-  if (m_captureSourceTexture.id == 0) {
-    return;
-  }
-
-  static constexpr int kBlurRounds = 3;
-  const float blurRadius = m_blurIntensity * 40.0F;
-  const std::uint32_t blurWidth = renderTarget().bufferWidth();
-  const std::uint32_t blurHeight = renderTarget().bufferHeight();
-  m_blurredDesktopTexture =
-      m_blurCache.get(renderer->backend(), m_captureSourceTexture, blurWidth, blurHeight, blurRadius, kBlurRounds);
-  if (m_blurredDesktopTexture.id == 0) {
-    return;
-  }
-
-  m_wallpaper->setTextures(
-      m_blurredDesktopTexture.id, {}, static_cast<float>(m_blurredDesktopTexture.width),
-      static_cast<float>(m_blurredDesktopTexture.height), 0.0F, 0.0F
-  );
-  m_wallpaper->setTransition(WallpaperTransition::Fade, 0.0F, TransitionParams{});
-  m_wallpaper->setFillMode(m_wallpaperFillMode);
-  m_wallpaper->setFillColor(rgba(0.0F, 0.0F, 0.0F, 0.0F));
-  m_backdrop->setVisible(false);
-  m_captureDirty = false;
-  m_wallpaperDirty = false;
 }
 
 void LockSurface::onGpuResourcesInvalidated() {
@@ -2274,19 +2630,12 @@ void LockSurface::onGpuResourcesInvalidated() {
     m_transitionProgress = 1.0F;
   }
 
-  m_captureDirty = true;
   m_wallpaperDirty = true;
   requestLayout();
 }
 
 void LockSurface::prepareForGraphicsReset() noexcept {
-  m_blurCache.abandon();
-  m_wallpaperBlurCache.abandon();
-  m_blurredWallpaperTexture = {};
-  m_captureSourceTexture = {};
-  m_blurredDesktopTexture = {};
   m_transitionCaptureTexture = {};
-  m_captureDirty = true;
   m_wallpaperDirty = true;
 }
 

@@ -62,6 +62,8 @@ struct IconThemePollSource::Impl {
   Clock::time_point debounceUntil;
   bool contentPending = false;
   bool metadataPending = false;
+  // The 60 s re-check stats every icon dir; it runs only when inotify could not watch them all.
+  bool watchesComplete = false;
 
   Impl() { resetWatches(); }
 
@@ -70,6 +72,7 @@ struct IconThemePollSource::Impl {
       inotify.unwatch(watch.first);
     }
     watches.clear();
+    watchesComplete = inotify.fd() >= 0;
 
     std::unordered_map<std::string, DesiredWatch> desired;
     const auto paths = IconResolver::themeWatchPaths();
@@ -97,6 +100,7 @@ struct IconThemePollSource::Impl {
         continue;
       }
       const auto wd = inotify.watch(path, mask);
+      watchesComplete = watchesComplete && wd.has_value();
       if (wd.has_value()) {
         auto& active = watches[*wd];
         active.roles |= watch.roles;
@@ -176,9 +180,10 @@ void IconThemePollSource::setChangeCallback(std::function<void()> callback) {
 
 int IconThemePollSource::pollTimeoutMs() const {
   const auto now = Clock::now();
-  int timeout = millisecondsUntil(m_impl->nextCheck, now);
+  int timeout = m_impl->watchesComplete ? -1 : millisecondsUntil(m_impl->nextCheck, now);
   if (m_impl->contentPending || m_impl->metadataPending) {
-    timeout = std::min(timeout, millisecondsUntil(m_impl->debounceUntil, now));
+    const int debounce = millisecondsUntil(m_impl->debounceUntil, now);
+    timeout = timeout < 0 ? debounce : std::min(timeout, debounce);
   }
   return timeout;
 }
@@ -193,7 +198,7 @@ void IconThemePollSource::dispatch(const std::vector<pollfd>& fds, std::size_t s
     m_impl->applyPendingChange();
     now = Clock::now();
   }
-  if (now >= m_impl->nextCheck) {
+  if (!m_impl->watchesComplete && now >= m_impl->nextCheck) {
     m_impl->nextCheck = now + kCheckInterval;
     const bool changed = IconResolver::checkThemeChanged();
     if (changed) {

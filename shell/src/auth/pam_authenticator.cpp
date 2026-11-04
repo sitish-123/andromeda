@@ -232,7 +232,8 @@ namespace {
   }
 
   [[nodiscard]] bool writeResult(int fd, const PamAuthenticator::Result& result) {
-    const std::uint8_t success = result.success ? 1 : 0;
+    // 0 = error, 1 = success, 2 = rejected.
+    const std::uint8_t success = result.success ? 1 : (result.rejected ? 2 : 0);
     if (!writeAll(fd, &success, sizeof(success))) {
       return false;
     }
@@ -248,7 +249,7 @@ namespace {
 
   [[nodiscard]] bool readResult(int fd, PamAuthenticator::Result& result) {
     std::uint8_t success = 0;
-    if (!readAll(fd, &success, sizeof(success)) || success > 1) {
+    if (!readAll(fd, &success, sizeof(success)) || success > 2) {
       return false;
     }
     std::uint32_t len = 0;
@@ -258,7 +259,8 @@ namespace {
     if (len > kMaxPamMessageBytes) {
       return false;
     }
-    result.success = success != 0;
+    result.success = success == 1;
+    result.rejected = success == 2;
     result.message.clear();
     if (len > 0) {
       result.message.resize(len);
@@ -328,7 +330,9 @@ namespace {
     }
 
     kLog.warn("authentication failed for user='{}' rc={} ({})", user, rc, errStr);
-    return PamAuthenticator::Result{.success = false, .message = errStr};
+    return PamAuthenticator::Result{
+        .success = false, .rejected = rc == PAM_AUTH_ERR || rc == PAM_MAXTRIES, .message = errStr
+    };
   }
 
 } // namespace

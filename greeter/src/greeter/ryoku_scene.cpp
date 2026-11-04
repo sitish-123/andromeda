@@ -161,11 +161,11 @@ void RyokuScene::build(Node& root, AnimationManager& animations) {
   // Entry: everything fades up while the dial winds back onto the time.
   m_blast->setOpacity(0.0f);
   m_hud->setOpacity(0.0f);
-  m_animations->animate(0.0f, 1.0f, 350.0f, Easing::EaseOutCubic, [this](float v) {
+  m_animations->animateSpring(0.0f, 1.0f, Style::spring(Tokens::springFade), [this](float v) {
     m_blast->setOpacity(v);
     m_hud->setOpacity(v);
   });
-  m_animations->animate(0.9f, 0.0f, 1100.0f, Easing::EaseOutCubic, [this](float v) { m_introOffset = v; });
+  m_animations->animateSpring(0.9f, 0.0f, Style::spring(Tokens::springOpen), [this](float v) { m_introOffset = v; });
 }
 
 void RyokuScene::buildRing(Ring& ring, float tickLong, float tickShort, float numberSize) {
@@ -380,8 +380,8 @@ void RyokuScene::fadeColor(Label* label, bool lit) {
   m_animations->cancelForOwner(label);
   const Color from = label->color();
   const Color to = lit ? kWhite : kDim;
-  m_animations->animate(
-      0.0f, 1.0f, 200.0f, Easing::EaseOutCubic, [label, from, to](float v) { label->setColor(mix(from, to, v)); },
+  m_animations->animateSpring(
+      0.0f, 1.0f, Style::spring(Tokens::springFade), [label, from, to](float v) { label->setColor(mix(from, to, v)); },
       nullptr, label
   );
   if (label == m_user) {
@@ -403,8 +403,8 @@ void RyokuScene::setPasswordLength(std::size_t length) {
     return;
   }
   m_animations->cancel(m_waitingAnim);
-  m_waitingAnim = m_animations->animate(
-      m_waitingOpacity, length == 0 ? 0.4f : 0.0f, 400.0f, Easing::EaseInOutCubic, [this](float v) {
+  m_waitingAnim = m_animations->animateSpring(
+      m_waitingOpacity, length == 0 ? 0.4f : 0.0f, Style::spring(length == 0 ? Tokens::springFade : Tokens::springFadeOut), [this](float v) {
         m_waitingOpacity = v;
         m_waiting->setOpacity(v);
       }
@@ -421,23 +421,23 @@ void RyokuScene::setOnShutdown(std::function<void()> callback) {
 
 void RyokuScene::playRejected() {
   m_animations->cancelForOwner(&m_shake);
-  m_animations->animate(1.0f, 0.0f, 420.0f, Easing::Linear, [this](float v) { m_shake = v; }, nullptr, &m_shake);
+  m_animations->animateSpring(1.0f, 0.0f, Style::spring(Tokens::springRelease), [this](float v) { m_shake = v; }, nullptr, &m_shake);
 }
 
 void RyokuScene::playGranted(std::function<void()> onDone) {
   m_scanning = false;
   m_hint->setText(tracked("ACCESS GRANTED " + std::string(kStar), kHair));
   m_hint->setColor(kWhite);
-  m_animations->animate(1.0f, 35.0f, 190.0f, Easing::EaseInCubic, [this](float v) { m_blast->setScale(v); });
-  m_animations->animate(1.0f, 0.0f, 120.0f, Easing::EaseInCubic, [this](float v) { m_hud->setOpacity(v); });
-  m_animations->animate(
-      0.0f, 1.0f, 130.0f, Easing::EaseInCubic, [this](float v) { m_flash->setOpacity(v); },
+  m_animations->animateSpring(1.0f, 35.0f, Style::spring(Tokens::springOpen), [this](float v) { m_blast->setScale(v); }, nullptr, nullptr, 0.0f, Unit::Scale);
+  m_animations->animateSpring(1.0f, 0.0f, Style::spring(Tokens::springFadeOut), [this](float v) { m_hud->setOpacity(v); });
+  m_animations->animateSpring(
+      0.0f, 1.0f, Style::spring(Tokens::springFade), [this](float v) { m_flash->setOpacity(v); },
       [done = std::move(onDone)]() {
         if (done) {
           done();
         }
       }
-  );
+  , nullptr, 0.0F, Unit::Progress);
 }
 
 void RyokuScene::layoutMenu(Renderer& renderer, Menu& menu, float right, float anchorY) {
@@ -476,10 +476,10 @@ void RyokuScene::toggleMenu(Menu& menu) {
   menu.open = !menu.open;
   menu.group->setVisible(true);
   m_animations->cancelForOwner(&menu.reveal);
-  m_animations->animate(
-      menu.reveal, menu.open ? 1.0f : 0.0f, 400.0f, Easing::EaseOutCubic, [&menu](float v) { menu.reveal = v; },
+  m_animations->animateSpring(
+      menu.reveal, menu.open ? 1.0f : 0.0f, Style::spring(menu.open ? Tokens::springOpen : Tokens::springClose), [&menu](float v) { menu.reveal = v; },
       [&menu]() { menu.group->setVisible(menu.reveal > 0.0f); }, &menu.reveal
-  );
+  , 0.0F, Unit::Progress);
   fadeColor(menu.opener, menu.open);
   if (m_onMenuChanged) {
     m_onMenuChanged();

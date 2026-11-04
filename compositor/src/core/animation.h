@@ -1,4 +1,5 @@
 #pragma once
+#include "motion/desk_motion.h"
 #include "scene/color.h"
 
 #include <array>
@@ -22,102 +23,17 @@ namespace andromeda {
   // Identity and random seed for native transitions, including directly controlled gestures.
   [[nodiscard]] AnimationTransition beginAnimationTransition();
 
-  enum class Easing : uint8_t {
-    Linear,
-    EaseInSine,
-    EaseOutSine,
-    EaseInOutSine,
-    EaseInQuad,
-    EaseOutQuad,
-    EaseInOutQuad,
-    EaseInCubic,
-    EaseOutCubic,
-    EaseInOutCubic,
-    EaseInQuart,
-    EaseOutQuart,
-    EaseInOutQuart,
-    EaseInQuint,
-    EaseOutQuint,
-    EaseInOutQuint,
-    EaseInExpo,
-    EaseOutExpo,
-    EaseInOutExpo,
-    EaseInCirc,
-    EaseOutCirc,
-    EaseInOutCirc,
-    EaseInBack,
-    EaseOutBack,
-    EaseInOutBack,
-    EaseInElastic,
-    EaseOutElastic,
-    EaseInOutElastic,
-    EaseInBounce,
-    EaseOutBounce,
-    EaseInOutBounce,
-    Snappy,
-    CustomBezier,
-    Spring
-  };
-
-  struct BezierCurve {
-    double x1 = 0.05;
-    double y1 = 0.9;
-    double x2 = 0.1;
-    double y2 = 1.05;
-    bool operator==(const BezierCurve&) const = default;
-  };
-
-  struct SpringConfig {
-    double damping = 0.75;
-    double stiffness = 100.0;
-    double mass = 1.0;
-    bool operator==(const SpringConfig&) const = default;
-  };
-
-  struct AnimationCurve {
-    Easing easing = Easing::EaseOutCubic;
-    BezierCurve bezier{};
-    SpringConfig spring{};
-    bool operator==(const AnimationCurve&) const = default;
-  };
-
-  // Standalone math and evaluation functions
-  [[nodiscard]] double solveCubicBezier(double x1, double y1, double x2, double y2, double x);
-  // Wall-clock length of a spring curve: the time a unit step from rest needs to settle within
-  // kSpringSettleEpsilon of its target. Stiffness and mass set that timescale, damping only the shape, so a spring
-  // curve owns its duration and the configured duration_ms does not apply to it. Clamped to the duration_ms range.
-  [[nodiscard]] int springDurationMs(const SpringConfig& config);
-  [[nodiscard]] double solveSpringPhysics(
-      double from, double to, double velocity, double elapsedSec, const SpringConfig& config,
-      double* outVelocity = nullptr
-  );
-  // Upper bound on the displacement a damped spring can reach from its current position and velocity. The bound is
-  // expressed in the same units as current and target and follows from the spring's remaining mechanical energy.
-  [[nodiscard]] double
-  springDisplacementBound(double current, double target, double velocity, const SpringConfig& config);
-  [[nodiscard]] double applyEasing(const AnimationCurve& curve, double progress);
-  [[nodiscard]] inline double evaluateCurve(const AnimationCurve& curve, double progress) {
-    return applyEasing(curve, progress);
-  }
-
-  // Logical layout geometry must remain between its endpoints and advance in one direction. Curves that reverse or
-  // overshoot are projected onto cumulative travel, so their timing remains visible for the full configured duration
-  // without letting tiled boxes cross a protected boundary. Already bounded monotonic curves are evaluated directly.
-  class MonotonicEasing {
-  public:
-    MonotonicEasing();
-    explicit MonotonicEasing(const AnimationCurve& curve);
-
-    void reset(const AnimationCurve& curve);
-    [[nodiscard]] double value(double linearProgress) const;
-
-  private:
-    static constexpr std::size_t kSampleCount = 512;
-
-    AnimationCurve m_curve{.easing = Easing::Linear};
-    std::array<double, kSampleCount + 1> m_progress{};
-    bool m_direct = true;
-  };
+  using desk::motion::AnimationCurve;
+  using desk::motion::applyEasing;
+  using desk::motion::BezierCurve;
+  using desk::motion::Easing;
+  using desk::motion::evaluateCurve;
+  using desk::motion::MonotonicEasing;
+  using desk::motion::solveCubicBezier;
+  using desk::motion::solveSpringPhysics;
+  using desk::motion::SpringConfig;
+  using desk::motion::springDisplacementBound;
+  using desk::motion::springDurationMs;
 
   // Registry for named animation curves (supporting custom named beziers and springs)
   class CurveRegistry {

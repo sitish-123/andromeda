@@ -2128,3 +2128,18 @@ void TrayService::emitChanged() {
     m_changeCallback();
   }
 }
+
+std::vector<int> TrayService::itemPids() const {
+  std::vector<int> pids;
+  std::unordered_map<std::string, std::uint32_t> known;
+  for (const auto& item : items()) {
+    const auto cached = m_itemPids.find(item.busName);
+    const std::uint32_t pid = cached != m_itemPids.end() ? cached->second : connectionPidForBusName(item.busName);
+    if (pid != 0) {
+      known[item.busName] = pid;
+      pids.push_back(static_cast<int>(pid));
+    }
+  }
+  m_itemPids = std::move(known);
+  return pids;
+}

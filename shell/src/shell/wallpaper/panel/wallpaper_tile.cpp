@@ -26,7 +26,7 @@ namespace {
     return tryParseHexColor(path.substr(kPrefix.size()), out);
   }
 
-  [[nodiscard]] float overlayControlSize(float contentScale) { return Style::controlHeightSm * contentScale; }
+  [[nodiscard]] float overlayControlSize(float contentScale) { return Style::controlHeight * contentScale; }
 
   // Star hit box sits flush in the thumbnail's top-right corner, glyph centered inside it.
   [[nodiscard]] float starButtonSize(float contentScale) { return overlayControlSize(contentScale); }
@@ -145,7 +145,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       ui::glyph({
           .out = &m_folderGlyph,
           .glyph = "folder",
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -155,7 +155,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       ui::glyph({
           .out = &m_loadingGlyph,
           .glyph = "hourglass-empty",
-          .color = colorSpecFromRole(ColorRole::OnSurface, 0.5F),
+          .color = colorSpecFromRole(ColorRole::Label1, 0.5F),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -166,7 +166,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
           .out = &m_starGlyph,
           .glyph = "star",
           .glyphSize = Style::fontSizeBody * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .participatesInLayout = false,
       })
   );
@@ -192,7 +192,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       ui::label({
           .out = &m_label,
           .fontSize = Style::fontSizeCaption * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
       })
   );
@@ -578,19 +578,16 @@ void WallpaperTile::animateThumbScale(float targetScale) {
     return;
   }
 
-  if (m_thumbScaleAnimId != 0 && animationManager() != nullptr) {
-    animationManager()->cancel(m_thumbScaleAnimId);
-    m_thumbScaleAnimId = 0;
-  }
-
-  if (std::abs(m_thumbScale - targetScale) <= 0.001F || animationManager() == nullptr) {
+  if (animationManager() == nullptr) {
     applyThumbScale(targetScale);
     return;
   }
 
-  m_thumbScaleAnimId = animationManager()->animate(
-      m_thumbScale, targetScale, Style::animFast, Easing::EaseOutCubic, [this](float value) { applyThumbScale(value); },
-      [this] { m_thumbScaleAnimId = 0; }, this
+  m_thumbScaleAnimId = animationManager()->drive(
+      m_thumbScaleAnimId, m_thumbScale, targetScale,
+      Style::spring(targetScale > m_thumbScale ? Tokens::springSnap : Tokens::springMove),
+      [this](float value) { applyThumbScale(value); }, [this] { m_thumbScaleAnimId = 0; }, this, 0.0F, Unit::Scale,
+      true
   );
   markPaintDirty();
 }
@@ -609,10 +606,10 @@ void WallpaperTile::applyStarVisualState() {
 
   if (m_favorited) {
     m_starGlyph->setGlyph("star-filled");
-    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::Primary), m_contentScale);
+    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::AccentText), m_contentScale);
   } else if (m_starHoveredVisual) {
     m_starGlyph->setGlyph("star");
-    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::Primary), m_contentScale);
+    applyStarGlyphStyle(m_starGlyph, colorSpecFromRole(ColorRole::AccentText), m_contentScale);
   } else {
     m_starGlyph->setGlyph("star");
     // High-contrast overlay on arbitrary thumbnails: no pill/background, just fill + shadow.
@@ -635,19 +632,19 @@ void WallpaperTile::applyVisualState() {
     outlineWidth = Style::emphasizedBorderWidth;
   }
 
-  ColorSpec borderColor = m_selected ? colorSpecFromRole(ColorRole::Primary)
-      : m_current                    ? colorSpecFromRole(ColorRole::Secondary)
-      : m_hoveredVisual              ? colorSpecFromRole(ColorRole::Hover)
-                                     : colorSpecFromRole(ColorRole::OutlineVariant);
+  ColorSpec borderColor = m_selected ? colorSpecFromRole(ColorRole::Accent)
+      : m_current                    ? colorSpecFromRole(ColorRole::Accent)
+      : m_hoveredVisual              ? colorSpecFromRole(ColorRole::Fill3)
+                                     : colorSpecFromRole(ColorRole::Stroke);
   ColorSpec labelColor =
-      m_current ? colorSpecFromRole(ColorRole::Secondary) : colorSpecFromRole(ColorRole::OnSurfaceVariant);
-  ColorSpec frameBg = colorSpecFromRole(ColorRole::SurfaceContainer);
+      m_current ? colorSpecFromRole(ColorRole::AccentText) : colorSpecFromRole(ColorRole::Label2);
+  ColorSpec frameBg = colorSpecFromRole(ColorRole::Fill2);
   m_label->setColor(labelColor);
 
   m_thumbHost->setFill(frameBg);
   if (m_entry.isDir) {
     m_thumbHost->setBorder(borderColor, outlineWidth);
-    m_thumb->setBorder(colorSpecFromRole(ColorRole::OutlineVariant), outlineWidth);
+    m_thumb->setBorder(colorSpecFromRole(ColorRole::Stroke), outlineWidth);
   } else {
     m_thumbHost->clearBorder();
     m_thumb->setBorder(borderColor, outlineWidth);

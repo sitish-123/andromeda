@@ -1,4 +1,9 @@
 #include "app/main_loop.h"
+#include <cstdlib>
+#include <vector>
+#include <system_error>
+#include <string>
+#include <fstream>
 #include "application.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
@@ -12,6 +17,7 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "dbus/logind/power_config_service.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
@@ -243,6 +249,28 @@ void Application::initIpc() {
   );
 
   m_ipcService.bind(
+      noctalia::cli::msg::debugThreads,
+      [](const std::string&) -> std::string {
+        std::vector<std::string> names;
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator("/proc/self/task", ec)) {
+          std::ifstream comm(entry.path() / "comm");
+          std::string name;
+          if (std::getline(comm, name) && name.starts_with("dsk-")) {
+            names.push_back(name);
+          }
+        }
+        std::ranges::sort(names);
+        std::string out = std::to_string(names.size()) + "\n";
+        for (const auto& name : names) {
+          out += name + "\n";
+        }
+        return out;
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
       noctalia::cli::msg::logLevelStatus,
       [](const std::string&) -> std::string { return std::string(logLevelName(currentLogLevel())) + "\n"; },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
@@ -363,6 +391,32 @@ void Application::initIpc() {
                                                                                : "error: invokeAction failed\n";
       }
   );
+  m_ipcService.bind(noctalia::cli::msg::panelState, [this](const std::string&) -> std::string {
+    if (!m_panelManager.isOpen() || m_panelManager.activePanel() == nullptr) {
+      return "none\n";
+    }
+    const std::string context = m_panelManager.activePanel()->activeContext();
+    return m_panelManager.activePanelId() + (context.empty() ? "" : " " + context) + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::panelRect, [this](const std::string&) -> std::string {
+    const auto rect = m_panelManager.activePanelRect();
+    if (!m_panelManager.isOpen() || !rect.has_value()) {
+      return "none\n";
+    }
+    return std::format(
+        "{} {} {} {} {}\n", rect->x, rect->y, rect->width, rect->height, m_panelManager.activePanelIslandTop()
+    );
+  });
+  m_ipcService.bind(noctalia::cli::msg::liveActivityStatus, [this](const std::string&) -> std::string {
+    return m_liveActivity.describeActivity() + "\n";
+  });
+  m_ipcService.bind(noctalia::cli::msg::liveActivityAction, [this](const std::string& args) -> std::string {
+    const std::string button = StringUtils::trim(args);
+    if (button != "primary" && button != "secondary") {
+      return "error: live-activity-action takes primary or secondary\n";
+    }
+    return m_liveActivity.pressActivityButton(button == "secondary") ? "ok\n" : "error: no such button\n";
+  });
   m_ipcService.bind(
       noctalia::cli::msg::notificationReplyLatest, [this, latestWithAction](const std::string& args) -> std::string {
         const Notification* notification = latestWithAction("inline-reply");
@@ -680,15 +734,59 @@ void Application::initIpc() {
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
 
+  m_ipcService.bind(
+      noctalia::cli::msg::activityDump,
+      [this](const std::string& /*args*/) -> std::string {
+        if (ensureActivityMonitor() == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_activityMonitor->touch();
+        auto dump = nlohmann::json::parse(m_activityMonitor->dumpJson());
+        for (auto& row : dump["rows"]) {
+          const std::string key = row["key"];
+          if (const auto net = m_activityDetails.networkBytesPerSec(key)) { // set only by a probe (window open)
+            row["net_bps"] = *net;
+            row["gpu_percent"] = m_activityDetails.gpuPercent(key);
+          }
+        }
+        return dump.dump() + "\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
+      noctalia::cli::msg::activityOpen,
+      [this](const std::string& args) -> std::string {
+        if (m_activityMonitor == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_activityWindow.open(StringUtils::trim(args));
+        return "ok\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  m_ipcService.bind(
+      noctalia::cli::msg::activityCheck,
+      [this](const std::string& /*args*/) -> std::string {
+        if (m_backgroundActivityMonitor == nullptr) {
+          return "error: no session bus\n";
+        }
+        m_backgroundActivityMonitor->checkNow();
+        return "ok\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
   registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
 
-  if (m_powerProfilesService != nullptr) {
-    m_powerProfilesService->registerIpc(m_ipcService, [this](std::string_view profile) {
+  if (powerProfiles() != nullptr) {
+    powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {
       m_osdOverlay.show(powerProfileOsdContent(profile));
     });
   }
-  if (m_networkService != nullptr) {
-    m_networkService->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
+  if (network() != nullptr) {
+    network()->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
   }
   if (m_linkService != nullptr) {
     m_linkService->registerIpc(m_ipcService);
@@ -697,8 +795,8 @@ void Application::initIpc() {
     m_quickShareService->registerIpc(m_ipcService);
   }
   m_locationService.registerIpc(m_ipcService);
-  if (m_bluetoothService != nullptr) {
-    m_bluetoothService->registerIpc(m_ipcService, [this](bool enabled) {
+  if (bluetooth() != nullptr) {
+    bluetooth()->registerIpc(m_ipcService, [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));
     });
   }
@@ -746,14 +844,11 @@ void Application::initIpc() {
     if (parts.size() > 1) {
       return "error: volume-osd accepts at most one optional [value]\n";
     }
-    if (m_pipewireService == nullptr) {
-      return "error: audio unavailable\n";
-    }
-    const auto* sink = m_pipewireService->defaultSink();
-    if (sink == nullptr) {
+    const auto* sink = pipewire() != nullptr ? pipewire()->defaultSink() : nullptr;
+    if (sink == nullptr && parts.empty()) {
       return "error: no default output\n";
     }
-    float volume = sink->volume;
+    float volume = sink != nullptr ? sink->volume : 0.0F;
     if (parts.size() == 1) {
       const auto value =
           noctalia::ipc::parseNormalizedOrPercent(parts[0], maxAudioVolume(m_configService.config().audio) * 100.0F);
@@ -762,7 +857,7 @@ void Application::initIpc() {
       }
       volume = *value;
     }
-    m_audioOsd.showOutputValue(volume, sink->muted);
+    m_audioOsd.showOutputValue(volume, sink != nullptr && sink->muted);
     return "ok\n";
   });
   m_ipcService.bind(noctalia::cli::msg::micVolumeOsd, [this](const std::string& args) -> std::string {
@@ -770,10 +865,10 @@ void Application::initIpc() {
     if (parts.size() > 1) {
       return "error: mic-volume-osd accepts at most one optional [value]\n";
     }
-    if (m_pipewireService == nullptr) {
+    if (pipewire() == nullptr) {
       return "error: audio unavailable\n";
     }
-    const auto* source = m_pipewireService->defaultSource();
+    const auto* source = pipewire()->defaultSource();
     if (source == nullptr) {
       return "error: no default input\n";
     }
@@ -905,11 +1000,11 @@ void Application::initIpc() {
       m_ipcService, m_configService, [this] { return m_themeService.resolvedShellMode(); }, &m_compositorPlatform,
       [this] { return m_logindService != nullptr; }
   );
-  if (m_mprisService) {
-    m_mprisService->registerIpc(m_ipcService);
+  if (mpris() != nullptr) {
+    mpris()->registerIpc(m_ipcService);
   }
-  if (m_pipewireService) {
-    m_pipewireService->registerIpc(m_ipcService, m_configService);
+  if (pipewire() != nullptr) {
+    pipewire()->registerIpc(m_ipcService, m_configService);
   }
   if (m_easyEffectsService) {
     m_easyEffectsService->registerIpc(
@@ -988,6 +1083,13 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
       return m_sessionActionRunner.requestSuspendDetached();
     }
     return m_sessionActionRunner.lockThenSuspendDetached();
+  case IdleActionKind::Hibernate:
+    // Resume is not proven since the last kernel, command line or swap change: sleep keeps the session safe.
+    if (m_powerConfigService != nullptr && !m_powerConfigService->hibernateVerified()) {
+      kLog.warn("idle hibernate: resume not proven, sleeping instead");
+      return m_sessionActionRunner.requestSuspendDetached();
+    }
+    return m_sessionActionRunner.requestHibernateDetached();
   }
   return false;
 }

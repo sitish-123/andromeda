@@ -5,7 +5,7 @@
 #include "shell/profile/avatar_path.h"
 #include "shell/settings/settings_window.h"
 #include "system/day_night_schedule.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -317,16 +317,11 @@ void SettingsWindow::createBar(std::string name) {
       return;
     }
     if (m_config->createBarOverride(name)) {
-      m_selectedSection = "bar";
-      m_selectedBarName = name;
-      m_selectedMonitorOverride.clear();
+      navigateTo("bar", name);
       m_creatingBarName.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -346,11 +341,8 @@ void SettingsWindow::renameBar(std::string oldName, std::string newName) {
       }
       m_selectedMonitorOverride.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -371,11 +363,8 @@ void SettingsWindow::deleteBar(std::string name) {
         m_contentScrollState.offset = 0.0F;
       }
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       markSettingsWriteSuccess();
       return;
     }
@@ -402,13 +391,9 @@ void SettingsWindow::createMonitorOverride(std::string barName, std::string matc
       return;
     }
     if (m_config->createMonitorOverride(barName, match)) {
-      m_selectedSection = "bar";
-      m_selectedBarName = barName;
-      m_selectedMonitorOverride = match;
+      navigateTo("bar", barName, false, {}, match);
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -429,8 +414,6 @@ void SettingsWindow::renameMonitorOverride(std::string barName, std::string oldM
       }
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -451,8 +434,6 @@ void SettingsWindow::deleteMonitorOverride(std::string barName, std::string matc
       }
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       markSettingsWriteSuccess();
       return;
     }
@@ -466,10 +447,8 @@ void SettingsWindow::createDockMonitorOverride(std::string match) {
       return;
     }
     if (m_config->createDockMonitorOverride(match)) {
-      m_selectedSection = "dock";
-      m_selectedMonitorOverride = match;
+      navigateTo("desktop-dock", {}, false, {}, match);
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -484,11 +463,10 @@ void SettingsWindow::renameDockMonitorOverride(std::string oldTableName, std::st
       return;
     }
     if (m_config->renameDockMonitorOverride(oldTableName, newMatch)) {
-      if (m_selectedSection == "dock" && m_selectedMonitorOverride == oldTableName) {
+      if (m_selectedSection == "desktop-dock" && m_selectedMonitorOverride == oldTableName) {
         m_selectedMonitorOverride = newMatch;
       }
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       m_contentScrollState.offset = 0.0F;
       markSettingsWriteSuccess();
       return;
@@ -503,12 +481,11 @@ void SettingsWindow::deleteDockMonitorOverride(std::string tableName) {
       return;
     }
     if (m_config->deleteDockMonitorOverride(tableName)) {
-      if (m_selectedSection == "dock" && m_selectedMonitorOverride == tableName) {
+      if (m_selectedSection == "desktop-dock" && m_selectedMonitorOverride == tableName) {
         m_selectedMonitorOverride.clear();
         m_contentScrollState.offset = 0.0F;
       }
       m_renamingDockMonitorOverride.clear();
-      m_pendingDeleteDockMonitorOverride.clear();
       markSettingsWriteSuccess();
       return;
     }

@@ -37,7 +37,7 @@ void TestPanel::create() {
       .text = "Test",
       .fontSize = Style::fontSizeTitle * scale,
       .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::Primary),
+      .color = colorSpecFromRole(ColorRole::AccentText),
   });
   headerRow->addChild(std::move(header));
 
@@ -61,8 +61,8 @@ void TestPanel::create() {
         .glyphSize = Style::fontSizeBody * scale,
         .variant = ButtonVariant::Default,
         .surfaceOpacity = panelCardOpacity(),
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .padding = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
         .onClick = [] { PanelManager::instance().closePanel(); },
@@ -121,7 +121,7 @@ void TestPanel::create() {
         ui::label({
             .text = title,
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
   };
@@ -481,7 +481,7 @@ void TestPanel::create() {
         .out = &m_fileDialogResultLabel,
         .text = "No image selected",
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
         .maxWidth = 280.0F * scale,
     });
 
@@ -508,10 +508,10 @@ void TestPanel::create() {
             }
             if (result.has_value()) {
               m_fileDialogResultLabel->setText(result->string());
-              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
             } else {
               m_fileDialogResultLabel->setText("Cancelled");
-              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+              m_fileDialogResultLabel->setColor(colorSpecFromRole(ColorRole::Label2));
             }
           });
         },
@@ -528,12 +528,12 @@ void TestPanel::create() {
   {
     auto resultSwatch = ui::box({
         .out = &m_colorPickerResultSwatch,
-        .fill = fixedColorSpec(ColorPickerDialog::lastResult().value_or(colorForRole(ColorRole::Primary))),
+        .fill = fixedColorSpec(ColorPickerDialog::lastResult().value_or(colorForRole(ColorRole::Accent))),
         .radius = Style::scaledRadiusMd(scale),
         .width = 28.0F * scale,
         .height = 28.0F * scale,
         .configure = [scale](Box& box) {
-          box.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * scale);
+          box.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * scale);
         },
     });
 
@@ -571,10 +571,10 @@ void TestPanel::create() {
 
   {
     std::string resultText = "No glyph selected";
-    ColorSpec resultColor = colorSpecFromRole(ColorRole::OnSurfaceVariant);
+    ColorSpec resultColor = colorSpecFromRole(ColorRole::Label2);
     if (const auto last = GlyphPickerDialog::lastResult()) {
       resultText = last->name;
-      resultColor = colorSpecFromRole(ColorRole::Primary);
+      resultColor = colorSpecFromRole(ColorRole::Accent);
     }
 
     auto resultLabel = ui::label({
@@ -606,7 +606,7 @@ void TestPanel::create() {
             }
             if (m_glyphPickerResultLabel != nullptr) {
               m_glyphPickerResultLabel->setText(result->name);
-              m_glyphPickerResultLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+              m_glyphPickerResultLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
             }
             if (m_glyphButton != nullptr) {
               m_glyphButton->setGlyph(result->name);
@@ -663,7 +663,7 @@ void TestPanel::create() {
               [this, tileIndex = i, label = std::string(tileData.label)] {
                 if (m_gridSelectionLabel != nullptr) {
                   m_gridSelectionLabel->setText("Selected: " + label);
-                  m_gridSelectionLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+                  m_gridSelectionLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
                 }
                 for (std::size_t buttonIndex = 0; buttonIndex < m_gridTileButtons.size(); ++buttonIndex) {
                   if (m_gridTileButtons[buttonIndex] != nullptr) {
@@ -691,7 +691,7 @@ void TestPanel::create() {
         .out = &m_gridSelectionLabel,
         .text = "No grid item selected",
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
     });
 
     auto section = makeSection("Grid view");
@@ -704,23 +704,23 @@ void TestPanel::create() {
   {
     auto transformStage = ui::box({
         .out = &m_transformStage,
-        .fill = colorSpecFromRole(ColorRole::Surface),
+        .fill = colorSpecFromRole(ColorRole::SolidRegular),
         .radius = Style::scaledRadiusLg(scale),
         .width = 280.0F * scale,
         .height = 220.0F * scale,
         .configure = [scale](Box& box) {
-          box.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * scale);
+          box.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * scale);
         },
     });
 
     auto demoBox = ui::box({
         .out = &m_transformDemoBox,
-        .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+        .fill = colorSpecFromRole(ColorRole::Fill2),
         .radius = Style::scaledRadiusLg(scale),
         .width = 180.0F * scale,
         .height = 100.0F * scale,
         .configure = [scale](Box& box) {
-          box.setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth * scale);
+          box.setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth * scale);
           box.setRotation(0.0F);
         },
     });
@@ -739,7 +739,7 @@ void TestPanel::create() {
         .onClick = [this] {
           if (m_transformHelp != nullptr) {
             m_transformHelp->setText("Transform button clicked!");
-            m_transformHelp->setColor(colorSpecFromRole(ColorRole::Secondary));
+            m_transformHelp->setColor(colorSpecFromRole(ColorRole::AccentText));
           }
         },
     });
@@ -749,7 +749,7 @@ void TestPanel::create() {
         .out = &m_transformDemoGlyph,
         .glyph = "noctalia",
         .glyphSize = 24.0F * scale,
-        .color = colorSpecFromRole(ColorRole::Primary),
+        .color = colorSpecFromRole(ColorRole::AccentText),
         .configure = [scale](Glyph& glyph) {
           glyph.setPosition(150.0F * scale, 60.0F * scale);
           glyph.setRotation(std::numbers::pi_v<float> * 0.5F);
@@ -759,12 +759,12 @@ void TestPanel::create() {
 
     auto badgeBox = ui::box({
         .out = &m_transformBadgeBox,
-        .fill = colorSpecFromRole(ColorRole::Primary),
+        .fill = colorSpecFromRole(ColorRole::Accent),
         .radius = 14.0F * scale,
         .width = 28.0F * scale,
         .height = 28.0F * scale,
         .configure = [scale](Box& box) {
-          box.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth * scale);
+          box.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth * scale);
         },
     });
 
@@ -772,7 +772,7 @@ void TestPanel::create() {
         .out = &m_transformBadgeLabel,
         .text = "3",
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnPrimary),
+        .color = colorSpecFromRole(ColorRole::OnAccent),
     });
     m_transformBadgeBox->addChild(std::move(badgeLabel));
     m_transformDemoBox->addChild(std::move(badgeBox));
@@ -782,7 +782,7 @@ void TestPanel::create() {
         .out = &m_transformHelp,
         .text = "Rotated node with children.",
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
     });
 
     auto section = makeSection("Transforms");
@@ -840,7 +840,8 @@ void TestPanel::create() {
   }
 
   if (m_animations != nullptr && m_transformDemoBox != nullptr) {
-    m_animations->animate(0.0F, 2.0F * std::numbers::pi_v<float>, 8000.0F, Easing::Linear, [this](float phase) {
+    // Timer: continuous demo loop.
+    m_animations->animateTimer(0.0F, 2.0F * std::numbers::pi_v<float>, 8000.0F, Easing::Linear, [this](float phase) {
       if (m_transformDemoBox != nullptr) {
         m_transformDemoBox->setRotation(phase);
         m_transformDemoBox->setScale(1.0F + 0.16F * std::sin(phase));
@@ -886,7 +887,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
     return ui::label({
         .text = std::move(text),
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
         .minWidth = minWidth * scale,
     });
   };
@@ -898,7 +899,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
             .text = "Text Lab",
             .fontSize = Style::fontSizeHeader * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::AccentText),
         })
     );
   }
@@ -953,7 +954,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
               .text = preset,
               .fontSize = Style::fontSizeCaption * scale,
               .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * scale,
+              .minHeight = Style::controlHeight * scale,
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .radius = Style::scaledRadiusMd(scale),
@@ -967,7 +968,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
             .out = &m_fontStatusLabel,
             .text = "Live font swap rebuilds Pango cache.",
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -1005,7 +1006,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::glyph({
               .glyph = "home",
               .glyphSize = s.size * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           })
       );
       row->addChild(
@@ -1018,7 +1019,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::label({
               .text = "|",
               .fontSize = s.size * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -1049,7 +1050,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
           ui::glyph({
               .glyph = "settings",
               .glyphSize = gs * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           })
       );
       row->addChild(
@@ -1194,7 +1195,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
             ui::label({
                 .text = s.symbol,
                 .fontSize = fs * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
             })
         );
       }
@@ -1231,7 +1232,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .radius = Style::scaledRadiusSm(scale),
-              .border = colorSpecFromRole(ColorRole::OutlineVariant),
+              .border = colorSpecFromRole(ColorRole::Stroke),
               .width = w * scale,
               .height = 0.0F,
           },
@@ -1281,7 +1282,7 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
               .paddingV = Style::spaceXs * scale,
               .paddingH = Style::spaceSm * scale,
               .radius = Style::scaledRadiusSm(scale),
-              .border = colorSpecFromRole(ColorRole::OutlineVariant),
+              .border = colorSpecFromRole(ColorRole::Stroke),
               .width = kBoxW * scale,
               .height = 0.0F,
           },
@@ -1362,12 +1363,12 @@ std::unique_ptr<Flex> TestPanel::buildTextLabSection(float scale) {
               .paddingV = 0.0F,
               .paddingH = Style::spaceSm * scale,
               .radius = Style::scaledRadiusMd(scale),
-              .border = colorSpecFromRole(ColorRole::OutlineVariant),
+              .border = colorSpecFromRole(ColorRole::Stroke),
           },
           ui::glyph({
               .glyph = c.glyph,
               .glyphSize = Style::baseGlyphSize * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::AccentText),
           }),
           ui::label({
               .text = c.text,
@@ -1468,7 +1469,7 @@ void TestPanel::applyTestFontFamily(const std::string& family) {
   ctx->setTextFontFamily(trimmed);
   if (m_fontStatusLabel != nullptr) {
     m_fontStatusLabel->setText("Active: " + trimmed);
-    m_fontStatusLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+    m_fontStatusLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   PanelManager::instance().requestLayout();
 }

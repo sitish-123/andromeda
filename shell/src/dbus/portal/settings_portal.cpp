@@ -17,6 +17,9 @@ namespace {
   constexpr auto kInterface = "org.freedesktop.impl.portal.Settings";
   constexpr auto kAppearance = "org.freedesktop.appearance";
   constexpr auto kColorScheme = "color-scheme";
+  constexpr auto kAccentColor = "accent-color";
+  constexpr auto kContrast = "contrast";
+  constexpr auto kReducedMotion = "reduced-motion";
   constexpr std::uint32_t kVersion = 2;
 
   // A namespace pattern matches exactly, or as a prefix when it ends in '*'; no patterns means every namespace.
@@ -45,6 +48,9 @@ SettingsPortal::SettingsPortal(SessionBus& bus) : m_bus(bus) {
                 std::map<std::string, std::map<std::string, sdbus::Variant>> all;
                 if (wanted(namespaces, kAppearance)) {
                   all[kAppearance][kColorScheme] = sdbus::Variant{m_colorScheme};
+                  all[kAppearance][kAccentColor] = accentVariant();
+                  all[kAppearance][kContrast] = sdbus::Variant{m_contrast};
+                  all[kAppearance][kReducedMotion] = sdbus::Variant{m_reducedMotion};
                 }
                 return all;
               }),
@@ -54,6 +60,15 @@ SettingsPortal::SettingsPortal(SessionBus& bus) : m_bus(bus) {
               .implementedAs([this](const std::string& ns, const std::string& key) {
                 if (ns == kAppearance && key == kColorScheme) {
                   return sdbus::Variant{m_colorScheme};
+                }
+                if (ns == kAppearance && key == kAccentColor) {
+                  return accentVariant();
+                }
+                if (ns == kAppearance && key == kContrast) {
+                  return sdbus::Variant{m_contrast};
+                }
+                if (ns == kAppearance && key == kReducedMotion) {
+                  return sdbus::Variant{m_reducedMotion};
                 }
                 throw sdbus::Error(
                     sdbus::Error::Name{"org.freedesktop.portal.Error.NotFound"}, "Requested setting not found"
@@ -82,7 +97,42 @@ void SettingsPortal::setDark(bool dark) {
     return;
   }
   m_colorScheme = scheme;
+  emitChanged(kColorScheme, sdbus::Variant{scheme});
+}
+
+void SettingsPortal::setAccent(double r, double g, double b) {
+  const std::array<double, 3> accent{r, g, b};
+  if (accent == m_accent) {
+    return;
+  }
+  m_accent = accent;
+  emitChanged(kAccentColor, accentVariant());
+}
+
+void SettingsPortal::setHighContrast(bool high) {
+  const std::uint32_t contrast = high ? 1 : 0;
+  if (contrast == m_contrast) {
+    return;
+  }
+  m_contrast = contrast;
+  emitChanged(kContrast, sdbus::Variant{contrast});
+}
+
+void SettingsPortal::setReducedMotion(bool reduce) {
+  const std::uint32_t reduced = reduce ? 1 : 0;
+  if (reduced == m_reducedMotion) {
+    return;
+  }
+  m_reducedMotion = reduced;
+  emitChanged(kReducedMotion, sdbus::Variant{reduced});
+}
+
+sdbus::Variant SettingsPortal::accentVariant() const {
+  return sdbus::Variant{sdbus::Struct<double, double, double>{m_accent[0], m_accent[1], m_accent[2]}};
+}
+
+void SettingsPortal::emitChanged(const char* key, const sdbus::Variant& value) {
   m_object->emitSignal("SettingChanged")
       .onInterface(kInterface)
-      .withArguments(std::string(kAppearance), std::string(kColorScheme), sdbus::Variant{scheme});
+      .withArguments(std::string(kAppearance), std::string(key), value);
 }

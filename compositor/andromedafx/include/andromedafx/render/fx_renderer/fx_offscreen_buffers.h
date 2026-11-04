@@ -16,6 +16,8 @@ struct fx_target_buffers {
   struct fx_framebuffer* effects_buffer_swapped;
   // Copy of the target under an in-place effect, which the program samples
   struct fx_framebuffer* in_place_source;
+  // Sharp backdrop under liquid shapes, copied per shape rectangle for the lens
+  struct fx_framebuffer* lens_source;
   struct fx_framebuffer* animation_buffers[FX_ANIMATION_DEPTH];
   struct fx_framebuffer* animation_backdrop;
 };
@@ -49,6 +51,8 @@ struct fx_offscreen_buffers {
   struct fx_framebuffer* optimized_blur_buffer;
   // Whether the optimized blur buffers hold a completed render
   bool optimized_blur_valid;
+  // Pixels the optimized blur cache has re-rendered; read by tests
+  uint64_t optimized_blur_pixels;
   // sdr_tf the optimized blur buffers were rendered in linear light with, or 0
   // when they hold encoded values
   enum wlr_color_transfer_function optimized_blur_sdr_tf;

@@ -224,7 +224,7 @@ int main() {
   std::string lastMode;
   {
     ConfigService config;
-    TemplateApplyService service(config);
+    TemplateApplyService service(config, TemplateApplyService::kDefaultHookShutdownGrace, std::chrono::milliseconds(150));
     service.setAfterApplyCallback([&](std::string_view appliedMode, bool paletteChanged) {
       ++applications;
       paletteChanges += paletteChanged ? 1 : 0;
@@ -237,6 +237,8 @@ int main() {
     TEST_CHECK(applications == 1);
     TEST_CHECK(paletteChanges == 1);
     TEST_CHECK(lastMode == "dark");
+    // The apply thread exits once idle, so a quiet service holds no thread.
+    waitFor([&] { return !service.running(); });
 
     // A same-palette apply deduplicates against the queued one. It must not cancel the palette
     // change the queued one is still owed.

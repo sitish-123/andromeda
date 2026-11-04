@@ -8,6 +8,7 @@
 #include "ipc/ipc_service.h"
 #include "render/scene/node.h"
 #include "shell/dock/dock_context_menu.h"
+#include "render/scene/input_area.h"
 #include "shell/dock/dock_geometry.h"
 #include "shell/dock/dock_instance.h"
 #include "shell/dock/dock_items.h"
@@ -20,7 +21,7 @@
 #include "ui/style.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 
 #include <algorithm>
 #include <cassert>
@@ -55,7 +56,7 @@ namespace {
     std::string token;
     if (platform.hasXdgActivation()) {
       // No layer-shell surface — binding it can misplace first launches on Hyprland.
-      token = platform.requestActivationToken(nullptr);
+      token = platform.requestActivationToken(nullptr, desktopEntryAppId(entry.id));
     }
     return desktop_entry_launch::LaunchOptions{
         .activationToken = std::move(token),
@@ -307,10 +308,14 @@ namespace {
 Dock::Dock() = default;
 Dock::~Dock() = default;
 
-bool Dock::initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext) {
+bool Dock::initialize(
+    CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext,
+    const NotificationManager* notifications
+) {
   m_platform = &platform;
   m_config = config;
   m_renderContext = renderContext;
+  m_notifications = notifications;
 
   const auto& cfg = m_config->config().dock;
   m_config->addReloadCallback(
@@ -537,21 +542,7 @@ bool Dock::onPointerEvent(const PointerEvent& event) {
     // Auto-hide: show the dock when the pointer enters.
     if (dockPointerHideAllowed(m_hoveredInstance->config, *m_hoveredInstance)
         && m_hoveredInstance->sceneRoot != nullptr) {
-      if (m_hoveredInstance->hideAnimId != 0) {
-        m_hoveredInstance->animations.cancel(m_hoveredInstance->hideAnimId);
-        m_hoveredInstance->hideAnimId = 0;
-      }
-      const float current = m_hoveredInstance->hideOpacity;
-      m_hoveredInstance->hideAnimId = m_hoveredInstance->animations.animate(
-          current, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-          [inst = m_hoveredInstance](float v) {
-            inst->hideOpacity = v;
-            const auto& cfg = inst->config;
-            shell::dock::syncDockSlideLayerTransform(*inst, cfg);
-            shell::dock::applyDockCompositorBlur(*inst, cfg);
-          },
-          [inst = m_hoveredInstance] { inst->hideAnimId = 0; }
-      );
+      shell::dock::animateDockHide(*m_hoveredInstance, 1.0F);
       // Restore full input region (full surface so shadow-margin edges don't
       // cause an immediate Leave when triggered from the edge of the strip).
       if (m_hoveredInstance->surface != nullptr) {
@@ -895,6 +886,7 @@ bool Dock::syncInstanceModel(shell::dock::DockInstance& instance) {
       .globalActiveIdLower = activeIdLower,
       .pinnedEntries = instance.pinnedEntries,
       .sourceSerial = instance.modelSerial,
+      .notifications = m_notifications,
   });
 
   const bool needRebuild = instance.snapshot.sourceSerial != next.sourceSerial
@@ -929,8 +921,43 @@ void Dock::rebuildItems(shell::dock::DockInstance& instance) {
                                   shell::dock::DockInstance& inst, const shell::dock::DockItemAction& action
                               ) { activateOrLaunchItem(inst, action); },
           .toggleLauncher =
-              [](shell::dock::DockInstance& inst) {
-                PanelManager::instance().togglePanel("launcher", PanelOpenRequest{.output = inst.output});
+              [this](shell::dock::DockInstance& inst) {
+                PanelOpenRequest request{.output = inst.output, .context = "apps"};
+                // The launcher grows out of the dock button when the compositor supports the clip morph.
+                if (inst.launcherArea != nullptr && inst.surface != nullptr) {
+                  float x = 0.0F;
+                  float y = 0.0F;
+                  Node::absolutePosition(inst.launcherArea, x, y);
+                  const float w = inst.launcherArea->width();
+                  const float h = inst.launcherArea->height();
+                  const auto geometry = shell::dock::computeSurfaceGeometry(
+                      inst.config, m_config->config().shell.shadow,
+                      inst.items.size() + shell::dock::dockLauncherButtonCount(inst.config), inst.fractionalScale,
+                      inst.outputLogicalWidth, inst.outputLogicalHeight, inst.snapshot.hasSeparator()
+                  );
+                  const auto edge = inst.config.position;
+                  const auto outW = static_cast<float>(inst.outputLogicalWidth);
+                  const auto outH = static_cast<float>(inst.outputLogicalHeight);
+                  const auto surfW = static_cast<float>(inst.surface->width());
+                  const auto surfH = static_cast<float>(inst.surface->height());
+                  float originX = 0.0F;
+                  float originY = 0.0F;
+                  if (shell::dock::isVerticalEdge(edge)) {
+                    originY = (outH - surfH) * 0.5F;
+                    originX = edge == DockEdge::Right ? outW - static_cast<float>(geometry.marginRight) - surfW
+                                                      : static_cast<float>(geometry.marginLeft);
+                  } else {
+                    originX = (outW - surfW) * 0.5F;
+                    originY = edge == DockEdge::Bottom ? outH - static_cast<float>(geometry.marginBottom) - surfH
+                                                       : static_cast<float>(geometry.marginTop);
+                  }
+                  request.anchorX = originX + x + w * 0.5F;
+                  request.anchorY = originY + y + h * 0.5F;
+                  request.hasAnchorPosition = true;
+                  request.sourceSurface = inst.surface->wlSurface();
+                  request.sourceRect = std::array<float, 4>{x, y, w, h};
+                }
+                PanelManager::instance().togglePanel("launcher", request);
               },
           .openItemMenu = [this](
                               shell::dock::DockInstance& inst, const shell::dock::DockItemAction& action

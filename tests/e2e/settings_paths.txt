@@ -44,6 +44,7 @@ bar.default.font_scale
 bar.default.font_weight
 bar.default.hover_highlight
 bar.default.icon_color
+bar.default.islands
 bar.default.layer
 bar.default.margin_edge
 bar.default.margin_ends
@@ -124,6 +125,7 @@ dock.radius_bottom_right
 dock.radius_top_left
 dock.radius_top_right
 dock.reserve_space
+dock.running_bar
 dock.shadow
 dock.show_dots
 dock.show_instance_count
@@ -268,7 +270,9 @@ shell.launcher.categories
 shell.launcher.category_icons_only
 shell.launcher.compact
 shell.launcher.default_view
+shell.launcher.emoji_skin_tone
 shell.launcher.fetch_exchange_rates
+shell.launcher.gif_api_key
 shell.launcher.ignore_mouse
 shell.launcher.layout
 shell.launcher.panels.ignored
@@ -406,6 +410,7 @@ theme.sync_color_scheme
 theme.templates.builtin_ids
 theme.templates.enable_builtin_templates
 theme.templates.enable_community_templates
+theme.toolkit_themes
 wallpaper.automation.enabled
 wallpaper.automation.interval_seconds
 wallpaper.automation.order

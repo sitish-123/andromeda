@@ -11,6 +11,9 @@
 #include <unordered_map>
 #include <vector>
 
+// The symbol of a device kind, shared with the detail page.
+[[nodiscard]] const char* bluetoothDeviceGlyph(BluetoothDeviceKind kind);
+
 class BluetoothDeviceRow;
 class Button;
 class Flex;

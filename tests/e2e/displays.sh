@@ -10,8 +10,8 @@ boot_headless 2
 SRC=$ROOT/shell
 BUILD=$SRC/build-debug
 gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-protocol.c"
-g++ -std=c++23 -I"$SRC/src" -I"$BUILD" -o "$RUNTIME/output-apply" \
-  "$(dirname "$0")/output_apply.cpp" "$SRC/src/wayland/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -I"$BUILD" -o "$RUNTIME/output-apply" \
+  "$(dirname "$0")/output_apply.cpp" "$SRC/src/compositors/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
 
 run "$ANDROMEDA" outputs > "$OUT/outputs-before.txt"
 run "$RUNTIME/output-apply" | tee "$OUT/output-apply.txt"

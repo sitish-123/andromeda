@@ -10,6 +10,8 @@
 #include <wayland-client.h>
 
 #define namespace namespace_
+#include "dsk-surface-v1-client-protocol.h"
+#include "ext-background-effect-v1-client-protocol.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #undef namespace
 
@@ -32,6 +34,44 @@
 #include <vector>
 
 namespace {
+
+  const dsk_surface_v1_listener kDskSurfaceListener = {
+      .started = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t serial,
+                    uint32_t /*time*/) {
+        std::println("dsk-started {}", serial);
+        std::fflush(stdout);
+      },
+      .done = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t serial,
+                 uint32_t reason) {
+        std::println("dsk-done {} {}", serial, reason);
+        std::fflush(stdout);
+      },
+      .clip_mapped = [](void* /*data*/, dsk_surface_v1* /*surface*/, wl_fixed_t x, wl_fixed_t y, wl_fixed_t w,
+                        wl_fixed_t h) {
+        std::println("dsk-clip-mapped {} {} {} {}", wl_fixed_to_int(x), wl_fixed_to_int(y), wl_fixed_to_int(w),
+                     wl_fixed_to_int(h));
+        std::fflush(stdout);
+      },
+      .backdrop = [](void* /*data*/, dsk_surface_v1* /*surface*/, uint32_t tone) {
+        std::println("dsk-backdrop {}", tone);
+        std::fflush(stdout);
+      },
+  };
+  const dsk_tracker_v1_listener kDskTrackerListener = {
+      .interacting = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/) {
+        std::println("trk-interacting");
+        std::fflush(stdout);
+      },
+      .inertia = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/, wl_fixed_t target) {
+        std::println("trk-inertia {}", wl_fixed_to_double(target));
+        std::fflush(stdout);
+      },
+      .idle = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, wl_fixed_t position) {
+        std::println("trk-idle {}", wl_fixed_to_double(position));
+        std::fflush(stdout);
+      },
+      .position = [](void* /*data*/, dsk_tracker_v1* /*tracker*/, uint32_t /*time*/, wl_fixed_t /*position*/) {},
+  };
   struct Output {
     wl_output* resource = nullptr;
     std::string name;
@@ -55,11 +95,17 @@ namespace {
     wl_keyboard* keyboard = nullptr;
     wl_pointer* pointer = nullptr;
     xdg_wm_base* wmBase = nullptr;
+    ext_background_effect_manager_v1* blurManager = nullptr;
+    ext_background_effect_surface_v1* blurEffect = nullptr;
+    dsk_surface_manager_v1* dskManager = nullptr;
+    dsk_surface_v1* dskSurface = nullptr;
+    dsk_tracker_v1* dskTracker = nullptr;
     wl_surface* popupSurface = nullptr;
     xdg_surface* popupXdgSurface = nullptr;
     xdg_popup* popup = nullptr;
     Buffer popupBuffer;
     bool popupMapped = false;
+    bool logPointer = false;
     bool popupOnClick = false;
     bool popupOnRelease = false;
     bool hasPointerPosition = false;
@@ -72,6 +118,9 @@ namespace {
     wl_callback* frame = nullptr;
     Buffer buffer;
     wl_surface* childSurface = nullptr;
+    wl_surface* sourceSurface = nullptr;
+    zwlr_layer_surface_v1* sourceLayer = nullptr;
+    Buffer sourceBuffer;
     wl_subsurface* childSubsurface = nullptr;
     Buffer childBuffer;
     wl_surface* frameSurface = nullptr;
@@ -170,6 +219,8 @@ namespace {
     wl_surface_commit(state.frameSurface);
   }
 
+  extern const zwlr_layer_surface_v1_listener kSourceLayerListener;
+
   void handleCommand(State& state, const std::string& line) {
     std::istringstream command(line);
     std::string action;
@@ -220,6 +271,171 @@ namespace {
       Buffer& previous = child ? state.childBuffer : state.buffer;
       destroyBuffer(previous);
       previous = replacement;
+    } else if (action == "blur-region" || action == "blur-none") {
+      // blur-region <label> <x> <y> <width> <height>: ext-background-effect-v1 blur region of the layer surface.
+      if (state.blurManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.blurEffect == nullptr) {
+        state.blurEffect = ext_background_effect_manager_v1_get_background_effect(state.blurManager, state.surface);
+      }
+      if (action == "blur-none") {
+        ext_background_effect_surface_v1_set_blur_region(state.blurEffect, nullptr);
+      } else {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        command >> std::dec >> x >> y >> width >> height;
+        if (command.fail()) {
+          state.failed = state.closed = true;
+          return;
+        }
+        wl_region* region = wl_compositor_create_region(state.compositor);
+        wl_region_add(region, x, y, width, height);
+        ext_background_effect_surface_v1_set_blur_region(state.blurEffect, region);
+        wl_region_destroy(region);
+      }
+    } else if (action == "dsk-animate" || action == "dsk-set") {
+      // dsk-animate <label> <serial> <property> <curve> <a> <b> <c> <d>; dsk-set <label> <property> <a> <b> <c> <d>.
+      // Prints "dsk-started <serial>" and "dsk-done <serial> <reason>" as the compositor sends them.
+      if (state.dskManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      uint32_t serial = 0;
+      uint32_t property = 0;
+      uint32_t curve = 0;
+      double a = 0.0;
+      double b = 0.0;
+      double c = 0.0;
+      double d = 0.0;
+      if (action == "dsk-animate") {
+        command >> serial;
+      }
+      command >> property;
+      if (action == "dsk-animate") {
+        command >> curve;
+      }
+      command >> a >> b >> c >> d;
+      if (command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (action == "dsk-animate") {
+        dsk_surface_v1_animate(
+            state.dskSurface, serial, property, curve, wl_fixed_from_double(a), wl_fixed_from_double(b),
+            wl_fixed_from_double(c), wl_fixed_from_double(d)
+        );
+      } else {
+        dsk_surface_v1_set(
+            state.dskSurface, property, wl_fixed_from_double(a), wl_fixed_from_double(b), wl_fixed_from_double(c),
+            wl_fixed_from_double(d)
+        );
+      }
+    } else if (action == "source") {
+      // source <label> <x> <y>: a second, 100x50 bottom-layer surface at output x,y; prints source-mapped.
+      int x = 0;
+      int y = 0;
+      command >> x >> y;
+      if (command.fail() || state.sourceSurface != nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      state.sourceSurface = wl_compositor_create_surface(state.compositor);
+      state.sourceLayer = zwlr_layer_shell_v1_get_layer_surface(
+          state.layerShell, state.sourceSurface, nullptr, ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM, "source"
+      );
+      zwlr_layer_surface_v1_add_listener(state.sourceLayer, &kSourceLayerListener, &state);
+      zwlr_layer_surface_v1_set_size(state.sourceLayer, 100, 50);
+      zwlr_layer_surface_v1_set_anchor(
+          state.sourceLayer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
+      );
+      zwlr_layer_surface_v1_set_exclusive_zone(state.sourceLayer, -1);
+      zwlr_layer_surface_v1_set_margin(state.sourceLayer, y, 0, 0, x);
+      wl_surface_commit(state.sourceSurface);
+    } else if (action == "dsk-clip-from") {
+      // dsk-clip-from <label> <x> <y> <w> <h>: clip to a rect of the source surface.
+      double x = 0.0;
+      double y = 0.0;
+      double w = 0.0;
+      double h = 0.0;
+      command >> x >> y >> w >> h;
+      if (state.dskManager == nullptr || state.sourceSurface == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_set_clip_from(
+          state.dskSurface, state.sourceSurface, wl_fixed_from_double(x), wl_fixed_from_double(y),
+          wl_fixed_from_double(w), wl_fixed_from_double(h)
+      );
+    } else if (action == "dsk-elevation") {
+      // dsk-elevation <label> <level>: 0 none, 1 e1, 2 e2.
+      uint32_t level = 0;
+      command >> level;
+      if (state.dskManager == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_set_elevation(state.dskSurface, level);
+    } else if (action == "dsk-track") {
+      // dsk-track <label> <fingers> <min> <max> <snap>...: a vertical tracker bound to translate.y over min..max.
+      if (state.dskManager == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      uint32_t fingers = 0;
+      double min = 0.0;
+      double max = 0.0;
+      command >> fingers >> min >> max;
+      if (command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      dsk_tracker_v1* tracker = dsk_surface_manager_v1_get_tracker(state.dskManager, state.surface);
+      state.dskTracker = tracker;
+      dsk_tracker_v1_add_listener(tracker, &kDskTrackerListener, nullptr);
+      dsk_tracker_v1_set_source(tracker, DSK_TRACKER_V1_AXIS_VERTICAL, fingers, nullptr);
+      dsk_tracker_v1_set_range(tracker, wl_fixed_from_double(min), wl_fixed_from_double(max));
+      for (double snap = 0.0; command >> snap;) {
+        dsk_tracker_v1_add_snap(tracker, wl_fixed_from_double(snap));
+      }
+      command.clear();
+      dsk_tracker_v1_bind(
+          tracker, state.dskSurface, 0, 1, wl_fixed_from_double(min), wl_fixed_from_double(max),
+          wl_fixed_from_double(min), wl_fixed_from_double(max)
+      );
+      wl_surface_commit(state.surface);
+    } else if (action == "dsk-rebind") {
+      // dsk-rebind <min> <max>: binds translate.x as well and commits, as a client that binds on interacting does.
+      double min = 0.0;
+      double max = 0.0;
+      command >> min >> max;
+      if (command.fail() || state.dskTracker == nullptr) {
+        state.failed = state.closed = true;
+        return;
+      }
+      dsk_tracker_v1_bind(
+          state.dskTracker, state.dskSurface, 0, 0, wl_fixed_from_double(min), wl_fixed_from_double(max), 0, 0
+      );
+      wl_surface_commit(state.surface);
     } else if (action == "child-move") {
       int x = 0;
       int y = 0;
@@ -305,6 +521,24 @@ namespace {
       .closed = layerClosed,
   };
 
+  void sourceConfigure(void* data, zwlr_layer_surface_v1* layer, uint32_t serial, uint32_t, uint32_t) {
+    auto& state = *static_cast<State*>(data);
+    zwlr_layer_surface_v1_ack_configure(layer, serial);
+    if (state.sourceBuffer.resource == nullptr) {
+      state.sourceBuffer = createBuffer(state, 100, 50);
+      wl_surface_attach(state.sourceSurface, state.sourceBuffer.resource, 0, 0);
+      wl_surface_damage_buffer(state.sourceSurface, 0, 0, 100, 50);
+      std::println("source-mapped");
+      std::fflush(stdout);
+    }
+    wl_surface_commit(state.sourceSurface);
+  }
+
+  const zwlr_layer_surface_v1_listener kSourceLayerListener = {
+      .configure = sourceConfigure,
+      .closed = layerClosed,
+  };
+
   void keyboardKeymap(void*, wl_keyboard*, uint32_t, int32_t fd, uint32_t) { close(fd); }
   void keyboardEnter(void*, wl_keyboard*, uint32_t, wl_surface*, wl_array*) { std::println("keyboard-enter"); }
   void keyboardLeave(void*, wl_keyboard*, uint32_t, wl_surface*) { std::println("keyboard-leave"); }
@@ -382,6 +616,8 @@ namespace {
   }
   void pointerLeave(void* data, wl_pointer*, uint32_t, wl_surface*) {
     static_cast<State*>(data)->hasPointerPosition = false;
+    std::println("pointer-leave");
+    std::fflush(stdout);
   }
   void pointerMotion(void* data, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
     auto& state = *static_cast<State*>(data);
@@ -392,6 +628,10 @@ namespace {
   void pointerButton(void* data, wl_pointer*, uint32_t serial, uint32_t, uint32_t button, uint32_t buttonState) {
     constexpr uint32_t kLeftButton = 0x110;
     auto& state = *static_cast<State*>(data);
+    if (state.logPointer && button == kLeftButton && buttonState == WL_POINTER_BUTTON_STATE_PRESSED) {
+      std::println("pointer-press {} {}", state.pointerX, state.pointerY);
+      std::fflush(stdout);
+    }
     if (state.popupOnClick
         && button == kLeftButton
         && buttonState == WL_POINTER_BUTTON_STATE_PRESSED
@@ -467,7 +707,7 @@ namespace {
       wl_keyboard_release(state.keyboard);
       state.keyboard = nullptr;
     }
-    if ((state.popupOnClick || state.popupOnRelease)
+    if ((state.popupOnClick || state.popupOnRelease || state.logPointer)
         && (capabilities & WL_SEAT_CAPABILITY_POINTER) != 0
         && state.pointer == nullptr) {
       state.pointer = wl_seat_get_pointer(seat);
@@ -497,6 +737,17 @@ namespace {
     } else if (std::strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
       state.layerShell = static_cast<zwlr_layer_shell_v1*>(
           wl_registry_bind(registry, name, &zwlr_layer_shell_v1_interface, std::min(version, 4U))
+      );
+    } else if (std::strcmp(interface, dsk_surface_manager_v1_interface.name) == 0) {
+      // LAYER_DSK_VERSION lowers the bound version to test the since= gates.
+      const char* requested = std::getenv("LAYER_DSK_VERSION");
+      const auto bound = std::min(version, requested != nullptr ? static_cast<uint32_t>(std::atoi(requested)) : 4U);
+      state.dskManager = static_cast<dsk_surface_manager_v1*>(
+          wl_registry_bind(registry, name, &dsk_surface_manager_v1_interface, bound)
+      );
+    } else if (std::strcmp(interface, ext_background_effect_manager_v1_interface.name) == 0) {
+      state.blurManager = static_cast<ext_background_effect_manager_v1*>(
+          wl_registry_bind(registry, name, &ext_background_effect_manager_v1_interface, 1)
       );
     } else if (std::strcmp(interface, xdg_wm_base_interface.name) == 0) {
       state.wmBase =
@@ -557,6 +808,8 @@ int main(int argc, char** argv) {
       state.releaseOnEscape = true;
     } else if (option == "log-configures") {
       state.logConfigures = true;
+    } else if (option == "log-pointer") {
+      state.logPointer = true;
     } else if (option == "popup-on-click") {
       state.popupOnClick = true;
     } else if (option == "popup-on-release") {
@@ -700,6 +953,14 @@ int main(int argc, char** argv) {
   }
   for (const auto& output : state.outputs) {
     wl_output_release(output->resource);
+  }
+  if (!state.closed) {
+    // The compositor closes the socket after a protocol error: read the error event the loop left unread.
+    wl_display_dispatch(state.display);
+  }
+  if (wl_display_get_error(state.display) == EPROTO) {
+    std::println("protocol-error");
+    std::fflush(stdout);
   }
   zwlr_layer_shell_v1_destroy(state.layerShell);
   wl_shm_destroy(state.shm);

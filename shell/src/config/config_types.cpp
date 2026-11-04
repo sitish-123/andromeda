@@ -247,6 +247,13 @@ ResolvedIdleBehavior resolveIdleBehaviorActions(const IdleBehaviorConfig& behavi
         .resumeCommand = tmp.resumeCommand,
     };
   }
+  if (act == "hibernate") {
+    return {
+        .idleAction = idleAction(IdleActionKind::Hibernate),
+        .resumeAction = {},
+        .resumeCommand = tmp.resumeCommand,
+    };
+  }
   if (act == "lock_and_suspend") {
     return {
         .idleAction = idleAction(IdleActionKind::LockAndSuspend),
@@ -505,9 +512,6 @@ WidgetBarCapsuleSpec capsuleSpecFromGroup(const BarConfig& bar, const BarCapsule
   spec.opacity = group.opacity;
   spec.accordion = group.accordion;
   spec.accordionDirection = group.accordionDirection;
-  spec.accordionDurationMs = group.accordionDurationMs.has_value()
-      ? std::optional<float>{static_cast<float>(*group.accordionDurationMs)}
-      : std::nullopt;
   spec.accordionDelayMs = group.accordionDelayMs.has_value()
       ? std::optional<float>{static_cast<float>(*group.accordionDelayMs)}
       : std::nullopt;
@@ -732,6 +736,8 @@ DockConfig resolveDockMonitorOverride(const DockConfig& base, const DockMonitorO
     resolved.inactiveOpacity = *override.inactiveOpacity;
   if (override.showDots)
     resolved.showDots = *override.showDots;
+  if (override.runningBar)
+    resolved.runningBar = *override.runningBar;
   if (override.showInstanceCount)
     resolved.showInstanceCount = *override.showInstanceCount;
   if (override.launcherPosition)

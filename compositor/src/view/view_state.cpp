@@ -110,8 +110,9 @@ namespace andromeda {
         setMaximizedToEdges(false);
       }
       const int column = m_workspace->layout().columnOf(this);
-      if (column >= 0 && m_workspace->layout().isFullWidth(column) != maximized) {
-        m_workspace->layout().toggleFullWidth(column);
+      if (ColumnOps* ops = m_workspace->layout().columnOps();
+          ops != nullptr && column >= 0 && ops->isFullWidth(column) != maximized) {
+        ops->toggleFullWidth(column);
       }
       setMaximizedState(maximized);
       m_workspace->reevaluateFocusedColumn();
@@ -374,7 +375,8 @@ namespace andromeda {
     bool columnFullWidth = false;
     if (!maximized && m_tiled && m_workspace != nullptr && !scheduledFullscreen()) {
       const int column = m_workspace->layout().columnOf(this);
-      columnFullWidth = column >= 0 && m_workspace->layout().isFullWidth(column);
+      const ColumnOps* ops = m_workspace->layout().columnOps();
+      columnFullWidth = column >= 0 && ops != nullptr && ops->isFullWidth(column);
     }
     if (m_tiled) {
       setMaximizedState(maximized || columnFullWidth);
@@ -654,7 +656,7 @@ namespace andromeda {
       }
       applyPinnedState();
       if (focus) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
       refreshStateRuleEffects();
       // A float pins without touching the layout, so the occupancy questions need a pass of their own.
@@ -796,8 +798,8 @@ namespace andromeda {
           m_savedScrollingExtentPx.reset();
           m_savedScrollingExtent = scrolling->widthFraction(column);
         }
-        if (column >= 0 && m_workspace->layout().isFullWidth(column)) {
-          m_workspace->layout().clearFullWidthState(column);
+        if (ColumnOps* ops = m_workspace->layout().columnOps(); column >= 0 && ops != nullptr && ops->isFullWidth(column)) {
+          ops->clearFullWidthState(column);
           setMaximizedState(false);
         }
         m_workspace->layoutDetach(this);
@@ -869,7 +871,7 @@ namespace andromeda {
       // Keep the focus ring when floating a tiled window.
       showDecorations(true);
       if (focus) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
       updateForeignState();
       if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
@@ -913,7 +915,7 @@ namespace andromeda {
     applyCornerRadius();
     updateShadow();
     if (focus) {
-      m_server->focusView(this);
+      m_server->focusView(this, FocusReason::Startup);
     }
     // setFullscreen(true) is not re-run on this path, so its scroll snap does not happen; without it the strip can rest
     // showing the neighbor column beside a viewport-wide fullscreen column.
@@ -1086,7 +1088,7 @@ namespace andromeda {
     if (fullscreen && m_mapped && m_onActiveWorkspace) {
       LayerSurface* layer = LayerSurface::fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface);
       if (layer != nullptr && layer->output() == currentOutput() && !layer->acceptsKeyboard()) {
-        m_server->focusView(this);
+        m_server->focusView(this, FocusReason::Startup);
       }
     }
     if (refreshHoverFocus) {

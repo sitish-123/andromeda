@@ -7,6 +7,8 @@ class PamAuthenticator {
 public:
   struct Result {
     bool success = false;
+    // PAM refused the credential itself (wrong password), not a PAM or helper error.
+    bool rejected = false;
     std::string message;
   };
 

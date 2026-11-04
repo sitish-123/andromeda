@@ -20,9 +20,7 @@ namespace andromeda {
 
   void Cursor::clearConstraint() { setActiveConstraint(nullptr); }
 
-  void Cursor::onConstraintDestroy(wl_listener* listener, void* /*data*/) {
-    Cursor* self;
-    self = wl_container_of(listener, self, m_constraintDestroy);
+  void Cursor::onConstraintDestroy(Cursor* self, void* /*data*/) {
     self->handleConstraintDestroy();
   }
 
@@ -30,8 +28,7 @@ namespace andromeda {
     // The client can end a lock by destroying the constraint. Apply its last
     // committed position hint before wlroots releases the constraint state.
     warpToConstraintHint(m_activeConstraint);
-    wl_list_remove(&m_constraintDestroy.link);
-    m_constraintDestroy.link.next = nullptr;
+    m_constraintDestroy.disconnect();
     m_activeConstraint = nullptr;
     // Cursor visibility belongs to the focused client and remains valid across
     // pointer-constraint transitions. Focus loss restores the theme cursor.
@@ -45,10 +42,7 @@ namespace andromeda {
     if (m_activeConstraint != nullptr) {
       wlr_pointer_constraint_v1* previous = m_activeConstraint;
       m_activeConstraint = nullptr;
-      if (m_constraintDestroy.link.next != nullptr) {
-        wl_list_remove(&m_constraintDestroy.link);
-        m_constraintDestroy.link.next = nullptr;
-      }
+      m_constraintDestroy.disconnect();
       warpToConstraintHint(previous);
       wlr_pointer_constraint_v1_send_deactivated(previous);
     }
@@ -58,8 +52,7 @@ namespace andromeda {
       return;
     }
 
-    m_constraintDestroy.notify = onConstraintDestroy;
-    wl_signal_add(&constraint->events.destroy, &m_constraintDestroy);
+    m_constraintDestroy.connect(&constraint->events.destroy, this, onConstraintDestroy);
     wlr_pointer_constraint_v1_send_activated(constraint);
   }
 

@@ -88,6 +88,7 @@ namespace settings {
                 },
             .contentPadding = padding,
             .windowMargin = 24.0F * scale,
+            .scale = scale,
         }
     );
     m_open = m_modalId.has_value();

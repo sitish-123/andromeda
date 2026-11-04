@@ -15,7 +15,7 @@
 #include "time/time_format.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
-#include "ui/controls/calendar_view.h"
+#include "calendar/calendar_view.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/scroll_view.h"
 
@@ -27,13 +27,13 @@
 
 namespace {
 
-  constexpr float kCalendarGridGap = Style::spaceSm;
-  constexpr float kCalendarNavButtonSize = Style::controlHeight;
-  constexpr float kCalendarWeekdayRowHeight = Style::fontSizeCaption + Style::spaceXs;
-  constexpr float kCalendarHeaderHeight = Style::controlHeight;
-  constexpr float kCalendarCellSizeMin = Style::controlHeightSm + Style::spaceXs;
-  constexpr float kCalendarCellSizeMax = Style::controlHeightLg + Style::spaceXs;
-  constexpr float kCalendarDayButtonSizeMax = Style::controlHeightLg;
+  TOKENS_LIVE(kCalendarGridGap, Style::spaceSm);
+  TOKENS_LIVE(kCalendarNavButtonSize, Style::controlHeight);
+  TOKENS_LIVE(kCalendarWeekdayRowHeight, Style::fontSizeCaption + Style::spaceXs);
+  TOKENS_LIVE(kCalendarHeaderHeight, Style::controlHeight);
+  TOKENS_LIVE(kCalendarCellSizeMin, Style::controlHeight + Style::spaceXs);
+  TOKENS_LIVE(kCalendarCellSizeMax, Style::controlHeightLg + Style::spaceXs);
+  TOKENS_LIVE(kCalendarDayButtonSizeMax, Style::controlHeightLg);
   constexpr float kCalendarLayoutEpsilon = 0.5F;
   // Week-number column: a fraction of a day column so it stays visually subordinate, floored at the
   // width of the two digits it holds (as a multiple of the caption font size) so it can never clip.
@@ -98,7 +98,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .text = formatShellDate(m_config),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Medium,
-          .color = colorSpecFromRole(ColorRole::Secondary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
           .maxLines = 1,
           .configure = [this](Label& label) {
             label.setHitTestVisible(true);
@@ -145,7 +145,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .out = &m_monthLabel,
           .fontSize = (Style::fontSizeTitle + Style::spaceXs) * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
       })
   );
@@ -197,7 +197,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
           .text = i18n::tr("control-center.calendar.events"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
       }),
       ui::scrollView({
@@ -433,8 +433,8 @@ void CalendarTab::beginSlideOut(int delta) {
   m_pendingMonthDelta = delta;
 
   PanelManager::instance().requestFrameTick();
-  m_monthSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_monthSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyMonthSlide(progress, false);
         PanelManager::instance().requestRedraw();
@@ -449,7 +449,7 @@ void CalendarTab::beginSlideOut(int delta) {
         PanelManager::instance().refresh();
       },
       m_gridViewport
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void CalendarTab::beginSlideIn() {
@@ -460,8 +460,8 @@ void CalendarTab::beginSlideIn() {
 
   applyMonthSlide(0.0F, true);
   PanelManager::instance().requestFrameTick();
-  m_monthSlideAnimId = animations->animate(
-      0.0F, 1.0F, static_cast<float>(Style::animFast), Easing::EaseOutCubic,
+  m_monthSlideAnimId = animations->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springPage),
       [this](float progress) {
         applyMonthSlide(progress, true);
         PanelManager::instance().requestRedraw();
@@ -474,7 +474,7 @@ void CalendarTab::beginSlideIn() {
         }
       },
       m_gridViewport
-  );
+  , 0.0F, Unit::Progress);
 }
 
 void CalendarTab::rebuild() {

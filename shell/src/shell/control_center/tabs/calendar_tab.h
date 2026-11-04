@@ -3,7 +3,7 @@
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "shell/control_center/tab.h"
-#include "ui/controls/calendar_view.h"
+#include "calendar/calendar_view.h"
 
 #include <limits>
 

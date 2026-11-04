@@ -1,0 +1,85 @@
+# Fixture for test_gen_design_tokens.py; values are arbitrary.
+[radius]
+smoothing = 0.5
+r4 = 4.0
+r12 = 12.0
+[space]
+p8 = 6.0
+[component.window]
+radius = 18.0
+[component.menu]
+radius = 10.0
+padding = 3.0
+item_radius = "= component.menu.radius - component.menu.padding"
+[font]
+family = "Fixture Sans"
+[type.body]
+size = 12.0
+weight = 500
+line = 20.0
+tracking = 0.01
+[type.title]
+size = 14.0
+weight = 600
+line = 20.0
+tracking = 0.01
+[scheme.light]
+accent_text = "#3b8f2aff"
+danger_text = "#c4561dff"
+warning = "#a07a10ff"
+success = "#1f9a55ff"
+label_1 = "#256f03ff"
+label_2 = "#42c6ce80"
+label_3 = "#5f1d9980"
+fill_1 = "#7c746480"
+fill_2 = "#99cb2f80"
+fill_3 = "#b622fa80"
+tint_thin = "#d379c580"
+tint_regular = "#f0d09080"
+tint_thick = "#0d275b80"
+solid_thin = "#2a7e26ff"
+solid_regular = "#47d5f1ff"
+solid_thick = "#642cbcff"
+stroke = "#81838780"
+edge = "#9eda5280"
+accent = "#bb311dff"
+on_accent = "#d888e8ff"
+danger = "#f5dfb3ff"
+shadow = "#12367e80"
+window = "#2f8d49ff"
+view = "#4ce414ff"
+card = "#693bdfff"
+header = "#8692aaff"
+popover = "#a3e975ff"
+sidebar = "#c04040ff"
+separator = "#dd970b80"
+[scheme.dark]
+accent_text = "#7be04fff"
+danger_text = "#ff8a6bff"
+warning = "#f0b030ff"
+success = "#4fd081ff"
+label_1 = "#4ade06ff"
+label_2 = "#6735d180"
+label_3 = "#848c9c80"
+fill_1 = "#a1e36780"
+fill_2 = "#be3a3280"
+fill_3 = "#db91fd80"
+tint_thin = "#f8e8c880"
+tint_regular = "#153f9380"
+tint_thick = "#32965e80"
+solid_thin = "#4fed29ff"
+solid_regular = "#6c44f4ff"
+solid_thick = "#899bbfff"
+stroke = "#a6f28a80"
+edge = "#c3495580"
+accent = "#e0a020ff"
+on_accent = "#fdf7ebff"
+danger = "#1a4eb6ff"
+shadow = "#37a58180"
+window = "#54fc4cff"
+view = "#715317ff"
+card = "#8eaae2ff"
+header = "#ab01adff"
+popover = "#c85878ff"
+sidebar = "#e5af43ff"
+separator = "#02060e80"

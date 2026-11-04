@@ -169,6 +169,18 @@ namespace andromeda {
           real("drag_opacity", 0.0, 1.0, &A::dragOpacity),
           boolean("prefer_no_csd", &A::preferNoCsd),
           boolean("opaque_fullscreen", &A::opaqueFullscreen),
+          registry::choice(
+              "scheme", &A::scheme,
+              {
+                  {.name = "dark", .value = ColorScheme::Dark},
+                  {.name = "light", .value = ColorScheme::Light},
+              }
+          ),
+          registry::color("accent", &A::accent),
+          real("glass", 0.0, 1.0, &A::glass),
+          boolean("reduce_transparency", &A::reduceTransparency),
+          boolean("increase_contrast", &A::increaseContrast),
+          boolean("reduce_motion", &A::reduceMotion),
           registry::table("blur", &A::blur, blur),
           registry::table("shadow", &A::shadow, shadow),
           registry::table("tab_bar", &A::tabBar, tabBar),
@@ -322,7 +334,6 @@ namespace andromeda {
           boolean("xwayland", &G::xwayland),
           boolean("xwayland_native_resolution", &G::xwaylandNativeResolution),
           boolean("xwayland_xsettings", &G::xwaylandXsettings),
-          boolean("show_cheatsheet", &G::showCheatsheet),
           boolean("focus_on_activate", &G::focusOnActivate),
           boolean("attach_modal_dialogs", &G::attachModalDialogs),
           boolean("honor_restored_maximize", &G::honorRestoredMaximize),

@@ -545,6 +545,23 @@ namespace {
 
 } // namespace
 
+std::string resolveOverridesPath(const std::string& stateDir) {
+  const std::filesystem::path dir(stateDir);
+  const std::filesystem::path path = dir / "overrides.toml";
+  const std::filesystem::path legacy = dir / "settings.toml";
+  std::error_code ec;
+  if (std::filesystem::exists(path, ec) || !std::filesystem::exists(legacy, ec)) {
+    return path.string();
+  }
+  std::filesystem::rename(legacy, path, ec);
+  if (ec) {
+    kLog.warn("cannot rename {} to {}: {}", legacy.string(), path.string(), ec.message());
+    return legacy.string();
+  }
+  kLog.info("renamed {} to {}", legacy.string(), path.string());
+  return path.string();
+}
+
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 ConfigService::WallpaperBatch::WallpaperBatch(ConfigService& config) : m_config(config) {
@@ -564,12 +581,12 @@ ConfigService::WallpaperBatch::~WallpaperBatch() {
 ConfigService::ConfigService() {
   m_configDir = FileUtils::configDir();
 
-  // Resolve settings.toml path; create the state dir eagerly so writes don't
+  // Create the state dir eagerly so override writes don't
   // race with directory creation later.
   if (auto dir = FileUtils::stateDir(); !dir.empty()) {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    m_overridesPath = dir + "/settings.toml";
+    m_overridesPath = resolveOverridesPath(dir);
     m_stateStore.setPath(dir + "/state.toml");
     m_setupMarkerPath = dir + "/.setup-complete";
   }
@@ -618,6 +635,12 @@ void ConfigService::forceReload() {
   if (wallpaperChanged && m_wallpaperChangeCallback) {
     m_wallpaperChangeCallback();
   }
+  fireReloadCallbacks();
+}
+
+void ConfigService::reloadAllSections() {
+  loadAll();
+  m_lastChange = ConfigChangeSet{};
   fireReloadCallbacks();
 }
 
@@ -777,7 +800,7 @@ std::string ConfigService::buildSupportReport() const {
 
   toml::table state;
   state.insert_or_assign("kind", "state");
-  state.insert_or_assign("relative_path", "settings.toml");
+  state.insert_or_assign("relative_path", std::filesystem::path(m_overridesPath).filename().string());
   state.insert_or_assign("path", m_overridesPath);
 
   const bool settingsExists = !m_overridesPath.empty() && std::filesystem::exists(m_overridesPath);
@@ -963,7 +986,7 @@ void ConfigService::applyPendingWatchReload() {
   fireReloadCallbacks();
 }
 
-BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOutput& output) {
+BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOutput& output, float uiScale) {
   BarConfig resolved = base;
 
   for (const auto& ovr : base.monitorOverrides) {
@@ -1095,6 +1118,22 @@ BarConfig ConfigService::resolveForOutput(const BarConfig& base, const WaylandOu
     break; // first match wins
   }
 
+  if (resolved.islands) {
+    const BarConfig defaults;
+    if (resolved.startWidgets == defaults.startWidgets
+        && resolved.centerWidgets == defaults.centerWidgets
+        && resolved.endWidgets == defaults.endWidgets) {
+      resolved.startWidgets = {"island_workspaces", "island_app"};
+      resolved.endWidgets = {"island_network", "island_volume", "island_battery", "island_spacer", "island_clock"};
+      if (resolved.widgetSpacing == defaults.widgetSpacing) {
+        resolved.widgetSpacing = static_cast<std::int32_t>(Tokens::componentIslandGap);
+      }
+    }
+  }
+  // ui_scale grows the bar: its thickness and its content scale.
+  const float scale = std::max(0.1F, uiScale);
+  resolved.thickness = static_cast<std::int32_t>(std::lround(static_cast<float>(resolved.thickness) * scale));
+  resolved.scale *= scale;
   return resolved;
 }
 
@@ -1163,7 +1202,7 @@ void ConfigService::setupWatch() {
     }
   }
 
-  // Also watch the state dir for settings.toml edits (external writes).
+  // Also watch the state dir for overrides file edits (external writes).
   if (!m_overridesPath.empty()) {
     const auto overridesDir = std::filesystem::path(m_overridesPath).parent_path().string();
     const auto wd = m_inotify.watch(overridesDir.c_str(), inotifyMask);

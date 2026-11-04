@@ -9,6 +9,7 @@
 
 class CompositorPlatform;
 struct DockConfig;
+class NotificationManager;
 struct ToplevelInfo;
 struct wl_output;
 
@@ -26,6 +27,7 @@ namespace shell::dock {
     std::size_t instanceCount = 0;
     std::size_t minimizedCount = 0;
     bool allMinimized = false;
+    std::size_t unreadCount = 0;
   };
 
   struct DockSnapshot {
@@ -33,7 +35,10 @@ namespace shell::dock {
     wl_output* filterOutput = nullptr;
     std::string activeAppIdLower;
     std::vector<DockItemModel> items;
+    std::size_t pinnedCount = 0;
     std::uint64_t sourceSerial = 0;
+
+    [[nodiscard]] bool hasSeparator() const { return pinnedCount > 0 && pinnedCount < items.size(); }
   };
 
   struct DockModelDependencies {
@@ -43,6 +48,7 @@ namespace shell::dock {
     const std::string& globalActiveIdLower;
     const std::vector<DesktopEntry>& pinnedEntries;
     std::uint64_t sourceSerial = 0;
+    const NotificationManager* notifications = nullptr;
   };
 
   [[nodiscard]] wl_output* dockFilterOutput(const DockConfig& cfg, wl_output* instanceOutput);

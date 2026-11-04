@@ -1,4 +1,67 @@
 {
+  "activity": {
+    "action-force-quit": "Force Quit",
+    "action-ignore": "Ignore",
+    "action-pause": "Pause",
+    "action-quit": "Quit",
+    "action-resume": "Resume",
+    "action-stop": "Stop",
+    "action-unignore": "Stop Ignoring",
+    "battery-discharging": "On battery: {percent} %, using {watts} W now.",
+    "battery-none": "No battery found: impact is the share of CPU and GPU work.",
+    "battery-now": "Now",
+    "battery-plugged": "Plugged in: {percent} %.",
+    "battery-reason": "{cpu} min of CPU time in {uptime}",
+    "battery-since-start": "Since each app started",
+    "caption-at-login": "Starts at login",
+    "caption-on-demand": "Started on demand",
+    "caption-units": "{count} units",
+    "chip-high-energy": "High energy",
+    "chip-limited": "Limited",
+    "chip-no-window": "No window",
+    "chip-paused": "Paused",
+    "column-24h": "Memory, 24 h",
+    "column-cpu": "CPU",
+    "column-energy": "Energy",
+    "column-gpu": "GPU",
+    "column-impact": "Impact",
+    "column-memory": "Memory",
+    "column-name": "Name",
+    "column-peak": "Peak",
+    "disk": "Disk",
+    "empty": "Nothing runs here.",
+    "error-admin": "You need administrator rights.",
+    "fact-at-login": "Starts at login",
+    "fact-disk": "Disk read / write",
+    "fact-network": "Network, TCP only",
+    "fact-running-for": "Running for",
+    "fact-units": "Units",
+    "graph-memory": "Memory, 10 min",
+    "group-apps": "Apps",
+    "group-attention": "Needs attention",
+    "group-duplicates": "Duplicates the shell",
+    "group-ignored": "Ignored",
+    "group-other-background": "Other background services",
+    "group-system": "System",
+    "group-uses-resources": "Using resources",
+    "history-empty": "History fills in every 30 minutes while the shell runs.",
+    "history-memory": "Memory over 24 hours",
+    "inspector-empty": "Select a row to see its details.",
+    "limit-off": "Off",
+    "limit-resets": "Resets when you restart.",
+    "limit-title": "Limit",
+    "loading": "Reading processes…",
+    "no": "No",
+    "search": "Search",
+    "system": "System",
+    "tab-apps": "Apps",
+    "tab-background": "Background",
+    "tab-battery": "Battery",
+    "tab-history": "History",
+    "title": "Activity",
+    "yes": "Yes"
+  },
+
   "auth": {
     "face": {
       "confirm": "Confirm",
@@ -383,6 +446,91 @@
       "today": "Today",
       "toggle-events-card": "Toggle events card"
     },
+    "detail": {
+      "bluetooth": {
+        "connected-devices": "Connected devices",
+        "nearby": "Nearby devices",
+        "off": "Bluetooth is off",
+        "off-body": "Turn on Bluetooth to see your devices.",
+        "pair-new": "Pair New Device...",
+        "paired": "Paired",
+        "scanning": "Searching...",
+        "settings": "Bluetooth Settings...",
+        "unavailable": "Bluetooth unavailable",
+        "unavailable-body": "No Bluetooth adapter was found."
+      },
+      "focus": {
+        "active-until": "Do Not Disturb until {time}",
+        "dnd": "Do Not Disturb",
+        "manual": "Until I turn it off",
+        "one-hour": "1 hour",
+        "settings": "Notification Settings...",
+        "tomorrow": "Until tomorrow",
+        "until": "Until"
+      },
+      "phone": {
+        "files": "Send files...",
+        "files-title": "Send files",
+        "connect-failed": "Couldn't connect",
+        "connecting": "Connecting...",
+        "no-notifications": "No notifications",
+        "pause-failed": "Couldn't pause",
+        "paused": "Paused",
+        "photo-failed": "Couldn't save",
+        "photo-saved": "Saved to Downloads",
+        "photos-denied": "Photos access is off on the phone",
+        "photos-unavailable": "Photos aren't available from this phone",
+        "recent-photos": "Recent photos",
+        "no-notifications-body": "Phone notifications show up here.",
+        "notifications-title": "Notifications",
+        "on-phone": "on {phone}",
+        "open-link": "Open Link...",
+        "reply": "Reply",
+        "send": "Send",
+        "title": "Phone"
+      },
+      "power": {
+        "health": "Battery health {percent}%",
+        "modes": "Power mode",
+        "settings": "Battery Settings...",
+        "unavailable": "Power profiles unavailable",
+        "unavailable-body": "No power profile service is running."
+      },
+      "search": {
+        "modules": "Controls",
+        "networks": "Wi-Fi networks",
+        "none": "No results",
+        "placeholder": "Search controls and networks",
+        "title": "Search"
+      },
+      "show-all": "Show all",
+      "show-fewer": "Show fewer",
+      "sound": {
+        "applications": "Applications",
+        "input": "Input",
+        "microphone": "Microphone",
+        "no-input": "No input devices",
+        "output": "Output",
+        "settings": "Sound Settings...",
+        "title": "Sound",
+        "unavailable": "Sound unavailable",
+        "unavailable-body": "No audio service is running."
+      },
+      "try-again": "Try Again",
+      "wifi": {
+        "connect-failed": "Could not connect to {ssid}",
+        "connected": "Connected",
+        "needs-settings": "Join in Wi-Fi Settings",
+        "none": "No networks in range",
+        "off": "Wi-Fi is off",
+        "off-body": "Turn on Wi-Fi to see networks.",
+        "other-network": "Other Network...",
+        "other-networks": "Other networks",
+        "settings": "Wi-Fi Settings...",
+        "unavailable": "Wi-Fi unavailable",
+        "unavailable-body": "No network service is running."
+      }
+    },
     "display": {
       "disabled": "Disabled",
       "no-displays": "No monitors available",
@@ -459,7 +607,21 @@
       "wifi": "Wi-Fi",
       "wifi-off": "Wi-Fi is off",
       "wifi-on": "Wi-Fi is on",
-      "wired-connection": "Wired connection"
+      "wired-connection": "Wired connection",
+      "connected": "Connected",
+      "connected-band": "Connected · {band}",
+      "disconnect": "Disconnect",
+      "forget": "Forget",
+      "forget-network": "Forget network",
+      "join": "Join",
+      "no-networks-short": "No networks",
+      "other-networks": "Other Networks",
+      "network-settings": "Network Settings…",
+      "wifi-off-state": "Wi-Fi Off",
+      "ethernet": "Ethernet",
+      "hotspot": "Hotspot",
+      "refresh": "Scan for networks",
+      "show-password": "Show password"
     },
     "notifications": {
       "clear-all": "Clear all notifications",
@@ -588,7 +750,8 @@
       "power": "Power",
       "screen-time": "Screen Time",
       "system": "System",
-      "weather": "Weather"
+      "weather": "Weather",
+      "quick": "Quick Settings"
     },
     "weather": {
       "daily": {
@@ -637,6 +800,24 @@
       "no-location-title": "No location set",
       "refreshing": "Refreshing weather…",
       "waiting": "Waiting for weather data"
+    },
+    "quick": {
+      "add-controls": "Add controls",
+      "bluetooth": "Bluetooth",
+      "connecting": "Connecting...",
+      "dark-mode": "Dark Mode",
+      "done": "Done",
+      "edit-controls": "Edit Controls",
+      "edit-hint": "Drag to reorder. Page 2 starts after the fourth control.",
+      "edit-tooltip": "Edit controls",
+      "focus": "Focus",
+      "muted": "Muted",
+      "notifications": "{count} notifications",
+      "off": "Off",
+      "on": "On",
+      "power-hint": "Lock, restart, shut down",
+      "settings-tooltip": "Settings",
+      "wifi": "Wi-Fi"
     }
   },
   "desktop-widgets": {
@@ -849,6 +1030,7 @@
       },
       "sections": {
         "all-apps": "All Apps",
+        "commands": "Commands",
         "other-apps": "Other Apps",
         "pinned": "Pinned",
         "providers": "Providers",
@@ -877,6 +1059,7 @@
         "nature": "Nature",
         "objects": "Objects",
         "people": "People",
+        "smileys": "Smileys",
         "symbols": "Symbols",
         "travel": "Travel"
       },
@@ -909,8 +1092,17 @@
       "calculator": {
         "title": "Calculator"
       },
+      "clipboard": {
+        "title": "Clipboard"
+      },
       "emoji": {
         "title": "Emoji"
+      },
+      "symbols": {
+        "title": "Symbols"
+      },
+      "web": {
+        "title": "Web"
       },
       "panel": {
         "builtin": {
@@ -937,9 +1129,96 @@
       },
       "window": {
         "title": "Windows"
+      },
+      "gifs": {
+        "title": "GIFs"
+      },
+      "stickers": {
+        "title": "Stickers"
       }
     },
-    "search-placeholder": "Search applications…"
+    "clipboard": {
+      "copied": "Copied",
+      "delete": "Delete",
+      "earlier": "Earlier",
+      "image": "Image",
+      "pin": "Pin",
+      "pinned": "Pinned",
+      "size": "Size",
+      "today": "Today",
+      "unpin": "Unpin",
+      "yesterday": "Yesterday"
+    },
+    "pill": {
+      "actions-hint": "Actions",
+      "back-hint": "Back",
+      "kind-hint": "Kind",
+      "category": "Category",
+      "close-hint": "Close",
+      "open": "Open",
+      "last-opened": "Last opened",
+      "open-hint": "Open ↩",
+      "opened": "Opened",
+      "paste": "Paste",
+      "paste-hint": "Paste ↩",
+      "recent": "Recent",
+      "result-count": "{count} results",
+      "results": "Results",
+      "search-web": "Search the web for “{query}”",
+      "times": "{count} time",
+      "times-plural": "{count} times",
+      "unicode": "Unicode",
+      "used": "Used"
+    },
+    "search-placeholder": "Search",
+    "symbols": {
+      "arrows": "Arrows",
+      "currency": "Currency",
+      "greek": "Greek",
+      "kaomoji": "Kaomoji",
+      "keys": "Keys",
+      "math": "Math",
+      "typography": "Typography"
+    },
+    "stickers": {
+      "packs": {
+        "all": "All",
+        "klipy": "Klipy",
+        "fluent": "Fluent 3D"
+      }
+    },
+    "files": {
+      "copy-path": "Copy Path",
+      "count": "{count} file",
+      "count-plural": "{count} files",
+      "kinds": {
+        "all": "All",
+        "audio": "Audio",
+        "doc": "Docs",
+        "folder": "Folders",
+        "image": "Images",
+        "pdf": "PDFs",
+        "sheet": "Sheets",
+        "slides": "Slides",
+        "video": "Videos"
+      },
+      "modified": "Modified",
+      "reveal": "Reveal",
+      "show-all": "Show all files",
+      "size": "Size",
+      "title": "Files"
+    },
+    "klipy": {
+      "add-key": "Add a Klipy API key",
+      "add-key-hint": "Settings → Launcher → GIF API Key",
+      "trending": "Trending",
+      "fluent": "Fluent 3D"
+    }
+  },
+  "live-activity": {
+    "call-active": "On a call with {caller}",
+    "call-ringing": "Call from {caller}",
+    "recording": "Recording the screen"
   },
   "location": {
     "errors": {
@@ -959,11 +1238,106 @@
     }
   },
   "lockscreen": {
+    "editor": {
+      "slots": "Slots",
+      "free": "Free",
+      "wallpaper": "Wallpaper",
+      "layout": "Layout",
+      "theme": "Theme",
+      "done": "Done",
+      "clock-style": "Clock style",
+      "hour24": "24-hour",
+      "seconds": "Seconds",
+      "wallpaper-photos": "Photos",
+      "wallpaper-live": "Live",
+      "wallpaper-shader": "Shader",
+      "wallpaper-colours": "Colours",
+      "wallpaper-applies-to": "Applies to:",
+      "wallpaper-all-displays": "All displays",
+      "wallpaper-this-display": "This display",
+      "wallpaper-desktop": "Same as desktop",
+      "wallpaper-blur": "Blur",
+      "wallpaper-dim": "Dim",
+      "wallpaper-foot": "0 = sharp wallpaper · Same as desktop · Live wallpapers pause on battery saver and while the screen is off",
+      "wallpaper-empty": "No wallpapers in {dir}",
+      "layouts": {
+        "centered": "Centered",
+        "glance": "Glance",
+        "split": "Split",
+        "minimal": "Minimal"
+      },
+      "themes": {
+        "andromeda": "Andromeda",
+        "ryoku": "Ryoku"
+      },
+      "theme-note": "Blur · Dim · Clock colour follows the wallpaper",
+      "theme-note-ryoku": "The greeter's look; layouts and slots do not apply",
+      "ryoku-preview": "Ryoku draws its own scene when the screen locks",
+      "widgets": "Widgets",
+      "remove": "Remove",
+      "bottom-slot": "Bottom slot",
+      "snap-zones": "Snap to zones",
+      "zone-top": "Top",
+      "zone-middle": "Middle",
+      "zone-auth": "Auth · fixed",
+      "layout-alert-title": "Use the {name} layout?",
+      "layout-alert-body": "The widgets you placed on this display are removed.",
+      "layout-alert-confirm": "Use Layout",
+      "bottom": {
+        "media": "Media",
+        "phone": "Phone",
+        "notifications": "Notifications",
+        "none": "None"
+      }
+    },
+    "widgets": {
+      "weather": "Weather",
+      "battery": "Battery",
+      "phone": "Phone",
+      "notifications": "Notifications",
+      "media": "Media"
+    },
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
+    "alert": {
+      "cancel": "Cancel",
+      "restart-title": "Restart anyway?",
+      "shutdown-body": "An app is preventing shutdown. Unsaved work in open apps is lost.",
+      "shutdown-title": "Shut down anyway?",
+      "sleep-body": "An app is preventing sleep.",
+      "sleep-title": "Sleep anyway?"
+    },
+    "power": {
+      "blocked": "Can't do that: an app is blocking it",
+      "restart": "Restart",
+      "shutdown": "Shut down",
+      "sleep": "Sleep"
+    },
+    "call": {
+      "answer-on-phone": "Answer on phone",
+      "decline": "Decline",
+      "decline-pending": "Type your password to decline the call",
+      "incoming": "Incoming call"
+    },
+    "cards": {
+      "charging": "Charging · {percent} %",
+      "charging-full-in": "Charging · full in {time}",
+      "notifications": "{count} notification",
+      "notifications-plural": "{count} notifications",
+      "notifications-label": "Notifications",
+      "now": "now",
+      "phone": "Phone",
+      "unlock-to-read": "Unlock to read"
+    },
+    "fail-delay": "Try again in {time}",
+    "failed-attempts": "{count} failed attempts",
+    "glance-hint": "Press any key to unlock",
+    "glance-hint-face": "Press any key or look at the camera to unlock",
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
+    "pam-error": "Can't check your password: {message}",
+    "password-required": "Password required",
     "ready": "Type your password and press Enter.",
     "ryoku": {
       "checking": "Checking your key",
@@ -971,7 +1345,12 @@
       "type": "Type your key"
     },
     "unlocked": "Unlocked",
+    "wrong-password": "Wrong password",
     "waiting": "Waiting for lock confirmation…",
+    "phone-lock": {
+      "body": "Face unlock is off until you type your password",
+      "title": "Locked from your phone"
+    },
     "phone-notifications": "{count} phone notification",
     "phone-notifications-plural": "{count} phone notifications"
   },
@@ -1005,6 +1384,31 @@
       "link-hotspot-joined-body": "Bluetooth is too slow for this, so your laptop leaves its Wi-Fi for the phone's. Your Wi-Fi comes back when it's done.",
       "link-hotspot-left": "Back from {device}'s hotspot",
       "link-decline": "Decline",
+      "activity": "Activity",
+      "activity-background-body": "It has no window and uses {memory} of memory. Started {ago} ago.",
+      "activity-background-body-login": "It has no window and uses {memory} of memory. Started {ago} ago at login.",
+      "activity-background-title": "{name} runs in the background",
+      "activity-dont-start": "Don't Start at Login",
+      "activity-duplicate-body": "Andromeda already has {feature} controls.",
+      "activity-duplicate-plasma-body": "It is a KDE service, and Plasma is not running.",
+      "activity-feature-battery": "battery",
+      "activity-feature-bluetooth": "Bluetooth",
+      "activity-feature-clipboard": "clipboard",
+      "activity-feature-drives": "drive",
+      "activity-feature-link": "phone",
+      "activity-feature-network": "network",
+      "activity-feature-night-light": "Night Light",
+      "activity-feature-notifications": "notification",
+      "activity-feature-polkit": "password prompt",
+      "activity-feature-sound": "sound",
+      "activity-grouped-body": "{names} use {memory} with no window.",
+      "activity-grouped-title": "{count} apps run in the background",
+      "activity-ignore-all": "Ignore All",
+      "activity-portal-body": "It has no window and keeps running.",
+      "activity-keep": "Keep",
+      "activity-show": "Show",
+      "activity-stop": "Stop",
+      "activity-stop-dont-start": "Stop and Don't Start at Login",
       "link-cancel": "Cancel",
       "link-receiving": "Receiving from {device}",
       "link-sending": "Sending to {device}",
@@ -1059,14 +1463,14 @@
       "calendar-reminder-open": "Open",
       "calendar-reminder-untitled": "Untitled event",
       "calendar-reminder-with-location": "{when}\n{location}",
-      "config-migration-body": "Update {path} in the source file. Noctalia is applying this replacement only temporarily. Run noctalia config validate to list every required change.",
+      "config-migration-body": "Update {path} in the source file. Andromeda is applying this replacement only temporarily. Run noctalia config validate to list every required change.",
       "config-migration-title": "Configuration update needed",
       "dbus-disabled": "DBus notifications disabled",
       "desktop-widgets-editor": "Widget editor",
       "desktop-widgets-editor-enabled": "Desktop widget editor is on. Switch to an empty workspace so open windows do not cover the editor.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Syncing appearance to the greeter. If an administrator prompt appears, approve it; passwordless authorization follows system policy.",
-      "greeter-sync-pending-console": "Syncing appearance to the greeter. If authorization is required, approve the polkit prompt in Noctalia, on a TTY, or on a console.",
+      "greeter-sync-pending-console": "Syncing appearance to the greeter. If authorization is required, approve the polkit prompt in Andromeda, on a TTY, or on a console.",
       "greeter-sync-pending-legacy": "Syncing through the authenticated legacy helper. Administrator approval is required.",
       "greeter-sync-pending-manual": "Files are staged for authenticated legacy sync. Run the positional apply helper in a terminal, preserving NOCTALIA_GREETER_STATE_DIR if you use a custom path, or configure shell.greeter_sync.privilege_command and sync again.",
       "greeter-sync-pending-manual-pkexec": "Syncing appearance to the greeter. If administrator authorization is required and no prompt appears, run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\".",
@@ -1074,7 +1478,7 @@
       "greeter-sync-timeout": "Greeter sync is still waiting for authorization. Check a TTY or console for a polkit prompt, enable the polkit agent in Security settings, or run pkexec manually.",
       "greeter-sync-timeout-manual": "Authenticated legacy sync still needs administrator approval. Run the positional apply helper in a terminal and preserve NOCTALIA_GREETER_STATE_DIR if you use a custom path.",
       "greeter-sync-timeout-manual-pkexec": "Greeter sync still needs authorization. Run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "This shortcut accepts a single key without modifiers.",
       "keybind-invalid-printable": "Printable keys (letters, numbers, symbols) require a modifier such as Ctrl or Alt.",
       "keybind-invalid-super": "The Super/Windows key cannot be used in shell keybinds.",
@@ -1100,7 +1504,9 @@
       "screen-time-reset-success": "Usage history cleared.",
       "session-bus-unavailable": "Session bus unavailable",
       "wallpaper-palette-export": "Custom Palette",
-      "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom."
+      "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom.",
+      "shell-restarted": "The desktop shell restarted",
+      "shell-restarted-body": "It stopped unexpectedly. Your windows were not affected."
     }
   },
   "osd": {
@@ -1155,7 +1561,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} targets plugin API {version}; this Noctalia supports API {oldest}–{current}.",
+      "body-incompatible": "{plugin} targets plugin API {version}; this Andromeda supports API {oldest}–{current}.",
       "body-timeout": "{plugin} took too long to install.",
       "title": "Plugin not enabled"
     }
@@ -1288,7 +1694,7 @@
       "bar": {
         "create": "Create",
         "delete": "Delete",
-        "delete-confirm-desc": "This GUI-created bar will be removed from settings.toml.",
+        "delete-confirm-desc": "This GUI-created bar will be removed from overrides.toml.",
         "delete-confirm-title": "Delete \"{name}\"?",
         "id-placeholder": "Bar ID",
         "label": "Bar: {name}",
@@ -1303,7 +1709,7 @@
         "create": "Create",
         "custom": "Custom",
         "delete": "Delete",
-        "delete-confirm-desc": "This GUI-created monitor override will be removed from settings.toml.",
+        "delete-confirm-desc": "This GUI-created monitor override will be removed from overrides.toml.",
         "delete-confirm-title": "Delete \"{name}\"?",
         "exists": "An override for this monitor already exists.",
         "label": "Display: {name}",
@@ -1462,7 +1868,7 @@
       },
       "reset-page": "Failed to reset some settings.",
       "support-report": "Failed to save support report.",
-      "sync-greeter": "Could not sync appearance to Noctalia Greeter.",
+      "sync-greeter": "Could not sync appearance to Andromeda Greeter.",
       "sync-greeter-timeout": "Greeter sync is still waiting for authorization. Check a TTY or console for a polkit prompt, enable the polkit agent in Security settings, or run pkexec manually.",
       "sync-greeter-timeout-manual": "Authenticated legacy sync still needs administrator approval. Run the positional apply helper in a terminal and preserve NOCTALIA_GREETER_STATE_DIR if you use a custom path.",
       "sync-greeter-timeout-manual-pkexec": "Greeter sync still needs authorization. Run in a terminal: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -1490,6 +1896,7 @@
         "command-placeholder": "notify-send \"Idle\"",
         "kind": {
           "custom": "Custom",
+          "hibernate": "Hibernate",
           "lock": "Lock",
           "lock-and-suspend": "Lock & Suspend",
           "screen-off": "Screen Off",
@@ -1512,11 +1919,219 @@
         "idle-for-seconds": "Idle for {seconds} seconds"
       }
     },
+    "account": {
+      "caption": "Account"
+    },
+    "expert": {
+      "count": "{count} options",
+      "row": "More options",
+      "search-placeholder": "Search in {page}"
+    },
+    "bluetooth": {
+      "address": "Address",
+      "battery": "Battery",
+      "blocked": "Blocked by the system",
+      "connect": "Connect",
+      "connected": "Connected",
+      "connecting": "Connecting…",
+      "discoverable-as": "Discoverable as “{name}”",
+      "forget": "Forget This Device",
+      "gone": "This device is no longer known",
+      "mine": "My Devices",
+      "nearby": "Nearby Devices",
+      "none": "No devices found",
+      "not-connected": "Not connected",
+      "unavailable": "No Bluetooth adapter"
+    },
+    "network": {
+      "cellular": "Mobile Data",
+      "connection": "Connection",
+      "ethernet": "Ethernet",
+      "unavailable": "Networking is not available",
+      "vpn": "VPN"
+    },
+    "sound": {
+      "apps": "Applications",
+      "input": "Input",
+      "input-volume": "Input Volume",
+      "mute": "Mute",
+      "no-devices": "No devices",
+      "output": "Output",
+      "output-volume": "Output Volume",
+      "unavailable": "Sound is not available",
+      "use": "Use"
+    },
+    "about": {
+      "kernel": "Kernel",
+      "memory": "Memory",
+      "model": "Model",
+      "name": "Name",
+      "processor": "Processor",
+      "storage": "Storage",
+      "storage-free": "{free} GB free of {total} GB",
+      "system": "Operating System",
+      "updates": "Software Updates",
+      "updates-check": "Check Now",
+      "updates-checking": "Checking for updates…",
+      "updates-count": "{count} update available",
+      "updates-count-plural": "{count} updates available",
+      "updates-failed": "Could not check for updates",
+      "updates-install": "Update…",
+      "updates-no-terminal": "No terminal found to run the update",
+      "updates-none": "Your system is up to date",
+      "updates-unchecked": "Not checked yet"
+    },
+    "power": {
+      "action": {
+        "hibernate": "Hibernate",
+        "ignore": "Do Nothing",
+        "lock": "Lock Screen",
+        "poweroff": "Shut Down",
+        "suspend": "Sleep",
+        "suspend-then-hibernate": "Sleep, Then Hibernate"
+      },
+      "battery": "Battery",
+      "health": "Battery Health",
+      "lid-battery": "Lid Closed on Battery",
+      "lid-buttons": "Lid & Power Button",
+      "lid-docked": "Lid Closed with Display",
+      "lid-power": "Lid Closed on Power",
+      "limit": "Limit Charging",
+      "limit-to": "Limit Charging to {percent}%",
+      "mode": "Power Mode",
+      "power-key": "Power Button",
+      "sleep": "Sleep",
+      "sleep-mode": "Sleep Mode",
+      "sleep-mode-deep": "Deep Sleep",
+      "sleep-mode-s2idle": "Modern Standby",
+      "sleep-mode-shallow": "Standby",
+      "hibernate-after": "Hibernate After Sleeping",
+      "delay": {
+        "1h": "1 Hour",
+        "2h": "2 Hours",
+        "30min": "30 Minutes",
+        "3h": "3 Hours",
+        "off": "Never"
+      },
+      "hibernate": "Hibernate",
+      "hibernate-status": "Status",
+      "hibernate-ready": "Ready",
+      "hibernate-not-ready": "Not Ready",
+      "check-lockdown": "Secure Boot",
+      "check-lockdown-on": "Kernel lockdown blocks hibernation",
+      "check-swap": "Swap on Disk: {swap} ({ram} Recommended)",
+      "make-swap": "Make Swap Space",
+      "check-resume": "Resume at Boot",
+      "check-resume-ok": "Configured",
+      "check-resume-missing": "Not Configured",
+      "hibernate-needs-test": "Needs a Test",
+      "guide": "Official Steps for This Setup",
+      "not-supported": "Set Up by Hand",
+      "open-guide": "Open Guide",
+      "unsafe-hibernate": "Hibernate Is Set but Resume Is Not Proven",
+      "use-sleep": "Use Sleep Instead",
+      "set-up-resume": "Set Up",
+      "trial-failed": "Last Test Failed: No Resume From the Image",
+      "trial-never": "Test Hibernate Once (Save Your Work First)",
+      "trial-ok": "Test Passed: Resume Works",
+      "trial-pending": "Testing…",
+      "trial-start": "Test Now",
+      "trial-wait": "After the Steps Above",
+      "step": "{n}. {text}",
+      "step-done": "Done",
+      "step-restart": "Restart to Finish",
+      "restart": "Restart"
+    },
+    "users": {
+      "account-name": "Account Name",
+      "account-type": "Account Type",
+      "add": "Add User…",
+      "admin": "Admin",
+      "administrator": "Administrator",
+      "create": "Create User",
+      "delete": "Delete",
+      "delete-confirm": "Delete {name} and their home folder?",
+      "delete-body": "Their account and every file in their home folder are removed. You cannot undo this.",
+      "delete-ellipsis": "Delete User…",
+      "creating": "Waiting for authorization…",
+      "error-login": "Use lowercase letters, digits, - and _; start with a letter.",
+      "error-mismatch": "The passwords do not match.",
+      "error-password": "Enter a password.",
+      "full-name": "Full Name",
+      "new-user": "New User",
+      "none": "No other users",
+      "others": "Other Users",
+      "password": "Password",
+      "standard": "Standard",
+      "verify": "Verify"
+    },
+    "wifi": {
+      "band": "Band",
+      "connected": "Connected",
+      "identity": "User name",
+      "identity-required": "Enter your user name.",
+      "connecting": "Connecting…",
+      "details": "Details…",
+      "disconnect": "Disconnect",
+      "forget": "Forget This Network",
+      "interface": "Interface",
+      "ip-address": "IP Address",
+      "join": "Join",
+      "known": "Known Networks",
+      "none": "No networks found",
+      "not-connected": "Not connected",
+      "off": "Off",
+      "other": "Other Networks",
+      "password-required": "Enter the password.",
+      "password": "Password",
+      "scan": "Scan",
+      "searching": "Searching…",
+      "signal": "Signal",
+      "status": "Status",
+      "unavailable": "Wi-Fi is not available"
+    },
+    "pages": {
+      "empty-hint": "The controls for this page arrive in a later update.",
+      "empty-title": "Nothing to set here yet",
+      "group-connectivity": "Connectivity",
+      "group-desktop": "Desktop",
+      "group-look": "Look and feel",
+      "group-system": "System",
+      "wifi": "Wi-Fi",
+      "bluetooth": "Bluetooth",
+      "network": "Network",
+      "appearance": "Appearance",
+      "wallpaper": "Wallpaper",
+      "displays": "Displays",
+      "sound": "Sound",
+      "notifications": "Notifications",
+      "desktop-dock": "Desktop and Dock",
+      "bar": "Bar and Islands",
+      "control-center": "Control Center",
+      "launcher": "Launcher and Search",
+      "windows": "Windows",
+      "keyboard": "Keyboard",
+      "mouse": "Mouse and Touchpad",
+      "devices": "Devices",
+      "power": "Battery and Power",
+      "privacy": "Privacy and Security",
+      "date-time": "Date and Time",
+      "language": "Language and Region",
+      "default-apps": "Default Apps",
+      "screenshot": "Screenshots and Recording",
+      "services": "Apps and Services",
+      "plugins": "Plugins",
+      "automation": "Automation",
+      "about": "About and Updates",
+      "users": "Users"
+    },
     "navigation": {
       "groups": {
         "accessibility": "Accessibility",
         "audio": "Audio",
         "authentication": "Authentication",
+        "removable-media": "Removable Media",
+        "desktop": "Desktop",
         "automation": "Automation",
         "backdrop": "Backdrop",
         "background": "Background",
@@ -1532,7 +2147,7 @@
         "clipboard": "Clipboard",
         "community": "Community",
         "control-center": "Control Center",
-        "dead-zone": "Dead Zone",
+        "dead-zone": "Empty bar area",
         "directories": "Directories",
         "display": "Display",
         "effects": "Effects",
@@ -1567,6 +2182,7 @@
         "notifications": "Notifications",
         "osd": "OSD",
         "overview": "Overview",
+        "performance": "Performance",
         "pinned-apps": "Pinned Apps",
         "polkit": "Polkit",
         "power": "Power",
@@ -1902,6 +2518,14 @@
           "imperial": "Imperial",
           "metric": "Metric"
         }
+      },
+      "emoji-tone": {
+        "dark": "Dark",
+        "light": "Light",
+        "medium": "Medium",
+        "medium-dark": "Medium Dark",
+        "medium-light": "Medium Light",
+        "none": "Default (Yellow)"
       }
     },
     "palette-inspector": {
@@ -1947,7 +2571,7 @@
         "deprecated": "deprecated",
         "empty": "No enabled plugins.",
         "held-back": "older version",
-        "held-back-hint": "v{version} needs plugin API {required}; this Noctalia supports up to {current}. Upgrade Noctalia to get it.",
+        "held-back-hint": "v{version} needs plugin API {required}; this Andromeda supports up to {current}. Upgrade Andromeda to get it.",
         "incompatible-plugin-api": "incompatible plugin API",
         "remove": "Remove plugin",
         "requires": "Requires: {dependencies}",
@@ -1991,15 +2615,15 @@
         "update": "Update source"
       },
       "store": {
-        "add": "Add to Noctalia",
+        "add": "Add to Andromeda",
         "back-to-catalog": "Back to the plugin catalog",
         "categories": "Categories",
         "category-all": "All",
         "empty": "No plugins found",
         "held-back": "Older version",
-        "held-back-hint": "Installs v{version} for plugin API {resolved}. The newest v{latest} needs plugin API {latestRequired}; this Noctalia supports up to {current}.",
+        "held-back-hint": "Installs v{version} for plugin API {resolved}. The newest v{latest} needs plugin API {latestRequired}; this Andromeda supports up to {current}.",
         "incompatible": "Incompatible",
-        "incompatible-hint": "Needs plugin API {required}; this Noctalia supports {oldest}–{current}.",
+        "incompatible-hint": "Needs plugin API {required}; this Andromeda supports {oldest}–{current}.",
         "installed": "Installed",
         "loading": "Loading catalog…",
         "no-readme": "No description available.",
@@ -2056,7 +2680,7 @@
         },
         "builtin-palette": {
           "description": "Choose a palette from the bundled catalog",
-          "label": "Built-In Palette"
+          "label": "Colour Theme"
         },
         "button-borders": {
           "description": "Draw outlines around buttons throughout the shell",
@@ -2085,9 +2709,12 @@
           "description": "Save the current wallpaper-generated palette as a reusable custom palette file",
           "label": "Export Wallpaper Palette"
         },
+        "from-wallpaper": {
+          "label": "From Wallpaper"
+        },
         "font-family": {
           "description": "Font family for the shell interface",
-          "label": "Font Family"
+          "label": "Font"
         },
         "global-shadow-alpha": {
           "description": "Global surface shadow opacity"
@@ -2106,11 +2733,11 @@
         "palette-inspector": {
           "button": "Inspect Colors",
           "description": "View template color names, swatches, and hex values for the active palette",
-          "label": "Palette Inspector"
+          "label": "Show Palette Colors"
         },
         "palette-source": {
-          "description": "Where to derive the color palette from",
-          "label": "Palette Source"
+          "description": "",
+          "label": "Colour theme"
         },
         "popup-borders": {
           "description": "Draw outlines around popups and dropdowns",
@@ -2125,7 +2752,7 @@
           "label": "Pure Black"
         },
         "shell-theme-mode": {
-          "description": "Pin Noctalia's own light or dark mode; Follow keeps it in sync with Theme Mode",
+          "description": "Pin Andromeda's own light or dark mode; Follow keeps it in sync with Theme Mode",
           "label": "Shell Theme Mode"
         },
         "show-close-buttons": {
@@ -2134,7 +2761,11 @@
         },
         "sync-color-scheme": {
           "description": "Set the system dark/light preference read by browsers and other apps to follow Theme Mode",
-          "label": "Sync App Color Scheme"
+          "label": "Apps Follow the Color Scheme"
+        },
+        "toolkit-themes": {
+          "description": "Color GTK, Qt, KDE and fcitx5 apps with the desktop's colors and accent",
+          "label": "Match GTK and Qt Apps"
         },
         "theme-mode": {
           "description": "Choose Dark, Light, or Auto based on time of day; also applies to apps through templates",
@@ -2142,11 +2773,11 @@
         },
         "ui-scale": {
           "description": "Scale the entire interface up or down",
-          "label": "UI Scale"
+          "label": "Text Size"
         },
         "wallpaper-generation-scheme": {
           "description": "Choose how wallpaper colors are converted into a palette",
-          "label": "Wallpaper Generation Scheme"
+          "label": "Wallpaper Color Style"
         }
       },
       "backdrop": {
@@ -2255,7 +2886,7 @@
           "description": "Action run on the parts of the bar no widget covers"
         },
         "dead-zone-click-through": {
-          "description": "Let clicks on the parts of the bar no widget covers reach the window below; dead zone actions stop firing",
+          "description": "Let clicks on the parts of the bar no widget covers reach the window below; the actions for the empty bar area stop firing",
           "label": "Click Through"
         },
         "edge-margin": {
@@ -2286,6 +2917,10 @@
         "hover-highlight": {
           "description": "Softly tint the widget under the mouse pointer with its own foreground color",
           "label": "Hover Highlight"
+        },
+        "islands": {
+          "description": "Draw each group of widgets as its own floating pill instead of one full-length bar",
+          "label": "Islands"
         },
         "layer": {
           "description": "Use Overlay to show the bar above fullscreen apps; attached panels follow the bar",
@@ -2463,7 +3098,7 @@
         },
         "icon-size": {
           "description": "Size of dock icons in pixels",
-          "label": "Icon Size"
+          "label": "Size"
         },
         "inactive-icon-opacity": {
           "description": "Opacity of unfocused dock icons",
@@ -2526,13 +3161,17 @@
           "description": "Show running window dots below dock icons",
           "label": "Show Dots"
         },
+        "running-bar": {
+          "description": "Show a short bar below running apps",
+          "label": "Running Indicator"
+        },
         "show-instance-count": {
           "description": "Show a badge with the number of open instances",
           "label": "Show Instance Count"
         },
         "show-running": {
           "description": "Show running applications that are not pinned",
-          "label": "Show Running"
+          "label": "Show Running Apps"
         }
       },
       "hooks": {
@@ -2591,7 +3230,7 @@
             "label": "On Shutdown"
           },
           "started": {
-            "description": "Command to run after Noctalia starts",
+            "description": "Command to run after Andromeda starts",
             "label": "On Started"
           },
           "theme-mode-changed": {
@@ -2677,9 +3316,42 @@
           "description": "How much the lock screen background is blurred",
           "label": "Blur Intensity"
         },
-        "blurred-desktop": {
-          "description": "Use a snapshot of the desktop as the lock screen background",
-          "label": "Desktop Capture"
+        "clock-format-24h": {
+          "label": "24-Hour Clock",
+          "description": "Off shows 12-hour time without AM or PM"
+        },
+        "clock-seconds": {
+          "label": "Show Seconds",
+          "description": "Adds seconds to the lock screen clock"
+        },
+        "clock-size": {
+          "label": "Clock Size",
+          "description": "Auto follows the layout",
+          "auto": "Auto",
+          "s": "Small",
+          "m": "Medium",
+          "l": "Large",
+          "xl": "Extra Large"
+        },
+        "clock-style": {
+          "label": "Clock Style",
+          "description": "Font and look of the lock screen clock",
+          "classic": "Classic",
+          "bold": "Bold",
+          "editorial": "Editorial",
+          "italic": "Italic",
+          "stacked": "Stacked",
+          "wide": "Wide",
+          "two-tone": "Two-tone",
+          "words": "Words",
+          "mono": "Mono",
+          "condensed": "Condensed",
+          "live": "Live",
+          "dot-matrix": "Dot matrix",
+          "gradient": "Gradient",
+          "analog": "Analog",
+          "flip": "Flip",
+          "outline": "Outline"
         },
         "edge-smoothness": {
           "description": "Feathering of the lock screen transition edges",
@@ -2701,6 +3373,14 @@
           "description": "Allow passwordless unlock for this many seconds after locking; any keypress or mouse movement unlocks. Set to 0 to always require the password",
           "label": "Grace Period"
         },
+        "layout": {
+          "label": "Layout",
+          "description": "Where the clock and the password field sit",
+          "centered": "Centered",
+          "glance": "Glance",
+          "split": "Split",
+          "minimal": "Minimal"
+        },
         "lock-before-suspend": {
           "description": "Lock the session before sleep (lid close, systemctl suspend, hibernate); Lock & Suspend actions still lock first",
           "label": "Lock Before Suspend"
@@ -2709,10 +3389,20 @@
           "description": "Choose which monitors show the lock screen; leave empty to show on all monitors",
           "label": "Monitors"
         },
-        "style": {
-          "classic": "Classic",
-          "description": "Ryoku matches the login screen: a turning dial clock on black. Classic is the widget lock screen",
-          "label": "Lock Screen Style",
+        "notification-content": {
+          "label": "Notification Content",
+          "description": "Hidden shows only the app and the count",
+          "hidden": "Hidden",
+          "shown": "Shown"
+        },
+        "owner-message": {
+          "label": "Owner Message",
+          "description": "Shown under the password field, for example a phone number if the device is lost"
+        },
+        "theme": {
+          "andromeda": "Andromeda",
+          "description": "Andromeda is the default lock screen. Ryoku matches the login screen: a turning dial clock on black",
+          "label": "Lock Screen Theme",
           "ryoku": "Ryoku"
         },
         "tint-intensity": {
@@ -2785,6 +3475,12 @@
         "history-retention-hours": {
           "description": "Automatically remove notification history entries older than the specified number of hours (0 to keep forever)",
           "label": "Retention Period"
+        },
+        "history-storage": {
+          "button": "Retry",
+          "description-recovery": "Saved notification history could not be authenticated or is damaged; retry after restoring the correct key, or reset private storage",
+          "description-unavailable": "Encrypted notification history is not open, so notifications are kept for this session only; unlock private storage or restore the configured key, then retry",
+          "label": "Notification History Storage"
         },
         "keep-dismissed-in-history": {
           "description": "Keep notifications in history after their toasts are dismissed",
@@ -3022,7 +3718,7 @@
           "label": "Show Session Button"
         },
         "launcher-show-settings-button": {
-          "description": "Show a shortcut to Noctalia Settings",
+          "description": "Show a shortcut to Andromeda Settings",
           "label": "Show Settings Button"
         },
         "launcher-sort-by-usage": {
@@ -3123,6 +3819,14 @@
         "wallpaper-show-names": {
           "description": "Caption each thumbnail with its file name in the wallpaper picker.",
           "label": "Show File Names"
+        },
+        "launcher-gif-api-key": {
+          "description": "Key for GIFs and Stickers from klipy.com",
+          "label": "GIF API Key"
+        },
+        "launcher-emoji-skin-tone": {
+          "description": "Skin tone for emoji that have tones",
+          "label": "Emoji Skin Tone"
         }
       },
       "power": {
@@ -3393,6 +4097,10 @@
         },
         "weather": {
           "description": "Enable the weather service via open-meteo.com",
+        "background-warning": {
+          "description": "Notify when an app with no window keeps using memory or duplicates a shell feature",
+          "label": "Background Service Warnings"
+        },
           "label": "Weather"
         },
         "weather-effects": {
@@ -3410,7 +4118,7 @@
       },
       "shared": {
         "auto-hide": {
-          "label": "Auto-Hide"
+          "label": "Hide Automatically"
         },
         "background-opacity": {
           "label": "Background Opacity"
@@ -3531,9 +4239,9 @@
           "label": "Keyboard Layout Labels"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Launches applications in separate systemd services so they don't share Noctalia's cgroup",
+          "description": "Launches applications in separate systemd services so they don't share Andromeda's cgroup",
           "label": "Launch Apps as systemd Services",
-          "requires-systemd-session": "Requires Noctalia to run as a systemd user service (uwsm or a systemd user unit)"
+          "requires-systemd-session": "Requires Andromeda to run as a systemd user service (uwsm or a systemd user unit)"
         },
         "launch-apps-custom-command": {
           "description": "Wraps apps launched from the launcher, dock, and taskbar; substitutes $CMD with the original command",
@@ -3680,6 +4388,10 @@
           "description": "Visual style for password input masking",
           "label": "Password Style"
         },
+        "automount-drives": {
+          "description": "Mount USB drives and memory cards when you insert them",
+          "label": "Mount Drives Automatically"
+        },
         "polkit-agent": {
           "description": "Enable the built-in authentication agent",
           "label": "Polkit Agent"
@@ -3803,8 +4515,8 @@
           "label": "Skip Editor on Copy or Save"
         },
         "settings-expand-all-groups": {
-          "description": "Show every group of a settings page on one scrolling page instead of as tabs",
-          "label": "Show All Groups Without Tabs"
+          "description": "Show the Plugins page groups (plugins and sources) on one scrolling page instead of as tabs",
+          "label": "Show Plugin Groups Without Tabs"
         },
         "settings-window-translucent": {
           "description": "Make the Settings background translucent for compositor effects",
@@ -3816,8 +4528,8 @@
         },
         "sync-greeter": {
           "button": "Sync Now",
-          "description": "Copy the current appearance and monitor arrangement to Noctalia Greeter. Administrator approval is requested unless system policy authorizes passwordless sync for your user.",
-          "label": "Noctalia Greeter"
+          "description": "Copy the current appearance and monitor arrangement to Andromeda Greeter. Administrator approval is requested unless system policy authorizes passwordless sync for your user.",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Sends a small anonymous startup ping with version, OS, compositor, monitor resolutions, RAM, and UI scale",
@@ -3873,9 +4585,33 @@
           "description": "Override the battery warning threshold for this device (0 disables warnings for this device)",
           "label": "{device} Warning Threshold"
         },
+        "app-priority": {
+          "button": "Learn More",
+          "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
+          "label": "App Priority"
+        },
         "battery-warning-threshold": {
+        "background-activity": {
+          "button": "Open Activity",
+          "description": "{count} background services without a window use memory or CPU.",
+          "description-none": "No background service without a window uses much memory or CPU.",
+          "description-one": "1 background service without a window uses memory or CPU.",
+          "description-unchecked": "See which apps and background services use memory, CPU and energy.",
+          "label": "Background Activity"
+        },
           "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
           "label": "Battery Warning Threshold"
+        },
+        "battery-profile": {
+          "keep": "Don't change"
+        },
+        "battery-profile-on-ac": {
+          "description": "Power mode to switch to when the charger is connected",
+          "label": "Power Mode on Charger"
+        },
+        "battery-profile-on-battery": {
+          "description": "Power mode to switch to when the charger is disconnected",
+          "label": "Power Mode on Battery"
         }
       },
       "templates": {
@@ -4010,6 +4746,22 @@
         "appearance-shadow-offset-y": {
           "label": "Vertical Offset",
           "description": "Shift the shadow up or down"
+        },
+        "appearance-increase-contrast": {
+          "label": "Increase Contrast",
+          "description": "Stronger text and borders in the shell and in apps"
+        },
+        "appearance-reduce-transparency": {
+          "label": "Reduce Transparency",
+          "description": "Draw glass panels as solid surfaces and turn blur off"
+        },
+        "appearance-glass": {
+          "label": "Glass",
+          "description": "From Clear to Frosted for every glass surface; the middle is Tinted"
+        },
+        "appearance-reduce-motion": {
+          "label": "Reduce Motion",
+          "description": "Windows fade instead of moving; workspace and overview animations stop"
         },
         "appearance-blur-enabled": {
           "label": "Background Blur",
@@ -4203,6 +4955,10 @@
           "label": "Focus Follows Mouse",
           "description": "Focus the window under the pointer"
         },
+        "input-window-snapping": {
+          "label": "Window Snapping",
+          "description": "Drag a window to a screen edge or corner to fill half or a quarter"
+        },
         "input-cursor-follows-focus": {
           "label": "Cursor Follows Focus",
           "description": "Move the pointer to a window when it gets focus from the keyboard"
@@ -4210,10 +4966,6 @@
         "general-focus-on-activate": {
           "label": "Focus on Activation",
           "description": "Focus and reveal a window when an app asks for attention"
-        },
-        "general-show-cheatsheet": {
-          "label": "Shortcut Cheatsheet",
-          "description": "Show the keyboard shortcut cheatsheet when the session starts"
         },
         "hot-corners-top-left-enabled": {
           "label": "Top Left Corner",
@@ -4267,8 +5019,7 @@
           "launcher": "Launcher",
           "control-center": "Control Center",
           "window-switcher": "Window Switcher",
-          "overview": "Overview",
-          "cheatsheet": "Shortcut Cheatsheet"
+          "overview": "Overview"
         },
         "general-mod-key": {
           "label": "Mod Key",
@@ -4310,7 +5061,7 @@
     "storage-recovery": {
       "button": "Reset Private Storage",
       "button-confirm": "Confirm Storage Reset",
-      "description": "Permanently delete saved clipboard history and the calendar event cache, then reopen private storage (a configured key file is never modified)",
+      "description": "Permanently delete saved clipboard and notification history, notification images, and the calendar event cache, then reopen private storage (a configured key file is never modified)",
       "error-delete": "Some private storage files could not be deleted. The storage key was preserved.",
       "error-key": "Private storage files were deleted, but secure storage could not be reopened. Fix access and retry.",
       "label": "Recover Private Storage",
@@ -4433,12 +5184,16 @@
             "label": "Get color scheme"
           },
           "color-scheme-set": {
-            "description": "Set palette source and selection in settings.toml (builtin name, wallpaper generator scheme, community id, or custom scheme folder name)",
+            "description": "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, or custom scheme folder name)",
             "label": "Set color scheme"
           },
           "config-reload": {
             "description": "Reload the config file",
             "label": "Reload config"
+          },
+          "debug-threads": {
+            "description": "List the threads the shell created (dsk- prefix)",
+            "label": "List shell threads"
           },
           "desktop-widgets-edit": {
             "description": "Open the desktop widgets editor",
@@ -4493,7 +5248,7 @@
             "label": "Set EasyEffects profile"
           },
           "greeter-sync": {
-            "description": "Sync wallpaper, colors, and monitor layout to Noctalia Greeter",
+            "description": "Sync wallpaper, colors, and monitor layout to Andromeda Greeter",
             "label": "Sync greeter appearance"
           },
           "keyboard-backlight-down": {
@@ -4609,7 +5364,7 @@
             "label": "Invoke latest notification action"
           },
           "notification-show": {
-            "description": "Show an internal Noctalia notification",
+            "description": "Show an internal Andromeda notification",
             "label": "Show a notification"
           },
           "osd-disable": {
@@ -4713,7 +5468,7 @@
             "label": "Get theme mode"
           },
           "theme-mode-set": {
-            "description": "Set theme mode and persist to settings.toml",
+            "description": "Set theme mode and persist to overrides.toml",
             "label": "Set theme mode"
           },
           "theme-mode-toggle": {
@@ -5581,11 +6336,21 @@
         "workspaces": "Workspaces"
       }
     },
+    "sliders": {
+      "clear": "Clear",
+      "fast": "Fast",
+      "frosted": "Frosted",
+      "large": "Large",
+      "long": "Long",
+      "short": "Short",
+      "slow": "Slow",
+      "small": "Small"
+    },
     "window": {
       "export-config": "Export Config…",
       "export-config-saved": "Config export saved.",
-      "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Noctalia is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
-      "native-title": "Noctalia Settings",
+      "legacy-config-warning": "Legacy setting: {issue}. Edit this source entry; Andromeda is applying the replacement only temporarily. Run noctalia config validate to list every required change.",
+      "native-title": "Andromeda Settings",
       "no-results": "No settings found",
       "no-results-hint": "Try a different setting name or config key.",
       "offline-mode-notice": {
@@ -5604,6 +6369,7 @@
       "reset-page": "Reset page to defaults",
       "reset-page-confirm": "Reset every setting on this page",
       "search-placeholder": "Search settings…",
+      "search-results": "Search results",
       "search-truncated": "Showing the first {count} matches. Refine your search to narrow results.",
       "support-report": "Support Report",
       "support-report-saved": "Support report saved.",
@@ -5611,6 +6377,15 @@
       "title": "Settings"
     },
     "displays": {
+      "built-in": "Built-in display",
+      "extend": "Extend",
+      "multiple": "Multiple displays",
+      "night-light": "Night Light",
+      "night-light-off": "Off",
+      "night-light-on": "On",
+      "scale-default": "Default",
+      "scale-larger": "Larger text",
+      "scale-space": "More space",
       "enabled": "Enabled",
       "resolution": "Resolution",
       "refresh-rate": "Refresh rate",
@@ -5678,10 +6453,16 @@
       "keyboard.layout": "Layout",
       "keyboard.variant": "Variant",
       "keyboard.variant-default": "Default",
+      "keyboard.add-source": "Add input source",
+      "keyboard.default-source": "Default",
+      "keyboard.remove-source": "Remove",
       "keyboard.repeat-rate": "Repeat rate",
       "keyboard.repeat-delay": "Repeat delay",
       "keyboard.numlock": "Enable Num Lock at login",
       "keyboard.option-none": "Off",
+      "keyboard.track-layout": "Input source",
+      "keyboard.track-layout.global": "Same for all windows",
+      "keyboard.track-layout.window": "Per window",
       "touchpad": "Touchpad",
       "touchpad.tap": "Tap to click",
       "touchpad.natural-scroll": "Natural scrolling",
@@ -5690,7 +6471,30 @@
       "touchpad.click-method": "Click method",
       "touchpad.click-method.button-areas": "Button areas",
       "touchpad.click-method.clickfinger": "Click-finger",
-      "mouse": "Mouse"
+      "touchpad.natural-swipe": "Natural swipe direction",
+      "touchpad.disable-on-external-mouse": "Disable when a mouse is connected",
+      "touchpad.tap-map": "Two- and three-finger tap",
+      "touchpad.tap-map.lrm": "Right click, middle click",
+      "touchpad.tap-map.lmr": "Middle click, right click",
+      "touchpad.scroll-speed": "Scroll speed",
+      "touchpad.tap-and-drag": "Tap and drag",
+      "touchpad.drag-lock": "Drag lock",
+      "touchpad.drag-lock.off": "Off",
+      "touchpad.drag-lock.timeout": "Short pause",
+      "touchpad.drag-lock.sticky": "Until next tap",
+      "touchpad.enabled": "Use touchpad",
+      "mouse": "Mouse",
+      "pointer": "Pointer",
+      "pointer.theme": "Cursor theme",
+      "pointer.size": "Cursor size",
+      "pointer.hide-while-typing": "Hide while typing",
+      "pointer.hide-after": "Hide when idle",
+      "pointer.hide-never": "Never",
+      "pointer.middle-click-paste": "Middle-click paste",
+      "tablet": "Tablet",
+      "tablet.enabled": "Use tablet",
+      "touchscreen": "Touchscreen",
+      "touchscreen.enabled": "Use touchscreen"
     },
     "datetime": {
       "unavailable": "org.freedesktop.timedate1 is not available on the system bus.",
@@ -5743,17 +6547,34 @@
     }
   },
   "setup-wizard": {
+    "andromeda-wallpaper": "Andromeda",
+    "appearance-body": "Choose a look. The desktop changes as you pick.",
+    "appearance-title": "Appearance",
+    "back": "Back",
     "browse": "Browse",
     "builtin-palette": "Built-In Palette",
+    "choose": "Choose…",
+    "colour": "Colour",
+    "continue": "Continue",
+    "done": "Done",
+    "done-body": "Three shortcuts to start with.",
+    "done-title": "You’re All Set",
     "footer-note": "You can change these later in settings.",
     "get-started": "Get Started",
+    "match-wallpaper": "Match wallpaper",
     "mode": "Mode",
     "no-wallpaper-selected": "No wallpaper selected",
     "select-wallpaper": "Select Wallpaper",
+    "share-usage": "Share anonymous usage data",
+    "skip": "Skip",
     "subtitle": "A few quick choices to get you started.",
-    "title": "Welcome to Noctalia",
+    "tip-clipboard": "Clipboard history",
+    "tip-emoji": "Emoji",
+    "tip-search": "Search apps and files",
+    "title": "Welcome to Andromeda",
     "wallpaper": "Wallpaper",
-    "wallpaper-scheme": "Wallpaper Scheme"
+    "wallpaper-scheme": "Wallpaper Scheme",
+    "welcome-body": "Set up your desktop in a minute. You can change everything later in Settings."
   },
   "system": {
     "hardware": {

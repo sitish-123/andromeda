@@ -42,9 +42,10 @@ await_outputs "
   and (.[] | select(.name == \"HEADLESS-1\") | .active_workspace == \"$first_workspace\")
 " "the initial outputs lack focus, power, workspace, or area state"
 
-# The listing answers the query with the same payload the stream carries.
-if ! diff <("$ANDROMEDA" outputs --json | jq -S .) \
-  <(jq -s -S '[.[] | select(.event == "outputs")] | last | .data' "$EVENTS") > /dev/null; then
+# The listing answers the query with the same payload the stream carries. Frame counters advance without a push.
+counters='del(.[].direct_scanout.commits, .[].direct_scanout.scanout_commits, .[].direct_scanout.commit_seq, .[].direct_scanout.grouped_events)'
+if ! diff <("$ANDROMEDA" outputs --json | jq -S "$counters") \
+  <(jq -s -S "[.[] | select(.event == \"outputs\")] | last | .data | $counters" "$EVENTS") > /dev/null; then
   echo "outputs --json differs from the pushed snapshot: $("$ANDROMEDA" outputs --json)"
   exit 1
 fi

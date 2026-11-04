@@ -28,9 +28,9 @@ namespace noctalia::bar {
     };
 
     // Widgets whose whole-widget gestures are declared here rather than wired by hand in create().
-    constexpr std::array<GestureBinding, 1> kBattery{{{Gesture::Left, "panel-toggle control-center power"}}};
+    constexpr std::array<GestureBinding, 1> kBattery{{{Gesture::Left, "panel-toggle control-center quick"}}};
     constexpr std::array<GestureBinding, 2> kBluetooth{
-        {{Gesture::Left, "panel-toggle control-center bluetooth"}, {Gesture::Right, "bluetooth-toggle"}}
+        {{Gesture::Left, "panel-toggle control-center quick"}, {Gesture::Right, "bluetooth-toggle"}}
     };
     constexpr std::array<GestureBinding, 3> kBrightness{
         {{Gesture::Left, "panel-toggle control-center monitor"},
@@ -42,7 +42,7 @@ namespace noctalia::bar {
     constexpr std::array<GestureBinding, 1> kControlCenter{{{Gesture::Left, "panel-toggle control-center home"}}};
     constexpr std::array<GestureBinding, 1> kLauncher{{{Gesture::Left, "panel-toggle launcher"}}};
     constexpr std::array<GestureBinding, 2> kNetwork{
-        {{Gesture::Left, "panel-toggle control-center network"}, {Gesture::Right, "network-toggle"}}
+        {{Gesture::Left, "panel-toggle control-center quick"}, {Gesture::Right, "network-toggle"}}
     };
     constexpr std::array<GestureBinding, 1> kCaffeine{{{Gesture::Left, "caffeine-toggle"}}};
     constexpr std::array<GestureBinding, 1> kKeyboardLayout{{{Gesture::Left, "keyboard-layout-cycle"}}};
@@ -81,8 +81,9 @@ namespace noctalia::bar {
     constexpr std::array<GestureBinding, 1> kSysmon{{{Gesture::Left, "panel-toggle control-center system"}}};
     constexpr std::array<GestureBinding, 1> kWallpaper{{{Gesture::Left, "panel-toggle wallpaper"}}};
     constexpr std::array<GestureBinding, 1> kThemeMode{{{Gesture::Left, "theme-mode-toggle"}}};
+    // Status icons open the quick sheet; its cards lead to each tab.
     constexpr std::array<GestureBinding, 4> kVolumeOutput{
-        {{Gesture::Left, "panel-toggle control-center audio"},
+        {{Gesture::Left, "panel-toggle control-center quick"},
          {Gesture::Right, "volume-mute"},
          {Gesture::ScrollUp, "volume-up"},
          {Gesture::ScrollDown, "volume-down"}}

@@ -1,0 +1,16 @@
+[Unit]
+Description=Andromeda file index, names of the files in the home folder for the launcher
+PartOf=andromeda-session.target
+After=andromeda-session.target
+Requires=andromeda-index.socket
+
+[Service]
+Slice=background.slice
+ExecStart=@bindir@/andromeda-index serve
+Restart=on-failure
+# The first crawl and the sweeps must not slow the desktop; queries read pages that stay in the page cache.
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=andromeda-session.target

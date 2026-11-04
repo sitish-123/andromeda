@@ -3,6 +3,7 @@
 #include "config/config_types.h"
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string_view>
 
@@ -10,9 +11,10 @@ class CompositorPlatform;
 class LockScreen;
 
 struct SessionActionHooks {
-  std::function<bool()> onLogout;
-  std::function<bool()> onReboot;
-  std::function<bool()> onShutdown;
+  using AsyncHook = std::function<void(std::function<void(bool ok)> done)>;
+  AsyncHook onLogout;
+  AsyncHook onReboot;
+  AsyncHook onShutdown;
   // Armed before Noctalia-initiated suspend so PrepareForSleep can skip lock-before-sleep.
   std::function<void()> onBeforePlainSuspend;
   std::function<void()> onPlainSuspendAborted;
@@ -30,12 +32,15 @@ public:
   [[nodiscard]] bool requestRebootDetached() const;
   [[nodiscard]] bool requestRebootUefiDetached() const;
   [[nodiscard]] bool requestShutdownDetached() const;
+  // "suspend", "reboot" or "shutdown" past other apps' block inhibitors (logind *WithFlags with
+  // SD_LOGIND_SKIP_INHIBITORS); polkit may refuse it without admin rights.
+  [[nodiscard]] bool requestPowerSkippingInhibitors(std::string_view action) const;
   [[nodiscard]] bool requestHibernateDetached() const;
   [[nodiscard]] bool requestSuspendThenHibernateDetached() const;
   [[nodiscard]] bool lockThenSuspendDetached() const;
 
 private:
-  [[nodiscard]] std::function<bool()> hookFor(std::string_view action) const;
+  [[nodiscard]] SessionActionHooks::AsyncHook hookFor(std::string_view action) const;
   [[nodiscard]] bool suspendBlocking() const;
   [[nodiscard]] bool rebootBlocking() const;
   [[nodiscard]] bool shutdownBlocking() const;
@@ -43,6 +48,7 @@ private:
   CompositorPlatform& m_platform;
   LockScreen& m_lockScreen;
   SessionActionHooks m_hooks;
+  std::shared_ptr<void> m_aliveGuard = std::make_shared<int>(0);
 
   // Session power command resolution is used from UI threads and worker threads
   // (panel/IPC/lock-and-suspend), so keep it internally synchronized.

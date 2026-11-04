@@ -56,7 +56,7 @@ UDisksService::UDisksService(SystemBus& bus) : m_bus(bus) {
             && !propertyOr<bool>(props, "HintSystem", true);
         const auto mountPoints =
             propertyOr<std::vector<std::vector<std::uint8_t>>>(filesystem->second, "MountPoints", {});
-        if (automount && mountPoints.empty()) {
+        if (m_automount && automount && mountPoints.empty()) {
           mount(path, label(props), propertyOr<sdbus::ObjectPath>(props, "Drive", sdbus::ObjectPath{"/"}));
         }
       });

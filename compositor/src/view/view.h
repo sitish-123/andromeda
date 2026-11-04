@@ -2,6 +2,7 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "scene/node.h"
+#include "util/tracked.h"
 #include "view/chrome_attachment.h"
 #include "view/decoration.h"
 #include "view/deferred_unfullscreen.h"
@@ -55,7 +56,7 @@ namespace andromeda {
   struct SizeHints;
   struct XwaylandRegion;
 
-  class View : public SceneNode, public Animatable {
+  class View : public SceneNode, public Animatable, public Trackable {
   public:
     View(Server& server, wlr_xdg_toplevel* toplevel);
     View(Server& server, wlr_xwayland_surface* xsurface);

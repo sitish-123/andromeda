@@ -662,6 +662,17 @@ struct PolkitAgent::Impl {
     emitStateChanged();
   }
 
+  // gazed's verdict for the face check beside the open password prompt: pam_gaze cannot send a second message there.
+  void faceCheckEnded(std::string text) {
+    if (face != PolkitFaceState::Looking) {
+      return;
+    }
+    face = PolkitFaceState::Failed;
+    supplementaryMessage = std::move(text);
+    supplementaryError = false;
+    emitStateChanged();
+  }
+
   void setSupplementary(const std::string& text, bool isError) {
     if (const auto marker = parseGazeMarker(text); marker.has_value()) {
       if (marker->text.empty()) {
@@ -876,6 +887,22 @@ void PolkitAgent::registerWithGaze() {
     m_dbus = sdbus::createProxy(
         m_bus.connection(), sdbus::ServiceName{"org.freedesktop.DBus"}, sdbus::ObjectPath{"/org/freedesktop/DBus"}
     );
+    using ScoredFace = sdbus::Struct<std::string, double, double, bool, double, double, bool>;
+    m_gaze->uponSignal("VerifyStatus")
+        .onInterface("com.gundulabs.Gaze")
+        .call([this, gazeName](
+                  const std::string& result, const std::vector<ScoredFace>& faces, const std::string& rgb,
+                  const std::string& ir
+              ) {
+          if (result == "verify-match" || !m_bus.isNameOwner(gazeName, m_gaze->getCurrentlyProcessedMessage().getSender())) {
+            return;
+          }
+          kLog.info("face check ended: {} judged={} rgb={} ir={}", result, !faces.empty(), rgb, ir);
+          const char* key = !faces.empty()                                     ? "auth.face.no-match"
+              : rgb == "too-dark" && (ir == "too-dark" || ir == "unused") ? "auth.face.too-dark"
+                                                                            : "auth.face.no-face";
+          m_impl->faceCheckEnded(i18n::tr(key));
+        });
     // gazed keeps the list in memory, so a restarted gazed needs it again.
     m_dbus->uponSignal("NameOwnerChanged")
         .onInterface("org.freedesktop.DBus")

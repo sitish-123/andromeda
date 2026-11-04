@@ -568,8 +568,8 @@ namespace andromeda {
         && containers != nullptr
         && containers->insertTab(&view, std::max(0, drop.column), drop.row, drop.tab);
     if (drop.row >= 0) {
-      if (!joinedTabs) {
-        target.layout().insertViewIntoColumn(&view, std::max(0, drop.column), drop.row);
+      if (ColumnOps* ops = target.layout().columnOps(); !joinedTabs && ops != nullptr) {
+        ops->insertViewIntoColumn(&view, std::max(0, drop.column), drop.row);
       }
     } else if (
         MasterStackLayout* master = target.masterLayout(); master == nullptr || !master->openStack(&view, drop.column)
@@ -577,9 +577,11 @@ namespace andromeda {
       target.layout().insertView(&view, std::max(0, drop.column));
       if (columnWidth != nullptr) {
         const int column = target.layout().columnOf(&view);
-        target.layout().setWidthFraction(column, columnWidth->fraction);
-        if (columnWidth->fullWidth) {
-          target.layout().toggleFullWidth(column);
+        if (ColumnOps* ops = target.layout().columnOps()) {
+          ops->setWidthFraction(column, columnWidth->fraction);
+          if (columnWidth->fullWidth) {
+            ops->toggleFullWidth(column);
+          }
         }
         view.setMaximizedState(columnWidth->fullWidth);
       }

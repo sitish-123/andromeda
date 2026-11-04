@@ -26,6 +26,8 @@ public:
   ~UDisksService();
 
   void setMountedCallback(MountedCallback callback);
+  // Off: new filesystems stay unmounted; eject still works.
+  void setAutomount(bool enabled) noexcept { m_automount = enabled; }
   // Unmounts the filesystem, then powers its drive off so it is safe to unplug.
   void eject(const std::string& blockPath);
 
@@ -40,5 +42,6 @@ private:
   std::map<std::string, std::unique_ptr<sdbus::IProxy>> m_calls;
   std::map<std::string, std::string> m_driveOfBlock;
   MountedCallback m_mountedCallback;
+  bool m_automount = true;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
 };

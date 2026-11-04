@@ -222,12 +222,12 @@ The bar is hidden while its window is fullscreen or maximized to the edges. Titl
 [appearance.blur]
 enabled = true
 optimized = true
-passes = 2
-radius = 5
+passes = 3
+radius = 6
 noise = 0.02
-brightness = 0.9
-contrast = 0.9
-saturation = 1.1
+brightness = 0.95
+contrast = 0.95
+saturation = 1.6
 ```
 
 `enabled` is the master switch. Individual surfaces still opt in through [window rules](window-rules.md) or [layer rules](layer-rules.md). Blur appears only where a surface is transparent.
@@ -236,12 +236,12 @@ saturation = 1.1
 | ------------ | ------- | -------------------------------------------------------------- |
 | `enabled`    | `true`  | Enable blur rendering.                                         |
 | `optimized`  | `true`  | Share one cached background blur across surfaces on an output. |
-| `passes`     | `2`     | Blur passes from 0 to 8.                                       |
-| `radius`     | `5`     | Blur radius from 0 to 100.                                     |
+| `passes`     | `3`     | Blur passes from 0 to 8.                                       |
+| `radius`     | `6`     | Blur radius from 0 to 100.                                     |
 | `noise`      | `0.02`  | Noise overlay from 0.0 to 1.0.                                 |
-| `brightness` | `0.9`   | Brightness multiplier from 0.0 to 2.0.                         |
-| `contrast`   | `0.9`   | Contrast multiplier from 0.0 to 2.0.                           |
-| `saturation` | `1.1`   | Saturation multiplier from 0.0 to 2.0.                         |
+| `brightness` | `0.95`  | Brightness multiplier from 0.0 to 2.0.                         |
+| `contrast`   | `0.95`  | Contrast multiplier from 0.0 to 2.0.                           |
+| `saturation` | `1.6`   | Saturation multiplier from 0.0 to 2.0.                         |
 
 Optimized blur samples the background beneath the window stack. Set it to `false` when translucent surfaces should blur the surfaces directly behind them, at a higher rendering cost. The shared background cache follows background layer-shell updates, including animated map and unmap transitions. Unchanged commits that only request frame callbacks reuse the cached blur.
 
@@ -250,16 +250,39 @@ Optimized blur samples the background beneath the window stack. Set it to `false
 ```toml
 [appearance.shadow]
 enabled = true
-softness = 10
-offset_x = 2
-offset_y = 2
+softness = 48
+offset_x = 0
+offset_y = 18
 ```
 
 | Key        | Default | Description                                     |
 | ---------- | ------- | ----------------------------------------------- |
 | `enabled`  | `true`  | Draw shadows behind tiled and floating windows. |
-| `softness` | `10`    | Blur softness from 0 to 200.                    |
-| `offset_x` | `2`     | Horizontal offset from -200 to 200.             |
-| `offset_y` | `2`     | Vertical offset from -200 to 200.               |
+| `softness` | `48`    | Blur softness from 0 to 200.                    |
+| `offset_x` | `0`     | Horizontal offset from -200 to 200.             |
+| `offset_y` | `18`    | Vertical offset from -200 to 200.               |
 
 A window's shadow falls on everything below it, including other floating, pinned, or scratchpad windows it overlaps. Tiled windows never shadow each other. Shadows are hidden for fullscreen windows. During a [custom window animation](animation.md#custom-effects), the shadow follows the visible shape produced by the shader. A [window rule](window-rules.md#decoration) can turn the shadow on or off for the windows it matches.
+
+## Live appearance
+
+```toml
+[appearance]
+scheme = "dark"
+# accent = "#4a80ff"
+glass_opacity = 1.0
+reduce_transparency = false
+increase_contrast = false
+reduce_motion = false
+```
+
+| Key                   | Default | Description                                                                  |
+| --------------------- | ------- | ---------------------------------------------------------------------------- |
+| `scheme`              | `dark`  | Color scheme of the desktop: `dark` or `light`.                              |
+| `accent`              | unset   | Accent color. When set, it also replaces `colors.accent_primary`.            |
+| `glass_opacity`       | `1.0`   | Multiplies the opacity of glass materials, from 0 to 1.                      |
+| `reduce_transparency` | `false` | Replace glass materials with their solid fallbacks; turns compositor blur off. |
+| `increase_contrast`   | `false` | Higher-contrast colors in the shell and apps; borders at least 2 px.         |
+| `reduce_motion`       | `false` | Less motion: windows fade in and out; workspace, move, resize, overview and scratchpad animations stop; `dsk_surface_v1` moves jump. Fades stay. |
+
+These keys are managed settings: the shell, the greeter and our apps read and set them over the settings protocol, so a change applies at once without a config reload.

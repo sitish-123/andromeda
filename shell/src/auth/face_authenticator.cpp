@@ -160,7 +160,13 @@ bool FaceAuthenticator::ensureProxy() {
         .call([this](
                   const std::string& result, const std::vector<ScoredFace>& faces, const std::string& rgb,
                   const std::string& ir
-              ) { handleVerifyStatus(result, !faces.empty(), rgb, ir); });
+              ) {
+          if (!m_bus.isNameOwner(kGazeBusName, m_gaze->getCurrentlyProcessedMessage().getSender())) {
+            kLog.warn("ignoring VerifyStatus signal not sent by gazed");
+            return;
+          }
+          handleVerifyStatus(result, !faces.empty(), rgb, ir);
+        });
   } catch (const sdbus::Error& e) {
     kLog.debug("could not create gazed proxy: {}", e.what());
     m_gaze.reset();

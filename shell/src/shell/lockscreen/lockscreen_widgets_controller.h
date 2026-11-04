@@ -7,12 +7,15 @@
 
 #include <functional>
 #include <memory>
+#include <string>
+#include <unordered_map>
 
 class Bar;
 class ConfigService;
 class Dock;
 class DesktopWidgetsController;
 class IpcService;
+class LockEditor;
 class LockScreen;
 class DesktopWidgetsEditor;
 class LockscreenWidgetsHost;
@@ -45,6 +48,8 @@ public:
   void onLockStateChanged();
   void onOutputChange();
   void onSecondTick();
+  // See LockscreenWidgetsHost::setStreamsPaused.
+  void setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower);
   // True when a visible widget renders a value that changes every second.
   [[nodiscard]] bool wantsSecondTicks() const;
   void requestLayout();
@@ -84,4 +89,5 @@ private:
   std::function<void()> m_onExitEdit;
   std::unique_ptr<LockscreenWidgetsHost> m_host;
   std::unique_ptr<DesktopWidgetsEditor> m_editor;
+  std::unique_ptr<LockEditor> m_lockEditor;
 };

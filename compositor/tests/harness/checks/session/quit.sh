@@ -59,7 +59,6 @@ SOCKET=$RUNTIME_DIR/andromeda-wayland-0.sock
 cat > "$CONFIG" << 'EOF'
 [general]
 xwayland = false
-show_cheatsheet = false
 autostart = []
 EOF
 

@@ -12,7 +12,7 @@ class ScreenshotCapture {
 public:
   using CompletionCallback = std::function<void(std::optional<capture::ScreenshotImage>, std::string error)>;
 
-  explicit ScreenshotCapture(WaylandConnection& wayland);
+  explicit ScreenshotCapture(ShellWaylandConnection& wayland);
   ~ScreenshotCapture();
 
   [[nodiscard]] bool available() const noexcept;
@@ -28,7 +28,7 @@ private:
   void captureBackground();
   void finish(std::optional<ScreencopyImage> image, std::string error);
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   ScreencopyCapture m_backgroundCapture;
   PointerCursorCapture m_cursorCapture;
   Timer m_timeout;

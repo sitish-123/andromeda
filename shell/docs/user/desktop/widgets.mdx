@@ -7,10 +7,10 @@ sidebar:
 
 # Desktop Widgets
 
-Desktop widgets are configured through the normal Noctalia config stack. Declare layouts in `~/.config/noctalia/*.toml`; the interactive editor writes its layout overrides to `settings.toml`.
+Desktop widgets are configured through the normal Noctalia config stack. Declare layouts in `~/.config/noctalia/*.toml`; the interactive editor writes its layout overrides to `overrides.toml`.
 
 - Declarative config: `[desktop_widgets]` in `~/.config/noctalia/*.toml`
-- GUI/editor overrides: `$NOCTALIA_STATE_HOME/noctalia/settings.toml`, `$XDG_STATE_HOME/noctalia/settings.toml`, or `~/.local/state/noctalia/settings.toml`
+- GUI/editor overrides: `$NOCTALIA_STATE_HOME/noctalia/overrides.toml`, `$XDG_STATE_HOME/noctalia/overrides.toml`, or `~/.local/state/noctalia/overrides.toml`
 
 ```toml
 [desktop_widgets]
@@ -75,7 +75,7 @@ Primary-colored center guides are always shown in edit mode. Dragging a widget s
 
 ## Config Format
 
-Widget definitions are named tables under `[desktop_widgets.widget.<id>]`. This makes them friendly to split config files and deep-merge overrides. Edit mode writes the same schema into `settings.toml`; use Settings -> Export Config... -> Merged User Config to promote GUI-edited layouts back into declarative config. When `widget_order` is present, it is the authoritative widget list and order; unlisted widget tables are ignored.
+Widget definitions are named tables under `[desktop_widgets.widget.<id>]`. This makes them friendly to split config files and deep-merge overrides. Edit mode writes the same schema into `overrides.toml`; use Settings -> Export Config... -> Merged User Config to promote GUI-edited layouts back into declarative config. When `widget_order` is present, it is the authoritative widget list and order; unlisted widget tables are ignored.
 
 ```toml
 [desktop_widgets]
@@ -449,7 +449,7 @@ rotation = 0.0
 
 [desktop_widgets.widget.note_main.settings]
 title       = "Welcome"
-description = "Edit this in the widget inspector or settings.toml."
+description = "Edit this in the widget inspector or overrides.toml."
 color       = "on_surface"
 opacity     = 1.0
 shadow      = true

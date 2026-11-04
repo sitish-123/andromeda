@@ -31,7 +31,7 @@ namespace andromeda {
     WindowPositionAnchor anchor;
   };
 
-  // The one spelling of each anchor, shared by `default_position.anchor`, `window-move-to` and the cheatsheet.
+  // The one spelling of each anchor, shared by `default_position.anchor`, and `window-move-to`.
   inline constexpr std::array<WindowPositionAnchorName, 9> kWindowPositionAnchorNames{{
       {.name = "top_left", .anchor = WindowPositionAnchor::TopLeft},
       {.name = "top_right", .anchor = WindowPositionAnchor::TopRight},

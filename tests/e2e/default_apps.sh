@@ -10,8 +10,8 @@ source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
 SRC=$ROOT/shell
-g++ -std=c++23 -I"$SRC/src" -o "$RUNTIME/default-apps-set" \
-  "$(dirname "$0")/default_apps_set.cpp" "$SRC/src/system/default_apps.cpp" "$SRC/src/core/log.cpp"
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -o "$RUNTIME/default-apps-set" \
+  "$(dirname "$0")/default_apps_set.cpp" "$SRC/src/system/default_apps.cpp" "$ROOT/libdesk-ui/src/core/log.cpp"
 
 MIMEAPPS="$RUNTIME/home/.config/mimeapps.list"
 mkdir -p "$(dirname "$MIMEAPPS")"

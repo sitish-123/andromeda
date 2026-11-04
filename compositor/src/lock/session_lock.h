@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene/node.h"
+#include "scene/surface_blur.h"
 
 #include <cstdint>
 #include <memory>
@@ -38,11 +39,14 @@ namespace andromeda {
     static void onUnmap(wl_listener* listener, void* data);
     static void onDestroy(wl_listener* listener, void* data);
     static void onOutputCommit(wl_listener* listener, void* data);
+    static void onCommit(wl_listener* listener, void* data);
 
     void handleMap();
     void handleUnmap();
     void handleDestroy();
     void handleOutputCommit();
+    // Blurs the cached wallpaper behind the client's ext-background-effect-v1 region; no window content shows.
+    void updateBlur();
 
     Server* m_server = nullptr;
     wlr_session_lock_surface_v1* m_lockSurface = nullptr;
@@ -55,6 +59,8 @@ namespace andromeda {
     wl_listener m_unmap{};
     wl_listener m_destroy{};
     wl_listener m_outputCommit{};
+    wl_listener m_commit{};
+    SurfaceBlur m_blur;
   };
 
   class SessionLock {

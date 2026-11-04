@@ -22,7 +22,7 @@ void ClipboardWidget::create() {
             .out = &m_glyph,
             .glyph = m_barGlyphId,
             .glyphSize = Style::baseGlyphSize * m_contentScale,
-            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
         })
     );
   }
@@ -33,7 +33,7 @@ void ClipboardWidget::create() {
 void ClipboardWidget::doLayout(Renderer& renderer, float /*containerWidth*/, float /*containerHeight*/) {
   if (m_image != nullptr) {
     widget_custom_image::sync(
-        *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface))
+        *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
     );
     if (auto* node = root(); node != nullptr) {
       node->setSize(m_image->width(), m_image->height());
@@ -44,7 +44,7 @@ void ClipboardWidget::doLayout(Renderer& renderer, float /*containerWidth*/, flo
     return;
   }
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
   if (auto* node = root(); node != nullptr) {
     node->setSize(m_glyph->width(), m_glyph->height());

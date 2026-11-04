@@ -279,10 +279,11 @@ namespace {
     std::string_view iconOn() const override { return "theme-mode"; }
     std::string_view iconOff() const override { return "theme-mode"; }
     bool isToggle() const override { return true; }
-    bool active() const override { return m_svc != nullptr && m_svc->configuredMode() != ThemeMode::Light; }
+    // On = the resolved look is dark, so "auto" reads On only at night; a click picks the opposite explicit mode.
+    bool active() const override { return m_svc != nullptr && m_svc->resolvedMode() == "dark"; }
     void onClick() override {
       if (m_svc != nullptr) {
-        m_svc->cycleMode();
+        m_svc->toggleLightDark();
       }
     }
 

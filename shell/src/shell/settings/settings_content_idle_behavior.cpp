@@ -26,13 +26,17 @@ namespace settings {
   ) {
     const float scale = ctx.scale;
 
-    const std::vector<SelectOption> idleActionOptions = {
+    std::vector<SelectOption> idleActionOptions = {
         {"lock", i18n::tr("settings.idle.behavior.kind.lock"), {}},
         {"screen_off", i18n::tr("settings.idle.behavior.kind.screen-off"), {}},
         {"suspend", i18n::tr("settings.idle.behavior.kind.suspend"), {}},
         {"lock_and_suspend", i18n::tr("settings.idle.behavior.kind.lock-and-suspend"), {}},
-        {"command", i18n::tr("settings.idle.behavior.kind.custom"), {}},
     };
+    // Offered only where logind can hibernate; a row already set to hibernate keeps its choice.
+    if (ctx.canHibernate || row.action == "hibernate") {
+      idleActionOptions.push_back({"hibernate", i18n::tr("settings.idle.behavior.kind.hibernate"), {}});
+    }
+    idleActionOptions.push_back({"command", i18n::tr("settings.idle.behavior.kind.custom"), {}});
 
     IdleBehaviorConfig norm = row;
     normalizeIdleBehaviorAction(norm);
@@ -57,7 +61,7 @@ namespace settings {
       auto block = ui::column(
           {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
           makeLabel(
-              label, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              label, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
       Input* inputPtr = nullptr;
@@ -105,7 +109,7 @@ namespace settings {
          .visible = showCustomCommands},
         makeLabel(
             i18n::tr("settings.idle.behavior.name-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
 
@@ -113,7 +117,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.idle.behavior.kind-section-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     const auto selectedKindIndex = optionIndex(idleActionOptions, norm.action);
@@ -177,7 +181,7 @@ namespace settings {
         {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
         makeLabel(
             i18n::tr("settings.idle.behavior.timeout-label"), Style::fontSizeCaption * scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         )
     );
     Input* timeoutPtr = nullptr;
@@ -212,7 +216,7 @@ namespace settings {
           {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
           makeLabel(
               i18n::tr("settings.idle.behavior.locked-timeout-label"), Style::fontSizeCaption * scale,
-              colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           )
       );
       Input* lockedTimeoutPtr = nullptr;

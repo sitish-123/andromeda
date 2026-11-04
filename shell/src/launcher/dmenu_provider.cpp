@@ -5,7 +5,7 @@
 #include "core/process/process.h"
 #include "util/fuzzy_match.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <algorithm>
 #include <atomic>
@@ -33,14 +33,13 @@ namespace {
     }
   }
 
-  // Plain substitution; the exec template is user-trusted config (like dmenu/rofi run commands).
-  std::string substituteExecTokens(std::string tmpl, std::string_view selection, std::string_view query) {
-    substituteToken(tmpl, "{selection}", selection);
-    substituteToken(tmpl, "{query}", query);
-    return tmpl;
-  }
-
 } // namespace
+
+std::vector<std::string> dmenuExecArgv(std::string tmpl, std::string_view selection, std::string_view query) {
+  substituteToken(tmpl, "{selection}", "\"$1\"");
+  substituteToken(tmpl, "{query}", "\"$2\"");
+  return {"/bin/sh", "-lc", std::move(tmpl), "sh", std::string(selection), std::string(query)};
+}
 
 DmenuProvider::Line DmenuProvider::parseLine(std::string&& raw) {
   Line line;
@@ -258,15 +257,13 @@ bool DmenuProvider::activate(const LauncherResult& result) {
       continue;
     }
     if (m_entry.exec.has_value() && !m_entry.exec->empty()) {
-      const std::string command = substituteExecTokens(*m_entry.exec, line.raw, result.query.value_or(""));
-      return process::runAsync(command);
+      return process::runAsync(dmenuExecArgv(*m_entry.exec, line.raw, result.query.value_or("")));
     }
     return m_clipboard != nullptr && m_clipboard->copyText(line.raw);
   }
   if (m_entry.freeform && result.query.has_value() && result.id == *result.query && !result.id.empty()) {
     if (m_entry.exec.has_value() && !m_entry.exec->empty()) {
-      const std::string command = substituteExecTokens(*m_entry.exec, result.id, *result.query);
-      return process::runAsync(command);
+      return process::runAsync(dmenuExecArgv(*m_entry.exec, result.id, *result.query));
     }
     return m_clipboard != nullptr && m_clipboard->copyText(result.id);
   }

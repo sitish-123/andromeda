@@ -30,7 +30,7 @@ void NightLightWidget::create() {
           .out = &m_glyph,
           .glyph = "nightlight-off",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -74,11 +74,11 @@ void NightLightWidget::syncState(Renderer& renderer) {
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
 
   if (forced || (enabled && active)) {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Primary)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::AccentText)));
   } else if (enabled) {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   } else {
-    m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
   }
 
   m_glyph->measure(renderer);

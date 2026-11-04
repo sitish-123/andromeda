@@ -1,11 +1,16 @@
 #pragma once
 
+#include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
+#include "launcher/search_broker.h"
 #include "launcher/usage_tracker.h"
+#include "render/core/texture_handle.h"
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
 #include "ui/signal.h"
 
+#include <array>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -23,9 +28,12 @@ class Input;
 class Label;
 class LauncherResultAdapter;
 class LauncherAppGridAdapter;
+class FilesProvider;
+class KlipyProvider;
 class LauncherSectionsAdapter;
 class Renderer;
 class Segmented;
+class Separator;
 class ScrollView;
 class VirtualGridView;
 class VirtualListView;
@@ -64,11 +72,16 @@ public:
 
   [[nodiscard]] float preferredWidth() const override;
   [[nodiscard]] float preferredHeight() const override;
+  [[nodiscard]] bool fitsContentHeight() const noexcept override { return usesBrowserLayout(); }
+  [[nodiscard]] float centerTopFraction() const noexcept override { return usesBrowserLayout() ? 0.2F : 0.0F; }
+  [[nodiscard]] bool padsContent() const noexcept override { return !usesBrowserLayout(); }
+  [[nodiscard]] float measureContentHeight(Renderer& renderer, float contentWidth) override;
   [[nodiscard]] LayerShellKeyboard keyboardMode() const override { return LayerShellKeyboard::Exclusive; }
   [[nodiscard]] InputArea* initialFocusArea() const override;
   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   [[nodiscard]] PanelPlacement panelPlacement() const noexcept override;
   [[nodiscard]] bool ignorePointerEvent() const override;
+  [[nodiscard]] bool isContextActive(std::string_view context) const override;
 
 private:
   friend class LauncherPanelTestAccess;
@@ -97,7 +110,7 @@ private:
   // Re-gather the current query, preserving the selected result by identity.
   void reapplyCurrentQuery();
   // A plugin provider delivered fresh async results — re-gather if the panel is open.
-  void onProviderResultsChanged();
+  void onProviderResultsChanged(const LauncherProvider& provider);
   void refreshResults();
   void activateAt(std::size_t index);
   void activateSelected();
@@ -123,6 +136,7 @@ private:
   void applyActiveCategory();
   void syncLauncherListStyle();
   void syncLauncherViewLayout(Renderer* renderer = nullptr);
+  void updatePageDots(std::size_t page, std::size_t pages);
   void queueResultsTransition(ResultsTransition transition);
   void animateResultsTransition();
   [[nodiscard]] bool shouldUseAppGrid() const;
@@ -136,6 +150,22 @@ private:
   void applyPinnedApplicationOrder();
   void reorderPinnedApplication(std::string_view sourcePath, std::string_view targetPath);
   void syncLauncherAvatar(Renderer& renderer);
+  void bindPreview(Renderer& renderer);
+  void setMode(std::string_view providerId);
+  void cycleMode(int direction);
+  void setFilesScope(bool on);
+  void setFilesKind(std::size_t index);
+  void syncKindTabs();
+  void syncModeTabs();
+  void syncEmojiStrip();
+  void syncPackStrip();
+  [[nodiscard]] bool pillExpanded() const;
+  void activatePreviewAction();
+  [[nodiscard]] FilesProvider* filesProvider() const;
+  [[nodiscard]] KlipyProvider* stickersProvider() const;
+  void setStickerPack(std::size_t index);
+  void deleteSelectedClipboardEntry();
+  void activateEmojiVariant(std::size_t tone);
   void showProviderOverview();
   void showSessionActions();
   [[nodiscard]] bool usesBrowserLayout() const;
@@ -144,6 +174,7 @@ private:
   std::vector<LauncherResult> m_results;
   std::vector<LauncherResult> m_allResults;
   UsageTracker m_usageTracker;
+  SearchBroker m_searchBroker{m_providers, m_usageTracker, "/"};
   IconResolver m_iconResolver;
 
   Flex* m_container = nullptr;
@@ -160,6 +191,9 @@ private:
   Button* m_launcherGridButton = nullptr;
   Button* m_launcherPowerButton = nullptr;
   VirtualGridView* m_grid = nullptr;
+  Flex* m_pageDotsRow = nullptr;
+  std::vector<Flex*> m_pageDots;
+  bool m_pageDotsChanged = false;
   VirtualListView* m_launcherSections = nullptr;
   ScrollView* m_detailScroll = nullptr;
   Label* m_detailSubtitle = nullptr;
@@ -186,6 +220,66 @@ private:
   std::size_t m_selectedIndex = 0;
   std::size_t m_activeCategorySlotIndex = 0;
   bool m_browserMode = false;
+  Separator* m_pillSeparator = nullptr;
+  Flex* m_pillFooter = nullptr;
+  // Media modes (DESIGN.md "Launcher media modes"): the provider the tabs scope the search to; empty = search.
+  std::string m_modeProviderId;
+  Flex* m_modeTabs = nullptr;
+  Flex* m_emojiStrip = nullptr;
+  Flex* m_packStrip = nullptr;
+  Separator* m_modeTabsLine = nullptr;
+  std::vector<std::pair<std::string, Flex*>> m_modeTabItems;
+  // Direction C preview pane (right of the result list).
+  Flex* m_previewPane = nullptr;
+  Separator* m_previewDivider = nullptr;
+  Image* m_previewImage = nullptr;
+  Glyph* m_previewGlyph = nullptr;
+  Glyph* m_pillSearchGlyph = nullptr;
+  Label* m_previewEmoji = nullptr;
+  Flex* m_previewTones = nullptr;
+  std::array<Label*, 5> m_previewToneLabels{};
+  Label* m_previewTitle = nullptr;
+  Label* m_previewKind = nullptr;
+  Button* m_previewOpen = nullptr;
+  Button* m_previewAction = nullptr;
+  Button* m_previewDelete = nullptr;
+  Label* m_previewBody = nullptr;
+  Flex* m_previewBodyBox = nullptr;
+  Image* m_previewShot = nullptr;
+  std::string m_previewShotId;
+  // Last liquid strength sent to the panel surface; -1 = none since open.
+  float m_sentLiquid = -1.0F;
+  // Frames of the animated GIF preview; the textures belong to the panel and unload on change or close.
+  struct PreviewFrame {
+    TextureHandle handle;
+    std::chrono::milliseconds duration{0};
+  };
+  std::vector<PreviewFrame> m_previewFrames;
+  std::size_t m_previewFrame = 0;
+  std::string m_previewGifPath;
+  Renderer* m_previewRenderer = nullptr;
+  Timer m_previewFrameTimer;
+  bool playPreviewGif(Renderer& renderer, const std::string& path);
+  void stopPreviewGif();
+  void showNextPreviewFrame();
+  std::array<Flex*, 3> m_previewMetaRows{};
+  std::array<Label*, 3> m_previewMetaKeys{};
+  std::array<Label*, 3> m_previewMetaValues{};
+  std::string m_previewIconPath;
+  Label* m_pillCount = nullptr;
+  Label* m_pillOpenHint = nullptr;
+  Flex* m_pillBackHint = nullptr;
+  // "Show all files" scope: a "Files" token in the field; every query goes to Files only (50 rows, newest first).
+  bool m_filesScope = false;
+  Flex* m_filesToken = nullptr;
+  Label* m_filesTokenLabel = nullptr;
+  // Kind chips of the Files scope (DESIGN.md "Show all" B, kind filter A); index into kFileKinds.
+  Flex* m_kindTabs = nullptr;
+  Separator* m_kindTabsLine = nullptr;
+  std::vector<Flex*> m_kindTabItems;
+  std::size_t m_kindIndex = 0;
+  std::size_t m_packIndex = 0;
+  Flex* m_pillKindHint = nullptr;
   bool m_showingProviderOverview = false;
   std::string m_launcherProviderViewId;
   std::optional<BrowserViewState> m_sessionReturnView;

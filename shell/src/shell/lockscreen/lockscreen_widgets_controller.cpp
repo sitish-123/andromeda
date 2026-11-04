@@ -8,6 +8,7 @@
 #include "shell/desktop/editor/desktop_widgets_editor.h"
 #include "shell/desktop/editor/desktop_widgets_editor_types.h"
 #include "shell/dock/dock.h"
+#include "shell/lockscreen/lock_editor.h"
 #include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lock_surface.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
@@ -109,6 +110,11 @@ void LockscreenWidgetsController::initialize(const LockscreenWidgetsControllerSe
   m_editor = std::make_unique<DesktopWidgetsEditor>(DesktopWidgetsEditorProfile::lockscreen());
   m_editor->initialize(services.widgets);
   m_editor->setExitRequestedCallback([this] { exitEdit(); });
+  m_lockEditor = std::make_unique<LockEditor>();
+  m_lockEditor->initialize(
+      services.widgets.wayland, m_config, m_renderContext, services.widgets.textureCache, m_lockScreen,
+      services.widgets.runtime
+  );
   loadSnapshotFromConfig();
   m_initialized = true;
   applyVisibility();
@@ -141,7 +147,13 @@ void LockscreenWidgetsController::registerIpc(IpcService& ipc) {
   });
 }
 
-void LockscreenWidgetsController::onLockStateChanged() { applyVisibility(); }
+void LockscreenWidgetsController::onLockStateChanged() {
+  // The editors run only while unlocked: a lock closes them (the old editor keeps its edits, LockEditor drops its draft).
+  if (isEditing() && m_lockScreen != nullptr && m_lockScreen->isActive()) {
+    exitEdit();
+  }
+  applyVisibility();
+}
 
 void LockscreenWidgetsController::onOutputChange() {
   if (!m_initialized || m_lockScreen == nullptr) {
@@ -157,6 +169,12 @@ void LockscreenWidgetsController::onOutputChange() {
     m_editor->onOutputChange();
   } else if (m_host != nullptr) {
     m_host->onOutputChange(*m_lockScreen);
+  }
+}
+
+void LockscreenWidgetsController::setStreamsPaused(bool powerSaver, std::unordered_map<std::string, bool> outputPower) {
+  if (m_host != nullptr) {
+    m_host->setStreamsPaused(powerSaver, std::move(outputPower));
   }
 }
 
@@ -213,6 +231,10 @@ void LockscreenWidgetsController::enterEdit() {
   if (m_lockScreen->isActive()) {
     return;
   }
+  if (m_lockEditor != nullptr) {
+    m_lockEditor->open();
+    return;
+  }
   if (m_config != nullptr && !m_config->config().lockscreenWidgets.enabled) {
     LockscreenWidgetsConfig enabled = m_config->config().lockscreenWidgets;
     enabled.enabled = true;
@@ -241,6 +263,10 @@ void LockscreenWidgetsController::enterEdit() {
 }
 
 void LockscreenWidgetsController::exitEdit() {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    m_lockEditor->close();
+    return;
+  }
   if (!isEditing() || m_editor == nullptr || m_lockScreen == nullptr) {
     return;
   }
@@ -281,7 +307,9 @@ void LockscreenWidgetsController::toggleEdit() {
   }
 }
 
-bool LockscreenWidgetsController::isEditing() const noexcept { return m_editor != nullptr && m_editor->isOpen(); }
+bool LockscreenWidgetsController::isEditing() const noexcept {
+  return (m_lockEditor != nullptr && m_lockEditor->isOpen()) || (m_editor != nullptr && m_editor->isOpen());
+}
 
 std::optional<LayerPopupParentContext>
 LockscreenWidgetsController::popupParentContextForSurface(wl_surface* surface) const {
@@ -299,6 +327,9 @@ std::optional<LayerPopupParentContext> LockscreenWidgetsController::fallbackPopu
 }
 
 bool LockscreenWidgetsController::onPointerEvent(const PointerEvent& event) {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    return m_lockEditor->onPointerEvent(event);
+  }
   if (isEditing() && m_editor != nullptr) {
     return m_editor->onPointerEvent(event);
   }
@@ -306,6 +337,10 @@ bool LockscreenWidgetsController::onPointerEvent(const PointerEvent& event) {
 }
 
 void LockscreenWidgetsController::onKeyboardEvent(const KeyboardEvent& event) {
+  if (m_lockEditor != nullptr && m_lockEditor->isOpen()) {
+    m_lockEditor->onKeyboardEvent(event);
+    return;
+  }
   if (!isEditing() || m_editor == nullptr) {
     return;
   }
@@ -351,13 +386,9 @@ void LockscreenWidgetsController::applyVisibility() {
   }
 
   const bool enabled = m_config->config().lockscreenWidgets.enabled;
-  if (!enabled) {
-    if (isEditing() && m_editor != nullptr) {
-      m_snapshot = fromDesktopWidgetsEditorSnapshot(m_editor->close());
-      saveSnapshotToConfig();
-    }
-    m_host->hide();
-    return;
+  if (!enabled && isEditing() && m_editor != nullptr) {
+    m_snapshot = fromDesktopWidgetsEditorSnapshot(m_editor->close());
+    saveSnapshotToConfig();
   }
 
   if (isEditing()) {
@@ -369,7 +400,8 @@ void LockscreenWidgetsController::applyVisibility() {
     return;
   }
 
-  m_host->show(m_snapshot, *m_lockScreen);
+  // With widgets off the host still plays a video or shader wallpaper.
+  m_host->show(enabled ? m_snapshot : LockscreenWidgetsSnapshot{}, *m_lockScreen);
 }
 
 void LockscreenWidgetsController::handleConfigReload() {
@@ -380,7 +412,8 @@ void LockscreenWidgetsController::handleConfigReload() {
   if (!isEditing()) {
     loadSnapshotFromConfig();
     if (m_host != nullptr && m_lockScreen != nullptr) {
-      m_host->rebuild(m_snapshot, *m_lockScreen);
+      const bool enabled = m_config == nullptr || m_config->config().lockscreenWidgets.enabled;
+      m_host->rebuild(enabled ? m_snapshot : LockscreenWidgetsSnapshot{}, *m_lockScreen);
       // Plugin-level settings live in [plugin_settings], outside the widget snapshot, so
       // the host's instance diff cannot see them change.
       if (m_config != nullptr && m_config->lastChange().plugins) {

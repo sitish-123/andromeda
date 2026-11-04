@@ -9,6 +9,7 @@ class SystemBus;
 
 namespace sdbus {
   class IProxy;
+  class ObjectPath;
 }
 
 class KeyboardBacklightService {
@@ -30,8 +31,11 @@ public:
 
 private:
   struct Device;
+  struct Batch;
 
   void rescanDevices();
+  void probeDevices(const std::vector<sdbus::ObjectPath>& paths);
+  void commitDevices(Batch& batch);
   void publishBrightness(const Device& device);
   [[nodiscard]] bool setBrightness(Device& device, int value);
   [[nodiscard]] bool setPercent(int percent);
@@ -44,4 +48,6 @@ private:
   int m_brightness = 0;
   int m_maxBrightness = 0;
   ChangeCallback m_changeCallback;
+  std::shared_ptr<Batch> m_batch;
+  std::shared_ptr<int> m_aliveToken = std::make_shared<int>(0);
 };

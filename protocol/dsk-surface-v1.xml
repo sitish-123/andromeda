@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="dsk_surface_v1">
+  <copyright>
+    Copyright © 2026 the desktop project authors
+    SPDX-License-Identifier: MIT
+  </copyright>
+
+  <description summary="compositor-drawn shape, elevation, motion and gestures">
+    The client commits pixels once; the compositor draws corners and shadow
+    from design tokens, runs animations, and runs finger-driven gestures with
+    their inertia. Curves are the shared libdesk-motion curves, so a client
+    can compute any in-between value itself from a started event.
+
+    Pointer and touch input follow the current animated transform and are
+    clipped to the current clip rect.
+
+    Only unsandboxed clients see this global.
+  </description>
+
+  <interface name="dsk_surface_manager_v1" version="7">
+    <request name="destroy" type="destructor"/>
+
+    <request name="get_surface">
+      <description summary="extend a wl_surface">
+        One dsk_surface_v1 per wl_surface; a second one is a protocol error.
+      </description>
+      <arg name="id" type="new_id" interface="dsk_surface_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <request name="get_tracker">
+      <description summary="a compositor-owned gesture on a surface">
+        The compositor receives the gesture input inside the tracker's
+        region, moves the tracker position, and on release runs inertia and
+        a spring to a snap point. Bindings map the position to properties of
+        any dsk_surface_v1 of this client.
+      </description>
+      <arg name="id" type="new_id" interface="dsk_tracker_v1"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <enum name="error">
+      <entry name="already_extended" value="0"/>
+    </enum>
+  </interface>
+
+  <interface name="dsk_surface_v1" version="7">
+    <description summary="shape, elevation and animations of one surface">
+      All requests are double-buffered and apply on the next wl_surface.commit,
+      so new pixels and the motion that shows them start in the same frame.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="drop the extension">
+        Running animations stop at their current value.
+      </description>
+    </request>
+
+    <enum name="error">
+      <entry name="invalid_value" value="0" summary="an enum argument is out of range"/>
+      <entry name="defunct" value="1" summary="the wl_surface was destroyed"/>
+    </enum>
+
+    <enum name="elevation">
+      <entry name="none" value="0"/>
+      <entry name="e1" value="1" summary="float: tokens elevation.e2"/>
+      <entry name="e2" value="2" summary="over: tokens elevation.e3"/>
+    </enum>
+
+    <enum name="property">
+      <entry name="translate" value="0" summary="a = x, b = y, logical px"/>
+      <entry name="scale" value="1" summary="a = uniform scale about the surface center"/>
+      <entry name="opacity" value="2" summary="a = 0..1"/>
+      <entry name="clip" value="3" summary="a, b, c, d = x, y, width, height, surface-local px"/>
+      <entry name="radius" value="4" summary="a = corner radius, px"/>
+      <entry name="elevation" value="5" since="4" summary="a = level 0..2: 0 none, 1 float (elevation.e2), 2 over (elevation.e3)"/>
+      <entry name="liquid" value="6" since="5" summary="a = liquid glass 0..1: refraction and a specular rim on the backdrop blur; b = specular rim alone 0..1 (frosted shapes)"/>
+      <entry name="stroke" value="7" since="7" summary="a, b, c, d = r, g, b, alpha 0..1 of a 1 px hairline inside the clip shape; drawn only while a clip is set"/>
+    </enum>
+
+    <enum name="curve">
+      <description summary="motion tokens">
+        Springs use the tokens spring.* (damping is the ratio to critical).
+        There are no duration animations: ease_* are deprecated and map to a critically damped fade spring (they never overshot).
+      </description>
+      <entry name="none" value="0" summary="jump"/>
+      <entry name="spring_standard" value="1" summary="tokens spring.move"/>
+      <entry name="spring_snappy" value="2" summary="tokens spring.snap"/>
+      <entry name="spring_bouncy" value="3" summary="tokens spring.open"/>
+      <entry name="ease_fast" value="4" summary="deprecated: maps to tokens spring.fade_out"/>
+      <entry name="ease_normal" value="5" summary="deprecated: maps to tokens spring.fade"/>
+      <entry name="ease_slow" value="6" summary="deprecated: maps to tokens spring.fade"/>
+      <entry name="spring_open" value="7" since="3" summary="tokens spring.open"/>
+      <entry name="spring_close" value="8" since="3" summary="tokens spring.close"/>
+      <entry name="spring_island_expand" value="9" since="3" summary="tokens spring.morph"/>
+      <entry name="spring_island_collapse" value="10" since="3" summary="tokens spring.collapse"/>
+      <entry name="spring_page" value="11" since="3" summary="tokens spring.page"/>
+      <entry name="spring_press" value="12" since="3" summary="tokens spring.press"/>
+      <entry name="spring_release" value="13" since="3" summary="tokens spring.release"/>
+      <entry name="spring_effects" value="14" since="3" summary="tokens spring.fade"/>
+      <entry name="spring_effects_fast" value="15" since="3" summary="tokens spring.fade_out"/>
+    </enum>
+
+    <enum name="reason">
+      <entry name="finished" value="0"/>
+      <entry name="retargeted" value="1" summary="a new animate replaced it"/>
+      <entry name="cancelled" value="2" summary="set, unmap, or a tracker took over"/>
+    </enum>
+
+    <request name="set_elevation">
+      <description summary="set the shadow level at once">
+        Same as set of the elevation property with a whole level. From version
+        4 the level is a property: animate it with the clip so the shadow
+        grows with the shape. Each level draws a key and a contact shadow. Between
+        none and e1 the blur stays that of the float level while offset and
+        opacity scale with the level; between e1 and e2 all values interpolate.
+      </description>
+      <arg name="level" type="uint" enum="elevation"/>
+    </request>
+
+    <request name="set">
+      <description summary="set a property at once">
+        Stops a running animation on it (done, reason cancelled). Unused
+        components are ignored.
+      </description>
+      <arg name="property" type="uint" enum="property"/>
+      <arg name="a" type="fixed"/>
+      <arg name="b" type="fixed"/>
+      <arg name="c" type="fixed"/>
+      <arg name="d" type="fixed"/>
+    </request>
+
+    <request name="animate">
+      <description summary="animate a property from its current value">
+        Starts from the current presented value. On a running animation it
+        retargets and keeps the velocity (spring curves). The serial comes
+        back in started and done. With the reduce_motion appearance setting,
+        every property but opacity moves at once.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="property" type="uint" enum="property"/>
+      <arg name="curve" type="uint" enum="curve"/>
+      <arg name="a" type="fixed"/>
+      <arg name="b" type="fixed"/>
+      <arg name="c" type="fixed"/>
+      <arg name="d" type="fixed"/>
+    </request>
+
+    <event name="started">
+      <description summary="the animation's first presented frame">
+        time is CLOCK_MONOTONIC ms of that frame; with the curve and the
+        start value the client can compute every later value itself.
+      </description>
+      <arg name="serial" type="uint"/>
+      <arg name="time" type="uint"/>
+    </event>
+
+    <event name="done">
+      <arg name="serial" type="uint"/>
+      <arg name="reason" type="uint" enum="reason"/>
+    </event>
+
+
+    <request name="set_clip_from" since="2">
+      <description summary="clip to a rect of another surface">
+        Sets clip, as a set of clip would, to a rect given in the source
+        surface's local coordinates. The source position is read now, this
+        surface's position at the commit that applies the request, so it
+        works on the commit that maps this surface. Neither surface's own
+        translate or scale counts. An island grows into its sheet by this
+        request followed by an animate of clip. The source must be a mapped
+        layer surface and this surface a layer surface; otherwise the
+        request does nothing and clip_mapped is not sent.
+      </description>
+      <arg name="source" type="object" interface="wl_surface"/>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+      <arg name="width" type="fixed"/>
+      <arg name="height" type="fixed"/>
+    </request>
+
+    <event name="clip_mapped" since="2">
+      <description summary="the clip set_clip_from computed">
+        Sent at once for each set_clip_from that took effect, with the rect
+        in this surface's coordinates, so the client can animate back to it.
+      </description>
+      <arg name="x" type="fixed"/>
+      <arg name="y" type="fixed"/>
+      <arg name="width" type="fixed"/>
+      <arg name="height" type="fixed"/>
+    </event>
+
+    <enum name="backdrop" since="6">
+      <entry name="light" value="0" summary="the blurred backdrop is bright"/>
+      <entry name="dark" value="1" summary="the blurred backdrop is dark"/>
+    </enum>
+
+    <event name="backdrop" since="6">
+      <description summary="the backdrop under the liquid glass changed tone">
+        Sent while the liquid property is above 0: once when the first
+        measurement of the blurred backdrop arrives, then each time it moves
+        between light and dark. The compositor applies hysteresis, so a
+        backdrop near the threshold does not flicker.
+      </description>
+      <arg name="tone" type="uint" enum="backdrop"/>
+    </event>
+  </interface>
+
+  <interface name="dsk_tracker_v1" version="4">
+    <description summary="a compositor-owned gesture">
+      A one-dimensional position the compositor drives from input, after
+      the Windows InteractionTracker model: interacting, then inertia, then
+      idle. Configuration is double-buffered on the tracker's wl_surface
+      commit.
+    </description>
+
+    <request name="destroy" type="destructor"/>
+
+    <enum name="error">
+      <entry name="invalid_value" value="0" summary="an enum argument is out of range"/>
+    </enum>
+
+    <enum name="axis">
+      <entry name="vertical" value="0"/>
+      <entry name="horizontal" value="1"/>
+      <entry name="pinch" value="2"/>
+    </enum>
+
+    <request name="set_source">
+      <description summary="where and how the gesture starts">
+        region is surface-local; null means the whole surface. fingers is the
+        touchpad finger count of a swipe (vertical, horizontal) or a pinch.
+        fingers 0 is a left-button pointer drag or a one-finger touch drag:
+        the client gets the press, and once the drag moves 8 px along the
+        axis the compositor claims it and the client gets a pointer leave or
+        touch cancel. A pinch from scale 1 to 2 moves the whole range.
+      </description>
+      <arg name="axis" type="uint" enum="axis"/>
+      <arg name="fingers" type="uint"/>
+      <arg name="region" type="object" interface="wl_region" allow-null="true"/>
+    </request>
+
+    <request name="set_range">
+      <description summary="position limits; past them the motion rubber-bands"/>
+      <arg name="min" type="fixed"/>
+      <arg name="max" type="fixed"/>
+    </request>
+
+    <request name="add_snap">
+      <description summary="a rest position; inertia ends on the snap the throw projects to"/>
+      <arg name="position" type="fixed"/>
+    </request>
+
+    <request name="bind">
+      <description summary="drive a property from the position">
+        Maps position p0..p1 linearly to value v0..v1 on one component
+        (0 = a .. 3 = d) of a property of target. Values clamp outside the
+        range. The elevation property cannot be bound (invalid_value).
+      </description>
+      <arg name="target" type="object" interface="dsk_surface_v1"/>
+      <arg name="property" type="uint"/>
+      <arg name="component" type="uint"/>
+      <arg name="p0" type="fixed"/>
+      <arg name="p1" type="fixed"/>
+      <arg name="v0" type="fixed"/>
+      <arg name="v1" type="fixed"/>
+    </request>
+
+    <request name="move_to">
+      <description summary="drive the position without input, for example a click that opens">
+        Springs from the current position and velocity. Curve none, or the
+        reduce_motion appearance setting, moves at once and sends idle.
+        A running gesture is not interrupted.
+      </description>
+      <arg name="position" type="fixed"/>
+      <arg name="curve" type="uint"/>
+    </request>
+
+    <request name="watch">
+      <description summary="per-frame position (opt-in)">
+        A position event follows every presented frame that moved it. Use it
+        only for client pixels that must follow the finger, for example the
+        bar's workspace indicator during a workspace swipe. Animations need
+        no per-frame events: curves are deterministic from started.
+      </description>
+      <arg name="enabled" type="uint"/>
+    </request>
+
+    <event name="interacting">
+      <arg name="time" type="uint"/>
+    </event>
+
+    <event name="inertia">
+      <description summary="released; the position will rest at target"/>
+      <arg name="time" type="uint"/>
+      <arg name="target" type="fixed"/>
+    </event>
+
+    <event name="idle">
+      <arg name="position" type="fixed"/>
+    </event>
+
+    <event name="position">
+      <arg name="time" type="uint"/>
+      <arg name="position" type="fixed"/>
+    </event>
+  </interface>
+</protocol>

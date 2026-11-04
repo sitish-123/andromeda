@@ -108,7 +108,7 @@ namespace settings {
         header->addChild(ui::separator());
       }
       header->addChild(
-          makeLabel(title, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold)
+          makeLabel(title, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::AccentText), FontWeight::Bold)
       );
       return header;
     }
@@ -175,7 +175,7 @@ namespace settings {
       collapsible->setHeaderPadding(0.0F, 0.0F);
       collapsible->setHeader(makeLabel(
           widgetSettingGroupTitle(kGestureActionsGroup), Style::fontSizeCaption * ctx.scale,
-          colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold
+          colorSpecFromRole(ColorRole::AccentText), FontWeight::Bold
       ));
       collapsible->setBody(std::move(body));
       collapsible->setExpandedImmediate(ctx.actionsExpandedFor == widgetName);
@@ -349,14 +349,14 @@ namespace settings {
     ColorSpec widgetBadgeGlyphColor(WidgetReferenceKind kind) {
       switch (kind) {
       case WidgetReferenceKind::BuiltIn:
-        return colorSpecFromRole(ColorRole::Primary);
+        return colorSpecFromRole(ColorRole::Accent);
       case WidgetReferenceKind::Named:
       case WidgetReferenceKind::Plugin:
-        return colorSpecFromRole(ColorRole::Secondary);
+        return colorSpecFromRole(ColorRole::Accent);
       case WidgetReferenceKind::Unknown:
-        return colorSpecFromRole(ColorRole::Error);
+        return colorSpecFromRole(ColorRole::Danger);
       }
-      return colorSpecFromRole(ColorRole::OnSurfaceVariant);
+      return colorSpecFromRole(ColorRole::Label2);
     }
 
     void collectWidgetReferenceNames(const std::vector<std::string>& widgets, std::unordered_set<std::string>& seen) {
@@ -868,9 +868,9 @@ namespace settings {
         return;
       }
       if (on) {
-        card->setBorder(colorSpecFromRole(ColorRole::Primary), Style::borderWidth * 2.0F);
+        card->setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth * 2.0F);
       } else {
-        card->setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+        card->setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
       }
     }
 
@@ -946,7 +946,7 @@ namespace settings {
       const float x = Style::spaceSm * scale;
       const float width = std::max(1.0F, lane.width() - Style::spaceSm * scale * 2.0F);
       const float gapHalf = Style::spaceXs * scale * 0.5F;
-      float y = Style::controlHeightSm * scale + Style::spaceSm * scale;
+      float y = Style::controlHeight * scale + Style::spaceSm * scale;
       if (!itemNodes.empty()) {
         if (insertionIndex == itemNodes.size()) {
           const auto* target = itemNodes.back();
@@ -1341,7 +1341,7 @@ namespace settings {
               },
               makeLabel(
                   i18n::tr("settings.entities.widget.raw.title"), Style::fontSizeCaption * ctx.scale,
-                  colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+                  colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
               ),
               makeSettingSubtitleLabel(i18n::tr("settings.entities.widget.raw.description"), ctx.scale)
           )
@@ -1363,15 +1363,15 @@ namespace settings {
                 .gap = Style::spaceSm * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = 0,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
             },
             makeLabel(
-                key, Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+                key, Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
             ),
             ui::spacer(),
             makeLabel(
                 settingValueAsDisplayString(valueIt->second), Style::fontSizeCaption * ctx.scale,
-                colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+                colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
             )
         );
 
@@ -1384,8 +1384,8 @@ namespace settings {
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .glyphSize = Style::fontSizeCaption * ctx.scale,
                   .variant = pendingDelete ? ButtonVariant::Default : ButtonVariant::Ghost,
-                  .minWidth = Style::controlHeightSm * ctx.scale,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minWidth = Style::controlHeight * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .padding = Style::spaceXs * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
                   .onClick = [&pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath, deleteKey, path,
@@ -1774,7 +1774,7 @@ namespace settings {
       if (visibleSpecs == 0) {
         panel->addChild(makeLabel(
             i18n::tr("settings.entities.widget.settings.empty"), Style::fontSizeCaption * ctx.scale,
-            colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
         ));
       }
 
@@ -1820,11 +1820,11 @@ namespace settings {
         if (!capsuleGroup.empty()) {
           auto groupRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * ctx.scale, .fillWidth = true});
           groupRow->addChild(
-              makeGlyph("stack-2", Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Primary))
+              makeGlyph("stack-2", Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::AccentText))
           );
           auto hint = makeLabel(
               i18n::tr("settings.entities.widget.group.hint"), Style::fontSizeCaption * ctx.scale,
-              colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+              colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
           );
           hint->setFlexGrow(1.0F);
           groupRow->addChild(std::move(hint));
@@ -1834,7 +1834,7 @@ namespace settings {
                   .text = i18n::tr("settings.entities.widget.group.edit"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Ghost,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1848,7 +1848,6 @@ namespace settings {
           body.addChild(std::move(groupRow));
         }
 
-        const bool pendingDelete = ctx.pendingDeleteWidgetName == widgetName;
         const bool renaming = ctx.renamingWidgetName == widgetName;
 
         if (!currentLaneInherited && !currentLaneKey.empty()) {
@@ -1872,7 +1871,7 @@ namespace settings {
                     .text = i18n::tr("settings.entities.widget.inspector.move-to-lane", "lane", laneLabel(targetLane)),
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1897,15 +1896,13 @@ namespace settings {
                     .text = i18n::tr("settings.entities.widget.instance.rename"),
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
-                    .onClick = [&renamingWidgetName = ctx.renamingWidgetName,
-                                &pendingDeleteWidgetName = ctx.pendingDeleteWidgetName, widgetName,
+                    .onClick = [&renamingWidgetName = ctx.renamingWidgetName, widgetName,
                                 requestRebuild = ctx.requestRebuild] {
                       renamingWidgetName = widgetName;
-                      pendingDeleteWidgetName.clear();
                       requestRebuild();
                     },
                 })
@@ -1918,16 +1915,33 @@ namespace settings {
                     .fontSize = Style::fontSizeCaption * ctx.scale,
                     .glyphSize = Style::fontSizeCaption * ctx.scale,
                     .variant = ButtonVariant::Ghost,
-                    .minHeight = Style::controlHeightSm * ctx.scale,
+                    .minHeight = Style::controlHeight * ctx.scale,
                     .paddingV = Style::spaceXs * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
                     .radius = Style::scaledRadiusSm(ctx.scale),
-                    .onClick = [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                                &renamingWidgetName = ctx.renamingWidgetName, widgetName,
-                                requestRebuild = ctx.requestRebuild] {
-                      pendingDeleteWidgetName = widgetName;
-                      renamingWidgetName.clear();
-                      requestRebuild();
+                    .onClick = [confirmDelete = ctx.confirmDelete, &selectedLaneWidgets = ctx.selectedLaneWidgets,
+                                &renamingWidgetName = ctx.renamingWidgetName, config = &ctx.config, widgetName,
+                                clearOverride = ctx.clearOverride, setOverrides = ctx.setOverrides,
+                                closeHostedEditor = ctx.closeHostedEditor] {
+                      confirmDelete(
+                          i18n::tr("settings.entities.widget.instance.delete-confirm-title", "name", widgetName),
+                          i18n::tr("settings.entities.widget.instance.delete-confirm-desc"),
+                          i18n::tr("settings.entities.widget.instance.delete"),
+                          [&selectedLaneWidgets, &renamingWidgetName, config, widgetName, clearOverride, setOverrides,
+                           closeHostedEditor] {
+                            renamingWidgetName.clear();
+                            // The config as it is now: the content may have rebuilt while the alert was open.
+                            auto referenceRemovals = widgetReferenceRemovalOverrides(*config, widgetName);
+                            if (!referenceRemovals.empty()) {
+                              selectedLaneWidgets.clear();
+                              setOverrides(std::move(referenceRemovals));
+                            }
+                            clearOverride({"widget", widgetName});
+                            if (closeHostedEditor) {
+                              closeHostedEditor();
+                            }
+                          }
+                      );
                     },
                 })
             );
@@ -1948,10 +1962,10 @@ namespace settings {
               .value = widgetName,
               .placeholder = i18n::tr("settings.entities.widget.instance.id-placeholder"),
               .fontSize = Style::fontSizeCaption * ctx.scale,
-              .controlHeight = Style::controlHeightSm * ctx.scale,
+              .controlHeight = Style::controlHeight * ctx.scale,
               .horizontalPadding = Style::spaceXs * ctx.scale,
               .width = 140.0F * ctx.scale,
-              .height = Style::controlHeightSm * ctx.scale,
+              .height = Style::controlHeight * ctx.scale,
               .flexGrow = 1.0F,
           });
 
@@ -1980,7 +1994,7 @@ namespace settings {
                   .text = i18n::tr("settings.entities.widget.instance.rename-save"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Default,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -1992,7 +2006,7 @@ namespace settings {
                   .text = i18n::tr("common.actions.cancel"),
                   .fontSize = Style::fontSizeCaption * ctx.scale,
                   .variant = ButtonVariant::Ghost,
-                  .minHeight = Style::controlHeightSm * ctx.scale,
+                  .minHeight = Style::controlHeight * ctx.scale,
                   .paddingV = Style::spaceXs * ctx.scale,
                   .paddingH = Style::spaceSm * ctx.scale,
                   .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2003,76 +2017,6 @@ namespace settings {
               })
           );
           body.addChild(std::move(renameRow));
-        }
-
-        if (pendingDelete) {
-          auto confirmPanel = ui::column(
-              {
-                  .align = FlexAlign::Stretch,
-                  .gap = Style::spaceXs * ctx.scale,
-                  .padding = Style::spaceSm * ctx.scale,
-                  .fill = colorSpecFromRole(ColorRole::ErrorContainer),
-                  .radius = Style::scaledRadiusSm(ctx.scale),
-                  .border = colorSpecFromRole(ColorRole::Error),
-              },
-              makeLabel(
-                  i18n::tr("settings.entities.widget.instance.delete-confirm-title", "name", widgetName),
-                  Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Bold
-              ),
-              makeLabel(
-                  i18n::tr("settings.entities.widget.instance.delete-confirm-desc"), Style::fontSizeCaption * ctx.scale,
-                  colorSpecFromRole(ColorRole::OnErrorContainer), FontWeight::Normal
-              ),
-              ui::row(
-                  {
-                      .align = FlexAlign::Center,
-                      .gap = Style::spaceSm * ctx.scale,
-                  },
-                  ui::spacer(),
-                  ui::button({
-                      .text = i18n::tr("common.actions.cancel"),
-                      .fontSize = Style::fontSizeCaption * ctx.scale,
-                      .variant = ButtonVariant::Ghost,
-                      .minHeight = Style::controlHeightSm * ctx.scale,
-                      .paddingV = Style::spaceXs * ctx.scale,
-                      .paddingH = Style::spaceSm * ctx.scale,
-                      .radius = Style::scaledRadiusSm(ctx.scale),
-                      .onClick =
-                          [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                           requestRebuild = ctx.requestRebuild] {
-                            pendingDeleteWidgetName.clear();
-                            requestRebuild();
-                          },
-                  }),
-                  ui::button({
-                      .text = i18n::tr("settings.entities.widget.instance.delete"),
-                      .glyph = "trash",
-                      .fontSize = Style::fontSizeCaption * ctx.scale,
-                      .glyphSize = Style::fontSizeCaption * ctx.scale,
-                      .variant = ButtonVariant::Destructive,
-                      .minHeight = Style::controlHeightSm * ctx.scale,
-                      .paddingV = Style::spaceXs * ctx.scale,
-                      .paddingH = Style::spaceSm * ctx.scale,
-                      .radius = Style::scaledRadiusSm(ctx.scale),
-                      .onClick = [&pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
-                                  &selectedLaneWidgets = ctx.selectedLaneWidgets, config = ctx.config, widgetName,
-                                  clearOverride = ctx.clearOverride, setOverrides = ctx.setOverrides,
-                                  closeHostedEditor = ctx.closeHostedEditor] {
-                        pendingDeleteWidgetName.clear();
-                        auto referenceRemovals = widgetReferenceRemovalOverrides(config, widgetName);
-                        if (!referenceRemovals.empty()) {
-                          selectedLaneWidgets.clear();
-                          setOverrides(std::move(referenceRemovals));
-                        }
-                        clearOverride({"widget", widgetName});
-                        if (closeHostedEditor) {
-                          closeHostedEditor();
-                        }
-                      },
-                  })
-              )
-          );
-          body.addChild(std::move(confirmPanel));
         }
 
         // The panel only needs the bar and monitor the lane belongs to; currentLanePath is empty for widgets
@@ -2178,10 +2122,10 @@ namespace settings {
           .out = &valueInputPtr,
           .value = formatSliderValue(value, integerValue),
           .fontSize = Style::fontSizeCaption * ctx.scale,
-          .controlHeight = Style::controlHeightSm * ctx.scale,
+          .controlHeight = Style::controlHeight * ctx.scale,
           .horizontalPadding = Style::spaceXs * ctx.scale,
           .width = 50.0F * ctx.scale,
-          .height = Style::controlHeightSm * ctx.scale,
+          .height = Style::controlHeight * ctx.scale,
       });
 
       Slider* sliderPtr = nullptr;
@@ -2480,15 +2424,6 @@ namespace settings {
         const auto accordionMsMax = static_cast<double>(*accordionMsRange.max);
         const auto accordionMsStep = static_cast<double>(*accordionMsRange.step);
         ctx.makeRow(
-            *panelPtr, groupEntry("accordion-duration"),
-            makeGroupSliderControl(
-                ctx, static_cast<double>(style.accordionDurationMs.value_or(Style::animNormal)), accordionMsMin,
-                accordionMsMax, accordionMsStep, true, [mutateGroup](double v) {
-                  mutateGroup([&](BarCapsuleGroupStyle& g) { g.accordionDurationMs = static_cast<std::int32_t>(v); });
-                }
-            )
-        );
-        ctx.makeRow(
             *panelPtr, groupEntry("accordion-delay"),
             makeGroupSliderControl(
                 ctx, static_cast<double>(style.accordionDelayMs.value_or(0)), accordionMsMin, accordionMsMax,
@@ -2507,7 +2442,7 @@ namespace settings {
               .fontSize = Style::fontSizeCaption * ctx.scale,
               .glyphSize = Style::fontSizeCaption * ctx.scale,
               .variant = ButtonVariant::Default,
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
               .paddingV = Style::spaceXs * ctx.scale,
               .paddingH = Style::spaceSm * ctx.scale,
               .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2610,13 +2545,13 @@ namespace settings {
           .gap = Style::spaceSm * ctx.scale,
           .paddingV = Style::spaceXs * ctx.scale,
           .paddingH = Style::spaceSm * ctx.scale,
-          .fill = colorSpecFromRole(ColorRole::PrimaryContainer),
+          .fill = colorSpecFromRole(ColorRole::Fill1),
           .radius = Style::scaledRadiusSm(ctx.scale),
           .fillWidth = true,
       });
       auto label = makeLabel(
           i18n::tr("settings.entities.widget.group.selected", "count", std::to_string(ctx.selectedLaneWidgets.size())),
-          Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::OnPrimaryContainer), FontWeight::Bold
+          Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
       );
       label->setFlexGrow(1.0F);
       toolbar->addChild(std::move(label));
@@ -2629,7 +2564,7 @@ namespace settings {
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .glyphSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Primary,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2679,7 +2614,7 @@ namespace settings {
               .text = i18n::tr("settings.entities.widget.group.clear"),
               .fontSize = Style::fontSizeCaption * ctx.scale,
               .variant = ButtonVariant::Ghost,
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
               .paddingV = Style::spaceXs * ctx.scale,
               .paddingH = Style::spaceSm * ctx.scale,
               .radius = Style::scaledRadiusSm(ctx.scale),
@@ -2777,7 +2712,7 @@ namespace settings {
             },
             makeLabel(
                 i18n::tr("settings.entities.widget.editor.title"), Style::fontSizeBody * ctx.scale,
-                colorSpecFromRole(ColorRole::OnSurface), FontWeight::Normal
+                colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
             )
         )
     );
@@ -2800,7 +2735,7 @@ namespace settings {
     auto zones = std::make_shared<std::vector<DropZone>>();
 
     // Shared compact icon-button footprint for lane cards and group headers.
-    const float iconSize = Style::controlHeightSm * 0.84F * ctx.scale;
+    const float iconSize = Style::controlHeight * 0.84F * ctx.scale;
     const float iconPad = 2.0F * ctx.scale;
     const float rowGap = 2.0F * ctx.scale;
 
@@ -2968,9 +2903,9 @@ namespace settings {
           .align = FlexAlign::Stretch,
           .paddingV = 3.0F * ctx.scale,
           .paddingH = Style::spaceXs * ctx.scale,
-          .fill = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::SolidRegular),
           .radius = Style::scaledRadiusSm(ctx.scale),
-          .border = isSelected ? colorSpecFromRole(ColorRole::Primary) : clearColorSpec(),
+          .border = isSelected ? colorSpecFromRole(ColorRole::Accent) : clearColorSpec(),
           .borderWidth = Style::borderWidth,
       });
       auto* cardPtr = card.get();
@@ -3015,7 +2950,7 @@ namespace settings {
       );
       {
         auto titleLabel = makeLabel(
-            info.title, Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::OnSurface),
+            info.title, Style::fontSizeCaption * ctx.scale, colorSpecFromRole(ColorRole::Label1),
             FontWeight::SemiBold
         );
         titleLabel->setMaxLines(1);
@@ -3103,16 +3038,16 @@ namespace settings {
           .align = FlexAlign::Stretch,
           .gap = Style::spaceXs * ctx.scale,
           .padding = Style::spaceSm * ctx.scale,
-          .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+          .fill = colorSpecFromRole(ColorRole::SolidThin),
           .radius = Style::scaledRadiusMd(ctx.scale),
-          .border = colorSpecFromRole(ColorRole::OutlineVariant),
+          .border = colorSpecFromRole(ColorRole::Stroke),
           .minWidth = 160.0F * ctx.scale,
           .flexGrow = 1.0F,
       });
       auto* lanePtr = lane.get();
 
       auto dropIndicator = ui::box({
-          .fill = colorSpecFromRole(ColorRole::Primary),
+          .fill = colorSpecFromRole(ColorRole::Accent),
           .radius = std::max(1.0F, 1.5F * ctx.scale),
           .visible = false,
           .participatesInLayout = false,
@@ -3141,10 +3076,10 @@ namespace settings {
               .align = FlexAlign::Center,
               .gap = Style::spaceXs * ctx.scale,
               // Fixed height so lanes with a reset button line up with plain ones.
-              .minHeight = Style::controlHeightSm * ctx.scale,
+              .minHeight = Style::controlHeight * ctx.scale,
           },
           makeLabel(
-              laneLabel(laneKey), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::OnSurface),
+              laneLabel(laneKey), Style::fontSizeBody * ctx.scale, colorSpecFromRole(ColorRole::Label1),
               FontWeight::Bold
           )
       );
@@ -3155,12 +3090,12 @@ namespace settings {
                     .align = FlexAlign::Center,
                     .paddingV = 0,
                     .paddingH = Style::spaceXs * ctx.scale,
-                    .fill = colorSpecFromRole(ColorRole::SurfaceContainer),
+                    .fill = colorSpecFromRole(ColorRole::Fill2),
                     .radius = Style::scaledRadiusSm(ctx.scale),
                 },
                 makeLabel(
                     i18n::tr("settings.badges.inherited"), Style::fontSizeCaption * ctx.scale,
-                    colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Bold
+                    colorSpecFromRole(ColorRole::Label2), FontWeight::Bold
                 )
             )
         );
@@ -3174,7 +3109,7 @@ namespace settings {
                 .text = i18n::tr("settings.entities.widget.lanes.customize"),
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusSm(ctx.scale),
@@ -3209,11 +3144,11 @@ namespace settings {
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusSm(ctx.scale),
-                .border = colorSpecFromRole(ColorRole::Error),
+                .border = colorSpecFromRole(ColorRole::Danger),
             });
             orphan->addChild(makeLabel(
                 i18n::tr("settings.entities.widget.group.orphan"), Style::fontSizeCaption * ctx.scale,
-                colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+                colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
             ));
             if (!inherited) {
               orphan->addChild(
@@ -3222,7 +3157,7 @@ namespace settings {
                       .glyphSize = Style::fontSizeCaption * ctx.scale,
                       .variant = ButtonVariant::Ghost,
                       .tooltip = i18n::tr("settings.entities.widget.group.remove-orphan"),
-                      .minHeight = Style::controlHeightSm * ctx.scale,
+                      .minHeight = Style::controlHeight * ctx.scale,
                       .padding = Style::spaceXs * ctx.scale,
                       .radius = Style::scaledRadiusSm(ctx.scale),
                       .onClick = [&selectedLaneWidgets = ctx.selectedLaneWidgets, setOverride = ctx.setOverride,
@@ -3243,7 +3178,7 @@ namespace settings {
           // A color meant to blend into surfaces (e.g. surface_container) can't separate the box from the lane,
           // so fall back to a neutral border + slight surface lift when the fill is too close to the lane.
           const Color groupFillColor = resolveColorSpec(group->fill);
-          const Color laneBgColor = colorForRole(ColorRole::SurfaceContainer);
+          const Color laneBgColor = colorForRole(ColorRole::Fill2);
           const float dr = groupFillColor.r - laneBgColor.r;
           const float dg = groupFillColor.g - laneBgColor.g;
           const float db = groupFillColor.b - laneBgColor.b;
@@ -3255,8 +3190,8 @@ namespace settings {
             groupFillTint.alpha *= 0.15F;
             groupBorder = group->fill; // full opacity
           } else {
-            groupFillTint = colorSpecFromRole(ColorRole::SurfaceContainer); // slight neutral lift
-            groupBorder = colorSpecFromRole(ColorRole::OutlineVariant);     // full opacity
+            groupFillTint = colorSpecFromRole(ColorRole::Fill2); // slight neutral lift
+            groupBorder = colorSpecFromRole(ColorRole::Stroke);     // full opacity
           }
           auto container = ui::column({
               .align = FlexAlign::Stretch,
@@ -3270,7 +3205,7 @@ namespace settings {
           auto* containerPtr = container.get();
 
           auto groupIndicator = ui::box({
-              .fill = colorSpecFromRole(ColorRole::Primary),
+              .fill = colorSpecFromRole(ColorRole::Accent),
               .radius = std::max(1.0F, 1.5F * ctx.scale),
               .visible = false,
               .participatesInLayout = false,
@@ -3287,14 +3222,14 @@ namespace settings {
                   .width = Style::fontSizeCaption * ctx.scale,
                   .height = Style::fontSizeCaption * ctx.scale,
                   .configure = [](Box& box) {
-                    box.setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+                    box.setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
                   },
               })
           );
           {
             auto groupLabel = makeLabel(
                 i18n::tr("settings.entities.widget.group.title"), Style::fontSizeCaption * ctx.scale,
-                colorSpecFromRole(ColorRole::OnSurface), FontWeight::SemiBold
+                colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold
             );
             groupLabel->setFlexGrow(1.0F);
             groupHeader->addChild(std::move(groupLabel));
@@ -3533,17 +3468,17 @@ namespace settings {
                     .gap = 2.0F * ctx.scale,
                     .paddingV = Style::spaceMd * ctx.scale,
                     .paddingH = Style::spaceSm * ctx.scale,
-                    .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+                    .fill = colorSpecFromRole(ColorRole::SolidThin),
                     .radius = Style::scaledRadiusSm(ctx.scale),
-                    .border = colorSpecFromRole(ColorRole::OutlineVariant),
+                    .border = colorSpecFromRole(ColorRole::Stroke),
                 },
                 makeLabel(
                     i18n::tr("settings.entities.widget.lanes.empty"), Style::fontSizeCaption * ctx.scale,
-                    colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Bold
+                    colorSpecFromRole(ColorRole::Label2), FontWeight::Bold
                 ),
                 makeLabel(
                     i18n::tr("settings.entities.widget.lanes.empty-hint"), Style::fontSizeCaption * ctx.scale,
-                    colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
+                    colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
                 )
             )
         );
@@ -3557,17 +3492,15 @@ namespace settings {
                 .fontSize = Style::fontSizeCaption * ctx.scale,
                 .glyphSize = Style::fontSizeCaption * ctx.scale,
                 .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * ctx.scale,
+                .minHeight = Style::controlHeight * ctx.scale,
                 .paddingV = Style::spaceXs * ctx.scale,
                 .paddingH = Style::spaceSm * ctx.scale,
                 .radius = Style::scaledRadiusMd(ctx.scale),
                 .onClick = [&editingWidgetName = ctx.editingWidgetName, &renamingWidgetName = ctx.renamingWidgetName,
-                            &pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
                             &pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath,
                             openWidgetAddPopup = ctx.openWidgetAddPopup, lanePath] {
                   editingWidgetName.clear();
                   renamingWidgetName.clear();
-                  pendingDeleteWidgetName.clear();
                   pendingDeleteWidgetSettingPath.clear();
                   if (openWidgetAddPopup) {
                     openWidgetAddPopup(lanePath);

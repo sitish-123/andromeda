@@ -1,8 +1,10 @@
 #include "shell/lockscreen/lock_screen.h"
+#include "util/thread_name.h"
 
 #include "auth/face_authenticator.h"
 #include "auth/fingerprint_authenticator.h"
 #include "capture/screencopy_util.h"
+#include "dbus/link/link_service.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
@@ -21,18 +23,27 @@
 #include "shell/session/session_action_runner.h"
 #include "shell/wallpaper/wallpaper_geometry.h"
 #include "ui/palette.h"
-#include "wayland/wayland_connection.h"
+#include "util/secure_wipe.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <chrono>
 #include <cmath>
+#include <format>
 #include <ctime>
 #include <string>
 #include <thread>
 #include <utility>
 
 namespace {
+
+  [[nodiscard]] std::int64_t wallClockMillis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
+  }
 
   constexpr Logger kLog("lockscreen");
 
@@ -88,7 +99,7 @@ namespace {
   }
 
   // An output can only carry a lock surface once it is complete and has real geometry.
-  bool hasUsableOutput(const WaylandConnection& wayland) {
+  bool hasUsableOutput(const ShellWaylandConnection& wayland) {
     return std::ranges::any_of(wayland.outputs(), [](const WaylandOutput& output) {
       return output.done && output.output != nullptr && output.hasUsableGeometry();
     });
@@ -111,7 +122,7 @@ LockScreen::~LockScreen() {
 }
 
 bool LockScreen::initialize(
-    WaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
+    ShellWaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
     SharedTextureCache* textureCache, SystemBus* systemBus, CompositorPlatform* compositorPlatform
 ) {
   m_wayland = &wayland;
@@ -125,6 +136,9 @@ bool LockScreen::initialize(
   if (m_systemBus != nullptr) {
     m_fingerprint = std::make_unique<FingerprintAuthenticator>(*m_systemBus);
     m_fingerprint->setAuthenticatedCallback([this] {
+      if (m_passwordOnly) {
+        return;
+      }
       m_status = i18n::tr("lockscreen.unlocked");
       m_statusIsError = false;
       updatePromptOnSurfaces();
@@ -135,6 +149,9 @@ bool LockScreen::initialize(
     });
     m_face = std::make_unique<FaceAuthenticator>(*m_systemBus, m_user);
     m_face->setAuthenticatedCallback([this]() {
+      if (m_passwordOnly) {
+        return;
+      }
       m_status = i18n::tr("lockscreen.unlocked");
       m_statusIsError = false;
       updatePromptOnSurfaces();
@@ -171,7 +188,16 @@ void LockScreen::setLoginBoxServices(
   }
 }
 
-void LockScreen::setPhoneServices(const LinkService* link) {
+void LockScreen::setNotificationManager(const NotificationManager* notifications) {
+  m_notifications = notifications;
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setNotificationManager(m_notifications);
+    }
+  }
+}
+
+void LockScreen::setPhoneServices(LinkService* link) {
   m_link = link;
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {
@@ -199,7 +225,7 @@ bool LockScreen::lock() {
     return true;
   }
   m_lockedAtMillis = bootTimeMillis();
-  m_graceAllowed = true;
+  m_graceAllowed = !m_passwordOnly;
   kLog.debug("lock requested, grace starts at {}", m_lockedAtMillis);
   if (!m_wayland->hasSessionLockManager()) {
     invalidateDesktopCaptures();
@@ -295,7 +321,16 @@ void LockScreen::unlock() {
   resetGracePeriod();
   invalidatePendingAuthentication();
   stopFingerprint();
+  if (!m_pendingDecline.empty() && m_link != nullptr) {
+    if (const auto call = m_link->activeCall(); call.has_value() && call->ringing && call->deviceId == m_pendingDecline) {
+      m_link->declineCall(m_pendingDecline);
+    }
+  }
+  m_pendingDecline.clear();
   stopFace();
+  m_failDelay.reset();
+  m_failDelayTimer.stop();
+  m_passwordOnly = false;
 
   if (m_locked) {
     m_unlocking = true;
@@ -362,6 +397,9 @@ void LockScreen::finishUnlock() {
   clearInstances();
   m_pointerSurface = nullptr;
   wl_display_flush(m_wayland->display());
+  if (std::exchange(m_phoneLockAfterUnlock, false)) {
+    (void)lockFromPhone();
+  }
 }
 
 void LockScreen::onFontChanged() { requestLayout(); }
@@ -484,9 +522,6 @@ void LockScreen::onWallpaperChanged() {
   if (!isActive() || m_configService == nullptr) {
     return;
   }
-  if (!m_configService->config().lockscreen.wallpaper.empty()) {
-    return;
-  }
   applyWallpaperStyleToSurfaces();
   requestLayout();
 }
@@ -508,7 +543,7 @@ void LockScreen::onPointerEvent(const PointerEvent& event) {
     m_pointerSurface = event.surface;
   }
 
-  if (event.type == PointerEvent::Type::Button && m_face != nullptr) {
+  if (event.type == PointerEvent::Type::Button && m_face != nullptr && faceEnabled()) {
     m_face->onUserActivity();
   }
 
@@ -547,7 +582,7 @@ void LockScreen::onKeyboardEvent(const KeyboardEvent& event) {
   if (!event.pressed) {
     return;
   }
-  if (m_face != nullptr) {
+  if (m_face != nullptr && faceEnabled()) {
     m_face->onUserActivity();
   }
 
@@ -672,6 +707,50 @@ void LockScreen::onSystemResumed() {
   cancelOutputPowerOff();
 }
 
+void LockScreen::setStatus(AuthColumn::Status status) {
+  if (m_statusIsland == status) {
+    return;
+  }
+  m_statusIsland = std::move(status);
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setStatus(m_statusIsland);
+    }
+  }
+}
+
+void LockScreen::setClockGradient(std::uint32_t from, std::uint32_t to) {
+  m_clockGradientFrom = from;
+  m_clockGradientTo = to;
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->setClockGradient(from, to);
+    }
+  }
+}
+
+bool LockScreen::lockFromPhone() {
+  if (m_unlocking) {
+    m_phoneLockAfterUnlock = true;
+    return true;
+  }
+  m_passwordOnly = true;
+  stopFingerprint();
+  stopFace();
+  const bool ok = lock();
+  // lock() arms the grace window; a phone lock never offers it.
+  resetGracePeriod();
+  if (!ok) {
+    m_passwordOnly = false;
+  }
+  if (ok && m_locked && !m_failDelayTimer.active()) {
+    m_status = i18n::tr("lockscreen.password-required");
+    m_statusIsError = false;
+    updatePromptOnSurfaces();
+  }
+  return ok;
+}
+
 bool LockScreen::isSessionLocked() const noexcept { return m_locked; }
 
 bool LockScreen::isReadyForSleep() const { return m_locked && !m_unlocking && allSurfacesReady(); }
@@ -691,9 +770,7 @@ void LockScreen::suppressEntryTransition() {
   }
   m_transitionSuppressed = true;
   m_activeTransition.reset();
-  if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
-    invalidateDesktopCaptures();
-  }
+  invalidateDesktopCaptures();
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {
       instance.surface->suppressEntryTransition();
@@ -712,7 +789,7 @@ void LockScreen::onOutputPowerChanged() {
   }
   if (isActive() || m_lockStarting || m_lockDeferred) {
     suppressEntryTransition();
-  } else if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
+  } else {
     invalidateDesktopCaptures();
   }
 }
@@ -730,9 +807,7 @@ void LockScreen::prepareForOutputPowerOff(std::function<void(bool)> done) {
     if (m_lockDeferred) {
       suppressEntryTransition();
     }
-    if (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop) {
-      invalidateDesktopCaptures();
-    }
+    invalidateDesktopCaptures();
     done(true);
     return;
   }
@@ -912,6 +987,9 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
   // Idle status is empty; the surface renders the password hint itself.
   self->m_status.clear();
   self->m_statusIsError = false;
+  if (!self->applyFailDelay() && self->m_passwordOnly) {
+    self->m_status = i18n::tr("lockscreen.password-required");
+  }
   for (auto& instance : self->m_instances) {
     instance.surface->setLockedState(true);
     instance.surface->setOnLogin([self] { self->tryAuthenticate(); });
@@ -1015,7 +1093,7 @@ bool LockScreen::shouldCaptureDesktop() const {
     return false;
   }
   const auto& lockscreen = m_configService->config().lockscreen;
-  return lockscreen.blurredDesktop || (!m_transitionSuppressed && !lockscreen.transitions.empty());
+  return !m_transitionSuppressed && !lockscreen.transitions.empty();
 }
 
 bool LockScreen::allSurfacesReady() const {
@@ -1038,9 +1116,7 @@ void LockScreen::primeDesktopCaptures() {
     return;
   }
   invalidateDesktopCaptures();
-  if (m_compositorPlatform != nullptr
-      && m_compositorPlatform->shouldSuppressLockTransition()
-      && (m_configService == nullptr || !m_configService->config().lockscreen.blurredDesktop)) {
+  if (m_compositorPlatform != nullptr && m_compositorPlatform->shouldSuppressLockTransition()) {
     return;
   }
   if (!shouldCaptureDesktop()) {
@@ -1080,7 +1156,7 @@ bool LockScreen::captureDesktopSnapshots() {
   }
 
   const auto firstCaptureDeadline = std::chrono::steady_clock::now() + screencopy::kBlockingCaptureTimeout;
-  WaylandConnection captureWayland(WaylandConnection::Purpose::Screencopy);
+  ShellWaylandConnection captureWayland(ShellWaylandConnection::Purpose::Screencopy);
   std::string setupError;
   if (!captureWayland.connectUntil(firstCaptureDeadline, m_wayland, setupError)) {
     kLog.warn("lockscreen desktop capture setup failed: {}", setupError);
@@ -1287,19 +1363,70 @@ void LockScreen::applyOutputRestriction() {
   requestLayout();
 }
 
+LockCards::Data LockScreen::previewCards(const LockscreenConfig& lock) const {
+  LockCards::Data data = collectLockCards(m_mpris, m_link, m_notifications);
+  data.charging = m_statusIsland.chargingText;
+  fillLockWidgetData(data, lock, m_weather, m_statusIsland);
+  data.preview = true;
+  return data;
+}
+
+bool LockScreen::hasOwnWallpaper(const std::string& connectorName) const {
+  if (m_configService == nullptr) {
+    return false;
+  }
+  const auto& lock = m_configService->config().lockscreen;
+  const auto it = lock.wallpaperOutputs.find(connectorName);
+  if (it != lock.wallpaperOutputs.end() && it->second == kDesktopWallpaper) {
+    return false;
+  }
+  return !lock.wallpaper.empty() || (it != lock.wallpaperOutputs.end() && !it->second.empty());
+}
+
 std::string LockScreen::wallpaperPathForOutput(const std::string& connectorName) const {
   if (m_configService == nullptr) {
     return {};
   }
   const auto& config = m_configService->config();
+  if (const auto it = config.lockscreen.wallpaperOutputs.find(connectorName);
+      it != config.lockscreen.wallpaperOutputs.end() && !it->second.empty() && it->second != kDesktopWallpaper) {
+    return it->second;
+  }
+  const bool desktop = config.lockscreen.wallpaperOutputs.contains(connectorName)
+      && config.lockscreen.wallpaperOutputs.at(connectorName) == kDesktopWallpaper;
   const std::string& customWallpaper = config.lockscreen.wallpaper;
-  if (!customWallpaper.empty()) {
+  if (!customWallpaper.empty() && !desktop) {
     return customWallpaper;
   }
   if (!config.wallpaper.enabled) {
     return {};
   }
   return m_configService->getWallpaperPath(connectorName);
+}
+
+std::string LockScreen::liveWallpaperType(const std::string& path) {
+  std::string extension = std::filesystem::path(path).extension().string();
+  std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return std::tolower(c); });
+  if (extension == ".mp4" || extension == ".webm" || extension == ".mkv" || extension == ".mov" || extension == ".m4v") {
+    return "video";
+  }
+  if (extension == ".frag" || extension == ".glsl") {
+    return "shader";
+  }
+  return {};
+}
+
+void LockScreen::applyWallpaperPath(LockSurface& surface, const std::string& connectorName) const {
+  const std::string path = wallpaperPathForOutput(connectorName);
+  if (liveWallpaperType(path).empty()) {
+    surface.setWallpaperPath(path);
+    surface.setOwnWallpaper(hasOwnWallpaper(connectorName));
+    return;
+  }
+  // The helper draws a live wallpaper above this one; until its first frame the desktop look shows.
+  const auto& config = m_configService->config();
+  surface.setWallpaperPath(config.wallpaper.enabled ? m_configService->getWallpaperPath(connectorName) : std::string{});
+  surface.setOwnWallpaper(false);
 }
 
 void LockScreen::applyWallpaperStyleToSurfaces() {
@@ -1310,12 +1437,10 @@ void LockScreen::applyWallpaperStyleToSurfaces() {
   const WallpaperFillMode fillMode = wallpaperConfig.fillMode;
   const Color fillColor = resolveWallpaperFillColor(wallpaperConfig);
   for (auto& instance : m_instances) {
-    if (instance.surface == nullptr
-        || instance.surface->isBlackout()
-        || instance.surface->usesDesktopCaptureBackground()) {
+    if (instance.surface == nullptr || instance.surface->isBlackout()) {
       continue;
     }
-    instance.surface->setWallpaperPath(wallpaperPathForOutput(instance.connectorName));
+    applyWallpaperPath(*instance.surface, instance.connectorName);
     instance.surface->setWallpaperFillMode(fillMode);
     instance.surface->setWallpaperCoverage(
         wallpaperTextureCoverage(m_wayland->outputs(), instance.outputName, fillMode)
@@ -1332,15 +1457,14 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   applyLockscreenStyle(*surface);
   surface->setOutputKey(desktop_widgets::outputKey(output));
   if (m_configService != nullptr) {
-    surface->setWallpaperPath(wallpaperPathForOutput(output.connectorName));
+    applyWallpaperPath(*surface, output.connectorName);
     const WallpaperFillMode fillMode = m_configService->config().wallpaper.fillMode;
     surface->setWallpaperFillMode(fillMode);
     surface->setWallpaperCoverage(wallpaperTextureCoverage(m_wayland->outputs(), output.name, fillMode));
     surface->setWallpaperFillColor(resolveWallpaperFillColor(m_configService->config().wallpaper));
   }
   if (auto captureIt = m_desktopCaptures.find(output.output); captureIt != m_desktopCaptures.end()) {
-    const bool useAsBackground = m_configService != nullptr && m_configService->config().lockscreen.blurredDesktop;
-    surface->setDesktopCapture(std::move(captureIt->second), useAsBackground);
+    surface->setDesktopCapture(std::move(captureIt->second));
     m_desktopCaptures.erase(captureIt);
   }
   const std::optional<LockscreenTransitionKind> transition =
@@ -1349,10 +1473,12 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setSleepReadyCallback([this] { handleSleepReady(); });
   surface->setTransitionCallback([this] { handleTransitionStateChanged(); });
   surface->setOnLogin([this] { tryAuthenticate(); });
+  surface->setOnDeclineCall([this](const std::string& deviceId) { m_pendingDecline = deviceId; });
   surface->setOnCycleLayout([this] { cycleKeyboardLayout(); });
   surface->setOnPasswordChanged([this](const std::string& value) { handlePasswordEdited(value); });
   surface->setLoginBoxServices(m_sessionActions, m_mpris, m_weather, m_httpClient);
   surface->setPhoneServices(m_link);
+  surface->setNotificationManager(m_notifications);
   surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
   applyIndicatorsToSurface(*surface);
 
@@ -1409,8 +1535,20 @@ void LockScreen::resetLockState() {
 void LockScreen::clearInstances() { m_instances.clear(); }
 
 void LockScreen::updatePromptOnSurfaces() {
+  const LockSurface::AuthExtras extras{
+      .passwordOnly = m_passwordOnly,
+      .failDelay = m_failDelayTimer.active(),
+      .failures = m_failDelay.failures(),
+      .rejected = m_lastRejected,
+      .face = m_face != nullptr && faceEnabled(),
+      .fingerprint = m_fingerprint != nullptr && !m_passwordOnly
+          && (m_configService == nullptr || m_configService->config().lockscreen.fingerprint),
+  };
   for (auto& instance : m_instances) {
     instance.surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
+    instance.surface->setAuthExtras(extras);
+    instance.surface->setStatus(m_statusIsland);
+    instance.surface->setClockGradient(m_clockGradientFrom, m_clockGradientTo);
   }
 }
 
@@ -1467,7 +1605,13 @@ void LockScreen::invalidatePendingAuthentication() {
 }
 
 void LockScreen::handlePasswordEdited(const std::string& value) {
+  if (m_failDelayTimer.active()) {
+    clearSensitiveString(m_password);
+    updatePromptOnSurfaces();
+    return;
+  }
   if (m_authenticating) {
+    clearSensitiveString(m_password);
     m_password = value;
     updatePromptOnSurfaces();
     return;
@@ -1475,6 +1619,7 @@ void LockScreen::handlePasswordEdited(const std::string& value) {
   if (m_password == value && m_status.empty() && !m_statusIsError) {
     return;
   }
+  clearSensitiveString(m_password);
   m_password = value;
   m_status.clear();
   m_statusIsError = false;
@@ -1483,6 +1628,11 @@ void LockScreen::handlePasswordEdited(const std::string& value) {
 
 void LockScreen::tryAuthenticate() {
   if (m_authenticating || !m_locked || m_unlocking) {
+    return;
+  }
+  if (applyFailDelay()) {
+    clearSensitiveString(m_password);
+    updatePromptOnSurfaces();
     return;
   }
   if (m_password.empty()) {
@@ -1509,17 +1659,22 @@ void LockScreen::tryAuthenticate() {
   updatePromptOnSurfaces();
 
   const PamAuthenticator authenticator = m_authenticator;
-  // Authenticate against the "login" stack. If fingerprint is enabled, strip
-  // pam_fprintd from it: noctalia drives the reader itself over D-Bus and the
-  // two can't share the sensor. See docs/fingerprint.md.
+  // The "login" stack. stopFingerprint() above has released the reader, so a pam_fprintd in that stack can claim it.
   const std::string pamService = "login";
   const std::string pamLanguage(i18n::Service::instance().language());
   const std::string pamStartFailure = i18n::tr("auth.pam.start-failed");
-  std::thread([this, generation, password = std::move(password), authenticator, pamService, pamLanguage,
+  // The thread never touches `this`; the result hops back to the main loop and is dropped if the lock screen is gone.
+  const std::weak_ptr<void> guard = m_aliveGuard;
+  std::thread([this, guard, generation, password = std::move(password), authenticator, pamService, pamLanguage,
                pamStartFailure] mutable {
+    nameThisThread("dsk-pam");
     const auto result = authenticator.authenticateCurrentUser(password, pamService, pamLanguage, pamStartFailure);
     clearSensitiveString(password);
-    DeferredCall::callLater([this, generation, result] { handleAuthResult(generation, result); });
+    DeferredCall::callLater([this, guard, generation, result] {
+      if (!guard.expired()) {
+        handleAuthResult(generation, result);
+      }
+    });
   }).detach();
 }
 
@@ -1538,8 +1693,20 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
     return;
   }
 
-  m_status = result.message.empty() ? i18n::tr("lockscreen.authentication-failed") : result.message;
+  if (result.rejected) {
+    m_status = i18n::tr("lockscreen.wrong-password");
+  } else {
+    m_status = i18n::tr(
+        "lockscreen.pam-error", "message",
+        result.message.empty() ? i18n::tr("lockscreen.authentication-failed") : result.message
+    );
+  }
   m_statusIsError = true;
+  m_lastRejected = result.rejected;
+  if (result.rejected) {
+    m_failDelay.recordRejected(wallClockMillis());
+    applyFailDelay();
+  }
   updatePromptOnSurfaces();
   startFingerprint();
   if (m_face != nullptr && faceEnabled()) {
@@ -1547,8 +1714,32 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
   }
 }
 
+bool LockScreen::applyFailDelay() {
+  const std::int64_t remainingMs = m_failDelay.remainingMs(wallClockMillis());
+  if (remainingMs <= 0) {
+    if (m_failDelayTimer.active()) {
+      m_failDelayTimer.stop();
+      m_status.clear();
+      m_statusIsError = false;
+    }
+    return false;
+  }
+  const std::int64_t seconds = (remainingMs + 999) / 1000;
+  m_status = i18n::tr("lockscreen.fail-delay", "time", std::format("{}:{:02}", seconds / 60, seconds % 60));
+  m_statusIsError = true;
+  m_failDelayTimer.start(std::chrono::milliseconds(remainingMs % 1000 == 0 ? 1000 : remainingMs % 1000), [this] {
+    m_failDelayTimer.stop();
+    if (!applyFailDelay()) {
+      m_status.clear();
+      m_statusIsError = false;
+    }
+    updatePromptOnSurfaces();
+  });
+  return true;
+}
+
 void LockScreen::startFingerprint() {
-  if (m_fingerprint == nullptr) {
+  if (m_fingerprint == nullptr || m_passwordOnly) {
     return;
   }
   if (m_configService != nullptr && !m_configService->config().lockscreen.fingerprint) {
@@ -1563,7 +1754,9 @@ void LockScreen::stopFingerprint() {
   }
 }
 
-bool LockScreen::faceEnabled() const { return m_configService == nullptr || m_configService->config().lockscreen.face; }
+bool LockScreen::faceEnabled() const {
+  return !m_passwordOnly && (m_configService == nullptr || m_configService->config().lockscreen.face);
+}
 
 void LockScreen::startFace() {
   if (m_face != nullptr && faceEnabled()) {
@@ -1581,7 +1774,10 @@ void LockScreen::handleBiometricStatus(const std::string& message, bool isError)
   if (!isActive()) {
     return;
   }
-  // Don't clobber a password the user is typing.
+  // Don't clobber a password the user is typing, or the fail-delay countdown.
+  if (m_failDelayTimer.active()) {
+    return;
+  }
   if (!m_password.empty()) {
     kLog.debug("status hidden while typing: {}", message);
     return;
@@ -1593,9 +1789,5 @@ void LockScreen::handleBiometricStatus(const std::string& message, bool isError)
 }
 
 void LockScreen::clearSensitiveString(std::string& value) {
-  volatile char* ptr = value.empty() ? nullptr : value.data();
-  for (std::size_t i = 0; i < value.size(); ++i) {
-    ptr[i] = '\0';
-  }
-  value.clear();
+  util::secureWipe(value);
 }

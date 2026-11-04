@@ -1,6 +1,13 @@
 #pragma once
 
 #include "app/deferred_call_poll_source.h"
+#include "app/modules/bluetooth_module.h"
+#include "app/modules/mpris_module.h"
+#include "app/modules/network_module.h"
+#include "app/modules/pipewire_module.h"
+#include "app/modules/power_modules.h"
+#include "app/modules/ui_modules.h"
+#include "app/service_host.h"
 #include "app/timer_poll_source.h"
 #include "calendar/calendar_poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
@@ -57,6 +64,7 @@
 #include "shell/osd/lock_keys_osd.h"
 #include "shell/osd/media_osd.h"
 #include "shell/osd/osd_overlay.h"
+#include "shell/live_activity/live_activity_island.h"
 #include "shell/osd/privacy_osd.h"
 #include "shell/overview/overview_launcher_capture.h"
 #include "shell/panel/panel_manager.h"
@@ -68,6 +76,11 @@
 #include "shell/tray/tray_menu.h"
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
 #include "shell/wallpaper/wallpaper.h"
+#include "shell/activity/activity_window.h"
+#include "system/activity_actions.h"
+#include "system/activity_monitor.h"
+#include "system/background_activity_monitor.h"
+#include "system/background_warning_state.h"
 #include "system/battery_warning_monitor.h"
 #include "system/dependency_service.h"
 #include "system/desktop_entry_poll_source.h"
@@ -84,6 +97,7 @@
 #include "theme/community_palettes.h"
 #include "theme/community_templates.h"
 #include "theme/template_apply_service.h"
+#include "theme/live_appearance_sync.h"
 #include "theme/theme_service.h"
 #include "time/time_poll_source.h"
 #include "time/time_service.h"
@@ -92,18 +106,19 @@
 #include "ui/dialogs/glyph_picker_dialog_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "ui/dialogs/search_picker_popup.h"
-#include "wayland/clipboard_poll_source.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_poll_source.h"
+#include "clipboard/clipboard_service.h"
 #include "wayland/key_repeat_poll_source.h"
-#include "wayland/keyboard_layout_poll_source.h"
+#include "compositors/keyboard_layout_poll_source.h"
 #include "wayland/text_input_service.h"
-#include "wayland/virtual_keyboard_service.h"
-#include "wayland/wayland_connection.h"
-#include "wayland/workspace_poll_source.h"
+#include "compositors/virtual_keyboard_service.h"
+#include "compositors/shell_wayland_connection.h"
+#include "compositors/workspace_poll_source.h"
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -125,6 +140,7 @@ class EasyEffectsService;
 class INetworkService;
 class IwdSecretAgent;
 class LogindService;
+class PowerConfigService;
 class MainLoop;
 class ModemManagerService;
 class MprisService;
@@ -143,6 +159,7 @@ class PolkitPollSource;
 class PowerProfilesService;
 class ScreenSaverPollSource;
 class ScreenSaverService;
+class FilesProvider;
 class SessionBus;
 class SessionBusPollSource;
 class SoundPlayer;
@@ -153,6 +170,7 @@ class TrayService;
 class UPowerService;
 class UDisksService;
 class GlobalShortcutsPortal;
+class BackgroundPortal;
 class InhibitPortal;
 class ScreenRecorder;
 class NmHotspot;
@@ -193,6 +211,8 @@ private:
   void initEarlySessionBusAndTray();
   void initSessionBusServices();
   void initUi();
+  ActivityMonitor* ensureActivityMonitor();
+  void initActivity();
   // Sub-phases of initUi(), called in order.
   void initUiRenderSurfacesAndSettings();
   void initLockScreenAndSession();
@@ -232,6 +252,7 @@ private:
   void onSecretServiceCollectionChanged();
   void retrySecretServiceConsumers(bool defaultCollectionUnlocked = false);
   void scheduleNotificationShellRefresh();
+  void syncLiveActivity();
   void syncPolkitAgent();
   [[nodiscard]] bool likelySupportsInSessionPolkit() const noexcept;
   void syncClipboardService();
@@ -242,6 +263,8 @@ private:
   bool runShellCommandBlocking(const std::string& command);
   bool runIdleAction(const IdleActionRequest& action);
   bool setOutputPower(bool on);
+  // Lock helper slots stop under the power-saver profile and on outputs that are off.
+  void syncLockStreamPause();
   void onIconThemeChanged();
   // Finest time boundary the currently visible shell UI needs. Drives the time
   // poll source so it can park between boundaries instead of waking every second.
@@ -251,14 +274,43 @@ private:
   void requestAllSurfacesRedraw();
   void releaseSleepDelayInhibitIfPending();
   void onUpowerStateChangedForHooks();
+  // Battery and network for the lock screen's status island.
+  void refreshLockStatus();
   void applyPowerSourceProfile();
+  [[nodiscard]] UPowerService* upower() const noexcept {
+    return m_upowerModule != nullptr ? m_upowerModule->service() : nullptr;
+  }
+  [[nodiscard]] PowerProfilesService* powerProfiles() const noexcept {
+    return m_powerProfilesModule != nullptr ? m_powerProfilesModule->service() : nullptr;
+  }
+  [[nodiscard]] INetworkService* network() const noexcept {
+    return m_networkModule != nullptr ? m_networkModule->service() : nullptr;
+  }
+  [[nodiscard]] NetworkSecretAgent* networkSecretAgent() const noexcept {
+    return m_networkModule != nullptr ? m_networkModule->secretAgent() : nullptr;
+  }
+  [[nodiscard]] BluetoothService* bluetooth() const noexcept {
+    return m_bluetoothModule != nullptr ? m_bluetoothModule->service() : nullptr;
+  }
+  [[nodiscard]] MprisService* mpris() const noexcept {
+    return m_mprisModule != nullptr ? m_mprisModule->service() : nullptr;
+  }
+  [[nodiscard]] PipeWireService* pipewire() const noexcept {
+    return m_pipewireModule != nullptr ? m_pipewireModule->service() : nullptr;
+  }
+  [[nodiscard]] ScreenSaverService* screenSaver() const noexcept {
+    return m_screenSaverModule != nullptr ? m_screenSaverModule->service() : nullptr;
+  }
+  [[nodiscard]] BluetoothAgent* bluetoothAgent() const noexcept {
+    return m_bluetoothModule != nullptr ? m_bluetoothModule->agent() : nullptr;
+  }
   void onNetworkStateChangedForEvents(const NetworkState& state, NetworkChangeOrigin origin);
   void onBluetoothStateChangedForEvents(const BluetoothState& state, BluetoothStateChangeOrigin origin);
   void onPowerProfileChangedForEvents(const PowerProfilesState& state, PowerProfilesChangeOrigin origin);
   [[nodiscard]] std::vector<PollSource*> currentPollSources();
   [[nodiscard]] std::vector<PollSource*> buildPollSources();
 
-  WaylandConnection m_wayland;
+  ShellWaylandConnection m_wayland;
   WorkspaceAlertService m_workspaceAlertService;
   CompositorPlatform m_compositorPlatform{m_wayland};
   security::SecretStore m_secretStore;
@@ -272,6 +324,7 @@ private:
   noctalia::theme::CommunityPaletteService m_communityPaletteService{m_httpClient};
   noctalia::theme::CommunityTemplateService m_communityTemplateService{m_httpClient};
   noctalia::theme::ThemeService m_themeService{m_configService, m_httpClient};
+  LiveAppearanceSync m_liveAppearance;
   noctalia::theme::TemplateApplyService m_templateApplyService{m_configService};
   scripting::ScriptApiContext m_scriptApi;
   std::function<void()> m_syncScriptApiOutputs;
@@ -289,18 +342,30 @@ private:
   std::optional<std::string> m_earlySessionBusError;
   std::unique_ptr<SystemBus> m_systemBus;
   std::unique_ptr<LogindService> m_logindService;
+  std::unique_ptr<PowerConfigService> m_powerConfigService;
   // Set on PrepareForSleep(true); cleared when the session lock engages (or the lock aborts).
   bool m_releaseSleepDelayWhenLocked = false;
   // Set before Noctalia-initiated suspend so PrepareForSleep skips lock-before-sleep.
   bool m_skipLockOnNextSleep = false;
   std::uint64_t m_outputPowerRequestGeneration = 0;
   std::unique_ptr<AccountsService> m_accountsService;
-  std::unique_ptr<ScreenSaverService> m_screenSaverService;
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
   std::unique_ptr<DebugService> m_debugService;
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
   IdleInhibitor m_idleInhibitor;
+  // Created on the first Activity request; samples only under a lease.
+  std::unique_ptr<ActivityMonitor> m_activityMonitor;
+  std::unique_ptr<ActivityActions> m_activityActions;
+  // Outlives the window: 24 h memory history fills from the background check.
+  ActivityDetails m_activityDetails;
+  // Declared after the monitor: it releases its monitor reference when it closes.
+  ActivityWindow m_activityWindow;
+  std::unique_ptr<DebugService> m_debugService;
+  std::unique_ptr<AndromedaShellService> m_andromedaShellService;
+  IdleInhibitor m_idleInhibitor;
+  std::unique_ptr<BackgroundWarningState> m_backgroundWarningState;
+  std::unique_ptr<BackgroundActivityMonitor> m_backgroundActivityMonitor;
   IdleManager m_idleManager;
   PluginIdleWatches m_pluginIdleWatches;
   IdleGraceOverlay m_idleGraceOverlay;
@@ -311,15 +376,20 @@ private:
   ScreenshotService m_screenshotService{
       m_wayland, m_compositorPlatform, m_configService, m_notificationManager, &m_clipboardService
   };
-  std::unique_ptr<MprisService> m_mprisService;
-  std::unique_ptr<PowerProfilesService> m_powerProfilesService;
+  // Declared before m_services: PipeWireService points to it and must be destroyed first.
+  std::unique_ptr<WirePlumberMixer> m_wirePlumberMixer;
+  // Owns the moved service modules (docs/m0-foundation.md §4); stops them in reverse start order.
+  ServiceHost m_services;
+  PowerProfilesModule* m_powerProfilesModule = nullptr;
+  UPowerModule* m_upowerModule = nullptr;
+  NetworkModule* m_networkModule = nullptr;
+  BluetoothModule* m_bluetoothModule = nullptr;
+  MprisModule* m_mprisModule = nullptr;
+  PipeWireModule* m_pipewireModule = nullptr;
+  ScreenSaverModule* m_screenSaverModule = nullptr;
   std::optional<bool> m_profileAppliedOnBattery;
-  std::unique_ptr<INetworkService> m_networkService;
-  std::unique_ptr<NetworkSecretAgent> m_networkSecretAgent;
   ExternalIpService m_externalIpService{&m_httpClient, &m_configService};
-  std::unique_ptr<IwdSecretAgent> m_iwdSecretAgent;
-  // Declared before m_bluetoothService so it outlives the raw pointer in that service.
-  std::unique_ptr<UPowerService> m_upowerService;
+  std::unique_ptr<BackgroundPortal> m_backgroundPortal;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
@@ -329,8 +399,6 @@ private:
   std::unique_ptr<QuickShareService> m_quickShareService;
   std::unique_ptr<ScreenRecorder> m_screenRecorder;
   std::map<std::uint32_t, std::pair<std::string, std::string>> m_driveNotifications;
-  std::unique_ptr<BluetoothService> m_bluetoothService;
-  std::unique_ptr<BluetoothAgent> m_bluetoothAgent;
   std::unique_ptr<ModemManagerService> m_modemManagerService;
   Timer m_bluetoothResumeTimer;
   std::unique_ptr<PolkitAgent> m_polkitAgent;
@@ -357,8 +425,6 @@ private:
   bool m_secretServiceOwned = false;
   bool m_storageKeyAutoRetried = false;
   bool m_calendarCredentialAutoRetried = false;
-  std::unique_ptr<PipeWireService> m_pipewireService;
-  std::unique_ptr<WirePlumberMixer> m_wirePlumberMixer;
   std::unique_ptr<EasyEffectsService> m_easyEffectsService;
   std::unique_ptr<PipeWireSpectrum> m_pipewireSpectrum;
   std::unique_ptr<compositors::andromeda::AndromedaAudioProvider> m_andromedaAudioProvider;
@@ -369,6 +435,8 @@ private:
   ScreenTimeService m_screenTimeService;
 
   GlSharedContext m_glShared;
+  // Pending m_glShared.initialize() on a worker thread; destroyed before m_glShared, so it waits for the worker.
+  std::future<void> m_glSharedInit;
   SharedTextureCache m_sharedTextureCache;
   RenderContext m_renderContext;
   // Image controls in panels retain cache-backed handles during teardown.
@@ -386,6 +454,8 @@ private:
   PanelManager m_panelManager;
   // Owned by m_panelManager; kept raw so plugin launcher providers can be re-applied.
   LauncherPanel* m_launcherPanel = nullptr;
+  // Owned by the launcher panel; polled for index daemon answers.
+  FilesProvider* m_filesProvider = nullptr;
   // Ids of plugin-backed panels currently registered with m_panelManager, so a
   // reload can retire the previous set before registering the new one.
   std::vector<std::string> m_pluginPanelIds;
@@ -407,6 +477,8 @@ private:
   KeyboardLayoutOsd m_keyboardLayoutOsd;
   PrivacyOsd m_privacyOsd;
   OsdOverlay m_osdOverlay;
+  LiveActivityIsland m_liveActivity;
+  int m_islandUnreadToken = -1;
   HotCorners m_hotCorners{this};
   ScreenCorners m_screenCorners;
   TrayMenu m_trayMenu;

@@ -10,6 +10,7 @@
 #include "scripting/plugin_manager.h"
 #include "shell/settings/config_export_dialog_modal.h"
 #include "shell/settings/settings_content_shortcuts.h"
+#include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_modal_host.h"
 #include "shell/settings/settings_registry.h"
@@ -22,9 +23,9 @@
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "ui/dialogs/search_picker_popup.h"
-#include "wayland/mirror_control.h"
-#include "wayland/output_management.h"
-#include "wayland/settings_control.h"
+#include "compositors/mirror_control.h"
+#include "compositors/output_management.h"
+#include "compositors/settings_control.h"
 #include "wayland/toplevel_surface.h"
 
 #include <cstdint>
@@ -32,17 +33,25 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
 class Box;
+class BluetoothService;
+class PipeWireService;
+class Slider;
+class INetworkService;
 class AsyncTextureCache;
 class Button;
 class AccountsService;
+class PowerProfilesService;
+class PowerConfigService;
 class CalendarService;
 class ClipboardService;
+class NotificationManager;
 class LinkService;
 class IpcService;
 class ConfigService;
@@ -60,7 +69,7 @@ class FileWatcher;
 class SystemBus;
 class ThumbnailService;
 class UPowerService;
-class WaylandConnection;
+class ShellWaylandConnection;
 struct KeyboardEvent;
 struct PointerEvent;
 struct wl_output;
@@ -78,6 +87,7 @@ namespace settings {
   class PaletteInspectorContent;
   class SettingsDialogPresenter;
   struct SettingsContentContext;
+  struct SettingsPage;
 } // namespace settings
 
 // Standalone xdg-toplevel settings UI (same binary as the shell; shares RenderContext).
@@ -87,7 +97,7 @@ public:
   ~SettingsWindow();
 
   void initialize(
-      WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
+      ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
       UPowerService* upower, IdleManager* idleManager, CompositorPlatform* platform, AccountsService* accounts = nullptr
   );
 
@@ -138,9 +148,30 @@ public:
   // Also rebuilds the calendar account rows when an account's sync failure changes.
   void setCalendarService(CalendarService* service);
   void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  // Services start after Settings exists, so the pages ask for them when they build.
+  void setConnectivityProviders(std::function<INetworkService*()> network, std::function<BluetoothService*()> bluetooth) {
+    m_networkProvider = std::move(network);
+    m_bluetoothProvider = std::move(bluetooth);
+  }
+  // Rebuilds an open Wi-Fi, Bluetooth or Network page; skipped while a password field is open.
+  void onConnectivityChanged();
+  void setAudioProvider(std::function<PipeWireService*()> audio) { m_audioProvider = std::move(audio); }
+  void setPowerProfilesProvider(std::function<PowerProfilesService*()> profiles) {
+    m_powerProfilesProvider = std::move(profiles);
+  }
+  void setPowerConfigProvider(std::function<PowerConfigService*()> config) { m_powerConfigProvider = std::move(config); }
+  // Battery level, charge limit or power mode changed: the Battery and Power page shows them.
+  void onPowerChanged();
+  // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
+  void onAudioChanged();
   void setFileWatcher(FileWatcher* watcher) { m_fileWatcher = watcher; }
   // Source for the bar widget gesture action picker.
   void setIpcService(IpcService* service) { m_ipcService = service; }
+  void setActivity(std::function<std::optional<std::size_t>()> flaggedCount, std::function<void()> open) {
+    m_activityFlaggedCount = std::move(flaggedCount);
+    m_openActivity = std::move(open);
+  }
+  void setNotificationManager(NotificationManager* manager) { m_notificationManager = manager; }
   void setClipboardService(ClipboardService* service) { m_clipboardService = service; }
   // Backs plugin-store thumbnails; trimmed when the window closes.
   void setAsyncTextureCache(AsyncTextureCache* cache) { m_asyncTextures = cache; }
@@ -163,6 +194,16 @@ public:
   void showTransientStatus(std::string message, bool isError = false);
 
 private:
+  // One visited page in the back/forward history.
+  struct NavEntry {
+    std::string page;
+    std::string bar;
+    std::string monitor;
+    bool expert = false;
+    // A detail page inside the page, "kind:name" (a Wi-Fi network, a Bluetooth device); empty for the page itself.
+    std::string detail;
+    bool operator==(const NavEntry&) const = default;
+  };
   void destroyWindow();
   [[nodiscard]] bool shouldUseModalDialogs() const noexcept;
   void prepareFrame(bool needsUpdate, bool needsLayout);
@@ -172,13 +213,16 @@ private:
   [[nodiscard]] std::vector<settings::SelectOption> availableOutputs() const;
   void refreshSettingsRegistry(const Config& cfg);
   void syncSelectedBarState(const Config& cfg, const std::vector<std::string>& availableBars);
-  [[nodiscard]] std::unique_ptr<Flex> buildHeaderRow(float scale);
-  [[nodiscard]] std::unique_ptr<Flex>
-  buildFilterRow(float scale, const std::string& resetPageScope, std::vector<std::vector<std::string>> resetPagePaths);
+  [[nodiscard]] std::unique_ptr<Flex> buildSearchField(float scale);
+  [[nodiscard]] std::unique_ptr<Flex> buildExpertSearchRow(float scale, std::size_t optionCount, std::string_view pageLabel);
+  [[nodiscard]] std::unique_ptr<Flex> buildHeaderRow(
+      float scale, const std::string& resetPageScope, std::vector<std::vector<std::string>> resetPagePaths
+  );
   [[nodiscard]] std::unique_ptr<Flex> buildStatusRow(float scale);
   [[nodiscard]] std::unique_ptr<Flex> buildBody(
-      float scale, const Config& cfg, const std::vector<settings::SettingsSection>& sections,
-      const std::vector<std::string>& availableBars
+      float scale, const Config& cfg, const std::vector<const settings::SettingsPage*>& pages,
+      const std::vector<std::string>& availableBars, const std::string& resetPageScope,
+      std::vector<std::vector<std::string>> resetPagePaths
   );
   [[nodiscard]] std::vector<settings::SelectOption> batteryDeviceOptions() const;
   // Bindable IPC commands, for the bar widget gesture action picker.
@@ -194,6 +238,13 @@ private:
   );
   [[nodiscard]] bool tryPatchSettingsRegistryResetValues(const std::vector<std::vector<std::string>>& paths);
   void rebuildFilterRow(float scale);
+  void applyNavEntry(const NavEntry& entry);
+  void navigateTo(
+      std::string page, std::string bar = {}, bool expert = false, std::string highlight = {},
+      std::string monitor = {}
+  );
+  void navigateHistory(int delta);
+  void openSearchResult(const settings::SettingEntry& entry);
   void requestSceneRebuild();
   void requestResetPageConfirmation();
   // Sends a compositor-owned path to the compositor's settings manager; false for a shell path. Empty clears it.
@@ -216,6 +267,19 @@ private:
   void onLanguageChanged();
   void addDefaultAppsContent(float scale);
   void addDevicesContent(float scale);
+  void addWifiContent(float scale);
+  void addBluetoothContent(float scale);
+  void addNetworkContent(float scale);
+  void addSoundContent(float scale);
+  void addUsersContent(float scale);
+  void addPowerContent(float scale);
+  void addAboutContent(float scale);
+  void checkUpdates();
+  void openDetail(std::string detail);
+  void leaveDetail();
+  void createNewUser();
+  void clearNewUser();
+  void pushNavEntry(NavEntry entry);
   void editDisplay(OutputHeadConfig config);
   void applyDisplays(std::vector<OutputHeadConfig> config, bool confirm);
   void finishDisplayConfirm(bool keep);
@@ -231,6 +295,7 @@ private:
   );
   void openActionsMenu();
   void openConfigExportDialog();
+  void showDeleteAlert(std::string title, std::string body, std::string action, std::function<void()> onConfirm);
   void openBarWidgetAddPopup(const std::vector<std::string>& lanePath);
   // Request is taken by value because opening the popup can close the sheet that owns the forwarding control.
   void openSearchPickerPopup(settings::SearchPickerOpenRequest request);
@@ -282,11 +347,13 @@ private:
   [[nodiscard]] std::optional<LayerPopupParentContext> topmostPopupParentContext() const;
   void dismissOpenSelectDropdown();
 
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   CompositorPlatform* m_platform = nullptr;
   IdleManager* m_idleManager = nullptr;
   ConfigService* m_config = nullptr;
   scripting::PluginManager* m_pluginManager = nullptr;
+  // Expires with the window; worker completions posted through DeferredCall check it first.
+  std::shared_ptr<void> m_aliveGuard = std::make_shared<char>();
   scripting::PluginRecommendations* m_pluginRecommendations = nullptr;
   // Cached PluginManager::list() — discovery can spawn git, so refresh it off the UI path.
   std::vector<scripting::PluginStatus> m_pluginList;
@@ -306,6 +373,7 @@ private:
   CalendarService* m_calendarService = nullptr;
   std::optional<std::uint64_t> m_calendarCallbackId;
   std::uint64_t m_calendarSyncStatusRevision = 0;
+  NotificationManager* m_notificationManager = nullptr;
   ClipboardService* m_clipboardService = nullptr;
   std::unordered_map<std::string, std::uint32_t> m_templateColors;
   std::string m_templateColorMode;
@@ -323,10 +391,8 @@ private:
   Flex* m_mainContainer = nullptr; // Outer Flex inside m_sceneRoot, sized to the window
   Box* m_panelBackground = nullptr;
   Node* m_headerRow = nullptr;
-  Node* m_filterRow = nullptr;
   Button* m_actionsMenuButton = nullptr;
   Flex* m_contentContainer = nullptr;
-  Flex* m_pageTitleRow = nullptr;
   Flex* m_groupJumpRow = nullptr;
   ScrollView* m_contentScrollView = nullptr;
   ScrollView* m_sidebarScrollView = nullptr;
@@ -382,6 +448,7 @@ private:
   Timer m_displayConfirmTimer;
   int m_displayConfirmSecondsLeft = 0;
   std::string m_displayError;
+  std::string m_selectedDisplay;
   // Exists while the window is open, on compositors that advertise dsk_settings_manager_v1.
   std::unique_ptr<SettingsControl> m_compositorSettings;
   std::string m_shownCompositorFailure;
@@ -404,7 +471,6 @@ private:
   std::string m_editingWidgetName;
   std::string m_editingCapsuleGroupId;
   std::vector<std::string> m_selectedLaneWidgets;
-  std::string m_pendingDeleteWidgetName;
   std::string m_pendingDeleteWidgetSettingPath;
   std::string m_renamingWidgetName;
   // Gesture whose action row has a chosen command that still needs its argument typed.
@@ -421,26 +487,46 @@ private:
   bool m_expandedSettingGroupsSeededExpandAll = false;
   std::string m_creatingBarName;
   std::string m_renamingBarName;
-  std::string m_pendingDeleteBarName;
   std::string m_renamingMonitorOverrideBarName;
   std::string m_renamingMonitorOverrideMatch;
-  std::string m_pendingDeleteMonitorOverrideBarName;
-  std::string m_pendingDeleteMonitorOverrideMatch;
   std::string m_renamingDockMonitorOverride;
-  std::string m_pendingDeleteDockMonitorOverride;
-  std::string m_pendingDeletePluginId;
   std::string m_selectedBarName;
   std::string m_selectedMonitorOverride;
   std::string m_selectedSection;
-  std::optional<settings::SettingsCategory> m_expandedCategory;
-  // The page the sidebar last expanded a category for; selecting another page from outside re-expands.
-  std::string m_expandedForSection;
+  // Back/forward history of visited pages; m_navIndex is the current entry.
+  std::vector<NavEntry> m_navHistory;
+  std::size_t m_navIndex = 0;
+  // True while the page's expert options are open instead of the page itself.
+  bool m_expertOpen = false;
+  std::string m_detail;
+  std::function<INetworkService*()> m_networkProvider;
+  std::function<BluetoothService*()> m_bluetoothProvider;
+  std::function<PipeWireService*()> m_audioProvider;
+  std::function<PowerProfilesService*()> m_powerProfilesProvider;
+  std::function<PowerConfigService*()> m_powerConfigProvider;
+  std::string m_soundSignature;
+  Slider* m_soundOutputSlider = nullptr;
+  Slider* m_soundInputSlider = nullptr;
+  // The Wi-Fi network whose password row is open, and the text typed so far.
+  std::string m_wifiJoinSsid;
+  std::string m_wifiPassword;
+  std::string m_wifiIdentity;
+  std::string m_wifiJoinError;
+  settings::NewUserDraft m_newUser;
+  bool m_renaming = false;
+  int m_updateCount = -1;
+  std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
+  std::string m_renameError;
+  bool m_userDeleteBusy = false;
+  std::string m_userDeleteError;
+  std::string m_expertQuery;
+  // Config path (or "section/title" for pathless rows) of the row a search result opened; shown highlighted.
+  std::string m_highlightKey;
   std::string m_reopenAfterWidgetEditorSection;
   std::string m_statusMessage;
   std::string m_pendingResetPageScope;
   std::vector<std::vector<std::string>> m_pendingResetSettingPaths;
   bool m_forceEnTranslation = false;
-  bool m_showAdvanced = false;
   bool m_statusIsError = false;
   bool m_pendingEncryptedStorageReset = false;
   std::function<void()> m_openDesktopWidgetEditor;
@@ -449,6 +535,8 @@ private:
   std::function<void()> m_syncGreeterAppearance;
   std::function<void()> m_resetLauncherUsage;
   std::function<void()> m_resetScreenTime;
+  std::function<std::optional<std::size_t>()> m_activityFlaggedCount;
+  std::function<void()> m_openActivity;
   std::function<void()> m_resetEncryptedStorage;
   std::function<void()> m_saveWallpaperPaletteAsCustom;
 };

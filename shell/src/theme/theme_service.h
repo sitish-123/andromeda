@@ -53,6 +53,17 @@ namespace noctalia::theme {
     // The resolved [theme].mode, which drives apps.
     [[nodiscard]] std::string_view resolvedMode() const noexcept;
 
+    // The compositor's live appearance: accent "#rrggbb" (empty keeps the token accent) and increased contrast.
+    void setLiveAppearance(std::string accent, bool increaseContrast);
+
+    // Accent colors for GTK/Qt/KDE files in the resolved app mode: the target palette, not a mid-fade value.
+    struct ToolkitColors {
+      ::Color accent;
+      ::Color accentText;
+      ::Color onAccent;
+    };
+    [[nodiscard]] const ToolkitColors& toolkitColors() const noexcept { return m_toolkitColors; }
+
     void setChangeCallback(ChangeCallback callback);
     void setResolvedCallback(ResolvedCallback callback);
 
@@ -63,6 +74,10 @@ namespace noctalia::theme {
     [[nodiscard]] bool saveWallpaperPaletteAsCustom(std::string* paletteNameOut, std::string* errorOut = nullptr);
 
   private:
+    ToolkitColors m_toolkitColors{};
+    std::string m_liveAccent;
+    bool m_liveHighContrast = false;
+
     // Identifies one wallpaper palette generation. mtime makes an edited wallpaper at the
     // same path re-decode; 0 means the stat failed and the result must not be cached.
     struct WallpaperPaletteKey {
@@ -90,7 +105,6 @@ namespace noctalia::theme {
     // Serves the memoized palette, or queues a background decode and reports it pending.
     WallpaperLookup lookupWallpaperGenerated(const ThemeConfig& cfg, const std::string& wallpaperPath);
     void requestWallpaperPalette(const WallpaperPaletteKey& key);
-    void wallpaperWorkerLoop();
     void onWallpaperPaletteDecoded(const WallpaperPaletteKey& key, std::optional<GeneratedPalette> generated);
     void queueResolvedCallback(const GeneratedPalette& generated, std::string_view mode);
     void flushResolvedCallback(bool defer);
@@ -113,12 +127,6 @@ namespace noctalia::theme {
     // broken file falls back to the builtin palette instead of re-queueing forever.
     std::optional<WallpaperPaletteKey> m_wallpaperRequested;
     std::optional<WallpaperPaletteKey> m_wallpaperFailed;
-    // Single decode worker; only the newest queued request survives.
-    std::mutex m_wallpaperWorkerMutex;
-    std::condition_variable m_wallpaperWorkerCv;
-    std::optional<WallpaperPaletteKey> m_wallpaperQueued;
-    bool m_wallpaperWorkerShutdown = false;
-    std::thread m_wallpaperWorker;
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
     ChangeCallback m_changeCallback;

@@ -164,6 +164,11 @@ struct wlr_scene {
     bool highlight_transparent_region;
 
     struct blur_data blur_data;
+    // Bumped on every node update; keys the optimized blur's consumer cache.
+    uint64_t update_serial;
+    // Layout area where an optimized blur finished re-rendering. Visibility there was computed with nothing culled
+    // below the blur (it had to capture those nodes); the next frame recomputes it so they are culled again.
+    pixman_region32_t blur_visibility_stale;
 
     // Painted where no node covers the output. A rect matching it exactly
     // is dropped from the render list instead of drawn.
@@ -224,6 +229,8 @@ struct wlr_scene_shadow {
   struct clipped_region clipped_region;
 };
 
+struct fx_backdrop_probe;
+
 struct wlr_scene_blur {
   struct wlr_scene_node node;
   int width, height;
@@ -234,10 +241,17 @@ struct wlr_scene_blur {
   float strength;
   float alpha;
   float ignore_alpha;
+  float liquid; // liquid glass strength, 0 to 1
+  float rim; // specular rim only, 0 to 1: no refraction and no lighter blur (frosted sheets)
+  struct wlr_box liquid_box; // node-local; empty = the node box and corners
+  int liquid_radius;
 
   bool should_only_blur_bottom_layer;
 
   struct linked_node transparency_mask_source;
+
+  bool backdrop_sampling;
+  struct fx_backdrop_probe* backdrop_probe; // created on the first render with sampling on
 };
 
 /** A scene-graph node telling SceneFX to render the optimized blur */
@@ -245,7 +259,15 @@ struct wlr_scene_optimized_blur {
   struct wlr_scene_node node;
   int width, height;
 
+  // The whole node is stale.
   bool dirty;
+  // Layout coordinates. Stale parts of the cache that no blur node samples yet.
+  pixman_region32_t pending;
+  // Boxes of the blur nodes that sample the cache, grown by the blur reach, as of scene update_serial.
+  pixman_region32_t consumers;
+  uint64_t consumers_serial;
+  int consumers_reach;
+  bool consumers_valid;
 };
 
 struct wlr_scene_outputs_update_event {
@@ -310,6 +332,7 @@ struct wlr_scene_buffer {
     bool own_buffer;
     int buffer_width, buffer_height;
     bool buffer_is_opaque;
+    bool over_black;
 
     struct wlr_drm_syncobj_timeline* wait_timeline;
     uint64_t wait_point;
@@ -877,6 +900,34 @@ struct wlr_scene_buffer* wlr_scene_blur_get_transparency_mask_source(struct wlr_
 void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha);
 
 /**
+ * Sets the liquid glass strength, 0 to 1: refraction at the rim and a soft specular rim.
+ */
+void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
+
+/**
+ * Sets the specular rim alone, 0 to 1, for shapes that stay frosted. The drawn rim is the larger of rim and liquid.
+ */
+void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim);
+
+/**
+ * Turns backdrop luminance sampling on or off. While on, each render of this node samples its blurred region; the
+ * result arrives through wlr_scene_blur_poll_backdrop(). Nothing is sampled on frames that do not draw the node.
+ */
+void wlr_scene_blur_set_backdrop_sampling(struct wlr_scene_blur* blur, bool enabled);
+
+/** Never blocks. True with luminance (0 to 1) when a sample of the blurred backdrop finished since the last poll. */
+bool wlr_scene_blur_poll_backdrop(struct wlr_scene_blur* blur, float* luminance);
+
+/** True while a sample waits for the GPU. */
+bool wlr_scene_blur_backdrop_pending(const struct wlr_scene_blur* blur);
+
+/**
+ * Sets the shape whose edge gets the liquid rim (node-local, logical px), when it differs from the node box.
+ * NULL box = the node box and its corners.
+ */
+void wlr_scene_blur_set_liquid_shape(struct wlr_scene_blur* blur, const struct wlr_box* box, int radius);
+
+/**
  * Sets the blur strength from 1.0f -> 0.0f. This adjusts how strong the blur is
  * relative to the base 1.0 value.
  *
@@ -932,6 +983,13 @@ void wlr_scene_optimized_blur_set_size(struct wlr_scene_optimized_blur* blur_nod
 void wlr_scene_optimized_blur_mark_dirty(struct wlr_scene_optimized_blur* blur_node);
 
 /**
+ * Tells the renderer that only the layout-coordinate box changed. The cache
+ * re-renders the box grown by the blur reach, and only where a blur node
+ * samples it.
+ */
+void wlr_scene_optimized_blur_mark_dirty_box(struct wlr_scene_optimized_blur* blur_node, const struct wlr_box* box);
+
+/**
  * Add a node displaying a buffer to the scene-graph.
  *
  * If the buffer is NULL, this node will not be displayed.
@@ -984,6 +1042,12 @@ void wlr_scene_buffer_set_buffer_with_options(
  * determine if buffers which reside under this one need to be rendered or not.
  */
 void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer* scene_buffer, const pixman_region32_t* region);
+
+/**
+ * Declares that everything below the buffer is opaque black. A premultiplied buffer over black shows its own color
+ * channels, so the buffer is then drawn without blending and culls what lies below it.
+ */
+void wlr_scene_buffer_set_over_black(struct wlr_scene_buffer* scene_buffer, bool over_black);
 
 /**
  * Set the source rectangle describing the region of the buffer which will be

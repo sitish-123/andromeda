@@ -35,6 +35,7 @@ struct WorkspaceWindow {
   std::int32_t y = 0;
   std::string outputName;
   std::optional<WindowMinimizeState> minimizeState;
+  std::int32_t pid = 0; // 0 when the backend does not report it
 };
 
 struct WorkspaceWindowAssignment {

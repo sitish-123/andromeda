@@ -1,8 +1,10 @@
 #include "shell/bar/widgets/active_window_widget.h"
+#include "config/app_icon_settings.h"
 
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "i18n/i18n.h"
+#include "render/animation/animation_manager.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "system/app_identity.h"
@@ -10,6 +12,7 @@
 #include "system/internal_app_metadata.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/builders.h"
+#include "ui/controls/flex.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
@@ -22,8 +25,16 @@ ActiveWindowWidget::ActiveWindowWidget(ConfigService& config, CompositorPlatform
     : m_config(config), m_platform(platform), m_maxWidth(static_cast<float>(options.maxWidth)),
       m_minWidth(static_cast<float>(options.minWidth)), m_iconSize(static_cast<float>(options.iconSize)),
       m_titleScrollMode(options.titleScrollMode), m_displayMode(options.displayMode),
-      m_showEmptyLabel(options.showEmptyLabel) {
+      m_showEmptyLabel(options.showEmptyLabel), m_iconGap(options.iconGap), m_appName(options.appName),
+      m_leadingInset(options.leadingInset) {
   buildDesktopIconIndex();
+}
+
+ActiveWindowWidget::~ActiveWindowWidget() {
+  if (m_animations != nullptr) {
+    m_animations->cancelForOwner(this);
+    m_animations->cancelForOwner(&m_contentFade);
+  }
 }
 
 void ActiveWindowWidget::create() {
@@ -42,7 +53,7 @@ void ActiveWindowWidget::create() {
       ui::image({
           .out = &m_icon,
           .fit = ImageFit::Contain,
-          .radius = Style::radiusSm,
+          .radius = Tokens::radiusR8,
           .width = m_iconSize * m_contentScale,
           .height = m_iconSize * m_contentScale,
       })
@@ -54,7 +65,7 @@ void ActiveWindowWidget::create() {
           .fontSize = Style::fontSizeBody * fontScale(),
           .fontWeight = labelFontWeight(),
           .fontFamily = labelFontFamily(),
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .maxWidth = m_maxWidth * m_contentScale,
           .maxLines = 1,
           .autoScroll = false,
@@ -79,6 +90,14 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
   if (!rootNode->visible() || !rootNode->participatesInLayout()) {
     return;
   }
+  m_vertical = containerHeight > containerWidth;
+  if (m_collapsing) {
+    rootNode->setOpacity(m_collapseFrom > 0.0F ? std::clamp(m_shownWidth / m_collapseFrom, 0.0F, 1.0F) : 0.0F);
+    rootNode->setClipChildren(true);
+    rootNode->setSize(m_shownWidth, rootNode->height());
+    return;
+  }
+  rootNode->setOpacity(1.0F);
 
   const bool showingEmptyPlaceholder = m_lastEmptyState && m_showEmptyLabel;
   const bool isVertical = containerHeight > containerWidth;
@@ -87,7 +106,7 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
   const float minLength = std::clamp(m_minWidth * m_contentScale, 0.0F, maxLength);
   m_icon->setSize(iconSize, iconSize);
 
-  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
 
   if (isVertical && !showingEmptyPlaceholder) {
     m_title->setVisible(false);
@@ -102,7 +121,7 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     m_icon->setVisible(showIcon);
     m_title->setVisible(showTitle);
     applyTitleScrollMode(showTitle);
-    const float spacing = showIcon && showTitle ? Style::spaceXs : 0.0F;
+    const float spacing = showIcon && showTitle ? m_iconGap : 0.0F;
     const float iconWidth = showIcon ? m_icon->width() : 0.0F;
     const float labelMaxWidth = showTitle ? std::max(0.0F, maxLength - iconWidth - spacing) : 0.0F;
     m_title->setMaxWidth(labelMaxWidth);
@@ -114,29 +133,156 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     const float iconY = showIcon ? std::round((contentHeight - m_icon->height()) * 0.5F) : 0.0F;
     const float labelY = std::round((contentHeight - m_title->height()) * 0.5F);
 
-    m_icon->setPosition(0.0F, iconY);
-    m_title->setPosition(showIcon ? m_icon->width() + spacing : 0.0F, labelY);
+    const float lead = m_leadingInset + m_contentShift;
+    m_icon->setPosition(lead, iconY);
+    m_title->setPosition(lead + (showIcon ? m_icon->width() + spacing : 0.0F), labelY);
 
-    const float contentWidth = showTitle ? m_title->x() + m_title->width() : iconWidth;
-    rootNode->setSize(std::clamp(contentWidth, minLength, maxLength), contentHeight);
+    const float contentWidth = showTitle ? m_title->x() + m_title->width() - lead : iconWidth;
+    const float target = std::clamp(contentWidth, minLength, maxLength) + m_leadingInset;
+    const auto [gapsShown, gapsHidden] = gapsBeside();
+    m_targetContent = target;
+    if (m_animations == nullptr || (m_shownWidth <= 0.0F && !m_fromHidden && m_widthAnimId == 0)) {
+      m_shownWidth = target;
+    } else if (m_fromHidden) {
+      m_fromHidden = false;
+      morphWidth(gapsHidden, target + gapsShown);
+    } else if (m_widthAnimId != 0) {
+      if (target + gapsShown != m_targetWidth) {
+        morphWidth(m_shownWidth, target + gapsShown);
+      }
+    } else if (target != m_shownWidth) {
+      morphWidth(m_shownWidth + gapsShown, target + gapsShown);
+    }
+    if (m_widthAnimId == 0) {
+      m_shownWidth = target;
+    }
+    rootNode->setClipChildren(m_widthAnimId != 0);
+    rootNode->setSize(m_shownWidth, contentHeight);
   }
 }
 
 void ActiveWindowWidget::doUpdate(Renderer& renderer) { syncState(renderer); }
 
 void ActiveWindowWidget::syncWidgetVisibility(bool showWidget) {
-  if (Node* rootNode = root(); rootNode != nullptr) {
-    if (rootNode->visible() != showWidget || rootNode->participatesInLayout() != showWidget) {
-      rootNode->setVisible(showWidget);
-      rootNode->setParticipatesInLayout(showWidget);
-      if (!showWidget) {
-        rootNode->setSize(0.0F, 0.0F);
-      }
-      requestUpdate();
-    } else if (!showWidget && (rootNode->width() > 0.0F || rootNode->height() > 0.0F)) {
+  Node* rootNode = root();
+  if (rootNode == nullptr) {
+    return;
+  }
+  if (showWidget && m_collapsing) {
+    m_collapsing = false;
+    requestUpdate();
+    return;
+  }
+  if (!showWidget && m_collapsing) {
+    return;
+  }
+  if (!showWidget && m_animations != nullptr && !m_vertical && rootNode->visible() && rootNode->width() > 0.0F) {
+    const auto [gapsShown, gapsHidden] = gapsBeside();
+    m_collapsing = true;
+    m_collapseFrom = m_widthAnimId != 0 ? m_shownWidth : rootNode->width() + gapsShown;
+    morphWidth(m_collapseFrom, gapsHidden);
+    requestUpdate();
+    return;
+  }
+  if (rootNode->visible() != showWidget || rootNode->participatesInLayout() != showWidget) {
+    rootNode->setVisible(showWidget);
+    rootNode->setParticipatesInLayout(showWidget);
+    if (showWidget) {
+      m_fromHidden = m_animations != nullptr && !m_vertical;
+    } else {
       rootNode->setSize(0.0F, 0.0F);
+      m_shownWidth = 0.0F;
+    }
+    requestUpdate();
+  } else if (!showWidget && (rootNode->width() > 0.0F || rootNode->height() > 0.0F)) {
+    rootNode->setSize(0.0F, 0.0F);
+  }
+}
+
+std::pair<float, float> ActiveWindowWidget::gapsBeside() const {
+  Node* bounds = layoutBoundsNode();
+  const auto* section = bounds != nullptr ? dynamic_cast<const Flex*>(bounds->parent()) : nullptr;
+  if (section == nullptr) {
+    return {0.0F, 0.0F};
+  }
+  bool before = false;
+  bool after = false;
+  bool seen = false;
+  for (const auto& child : section->children()) {
+    if (child.get() == bounds) {
+      seen = true;
+    } else if (child->visible() && child->participatesInLayout()) {
+      (seen ? after : before) = true;
     }
   }
+  const float gap = section->gap();
+  return {gap * static_cast<float>(int(before) + int(after)), before && after ? gap : 0.0F};
+}
+
+void ActiveWindowWidget::setGapExcluded(bool excluded) {
+  Node* bounds = layoutBoundsNode();
+  auto* section = bounds != nullptr ? dynamic_cast<Flex*>(bounds->parent()) : nullptr;
+  if (section == nullptr || m_gapExcluded == excluded) {
+    return;
+  }
+  section->setChildGapExcluded(bounds, excluded);
+  m_gapExcluded = excluded;
+  // Without its gap the widget starts one gap earlier; the content moves by that gap so it does not jump.
+  bool before = false;
+  for (const auto& child : section->children()) {
+    if (child.get() == bounds) {
+      break;
+    }
+    before = before || (child->visible() && child->participatesInLayout());
+  }
+  const float shift = excluded && before ? section->gap() : 0.0F;
+  const float delta = shift - m_contentShift;
+  m_contentShift = shift;
+  if (delta != 0.0F && m_icon != nullptr && m_title != nullptr) {
+    m_icon->setPosition(m_icon->x() + delta, m_icon->y());
+    m_title->setPosition(m_title->x() + delta, m_title->y());
+  }
+}
+
+void ActiveWindowWidget::morphWidth(float fromExtent, float toExtent) {
+  setGapExcluded(true);
+  m_targetWidth = toExtent;
+  m_widthAnimId = m_animations->drive(
+      m_widthAnimId, fromExtent, toExtent, Style::spring(Tokens::springMove),
+      [this](float w) {
+        m_shownWidth = std::max(0.0F, w);
+        if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
+          bounds->markLayoutDirty();
+        }
+        requestUpdate();
+      },
+      [this] { finishMorph(); }, this, 0.0F, Unit::Px
+  );
+  if (m_widthAnimId == 0) {
+    finishMorph();
+  }
+  requestFrameTick();
+}
+
+void ActiveWindowWidget::finishMorph() {
+  m_widthAnimId = 0;
+  setGapExcluded(false);
+  if (m_collapsing) {
+    m_collapsing = false;
+    if (Node* rootNode = root(); rootNode != nullptr) {
+      rootNode->setVisible(false);
+      rootNode->setParticipatesInLayout(false);
+      rootNode->setSize(0.0F, 0.0F);
+      rootNode->setOpacity(1.0F);
+    }
+    m_shownWidth = 0.0F;
+  } else {
+    m_shownWidth = m_targetContent;
+  }
+  if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
+    bounds->markLayoutDirty();
+  }
+  requestUpdate();
 }
 
 void ActiveWindowWidget::applyTitleScrollMode(bool titleVisible) {
@@ -178,6 +324,10 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
     identifier = current->identifier;
     title = StringUtils::windowTitleSingleLine(current->title);
     appId = current->appId;
+    if (m_appName) {
+      const auto entry = app_identity::findDesktopEntry(appId, desktopEntries());
+      title = entry.has_value() && !entry->name.empty() ? entry->name : appId;
+    }
     if (title.empty()) {
       title = appId;
     }
@@ -199,7 +349,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
     if (m_area != nullptr) {
       m_area->clearTooltip();
     }
-    if (m_icon != nullptr) {
+    if (m_icon != nullptr && !m_collapsing) {
       m_icon->clear(renderer);
     }
     return;
@@ -234,8 +384,27 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
 
   std::string iconPath = emptyState ? std::string{} : resolveIconPath(appId);
 
+  // A new window's title and icon fade in while the width springs, so the text never pops in under the clip.
+  const bool swapping = m_animations != nullptr && m_shownWidth > 0.0F && !m_collapsing && m_title->text() != m_lastTitle;
   m_title->setText(m_lastTitle);
-  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  if (swapping) {
+    m_animations->cancelForOwner(&m_contentFade);
+    m_contentFade = 0.0F;
+    m_animations->animateSpring(
+        0.0F, 1.0F, Style::spring(Tokens::springFade),
+        [this](float v) {
+          m_contentFade = v;
+          m_title->setOpacity(v);
+          m_icon->setOpacity(v);
+          requestRedraw();
+        },
+        {}, &m_contentFade
+    );
+    m_title->setOpacity(0.0F);
+    m_icon->setOpacity(0.0F);
+    requestFrameTick();
+  }
+  m_title->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_title->setVisible(!m_lastTitle.empty());
   applyTitleScrollMode(m_title->visible());
   m_title->measure(renderer);

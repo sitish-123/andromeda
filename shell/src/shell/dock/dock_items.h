@@ -29,6 +29,7 @@ namespace shell::dock {
     InputArea* area = nullptr;
     std::array<Box*, 3> dotIndicators{};
     Box* minimizedIndicator = nullptr;
+    Box* runningIndicator = nullptr;
     Box* badge = nullptr;
     Label* badgeLabel = nullptr;
     std::string tooltipText;
@@ -43,6 +44,11 @@ namespace shell::dock {
     float visualOpacity = -1.0F;
     AnimationManager::Id scaleAnimId = 0;
     AnimationManager::Id opacityAnimId = 0;
+    float pressScale = 1.0F;
+    AnimationManager::Id pressAnimId = 0;
+    bool runningShown = false;
+    float runningScale = 0.0F;
+    AnimationManager::Id runningAnimId = 0;
   };
 
   struct DockItemAction {

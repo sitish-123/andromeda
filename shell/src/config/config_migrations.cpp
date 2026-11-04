@@ -31,6 +31,7 @@ namespace noctalia::config {
     constexpr int kCalendarEventFormatsMigrationVersion = 14;
     constexpr int kDockMonitorOverridesMigrationVersion = 15;
     constexpr int kPaletteRoleNamesMigrationVersion = 16;
+    constexpr int kLockscreenThemeMigrationVersion = 17;
     constexpr std::int64_t kMaxBarRadius = 500;
     constexpr std::array<std::string_view, 5> kBarRadiusKeys = {
         "radius", "radius_top_left", "radius_top_right", "radius_bottom_left", "radius_bottom_right",
@@ -426,6 +427,39 @@ namespace noctalia::config {
       }
     }
 
+    // lockscreen.style (ryoku | classic) became lockscreen.theme (ryoku | andromeda). keepRyokuWhenUnset writes ryoku
+    // when neither key is set, for installs from before the theme key.
+    template <typename OnChanged>
+    void migrateLockscreenTheme(toml::table& root, bool keepRyokuWhenUnset, OnChanged&& onChanged) {
+      auto* section = root["lockscreen"].as_table();
+      const auto style = section != nullptr ? (*section)["style"].value<std::string>() : std::nullopt;
+      if (section != nullptr && section->contains("theme")) {
+        if (section->erase("style") > 0) {
+          onChanged("lockscreen.style");
+        }
+        return;
+      }
+      if (!style.has_value() && !keepRyokuWhenUnset) {
+        return;
+      }
+      if (section == nullptr) {
+        root.insert_or_assign("lockscreen", toml::table{});
+        section = root["lockscreen"].as_table();
+      }
+      section->insert_or_assign("theme", style.value_or("ryoku") == "classic" ? "andromeda" : "ryoku");
+      if (section->erase("style") > 0) {
+        onChanged("lockscreen.style");
+      }
+    }
+
+    void migrateLockscreenThemeSidecar(toml::table& root, schema::Diagnostics& diag) {
+      // A file that records an older config_version comes from an install that had the Ryoku look; a fresh overrides
+      // file has no version yet and keeps the Andromeda default.
+      migrateLockscreenTheme(root, root.contains(kConfigVersionKey), [&diag](const std::string& path) {
+        diag.warn(path, "lockscreen style is now theme");
+      });
+    }
+
     void migrateLockscreenLoginBoxDeprecatedSettingsSidecar(toml::table& root, schema::Diagnostics& diag) {
       migrateLockscreenLoginBoxDeprecatedSettings(root, [&diag](const std::string& path) {
         diag.warn(path, "removed deprecated show_password_hint");
@@ -782,7 +816,7 @@ namespace noctalia::config {
 
     // The `surface_variant` and `outline` palette roles resolved to surface_container and outline_variant,
     // so they were retired in favor of those names. `theme` is skipped (template custom colors use template
-    // tokens, not shell roles) and so are `variant` keys (button styles, where "outline" is not a color).
+    // tokens, not shell roles) and so are `variant` and `clock_style` keys (style names: "outline" is not a color).
     std::optional<std::string_view> renamedPaletteRole(std::string_view raw) {
       std::string token = StringUtils::trim(raw);
       StringUtils::toLowerInPlace(token);
@@ -799,7 +833,7 @@ namespace noctalia::config {
     void migratePaletteRoleNamesIn(toml::node& node, const std::string& path, OnChanged& onChanged) {
       if (auto* table = node.as_table()) {
         for (auto& [key, child] : *table) {
-          if (key.str() != "variant") {
+          if (key.str() != "variant" && key.str() != "clock_style") {
             migratePaletteRoleNamesIn(child, path + "." + std::string(key.str()), onChanged);
           }
         }
@@ -956,6 +990,11 @@ namespace noctalia::config {
             .toVersion = kPaletteRoleNamesMigrationVersion,
             .summary = "theme: rename surface_variant and outline palette roles",
             .apply = migratePaletteRoleNamesSidecar,
+        },
+        {
+            .toVersion = kLockscreenThemeMigrationVersion,
+            .summary = "lockscreen: style (ryoku | classic) is now theme (ryoku | andromeda)",
+            .apply = migrateLockscreenThemeSidecar,
         },
     };
     return migrations;
@@ -1128,6 +1167,13 @@ namespace noctalia::config {
           });
         }
     );
+    migrateLockscreenTheme(root, false, [&issues](const std::string& path) {
+      issues.push_back({
+          .migrationVersion = kLockscreenThemeMigrationVersion,
+          .path = path,
+          .message = "lockscreen style is deprecated; use theme = \"ryoku\" or \"andromeda\"",
+      });
+    });
   }
 
   std::string legacyConfigIssueFingerprint(const LegacyConfigIssues& issues) {

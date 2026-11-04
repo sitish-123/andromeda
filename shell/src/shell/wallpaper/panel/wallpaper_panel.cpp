@@ -55,7 +55,7 @@ namespace {
   constexpr float kMinTileWidth = 180.0F;
   constexpr float kMonitorSelectMinWidth = 136.0F;
   constexpr float kFavoriteSelectMinWidth = 168.0F;
-  constexpr float kFavoritesMetaRowGap = Style::spaceSm;
+  TOKENS_LIVE(kFavoritesMetaRowGap, Style::spaceSm);
   constexpr float kTileAspect = 0.78F; // height / width, leaves room for label under widescreen thumb
 
   [[nodiscard]] std::size_t themeModeSegmentIndex(ThemeMode mode) {
@@ -448,7 +448,7 @@ void WallpaperPanel::create() {
           .text = i18n::tr("wallpaper.panel.title"),
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
 
@@ -457,7 +457,7 @@ void WallpaperPanel::create() {
           .out = &m_filterInput,
           .placeholder = i18n::tr("wallpaper.panel.filter-placeholder"),
           .fontSize = Style::fontSizeBody * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceMd * scale,
           .surfaceOpacity = panelCardOpacity(),
           .width = 210.0F * scale,
@@ -492,8 +492,8 @@ void WallpaperPanel::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Secondary,
           .tooltip = i18n::tr("wallpaper.panel.navigate-up"),
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] { navigateUp(); },
@@ -507,7 +507,7 @@ void WallpaperPanel::create() {
           .out = &m_flattenLabel,
           .text = i18n::tr("wallpaper.panel.flatten"),
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -534,7 +534,7 @@ void WallpaperPanel::create() {
       ui::select({
           .out = &m_monitorSelect,
           .fontSize = Style::fontSizeBody * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .surfaceOpacity = panelCardOpacity(),
           .onSelectionChanged =
               [this](std::size_t idx, std::string_view) {
@@ -559,8 +559,8 @@ void WallpaperPanel::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
           .tooltip = i18n::tr("wallpaper.panel.choose-color"),
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] { applyColorWallpaper(); },
@@ -574,8 +574,8 @@ void WallpaperPanel::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
           .tooltip = i18n::tr(sortModeTooltipKey(m_sortMode)),
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] { cycleSortMode(); },
@@ -589,8 +589,8 @@ void WallpaperPanel::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
           .tooltip = i18n::tr("wallpaper.panel.refresh"),
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] {
@@ -614,8 +614,8 @@ void WallpaperPanel::create() {
             .glyph = "close",
             .glyphSize = Style::fontSizeBody * scale,
             .tooltip = i18n::tr("wallpaper.panel.close"),
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [] { PanelManager::instance().close(); },
@@ -625,7 +625,7 @@ void WallpaperPanel::create() {
 
   root->addChild(std::move(toolbar));
 
-  const float favoritesControlHeight = Style::controlHeightSm * scale;
+  const float favoritesControlHeight = Style::controlHeight * scale;
   const float favoritesLabelFontSize = Style::fontSizeCaption * scale;
 
   auto favoritesOptions = ui::row({
@@ -708,8 +708,8 @@ void WallpaperPanel::create() {
           .glyphSize = Style::fontSizeBody * scale,
           .variant = ButtonVariant::Default,
           .tooltip = i18n::tr("wallpaper.panel.favorite-current"),
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = [this] { toggleFavoriteForPath(currentWallpaperPathForSelection()); },
@@ -832,7 +832,7 @@ void WallpaperPanel::create() {
           ui::label({
               .text = i18n::tr("wallpaper.panel.loading"),
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       )
   );

@@ -1,48 +1,48 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
-struct Config;
-struct ScrollViewState;
+class AsyncTextureCache;
 class Flex;
 class Node;
+class Renderer;
 class RovingListNavHost;
+class ScrollView;
+struct ScrollViewState;
 
 namespace settings {
-  enum class SettingsSection : std::uint8_t;
-  enum class SettingsCategory : std::uint8_t;
+  struct SettingsPage;
 
   struct SettingsSidebarContext {
-    const Config& config;
-    const std::vector<SettingsSection>& sections;
+    // Pages to list, in IA order.
+    const std::vector<const SettingsPage*>& pages;
     const std::vector<std::string>& availableBars;
     float scale = 1.0F;
     bool globalSearchActive = false;
+    const std::string& selectedPage;
+    const std::string& selectedBarName;
+    std::string& creatingBarName;
+
+    // The search field sits above the account card; the window owns it because search drives the content.
+    std::unique_ptr<Node> searchField;
+    std::string accountName;
+    std::string accountAvatarPath;
+    Renderer* renderer = nullptr;
+    AsyncTextureCache* avatarTextures = nullptr;
 
     ScrollViewState& sidebarScrollState;
-    ScrollViewState& contentScrollState;
-    std::string& selectedSection;
-    std::string& selectedBarName;
-    std::string& selectedMonitorOverride;
-    std::string& creatingBarName;
-    std::optional<SettingsCategory>& expandedCategory;
-    std::string& expandedForSection;
 
     std::function<void()> clearTransientState;
-    std::function<void()> clearSearchQuery;
     std::function<void()> requestRebuild;
+    std::function<void(std::string page, std::string bar)> navigate;
+    std::function<void()> openAccount;
     std::function<void(std::string)> createBar;
-    // Opens the "new monitor override" dialog for the given bar. The create flow lives in a modal
-    // (wide enough for the output picker) instead of the narrow sidebar.
-    std::function<void(std::string)> openMonitorOverrideCreate;
-    std::function<void()> openDockMonitorOverrideCreate;
     std::function<void(const Node*)> scrollSidebarNodeIntoView;
     RovingListNavHost** outNav = nullptr;
+    ScrollView** outScroll = nullptr;
   };
 
   [[nodiscard]] std::unique_ptr<Flex> buildSettingsSidebar(SettingsSidebarContext ctx);

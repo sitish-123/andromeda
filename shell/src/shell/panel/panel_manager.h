@@ -7,8 +7,11 @@
 #include "shell/panel/panel_click_shield.h"
 #include "shell/panel/persistent_panel_host.h"
 #include "ui/dialogs/layer_popup_host.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/hyprland/popup_grab_host.h"
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -47,6 +50,15 @@ struct PanelOpenRequest {
   bool hasAnchorPosition = false;
   std::string_view context;
   std::string_view sourceBarName;
+  // The bar island the panel opens from: its wl_surface and x, y, width, height in that surface. The panel grows out
+  // of it when the compositor supports dsk_surface_v1.set_clip_from.
+  wl_surface* sourceSurface = nullptr;
+  std::array<float, 4> sourceRect{};
+  // A drag on the island that opens the panel: the sheet follows tracker positions 0..trackerRange instead of
+  // animating. Bindings apply on the tracker surface's commit, so commitTracker asks its owner to commit.
+  std::weak_ptr<DskTrackerClient> tracker;
+  double trackerRange = 0.0;
+  std::function<void()> commitTracker;
 };
 
 class PanelManager : public PopupGrabHost {
@@ -71,6 +83,10 @@ public:
   void setToggleSettingsWindowCallback(std::function<void(std::string)> callback);
   void setCloseDesktopWidgetsEditorCallback(std::function<void()> callback);
   void openSettingsWindow(std::string context = "");
+  // Liquid glass strength (0..1) of the open panel's backdrop; animates on the open spring. No-op on compositors
+  // without dsk_surface_v1 version 5.
+  // animate = false sets the fill at once (first value after open).
+  void setPanelLiquid(float liquid, bool animate = true);
   // Closes any open panel, then opens the settings window at the plugin's settings.
   // False when the settings window is unavailable, or the plugin is unknown, disabled, or
   // exposes no settings.
@@ -92,10 +108,14 @@ public:
   void setAttachedPanelAvailabilityCallback(std::function<bool(wl_output*, std::string_view)> callback);
   void setBarConfigProvider(std::function<std::optional<BarConfig>(wl_output*, std::string_view)> provider);
   void setAttachedPanelBarSettledCallback(std::function<bool(wl_output*, std::string_view)> callback);
+  // Fills the island anchor and source of a request that has none (IPC, keyboard), as a click on the island would.
+  void setIslandSourceProvider(std::function<void(PanelOpenRequest&, std::string_view)> provider);
   // Called when an auto-hide bar finishes revealing for an attached panel open.
   void onAttachedBarRevealSettled(wl_output* output, std::string_view barName);
 
   void registerPanel(const std::string& id, std::unique_ptr<Panel> content);
+  // Requests for `from` open `to` with `context` instead (the clipboard panel became a launcher mode).
+  void setPanelAlias(std::string from, std::string to, std::string context);
   // Drops a previously registered panel, closing it first if it is open. Used to
   // retire plugin-backed panels on a plugin enable/disable/reload.
   void unregisterPanel(const std::string& id);
@@ -103,6 +123,8 @@ public:
   [[nodiscard]] std::vector<std::string> availablePanelIds() const;
 
   void openPanel(const std::string& panelId, PanelOpenRequest request = {});
+  // The tracker of a gesture open came to rest: settle the sheet open, or drop it when closed.
+  void finishTrackerOpen(bool open);
   void closePanel(bool animateClose = true);
   // Call outside input dispatch to clear the displayed buffer before closing and running the action.
   void closePanelForCapture(std::function<void()> afterClose);
@@ -114,6 +136,8 @@ public:
   void onKeyboardEvent(const KeyboardEvent& event);
 
   [[nodiscard]] bool isOpen() const noexcept;
+  // Time the open spring needs to travel 35 % of its way: the content fades in from then on.
+  [[nodiscard]] static std::chrono::milliseconds openContentGate();
   [[nodiscard]] bool isOpenPanel(std::string_view panelId) const noexcept;
   [[nodiscard]] bool isPanelTransitionActive() const noexcept;
   [[nodiscard]] bool isAttachedOpen() const noexcept;
@@ -123,6 +147,10 @@ public:
   [[nodiscard]] std::string_view attachedSourceBarName() const noexcept;
   [[nodiscard]] const std::string& activePanelId() const noexcept;
   [[nodiscard]] Panel* activePanel() const noexcept { return m_activePanel; }
+  // The open panel card in output coordinates, when it is placed detached.
+  [[nodiscard]] std::optional<InputRect> activePanelRect() const noexcept { return m_panelOutputInputRect; }
+  // Screen y of the top of the island a vertical-bar sheet opened from.
+  [[nodiscard]] std::int32_t activePanelIslandTop() const noexcept { return m_contentFit.desiredTopY; }
   // True when a panel is open and it reports the given context as active (e.g. control-center tab).
   [[nodiscard]] bool isActivePanelContext(std::string_view context) const noexcept;
   [[nodiscard]] std::optional<LayerPopupParentContext> popupParentContextForSurface(wl_surface* surface) const noexcept;
@@ -197,6 +225,39 @@ private:
   void deactivateOutsideClickHandlers();
   void applyAttachedReveal(float progress);
   void applyDetachedReveal(float progress);
+  // Island-to-sheet morph through the compositor; false (nothing started) without a source island or dsk support.
+  bool startDetachedMorph();
+  void bindTrackerOpen(const DskSurfaceClient::Value& islandClip);
+  void settleDetachedMorph();
+  bool startDetachedMorphClose(std::uint64_t gen);
+  void animateMorphClip();
+  // The compositor draws the sheet's hairline while a clip cuts the bg box edge, in the bg border's colour.
+  void sendSheetStroke();
+  // Grows or shrinks a detached card as one compositor clip on the open spring; false = no dsk surface.
+  bool morphCardHeight(std::uint32_t target);
+  bool startDetachedScaleOpen();
+  bool startDetachedScaleClose(std::uint64_t gen);
+  [[nodiscard]] DskSurfaceClient::Value detachedScaleShift(double scale) const;
+  [[nodiscard]] static desk::motion::SpringConfig effectsSpring();
+  [[nodiscard]] static DskSurfaceClient::Curve opacityCurve(bool fast);
+  void fadeSceneRoot(float to, std::function<void()> onDone);
+  [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
+  // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
+  [[nodiscard]] float detachedBackgroundOpacity() const;
+  // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
+  [[nodiscard]] float detachedFillAlpha() const;
+  // The detached fill: the material role; m_glassDark (low-contrast backdrop) makes the tint denser.
+  [[nodiscard]] ColorSpec detachedFill() const;
+  [[nodiscard]] ColorSpec detachedBorder(float backgroundOpacity) const;
+  [[nodiscard]] static DskSurfaceClient::Value sheetLiquid(float liquid);
+  // Adaptive glass: listens for dsk_surface_v1.backdrop on the current m_dsk.
+  void bindBackdrop();
+  // Low-contrast backdrop (light glass on dark, dark glass on bright): m_glassDark -> 1; instant skips the cross-fade.
+  void updateGlassTone(bool instant = false);
+  void releaseHeldOpen();
+  [[nodiscard]] float densityCardOpacity(float opacity) const;
+  // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
+  [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
   void publishAttachedPanelGeometry(float revealProgress);
   // Restyle the attached-panel decoration nodes (bg fill, drop shadow, contact shadow)
@@ -234,12 +295,42 @@ private:
   std::function<bool(wl_output*, std::string_view)> m_attachedPanelAvailabilityCallback;
   std::function<std::optional<BarConfig>(wl_output*, std::string_view)> m_barConfigProvider;
   std::function<bool(wl_output*, std::string_view)> m_attachedPanelBarSettledCallback;
+  std::function<void(PanelOpenRequest&, std::string_view)> m_islandSourceProvider;
   PanelClickShield m_clickShield;
   PersistentPanelHost m_persistentHost;
   std::unique_ptr<FocusGrab> m_focusGrab;
   std::unordered_set<wl_surface*> m_focusGrabPopupSurfaces;
 
   std::unique_ptr<Surface> m_surface;
+  // Morphs the detached panel from its bar island; null when the panel opens with the shell's own reveal.
+  std::unique_ptr<DskSurfaceClient> m_dsk;
+  wl_surface* m_morphSource = nullptr;
+  std::array<float, 4> m_morphSourceRect{};
+  float m_morphSourceRadius = 0.0F;
+  std::weak_ptr<DskTrackerClient> m_gestureTracker;
+  double m_gestureRange = 0.0;
+  std::function<void()> m_commitTracker;
+  bool m_morphSettled = false;
+  bool m_scaleMode = false;
+  bool m_morphClipRunning = false;
+  bool m_cardClipRunning = false;
+  DskSurfaceClient::Value m_morphClipTarget{};
+  bool m_morphExtend = false; // the sheet fill and blur extend into the margin while the island morph runs
+  std::int32_t m_morphMarginX = 0;
+  std::int32_t m_morphMarginY = 0;
+  // Room above the sheet up to the island top, so the clip starts as the whole island (P5).
+  std::int32_t m_morphMarginUp = 0;
+  std::optional<float> m_islandBackgroundOpacity;
+  float m_panelLiquid = 0.0F; // 0..1, see setPanelLiquid
+  AnimationManager::Id m_liquidAnimation = 0;
+  float m_liquidTarget = 0.0F;
+  bool m_backdropDark = false;
+  bool m_backdropMeasured = false;
+  bool m_glassToneLight = false; // scheme of the last updateGlassTone
+  float m_glassTarget = 0.0F;    // last m_glassDark target, for the rise-only rule
+  float m_glassDark = 0.0F; // 0..1, see updateGlassTone
+  AnimationManager::Id m_glassDarkAnimation = 0;
+  Signal<>::ScopedConnection m_glassPaletteConn;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().
@@ -273,17 +364,20 @@ private:
   std::uint32_t m_panelVisualWidth = 0;
   std::uint32_t m_panelVisualHeight = 0;
   std::optional<InputRect> m_panelOutputInputRect;
+  std::unordered_map<std::string, std::pair<std::string, std::string>> m_panelAliases;
   // Content-fitted panels (Panel::fitsContentHeight): the surface is sized once at open for
   // the panel's maximum height (the slot), and the visible card moves within it as the
   // content changes. The card keeps the slot edge the panel is anchored to: top-anchored
   // panels grow down, bottom-anchored ones up, centered ones both ways.
-  enum class CardAlign : std::uint8_t { Start, Center, End };
+  // Island: the card top follows `desiredTopY` (screen y), clamped into the slot.
+  enum class CardAlign : std::uint8_t { Start, Center, End, Island };
   struct ContentFit {
     bool enabled = false;
     CardAlign align = CardAlign::Start;
     std::int32_t slotInsetY = 0;
     std::uint32_t slotHeight = 0;
     std::int32_t slotOutputY = 0;
+    std::int32_t desiredTopY = 0;
     std::optional<AttachedPanelGeometry> attachedSlotGeometry;
     // Height the content asked for; the card animates toward it. 0 until first measured.
     std::uint32_t targetHeight = 0;
@@ -299,10 +393,26 @@ private:
   float m_attachedBackgroundOpacity = 1.0F;
   bool m_attachedContactShadow = false;
   float m_attachedRevealProgress = 1.0F;
+  AnimationManager::Id m_attachedRevealAnimId = 0;
+  [[nodiscard]] float attachedRevealTravelPx() const;
   float m_detachedRevealProgress = 1.0F;
   AttachedRevealDirection m_attachedRevealDirection = AttachedRevealDirection::Down;
   AttachedRevealDirection m_detachedRevealDirection = AttachedRevealDirection::Down;
   Timer m_keyboardRelaxTimer;
+  Timer m_contentGateTimer;
+  // The scale-open motion, held until the first backdrop measurement (light glass) or 50 ms.
+  Timer m_openHoldTimer;
+  std::function<void()> m_pendingOpen;
+  // Content opacity from the 35 % gate (rulebook 7.4 / P5): 0 until the open spring has travelled 35 %, then fades in.
+  float m_contentGate = 1.0F;
+  // Grow / Return (rulebook 7.4): the client mirrors the compositor's clip spring as a 0..1 progress and fits the
+  // content to the current shape (uniform scale, pinned to the shape's top and right edge).
+  float m_morphProgress = 1.0F;
+  AnimationManager::Id m_morphProgressId = 0;
+  bool m_returnFaded = false;
+  void driveContentMorph(float target, bool open);
+  void applyContentMorph();
+  void startContentGate();
   Timer m_captureCloseTimer;
   wl_callback* m_captureCloseFrame = nullptr;
   std::function<void()> m_afterCaptureClose;

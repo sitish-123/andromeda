@@ -1,7 +1,7 @@
 // Drives SettingsControl against a live compositor: sets one setting and waits for the effective value, which is the
 // value itself unless a third argument names what should apply instead (clearing a key falls back to config.toml).
 // Prints one line per step and exits non-zero on any mismatch.
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 #include "desktop-unstable-v1-client-protocol.h"
 
 #include <cstdint>

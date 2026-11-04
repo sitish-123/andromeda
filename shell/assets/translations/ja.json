@@ -868,9 +868,9 @@
       "dbus-disabled": "DBus通知は無効です",
       "desktop-widgets-editor": "ウィジェット編集",
       "desktop-widgets-editor-enabled": "デスクトップウィジェットの編集が有効です。開いているウィンドウで編集画面が隠れないよう、空のワークスペースに切り替えてください。",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "外観設定をグリーターに同期しています。管理者の認証画面が表示された場合は承認してください。パスワード不要の認証はシステムポリシーに従います。",
-      "greeter-sync-pending-console": "外観設定をグリーターに同期しています。認証が必要な場合は、Noctalia、TTY、またはコンソールに表示されるpolkitの認証要求を承認してください。",
+      "greeter-sync-pending-console": "外観設定をグリーターに同期しています。認証が必要な場合は、Andromeda、TTY、またはコンソールに表示されるpolkitの認証要求を承認してください。",
       "greeter-sync-pending-legacy": "認証済みの従来方式ヘルパーを使用して同期しています。管理者の承認が必要です。",
       "greeter-sync-pending-manual": "認証済みの従来方式の同期用ファイルを準備しました。ターミナルで位置引数形式の適用ヘルパーを実行してください。独自の保存先を使用している場合はNOCTALIA_GREETER_STATE_DIRを引き継ぐか、shell.greeter_sync.privilege_commandを設定してから、もう一度同期してください。",
       "greeter-sync-pending-manual-pkexec": "外観設定をグリーターに同期しています。管理者の認証が必要なのに認証要求が表示されない場合は、ターミナルで次のコマンドを実行してください：pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -878,7 +878,7 @@
       "greeter-sync-timeout": "グリーターの同期は、まだ認証待ちです。TTYまたはコンソールでpolkitの認証要求を確認するか、セキュリティ設定でpolkitエージェントを有効にするか、pkexecを手動で実行してください。",
       "greeter-sync-timeout-manual": "認証済みの従来方式の同期には、引き続き管理者の承認が必要です。ターミナルで位置引数形式の適用ヘルパーを実行し、独自の保存先を使用している場合はNOCTALIA_GREETER_STATE_DIRを引き継いでください",
       "greeter-sync-timeout-manual-pkexec": "グリーターの同期には、まだ認証が必要です。ターミナルで次のコマンドを実行してください：pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "このショートカットには、修飾キーを使わない単一のキーを指定できます。",
       "keybind-invalid-printable": "文字入力キー（英字、数字、記号）を使用するには、CtrlやAltなどの修飾キーが必要です。",
       "keybind-invalid-super": "シェルのキーバインドではSuper/Windowsキーを使用できません。",
@@ -1065,7 +1065,7 @@
       "bar": {
         "create": "作成",
         "delete": "削除",
-        "delete-confirm-desc": "GUIで作成したバーはsettings.tomlから削除されます。",
+        "delete-confirm-desc": "GUIで作成したバーはoverrides.tomlから削除されます。",
         "delete-confirm-title": "「{name}」を削除しますか？",
         "id-placeholder": "バーのID",
         "label": "バー：{name}",
@@ -1080,7 +1080,7 @@
         "create": "新規作成",
         "custom": "独自設定",
         "delete": "削除",
-        "delete-confirm-desc": "GUIで作成した画面用の上書き設定はsettings.tomlから削除されます。\n",
+        "delete-confirm-desc": "GUIで作成した画面用の上書き設定はoverrides.tomlから削除されます。\n",
         "delete-confirm-title": "「{name}」を削除しますか？\n",
         "exists": "この画面には既に上書き設定があります。",
         "label": "画面：{name}",
@@ -2044,10 +2044,6 @@
         "blur-intensity": {
           "description": "ロック画面の背景をぼかす強さ",
           "label": "ぼかし強度"
-        },
-        "blurred-desktop": {
-          "description": "デスクトップの画像をロック画面の背景に使用",
-          "label": "デスクトップを撮影"
         },
         "edge-smoothness": {
           "description": "ロック画面切替時の境界部分のぼかし具合",
@@ -3126,7 +3122,7 @@
             "description": "現在の配色を表示：<source> <name>（sourceはbuiltin、wallpaper、community、customのいずれか）"
           },
           "color-scheme-set": {
-            "description": "settings.tomlで配色の取得元と選択内容を設定（builtin名、wallpaper生成方式、community ID、またはcustom配色フォルダー名）"
+            "description": "overrides.tomlで配色の取得元と選択内容を設定（builtin名、wallpaper生成方式、community ID、またはcustom配色フォルダー名）"
           },
           "config-reload": {
             "description": "設定ファイルを再読み込み"
@@ -3293,7 +3289,7 @@
             "label": "現在のテーマモードを取得"
           },
           "theme-mode-set": {
-            "description": "テーマモードを設定し、settings.tomlに保存",
+            "description": "テーマモードを設定し、overrides.tomlに保存",
             "label": "テーマモードを設定"
           },
           "theme-mode-toggle": {

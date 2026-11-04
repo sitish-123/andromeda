@@ -50,6 +50,7 @@ public:
   void setGreetdClient(GreetdClient* client);
   void setUsername(const std::string& username);
   void setOnExitRequested(std::function<void()> callback);
+  void setOnCursorShape(std::function<void(std::uint32_t, std::uint32_t)> callback);
   void setOnStateChanged(std::function<void(GreeterSurface*)> callback);
   void setOnAuthBeginRequested(std::function<bool(GreeterSurface*)> callback);
   void setOnAuthEnded(std::function<void(GreeterSurface*)> callback);
@@ -274,6 +275,7 @@ private:
   std::string m_pendingResponse;
   std::deque<AuthRequest> m_pendingReplies;
   std::function<void()> m_onExitRequested;
+  std::function<void(std::uint32_t, std::uint32_t)> m_onCursorShape;
   std::function<bool(GreeterSurface*)> m_onAuthBeginRequested;
   std::function<void(GreeterSurface*)> m_onAuthEnded;
   std::function<void(const GreetdError&)> m_onGreetdTransportError;

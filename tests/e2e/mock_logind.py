@@ -11,7 +11,17 @@ from gi.repository import GLib
 MANAGER = "org.freedesktop.login1.Manager"
 
 
-class Manager(dbus.service.Object):
+class Delayed:
+    """Answers every method call after MOCK_DELAY seconds (default 0)."""
+
+    def _message_cb(self, connection, message):
+        delay = float(os.environ.get("MOCK_DELAY", "0"))
+        if delay <= 0:
+            return super()._message_cb(connection, message)
+        GLib.timeout_add(int(delay * 1000), lambda: super(Delayed, self)._message_cb(connection, message) and False)
+
+
+class Manager(Delayed, dbus.service.Object):
     def __init__(self, bus, log):
         super().__init__(bus, "/org/freedesktop/login1")
         self.log = log
@@ -61,6 +71,24 @@ class Manager(dbus.service.Object):
         with open(self.log, "a") as out:
             out.write(line + "\n")
 
+    @dbus.service.method(MANAGER, in_signature="t")
+    def SuspendWithFlags(self, flags):
+        self.record_line(f"SuspendWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, in_signature="t")
+    def RebootWithFlags(self, flags):
+        self.record_line(f"RebootWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, in_signature="t")
+    def PowerOffWithFlags(self, flags):
+        self.record_line(f"PowerOffWithFlags {flags}")
+
+    @dbus.service.method(MANAGER, out_signature="a(ssssuu)")
+    def ListInhibitors(self):
+        # MOCK_BLOCK="sleep:shutdown" lists one block inhibitor held by another app.
+        what = os.environ.get("MOCK_BLOCK", "")
+        return [(what, "Mock App", "test", "block", dbus.UInt32(1000), dbus.UInt32(1))] if what else []
+
     @dbus.service.method(MANAGER, out_signature="s")
     def CanHibernate(self):
         return self.can_hibernate
@@ -68,6 +96,24 @@ class Manager(dbus.service.Object):
     @dbus.service.method(MANAGER, out_signature="s")
     def CanSuspendThenHibernate(self):
         return self.can_suspend_then_hibernate
+
+    def properties(self):
+        # MOCK_LID_BATTERY etc. override the logind defaults (logind.conf(5)).
+        return {
+            "HandleLidSwitch": os.environ.get("MOCK_LID_BATTERY", "suspend"),
+            # logind returns "" when HandleLidSwitchExternalPower= is unset.
+            "HandleLidSwitchExternalPower": os.environ.get("MOCK_LID_POWER", ""),
+            "HandleLidSwitchDocked": os.environ.get("MOCK_LID_DOCKED", "ignore"),
+            "HandlePowerKey": os.environ.get("MOCK_POWER_KEY", "poweroff"),
+        }
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
+    def Get(self, interface, prop):
+        return self.properties()[prop]
+
+    @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.properties()
 
 
 dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)

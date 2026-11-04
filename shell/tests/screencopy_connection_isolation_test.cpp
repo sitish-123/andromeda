@@ -1,6 +1,6 @@
 #include "capture/screencopy_capture.h"
 #include "capture/screencopy_util.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wlr-screencopy-unstable-v1-test-server-protocol.h"
 
 #include <algorithm>
@@ -295,11 +295,11 @@ int main() {
   try {
     MockWaylandServer server;
     {
-      WaylandConnection primary;
+      ShellWaylandConnection primary;
       expect(primary.connect(), "primary Wayland connection should connect");
       expect(primary.compositor() != nullptr, "primary connection should bind wl_compositor");
 
-      WaylandConnection captureConnection(WaylandConnection::Purpose::Screencopy);
+      ShellWaylandConnection captureConnection(ShellWaylandConnection::Purpose::Screencopy);
       std::string setupError;
       const bool captureConnected = captureConnection.connectUntil(
           std::chrono::steady_clock::now() + screencopy::kBlockingCaptureTimeout, &primary, setupError

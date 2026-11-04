@@ -1,5 +1,7 @@
 #include "server/desktop_settings_manager.h"
 
+#include "server/greeter_mode.h"
+
 #include "config/config.h"
 #include "config/keybind_parse.h"
 #include "config/managed_settings.h"
@@ -19,7 +21,7 @@ namespace andromeda {
 
   namespace {
 
-    constexpr uint32_t kVersion = 1;
+    constexpr uint32_t kVersion = 2;
 
     DesktopSettingsManager* managerFrom(wl_resource* resource) {
       return static_cast<DesktopSettingsManager*>(wl_resource_get_user_data(resource));
@@ -38,6 +40,9 @@ namespace andromeda {
   }
 
   DesktopSettingsManager::~DesktopSettingsManager() {
+    if (m_applyIdle != nullptr) {
+      wl_event_source_remove(m_applyIdle);
+    }
     for (wl_resource* resource : m_resources) {
       wl_resource_set_user_data(resource, nullptr);
     }
@@ -71,18 +76,50 @@ namespace andromeda {
   }
 
   void DesktopSettingsManager::handleSet(wl_client*, wl_resource* resource, const char* key, const char* value) {
+    // The login screen reads settings (appearance) but changes none.
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_failed(resource, key, "read-only on the login screen");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       self->set(resource, key, value);
     }
   }
 
+  void DesktopSettingsManager::handleSetInLayer(
+      wl_client*, wl_resource* resource, const char* layer, const char* key, const char* value
+  ) {
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_failed(resource, key, "read-only on the login screen");
+      return;
+    }
+    if (DesktopSettingsManager* self = managerFrom(resource)) {
+      self->setInLayer(resource, layer, key, value);
+    }
+  }
+
+  void DesktopSettingsManager::handleClearLayer(wl_client*, wl_resource* resource, const char* layer) {
+    if (DesktopSettingsManager* self = managerFrom(resource)) {
+      const std::string name(layer);
+      self->dropLayers(resource, &name);
+    }
+  }
+
   void DesktopSettingsManager::handleBind(wl_client*, wl_resource* resource, const char* chord, const char* action) {
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_failed(resource, chord, "read-only on the login screen");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       self->bindChord(resource, chord, action);
     }
   }
 
   void DesktopSettingsManager::handleCaptureChord(wl_client*, wl_resource* resource) {
+    if (greeterMode()) {
+      dsk_settings_manager_v1_send_chord_captured(resource, "");
+      return;
+    }
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       if (self->m_captureResource != nullptr && self->m_captureResource != resource) {
         dsk_settings_manager_v1_send_chord_captured(self->m_captureResource, "");
@@ -102,6 +139,7 @@ namespace andromeda {
   void DesktopSettingsManager::handleResourceDestroyed(wl_resource* resource) {
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       std::erase(self->m_resources, resource);
+      self->dropLayers(resource, nullptr);
       if (self->m_captureResource == resource) {
         self->m_captureResource = nullptr;
       }
@@ -118,6 +156,15 @@ namespace andromeda {
       reject(parsed.error);
       return;
     }
+    if (isVolatileSetting(key)) {
+      if (wl_resource_get_version(resource) < 2) {
+        reject(std::format("{} needs version 2 of the protocol", key));
+        return;
+      }
+      setVolatileSetting(key, *parsed.value);
+      settingsChanged();
+      return;
+    }
     const std::filesystem::path file = managedSettingsFile(configRootPath());
     if (!saveManagedSetting(file, key, *parsed.value)) {
       reject("cannot write " + file.string());
@@ -125,6 +172,78 @@ namespace andromeda {
     }
     // Apply now rather than when the watcher notices the write; its later reload finds nothing changed.
     m_server.handleConfigReload(reloadConfig());
+  }
+
+  void DesktopSettingsManager::setInLayer(
+      wl_resource* resource, std::string_view layer, std::string_view key, std::string_view value
+  ) {
+    const std::string keyText(key);
+    const auto reject = [&](const std::string& reason) {
+      dsk_settings_manager_v1_send_failed(resource, keyText.c_str(), reason.c_str());
+    };
+    if (layer.empty()) {
+      reject("a layer needs a name");
+      return;
+    }
+    if (isVolatileSetting(key)) {
+      reject(std::format("{} is volatile; use set", key));
+      return;
+    }
+    const ManagedSettingParse parsed = parseManagedSetting(key, value);
+    if (!parsed.value) {
+      reject(parsed.error);
+      return;
+    }
+    const bool unset = std::holds_alternative<std::monostate>(*parsed.value);
+    auto it = std::ranges::find_if(m_layers, [&](const Layer& l) { return l.owner == resource && l.name == layer; });
+    if (it == m_layers.end()) {
+      if (unset) {
+        return;
+      }
+      it = m_layers.insert(m_layers.end(), Layer{.owner = resource, .name = std::string(layer), .values = {}});
+    }
+    std::erase_if(it->values, [&](const auto& entry) { return entry.first == key; });
+    if (!unset) {
+      it->values.emplace_back(keyText, *parsed.value);
+    }
+    if (it->values.empty()) {
+      m_layers.erase(it);
+    }
+    applyLayers();
+  }
+
+  void DesktopSettingsManager::dropLayers(wl_resource* owner, const std::string* name) {
+    const auto removed = std::erase_if(m_layers, [&](const Layer& l) {
+      return l.owner == owner && (name == nullptr || l.name == *name);
+    });
+    if (removed != 0) {
+      applyLayers();
+    }
+  }
+
+  // One reload per event-loop turn, and none when the layers add up to the overlay already applied.
+  void DesktopSettingsManager::applyLayers() {
+    if (m_applyIdle != nullptr) {
+      return;
+    }
+    m_applyIdle = wl_event_loop_add_idle(
+        wl_display_get_event_loop(m_server.display()),
+        [](void* data) {
+          auto* self = static_cast<DesktopSettingsManager*>(data);
+          self->m_applyIdle = nullptr;
+          std::vector<std::pair<std::string, ManagedSettingValue>> flat;
+          for (const Layer& layer : self->m_layers) {
+            flat.insert(flat.end(), layer.values.begin(), layer.values.end());
+          }
+          if (flat == self->m_appliedOverlay) {
+            return;
+          }
+          setManagedRuntimeOverlay(flat);
+          self->m_appliedOverlay = std::move(flat);
+          self->m_server.handleConfigReload(reloadConfig());
+        },
+        this
+    );
   }
 
   void DesktopSettingsManager::bindChord(wl_resource* resource, std::string_view chord, std::string_view action) {
@@ -218,6 +337,13 @@ namespace andromeda {
       const uint32_t customized = documentSetsKey(saved, key) ? 1U : 0U;
       dsk_settings_manager_v1_send_setting(resource, keyText.c_str(), value.c_str(), customized);
     }
+    if (wl_resource_get_version(resource) >= 2) {
+      for (const std::string_view key : volatileSettingKeys()) {
+        const std::string keyText(key);
+        const std::string value = managedSettingValue(config(), key);
+        dsk_settings_manager_v1_send_setting(resource, keyText.c_str(), value.c_str(), 0U);
+      }
+    }
   }
 
   void DesktopSettingsManager::settingsChanged() {
@@ -255,6 +381,8 @@ namespace andromeda {
       .bind = DesktopSettingsManager::handleBind,
       .capture_chord = DesktopSettingsManager::handleCaptureChord,
       .cancel_capture = DesktopSettingsManager::handleCancelCapture,
+      .set_in_layer = DesktopSettingsManager::handleSetInLayer,
+      .clear_layer = DesktopSettingsManager::handleClearLayer,
   };
 
 } // namespace andromeda

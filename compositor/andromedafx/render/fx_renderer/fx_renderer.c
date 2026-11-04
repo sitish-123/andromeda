@@ -3,6 +3,7 @@
         https://gitlab.freedesktop.org/wlroots/wlroots/-/tree/master/render/gles2
 */
 
+#include "render/fx_renderer/backdrop_probe.h"
 #include "render/fx_renderer/fx_renderer.h"
 
 #include "render/egl.h"
@@ -40,6 +41,10 @@ struct fx_renderer* fx_get_renderer(struct wlr_renderer* wlr_renderer) {
   assert(wlr_renderer_is_fx(wlr_renderer));
   struct fx_renderer* renderer = wl_container_of(wlr_renderer, renderer, wlr_renderer);
   return renderer;
+}
+
+void fx_renderer_set_event_loop(struct wlr_renderer* wlr_renderer, struct wl_event_loop* loop) {
+  fx_get_renderer(wlr_renderer)->event_loop = loop;
 }
 
 void fx_renderer_set_allocator(struct wlr_renderer* wlr_renderer, struct wlr_allocator* allocator) {
@@ -127,6 +132,8 @@ static void fx_renderer_destroy(struct wlr_renderer* wlr_renderer) {
   struct fx_texture *tex, *tex_tmp;
   wl_list_for_each_safe(tex, tex_tmp, &renderer->textures, link) { fx_texture_destroy(tex); }
 
+  fx_backdrop_probes_release(renderer);
+
   struct fx_output_lut *lut, *lut_tmp;
   wl_list_for_each_safe(lut, lut_tmp, &renderer->output_luts, link) { fx_output_lut_destroy(lut); }
 
@@ -178,6 +185,7 @@ static struct wlr_render_pass* begin_buffer_pass_with_output(
   if (options->timer) {
     timer = fx_get_render_timer(options->timer);
     clock_gettime(CLOCK_MONOTONIC, &timer->cpu_start);
+    renderer->procs.glQueryCounterEXT(timer->begin_id, GL_TIMESTAMP_EXT);
   }
 
   struct fx_framebuffer* buffer = fx_framebuffer_get_or_create(renderer, wlr_buffer);
@@ -284,6 +292,7 @@ static struct wlr_render_timer* fx_render_timer_create(struct wlr_renderer* wlr_
   struct wlr_egl_context prev_ctx;
   wlr_egl_make_current(renderer->egl, &prev_ctx);
   renderer->procs.glGenQueriesEXT(1, &timer->id);
+  renderer->procs.glGenQueriesEXT(1, &timer->begin_id);
   wlr_egl_restore_context(&prev_ctx);
 
   return &timer->base;
@@ -314,11 +323,24 @@ static int fx_get_render_time(struct wlr_render_timer* wlr_timer) {
 
   GLuint64 gl_render_end;
   renderer->procs.glGetQueryObjectui64vEXT(timer->id, GL_QUERY_RESULT_EXT, &gl_render_end);
+  GLuint64 gl_render_begin;
+  renderer->procs.glGetQueryObjectui64vEXT(timer->begin_id, GL_QUERY_RESULT_EXT, &gl_render_begin);
+  timer->gpu_exec_ns = (int64_t)(gl_render_end - gl_render_begin);
 
   int64_t cpu_nsec_total = timespec_to_nsec(&timer->cpu_end) - timespec_to_nsec(&timer->cpu_start);
 
   wlr_egl_restore_context(&prev_ctx);
   return gl_render_end - timer->gl_cpu_end + cpu_nsec_total;
+}
+
+bool fx_render_timer_split(struct wlr_render_timer* wlr_timer, int64_t* cpu_ns, int64_t* gpu_exec_ns) {
+  if (wlr_timer == NULL || !wlr_render_timer_is_fx(wlr_timer)) {
+    return false;
+  }
+  struct fx_render_timer* timer = fx_get_render_timer(wlr_timer);
+  *cpu_ns = timespec_to_nsec(&timer->cpu_end) - timespec_to_nsec(&timer->cpu_start);
+  *gpu_exec_ns = timer->gpu_exec_ns;
+  return true;
 }
 
 static void fx_render_timer_destroy(struct wlr_render_timer* wlr_timer) {
@@ -328,6 +350,7 @@ static void fx_render_timer_destroy(struct wlr_render_timer* wlr_timer) {
   struct wlr_egl_context prev_ctx;
   wlr_egl_make_current(renderer->egl, &prev_ctx);
   renderer->procs.glDeleteQueriesEXT(1, &timer->id);
+  renderer->procs.glDeleteQueriesEXT(1, &timer->begin_id);
   wlr_egl_restore_context(&prev_ctx);
   free(timer);
 }
@@ -348,7 +371,7 @@ static const struct wlr_render_timer_impl render_timer_impl = {
 };
 
 void push_fx_debug_(struct fx_renderer* renderer, const char* file, const char* func) {
-  if (!renderer->procs.glPushDebugGroupKHR) {
+  if (!renderer->gl_debug || !renderer->procs.glPushDebugGroupKHR) {
     return;
   }
 
@@ -359,7 +382,7 @@ void push_fx_debug_(struct fx_renderer* renderer, const char* file, const char* 
 }
 
 void pop_fx_debug(struct fx_renderer* renderer) {
-  if (renderer->procs.glPopDebugGroupKHR) {
+  if (renderer->gl_debug && renderer->procs.glPopDebugGroupKHR) {
     renderer->procs.glPopDebugGroupKHR();
   }
 }
@@ -591,6 +614,7 @@ struct wlr_renderer* fx_renderer_create_egl(struct wlr_egl* egl) {
 
   wl_list_init(&renderer->buffers);
   wl_list_init(&renderer->textures);
+  wl_list_init(&renderer->backdrop_probes);
   wl_list_init(&renderer->offscreen_buffers);
   wl_list_init(&renderer->output_luts);
 
@@ -680,7 +704,9 @@ struct wlr_renderer* fx_renderer_create_egl(struct wlr_egl* egl) {
     TRACY_FN(load_gl_proc(&renderer->procs.glGetQueryivEXT, "glGetQueryivEXT");)
   }
 
-  if (renderer->exts.KHR_debug) {
+  // Synchronous debug output costs CPU on every GL call (Mesa formats iris perf messages) and turns glthread off.
+  renderer->gl_debug = renderer->exts.KHR_debug && (getenv("ANDROMEDA_GL_DEBUG") != NULL || wlr_log_get_verbosity() >= WLR_DEBUG);
+  if (renderer->gl_debug) {
     glEnable(GL_DEBUG_OUTPUT_KHR);
     glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_KHR);
     renderer->procs.glDebugMessageCallbackKHR(fx_log, NULL);

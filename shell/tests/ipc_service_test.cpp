@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
@@ -185,6 +186,13 @@ int main() {
 
   TEST_CHECK(ipc.start());
   const auto socketPath = runtimeDir / ("noctalia-" + std::string(kWaylandDisplay) + ".sock");
+  struct stat socketStat{};
+  TEST_CHECK(::stat(socketPath.c_str(), &socketStat) == 0);
+  TEST_CHECK((socketStat.st_mode & 0777) == 0600);
   TEST_CHECK(sendRaw(ipc, socketPath, "status line1\nline2\nline3") == "status:line1\nline2\nline3\n");
+
+  TEST_CHECK(::unsetenv("XDG_RUNTIME_DIR") == 0);
+  IpcService noRuntime;
+  TEST_CHECK(!noRuntime.start());
   return 0;
 }

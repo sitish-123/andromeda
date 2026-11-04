@@ -1,3 +1,4 @@
+#include "core/cpu_boost.h"
 #include "server/server.h"
 
 #include "config/config.h"
@@ -21,7 +22,6 @@
 #include "lock/session_lock.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/color.h"
 #include "scene/config_banner.h"
 #include "scene/fps_overlay.h"
@@ -35,6 +35,9 @@
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
+#include "server/background_effect.h"
+#include "server/dsk_surface.h"
+#include "server/greeter_mode.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/syncobj_acquire_barrier.h"
@@ -167,6 +170,9 @@ namespace andromeda {
         return true;
       }
       const std::string_view interfaceName(interface->name);
+      if (greeterHidesGlobal(interfaceName)) {
+        return false;
+      }
       // A global filter is consulted both when a global is advertised and when
       // it is bound, so each client's decisions must remain stable for its
       // entire connection.
@@ -664,7 +670,17 @@ namespace andromeda {
     effectRegistry().prepare(m_renderer);
     m_compositor = wlr_compositor_create(m_display, 5, m_renderer);
     if (explicitSync) {
-      m_syncobjAcquireBarrier = std::make_unique<SyncobjAcquireBarrier>(m_compositor);
+      m_syncobjAcquireBarrier = std::make_unique<SyncobjAcquireBarrier>(m_compositor, [this](wlr_surface* surface) {
+        for (const auto& output : m_outputs) {
+          wlr_scene_buffer* buffer =
+              output->sceneOutput() != nullptr ? wlr_scene_output_direct_scanout_buffer(output->sceneOutput()) : nullptr;
+          wlr_scene_surface* sceneSurface = buffer != nullptr ? wlr_scene_surface_try_from_buffer(buffer) : nullptr;
+          if (sceneSurface != nullptr && sceneSurface->surface == surface) {
+            return true;
+          }
+        }
+        return false;
+      });
       m_syncobjUnmapRelease = std::make_unique<SyncobjUnmapRelease>(m_compositor);
       m_syncobjSupersededRelease = std::make_unique<SyncobjSupersededRelease>(m_compositor);
     }
@@ -685,6 +701,19 @@ namespace andromeda {
     if (m_tearingControlManager == nullptr) {
       throw std::runtime_error("failed to create tearing-control manager");
     }
+    m_backgroundEffects = std::make_unique<BackgroundEffectManager>(m_display);
+    m_dskSurfaces = std::make_unique<DskSurfaceManager>(m_display);
+    m_dskSurfaces->setOriginLookup([](wlr_surface* surface) -> std::optional<std::pair<int, int>> {
+      // A surface that maps with this commit is not mapped yet, but its layer node is already placed.
+      const LayerSurface* layer = surface != nullptr ? LayerSurface::fromSurface(surface) : nullptr;
+      int x = 0;
+      int y = 0;
+      if (layer == nullptr || layer->scene() == nullptr) {
+        return std::nullopt;
+      }
+      wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
+      return std::pair{x, y};
+    });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
@@ -751,7 +780,6 @@ namespace andromeda {
     m_xwaylandUnmanagedTree = wlr_scene_tree_create(&m_scene->tree);
     m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&m_scene->tree);
     m_imPopupTree = wlr_scene_tree_create(&m_scene->tree);
-    m_cheatsheetTree = wlr_scene_tree_create(&m_scene->tree);
     m_bannerTree = wlr_scene_tree_create(&m_scene->tree);
     m_quitConfirmTree = wlr_scene_tree_create(&m_scene->tree);
     m_lockTree = wlr_scene_tree_create(&m_scene->tree);
@@ -917,6 +945,7 @@ namespace andromeda {
 
     wlr_log(WLR_INFO, "mod key: %s (%s session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
     kLog.info("mod key: {} ({} session)", m_nested ? "Alt" : "Super", m_nested ? "nested" : "native");
+    m_teardownArmed = true;
   }
   namespace {
     // wlroots never announces ext-image-copy-capture cursor sessions and their struct is private, so the only
@@ -1045,36 +1074,43 @@ namespace andromeda {
     wl_list_remove(&m_toplevelCaptureRequest.link);
     wl_list_remove(&m_padKeyboardFocusChange.link);
     wl_list_remove(&m_layerKeyboardFocusChange.link);
-    m_configWatcher.reset();
-    m_ipc.reset();
-    m_insertHint.reset();
-    // Each snapshot destroys its own scene tree.
-    m_closeSnapshots.clear();
-    m_configBanner.reset();
-    // Owns scene nodes under m_scene; must go before the scene teardown below.
-    m_cheatsheet.reset();
-    m_overview.reset();
-    m_sessionLock.reset();
-    m_layerSurfaces.clear();
-    m_registry.clear();
-    // After the views, which hold listeners on X11 surfaces, and before the seat, which unmanaged X11 windows release
-    // keyboard focus through. The Xwayland client itself goes with the other Wayland clients below.
-    m_xwayland.reset();
-    m_eisInput.reset();
-    m_keyboards.clear();
+    // The remaining teardown is the member order in the block at the end of server.h.
+  }
+
+  void Server::clearOutputs() { m_outputs.clear(); }
+
+  void Server::clearKeyboards() { m_keyboards.clear(); }
+
+  void Server::clearManualShortcutsInhibit() { m_manualShortcutsInhibit.clear(); }
+
+  void Server::clearRegistry() { m_registry.clear(); }
+
+  void Server::clearLayerSurfaces() { m_layerSurfaces.clear(); }
+
+  void Server::clearCloseSnapshots() { m_closeSnapshots.clear(); }
+
+  void Server::dropMirrorSources() {
     for (const auto& output : m_outputs) {
       output->dropMirrorSource();
     }
-    m_manualShortcutsInhibit.clear();
-    // The backend destroys physical input devices below, after the seat and cursor; detach their watchers first.
+  }
+
+  // The backend destroys physical input devices after the seat and cursor, so each device's watchers go first.
+  void Server::unlinkPointers() {
     for (const auto& pointer : m_pointers) {
       wl_list_remove(&pointer->destroy.link);
     }
     m_pointers.clear();
+  }
+
+  void Server::unlinkTouchDevices() {
     for (const auto& touch : m_touchDevices) {
       wl_list_remove(&touch->destroy.link);
     }
     m_touchDevices.clear();
+  }
+
+  void Server::unlinkTabletPads() {
     for (const auto& pad : m_tabletPads) {
       wl_list_remove(&pad->destroy.link);
       wl_list_remove(&pad->button.link);
@@ -1082,23 +1118,31 @@ namespace andromeda {
       wl_list_remove(&pad->strip.link);
     }
     m_tabletPads.clear();
+  }
+
+  void Server::unlinkTabletDevices() {
     for (const auto& tablet : m_tabletDevices) {
       wl_list_remove(&tablet->destroy.link);
     }
     m_tabletDevices.clear();
+  }
+
+  void Server::unlinkSwitchDevices() {
     for (const auto& entry : m_switchDevices) {
       wl_list_remove(&entry->destroy.link);
       wl_list_remove(&entry->toggle.link);
     }
     m_switchDevices.clear();
-    m_outputs.clear();
-    m_inputMethodRelay.reset();
-    m_seat.reset();
-    // Holds listeners on the wlr_cursor's gesture signals. wlr_cursor_destroy
-    // asserts its signal lists are empty, so this must precede the cursor.
-    m_gestures.reset();
-    m_cursor.reset();
+  }
 
+  // Event sources hold a Server pointer; they go once nothing that fires them is left.
+  void Server::removeEventSources() {
+    // Its bus fd and launch timer live on the display's event loop, which destroyDisplay frees.
+    m_cpuBoost.reset();
+    if (m_launchBusyTimer != nullptr) {
+      wl_event_source_remove(m_launchBusyTimer);
+      m_launchBusyTimer = nullptr;
+    }
     if (m_backgroundFrameTimer != nullptr) {
       wl_event_source_remove(m_backgroundFrameTimer);
       m_backgroundFrameTimer = nullptr;
@@ -1117,31 +1161,36 @@ namespace andromeda {
         source = nullptr;
       }
     }
-    // Their globals must go before wl_display_destroy frees every global.
-    m_desktopSettingsManager.reset();
-    m_desktopOutputManager.reset();
-    m_desktopShell.reset();
-    wl_display_destroy_clients(m_display);
-    m_fifoManager.reset();
-    m_commitTimingManager.reset();
-    m_colorManager.reset();
-    m_syncobjAcquireBarrier.reset();
-    m_syncobjUnmapRelease.reset();
-    m_syncobjSupersededRelease.reset();
-    // Chrome components destroy scene nodes in their destructors, so they must go before the scene tree does; otherwise
-    // the destructor body frees the nodes and the member destructors touch already-freed memory.
-    m_quitConfirm.reset();
-    m_cheatsheet.reset();
-    m_configBanner.reset();
-    m_scratchpadManager.reset();
-    wlr_scene_node_destroy(&m_scene->tree.node);
-    wlr_allocator_destroy(m_allocator);
+  }
+
+  // Runs after the desktop globals are gone and before the managers that clients still reference.
+  void Server::destroyClients() {
+    if (m_display != nullptr) {
+      wl_display_destroy_clients(m_display);
+    }
+  }
+
+  // wlroots objects are not owned by a member; chrome and managers above are already gone, so the scene is free to die.
+  void Server::destroyWlrCore() {
+    if (m_scene != nullptr) {
+      wlr_scene_node_destroy(&m_scene->tree.node);
+    }
+    if (m_allocator != nullptr) {
+      wlr_allocator_destroy(m_allocator);
+    }
     effectRegistry().clear();
-    wlr_renderer_destroy(m_renderer);
-    m_backendManager.reset();
+    if (m_renderer != nullptr) {
+      wlr_renderer_destroy(m_renderer);
+    }
+  }
+
+  // Last step: wl_display_destroy frees every global, so every member above must already be gone.
+  void Server::destroyDisplay() {
     m_backend = nullptr;
     m_session = nullptr;
-    wl_display_destroy(m_display);
+    if (m_display != nullptr) {
+      wl_display_destroy(m_display);
+    }
   }
 
   const wlr_image_description_v1_data* Server::surfaceImageDescription(wlr_surface* surface) const {
@@ -1258,6 +1307,8 @@ namespace andromeda {
     if (m_backgroundFrameTimer != nullptr) {
       wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
+    m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
+    m_cpuBoost = std::make_unique<CpuBoost>(wl_display_get_event_loop(m_display));
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);
@@ -1265,7 +1316,10 @@ namespace andromeda {
         "ANDROMEDA_SOCKET",
         (std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda-" + m_socketName + ".sock").c_str(), true
     );
-    m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+    // The login screen exposes no control socket.
+    if (!greeterMode()) {
+      m_ipc = std::make_unique<Ipc>(*this, m_socketName);
+    }
     setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
@@ -1348,14 +1402,17 @@ namespace andromeda {
     m_fpsOverlay = std::make_unique<FpsOverlay>(*this, m_bannerTree);
     m_configWatcher->watch(configWatchPaths());
     showConfigDiagnostics();
-    m_cheatsheet = std::make_unique<Cheatsheet>(*this, m_cheatsheetTree);
-    if (config().general.showCheatsheet) {
-      m_cheatsheet->showOnStartup();
-    }
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
     if (!notifyServiceReady(notifySocket)) {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
       return false;
+    }
+    if (greeterMode()) {
+      // The greeter session runs the greeter alone and ends with it; config autostart does not apply.
+      m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this] {
+        wl_display_terminate(m_display);
+      });
+      return m_greeterChild->running();
     }
     if (startupCmd != nullptr) {
       spawn(startupCmd);
@@ -1392,12 +1449,6 @@ namespace andromeda {
   void Server::relayoutBanner() {
     if (m_configBanner != nullptr) {
       m_configBanner->relayout();
-    }
-  }
-
-  void Server::relayoutCheatsheet() {
-    if (m_cheatsheet != nullptr) {
-      m_cheatsheet->relayout();
     }
   }
 
@@ -1589,6 +1640,8 @@ namespace andromeda {
       }
     }
 
+    const char* launchWeight =
+        !launchTokenName.empty() && m_cpuBoost != nullptr && m_cpuBoost->active() ? kLaunchWeightProperty : nullptr;
     pid_t pid = fork();
     if (pid < 0) {
       if (launchToken != nullptr) {
@@ -1627,13 +1680,16 @@ namespace andromeda {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
             m_applicationScopeBindsToProperty.c_str(), m_applicationScopeAfterProperty.c_str(),
-            m_applicationScopeEnvironmentArguments, command
+            m_applicationScopeEnvironmentArguments, command, launchWeight
         );
       }
       execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
       _exit(1);
     }
 
+    if (scopeRequired && launchWeight != nullptr) {
+      m_cpuBoost->beginLaunch(launchTokenName, scopeUnitArgument.substr(std::string_view("--unit=").size()));
+    }
     if (scopeRequired) {
       wlr_log(
           WLR_INFO, "launch requested for '%s' on WAYLAND_DISPLAY=%s", description == nullptr ? command : description,
@@ -1761,11 +1817,11 @@ namespace andromeda {
     if (m_shadow.tree != nullptr) {
       wlr_scene_node_destroy(&m_shadow.tree->node);
     }
+    if (m_blurBackground && m_output != nullptr && m_tree != nullptr) {
+      m_output->markBlurBackgroundDirty(&m_tree->node);
+    }
     if (m_tree != nullptr) {
       wlr_scene_node_destroy(&m_tree->node);
-    }
-    if (m_blurBackground && m_output != nullptr) {
-      m_output->markBlurBackgroundDirty();
     }
     if (m_server != nullptr) {
       m_server->effects().releaseRequirements(
@@ -1953,8 +2009,8 @@ namespace andromeda {
     }
 
     applyPresentation();
-    if (m_blurBackground && m_output != nullptr) {
-      m_output->markBlurBackgroundDirty();
+    if (m_blurBackground && m_output != nullptr && m_tree != nullptr) {
+      m_output->markBlurBackgroundDirty(&m_tree->node);
     }
     return m_alpha.animating() || m_slide.animating();
   }

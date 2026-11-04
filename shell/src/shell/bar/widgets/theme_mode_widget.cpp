@@ -25,7 +25,7 @@ void ThemeModeWidget::create() {
           .out = &m_glyph,
           .glyph = "theme-mode",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -40,8 +40,8 @@ void ThemeModeWidget::doLayout(Renderer& renderer, float /*containerWidth*/, flo
   syncState(renderer);
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
   m_glyph->setColor(
-      m_lastIsLight ? widgetIconColorOr(colorSpecFromRole(ColorRole::Primary))
-                    : widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface))
+      m_lastIsLight ? widgetIconColorOr(colorSpecFromRole(ColorRole::Accent))
+                    : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
   );
   m_glyph->measure(renderer);
 
@@ -65,8 +65,8 @@ void ThemeModeWidget::syncState(Renderer& renderer) {
   m_lastIsLight = isLight;
   m_glyph->setGlyph(glyphForMode(isLight));
   m_glyph->setColor(
-      isLight ? widgetIconColorOr(colorSpecFromRole(ColorRole::Primary))
-              : widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface))
+      isLight ? widgetIconColorOr(colorSpecFromRole(ColorRole::Accent))
+              : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
   );
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
   m_glyph->measure(renderer);

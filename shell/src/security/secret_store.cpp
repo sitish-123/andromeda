@@ -1,4 +1,5 @@
 #include "security/secret_store.h"
+#include "util/thread_name.h"
 
 #include "core/log.h"
 
@@ -9,6 +10,8 @@
 #include <deque>
 #include <libsecret/secret.h>
 #include <limits>
+#include <memory>
+#include <string_view>
 #include <sys/eventfd.h>
 #include <thread>
 #include <unistd.h>
@@ -202,10 +205,65 @@ namespace security {
       };
     }
 
+    // libsecret logs a GLib critical (unref of a null object) when no Secret Service is on the bus. Ask the bus first
+    // and report the same "service unknown" error a missing provider gives.
+    bool secretServiceOnBus(GCancellable* cancellable) {
+      GError* rawError = nullptr;
+      GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SESSION, cancellable, &rawError);
+      ErrorPtr busError(rawError, &g_error_free);
+      if (bus == nullptr) {
+        return true;
+      }
+      const auto busGuard = std::unique_ptr<GDBusConnection, void (*)(GDBusConnection*)>(bus, [](GDBusConnection* b) {
+        g_object_unref(b);
+      });
+      const auto call = [&](const char* method, GVariant* params, const char* replyType) -> GVariant* {
+        GError* callError = nullptr;
+        GVariant* reply = g_dbus_connection_call_sync(
+            bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", method, params,
+            G_VARIANT_TYPE(replyType), G_DBUS_CALL_FLAGS_NONE, -1, cancellable, &callError
+        );
+        if (callError != nullptr) {
+          g_error_free(callError);
+        }
+        return reply;
+      };
+      bool found = false;
+      if (GVariant* reply = call("NameHasOwner", g_variant_new("(s)", "org.freedesktop.secrets"), "(b)")) {
+        gboolean owned = FALSE;
+        g_variant_get(reply, "(b)", &owned);
+        g_variant_unref(reply);
+        found = owned != FALSE;
+      }
+      if (!found) {
+        if (GVariant* reply = call("ListActivatableNames", nullptr, "(as)")) {
+          GVariantIter* names = nullptr;
+          g_variant_get(reply, "(as)", &names);
+          const gchar* name = nullptr;
+          while (!found && g_variant_iter_next(names, "&s", &name)) {
+            found = std::string_view(name) == "org.freedesktop.secrets";
+          }
+          g_variant_iter_free(names);
+          g_variant_unref(reply);
+        } else {
+          found = true;
+        }
+      }
+      return found;
+    }
+
+    SecretService* getSecretService(SecretServiceFlags flags, GCancellable* cancellable, GError** error) {
+      if (!secretServiceOnBus(cancellable)) {
+        g_set_error_literal(error, G_DBUS_ERROR, G_DBUS_ERROR_SERVICE_UNKNOWN, "no Secret Service on the session bus");
+        return nullptr;
+      }
+      return secret_service_get_sync(flags, cancellable, error);
+    }
+
     SecretStoreCollectionState inspectDefaultCollection(GCancellable* cancellable) {
       GError* rawError = nullptr;
       const auto flags = static_cast<SecretServiceFlags>(SECRET_SERVICE_OPEN_SESSION | SECRET_SERVICE_LOAD_COLLECTIONS);
-      SecretService* rawService = secret_service_get_sync(flags, cancellable, &rawError);
+      SecretService* rawService = getSecretService(flags, cancellable, &rawError);
       ErrorPtr error(rawError, &g_error_free);
       if (rawService == nullptr) {
         return SecretStoreCollectionState::Unknown;
@@ -234,7 +292,7 @@ namespace security {
     SecretStoreBackendResult unlockDefaultCollection(GCancellable* cancellable) {
       GError* rawError = nullptr;
       const auto flags = static_cast<SecretServiceFlags>(SECRET_SERVICE_OPEN_SESSION | SECRET_SERVICE_LOAD_COLLECTIONS);
-      SecretService* rawService = secret_service_get_sync(flags, cancellable, &rawError);
+      SecretService* rawService = getSecretService(flags, cancellable, &rawError);
       ErrorPtr error(rawError, &g_error_free);
       if (rawService == nullptr) {
         return error != nullptr ? resultFromError(error.get())
@@ -313,7 +371,7 @@ namespace security {
       SecretStoreBackendResult probe(SecretStoreCancellation& cancellation) override {
         return withCancellable(cancellation, [](GCancellable* cancellable) {
           GError* rawError = nullptr;
-          SecretService* service = secret_service_get_sync(SECRET_SERVICE_OPEN_SESSION, cancellable, &rawError);
+          SecretService* service = getSecretService(SECRET_SERVICE_OPEN_SESSION, cancellable, &rawError);
           ErrorPtr error(rawError, &g_error_free);
           if (service == nullptr) {
             return resultFromError(error.get());
@@ -390,7 +448,7 @@ namespace security {
           };
 
           GError* rawError = nullptr;
-          SecretService* rawService = secret_service_get_sync(SECRET_SERVICE_OPEN_SESSION, cancellable, &rawError);
+          SecretService* rawService = getSecretService(SECRET_SERVICE_OPEN_SESSION, cancellable, &rawError);
           ErrorPtr error(rawError, &g_error_free);
           if (rawService == nullptr) {
             return withDefaultCollectionState(resultFromError(error.get()), cancellable);
@@ -728,6 +786,7 @@ namespace security {
 
   private:
     void workerLoop() {
+      nameThisThread("dsk-secret");
       while (true) {
         Request request;
         {

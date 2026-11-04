@@ -1,11 +1,13 @@
 #pragma once
 
+#include "wayland/glass_surface.h"
 #include "core/timer_manager.h"
 #include "notification/notification.h"
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "system/icon_resolver.h"
 
+#include <functional>
 #include <memory>
 #include <string_view>
 #include <unordered_map>
@@ -47,6 +49,8 @@ public:
   void onConfigReload();
   void onOutputChange();
   void hideDndSuppressed();
+  // The center island may take an event first (true = consumed); the toast stays hidden then.
+  void setIslandHook(std::function<bool(const Notification&, NotificationEvent)> hook);
   void requestLayout();
   void requestRedraw();
 
@@ -56,6 +60,7 @@ public:
   [[nodiscard]] float horizontalInnerPad(float scale) const;
 
 private:
+  std::function<bool(const Notification&, NotificationEvent)> m_islandHook;
   // Per-notification visual state (shared across all instances)
   struct PopupEntry {
     uint32_t notificationId = 0;
@@ -81,7 +86,6 @@ private:
     std::uint64_t hoverResetToken = 0;
     bool hoverResetPending = false;
     bool replyInputFocused = false;
-    Timer exitFallbackTimer;
   };
 
   // Per-output instance (each has its own surface, scene, animations)
@@ -89,6 +93,7 @@ private:
     wl_output* output = nullptr;
 
     std::unique_ptr<LayerSurface> surface;
+    GlassSurface glass; // after surface: destroyed first
     // Declaration order matters: sceneRoot must be destroyed before `animations`,
     // because ~Node() calls cancelForOwner() on its AnimationManager.
     AnimationManager animations;
@@ -116,6 +121,8 @@ private:
       AnimationManager::Id slideAnimId = 0;
       AnimationManager::Id exitAnimId = 0;
       bool replyMode = false;
+      // Unclamped reveal (a spring overshoots 1); shared with the animation setters.
+      std::shared_ptr<float> reveal = std::make_shared<float>(1.0F);
     };
     std::vector<CardState> cards;
     float lastPointerX = 0.0F;

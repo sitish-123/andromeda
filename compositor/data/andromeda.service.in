@@ -11,3 +11,6 @@ Before=andromeda-session.target graphical-session.target
 Type=notify
 Slice=session.slice
 ExecStart=@ANDROMEDA_EXECUTABLE@
+# Under build load the kernel must not swap out the compositor's working set (RSS about 130 MB): a page fault
+# stalls a frame even at real-time priority. The parent slices carry a floor too (session/memory).
+MemoryMin=256M

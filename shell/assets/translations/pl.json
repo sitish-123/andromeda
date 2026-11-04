@@ -687,9 +687,9 @@
       "dbus-disabled": "Powiadomienia DBus wyłączone",
       "desktop-widgets-editor": "Edytor widżetów",
       "desktop-widgets-editor-enabled": "Edytor widżetów pulpitu jest włączony. Przejdź na pusty obszar roboczy, aby otwarte okna nie zasłaniały edytora.",
-      "greeter-sync": "Powitanie Noctalia",
+      "greeter-sync": "Powitanie Andromeda",
       "greeter-sync-success": "Wygląd zsynchronizowany. Zmiany będą obowiązywać na następnym ekranie logowania.",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Ten skrót przyjmuje jeden klawisz bez modyfikatorów.",
       "keybind-invalid-printable": "Klawishe drukowalne (litery, cyfry, symbole) wymagają modyfikatora, takiego jak Ctrl lub Alt.",
       "keybind-invalid-super": "Klawisz Super/Windows nie może być używany w skrótach shella.",
@@ -833,7 +833,7 @@
       "bar": {
         "create": "Utwórz",
         "delete": "Usuń",
-        "delete-confirm-desc": "Ten pasek utworzony w GUI zostanie usunięty z settings.toml.",
+        "delete-confirm-desc": "Ten pasek utworzony w GUI zostanie usunięty z overrides.toml.",
         "delete-confirm-title": "Usunąć „{name}”?",
         "id-placeholder": "ID Paska",
         "label": "Pasek: {name}",
@@ -847,7 +847,7 @@
       "monitor-override": {
         "create": "Utwórz",
         "delete": "Usuń",
-        "delete-confirm-desc": "To przesłonięcie monitora utworzone w GUI zostanie usunięte z settings.toml.",
+        "delete-confirm-desc": "To przesłonięcie monitora utworzone w GUI zostanie usunięte z overrides.toml.",
         "delete-confirm-title": "Usunąć „{name}”?",
         "label": "Monitor: {name}",
         "management": "Przesłonięcie monitora",
@@ -951,7 +951,7 @@
       },
       "reset-page": "Nie udało się resetować niektórych ustawień.",
       "support-report": "Nie udało się zapisać raportu wsparcia.",
-      "sync-greeter": "Nie udało się zsynchronizować wyglądu z Noctalia Greeter.",
+      "sync-greeter": "Nie udało się zsynchronizować wyglądu z Andromeda Greeter.",
       "widget": {
         "rename": "Nie udało się zmienić nazwy nazwanego widżetu."
       },
@@ -1637,7 +1637,7 @@
             "label": "Przy wyłączaniu"
           },
           "started": {
-            "description": "Polecenie do uruchomienia po uruchomieniu Noctalia",
+            "description": "Polecenie do uruchomienia po uruchomieniu Andromeda",
             "label": "Przy starcie"
           },
           "theme-mode-changed": {
@@ -1698,10 +1698,6 @@
         "blur-intensity": {
           "description": "Stopień rozmycia tła ekranu blokady",
           "label": "Intensywność rozmycia"
-        },
-        "blurred-desktop": {
-          "description": "Użyj migawki pulpitu jako tła ekranu blokady",
-          "label": "Przechwyt pulpitu"
         },
         "monitors": {
           "description": "Wybierz które monitory wyświetlają ekran blokady; pozostaw puste by wyświetlać na wszystkich monitorach",
@@ -2102,7 +2098,7 @@
           "label": "Format daty"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Uruchamia aplikacje w oddzielnych usługach systemd, aby nie udostępniały cgroup Noctalia",
+          "description": "Uruchamia aplikacje w oddzielnych usługach systemd, aby nie udostępniały cgroup Andromeda",
           "label": "Uruchamiaj aplikacje jako usługi systemd"
         },
         "niri-overview-type-to-launch": {
@@ -2233,8 +2229,8 @@
         },
         "sync-greeter": {
           "button": "Synchronizuj teraz",
-          "description": "Skopiuj bieżącą tapetę i kolory do Noctalia Greeter (wymaga zatwierdzenia administratora)",
-          "label": "Noctalia Greeter"
+          "description": "Skopiuj bieżącą tapetę i kolory do Andromeda Greeter (wymaga zatwierdzenia administratora)",
+          "label": "Andromeda Greeter"
         },
         "telemetry": {
           "description": "Wysyła małe anonimowe pingowanie startowe z wersją, systemem operacyjnym, compositorem, rozdzielczościami monitorów, pamięcią RAM i skalą interfejsu",
@@ -2802,7 +2798,7 @@
     "window": {
       "export-config": "Eksportuj konfigurację…",
       "export-config-saved": "Konfiguracja wyeksportowana.",
-      "native-title": "Ustawienia Noctalia",
+      "native-title": "Ustawienia Andromeda",
       "no-results": "Nie znaleziono ustawień",
       "no-results-hint": "Spróbuj innej nazwy ustawienia lub klucza konfiguracji.",
       "reset-page": "Resetuj stronę",
@@ -2823,7 +2819,7 @@
     "no-wallpaper-selected": "Nie wybrano tapety",
     "select-wallpaper": "Wybierz tapetę",
     "subtitle": "Kilka szybkich wyborów, aby zacząć.",
-    "title": "Witaj w Noctalia",
+    "title": "Witaj w Andromeda",
     "wallpaper": "Tapeta",
     "wallpaper-scheme": "Schemat tapety"
   },

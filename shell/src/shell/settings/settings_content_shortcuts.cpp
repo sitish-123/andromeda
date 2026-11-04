@@ -3,6 +3,8 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_page_rows.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -10,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,7 +22,6 @@ namespace settings {
 
   namespace {
 
-    constexpr float kChordWidth = 180.0F;
     constexpr float kActionSelectWidth = 280.0F;
     constexpr float kArgumentWidth = 220.0F;
 
@@ -78,7 +80,7 @@ namespace settings {
       props.fontSize = Style::fontSizeCaption * scale;
       props.enabled = enabled;
       props.variant = variant;
-      props.minHeight = Style::controlHeightSm * scale;
+      props.minHeight = Style::controlHeight * scale;
       props.paddingV = Style::spaceXs * scale;
       props.paddingH = Style::spaceSm * scale;
       props.radius = Style::scaledRadiusMd(scale);
@@ -86,49 +88,113 @@ namespace settings {
       return ui::button(std::move(props));
     }
 
-    // The chord control: shows the chord, and while recording asks for the keys. Clicking it again cancels.
+    // The chord control: one key cap per key; while recording it asks for the keys and is outlined in accent.
+    // Clicking it again cancels.
     std::unique_ptr<Button> makeChordButton(
         const SettingsShortcutsContext& ctx, std::string row, std::string_view shown,
         std::function<void(std::string)> onCaptured
     ) {
       const bool recording = ctx.recordingRow == row;
-      auto button = makeButton(
-          recording ? i18n::tr("settings.shortcuts.press-keys")
-                    : (shown.empty() ? i18n::tr("settings.shortcuts.set-keys") : std::string(shown)),
-          "keyboard", recording ? ButtonVariant::Primary : ButtonVariant::Default, ctx.scale,
-          [record = ctx.record, cancel = ctx.cancelRecording, recording, row, onCaptured = std::move(onCaptured)]() {
+      const float scale = ctx.scale;
+      const ColorSpec none = clearColorSpec();
+      const Button::ButtonStateColors state{
+          .bg = none, .border = recording ? colorSpecFromRole(ColorRole::Accent) : none,
+          .label = colorSpecFromRole(ColorRole::Label2)
+      };
+      auto button = ui::button({
+          .variant = ButtonVariant::Ghost,
+          .customPalette = Button::ButtonPalette{
+              .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+              .disabled = state
+          },
+          .minHeight = (metrics::kKeycapHeight + 2.0F * Style::spaceSm) * scale,
+          .paddingV = Style::spaceXs * scale,
+          .paddingH = Style::spaceSm * scale,
+          .gap = Style::spaceXs * scale,
+          .radius = Style::spaceSm * scale,
+          .onClick = [record = ctx.record, cancel = ctx.cancelRecording, recording, row,
+                      onCaptured = std::move(onCaptured)]() {
             if (recording) {
               cancel();
             } else {
               record(row, onCaptured);
             }
-          }
-      );
-      button->setMinWidth(kChordWidth * ctx.scale);
+          },
+          .configure = [](Button& chord) { chord.setTabStop(false); },
+      });
+      if (recording || shown.empty()) {
+        button->addChild(makeLabel(
+            i18n::tr(recording ? "settings.shortcuts.press-keys" : "settings.shortcuts.set-keys"),
+            Style::fontSizeCaption * scale,
+            colorSpecFromRole(recording ? ColorRole::AccentText : ColorRole::Label2), FontWeight::Medium
+        ));
+        return button;
+      }
+      for (std::size_t start = 0; start <= shown.size();) {
+        const std::size_t plus = shown.find('+', start);
+        const std::string_view part = shown.substr(start, plus == std::string_view::npos ? plus : plus - start);
+        if (!part.empty()) {
+          button->addChild(ui::row(
+              {.align = FlexAlign::Center,
+               .justify = FlexJustify::Center,
+               .paddingH = Style::spaceXs * scale,
+               .radius = Style::spaceXs * scale,
+               .border = colorSpecFromRole(ColorRole::Separator),
+               .minWidth = metrics::kKeycapHeight * scale,
+               .minHeight = metrics::kKeycapHeight * scale},
+              makeLabel(std::string(part), Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
+          ));
+        }
+        if (plus == std::string_view::npos) {
+          break;
+        }
+        start = plus + 1;
+      }
       return button;
+    }
+
+    // "noctalia msg screenshot-region" reads as "Screenshot region"; other commands show as typed.
+    std::string commandTitle(std::string_view command) {
+      constexpr std::string_view kMsg = "noctalia msg ";
+      if (!command.starts_with(kMsg)) {
+        return std::string(command);
+      }
+      std::string verb(command.substr(kMsg.size(), command.find(' ', kMsg.size()) - kMsg.size()));
+      std::ranges::replace(verb, '-', ' ');
+      if (!verb.empty()) {
+        verb[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(verb[0])));
+      }
+      return verb;
+    }
+
+    std::string shortcutTitle(const CompositorKeybind& bind, const CompositorAction* action) {
+      const std::string_view name = actionName(bind.action);
+      const std::size_t colon = bind.action.find(':');
+      const std::string_view argument =
+          colon == std::string::npos ? std::string_view{} : std::string_view(bind.action).substr(colon + 1);
+      if (!argument.empty() && (name == "spawn" || name == "shell")) {
+        return commandTitle(argument);
+      }
+      std::string title = action != nullptr && !action->summary.empty() ? action->summary : std::string(name);
+      return argument.empty() ? title : title + " · " + std::string(argument);
     }
 
     void addShortcutRow(Flex& body, const SettingsShortcutsContext& ctx, const CompositorKeybind& bind) {
       const float scale = ctx.scale;
       const bool disabled = bind.action == "none";
       const CompositorAction* action = findAction(*ctx.compositor, actionName(bind.action));
-      const std::string title = disabled                  ? bind.chord
-          : action != nullptr && !action->summary.empty() ? action->summary
-                                                          : std::string(actionName(bind.action));
 
-      auto copy = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * scale, .flexGrow = 1.0F});
-      copy->addChild(
-          makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
-      );
-      copy->addChild(makeSettingSubtitleLabel(disabled ? i18n::tr("settings.shortcuts.unbound") : bind.action, scale));
-
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-      row->addChild(std::move(copy));
+      auto row = page_rows::row(scale);
+      row->addChild(page_rows::title(disabled ? bind.chord : shortcutTitle(bind, action), scale));
+      if (disabled) {
+        row->addChild(makeLabel(
+            i18n::tr("settings.shortcuts.unbound"), Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2)
+        ));
+      }
       if (bind.customized) {
-        row->addChild(makeButton(
-            {}, "arrow-back-up", ButtonVariant::Ghost, scale,
-            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, ""); }, true,
-            i18n::tr("settings.actions.reset-to-default")
+        row->addChild(page_rows::iconButton(
+            "arrow-back-up", i18n::tr("settings.actions.reset-to-default"), scale,
+            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, ""); }
         ));
       }
       if (!disabled) {
@@ -142,10 +208,9 @@ namespace settings {
               }
             }
         ));
-        row->addChild(makeButton(
-            {}, "trash", ButtonVariant::Ghost, scale,
-            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); }, true,
-            i18n::tr("settings.shortcuts.remove")
+        row->addChild(page_rows::iconButton(
+            "trash", i18n::tr("settings.shortcuts.remove"), scale,
+            [bindFn = ctx.bind, chord = bind.chord]() { bindFn(chord, "none"); }
         ));
       }
       body.addChild(std::move(row));
@@ -164,7 +229,7 @@ namespace settings {
           selected = names.size();
         }
         names.push_back(action.name);
-        labels.push_back(action.summary.empty() ? action.name : action.name + " — " + action.summary);
+        labels.push_back(action.summary.empty() ? action.name : action.summary);
       }
       const CompositorAction* chosen = findAction(*ctx.compositor, draft->action);
 

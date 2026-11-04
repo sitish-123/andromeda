@@ -1,5 +1,10 @@
 #pragma once
 
+#include "config/widget_setting_value.h"
+
+#include <string>
+#include <unordered_map>
+
 class ClipboardService;
 class CalendarService;
 class ConfigService;
@@ -25,6 +30,8 @@ struct DesktopWidgetScriptDeps {
   FileWatcher* fileWatcher = nullptr;
   ClipboardService* clipboard = nullptr;
   ConfigService* configService = nullptr;
+  // Plugin-level settings by plugin id, for hosts without a ConfigService (the lock helper).
+  const std::unordered_map<std::string, std::unordered_map<std::string, WidgetSettingValue>>* pluginSettings = nullptr;
 };
 
 struct DesktopWidgetRuntimeServices {

@@ -9,7 +9,7 @@
 #include <span>
 #include <string>
 
-class WaylandConnection;
+class ShellWaylandConnection;
 struct ToplevelThumbnailCapturePending;
 struct ext_foreign_toplevel_handle_v1;
 
@@ -25,7 +25,7 @@ class ToplevelThumbnailCapture {
 public:
   using CompletionCallback = std::function<void(std::optional<ScreencopyImage>, std::string error)>;
 
-  explicit ToplevelThumbnailCapture(WaylandConnection& wayland);
+  explicit ToplevelThumbnailCapture(ShellWaylandConnection& wayland);
   ~ToplevelThumbnailCapture();
 
   [[nodiscard]] bool available() const noexcept;
@@ -38,7 +38,7 @@ private:
   void fail(std::string message);
   void finish(ScreencopyImage image);
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   std::unique_ptr<ToplevelThumbnailCapturePending> m_pending;
   CompletionCallback m_onComplete;
   Timer m_timeout;

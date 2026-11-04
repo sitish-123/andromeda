@@ -17,24 +17,24 @@ namespace settings {
              .gap = Style::spaceMd * scale,
              .paddingV = Style::spaceSm * scale,
              .paddingH = Style::spaceMd * scale,
-             .fill = colorSpecFromRole(ColorRole::Surface),
+             .fill = colorSpecFromRole(ColorRole::SolidRegular),
              .radius = Style::scaledRadiusMd(scale),
              .minHeight = Style::controlHeightLg * scale,
              .fillWidth = true},
             ui::glyph({
                 .glyph = "device-mobile",
                 .glyphSize = Style::fontSizeTitle * scale,
-                .color = colorSpecFromRole(ColorRole::Primary),
+                .color = colorSpecFromRole(ColorRole::AccentText),
             }),
             ui::column(
                 {.align = FlexAlign::Start, .gap = Style::spaceXs * 0.5F * scale, .flexGrow = 1.0F},
                 makeLabel(
                     i18n::tr("settings.devices.phones"), Style::fontSizeBody * scale,
-                    colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
+                    colorSpecFromRole(ColorRole::Label1), FontWeight::Bold
                 ),
                 makeLabel(
                     i18n::tr("settings.devices.phones-hint"), Style::fontSizeCaption * scale,
-                    colorSpecFromRole(ColorRole::OnSurfaceVariant)
+                    colorSpecFromRole(ColorRole::Label2)
                 )
             ),
             ui::button({

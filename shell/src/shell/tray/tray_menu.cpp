@@ -97,7 +97,7 @@ namespace {
     for (const auto& base : config->config().bars) {
       BarConfig resolved = base;
       if (wlOutput != nullptr) {
-        resolved = ConfigService::resolveForOutput(base, *wlOutput);
+        resolved = ConfigService::resolveForOutput(base, *wlOutput, config->config().accessibility.uiScale);
       }
       if (!resolved.enabled) {
         continue;
@@ -1121,8 +1121,8 @@ void TrayMenu::openSubmenuAtLevel(std::size_t levelIndex, std::int32_t parentEnt
   const auto parentWidth = static_cast<std::int32_t>(std::lround(parentMenu->chrome.contentWidth));
   const auto parentX = parentMenu->surface->configuredX() + parentContentX;
   const float scale = contentScale();
-  const auto rowTop = static_cast<std::int32_t>(std::lround(rowCenterY - Style::controlHeightSm * scale * 0.5F));
-  const auto rowH = std::max(1, static_cast<std::int32_t>(std::lround(Style::controlHeightSm * scale)));
+  const auto rowTop = static_cast<std::int32_t>(std::lround(rowCenterY - Style::controlHeight * scale * 0.5F));
+  const auto rowH = std::max(1, static_cast<std::int32_t>(std::lround(Style::controlHeight * scale)));
   const auto subGap = std::max(1, static_cast<std::int32_t>(std::lround(4.0F * scale)));
 
   const auto chrome = popup_chrome::computeGeometry(

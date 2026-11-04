@@ -474,4 +474,26 @@ ANDROMEDA_TEST(animatedColorRefreshesShaderIdentityOnlyWhenRetargeted) {
   checkShaderSeed(color.shaderSeed());
 }
 
+ANDROMEDA_TEST(sharedSpringKeepsPositionAndVelocityWhenRetargeted) {
+  desk::motion::Spring spring(0.0, 100.0, desk::motion::SpringConfig{.damping = 1.0, .stiffness = 900.0, .mass = 1.0});
+  for (int i = 0; i < 3; ++i) {
+    spring.step(1.0 / 60.0);
+  }
+  const double position = spring.value();
+  const double velocity = spring.velocity();
+  CHECK(velocity > 0.0);
+
+  // Retargeting to the current position: a spring that keeps its velocity carries on past it before it returns.
+  spring.retarget(position);
+  CHECK_EQ(spring.value(), position);
+  CHECK_EQ(spring.velocity(), velocity);
+  CHECK(spring.step(1.0 / 60.0) > position);
+
+  for (int i = 0; i < 600 && !spring.settled(); ++i) {
+    spring.step(1.0 / 60.0);
+  }
+  CHECK(spring.settled());
+  CHECK_EQ(spring.value(), position);
+}
+
 int main() { return RUN_TESTS(); }

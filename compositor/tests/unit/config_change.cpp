@@ -235,7 +235,6 @@ ANDROMEDA_TEST(borderColorChangesAreColorChangesThatRefreshChrome) {
 
   const ConfigEffects effects = ConfigEffects::between(before, after);
   CHECK(effects.viewChrome);
-  CHECK(effects.internalUi);
   CHECK(effects.overviewPresentation);
   CHECK(!effects.workspaceLayout);
   CHECK(!effects.sceneBlur);
@@ -373,7 +372,6 @@ ANDROMEDA_TEST(firstLoadInvalidatesEveryRuntimeConsumer) {
   CHECK(effects.animation);
   CHECK(effects.input);
   CHECK(effects.overviewPresentation);
-  CHECK(effects.internalUi);
   CHECK(effects.dialogAttachment);
 }
 
@@ -410,7 +408,7 @@ ANDROMEDA_TEST(anyColorChangeRefreshesEveryColorConsumer) {
   after.colors.textPrimary[0] -= 0.1F;
 
   const ConfigEffects effects = ConfigEffects::between(before, after);
-  CHECK_EQ(effects.summary(), std::string("view chrome, internal UI, overview presentation"));
+  CHECK_EQ(effects.summary(), std::string("view chrome, overview presentation"));
   CHECK(!effects.outputState);
   CHECK(!effects.workspaceLayout);
   CHECK(!effects.sceneBlur);
@@ -660,7 +658,6 @@ ANDROMEDA_TEST(outputScrollingDefaultOnlyRefreshesWorkspaceLayout) {
   CHECK(!effects.animation);
   CHECK(!effects.input);
   CHECK(!effects.overviewPresentation);
-  CHECK(!effects.internalUi);
   CHECK(effects.invalidatesOverview());
   CHECK_EQ(effects.summary(), std::string("workspace layout"));
 }
@@ -1001,19 +998,6 @@ ANDROMEDA_TEST(overviewInvalidationExcludesIrrelevantRuntimeEffects) {
   CHECK(!hotCornerEffects.overviewPresentation);
   CHECK(!hotCornerEffects.invalidatesOverview());
   CHECK(ConfigChange::between(before, hotCornerChanged).hotCorners);
-}
-
-ANDROMEDA_TEST(modKeyReloadRefreshesOnlyInternalUi) {
-  const Config before;
-  Config after;
-  after.general.modKey = ModifierKey::Control;
-
-  const ConfigEffects effects = ConfigEffects::between(before, after);
-  CHECK(effects.internalUi);
-  CHECK(!effects.input);
-  CHECK(!effects.outputState);
-  CHECK(!effects.workspaceLayout);
-  CHECK(!effects.viewChrome);
 }
 
 ANDROMEDA_TEST(aFailedReloadResultCarriesNoChangesOrEffects) {

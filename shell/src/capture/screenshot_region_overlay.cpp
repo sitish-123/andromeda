@@ -216,7 +216,7 @@ namespace capture {
           ui::label({
               .text = i18n::tr("bar.screenshot.choose-display"),
               .fontSize = Style::fontSizeCaption,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
           })
       );
 
@@ -249,7 +249,7 @@ namespace capture {
           ui::label({
               .out = &hintOut,
               .fontSize = Style::fontSizeCaption,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
           })
       );
     }
@@ -834,7 +834,7 @@ namespace capture {
     inst.dimLeft = makeDimStrip();
     inst.dimRight = makeDimStrip();
 
-    Color border = colorForRole(ColorRole::Primary);
+    Color border = colorForRole(ColorRole::Accent);
     border.a = 1.0F;
 
     auto selection = ui::box({
@@ -844,11 +844,11 @@ namespace capture {
         },
     });
 
-    Color badgeFill = colorForRole(ColorRole::Surface);
+    Color badgeFill = colorForRole(ColorRole::SolidRegular);
     badgeFill.a = 0.94F;
     auto dimensionsBadge = ui::box({
         .fill = fixedColorSpec(badgeFill),
-        .radius = Style::radiusSm,
+        .radius = Tokens::radiusR8,
         .visible = false,
         .configure = [border](Box& box) { box.setBorder(fixedColorSpec(border), 1.0F); },
     });

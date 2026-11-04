@@ -1,3 +1,4 @@
+#include "core/process/async_process_manager.h"
 #include "core/process/process.h"
 #include "core/toml.h"
 #include "render/core/color.h"
@@ -71,7 +72,14 @@ noctalia.setWallpaperMask("DP-1", nil)
   }
 
   std::unique_lock lock(mutex);
-  const bool completed = ready.wait_for(lock, std::chrono::seconds(10), [&] { return result.has_value(); });
+  // No main loop here: spend this thread's time dispatching the process manager.
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!result.has_value() && std::chrono::steady_clock::now() < deadline) {
+    lock.unlock();
+    process::AsyncProcessManager::instance().pumpOnce(std::chrono::milliseconds(20));
+    lock.lock();
+  }
+  const bool completed = result.has_value();
   if (!expect(completed, "argv process should complete")) {
     return 1;
   }
@@ -95,7 +103,7 @@ noctalia.setWallpaperMask("DP-1", nil)
   // getColor tracks active palette updates and returns nil for unknown roles
   const Palette originalPalette = palette;
   Palette testPalette = originalPalette;
-  testPalette.primary = rgba(1.0F, 0.0F, 0.0F, 1.0F);
+  testPalette.accent = rgba(1.0F, 0.0F, 0.0F, 1.0F);
   setPalette(testPalette);
   ok = expect(
            host.exec("=get-color", "assert(noctalia.getColor('primary') == '#FF0000')\n"),

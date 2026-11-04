@@ -1,14 +1,13 @@
 #pragma once
 
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -35,9 +34,8 @@ namespace tray {
   [[nodiscard]] ThemePathIndex buildThemePathIndex(const std::filesystem::path& root);
 
   // Process-wide index cache: every bar's TrayWidget shares one scan per path,
-  // and the walk runs on a worker instead of the render thread. Every member
-  // below is guarded by m_mutex; the worker owns the queue and the indexes,
-  // while listeners are added, removed and fired on the main thread.
+  // and the walk runs on the SharedWorker instead of the render thread. Every member
+  // below is guarded by m_mutex; listeners are added, removed and fired on the main thread.
   class ThemePathIconStore {
   public:
     static ThemePathIconStore& instance();
@@ -55,19 +53,14 @@ namespace tray {
     ThemePathIconStore();
     ~ThemePathIconStore();
 
-    void workerLoop();
     void notifyListeners();
 
     mutable std::mutex m_mutex;
-    std::condition_variable m_cv;
     std::unordered_map<std::string, ThemePathIndex> m_indexes;
     std::unordered_set<std::string> m_pending;
-    std::vector<std::string> m_queue;
     std::unordered_map<std::uint64_t, std::function<void()>> m_listeners;
     std::uint64_t m_nextListenerId = 1;
-    bool m_shutdown = false;
-    bool m_workerStarted = false;
-    std::thread m_worker;
+    std::shared_ptr<void> m_alive = std::make_shared<char>();
   };
 
 } // namespace tray

@@ -1,14 +1,20 @@
+#include "i18n/i18n.h"
 #include "application.h"
 #include "application_internal.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/network/inetwork_service.h"
+#include "dbus/network/network_display.h"
+#include "dbus/upower/upower_service.h"
+#include "ui/auth/auth_column.h"
 #include "pipewire/sound_player.h"
 #include "render/backend/render_backend.h"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <format>
 #include <exception>
 
 namespace {
@@ -115,11 +121,32 @@ void Application::requestAllSurfacesRedraw() {
   });
 }
 
+void Application::refreshLockStatus() {
+  AuthColumn::Status status;
+  if (upower() != nullptr && upower()->state().isPresent) {
+    const auto& battery = upower()->state();
+    status.batteryGlyph = batteryGlyphName(battery.percentage, battery.state);
+    status.batteryText = std::format("{}%", static_cast<int>(std::lround(battery.percentage)));
+    if (battery.state == BatteryState::Charging) {
+      const std::int64_t minutes = battery.timeToFull / 60;
+      status.chargingText = minutes <= 0 ? i18n::tr("lockscreen.cards.charging", "percent", std::lround(battery.percentage))
+          : minutes < 60
+          ? i18n::tr("lockscreen.cards.charging-full-in", "time", std::format("{} min", minutes))
+          : i18n::tr("lockscreen.cards.charging-full-in", "time", std::format("{} h {} min", minutes / 60, minutes % 60));
+    }
+  }
+  if (network() != nullptr && network()->hasStateSnapshot()) {
+    status.networkGlyph = network_display::glyphForState(network()->state());
+  }
+  m_lockScreen.setStatus(std::move(status));
+}
+
 void Application::onUpowerStateChangedForHooks() {
-  if (m_upowerService == nullptr) {
+  refreshLockStatus();
+  if (upower() == nullptr) {
     return;
   }
-  const auto& state = m_upowerService->state();
+  const auto& state = upower()->state();
   const auto plugged = state.isPresent ? batteryStatePlugged(state.state) : std::nullopt;
   if (plugged.has_value()) {
     if (m_prevBatteryPluggedForEvents.has_value()
@@ -141,6 +168,7 @@ void Application::onUpowerStateChangedForHooks() {
 }
 
 void Application::onNetworkStateChangedForEvents(const NetworkState& state, NetworkChangeOrigin origin) {
+  refreshLockStatus();
   if (!m_prevWirelessEnabledForEvents.has_value()) {
     m_prevWirelessEnabledForEvents = state.wirelessEnabled;
     return;

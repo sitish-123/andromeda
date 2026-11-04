@@ -23,12 +23,12 @@ namespace {
 
   ColorRole healthRole(double health) {
     if (health >= 80.0) {
-      return ColorRole::Primary;
+      return ColorRole::Accent;
     }
     if (health >= 50.0) {
-      return ColorRole::Tertiary;
+      return ColorRole::Accent;
     }
-    return ColorRole::Error;
+    return ColorRole::DangerText;
   }
 
   std::string deviceDisplayName(const UPowerDeviceInfo& info) {
@@ -193,20 +193,20 @@ void PowerTab::buildStatusCard(Flex& root, float scale) {
           .out = &m_statusGlyph,
           .glyph = batteryGlyphName(0.0, BatteryState::Unknown),
           .glyphSize = Style::fontSizeTitle * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       }),
       ui::label({
           .out = &m_percentLabel,
           .text = "--",
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       }),
       ui::label({
           .out = &m_stateLabel,
           .text = "",
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .flexGrow = 1.0F,
       })
   );
@@ -215,8 +215,8 @@ void PowerTab::buildStatusCard(Flex& root, float scale) {
   card->addChild(
       ui::progressBar({
           .out = &m_levelBar,
-          .fill = colorSpecFromRole(ColorRole::Primary),
-          .track = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::Accent),
+          .track = colorSpecFromRole(ColorRole::SolidRegular),
           .radius = Style::sliderTrackHeight * scale * 0.5F,
           .progress = 0.0F,
           .height = Style::sliderTrackHeight * scale,
@@ -228,13 +228,13 @@ void PowerTab::buildStatusCard(Flex& root, float scale) {
       ui::glyph({
           .glyph = "clock",
           .glyphSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       }),
       ui::label({
           .out = &m_timeLabel,
           .text = "",
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
   card->addChild(std::move(timeRow));
@@ -244,13 +244,13 @@ void PowerTab::buildStatusCard(Flex& root, float scale) {
       ui::glyph({
           .glyph = "bolt",
           .glyphSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       }),
       ui::label({
           .out = &m_rateLabel,
           .text = "",
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
   card->addChild(std::move(rateRow));
@@ -296,7 +296,7 @@ void PowerTab::buildProfilesCard(Flex& root, float scale) {
           .fontSize = Style::fontSizeCaption,
           .scale = scale,
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::Surface,
+          .surfaceRole = ColorRole::SolidRegular,
           .equalSegmentWidths = true,
           .onChange = [this](std::size_t index) {
             if (m_syncingProfiles || m_powerProfiles == nullptr || index >= m_profileOrder.size()) {
@@ -312,13 +312,13 @@ void PowerTab::buildProfilesCard(Flex& root, float scale) {
       ui::glyph({
           .glyph = "alert-triangle",
           .glyphSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::Error),
+          .color = colorSpecFromRole(ColorRole::DangerText),
       }),
       ui::label({
           .out = &m_inhibitedLabel,
           .text = i18n::tr("control-center.power.performance-inhibited"),
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .flexGrow = 1.0F,
       })
   );
@@ -347,7 +347,7 @@ void PowerTab::buildHealthCard(Flex& root, float scale) {
           .text = "--",
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
   card->addChild(std::move(header));
@@ -356,15 +356,15 @@ void PowerTab::buildHealthCard(Flex& root, float scale) {
       ui::label({
           .text = i18n::tr("control-center.power.design-capacity"),
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
   card->addChild(
       ui::progressBar({
           .out = &m_healthBar,
-          .fill = colorSpecFromRole(ColorRole::Primary),
-          .track = colorSpecFromRole(ColorRole::Surface),
+          .fill = colorSpecFromRole(ColorRole::Accent),
+          .track = colorSpecFromRole(ColorRole::SolidRegular),
           .radius = Style::sliderTrackHeight * scale * 0.5F,
           .progress = 0.0F,
           .height = Style::sliderTrackHeight * scale,
@@ -483,7 +483,7 @@ void PowerTab::rebuildChargeLimits() {
               .text = deviceDisplayName(battery),
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = FontWeight::Bold,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
               .visible = showNames,
@@ -494,7 +494,7 @@ void PowerTab::rebuildChargeLimits() {
               .out = &entry.behaviorLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
           })
       );
       row->addChild(
@@ -502,7 +502,7 @@ void PowerTab::rebuildChargeLimits() {
               .out = &entry.configuredLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
           })
       );
@@ -513,7 +513,7 @@ void PowerTab::rebuildChargeLimits() {
                   .out = &entry.controlLabel,
                   .text = i18n::tr("control-center.power.charging.use-thresholds"),
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurface),
+                  .color = colorSpecFromRole(ColorRole::Label1),
                   .flexGrow = 1.0F,
               }),
               ui::toggle({
@@ -534,7 +534,7 @@ void PowerTab::rebuildChargeLimits() {
               .out = &entry.managementLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = false,
           })
       );
@@ -543,7 +543,7 @@ void PowerTab::rebuildChargeLimits() {
               .out = &entry.errorLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::Error),
+              .color = colorSpecFromRole(ColorRole::DangerText),
               .visible = false,
           })
       );
@@ -580,7 +580,7 @@ void PowerTab::rebuildChargeLimits() {
       }
     }
     row.behaviorLabel->setText(behavior);
-    row.behaviorLabel->setColor(colorSpecFromRole(ColorRole::OnSurface));
+    row.behaviorLabel->setColor(colorSpecFromRole(ColorRole::Label1));
 
     const bool showConfigured = (mode == ChargeLimitMode::ExternallyManaged || !control.visible)
         && !configured.empty()
@@ -602,15 +602,15 @@ void PowerTab::rebuildChargeLimits() {
     if (!management.empty()) {
       row.managementLabel->setText(management);
       row.managementLabel->setColor(
-          colorSpecFromRole(ColorRole::OnSurfaceVariant, mode == ChargeLimitMode::ExternallyManaged ? 0.55F : 1.0F)
+          colorSpecFromRole(ColorRole::Label2, mode == ChargeLimitMode::ExternallyManaged ? 0.55F : 1.0F)
       );
     }
 
     row.controlRow->setVisible(control.visible);
     if (control.visible) {
       row.controlLabel->setColor(
-          mode == ChargeLimitMode::ExternallyManaged ? colorSpecFromRole(ColorRole::OnSurfaceVariant, 0.55F)
-                                                     : colorSpecFromRole(ColorRole::OnSurface)
+          mode == ChargeLimitMode::ExternallyManaged ? colorSpecFromRole(ColorRole::Label2, 0.55F)
+                                                     : colorSpecFromRole(ColorRole::Label1)
       );
       row.toggle->setCheckedImmediate(control.checked);
       row.toggle->setEnabled(control.enabled);
@@ -653,7 +653,7 @@ void PowerTab::syncBatteryStatus() {
   if (m_levelBar != nullptr) {
     m_levelBar->setProgress(static_cast<float>(std::clamp(state.percentage / 100.0, 0.0, 1.0)));
     const bool low = state.state == BatteryState::Discharging && state.percentage <= 20.0;
-    m_levelBar->setFill(colorSpecFromRole(low ? ColorRole::Error : ColorRole::Primary));
+    m_levelBar->setFill(colorSpecFromRole(low ? ColorRole::Danger : ColorRole::Accent));
   }
 
   const bool charging = state.state == BatteryState::Charging || state.state == BatteryState::PendingCharge;
@@ -760,13 +760,13 @@ void PowerTab::rebuildPeripherals() {
           ui::glyph({
               .glyph = batteryDeviceGlyphName(device.type),
               .glyphSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           }),
           ui::label({
               .out = &entry.nameLabel,
               .text = deviceDisplayName(device),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .maxLines = 1,
               .ellipsize = TextEllipsize::End,
               .flexGrow = 1.0F,
@@ -775,8 +775,8 @@ void PowerTab::rebuildPeripherals() {
               .out = &entry.pctLabel,
               .text = "",
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-              .minWidth = Style::controlHeightSm * scale,
+              .color = colorSpecFromRole(ColorRole::Label2),
+              .minWidth = Style::controlHeight * scale,
           })
       );
       m_peripheralsList->addChild(std::move(row));

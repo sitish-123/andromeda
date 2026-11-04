@@ -94,6 +94,7 @@ struct wlr_virtual_pointer_manager_v1;
 struct wlr_virtual_pointer_v1;
 
 namespace andromeda {
+  class CpuBoost;
   enum class ContentType;
   struct ConfigEffects;
 
@@ -138,6 +139,9 @@ namespace andromeda {
   class DesktopOutputManager;
   class CommitTimingManager;
   class DesktopShell;
+  class BackgroundEffectManager;
+  class DskSurfaceManager;
+  class GreeterChild;
   class FifoManager;
   struct InputDeviceInfo;
   class InputMethodRelay;
@@ -162,7 +166,6 @@ namespace andromeda {
   class ScratchpadManager;
   class ConfigBanner;
   class FpsOverlay;
-  class Cheatsheet;
   class QuitConfirm;
   class Ipc;
 
@@ -219,7 +222,6 @@ namespace andromeda {
     [[nodiscard]] Overview* overview() const { return m_overview.get(); }
     [[nodiscard]] ConfigBanner* configBanner() const { return m_configBanner.get(); }
     [[nodiscard]] FpsOverlay* fpsOverlay() const { return m_fpsOverlay.get(); }
-    [[nodiscard]] Cheatsheet* cheatsheet() const { return m_cheatsheet.get(); }
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).
     [[nodiscard]] wlr_scene_tree* dragTree() const { return m_dragTree; }
@@ -351,7 +353,6 @@ namespace andromeda {
       return pending;
     }
     void relayoutBanner();
-    void relayoutCheatsheet();
     void relayoutQuitConfirm();
     void spawn(const char* command, const char* description = nullptr, bool withActivationToken = false);
     void handleConfigReload(const ConfigReloadResult& result);
@@ -409,7 +410,7 @@ namespace andromeda {
 
     // Focus lives in FocusManager; these forward so call sites that already
     // hold a Server do not need a second reference.
-    void focusView(View* view, FocusReason reason = FocusReason::Startup) { m_focus.focusView(view, reason); }
+    void focusView(View* view, FocusReason reason) { m_focus.focusView(view, reason); }
     void xwaylandHintsChanged(View* view) { m_focus.xwaylandHintsChanged(view); }
     void restoreActivatedViewKeyboardFocus() { m_focus.restoreActivatedViewKeyboardFocus(); }
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr) {
@@ -453,6 +454,8 @@ namespace andromeda {
     void setOutputMirror(Output& target, Output* source);
     [[nodiscard]] DesktopOutputManager* desktopOutputManager() const { return m_desktopOutputManager.get(); }
     [[nodiscard]] DesktopShell* desktopShell() const { return m_desktopShell.get(); }
+    [[nodiscard]] const BackgroundEffectManager* backgroundEffects() const { return m_backgroundEffects.get(); }
+    [[nodiscard]] DskSurfaceManager* dskSurfaces() const { return m_dskSurfaces.get(); }
     [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
@@ -499,6 +502,8 @@ namespace andromeda {
     void reassignOutputViews(Output* source, Output* destination, bool joinActive = false);
     void scheduleDisplacedViewRestore();
     void rememberKeyboardInputSource(Keyboard& keyboard);
+    // The keyboard synthetic keys run through; null when the seat has none.
+    [[nodiscard]] Keyboard* syntheticKeyboard() const;
     void refreshKeyboardLeds();
     [[nodiscard]] bool syncingKeyboardLocks() const;
     void removeKeyboard(Keyboard* keyboard);
@@ -545,6 +550,9 @@ namespace andromeda {
     void presentCloseSnapshot(CloseSnapshotId id, int canvasX, int canvasY, bool visible);
     // False once the snapshot has been reaped.
     [[nodiscard]] bool closeSnapshotAlive(CloseSnapshotId id) const;
+
+    // Busy cursor of a pending launch (rulebook §10): ends when the window maps, or after 5 s.
+    void endLaunchBusy(const std::optional<std::string>& token);
 
   private:
     friend class EisInput;
@@ -754,7 +762,6 @@ namespace andromeda {
 
     wl_display* m_display = nullptr;
     wl_protocol_logger* m_protocolLogger = nullptr;
-    std::unique_ptr<BackendManager> m_backendManager;
     wlr_backend* m_backend = nullptr;
     wlr_session* m_session = nullptr;
     wl_listener m_sessionActive{};
@@ -765,10 +772,6 @@ namespace andromeda {
     wlr_scene* m_scene = nullptr;
     wlr_content_type_manager_v1* m_contentTypeManager = nullptr;
     wlr_security_context_manager_v1* m_securityContextManager = nullptr;
-    std::unique_ptr<ColorManager> m_colorManager;
-    std::unique_ptr<SyncobjAcquireBarrier> m_syncobjAcquireBarrier;
-    std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
-    std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
     EffectRegistry m_effects;
     EffectSelection m_effectSelection;
     EffectSlot m_cursorEffectSlot;
@@ -913,28 +916,11 @@ namespace andromeda {
       int m_shadowHeight = 0;
       wlr_box m_shadowHole{};
     };
-    // unique_ptr because the registry holds raw pointers to these: a vector of
-    // values would move them out from under it on reallocation.
-    std::vector<std::unique_ptr<CloseSnapshot>> m_closeSnapshots;
     CloseSnapshotId m_nextCloseSnapshotId = 1;
     std::vector<Animatable*> m_animatables;
     std::vector<Animatable*> m_animatablesScratch;
 
-    std::unique_ptr<Seat> m_seat;
-    std::unique_ptr<InputMethodRelay> m_inputMethodRelay;
-    std::unique_ptr<Cursor> m_cursor;
-    std::unique_ptr<Gestures> m_gestures;
-    std::unique_ptr<SessionLock> m_sessionLock;
-    std::unique_ptr<Overview> m_overview;
-    std::unique_ptr<ScratchpadManager> m_scratchpadManager;
-    std::unique_ptr<HintRect> m_insertHint;
-    std::unique_ptr<ConfigWatcher> m_configWatcher;
-    std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
-    std::unique_ptr<DesktopSettingsManager> m_desktopSettingsManager;
-    std::unique_ptr<DesktopShell> m_desktopShell;
-    std::unique_ptr<FifoManager> m_fifoManager;
-    std::unique_ptr<CommitTimingManager> m_commitTimingManager;
-    std::unique_ptr<Ipc> m_ipc;
+    std::unique_ptr<GreeterChild> m_greeterChild; // greeter mode only
     ScreenCastCommand m_screenCastCommand;
     std::optional<ScreenCastCommand> m_pendingScreenCastCommand;
     bool m_screenCastActive = false;
@@ -944,12 +930,8 @@ namespace andromeda {
     int64_t m_animationClockOffsetMsec = 0;
 #endif
     wlr_scene_tree* m_bannerTree = nullptr;
-    std::unique_ptr<ConfigBanner> m_configBanner;
     std::unique_ptr<FpsOverlay> m_fpsOverlay;
-    wlr_scene_tree* m_cheatsheetTree = nullptr;
-    std::unique_ptr<Cheatsheet> m_cheatsheet;
     wlr_scene_tree* m_quitConfirmTree = nullptr;
-    std::unique_ptr<QuitConfirm> m_quitConfirm;
 
     bool m_nested = false;
     bool m_stopping = false;
@@ -968,8 +950,6 @@ namespace andromeda {
     ApplicationScopeEnvironmentArguments m_applicationScopeEnvironmentArguments;
     uint64_t m_nextApplicationScopeId = 1;
 
-    std::unique_ptr<Xwayland> m_xwayland;
-    std::unique_ptr<EisInput> m_eisInput;
     std::unique_ptr<InputCapture> m_inputCapture;
     uint64_t m_pendingCaptureId = 0;
     uint32_t m_inputCaptureCapabilities = 0;
@@ -978,6 +958,17 @@ namespace andromeda {
     std::unordered_set<std::string> m_allowedInputNames;
     std::unordered_set<std::string> m_deniedInputNames;
     wl_event_source* m_backgroundFrameTimer = nullptr;
+    struct LaunchBusy {
+      std::string token;
+      std::string appId;
+      std::chrono::steady_clock::time_point deadline;
+    };
+    std::vector<LaunchBusy> m_launchBusy;
+    wl_event_source* m_launchBusyTimer = nullptr;
+    std::unique_ptr<CpuBoost> m_cpuBoost;
+    void beginLaunchBusy(std::string token, std::string appId);
+    void syncLaunchBusy();
+    static int onLaunchBusyTimer(void* data);
     // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
@@ -1045,22 +1036,14 @@ namespace andromeda {
     // The IPC layer listing reports which layer surface holds the keyboard.
     wl_listener m_layerKeyboardFocusChange{};
 
-    std::vector<std::unique_ptr<Output>> m_outputs;
-    std::vector<std::unique_ptr<Keyboard>> m_keyboards;
     std::unique_ptr<KeyboardLeds> m_keyboardLeds;
     std::vector<std::unique_ptr<ShortcutsInhibitorWatch>> m_shortcutsInhibitors;
-    ManualShortcutsInhibit m_manualShortcutsInhibit;
     SurfaceLayoutMemory m_surfaceLayouts;
     XkbNames m_systemKeymap;
     Keyboard* m_keyboardLayoutSource = nullptr;
     Keyboard* m_keyboardInputSource = nullptr;
     ModifierTapState m_modifierTap;
-    std::vector<std::unique_ptr<PointerDevice>> m_pointers;
-    std::vector<std::unique_ptr<TouchDevice>> m_touchDevices;
-    std::vector<std::unique_ptr<TabletDevice>> m_tabletDevices;
-    std::vector<std::unique_ptr<TabletPadDevice>> m_tabletPads;
     LidStateCoordinator m_lidState;
-    std::vector<std::unique_ptr<SwitchDevice>> m_switchDevices;
     std::vector<std::unique_ptr<VirtualPointerDevice>> m_virtualPointers;
     // Output-management choices are session state. Preserve them across
     // backend object recreation, without transferring a choice between
@@ -1068,9 +1051,99 @@ namespace andromeda {
     // them.
     OutputEnableOverrides m_outputEnableOverrides;
     Dirty m_dirty = Dirty::None;
-    ViewRegistry m_registry;
     FocusManager m_focus{*this};
+
+    // These containers are emptied at their teardown slot below but their storage lives to the end, as later steps
+    // (client destruction, wl_display_destroy) still read them.
+    std::vector<std::unique_ptr<Output>> m_outputs;
+    std::vector<std::unique_ptr<SwitchDevice>> m_switchDevices;
+    std::vector<std::unique_ptr<TabletDevice>> m_tabletDevices;
+    std::vector<std::unique_ptr<TabletPadDevice>> m_tabletPads;
+    std::vector<std::unique_ptr<TouchDevice>> m_touchDevices;
+    std::vector<std::unique_ptr<PointerDevice>> m_pointers;
+    std::vector<std::unique_ptr<Keyboard>> m_keyboards;
+    ManualShortcutsInhibit m_manualShortcutsInhibit;
+    ViewRegistry m_registry;
     std::vector<std::unique_ptr<LayerSurface>> m_layerSurfaces;
+    // unique_ptr because the registry holds raw pointers to these: a vector of
+    // values would move them out from under it on reallocation.
+    std::vector<std::unique_ptr<CloseSnapshot>> m_closeSnapshots;
+
+    // Teardown block. Members die in reverse declaration order, so each line must sit below everything it needs alive.
+    // A TeardownStep runs a non-destruction step at its exact slot. Steps stay inert until the constructor finishes,
+    // so a failed start leaves wlroots objects as the old leaking path did.
+    bool m_teardownArmed = false;
+    struct TeardownStep {
+      Server* server;
+      void (Server::*step)();
+      ~TeardownStep() {
+        if (server->m_teardownArmed) {
+          (server->*step)();
+        }
+      }
+      TeardownStep(Server* owner, void (Server::*fn)()) : server(owner), step(fn) {}
+      TeardownStep(const TeardownStep&) = delete;
+      TeardownStep& operator=(const TeardownStep&) = delete;
+    };
+    void clearOutputs();
+    void clearKeyboards();
+    void clearManualShortcutsInhibit();
+    void clearRegistry();
+    void clearLayerSurfaces();
+    void clearCloseSnapshots();
+    void destroyDisplay();
+    void destroyWlrCore();
+    void destroyClients();
+    void removeEventSources();
+    void unlinkPointers();
+    void unlinkTouchDevices();
+    void unlinkTabletPads();
+    void unlinkTabletDevices();
+    void unlinkSwitchDevices();
+    void dropMirrorSources();
+
+    TeardownStep m_stepDisplay{this, &Server::destroyDisplay};
+    std::unique_ptr<BackendManager> m_backendManager;
+    TeardownStep m_stepWlrCore{this, &Server::destroyWlrCore};
+    std::unique_ptr<ScratchpadManager> m_scratchpadManager;
+    std::unique_ptr<QuitConfirm> m_quitConfirm;
+    std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
+    std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
+    std::unique_ptr<SyncobjAcquireBarrier> m_syncobjAcquireBarrier;
+    std::unique_ptr<ColorManager> m_colorManager;
+    std::unique_ptr<CommitTimingManager> m_commitTimingManager;
+    std::unique_ptr<DskSurfaceManager> m_dskSurfaces;
+    std::unique_ptr<BackgroundEffectManager> m_backgroundEffects;
+    std::unique_ptr<FifoManager> m_fifoManager;
+    TeardownStep m_stepClients{this, &Server::destroyClients};
+    std::unique_ptr<DesktopShell> m_desktopShell;
+    std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;
+    std::unique_ptr<DesktopSettingsManager> m_desktopSettingsManager;
+    TeardownStep m_stepEventSources{this, &Server::removeEventSources};
+    std::unique_ptr<Cursor> m_cursor;
+    std::unique_ptr<Gestures> m_gestures;
+    std::unique_ptr<Seat> m_seat;
+    std::unique_ptr<InputMethodRelay> m_inputMethodRelay;
+    TeardownStep m_stepOutputs{this, &Server::clearOutputs};
+    TeardownStep m_stepSwitchDevices{this, &Server::unlinkSwitchDevices};
+    TeardownStep m_stepTabletDevices{this, &Server::unlinkTabletDevices};
+    TeardownStep m_stepTabletPads{this, &Server::unlinkTabletPads};
+    TeardownStep m_stepTouchDevices{this, &Server::unlinkTouchDevices};
+    TeardownStep m_stepPointers{this, &Server::unlinkPointers};
+    TeardownStep m_stepManualShortcutsInhibit{this, &Server::clearManualShortcutsInhibit};
+    TeardownStep m_stepMirror{this, &Server::dropMirrorSources};
+    TeardownStep m_stepKeyboards{this, &Server::clearKeyboards};
+    std::unique_ptr<EisInput> m_eisInput;
+    std::unique_ptr<Xwayland> m_xwayland;
+    TeardownStep m_stepRegistry{this, &Server::clearRegistry};
+    TeardownStep m_stepLayerSurfaces{this, &Server::clearLayerSurfaces};
+    std::unique_ptr<SessionLock> m_sessionLock;
+    std::unique_ptr<Overview> m_overview;
+    std::unique_ptr<ConfigBanner> m_configBanner;
+    TeardownStep m_stepCloseSnapshots{this, &Server::clearCloseSnapshots};
+    std::unique_ptr<HintRect> m_insertHint;
+    std::unique_ptr<Ipc> m_ipc;
+    std::unique_ptr<ConfigWatcher> m_configWatcher;
   };
 
 } // namespace andromeda

@@ -18,6 +18,7 @@ struct wl_output;
 class CompositorPlatform;
 class ConfigService;
 class IpcService;
+class NotificationManager;
 class RenderContext;
 struct PointerEvent;
 struct WaylandOutput;
@@ -35,7 +36,10 @@ public:
   Dock();
   ~Dock();
 
-  bool initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext);
+  bool initialize(
+      CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext,
+      const NotificationManager* notifications
+  );
   void reload();
   void show();
   /// Tears down dock surfaces without changing config (e.g. lockscreen widget editor overlay).
@@ -77,6 +81,7 @@ private:
   CompositorPlatform* m_platform = nullptr;
   ConfigService* m_config = nullptr;
   RenderContext* m_renderContext = nullptr;
+  const NotificationManager* m_notifications = nullptr;
   DockConfig m_lastDockConfig{};
   ShellConfig::ShadowConfig m_lastShadow;
   std::vector<std::string> m_lastBarLayerStack;

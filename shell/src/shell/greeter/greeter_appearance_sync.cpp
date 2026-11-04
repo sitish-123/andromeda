@@ -189,8 +189,10 @@ namespace {
     return resolveColorSpec(*config.fillColor);
   }
 
+  // The greeter palette is opaque: translucent token roles are flattened onto the shell's solid surface.
   void putPaletteColor(toml::table& palette, std::string_view key, const Color& color) {
-    palette.insert_or_assign(std::string(key), formatRgbHex(color));
+    const Color opaque{color.r, color.g, color.b, 1.0F};
+    palette.insert_or_assign(std::string(key), formatRgbHex(lerpColor(::palette.solidRegular, opaque, color.a)));
   }
 
   [[nodiscard]] std::filesystem::path selectedGreeterStateDirectory() {
@@ -450,25 +452,24 @@ namespace {
       appearance.insert_or_assign("font_family", config.shell.fontFamily);
     }
 
-    // Keys follow the greeter's own 16-color palette schema; its surface_variant and outline are the
-    // shell's surface_container and outline_variant.
+    // Keys follow the greeter's own 16-color palette schema, filled from the shell's token roles.
     toml::table palette;
-    putPaletteColor(palette, "primary", ::palette.primary);
-    putPaletteColor(palette, "on_primary", ::palette.onPrimary);
-    putPaletteColor(palette, "secondary", ::palette.secondary);
-    putPaletteColor(palette, "on_secondary", ::palette.onSecondary);
-    putPaletteColor(palette, "tertiary", ::palette.tertiary);
-    putPaletteColor(palette, "on_tertiary", ::palette.onTertiary);
-    putPaletteColor(palette, "error", ::palette.error);
-    putPaletteColor(palette, "on_error", ::palette.onError);
-    putPaletteColor(palette, "surface", ::palette.surface);
-    putPaletteColor(palette, "on_surface", ::palette.onSurface);
-    putPaletteColor(palette, "surface_variant", ::palette.surfaceContainer);
-    putPaletteColor(palette, "on_surface_variant", ::palette.onSurfaceVariant);
-    putPaletteColor(palette, "outline", ::palette.outlineVariant);
+    putPaletteColor(palette, "primary", ::palette.accent);
+    putPaletteColor(palette, "on_primary", ::palette.onAccent);
+    putPaletteColor(palette, "secondary", ::palette.accent);
+    putPaletteColor(palette, "on_secondary", ::palette.onAccent);
+    putPaletteColor(palette, "tertiary", ::palette.accent);
+    putPaletteColor(palette, "on_tertiary", ::palette.onAccent);
+    putPaletteColor(palette, "error", ::palette.danger);
+    putPaletteColor(palette, "on_error", ::palette.onAccent);
+    putPaletteColor(palette, "surface", ::palette.solidRegular);
+    putPaletteColor(palette, "on_surface", ::palette.label1);
+    putPaletteColor(palette, "surface_variant", ::palette.fill2);
+    putPaletteColor(palette, "on_surface_variant", ::palette.label2);
+    putPaletteColor(palette, "outline", ::palette.stroke);
     putPaletteColor(palette, "shadow", ::palette.shadow);
-    putPaletteColor(palette, "hover", ::palette.hover);
-    putPaletteColor(palette, "on_hover", ::palette.onHover);
+    putPaletteColor(palette, "hover", ::palette.fill3);
+    putPaletteColor(palette, "on_hover", ::palette.label1);
     appearance.insert("palette", std::move(palette));
 
     if (config.wallpaper.enabled) {

@@ -5,6 +5,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
+#include "core/shared_worker.h"
 #include "i18n/i18n.h"
 #include "net/url_open.h"
 #include "notification/notification_filter.h"
@@ -22,6 +23,7 @@
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_registry.h"
 #include "shell/settings/settings_window.h"
+#include "shell/settings/settings_alert.h"
 #include "shell/settings/template_store_content.h"
 #include "shell/settings/widget_settings_registry.h"
 #include "theme/community_templates.h"
@@ -37,7 +39,7 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 #include "wayland/toplevel_surface.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -405,6 +407,21 @@ void SettingsWindow::openActionsMenu() {
   );
 }
 
+void SettingsWindow::showDeleteAlert(
+    std::string title, std::string body, std::string action, std::function<void()> onConfirm
+) {
+  settings::showSettingsAlert(
+      m_modalHost,
+      settings::SettingsAlertRequest{
+          .title = std::move(title),
+          .body = std::move(body),
+          .buttons = {{.text = i18n::tr("common.actions.cancel")},
+                      {.text = std::move(action), .variant = ButtonVariant::Destructive, .onClick = std::move(onConfirm)}},
+          .scale = uiScale(),
+      }
+  );
+}
+
 void SettingsWindow::openConfigExportDialog() {
   if (m_surface == nullptr || m_config == nullptr) {
     return;
@@ -454,7 +471,6 @@ void SettingsWindow::openBarWidgetAddPopup(const std::vector<std::string>& laneP
       const Config& activeConfig = m_config->config();
       auto laneItems = barWidgetItemsForPath(activeConfig, selectedLanePath);
 
-      m_pendingDeleteWidgetName.clear();
       m_pendingDeleteWidgetSettingPath.clear();
       m_renamingWidgetName.clear();
       m_editingWidgetName.clear();
@@ -1358,7 +1374,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               .text = label,
               .fontSize = Style::fontSizeCaption * scale,
               .fontWeight = FontWeight::Medium,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       field->addChild(std::move(control));
@@ -1653,7 +1669,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               .text = i18n::tr("settings.calendar-accounts.calendars-label"),
               .fontSize = Style::fontSizeCaption * scale,
               .fontWeight = FontWeight::Medium,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
 
@@ -1661,7 +1677,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
           .align = FlexAlign::Stretch,
           .gap = Style::spaceXs * scale,
           .padding = Style::spaceSm * scale,
-          .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
+          .fill = colorSpecFromRole(ColorRole::SolidThin),
           .radius = Style::scaledRadiusMd(scale),
       });
       for (const CalendarSource& source : draft->discoveredCalendars) {
@@ -1681,7 +1697,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
                 .text = source.name.empty() ? source.id : source.name,
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = FontWeight::Medium,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
             })
@@ -1691,7 +1707,7 @@ void SettingsWindow::openCalendarAccountEditor(std::optional<std::string> accoun
               ui::label({
                   .text = source.id,
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   .ellipsize = TextEllipsize::End,
               })
@@ -2065,7 +2081,6 @@ void SettingsWindow::openWidgetInspectorEditor(std::vector<std::string> laneList
     m_editingWidgetName = widgetName;
     m_editingCapsuleGroupId.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath = std::move(laneListPath);
     std::string title = widgetName;
@@ -2090,7 +2105,6 @@ void SettingsWindow::openCapsuleGroupEditor(std::vector<std::string> laneListPat
     m_editingCapsuleGroupId = std::move(groupId);
     m_editingWidgetName.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath = std::move(laneListPath);
     openBarWidgetEditorSheet(i18n::tr("settings.entities.widget.group.title"), [this](Flex& body) {
@@ -2154,7 +2168,7 @@ void SettingsWindow::openPluginSourceCreateEditor(std::optional<PluginSourceConf
                     .text = label,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontWeight = FontWeight::Medium,
-                    .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                    .color = colorSpecFromRole(ColorRole::Label2),
                 })
             );
             field->addChild(std::move(control));
@@ -2167,7 +2181,7 @@ void SettingsWindow::openPluginSourceCreateEditor(std::optional<PluginSourceConf
                     .text = draft->error,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontWeight = FontWeight::Medium,
-                    .color = colorSpecFromRole(ColorRole::Error),
+                    .color = colorSpecFromRole(ColorRole::DangerText),
                 })
             );
           }
@@ -2332,7 +2346,6 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
     m_editingWidgetName.clear();
     m_editingCapsuleGroupId.clear();
     m_renamingWidgetName.clear();
-    m_pendingDeleteWidgetName.clear();
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath.clear();
 
@@ -2346,7 +2359,7 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
         return;
       }
       settings::buildPluginSettingsEditor(
-          body, m_config->config(), *m_editorSheetFactory, pluginId, *currentManifest, m_showAdvanced, uiScale()
+          body, m_config->config(), *m_editorSheetFactory, pluginId, *currentManifest, true, uiScale()
       );
     });
   });
@@ -2361,39 +2374,50 @@ void SettingsWindow::openPluginStore() {
   // blobless clone, both network-bound. Only the sheet build runs on the main thread.
   auto* manager = m_pluginManager;
   PluginsConfig pluginsSnapshot = m_config->config().plugins;
-  std::thread([this, manager, pluginsSnapshot = std::move(pluginsSnapshot)] mutable {
-    manager->fetchStaleCatalogs(pluginsSnapshot);
-
-    const auto activePlugins = manager->list(pluginsSnapshot, scripting::CatalogAccess::Network);
-    std::unordered_map<std::string, std::string> owners;
-    for (const auto& plugin : activePlugins) {
-      owners.emplace(plugin.id, plugin.source);
-    }
+  struct StoreData {
     std::vector<settings::StoreCatalogEntry> catalog;
-    for (const auto& source : pluginsSnapshot.sources) {
-      if (!source.enabled) {
-        continue;
+    std::unordered_map<std::string, std::string> owners;
+  };
+  // Throttle bookkeeping happens here on the main thread; the git fetch and catalog reads run on the worker.
+  auto fetchSources = manager->claimStaleCatalogFetches(pluginsSnapshot);
+  SharedWorker::instance().post<StoreData>(
+      std::weak_ptr<void>(m_aliveGuard),
+      [fetchSources = std::move(fetchSources), pluginsSnapshot = std::move(pluginsSnapshot)] {
+        scripting::PluginManager::fetchCatalogSources(fetchSources);
+
+        const auto activePlugins = scripting::PluginManager::list(pluginsSnapshot, scripting::CatalogAccess::Network);
+    std::unordered_map<std::string, std::string> owners;
+      for (const auto& plugin : activePlugins) {
+        owners.emplace(plugin.id, plugin.source);
       }
-      auto result = scripting::discoverCatalog(source, scripting::CatalogAccess::Network);
-      if (!result.ok) {
-        continue;
-      }
-      for (auto& entry : result.entries) {
-        const auto owner = owners.find(entry.id);
-        if (owner == owners.end() || owner->second != source.name) {
+      std::vector<settings::StoreCatalogEntry> catalog;
+      for (const auto& source : pluginsSnapshot.sources) {
+        if (!source.enabled) {
           continue;
         }
-        catalog.push_back(
-            settings::StoreCatalogEntry{
-                .entry = std::move(entry),
-                .source = source.name,
-                .sourceConfig = source,
-            }
-        );
+        auto result = scripting::discoverCatalog(source, scripting::CatalogAccess::Network);
+        if (!result.ok) {
+          continue;
+        }
+        for (auto& entry : result.entries) {
+          const auto owner = owners.find(entry.id);
+          if (owner == owners.end() || owner->second != source.name) {
+            continue;
+          }
+          catalog.push_back(
+              settings::StoreCatalogEntry{
+                  .entry = std::move(entry),
+                  .source = source.name,
+                  .sourceConfig = source,
+              }
+          );
+        }
       }
-    }
-
-    DeferredCall::callLater([this, catalog = std::move(catalog), owners = std::move(owners)] mutable {
+        return StoreData{.catalog = std::move(catalog), .owners = std::move(owners)};
+      },
+      [this](StoreData data) mutable {
+        auto catalog = std::move(data.catalog);
+        auto owners = std::move(data.owners);
       if (m_wayland == nullptr
           || m_renderContext == nullptr
           || m_surface == nullptr
@@ -2503,8 +2527,8 @@ void SettingsWindow::openPluginStore() {
                     .glyphSize = Style::fontSizeBody * scale,
                     .variant = ButtonVariant::Ghost,
                     .tooltip = i18n::tr("settings.plugins.store.back-to-catalog"),
-                    .minWidth = Style::controlHeightSm * scale,
-                    .minHeight = Style::controlHeightSm * scale,
+                    .minWidth = Style::controlHeight * scale,
+                    .minHeight = Style::controlHeight * scale,
                     .padding = Style::spaceXs * scale,
                     .radius = Style::scaledRadiusMd(scale),
                     .onClick = [storeContent] { storeContent->closeDetail(); },
@@ -2524,8 +2548,8 @@ void SettingsWindow::openPluginStore() {
                           .glyphSize = Style::fontSizeBody * scale,
                           .variant = ButtonVariant::Ghost,
                           .tooltip = i18n::tr("settings.plugins.store.open-page"),
-                          .minWidth = Style::controlHeightSm * scale,
-                          .minHeight = Style::controlHeightSm * scale,
+                          .minWidth = Style::controlHeight * scale,
+                          .minHeight = Style::controlHeight * scale,
                           .padding = Style::spaceXs * scale,
                           .radius = Style::scaledRadiusMd(scale),
                           .onClick = [url = *pageUrl] { (void)net::openInBrowser(url); },
@@ -2539,8 +2563,8 @@ void SettingsWindow::openPluginStore() {
                           .glyphSize = Style::fontSizeBody * scale,
                           .variant = ButtonVariant::Ghost,
                           .tooltip = i18n::tr("settings.plugins.store.open-source"),
-                          .minWidth = Style::controlHeightSm * scale,
-                          .minHeight = Style::controlHeightSm * scale,
+                          .minWidth = Style::controlHeight * scale,
+                          .minHeight = Style::controlHeight * scale,
                           .padding = Style::spaceXs * scale,
                           .radius = Style::scaledRadiusMd(scale),
                           .onClick = [url = *sourceUrl] { (void)net::openInBrowser(url); },
@@ -2593,8 +2617,8 @@ void SettingsWindow::openPluginStore() {
           }
       );
       m_pluginStoreSheetOpen = m_editorSheetModal->isOpen();
-    });
-  }).detach();
+    }
+  );
 }
 
 void SettingsWindow::openCommunityTemplateStore() {

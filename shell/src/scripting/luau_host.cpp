@@ -1,4 +1,5 @@
 #include "scripting/luau_host.h"
+#include "util/thread_name.h"
 
 #include "compositors/compositor_platform.h"
 #include "core/deferred_call.h"
@@ -65,6 +66,7 @@ namespace {
   constexpr auto kMinCommandTimeout = std::chrono::milliseconds(50);
   constexpr auto kMaxCommandTimeout = std::chrono::milliseconds(60000);
   constexpr std::size_t kMaxAsyncCommandOutputBytes = 1024 * 1024;
+  constexpr int kMaxGlobalDetachedCommands = 32;
   constexpr std::size_t kMaxAsyncCommandsPerHost = 8;
   constexpr int kMaxGlobalAsyncCommands = 32;
   constexpr std::size_t kMaxAsyncFileReadsPerHost = 4;
@@ -73,7 +75,6 @@ namespace {
   constexpr int kMaxGlobalAsyncProcessMatches = 64;
   // Identical call failures inside this window collapse into one logged line.
   constexpr auto kCallFailureLogWindow = std::chrono::seconds(60);
-  constexpr int kMaxGlobalDetachedCommands = 32;
   constexpr std::size_t kMaxAsyncHttpPerHost = 8;
   constexpr std::size_t kMaxPendingSoundLoadsPerHost = 8;
   constexpr std::size_t kMaxIdleWatchesPerHost = 8;
@@ -117,45 +118,21 @@ namespace {
     return count;
   }
 
-  std::atomic<int>& inFlightDetachedCommands() {
-    static std::atomic<int> count{0};
-    return count;
-  }
-
-  bool acquireDetachedCommandSlot() {
-    auto& globalInFlight = inFlightDetachedCommands();
-    int current = globalInFlight.load(std::memory_order_relaxed);
-    while (current < kMaxGlobalDetachedCommands) {
-      if (globalInFlight.compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void releaseDetachedCommandSlot() { inFlightDetachedCommands().fetch_sub(1, std::memory_order_relaxed); }
+  // Main-thread only: plugin calls and the process manager's completions both run on the main loop.
+  int detachedCommandsInFlight = 0;
 
   bool startDetachedProcessAsync(std::vector<std::string> args) {
-    if (args.empty() || args.front().empty()) {
+    if (args.empty() || args.front().empty() || detachedCommandsInFlight >= kMaxGlobalDetachedCommands) {
       return false;
     }
-    if (!acquireDetachedCommandSlot()) {
+    ++detachedCommandsInFlight;
+    process::RunOptions options;
+    options.maxOutputBytes = 0;
+    process::RunCallbacks callbacks{.onExit = [](process::RunResult) { --detachedCommandsInFlight; }};
+    if (!process::runAsync(args, std::move(callbacks), std::move(options))) {
+      --detachedCommandsInFlight;
       return false;
     }
-
-    try {
-      std::thread([args = std::move(args)] mutable {
-        try {
-          (void)process::runAsync(args);
-        } catch (...) {
-        }
-        releaseDetachedCommandSlot();
-      }).detach();
-    } catch (...) {
-      releaseDetachedCommandSlot();
-      return false;
-    }
-
     return true;
   }
 
@@ -2377,14 +2354,14 @@ bool LuauHost::startAsyncProcess(std::vector<std::string> args, int callbackRef,
     globalInFlight.fetch_sub(1, std::memory_order_relaxed);
     return false;
   }
-  try {
-    std::thread([hostId = m_hostId, callbackRef, args = std::move(args), timeout,
-                 handler = std::move(handler)] mutable {
-      auto result = process::runSyncWithTimeoutAndOutputLimit(args, timeout, kMaxAsyncCommandOutputBytes);
-      inFlightAsyncCommands().fetch_sub(1, std::memory_order_relaxed);
-      handler(hostId, callbackRef, std::move(result));
-    }).detach();
-  } catch (...) {
+  process::RunOptions options;
+  options.timeout = timeout;
+  options.maxOutputBytes = kMaxAsyncCommandOutputBytes;
+  process::RunCallbacks callbacks{.onExit = [hostId = m_hostId, callbackRef, handler](process::RunResult result) {
+    inFlightAsyncCommands().fetch_sub(1, std::memory_order_relaxed);
+    handler(hostId, callbackRef, std::move(result));
+  }};
+  if (!process::runAsync(args, std::move(callbacks), std::move(options))) {
     m_asyncCommandCallbackRefs.erase(callbackRef);
     globalInFlight.fetch_sub(1, std::memory_order_relaxed);
     return false;
@@ -2464,6 +2441,7 @@ bool LuauHost::startAsyncProcessMatch(std::vector<std::string> needles, int call
 
   try {
     std::thread([hostId = m_hostId, callbackRef, needles = std::move(needles), handler = std::move(handler)] mutable {
+      nameThisThread("dsk-procmatch");
       bool matched = false;
       try {
         matched = process::commandLineMatchesAll(needles);

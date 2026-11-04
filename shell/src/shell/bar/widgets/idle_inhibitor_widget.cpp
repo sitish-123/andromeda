@@ -25,7 +25,7 @@ void IdleInhibitorWidget::create() {
           .out = &m_glyph,
           .glyph = glyphForState(false),
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -66,11 +66,11 @@ void IdleInhibitorWidget::syncState(Renderer& renderer) {
   m_glyph->setGlyph(glyphForState(enabled));
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
   if (!available) {
-    m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
   } else if (enabled) {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Primary)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::AccentText)));
   } else {
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   }
   m_glyph->measure(renderer);
   m_area->setEnabled(available);

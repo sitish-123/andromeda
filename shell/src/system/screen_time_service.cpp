@@ -8,7 +8,7 @@
 #include "time/time_format.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 
 #include <algorithm>
 #include <cctype>

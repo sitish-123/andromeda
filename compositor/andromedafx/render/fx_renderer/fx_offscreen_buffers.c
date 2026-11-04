@@ -77,6 +77,8 @@ static void clear_animation_buffers(struct fx_target_buffers* buffers) {
 
 static void clear_target_buffers(struct fx_target_buffers* buffers) {
   clear_animation_buffers(buffers);
+  // Lives with the effects buffers: a liquid node copies into it every frame, so dropping it per frame reallocated 8 MB.
+  drop_framebuffer(&buffers->lens_source);
   drop_framebuffer(&buffers->effects_buffer);
   drop_framebuffer(&buffers->effects_buffer_swapped);
 }

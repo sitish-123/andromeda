@@ -1,6 +1,6 @@
 // Locks the settings GUI's "lane is overridden" signal across capsule-group edits: adding a widget
 // to a lane and then folding it into one of the lane's groups must both keep the lane reporting as
-// overridden, otherwise the lane loses its [Override] badge while settings.toml still changes it.
+// overridden, otherwise the lane loses its [Override] badge while overrides.toml still changes it.
 
 #include "config/config_service.h"
 #include "config/config_types.h"
@@ -89,7 +89,7 @@ start = [ "clock", "group:g1" ]
 id = "g1"
 members = [ "network", "bluetooth" ]
 )");
-    std::filesystem::remove(root / "state" / "noctalia" / "settings.toml");
+    std::filesystem::remove(root / "state" / "noctalia" / "overrides.toml");
     ConfigService config;
 
     expect(
@@ -133,7 +133,7 @@ members = [ "network", "bluetooth" ]
 id = "g2"
 members = [ "battery", "clock" ]
 )");
-    std::filesystem::remove(root / "state" / "noctalia" / "settings.toml");
+    std::filesystem::remove(root / "state" / "noctalia" / "overrides.toml");
     ConfigService config;
 
     BarCapsuleGroupStyle first;

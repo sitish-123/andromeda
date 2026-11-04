@@ -25,9 +25,9 @@ namespace {
 
   // Graph cards run tighter than the default section card so the plot fills more of the card,
   // but the title gets a touch more breathing room above it.
-  constexpr float kGraphCardPadTop = Style::spaceSm;
-  constexpr float kGraphCardPadV = Style::spaceXs;
-  constexpr float kGraphCardPadH = Style::spaceMd;
+  TOKENS_LIVE(kGraphCardPadTop, Style::spaceSm);
+  TOKENS_LIVE(kGraphCardPadV, Style::spaceXs);
+  TOKENS_LIVE(kGraphCardPadH, Style::spaceMd);
 
   // Section card style with reduced padding, shared by the four graph cards.
   void applyGraphCardStyle(Flex& section, float scale, float opacity) {
@@ -46,7 +46,7 @@ namespace {
             .text = title,
             .fontSize = Style::fontSizeTitle * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -62,7 +62,7 @@ namespace {
             .out = outIcon,
             .glyph = glyphName,
             .glyphSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     parent.addChild(std::move(group));
@@ -75,7 +75,7 @@ namespace {
         ui::label({
             .out = &ptr,
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     return ptr;
@@ -132,20 +132,20 @@ namespace {
             ui::glyph({
                 .glyph = glyphName,
                 .glyphSize = Style::fontSizeMini * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
             }),
             ui::label({
                 .out = &nameLabel,
                 .text = name,
                 .fontSize = Style::fontSizeMini * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
                 .maxLines = 1,
                 .flexGrow = 1.0F,
             }),
             ui::label({
                 .out = &value,
                 .fontSize = Style::fontSizeMini * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
                 .maxLines = 1,
             })
         )
@@ -184,12 +184,12 @@ namespace {
               ui::glyph({
                   .glyph = glyphs[i],
                   .glyphSize = Style::fontSizeMini * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
               }),
               ui::label({
                   .out = &outLines[i],
                   .fontSize = Style::fontSizeMini * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   .flexGrow = 1.0F,
               })
@@ -369,12 +369,12 @@ std::unique_ptr<Flex> SystemTab::create() {
               ui::glyph({
                   .glyph = "storage",
                   .glyphSize = Style::fontSizeMini * sc,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
               }),
               ui::label({
                   .text = mountPoint,
                   .fontSize = Style::fontSizeMini * sc,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
                   // Ellipsize from the start so the identifying tail stays visible ("…/long/mount/point").
                   .ellipsize = TextEllipsize::Start,
@@ -384,7 +384,7 @@ std::unique_ptr<Flex> SystemTab::create() {
               ui::label({
                   .out = &usageLabel,
                   .fontSize = Style::fontSizeMini * sc,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .maxLines = 1,
               })
           )
@@ -564,71 +564,71 @@ void SystemTab::doUpdate(Renderer& renderer) {
   const bool monitorRunning = m_monitor->isRunning();
 
   if (m_cpuGraph != nullptr) {
-    m_cpuGraph->setColor(colorSpecFromRole(ColorRole::Primary));
-    m_cpuGraph->setColor2(colorSpecFromRole(ColorRole::Error));
+    m_cpuGraph->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_cpuGraph->setColor2(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_cpuPctIcon != nullptr) {
-    m_cpuPctIcon->setColor(colorSpecFromRole(ColorRole::Primary));
+    m_cpuPctIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_cpuPctLabel != nullptr) {
-    m_cpuPctLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+    m_cpuPctLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_cpuTempIcon != nullptr) {
-    m_cpuTempIcon->setColor(colorSpecFromRole(ColorRole::Error));
+    m_cpuTempIcon->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_cpuTempLabel != nullptr) {
-    m_cpuTempLabel->setColor(colorSpecFromRole(ColorRole::Error));
+    m_cpuTempLabel->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
 
   if (m_ramGraph != nullptr) {
-    m_ramGraph->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_ramGraph->setColor(colorSpecFromRole(ColorRole::Accent));
   }
   if (m_ramIcon != nullptr) {
-    m_ramIcon->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_ramIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_ramLabel != nullptr) {
-    m_ramLabel->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_ramLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
 
   if (m_gpuGraph != nullptr) {
-    m_gpuGraph->setColor(colorSpecFromRole(ColorRole::Primary));
-    m_gpuGraph->setColor2(colorSpecFromRole(ColorRole::Secondary));
-    m_gpuGraph->setColor3(colorSpecFromRole(ColorRole::Error));
+    m_gpuGraph->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_gpuGraph->setColor2(colorSpecFromRole(ColorRole::Label2));
+    m_gpuGraph->setColor3(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_gpuUsageIcon != nullptr) {
-    m_gpuUsageIcon->setColor(colorSpecFromRole(ColorRole::Primary));
+    m_gpuUsageIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuUsageLabel != nullptr) {
-    m_gpuUsageLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+    m_gpuUsageLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuVramIcon != nullptr) {
-    m_gpuVramIcon->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_gpuVramIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuVramLabel != nullptr) {
-    m_gpuVramLabel->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_gpuVramLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_gpuTempIcon != nullptr) {
-    m_gpuTempIcon->setColor(colorSpecFromRole(ColorRole::Error));
+    m_gpuTempIcon->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
   if (m_gpuTempLabel != nullptr) {
-    m_gpuTempLabel->setColor(colorSpecFromRole(ColorRole::Error));
+    m_gpuTempLabel->setColor(colorSpecFromRole(ColorRole::DangerText));
   }
 
   if (m_netGraph != nullptr) {
-    m_netGraph->setColor(colorSpecFromRole(ColorRole::Tertiary));
-    m_netGraph->setColor2(colorSpecFromRole(ColorRole::Secondary));
+    m_netGraph->setColor(colorSpecFromRole(ColorRole::Accent));
+    m_netGraph->setColor2(colorSpecFromRole(ColorRole::Label2));
   }
   if (m_rxIcon != nullptr) {
-    m_rxIcon->setColor(colorSpecFromRole(ColorRole::Tertiary));
+    m_rxIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_rxLabel != nullptr) {
-    m_rxLabel->setColor(colorSpecFromRole(ColorRole::Tertiary));
+    m_rxLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_txIcon != nullptr) {
-    m_txIcon->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_txIcon->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
   if (m_txLabel != nullptr) {
-    m_txLabel->setColor(colorSpecFromRole(ColorRole::Secondary));
+    m_txLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   }
 
   if (monitorRunning) {

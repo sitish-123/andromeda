@@ -24,8 +24,8 @@ namespace settings {
     setAlign(FlexAlign::Stretch);
     setGap(Style::spaceXs * scale);
     setPadding(Style::spaceSm * scale);
-    setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
-    setBorder(colorSpecFromRole(ColorRole::OutlineVariant), Style::borderWidth);
+    setFill(colorSpecFromRole(ColorRole::Fill2));
+    setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
     setRadius(Style::scaledRadiusMd(scale));
 
     addChild(
@@ -49,7 +49,7 @@ namespace settings {
                 .out = &m_icon,
                 .glyph = "apps",
                 .glyphSize = Style::fontSizeHeader * 1.5F * scale,
-                .color = colorSpecFromRole(ColorRole::Primary),
+                .color = colorSpecFromRole(ColorRole::AccentText),
             })
         )
     );
@@ -59,7 +59,7 @@ namespace settings {
             .out = &m_nameLabel,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Medium,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 1,
             .ellipsize = TextEllipsize::End,
         })
@@ -71,7 +71,7 @@ namespace settings {
         ui::label({
             .out = &m_versionLabel,
             .fontSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
 
@@ -80,7 +80,7 @@ namespace settings {
             {.out = &m_badge,
              .align = FlexAlign::Center,
              .paddingH = Style::spaceXs * scale,
-             .fill = colorSpecFromRole(ColorRole::PrimaryContainer),
+             .fill = colorSpecFromRole(ColorRole::Fill1),
              .radius = Style::scaledRadiusSm(scale),
              .maxWidth = kSourceBadgeMaxWidth * scale,
              .visible = false},
@@ -88,7 +88,7 @@ namespace settings {
                 .out = &m_badgeLabel,
                 .fontSize = Style::fontSizeMini * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::Primary),
+                .color = colorSpecFromRole(ColorRole::AccentText),
                 .maxWidth = (kSourceBadgeMaxWidth - (Style::spaceXs * 2.0F)) * scale,
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
@@ -101,7 +101,7 @@ namespace settings {
             {.out = &m_statusBadge,
              .align = FlexAlign::Center,
              .paddingH = Style::spaceXs * scale,
-             .fill = colorSpecFromRole(ColorRole::ErrorContainer),
+             .fill = colorSpecFromRole(ColorRole::Fill1),
              .radius = Style::scaledRadiusSm(scale),
              .maxWidth = kSourceBadgeMaxWidth * scale,
              .visible = false},
@@ -109,7 +109,7 @@ namespace settings {
                 .out = &m_statusLabel,
                 .fontSize = Style::fontSizeMini * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::Error),
+                .color = colorSpecFromRole(ColorRole::DangerText),
                 .maxWidth = (kSourceBadgeMaxWidth - (Style::spaceXs * 2.0F)) * scale,
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
@@ -123,7 +123,7 @@ namespace settings {
         ui::label({
             .out = &m_descLabel,
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 2,
             .ellipsize = TextEllipsize::End,
         })
@@ -136,7 +136,7 @@ namespace settings {
         ui::label({
             .out = &m_authorLabel,
             .fontSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 1,
             .flexGrow = 1.0F,
         })
@@ -145,7 +145,7 @@ namespace settings {
         ui::label({
             .out = &m_recommendationsLabel,
             .fontSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .visible = false,
         })
     );
@@ -154,7 +154,7 @@ namespace settings {
             .out = &m_recommendationsGlyph,
             .glyph = "thumb-up",
             .glyphSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .visible = false,
         })
     );
@@ -163,7 +163,7 @@ namespace settings {
             .out = &m_addedGlyph,
             .glyph = "check",
             .glyphSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::AccentText),
             .visible = false,
         })
     );
@@ -202,21 +202,21 @@ namespace settings {
     if (source == "official") {
       m_badge->setVisible(true);
       m_badge->setParticipatesInLayout(true);
-      m_badge->setFill(colorSpecFromRole(ColorRole::PrimaryContainer));
+      m_badge->setFill(colorSpecFromRole(ColorRole::Fill1));
       m_badgeLabel->setText(i18n::tr("settings.badges.official"));
-      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::OnPrimaryContainer));
+      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::Label1));
     } else if (source == "community") {
       m_badge->setVisible(true);
       m_badge->setParticipatesInLayout(true);
-      m_badge->setFill(colorSpecFromRole(ColorRole::SecondaryContainer));
+      m_badge->setFill(colorSpecFromRole(ColorRole::Fill1));
       m_badgeLabel->setText(i18n::tr("settings.badges.community"));
-      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::OnSecondaryContainer));
+      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::Label1));
     } else {
       m_badge->setVisible(true);
       m_badge->setParticipatesInLayout(true);
-      m_badge->setFill(colorSpecFromRole(ColorRole::TertiaryContainer));
+      m_badge->setFill(colorSpecFromRole(ColorRole::Fill1));
       m_badgeLabel->setText(source);
-      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::OnTertiaryContainer));
+      m_badgeLabel->setColor(colorSpecFromRole(ColorRole::Label1));
     }
 
     // The grid is where a user first meets a plugin, so an unusable or older-than-latest
@@ -226,10 +226,10 @@ namespace settings {
     m_statusBadge->setParticipatesInLayout(hasStatus);
     if (hasStatus) {
       m_statusBadge->setFill(
-          colorSpecFromRole(entry.compatible ? ColorRole::TertiaryContainer : ColorRole::ErrorContainer)
+          colorSpecFromRole(entry.compatible ? ColorRole::Fill1 : ColorRole::Fill1)
       );
       m_statusLabel->setColor(
-          colorSpecFromRole(entry.compatible ? ColorRole::OnTertiaryContainer : ColorRole::OnErrorContainer)
+          colorSpecFromRole(entry.compatible ? ColorRole::Label1 : ColorRole::Label1)
       );
       m_statusLabel->setText(
           i18n::tr(
@@ -242,7 +242,7 @@ namespace settings {
     m_descLabel->setText(entry.description);
     m_authorLabel->setText(entry.author.empty() ? std::string() : entry.author);
 
-    const auto recommendationColor = colorSpecFromRole(recommended ? ColorRole::Primary : ColorRole::OnSurfaceVariant);
+    const auto recommendationColor = colorSpecFromRole(recommended ? ColorRole::AccentText : ColorRole::Label2);
     m_recommendationsLabel->setColor(recommendationColor);
     m_recommendationsGlyph->setColor(recommendationColor);
     m_recommendationsGlyph->setGlyph(recommended ? "thumb-up-filled" : "thumb-up");
@@ -255,7 +255,7 @@ namespace settings {
     m_addedGlyph->setParticipatesInLayout(onDisk);
 
     const ColorRole borderRole =
-        selected ? ColorRole::Primary : (hovered ? ColorRole::Hover : ColorRole::OutlineVariant);
+        selected ? ColorRole::Accent : (hovered ? ColorRole::Fill3 : ColorRole::Stroke);
     setBorder(colorSpecFromRole(borderRole), selected ? Style::borderWidth * 2.0F : Style::borderWidth);
   }
 

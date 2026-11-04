@@ -31,8 +31,12 @@ namespace noctalia::theme {
     // How long teardown lets running template hooks finish before terminating them.
     static constexpr std::chrono::milliseconds kDefaultHookShutdownGrace{5000};
 
+    // The apply thread starts on the first request and exits after workerIdleExit with no request queued.
+    static constexpr std::chrono::milliseconds kDefaultWorkerIdleExit{30000};
+
     explicit TemplateApplyService(
-        ConfigService& config, std::chrono::milliseconds hookShutdownGrace = kDefaultHookShutdownGrace
+        ConfigService& config, std::chrono::milliseconds hookShutdownGrace = kDefaultHookShutdownGrace,
+        std::chrono::milliseconds workerIdleExit = kDefaultWorkerIdleExit
     );
     ~TemplateApplyService();
 
@@ -51,6 +55,8 @@ namespace noctalia::theme {
     // Hook warnings are delivered on the main thread after an application finishes.
     void setWarningCallback(std::function<void(std::string_view)> callback) const;
     void registerIpc(IpcService& ipc);
+    // True while the apply thread runs.
+    [[nodiscard]] bool running() const;
 
   private:
     // Template ids of one source (built-in or community) whose output Noctalia has put on
@@ -125,6 +131,7 @@ namespace noctalia::theme {
     // Declared before m_hookRunner, which is constructed with it.
     std::shared_ptr<std::atomic<bool>> m_hookCancel = std::make_shared<std::atomic<bool>>(false);
     std::chrono::milliseconds m_hookShutdownGrace;
+    std::chrono::milliseconds m_workerIdleExit;
     mutable std::unique_ptr<HookRunner> m_hookRunner;
   };
 

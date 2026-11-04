@@ -280,7 +280,6 @@ namespace {
     std::string editingWidgetName;
     std::string editingCapsuleGroupId;
     std::vector<std::string> selectedLaneWidgets;
-    std::string pendingDeleteWidgetName;
     std::string pendingDeleteWidgetSettingPath;
     std::string renamingWidgetName;
     std::string pendingGestureKey;
@@ -296,7 +295,6 @@ namespace {
             .editingWidgetName = editingWidgetName,
             .editingCapsuleGroupId = editingCapsuleGroupId,
             .selectedLaneWidgets = selectedLaneWidgets,
-            .pendingDeleteWidgetName = pendingDeleteWidgetName,
             .pendingDeleteWidgetSettingPath = pendingDeleteWidgetSettingPath,
             .renamingWidgetName = renamingWidgetName,
             .pendingGestureKey = pendingGestureKey,

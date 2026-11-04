@@ -903,7 +903,7 @@
       "dbus-disabled": "Thông báo DBus đã tắt",
       "desktop-widgets-editor": "Trình chỉnh sửa tiện ích",
       "desktop-widgets-editor-enabled": "Trình chỉnh sửa tiện ích màn hình nền đang bật. Chuyển sang một không gian làm việc trống để xem Overlay trình chỉnh sửa.",
-      "greeter-sync": "Noctalia Màn hình chào",
+      "greeter-sync": "Andromeda Màn hình chào",
       "greeter-sync-pending": "Đang chờ quyền quản trị viên để viết vào greeter.",
       "greeter-sync-pending-console": "Đang chờ quyền quản trị viên. Chấp thuận ở thông báo polkit, trong TTY hoặc chạy pkexec thủ công.",
       "greeter-sync-pending-legacy": "Đang đồng bộ hóa qua trình hỗ trợ xác thực cũ. Yêu cầu quyền phê duyệt của quản trị viên.",
@@ -913,7 +913,7 @@
       "greeter-sync-timeout": "Đồng bộ hóa màn hình chào vẫn đang chờ quyền phê duyệt của quản trị viên. Hãy kiểm tra TTY hoặc bảng điều khiển để tìm yêu cầu từ polkit, bật tác nhân polkit trong phần cài đặt Bảo mật hoặc tự chạy pkexec thủ công.",
       "greeter-sync-timeout-manual": "Đồng bộ hóa màn hình chào vẫn cần quyền phê duyệt của quản trị viên. Hãy chạy lệnh sau trong Terminal: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "greeter-sync-timeout-manual-pkexec": "Việc đồng bộ hóa màn hình chào vẫn cần được xác thực. Hãy chạy trong cửa sổ dòng lệnh: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Phím tắt này nhận một phím không kèm phím bổ trợ.",
       "keybind-invalid-printable": "Các phím ký tự (chữ cái, số, ký hiệu) cần một phím bổ trợ như Ctrl hoặc Alt.",
       "keybind-invalid-super": "Không thể dùng phím Super/Windows trong các phím tắt của shell.",
@@ -994,7 +994,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} yêu cầu Noctalia phiên bản {version} trở lên.",
+      "body-incompatible": "{plugin} yêu cầu Andromeda phiên bản {version} trở lên.",
       "body-timeout": "{plugin} mất quá nhiều thời gian để cài đặt.",
       "title": "Plugin chưa được bật"
     }
@@ -1123,7 +1123,7 @@
       "bar": {
         "create": "Tạo",
         "delete": "Xóa",
-        "delete-confirm-desc": "Thanh được tạo bằng GUI này sẽ được gỡ bỏ khỏi settings.toml.",
+        "delete-confirm-desc": "Thanh được tạo bằng GUI này sẽ được gỡ bỏ khỏi overrides.toml.",
         "delete-confirm-title": "Xóa \"{name}\"?",
         "id-placeholder": "ID thanh",
         "label": "Thanh: {name}",
@@ -1138,7 +1138,7 @@
         "create": "Tạo",
         "custom": "Tùy chỉnh",
         "delete": "Xóa",
-        "delete-confirm-desc": "Ghi đè màn hình được tạo bằng GUI này sẽ bị xóa khỏi settings.toml.",
+        "delete-confirm-desc": "Ghi đè màn hình được tạo bằng GUI này sẽ bị xóa khỏi overrides.toml.",
         "delete-confirm-title": "Xóa \"{name}\"?",
         "exists": "Đã tồn tại một cấu hình ghi đè cho màn hình này.",
         "label": "Màn hình: {name}",
@@ -1291,7 +1291,7 @@
       },
       "reset-page": "Không thể đặt lại một số cài đặt.",
       "support-report": "Không thể lưu báo cáo hỗ trợ.",
-      "sync-greeter": "Không thể đồng bộ giao diện với Noctalia Greeter.",
+      "sync-greeter": "Không thể đồng bộ giao diện với Andromeda Greeter.",
       "sync-greeter-timeout": "Quá trình đồng bộ màn hình chào vẫn đang chờ quyền phê duyệt của quản trị viên. Hãy kiểm tra TTY hoặc bảng điều khiển để tìm hộp thoại polkit, bật tác nhân polkit trong phần cài đặt Bảo mật hoặc tự chạy pkexec thủ công.",
       "sync-greeter-timeout-manual": "Đồng bộ hóa màn hình chào vẫn cần quyền phê duyệt của quản trị viên. Hãy chạy lệnh sau trong Terminal: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "sync-greeter-timeout-manual-pkexec": "Đồng bộ hóa màn hình chào vẫn cần được ủy quyền. Vui lòng mở terminal và chạy lệnh: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -1731,7 +1731,7 @@
         "deprecated": "đã lỗi thời",
         "empty": "Không tìm thấy plugin nào. Hãy thêm nguồn hoặc kiểm tra mạng của bạn.",
         "held-back": "phiên bản cũ",
-        "held-back-hint": "Phiên bản v{version} yêu cầu API plugin {required}, phiên bản Noctalia này chỉ hỗ trợ tới {current}. Vui lòng nâng cấp Noctalia để sử dụng.",
+        "held-back-hint": "Phiên bản v{version} yêu cầu API plugin {required}, phiên bản Andromeda này chỉ hỗ trợ tới {current}. Vui lòng nâng cấp Andromeda để sử dụng.",
         "incompatible-plugin-api": "API plugin không tương thích",
         "remove": "Loại bỏ plugin",
         "requires": "Cần: {dependencies}",
@@ -1775,15 +1775,15 @@
         "update": "Cập nhật"
       },
       "store": {
-        "add": "Thêm vào Noctalia",
+        "add": "Thêm vào Andromeda",
         "back-to-catalog": "Về lại danh mục plugin",
         "categories": "Danh mục",
         "category-all": "Tất cả",
         "empty": "Không tìm thấy plugin",
         "held-back": "Phiên bản cũ",
-        "held-back-hint": "Cài đặt phiên bản v{version} cho plugin API {resolved}. Phiên bản mới nhất v{latest} cần plugin API {latestRequired}, phiên bản Noctalia này chỉ hỗ trợ tới {current}.",
+        "held-back-hint": "Cài đặt phiên bản v{version} cho plugin API {resolved}. Phiên bản mới nhất v{latest} cần plugin API {latestRequired}, phiên bản Andromeda này chỉ hỗ trợ tới {current}.",
         "incompatible": "Không tương thích",
-        "incompatible-hint": "Yêu cầu plugin API {required}, phiên bản Noctalia này chỉ hỗ trợ từ {oldest} cho tới {current}.",
+        "incompatible-hint": "Yêu cầu plugin API {required}, phiên bản Andromeda này chỉ hỗ trợ từ {oldest} cho tới {current}.",
         "installed": "Đã cài đặt",
         "loading": "Đang tải danh mục...",
         "no-readme": "Không có mô tả",
@@ -1830,7 +1830,7 @@
           "label": "Màu biểu tượng ứng dụng"
         },
         "app-icon-colorize": {
-          "description": "Đổi màu biểu tượng ứng dụng trên toàn bộ Noctalia để phù hợp với bảng màu đang hoạt động",
+          "description": "Đổi màu biểu tượng ứng dụng trên toàn bộ Andromeda để phù hợp với bảng màu đang hoạt động",
           "label": "Tô màu biểu tượng ứng dụng"
         },
         "builtin-palette": {
@@ -2324,7 +2324,7 @@
             "label": "Khi tắt máy"
           },
           "started": {
-            "description": "Lệnh để chạy sau khi Noctalia khởi động",
+            "description": "Lệnh để chạy sau khi Andromeda khởi động",
             "label": "Khi khởi động"
           },
           "theme-mode-changed": {
@@ -2409,10 +2409,6 @@
         "blur-intensity": {
           "description": "Mức độ làm mờ nền màn hình khóa",
           "label": "Cường độ làm mờ"
-        },
-        "blurred-desktop": {
-          "description": "Sử dụng ảnh chụp màn hình nền làm nền màn hình khóa",
-          "label": "Chụp màn hình"
         },
         "enabled": {
           "description": "Kích hoạt khóa phiên, tích hợp với logind và các hành động khóa",
@@ -2500,7 +2496,7 @@
           "label": "Vị trí màn hình"
         },
         "scale": {
-          "description": "Điều chỉnh kích thước các Toast thông báo theo tỷ lệ giao diện người dùng của Noctalia",
+          "description": "Điều chỉnh kích thước các Toast thông báo theo tỷ lệ giao diện người dùng của Andromeda",
           "label": "Kích thước"
         },
         "show-actions": {
@@ -2928,7 +2924,7 @@
           "label": "Lệnh cấp quyền cho đồng bộ màn hình chào"
         },
         "launch-apps-as-systemd-services": {
-          "description": "Khởi chạy ứng dụng trong các dịch vụ systemd riêng biệt để chúng không chia sẻ cgroup của Noctalia",
+          "description": "Khởi chạy ứng dụng trong các dịch vụ systemd riêng biệt để chúng không chia sẻ cgroup của Andromeda",
           "label": "Khởi chạy ứng dụng dưới dạng dịch vụ systemd"
         },
         "launch-apps-custom-command": {
@@ -3026,7 +3022,7 @@
           "label": "Vị trí dọc"
         },
         "osd-scale": {
-          "description": "Điều chỉnh tỷ lệ các OSD pop-up theo tỷ lệ giao diện người dùng của Noctalia (1.0 sẽ giữ kích thước mặc định)",
+          "description": "Điều chỉnh tỷ lệ các OSD pop-up theo tỷ lệ giao diện người dùng của Andromeda (1.0 sẽ giữ kích thước mặc định)",
           "label": "Tỷ lệ"
         },
         "password-style": {
@@ -3097,15 +3093,15 @@
         },
         "sync-greeter": {
           "button": "Đồng bộ ngay",
-          "description": "Sao chép hình nền và màu sắc hiện tại vào Noctalia Greeter (yêu cầu sự chấp thuận của quản trị viên)",
-          "label": "Trình chào mừng Noctalia"
+          "description": "Sao chép hình nền và màu sắc hiện tại vào Andromeda Greeter (yêu cầu sự chấp thuận của quản trị viên)",
+          "label": "Trình chào mừng Andromeda"
         },
         "telemetry": {
           "description": "Gửi một ping khởi động nhỏ, ẩn danh với phiên bản, OS, trình tổng hợp, độ phân giải màn hình, RAM và tỉ lệ UI",
           "label": "Ping khởi động ẩn danh"
         },
         "time-format": {
-          "description": "Định dạng thời gian mặc định cho giao diện Noctalia khi không có cài đặt riêng",
+          "description": "Định dạng thời gian mặc định cho giao diện Andromeda khi không có cài đặt riêng",
           "label": "Định dạng thời gian"
         }
       },
@@ -3115,7 +3111,7 @@
           "label": "{device} Ngưỡng cảnh báo"
         },
         "battery-warning-threshold": {
-          "description": "Mức phần trăm pin hệ thống mà khi đạt đến hoặc thấp hơn, Noctalia sẽ gửi thông báo pin yếu và các Widget pin sẽ hiển thị màu cảnh báo; đặt 0 để tắt.",
+          "description": "Mức phần trăm pin hệ thống mà khi đạt đến hoặc thấp hơn, Andromeda sẽ gửi thông báo pin yếu và các Widget pin sẽ hiển thị màu cảnh báo; đặt 0 để tắt.",
           "label": "Ngưỡng cảnh báo pin"
         }
       },
@@ -3809,7 +3805,7 @@
     "window": {
       "export-config": "Xuất cấu hình…",
       "export-config-saved": "Xuất cấu hình đã lưu.",
-      "native-title": "Cài đặt Noctalia",
+      "native-title": "Cài đặt Andromeda",
       "no-results": "Không tìm thấy cài đặt nào",
       "no-results-hint": "Thử một tên cài đặt hoặc khóa cấu hình khác.",
       "reset-page": "Đặt lại trang",
@@ -3830,7 +3826,7 @@
     "no-wallpaper-selected": "Chưa chọn hình nền",
     "select-wallpaper": "Chọn hình nền",
     "subtitle": "Một vài lựa chọn nhanh để bạn bắt đầu.",
-    "title": "Chào mừng đến với Noctalia",
+    "title": "Chào mừng đến với Andromeda",
     "wallpaper": "Hình nền",
     "wallpaper-scheme": "Chế độ hình nền"
   },

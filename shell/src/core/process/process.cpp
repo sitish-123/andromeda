@@ -23,6 +23,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <system_error>
@@ -693,6 +694,8 @@ namespace {
       if (!uuid.empty()) {
         systemdArgs.push_back(std::format("--unit=app-{}@{}.service", escapeSystemdUnitName(appName), uuid));
       }
+      // Launch boost; the compositor resets it (cpu_boost.cpp) when the first window maps or the launch expires.
+      systemdArgs.emplace_back("--property=CPUWeight=1000");
     }
     if (!workingDir.empty()) {
       systemdArgs.push_back("--working-directory=" + workingDir);
@@ -804,6 +807,9 @@ namespace process {
     int pidfd = -1;
     int outFd = -1;
     int errFd = -1;
+    int inFd = -1;
+    std::string inData;
+    std::size_t inOffset = 0;
     std::string out;
     std::string err;
     bool outTruncated = false;
@@ -818,6 +824,26 @@ namespace process {
     std::optional<std::chrono::steady_clock::time_point> killAt;
     bool termSent = false;
   };
+
+  // Socket end, not a pipe: send(MSG_NOSIGNAL) fails with EPIPE instead of raising SIGPIPE in the shell.
+  static void feedStdin(int& fd, const std::string& data, std::size_t& offset) {
+    while (fd >= 0 && offset < data.size()) {
+      const ssize_t n = ::send(fd, data.data() + offset, data.size() - offset, MSG_NOSIGNAL | MSG_DONTWAIT);
+      if (n > 0) {
+        offset += static_cast<std::size_t>(n);
+      } else if (n < 0 && errno == EINTR) {
+        continue;
+      } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        return;
+      } else {
+        closeFd(fd);
+        return;
+      }
+    }
+    if (fd >= 0) {
+      closeFd(fd);
+    }
+  }
 
   AsyncProcessManager& AsyncProcessManager::instance() {
     static AsyncProcessManager manager;
@@ -844,14 +870,25 @@ namespace process {
       return false;
     }
 
-    const pid_t pid = ::fork();
-    if (pid < 0) {
+    int inSock[2] = {-1, -1};
+    if (options.stdinData.has_value() && ::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, inSock) != 0) {
       closePipe(outPipe);
       closePipe(errPipe);
       return false;
     }
 
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+      closePipe(outPipe);
+      closePipe(errPipe);
+      closePipe(inSock);
+      return false;
+    }
+
     if (pid == 0) {
+      if (inSock[0] >= 0) {
+        ::dup2(inSock[0], STDIN_FILENO);
+      }
       // Lead a new process group so a timeout or cancel can signal the whole tree, matching
       // runSyncProcess.
       ::setpgid(0, 0);
@@ -872,11 +909,16 @@ namespace process {
     ::setpgid(pid, pid);
     closeFd(outPipe[1]);
     closeFd(errPipe[1]);
+    closeFd(inSock[0]);
     (void)setNonBlocking(outPipe[0]);
     (void)setNonBlocking(errPipe[0]);
 
     auto child = std::make_unique<Child>();
     child->pid = pid;
+    child->inFd = inSock[1];
+    if (options.stdinData.has_value()) {
+      child->inData = std::move(*options.stdinData);
+    }
     // Raw syscall, not glibc's pidfd_open() wrapper: sys/pidfd.h declares it with no extern "C",
     // so a C++ TU linking against it looks for a mangled symbol libc does not export.
     // A failed pidfd_open (old kernel, pid already reaped) just falls back to the bounded poll
@@ -948,6 +990,9 @@ namespace process {
       if (child->errFd >= 0) {
         fds.push_back(pollfd{.fd = child->errFd, .events = POLLIN, .revents = 0});
       }
+      if (child->inFd >= 0) {
+        fds.push_back(pollfd{.fd = child->inFd, .events = POLLOUT, .revents = 0});
+      }
     }
   }
 
@@ -969,6 +1014,7 @@ namespace process {
         const auto* stdOutCallback = &child.callbacks.stdOut;
         const auto* stdErrCallback = &child.callbacks.stdErr;
 
+        feedStdin(child.inFd, child.inData, child.inOffset);
         // Safe to call even when nothing is ready: a non-blocking read just returns EAGAIN.
         drainAvailable(child.outFd, child.out, child.maxOutputBytes, &child.outTruncated, stdOutCallback);
         drainAvailable(child.errFd, child.err, child.maxOutputBytes, &child.errTruncated, stdErrCallback);
@@ -1011,6 +1057,7 @@ namespace process {
         drainAvailable(child.errFd, child.err, child.maxOutputBytes, &child.errTruncated, stdErrCallback);
         closeFd(child.outFd);
         closeFd(child.errFd);
+        closeFd(child.inFd);
         closeFd(child.pidfd);
 
         trimTrailingLineEndings(child.out);

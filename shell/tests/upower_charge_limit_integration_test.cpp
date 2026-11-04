@@ -124,6 +124,12 @@ namespace {
       supportedSettings = 0;
     }
 
+    void enableThresholdSupport() {
+      std::scoped_lock lock(stateMutex);
+      thresholdSupported = true;
+      supportedSettings = 3;
+    }
+
     void completeSuccess(bool enabled) {
       std::optional<sdbus::Result<>> result;
       {
@@ -201,8 +207,18 @@ namespace {
       manager
           ->addVTable(
               sdbus::registerMethod("EnumerateDevices").implementedAs([this]() {
-                std::scoped_lock lock(pathsMutex);
-                return paths;
+                std::function<void()> hook;
+                std::vector<sdbus::ObjectPath> result;
+                {
+                  std::scoped_lock lock(pathsMutex);
+                  hook = std::move(enumerateHook);
+                  enumerateHook = nullptr;
+                  result = paths;
+                }
+                if (hook) {
+                  hook();
+                }
+                return result;
               }),
               sdbus::registerMethod("GetDisplayDevice").implementedAs([]() { return sdbus::ObjectPath{"/"}; }),
               sdbus::registerSignal("DeviceAdded").withParameters<sdbus::ObjectPath>("device"),
@@ -257,6 +273,7 @@ namespace {
     std::unique_ptr<sdbus::IConnection> connection;
     std::unique_ptr<sdbus::IObject> manager;
     std::mutex pathsMutex;
+    std::function<void()> enumerateHook;
     std::vector<sdbus::ObjectPath> paths;
     std::vector<std::unique_ptr<FakeBattery>> batteries;
   };
@@ -334,6 +351,7 @@ int main() {
   {
     SystemBus capabilityBus;
     UPowerService capabilityService(capabilityBus);
+    drainUntil(capabilityBus, [&]() { return findBattery(capabilityService, retryBattery.path) != nullptr; });
     auto* retryInfo = findBattery(capabilityService, retryBattery.path);
     TEST_CHECK(retryInfo != nullptr && !retryInfo->chargeLimit.methodAvailable);
     retryBattery.reappearWithChargeMethod();
@@ -360,16 +378,20 @@ int main() {
   SystemBus bus;
   {
     UPowerService service(bus);
+    bool initialSeen = false;
     int deviceChanges = 0;
     int chargeLimitChanges = 0;
     service.setChangeCallback([&](const UPowerChange& change) {
-      if (change.origin == UPowerService::ChangeOrigin::DeviceState) {
+      if (change.origin == UPowerService::ChangeOrigin::Initial) {
+        initialSeen = true;
+      } else if (change.origin == UPowerService::ChangeOrigin::DeviceState) {
         ++deviceChanges;
       } else {
         ++chargeLimitChanges;
       }
     });
 
+    drainUntil(bus, [&]() { return initialSeen; });
     PowerTab tab(&service, nullptr);
     auto root = tab.create();
     PowerTabTestAccess::rebuild(tab);
@@ -380,7 +402,7 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::name(tab, 1) == "Secondary Battery");
     TEST_CHECK(findBattery(service, hiddenBattery.path) != nullptr);
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Can charge to 100%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
     TEST_CHECK(!PowerTabTestAccess::managementVisible(tab, 0));
     TEST_CHECK(PowerTabTestAccess::controlVisible(tab, 0));
@@ -446,13 +468,13 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::toggleChecked(tab, 0));
     TEST_CHECK(PowerTabTestAccess::toggleEnabled(tab, 0));
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Starts below 75% · Stops at 80%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
 
     TEST_CHECK(service.enableChargeThreshold(bat0.path, false));
     drainUntil(bus, [&]() { return bat0.pendingCount() == 1; });
     PowerTabTestAccess::rebuild(tab);
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Can charge to 100%");
-    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == 1.0F);
+    TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
     const int enabledReadsBeforeFailure = bat0.enabledReadCount();
     bat0.completeFailure("hardware rejected the write");
@@ -490,7 +512,10 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::rowCount(tab) == 1);
     TEST_CHECK(!PowerTabTestAccess::nameVisible(tab, 0));
     fake.readdBattery(bat1);
-    drainUntil(bus, [&]() { return findBattery(service, bat1.path) != nullptr; });
+    drainUntil(bus, [&]() {
+      const auto* current = findBattery(service, bat1.path);
+      return current != nullptr && current->chargeLimit.methodAvailable;
+    });
     TEST_CHECK(service.enableChargeThreshold(bat1.path, true));
     drainUntil(bus, [&]() { return bat1.pendingCount() == 2; });
     const int changesBeforeStaleReply = chargeLimitChanges;
@@ -515,6 +540,10 @@ int main() {
   auto& bat2 = fake.addBattery("BAT2", "Lifetime Battery");
   {
     UPowerService service(bus);
+    drainUntil(bus, [&]() {
+      const auto* current = findBattery(service, bat2.path);
+      return current != nullptr && current->chargeLimit.methodAvailable;
+    });
     TEST_CHECK(service.enableChargeThreshold(bat2.path, true));
     drainUntil(bus, [&]() { return bat2.pendingCount() == 1; });
   }
@@ -523,6 +552,29 @@ int main() {
   for (int i = 0; i < 20; ++i) {
     bus.processPendingEvents();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  // A rescan replaces the proxies while an Introspect call is in flight; detection must be requested again.
+  {
+    auto& late = fake.addBattery("LATE", "Late Support Battery");
+    late.disableThresholdSupport();
+    UPowerService service(bus);
+    drainUntil(bus, [&]() {
+      const auto* current = findBattery(service, late.path);
+      return current != nullptr && !current->chargeLimit.supported;
+    });
+    {
+      std::scoped_lock lock(fake.pathsMutex);
+      fake.enumerateHook = [&late]() {
+        late.enableThresholdSupport();
+        late.emitChanged("ChargeThresholdSupported");
+      };
+    }
+    fake.addBattery("RESCAN", "Rescan Battery", true);
+    drainUntil(bus, [&]() {
+      const auto* current = findBattery(service, late.path);
+      return current != nullptr && current->chargeLimit.methodAvailable;
+    });
   }
 
   return 0;

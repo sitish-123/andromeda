@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -122,7 +123,7 @@ namespace scripting {
     // `access` gates git catalog reads: Network (clone / lazy-fetch, worker threads
     // only) or LocalOnly (safe on the main thread, e.g. the IPC handler).
     [[nodiscard]] std::vector<PluginStatus> list(CatalogAccess access) const;
-    [[nodiscard]] std::vector<PluginStatus> list(const PluginsConfig& plugins, CatalogAccess access) const;
+    [[nodiscard]] static std::vector<PluginStatus> list(const PluginsConfig& plugins, CatalogAccess access);
 
     // Throttled `git fetch` of the enabled git sources in `plugins`, so the settings
     // browser / store show newly published plugins on open without waiting for the
@@ -130,6 +131,10 @@ namespace scripting {
     // git/IO — call off the UI thread with a main-thread config snapshot. Only advances
     // FETCH_HEAD (browsable catalog); it never advances HEAD or exports files.
     void fetchStaleCatalogs(const PluginsConfig& plugins);
+    // The two halves of fetchStaleCatalogs: claim (main thread, updates the throttle) then
+    // fetch (blocking IO, touches no manager state, so it may run on a worker).
+    [[nodiscard]] std::vector<PluginSourceConfig> claimStaleCatalogFetches(const PluginsConfig& plugins);
+    static void fetchCatalogSources(const std::vector<PluginSourceConfig>& sources);
 
     // Update enabled git sources scoped by the background auto-update mode
     // (None = nothing, Official = only the built-in official source, All = every
@@ -164,16 +169,16 @@ namespace scripting {
     // than resolving by name again.
     void updateSource(const PluginSourceConfig& source);
     // Plugin ids offered by the implicit local dev source.
-    [[nodiscard]] std::unordered_set<std::string> localPluginIds() const;
+    [[nodiscard]] static std::unordered_set<std::string> localPluginIds();
     // Re-derive any enabled git-source plugin missing from disk, per source on a worker
     // thread (catalog reads and exports lazy-fetch blobs from the blobless clone, so
     // even a present repo can hit the network); startup never blocks on it.
     void ensureEnabledMaterialized(const PluginsConfig& plugins) const;
     // Export the enabled plugins a present repo ships. Reads and exports can lazy-fetch
     // blobs (network-bound); worker threads only.
-    bool materializeEnabledFromRepo(
+    static bool materializeEnabledFromRepo(
         const PluginSourceConfig& source, const std::filesystem::path& repoRoot, const std::vector<std::string>& enabled
-    ) const;
+    );
     // Worker thread: prepare the source cache (clone / repair / rebind origin), then
     // materialize its enabled plugins, rebuilding the bar via m_onChanged once an
     // export lands.
@@ -181,6 +186,8 @@ namespace scripting {
         PluginSourceConfig source, std::filesystem::path repoRoot, std::vector<std::string> enabled
     ) const;
 
+    // Expires with the manager; worker completions posted through DeferredCall check it first.
+    std::shared_ptr<void> m_aliveGuard = std::make_shared<char>();
     ConfigService& m_config;
     std::function<void()> m_onChanged;
     std::function<void()> m_onEnablingChanged;

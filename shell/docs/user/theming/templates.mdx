@@ -95,6 +95,18 @@ Examples:
 {{ colors.terminal_foreground.default.hex_stripped }}
 ```
 
+### Design Tokens
+
+Design-token color roles for the current light or dark mode are accessed with:
+
+```text
+{{ tokens.<role>.<format> }}
+```
+
+The roles are the `[scheme.light]` and `[scheme.dark]` keys of `protocol/design-tokens.toml`, for example
+`window`, `view`, `card`, `header`, `popover`, `sidebar`, `separator`, `label_1`, `accent` and `danger`. Token
+colors keep their alpha, so use `rgba` or `hex_argb` where the alpha matters. The GTK and Qt templates use them.
+
 ### Available Color Tokens
 
 The built-in Material color tokens are:
@@ -143,6 +155,7 @@ Supported output formats:
 
 - `hex`
 - `hex_stripped`
+- `hex_argb`
 - `rgb`
 - `rgb_csv`
 - `rgba`
@@ -160,6 +173,7 @@ Format behavior:
 
 - `hex`: `#rrggbb`
 - `hex_stripped`: `rrggbb`
+- `hex_argb`: `#aarrggbb` (Qt color strings)
 - `rgb`: `rgb(r, g, b)`
 - `rgb_csv`: `r,g,b`
 - `rgba`: `rgba(r, g, b, a)`
@@ -496,11 +510,11 @@ Each template entry supports:
 `output_path` accepts either a single string or an array of strings:
 
 ```toml
-[templates.qt]
-input_path = "./qtct.conf"
+[templates.myapp]
+input_path = "./myapp.conf"
 output_path = [
-  "$XDG_CONFIG_HOME/qt5ct/colors/noctalia.conf",
-  "$XDG_CONFIG_HOME/qt6ct/colors/noctalia.conf",
+  "$XDG_CONFIG_HOME/myapp/colors.conf",
+  "$XDG_CONFIG_HOME/myapp-beta/colors.conf",
 ]
 ```
 
@@ -536,7 +550,7 @@ hook_async  = false
 
 When several entries share the same `input_path` but write to different client config roots (for example Discord forks or VS Code vs VSCodium), the engine infers each output's client root and skips outputs whose root is missing. Single-app templates (one entry per input) still create missing directories as before.
 
-`gtk_extension` (`"gtk3"` or `"gtk4"`) is for community templates only. It marks the entry as app-scoped CSS for a GTK app: Noctalia renders it to `noctalia-extensions/<template>.<entry>.css` in the matching `gtk-3.0`/`gtk-4.0` config directory and lists it in `noctalia-extensions.css`, which the built-in GTK template's `noctalia.css` imports. The entry is skipped while that built-in GTK template is disabled, and an extension may not set `output_path`, `output_path_dynamic`, hooks, `post_action`, or `requires_path`. Disabling the template removes its import and file on the next application.
+`gtk_extension` (`"gtk3"` or `"gtk4"`) is for community templates only. It marks the entry as app-scoped CSS for a GTK app: Noctalia renders it to `noctalia-extensions/<template>.<entry>.css` in the matching `gtk-3.0`/`gtk-4.0` config directory and lists it in `noctalia-extensions.css`, which the shell's `andromeda.css` imports. An extension may not set `output_path`, `output_path_dynamic`, hooks, `post_action`, or `requires_path`. Disabling the template removes its import and file on the next application.
 
 ### Closest Color
 

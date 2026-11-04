@@ -9,7 +9,7 @@
 #include "shell/bar/widget.h"
 #include "ui/palette.h"
 #include "ui/ui_tree.h"
-#include "ui/ui_tree_reconciler.h"
+#include "scripting/ui_tree_reconciler.h"
 
 #include <chrono>
 #include <cstdint>

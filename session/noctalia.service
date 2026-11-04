@@ -6,5 +6,10 @@ After=andromeda-session.target
 [Service]
 Slice=session.slice
 ExecStart=/usr/bin/noctalia
+# The shell's working set (RSS about 220 MB) stays in RAM under build load; see session/memory.
+MemoryMin=512M
 Restart=on-failure
-RestartSec=0
+RestartSec=1
+RestartSteps=5
+RestartMaxDelaySec=30
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || touch "$XDG_RUNTIME_DIR/noctalia-crashed"'

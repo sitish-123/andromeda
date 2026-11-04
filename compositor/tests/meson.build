@@ -11,6 +11,8 @@ unit_tests = [
   ['xwayland-xsettings', ['unit/xwayland_xsettings.cpp'], []],
   ['presentation', ['unit/presentation.cpp'], [andromeda_core_dep]],
   ['animation', ['unit/animation.cpp'], [andromeda_core_dep]],
+  ['surface-motion', ['unit/surface_motion.cpp'], [andromeda_core_dep]],
+  ['tracker-motion', ['unit/tracker_motion.cpp'], [andromeda_core_dep]],
   ['application-scope', ['unit/application_scope.cpp'], [andromeda_core_dep], [], ['-Wl,--wrap=andromedaCloseRange']],
   ['shader-source', ['unit/shader_source.cpp'], []],
   ['effects', ['unit/effects.cpp'], []],
@@ -21,6 +23,7 @@ unit_tests = [
   ['lid-state', ['unit/lid_state.cpp'], []],
   ['output-enable-overrides', ['unit/output_enable_overrides.cpp'], []],
   ['modifier-tap', ['unit/modifier_tap.cpp'], []],
+  ['key-pipeline', ['unit/key_pipeline.cpp'], []],
   ['keyboard-layout', ['unit/keyboard_layout.cpp'], []],
   ['keyboard-leds', ['unit/keyboard_leds.cpp'], [wayland_server_dep]],
   ['keyboard-state', ['unit/keyboard_state.cpp'], [wayland_server_dep]],
@@ -44,6 +47,8 @@ unit_tests = [
   ['hdr-metadata', ['unit/hdr_metadata.cpp'], [andromeda_core_dep]],
   ['color-description', ['unit/color_description.cpp'], [andromeda_core_dep]],
   ['hdr-format', ['unit/hdr_format.cpp'], []],
+  ['tracked', ['unit/tracked.cpp'], []],
+  ['listener', ['unit/listener.cpp'], [wayland_server_dep]],
   ['sdr-format', ['unit/sdr_format.cpp'], []],
   ['layout-struts', ['unit/layout_struts.cpp'], []],
   ['layout-motion', ['unit/layout_motion.cpp'], []],
@@ -52,7 +57,6 @@ unit_tests = [
   ['master-layout', ['unit/master_layout.cpp'], []],
   ['floating-layout', ['unit/floating_layout.cpp'], []],
   ['tabbed-layout', ['unit/tabbed_layout.cpp'], []],
-  ['cheatsheet-rows', ['unit/cheatsheet_rows.cpp'], []],
   ['shortcut-labels', ['unit/shortcut_labels.cpp'], []],
   ['border-ring', ['unit/border_ring.cpp'], []],
   ['ssd-frame-geometry', ['unit/ssd_frame_geometry.cpp'], []],
@@ -116,6 +120,13 @@ foreach unit_test : unit_tests
   # Config-load also validates the packaged example, including out-of-tree builds.
   test(unit_test[0], test_exe, workdir: meson.project_source_root())
 endforeach
+
+# The token generator's GTK, Qt and fcitx5 emitters against golden files (protocol/tests).
+test(
+  'design-tokens-golden',
+  find_program('python3'),
+  args: [files('../protocols/design-tokens-tests/test_gen_design_tokens.py')],
+)
 
 test(
   'validate-config',
@@ -197,6 +208,10 @@ layer_client = executable(
     layer_shell_client_c,
     xdg_shell_client_h,
     xdg_shell_client_c,
+    background_effect_client_h,
+    background_effect_client_c,
+    dsk_surface_client_h,
+    dsk_surface_client_c,
   ],
   dependencies: [wayland_client_dep],
 )
@@ -244,6 +259,17 @@ foreign_toplevel_client = executable(
     'harness/clients/foreign_toplevel_client.cpp',
     foreign_toplevel_client_h,
     foreign_toplevel_client_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
+# Harness helper that requests an activation token with an app id hint (a launch) and prints it.
+activation_token_client = executable(
+  'activation-token-client',
+  [
+    'harness/clients/activation_token_client.cpp',
+    xdg_activation_client_h,
+    xdg_activation_client_c,
   ],
   dependencies: [wayland_client_dep],
 )
@@ -607,6 +633,7 @@ harness_client_targets = [
   data_control_client,
   workspace_client,
   foreign_toplevel_client,
+  activation_token_client,
   unmap_client,
   popup_client,
   subsurface_client,

@@ -3,22 +3,24 @@
 #include "config/config_service.h"
 #include "core/log.h"
 #include "i18n/i18n.h"
+#include "launcher/calc_engine.h"
 #include "net/http_client.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <cstring>
+#include <dlfcn.h>
 #include <filesystem>
-#include <libqalculate/BuiltinFunctions.h>
-#include <libqalculate/Calculator.h>
-#include <libqalculate/Function.h>
-#include <libqalculate/util.h>
 #include <memory>
 #include <string>
 
 namespace {
 
   constexpr Logger kLog("math");
+  // libqalculate loads its XML definitions in ~8 ms; this keeps them off the shell's first frame.
+  constexpr auto kCalculatorLoadDelay = std::chrono::seconds(2);
 
   constexpr Inotify::WatchMask kDefinitionsWatchMask =
       IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF;
@@ -45,6 +47,48 @@ namespace {
 
   bool shouldRefreshExchangeRateSource(std::string_view url) { return !url.contains("nbrb.by"); }
 
+  // libqalculate's getLocalDataDir(), without loading the library.
+  std::filesystem::path qalculateDataDir() {
+    if (const char* dir = std::getenv("QALCULATE_USER_DIR"); dir != nullptr && *dir != '\0') {
+      return dir;
+    }
+    if (const char* dataHome = std::getenv("XDG_DATA_HOME"); dataHome != nullptr && *dataHome != '\0') {
+      return std::filesystem::path(dataHome) / "qalculate";
+    }
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path(home != nullptr ? home : "") / ".local/share/qalculate";
+  }
+
+  using CreateEngine = CalcEngine* (*)();
+
+  // The module stays loaded for the process lifetime: engines run its code until they are destroyed.
+  CreateEngine loadEngineModule() {
+    static const CreateEngine create = []() -> CreateEngine {
+      std::error_code ec;
+      const auto exeDir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+      for (const auto& path :
+           {exeDir / "noctalia-calc.so",
+            std::filesystem::path(NOCTALIA_INSTALL_PREFIX) / NOCTALIA_INSTALL_LIBDIR / "noctalia/noctalia-calc.so"}) {
+        void* module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+        if (module == nullptr) {
+          continue;
+        }
+        void* symbol = dlsym(module, kCalcEngineCreateSymbol);
+        if (symbol == nullptr) {
+          kLog.warn("{} has no {}; it is from another noctalia version", path.string(), kCalcEngineCreateSymbol);
+          continue;
+        }
+        CreateEngine function = nullptr;
+        std::memcpy(&function, &symbol, sizeof(function));
+        return function;
+      }
+      const char* error = dlerror();
+      kLog.warn("calculator module noctalia-calc.so not loaded: {}", error != nullptr ? error : "");
+      return nullptr;
+    }();
+    return create;
+  }
+
 } // namespace
 
 MathProvider::MathProvider(ClipboardService* clipboard, ConfigService* config, HttpClient* httpClient)
@@ -55,14 +99,20 @@ MathProvider::~MathProvider() = default;
 std::string MathProvider::displayName() const { return i18n::tr("launcher.providers.calculator.title"); }
 
 void MathProvider::initialize() {
-  m_definitionsDir = std::filesystem::path(getLocalDataDir()) / "definitions";
+  m_definitionsDir = qalculateDataDir() / "definitions";
   watchDefinitionsDir();
+  m_loadTimer.start(kCalculatorLoadDelay, [this] { loadCalculator(); });
+}
+
+void MathProvider::loadCalculator() {
   rebuildCalculator();
   refreshExchangeRates();
 }
 
 void MathProvider::onLauncherOpened() {
   if (!m_calc) {
+    m_loadTimer.stop();
+    loadCalculator();
     return;
   }
 
@@ -93,19 +143,10 @@ void MathProvider::onLauncherOpened() {
 
 void MathProvider::rebuildCalculator() {
   // Calculator::reset() leaves lazily cached items (e.g. the radian unit) dangling, full recreation instead.
-  // Destroy the old instance first: ~Calculator clears the global CALCULATOR pointer the new one sets.
+  // Destroy the old engine first: libqalculate keeps one global Calculator pointer, which the new one sets.
   m_calc.reset();
-  m_calc = std::make_unique<Calculator>();
-  // Load any cached rates before definitions so currency units pick them up.
-  m_calc->loadExchangeRates();
-  m_calc->loadGlobalDefinitions();
-  m_calc->loadLocalDefinitions();
-  // These run programs or touch files, so a pasted expression could execute code while it is typed.
-  // Must run after loadLocalDefinitions(), which re-activates any inactive non-local function.
-  for (const int id : {FUNCTION_ID_COMMAND, FUNCTION_ID_PLOT, FUNCTION_ID_LOAD, FUNCTION_ID_EXPORT}) {
-    if (MathFunction* function = m_calc->getFunctionById(id); function != nullptr) {
-      function->setActive(false);
-    }
+  if (const CreateEngine create = loadEngineModule()) {
+    m_calc.reset(create());
   }
 }
 
@@ -124,21 +165,15 @@ void MathProvider::refreshExchangeRates() {
   }
   if (m_config->config().shell.offlineMode
       || !m_config->config().shell.launcher.fetchExchangeRates
-      || !m_calc->canFetch()) {
+      || !m_calc->canFetchExchangeRates()) {
     return;
   }
 
   std::vector<std::pair<std::string, std::filesystem::path>> sources;
-  for (int i = 1;; ++i) {
-    std::string url = m_calc->getExchangeRatesUrl(i);
-    std::string file = m_calc->getExchangeRatesFileName(i);
-    if (url.empty() || file.empty()) {
-      break;
+  for (auto& [url, file] : m_calc->exchangeRateSources()) {
+    if (shouldRefreshExchangeRateSource(url)) {
+      sources.emplace_back(std::move(url), std::filesystem::path(std::move(file)));
     }
-    if (!shouldRefreshExchangeRateSource(url)) {
-      continue;
-    }
-    sources.emplace_back(std::move(url), std::filesystem::path(std::move(file)));
   }
   if (sources.empty()) {
     return;
@@ -172,39 +207,16 @@ std::vector<LauncherResult> MathProvider::evaluate(std::string_view text) const 
     return {};
   }
 
-  // Drop any messages left over from a previous evaluation.
-  m_calc->clearMessages();
-
-  EvaluationOptions eo = default_user_evaluation_options;
-  eo.parse_options.dot_as_separator = m_calc->default_dot_as_separator;
-  PrintOptions po = default_print_options;
-  po.use_unicode_signs = false;
-  // Collapse interval arithmetic to a single rounded value instead of "interval(a, b)".
-  po.interval_display = INTERVAL_DISPLAY_SIGNIFICANT_DIGITS;
-
-  // libqalculate expects '.' decimals internally; convert locale signs first.
-  const std::string input = m_calc->unlocalizeExpression(localized, eo.parse_options);
-  if (input.empty()) {
-    return {};
-  }
-
-  std::string output = m_calc->calculateAndPrint(input, /*msecs=*/200, eo, po);
-
-  bool hadError = false;
-  for (CalculatorMessage* m = m_calc->message(); m != nullptr; m = m_calc->nextMessage()) {
-    if (m->type() == MESSAGE_ERROR) {
-      hadError = true;
-    }
-  }
-
+  std::string input;
+  const auto output = m_calc->evaluate(localized, input);
   // Reject errors and no-ops (e.g. the user just typed a bare number).
-  if (hadError || output.empty() || output == input || output == localized) {
+  if (!output.has_value() || output->empty() || *output == input || *output == localized) {
     return {};
   }
 
   LauncherResult r;
   r.id = "math";
-  r.title = "= " + output;
+  r.title = "= " + *output;
   r.subtitle = std::string(text);
   r.glyphName = "calculator";
   r.score = 10000;

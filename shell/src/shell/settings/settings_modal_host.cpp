@@ -1,9 +1,12 @@
 #include "shell/settings/settings_modal_host.h"
 
+#include "design_tokens.h"
+
 #include "core/input/keybind_matcher.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "render/scene/input_dispatcher.h"
+#include "render/scene/rect_node.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
@@ -12,12 +15,40 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 #include <vector>
 
 namespace settings {
 
   namespace {
+
+    struct ShadowLayer {
+      float y;
+      float blur;
+      float lightAlpha;
+      float darkAlpha;
+    };
+    // Rulebook E4: key + contact shadow; y offset, blur and opacity per scheme.
+    constexpr ShadowLayer kE4Key{24.0F, 64.0F, 0.22F, 0.50F};
+    constexpr ShadowLayer kE4Contact{2.0F, 8.0F, 0.10F, 0.30F};
+
+    void layoutShadow(RectNode& node, const ShadowLayer& layer, float x, float y, float w, float h, float radius,
+                      float scale) {
+      const float offsetY = layer.y * scale;
+      Color color = colorForRole(ColorRole::Shadow);
+      color.a *= isLightPalette() ? layer.lightAlpha : layer.darkAlpha;
+      node.setStyle(RoundedRectStyle{
+          .fill = color,
+          .radius = Radii{radius, radius, radius, radius},
+          // The shader fades over 2 x softness centred on the edge, so softness = blur / 2.
+          .softness = layer.blur * 0.5F * scale,
+          .outerShadow = true,
+          .shadowCutoutOffsetY = offsetY,
+      });
+      node.setPosition(x, y + offsetY);
+      node.setFrameSize(w, h);
+    }
 
     class ModalEntryNode final : public Node {
     public:
@@ -32,7 +63,7 @@ namespace settings {
         auto dim = ui::box({
             .out = &m_dim,
             .configure = [](Box& box) {
-              box.setFill(colorSpecFromRole(ColorRole::Shadow, 0.38F));
+              box.setFill(colorSpecFromRole(ColorRole::Scrim));
               box.clearBorder();
               box.setRadius(0.0F);
             },
@@ -40,14 +71,18 @@ namespace settings {
         backdrop->addChild(std::move(dim));
         addChild(std::move(backdrop));
 
+        m_keyShadow = static_cast<RectNode*>(addChild(std::make_unique<RectNode>()));
+        m_contactShadow = static_cast<RectNode*>(addChild(std::make_unique<RectNode>()));
+
         auto panel = ui::box({
             .out = &m_panel,
             .configure = [this](Box& box) {
               box.setDialogStyle();
-              box.setRadius(Style::scaledRadiusXl(m_scale()));
+              box.setRadius(m_radius());
             },
         });
         panel->setZIndex(1);
+        m_paletteConn = paletteChanged().connect([this] { layoutShadows(); });
         auto contentHost = ui::node({.out = &m_contentHost});
         if (m_request.build) {
           m_content = contentHost->addChild(m_request.build());
@@ -106,6 +141,7 @@ namespace settings {
         const float panelHeight = contentSize.height + 2.0F * padding;
         m_panel->setPosition((fullWidth - panelWidth) * 0.5F, (fullHeight - panelHeight) * 0.5F);
         m_panel->setSize(panelWidth, panelHeight);
+        layoutShadows();
         m_contentHost->setPosition(padding, padding);
         m_contentHost->setSize(contentSize.width, contentSize.height);
         if (m_content != nullptr) {
@@ -130,12 +166,27 @@ namespace settings {
       }
 
     private:
-      [[nodiscard]] float m_scale() const noexcept { return std::max(0.1F, m_request.contentPadding / 12.0F); }
+      [[nodiscard]] float m_scale() const noexcept { return m_request.scale; }
+      void layoutShadows() {
+        const float x = m_panel->x();
+        const float y = m_panel->y();
+        const float w = m_panel->width();
+        const float h = m_panel->height();
+        layoutShadow(*m_keyShadow, kE4Key, x, y, w, h, m_radius(), m_scale());
+        layoutShadow(*m_contactShadow, kE4Contact, x, y, w, h, m_radius(), m_scale());
+      }
+
+      [[nodiscard]] float m_radius() const noexcept {
+        return Style::scaledRadius(Tokens::componentDialogRadius, m_scale());
+      }
 
       SettingsModalRequest m_request;
       InputArea* m_backdrop = nullptr;
       Box* m_dim = nullptr;
       Box* m_panel = nullptr;
+      RectNode* m_keyShadow = nullptr;
+      RectNode* m_contactShadow = nullptr;
+      Signal<>::ScopedConnection m_paletteConn;
       Node* m_contentHost = nullptr;
       Node* m_content = nullptr;
     };

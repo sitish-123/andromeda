@@ -1,7 +1,9 @@
 #include "effect_light_frag_src.h"
+#include "andromedafx/render/frame_stats.h"
 #include "render/color.h"
 #include "render/egl.h"
 #include "render/fx_renderer/animation_history.h"
+#include "render/fx_renderer/backdrop_probe.h"
 #include "render/fx_renderer/effect.h"
 #include "render/fx_renderer/fx_renderer.h"
 #include "render/fx_renderer/shaders.h"
@@ -11,6 +13,7 @@
 #include "andromedafx/render/fx_renderer/fx_renderer.h"
 #include "andromedafx/types/fx/blur_data.h"
 #include "util/matrix.h"
+#include "util/time.h"
 
 #include <GLES2/gl2ext.h>
 #include <assert.h>
@@ -98,6 +101,24 @@ static uint32_t offscreen_buffer_format(const struct fx_gles_render_pass* pass, 
 
 // Allocates or reuses *slot at the requested size. Restores the pass target;
 // returns NULL on allocation failure.
+static struct fx_frame_stats frame_stats;
+
+struct fx_frame_stats fx_frame_stats_take(void) {
+  struct fx_frame_stats taken = frame_stats;
+  frame_stats = (struct fx_frame_stats){0};
+  return taken;
+}
+
+static uint64_t region_area(const pixman_region32_t* region) {
+  int count = 0;
+  const pixman_box32_t* boxes = pixman_region32_rectangles(region, &count);
+  uint64_t area = 0;
+  for (int i = 0; i < count; i++) {
+    area += (uint64_t)(boxes[i].x2 - boxes[i].x1) * (uint64_t)(boxes[i].y2 - boxes[i].y1);
+  }
+  return area;
+}
+
 static struct fx_framebuffer* ensure_offscreen_buffer_size(
     struct fx_gles_render_pass* pass, struct fx_framebuffer** slot, bool alpha, int width, int height
 ) {
@@ -468,10 +489,15 @@ static bool render_pass_submit(struct wlr_render_pass* wlr_pass) {
     renderer->procs.glGetInteger64vEXT(GL_GPU_DISJOINT_EXT, &disjoint);
     // set up the query
     renderer->procs.glQueryCounterEXT(timer->id, GL_TIMESTAMP_EXT);
-    // get end-of-CPU-work time in GL time domain
-    renderer->procs.glGetInteger64vEXT(GL_TIMESTAMP_EXT, &timer->gl_cpu_end);
-    // get end-of-CPU-work time in CPU time domain
     clock_gettime(CLOCK_MONOTONIC, &timer->cpu_end);
+    const int64_t cpu_end_ns = timespec_to_nsec(&timer->cpu_end);
+    if (renderer->gl_clock_synced_ns == 0 || cpu_end_ns - renderer->gl_clock_synced_ns > 1000000000) {
+      GLint64 gl_now;
+      renderer->procs.glGetInteger64vEXT(GL_TIMESTAMP_EXT, &gl_now);
+      renderer->gl_clock_offset_ns = gl_now - cpu_end_ns;
+      renderer->gl_clock_synced_ns = cpu_end_ns;
+    }
+    timer->gl_cpu_end = cpu_end_ns + renderer->gl_clock_offset_ns;
   }
 
   TRACY_FN(tracy_gpu_zone_end(&gpu_ctx); tracy_gpu_zone_end(&pass->frame_gpu_zone); gpu_zones_open = false;)
@@ -582,12 +608,21 @@ static const struct wlr_render_pass_impl render_pass_impl = {
 // Initialize the stenciling work. Returns false when the pass target has no
 // stencil buffer, in which case no mask is active and stencil_mask_close and
 // stencil_mask_fini must be skipped.
-static bool stencil_mask_init(struct fx_gles_render_pass* pass) {
+// Clears the stencil only inside box: the mask writes only there, so the rest stays 0. A full-target clear per masked
+// node is a slow stencil clear on Intel. The projection is FLIPPED_180, so buffer coordinates are scissor coordinates.
+static void stencil_clear_box(const struct wlr_box* box) {
+  glEnable(GL_SCISSOR_TEST);
+  glScissor(box->x, box->y, box->width, box->height);
+  glClearStencil(0);
+  glClear(GL_STENCIL_BUFFER_BIT);
+  glDisable(GL_SCISSOR_TEST);
+}
+
+static bool stencil_mask_init(struct fx_gles_render_pass* pass, const struct wlr_box* box) {
   if (!fx_framebuffer_ensure_stencil(pass->buffer)) {
     return false;
   }
-  glClearStencil(0);
-  glClear(GL_STENCIL_BUFFER_BIT);
+  stencil_clear_box(box);
   glEnable(GL_STENCIL_TEST);
 
   glStencilFunc(GL_ALWAYS, 1, 0xFF);
@@ -611,9 +646,8 @@ static void stencil_mask_close(bool draw_inside_mask) {
 }
 
 // Finish stenciling and clear the buffer
-static void stencil_mask_fini(void) {
-  glClearStencil(0);
-  glClear(GL_STENCIL_BUFFER_BIT);
+static void stencil_mask_fini(const struct wlr_box* box) {
+  stencil_clear_box(box);
   glDisable(GL_STENCIL_TEST);
 }
 
@@ -1924,7 +1958,8 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   struct tex_shader* shader = NULL;
 
   bool use_effects =
-      !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region);
+      !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region)
+      || fx_options->liquid > 0.0f || fx_options->rim > 0.0f;
   // A non-empty sample box selects the clamp variant. Everything else runs
   // the same fetch as before the clamp existed, so a driver only ever sees
   // the extra uniform on fractionally cropped surfaces.
@@ -1991,7 +2026,12 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   );
   push_fx_debug(renderer);
 
-  if (options->wait_timeline != NULL) {
+  // The export + EGL wait costs about 12 syscalls; a point that has already signalled (always so for commits the
+  // acquire barrier released) needs one check.
+  bool wait_signalled = false;
+  if (options->wait_timeline != NULL
+      && !(wlr_drm_syncobj_timeline_check(options->wait_timeline, options->wait_point, 0, &wait_signalled)
+           && wait_signalled)) {
     int sync_file_fd = wlr_drm_syncobj_timeline_export_sync_file(options->wait_timeline, options->wait_point);
     if (sync_file_fd < 0) {
       TRACY_BOTH_ZONES_END_FAIL;
@@ -2097,6 +2137,27 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     glUniform2f(shader->effects.clip_size, clipped_region_box.width, clipped_region_box.height);
     glUniform2f(shader->effects.clip_position, clipped_region_box.x, clipped_region_box.y);
     uniform_corner_radii_set(&shader->effects.clip_radius, &clipped_region_corners);
+    glUniform1f(shader->effects.liquid, fx_options->liquid);
+    glUniform1f(shader->effects.rim, fx_options->rim);
+    const bool liquid_shape = !wlr_box_empty(&fx_options->liquid_box);
+    const struct wlr_box liquid_box = liquid_shape ? fx_options->liquid_box : *clip_box;
+    glUniform2f(shader->effects.liquid_size, liquid_box.width, liquid_box.height);
+    glUniform2f(shader->effects.liquid_position, liquid_box.x, liquid_box.y);
+    glUniform1f(shader->effects.liquid_radius, liquid_shape ? fx_options->liquid_radius : -1.0f);
+    glUniform2f(shader->effects.liquid_texel, 1.0f / (float)texture->wlr_texture.width,
+                1.0f / (float)texture->wlr_texture.height);
+    // Unit 2: units 0 and 1 hold the source and the colour LUT.
+    glUniform1i(shader->effects.lens_tex, 2);
+    const bool lens = fx_options->lens_texture != NULL && fx_options->liquid > 0.0f;
+    glUniform1f(shader->effects.lens, lens ? fx_options->liquid : 0.0f);
+    if (lens) {
+      struct fx_texture* lens_texture = fx_get_texture(fx_options->lens_texture);
+      glActiveTexture(GL_TEXTURE2);
+      glBindTexture(GL_TEXTURE_2D, lens_texture->tex);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glActiveTexture(GL_TEXTURE0);
+    }
   }
 
   set_proj_matrix(shader->proj, pass->projection_matrix, &dst_box);
@@ -2105,6 +2166,11 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
   render(&dst_box, &clip_region, shader->pos_attrib);
   pixman_region32_fini(&clip_region);
 
+  if (use_effects && fx_options->lens_texture != NULL) {
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+  }
   glBindTexture(texture->target, 0);
 
   pop_fx_debug(renderer);
@@ -2114,7 +2180,9 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
 // Backdrop blur inside a captured group must see the scene beneath the group,
 // plus already rendered siblings in every enclosing capture, not transparent
 // scratch storage. Build that view without applying the pending parent effects.
-static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pass) {
+// `bounds` (may be NULL = whole buffer) limits the rebuild to what the caller reads: a full-output clear and copy per
+// glass node per frame costs more than the blur itself on a low-end GPU.
+static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pass, const pixman_region32_t* bounds) {
   if (pass->animation_depth == 0) {
     return pass->buffer;
   }
@@ -2125,9 +2193,23 @@ static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pas
   }
   pass->buffer = target;
   fx_framebuffer_bind(target);
-  glDisable(GL_SCISSOR_TEST);
-  glClearColor(0, 0, 0, 0);
-  glClear(GL_COLOR_BUFFER_BIT);
+  frame_stats.backdrop_rebuilds++;
+  frame_stats.backdrop_px += bounds != NULL ? region_area(bounds)
+                                            : (uint64_t)target->buffer->width * (uint64_t)target->buffer->height;
+  if (bounds != NULL) {
+    struct wlr_render_rect_options clear = {
+        .box = {.width = target->buffer->width, .height = target->buffer->height},
+        .color = {0, 0, 0, 0},
+        .clip = bounds,
+        .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+    };
+    struct fx_render_rect_options fx_clear = fx_render_rect_options_default(&clear);
+    fx_render_pass_add_rect(pass, &fx_clear);
+  } else {
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+  }
   for (unsigned i = pass->isolation_depth; i <= pass->animation_depth; i++) {
     struct fx_framebuffer* layer = i == pass->animation_depth ? saved : pass->animation_parents[i];
     struct wlr_box layer_box = {.width = layer->buffer->width, .height = layer->buffer->height};
@@ -2144,6 +2226,7 @@ static struct fx_framebuffer* animation_backdrop(struct fx_gles_render_pass* pas
     struct wlr_render_texture_options options = {
         .texture = texture,
         .dst_box = layer_box,
+        .clip = bounds,
         .transfer_function =
             pass->has_color_transform ? WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR : WLR_COLOR_TRANSFER_FUNCTION_SRGB,
         .blend_mode = WLR_RENDER_BLEND_MODE_PREMULTIPLIED,
@@ -2708,6 +2791,8 @@ static struct fx_framebuffer* get_main_buffer_blur(
   wlr_region_expand(&damage, &damage, blur_data_calc_size(&blur_data));
   // Make sure that the region doesn't expand past the buffer bounds
   pixman_region32_intersect_rect(&damage, &damage, 0, 0, buffer_bounds.width, buffer_bounds.height);
+  frame_stats.blurs++;
+  frame_stats.blur_px += region_area(&damage);
 
   // damage region will be scaled, make a temp
   pixman_region32_t scaled_damage;
@@ -2930,10 +3015,14 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       && fbos->optimized_blur_buffer != NULL
       && !fx_render_pass_optimized_blur_stale(pass);
   struct fx_framebuffer* buffer = NULL;
+  // The unblurred backdrop the blur reads; the lens samples a copy of it.
+  struct fx_framebuffer* sharp = use_optimized ? fbos->optimized_no_blur_buffer : NULL;
   // The final upsample draws straight into the pass target unless the
   // optimized buffer already holds the finished blur or the composite would do
   // more than copy it.
-  const bool fuse = (!use_optimized || has_strength) && blur_composite_is_copy(pass, tex_options);
+  // Liquid glass needs the composite draw: the fused upsample has no refraction.
+  const bool fuse =
+      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && fx_options->rim <= 0.0f && blur_composite_is_copy(pass, tex_options);
   struct blur_data final_upsample = {0};
   TRACY_ZONE_TEXT_f("Use Optimized Blur: %d", fx_options->use_optimized_blur);
   TRACY_ZONE_TEXT_f("Fused Composite: %d", fuse);
@@ -2945,8 +3034,22 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       // Isn't as efficient as just using the optimized blur buffer
       blur_options.current_buffer = fbos->optimized_no_blur_buffer;
     } else {
-      blur_options.current_buffer = animation_backdrop(pass);
+      // The blur reads the clip expanded by its kernel size; the lens reads the node box.
+      pixman_region32_t reads;
+      pixman_region32_init_rect(&reads, fx_options->tex_options.base.dst_box.x, fx_options->tex_options.base.dst_box.y,
+                                fx_options->tex_options.base.dst_box.width, fx_options->tex_options.base.dst_box.height);
+      if (fx_options->tex_options.base.clip != NULL) {
+        pixman_region32_intersect(&reads, &reads, fx_options->tex_options.base.clip);
+      }
+      const struct blur_data reach = blur_data_apply_strength(fx_options->blur_data, fx_options->blur_strength);
+      wlr_region_expand(&reads, &reads, blur_data_calc_size(&reach));
+      pixman_region32_union_rect(&reads, &reads, fx_options->tex_options.base.dst_box.x,
+                                 fx_options->tex_options.base.dst_box.y, fx_options->tex_options.base.dst_box.width,
+                                 fx_options->tex_options.base.dst_box.height);
+      blur_options.current_buffer = animation_backdrop(pass, pass->animation_depth > 0 ? &reads : NULL);
+      pixman_region32_fini(&reads);
     }
+    sharp = blur_options.current_buffer;
     buffer = get_main_buffer_blur(pass, &blur_options, fuse ? &final_upsample : NULL);
   } else {
     buffer = fbos->optimized_blur_buffer;
@@ -2963,14 +3066,38 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   }
   struct fx_texture* blur_texture = fx_get_texture(wlr_texture);
 
+  // Liquid nodes never fuse; a fused blur holds a half-size image the probe box does not address. The blur buffer is
+  // fresh only inside this frame's damage, so a partial redraw (a caret blink) samples nothing.
+  const struct wlr_box probe_box = tex_options->clip_box == NULL ? (struct wlr_box){0}
+      : wlr_box_empty(&fx_options->liquid_box)                  ? *tex_options->clip_box
+                                                                : fx_options->liquid_box;
+  const pixman_box32_t probe_extents = {
+      probe_box.x, probe_box.y, probe_box.x + probe_box.width, probe_box.y + probe_box.height
+  };
+  if (fx_options->backdrop_probe != NULL && !fuse && pass->group_depth == 0 && !wlr_box_empty(&probe_box)
+      && fx_backdrop_probe_due(fx_options->backdrop_probe)
+      && (tex_options->base.clip == NULL
+          || pixman_region32_contains_rectangle(tex_options->base.clip, &probe_extents) == PIXMAN_REGION_IN)) {
+    fx_backdrop_probe_capture(
+        fx_options->backdrop_probe, blur_texture->tex, blur_texture->target, buffer->buffer->width,
+        buffer->buffer->height, &probe_box, pass->has_color_transform
+    );
+    fx_framebuffer_bind(pass->buffer);
+  }
+
   // Get a stencil of the window ignoring transparent regions
   bool masked = false;
+  // A copy: the non-fused path below overwrites dst_box with the whole buffer.
+  const struct wlr_box mask_box = fx_options->tex_options.base.dst_box;
   if (fx_options->ignore_alpha > 0.0f && fx_options->tex_options.base.texture) {
-    masked = stencil_mask_init(pass);
+    masked = stencil_mask_init(pass, &mask_box);
   }
   if (masked) {
     struct fx_render_texture_options tex_options = fx_options->tex_options;
     tex_options.discard_transparent = fx_options->ignore_alpha;
+    // The stencil is the surface's shape: test its own alpha, not the blur fade, or a fading surface loses its whole
+    // blur at once when fade x pixel alpha drops below the threshold.
+    tex_options.base.alpha = NULL;
     tex_options.clipped_region = fx_options->clipped_region;
     fx_render_pass_add_texture(pass, &tex_options);
 
@@ -3000,14 +3127,45 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     // since we're capturing from the fbo, transform will always be normal
     tex_options->base.transform = WL_OUTPUT_TRANSFORM_NORMAL;
     tex_options->clipped_region = fx_options->clipped_region;
+    tex_options->liquid = fx_options->liquid;
+    tex_options->rim = fx_options->rim;
+    tex_options->liquid_box = fx_options->liquid_box;
+    tex_options->liquid_radius = fx_options->liquid_radius;
+    // Lens: a copy of the sharp backdrop, only the shape's rectangle. The live target cannot be sampled while it is
+    // drawn into, and the blur buffers hold only the blurred image.
+    struct wlr_texture* lens = NULL;
+    static int lens_enabled = -1;
+    if (lens_enabled < 0) {
+      const char* env = getenv("ANDROMEDA_LENS");
+      lens_enabled = env == NULL || strcmp(env, "0") != 0;
+    }
+    if (lens_enabled && fx_options->liquid > 0.0f && sharp != NULL && !wlr_box_empty(&probe_box)) {
+      struct fx_framebuffer* copy = ensure_offscreen_buffer(pass, &target_buffers(pass)->lens_source, true);
+      if (copy != NULL) {
+        pixman_region32_t region;
+        pixman_region32_init_rect(&region, probe_box.x, probe_box.y, probe_box.width, probe_box.height);
+        frame_stats.lens++;
+        frame_stats.lens_px += (uint64_t)probe_box.width * (uint64_t)probe_box.height;
+        if (fx_render_pass_read_to_buffer(pass, &region, copy, sharp)) {
+          lens = fx_texture_from_buffer(&renderer->wlr_renderer, copy->buffer);
+        }
+        pixman_region32_fini(&region);
+        fx_framebuffer_bind(pass->buffer);
+      }
+    }
+    tex_options->lens_texture = lens;
     fx_render_pass_add_texture(pass, tex_options);
+    tex_options->lens_texture = NULL;
+    if (lens != NULL) {
+      wlr_texture_destroy(lens);
+    }
   }
 
   wlr_texture_destroy(&blur_texture->wlr_texture);
 
   // Finish stenciling
   if (masked) {
-    stencil_mask_fini();
+    stencil_mask_fini(&mask_box);
   }
 
 finish:
@@ -3025,6 +3183,12 @@ bool fx_render_pass_optimized_blur_stale(const struct fx_gles_render_pass* pass)
           || fbos->optimized_blur_sdr_tf != linear_sdr_tf(pass)
           || !optimized_buffer_fits(pass, fbos->optimized_blur_buffer)
           || !optimized_buffer_fits(pass, fbos->optimized_no_blur_buffer));
+}
+
+bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pass) {
+  const struct fx_offscreen_buffers* fbos = pass->fx_offscreen_buffers;
+  return pass->group_depth == 0 && fbos != NULL && fbos->optimized_blur_buffer != NULL && fbos->optimized_blur_valid
+      && !fx_render_pass_optimized_blur_stale(pass);
 }
 
 bool fx_render_pass_add_optimized_blur(
@@ -3066,6 +3230,9 @@ bool fx_render_pass_add_optimized_blur(
 
   pixman_region32_t clip;
   pixman_region32_init_rect(&clip, dst_box.x, dst_box.y, dst_box.width, dst_box.height);
+  if (fx_options->tex_options.base.clip != NULL) {
+    pixman_region32_intersect(&clip, &clip, fx_options->tex_options.base.clip);
+  }
 
   // Render the blur into its own buffer. Buffers that don't fit are replaced
   // below and hold nothing yet; buffers that fit keep their last render until
@@ -3078,7 +3245,7 @@ bool fx_render_pass_add_optimized_blur(
   struct fx_framebuffer* blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_blur_buffer, false);
   struct fx_framebuffer* no_blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_no_blur_buffer, false);
   struct fx_framebuffer* fx_buffer = NULL;
-  struct fx_framebuffer* backdrop = animation_backdrop(pass);
+  struct fx_framebuffer* backdrop = animation_backdrop(pass, NULL);
   if (blur_buffer != NULL && no_blur_buffer != NULL) {
     struct fx_render_blur_pass_options blur_options = *fx_options;
     blur_options.current_buffer = backdrop;
@@ -3094,6 +3261,13 @@ bool fx_render_pass_add_optimized_blur(
     rendered = fx_render_pass_read_to_buffer(pass, &clip, no_blur_buffer, backdrop) && rendered;
     fbos->optimized_blur_valid = rendered;
     fbos->optimized_blur_sdr_tf = linear_sdr_tf(pass);
+    if (rendered) {
+      int rects = 0;
+      const pixman_box32_t* boxes = pixman_region32_rectangles(&clip, &rects);
+      for (int i = 0; i < rects; i++) {
+        fbos->optimized_blur_pixels += (uint64_t)(boxes[i].x2 - boxes[i].x1) * (boxes[i].y2 - boxes[i].y1);
+      }
+    }
   }
 
   pixman_region32_fini(&clip);
@@ -3226,6 +3400,11 @@ void fx_renderer_fail_effect_capture_for_test(struct wlr_renderer* renderer, boo
   fx_get_renderer(renderer)->fail_effect_capture_for_test = fail;
 }
 
+uint64_t fx_output_optimized_blur_pixels_for_test(struct wlr_output* output) {
+  const struct fx_offscreen_buffers* fbos = fx_offscreen_buffers_try_get(output);
+  return fbos != NULL ? fbos->optimized_blur_pixels : 0;
+}
+
 void fx_renderer_split_blur_composite_for_test(struct wlr_renderer* renderer, bool split) {
   fx_get_renderer(renderer)->split_blur_composite_for_test = split;
 }
@@ -3328,6 +3507,7 @@ struct fx_gles_render_pass* fx_begin_buffer_pass(
       (*blend_buffer)->blend_parent = buffer;
     }
     target = *blend_buffer;
+    frame_stats.fp16_passes++;
     memcpy(pass->output_matrix, state.matrix, sizeof(pass->output_matrix));
     pass->output_tf = state.tf;
     if (state.lut != NULL) {

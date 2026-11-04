@@ -134,6 +134,37 @@ namespace noctalia::config::schema {
     return values;
   }
 
+  // The settings window row of a field; the settings registry builds rows only for fields that have one.
+  // The field factory fills `range` and `choices` from its own range and enum table. A `range` set in the
+  // RowSpec wins: some controls offer a narrower range than the config accepts.
+  struct RowSpec {
+    enum class Kind : std::uint8_t { Toggle, Slider, Select, Text, Stepper };
+    enum class Browse : std::uint8_t { None, Folder, File };
+    struct Choice {
+      std::string_view value;
+      std::string_view labelKey;
+    };
+
+    Kind kind = Kind::Toggle;
+    std::string_view section; // settings page id, e.g. "control-center"
+    std::string_view group;
+    // Translation id between "settings.schema." and ".label"/".description". Empty = "<section>.<key>",
+    // with '_' in the key written as '-'.
+    std::string_view label;
+    std::string_view tags; // extra search words
+    bool advanced = false;
+    bool segmented = false;  // select shown as a pill group
+    bool integer = false;    // slider value written as an integer
+    std::string_view suffix; // slider or stepper value suffix, e.g. "px"
+    // Text placeholder: a translation key, or literal text when placeholderKey is empty.
+    std::string_view placeholderKey;
+    std::string_view placeholder;
+    float width = 0.0F; // text field or select width; 0 = default
+    Browse browse = Browse::None;
+    Range<double> range;
+    std::vector<Choice> choices;
+  };
+
   // One descriptor: binds a single TOML key in a parent table to part of a
   // Struct. read() pulls the key into `out`; write() emits it from `in`. Both
   // are no-ops when the key is absent (read) — leaving the struct default.
@@ -145,6 +176,7 @@ namespace noctalia::config::schema {
     // this key and append dotted paths of unrecognized child keys. Null for leaves.
     std::function<void(const toml::table& tbl, std::string_view parentPath, std::vector<std::string>& unknown)>
         findUnknown = nullptr;
+    std::optional<RowSpec> row = std::nullopt;
   };
 
   // Ordered set of fields for one struct. Insertion order is the serialization
@@ -153,7 +185,8 @@ namespace noctalia::config::schema {
 
   // ── Leaf codec factories ─────────────────────────────────────────────────
 
-  template <typename Struct> Field<Struct> field(bool Struct::* member, std::string_view key) {
+  template <typename Struct>
+  Field<Struct> field(bool Struct::* member, std::string_view key, std::optional<RowSpec> row = std::nullopt) {
     return Field<Struct>{
         key,
         [member, key](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
@@ -164,10 +197,13 @@ namespace noctalia::config::schema {
           }
         },
         [member, key](toml::table& tbl, const Struct& in) { tbl.insert_or_assign(key, in.*member); },
+        nullptr,
+        std::move(row),
     };
   }
 
-  template <typename Struct> Field<Struct> field(std::string Struct::* member, std::string_view key) {
+  template <typename Struct>
+  Field<Struct> field(std::string Struct::* member, std::string_view key, std::optional<RowSpec> row = std::nullopt) {
     return Field<Struct>{
         key,
         [member, key](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
@@ -178,12 +214,22 @@ namespace noctalia::config::schema {
           }
         },
         [member, key](toml::table& tbl, const Struct& in) { tbl.insert_or_assign(key, in.*member); },
+        nullptr,
+        std::move(row),
     };
   }
 
   template <typename Struct>
-  Field<Struct>
-  field(std::int32_t Struct::* member, std::string_view key, std::optional<Range<std::int64_t>> range = std::nullopt) {
+  Field<Struct> field(
+      std::int32_t Struct::* member, std::string_view key, std::optional<Range<std::int64_t>> range = std::nullopt,
+      std::optional<RowSpec> row = std::nullopt
+  ) {
+    if (row && range && !row->range.min) {
+      row->range = {range->min, range->max, range->step};
+    }
+    if (row) {
+      row->integer = true;
+    }
     return Field<Struct>{
         key,
         [member, key, range](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
@@ -200,11 +246,19 @@ namespace noctalia::config::schema {
         [member, key](toml::table& tbl, const Struct& in) {
           tbl.insert_or_assign(key, static_cast<std::int64_t>(in.*member));
         },
+        nullptr,
+        std::move(row),
     };
   }
 
   template <typename Struct>
-  Field<Struct> field(float Struct::* member, std::string_view key, std::optional<Range<float>> range = std::nullopt) {
+  Field<Struct> field(
+      float Struct::* member, std::string_view key, std::optional<Range<float>> range = std::nullopt,
+      std::optional<RowSpec> row = std::nullopt
+  ) {
+    if (row && range && !row->range.min) {
+      row->range = {range->min, range->max, range->step};
+    }
     return Field<Struct>{
         key,
         [member, key, range](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
@@ -221,6 +275,8 @@ namespace noctalia::config::schema {
         [member, key](toml::table& tbl, const Struct& in) {
           tbl.insert_or_assign(key, static_cast<double>(in.*member));
         },
+        nullptr,
+        std::move(row),
     };
   }
 
@@ -388,8 +444,10 @@ namespace noctalia::config::schema {
   }
 
   // String holding a filesystem path: ~ and $VARS expand on read, emitted raw.
-  template <typename Struct> Field<Struct> pathStringField(std::string Struct::* member, std::string_view key) {
-    return custom<Struct>(
+  template <typename Struct>
+  Field<Struct>
+  pathStringField(std::string Struct::* member, std::string_view key, std::optional<RowSpec> row = std::nullopt) {
+    auto result = custom<Struct>(
         key,
         [member, key](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
           if (auto v = tbl[key].value<std::string>()) {
@@ -400,6 +458,8 @@ namespace noctalia::config::schema {
         },
         [member, key](toml::table& tbl, const Struct& in) { tbl.insert_or_assign(key, in.*member); }
     );
+    result.row = std::move(row);
+    return result;
   }
 
   template <typename Struct>
@@ -498,8 +558,16 @@ namespace noctalia::config::schema {
   // Enum field backed by an existing EnumOption<E>[] table. Trims input, and
   // warns (does not fail) on unknown keys — matching the legacy behavior.
   template <typename Struct, typename Enum, std::size_t N>
-  Field<Struct> enumField(Enum Struct::* member, std::string_view key, const EnumOption<Enum> (&options)[N]) {
+  Field<Struct> enumField(
+      Enum Struct::* member, std::string_view key, const EnumOption<Enum> (&options)[N],
+      std::optional<RowSpec> row = std::nullopt
+  ) {
     const EnumOption<Enum>* opts = options;
+    if (row) {
+      for (const auto& option : options) {
+        row->choices.push_back({option.key, option.labelKey});
+      }
+    }
     return Field<Struct>{
         key,
         [member, key, opts](const toml::table& tbl, Struct& out, std::string_view parentPath, Diagnostics& diag) {
@@ -517,6 +585,8 @@ namespace noctalia::config::schema {
         [member, key, opts](toml::table& tbl, const Struct& in) {
           tbl.insert_or_assign(key, std::string(enumKeyOf(opts, N, in.*member)));
         },
+        nullptr,
+        std::move(row),
     };
   }
 

@@ -27,7 +27,11 @@ void PixelStreamService::add(PixelStreamClient& client) {
 
 void PixelStreamService::remove(PixelStreamClient& client) {
   std::erase(m_clients, &client);
-  std::ranges::replace(m_polled, &client, nullptr);
+  for (Polled& polled : m_polled) {
+    if (polled.client == &client) {
+      polled.client = nullptr;
+    }
+  }
 }
 
 int PixelStreamService::pollTimeoutMs() const {
@@ -50,7 +54,11 @@ void PixelStreamService::doAddPollFds(std::vector<pollfd>& fds) {
   for (PixelStreamClient* client : m_clients) {
     if (client->connected()) {
       fds.push_back({.fd = client->fd(), .events = POLLIN, .revents = 0});
-      m_polled.push_back(client);
+      m_polled.push_back({.client = client});
+    }
+    if (client->releaseFence() >= 0) {
+      fds.push_back({.fd = client->releaseFence(), .events = POLLIN, .revents = 0});
+      m_polled.push_back({.client = client, .fence = true});
     }
   }
 }
@@ -59,9 +67,17 @@ void PixelStreamService::dispatch(const std::vector<pollfd>& fds, std::size_t st
   // Callbacks only mark controls dirty, but a client can still be removed mid-loop, so every
   // step re-checks registration instead of trusting a snapshot.
   for (std::size_t i = 0; i < m_polled.size() && startIdx + i < fds.size(); ++i) {
-    PixelStreamClient* client = m_polled[i];
-    if (client != nullptr && client->fd() == fds[startIdx + i].fd && fds[startIdx + i].revents != 0) {
-      client->dispatch(fds[startIdx + i].revents);
+    PixelStreamClient* client = m_polled[i].client;
+    const pollfd& polled = fds[startIdx + i];
+    if (client == nullptr || polled.revents == 0) {
+      continue;
+    }
+    if (m_polled[i].fence) {
+      if (client->releaseFence() == polled.fd) {
+        client->dispatchReleaseFence();
+      }
+    } else if (client->fd() == polled.fd) {
+      client->dispatch(polled.revents);
     }
   }
   m_polled.clear();

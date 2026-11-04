@@ -66,7 +66,6 @@ in
       example = lib.literalExpression ''
         shell = {
           font = "JetBrainsMono Nerd Font";
-          settings_show_advanced = true;
         };
 
         theme = {

@@ -4,26 +4,25 @@
 #include "config/config_types.h"
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
+#include "ui/controls/button.h"
+#include "ui/controls/glyph.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
+#include <array>
+#include <vector>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <unordered_set>
 #include <utility>
 
 namespace settings {
-
-  namespace {
-    // Cards sit on the Surface window background and hold controls that fill SurfaceContainer at full
-    // opacity, so a full-strength card fill would match them. Mixing the theme's own elevated tone
-    // partway toward Surface keeps the palette hue and still reads distinct from those controls.
-    constexpr float kCardFillOpacity = 0.4F;
-  } // namespace
 
   bool isMonitorOverrideSettingPath(const std::vector<std::string>& path) {
     return path.size() >= 5 && path[0] == "bar" && path[2] == "monitor";
@@ -197,36 +196,138 @@ namespace settings {
   }
 
   Flex* addSettingsCard(Flex& parent, std::string_view title, float scale) {
+    return addSettingsGroupCard(parent, title, scale);
+  }
+
+  Flex* addSettingsGroupCard(Flex& parent, std::string_view caption, float scale) {
     Flex* bodyRaw = nullptr;
-    auto card = ui::column({
-        .align = FlexAlign::Stretch,
-        .gap = Style::spaceSm * scale,
-        .configure = [scale](Flex& container) {
-          container.setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
-          container.setCardStyle(scale, kCardFillOpacity);
-        },
-    });
-    if (!title.empty()) {
-      card->addChild(
-          makeLabel(title, Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+    auto group = ui::column({.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale});
+    if (!caption.empty()) {
+      auto captionRow = ui::column({.align = FlexAlign::Stretch});
+      captionRow->setPadding(0.0F, Style::spaceLg * scale);
+      captionRow->addChild(
+          makeLabel(caption, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Bold)
       );
+      group->addChild(std::move(captionRow));
     }
-    card->addChild(
+    group->addChild(
         ui::column({
             .out = &bodyRaw,
             .align = FlexAlign::Stretch,
-            .gap = Style::spaceSm * scale,
+            .gap = 0.0F,
+            .configure = [scale](Flex& container) {
+              container.setFill(frameColors().cardFill);
+              container.setBorder(frameColors().cardBorder, metrics::kCardBorderWidth * scale);
+              container.setRadius(Style::scaledRadiusLg(scale));
+              container.setPadding(Style::spaceXs * scale, Style::spaceLg * scale);
+            },
         })
     );
-    parent.addChild(std::move(card));
+    parent.addChild(std::move(group));
     return bodyRaw;
+  }
+
+  void applyWallpaperIllustration(Flex& flex) {
+    const bool light = isResolvedLightTheme();
+    const Color a = rgbHex(light ? 0xF6C9A8 : 0x24161C);
+    const Color b = rgbHex(light ? 0x9FB6FF : 0x121A33);
+    const Color c = rgbHex(light ? 0x8FE6D2 : 0x0C2A28);
+    flex.setFillGradient(
+        GradientDirection::Horizontal, {GradientStop{0.0F, a}, GradientStop{0.6F, b}, GradientStop{0.6F, b}, GradientStop{1.0F, c}}
+    );
+  }
+
+  std::unique_ptr<Flex> makeDockPreview(const DockConfig& dock, float scale) {
+    constexpr float kPreviewHeight = 120.0F;
+    constexpr float kPreviewInset = 12.0F;
+    constexpr float kShrink = 0.8F; // preview icons are 0.8 of the real size
+    constexpr std::array<std::uint32_t, 5> kApps{0x3D6CF0, 0xF0603D, 0x5147E5, 0x2B9E63, 0xE8A23C};
+    const bool vertical = dock.position == DockEdge::Left || dock.position == DockEdge::Right;
+    const bool atEnd = dock.position == DockEdge::Bottom || dock.position == DockEdge::Right;
+    const float icon = static_cast<float>(dock.iconSize) * kShrink;
+    auto capsule = ui::row({
+        .align = FlexAlign::Center,
+        .gap = Style::spaceXs * scale,
+        .padding = Style::spaceXs * scale,
+        .fill = colorSpecFromRole(ColorRole::SolidThin),
+        .radius = Style::scaledRadiusXl(scale),
+    });
+    if (vertical) {
+      capsule->setDirection(FlexDirection::Vertical);
+    }
+    for (std::size_t i = 0; i < kApps.size(); ++i) {
+      const float size = dock.magnification && i == 2 ? icon * dock.magnificationScale : icon;
+      capsule->addChild(ui::box({
+          .fill = fixedColorSpec(rgbHex(kApps[i])),
+          .radius = Style::spaceMd * scale,
+          .width = size * scale,
+          .height = size * scale,
+      }));
+    }
+    auto plane = ui::column({
+        .align = vertical ? (atEnd ? FlexAlign::End : FlexAlign::Start) : FlexAlign::Center,
+        .justify = vertical ? FlexJustify::Center : (atEnd ? FlexJustify::End : FlexJustify::Start),
+        .padding = kPreviewInset * scale,
+        .radius = Style::scaledRadiusMd(scale),
+        .minHeight = kPreviewHeight * scale,
+        .fillWidth = true,
+    });
+    applyWallpaperIllustration(*plane);
+    plane->addChild(std::move(capsule));
+    return plane;
+  }
+
+  void addSettingsRowSeparators(Flex& body, float scale) {
+    // Only between shown rows. The card's own background rect is a child too; a separator after it draws a line
+    // on the card's top edge.
+    std::vector<std::size_t> shown;
+    for (std::size_t index = 0; index < body.children().size(); ++index) {
+      const auto& child = body.children()[index];
+      if (child->visible() && child->participatesInLayout()) {
+        shown.push_back(index);
+      }
+    }
+    for (std::size_t k = shown.size(); k > 1; --k) {
+      auto separator =
+          ui::separator({.thickness = metrics::kRowSeparatorThickness * scale, .spacing = 0.0F, .gradientEdges = false});
+      separator->setEndOutset(Style::spaceLg * scale);
+      body.insertChildAt(shown[k - 1], std::move(separator));
+    }
+  }
+
+  std::unique_ptr<Button>
+  makeSettingsLinkRow(std::string_view label, std::string_view trailing, float scale, std::function<void()> onClick) {
+    auto row = ui::button({
+        .text = std::string(label),
+        .fontSize = Style::fontSizeBody * scale,
+        .contentAlign = ButtonContentAlign::Start,
+        .variant = ButtonVariant::Tab,
+        .minHeight = Style::controlHeight * scale,
+        .paddingV = Style::spaceXs * scale,
+        .paddingH = 0.0F,
+        .gap = Style::spaceSm * scale,
+        .radius = Style::scaledRadiusMd(scale),
+        .onClick = std::move(onClick),
+    });
+    row->addChild(ui::spacer());
+    if (!trailing.empty()) {
+      row->addChild(makeLabel(trailing, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2)));
+    }
+    row->addChild(
+        ui::glyph({
+            .glyph = "chevron-right",
+            .glyphSize = Style::fontSizeBody * scale,
+            .color = colorSpecFromRole(ColorRole::Label3),
+        })
+    );
+    return row;
   }
 
   void updateSettingsStatusBanner(Flex& banner, Label& message, std::string_view text, bool error) {
     message.setText(text);
-    message.setColor(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary));
-    banner.setFill(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.14F));
-    banner.setBorder(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.45F), Style::borderWidth);
+    message.setColor(colorSpecFromRole(error ? ColorRole::DangerText : ColorRole::AccentText));
+    banner.setFill(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.14F));
+    banner.setBorder(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.45F), Style::borderWidth);
     banner.setVisible(!text.empty());
   }
 
@@ -241,8 +342,8 @@ namespace settings {
         .configure = [scale, error](Flex& row) {
           row.setPadding(Style::spaceXs * scale, Style::spaceSm * scale);
           row.setRadius(Style::scaledRadiusMd(scale));
-          row.setFill(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.14F));
-          row.setBorder(colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary, 0.45F), Style::borderWidth);
+          row.setFill(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.14F));
+          row.setBorder(colorSpecFromRole(error ? ColorRole::Danger : ColorRole::Accent, 0.45F), Style::borderWidth);
         },
     });
     auto message = ui::label({
@@ -250,7 +351,7 @@ namespace settings {
         .text = std::move(props.message),
         .fontSize = Style::fontSizeCaption * scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(error ? ColorRole::Error : ColorRole::Secondary),
+        .color = colorSpecFromRole(error ? ColorRole::DangerText : ColorRole::AccentText),
         .maxLines = props.scrollable ? 0 : 3,
         .flexGrow = props.scrollable ? 0.0F : 1.0F,
     });
@@ -284,8 +385,8 @@ namespace settings {
               .glyph = "close",
               .glyphSize = Style::fontSizeCaption * scale,
               .variant = ButtonVariant::Ghost,
-              .minWidth = Style::controlHeightSm * scale,
-              .minHeight = Style::controlHeightSm * scale,
+              .minWidth = Style::controlHeight * scale,
+              .minHeight = Style::controlHeight * scale,
               .padding = Style::spaceXs * scale,
               .radius = Style::scaledRadiusSm(scale),
               .onClick = std::move(props.onDismiss),
@@ -394,8 +495,8 @@ namespace settings {
         .padding = Style::spaceSm * scale,
         .configure = [scale](Flex& column) {
           column.setRadius(Style::scaledRadiusMd(scale));
-          column.setFill(colorSpecFromRole(ColorRole::ErrorContainer));
-          column.setBorder(colorSpecFromRole(ColorRole::Error), Style::borderWidth);
+          column.setFill(colorSpecFromRole(ColorRole::Fill1));
+          column.setBorder(colorSpecFromRole(ColorRole::Danger), Style::borderWidth);
         },
     });
     panel->addChild(
@@ -403,14 +504,14 @@ namespace settings {
             .text = i18n::tr("settings.window.offline-mode-notice.title"),
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
     panel->addChild(
         ui::label({
             .text = std::move(message),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnErrorContainer),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = 4,
         })
     );
@@ -421,7 +522,7 @@ namespace settings {
     return ui::label({
         .text = std::string(text),
         .fontSize = Style::fontSizeCaption * scale,
-        .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+        .color = colorSpecFromRole(ColorRole::Label2),
         .maxLines = kSettingDescriptionMaxLines,
     });
   }
@@ -566,6 +667,9 @@ namespace settings {
       }
       if (norm.action == "lock_and_suspend") {
         return i18n::tr("settings.idle.behavior.kind.lock-and-suspend");
+      }
+      if (norm.action == "hibernate") {
+        return i18n::tr("settings.idle.behavior.kind.hibernate");
       }
       if (row.name.empty()) {
         return i18n::tr("settings.idle.behavior.unnamed");

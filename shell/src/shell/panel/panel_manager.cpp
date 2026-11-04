@@ -9,6 +9,7 @@
 #include "core/ui_phase.h"
 #include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
+#include "render/animation/motion_service.h"
 #include "render/render_context.h"
 #include "render/scene/input_area.h"
 #include "scripting/plugin_id.h"
@@ -17,7 +18,7 @@
 #include "shell/panel/panel.h"
 #include "shell/panel/panel_surface_style.h"
 #include "shell/screen_position.h"
-#include "shell/surface/shadow.h"
+#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
@@ -33,6 +34,8 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdlib>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -43,6 +46,8 @@
 PanelManager* PanelManager::s_instance = nullptr;
 
 namespace {
+  constexpr double kScaleOpenFrom = 0.92;
+  constexpr float kMorphMarginRatio = 0.08F;
 
   constexpr Logger kLog("panel");
   constexpr auto kKeyboardRelaxDelay = std::chrono::milliseconds(100);
@@ -190,8 +195,8 @@ namespace {
       wlOutput = platform->findOutputByWl(output);
     }
 
-    const auto resolve = [wlOutput](const BarConfig& bar) {
-      return wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput) : bar;
+    const auto resolve = [wlOutput, configService](const BarConfig& bar) {
+      return wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput, configService->config().accessibility.uiScale) : bar;
     };
     const auto runtimeConfig = [&](std::string_view name) -> std::optional<BarConfig> {
       if (!barConfigProvider || output == nullptr) {
@@ -246,7 +251,7 @@ namespace {
 
     std::size_t count = 0;
     for (const auto& bar : configService->config().bars) {
-      const BarConfig resolved = wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput) : bar;
+      const BarConfig resolved = wlOutput != nullptr ? ConfigService::resolveForOutput(bar, *wlOutput, configService->config().accessibility.uiScale) : bar;
       if (!resolved.enabled || resolved.position != position) {
         continue;
       }
@@ -411,6 +416,14 @@ WaylandConnection* PanelManager::wayland() const noexcept {
 }
 
 void PanelManager::initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext) {
+  m_glassPaletteConn = paletteChanged().connect([this] {
+    if (isOpen()) {
+      updateGlassTone();
+      if (m_dsk != nullptr && !m_attachedToBar && m_dsk->hasLiquidProperty()) {
+        m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_panelLiquid));
+      }
+    }
+  });
   m_platform = &platform;
   m_config = config;
   m_renderContext = renderContext;
@@ -521,6 +534,10 @@ void PanelManager::setAttachedPanelBarSettledCallback(std::function<bool(wl_outp
   m_attachedPanelBarSettledCallback = std::move(callback);
 }
 
+void PanelManager::setIslandSourceProvider(std::function<void(PanelOpenRequest&, std::string_view)> provider) {
+  m_islandSourceProvider = std::move(provider);
+}
+
 void PanelManager::onAttachedBarRevealSettled(wl_output* output, std::string_view barName) {
   if (!m_attachedOpenAnimationPending || !isAttachedOpen() || m_output != output) {
     return;
@@ -572,10 +589,26 @@ void PanelManager::unregisterPanel(const std::string& id) {
   m_panels.erase(it);
 }
 
+void PanelManager::setPanelAlias(std::string from, std::string to, std::string context) {
+  m_panelAliases[std::move(from)] = {std::move(to), std::move(context)};
+}
+
 void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest request) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    request.context = alias->second.second;
+    openPanel(alias->second.first, request);
+    return;
+  }
   if (m_inTransition || m_afterCaptureClose) {
     return;
   }
+  // tools/measure-launch.py reads this line: it has no poll delay, unlike the compositor commit probe.
+  const auto logFirstFrame = [panelId, start = std::chrono::steady_clock::now()](Surface& surface) {
+    surface.callOnNextPresent([panelId, start] {
+      const std::chrono::duration<double, std::milli> ms = std::chrono::steady_clock::now() - start;
+      kLog.info("panel \"{}\" open to first frame {:.1f} ms", panelId, ms.count());
+    });
+  };
 
   if (request.output == nullptr && m_platform != nullptr) {
     request.output = m_platform->focusedInteractiveOutput(std::chrono::milliseconds(1200));
@@ -604,6 +637,10 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       );
       return;
     }
+  }
+
+  if (m_islandSourceProvider != nullptr && request.sourceSurface == nullptr && !request.hasAnchorPosition) {
+    m_islandSourceProvider(request, panelId);
   }
 
   // Persistent panels live in their own host: opening one must leave the active
@@ -647,6 +684,11 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   auto panelWidth = static_cast<std::uint32_t>(m_activePanel->preferredWidth());
   auto panelHeight = static_cast<std::uint32_t>(m_activePanel->preferredHeight());
   m_sourceBarName = barConfig.name;
+  m_morphSource = request.sourceSurface;
+  m_gestureTracker = request.tracker;
+  m_gestureRange = request.trackerRange;
+  m_commitTracker = request.commitTracker;
+  m_morphSourceRect = request.sourceRect;
   const bool isBottom = barConfig.position == "bottom";
   const bool isLeft = barConfig.position == "left";
   const bool isRight = barConfig.position == "right";
@@ -705,6 +747,9 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   m_contentFit = ContentFit{.enabled = m_activePanel->fitsContentHeight() && !fillHeight};
   const std::string panelPosition = effectivePanelPosition(m_config, m_activePanelId, *m_activePanel);
   const AttachedRevealDirection detachedDirection = detachedRevealDirection(panelPosition, barConfig.position);
+  // An island has no bar body to attach to: a panel opened from one floats under it (the bar
+  // anchors the request on the island center) and grows out of it.
+  const bool morphFromIsland = m_morphSource != nullptr && wayland() != nullptr && wayland()->dskSurfaceManager() != nullptr;
   const bool useScreenPosition =
       activePlacement == PanelPlacement::Floating && panelPosition != "auto" && panelPosition != "center";
   const bool useCenterScreenLayout = (activePlacement == PanelPlacement::Floating && panelPosition == "center")
@@ -713,7 +758,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
           && !m_attachedPanelAvailabilityCallback(request.output, m_sourceBarName));
   const bool useFloatingAnchor = !useCenterScreenLayout
       && request.hasAnchorPosition
-      && openNearClickEnabled(m_activePanel, m_activePanelId, m_config);
+      && (morphFromIsland || openNearClickEnabled(m_activePanel, m_activePanelId, m_config));
   const auto barRect = resolveBarVisibleRect(barConfig, outputWidth, outputHeight);
   // A content-fitted slot reserves the panel's maximum height up front, so it must fit
   // on the panel's side of a horizontal bar; otherwise the placement clamps would push it
@@ -723,8 +768,28 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
         isBottom ? barRect.top - panelGap - screenPadding : outputHeight - barRect.bottom - panelGap - screenPadding;
     panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, room)));
   }
-  const auto detachedShadowBleed =
+  // The sheet never grows past the output minus a bar row and a dock row (rulebook 9.16).
+  if (m_contentFit.enabled) {
+    const float chromeRows = 2.0F * Tokens::sizeControlXl * m_activePanel->contentScale();
+    panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1.0F, static_cast<float>(outputHeight) - chromeRows)));
+  }
+  const float centerTopFraction = useCenterScreenLayout && m_contentFit.enabled ? m_activePanel->centerTopFraction() : 0.0F;
+  const auto centerTopY = static_cast<std::int32_t>(std::lround(centerTopFraction * static_cast<float>(outputHeight)));
+  if (centerTopFraction > 0.0F) {
+    panelHeight = std::min(panelHeight, static_cast<std::uint32_t>(std::max(1, outputHeight - centerTopY - screenPadding)));
+  }
+  auto detachedShadowBleed =
       shell::panel_surface::bleed(m_activePanel->hasDecoration(), m_config->config().shell.shadow);
+  // A morph from an island overshoots its clip into a transparent margin that the sheet fill extends over meanwhile.
+  m_morphMarginX = morphFromIsland ? static_cast<std::int32_t>(std::ceil(kMorphMarginRatio * static_cast<float>(panelWidth))) : 0;
+  m_morphMarginY = morphFromIsland ? static_cast<std::int32_t>(std::ceil(kMorphMarginRatio * static_cast<float>(panelHeight))) : 0;
+  detachedShadowBleed.left = std::max(detachedShadowBleed.left, m_morphMarginX);
+  detachedShadowBleed.right = std::max(detachedShadowBleed.right, m_morphMarginX);
+  detachedShadowBleed.down = std::max(detachedShadowBleed.down, m_morphMarginY);
+  m_morphMarginUp = morphFromIsland && !isLeft && !isRight
+      ? static_cast<std::int32_t>(std::ceil(request.sourceRect[3] + Tokens::spaceChromeGap))
+      : 0;
+  detachedShadowBleed.up = std::max(detachedShadowBleed.up, m_morphMarginUp);
   const std::uint32_t detachedSurfaceWidth =
       shell::panel_surface::surfaceExtent(panelWidth, detachedShadowBleed.left, detachedShadowBleed.right);
   const std::uint32_t detachedSurfaceHeight =
@@ -744,6 +809,16 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       request.anchorY - static_cast<float>(panelHeight) * 0.5F, static_cast<std::int32_t>(panelHeight), outputHeight,
       screenPadding
   );
+
+  // A sheet opened from a vertical bar's island sits 8 from the bar, its top edge at the island's top, clamped to the
+  // output (rulebook 9.16): the slot sits as low as it can and the card follows the island inside it.
+  constexpr std::int32_t kVerticalSheetGap = 8;
+  const bool verticalIslandSheet = morphFromIsland && (isLeft || isRight) && request.hasAnchorPosition && m_contentFit.enabled
+      && !useCenterScreenLayout && !useScreenPosition && !useReservedEdgePlacement;
+  const std::int32_t slotTopForIsland = clampMargin(
+      static_cast<float>(outputHeight), static_cast<std::int32_t>(panelHeight), outputHeight, screenPadding
+  );
+  const auto islandTopY = static_cast<std::int32_t>(std::lround(request.anchorY - request.sourceRect[3] * 0.5F));
 
   std::uint32_t standaloneAnchor = 0;
   std::int32_t standaloneMarginTop = 0;
@@ -792,16 +867,22 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
       standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
       if (isLeft) {
         standaloneMarginLeft = clampMargin(
-            static_cast<float>(barRect.right + panelGap), static_cast<std::int32_t>(panelWidth), outputWidth,
-            screenPadding
-        );
-        standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
-      } else if (isRight) {
-        standaloneMarginLeft = clampMargin(
-            static_cast<float>(barRect.left - static_cast<std::int32_t>(panelWidth) - panelGap),
+            static_cast<float>(barRect.right + (verticalIslandSheet ? kVerticalSheetGap : panelGap)),
             static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
         );
-        standaloneMarginTop = useFloatingAnchor ? marginTopFromAnchor : centeredAlongBarY;
+        standaloneMarginTop = verticalIslandSheet ? slotTopForIsland
+            : useFloatingAnchor                   ? marginTopFromAnchor
+                                                  : centeredAlongBarY;
+      } else if (isRight) {
+        standaloneMarginLeft = clampMargin(
+            static_cast<float>(
+                barRect.left - static_cast<std::int32_t>(panelWidth) - (verticalIslandSheet ? kVerticalSheetGap : panelGap)
+            ),
+            static_cast<std::int32_t>(panelWidth), outputWidth, screenPadding
+        );
+        standaloneMarginTop = verticalIslandSheet ? slotTopForIsland
+            : useFloatingAnchor                   ? marginTopFromAnchor
+                                                  : centeredAlongBarY;
       } else if (isBottom) {
         standaloneMarginTop = clampMargin(
             static_cast<float>(barRect.top - static_cast<std::int32_t>(panelHeight) - panelGap),
@@ -820,7 +901,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   // Which slot edge a content-fitted card keeps: the one this placement anchors to.
   CardAlign detachedCardAlign = CardAlign::Start;
   if (useCenterScreenLayout) {
-    detachedCardAlign = CardAlign::Center;
+    detachedCardAlign = centerTopFraction > 0.0F ? CardAlign::Start : CardAlign::Center;
   } else if (useScreenPosition) {
     const bool anchoredTop = (standaloneAnchor & LayerShellAnchor::Top) != 0;
     const bool anchoredBottom = (standaloneAnchor & LayerShellAnchor::Bottom) != 0;
@@ -829,6 +910,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
                                                       : CardAlign::End;
   } else if (isBottom) {
     detachedCardAlign = CardAlign::End;
+  } else if (verticalIslandSheet) {
+    detachedCardAlign = CardAlign::Island;
   } else if (isLeft || isRight) {
     detachedCardAlign = CardAlign::Center;
   }
@@ -836,7 +919,8 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   if (useCenterScreenLayout) {
     standaloneAnchor = LayerShellAnchor::Top | LayerShellAnchor::Left;
     standaloneMarginLeft = (outputWidth - static_cast<std::int32_t>(panelWidth)) / 2 - detachedShadowBleed.left;
-    standaloneMarginTop = (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2 - detachedShadowBleed.up;
+    standaloneMarginTop = (centerTopFraction > 0.0F ? centerTopY : (outputHeight - static_cast<std::int32_t>(panelHeight)) / 2)
+        - detachedShadowBleed.up;
   } else {
     if ((standaloneAnchor & LayerShellAnchor::Left) != 0) {
       standaloneMarginLeft -= detachedShadowBleed.left;
@@ -914,7 +998,12 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     detachedPanelInputRect.height = std::max(1, outputHeight - screenPadding * 2);
   }
 
+  // It keeps the island's glass, as an attached panel keeps the bar's.
+  m_islandBackgroundOpacity = morphFromIsland && m_activePanel->inheritsBarBackgroundOpacity()
+      ? std::optional<float>{Style::panelGlassAlpha(barConfig.backgroundOpacity)}
+      : std::nullopt;
   const bool useAttachedPlacement = activePlacement == PanelPlacement::Attached
+      && !morphFromIsland
       && (m_attachedPanelAvailabilityCallback == nullptr
           || m_attachedPanelAvailabilityCallback(request.output, m_sourceBarName))
       && barConfig.thickness > 0
@@ -1025,7 +1114,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     const float scale = m_activePanel->contentScale();
     const float cornerRadius = Style::scaledRadiusXl(scale);
     const auto& shadowConfig = m_config->config().shell.shadow;
-    const auto shadowBleed = shell::surface_shadow::bleed(m_activePanel->hasDecoration(), shadowConfig);
+    const auto shadowBleed = ui::surface_shadow::bleed(m_activePanel->hasDecoration(), shadowConfig);
     const auto cornerOutset = static_cast<std::int32_t>(std::ceil(cornerRadius));
 
     // Cross-axis outset wraps the concave-corner overhang and shadow bleed.
@@ -1126,7 +1215,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     m_panelVisualWidth = panelWidth;
     m_panelVisualHeight = panelHeight;
     m_attachedBackgroundOpacity = m_activePanel->inheritsBarBackgroundOpacity()
-        ? barConfig.backgroundOpacity
+        ? Style::panelGlassAlpha(barConfig.backgroundOpacity)
         : m_activePanel->attachedBackgroundOpacityOverride();
     m_attachedContactShadow = barConfig.contactShadow;
     m_attachedRevealProgress = 0.0F;
@@ -1140,7 +1229,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     // plus the screen-edge concave flare: those corners push the surface further into
     // the end margin, and computeBarSurfaceSpec folds the same inset into its start
     // margin. Omitting it here drifts the exclusion rect along the main axis.
-    const auto barShadowBleed = shell::surface_shadow::bleed(barConfig.shadow, shadowConfig);
+    const auto barShadowBleed = ui::surface_shadow::bleed(barConfig.shadow, shadowConfig);
     const auto barConcave = barConcaveShape(barConfig);
     const auto concaveStartInset = static_cast<std::int32_t>(
         std::ceil(std::max(0.0F, barIsVertical ? barConcave.logicalInset.top : barConcave.logicalInset.left))
@@ -1230,6 +1319,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     m_layerSurface = layerSurfaceUnique.get();
     m_surface = std::move(layerSurfaceUnique);
     configureSurfaceCallbacks(*m_surface);
+    logFirstFrame(*m_surface);
     if (wantsOutsideDismiss) {
       m_panelOutputInputRect = InputRect{visualX, visualY, static_cast<int>(panelWidth), static_cast<int>(panelHeight)};
       m_clickShield.setPanelInputRect(request.output, *m_panelOutputInputRect);
@@ -1307,6 +1397,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   m_contentFit.slotInsetY = m_panelInsetY;
   m_contentFit.slotHeight = panelHeight;
   m_contentFit.slotOutputY = detachedPanelInputRect.y;
+  m_contentFit.desiredTopY = islandTopY;
   m_detachedBleedRight = detachedShadowBleed.right;
   m_detachedBleedBottom = detachedShadowBleed.down;
   m_attachedBackgroundOpacity = 1.0F;
@@ -1320,6 +1411,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   m_attachedPanelGeometry.reset();
   m_attachedToBar = false;
   configureSurfaceCallbacks(*m_surface);
+  logFirstFrame(*m_surface);
   if (wantsOutsideDismiss) {
     m_panelOutputInputRect = detachedPanelInputRect;
     m_clickShield.setPanelInputRect(request.output, *m_panelOutputInputRect);
@@ -1515,17 +1607,19 @@ void PanelManager::closePanel(bool animateClose) {
   // During the close animation we want clicks on apps to behave normally.
   deactivateOutsideClickHandlers();
 
-  // Disable input during close animation
+  // Disable input during close animation; the window below gets keyboard focus back now, not when the spring settles.
   m_inputDispatcher.setSceneRoot(nullptr);
+  if (m_layerSurface != nullptr) {
+    m_layerSurface->setKeyboardInteractivity(LayerShellKeyboard::None);
+  }
   m_closing = true;
   m_attachedOpenAnimationPending = false;
 
   if (animateClose && m_sceneRoot != nullptr && m_activePanel != nullptr && m_activePanel->wantsCloseAnimation()) {
     const std::uint64_t gen = ++m_destroyGeneration;
     if (m_attachedToBar && m_attachedRevealClipNode != nullptr) {
-      m_animations.cancelForOwner(m_attachedRevealClipNode);
-      m_animations.animate(
-          m_attachedRevealProgress, 0.0F, Style::animNormal, Easing::EaseInOutQuad,
+      m_attachedRevealAnimId = m_animations.drive(
+          m_attachedRevealAnimId, m_attachedRevealProgress, 0.0F, Style::spring(Tokens::springClose),
           [this](float v) { applyAttachedReveal(v); },
           [this, gen] {
             DeferredCall::callLater([this, gen] {
@@ -1534,21 +1628,19 @@ void PanelManager::closePanel(bool animateClose) {
               }
             });
           },
-          m_attachedRevealClipNode
+          m_attachedRevealClipNode, 0.0F, Threshold::px(attachedRevealTravelPx())
       );
-    } else {
+    } else if (!startDetachedMorphClose(gen) && !startDetachedScaleClose(gen)) {
       m_animations.cancelForOwner(m_sceneRoot.get());
-      m_animations.animate(
-          m_detachedRevealProgress, 0.0F, Style::animNormal, Easing::EaseInQuad,
-          [this](float v) { applyDetachedReveal(v); },
+      fadeSceneRoot(
+          0.0F,
           [this, gen] {
             DeferredCall::callLater([this, gen] {
               if (m_destroyGeneration == gen) {
                 destroyPanel();
               }
             });
-          },
-          m_sceneRoot.get()
+          }
       );
     }
     m_surface->requestRedraw();
@@ -1626,6 +1718,10 @@ void PanelManager::handleCaptureCloseFrame(void* data, wl_callback* callback, st
 
 void PanelManager::destroyPanel() {
   m_captureCloseTimer.stop();
+  m_contentGateTimer.stop();
+  m_openHoldTimer.stop();
+  m_pendingOpen = nullptr;
+  m_contentGate = 1.0F;
   if (m_captureCloseFrame != nullptr) {
     wl_callback_destroy(m_captureCloseFrame);
     m_captureCloseFrame = nullptr;
@@ -1662,6 +1758,22 @@ void PanelManager::destroyPanel() {
   m_panelContactShadowNode = nullptr;
   m_selectPopup.reset();
   m_sceneRoot.reset();
+  m_dsk.reset();
+  m_panelLiquid = 0.0F;
+  m_liquidAnimation = 0;
+  m_liquidTarget = 0.0F;
+  m_backdropDark = false;
+  m_backdropMeasured = false;
+  m_glassDark = 0.0F;
+  m_glassTarget = 0.0F;
+  m_glassDarkAnimation = 0;
+  m_scaleMode = false;
+  m_morphExtend = false;
+  m_morphClipRunning = false;
+  m_cardClipRunning = false;
+  m_morphSource = nullptr;
+  m_gestureTracker.reset();
+  m_commitTracker = nullptr;
   m_surface.reset();
   m_layerSurface = nullptr;
   m_output = nullptr;
@@ -1704,6 +1816,11 @@ void PanelManager::destroyPanel() {
 }
 
 void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest request) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    request.context = alias->second.second;
+    togglePanel(alias->second.first, request);
+    return;
+  }
   if (m_persistentHost.hasPanel(panelId)) {
     if (m_persistentHost.isOpen(panelId)) {
       m_persistentHost.close(panelId);
@@ -1736,6 +1853,10 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
 }
 
 void PanelManager::togglePanel(const std::string& panelId) {
+  if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
+    togglePanel(alias->second.first, PanelOpenRequest{.context = alias->second.second});
+    return;
+  }
   if (m_persistentHost.hasPanel(panelId)) {
     if (m_persistentHost.isOpen(panelId)) {
       m_persistentHost.close(panelId);
@@ -2205,6 +2326,10 @@ void PanelManager::onKeyboardEvent(const KeyboardEvent& event) {
   }
 }
 
+float PanelManager::attachedRevealTravelPx() const {
+  return static_cast<float>(std::max(m_panelVisualWidth, m_panelVisualHeight));
+}
+
 void PanelManager::applyAttachedReveal(float progress) {
   m_attachedRevealProgress = std::clamp(progress, 0.0F, 1.0F);
   if (!m_attachedToBar || m_attachedRevealClipNode == nullptr || m_sceneRoot == nullptr) {
@@ -2316,13 +2441,578 @@ void PanelManager::applyDetachedReveal(float progress) {
   }
 
   if (m_contentNode != nullptr) {
+    m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * m_contentGate);
+  }
+  const int extendX = m_morphExtend ? m_morphMarginX : 0;
+  const int extendY = m_morphExtend ? m_morphMarginY : 0;
+  const int extendUp = m_morphExtend ? m_morphMarginUp : 0;
+  applyPanelCompositorBlur(
+      m_panelInsetX - extendX, m_panelInsetY - extendUp, static_cast<int>(m_panelVisualWidth) + 2 * extendX,
+      static_cast<int>(m_panelVisualHeight) + extendY + extendUp, static_cast<int>(std::lround(clipX)),
+      static_cast<int>(std::lround(clipY)), static_cast<int>(std::lround(clipW)), static_cast<int>(std::lround(clipH))
+  );
+}
+
+float PanelManager::panelRadius() const {
+  const float scale = m_activePanel != nullptr ? m_activePanel->contentScale() : 1.0F;
+  return m_attachedToBar ? Style::scaledRadiusXl(scale) : Tokens::componentSheetRadius * scale;
+}
+
+float PanelManager::detachedBackgroundOpacity() const {
+  return m_islandBackgroundOpacity.value_or(shell::panel_surface::backgroundOpacity(m_config));
+}
+
+float PanelManager::detachedFillAlpha() const {
+  const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
+  if (Style::reduceTransparency()) {
+    return thick;
+  }
+  // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html).
+  const float liquid = Style::liquidTintAlpha(isLightPalette());
+  return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
+}
+
+void PanelManager::sendSheetStroke() {
+  if (m_dsk == nullptr || !m_dsk->hasStrokeProperty() || m_attachedToBar) {
+    return;
+  }
+  const bool borders = m_config != nullptr && m_config->config().shell.panel.borders;
+  const Color c = borders ? resolveColorSpec(detachedBorder(detachedBackgroundOpacity()))
+                          : Color{};
+  m_dsk->set(DskSurfaceClient::Property::Stroke, {c.r, c.g, c.b, c.a});
+}
+
+// Liquid shapes get the compositor's specular rim instead of the sheet hairline, so the hairline fades with liquid.
+ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
+  return scaleAlpha(shell::panel_surface::borderColor(m_config, backgroundOpacity), 1.0F - m_panelLiquid);
+}
+
+ColorSpec PanelManager::detachedFill() const {
+  // Low-contrast backdrop: the tint gets denser (up to the light Frosted tint, 0.84); it never changes colour.
+  const float base = detachedFillAlpha();
+  return colorSpecFromRole(panelMaterialRole(), std::lerp(base, std::max(base, 0.84F), m_glassDark));
+}
+
+void PanelManager::bindBackdrop() {
+  if (m_dsk == nullptr) {
+    return;
+  }
+  m_dsk->setOnBackdrop([this](bool dark) {
+    m_backdropDark = dark;
+    // The first measurement lands 1-2 frames after the sheet maps, inside the open motion: apply it at once.
+    const bool first = !m_backdropMeasured;
+    m_backdropMeasured = true;
+    updateGlassTone(first);
+    if (m_pendingOpen) {
+      releaseHeldOpen();
+    }
+  });
+  // One glass system: every detached sheet carries the specular rim, liquid or frosted.
+  if (!m_attachedToBar && m_dsk->hasLiquidProperty()) {
+    m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_liquidTarget));
+  }
+}
+
+// The liquid value for a sheet blending `liquid` (0 frosted, 1 liquid) at the glass level, with the rim always on.
+DskSurfaceClient::Value PanelManager::sheetLiquid(float liquid) {
+  const bool glass = !Style::reduceTransparency();
+  const float level = std::lerp(Style::sheetLevel(), Style::liquidLevel(), std::clamp(liquid, 0.0F, 1.0F));
+  return {glass ? level : 0.0, glass ? 1.0 : 0.0, 0.0, 0.0};
+}
+
+float PanelManager::densityCardOpacity(float opacity) const {
+  // Light cards are black fill_1 (4 %) x opacity: on the denser white sheet they need up to 8 % to stay visible.
+  return !m_attachedToBar && isLightPalette() ? std::lerp(opacity, 2.0F, m_glassDark) : opacity;
+}
+
+void PanelManager::updateGlassTone(bool instant) {
+  // Glass whose backdrop is the same tone as its tint (light on dark, dark on bright) loses contrast: make it denser.
+  const bool contrastLow = isLightPalette() ? m_backdropDark : !m_backdropDark;
+  float target = m_backdropMeasured && !Style::reduceTransparency() && contrastLow ? 1.0F : 0.0F;
+  // While open, density only rises (user: no pulsing over a changing backdrop); a light/dark switch resets it.
+  const bool light = isLightPalette();
+  const bool sameScheme = m_glassToneLight == light;
+  m_glassToneLight = light;
+  // Against the last target, not the animated m_glassDark: a palette cross-fade calls this every frame and would
+  // freeze a running fade.
+  if (sameScheme && target < m_glassTarget) {
+    target = m_glassTarget;
+  }
+  m_glassTarget = target;
+  const auto apply = [this](float v) {
+    m_glassDark = std::clamp(v, 0.0F, 1.0F);
+    if (!m_attachedToBar && m_bgNode != nullptr) {
+      static_cast<Box*>(m_bgNode)->setFill(detachedFill());
+      if (m_activePanel != nullptr) {
+        m_activePanel->setPanelCardOpacity(
+            densityCardOpacity(shell::panel_surface::cardOpacity(m_config, detachedBackgroundOpacity()))
+        );
+      }
+    }
+  };
+  if (m_glassDarkAnimation == 0 && m_glassDark == target) {
+    // Same tone: re-resolve the blended colors, e.g. after a palette change.
+    apply(m_glassDark);
+  } else if (instant || m_sceneRoot == nullptr || !MotionService::instance().enabled()) {
+    m_animations.cancel(m_glassDarkAnimation);
+    m_glassDarkAnimation = 0;
+    apply(target);
+  } else {
+    // Rulebook 7.4: a material change cross-fades on the fade spring.
+    m_glassDarkAnimation = m_animations.drive(
+        m_glassDarkAnimation, m_glassDark, target, Style::spring(Tokens::springFade), apply,
+        [this] { m_glassDarkAnimation = 0; }, m_sceneRoot.get()
+    );
+  }
+}
+
+DskSurfaceClient::Value PanelManager::detachedSheetRect() const {
+  return {
+      static_cast<double>(m_panelInsetX), static_cast<double>(m_panelInsetY), static_cast<double>(m_panelVisualWidth),
+      static_cast<double>(m_panelVisualHeight)
+  };
+}
+
+std::chrono::milliseconds PanelManager::openContentGate() {
+  constexpr double kGateProgress = 0.35;
+  const desk::motion::SpringConfig config = Style::spring(Tokens::springOpen);
+  for (int ms = 1; ms < 1000; ++ms) {
+    if (desk::motion::solveSpringPhysics(0.0, 1.0, 0.0, static_cast<double>(ms) / 1000.0, config) >= kGateProgress) {
+      return std::chrono::milliseconds(ms);
+    }
+  }
+  return std::chrono::milliseconds(0);
+}
+
+void PanelManager::startContentGate() {
+  if (!MotionService::instance().enabled() || m_contentNode == nullptr) {
+    m_contentGate = 1.0F;
+    return;
+  }
+  m_contentGate = 0.0F;
+  m_contentNode->setOpacity(0.0F);
+  m_contentGateTimer.start(openContentGate(), [this] {
+    if (m_sceneRoot == nullptr) {
+      return;
+    }
+    m_animations.animateSpring(
+        0.0F, 1.0F, effectsSpring(),
+        [this](float v) {
+          m_contentGate = v;
+          if (m_contentNode != nullptr) {
+            m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * v);
+          }
+        },
+        {}, m_sceneRoot.get()
+    );
+  });
+}
+
+bool PanelManager::startDetachedMorph() {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  wl_surface* source = std::exchange(m_morphSource, nullptr);
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  if (source == nullptr || !Surface::isLive(source) || manager == nullptr || m_wlSurface == nullptr || m_activePanel == nullptr) {
+    return false;
+  }
+  m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  bindBackdrop();
+  sendSheetStroke();
+  m_morphSettled = false;
+  const auto& r = m_morphSourceRect;
+  if (!m_dsk->setClipFrom(source, {r[0], r[1], r[2], r[3]})) {
+    m_dsk.reset();
+    return false;
+  }
+  // The sheet is drawn once at full size; the compositor grows its clip and corners out of the island.
+  m_morphExtend = true;
+  placePanelChrome();
+  applyDetachedReveal(1.0F);
+  startContentGate();
+  m_morphSourceRadius = std::min(r[2], r[3]) * 0.5F;
+  m_dsk->set(Property::Radius, {m_morphSourceRadius, 0.0, 0.0, 0.0});
+  // The shape is the island from its first frame (7.4 source hand-off); only the content fades, from 35 %.
+  m_dsk->set(Property::Opacity, {m_gestureTracker.expired() ? 1.0 : 0.0, 0.0, 0.0, 0.0});
+  if (!m_gestureTracker.expired()) {
+    // The finger drives it: bind once the compositor reports where the island sits in this surface.
+    m_dsk->setOnClipMapped([this](const DskSurfaceClient::Value& clip) { bindTrackerOpen(clip); });
+    return true;
+  }
+  m_dsk->animate(Property::Radius, Curve::SpringOpen, {panelRadius(), 0.0, 0.0, 0.0});
+  animateMorphClip();
+  m_morphClipRunning = true;
+  m_morphProgress = 0.0F;
+  driveContentMorph(1.0F, true);
+  return true;
+}
+
+// Reduce motion (rulebook 7.8): panels crossfade on the fade springs (critically damped), never pop.
+DskSurfaceClient::Curve PanelManager::opacityCurve(bool fast) {
+  using Curve = DskSurfaceClient::Curve;
+  if (!MotionService::instance().enabled()) {
+    return fast ? Curve::SpringEffectsFast : Curve::SpringEffects;
+  }
+  // The close fade rides the close spring, so the content stays visible while the sheet shrinks into its source.
+  return fast ? Curve::SpringClose : Curve::SpringEffects;
+}
+
+void PanelManager::fadeSceneRoot(float to, std::function<void()> onDone) {
+  const auto setter = [this](float v) { m_sceneRoot->setOpacity(v); };
+  m_animations.animateSpring(m_sceneRoot->opacity(), to, effectsSpring(), setter, std::move(onDone), m_sceneRoot.get());
+}
+
+desk::motion::SpringConfig PanelManager::effectsSpring() {
+  return {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness};
+}
+
+// translate that keeps the sheet's anchor corner fixed while the surface scales about its center
+DskSurfaceClient::Value PanelManager::detachedScaleShift(double scale) const {
+  const DskSurfaceClient::Value sheet = detachedSheetRect();
+  const double sw = m_sceneRoot != nullptr ? m_sceneRoot->width() : 0.0;
+  const double sh = m_sceneRoot != nullptr ? m_sceneRoot->height() : 0.0;
+  const double cx = sheet[0] + sheet[2] * 0.5;
+  const double cy = sheet[1] + sheet[3] * 0.5;
+  const bool centered = std::abs(cx - sw * 0.5) < sw * 0.1;
+  const double ax = centered ? cx : (cx < sw * 0.5 ? sheet[0] : sheet[0] + sheet[2]);
+  const double ay = cy < sh * 0.5 ? sheet[1] : sheet[1] + sheet[3];
+  return {(1.0 - scale) * (ax - sw * 0.5), (1.0 - scale) * (ay - sh * 0.5), 0.0, 0.0};
+}
+
+void PanelManager::setPanelLiquid(float liquid, bool animate) {
+  const auto apply = [this](float v) {
+    m_panelLiquid = std::clamp(v, 0.0F, 1.0F);
+    if (!m_attachedToBar && m_bgNode != nullptr) {
+      auto* bg = static_cast<Box*>(m_bgNode);
+      bg->setFill(detachedFill());
+      if (m_config != nullptr && m_config->config().shell.panel.borders) {
+        bg->setBorder(detachedBorder(detachedBackgroundOpacity()), shell::panel_surface::borderWidth(m_config));
+      }
+    }
+  };
+  if (!animate || m_sceneRoot == nullptr) {
+    m_animations.cancel(m_liquidAnimation);
+    m_liquidAnimation = 0;
+    apply(liquid);
+  } else if (m_panelLiquid != liquid) {
+    // The fill cross-fades on the spring the compositor uses for its Liquid property (Curve::SpringOpen).
+    m_liquidAnimation = m_animations.drive(
+        m_liquidAnimation, m_panelLiquid, liquid, Style::spring(Tokens::springOpen), apply,
+        [this] { m_liquidAnimation = 0; }, m_sceneRoot.get()
+    );
+  }
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  if (m_dsk == nullptr && manager != nullptr && m_wlSurface != nullptr) {
+    m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+    bindBackdrop();
+  }
+  m_liquidTarget = liquid;
+  updateGlassTone();
+  if (m_dsk == nullptr || !m_dsk->hasLiquidProperty()) {
+    return;
+  }
+  if (animate) {
+    m_dsk->animate(DskSurfaceClient::Property::Liquid, DskSurfaceClient::Curve::SpringOpen, sheetLiquid(liquid));
+  } else {
+    m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(liquid));
+  }
+}
+
+bool PanelManager::startDetachedScaleOpen() {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  if (manager == nullptr || m_wlSurface == nullptr || m_activePanel == nullptr || !MotionService::instance().enabled()) {
+    return false;
+  }
+  m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+  bindBackdrop();
+  applyDetachedReveal(1.0F);
+  // The compositor fades the whole surface in, so the content shows from the first frame; the 35 % gate (rulebook
+  // 7.4) is only for content inside a growing shape.
+  m_contentGateTimer.stop();
+  m_contentGate = 1.0F;
+  if (m_contentNode != nullptr) {
     m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress));
   }
-  applyPanelCompositorBlur(
-      m_panelInsetX, m_panelInsetY, static_cast<int>(m_panelVisualWidth), static_cast<int>(m_panelVisualHeight),
-      static_cast<int>(std::lround(clipX)), static_cast<int>(std::lround(clipY)), static_cast<int>(std::lround(clipW)),
-      static_cast<int>(std::lround(clipH))
+  m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
+  m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
+  m_scaleMode = true;
+  const auto start = [this] {
+    m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
+    m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
+    m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
+  };
+  // Glass density follows the backdrop, measured 2-3 frames after the first draw. Hold the sheet invisible until
+  // then, so its density never changes in view. 0.004, not 0: the blur must still render.
+  if (!Style::reduceTransparency() && Style::liquidLevel() > 0.0F) {
+    m_dsk->set(Property::Opacity, {0.004, 0.0, 0.0, 0.0});
+    m_pendingOpen = start;
+    m_openHoldTimer.start(std::chrono::milliseconds(50), [this] { releaseHeldOpen(); });
+  } else {
+    m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
+    start();
+  }
+  return true;
+}
+
+void PanelManager::releaseHeldOpen() {
+  m_openHoldTimer.stop();
+  auto start = std::move(m_pendingOpen);
+  m_pendingOpen = nullptr;
+  if (start && m_dsk != nullptr) {
+    start();
+  }
+}
+
+bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (m_dsk == nullptr || !m_scaleMode) {
+    return false;
+  }
+  m_openHoldTimer.stop();
+  m_pendingOpen = nullptr;
+  m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Translate, Curve::SpringClose, detachedScaleShift(kScaleOpenFrom));
+  m_dsk->animate(
+      Property::Scale, Curve::SpringClose, {kScaleOpenFrom, 0.0, 0.0, 0.0},
+      [this, gen](DskSurfaceClient::EndReason) {
+        DeferredCall::callLater([this, gen] {
+          if (m_destroyGeneration == gen) {
+            destroyPanel();
+          }
+        });
+      }
   );
+  return true;
+}
+
+void PanelManager::animateMorphClip() {
+  m_morphClipTarget = detachedSheetRect();
+  m_dsk->animate(
+      DskSurfaceClient::Property::Clip, DskSurfaceClient::Curve::SpringOpen, detachedSheetRect(),
+      [this](DskSurfaceClient::EndReason reason) {
+        if (reason == DskSurfaceClient::EndReason::Finished) {
+          settleDetachedMorph();
+        }
+      }
+  );
+}
+
+bool PanelManager::morphCardHeight(std::uint32_t target) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (m_attachedToBar || m_dsk == nullptr || m_closing || m_morphClipRunning || !MotionService::instance().enabled()) {
+    return false;
+  }
+  if (m_contentFit.animation != 0) {
+    m_animations.cancel(m_contentFit.animation);
+    m_contentFit.animation = 0;
+  }
+  const auto radiusFor = [this](const DskSurfaceClient::Value& rect) {
+    return std::min(static_cast<double>(panelRadius()), rect[3] / 2.0);
+  };
+  if (!m_cardClipRunning) {
+    const DskSurfaceClient::Value from = detachedSheetRect();
+    sendSheetStroke();
+    m_dsk->set(Property::Clip, from);
+    m_dsk->set(Property::Radius, {radiusFor(from), 0.0, 0.0, 0.0});
+  }
+  // The card is drawn at the larger height; the clip reveals or hides it, so the shape, its blur and the content
+  // move as one. A shrink keeps the tall card until the clip lands.
+  if (target > m_panelVisualHeight && setCardHeight(target)) {
+    placePanelChrome();
+  }
+  DskSurfaceClient::Value to = detachedSheetRect();
+  to[3] = target;
+  if (m_contentFit.align == CardAlign::End) {
+    to[1] += static_cast<double>(m_panelVisualHeight) - target;
+  } else if (m_contentFit.align == CardAlign::Center) {
+    to[1] += (static_cast<double>(m_panelVisualHeight) - target) / 2.0;
+  }
+  m_cardClipRunning = true;
+  m_dsk->animate(Property::Radius, Curve::SpringOpen, {radiusFor(to), 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Clip, Curve::SpringOpen, to, [this, target](DskSurfaceClient::EndReason reason) {
+    if (reason != DskSurfaceClient::EndReason::Finished || m_dsk == nullptr || m_closing) {
+      return;
+    }
+    m_cardClipRunning = false;
+    if (setCardHeight(target)) {
+      placePanelChrome();
+    }
+    m_dsk->set(Property::Clip, {0.0, 0.0, 0.0, 0.0});
+    m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
+    if (m_surface != nullptr) {
+      m_surface->requestRedraw();
+    }
+  });
+  return true;
+}
+
+void PanelManager::driveContentMorph(float target, bool open) {
+  if (!MotionService::instance().enabled() || m_sceneRoot == nullptr) {
+    m_morphProgress = target;
+    applyContentMorph();
+    return;
+  }
+  // Same spring and start frame as the compositor's clip, so the content stays fitted to the shape.
+  m_morphProgressId = m_animations.drive(
+      m_morphProgressId, m_morphProgress, target, Style::spring(open ? Tokens::springOpen : Tokens::springClose),
+      [this, open](float v) {
+        m_morphProgress = v;
+        applyContentMorph();
+        // Return: in the last 10 % of the close travel the shape is the island; it fades out on fade_out (7.4).
+        if (!open && !m_returnFaded && v <= 0.1F && m_dsk != nullptr) {
+          m_returnFaded = true;
+          m_dsk->animate(DskSurfaceClient::Property::Opacity, DskSurfaceClient::Curve::SpringEffectsFast, {0.0, 0.0, 0.0, 0.0});
+        }
+      },
+      [this] { m_morphProgressId = 0; }, m_sceneRoot.get(), 0.0F, Unit::Progress
+  );
+}
+
+void PanelManager::applyContentMorph() {
+  if (m_contentNode == nullptr) {
+    return;
+  }
+  const DskSurfaceClient::Value sheet = detachedSheetRect();
+  const float sheetW = static_cast<float>(sheet[2]);
+  const float sheetH = static_cast<float>(sheet[3]);
+  if (sheetW <= 0.0F || sheetH <= 0.0F || m_morphProgress >= 1.0F) {
+    m_contentNode->setScale(1.0F);
+    return;
+  }
+  // The island rect in this surface: the compositor's mapping when known, else the island sits right above the sheet.
+  std::array<float, 4> island{
+      static_cast<float>(sheet[0] + sheet[2]) - m_morphSourceRect[2],
+      static_cast<float>(sheet[1]) - m_morphSourceRect[3] - Tokens::spaceChromeGap, m_morphSourceRect[2],
+      m_morphSourceRect[3]
+  };
+  if (m_dsk != nullptr && m_dsk->mappedClip()) {
+    const auto& c = *m_dsk->mappedClip();
+    island = {static_cast<float>(c[0]), static_cast<float>(c[1]), static_cast<float>(c[2]), static_cast<float>(c[3])};
+  }
+  const float p = m_morphProgress;
+  const float w = std::lerp(island[2], sheetW, p);
+  const float h = std::lerp(island[3], sheetH, p);
+  const float top = std::lerp(island[1], static_cast<float>(sheet[1]), p);
+  const float right = std::lerp(island[0] + island[2], static_cast<float>(sheet[0]) + sheetW, p);
+  const float s = std::clamp(std::min(w / sheetW, h / sheetH), 0.2F, 1.0F);
+  // Scale about the point that keeps the sheet's top-right corner on the shape's top-right corner.
+  const float dx = right - (static_cast<float>(sheet[0]) + sheetW);
+  const float dy = top - static_cast<float>(sheet[1]);
+  const float k = 1.0F - s;
+  const float cornerX = static_cast<float>(sheet[0]) + sheetW - m_contentNode->x();
+  const float cornerY = static_cast<float>(sheet[1]) - m_contentNode->y();
+  m_contentNode->setTransformOrigin(
+      k > 0.001F ? cornerX + dx / k : cornerX, k > 0.001F ? cornerY + dy / k : cornerY
+  );
+  m_contentNode->setScale(s);
+  if (m_surface != nullptr) {
+    m_surface->requestRedraw();
+  }
+}
+
+void PanelManager::settleDetachedMorph() {
+  using Property = DskSurfaceClient::Property;
+  // Settled: drop the clip so the sheet's own shadow shows.
+  if (m_dsk == nullptr || m_closing) {
+    return;
+  }
+  m_dsk->set(Property::Clip, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->set(Property::Radius, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->set(Property::Opacity, {1.0, 0.0, 0.0, 0.0});
+  m_morphSettled = true;
+  m_morphExtend = false;
+  m_morphClipRunning = false;
+  placePanelChrome();
+  applyDetachedReveal(m_detachedRevealProgress);
+  if (m_surface != nullptr) {
+    m_surface->requestRedraw();
+  }
+}
+
+void PanelManager::bindTrackerOpen(const DskSurfaceClient::Value& islandClip) {
+  using Property = DskSurfaceClient::Property;
+  const auto tracker = m_gestureTracker.lock();
+  if (tracker == nullptr || m_dsk == nullptr || m_activePanel == nullptr || m_closing) {
+    return;
+  }
+  const double range = m_gestureRange;
+  const DskSurfaceClient::Value sheet = detachedSheetRect();
+  for (std::uint32_t i = 0; i < 4; ++i) {
+    tracker->bind(*m_dsk, Property::Clip, i, 0.0, range, islandClip[i], sheet[i]);
+  }
+  tracker->bind(*m_dsk, Property::Radius, 0, 0.0, range, m_morphSourceRadius, panelRadius());
+  // Content fades in over the first third of the drag, as the click morph's fast fade.
+  tracker->bind(*m_dsk, Property::Opacity, 0, 0.0, range / 3.0, 0.0, 1.0);
+  if (m_commitTracker) {
+    m_commitTracker();
+  }
+}
+
+void PanelManager::finishTrackerOpen(bool open) {
+  if (m_gestureTracker.expired()) {
+    return;
+  }
+  m_gestureTracker.reset();
+  m_commitTracker = nullptr;
+  if (open) {
+    settleDetachedMorph();
+  } else {
+    destroyPanel();
+  }
+}
+
+bool PanelManager::startDetachedMorphClose(std::uint64_t gen) {
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  if (m_dsk == nullptr || !m_dsk->mappedClip() || m_activePanel == nullptr) {
+    return false;
+  }
+  // A settled sheet has no clip: start from its own rect. A clip mid-open retargets from where it is.
+  if (m_morphSettled) {
+    sendSheetStroke();
+    m_dsk->set(Property::Clip, detachedSheetRect());
+    m_dsk->set(Property::Radius, {panelRadius(), 0.0, 0.0, 0.0});
+  }
+  // Return: the shape closes into the island on close while the content fades out on fade_out (7.4 exits overlap).
+  m_contentGateTimer.stop();
+  if (m_contentNode != nullptr && m_sceneRoot != nullptr) {
+    m_animations.animateSpring(
+        m_contentGate, 0.0F, Style::spring(Tokens::springFadeOut),
+        [this](float v) {
+          m_contentGate = v;
+          if (m_contentNode != nullptr) {
+            m_contentNode->setOpacity(panelRevealContentOpacity(m_detachedRevealProgress) * v);
+          }
+        },
+        {}, m_sceneRoot.get()
+    );
+  }
+  if (m_morphSettled) {
+    m_morphProgress = 1.0F;
+  }
+  m_returnFaded = false;
+  m_dsk->animate(Property::Radius, Curve::SpringClose, {m_morphSourceRadius, 0.0, 0.0, 0.0});
+  m_dsk->animate(
+      Property::Clip, Curve::SpringClose, *m_dsk->mappedClip(),
+      [this, gen](DskSurfaceClient::EndReason) {
+        DeferredCall::callLater([this, gen] {
+          if (m_destroyGeneration == gen) {
+            destroyPanel();
+          }
+        });
+      },
+      // The content and the end fade follow the compositor's clock (7.1.7): start when its clip spring starts.
+      [this, gen](std::uint32_t) {
+        if (m_destroyGeneration == gen) {
+          driveContentMorph(0.0F, false);
+        }
+      }
+  );
+  return true;
 }
 
 void PanelManager::startAttachedOpenAnimation() {
@@ -2336,9 +3026,10 @@ void PanelManager::startAttachedOpenAnimation() {
   }
 
   m_attachedOpenAnimationPending = false;
-  m_animations.animate(
-      m_attachedRevealProgress, 1.0F, Style::animNormal, Easing::EaseOutCubic,
-      [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode
+  m_attachedRevealAnimId = m_animations.drive(
+      m_attachedRevealAnimId, m_attachedRevealProgress, 1.0F, Style::spring(Tokens::springOpen),
+      [this](float v) { applyAttachedReveal(v); }, {}, m_attachedRevealClipNode, 0.0F,
+      Threshold::px(attachedRevealTravelPx())
   );
 }
 
@@ -2444,7 +3135,7 @@ void PanelManager::applyPanelCompositorBlur(
     return;
   }
 
-  const float radius = Style::scaledRadiusXl(m_activePanel->contentScale());
+  const float radius = panelRadius();
   const CornerShapes corners = m_attachedToBar ? attached_panel::cornerShapes(m_attachedBarPosition) : CornerShapes{};
   const RectInsets logicalInset =
       m_attachedToBar ? attached_panel::logicalInset(m_attachedBarPosition, radius) : RectInsets{};
@@ -2501,18 +3192,18 @@ void PanelManager::applyAttachedDecorationStyle() {
 
   if (m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
-    bg->setFill(colorSpecFromRole(ColorRole::Surface, m_attachedBackgroundOpacity));
+    bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(m_attachedBackgroundOpacity)));
   }
 
   if (m_panelShadowNode != nullptr && m_config != nullptr) {
     const auto& shadowConfig = m_config->config().shell.shadow;
     const bool panelShadow =
-        m_config->config().shell.panel.shadow && shell::surface_shadow::enabled(true, shadowConfig);
+        m_config->config().shell.panel.shadow && ui::surface_shadow::enabled(true, shadowConfig);
     m_panelShadowNode->setVisible(panelShadow);
     if (panelShadow) {
-      const RoundedRectStyle shadowStyle = shell::surface_shadow::style(
+      const RoundedRectStyle shadowStyle = ui::surface_shadow::style(
           shadowConfig, m_attachedBackgroundOpacity,
-          shell::surface_shadow::Shape{
+          ui::surface_shadow::Shape{
               .corners = attached_panel::cornerShapes(m_attachedBarPosition),
               .logicalInset = attached_panel::logicalInset(m_attachedBarPosition, radius),
               .radius = Radii{radius, radius, radius, radius},
@@ -2572,15 +3263,16 @@ void PanelManager::onConfigReloaded() {
     applyDetachedReveal(m_detachedRevealProgress);
   }
   const float panelBackgroundOpacity =
-      m_attachedToBar ? m_attachedBackgroundOpacity : shell::panel_surface::backgroundOpacity(m_config);
-  m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity));
+      m_attachedToBar ? m_attachedBackgroundOpacity : detachedBackgroundOpacity();
+  m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity)));
   if (!m_attachedToBar && m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
     bg->setPanelStyle(m_config->config().shell.panel.borders);
-    bg->setFill(colorSpecFromRole(ColorRole::Surface, panelBackgroundOpacity));
+    bg->setFill(detachedFill());
+    updateGlassTone();
     if (m_config->config().shell.panel.borders) {
       bg->setBorder(
-          shell::panel_surface::borderColor(m_config, panelBackgroundOpacity),
+          detachedBorder(panelBackgroundOpacity),
           shell::panel_surface::borderWidth(m_config)
       );
     }
@@ -2588,14 +3280,14 @@ void PanelManager::onConfigReloaded() {
   if (m_panelShadowNode != nullptr) {
     const auto& shadowConfig = m_config->config().shell.shadow;
     const bool panelShadow =
-        m_config->config().shell.panel.shadow && shell::surface_shadow::enabled(true, shadowConfig);
+        m_config->config().shell.panel.shadow && ui::surface_shadow::enabled(true, shadowConfig);
     m_panelShadowNode->setVisible(panelShadow);
     if (!m_attachedToBar && panelShadow) {
-      const float shadowRadius = Style::scaledRadiusXl(m_activePanel->contentScale());
+      const float shadowRadius = panelRadius();
       m_panelShadowNode->setStyle(
-          shell::surface_shadow::style(
+          ui::surface_shadow::style(
               shadowConfig, panelBackgroundOpacity,
-              shell::surface_shadow::Shape{.radius = Radii{shadowRadius, shadowRadius, shadowRadius, shadowRadius}}
+              ui::surface_shadow::Shape{.radius = Radii{shadowRadius, shadowRadius, shadowRadius, shadowRadius}}
           )
       );
     }
@@ -2616,10 +3308,10 @@ void PanelManager::onConfigReloaded() {
   const auto& barConfig = *barConfigOpt;
   bool changed = false;
   if (m_activePanel->inheritsBarBackgroundOpacity()) {
-    const float newOpacity = barConfig.backgroundOpacity;
+    const float newOpacity = Style::panelGlassAlpha(barConfig.backgroundOpacity);
     if (std::abs(newOpacity - m_attachedBackgroundOpacity) >= 0.001F) {
       m_attachedBackgroundOpacity = newOpacity;
-      m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity));
+      m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity)));
       changed = true;
     }
   }
@@ -2676,7 +3368,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
       sceneParent = m_detachedRevealContentNode;
     }
 
-    if (hasDecoration && m_config != nullptr && shell::surface_shadow::enabled(true, m_config->config().shell.shadow)) {
+    if (hasDecoration && m_config != nullptr && ui::surface_shadow::enabled(true, m_config->config().shell.shadow)) {
       auto shadow = ui::box({});
       m_panelShadowNode = static_cast<Box*>(sceneParent->addChild(std::move(shadow)));
       m_panelShadowNode->setZIndex(-1);
@@ -2695,11 +3387,12 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
         bg->setRadii(Radii{radius, radius, radius, radius});
         // Fill (opacity-dependent) is applied via applyAttachedDecorationStyle() below.
       } else {
-        const float backgroundOpacity = shell::panel_surface::backgroundOpacity(m_config);
-        bg->setFill(colorSpecFromRole(ColorRole::Surface, backgroundOpacity));
+        const float backgroundOpacity = detachedBackgroundOpacity();
+        bg->setFill(detachedFill());
+        bg->setRadius(panelRadius());
         if (panelBorders) {
           bg->setBorder(
-              shell::panel_surface::borderColor(m_config, backgroundOpacity),
+              detachedBorder(backgroundOpacity),
               shell::panel_surface::borderWidth(m_config)
           );
         }
@@ -2717,8 +3410,8 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
     m_contentNode = contentWrapper.get();
     m_activePanel->setAnimationManager(&m_animations);
     const float panelBackgroundOpacity =
-        m_attachedToBar ? m_attachedBackgroundOpacity : shell::panel_surface::backgroundOpacity(m_config);
-    m_activePanel->setPanelCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity));
+        m_attachedToBar ? m_attachedBackgroundOpacity : detachedBackgroundOpacity();
+    m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity)));
     m_activePanel->create();
     m_activePanel->onOpen(m_pendingOpenContext);
     m_pendingOpenContext.clear();
@@ -2747,12 +3440,10 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
       m_sceneRoot->setOpacity(1.0F);
       applyAttachedReveal(0.0F);
       m_attachedOpenAnimationPending = true;
-    } else {
-      applyDetachedReveal(0.0F);
-      m_animations.animate(
-          0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic, [this](float v) { applyDetachedReveal(v); }, {},
-          m_sceneRoot.get()
-      );
+    } else if (!startDetachedMorph() && !startDetachedScaleOpen()) {
+      applyDetachedReveal(1.0F);
+      m_sceneRoot->setOpacity(0.0F);
+      fadeSceneRoot(1.0F, {});
     }
 
     m_surface->setSceneRoot(m_sceneRoot.get());
@@ -2842,7 +3533,7 @@ void PanelManager::placePanelChrome() {
   if (m_panelShadowNode != nullptr && m_config != nullptr) {
     const auto& shadowConfig = m_config->config().shell.shadow;
     const bool panelShadow =
-        m_config->config().shell.panel.shadow && shell::surface_shadow::enabled(true, shadowConfig);
+        m_config->config().shell.panel.shadow && ui::surface_shadow::enabled(true, shadowConfig);
     m_panelShadowNode->setVisible(panelShadow);
     const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
     const auto shadowOffsetX = static_cast<float>(shadowOff.x);
@@ -2850,20 +3541,27 @@ void PanelManager::placePanelChrome() {
     m_panelShadowNode->setPosition(bgX + shadowOffsetX, bgY + shadowOffsetY);
     m_panelShadowNode->setSize(bgW, bgH);
     if (!m_attachedToBar && panelShadow) {
-      const float shadowRadius = Style::scaledRadiusXl(m_activePanel->contentScale());
-      const float panelBackgroundOpacity = shell::panel_surface::backgroundOpacity(m_config);
+      const float shadowRadius = panelRadius();
+      const float panelBackgroundOpacity = detachedBackgroundOpacity();
       m_panelShadowNode->setStyle(
-          shell::surface_shadow::style(
+          ui::surface_shadow::style(
               shadowConfig, panelBackgroundOpacity,
-              shell::surface_shadow::Shape{.radius = Radii{shadowRadius, shadowRadius, shadowRadius, shadowRadius}}
+              ui::surface_shadow::Shape{.radius = Radii{shadowRadius, shadowRadius, shadowRadius, shadowRadius}}
           )
       );
     }
   }
 
   if (m_bgNode != nullptr) {
-    m_bgNode->setPosition(bgX, bgY);
-    m_bgNode->setSize(bgW, bgH);
+    const auto extendX = m_morphExtend ? static_cast<float>(m_morphMarginX) : 0.0F;
+    const auto extendY = m_morphExtend ? static_cast<float>(m_morphMarginY) : 0.0F;
+    const auto extendUp = m_morphExtend ? static_cast<float>(m_morphMarginUp) : 0.0F;
+    m_bgNode->setPosition(bgX - extendX, bgY - extendUp);
+    m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY + extendUp);
+  }
+  // A content-fitted card changes height while the open spring runs: the clip follows it.
+  if (m_morphClipRunning && m_dsk != nullptr && !m_closing && m_morphClipTarget != detachedSheetRect()) {
+    animateMorphClip();
   }
 
   if (m_panelContactShadowNode != nullptr) {
@@ -2898,7 +3596,7 @@ void PanelManager::placePanelChrome() {
     applyAttachedDecorationStyle();
   }
 
-  const float kPadding = m_activePanel->hasDecoration() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
+  const float kPadding = m_activePanel->hasDecoration() && m_activePanel->padsContent() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
   m_contentWidth = panelW - kPadding * 2.0F;
   // A content-fitted panel lays its content out at the target height once; while the card
   // animates toward it, the content node clips to the card instead of relaying out.
@@ -2916,7 +3614,7 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
   if (!m_contentFit.enabled) {
     return;
   }
-  const float padding = m_activePanel->hasDecoration() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
+  const float padding = m_activePanel->hasDecoration() && m_activePanel->padsContent() ? m_activePanel->contentScale() * Style::panelPadding : 0.0F;
   const float natural = m_activePanel->measureContentHeight(renderer, m_contentWidth);
   const auto target = std::clamp<std::uint32_t>(
       static_cast<std::uint32_t>(std::ceil(std::max(0.0F, natural) + padding * 2.0F)), 1U,
@@ -2925,22 +3623,23 @@ void PanelManager::layoutActivePanel(Renderer& renderer) {
   if (target != m_contentFit.targetHeight) {
     const bool firstMeasure = m_contentFit.targetHeight == 0;
     m_contentFit.targetHeight = target;
-    if (m_contentFit.animation != 0) {
-      m_animations.cancel(m_contentFit.animation);
-      m_contentFit.animation = 0;
-    }
-    if (firstMeasure || m_panelVisualHeight == target) {
+    // A running card clip still heads for its old target while the card keeps its tall height: retarget it.
+    if (firstMeasure || (m_panelVisualHeight == target && !m_cardClipRunning)) {
       // The open reveal already animates the first appearance.
+      if (m_contentFit.animation != 0) {
+        m_animations.cancel(m_contentFit.animation);
+        m_contentFit.animation = 0;
+      }
       (void)setCardHeight(target);
-    } else {
-      m_contentFit.animation = m_animations.animate(
-          static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::animNormal, Easing::EaseOutCubic,
+    } else if (!morphCardHeight(target)) {
+      m_contentFit.animation = m_animations.drive(
+          m_contentFit.animation, static_cast<float>(m_panelVisualHeight), static_cast<float>(target), Style::spring(Tokens::springMove),
           [this](float height) {
             if (setCardHeight(static_cast<std::uint32_t>(std::lround(height)))) {
               placePanelChrome();
             }
           },
-          [this] { m_contentFit.animation = 0; }, m_sceneRoot.get()
+          [this] { m_contentFit.animation = 0; }, m_sceneRoot.get(), 0.0F, Unit::Px
       );
     }
     placePanelChrome();
@@ -2960,6 +3659,8 @@ bool PanelManager::setCardHeight(std::uint32_t height) {
     offset = static_cast<std::int32_t>(slack);
   } else if (m_contentFit.align == CardAlign::Center) {
     offset = static_cast<std::int32_t>(slack / 2U);
+  } else if (m_contentFit.align == CardAlign::Island) {
+    offset = std::clamp(m_contentFit.desiredTopY - m_contentFit.slotOutputY, 0, static_cast<std::int32_t>(slack));
   }
   m_panelVisualHeight = height;
   m_panelInsetY = m_contentFit.slotInsetY + offset;

@@ -1,6 +1,7 @@
 #include "shell/bar/widgets/workspaces_widget.h"
 
 #include "compositors/workspace_backend.h"
+#include "config/app_icon_settings.h"
 #include "config/config_service.h"
 #include "core/ui_phase.h"
 #include "render/animation/animation.h"
@@ -14,6 +15,7 @@
 #include "system/internal_app_metadata.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/builders.h"
+#include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
 
@@ -31,9 +33,10 @@ namespace {
     return !workspace.occupied && !workspace.active && !workspace.urgent;
   }
 
-  constexpr float kWorkspaceGap = Style::spaceXs;
+  TOKENS_LIVE(kWorkspaceGap, Style::spaceXs);
+  // M3: workspace dots -> lens cells (rulebook 9.1)
+  constexpr float kIslandDotGap = 5.0F;
   constexpr float kWorkspacePillDefaultHeight = Style::baseGlyphSize;
-  constexpr float kWorkspaceAnimDurationMs = static_cast<float>(Style::animNormal);
 
   [[nodiscard]] constexpr float workspaceLabelFontSize(bool minimal) {
     return minimal ? Style::fontSizeBody : Style::fontSizeMini;
@@ -79,7 +82,7 @@ WorkspacesWidget::WorkspacesWidget(
       m_inactivePillSize(std::clamp(options.inactivePillSize, 0.25F, 8.0F)), m_style(options.style),
       m_focusedOutputOnly(options.focusedOutputOnly), m_changeColorOnHover(options.changeColorOnHover),
       m_focusedColor(options.focusedColor), m_occupiedColor(options.occupiedColor), m_emptyColor(options.emptyColor),
-      m_urgentColor(options.urgentColor) {
+      m_urgentColor(options.urgentColor), m_islandDots(options.islandDots) {
   buildDesktopIconIndex();
 }
 
@@ -348,6 +351,11 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
   while (!m_container->children().empty()) {
     m_container->removeChild(m_container->children().back().get());
   }
+  if (m_islandDots && m_animations != nullptr) {
+    m_lens.setFlat(m_focusedColor);
+    m_lens.attach(*m_container, *m_animations, m_isVertical, m_contentScale);
+    m_lens.setZIndex(1);
+  }
   m_items.clear();
 
   struct RebuildEntry {
@@ -444,7 +452,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
     }
   }
 
-  const float gap = kWorkspaceGap * m_contentScale;
+  const float gap = (m_islandDots ? kIslandDotGap : kWorkspaceGap) * m_contentScale;
   const float labelFontSize = workspaceLabelFontSize(isMinimal()) * fontScale();
   const float pillHeight = std::round(kWorkspacePillDefaultHeight * m_contentScale * m_pillScale);
   // Active and inactive labels share the configured weight: a heavier weight selects a different
@@ -603,7 +611,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
       item.icon = static_cast<Image*>(area->addChild(
           ui::image({
               .fit = ImageFit::Contain,
-              .radius = Style::radiusSm,
+              .radius = Tokens::radiusR8,
               .width = focusedPillIconSize(),
               .height = focusedPillIconSize(),
           })
@@ -628,7 +636,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         m_hoveredArea = areaPtr;
         updateHoverOverlay();
 
-        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
         auto applyHoverProgress = [this, fill](float p) {
           m_hoverProgress = p;
           if (m_hoverOverlay != nullptr) {
@@ -647,8 +655,8 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         }
 
         m_animations->cancelForOwner(&m_hoverProgress);
-        m_animations->animate(
-            m_hoverProgress, 1.0F, Style::animFast, Easing::EaseOutCubic, applyHoverProgress, {}, &m_hoverProgress
+        m_animations->animateSpring(
+            m_hoverProgress, 1.0F, Style::spring(Tokens::springFadeOut), applyHoverProgress, {}, &m_hoverProgress
         );
         requestFrameTick();
       });
@@ -661,7 +669,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         m_hoveredArea = nullptr;
         updateHoverOverlay();
 
-        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+        const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
         auto applyHoverProgress = [this, fill](float p) {
           m_hoverProgress = p;
           if (m_hoverOverlay != nullptr) {
@@ -679,8 +687,8 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         }
 
         m_animations->cancelForOwner(&m_hoverProgress);
-        m_animations->animate(
-            m_hoverProgress, 0.0F, Style::animFast, Easing::EaseOutCubic, applyHoverProgress, {}, &m_hoverProgress
+        m_animations->animateSpring(
+            m_hoverProgress, 0.0F, Style::spring(Tokens::springFade), applyHoverProgress, {}, &m_hoverProgress
         );
         requestFrameTick();
       });
@@ -710,6 +718,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
         || std::fabs(it.targetOpacity - it.currentOpacity) > 0.01F;
   });
   applyItemLayouts();
+  syncLens(animateFromSnapshot);
   m_rebuildSnapshot.clear();
 
   float total = 0.0F;
@@ -732,7 +741,7 @@ void WorkspacesWidget::rebuild(Renderer& renderer) {
 
   // Only minimal style draws the translucent per-item hover overlay.
   if (m_changeColorOnHover && isMinimal() && barCapsuleSpec().hoverHighlight) {
-    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
+    ColorSpec hoverFill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
     hoverFill.alpha = 0.0F;
     m_hoverOverlay = static_cast<Box*>(m_container->addChild(
         ui::box({
@@ -911,7 +920,7 @@ void WorkspacesWidget::recalculateItemMetrics(
     item.icon = static_cast<Image*>(item.area->addChild(
         ui::image({
             .fit = ImageFit::Contain,
-            .radius = Style::radiusSm,
+            .radius = Tokens::radiusR8,
             .width = focusedPillIconSize(),
             .height = focusedPillIconSize(),
         })
@@ -990,6 +999,24 @@ void WorkspacesWidget::retarget(Renderer& renderer) {
   computeTargets();
   applyItemLayouts();
   startAnimation();
+  syncLens(true);
+}
+
+// The capsule leads toward the new workspace on snap and trails on trail (P1); the dots stay under it.
+void WorkspacesWidget::syncLens(bool animate) {
+  if (!m_islandDots) {
+    return;
+  }
+  for (const auto& item : m_items) {
+    if (!item.exiting && workspaceUsesFocusedStyle(item.workspace, item.output)) {
+      // The capsule follows the dot as it is now, so it cannot settle before the dots it sits between.
+      m_lens.moveTo(
+          item.currentX, item.currentX + item.currentWidth, 0.0F, m_indicatorHeight, m_indicatorHeight * 0.5F, animate
+      );
+      return;
+    }
+  }
+  m_lens.hide();
 }
 
 void WorkspacesWidget::startAnimation() {
@@ -1008,8 +1035,8 @@ void WorkspacesWidget::startAnimation() {
   cancelAnimation();
   requestFrameTick();
   requestRedraw();
-  m_animId = mgr->animate(
-      0.0F, 1.0F, kWorkspaceAnimDurationMs, Easing::EaseOutCubic,
+  m_animId = mgr->animateSpring(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
       [this](float t) {
         for (auto& item : m_items) {
           item.currentWidth = std::lerp(item.fromWidth, item.targetWidth, t);
@@ -1018,12 +1045,13 @@ void WorkspacesWidget::startAnimation() {
         updateItemFlowPositions();
         applyItemLayouts();
         updateContainerSize();
+        syncLens(true);
         if (root() != nullptr) {
           root()->markPaintDirty();
         }
       },
       [this] { finishAnimation(); }, this
-  );
+  , 0.0F, Unit::Progress);
 
   // Reserve final bounds before the first animated frame to avoid one-frame overflow.
   updateContainerSize();
@@ -1214,10 +1242,10 @@ void WorkspacesWidget::updateHoverOverlay() {
   for (auto& item : m_items) {
     if (&item == &hoveredItem) {
       if (item.indicator != nullptr) {
-        item.indicator->setFill(colorSpecFromRole(ColorRole::Hover));
+        item.indicator->setFill(colorSpecFromRole(ColorRole::Fill3));
       }
       if (item.text != nullptr) {
-        item.text->setColor(colorSpecFromRole(isMinimal() ? ColorRole::Hover : ColorRole::OnHover));
+        item.text->setColor(colorSpecFromRole(isMinimal() ? ColorRole::Fill3 : ColorRole::Label1));
       }
     } else {
       applyItemVisualStyle(item);
@@ -1493,6 +1521,9 @@ bool WorkspacesWidget::workspaceUsesFocusedStyle(const Workspace& workspace, wl_
 }
 
 ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_output* output) const {
+  if (m_islandDots && workspace.active) {
+    return clearColorSpec(); // the capsule (m_lens) alone draws the current workspace, so no second pill shows while it travels
+  }
   if (workspace.active) {
     return workspaceUsesFocusedStyle(workspace, output) ? m_focusedColor : m_occupiedColor;
   }
@@ -1503,7 +1534,9 @@ ColorSpec WorkspacesWidget::workspaceFillColor(const Workspace& workspace, wl_ou
     return m_occupiedColor;
   }
   ColorSpec color = m_emptyColor;
-  color.alpha *= 0.55F;
+  if (!m_islandDots) {
+    color.alpha *= 0.55F;
+  }
   return color;
 }
 
@@ -1521,51 +1554,20 @@ ColorSpec WorkspacesWidget::workspaceTextColor(const Workspace& workspace, wl_ou
     return m_occupiedColor;
   }
   ColorSpec color = m_emptyColor;
-  color.alpha *= 0.55F;
+  if (!m_islandDots) {
+    color.alpha *= 0.55F;
+  }
   return color;
 }
 
 ColorRole WorkspacesWidget::onRoleForFill(ColorRole fill) {
   switch (fill) {
-  case ColorRole::Primary:
-    return ColorRole::OnPrimary;
-  case ColorRole::Secondary:
-    return ColorRole::OnSecondary;
-  case ColorRole::Tertiary:
-    return ColorRole::OnTertiary;
-  case ColorRole::Error:
-    return ColorRole::OnError;
-  case ColorRole::PrimaryContainer:
-    return ColorRole::OnPrimaryContainer;
-  case ColorRole::SecondaryContainer:
-    return ColorRole::OnSecondaryContainer;
-  case ColorRole::TertiaryContainer:
-    return ColorRole::OnTertiaryContainer;
-  case ColorRole::ErrorContainer:
-    return ColorRole::OnErrorContainer;
-  case ColorRole::Surface:
-  case ColorRole::SurfaceContainerLow:
-  case ColorRole::SurfaceContainer:
-  case ColorRole::SurfaceContainerHigh:
-  case ColorRole::SurfaceContainerHighest:
-  case ColorRole::OutlineVariant:
-  case ColorRole::Shadow:
-  case ColorRole::Scrim:
-  case ColorRole::Hover:
-  case ColorRole::OnPrimary:
-  case ColorRole::OnPrimaryContainer:
-  case ColorRole::OnSecondary:
-  case ColorRole::OnSecondaryContainer:
-  case ColorRole::OnTertiary:
-  case ColorRole::OnTertiaryContainer:
-  case ColorRole::OnError:
-  case ColorRole::OnErrorContainer:
-  case ColorRole::OnSurface:
-  case ColorRole::OnSurfaceVariant:
-  case ColorRole::OnHover:
-    return ColorRole::OnSurface;
+  case ColorRole::Accent:
+  case ColorRole::Danger:
+    return ColorRole::OnAccent;
+  default:
+    return ColorRole::Label1;
   }
-  return ColorRole::OnSurface;
 }
 
 ColorSpec WorkspacesWidget::readableColorForFill(const ColorSpec& fill) {

@@ -2,7 +2,7 @@
 
 #include "ext-image-capture-source-v1-client-protocol.h"
 #include "ext-image-copy-capture-v1-client-protocol.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -305,7 +305,7 @@ struct PointerCursorCapturePending {
   }
 };
 
-PointerCursorCapture::PointerCursorCapture(WaylandConnection& wayland) : m_wayland(wayland) {}
+PointerCursorCapture::PointerCursorCapture(ShellWaylandConnection& wayland) : m_wayland(wayland) {}
 
 PointerCursorCapture::~PointerCursorCapture() { cancelInFlight(); }
 

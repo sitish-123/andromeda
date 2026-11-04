@@ -169,7 +169,7 @@ namespace {
       bool defaultBackground = true
   ) {
     if (getBoolSetting(settings, "background", defaultBackground)) {
-      ColorSpec bgColor = getColorSpecSetting(settings, "background_color", colorSpecFromRole(ColorRole::Surface));
+      ColorSpec bgColor = getColorSpecSetting(settings, "background_color", colorSpecFromRole(ColorRole::SolidRegular));
       bgColor.alpha *= std::clamp(getFloatSetting(settings, "background_opacity", 0.8F), 0.0F, 1.0F);
       const float radius = getFloatSetting(settings, "background_radius", kDefaultBgRadius);
       const float padding = getFloatSetting(settings, "background_padding", kDefaultBgPadding);
@@ -210,7 +210,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     auto widget = std::make_unique<DesktopClockWidget>(DesktopClockWidget::Options{
         .style = style,
         .format = getStringSetting(settings, "format", "{:%H:%M}"),
-        .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::OnSurface)),
+        .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Label1)),
         .shadow = getBoolSetting(settings, "shadow", true),
         .showCircle = getBoolSetting(settings, "circle", true),
         .showSeconds = getBoolSetting(settings, "show_seconds", true),
@@ -236,8 +236,8 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
             .centered = getBoolSetting(settings, "centered", true),
             .wave = getBoolSetting(settings, "show_wave", false),
             .showWhenIdle = getBoolSetting(settings, "show_when_idle", true),
-            .color1 = getColorSpecSetting(settings, "color_1", colorSpecFromRole(ColorRole::Primary)),
-            .color2 = getColorSpecSetting(settings, "color_2", colorSpecFromRole(ColorRole::Primary)),
+            .color1 = getColorSpecSetting(settings, "color_1", colorSpecFromRole(ColorRole::Accent)),
+            .color2 = getColorSpecSetting(settings, "color_2", colorSpecFromRole(ColorRole::Accent)),
         }
     );
     applyCommonSettings(*widget, settings);
@@ -266,8 +266,8 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
             .waveThickness = getFloatSetting(settings, "wave_thickness", 1.0F),
             .innerDiameter = getFloatSetting(settings, "inner_diameter", 0.7F),
             .fadeWhenIdle = getBoolSetting(settings, "fade_when_idle", true),
-            .primaryColor = getColorSpecSetting(settings, "primary_color", colorSpecFromRole(ColorRole::Primary)),
-            .secondaryColor = getColorSpecSetting(settings, "secondary_color", colorSpecFromRole(ColorRole::Secondary)),
+            .primaryColor = getColorSpecSetting(settings, "primary_color", colorSpecFromRole(ColorRole::Accent)),
+            .secondaryColor = getColorSpecSetting(settings, "secondary_color", colorSpecFromRole(ColorRole::Accent)),
         }
     );
     applyCommonSettings(*widget, settings, false);
@@ -292,7 +292,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     auto widget = std::make_unique<DesktopWeatherWidget>(
         m_weather,
         DesktopWeatherWidget::Options{
-            .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::OnSurface)),
+            .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Label1)),
             .shadow = getBoolSetting(settings, "shadow", true),
             .showForecast = getBoolSetting(settings, "show_forecast", false),
             .forecastDays = getIntSetting(settings, "forecast_days", 3),
@@ -312,7 +312,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
         m_mpris, m_httpClient, m_pipewireSpectrum,
         DesktopMediaPlayerWidget::Options{
             .vertical = getStringSetting(settings, "layout", "horizontal") == "vertical",
-            .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::OnSurface)),
+            .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Label1)),
             .shadow = getBoolSetting(settings, "shadow", true),
             .hideWhenNoMedia = getBoolSetting(settings, "hide_when_no_media", false),
             .albumArtBackground = getBoolSetting(settings, "album_art_background", false),
@@ -329,7 +329,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     auto widget = std::make_unique<DesktopLabelWidget>(DesktopLabelWidget::Options{
         .title = getStringSetting(settings, "title", "Title"),
         .description = getStringSetting(settings, "description"),
-        .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::OnSurface)),
+        .color = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Label1)),
         .opacity = std::clamp(getFloatSetting(settings, "opacity", 1.0F), 0.0F, 1.0F),
         .shadow = getBoolSetting(settings, "shadow", true),
     });
@@ -346,7 +346,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
         .variant = getButtonVariant(settings),
         .showBackground = getBoolSetting(settings, "background", true),
         .labelColor = getOptionalColorSpecSetting(settings, "color"),
-        .hoverBackground = getColorSpecSetting(settings, "hover_background", colorSpecFromRole(ColorRole::Hover)),
+        .hoverBackground = getColorSpecSetting(settings, "hover_background", colorSpecFromRole(ColorRole::Fill3)),
     });
     widget->setFontFamily(getStringSetting(settings, "font_family", ""));
     widget->setContentScale(contentScale);
@@ -402,9 +402,9 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
             .stat2 = stat2,
             .displayMode = displayMode,
             .gaugeLayout = gaugeLayout,
-            .lineColor = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Primary)),
-            .lineColor2 = getColorSpecSetting(settings, "color2", colorSpecFromRole(ColorRole::Secondary)),
-            .highlightColor = getColorSpecSetting(settings, "highlight_color", colorSpecFromRole(ColorRole::Error)),
+            .lineColor = getColorSpecSetting(settings, "color", colorSpecFromRole(ColorRole::Accent)),
+            .lineColor2 = getColorSpecSetting(settings, "color2", colorSpecFromRole(ColorRole::Accent)),
+            .highlightColor = getColorSpecSetting(settings, "highlight_color", colorSpecFromRole(ColorRole::DangerText)),
             .networkInterface = getStringSetting(settings, "interface"),
             .networkSpeedUnit =
                 FormatUnits::decimalByteRateUnitFromString(getStringSetting(settings, "network_speed_unit", "auto")),
@@ -435,8 +435,8 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
         m_pipewire,
         DesktopVolumeWidget::Options{
             .glyph = getStringSetting(settings, "glyph"),
-            .fillColor = getColorSpecSetting(settings, "fill_color", colorSpecFromRole(ColorRole::Primary)),
-            .trackColor = getColorSpecSetting(settings, "track_color", colorSpecFromRole(ColorRole::OnSurfaceVariant)),
+            .fillColor = getColorSpecSetting(settings, "fill_color", colorSpecFromRole(ColorRole::Accent)),
+            .trackColor = getColorSpecSetting(settings, "track_color", colorSpecFromRole(ColorRole::Label2)),
             .input = getStringSetting(settings, "device", "output") == "input",
             .showDevice = getBoolSetting(settings, "show_device", true),
             .shadow = getBoolSetting(settings, "shadow", true),
@@ -465,8 +465,11 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     auto seeded = scripting::seedEntrySettings(*pluginEntry->entry, settings);
     static const std::unordered_map<std::string, WidgetSettingValue> kNoPluginOverrides;
     const auto* pluginOverrides = &kNoPluginOverrides;
-    if (m_scriptDeps.configService != nullptr) {
-      const auto& pluginSettings = m_scriptDeps.configService->config().plugins.pluginSettings;
+    const auto* allPluginSettings = m_scriptDeps.configService != nullptr
+        ? &m_scriptDeps.configService->config().plugins.pluginSettings
+        : m_scriptDeps.pluginSettings;
+    if (allPluginSettings != nullptr) {
+      const auto& pluginSettings = *allPluginSettings;
       if (const auto psIt = pluginSettings.find(pluginEntry->manifest->id); psIt != pluginSettings.end()) {
         pluginOverrides = &psIt->second;
       }

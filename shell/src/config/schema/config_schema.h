@@ -24,6 +24,18 @@ namespace noctalia::config::schema {
   const Schema<BatteryConfig>& batterySchema();
   const Schema<BluetoothConfig>& bluetoothSchema();
   const Schema<ControlCenterConfig>& controlCenterSchema();
+  const Schema<ShellConfig::ScreenshotConfig>& screenshotSchema(); // [shell.screenshot]
+  const Schema<ShellConfig::LauncherConfig>& launcherSchema();     // [shell.launcher]
+  const Schema<ShellConfig::PanelConfig>& panelSchema();           // [shell.panel]
+  const Schema<ShellConfig::WindowSwitcherConfig>& windowSwitcherSchema(); // [shell.window_switcher]
+  const Schema<ShellConfig::PrivacyConfig>& privacySchema();               // [shell.privacy]
+  const Schema<ShellConfig::AnimationConfig>& animationSchema();           // [shell.animation]
+  const Schema<ShellConfig::ScreenCornersConfig>& screenCornersSchema();   // [shell.screen_corners]
+  const Schema<ShellSessionConfig>& sessionSchema();                       // [shell.session]
+  const Schema<SystemConfig::MonitorConfig>& systemMonitorRowsSchema();    // [system.monitor]
+  const Schema<ControlCenterConfig::CalendarTabConfig>& calendarTabRowsSchema(); // [control_center.calendar]
+  const Schema<WallpaperAutomationConfig>& wallpaperAutomationRowsSchema(); // [wallpaper.automation]
+  const Schema<ThemeConfig::TemplatesConfig>& themeTemplatesSchema(); // [theme.templates]
   const Schema<PluginsConfig>& pluginsSchema();
   const Schema<HotCornersConfig>& hotCornersSchema();
   const Schema<CalendarConfig::Reminders>& calendarRemindersSchema();

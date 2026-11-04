@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/poll_source.h"
+#include "core/poll_source.h"
 #include "capture/screencopy_capture.h"
 
 #include <chrono>
@@ -38,6 +38,8 @@ public:
   ScreenRecorder& operator=(const ScreenRecorder&) = delete;
 
   [[nodiscard]] bool active() const { return m_state != State::Idle; }
+  // Runs when active() changes.
+  void setActiveCallback(std::function<void()> callback) { m_activeCallback = std::move(callback); }
   // Starts a recording of the whole display, or of region (global logical coordinates) on it, or stops and saves the
   // current one. Returns an error message, empty on success.
   std::string toggle(std::optional<LogicalRect> region = std::nullopt);
@@ -73,6 +75,8 @@ private:
   std::string m_restoreToken;
   std::uint64_t m_tokenSeq = 0;
   State m_state = State::Idle;
+  std::function<void()> m_activeCallback;
+  void setState(State state);
   GstElement* m_pipeline = nullptr;
   GstBus* m_gstBus = nullptr;
   int m_busFd = -1;

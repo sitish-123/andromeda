@@ -29,22 +29,39 @@ namespace noctalia::config::schema {
 
   const Schema<AudioConfig>& audioSchema() {
     static const Schema<AudioConfig> s = {
-        field(&AudioConfig::enableOverdrive, "enable_overdrive"),
-        field(&AudioConfig::enableSounds, "enable_sounds"),
+        field(
+            &AudioConfig::enableOverdrive, "enable_overdrive",
+            RowSpec{.section = "services", .group = "audio", .label = "services.audio-overdrive", .tags = "volume"}
+        ),
+        field(
+            &AudioConfig::enableSounds, "enable_sounds",
+            RowSpec{.section = "services", .group = "audio", .label = "services.shell-sounds", .tags = "sound"}
+        ),
         field(&AudioConfig::enableVolumeSounds, "enable_volume_sounds"),
         field(&AudioConfig::enableNotificationSounds, "enable_notification_sounds"),
         field(&AudioConfig::enablePowerSounds, "enable_power_sounds"),
         field(&AudioConfig::enableScreenshotSounds, "enable_screenshot_sounds"),
         field(&AudioConfig::soundVolume, "sound_volume", kUnitRange),
         field(&AudioConfig::soundTheme, "sound_theme"),
-        field(&AudioConfig::autoSwitchHdmi, "auto_switch_hdmi"),
+        field(
+            &AudioConfig::autoSwitchHdmi, "auto_switch_hdmi",
+            RowSpec{
+                .section = "services",
+                .group = "audio",
+                .label = "services.audio-hdmi-switch",
+                .tags = "device-desktop",
+            }
+        ),
     };
     return s;
   }
 
   const Schema<WeatherConfig>& weatherSchema() {
     static const Schema<WeatherConfig> s = {
-        field(&WeatherConfig::enabled, "enabled"),
+        field(
+            &WeatherConfig::enabled, "enabled",
+            RowSpec{.section = "location", .group = "weather", .label = "services.weather", .tags = "forecast"}
+        ),
         field(&WeatherConfig::effects, "effects"),
         field(&WeatherConfig::refreshMinutes, "refresh_minutes", kRefreshMinutesRange),
         field(&WeatherConfig::unit, "unit"),
@@ -101,7 +118,15 @@ namespace noctalia::config::schema {
 
   const Schema<OsdConfig>& osdSchema() {
     static const Schema<OsdConfig> s = {
-        field(&OsdConfig::enabled, "enabled"),
+        field(
+            &OsdConfig::enabled, "enabled",
+            RowSpec{
+                .section = "notifications",
+                .group = "osd",
+                .label = "shell.osd-enabled",
+                .tags = "hud overlay master enable disable all",
+            }
+        ),
         field(&OsdConfig::position, "position"),
         field(&OsdConfig::positionVertical, "position_vertical"),
         field(&OsdConfig::orientation, "orientation"),
@@ -131,14 +156,25 @@ namespace noctalia::config::schema {
 
   const Schema<LockscreenConfig>& lockscreenSchema() {
     static const Schema<LockscreenConfig> s = {
-        field(&LockscreenConfig::enabled, "enabled"),
+        field(
+            &LockscreenConfig::enabled, "enabled",
+            RowSpec{.section = "security", .group = "lock-screen", .label = "lockscreen.enabled", .tags = "lock screen session"}
+        ),
         field(&LockscreenConfig::lockBeforeSuspend, "lock_before_suspend"),
         field(&LockscreenConfig::gracePeriodSeconds, "grace_period_seconds", Range<std::int64_t>{0, 60}),
         field(&LockscreenConfig::fingerprint, "fingerprint"),
         field(&LockscreenConfig::face, "face"),
-        field(&LockscreenConfig::style, "style"),
+        field(&LockscreenConfig::theme, "theme"),
+        field(&LockscreenConfig::layout, "layout"),
+        field(&LockscreenConfig::notificationContent, "notification_content"),
+        field(&LockscreenConfig::ownerMessage, "owner_message"),
+        field(&LockscreenConfig::clockStyle, "clock_style"),
+        field(&LockscreenConfig::clockSize, "clock_size"),
+        field(&LockscreenConfig::clockFormat24h, "clock_format_24h"),
+        field(&LockscreenConfig::clockSeconds, "clock_seconds"),
+        field(&LockscreenConfig::widgets, "widgets"),
+        field(&LockscreenConfig::bottomSlot, "bottom_slot"),
         field(&LockscreenConfig::allowEmptyPassword, "allow_empty_password"),
-        field(&LockscreenConfig::blurredDesktop, "blurred_desktop"),
         enumArrayField(
             &LockscreenConfig::transitions, "transition", kLockscreenTransitions, std::optional<LockscreenTransition>{}
         ),
@@ -147,6 +183,7 @@ namespace noctalia::config::schema {
         field(&LockscreenConfig::blurIntensity, "blur_intensity", kUnitRange),
         field(&LockscreenConfig::tintIntensity, "tint_intensity", kUnitRange),
         pathStringField(&LockscreenConfig::wallpaper, "wallpaper"),
+        field(&LockscreenConfig::wallpaperOutputs, "wallpaper_outputs"),
         field(&LockscreenConfig::monitors, "monitors"),
     };
     return s;
@@ -157,7 +194,15 @@ namespace noctalia::config::schema {
     // happens at consumption, not at parse time; so no Range is attached.
     const Schema<SystemConfig::MonitorConfig>& systemMonitorSchema() {
       static const Schema<SystemConfig::MonitorConfig> s = {
-          field(&SystemConfig::MonitorConfig::enabled, "enabled"),
+          field(
+              &SystemConfig::MonitorConfig::enabled, "enabled",
+              RowSpec{
+                  .section = "system",
+                  .group = "monitor",
+                  .label = "services.system-monitor",
+                  .tags = "system monitor cpu ram memory",
+              }
+          ),
           field(&SystemConfig::MonitorConfig::cpuTempSensorPath, "cpu_temp_sensor_path"),
           field(&SystemConfig::MonitorConfig::cpuPollSeconds, "cpu_poll_seconds"),
           field(&SystemConfig::MonitorConfig::gpuPollSeconds, "gpu_poll_seconds"),
@@ -195,11 +240,29 @@ namespace noctalia::config::schema {
       };
       return s;
     }
+
+    const Schema<SystemConfig::BackgroundConfig>& systemBackgroundSchema() {
+      static const Schema<SystemConfig::BackgroundConfig> s = {
+          field(
+              &SystemConfig::BackgroundConfig::warn, "warn",
+              RowSpec{
+                  .section = "system",
+                  .group = "monitor",
+                  .label = "services.background-warning",
+                  .tags = "activity background services autostart memory warning notification",
+              }
+          ),
+          field(&SystemConfig::BackgroundConfig::memoryMb, "memory_mb", Range<std::int64_t>{50, 8192}),
+          field(&SystemConfig::BackgroundConfig::minUptimeMinutes, "min_uptime_minutes", Range<std::int64_t>{1, 1440}),
+      };
+      return s;
+    }
   } // namespace
 
   const Schema<SystemConfig>& systemSchema() {
     static const Schema<SystemConfig> s = {
         subTable(&SystemConfig::monitor, "monitor", systemMonitorSchema()),
+        subTable(&SystemConfig::background, "background", systemBackgroundSchema()),
     };
     return s;
   }
@@ -237,11 +300,39 @@ namespace noctalia::config::schema {
 
   const Schema<LocationConfig>& locationSchema() {
     static const Schema<LocationConfig> s = {
-        field(&LocationConfig::autoLocate, "auto_locate"),
+        field(
+            &LocationConfig::autoLocate, "auto_locate",
+            RowSpec{
+                .section = "location",
+                .group = "location",
+                .label = "services.location-auto-locate",
+                .tags = "location ip geolocate gps coordinate",
+            }
+        ),
         field(&LocationConfig::address, "address"),
         field(&LocationConfig::customSchedule, "custom_schedule"),
-        field(&LocationConfig::sunset, "sunset"),
-        field(&LocationConfig::sunrise, "sunrise"),
+        field(
+            &LocationConfig::sunset, "sunset",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "location",
+                .group = "location",
+                .label = "services.sunset",
+                .tags = "time schedule sunset",
+                .placeholder = "20:30",
+            }
+        ),
+        field(
+            &LocationConfig::sunrise, "sunrise",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "location",
+                .group = "location",
+                .label = "services.sunrise",
+                .tags = "time schedule sunrise",
+                .placeholder = "07:30",
+            }
+        ),
         field(&LocationConfig::latitude, "latitude"),
         field(&LocationConfig::longitude, "longitude"),
     };
@@ -295,25 +386,114 @@ namespace noctalia::config::schema {
 
   const Schema<NotificationConfig>& notificationSchema() {
     static const Schema<NotificationConfig> s = {
-        field(&NotificationConfig::enableDaemon, "enable_daemon"),
-        field(&NotificationConfig::showAppName, "show_app_name"),
-        field(&NotificationConfig::showActions, "show_actions"),
+        field(
+            &NotificationConfig::enableDaemon, "enable_daemon",
+            RowSpec{.section = "notifications", .group = "general", .label = "notifications.daemon", .tags = "dbus"}
+        ),
+        field(
+            &NotificationConfig::showAppName, "show_app_name",
+            RowSpec{.section = "notifications", .group = "general", .tags = "application identity header"}
+        ),
+        field(
+            &NotificationConfig::showActions, "show_actions",
+            RowSpec{.section = "notifications", .group = "general", .tags = "action buttons"}
+        ),
         field(&NotificationConfig::position, "position"),
         field(&NotificationConfig::layer, "layer"),
-        field(&NotificationConfig::scale, "scale", kScaleRange),
-        field(&NotificationConfig::width, "width", kNotificationWidthRange),
-        field(&NotificationConfig::backgroundOpacity, "background_opacity", kUnitRange),
-        field(&NotificationConfig::border, "border"),
+        field(
+            &NotificationConfig::scale, "scale", kScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider, .section = "notifications", .group = "toasts", .tags = "toast size scale"
+            }
+        ),
+        field(
+            &NotificationConfig::width, "width", kNotificationWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "notifications",
+                .group = "toasts",
+                .tags = "toast size dimension wide narrow",
+                .suffix = "px",
+            }
+        ),
+        field(
+            &NotificationConfig::backgroundOpacity, "background_opacity", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "notifications",
+                .group = "toasts",
+                .label = "notifications.toast-opacity",
+                .tags = "popup alpha transparency translucent opacity",
+            }
+        ),
+        field(
+            &NotificationConfig::border, "border",
+            RowSpec{.section = "notifications", .group = "toasts", .tags = "outline border"}
+        ),
         colorField(&NotificationConfig::borderColor, "border_color"),
-        field(&NotificationConfig::borderWidth, "border_width", kNotificationToastBorderWidthRange),
-        field(&NotificationConfig::followFocusedOutput, "follow_focused_output"),
-        field(&NotificationConfig::offsetX, "offset_x"),
-        field(&NotificationConfig::offsetY, "offset_y"),
+        field(
+            &NotificationConfig::borderWidth, "border_width", kNotificationToastBorderWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "notifications",
+                .group = "toasts",
+                .tags = "outline border width thickness",
+            }
+        ),
+        field(
+            &NotificationConfig::followFocusedOutput, "follow_focused_output",
+            RowSpec{.section = "notifications", .group = "toasts", .tags = "monitor output display focused active"}
+        ),
+        field(
+            &NotificationConfig::offsetX, "offset_x", std::nullopt,
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "notifications",
+                .group = "toasts",
+                .tags = "offset margin horizontal",
+                .suffix = "px",
+                .range = {0, 200, 1},
+            }
+        ),
+        field(
+            &NotificationConfig::offsetY, "offset_y", std::nullopt,
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "notifications",
+                .group = "toasts",
+                .tags = "offset margin vertical",
+                .suffix = "px",
+                .range = {0, 200, 1},
+            }
+        ),
         field(&NotificationConfig::monitors, "monitors"),
-        field(&NotificationConfig::collapseOnDismiss, "collapse_on_dismiss"),
-        field(&NotificationConfig::keepDismissedInHistory, "keep_dismissed_in_history"),
-        field(&NotificationConfig::historyRetentionHours, "history_retention_hours", Range<std::int64_t>{0, 8760}),
-        field(&NotificationConfig::maxVisible, "max_visible", Range<std::int64_t>{0, 20}),
+        field(
+            &NotificationConfig::collapseOnDismiss, "collapse_on_dismiss",
+            RowSpec{.section = "notifications", .group = "general", .tags = "reorder stack slide"}
+        ),
+        field(
+            &NotificationConfig::keepDismissedInHistory, "keep_dismissed_in_history",
+            RowSpec{.section = "notifications", .group = "history", .tags = "history dismissed toast remove keep"}
+        ),
+        field(
+            &NotificationConfig::historyRetentionHours, "history_retention_hours", Range<std::int64_t>{0, 8760},
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "notifications",
+                .group = "history",
+                .tags = "history retention hours clear",
+                .suffix = "h",
+            }
+        ),
+        field(
+            &NotificationConfig::maxVisible, "max_visible", Range<std::int64_t>{0, 20},
+            RowSpec{
+                .kind = RowSpec::Kind::Stepper,
+                .section = "notifications",
+                .group = "toasts",
+                .tags = "maximum on-screen toasts count limit",
+            }
+        ),
         custom<NotificationConfig>(
             "blacklist",
             [](const toml::table& tbl, NotificationConfig& out, std::string_view parentPath, Diagnostics& diag) {
@@ -436,7 +616,10 @@ namespace noctalia::config::schema {
 
   const Schema<DesktopWidgetsConfig>& desktopWidgetsSchema() {
     static const Schema<DesktopWidgetsConfig> s = {
-        field(&DesktopWidgetsConfig::enabled, "enabled"),
+        field(
+            &DesktopWidgetsConfig::enabled, "enabled",
+            RowSpec{.section = "desktop", .group = "widgets", .label = "desktop.widgets", .tags = "desktop"}
+        ),
         field(&DesktopWidgetsConfig::schemaVersion, "schema_version"),
         subTable(&DesktopWidgetsConfig::grid, "grid", desktopWidgetsGridSchema()),
     };
@@ -490,9 +673,26 @@ namespace noctalia::config::schema {
   const Schema<BrightnessConfig>& brightnessSchema() {
     static const Schema<BrightnessConfig> s = {
         field(&BrightnessConfig::enableDdcutil, "enable_ddcutil"),
-        field(&BrightnessConfig::syncBrightnessOfAllMonitors, "sync_all_monitors"),
+        field(
+            &BrightnessConfig::syncBrightnessOfAllMonitors, "sync_all_monitors",
+            RowSpec{
+                .section = "services",
+                .group = "brightness",
+                .label = "services.sync-monitor-brightness",
+                .tags = "monitor brightness",
+            }
+        ),
         field(&BrightnessConfig::ddcutilIgnoreMmids, "ignore_mmids"),
-        field(&BrightnessConfig::minimumBrightness, "minimum_brightness", kUnitRange),
+        field(
+            &BrightnessConfig::minimumBrightness, "minimum_brightness", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "services",
+                .group = "brightness",
+                .label = "services.minimum-brightness",
+                .tags = "floor clamp",
+            }
+        ),
         // Map key seeds `match`; an explicit `match` key inside overrides it.
         namedMap<BrightnessConfig, BrightnessMonitorOverride>(
             &BrightnessConfig::monitorOverrides, "monitor", brightnessMonitorSchema(),
@@ -520,8 +720,24 @@ namespace noctalia::config::schema {
 
   const Schema<BluetoothConfig>& bluetoothSchema() {
     static const Schema<BluetoothConfig> s = {
-        field(&BluetoothConfig::connectWhenEnabled, "connect_when_enabled"),
-        field(&BluetoothConfig::connectionNotifications, "connection_notifications"),
+        field(
+            &BluetoothConfig::connectWhenEnabled, "connect_when_enabled",
+            RowSpec{
+                .section = "services",
+                .group = "bluetooth",
+                .label = "services.bluetooth-connect-when-enabled",
+                .tags = "bluetooth reconnect connect trusted paired devices startup resume",
+            }
+        ),
+        field(
+            &BluetoothConfig::connectionNotifications, "connection_notifications",
+            RowSpec{
+                .section = "services",
+                .group = "bluetooth",
+                .label = "services.bluetooth-connection-notifications",
+                .tags = "bluetooth device connect disconnect notification",
+            }
+        ),
     };
     return s;
   }
@@ -535,8 +751,24 @@ namespace noctalia::config::schema {
     const Schema<ControlCenterConfig::CalendarTabConfig>& calendarTabSchema() {
       static const Schema<ControlCenterConfig::CalendarTabConfig> s = {
           field(&ControlCenterConfig::CalendarTabConfig::showEventsCard, "show_events_card"),
-          field(&ControlCenterConfig::CalendarTabConfig::showWeekNumbers, "show_week_numbers"),
-          field(&ControlCenterConfig::CalendarTabConfig::hidePastEvents, "hide_past_events"),
+          field(
+              &ControlCenterConfig::CalendarTabConfig::showWeekNumbers, "show_week_numbers",
+              RowSpec{
+                  .section = "calendar",
+                  .group = "general",
+                  .label = "services.calendar-week-numbers",
+                  .tags = "calendar week numbers iso",
+              }
+          ),
+          field(
+              &ControlCenterConfig::CalendarTabConfig::hidePastEvents, "hide_past_events",
+              RowSpec{
+                  .section = "calendar",
+                  .group = "general",
+                  .label = "services.calendar-hide-past-events",
+                  .tags = "calendar past events today finished hide",
+              }
+          ),
           field(
               &ControlCenterConfig::CalendarTabConfig::pastEventsThresholdMinutes, "past_events_threshold_minutes",
               kPastEventsThresholdMinutesRange
@@ -555,14 +787,77 @@ namespace noctalia::config::schema {
 
   const Schema<ControlCenterConfig>& controlCenterSchema() {
     static const Schema<ControlCenterConfig> s = {
-        enumField(&ControlCenterConfig::sidebarMode, "sidebar", kControlCenterSidebarModes),
-        enumField(&ControlCenterConfig::sidebarSectionMode, "sidebar_section", kControlCenterSidebarModes),
-        field(&ControlCenterConfig::width, "width", kControlCenterWidthRange),
-        field(&ControlCenterConfig::showShortcutLabels, "show_shortcut_labels"),
-        field(&ControlCenterConfig::showSessionButton, "show_session_button"),
-        field(&ControlCenterConfig::circularAvatar, "circular_avatar"),
-        field(&ControlCenterConfig::showAvatarBorder, "show_avatar_border"),
+        enumField(
+            &ControlCenterConfig::sidebarMode, "sidebar", kControlCenterSidebarModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "control-center",
+                .group = "navigation",
+                .label = "panels.control-center-sidebar",
+                .tags = "full compact none sidebar icons narrow hidden",
+                .segmented = true,
+            }
+        ),
+        enumField(
+            &ControlCenterConfig::sidebarSectionMode, "sidebar_section", kControlCenterSidebarModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "control-center",
+                .group = "navigation",
+                .label = "panels.control-center-sidebar-section",
+                .tags = "full compact none sidebar icons narrow hidden tab direct widget shortcut",
+                .segmented = true,
+            }
+        ),
+        field(
+            &ControlCenterConfig::width, "width", kControlCenterWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "control-center",
+                .group = "layout",
+                .label = "panels.control-center-width",
+                .tags = "size dimension wide narrow",
+                .suffix = "px",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showShortcutLabels, "show_shortcut_labels",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-shortcuts-show-labels",
+                .tags = "shortcuts labels text hide show titles",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showSessionButton, "show_session_button",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-session-button",
+                .tags = "session button show hide",
+            }
+        ),
+        field(
+            &ControlCenterConfig::circularAvatar, "circular_avatar",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-circular-avatar",
+                .tags = "avatar profile picture circle radius roundness",
+            }
+        ),
+        field(
+            &ControlCenterConfig::showAvatarBorder, "show_avatar_border",
+            RowSpec{
+                .section = "control-center",
+                .group = "home",
+                .label = "panels.home-avatar-border",
+                .tags = "avatar border ring accent hide show",
+            }
+        ),
         field(&ControlCenterConfig::hiddenTabs, "hidden_tabs"),
+        field(&ControlCenterConfig::quickTiles, "quick_tiles"),
         subTable(&ControlCenterConfig::calendarTab, "calendar", calendarTabSchema()),
         subTable(&ControlCenterConfig::mediaTab, "media", mediaTabSchema()),
         arrayOf<ControlCenterConfig, ShortcutConfig>(
@@ -903,8 +1198,26 @@ namespace noctalia::config::schema {
 
     const Schema<WallpaperAutomationConfig>& wallpaperAutomationSchema() {
       static const Schema<WallpaperAutomationConfig> s = {
-          field(&WallpaperAutomationConfig::enabled, "enabled"),
-          field(&WallpaperAutomationConfig::intervalSeconds, "interval_seconds", kWallpaperAutomationIntervalRange),
+          field(
+              &WallpaperAutomationConfig::enabled, "enabled",
+              RowSpec{
+                  .section = "wallpaper",
+                  .group = "automation",
+                  .label = "wallpaper.automation",
+                  .tags = "rotate slideshow",
+              }
+          ),
+          field(
+              &WallpaperAutomationConfig::intervalSeconds, "interval_seconds", kWallpaperAutomationIntervalRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Stepper,
+                  .section = "wallpaper",
+                  .group = "automation",
+                  .label = "wallpaper.automation-interval",
+                  .tags = "rotate slideshow",
+                  .suffix = "s",
+              }
+          ),
           // order accepts case-insensitive random|alphabetical.
           custom<WallpaperAutomationConfig>(
               "order",
@@ -928,8 +1241,25 @@ namespace noctalia::config::schema {
                 tbl.insert_or_assign("order", std::string(enumToKey(kWallpaperAutomationOrders, in.order)));
               }
           ),
-          field(&WallpaperAutomationConfig::recursive, "recursive"),
-          field(&WallpaperAutomationConfig::pauseOnFullscreen, "pause_on_fullscreen"),
+          field(
+              &WallpaperAutomationConfig::recursive, "recursive",
+              RowSpec{
+                  .section = "wallpaper",
+                  .group = "automation",
+                  .label = "wallpaper.automation-recursive",
+                  .tags = "subdirectories",
+                  .advanced = true,
+              }
+          ),
+          field(
+              &WallpaperAutomationConfig::pauseOnFullscreen, "pause_on_fullscreen",
+              RowSpec{
+                  .section = "wallpaper",
+                  .group = "automation",
+                  .label = "wallpaper.automation-pause-on-fullscreen",
+                  .tags = "rotate slideshow game video",
+              }
+          ),
       };
       return s;
     }
@@ -1004,6 +1334,8 @@ namespace noctalia::config::schema {
       );
     }
   } // namespace
+
+  const Schema<WallpaperAutomationConfig>& wallpaperAutomationRowsSchema() { return wallpaperAutomationSchema(); }
 
   const Schema<KeybindsConfig>& keybindsSchema() {
     static const Schema<KeybindsConfig> s = {
@@ -1339,9 +1671,25 @@ namespace noctalia::config::schema {
 
     const Schema<ThemeConfig::TemplatesConfig>& templatesSchema() {
       static const Schema<ThemeConfig::TemplatesConfig> s = {
-          field(&ThemeConfig::TemplatesConfig::enableBuiltinTemplates, "enable_builtin_templates"),
+          field(
+              &ThemeConfig::TemplatesConfig::enableBuiltinTemplates, "enable_builtin_templates",
+              RowSpec{
+                  .section = "appearance",
+                  .group = "templates",
+                  .label = "templates.enable-builtins",
+                  .tags = "theme templates",
+              }
+          ),
           field(&ThemeConfig::TemplatesConfig::builtinIds, "builtin_ids"),
-          field(&ThemeConfig::TemplatesConfig::enableCommunityTemplates, "enable_community_templates"),
+          field(
+              &ThemeConfig::TemplatesConfig::enableCommunityTemplates, "enable_community_templates",
+              RowSpec{
+                  .section = "appearance",
+                  .group = "templates",
+                  .label = "templates.enable-community-templates",
+                  .tags = "theme templates community",
+              }
+          ),
           field(&ThemeConfig::TemplatesConfig::communityIds, "community_ids"),
           customColorsField(),
           namedMap<ThemeConfig::TemplatesConfig, UserTemplate>(
@@ -1353,6 +1701,8 @@ namespace noctalia::config::schema {
       return s;
     }
   } // namespace
+
+  const Schema<ThemeConfig::TemplatesConfig>& themeTemplatesSchema() { return templatesSchema(); }
 
   void parseCustomColorsMap(
       const toml::table& map, std::vector<ThemeConfig::TemplateColorConfig>& out, std::string_view path,
@@ -1386,15 +1736,63 @@ namespace noctalia::config::schema {
 
   const Schema<ThemeConfig>& themeSchema() {
     static const Schema<ThemeConfig> s = {
-        enumField(&ThemeConfig::source, "source", kPaletteSources),
+        enumField(
+            &ThemeConfig::source, "source", kPaletteSources,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "appearance",
+                .group = "theme",
+                .label = "appearance.palette-source",
+                .tags = "palette colors",
+                .segmented = true,
+            }
+        ),
         field(&ThemeConfig::builtinPalette, "builtin"),
         field(&ThemeConfig::communityPalette, "community_palette"),
         field(&ThemeConfig::customPalette, "custom_palette"),
         field(&ThemeConfig::wallpaperScheme, "wallpaper_scheme"),
-        enumField(&ThemeConfig::mode, "mode", kThemeModes),
-        enumField(&ThemeConfig::shellMode, "shell_mode", kShellThemeModes),
-        field(&ThemeConfig::pureBlackDark, "pure_black_dark"),
-        field(&ThemeConfig::syncColorScheme, "sync_color_scheme"),
+        enumField(
+            &ThemeConfig::mode, "mode", kThemeModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "appearance",
+                .group = "theme",
+                .label = "appearance.theme-mode",
+                .tags = "dark light auto colors",
+                .segmented = true,
+            }
+        ),
+        enumField(
+            &ThemeConfig::shellMode, "shell_mode", kShellThemeModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "appearance",
+                .group = "theme",
+                .label = "appearance.shell-theme-mode",
+                .tags = "dark light auto follow shell apps templates colors",
+                .segmented = true,
+            }
+        ),
+        field(
+            &ThemeConfig::pureBlackDark, "pure_black_dark",
+            RowSpec{.section = "appearance", .group = "theme", .tags = "oled amoled true black background contrast"}
+        ),
+        field(
+            &ThemeConfig::syncColorScheme, "sync_color_scheme",
+            RowSpec{
+                .section = "appearance",
+                .group = "theme",
+                .tags = "gnome gtk portal dark light prefer color scheme apps",
+            }
+        ),
+        field(
+            &ThemeConfig::toolkitThemes, "toolkit_themes",
+            RowSpec{
+                .section = "appearance",
+                .group = "theme",
+                .tags = "gtk qt kde fcitx5 libadwaita apps colors accent theme",
+            }
+        ),
         subTable(&ThemeConfig::templates, "templates", templatesSchema()),
     };
     return s;
@@ -1422,8 +1820,20 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::AnimationConfig>& shellAnimationSchema() {
       static const Schema<ShellConfig::AnimationConfig> s = {
-          field(&ShellConfig::AnimationConfig::enabled, "enabled"),
-          field(&ShellConfig::AnimationConfig::speed, "speed", kAnimationSpeedRange),
+          field(
+              &ShellConfig::AnimationConfig::enabled, "enabled",
+              RowSpec{.section = "motion", .group = "motion", .label = "appearance.animations", .tags = "motion"}
+          ),
+          field(
+              &ShellConfig::AnimationConfig::speed, "speed", kAnimationSpeedRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "motion",
+                  .group = "motion",
+                  .label = "appearance.animation-speed",
+                  .tags = "motion",
+              }
+          ),
       };
       return s;
     }
@@ -1481,13 +1891,47 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::PanelConfig>& shellPanelSchema() {
       static const Schema<ShellConfig::PanelConfig> s = {
-          enumField(&ShellConfig::PanelConfig::transparencyMode, "transparency_mode", kPanelTransparencyModes),
-          field(&ShellConfig::PanelConfig::borders, "borders"),
+          enumField(
+              &ShellConfig::PanelConfig::transparencyMode, "transparency_mode", kPanelTransparencyModes,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "effects",
+                  .tags = "glass alpha transparency translucent opacity cards blur",
+                  .segmented = true,
+              }
+          ),
+          field(
+              &ShellConfig::PanelConfig::borders, "borders",
+              RowSpec{.section = "panels", .group = "effects", .tags = "outline border shell edge"}
+          ),
           colorField(&ShellConfig::PanelConfig::borderColor, "border_color"),
-          field(&ShellConfig::PanelConfig::borderWidth, "border_width", kPanelBorderWidthRange),
+          field(
+              &ShellConfig::PanelConfig::borderWidth, "border_width", kPanelBorderWidthRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "panels",
+                  .group = "effects",
+                  .tags = "outline border width thickness",
+              }
+          ),
           field(&ShellConfig::PanelConfig::shadow, "shadow"),
-          field(&ShellConfig::PanelConfig::listItemBackground, "list_item_background"),
-          field(&ShellConfig::PanelConfig::wallpaperShowNames, "wallpaper_show_names"),
+          field(
+              &ShellConfig::PanelConfig::listItemBackground, "list_item_background",
+              RowSpec{
+                  .section = "panels",
+                  .group = "effects",
+                  .tags = "list item background fill row card launcher clipboard",
+              }
+          ),
+          field(
+              &ShellConfig::PanelConfig::wallpaperShowNames, "wallpaper_show_names",
+              RowSpec{
+                  .section = "panels",
+                  .group = "wallpaper",
+                  .tags = "picker grid caption file name label thumbnail",
+              }
+          ),
           custom<ShellConfig::PanelConfig>(
               "floating_layer",
               [](const toml::table& tbl, ShellConfig::PanelConfig& out, std::string_view parentPath,
@@ -1506,19 +1950,88 @@ namespace noctalia::config::schema {
                 tbl.insert_or_assign("floating_layer", in.floatingLayer);
               }
           ),
-          enumField(&ShellConfig::PanelConfig::launcherPlacement, "launcher_placement", kPanelPlacements),
-          enumField(&ShellConfig::PanelConfig::clipboardPlacement, "clipboard_placement", kPanelPlacements),
-          enumField(&ShellConfig::PanelConfig::controlCenterPlacement, "control_center_placement", kPanelPlacements),
-          enumField(&ShellConfig::PanelConfig::wallpaperPlacement, "wallpaper_placement", kPanelPlacements),
-          enumField(&ShellConfig::PanelConfig::sessionPlacement, "session_placement", kPanelPlacements),
-          enumField(&ShellConfig::PanelConfig::polkitPlacement, "polkit_placement", kPanelPlacements),
+          enumField(
+              &ShellConfig::PanelConfig::launcherPlacement, "launcher_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "launcher",
+                  .label = "panels.placement-launcher",
+                  .tags = "attached floating bar panel position",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::PanelConfig::clipboardPlacement, "clipboard_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "clipboard",
+                  .label = "panels.placement-clipboard",
+                  .tags = "attached floating bar panel position",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::PanelConfig::controlCenterPlacement, "control_center_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "control-center",
+                  .label = "panels.placement-control-center",
+                  .tags = "attached floating bar panel position",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::PanelConfig::wallpaperPlacement, "wallpaper_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "wallpaper",
+                  .label = "panels.placement-wallpaper",
+                  .tags = "attached floating bar panel position",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::PanelConfig::sessionPlacement, "session_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "session-panel",
+                  .label = "panels.placement-session",
+                  .tags = "attached floating bar panel power menu position",
+                  .segmented = true,
+              }
+          ),
+          enumField(
+              &ShellConfig::PanelConfig::polkitPlacement, "polkit_placement", kPanelPlacements,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "panels",
+                  .group = "polkit",
+                  .label = "panels.placement-polkit",
+                  .tags = "attached floating bar panel polkit auth password",
+                  .segmented = true,
+              }
+          ),
           field(&ShellConfig::PanelConfig::launcherPosition, "launcher_position"),
           field(&ShellConfig::PanelConfig::clipboardPosition, "clipboard_position"),
           field(&ShellConfig::PanelConfig::controlCenterPosition, "control_center_position"),
           field(&ShellConfig::PanelConfig::wallpaperPosition, "wallpaper_position"),
           field(&ShellConfig::PanelConfig::sessionPosition, "session_position"),
           field(&ShellConfig::PanelConfig::polkitPosition, "polkit_position"),
-          field(&ShellConfig::PanelConfig::floatingOffset, "floating_offset", Range<std::int64_t>{0, 100}),
+          field(
+              &ShellConfig::PanelConfig::floatingOffset, "floating_offset", Range<std::int64_t>{0, 100},
+              RowSpec{
+                  .kind = RowSpec::Kind::Stepper,
+                  .section = "panels",
+                  .group = "effects",
+                  .tags = "floating detached panel gap offset distance bar",
+                  .suffix = "px",
+              }
+          ),
           field(&ShellConfig::PanelConfig::openNearClickControlCenter, "open_near_click_control_center"),
           field(&ShellConfig::PanelConfig::openNearClickLauncher, "open_near_click_launcher"),
           field(&ShellConfig::PanelConfig::openNearClickClipboard, "open_near_click_clipboard"),
@@ -1545,7 +2058,17 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::LauncherConfig>& shellLauncherSchema() {
       static const Schema<ShellConfig::LauncherConfig> s = {
-          enumField(&ShellConfig::LauncherConfig::layout, "layout", ShellConfig::kLauncherLayouts),
+          enumField(
+              &ShellConfig::LauncherConfig::layout, "layout", ShellConfig::kLauncherLayouts,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "launcher",
+                  .label = "panels.launcher-layout",
+                  .tags = "launcher layout simple full classic minimal compact toolbar tabs",
+                  .segmented = true,
+              }
+          ),
           field(&ShellConfig::LauncherConfig::width, "width", noctalia::config::schema::kLauncherWidthRange),
           enumField(
               &ShellConfig::LauncherConfig::searchPosition, "search_position", ShellConfig::kLauncherSearchPositions
@@ -1556,18 +2079,121 @@ namespace noctalia::config::schema {
           field(&ShellConfig::LauncherConfig::showNavigationLabels, "show_navigation_labels"),
           field(&ShellConfig::LauncherConfig::showSettingsButton, "show_settings_button"),
           field(&ShellConfig::LauncherConfig::showSessionButton, "show_session_button"),
-          field(&ShellConfig::LauncherConfig::showIcons, "show_icons"),
-          field(&ShellConfig::LauncherConfig::showAppOriginIndicator, "show_app_origin_indicator"),
-          field(&ShellConfig::LauncherConfig::compact, "compact"),
-          field(&ShellConfig::LauncherConfig::appGrid, "app_grid"),
-          field(&ShellConfig::LauncherConfig::showAppActions, "show_app_actions"),
-          field(&ShellConfig::LauncherConfig::trackUsage, "track_usage"),
+          field(
+              &ShellConfig::LauncherConfig::showIcons, "show_icons",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "display",
+                  .label = "panels.launcher-show-icons",
+                  .tags = "launcher app icons hide",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::showAppOriginIndicator, "show_app_origin_indicator",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "display",
+                  .label = "panels.launcher-app-origin-indicator",
+                  .tags = "launcher app origin indicator",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::compact, "compact",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "display",
+                  .label = "panels.launcher-compact",
+                  .tags = "launcher compact rows dense",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::appGrid, "app_grid",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "display",
+                  .label = "panels.launcher-grid",
+                  .tags = "launcher grid icons view layout",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::showAppActions, "show_app_actions",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-app-actions",
+                  .tags = "launcher app actions show",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::trackUsage, "track_usage",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "history",
+                  .label = "panels.launcher-track-usage",
+                  .tags = "launcher track usage recent history frequency privacy",
+              }
+          ),
           field(&ShellConfig::LauncherConfig::sortByUsage, "sort_by_usage"),
-          field(&ShellConfig::LauncherConfig::ignoreMouse, "ignore_mouse"),
+          field(
+              &ShellConfig::LauncherConfig::ignoreMouse, "ignore_mouse",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-ignore-mouse",
+                  .tags = "launcher ignore disable mouse input pointer keyboard only",
+              }
+          ),
           field(&ShellConfig::LauncherConfig::pinned, "pinned"),
-          field(&ShellConfig::LauncherConfig::fetchExchangeRates, "fetch_exchange_rates"),
-          field(&ShellConfig::LauncherConfig::providerPrefix, "provider_prefix"),
-          enumField(&ShellConfig::LauncherConfig::autoPaste, "auto_paste", kClipboardAutoPasteModes),
+          field(
+              &ShellConfig::LauncherConfig::fetchExchangeRates, "fetch_exchange_rates",
+              RowSpec{
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-currency-exchange",
+                  .tags = "launcher currency exchange rates fetch online conversion",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::gifApiKey, "gif_api_key",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-gif-api-key",
+                  .tags = "launcher gif gifs stickers klipy api key",
+              }
+          ),
+          field(
+              &ShellConfig::LauncherConfig::providerPrefix, "provider_prefix",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "launcher",
+                  .group = "providers",
+                  .label = "panels.launcher-prefix-character",
+                  .tags = "launcher common prefix character",
+                  .placeholder = "/",
+              }
+          ),
+          enumField(
+              &ShellConfig::LauncherConfig::autoPaste, "auto_paste", kClipboardAutoPasteModes,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-auto-paste",
+                  .tags = "launcher auto paste",
+              }
+          ),
+          enumField(
+              &ShellConfig::LauncherConfig::emojiSkinTone, "emoji_skin_tone", kEmojiSkinTones,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "launcher",
+                  .group = "behavior",
+                  .label = "panels.launcher-emoji-skin-tone",
+                  .tags = "launcher emoji skin tone default",
+              }
+          ),
           subTable(&ShellConfig::LauncherConfig::dmenu, "dmenu", shellLauncherDmenuSchema()),
           subTable(&ShellConfig::LauncherConfig::panels, "panels", shellLauncherPanelsSchema()),
           namedMap<ShellConfig::LauncherConfig, LauncherProviderConfig>(
@@ -1588,21 +2214,96 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::WindowSwitcherConfig>& shellWindowSwitcherSchema() {
       static const Schema<ShellConfig::WindowSwitcherConfig> s = {
-          enumField(&ShellConfig::WindowSwitcherConfig::style, "style", ShellConfig::kWindowSwitcherStyles),
-          field(&ShellConfig::WindowSwitcherConfig::mru, "mru"),
-          field(&ShellConfig::WindowSwitcherConfig::showCaption, "show_caption"),
-          field(&ShellConfig::WindowSwitcherConfig::showCount, "show_count"),
-          field(&ShellConfig::WindowSwitcherConfig::showAppIcon, "show_app_icon"),
-          field(&ShellConfig::WindowSwitcherConfig::showAllOutputs, "show_all_outputs"),
-          field(&ShellConfig::WindowSwitcherConfig::currentWorkspaceOnly, "current_workspace_only"),
+          enumField(
+              &ShellConfig::WindowSwitcherConfig::style, "style", ShellConfig::kWindowSwitcherStyles,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-style",
+                  .tags = "window switcher alt tab style carousel compact",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::mru, "mru",
+              RowSpec{
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-mru",
+                  .tags = "window switcher alt tab mru most recently used",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::showCaption, "show_caption",
+              RowSpec{
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-show-caption",
+                  .tags = "window switcher alt tab caption title application name",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::showCount, "show_count",
+              RowSpec{
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-show-count",
+                  .tags = "window switcher alt tab count position total",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::showAppIcon, "show_app_icon",
+              RowSpec{
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-show-app-icon",
+                  .tags = "window switcher alt tab application app icon",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::showAllOutputs, "show_all_outputs",
+              RowSpec{
+                  .section = "windows",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-show-all-outputs",
+                  .tags = "window switcher alt tab monitor display output screen all current",
+              }
+          ),
+          field(
+              &ShellConfig::WindowSwitcherConfig::currentWorkspaceOnly, "current_workspace_only",
+              RowSpec{
+                  .section = "shell",
+                  .group = "window-switcher",
+                  .label = "shell.window-switcher-current-workspace-only",
+                  .tags = "window switcher alt tab workspace current only filter",
+              }
+          ),
       };
       return s;
     }
 
     const Schema<ShellConfig::ScreenCornersConfig>& shellScreenCornersSchema() {
       static const Schema<ShellConfig::ScreenCornersConfig> s = {
-          field(&ShellConfig::ScreenCornersConfig::enabled, "enabled"),
-          field(&ShellConfig::ScreenCornersConfig::size, "size", kScreenCornersSizeRange),
+          field(
+              &ShellConfig::ScreenCornersConfig::enabled, "enabled",
+              RowSpec{
+                  .section = "desktop",
+                  .group = "screen-corners",
+                  .label = "desktop.screen-corners-enabled",
+                  .tags = "screen corners rounded",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenCornersConfig::size, "size", kScreenCornersSizeRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "desktop",
+                  .group = "screen-corners",
+                  .label = "desktop.screen-corners-size",
+                  .tags = "screen corners radius",
+                  .integer = true,
+              }
+          ),
       };
       return s;
     }
@@ -1618,30 +2319,198 @@ namespace noctalia::config::schema {
     // including it here fixes the export, mirroring the calendar gap-fix.
     const Schema<ShellConfig::ScreenshotConfig>& shellScreenshotSchema() {
       static const Schema<ShellConfig::ScreenshotConfig> s = {
-          field(&ShellConfig::ScreenshotConfig::saveToFile, "save_to_file"),
-          field(&ShellConfig::ScreenshotConfig::copyToClipboard, "copy_to_clipboard"),
-          field(&ShellConfig::ScreenshotConfig::freezeScreen, "freeze_screen"),
-          field(&ShellConfig::ScreenshotConfig::confirmRegion, "confirm_region"),
-          field(&ShellConfig::ScreenshotConfig::rememberLastRegion, "remember_last_region"),
-          enumField(&ShellConfig::ScreenshotConfig::regionModifier, "region_modifier", kScreenshotRegionModifiers),
+          field(
+              &ShellConfig::ScreenshotConfig::saveToFile, "save_to_file",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-save-to-file",
+                  .tags = "screenshot capture save file",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::copyToClipboard, "copy_to_clipboard",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-copy-to-clipboard",
+                  .tags = "screenshot capture clipboard copy",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::freezeScreen, "freeze_screen",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-freeze-screen",
+                  .tags = "screenshot capture freeze region selection",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::confirmRegion, "confirm_region",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-confirm-region",
+                  .tags = "screenshot capture confirm region selection",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::rememberLastRegion, "remember_last_region",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-remember-last-region",
+                  .tags = "screenshot capture remember last region selection",
+              }
+          ),
+          enumField(
+              &ShellConfig::ScreenshotConfig::regionModifier, "region_modifier", kScreenshotRegionModifiers,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-region-modifier",
+                  .tags = "screenshot region modifier move resize drag selection captures",
+              }
+          ),
           field(
               &ShellConfig::ScreenshotConfig::regionBorderWidth, "region_border_width",
-              kScreenshotRegionBorderWidthRange
+              kScreenshotRegionBorderWidthRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-region-border-width",
+                  .tags = "screenshot region border outline width stroke",
+              }
           ),
-          field(&ShellConfig::ScreenshotConfig::regionDimOpacity, "region_dim_opacity", kUnitRange),
-          field(&ShellConfig::ScreenshotConfig::showRegionHint, "show_region_hint"),
-          field(&ShellConfig::ScreenshotConfig::showRegionDimensions, "show_region_dimensions"),
-          field(&ShellConfig::ScreenshotConfig::showCursor, "show_cursor"),
-          field(&ShellConfig::ScreenshotConfig::annotate, "annotate"),
-          field(&ShellConfig::ScreenshotConfig::skipAnnotateOnCopySave, "skip_annotate_on_copy_save"),
-          field(&ShellConfig::ScreenshotConfig::closeOnCopy, "close_on_copy"),
-          field(&ShellConfig::ScreenshotConfig::closeOnSave, "close_on_save"),
-          field(&ShellConfig::ScreenshotConfig::copyOnClose, "copy_on_close"),
-          field(&ShellConfig::ScreenshotConfig::pipeToCommand, "pipe_to_command"),
+          field(
+              &ShellConfig::ScreenshotConfig::regionDimOpacity, "region_dim_opacity", kUnitRange,
+              RowSpec{
+                  .kind = RowSpec::Kind::Slider,
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-region-dim-opacity",
+                  .tags = "screenshot region dim opacity darkness overlay",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::showRegionHint, "show_region_hint",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-show-region-hint",
+                  .tags = "screenshot region confirm hint keybind copy save cancel",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::showRegionDimensions, "show_region_dimensions",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-show-region-dimensions",
+                  .tags = "screenshot region dimensions size tooltip badge",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::showCursor, "show_cursor",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-capture",
+                  .label = "shell.screenshot-show-cursor",
+                  .tags = "screenshot capture show cursor pointer mouse",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::annotate, "annotate",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-annotation",
+                  .label = "shell.screenshot-annotate",
+                  .tags = "screenshot annotate annotation draw edit markup",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::skipAnnotateOnCopySave, "skip_annotate_on_copy_save",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-annotation",
+                  .label = "shell.screenshot-skip-annotate-on-copy-save",
+                  .tags = "screenshot annotate annotation skip copy save region quick",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::closeOnCopy, "close_on_copy",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-annotation",
+                  .label = "shell.screenshot-close-on-copy",
+                  .tags = "screenshot annotation close copy clipboard exit",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::closeOnSave, "close_on_save",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-annotation",
+                  .label = "shell.screenshot-close-on-save",
+                  .tags = "screenshot annotation close save exit",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::copyOnClose, "copy_on_close",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-annotation",
+                  .label = "shell.screenshot-copy-on-close",
+                  .tags = "screenshot annotation cancel copy clipboard close exit",
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::pipeToCommand, "pipe_to_command",
+              RowSpec{
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-pipe-to-command",
+                  .tags = "screenshot capture run pipe command stdin",
+              }
+          ),
           field(&ShellConfig::ScreenshotConfig::pipeCommand, "pipe_command"),
-          field(&ShellConfig::ScreenshotConfig::directory, "directory"),
-          field(&ShellConfig::ScreenshotConfig::filenamePattern, "filename_pattern"),
-          enumField(&ShellConfig::ScreenshotConfig::format, "format", kScreenshotFormats),
+          field(
+              &ShellConfig::ScreenshotConfig::directory, "directory",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-directory",
+                  .tags = "screenshot capture directory folder save location",
+                  .placeholderKey = "settings.schema.shell.screenshot-directory.placeholder",
+                  .browse = RowSpec::Browse::Folder,
+              }
+          ),
+          field(
+              &ShellConfig::ScreenshotConfig::filenamePattern, "filename_pattern",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-filename-pattern",
+                  .tags = "screenshot capture filename pattern strftime",
+                  .advanced = true,
+                  .placeholder = "screenshot_%Y%m%d_%H%M%S",
+              }
+          ),
+          enumField(
+              &ShellConfig::ScreenshotConfig::format, "format", kScreenshotFormats,
+              RowSpec{
+                  .kind = RowSpec::Kind::Select,
+                  .section = "screenshot",
+                  .group = "screenshot-output",
+                  .label = "shell.screenshot-format",
+                  .tags = "screenshot capture save file format png jpeg jpg webp jxl jpeg-xl",
+              }
+          ),
           field(&ShellConfig::ScreenshotConfig::quality, "quality", kScreenshotQualityRange),
       };
       return s;
@@ -1649,9 +2518,36 @@ namespace noctalia::config::schema {
 
     const Schema<ShellConfig::PrivacyConfig>& shellPrivacySchema() {
       static const Schema<ShellConfig::PrivacyConfig> s = {
-          field(&ShellConfig::PrivacyConfig::micFilterRegex, "mic_filter_regex"),
-          field(&ShellConfig::PrivacyConfig::camFilterRegex, "cam_filter_regex"),
-          field(&ShellConfig::PrivacyConfig::screenFilterRegex, "screen_filter_regex"),
+          field(
+              &ShellConfig::PrivacyConfig::micFilterRegex, "mic_filter_regex",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "security",
+                  .group = "privacy",
+                  .label = "shell.privacy-mic-filter-regex",
+                  .tags = "privacy microphone mic app process regex filter ignore",
+              }
+          ),
+          field(
+              &ShellConfig::PrivacyConfig::camFilterRegex, "cam_filter_regex",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "security",
+                  .group = "privacy",
+                  .label = "shell.privacy-cam-filter-regex",
+                  .tags = "privacy camera webcam app process regex filter ignore",
+              }
+          ),
+          field(
+              &ShellConfig::PrivacyConfig::screenFilterRegex, "screen_filter_regex",
+              RowSpec{
+                  .kind = RowSpec::Kind::Text,
+                  .section = "security",
+                  .group = "privacy",
+                  .label = "shell.privacy-screen-filter-regex",
+                  .tags = "privacy screen share screenshare app process regex filter ignore",
+              }
+          ),
       };
       return s;
     }
@@ -1780,32 +2676,98 @@ namespace noctalia::config::schema {
               &ShellSessionConfig::actions, "actions", sessionActionSchema(),
               [](const SessionPanelActionConfig& a) { return !a.action.empty(); }
           ),
-          field(&ShellSessionConfig::grid, "grid"),
+          field(
+              &ShellSessionConfig::grid, "grid",
+              RowSpec{
+                  .section = "power",
+                  .group = "session-panel",
+                  .label = "power.session-grid",
+                  .tags = "session panel grid layout rows columns",
+              }
+          ),
           field(&ShellSessionConfig::gridColumns, "grid_columns", kSessionGridColumnsRange),
-          field(&ShellSessionConfig::showShortcuts, "show_shortcuts"),
+          field(
+              &ShellSessionConfig::showShortcuts, "show_shortcuts",
+              RowSpec{
+                  .section = "power",
+                  .group = "session-panel",
+                  .label = "power.session-show-shortcuts",
+                  .tags = "session panel show shortcuts",
+              }
+          ),
           subTable(&ShellSessionConfig::power, "power", shellSessionPowerSchema()),
       };
       return s;
     }
   } // namespace
 
+  const Schema<ShellConfig::ScreenshotConfig>& screenshotSchema() { return shellScreenshotSchema(); }
+  const Schema<ShellConfig::LauncherConfig>& launcherSchema() { return shellLauncherSchema(); }
+  const Schema<ShellConfig::PanelConfig>& panelSchema() { return shellPanelSchema(); }
+  const Schema<ShellConfig::WindowSwitcherConfig>& windowSwitcherSchema() { return shellWindowSwitcherSchema(); }
+  const Schema<ShellConfig::PrivacyConfig>& privacySchema() { return shellPrivacySchema(); }
+  const Schema<ShellConfig::AnimationConfig>& animationSchema() { return shellAnimationSchema(); }
+  const Schema<ShellConfig::ScreenCornersConfig>& screenCornersSchema() { return shellScreenCornersSchema(); }
+  const Schema<ShellSessionConfig>& sessionSchema() { return shellSessionSchema(); }
+  const Schema<SystemConfig::MonitorConfig>& systemMonitorRowsSchema() { return systemMonitorSchema(); }
+  const Schema<ControlCenterConfig::CalendarTabConfig>& calendarTabRowsSchema() { return calendarTabSchema(); }
+
   const Schema<ShellConfig>& shellSchema() {
     static const Schema<ShellConfig> s = {
-        field(&ShellConfig::cornerRadiusScale, "corner_radius_scale", kCornerRadiusScaleRange),
-        field(&ShellConfig::buttonBorders, "button_borders"),
-        field(&ShellConfig::inputBorders, "input_borders"),
-        field(&ShellConfig::popupBorders, "popup_borders"),
-        field(&ShellConfig::popupShadows, "popup_shadows"),
-        field(&ShellConfig::cardBorders, "card_borders"),
-        field(&ShellConfig::showCloseButtons, "show_close_buttons"),
-        // font_family is trimmed; empty falls back to sans-serif.
+        field(
+            &ShellConfig::cornerRadiusScale, "corner_radius_scale", kCornerRadiusScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "appearance",
+                .group = "surfaces",
+                .label = "appearance.corner-roundness",
+                .tags = "rounded corners radius",
+            }
+        ),
+        field(
+            &ShellConfig::buttonBorders, "button_borders",
+            RowSpec{.section = "appearance", .group = "surfaces", .tags = "button outline border flat minimal"}
+        ),
+        field(
+            &ShellConfig::inputBorders, "input_borders",
+            RowSpec{
+                .section = "appearance",
+                .group = "surfaces",
+                .tags = "input text box field outline border flat minimal",
+            }
+        ),
+        field(
+            &ShellConfig::popupBorders, "popup_borders",
+            RowSpec{
+                .section = "appearance",
+                .group = "surfaces",
+                .tags = "popup menu dropdown outline border flat minimal",
+            }
+        ),
+        field(
+            &ShellConfig::popupShadows, "popup_shadows",
+            RowSpec{.section = "appearance", .group = "surfaces", .tags = "popup menu dropdown drop shadow depth"}
+        ),
+        field(
+            &ShellConfig::cardBorders, "card_borders",
+            RowSpec{.section = "appearance", .group = "surfaces", .tags = "card section outline border flat minimal"}
+        ),
+        field(
+            &ShellConfig::showCloseButtons, "show_close_buttons",
+            RowSpec{
+                .section = "appearance",
+                .group = "interface",
+                .tags = "close button cross dismiss hide panel notification toast popup dialog sheet settings window",
+            }
+        ),
+        // font_family is trimmed; empty falls back to Inter.
         custom<ShellConfig>(
             "font_family",
             [](const toml::table& tbl, ShellConfig& out, std::string_view parentPath, Diagnostics& diag) {
               if (auto v = tbl["font_family"].value<std::string>()) {
                 out.fontFamily = StringUtils::trim(*v);
                 if (out.fontFamily.empty()) {
-                  out.fontFamily = "sans-serif";
+                  out.fontFamily = "Inter";
                 }
               } else {
                 warnWrongType(tbl, "font_family", parentPath, diag, "a string");
@@ -1814,37 +2776,130 @@ namespace noctalia::config::schema {
             [](toml::table& tbl, const ShellConfig& in) { tbl.insert_or_assign("font_family", in.fontFamily); }
         ),
         stringIfNonEmptyField(&ShellConfig::lang, "lang"),
-        field(&ShellConfig::timeFormat, "time_format"),
-        field(&ShellConfig::dateFormat, "date_format"),
-        field(&ShellConfig::offlineMode, "offline_mode"),
+        field(
+            &ShellConfig::timeFormat, "time_format",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "shell",
+                .group = "general",
+                .tags = "clock time format strftime chrono",
+                .placeholder = "{:%H:%M}",
+            }
+        ),
+        field(
+            &ShellConfig::dateFormat, "date_format",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "shell",
+                .group = "general",
+                .tags = "calendar date format strftime chrono",
+                .placeholder = "%A, %x",
+            }
+        ),
+        field(
+            &ShellConfig::offlineMode, "offline_mode",
+            RowSpec{
+                .section = "security",
+                .group = "network",
+                .label = "shell.offline-mode",
+                .tags = "network http fetch download",
+            }
+        ),
         stringIfNonEmptyField(&ShellConfig::panelAnchorBar, "panel_anchor_bar"),
-        field(&ShellConfig::externalIpEnabled, "external_ip_enabled"),
-        field(&ShellConfig::telemetryEnabled, "telemetry_enabled"),
+        field(
+            &ShellConfig::externalIpEnabled, "external_ip_enabled",
+            RowSpec{
+                .section = "security",
+                .group = "network",
+                .label = "shell.external-ip",
+                .tags = "wan external ip public address network resolve",
+            }
+        ),
+        field(
+            &ShellConfig::telemetryEnabled, "telemetry_enabled",
+            RowSpec{
+                .section = "security",
+                .group = "network",
+                .label = "shell.telemetry",
+                .tags = "analytics ping privacy",
+            }
+        ),
         field(&ShellConfig::setupWizardEnabled, "setup_wizard_enabled"),
         field(&ShellConfig::niriOverviewTypeToLaunchEnabled, "niri_overview_type_to_launch_enabled"),
         field(&ShellConfig::andromedaOverviewTypeToLaunchEnabled, "andromeda_overview_type_to_launch_enabled"),
         field(&ShellConfig::andromedaAudioProviderEnabled, "andromeda_audio_provider_enabled"),
         field(&ShellConfig::niriOverviewCloseOnLaunchEnabled, "niri_overview_close_on_launch_enabled"),
         field(&ShellConfig::andromedaOverviewCloseOnLaunchEnabled, "andromeda_overview_close_on_launch_enabled"),
-        field(&ShellConfig::polkitAgent, "polkit_agent"),
+        field(
+            &ShellConfig::polkitAgent, "polkit_agent",
+            RowSpec{
+                .section = "security",
+                .group = "authentication",
+                .label = "shell.polkit-agent",
+                .tags = "auth password",
+            }
+        ),
         field(&ShellConfig::automountDrives, "automount_drives"),
-        enumField(&ShellConfig::passwordMaskStyle, "password_style", kPasswordMaskStyles),
-        field(&ShellConfig::readlineShortcuts, "readline_shortcuts"),
-        field(&ShellConfig::settingsShowAdvanced, "settings_show_advanced"),
-        field(&ShellConfig::settingsExpandAllGroups, "settings_expand_all_groups"),
-        field(&ShellConfig::settingsWindowTranslucent, "settings_window_translucent"),
+        enumField(
+            &ShellConfig::passwordMaskStyle, "password_style", kPasswordMaskStyles,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "security",
+                .group = "authentication",
+                .label = "shell.password-style",
+                .tags = "polkit lock mask",
+                .segmented = true,
+            }
+        ),
+        field(
+            &ShellConfig::readlineShortcuts, "readline_shortcuts",
+            RowSpec{
+                .section = "shell",
+                .group = "general",
+                .tags = "readline emacs keyboard shortcuts text input line editing",
+            }
+        ),
+        field(
+            &ShellConfig::settingsExpandAllGroups, "settings_expand_all_groups",
+            RowSpec{.section = "shell", .group = "general", .tags = "settings window groups expand collapse expanded"}
+        ),
+        field(
+            &ShellConfig::settingsWindowTranslucent, "settings_window_translucent",
+            RowSpec{
+                .section = "shell",
+                .group = "general",
+                .tags = "settings window background alpha transparency translucent opacity",
+            }
+        ),
         field(&ShellConfig::showLocation, "show_location"),
-        field(&ShellConfig::appIconColorize, "app_icon_colorize"),
+        field(
+            &ShellConfig::appIconColorize, "app_icon_colorize",
+            RowSpec{.section = "appearance", .group = "icons", .tags = "tint all application icons"}
+        ),
         colorSpecField(&ShellConfig::appIconColor, "app_icon_color", /*alwaysEmit=*/false),
         field(&ShellConfig::launchAppsAsSystemdServices, "launch_apps_as_systemd_services"),
         field(&ShellConfig::launchAppsCustomCommand, "launch_apps_custom_command"),
-        field(&ShellConfig::clipboardEnabled, "clipboard_enabled"),
-        field(&ShellConfig::clipboardKeepFromClosedApps, "clipboard_keep_from_closed_apps"),
+        field(
+            &ShellConfig::clipboardEnabled, "clipboard_enabled",
+            RowSpec{.section = "shell", .group = "clipboard", .tags = "clipboard history paste copy"}
+        ),
+        field(
+            &ShellConfig::clipboardKeepFromClosedApps, "clipboard_keep_from_closed_apps",
+            RowSpec{.section = "shell", .group = "clipboard", .tags = "clipboard paste close quit exit persist"}
+        ),
         field(
             &ShellConfig::clipboardHistoryMaxEntries, "clipboard_history_max_entries", kClipboardHistoryMaxEntriesRange
         ),
         field(&ShellConfig::clipboardConfirmClearHistory, "clipboard_confirm_clear_history"),
-        field(&ShellConfig::screenTimeEnabled, "screen_time_enabled"),
+        field(
+            &ShellConfig::screenTimeEnabled, "screen_time_enabled",
+            RowSpec{
+                .section = "system",
+                .group = "screen-time",
+                .label = "shell.screen-time-enabled",
+                .tags = "screen time usage tracking control center",
+            }
+        ),
         field(&ShellConfig::sharedGlContext, "shared_gl_context"),
         field(&ShellConfig::disableMipmaps, "disable_mipmaps"),
         enumField(&ShellConfig::clipboardAutoPaste, "clipboard_auto_paste", kClipboardAutoPasteModes),
@@ -1869,18 +2924,73 @@ namespace noctalia::config::schema {
   const Schema<WallpaperConfig>& wallpaperSchema() {
     static const Schema<WallpaperConfig> s = {
         field(&WallpaperConfig::enabled, "enabled"),
-        enumField(&WallpaperConfig::fillMode, "fill_mode", kWallpaperFillModes),
+        enumField(
+            &WallpaperConfig::fillMode, "fill_mode", kWallpaperFillModes,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "wallpaper",
+                .group = "general",
+                .tags = "scale aspect",
+                .segmented = true,
+            }
+        ),
         colorSpecField(&WallpaperConfig::fillColor, "fill_color", /*alwaysEmit=*/true),
         enumArrayField(
             &WallpaperConfig::transitions, "transition", kWallpaperTransitions, std::optional<WallpaperTransition>{}
         ),
-        field(&WallpaperConfig::transitionDurationMs, "transition_duration", kWallpaperTransitionDurationRange),
-        field(&WallpaperConfig::edgeSmoothness, "edge_smoothness", kUnitRange),
-        field(&WallpaperConfig::transitionOnStartup, "transition_on_startup"),
+        field(
+            &WallpaperConfig::transitionDurationMs, "transition_duration", kWallpaperTransitionDurationRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "wallpaper",
+                .group = "transition",
+                .tags = "fade animation",
+                .integer = true,
+            }
+        ),
+        field(
+            &WallpaperConfig::edgeSmoothness, "edge_smoothness", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "wallpaper",
+                .group = "transition",
+                .tags = "transition feathering",
+                .advanced = true,
+            }
+        ),
+        field(
+            &WallpaperConfig::transitionOnStartup, "transition_on_startup",
+            RowSpec{.section = "wallpaper", .group = "transition", .tags = "startup animation"}
+        ),
         pathStringField(&WallpaperConfig::directory, "directory"),
-        pathStringField(&WallpaperConfig::directoryLight, "directory_light"),
-        pathStringField(&WallpaperConfig::directoryDark, "directory_dark"),
-        field(&WallpaperConfig::perMonitorDirectories, "per_monitor_directories"),
+        pathStringField(
+            &WallpaperConfig::directoryLight, "directory_light",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "wallpaper",
+                .group = "directories",
+                .tags = "folder path light theme",
+                .advanced = true,
+                .placeholderKey = "settings.schema.wallpaper.directory-light.placeholder",
+                .browse = RowSpec::Browse::Folder,
+            }
+        ),
+        pathStringField(
+            &WallpaperConfig::directoryDark, "directory_dark",
+            RowSpec{
+                .kind = RowSpec::Kind::Text,
+                .section = "wallpaper",
+                .group = "directories",
+                .tags = "folder path dark theme",
+                .advanced = true,
+                .placeholderKey = "settings.schema.wallpaper.directory-dark.placeholder",
+                .browse = RowSpec::Browse::Folder,
+            }
+        ),
+        field(
+            &WallpaperConfig::perMonitorDirectories, "per_monitor_directories",
+            RowSpec{.section = "wallpaper", .group = "directories", .tags = "per display folder"}
+        ),
         subTable(&WallpaperConfig::automation, "automation", wallpaperAutomationSchema()),
         namedMap<WallpaperConfig, WallpaperMonitorOverride>(
             &WallpaperConfig::monitorOverrides, "monitor", wallpaperMonitorSchema(),
@@ -1952,7 +3062,15 @@ namespace noctalia::config::schema {
 
   const Schema<CalendarConfig>& calendarSchema() {
     static const Schema<CalendarConfig> s = {
-        field(&CalendarConfig::enabled, "enabled"),
+        field(
+            &CalendarConfig::enabled, "enabled",
+            RowSpec{
+                .section = "calendar",
+                .group = "general",
+                .label = "services.calendar",
+                .tags = "calendar events caldav google",
+            }
+        ),
         field(&CalendarConfig::dedupeEvents, "dedupe_events"),
         field(&CalendarConfig::dedupeIgnorePatterns, "dedupe_ignore_patterns"),
         field(&CalendarConfig::refreshMinutes, "refresh_minutes", kRefreshMinutesRange),
@@ -2344,8 +3462,10 @@ namespace noctalia::config::schema {
           field(&BarCapsuleGroupStyle::opacity, "opacity", kBarOpacityRange),
           field(&BarCapsuleGroupStyle::accordion, "accordion"),
           enumField(&BarCapsuleGroupStyle::accordionDirection, "accordion_direction", kBarAccordionDirections),
-          optionalIntField(
-              &BarCapsuleGroupStyle::accordionDurationMs, "accordion_duration", kBarCapsuleAccordionMsRange
+          // Retired key: read and dropped so old configs load without a warning.
+          custom<BarCapsuleGroupStyle>(
+              "accordion_duration", [](const toml::table&, BarCapsuleGroupStyle&, std::string_view, Diagnostics&) {},
+              [](toml::table&, const BarCapsuleGroupStyle&) {}
           ),
           optionalIntField(&BarCapsuleGroupStyle::accordionDelayMs, "accordion_delay_ms", kBarCapsuleAccordionMsRange),
           optionalIntField(&BarCapsuleGroupStyle::widgetSpacing, "widget_spacing"),
@@ -2449,6 +3569,7 @@ namespace noctalia::config::schema {
           optionalFloatField(&DockMonitorOverride::activeOpacity, "active_opacity", kUnitRange),
           optionalFloatField(&DockMonitorOverride::inactiveOpacity, "inactive_opacity", kUnitRange),
           optionalBoolField(&DockMonitorOverride::showDots, "show_dots"),
+          optionalBoolField(&DockMonitorOverride::runningBar, "running_bar"),
           optionalBoolField(&DockMonitorOverride::showInstanceCount, "show_instance_count"),
           optionalEnumField(&DockMonitorOverride::launcherPosition, "launcher_position", kDockLauncherPositions),
           field(&DockMonitorOverride::launcherIcon, "launcher_icon"),
@@ -2464,15 +3585,33 @@ namespace noctalia::config::schema {
     static const Schema<DockConfig> s = {
         field(&DockConfig::enabled, "enabled"),
         enumField(&DockConfig::position, "position", kDockEdges),
-        field(&DockConfig::activeMonitorOnly, "active_monitor_only"),
-        field(&DockConfig::iconSize, "icon_size", kDockIconSizeRange),
+        field(
+            &DockConfig::activeMonitorOnly, "active_monitor_only",
+            RowSpec{.section = "dock", .group = "general", .tags = "monitor"}
+        ),
+        field(
+            &DockConfig::iconSize, "icon_size", kDockIconSizeRange,
+            RowSpec{.kind = RowSpec::Kind::Slider, .section = "dock", .group = "layout", .tags = "apps", .integer = true}
+        ),
         field(&DockConfig::mainAxisPadding, "main_axis_padding", kDockPaddingRange),
         field(&DockConfig::crossAxisPadding, "cross_axis_padding", kDockPaddingRange),
-        field(&DockConfig::itemSpacing, "item_spacing", kDockItemSpacingRange),
+        field(
+            &DockConfig::itemSpacing, "item_spacing", kDockItemSpacingRange,
+            RowSpec{.kind = RowSpec::Kind::Slider, .section = "dock", .group = "layout", .tags = "gap", .integer = true}
+        ),
         field(&DockConfig::backgroundOpacity, "background_opacity", kUnitRange),
         field(&DockConfig::compositorBlur, "compositor_blur"),
         colorField(&DockConfig::border, "border"),
-        field(&DockConfig::borderWidth, "border_width", kDockBorderWidthRange),
+        field(
+            &DockConfig::borderWidth, "border_width", kDockBorderWidthRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "shape",
+                .tags = "outline stroke",
+                .advanced = true,
+            }
+        ),
         custom<DockConfig>(
             "radius",
             [](const toml::table& tbl, DockConfig& out, std::string_view parentPath, Diagnostics& diag) {
@@ -2499,7 +3638,7 @@ namespace noctalia::config::schema {
         field(&DockConfig::marginEnds, "margin_ends", kDockMarginEndsRange),
         field(&DockConfig::marginEdge, "margin_edge", kDockMarginEdgeRange),
         field(&DockConfig::shadow, "shadow"),
-        field(&DockConfig::showRunning, "show_running"),
+        field(&DockConfig::showRunning, "show_running", RowSpec{.section = "dock", .group = "behavior", .tags = "windows"}),
         field(&DockConfig::autoHide, "auto_hide"),
         field(&DockConfig::smartAutoHide, "smart_auto_hide"),
         custom<DockConfig>(
@@ -2518,15 +3657,77 @@ namespace noctalia::config::schema {
             [](toml::table& tbl, const DockConfig& in) { tbl.insert_or_assign("layer", in.layer); }
         ),
         field(&DockConfig::reserveSpace, "reserve_space"),
-        field(&DockConfig::activeScale, "active_scale", kDockActiveScaleRange),
-        field(&DockConfig::inactiveScale, "inactive_scale", kDockInactiveScaleRange),
-        field(&DockConfig::magnification, "magnification"),
-        field(&DockConfig::magnificationScale, "magnification_scale", kDockMagnificationScaleRange),
-        field(&DockConfig::activeOpacity, "active_opacity", kUnitRange),
-        field(&DockConfig::inactiveOpacity, "inactive_opacity", kUnitRange),
-        field(&DockConfig::showDots, "show_dots"),
-        field(&DockConfig::showInstanceCount, "show_instance_count"),
-        enumField(&DockConfig::launcherPosition, "launcher_position", kDockLauncherPositions),
+        field(
+            &DockConfig::activeScale, "active_scale", kDockActiveScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "focus-styling",
+                .label = "dock.active-icon-scale",
+                .tags = "focused",
+                .advanced = true,
+            }
+        ),
+        field(
+            &DockConfig::inactiveScale, "inactive_scale", kDockInactiveScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "focus-styling",
+                .label = "dock.inactive-icon-scale",
+                .tags = "unfocused",
+                .advanced = true,
+            }
+        ),
+        field(
+            &DockConfig::magnification, "magnification",
+            RowSpec{.section = "dock", .group = "focus-styling", .tags = "magnify zoom mac"}
+        ),
+        field(
+            &DockConfig::magnificationScale, "magnification_scale", kDockMagnificationScaleRange,
+            RowSpec{.kind = RowSpec::Kind::Slider, .section = "dock", .group = "focus-styling", .tags = "magnify zoom"}
+        ),
+        field(
+            &DockConfig::activeOpacity, "active_opacity", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "focus-styling",
+                .label = "dock.active-icon-opacity",
+                .tags = "focused alpha",
+                .advanced = true,
+            }
+        ),
+        field(
+            &DockConfig::inactiveOpacity, "inactive_opacity", kUnitRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "dock",
+                .group = "focus-styling",
+                .label = "dock.inactive-icon-opacity",
+                .tags = "unfocused alpha",
+                .advanced = true,
+            }
+        ),
+        field(&DockConfig::showDots, "show_dots", RowSpec{.section = "dock", .group = "behavior", .tags = "running dots"}),
+        field(
+            &DockConfig::runningBar, "running_bar",
+            RowSpec{.section = "dock", .group = "behavior", .tags = "running indicator"}
+        ),
+        field(
+            &DockConfig::showInstanceCount, "show_instance_count",
+            RowSpec{.section = "dock", .group = "behavior", .tags = "badge windows"}
+        ),
+        enumField(
+            &DockConfig::launcherPosition, "launcher_position", kDockLauncherPositions,
+            RowSpec{
+                .kind = RowSpec::Kind::Select,
+                .section = "dock",
+                .group = "layout",
+                .tags = "launcher apps grid",
+                .segmented = true,
+            }
+        ),
         field(&DockConfig::launcherIcon, "launcher_icon"),
         pathStringField(&DockConfig::launcherCustomImage, "launcher_custom_image"),
         field(&DockConfig::launcherCustomImageColorize, "launcher_custom_image_colorize"),
@@ -2568,9 +3769,22 @@ namespace noctalia::config::schema {
         field(&BarConfig::showOnWorkspaceSwitch, "show_on_workspace_switch"),
         field(&BarConfig::reserveSpace, "reserve_space"),
         barLayerField(),
-        field(&BarConfig::thickness, "thickness", kBarThicknessRange),
+        field(
+            &BarConfig::thickness, "thickness", kBarThicknessRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "layout",
+                .tags = "height width",
+                .range = {10.0F, 120.0F, 1.0F},
+            }
+        ),
         field(&BarConfig::backgroundOpacity, "background_opacity", kBarOpacityRange),
         field(&BarConfig::compositorBlur, "compositor_blur"),
+        field(
+            &BarConfig::islands, "islands",
+            RowSpec{.section = "bar", .group = "effects", .tags = "islands floating pills sections"}
+        ),
         colorField(&BarConfig::border, "border"),
         field(&BarConfig::borderWidth, "border_width", kBarBorderWidthRange),
         barRadiusField(),
@@ -2582,20 +3796,65 @@ namespace noctalia::config::schema {
         field(&BarConfig::marginEnds, "margin_ends"),
         field(&BarConfig::marginEdge, "margin_edge"),
         field(&BarConfig::marginOppositeEdge, "margin_opposite_edge"),
-        field(&BarConfig::padding, "padding"),
-        field(&BarConfig::widgetSpacing, "widget_spacing"),
+        field(
+            &BarConfig::padding, "padding", std::nullopt,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "layout",
+                .label = "bar.content-padding",
+                .tags = "inset",
+                .range = {0.0F, 80.0F, 1.0F},
+            }
+        ),
+        field(
+            &BarConfig::widgetSpacing, "widget_spacing", std::nullopt,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "widgets",
+                .tags = "gap",
+                .range = {0.0F, 32.0F, 1.0F},
+            }
+        ),
         field(&BarConfig::shadow, "shadow"),
         field(&BarConfig::contactShadow, "contact_shadow"),
         field(&BarConfig::panelOverlap, "panel_overlap", kBarPanelOverlapRange),
-        field(&BarConfig::capsuleThickness, "capsule_thickness", kBarCapsuleThicknessRange),
-        field(&BarConfig::scale, "scale", kBarScaleRange),
-        field(&BarConfig::fontScale, "font_scale", kBarFontScaleRange),
+        field(
+            &BarConfig::capsuleThickness, "capsule_thickness", kBarCapsuleThicknessRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "capsules",
+                .tags = "pill thickness size",
+                .advanced = true,
+                .range = {0.1F, 1.0F, 0.01F},
+            }
+        ),
+        field(
+            &BarConfig::scale, "scale", kBarScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "bar",
+                .group = "layout",
+                .label = "bar.content-scale",
+                .tags = "zoom size",
+                .range = {0.5F, 4.0F, 0.05F},
+            }
+        ),
+        field(
+            &BarConfig::fontScale, "font_scale", kBarFontScaleRange,
+            RowSpec{.kind = RowSpec::Kind::Slider, .section = "bar", .group = "layout", .tags = "text zoom size"}
+        ),
         field(&BarConfig::fontWeight, "font_weight"),
         optionalTrimmedStringField(&BarConfig::fontFamily, "font_family"),
         field(&BarConfig::startWidgets, "start"),
         field(&BarConfig::centerWidgets, "center"),
         field(&BarConfig::endWidgets, "end"),
-        field(&BarConfig::widgetCapsuleDefault, "capsule"),
+        field(
+            &BarConfig::widgetCapsuleDefault, "capsule",
+            RowSpec{.section = "bar", .group = "capsules", .label = "bar.widget-capsules", .tags = "pill"}
+        ),
         colorField(&BarConfig::widgetCapsuleFill, "capsule_fill"),
         optionalColorField(&BarConfig::widgetCapsuleForeground, "capsule_foreground"),
         optionalColorField(&BarConfig::widgetColor, "color"),
@@ -2609,8 +3868,14 @@ namespace noctalia::config::schema {
         field(&BarConfig::widgetCapsuleOpacity, "capsule_opacity", kBarOpacityRange),
         capsuleBorderField(&BarConfig::widgetCapsuleBorder, &BarConfig::widgetCapsuleBorderSpecified, "capsule_border"),
         field(&BarConfig::widgetCapsuleBorderWidth, "capsule_border_width", kBarCapsuleBorderWidthRange),
-        field(&BarConfig::hoverHighlight, "hover_highlight"),
-        field(&BarConfig::showTooltip, "show_tooltip"),
+        field(
+            &BarConfig::hoverHighlight, "hover_highlight",
+            RowSpec{.section = "bar", .group = "widgets", .tags = "hover highlight mouse pointer"}
+        ),
+        field(
+            &BarConfig::showTooltip, "show_tooltip",
+            RowSpec{.section = "bar", .group = "widgets", .tags = "tooltip hover"}
+        ),
         subTable(&BarConfig::deadZone, "dead_zone", barDeadZoneSchema()),
         field(&BarConfig::actions, "actions"),
     };
@@ -2726,7 +3991,16 @@ namespace noctalia::config::schema {
 
   const Schema<AccessibilityConfig>& accessibilitySchema() {
     static const Schema<AccessibilityConfig> s = {
-        field(&AccessibilityConfig::uiScale, "ui_scale", kScaleRange),
+        field(
+            &AccessibilityConfig::uiScale, "ui_scale", kScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "text-scale",
+                .group = "accessibility",
+                .label = "appearance.ui-scale",
+                .tags = "size scale text panels",
+            }
+        ),
         field(&AccessibilityConfig::highContrast, "high_contrast"),
     };
     return s;

@@ -899,14 +899,14 @@
       "calendar-reminder-open": "Адкрыць",
       "calendar-reminder-untitled": "Падзея без назвы",
       "calendar-reminder-with-location": "{when}\n{location}",
-      "config-migration-body": "Абнавіце {path} у зыходным файле. Noctalia толькі тэрмінова прымяняе гэтую замену. Выканайце noctalia config validate, каб убачыць усе патрэбныя змены.",
+      "config-migration-body": "Абнавіце {path} у зыходным файле. Andromeda толькі тэрмінова прымяняе гэтую замену. Выканайце noctalia config validate, каб убачыць усе патрэбныя змены.",
       "config-migration-title": "Патрабуецца абнаўленне канфігурацыі",
       "dbus-disabled": "Апавяшчэнні DBus выключаныя",
       "desktop-widgets-editor": "Рэдактар віджэтаў",
       "desktop-widgets-editor-enabled": "Рэдактар віджэтаў працоўнага стала ўключаны. Пераключыцеся на пустую прастору, каб вокны не перакрывалі рэдактар.",
-      "greeter-sync": "Noctalia Greeter",
+      "greeter-sync": "Andromeda Greeter",
       "greeter-sync-pending": "Чаканне ухвалення адміністратара на запіс у Greeter.",
-      "greeter-sync-pending-console": "Чаканне ухвалення адміністратара. Ухваліце запыт polkit у Noctalia, на TTY ці кансолі, або ўласнаручна выканайце pkexec.",
+      "greeter-sync-pending-console": "Чаканне ухвалення адміністратара. Ухваліце запыт polkit у Andromeda, на TTY ці кансолі, або ўласнаручна выканайце pkexec.",
       "greeter-sync-pending-legacy": "Сінхранізацыя праз састарэлы аўтэнтыфікаваны памочнік. Патрабуецца ўхваленне адміністратара.",
       "greeter-sync-pending-manual": "Файлы ў чаканні. Выканайце ў тэрмінале каманду: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\". Або задайце shell.greeter_sync.privilege_command (напрыклад, ghostty -e pkexec) і сінхранізуйцеся паўторна.",
       "greeter-sync-pending-manual-pkexec": "Сінхранізацыя выгляду ў Greeter. Калі патрабуецца аўтарызацыя адміністратара, а запыт не паказваецца, выканайце ў тэрмінале: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\".",
@@ -914,7 +914,7 @@
       "greeter-sync-timeout": "Сінхранізацыя Greeter усё яшчэ чакае ухвалення адміністратара. Праверце TTY або кансоль на прадмет запыту polkit, уключыце агент polkit у наладах бяспекі, або ўласнаручна выканайце pkexec.",
       "greeter-sync-timeout-manual": "Сінхранізацыя Greeter усё яшчэ патрабуе ухвалення адміністратарам. Выканайце ў тэрмінале каманду: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "greeter-sync-timeout-manual-pkexec": "Сінхранізацыя Greeter усё яшчэ патрабуе аўтарызацыі. Выканайце ў тэрмінале: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
-      "keybind-app": "Noctalia",
+      "keybind-app": "Andromeda",
       "keybind-invalid-modifier": "Гэта спалучэнне можа быць адной клавішай без мадыфікатараў.",
       "keybind-invalid-printable": "Клавішам-сімвалам (літарам, лічбам, пунктуацыі і інш.) патрабуюцца мадыфікатары, такія як Ctrl або Alt.",
       "keybind-invalid-super": "Клавіша Super/Windows не можа быць выкарыстана ў спалучэннях клавішаў абалонкі.",
@@ -995,7 +995,7 @@
     },
     "enable-failed": {
       "body-error": "{plugin}: {error}",
-      "body-incompatible": "{plugin} разлічаны на API {version}; ваша Noctalia падтрымлівае API {oldest}–{current}.",
+      "body-incompatible": "{plugin} разлічаны на API {version}; ваша Andromeda падтрымлівае API {oldest}–{current}.",
       "body-timeout": "{plugin} усталёўвалася надта доўга.",
       "title": "Убудова не ўключана"
     }
@@ -1126,7 +1126,7 @@
       "bar": {
         "create": "Стварыць",
         "delete": "Выдаліць",
-        "delete-confirm-desc": "Гэта графічная панэль будзе выдалена з файла settings.toml.",
+        "delete-confirm-desc": "Гэта графічная панэль будзе выдалена з файла overrides.toml.",
         "delete-confirm-title": "Выдаліць «{name}»?",
         "id-placeholder": "Ідэнтыфікатар панэлі",
         "label": "Панэль: {name}",
@@ -1141,7 +1141,7 @@
         "create": "Стварыць",
         "custom": "Уласны",
         "delete": "Выдаліць",
-        "delete-confirm-desc": "Гэты графічны манітор будзе выдалены з файла settings.toml.",
+        "delete-confirm-desc": "Гэты графічны манітор будзе выдалены з файла overrides.toml.",
         "delete-confirm-title": "Выдаліць «{name}»?",
         "exists": "Перавызначэнне для гэтага манітора ўжо існуе.",
         "label": "Манітор: {name}",
@@ -1294,7 +1294,7 @@
       },
       "reset-page": "Некаторыя налады не ўдалося скінуць.",
       "support-report": "Не ўдалося захаваць справаздачу.",
-      "sync-greeter": "Не ўдалося сінхранізаваць выгляд з Noctalia Greeter.",
+      "sync-greeter": "Не ўдалося сінхранізаваць выгляд з Andromeda Greeter.",
       "sync-greeter-timeout": "Сінхранізацыя Greeter усё яшчэ чакае ухвалення адміністратара. Праверце TTY або кансоль на прадмет запыту polkit, уключыце агент polkit у наладах бяспекі, або ўласнаручна выканайце pkexec.",
       "sync-greeter-timeout-manual": "Сінхранізацыя Greeter усё яшчэ патрабуе ухвалення адміністратарам. Выканайце ў тэрмінале каманду: pkexec noctalia-greeter-apply-appearance \"$XDG_RUNTIME_DIR/noctalia-greeter-sync\"",
       "sync-greeter-timeout-manual-pkexec": "Сінхранізацыя Greeter усё яшчэ патрабуе аўтарызацыі. Выканайце ў тэрмінале: pkexec noctalia-greeter-apply-appearance --sync \"/run/user/$(id -u)/noctalia-greeter-sync\"",
@@ -1747,7 +1747,7 @@
         "deprecated": "састарэлая",
         "empty": "Няма ўключаных убудоў.",
         "held-back": "старэйшая версія",
-        "held-back-hint": "v{version} патрабуе API {required}; ваша Noctalia падтрымлівае версіі да {current}. Абнавіце Noctalia, каб атрымаць.",
+        "held-back-hint": "v{version} патрабуе API {required}; ваша Andromeda падтрымлівае версіі да {current}. Абнавіце Andromeda, каб атрымаць.",
         "incompatible-plugin-api": "несумяшчальны API",
         "remove": "Выдаліць убудову",
         "requires": "Патрабуе {dependencies}",
@@ -1791,15 +1791,15 @@
         "update": "Абнавіць крыніцу"
       },
       "store": {
-        "add": "Дадаць у Noctalia",
+        "add": "Дадаць у Andromeda",
         "back-to-catalog": "Вярнуцца ў каталог",
         "categories": "Катэгорыі",
         "category-all": "Усе",
         "empty": "Убудоў не знойдзена",
         "held-back": "Старэйшая версія",
-        "held-back-hint": "Усталюе {version} для API {resolved}. Найноўшая версія {latest} патрабуе API {latestRequired}; ваша Noctalia падтрымлівае версіі да {current}.",
+        "held-back-hint": "Усталюе {version} для API {resolved}. Найноўшая версія {latest} патрабуе API {latestRequired}; ваша Andromeda падтрымлівае версіі да {current}.",
         "incompatible": "Несумяшчальная",
-        "incompatible-hint": "Патрабуе API {required}; ваша Noctalia падтрымлівае API {oldest}–{current}.",
+        "incompatible-hint": "Патрабуе API {required}; ваша Andromeda падтрымлівае API {oldest}–{current}.",
         "installed": "Усталяваныя",
         "loading": "Загрузка каталога…",
         "no-readme": "Апісання няма",
@@ -1925,7 +1925,7 @@
           "label": "Абсалютны чорны"
         },
         "shell-theme-mode": {
-          "description": "Замацаваць уласны светлы або цёмны рэжым Noctalia; «Сачыць» трымае яго ў адпаведнасці з рэжымам тэмы",
+          "description": "Замацаваць уласны светлы або цёмны рэжым Andromeda; «Сачыць» трымае яго ў адпаведнасці з рэжымам тэмы",
           "label": "Рэжым тэмы абалонкі"
         },
         "show-close-buttons": {
@@ -2383,7 +2383,7 @@
             "label": "Пры завяршэнні працы"
           },
           "started": {
-            "description": "Каманда, якая выконваецца пасля запуску Noctalia",
+            "description": "Каманда, якая выконваецца пасля запуску Andromeda",
             "label": "Пры запуску"
           },
           "theme-mode-changed": {
@@ -2468,10 +2468,6 @@
         "blur-intensity": {
           "description": "Ступень размыцця фону экрана блакіроўкі",
           "label": "Інтэнсіўнасць размыцця"
-        },
-        "blurred-desktop": {
-          "description": "Выкарыстоўваць здымак працоўнага стала як фон экрана блакіроўкі",
-          "label": "Здымак працоўнага стала"
         },
         "edge-smoothness": {
           "description": "Згладжванне краёў пераходу экрана блакіроўкі",
@@ -2947,7 +2943,7 @@
             "label": "Атрымаць каляровую схему"
           },
           "color-scheme-set": {
-            "description": "Задаць крыніцу палітры і выбранае значэнне ў settings.toml (назва ўбудаванай палітры, схема генерацыі са шпалер, ID палітры супольнасці або назва папкі ўласнай схемы)",
+            "description": "Задаць крыніцу палітры і выбранае значэнне ў overrides.toml (назва ўбудаванай палітры, схема генерацыі са шпалер, ID палітры супольнасці або назва папкі ўласнай схемы)",
             "label": "Задаць каляровую схему"
           },
           "config-reload": {
@@ -3007,7 +3003,7 @@
             "label": "Задаць профіль EasyEffects"
           },
           "greeter-sync": {
-            "description": "Сінхранізаваць шпалеры, колеры і макет манітораў у Noctalia Greeter",
+            "description": "Сінхранізаваць шпалеры, колеры і макет манітораў у Andromeda Greeter",
             "label": "Сінхранізаваць знешні выгляд Greeter"
           },
           "keyboard-backlight-down": {
@@ -3123,7 +3119,7 @@
             "label": "Выклікаць апошняе дзеянне апавяшчэння"
           },
           "notification-show": {
-            "description": "Паказаць унутранае апавяшчэнне Noctalia",
+            "description": "Паказаць унутранае апавяшчэнне Andromeda",
             "label": "Паказаць апавяшчэнне"
           },
           "osd-disable": {
@@ -3227,7 +3223,7 @@
             "label": "Атрымаць рэжым тэмы"
           },
           "theme-mode-set": {
-            "description": "Задаць рэжым тэмы і захаваць у settings.toml",
+            "description": "Задаць рэжым тэмы і захаваць у overrides.toml",
             "label": "Задаць рэжым тэмы"
           },
           "theme-mode-toggle": {
@@ -4078,8 +4074,8 @@
       "export-config": "Экспарт канфігурацыі…",
       "export-config-saved": "Экспарт канфігурацыі захаваны.",
       "filter-overridden": "Перавызначаныя",
-      "legacy-config-warning": "Састарэлая налада: {issue}. Адрэдагуйце гэты зыходны запіс; Noctalia ужывае замену толькі часова. Выканайце noctalia config validate, каб атрымаць спіс усіх неабходных змен.",
-      "native-title": "Налады Noctalia",
+      "legacy-config-warning": "Састарэлая налада: {issue}. Адрэдагуйце гэты зыходны запіс; Andromeda ужывае замену толькі часова. Выканайце noctalia config validate, каб атрымаць спіс усіх неабходных змен.",
+      "native-title": "Налады Andromeda",
       "no-results": "Налад не знойдзена",
       "no-results-hint": "Паспрабуйце іншую назву налады або ключ канфігурацыі.",
       "offline-mode-notice": {
@@ -4115,7 +4111,7 @@
     "no-wallpaper-selected": "Шпалеры не выбраны",
     "select-wallpaper": "Выбраць шпалеры",
     "subtitle": "Некалькі хуткіх выбараў, каб пачаць.",
-    "title": "Вітаем у Noctalia",
+    "title": "Вітаем у Andromeda",
     "wallpaper": "Шпалеры",
     "wallpaper-scheme": "Схема шпалер"
   },

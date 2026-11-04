@@ -72,7 +72,7 @@ private:
   };
 
   [[nodiscard]] static std::optional<std::string> decode(const std::filesystem::path& path, SoundBuffer& out);
-  void loadThemeSounds();
+  [[nodiscard]] std::shared_ptr<const SoundBuffer> themeSound(std::string_view event);
   void playBuffer(const std::string& name, const std::shared_ptr<const SoundBuffer>& buffer, float gain);
   [[nodiscard]] float uiGain() const;
 
@@ -90,6 +90,7 @@ private:
   std::string m_theme;
   bool m_shellSoundsEnabled = true;
   std::set<std::string, std::less<>> m_disabledEvents;
+  // Decoded on first play; nullptr caches a missing, disabled or undecodable sound.
   std::unordered_map<std::string, std::shared_ptr<const SoundBuffer>> m_buffers;
   std::unordered_map<std::uint64_t, std::unordered_map<std::string, std::shared_ptr<const SoundBuffer>>>
       m_pluginBuffers;

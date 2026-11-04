@@ -53,7 +53,7 @@ void KeyboardLayoutWidget::create() {
             .out = &m_glyph,
             .glyph = m_glyphName,
             .glyphSize = Style::baseGlyphSize * m_contentScale,
-            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
         })
     );
   }
@@ -96,11 +96,11 @@ void KeyboardLayoutWidget::doLayout(Renderer& renderer, float containerWidth, fl
   if (showGlyph) {
     if (m_image != nullptr) {
       widget_custom_image::sync(
-          *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface))
+          *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
       );
     } else {
       m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-      m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+      m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
       m_glyph->measure(renderer);
     }
     if (m_glyph != nullptr && m_glyph->width() <= 0.0F && m_glyphName == "keyboard") {
@@ -110,7 +110,7 @@ void KeyboardLayoutWidget::doLayout(Renderer& renderer, float containerWidth, fl
     }
   }
 
-  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
   m_label->setVisible(m_showLabel);
   m_label->setTextAlign(m_isVertical ? TextAlign::Center : TextAlign::Start);
   if (m_showLabel) {
@@ -254,7 +254,7 @@ void KeyboardLayoutWidget::sync(Renderer& renderer) {
   if (m_showLabel) {
     m_label->setFontSize((m_isVertical ? Style::fontSizeCaption : Style::fontSizeBody) * fontScale());
     m_label->setText(layoutLabel);
-    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
     m_label->measure(renderer);
   }
 

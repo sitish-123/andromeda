@@ -2,11 +2,14 @@
 
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
-#include "shell/settings/settings_registry.h"
+#include "shell/settings/settings_pages.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
-#include "ui/controls/collapsible.h"
+#include "ui/controls/button.h"
 #include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "ui/controls/roving_list_nav.h"
+#include "ui/controls/scroll_view.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
@@ -15,9 +18,9 @@
 #include <cctype>
 #include <format>
 #include <functional>
-#include <iterator>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -25,18 +28,7 @@
 namespace settings {
   namespace {
 
-    constexpr float kSidebarWidth = 200.0F;
-    constexpr float kSidebarPadding = 6.0F;
-    constexpr float kSidebarGap = 2.0F;
-    constexpr float kPrimaryNavGlyphSize = 18.0F;
-    constexpr float kPrimaryNavGap = 6.0F;
-    constexpr float kPrimaryNavPaddingH = 10.0F;
-    constexpr float kGuideWidth = 1.0F;
-    constexpr float kGuideGap = 4.0F;
-    // The guide line runs under the header glyph's centre; child glyphs line up with the header label.
-    constexpr float kGuideInset = kPrimaryNavPaddingH + kPrimaryNavGlyphSize / 2.0F - kGuideWidth / 2.0F;
-    constexpr float kChildPaddingLeft =
-        kPrimaryNavPaddingH + kPrimaryNavGlyphSize + kPrimaryNavGap - kGuideInset - kGuideWidth - kGuideGap;
+    constexpr float kChildPaddingLeft = metrics::kSidebarRowPaddingH + metrics::kSidebarTile + metrics::kSidebarRowGap;
 
     void addNavButton(RovingListNavHost& nav, std::unique_ptr<Button> button, std::function<void()> onClick) {
       Button* raw = button.get();
@@ -67,46 +59,42 @@ namespace settings {
       }
     }
 
-    void makeButtonLabelBold(Button& button) {
-      if (button.label() != nullptr) {
-        button.label()->setFontWeight(FontWeight::Bold);
-      }
+    // The row symbol: label_2, accent text inside the lens.
+    std::unique_ptr<Flex> makeTile(std::string_view glyph, float scale, bool selected) {
+      return ui::row(
+          {.align = FlexAlign::Center,
+           .justify = FlexJustify::Center,
+           .minWidth = metrics::kSidebarTile * scale,
+           .minHeight = metrics::kSidebarTile * scale,
+           .width = metrics::kSidebarTile * scale,
+           .height = metrics::kSidebarTile * scale},
+          ui::glyph({
+              .glyph = std::string(glyph),
+              .glyphSize = metrics::kSidebarTileGlyph * scale,
+              .color = selected ? selectionStyle().tileGlyph : frameColors().tileGlyph,
+          })
+      );
     }
 
-    // The header of the category holding the open page keeps the accent while collapsed.
-    Button::ButtonPalette currentCategoryPalette() {
-      const auto clear = clearColorSpec();
-      const auto primary = colorSpecFromRole(ColorRole::Primary);
-      return Button::ButtonPalette{
-          .normal = {.bg = clear, .border = clear, .label = primary},
-          .hover =
-              {.bg = colorSpecFromRole(ColorRole::Hover),
-               .border = clear,
-               .label = colorSpecFromRole(ColorRole::OnHover)},
-          .pressed = {.bg = colorSpecFromRole(ColorRole::SurfaceContainer), .border = clear, .label = primary},
-          .disabled = {.bg = clear, .border = clear, .label = primary},
-      };
-    }
-
-    // Primary sidebar nav style: top-level section rows with a bolder label.
-    std::unique_ptr<Button> makePrimaryNavButton(
+    // A page row: icon tile, label, accent fill when it is the open page.
+    std::unique_ptr<Button> makePageRow(
         std::string_view glyph, std::string text, float scale, bool selected, std::function<void()> onClick
     ) {
       return ui::button({
           .text = std::move(text),
-          .glyph = std::string(glyph),
-          .fontSize = Style::fontSizeCaption * scale,
-          .glyphSize = kPrimaryNavGlyphSize * scale,
+          .fontSize = Style::fontSizeBody * scale,
           .contentAlign = ButtonContentAlign::Start,
-          .variant = selected ? ButtonVariant::TabActive : ButtonVariant::Tab,
-          .minHeight = Style::controlHeightSm * scale,
-          .paddingV = Style::spaceXs * scale,
-          .paddingH = kPrimaryNavPaddingH * scale,
-          .gap = kPrimaryNavGap * scale,
+          .variant = ButtonVariant::Tab,
+          .customPalette = selected ? std::optional{selectedRowPalette(selectionStyle().rowFill, selectionStyle().rowLabel)}
+                                    : std::nullopt,
+          .minHeight = metrics::kSidebarRowHeight * scale,
+          .paddingV = 0.0F,
+          .paddingH = metrics::kSidebarRowPaddingH * scale,
+          .gap = metrics::kSidebarRowGap * scale,
           .radius = Style::scaledRadiusMd(scale),
           .onClick = std::move(onClick),
-          .configure = [](Button& button) {
-            makeButtonLabelBold(button);
+          .configure = [glyph = std::string(glyph), scale, selected](Button& button) {
+            button.insertChildAt(0, makeTile(glyph, scale, selected));
             button.setTabStop(false);
           },
       });
@@ -122,8 +110,11 @@ namespace settings {
           .fontSize = Style::fontSizeCaption * scale,
           .glyphSize = Style::fontSizeCaption * scale,
           .contentAlign = ButtonContentAlign::Start,
-          .variant = selected ? ButtonVariant::TabActive : ButtonVariant::Tab,
-          .minHeight = Style::controlHeightSm * scale,
+          .variant = ButtonVariant::Tab,
+          .customPalette = selected
+              ? std::optional{selectedRowPalette(selectionStyle().childFill, colorSpecFromRole(ColorRole::Label1))}
+              : std::nullopt,
+          .minHeight = Style::controlHeight * scale,
           .paddingTop = Style::spaceXs * scale,
           .paddingRight = Style::spaceMd * scale,
           .paddingBottom = Style::spaceXs * scale,
@@ -140,7 +131,7 @@ namespace settings {
           .text = std::move(text),
           .fontSize = Style::fontSizeCaption * scale,
           .variant = ButtonVariant::Default,
-          .minHeight = Style::controlHeightSm * scale,
+          .minHeight = Style::controlHeight * scale,
           .paddingV = Style::spaceXs * scale,
           .paddingH = Style::spaceSm * scale,
           .radius = Style::scaledRadiusSm(scale),
@@ -153,33 +144,86 @@ namespace settings {
           .glyph = "close",
           .glyphSize = Style::fontSizeCaption * scale,
           .variant = ButtonVariant::Ghost,
-          .minWidth = Style::controlHeightSm * scale,
-          .minHeight = Style::controlHeightSm * scale,
+          .minWidth = Style::controlHeight * scale,
+          .minHeight = Style::controlHeight * scale,
           .padding = Style::spaceXs * scale,
           .radius = Style::scaledRadiusSm(scale),
           .onClick = std::move(onClick),
       });
     }
 
+    std::unique_ptr<Button> makeAccountCard(SettingsSidebarContext& ctx, std::function<void()> onClick) {
+      const float scale = ctx.scale;
+      const float avatarSize = metrics::kAccountAvatar * scale;
+      std::unique_ptr<Node> avatar;
+      if (ctx.renderer != nullptr && ctx.avatarTextures != nullptr && !ctx.accountAvatarPath.empty()) {
+        Image* image = nullptr;
+        auto node = ui::image({
+            .out = &image,
+            .fit = ImageFit::Cover,
+            .radius = avatarSize * 0.5F,
+            .width = avatarSize,
+            .height = avatarSize,
+        });
+        if (image != nullptr
+            && image->setSourceFileAsync(
+                *ctx.renderer, *ctx.avatarTextures, ctx.accountAvatarPath, static_cast<int>(avatarSize), false
+            )) {
+          avatar = std::move(node);
+        }
+      }
+      if (avatar == nullptr) {
+        const std::string initial = StringUtils::truncateUtf8CodePoints(ctx.accountName, 1);
+        avatar = ui::row(
+            {.align = FlexAlign::Center,
+             .justify = FlexJustify::Center,
+             .fill = frameColors().avatarFill,
+             .radius = avatarSize * 0.5F,
+             .minWidth = avatarSize,
+             .minHeight = avatarSize,
+             .width = avatarSize,
+             .height = avatarSize},
+            ui::label({
+                .text = initial,
+                .fontSize = Style::fontSizeCaption * scale,
+                .fontWeight = FontWeight::Bold,
+                .color = frameColors().avatarInitial,
+            })
+        );
+      }
+      auto button = ui::button({
+          .contentAlign = ButtonContentAlign::Start,
+          .variant = ButtonVariant::Tab,
+          .minHeight = metrics::kSidebarRowHeight * scale,
+          .paddingV = 0.0F,
+          .paddingH = metrics::kSidebarRowPaddingH * scale,
+          .gap = metrics::kSidebarRowGap * scale,
+          .radius = Style::scaledRadiusMd(scale),
+          .onClick = std::move(onClick),
+          .configure = [](Button& card) { card.setTabStop(false); },
+      });
+      button->addChild(std::move(avatar));
+      button->addChild(ui::label({
+          .text = ctx.accountName,
+          .fontSize = Style::fontSizeBody * scale,
+          .color = colorSpecFromRole(ColorRole::Label1),
+      }));
+      return button;
+    }
+
   } // namespace
 
   std::unique_ptr<Flex> buildSettingsSidebar(SettingsSidebarContext ctx) {
-    std::vector<std::string> existingBarNames = ctx.availableBars;
+    const std::vector<std::string> existingBarNames = ctx.availableBars;
     const std::string nextBarName = nextAvailableBarName(existingBarNames);
 
-    auto* scroll = &ctx.contentScrollState;
-    auto* selectedSection = &ctx.selectedSection;
-    auto* selectedBarName = &ctx.selectedBarName;
-    auto* selectedMonitorOverride = &ctx.selectedMonitorOverride;
     auto* creatingBarName = &ctx.creatingBarName;
-
     const auto clearTransientState = std::move(ctx.clearTransientState);
-    const auto clearSearchQuery = std::move(ctx.clearSearchQuery);
     const auto requestRebuild = std::move(ctx.requestRebuild);
     const auto createBar = std::move(ctx.createBar);
+    const auto navigate = std::move(ctx.navigate);
     const float scale = ctx.scale;
-    const bool searchActive = ctx.globalSearchActive;
-    const bool showActiveTab = !searchActive;
+    const bool showActiveTab = !ctx.globalSearchActive;
 
     auto sidebarScroll = ui::scrollView({
         .state = &ctx.sidebarScrollState,
@@ -187,14 +231,16 @@ namespace settings {
         .scrollbarVisible = true,
         .viewportPaddingH = 0.0F,
         .viewportPaddingV = 0.0F,
-        .fill = ctx.config.shell.settingsWindowTranslucent ? clearColorSpec() : colorSpecFromRole(ColorRole::Surface),
-        .radius = Style::scaledRadiusXl(scale),
-        .minWidth = kSidebarWidth * scale,
-        .fillHeight = true,
-        .width = kSidebarWidth * scale,
-        .height = 0.0F,
-        .configure = [](ScrollView& scrollView) { scrollView.clearBorder(); },
+        .fill = clearColorSpec(),
+        .flexGrow = 1.0F,
+        .configure = [](ScrollView& scrollView) {
+          scrollView.clearFill();
+          scrollView.clearBorder();
+        },
     });
+    if (ctx.outScroll != nullptr) {
+      *ctx.outScroll = sidebarScroll.get();
+    }
 
     auto sidebarNav = std::make_unique<RovingListNavHost>(RovingListNavController::Options{
         .axis = RovingListNavAxis::Vertical,
@@ -204,167 +250,62 @@ namespace settings {
         .syncIndexFromSelection = {},
     });
     sidebarNav->setTabFocusKey("settings.sidebar");
-    sidebarNav->setGap(kSidebarGap * scale);
-    sidebarNav->setPadding(kSidebarPadding * scale);
+    sidebarNav->setGap(metrics::kSidebarGap * scale);
+    sidebarNav->setPadding(0.0F, metrics::kSidebarPaddingH * scale, metrics::kSidebarPaddingV * scale, metrics::kSidebarPaddingH * scale);
     RovingListNavHost* nav = sidebarNav.get();
 
-    const auto categoryOf = [](std::string_view sectionId) -> std::optional<SettingsCategory> {
-      if (sectionId == "bar") {
-        return SettingsCategory::Desktop;
-      }
-      const auto section = settingsSectionFromId(sectionId);
-      return section.has_value() ? std::optional{settingsSectionCategory(*section)} : std::nullopt;
-    };
-    const auto currentCategory = categoryOf(*selectedSection);
-    if (ctx.expandedForSection != *selectedSection) {
-      ctx.expandedForSection = *selectedSection;
-      if (currentCategory.has_value() && *currentCategory != SettingsCategory::Pinned) {
-        ctx.expandedCategory = currentCategory;
-      }
-    }
+    const auto onAccountClick = ctx.openAccount;
+    addNavButton(*nav, makeAccountCard(ctx, onAccountClick), onAccountClick);
 
-    const auto navigateTo = [selectedSection, selectedBarName, selectedMonitorOverride, scroll, searchActive,
-                             clearTransientState, clearSearchQuery,
-                             requestRebuild](std::string sectionId, std::string barName) {
-      if (searchActive || *selectedSection != sectionId || *selectedBarName != barName) {
-        scroll->offset = 0.0F;
+    std::optional<PageGroup> lastGroup;
+    for (const auto* page : ctx.pages) {
+      if (lastGroup.has_value() && *lastGroup != page->group) {
+        nav->addChild(ui::column(
+            {.align = FlexAlign::Start, .configure = [scale](Flex& header) {
+              header.setPadding(
+                  metrics::kSidebarGroupGap * scale, metrics::kSidebarRowPaddingH * scale, Style::spaceXs * scale,
+                  metrics::kSidebarRowPaddingH * scale
+              );
+            }},
+            ui::label({
+                .text = i18n::tr(settingsPageGroupLabelKey(page->group)),
+                .fontSize = Style::fontSizeMini * scale,
+                .fontWeight = FontWeight::Bold,
+                .color = colorSpecFromRole(ColorRole::Label3),
+            })
+        ));
       }
-      *selectedSection = std::move(sectionId);
-      *selectedBarName = std::move(barName);
-      selectedMonitorOverride->clear();
-      clearSearchQuery();
-      clearTransientState();
-      requestRebuild();
-    };
+      lastGroup = page->group;
 
-    // Opening or closing a category animates the groups in place; the page and the rest of the scene stay.
-    auto* expandedCategory = &ctx.expandedCategory;
-    auto groups = std::make_shared<std::vector<std::pair<SettingsCategory, Collapsible*>>>();
-    const auto toggleCategory = [expandedCategory, groups](SettingsCategory category) {
-      *expandedCategory = *expandedCategory == category ? std::nullopt : std::optional{category};
-      for (const auto& [groupCategory, group] : *groups) {
-        group->setExpanded(*expandedCategory == groupCategory);
-      }
-    };
-
-    std::vector<SettingsCategory> categories;
-    for (const auto section : ctx.sections) {
-      if (!std::ranges::contains(categories, settingsSectionCategory(section))) {
-        categories.push_back(settingsSectionCategory(section));
-      }
-    }
-    if (!ctx.availableBars.empty() && !std::ranges::contains(categories, SettingsCategory::Desktop)) {
-      categories.push_back(SettingsCategory::Desktop);
-    }
-    std::ranges::sort(categories);
-
-    const auto addPageRow = [&](SettingsSection section, std::string_view glyph, std::string label) {
-      const std::string sectionId(settingsSectionId(section));
-      const auto onClick = [navigateTo, sectionId]() { navigateTo(sectionId, {}); };
+      const std::string pageId(page->id);
+      const bool selected = showActiveTab && pageId == ctx.selectedPage;
+      const auto onClick = [navigate, pageId]() { navigate(pageId, {}); };
       addNavButton(
-          *nav,
-          makePrimaryNavButton(glyph, std::move(label), scale, showActiveTab && sectionId == *selectedSection, onClick),
-          onClick
+          *nav, makePageRow(page->glyph, i18n::tr(settingsPageLabelKey(*page)), scale, selected, onClick), onClick
       );
-    };
 
-    for (const auto category : categories) {
-      const bool desktop = category == SettingsCategory::Desktop;
-      std::vector<SettingsSection> children;
-      std::ranges::copy_if(ctx.sections, std::back_inserter(children), [category](SettingsSection section) {
-        return settingsSectionCategory(section) == category;
-      });
-
-      if (category == SettingsCategory::Pinned) {
-        for (const auto section : children) {
-          addPageRow(section, sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)));
-        }
-        nav->addChild(ui::separator({.spacing = Style::spaceXs * scale}));
+      if (pageId != "bar" || !selected) {
         continue;
       }
-
-      const std::string categoryLabel =
-          i18n::tr("settings.navigation.categories." + std::string(settingsCategoryId(category)));
-      // A category holding one page is that page: no child row repeating its name.
-      if (children.size() == 1 && (!desktop || ctx.availableBars.empty())) {
-        addPageRow(children.front(), settingsCategoryGlyph(category), categoryLabel);
-        continue;
-      }
-
-      const auto onHeaderClick = [toggleCategory, category]() { toggleCategory(category); };
-      auto header = makePrimaryNavButton(settingsCategoryGlyph(category), categoryLabel, scale, false, onHeaderClick);
-      if (currentCategory == category) {
-        header->setCustomPalette(currentCategoryPalette());
-      }
-      Glyph* chevron = nullptr;
-      header->addChild(ui::spacer());
-      header->addChild(
-          ui::glyph({
-              .out = &chevron,
-              .glyph = "chevron-down",
-              .glyphSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(currentCategory == category ? ColorRole::Primary : ColorRole::OnSurface),
-          })
-      );
-      Button* headerButton = header.get();
-      nav->registerItem(headerButton, onHeaderClick);
-
-      auto items = ui::column({.align = FlexAlign::Stretch, .gap = kSidebarGap * scale, .flexGrow = 1.0F});
-      const auto addChildRow = [&](std::unique_ptr<Button> row, std::function<void()> onClick) {
-        nav->registerItem(row.get(), std::move(onClick));
-        items->addChild(std::move(row));
-      };
-
-      if (desktop) {
-        for (const auto& barName : ctx.availableBars) {
-          const bool barSelected = showActiveTab && *selectedSection == "bar" && *selectedBarName == barName;
-          const auto onBarClick = [navigateTo, barName]() { navigateTo("bar", barName); };
-          addChildRow(
-              makeSecondaryNavButton(
-                  sectionGlyph(SettingsSection::Bar), i18n::tr("settings.entities.bar.label", "name", barName), scale,
-                  barSelected, onBarClick
-              ),
-              onBarClick
-          );
-        }
-        const auto onNewBarClick = [creatingBarName, nextBarName, clearTransientState, requestRebuild]() {
-          clearTransientState();
-          *creatingBarName = nextBarName;
-          requestRebuild();
-        };
-        auto newBar = makeSecondaryNavButton("add", i18n::tr("settings.entities.bar.new"), scale, false, onNewBarClick);
-        newBar->setVariant(ButtonVariant::Ghost);
-        addChildRow(std::move(newBar), onNewBarClick);
-      }
-
-      for (const auto section : children) {
-        const std::string sectionId(settingsSectionId(section));
-        const bool selected = showActiveTab && sectionId == *selectedSection;
-        const auto onClick = [navigateTo, sectionId]() { navigateTo(sectionId, {}); };
-        addChildRow(
+      for (const auto& barName : ctx.availableBars) {
+        const bool barSelected = showActiveTab && ctx.selectedBarName == barName;
+        const auto onBarClick = [navigate, barName]() { navigate("bar", barName); };
+        addNavButton(
+            *nav,
             makeSecondaryNavButton(
-                sectionGlyph(section), i18n::tr(settingsSectionLabelKey(section)), scale, selected, onClick
+                "crop-3-2", i18n::tr("settings.entities.bar.label", "name", barName), scale, barSelected, onBarClick
             ),
-            onClick
+            onBarClick
         );
       }
-
-      auto body = ui::row(
-          {.align = FlexAlign::Stretch, .gap = kGuideGap * scale},
-          ui::box({.fill = colorSpecFromRole(ColorRole::OutlineVariant), .width = kGuideWidth * scale}),
-          std::move(items)
-      );
-      body->setPadding(kSidebarGap * scale, 0.0F, Style::spaceXs * scale, kGuideInset * scale);
-
-      auto group = std::make_unique<Collapsible>();
-      group->setHeaderPadding(0.0F, 0.0F);
-      group->setHeader(std::move(header));
-      group->setBody(std::move(body));
-      group->setChevron(chevron);
-      group->setExpandedImmediate(*expandedCategory == category);
-      group->setOnToggle([toggleCategory, category](bool /*expanded*/) { toggleCategory(category); });
-      groups->emplace_back(category, group.get());
-      nav->addChild(std::move(group));
+      const auto onNewBarClick = [creatingBarName, nextBarName, clearTransientState, requestRebuild]() {
+        clearTransientState();
+        *creatingBarName = nextBarName;
+        requestRebuild();
+      };
+      auto newBar = makeSecondaryNavButton("add", i18n::tr("settings.entities.bar.new"), scale, false, onNewBarClick);
+      newBar->setVariant(ButtonVariant::Ghost);
+      addNavButton(*nav, std::move(newBar), onNewBarClick);
     }
 
     if (!creatingBarName->empty()) {
@@ -380,10 +321,10 @@ namespace settings {
           .value = *creatingBarName,
           .placeholder = i18n::tr("settings.entities.bar.id-placeholder"),
           .fontSize = Style::fontSizeCaption * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceXs * scale,
-          .width = 120.0F * scale,
-          .height = Style::controlHeightSm * scale,
+          .width = metrics::kNewBarInputWidth * scale,
+          .height = Style::controlHeight * scale,
       });
 
       auto doCreate = [existingBarNames, createBar, inputPtr](const std::string& rawName) {
@@ -422,16 +363,35 @@ namespace settings {
       sidebarNav->addChild(std::move(createPanel));
     }
 
-    auto* sidebar = sidebarScroll->content();
-    sidebar->setDirection(FlexDirection::Vertical);
-    sidebar->setAlign(FlexAlign::Stretch);
-    sidebar->addChild(std::move(sidebarNav));
+
+    auto* navHost = sidebarScroll->content();
+    navHost->setDirection(FlexDirection::Vertical);
+    navHost->setAlign(FlexAlign::Stretch);
+    navHost->addChild(std::move(sidebarNav));
 
     if (ctx.outNav != nullptr) {
       *ctx.outNav = nav;
     }
 
-    return sidebarScroll;
+    auto sidebar = ui::column({
+        .align = FlexAlign::Stretch,
+        .gap = Style::spaceSm * scale,
+        .fill = colorSpecFromRole(ColorRole::Fill2),
+        .minWidth = metrics::kSidebarWidth * scale,
+        .fillHeight = true,
+        .width = metrics::kSidebarWidth * scale,
+        .configure = [scale](Flex& column) {
+          column.setPadding(metrics::kSidebarPaddingV * scale, 0.0F, 0.0F, 0.0F);
+        },
+    });
+    if (ctx.searchField != nullptr) {
+      auto searchHost = ui::column({.align = FlexAlign::Stretch});
+      searchHost->setPadding(0.0F, metrics::kSidebarPaddingH * scale);
+      searchHost->addChild(std::move(ctx.searchField));
+      sidebar->addChild(std::move(searchHost));
+    }
+    sidebar->addChild(std::move(sidebarScroll));
+    return sidebar;
   }
 
 } // namespace settings

@@ -11,9 +11,9 @@ namespace internal_apps {
     constexpr InternalAppDefinition kInternalApps[] = {
         {
             .appId = "dev.noctalia.Noctalia",
-            .windowTitle = "Noctalia Settings",
-            .displayName = "Noctalia",
-            .iconAssetPath = "noctalia.svg",
+            .windowTitle = "Andromeda Settings",
+            .displayName = "Andromeda",
+            .iconAssetPath = "andromeda.svg",
         },
     };
 

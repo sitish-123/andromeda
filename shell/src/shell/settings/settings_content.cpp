@@ -7,12 +7,14 @@
 #include "notification/notification_filter.h"
 #include "shell/settings/bar_widget_editor.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_pages.h"
+#include "shell/settings/settings_selection_style.h"
 #include "shell/settings/settings_control_factory.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
-#include "ui/controls/keybind_recorder.h"
+#include "shell/settings/keybind_recorder.h"
 #include "ui/controls/label.h"
 #include "ui/controls/list_editor.h"
 #include "ui/controls/segmented.h"
@@ -23,6 +25,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -50,7 +53,7 @@ namespace settings {
           .out = &linePtr,
           .text = "",
           .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       });
       if (ctx.registerIdleLiveStatusLabel) {
         ctx.registerIdleLiveStatusLabel(linePtr);
@@ -66,12 +69,11 @@ namespace settings {
         .config = ctx.config,
         .configService = ctx.configService,
         .scale = ctx.scale,
-        .showAdvanced = ctx.showAdvanced,
+        .showAdvanced = true,
         .batteryDeviceOptions = ctx.batteryDeviceOptions,
         .editingWidgetName = ctx.editingWidgetName,
         .editingCapsuleGroupId = ctx.editingCapsuleGroupId,
         .selectedLaneWidgets = ctx.selectedLaneWidgets,
-        .pendingDeleteWidgetName = ctx.pendingDeleteWidgetName,
         .pendingDeleteWidgetSettingPath = ctx.pendingDeleteWidgetSettingPath,
         .renamingWidgetName = ctx.renamingWidgetName,
         .makeGestureActionRow = [&factory](
@@ -94,6 +96,7 @@ namespace settings {
         .resetBarLane = ctx.resetBarLane,
         .renameWidgetInstance = ctx.renameWidgetInstance,
         .closeHostedEditor = ctx.closeHostedEditor,
+        .confirmDelete = ctx.confirmDelete,
         .openWidgetInspector = ctx.openWidgetInspectorEditor,
         .openCapsuleGroupInspector = ctx.openCapsuleGroupEditor,
         .makeResetButton = [&factory](const std::vector<std::string>& path) { return factory.makeResetButton(path); },
@@ -139,61 +142,41 @@ namespace settings {
     };
   }
 
+  bool settingsPageAddsContentAfterRows(std::string_view selectedSection) {
+    return std::ranges::any_of(
+        std::array{"displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
+        [&](std::string_view sectionId) { return selectedPageShows(selectedSection, sectionId); }
+    );
+  }
+
+  void
+  addSettingsExpertRow(Flex& content, const std::vector<SettingEntry>& registry, const SettingsContentContext& ctx) {
+    if (ctx.rowScope != RowScope::Main || !ctx.openExpert) {
+      return;
+    }
+    const std::string_view selectedBarName =
+        ctx.selectedBar != nullptr ? std::string_view{ctx.selectedBar->name} : std::string_view{};
+    const std::size_t count = static_cast<std::size_t>(std::ranges::count_if(registry, [&](const SettingEntry& entry) {
+      return settingEntryIsExpert(entry)
+          && settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, ctx.selectedMonitorOverride)
+          && (!entry.visibleWhen || entry.visibleWhen(ctx.config));
+    }));
+    if (count == 0) {
+      return;
+    }
+    Flex* body = addSettingsGroupCard(content, {}, ctx.scale);
+    body->addChild(makeSettingsLinkRow(i18n::tr("settings.expert.row"), std::to_string(count), ctx.scale, ctx.openExpert));
+  }
+
   std::size_t
   addSettingsContentSections(Flex& content, const std::vector<SettingEntry>& registry, SettingsContentContext ctx) {
     const float scale = ctx.scale;
-
-    const auto sectionLabel = [](SettingsSection section) { return i18n::tr(settingsSectionLabelKey(section)); };
+    if (!ctx.searchQuery.empty()) {
+      return addSettingsSearchResults(content, registry, ctx);
+    }
 
     const auto groupLabel = [](std::string_view group) -> std::string {
       return i18n::tr("settings.navigation.groups." + std::string(group));
-    };
-
-    const auto makeSection = [&](std::string_view title, SettingsSection sectionKey) -> Flex* {
-      auto titleRow = ui::row(
-          {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-          ui::glyph({
-              .glyph = std::string(sectionGlyph(sectionKey)),
-              .glyphSize = Style::fontSizeHeader * scale,
-              .color = colorSpecFromRole(ColorRole::Primary),
-          }),
-          makeLabel(title, Style::fontSizeHeader * scale, colorSpecFromRole(ColorRole::Primary), FontWeight::Bold)
-      );
-      auto section = ui::column({
-          .align = FlexAlign::Stretch,
-          .gap = Style::spaceSm * scale,
-          .padding = Style::spaceLg * scale,
-          .fill = clearColorSpec(),
-      });
-      if (ctx.pageTitleRow != nullptr && ctx.searchQuery.empty() && ctx.pageTitleRow->children().empty()) {
-        ctx.pageTitleRow->addChild(std::move(titleRow));
-      } else {
-        section->addChild(std::move(titleRow));
-      }
-      auto* raw = section.get();
-      content.addChild(std::move(section));
-      return raw;
-    };
-
-    const auto addGroupLabel = [&](Flex& section, std::string_view title, bool isFirst) {
-      if (title.empty()) {
-        return;
-      }
-      if (!isFirst) {
-        section.addChild(
-            ui::column(
-                {.align = FlexAlign::Stretch,
-                 .gap = Style::spaceSm * scale,
-                 .configure = [scale](Flex& flex) { flex.setPadding(Style::spaceSm * scale, 0.0F, 0.0F, 0.0F); }},
-                ui::separator(),
-                makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold)
-            )
-        );
-      } else {
-        section.addChild(
-            makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Secondary), FontWeight::Bold)
-        );
-      }
     };
 
     SettingsControlFactory factory(ctx);
@@ -359,7 +342,7 @@ namespace settings {
         });
         item->addChild(std::move(checkbox));
         item->addChild(makeLabel(
-            option.label, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Normal
+            option.label, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Normal
         ));
 
         checkRow->addChild(std::move(item));
@@ -435,28 +418,28 @@ namespace settings {
               .borderWidth = 1.0F * scale,
               .normal =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::SurfaceContainerLow),
-                      .border = active ? colorSpecFromRole(ColorRole::Primary, 0.9F)
-                                       : colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha),
-                      .label = colorSpecFromRole(active ? ColorRole::OnPrimary : ColorRole::OnSurface),
+                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::SolidThin),
+                      .border = active ? colorSpecFromRole(ColorRole::Accent, 0.9F)
+                                       : colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
+                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
                   },
               .hover =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::Hover),
-                      .border = colorSpecFromRole(active ? ColorRole::Primary : ColorRole::Hover),
-                      .label = colorSpecFromRole(active ? ColorRole::OnPrimary : ColorRole::OnHover),
+                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
+                      .border = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
+                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
                   },
               .pressed =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(ColorRole::Primary),
-                      .border = colorSpecFromRole(ColorRole::Primary),
-                      .label = colorSpecFromRole(ColorRole::OnPrimary),
+                      .bg = colorSpecFromRole(ColorRole::Accent),
+                      .border = colorSpecFromRole(ColorRole::Accent),
+                      .label = colorSpecFromRole(ColorRole::OnAccent),
                   },
               .disabled =
                   Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(ColorRole::SurfaceContainer, 0.35F),
-                      .border = colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha),
-                      .label = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                      .bg = colorSpecFromRole(ColorRole::Fill2, 0.35F),
+                      .border = colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
+                      .label = colorSpecFromRole(ColorRole::Label2),
                   },
               .selected = std::nullopt,
           };
@@ -465,7 +448,7 @@ namespace settings {
             .out = &card,
             .contentAlign = ButtonContentAlign::Start,
             .customPalette = cardPaletteFor(checked),
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
             .paddingV = Style::spaceXs * scale,
             .paddingH = Style::spaceSm * scale,
             .gap = Style::spaceXs * scale,
@@ -477,9 +460,9 @@ namespace settings {
                 .out = &checkbox,
                 .checked = checked,
                 .scale = scale,
-                .checkedFill = colorSpecFromRole(ColorRole::Surface),
-                .checkedBorder = colorSpecFromRole(ColorRole::OnPrimary),
-                .checkedGlyph = colorSpecFromRole(ColorRole::Primary),
+                .checkedFill = colorSpecFromRole(ColorRole::SolidRegular),
+                .checkedBorder = colorSpecFromRole(ColorRole::OnAccent),
+                .checkedGlyph = colorSpecFromRole(ColorRole::AccentText),
             })
         );
 
@@ -490,7 +473,7 @@ namespace settings {
                 .text = option.displayName,
                 .fontSize = Style::fontSizeBody * scale,
                 .fontWeight = FontWeight::Medium,
-                .color = colorSpecFromRole(checked ? ColorRole::OnPrimary : ColorRole::OnSurface),
+                .color = colorSpecFromRole(checked ? ColorRole::OnAccent : ColorRole::Label1),
                 .maxLines = 1,
                 .ellipsize = TextEllipsize::End,
             })
@@ -502,7 +485,7 @@ namespace settings {
                   .text = option.category,
                   .fontSize = Style::fontSizeCaption * scale,
                   .color = colorSpecFromRole(
-                      checked ? ColorRole::OnPrimary : ColorRole::OnSurfaceVariant, checked ? 0.75F : 1.0F
+                      checked ? ColorRole::OnAccent : ColorRole::Label2, checked ? 0.75F : 1.0F
                   ),
                   .maxLines = 1,
                   .ellipsize = TextEllipsize::End,
@@ -516,11 +499,11 @@ namespace settings {
                   .out = &documentationButton,
                   .glyph = "external-link",
                   .glyphSize = Style::fontSizeBody * scale,
-                  .controlHeight = Style::controlHeightSm * scale,
+                  .controlHeight = Style::controlHeight * scale,
                   .variant = ButtonVariant::Ghost,
                   .tooltip = i18n::tr("settings.templates.documentation"),
-                  .width = Style::controlHeightSm * scale,
-                  .height = Style::controlHeightSm * scale,
+                  .width = Style::controlHeight * scale,
+                  .height = Style::controlHeight * scale,
                   .onClick = [url = option.documentationUrl] { (void)net::openInBrowser(url); },
                   .configure = [](Button& button) { button.setZIndex(2); },
               })
@@ -532,8 +515,8 @@ namespace settings {
           }
           auto palette = Button::defaultPalette(ButtonVariant::Ghost);
           palette.normal.label = colorSpecFromRole(role);
-          palette.hover.bg = colorSpecFromRole(ColorRole::Surface);
-          palette.hover.label = colorSpecFromRole(ColorRole::OnSurface);
+          palette.hover.bg = colorSpecFromRole(ColorRole::SolidRegular);
+          palette.hover.label = colorSpecFromRole(ColorRole::Label1);
           documentationButton->setCustomPalette(palette);
         };
         const auto syncTileState = [checkedState, card, documentationButton, titleLabel, categoryLabel,
@@ -541,16 +524,16 @@ namespace settings {
           const bool linkHovered = documentationButton != nullptr && documentationButton->hovered();
           card->setHoveredVisual(linkHovered);
           const bool hovered = card->hovered() || linkHovered;
-          ColorRole foreground = ColorRole::OnSurface;
-          ColorRole detail = ColorRole::OnSurfaceVariant;
+          ColorRole foreground = ColorRole::Label1;
+          ColorRole detail = ColorRole::Label2;
           float detailOpacity = 1.0F;
           if (*checkedState || card->pressed()) {
-            foreground = ColorRole::OnPrimary;
-            detail = ColorRole::OnPrimary;
+            foreground = ColorRole::OnAccent;
+            detail = ColorRole::OnAccent;
             detailOpacity = 0.75F;
           } else if (hovered) {
-            foreground = ColorRole::OnHover;
-            detail = ColorRole::OnHover;
+            foreground = ColorRole::Label1;
+            detail = ColorRole::Label1;
             detailOpacity = 0.75F;
           }
           if (titleLabel != nullptr) {
@@ -689,10 +672,10 @@ namespace settings {
             .glyph = "close",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
-            .maxWidth = Style::controlHeightSm * scale,
-            .maxHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
+            .maxWidth = Style::controlHeight * scale,
+            .maxHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [commitItems, items = keybinds.items, i] mutable {
@@ -735,7 +718,7 @@ namespace settings {
         });
         addRow->addChild(std::move(addRecorder));
         // Reserve the remove-button column so the add recorder lines up with the recorded ones.
-        addRow->addChild(ui::row({.width = Style::controlHeightSm * scale}));
+        addRow->addChild(ui::row({.width = Style::controlHeight * scale}));
 
         list->addChild(std::move(addRow));
       }
@@ -819,14 +802,14 @@ namespace settings {
         req();
       };
 
-      const float iconBtnH = Style::controlHeight * scale;
+      const float iconBtnH = Tokens::sizeControlS * scale;
 
       for (std::size_t idx = 0; idx < state->size(); ++idx) {
         auto row = ui::row({
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = metrics::kRowHeight * scale,
         });
 
         Label* summaryLabel = nullptr;
@@ -834,7 +817,7 @@ namespace settings {
             .out = &summaryLabel,
             .text = sessionActionRowSummary(kindOptions, (*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         if (ctx.registerSessionActionSummaryLabel) {
@@ -846,12 +829,12 @@ namespace settings {
 
         auto upBtn = ui::button({
             .glyph = "chevron-up",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex == 0 || rowIndex >= state->size()) {
@@ -865,12 +848,12 @@ namespace settings {
 
         auto downBtn = ui::button({
             .glyph = "chevron-down",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex + 1 >= state->size()) {
@@ -885,12 +868,12 @@ namespace settings {
 
         auto entrySettings = ui::button({
             .glyph = "settings",
-            .glyphSize = Style::fontSizeCaption * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusSm(scale),
+            .minWidth = iconBtnH,
+            .minHeight = iconBtnH,
+            .padding = 0.0F,
+            .radius = Style::scaledRadiusMd(scale),
             .onClick = [openEntry = ctx.openSessionActionEntryEditor, rowIndex = idx] {
               if (openEntry) {
                 openEntry(rowIndex);
@@ -936,7 +919,7 @@ namespace settings {
             commit();
           },
       });
-      block->addChild(std::move(addBtn));
+      block->addChild(ui::row({.paddingV = Style::spaceXs * scale}, std::move(addBtn)));
 
       section.addChild(std::move(block));
     };
@@ -955,19 +938,19 @@ namespace settings {
         req();
       };
 
-      const float iconBtnH = Style::controlHeight * scale;
+      const float iconBtnH = Tokens::sizeControlS * scale;
       for (std::size_t idx = 0; idx < state->size(); ++idx) {
         auto row = ui::row({
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = metrics::kRowHeight * scale,
         });
 
         auto summary = ui::label({
             .text = idleBehaviorRowSummary((*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         row->addChild(std::move(summary));
@@ -976,12 +959,12 @@ namespace settings {
 
         auto upBtn = ui::button({
             .glyph = "chevron-up",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx > 0,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex == 0 || rowIndex >= state->size()) {
@@ -995,12 +978,12 @@ namespace settings {
 
         auto downBtn = ui::button({
             .glyph = "chevron-down",
-            .glyphSize = Style::fontSizeBody * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .enabled = idx + 1 < state->size(),
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
+            .minWidth = iconBtnH,
             .minHeight = iconBtnH,
-            .padding = Style::spaceXs * scale,
+            .padding = 0.0F,
             .radius = Style::scaledRadiusMd(scale),
             .onClick = [state, rowIndex = idx, commit] {
               if (rowIndex + 1 >= state->size()) {
@@ -1015,12 +998,12 @@ namespace settings {
 
         auto entrySettings = ui::button({
             .glyph = "settings",
-            .glyphSize = Style::fontSizeCaption * scale,
+            .glyphSize = Tokens::sizeSymbolInline * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusSm(scale),
+            .minWidth = iconBtnH,
+            .minHeight = iconBtnH,
+            .padding = 0.0F,
+            .radius = Style::scaledRadiusMd(scale),
             .onClick = [openEntry = ctx.openIdleBehaviorEntryEditor, rowIndex = idx] {
               if (openEntry) {
                 openEntry(rowIndex);
@@ -1062,7 +1045,7 @@ namespace settings {
             }
           },
       });
-      block->addChild(std::move(addBtn));
+      block->addChild(ui::row({.paddingV = Style::spaceXs * scale}, std::move(addBtn)));
 
       section.addChild(std::move(block));
     };
@@ -1086,13 +1069,13 @@ namespace settings {
             .align = FlexAlign::Center,
             .justify = FlexJustify::SpaceBetween,
             .gap = Style::spaceSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minHeight = Style::controlHeight * scale,
         });
 
         auto summary = ui::label({
             .text = notificationFilterRowSummary((*state)[idx]),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         });
         row->addChild(std::move(summary));
@@ -1101,8 +1084,8 @@ namespace settings {
             .glyph = "settings",
             .glyphSize = Style::fontSizeCaption * scale,
             .variant = ButtonVariant::Ghost,
-            .minWidth = Style::controlHeightSm * scale,
-            .minHeight = Style::controlHeightSm * scale,
+            .minWidth = Style::controlHeight * scale,
+            .minHeight = Style::controlHeight * scale,
             .padding = Style::spaceXs * scale,
             .radius = Style::scaledRadiusSm(scale),
             .onClick = [openEntry = ctx.openNotificationFilterEntryEditor, rowIndex = idx] {
@@ -1157,6 +1140,19 @@ namespace settings {
           [&](const auto& control) -> std::unique_ptr<Node> {
             using T = std::decay_t<decltype(control)>;
             if constexpr (std::is_same_v<T, ToggleSetting>) {
+              if (!control.valuePath.empty()) {
+                return ui::toggle({
+                    .checked = control.checked,
+                    .scale = scale,
+                    .onChange = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild,
+                                 path = control.valuePath, on = control.onValue, off = control.offValue](bool value) {
+                      setOverride(path, value ? on : off);
+                      if (requestRebuild) {
+                        requestRebuild();
+                      }
+                    },
+                });
+              }
               return makeToggle(control.checked, control.enabled, entry.path);
             } else if constexpr (std::is_same_v<T, SelectSetting>) {
               return makeSelect(control, entry.path);
@@ -1238,17 +1234,13 @@ namespace settings {
 
     std::string activeSectionKey;
     std::string activeGroupKey;
-    Flex* activeSection = nullptr;
     Flex* activeGroupBody = nullptr;
     constexpr std::size_t kKeybindsPerRow = 2;
     Flex* activeKeybindRow = nullptr;
     std::size_t activeKeybindRowCount = 0;
     std::size_t visibleEntries = 0;
-    // Very short queries (one or two letters) match hundreds of entries and building the subtree for every match is
-    // costly. Cap how many results we render and hint that the list was truncated.
-    constexpr std::size_t kMaxSearchResults = 50;
-    bool truncated = false;
-    const std::string normalizedSearchQuery = normalizedSettingQuery(ctx.searchQuery);
+    std::vector<Flex*> cardBodies;
+    const std::string normalizedPageQuery = normalizedSettingQuery(ctx.pageQuery);
 
     BarWidgetEditorContext barWidgetEditorCtx = makeBarWidgetEditorContext(factory);
 
@@ -1259,9 +1251,14 @@ namespace settings {
     const std::string_view selectedBarName =
         ctx.selectedBar != nullptr ? std::string_view{ctx.selectedBar->name} : std::string_view{};
     const std::string_view selectedMonitorMatch = ctx.selectedMonitorOverride;
-    const std::optional<SettingsSection> selectedSettingsSection =
-        ctx.selectedSection != "bar" && ctx.selectedSection != "dock" ? settingsSectionFromId(ctx.selectedSection)
-                                                                      : std::nullopt;
+
+    const auto entryOnOpenPage = [&](const SettingEntry& entry) -> bool {
+      return settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, selectedMonitorMatch)
+          && isEntryVisible(entry);
+    };
+    const std::size_t expertEntryCount = static_cast<std::size_t>(std::ranges::count_if(
+        registry, [&](const SettingEntry& entry) { return settingEntryIsExpert(entry) && entryOnOpenPage(entry); }
+    ));
 
     // Coalesce entries by (content section, group) so each group renders once even if its entries were
     // declared non-contiguously in the registry. See coalesceByGroupKey().
@@ -1269,189 +1266,119 @@ namespace settings {
       return barSettingContentSectionKey(registry[i]) + '\x1F' + registry[i].group;
     });
     const auto entryPassesFilters = [&](const SettingEntry& entry) -> bool {
-      if (ctx.searchQuery.empty()
-          && !ctx.selectedSection.empty()
-          && ctx.selectedSection != "bar"
-          && ctx.selectedSection != "dock"
-          && (!selectedSettingsSection.has_value() || entry.section != *selectedSettingsSection)) {
+      if (!entryOnOpenPage(entry)) {
         return false;
       }
-      if (ctx.searchQuery.empty()
-          && ctx.selectedSection == "bar"
-          && !settingEntryMatchesBarNavigation(entry, selectedBarName, selectedMonitorMatch)) {
-        return false;
+      if (ctx.rowScope == RowScope::Main) {
+        return !settingEntryIsExpert(entry);
       }
-      if (ctx.searchQuery.empty()
-          && ctx.selectedSection == "dock"
-          && !settingEntryMatchesDockNavigation(entry, selectedMonitorMatch)) {
-        return false;
-      }
-      if (!ctx.showAdvanced && entry.advanced) {
-        return false;
-      }
-      if (!isEntryVisible(entry)) {
-        return false;
-      }
-      return matchesNormalizedSettingQuery(entry, normalizedSearchQuery);
+      return settingEntryIsExpert(entry) && matchesNormalizedSettingQuery(entry, normalizedPageQuery);
     };
 
-    std::string pageKey;
-    std::vector<std::string> pageGroupKeys;
-    if (ctx.searchQuery.empty()) {
-      std::unordered_set<std::string> seenGroupKeys;
-      for (const std::size_t entryIndex : entryOrder) {
-        const auto& entry = registry[entryIndex];
-        if (!entryPassesFilters(entry) || entry.group.empty()) {
-          continue;
-        }
-        if (pageKey.empty()) {
-          pageKey = barSettingContentSectionKey(entry);
-        }
-        if (seenGroupKeys.insert(entry.group).second) {
-          pageGroupKeys.push_back(entry.group);
-        }
-      }
-    }
-    // A page with several groups shows them as tabs, one group at a time; the page's entry in expandedGroupsByPage
-    // holds the open tab. settings_expand_all_groups lays every group out as a titled card instead.
-    const bool tabbedGroups =
-        ctx.searchQuery.empty() && pageGroupKeys.size() > 1 && !ctx.config.shell.settingsExpandAllGroups;
-    std::string selectedGroup;
-    if (tabbedGroups) {
-      auto& openTab = ctx.expandedGroupsByPage[pageKey];
-      if (openTab.size() != 1 || !std::ranges::contains(pageGroupKeys, *openTab.begin())) {
-        openTab = {pageGroupKeys.front()};
-      }
-      selectedGroup = *openTab.begin();
-      if (ctx.groupJumpRow != nullptr) {
-        for (const auto& group : pageGroupKeys) {
-          ctx.groupJumpRow->addChild(
-              ui::button({
-                  .text = groupLabel(group),
-                  .fontSize = Style::fontSizeCaption * scale,
-                  .variant = group == selectedGroup ? ButtonVariant::TabActive : ButtonVariant::Tab,
-                  .radius = Style::scaledRadiusMd(scale),
-                  .onClick = [&openTab, group, resetScroll = ctx.resetContentScroll,
-                              rebuild = ctx.requestContentRebuild]() {
-                    openTab = {group};
-                    resetScroll();
-                    rebuild();
-                  },
-              })
-          );
-        }
-      }
+    if (ctx.rowScope == RowScope::Main && selectedPageShows(ctx.selectedSection, "dock")) {
+      addSettingsGroupCard(content, {}, scale)->addChild(makeDockPreview(ctx.config.dock, scale));
     }
 
     for (const std::size_t entryIndex : entryOrder) {
       const auto& entry = registry[entryIndex];
-      if (!entryPassesFilters(entry) || (tabbedGroups && entry.group != selectedGroup)) {
+      if (!entryPassesFilters(entry)) {
         continue;
-      }
-      // Cap only once a genuinely-matching entry is about to be rendered, so the truncation hint never
-      // shows when exactly kMaxSearchResults entries matched and the remainder were filtered out anyway.
-      if (!ctx.searchQuery.empty() && visibleEntries >= kMaxSearchResults) {
-        truncated = true;
-        break;
       }
 
       const std::string contentSectionKey = barSettingContentSectionKey(entry);
       if (contentSectionKey != activeSectionKey) {
         activeSectionKey = contentSectionKey;
         activeGroupKey.clear();
+        activeGroupBody = nullptr;
         activeKeybindRow = nullptr;
         activeKeybindRowCount = 0;
-        std::string displayTitle;
-        if (entry.section == SettingsSection::Bar && entry.path.size() >= 2) {
-          displayTitle = i18n::tr("settings.entities.bar.label", "name", entry.path[1]);
-          if (isBarMonitorOverrideSettingPath(entry.path)) {
-            displayTitle += " / " + entry.path[3];
-          }
-        } else if (isDockMonitorOverrideSettingPath(entry.path)) {
-          displayTitle = sectionLabel(entry.section) + " / " + entry.path[2];
-        } else {
-          displayTitle = sectionLabel(entry.section);
-        }
-        activeSection = makeSection(displayTitle, entry.section);
-        activeGroupBody = activeSection;
         if (ctx.config.shell.offlineMode && settingsSectionNeedsOfflineModeNotice(entry.section)) {
           const bool showDisableHint = entry.section != SettingsSection::Security;
-          activeSection->addChild(
-              makeOfflineModeNotice(scale, offlineModeNoticeMessage(entry.section), showDisableHint)
+          content.addChild(makeOfflineModeNotice(scale, offlineModeNoticeMessage(entry.section), showDisableHint));
+        }
+      }
+      if (activeGroupBody == nullptr || entry.group != activeGroupKey) {
+        activeGroupKey = entry.group;
+        activeKeybindRow = nullptr;
+        activeKeybindRowCount = 0;
+        activeGroupBody = addSettingsGroupCard(
+            content, entry.group.empty() || entry.group.front() == '~' ? std::string{} : groupLabel(entry.group), scale
+        );
+        cardBodies.push_back(activeGroupBody);
+        if (entry.section == SettingsSection::Power && entry.group == "idle") {
+          addIdleLiveStatusPanel(*activeGroupBody, ctx, scale);
+        }
+        if (entry.section == SettingsSection::Screenshot && entry.group == "screenshot-output") {
+          activeGroupBody->addChild(
+              ui::label({
+                  .text = i18n::tr("settings.schema.shell.screenshot-output.description"),
+                  .fontSize = Style::fontSizeBody * scale,
+                  .color = colorSpecFromRole(ColorRole::Label2),
+                  .maxLines = 0,
+              })
           );
         }
       }
-      if (activeSection != nullptr && activeGroupBody != nullptr) {
-        if (entry.group != activeGroupKey) {
-          const bool isFirstGroup = activeGroupKey.empty();
-          activeGroupKey = entry.group;
-          activeKeybindRow = nullptr;
-          activeKeybindRowCount = 0;
-          if (tabbedGroups) {
-            activeGroupBody = addSettingsCard(*activeSection, {}, scale);
-          } else if (!entry.group.empty()) {
-            activeGroupBody = addSettingsCard(*activeSection, groupLabel(entry.group), scale);
-          } else {
-            addGroupLabel(*activeSection, groupLabel(entry.group), isFirstGroup);
-            activeGroupBody = activeSection;
-          }
-          if (entry.section == SettingsSection::Power && entry.group == "idle") {
-            addIdleLiveStatusPanel(*activeGroupBody, ctx, scale);
-          }
-          if (entry.section == SettingsSection::Screenshot && entry.group == "screenshot-output") {
-            activeGroupBody->addChild(
-                ui::label({
-                    .text = i18n::tr("settings.schema.shell.screenshot-output.description"),
-                    .fontSize = Style::fontSizeBody * scale,
-                    .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
-                    .maxLines = 0,
-                })
-            );
-          }
-        }
-        if (!std::holds_alternative<KeybindListSetting>(entry.control)) {
-          activeKeybindRow = nullptr;
-          activeKeybindRowCount = 0;
-        }
-        if (const auto* list = std::get_if<ListSetting>(&entry.control)) {
-          if (isFirstBarWidgetListPath(entry.path)) {
-            addBarWidgetLaneEditor(*activeGroupBody, entry, barWidgetEditorCtx);
-          } else if (!isBarWidgetListPath(entry.path)) {
-            makeListBlock(*activeGroupBody, entry, *list);
-          }
-        } else if (const auto* map = std::get_if<StringMapSetting>(&entry.control)) {
-          factory.makeStringMapBlock(*activeGroupBody, entry, *map);
-        } else if (const auto* shortcuts = std::get_if<ShortcutListSetting>(&entry.control)) {
-          makeShortcutListBlock(*activeGroupBody, entry, *shortcuts);
-        } else if (const auto* keybindList = std::get_if<KeybindListSetting>(&entry.control)) {
-          if (activeKeybindRow == nullptr || activeKeybindRowCount >= kKeybindsPerRow) {
-            auto row = ui::row({
-                .align = FlexAlign::Start,
-                .gap = Style::spaceMd * scale,
-                .fillWidth = true,
-            });
-            activeKeybindRow = static_cast<Flex*>(activeGroupBody->addChild(std::move(row)));
-            activeKeybindRowCount = 0;
-          }
-          makeKeybindListBlock(*activeKeybindRow, entry, *keybindList);
-          ++activeKeybindRowCount;
-        } else if (const auto* sessionActs = std::get_if<SessionPanelActionsSetting>(&entry.control)) {
-          makeSessionActionsInlineBlock(*activeGroupBody, entry, *sessionActs);
-        } else if (const auto* idle = std::get_if<IdleBehaviorsSetting>(&entry.control)) {
-          makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
-        } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
-          makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
-        } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {
-          makeRow(*activeGroupBody, entry, makeSearchPickerButton(entry, *picker));
-        } else if (const auto* multi = std::get_if<MultiSelectSetting>(&entry.control)) {
-          makeMultiSelectBlock(*activeGroupBody, entry, *multi);
-        } else if (const auto* templates = std::get_if<TemplateGridSetting>(&entry.control)) {
-          makeTemplateGridBlock(*activeGroupBody, entry, *templates);
-        } else {
-          makeRow(*activeGroupBody, entry, makeControl(entry));
-        }
-        ++visibleEntries;
+      if (!std::holds_alternative<KeybindListSetting>(entry.control)) {
+        activeKeybindRow = nullptr;
+        activeKeybindRowCount = 0;
       }
+      const std::size_t childrenBefore = activeGroupBody->children().size();
+      if (const auto* list = std::get_if<ListSetting>(&entry.control)) {
+        if (isFirstBarWidgetListPath(entry.path)) {
+          addBarWidgetLaneEditor(*activeGroupBody, entry, barWidgetEditorCtx);
+        } else if (!isBarWidgetListPath(entry.path)) {
+          makeListBlock(*activeGroupBody, entry, *list);
+        }
+      } else if (const auto* map = std::get_if<StringMapSetting>(&entry.control)) {
+        factory.makeStringMapBlock(*activeGroupBody, entry, *map);
+      } else if (const auto* shortcuts = std::get_if<ShortcutListSetting>(&entry.control)) {
+        makeShortcutListBlock(*activeGroupBody, entry, *shortcuts);
+      } else if (const auto* keybindList = std::get_if<KeybindListSetting>(&entry.control)) {
+        if (activeKeybindRow == nullptr || activeKeybindRowCount >= kKeybindsPerRow) {
+          auto row = ui::row({
+              .align = FlexAlign::Start,
+              .gap = Style::spaceMd * scale,
+              .fillWidth = true,
+          });
+          activeKeybindRow = static_cast<Flex*>(activeGroupBody->addChild(std::move(row)));
+          activeKeybindRowCount = 0;
+        }
+        makeKeybindListBlock(*activeKeybindRow, entry, *keybindList);
+        ++activeKeybindRowCount;
+      } else if (const auto* sessionActs = std::get_if<SessionPanelActionsSetting>(&entry.control)) {
+        makeSessionActionsInlineBlock(*activeGroupBody, entry, *sessionActs);
+      } else if (const auto* idle = std::get_if<IdleBehaviorsSetting>(&entry.control)) {
+        makeIdleBehaviorsInlineBlock(*activeGroupBody, entry, *idle);
+      } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
+        makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
+      } else if (const auto* tiles = std::get_if<SelectSetting>(&entry.control);
+                 tiles != nullptr && tiles->tiles && entry.path.back() == "mode") {
+        activeGroupBody->addChild(ui::column(
+            {.align = FlexAlign::Stretch, .paddingV = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale},
+            factory.makeSelect(*tiles, entry.path)
+        ));
+      } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {
+        makeRow(*activeGroupBody, entry, makeSearchPickerButton(entry, *picker));
+      } else if (const auto* multi = std::get_if<MultiSelectSetting>(&entry.control)) {
+        makeMultiSelectBlock(*activeGroupBody, entry, *multi);
+      } else if (const auto* templates = std::get_if<TemplateGridSetting>(&entry.control)) {
+        makeTemplateGridBlock(*activeGroupBody, entry, *templates);
+      } else {
+        makeRow(*activeGroupBody, entry, makeControl(entry));
+      }
+      if (!ctx.highlightKey.empty() && ctx.highlightKey == settingEntryKey(entry)) {
+        const auto& body = activeGroupBody->children();
+        const bool grew = body.size() > childrenBefore;
+        if (auto* target = dynamic_cast<Flex*>(grew ? body[childrenBefore].get() : body.empty() ? nullptr : body.back().get())) {
+          target->setFill(selectionStyle().highlightFill);
+          target->setRadius(Style::scaledRadiusMd(scale));
+          if (ctx.setScrollTarget) {
+            ctx.setScrollTarget(target);
+          }
+        }
+      }
+      ++visibleEntries;
     }
 
     if (activeKeybindRow != nullptr && activeKeybindRowCount > 0 && activeKeybindRowCount < kKeybindsPerRow) {
@@ -1460,58 +1387,44 @@ namespace settings {
         ++activeKeybindRowCount;
       }
     }
-
-    // The Plugins section has no registry entries — it renders fully custom
-    // content (addSettingsPlugins), so suppress the "no settings found" state.
-    if (visibleEntries == 0
-        && ctx.selectedSection != "plugins"
-        && ctx.selectedSection != "displays"
-        && ctx.selectedSection != "input"
-        && ctx.selectedSection != "shortcuts"
-        && ctx.selectedSection != "date-time"
-        && ctx.selectedSection != "language"
-        && ctx.selectedSection != "default-apps"
-        && ctx.selectedSection != "devices") {
-      auto emptyState = ui::column(
-          {.align = FlexAlign::Center,
-           .justify = FlexJustify::Center,
-           .gap = Style::spaceSm * scale,
-           .padding = (Style::spaceLg * 2.0F) * scale,
-           .fill = colorSpecFromRole(ColorRole::SurfaceContainerLow),
-           .radius = Style::scaledRadiusMd(scale),
-           .border = colorSpecFromRole(ColorRole::OutlineVariant),
-           .minWidth = 360.0F * scale,
-           .minHeight = 160.0F * scale,
-           .fillWidth = true,
-           .flexGrow = 2.0F},
-          makeLabel(
-              i18n::tr("settings.window.no-results"), Style::fontSizeHeader * scale,
-              colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold
-          ),
-          makeLabel(
-              i18n::tr("settings.window.no-results-hint"), Style::fontSizeBody * scale,
-              colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
-          )
-      );
-
-      content.addChild(
-          ui::row(
-              {.align = FlexAlign::Center, .fillWidth = true}, ui::box({.flexGrow = 0.5F}), std::move(emptyState),
-              ui::box({.flexGrow = 0.5F})
-          )
-      );
+    for (Flex* body : cardBodies) {
+      addSettingsRowSeparators(*body, scale);
     }
 
-    if (truncated) {
-      content.addChild(
-          ui::row(
-              {.align = FlexAlign::Center, .justify = FlexJustify::Center, .fillWidth = true},
-              makeLabel(
-                  i18n::tr("settings.window.search-truncated", "count", std::to_string(kMaxSearchResults)),
-                  Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant), FontWeight::Normal
-              )
-          )
-      );
+    if (!settingsPageAddsContentAfterRows(ctx.selectedSection)) {
+      addSettingsExpertRow(content, registry, ctx);
+    }
+
+    // Pages with custom content (addSettingsPlugins and the window's add*Content) fill the rest of the page.
+    const bool customPage = std::ranges::any_of(
+        std::array{"plugins", "displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
+        [&](std::string_view sectionId) { return selectedPageShows(ctx.selectedSection, sectionId); }
+    ) || settingsPageHasOwnContent(ctx.selectedSection);
+    const auto* openPage = settingsPageFromId(ctx.selectedSection);
+    const bool placeholderPage = openPage != nullptr && openPage->sections.empty();
+    if (visibleEntries == 0 && !customPage && (ctx.rowScope == RowScope::Expert || expertEntryCount == 0)) {
+      // Empty state (rulebook 9.13): symbol 48 label_3, title-3, one footnote line; no card.
+      auto emptyState = ui::column({
+          .align = FlexAlign::Center,
+          .justify = FlexJustify::Center,
+          .gap = Style::spaceSm * scale,
+          .padding = Tokens::spaceP48 * scale,
+          .fillWidth = true,
+      });
+      emptyState->addChild(ui::glyph({
+          .glyph = std::string(placeholderPage && !openPage->glyph.empty() ? openPage->glyph : "search"),
+          .glyphSize = 48.0F * scale,
+          .color = colorSpecFromRole(ColorRole::Label3),
+      }));
+      emptyState->addChild(makeLabel(
+          i18n::tr(placeholderPage ? "settings.pages.empty-title" : "settings.window.no-results"),
+          Tokens::typeTitle3.size * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold
+      ));
+      emptyState->addChild(makeLabel(
+          i18n::tr(placeholderPage ? "settings.pages.empty-hint" : "settings.window.no-results-hint"),
+          Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
+      ));
+      content.addChild(std::move(emptyState));
     }
 
     return visibleEntries;

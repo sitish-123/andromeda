@@ -8,14 +8,14 @@
 #include <optional>
 #include <vector>
 
-class WaylandConnection;
+class ShellWaylandConnection;
 
 class LockKeysService {
 public:
   using LockKeysState = WaylandSeat::LockKeysState;
   using ChangeCallback = std::function<void(const LockKeysState& previous, const LockKeysState& current)>;
 
-  explicit LockKeysService(WaylandConnection& wayland);
+  explicit LockKeysService(ShellWaylandConnection& wayland);
 
   [[nodiscard]] LockKeysState state() const noexcept;
   void setChangeCallback(ChangeCallback callback);
@@ -29,7 +29,7 @@ private:
   void discoverSysfsLeds();
   [[nodiscard]] bool hasCachedSysfsLeds() const noexcept;
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   LockKeysState m_state;
   bool m_hasState = false;
   bool m_sysfsDiscovered = false;

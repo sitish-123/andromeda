@@ -256,9 +256,6 @@ Dragging windows between previews and creating workspaces by dropping into a gap
 
 | Action                                       | Effect                                                 |
 | -------------------------------------------- | ------------------------------------------------------ |
-| `cheatsheet-close`                           | Hide the keybind cheatsheet                            |
-| `cheatsheet-open`                            | Show the keybind cheatsheet                            |
-| `cheatsheet-toggle`                          | Show or hide the keybind cheatsheet                    |
 | `config-reload`                              | Reload the configuration file                          |
 | `cursor-hide`                                | Hide the cursor until pointer activity                 |
 | `cursor-show`                                | Show the cursor and restart its inactivity timeout     |

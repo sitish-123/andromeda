@@ -358,7 +358,7 @@ namespace settings {
         .text = title,
         .fontSize = Style::fontSizeBody * m_scale,
         .fontWeight = FontWeight::Bold,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
     });
     if (m_createFormVisible) {
       titleLabel->setMaxLines(2);
@@ -371,7 +371,7 @@ namespace settings {
           ui::label({
               .text = i18n::tr("settings.entities.widget.picker.instance-toggle"),
               .fontSize = Style::fontSizeCaption * m_scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
 
@@ -400,8 +400,8 @@ namespace settings {
               .glyph = "close",
               .glyphSize = Style::fontSizeBody * m_scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * m_scale,
-              .minHeight = Style::controlHeightSm * m_scale,
+              .minWidth = Style::controlHeight * m_scale,
+              .minHeight = Style::controlHeight * m_scale,
               .padding = Style::spaceXs * m_scale,
               .radius = Style::scaledRadiusMd(m_scale),
               .onClick = [this] {
@@ -493,7 +493,7 @@ namespace settings {
             .out = &m_instanceDescription,
             .text = i18n::tr("settings.entities.widget.instance.id-description"),
             .fontSize = Style::fontSizeCaption * m_scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
             .maxLines = 2,
             .visible = false,
             .participatesInLayout = false,
@@ -535,7 +535,7 @@ namespace settings {
                 .text = i18n::tr("common.actions.cancel"),
                 .fontSize = Style::fontSizeCaption * m_scale,
                 .variant = ButtonVariant::Ghost,
-                .minHeight = Style::controlHeightSm * m_scale,
+                .minHeight = Style::controlHeight * m_scale,
                 .paddingV = Style::spaceXs * m_scale,
                 .paddingH = Style::spaceSm * m_scale,
                 .radius = Style::scaledRadiusSm(m_scale),
@@ -554,7 +554,7 @@ namespace settings {
                 .text = i18n::tr("settings.entities.widget.instance.create-save"),
                 .fontSize = Style::fontSizeCaption * m_scale,
                 .variant = ButtonVariant::Default,
-                .minHeight = Style::controlHeightSm * m_scale,
+                .minHeight = Style::controlHeight * m_scale,
                 .paddingV = Style::spaceXs * m_scale,
                 .paddingH = Style::spaceSm * m_scale,
                 .radius = Style::scaledRadiusSm(m_scale),
@@ -606,7 +606,7 @@ namespace settings {
       }
       ScaledRenderer measureRenderer(*m_renderContext, measureScale);
       const TextMetrics titleMetrics = measureRenderer.measureText(instanceFormTitle(), fontSize, {FontWeight::Bold});
-      const float closeBtn = Style::controlHeightSm * m_scale;
+      const float closeBtn = Style::controlHeight * m_scale;
       const float headerGap = Style::spaceSm * m_scale;
       const float rootPadding = Style::spaceSm * m_scale * 2.0F;
       const float sheetPadding = computePadding(m_scale) * 2.0F;

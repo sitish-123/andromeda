@@ -7,7 +7,17 @@
 
 #include <assert.h>
 #include <drm_fourcc.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <linux/dma-buf.h>
+#include <linux/udmabuf.h>
+#include <poll.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <wayland-server-core.h>
+#include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/interface.h>
 #include <wlr/render/pass.h>
 #include <wlr/types/wlr_buffer.h>
@@ -541,6 +551,142 @@ static struct wlr_texture* fx_texture_from_dmabuf(struct wlr_renderer* wlr_rende
   return fx_texture_from_framebuffer(renderer, texture_buffer, texture_buffer->buffer);
 }
 
+// Below this size a damage-limited copy costs less than a per-commit udmabuf import.
+#define SHM_IMPORT_MIN_BYTES (1 << 20)
+
+// A dmabuf view of the page-aligned range of a client shm buffer. It keeps the
+// client buffer locked so the client does not write it while it is sampled.
+struct shm_import {
+  struct wlr_buffer base;
+  struct wlr_buffer* source;
+  struct wl_event_loop* loop;
+  struct wlr_dmabuf_attributes dmabuf;
+};
+
+struct shm_release {
+  struct wlr_buffer* source;
+  struct wl_event_source* event;
+  int fence;
+};
+
+static int shm_release_handle(int fd, uint32_t mask, void* data) {
+  struct shm_release* release = data;
+  wl_event_source_remove(release->event);
+  close(release->fence);
+  wlr_buffer_unlock(release->source);
+  free(release);
+  return 0;
+}
+
+// The client may write the buffer once it is released, so wait for the GPU
+// reads fenced on the dmabuf before the unlock.
+static void shm_import_release_source(struct shm_import* import) {
+  struct dma_buf_export_sync_file req = {.flags = DMA_BUF_SYNC_WRITE, .fd = -1};
+  if (ioctl(import->dmabuf.fd[0], DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &req) == 0) {
+    struct pollfd pfd = {.fd = req.fd, .events = POLLIN};
+    if (poll(&pfd, 1, 0) != 1) {
+      struct shm_release* release = calloc(1, sizeof(*release));
+      if (release != NULL) {
+        release->source = import->source;
+        release->fence = req.fd;
+        release->event = wl_event_loop_add_fd(import->loop, req.fd, WL_EVENT_READABLE, shm_release_handle, release);
+        if (release->event != NULL) {
+          return;
+        }
+        free(release);
+      }
+    }
+    close(req.fd);
+  }
+  wlr_buffer_unlock(import->source);
+}
+
+static void shm_import_destroy(struct wlr_buffer* buffer) {
+  struct shm_import* import = wl_container_of(buffer, import, base);
+  wlr_buffer_finish(buffer);
+  shm_import_release_source(import);
+  close(import->dmabuf.fd[0]);
+  free(import);
+}
+
+static bool shm_import_get_dmabuf(struct wlr_buffer* buffer, struct wlr_dmabuf_attributes* attribs) {
+  struct shm_import* import = wl_container_of(buffer, import, base);
+  *attribs = import->dmabuf;
+  return true;
+}
+
+static const struct wlr_buffer_impl shm_import_impl = {
+    .destroy = shm_import_destroy,
+    .get_dmabuf = shm_import_get_dmabuf,
+};
+
+// Samples a large shm buffer in place instead of copying it into a texture.
+// Returns NULL when the buffer must take the copy path.
+static struct wlr_texture* fx_texture_from_shm_import(struct fx_renderer* renderer, struct wlr_buffer* buffer) {
+  // -2: not opened yet, -1: unavailable for this process.
+  static int udmabuf_dev = -2;
+  // The last stride the driver refused (pitch alignment differs per GPU); 0 = none.
+  static int refused_stride = 0;
+  struct wlr_shm_attributes shm;
+  // Without implicit fences the release could not wait for the GPU reads.
+  if (renderer->event_loop == NULL || renderer->egl->ignores_implicit_fences || udmabuf_dev == -1
+      || !wlr_buffer_get_shm(buffer, &shm) || shm.stride == refused_stride
+      || (shm.format != DRM_FORMAT_ARGB8888 && shm.format != DRM_FORMAT_XRGB8888)
+      || (size_t)shm.stride * shm.height < SHM_IMPORT_MIN_BYTES) {
+    return NULL;
+  }
+  if (udmabuf_dev == -2) {
+    udmabuf_dev = open("/dev/udmabuf", O_RDWR | O_CLOEXEC);
+    if (udmabuf_dev < 0) {
+      wlr_log(WLR_INFO, "Copying shm buffers: /dev/udmabuf: %s", strerror(errno));
+      udmabuf_dev = -1;
+      return NULL;
+    }
+  }
+
+  const off_t page = sysconf(_SC_PAGESIZE);
+  const off_t start = shm.offset & ~(page - 1);
+  const off_t end = (shm.offset + (off_t)shm.stride * shm.height + page - 1) & ~(page - 1);
+  struct udmabuf_create create = {
+      .memfd = shm.fd,
+      .flags = UDMABUF_FLAGS_CLOEXEC,
+      .offset = start,
+      .size = end - start,
+  };
+  // Fails for an unsealed memfd or a range past the end of the file.
+  const int fd = ioctl(udmabuf_dev, UDMABUF_CREATE, &create);
+  if (fd < 0) {
+    return NULL;
+  }
+  struct shm_import* import = calloc(1, sizeof(*import));
+  if (import == NULL) {
+    close(fd);
+    return NULL;
+  }
+  wlr_buffer_init(&import->base, &shm_import_impl, shm.width, shm.height);
+  import->loop = renderer->event_loop;
+  import->source = wlr_buffer_lock(buffer);
+  import->dmabuf = (struct wlr_dmabuf_attributes){
+      .width = shm.width,
+      .height = shm.height,
+      .format = shm.format,
+      .modifier = DRM_FORMAT_MOD_LINEAR,
+      .n_planes = 1,
+      .offset = {(uint32_t)(shm.offset - start)},
+      .stride = {(uint32_t)shm.stride},
+      .fd = {fd, -1, -1, -1},
+  };
+
+  struct wlr_texture* texture = fx_texture_from_dmabuf(&renderer->wlr_renderer, &import->base);
+  if (texture == NULL) {
+    wlr_log(WLR_DEBUG, "Copying shm buffers with stride %d: EGL refused a linear %dx%d import", shm.stride, shm.width,
+            shm.height);
+    refused_stride = shm.stride;
+  }
+  wlr_buffer_drop(&import->base);
+  return texture;
+}
+
 struct wlr_texture* fx_texture_from_buffer(struct wlr_renderer* wlr_renderer, struct wlr_buffer* buffer) {
   struct fx_renderer* renderer = fx_get_renderer(wlr_renderer);
 
@@ -548,8 +694,11 @@ struct wlr_texture* fx_texture_from_buffer(struct wlr_renderer* wlr_renderer, st
   uint32_t format;
   size_t stride;
   struct wlr_dmabuf_attributes dmabuf;
+  struct wlr_texture* imported;
   if (wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
     return fx_texture_from_dmabuf(&renderer->wlr_renderer, buffer);
+  } else if ((imported = fx_texture_from_shm_import(renderer, buffer)) != NULL) {
+    return imported;
   } else if (wlr_buffer_begin_data_ptr_access(buffer, WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format, &stride)) {
     struct wlr_texture* tex = fx_texture_from_pixels(wlr_renderer, format, stride, buffer->width, buffer->height, data);
     wlr_buffer_end_data_ptr_access(buffer);

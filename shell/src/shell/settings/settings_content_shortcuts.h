@@ -1,6 +1,6 @@
 #pragma once
 
-#include "wayland/settings_control.h"
+#include "compositors/settings_control.h"
 
 #include <functional>
 #include <string>

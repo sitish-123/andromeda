@@ -1,0 +1,160 @@
+#include "ui/controls/checkbox.h"
+
+#include "core/input/keybind_matcher.h"
+#include "render/scene/input_area.h"
+#include "ui/controls/box.h"
+#include "ui/controls/glyph.h"
+#include "ui/palette.h"
+#include "ui/style.h"
+
+#include <algorithm>
+#include <cmath>
+#include <memory>
+
+Checkbox::Checkbox() {
+  auto box = std::make_unique<Box>();
+  m_box = static_cast<Box*>(addChild(std::move(box)));
+
+  auto checkGlyph = std::make_unique<Glyph>();
+  checkGlyph->setGlyph("check");
+  m_checkGlyph = static_cast<Glyph*>(addChild(std::move(checkGlyph)));
+
+  auto area = std::make_unique<InputArea>();
+  area->setFocusable(true);
+  area->setOnEnter([this](const InputArea::PointerData& /*data*/) { applyState(); });
+  area->setOnLeave([this] { applyState(); });
+  area->setOnPress([this](const InputArea::PointerData& /*data*/) { applyState(); });
+  area->setOnFocusGain([this] { applyState(); });
+  area->setOnFocusLoss([this] { applyState(); });
+  area->setOnKeyDown([this](const InputArea::KeyData& key) {
+    if (!key.pressed || !m_enabled) {
+      return;
+    }
+    if (!KeybindMatcher::matches(KeybindAction::Validate, key.sym, key.modifiers)) {
+      return;
+    }
+    const bool next = !m_checked;
+    m_checked = next;
+    applyState();
+    if (m_onChange) {
+      m_onChange(next);
+    }
+  });
+  area->setOnClick([this](const InputArea::PointerData& /*data*/) {
+    if (!m_enabled) {
+      return;
+    }
+    const bool next = !m_checked;
+    m_checked = next;
+    applyState();
+    if (m_onChange) {
+      m_onChange(next);
+    }
+  });
+  m_inputArea = static_cast<InputArea*>(addChild(std::move(area)));
+
+  applyState();
+}
+
+void Checkbox::setChecked(bool checked) {
+  if (m_checked == checked) {
+    return;
+  }
+  m_checked = checked;
+  applyState();
+}
+
+void Checkbox::setEnabled(bool enabled) {
+  if (m_enabled == enabled) {
+    return;
+  }
+  m_enabled = enabled;
+  if (m_inputArea != nullptr) {
+    m_inputArea->setEnabled(enabled);
+  }
+  applyState();
+}
+
+void Checkbox::setOnChange(std::function<void(bool)> callback) { m_onChange = std::move(callback); }
+
+void Checkbox::setScale(float scale) {
+  m_scale = std::max(0.1F, scale);
+  applyState();
+  markLayoutDirty();
+}
+
+void Checkbox::setCheckedColors(
+    std::optional<ColorSpec> fill, std::optional<ColorSpec> border, std::optional<ColorSpec> glyph
+) {
+  m_checkedFill = fill;
+  m_checkedBorder = border;
+  m_checkedGlyph = glyph;
+  applyState();
+}
+
+bool Checkbox::hovered() const noexcept { return m_inputArea != nullptr && m_inputArea->hovered(); }
+
+bool Checkbox::pressed() const noexcept { return m_inputArea != nullptr && m_inputArea->pressed(); }
+
+void Checkbox::doLayout(Renderer& renderer) {
+  const float touchSize = Style::controlHeight * m_scale;
+  const float boxSize = Tokens::sizeSymbol * m_scale;
+  const float boxInset = (touchSize - boxSize) * 0.5F;
+
+  setSize(touchSize, touchSize);
+
+  if (m_box != nullptr) {
+    m_box->setPosition(boxInset, boxInset);
+    m_box->setFrameSize(boxSize, boxSize);
+    m_box->setRadius(Tokens::radiusR4 * m_scale);
+  }
+
+  if (m_checkGlyph != nullptr) {
+    m_checkGlyph->setGlyphSize(Tokens::sizeSymbolInline * m_scale);
+    m_checkGlyph->measure(renderer);
+    m_checkGlyph->setPosition(
+        std::round(boxInset + (boxSize - m_checkGlyph->width()) * 0.5F),
+        std::round(boxInset + (boxSize - m_checkGlyph->height()) * 0.5F)
+    );
+  }
+
+  if (m_inputArea != nullptr) {
+    m_inputArea->setPosition(0.0F, 0.0F);
+    m_inputArea->setFrameSize(width(), height());
+  }
+}
+
+void Checkbox::applyState() {
+  if (m_box == nullptr || m_checkGlyph == nullptr) {
+    return;
+  }
+
+  ColorSpec fill = colorSpecFromRole(ColorRole::SolidRegular);
+  ColorSpec border = colorSpecFromRole(ColorRole::Label3);
+  ColorSpec glyph = colorSpecFromRole(ColorRole::OnAccent);
+  float borderWidth = Style::borderWidth * m_scale;
+  const bool focused = (m_inputArea != nullptr && m_inputArea->focused());
+  if (m_checked) {
+    fill = m_checkedFill.value_or(colorSpecFromRole(ColorRole::Accent));
+    border = m_checkedBorder.value_or(colorSpecFromRole(ColorRole::Accent));
+    glyph = m_checkedGlyph.value_or(colorSpecFromRole(ColorRole::OnAccent));
+    if (focused) {
+      border = colorSpecFromRole(ColorRole::Accent);
+      borderWidth = Style::emphasizedBorderWidth * m_scale;
+    }
+  } else if (focused) {
+    fill = colorSpecFromRole(ColorRole::Fill1);
+    border = colorSpecFromRole(ColorRole::Accent);
+    borderWidth = Style::emphasizedBorderWidth * m_scale;
+  } else if (hovered()) {
+    border = colorSpecFromRole(ColorRole::Fill3);
+  }
+
+  m_box->setFill(fill);
+  m_box->setBorder(border, borderWidth);
+
+  m_checkGlyph->setColor(glyph);
+  m_checkGlyph->setVisible(m_checked);
+
+  setOpacity(m_enabled ? 1.0F : 0.55F);
+}

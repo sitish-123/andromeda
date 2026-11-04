@@ -4,15 +4,20 @@
 #include "config/config_service.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
-#include "render/core/blur_cache.h"
 #include "render/core/color.h"
 #include "render/core/lockscreen_transition_types.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "ui/auth/auth_chrome.h"
+#include "ui/auth/auth_column.h"
+#include "ui/auth/clock_style.h"
+#include "shell/lockscreen/lock_alert.h"
+#include "shell/lockscreen/lock_call_card.h"
+#include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_phone_row.h"
-#include "shell/lockscreen/lock_ryoku_scene.h"
+#include "ui/auth/ryoku_auth_scene.h"
 #include "shell/lockscreen/lockscreen_login_box.h"
 #include "wayland/surface.h"
 
@@ -22,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -34,6 +40,7 @@ class Box;
 class Flex;
 class Glyph;
 class HttpClient;
+class NotificationManager;
 class Image;
 class Input;
 class Label;
@@ -50,6 +57,17 @@ struct SessionPanelActionConfig;
 
 class LockscreenWidgetsHost;
 
+// Font family of a clock style; registers its bundled font file on first use.
+[[nodiscard]] std::string lockClockFontFamily(const ClockStyle& clock);
+// Clock lines, font, effects and date of lockscreen.clock_* at the current local time (lock screen and its editor).
+void fillLockClockState(
+    AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
+);
+// The lockscreen.widgets / bottom_slot choice and the widget values (battery, weather) for LockCards.
+void fillLockWidgetData(
+    LockCards::Data& data, const LockscreenConfig& lock, const WeatherService* weather, const AuthColumn::Status& status
+);
+
 class LockSurface : public Surface {
 public:
   explicit LockSurface(WaylandConnection& connection, ConfigService* config = nullptr);
@@ -59,14 +77,32 @@ public:
   bool initialize() override { return false; }
   bool initialize(ext_session_lock_v1* lock, wl_output* output, std::int32_t scale);
   void setLockedState(bool locked);
-  void setPromptState(std::string user, std::string password, std::string status, bool error, bool authenticating);
+  void setPromptState(std::string user, const std::string& password, std::string status, bool error, bool authenticating);
   void setKeyboardIndicators(bool capsLock, bool hasMultipleLayouts, bool layoutSwitchable, std::string layoutLabel);
+  // Auth facts the Andromeda column shows beyond the status line.
+  struct AuthExtras {
+    bool passwordOnly = false;
+    bool failDelay = false;
+    int failures = 0;
+    // The last error was a wrong password (shake), not a PAM error.
+    bool rejected = false;
+    bool face = false;
+    bool fingerprint = false;
+    bool operator==(const AuthExtras&) const = default;
+  };
+  void setAuthExtras(const AuthExtras& extras);
+  void setStatus(const AuthColumn::Status& status);
+  // Gradient clock colors, packed 0xRRGGBBAA.
+  void setClockGradient(std::uint32_t from, std::uint32_t to);
   void setTextureCache(SharedTextureCache* cache) noexcept { m_textureCache = cache; }
   void setWallpaperPath(std::string wallpaperPath);
+  // The compositor blurs only the desktop wallpaper behind the lock; a lock image of its own is drawn here, sharp.
+  void setOwnWallpaper(bool own);
   void setWallpaperFillMode(WallpaperFillMode fillMode);
   void setWallpaperCoverage(TextureCoverage coverage);
   void setWallpaperFillColor(Color fillColor);
-  void setDesktopCapture(std::optional<ScreencopyImage> capture, bool useAsBackground);
+  // The desktop snapshot taken before lock, used only by the entry transition.
+  void setDesktopCapture(std::optional<ScreencopyImage> capture);
   void configureTransition(
       std::optional<LockscreenTransitionKind> transition, const LockscreenTransitionParams& params, float durationMs
   );
@@ -80,12 +116,14 @@ public:
   void setBlackout(bool blackout);
   [[nodiscard]] bool isBlackout() const noexcept { return m_blackout; }
   void setOnLogin(std::function<void()> onLogin);
+  void setOnDeclineCall(std::function<void(const std::string&)> onDeclineCall);
   void setOnCycleLayout(std::function<void()> onCycleLayout);
   void setOnPasswordChanged(std::function<void(const std::string&)> onPasswordChanged);
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
   void setPhoneServices(const LinkService* link);
+  void setNotificationManager(const NotificationManager* notifications);
   void selectAllPassword();
   void clearPasswordSelection();
   void onThemeChanged();
@@ -96,8 +134,9 @@ public:
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] wl_output* output() const noexcept { return m_output; }
   void syncOutputScale(std::int32_t bufferScale, std::uint32_t configuredScaleNumerator);
-  [[nodiscard]] bool usesDesktopCaptureBackground() const noexcept;
   [[nodiscard]] Node* widgetLayer() noexcept { return m_widgetLayer; }
+  // Above the wallpaper, below the tint: a video or shader wallpaper from the lock helper.
+  [[nodiscard]] Node* liveWallpaperLayer() noexcept { return m_liveWallpaperLayer; }
   void setOutputKey(std::string outputKey) { m_outputKey = std::move(outputKey); }
   void setWidgetsHost(LockscreenWidgetsHost* host) noexcept { m_widgetsHost = host; }
 
@@ -145,7 +184,9 @@ private:
   void invalidateSleepFrame();
   static void handleSleepFrameDone(void* data, wl_callback* callback, std::uint32_t callbackData);
   void applyWallpaperTexture();
-  void applyBlurredDesktopTexture();
+  // With blur on and a compositor that blurs (ext-background-effect-v1), the surface draws no wallpaper and asks the
+  // compositor to blur the cached wallpaper behind it.
+  void syncBlurRegion(bool enabled, std::uint32_t width, std::uint32_t height);
   void releaseCaptureTextures();
   void layoutScene(std::uint32_t width, std::uint32_t height);
   void updateCopy();
@@ -154,6 +195,14 @@ private:
   void ensureLayoutChipInPasswordRow();
   [[nodiscard]] std::vector<SessionPanelActionConfig> resolveSessionActions() const;
   void layoutRyoku(Renderer& renderer, float sw, float sh, const lockscreen_login_box::LoginBoxStyle& style);
+  void layoutAndromeda(Renderer& renderer, float sw, float sh);
+  void wakeGlance();
+  // Pointer press on the session button or its menu; true when the chrome took the press.
+  bool handleChromePress(float x, float y);
+  // Runs power menu item `index`, or first asks with the inhibitor alert when another app blocks it.
+  void requestPower(int index);
+  void runPower(int index, bool skipInhibitors);
+  void startAndromedaClock();
   void startRyokuLive();
   void startRyokuIdleClock();
   [[nodiscard]] lockscreen_login_box::LoginBoxStyle resolveLoginStyle() const;
@@ -171,12 +220,30 @@ private:
   Node m_root;
   Node* m_backgroundLayer = nullptr;
   Node* m_widgetLayer = nullptr;
+  Node* m_liveWallpaperLayer = nullptr;
   LockscreenTransitionCover* m_transitionCover = nullptr;
   WallpaperNode* m_wallpaper = nullptr;
   Box* m_tintOverlay = nullptr;
   Box* m_backdrop = nullptr;
   Flex* m_loginPanel = nullptr;
   LockPhoneRow m_phoneRow;
+  // Andromeda theme: media card, chips, Glance cards, Split widgets (rulebook 9.15).
+  LockCards m_cards;
+  LockCallCard m_callCard;
+  // Session button + power menu (rulebook 9.15): Sleep, Restart, Shut down.
+  AuthChrome m_chrome;
+  bool m_powerMenuOpen = false;
+  LockAlert m_alert;
+  // Power menu item waiting on the inhibitor alert (0 Sleep, 1 Restart, 2 Shut down); -1 = none.
+  int m_powerAlert = -1;
+  // Shown as an error hint when logind refused to override the inhibitors; cleared on the next key.
+  std::string m_powerError;
+  int m_powerHover = -1;
+  std::function<void(const std::string&)> m_onDeclineCall;
+  // Device whose ringing call the user chose to decline on this surface.
+  std::string m_declinePending;
+  const LinkService* m_link = nullptr;
+  const NotificationManager* m_notifications = nullptr;
   Flex* m_infoRow = nullptr;
   Flex* m_mediaBlock = nullptr;
   Image* m_mediaArt = nullptr;
@@ -198,10 +265,22 @@ private:
   Input* m_passwordField = nullptr;
   Button* m_passwordRevealButton = nullptr;
   Button* m_loginButton = nullptr;
-  std::unique_ptr<LockRyokuScene> m_ryoku;
+  std::unique_ptr<RyokuAuthScene> m_ryoku;
   Timer m_ryokuClock;
   AnimationManager::Id m_ryokuLive = 0;
   bool m_ryokuShownError = false;
+  std::unique_ptr<AuthColumn> m_auth;
+  bool m_authShownError = false;
+  // Minimal layout: the island shows after the first pointer move of this lock.
+  bool m_pointerMoved = false;
+  AuthExtras m_authExtras;
+  AuthColumn::Status m_statusIsland;
+  bool m_ownWallpaper = false;
+  std::uint32_t m_clockGradientFrom = 0;
+  std::uint32_t m_clockGradientTo = 0;
+  Timer m_andromedaClock;
+  Timer m_glanceIdle;
+  // Clock style font file -> the family fontconfig registered it under.
   std::uint32_t m_configuredWidth = 0;
   std::uint32_t m_configuredHeight = 0;
   Button* m_layoutChip = nullptr;
@@ -210,12 +289,7 @@ private:
   SharedTextureCache* m_textureCache = nullptr;
   SharedTextureCache::Lease m_wallpaperLease;
   SharedTextureCache::Lease m_pendingWallpaperLease;
-  TextureHandle m_blurredWallpaperTexture{};
-  TextureHandle m_captureSourceTexture{};
-  TextureHandle m_blurredDesktopTexture{};
   TextureHandle m_transitionCaptureTexture{};
-  BlurCache m_blurCache;
-  BlurCache m_wallpaperBlurCache;
   std::optional<ScreencopyImage> m_desktopCapture;
   LockscreenTransitionKind m_transition = LockscreenTransitionKind::Fade;
   LockscreenTransitionParams m_transitionParams;
@@ -227,12 +301,13 @@ private:
   float m_tintIntensity = 0.3F;
   float m_regularContentScale = 1.0F;
   bool m_blackout = false;
-  bool m_useDesktopCaptureBackground = false;
   bool m_enterTransitionRequested = false;
-  bool m_captureDirty = true;
+  std::uint64_t m_blurRegionKey = 0; // width << 32 | height of the region sent; 0 when none
   std::string m_wallpaperPath;
   std::string m_shownWallpaperPath;
   std::string m_pendingWallpaperPath;
+  float m_shownWallpaperBlur = 0.0F;
+  float m_pendingWallpaperBlur = 0.0F;
   WallpaperFillMode m_wallpaperFillMode = WallpaperFillMode::Crop;
   TextureCoverage m_wallpaperCoverage;
   Color m_wallpaperFillColor = rgba(0.0F, 0.0F, 0.0F, 0.0F);

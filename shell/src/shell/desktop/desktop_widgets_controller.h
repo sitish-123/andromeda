@@ -62,7 +62,7 @@ public:
   /// bidirectional). The override is never persisted and resets to FollowConfig on restart, leaving
   /// the user's saved preference untouched. ForceShown reveals widgets even when the setting is
   /// disabled -- this is what lets opt-in workflows (saved default off, revealed on demand by e.g. a
-  /// peek-desktop keybind) work without rewriting settings.toml. Hiding tears down the widget
+  /// peek-desktop keybind) work without rewriting overrides.toml. Hiding tears down the widget
   /// instances (applyVisibility -> host->hide()), so it also stops their rendering/compute.
   enum class RuntimeVisibility : std::uint8_t { FollowConfig, ForceShown, ForceHidden };
   void setRuntimeVisibility(RuntimeVisibility visibility);

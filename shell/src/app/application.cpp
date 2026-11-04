@@ -1,6 +1,7 @@
 #include "application.h"
 
 #include "app/main_loop.h"
+#include "theme/dev_tokens.h"
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "compositors/compositor_detect.h"
@@ -15,6 +16,7 @@
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/andromeda/shell_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
+#include "dbus/logind/power_config_service.h"
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/idle/screensaver_poll_source.h"
 #include "dbus/idle/screensaver_service.h"
@@ -36,6 +38,7 @@
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
 #include "dbus/portal/global_shortcuts_portal.h"
+#include "dbus/portal/background_portal.h"
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
@@ -111,6 +114,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstring>
+#include <dlfcn.h>
 #include <filesystem>
 #include <limits>
 #include <malloc.h>
@@ -181,6 +185,9 @@ Application::Application()
 
     // Keep bar widgets in sync with notification state changes.
     scheduleNotificationShellRefresh();
+    if (m_lockScreen.isActive()) {
+      m_lockScreen.requestUpdate();
+    }
   });
 
   m_notificationManager.setStateCallback([this] {
@@ -195,6 +202,8 @@ Application::Application()
 }
 
 Application::~Application() {
+  m_bar.setCenterIslandSpaceCallback({});
+  m_notificationManager.removeUnreadCountCallback(m_islandUnreadToken);
   m_compositorPlatform.setOutputPowerChangeCallback({});
   ++m_outputPowerRequestGeneration;
   m_lockScreen.cancelOutputPowerOff();
@@ -203,6 +212,8 @@ Application::~Application() {
   FileDialog::setPresenter(nullptr);
   SearchPickerDialog::setPopup(nullptr);
   m_settingsWindow.shutdownDialogPresenter();
+  // m_activityWindow outlives m_renderContext and the activity monitor (declared before them): close it while they live.
+  m_activityWindow.close();
   // m_systemMonitor is declared after the plugin hosts, so it is destroyed first; drop the script
   // API's pointer to it here, while both are still alive, or a plugin that used noctalia.cpuCores
   // releases its reference through a dangling pointer as its host is torn down.
@@ -219,6 +230,7 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
   initLogFile();
   initLogLevelFromEnvironment();
   kLog.info("noctalia {}", noctalia::build_info::displayVersion());
+  noctalia::theme::dev_tokens::watchEnv(m_fileWatcher, [this] { m_configService.reloadAllSections(); });
   // Claim the tray watcher name first. The tray UI itself is wired up later.
   // Item callbacks run from deferred work on the main loop, after the shell
   // is initialized.
@@ -288,15 +300,21 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
 #ifdef __GLIBC__
   runStartupPhase("allocator_trim", [] {
 #ifdef NOCTALIA_USE_JEMALLOC
-    // jemalloc exports no malloc_trim; purge unused pages in every arena.
-    const int purgeResult =
-        mallctl("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
-    if (purgeResult != 0) {
-      kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+    // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
+    // looked up; without it the shell runs on glibc malloc.
+    using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
+    if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
+      Mallctl mallctlFn = nullptr;
+      std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
+      const int purgeResult =
+          mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+      if (purgeResult != 0) {
+        kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+      }
+      return;
     }
-#else
-    malloc_trim(0);
 #endif
+    malloc_trim(0);
   });
 #endif
 

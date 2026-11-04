@@ -2,6 +2,7 @@
 
 #include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "shell/tray/tray_identifier.h"
 #include "util/string_utils.h"
 
@@ -147,16 +148,7 @@ tray::ThemePathIconStore& tray::ThemePathIconStore::instance() {
 
 tray::ThemePathIconStore::ThemePathIconStore() = default;
 
-tray::ThemePathIconStore::~ThemePathIconStore() {
-  {
-    std::scoped_lock lock(m_mutex);
-    m_shutdown = true;
-  }
-  m_cv.notify_all();
-  if (m_worker.joinable()) {
-    m_worker.join();
-  }
-}
+tray::ThemePathIconStore::~ThemePathIconStore() = default;
 
 std::string tray::ThemePathIconStore::resolve(std::string_view themePath, std::string_view iconName) {
   if (themePath.empty() || iconName.empty()) {
@@ -164,7 +156,6 @@ std::string tray::ThemePathIconStore::resolve(std::string_view themePath, std::s
   }
 
   std::string key(themePath);
-  bool startWorker = false;
   {
     std::scoped_lock lock(m_mutex);
     if (const auto it = m_indexes.find(key); it != m_indexes.end()) {
@@ -178,13 +169,18 @@ std::string tray::ThemePathIconStore::resolve(std::string_view themePath, std::s
     if (!m_pending.insert(key).second) {
       return {};
     }
-    m_queue.push_back(std::move(key));
-    startWorker = !std::exchange(m_workerStarted, true);
   }
-  if (startWorker) {
-    m_worker = std::thread([this] { workerLoop(); });
-  }
-  m_cv.notify_one();
+  SharedWorker::instance().post<ThemePathIndex>(
+      std::weak_ptr<void>(m_alive), [path = key] { return buildThemePathIndex(path); },
+      [this, path = key](ThemePathIndex index) {
+        {
+          std::scoped_lock lock(m_mutex);
+          m_pending.erase(path);
+          m_indexes.insert_or_assign(path, std::move(index));
+        }
+        notifyListeners();
+      }
+  );
   return {};
 }
 
@@ -220,28 +216,5 @@ void tray::ThemePathIconStore::notifyListeners() {
       }
     }
     callback();
-  }
-}
-
-void tray::ThemePathIconStore::workerLoop() {
-  while (true) {
-    std::string path;
-    {
-      std::unique_lock lock(m_mutex);
-      m_cv.wait(lock, [this] { return m_shutdown || !m_queue.empty(); });
-      if (m_shutdown) {
-        return;
-      }
-      path = std::move(m_queue.back());
-      m_queue.pop_back();
-    }
-
-    ThemePathIndex index = buildThemePathIndex(path);
-    {
-      std::scoped_lock lock(m_mutex);
-      m_pending.erase(path);
-      m_indexes.insert_or_assign(std::move(path), std::move(index));
-    }
-    DeferredCall::callLater([] { instance().notifyListeners(); });
   }
 }

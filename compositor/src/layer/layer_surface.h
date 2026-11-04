@@ -1,15 +1,20 @@
 #pragma once
 
+#include <vector>
+
 #include "config/config.h"
 #include "core/animation.h"
 #include "scene/node.h"
 #include "scene/surface_blur.h"
+#include "scene/surface_shadow.h"
 
 #include <wayland-server-core.h>
 
 struct wlr_layer_surface_v1;
 struct wlr_scene_layer_surface_v1;
 struct wlr_scene_tree;
+struct wlr_scene_border;
+struct wlr_box;
 struct wlr_surface;
 struct wlr_xdg_popup;
 
@@ -37,6 +42,10 @@ namespace andromeda {
     [[nodiscard]] bool acceptsKeyboard() const;
     [[nodiscard]] bool hasKeyboardFocus() const;
     [[nodiscard]] SurfaceBlurOptions blurOptions() const;
+    [[nodiscard]] bool blurActive() const { return m_blur.active(); }
+    // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns
+    // true while a sample still waits for the GPU.
+    bool pollBackdrop();
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
 
     void focus();
@@ -51,7 +60,7 @@ namespace andromeda {
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     bool tickAnimations(double nowMsec) override;
-    [[nodiscard]] bool hasActiveAnimations() const override { return m_fade.animating(); }
+    [[nodiscard]] bool hasActiveAnimations() const override;
     [[nodiscard]] bool animatesOn(const Output* output) const override;
 
   private:
@@ -74,10 +83,15 @@ namespace andromeda {
     void syncPopupTree();
     // Tell an open overview to re-resolve this output's mirrored background stack.
     void notifyDesktopStack();
+    void applyBackgroundOpaqueRegion();
     void updateBlur();
     void applyConfig();
     void refreshStartupRuleEffects();
     void applyFadeAlpha();
+    // Applies dsk_surface_v1 translate, scale, clip and radius to the surface tree.
+    void applySurfaceMotion();
+    void applyStroke(wlr_scene_tree* tree, const wlr_box* clip, int radius);
+    [[nodiscard]] wlr_scene_tree* surfaceTree() const;
     void beginCloseAnimation(wlr_scene_tree* tree);
 
     Server* m_server = nullptr;
@@ -85,6 +99,16 @@ namespace andromeda {
     wlr_scene_layer_surface_v1* m_scene = nullptr;
     wlr_scene_tree* m_popupTree = nullptr;
     SurfaceBlur m_blur;
+    // Blur nodes for the 2nd and later shapes of a client blur region (bar islands in one surface).
+    std::vector<SurfaceBlur> m_shapeBlurs;
+    float m_liquid = 0.0F;
+    float m_rim = 0.0F;
+    bool m_backdropDark = false;
+    float m_blurFade = 1.0F;
+    SurfaceShadow m_shadow; // dsk_surface_v1 elevation
+    // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.
+    wlr_scene_border* m_stroke = nullptr;
+    float m_surfaceAlpha = 1.0F;
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};
     bool m_mapped = false;

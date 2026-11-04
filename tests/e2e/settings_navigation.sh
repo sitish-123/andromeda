@@ -7,6 +7,7 @@
 #   - `settings-open <page>` (or `bar:<name>`) does not switch pages while Settings is already open (two pages
 #     paint identically),
 #   - an old section id (templates, osd, andromeda) no longer opens the page that absorbed it.
+# Pages merged by the sidebar keep their old ids as aliases.
 # Writes the registry listing and one screenshot per page to $OUT (default ./artifacts/settings-navigation).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/settings-navigation}
@@ -25,23 +26,33 @@ fi
 dupes=$(uniq -d "$OUT/paths.txt")
 [[ -z $dupes ]] || { echo "FAIL: paths on more than one page: $dupes" >&2; exit 1; }
 
-pages=(appearance wallpaper text-scale motion dock panels launcher control-center notifications desktop overview
+# Registry sections (the ids `settings-count --list` prints); several now share one sidebar page.
+sections=(appearance wallpaper text-scale motion dock panels launcher control-center notifications desktop overview
   windows keybinds services power security location calendar screenshot system shell hooks)
+# Sidebar pages that need no system service; each must paint differently.
+pages=(appearance wallpaper notifications desktop-dock control-center launcher windows keyboard power privacy
+  screenshot services automation about wifi sound)
 for section in $(cut -f1 "$OUT/registry.txt" | sort -u); do
   [[ $section == bar ]] && continue
-  printf '%s\n' "${pages[@]}" | grep -qx "$section" || { echo "FAIL: entries in unlisted section $section" >&2; exit 1; }
+  printf '%s\n' "${sections[@]}" | grep -qx "$section" || { echo "FAIL: entries in unlisted section $section" >&2; exit 1; }
 done
 
 # One setting changed from Settings, so the Style page shows a row's reset control.
 mkdir -p "$RUNTIME/home/.local/state/noctalia"
 printf '[theme]\npure_black_dark = true\n' > "$RUNTIME/home/.local/state/noctalia/settings.toml"
 
-aliases="templates:appearance osd:notifications andromeda:overview"
+aliases="templates:appearance osd:notifications andromeda:windows dock:desktop-dock panels:control-center keybinds:keyboard security:privacy system:about hooks:automation"
+
 with_noctalia '
   shot() { "$NOCTALIA" msg settings-open "$1" > /dev/null; sleep 1.5; grim -g "0,40 1280x680" "$OUT/$2.png"; }  # real time: repaint; below the bar, whose clock ticks
+  shot wifi warmup  # the first page opened has no back history, so its back button paints differently
   for page in '"${pages[*]}"'; do shot "$page" "$page"; done
   for pair in '"$aliases"'; do shot "${pair%%:*}" "alias-${pair%%:*}"; done
   shot bar:default bar
+  # wallpaper.automation.recursive ("Include Subfolders") is an expert row: global search must list it
+  shot wallpaper/expert wallpaper-expert
+  shot search:subfolders search-expert
+  shot search:zzqqxx search-none
 '
 
 for page in "${pages[@]}" bar; do
@@ -49,8 +60,11 @@ for page in "${pages[@]}" bar; do
 done
 repeated=$(for page in "${pages[@]}" bar; do md5sum < "$OUT/$page.png"; done | sort | uniq -d | head -1)
 [[ -z $repeated ]] || { echo "FAIL: two pages painted identically; settings-open did not navigate" >&2; exit 1; }
+[[ -s $OUT/search-expert.png && -s $OUT/search-none.png ]] || { echo "FAIL: no search screenshots" >&2; exit 1; }
+cmp -s "$OUT/search-expert.png" "$OUT/search-none.png" && { echo "FAIL: search for an expert-only row found nothing" >&2; exit 1; }
+cmp -s "$OUT/search-expert.png" "$OUT/wallpaper.png" && { echo "FAIL: search did not leave the page" >&2; exit 1; }
 for pair in $aliases; do
   cmp -s "$OUT/alias-${pair%%:*}.png" "$OUT/${pair##*:}.png" \
     || { echo "FAIL: settings-open ${pair%%:*} did not open ${pair##*:}" >&2; exit 1; }
 done
-echo "PASS: $(wc -l < "$OUT/paths.txt") settings on ${#pages[@]} pages, none lost or duplicated; artifacts: $OUT"
+echo "PASS: $(wc -l < "$OUT/paths.txt") settings on ${#pages[@]} sidebar pages, none lost or duplicated; artifacts: $OUT"

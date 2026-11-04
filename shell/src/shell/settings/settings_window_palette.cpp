@@ -8,7 +8,7 @@
 #include "ui/controls/grid_tile.h"
 #include "ui/controls/virtual_grid_view.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -51,8 +51,8 @@ namespace settings {
         setAlign(FlexAlign::Stretch);
         setGap(Style::spaceXs * scale);
         setPadding(Style::spaceSm * scale);
-        setFill(colorSpecFromRole(ColorRole::SurfaceContainerLow));
-        setBorder(colorSpecFromRole(ColorRole::OutlineVariant, Style::disabledOutlineAlpha), Style::borderWidth);
+        setFill(colorSpecFromRole(ColorRole::SolidThin));
+        setBorder(colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha), Style::borderWidth);
         setRadius(Style::scaledRadiusMd(scale));
         addChild(
             ui::row(
@@ -61,7 +61,7 @@ namespace settings {
                  .justify = FlexJustify::End,
                  .padding = Style::spaceXs * scale,
                  .radius = Style::scaledRadiusSm(scale),
-                 .border = colorSpecFromRole(ColorRole::OutlineVariant),
+                 .border = colorSpecFromRole(ColorRole::Stroke),
                  .borderWidth = Style::borderWidth,
                  .fillWidth = true,
                  .height = 52.0F * scale},
@@ -69,7 +69,7 @@ namespace settings {
                     {.out = &m_terminalBadge,
                      .paddingV = Style::spaceXs * scale * 0.5F,
                      .paddingH = Style::spaceXs * scale,
-                     .fill = colorSpecFromRole(ColorRole::Surface, 0.95F),
+                     .fill = colorSpecFromRole(ColorRole::SolidRegular, 0.95F),
                      .radius = Style::scaledRadiusSm(scale),
                      .visible = false,
                      .participatesInLayout = false},
@@ -77,7 +77,7 @@ namespace settings {
                         .out = &m_terminalNumber,
                         .fontSize = Style::fontSizeMini * scale,
                         .fontWeight = FontWeight::Medium,
-                        .color = colorSpecFromRole(ColorRole::OnSurface),
+                        .color = colorSpecFromRole(ColorRole::Label1),
                     })
                 )
             )
@@ -89,7 +89,7 @@ namespace settings {
                     .out = &m_name,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontWeight = FontWeight::Medium,
-                    .color = colorSpecFromRole(ColorRole::OnSurface),
+                    .color = colorSpecFromRole(ColorRole::Label1),
                     .maxLines = 2,
                     .ellipsize = TextEllipsize::End,
                     .flexGrow = 1.0F,
@@ -112,7 +112,7 @@ namespace settings {
                     .out = &m_hex,
                     .fontSize = Style::fontSizeCaption * scale,
                     .fontFamily = "monospace",
-                    .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                    .color = colorSpecFromRole(ColorRole::Label2),
                     .flexGrow = 1.0F,
                 }),
                 ui::button({
@@ -190,7 +190,7 @@ namespace settings {
           ui::label({
               .out = &m_description,
               .fontSize = Style::fontSizeCaption * m_scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .maxLines = 0,
           })
       );
@@ -235,7 +235,7 @@ namespace settings {
               .out = &m_empty,
               .text = i18n::tr("settings.palette-inspector.empty"),
               .fontSize = Style::fontSizeBody * m_scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
               .visible = m_filtered.empty(),
               .participatesInLayout = m_filtered.empty(),
           })

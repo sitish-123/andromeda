@@ -11,7 +11,6 @@
 #include "input/shortcut_keysym.h"
 #include "input/text_input.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
@@ -19,7 +18,9 @@
 #include "wlr.h"
 
 #include <algorithm>
+#include <ctime>
 #include <optional>
+#include <utility>
 
 namespace andromeda {
 
@@ -44,6 +45,9 @@ namespace andromeda {
     wl_signal_add(&m_keyboard->events.key, &m_key);
     m_destroy.notify = onDestroy;
     wl_signal_add(&device->events.destroy, &m_destroy);
+    m_pipeline.set(KeyStage::Bindings, [this](KeyEvent& event) { return bindingsStage(event); });
+    m_pipeline.set(KeyStage::InputMethodGrab, [this](KeyEvent& event) { return inputMethodStage(event); });
+    m_pipeline.set(KeyStage::FocusedClient, [this](KeyEvent& event) { return focusedClientStage(event); });
   }
   void Keyboard::applyConfig() {
     cancelRepeat();
@@ -328,7 +332,6 @@ namespace andromeda {
     } else {
       m_server->notifyIdleActivity();
     }
-    wlr_seat* seat = m_server->seat()->wlr();
 
     uint32_t keycode = event->keycode + 8;
     const xkb_keysym_t* syms = nullptr;
@@ -338,8 +341,6 @@ namespace andromeda {
     const uint32_t rawSym = rawShortcutKeysym(keymap, keycode, layout);
     const bool modifierOnly = nsyms > 0 && syms[0] >= XKB_KEY_Shift_L && syms[0] <= XKB_KEY_Hyper_R;
 
-    bool handled = false;
-    std::optional<Keybind> modifierTap;
     // An XF86 key can arrive from a dedicated hotkey device while its modifiers are held on the main keyboard. Match
     // against the combined seat-wide state so those chords behave like keys on one device.
     uint32_t modifiers = m_server->keyboardModifiers(true);
@@ -383,6 +384,137 @@ namespace andromeda {
         return;
       }
     }
+    KeyEvent keyEvent{.time_msec = event->time_msec, .keycode = event->keycode, .state = event->state};
+    const KeyContext context{
+        .syms = syms, .nsyms = nsyms, .rawSym = rawSym, .modifierOnly = modifierOnly, .modifiers = modifiers
+    };
+    m_context = &context;
+    m_pipeline.run(keyEvent);
+    m_context = nullptr;
+    // A modifier-only action runs after its release reaches the focused
+    // client, so opening a surface cannot strand the old focus with Mod held.
+    if (m_modifierTap.has_value()) {
+      const Keybind tap = *std::exchange(m_modifierTap, std::nullopt);
+      m_server->executeKeybindAction(tap);
+    }
+  }
+
+  std::optional<uint32_t> Keyboard::injectKeysym(xkb_keysym_t keysym, uint32_t state, bool baseLevelOnly) {
+    xkb_keymap* keymap = m_keyboard->keymap;
+    if (keymap == nullptr || inputCaptureOwnsKeyboard()) {
+      return std::nullopt;
+    }
+    struct Lookup {
+      xkb_keysym_t keysym;
+      xkb_layout_index_t layout;
+      bool baseLevelOnly;
+      xkb_keycode_t keycode = XKB_KEYCODE_INVALID;
+      xkb_level_index_t level = 0;
+    } lookup{keysym, xkb_state_serialize_layout(m_keyboard->xkb_state, XKB_STATE_LAYOUT_EFFECTIVE), baseLevelOnly};
+    xkb_keymap_key_for_each(
+        keymap,
+        [](xkb_keymap* map, xkb_keycode_t key, void* data) {
+          auto& found = *static_cast<Lookup*>(data);
+          if (found.layout >= xkb_keymap_num_layouts_for_key(map, key)) {
+            return;
+          }
+          const xkb_level_index_t levels = xkb_keymap_num_levels_for_key(map, key, found.layout);
+          for (xkb_level_index_t level = 0; level < (found.baseLevelOnly ? std::min(levels, 1U) : levels); ++level) {
+            const xkb_keysym_t* syms = nullptr;
+            const int count = xkb_keymap_key_get_syms_by_level(map, key, found.layout, level, &syms);
+            if (count == 1 && syms[0] == found.keysym) {
+              if (found.keycode == XKB_KEYCODE_INVALID || level < found.level) {
+                found.keycode = key;
+                found.level = level;
+              }
+              return;
+            }
+          }
+        },
+        &lookup
+    );
+    if (lookup.keycode == XKB_KEYCODE_INVALID) {
+      return std::nullopt;
+    }
+    // The client derives the keysym from the modifiers it last received, so a key above the base level needs its
+    // level's modifiers around it.
+    xkb_mod_mask_t levelMods = 0;
+    if (lookup.level > 0) {
+      xkb_mod_mask_t masks[1] = {0};
+      if (xkb_keymap_key_get_mods_for_level(keymap, lookup.keycode, lookup.layout, lookup.level, masks, 1) > 0) {
+        levelMods = masks[0];
+      }
+    }
+    const uint32_t keycode = lookup.keycode - 8;
+    if (levelMods == 0) {
+      injectKeycode(keycode, state);
+      return keycode;
+    }
+    wlr_keyboard_modifiers shifted = m_keyboard->modifiers;
+    shifted.depressed |= levelMods;
+    sendSeatModifiers(shifted);
+    injectKeycode(keycode, state);
+    sendSeatModifiers(m_keyboard->modifiers);
+    return keycode;
+  }
+
+  bool Keyboard::inputCaptureOwnsKeyboard() const {
+    const InputCapture* capture = m_server->inputCapture();
+    return capture != nullptr && (capture->active() || (capture->capabilities() & 1U) != 0);
+  }
+
+  void Keyboard::injectKeycode(uint32_t keycode, uint32_t state) {
+    if (inputCaptureOwnsKeyboard()) {
+      return;
+    }
+    if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+      m_server->notifyInputActivity();
+    } else {
+      m_server->notifyIdleActivity();
+    }
+    timespec now{};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    KeyEvent event{
+        .time_msec = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000),
+        .keycode = keycode,
+        .state = state,
+    };
+    m_pipeline.runAfterBindings(event);
+    // The key event above goes first, as for a physical key; then the seat modifier state follows a modifier key.
+    const xkb_keysym_t* syms = nullptr;
+    const int nsyms = xkb_state_key_get_syms(m_keyboard->xkb_state, keycode + 8, &syms);
+    if (nsyms > 0 && syms[0] >= XKB_KEY_Shift_L && syms[0] <= XKB_KEY_Hyper_R) {
+      xkb_state* xkb = m_keyboard->xkb_state;
+      xkb_state_update_key(xkb, keycode + 8, state == WL_KEYBOARD_KEY_STATE_PRESSED ? XKB_KEY_DOWN : XKB_KEY_UP);
+      wlr_keyboard_notify_modifiers(
+          m_keyboard,
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_DEPRESSED),
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_LATCHED),
+          xkb_state_serialize_mods(xkb, XKB_STATE_MODS_LOCKED),
+          xkb_state_serialize_layout(xkb, XKB_STATE_LAYOUT_LOCKED)
+      );
+    }
+  }
+
+  void Keyboard::sendSeatModifiers(wlr_keyboard_modifiers modifiers) {
+    if (wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab(); grab != nullptr) {
+      wlr_input_method_keyboard_grab_v2_send_modifiers(grab, &modifiers);
+    } else {
+      wlr_seat_keyboard_notify_modifiers(m_server->seat()->wlr(), &modifiers);
+    }
+  }
+
+  KeyResult Keyboard::bindingsStage(KeyEvent& keyEvent) {
+    const KeyEvent* event = &keyEvent;
+    const KeyContext& ctx = *m_context;
+    const xkb_keysym_t* syms = ctx.syms;
+    const int nsyms = ctx.nsyms;
+    const uint32_t rawSym = ctx.rawSym;
+    const bool modifierOnly = ctx.modifierOnly;
+    const uint32_t modifiers = ctx.modifiers;
+    wlr_seat* seat = m_server->seat()->wlr();
+    bool handled = false;
+    std::optional<Keybind>& modifierTap = m_modifierTap;
     if (event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
       if (!modifierOnly && nsyms > 0) {
         m_server->cursor()->noteTyping();
@@ -491,14 +623,6 @@ namespace andromeda {
           }
         }
       }
-      // Any non-modifier key press dismisses the cheatsheet, except the key
-      // that just toggled it.
-      if (Cheatsheet* sheet = m_server->cheatsheet(); sheet != nullptr && sheet->visible()) {
-        const bool cheatsheetBind = matched.has_value() && isCheatsheetAction(matched->action);
-        if (!cheatsheetBind && !modifierOnly) {
-          sheet->hide();
-        }
-      }
       if (handled) {
         m_consumedKeycodes.insert(event->keycode);
       }
@@ -515,29 +639,36 @@ namespace andromeda {
       handled = m_consumedKeycodes.erase(event->keycode) > 0;
     }
 
-    if (!handled) {
-      wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab();
-      if (grab != nullptr) {
-        wlr_input_method_keyboard_grab_v2_set_keyboard(grab, m_keyboard);
-        wlr_input_method_keyboard_grab_v2_send_key(grab, event->time_msec, event->keycode, event->state);
-      } else {
-        // Overview holds the seat, so windows see no keys until it closes. It never hands keyboard focus to a view
-        // while open (focusView skips the seat enter), so a non-null focus here is a layer surface that took it
-        // deliberately, e.g. a launcher panel; those keep typing.
-        const Overview* overview = m_server->overview();
-        const bool overviewOwnsKeyboard =
-            overview != nullptr && overview->active() && seat->keyboard_state.focused_surface == nullptr;
-        if (!overviewOwnsKeyboard) {
-          wlr_seat_set_keyboard(seat, m_keyboard);
-          wlr_seat_keyboard_notify_key(seat, event->time_msec, event->keycode, event->state);
-        }
-      }
+    return handled ? KeyResult::Consume : KeyResult::Pass;
+  }
+
+  KeyResult Keyboard::inputMethodStage(KeyEvent& event) {
+    wlr_input_method_keyboard_grab_v2* grab = activeInputMethodGrab();
+    if (grab == nullptr) {
+      return KeyResult::Pass;
     }
-    // A modifier-only action runs after its release reaches the focused
-    // client, so opening a surface cannot strand the old focus with Mod held.
-    if (modifierTap.has_value()) {
-      m_server->executeKeybindAction(*modifierTap);
+    wlr_input_method_keyboard_grab_v2_set_keyboard(grab, m_keyboard);
+    wlr_input_method_keyboard_grab_v2_send_key(
+        grab, event.time_msec, event.keycode, static_cast<wl_keyboard_key_state>(event.state)
+    );
+    return KeyResult::Consume;
+  }
+
+  KeyResult Keyboard::focusedClientStage(KeyEvent& event) {
+    wlr_seat* seat = m_server->seat()->wlr();
+    // Overview holds the seat, so windows see no keys until it closes. It never hands keyboard focus to a view
+    // while open (focusView skips the seat enter), so a non-null focus here is a layer surface that took it
+    // deliberately, e.g. a launcher panel; those keep typing.
+    const Overview* overview = m_server->overview();
+    const bool overviewOwnsKeyboard =
+        overview != nullptr && overview->active() && seat->keyboard_state.focused_surface == nullptr;
+    if (!overviewOwnsKeyboard) {
+      wlr_seat_set_keyboard(seat, m_keyboard);
+      wlr_seat_keyboard_notify_key(
+          seat, event.time_msec, event.keycode, static_cast<wl_keyboard_key_state>(event.state)
+      );
     }
+    return KeyResult::Consume;
   }
 
   void Keyboard::handleDestroy() {

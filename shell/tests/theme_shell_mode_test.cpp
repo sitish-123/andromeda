@@ -62,9 +62,9 @@ int main() {
   ::setenv("NOCTALIA_STATE_HOME", (root / "state").c_str(), 1);
   ::setenv("NOCTALIA_DATA_HOME", (root / "data").c_str(), 1);
 
-  // ConfigService reads its persisted overrides from <state dir>/settings.toml, the same file
+  // ConfigService reads its persisted overrides from <state dir>/overrides.toml, the same file
   // the settings GUI writes.
-  const std::filesystem::path overrides = root / "state" / "noctalia" / "settings.toml";
+  const std::filesystem::path overrides = root / "state" / "noctalia" / "overrides.toml";
   // follow: one mode drives Noctalia and apps together.
   {
     const Resolution r = resolve(overrides, "[theme]\nmode = \"light\"\nshell_mode = \"follow\"\n");

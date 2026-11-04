@@ -34,35 +34,6 @@ namespace {
     }
     return ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == 0;
   }
-
-  [[nodiscard]] std::optional<sdbus::ObjectPath> resolveSessionPath(sdbus::IConnection& connection) {
-    try {
-      auto managerProxy = sdbus::createProxy(connection, kLogindBusName, kLogindObjectPath);
-
-      if (const char* sessionId = std::getenv("XDG_SESSION_ID"); sessionId != nullptr && sessionId[0] != '\0') {
-        try {
-          sdbus::ObjectPath sessionPath;
-          managerProxy->callMethod("GetSession")
-              .onInterface(kLogindManagerInterface)
-              .withArguments(std::string(sessionId))
-              .storeResultsTo(sessionPath);
-          return sessionPath;
-        } catch (const sdbus::Error& e) {
-          kLog.debug("failed to resolve logind session via XDG_SESSION_ID={}: {}", sessionId, e.what());
-        }
-      }
-
-      sdbus::ObjectPath sessionPath;
-      managerProxy->callMethod("GetSessionByPID")
-          .onInterface(kLogindManagerInterface)
-          .withArguments(static_cast<std::uint32_t>(::getpid()))
-          .storeResultsTo(sessionPath);
-      return sessionPath;
-    } catch (const sdbus::Error& e) {
-      kLog.warn("failed to resolve logind session: {}", e.what());
-      return std::nullopt;
-    }
-  }
 } // namespace
 
 LogindService::LogindService(SystemBus& bus) : m_bus(bus) {
@@ -80,28 +51,78 @@ LogindService::~LogindService() {
 }
 
 void LogindService::ensureSessionLockMonitor() {
-  if (m_sessionProxy != nullptr) {
+  if (m_sessionProxy != nullptr || m_sessionResolving) {
     return;
   }
+  m_sessionResolving = true;
 
-  const auto sessionPath = resolveSessionPath(m_bus.connection());
-  if (!sessionPath.has_value()) {
-    kLog.warn("logind session lock monitor disabled: session path unavailable");
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  const auto byPid = [this, aliveToken] {
+    m_managerProxy->callMethodAsync("GetSessionByPID")
+        .onInterface(kLogindManagerInterface)
+        .withArguments(static_cast<std::uint32_t>(::getpid()))
+        .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
+          if (aliveToken.expired()) {
+            return;
+          }
+          m_sessionResolving = false;
+          if (e.has_value()) {
+            kLog.warn("failed to resolve logind session: {}", e->what());
+            kLog.warn("logind session lock monitor disabled: session path unavailable");
+            m_pendingLockedHint.reset();
+            return;
+          }
+          attachSessionProxy(path);
+        });
+  };
+
+  const char* sessionId = std::getenv("XDG_SESSION_ID");
+  if (sessionId == nullptr || sessionId[0] == '\0') {
+    byPid();
     return;
   }
+  m_managerProxy->callMethodAsync("GetSession")
+      .onInterface(kLogindManagerInterface)
+      .withArguments(std::string(sessionId))
+      .uponReplyInvoke([this, aliveToken, byPid, id = std::string(sessionId)](
+                           std::optional<sdbus::Error> e, sdbus::ObjectPath path
+                       ) {
+        if (aliveToken.expired()) {
+          return;
+        }
+        if (e.has_value()) {
+          kLog.debug("failed to resolve logind session via XDG_SESSION_ID={}: {}", id, e->what());
+          byPid();
+          return;
+        }
+        m_sessionResolving = false;
+        attachSessionProxy(path);
+      });
+}
 
-  m_sessionProxy = sdbus::createProxy(m_bus.connection(), kLogindBusName, *sessionPath);
+void LogindService::attachSessionProxy(const sdbus::ObjectPath& sessionPath) {
+  if (!m_sessionLockIntegrationEnabled) {
+    return;
+  }
+  m_sessionProxy = sdbus::createProxy(m_bus.connection(), kLogindBusName, sessionPath);
   m_sessionProxy->uponSignal("Lock").onInterface(kLogindSessionInterface).call([this] {
     if (m_lockCallback) {
       m_lockCallback();
     }
   });
   m_sessionProxy->uponSignal("Unlock").onInterface(kLogindSessionInterface).call([this] {
+    if (!m_bus.isNameOwner(kLogindBusName, m_sessionProxy->getCurrentlyProcessedMessage().getSender())) {
+      kLog.warn("ignoring Unlock signal not sent by logind");
+      return;
+    }
     if (m_unlockCallback) {
       m_unlockCallback();
     }
   });
-  kLog.info("logind session lock monitor active ({})", std::string(sessionPath->c_str()));
+  kLog.info("logind session lock monitor active ({})", std::string(sessionPath.c_str()));
+  if (m_pendingLockedHint.has_value()) {
+    setSessionLockedHint(*std::exchange(m_pendingLockedHint, std::nullopt));
+  }
 }
 
 void LogindService::setSessionLockIntegrationEnabled(bool enabled) {
@@ -112,6 +133,7 @@ void LogindService::setSessionLockIntegrationEnabled(bool enabled) {
   if (!enabled) {
     releaseSleepDelayInhibit();
     m_sessionProxy.reset();
+    m_pendingLockedHint.reset();
     kLog.info("logind session lock monitor disabled");
     return;
   }
@@ -135,7 +157,11 @@ void LogindService::setLockCallback(SessionLockCallback callback) { m_lockCallba
 void LogindService::setUnlockCallback(SessionLockCallback callback) { m_unlockCallback = std::move(callback); }
 
 void LogindService::setSessionLockedHint(bool locked) {
-  if (!m_sessionLockIntegrationEnabled || m_sessionProxy == nullptr) {
+  if (!m_sessionLockIntegrationEnabled) {
+    return;
+  }
+  if (m_sessionProxy == nullptr) {
+    m_pendingLockedHint = locked;
     return;
   }
   try {
@@ -194,6 +220,7 @@ void LogindService::releaseIdleInhibit() {
 
 bool LogindService::hasSleepDelayInhibit() const noexcept { return m_sleepDelayInhibitFd >= 0; }
 
+// The lock is async: a PrepareForSleep before the reply proceeds without the delay lock.
 bool LogindService::acquireSleepDelayInhibit() {
   if (m_sleepDelayInhibitFd >= 0) {
     return true;
@@ -201,35 +228,53 @@ bool LogindService::acquireSleepDelayInhibit() {
   if (m_managerProxy == nullptr) {
     return false;
   }
-
-  try {
-    sdbus::UnixFd fd;
-    m_managerProxy->callMethod("Inhibit")
-        .onInterface(kLogindManagerInterface)
-        .withArguments(
-            std::string("sleep"), std::string("noctalia"), std::string("Lock before sleep"), std::string("delay")
-        )
-        .storeResultsTo(fd);
-    m_sleepDelayInhibitFd = fd.release();
-    if (m_sleepDelayInhibitFd < 0) {
-      kLog.warn("logind sleep delay inhibit returned invalid fd");
-      return false;
-    }
-    if (!setCloexec(m_sleepDelayInhibitFd)) {
-      kLog.warn("failed to set CLOEXEC on logind sleep delay inhibit fd");
-      ::close(m_sleepDelayInhibitFd);
-      m_sleepDelayInhibitFd = -1;
-      return false;
-    }
-    kLog.info("logind sleep delay inhibit acquired");
+  m_sleepDelayInhibitCancelled = false;
+  if (m_sleepDelayInhibitPending) {
     return true;
-  } catch (const sdbus::Error& e) {
-    kLog.warn("failed to acquire logind sleep delay inhibit: {}", e.what());
-    return false;
   }
+  m_sleepDelayInhibitPending = true;
+
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  m_managerProxy->callMethodAsync("Inhibit")
+      .onInterface(kLogindManagerInterface)
+      .withArguments(
+          std::string("sleep"), std::string("noctalia"), std::string("Lock before sleep"), std::string("delay")
+      )
+      .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, sdbus::UnixFd fd) {
+        if (aliveToken.expired()) {
+          return;
+        }
+        m_sleepDelayInhibitPending = false;
+        if (e.has_value()) {
+          kLog.warn("failed to acquire logind sleep delay inhibit: {}", e->what());
+          return;
+        }
+        const int rawFd = fd.release();
+        if (m_sleepDelayInhibitCancelled) {
+          if (rawFd >= 0) {
+            ::close(rawFd);
+          }
+          return;
+        }
+        if (rawFd < 0) {
+          kLog.warn("logind sleep delay inhibit returned invalid fd");
+          return;
+        }
+        if (!setCloexec(rawFd)) {
+          kLog.warn("failed to set CLOEXEC on logind sleep delay inhibit fd");
+          ::close(rawFd);
+          return;
+        }
+        m_sleepDelayInhibitFd = rawFd;
+        kLog.info("logind sleep delay inhibit acquired");
+      });
+  return true;
 }
 
 void LogindService::releaseSleepDelayInhibit() {
+  if (m_sleepDelayInhibitPending) {
+    m_sleepDelayInhibitCancelled = true;
+  }
   if (m_sleepDelayInhibitFd < 0) {
     return;
   }

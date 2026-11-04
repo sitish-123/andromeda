@@ -4,6 +4,9 @@
 #include "capture/screencopy_capture.h"
 #include "core/timer_manager.h"
 #include "render/core/lockscreen_transition_types.h"
+#include "ui/auth/auth_column.h"
+#include "shell/lockscreen/lock_cards.h"
+#include "shell/lockscreen/lock_fail_delay.h"
 
 #include <cstdint>
 #include <functional>
@@ -22,6 +25,7 @@ struct ext_session_lock_v1;
 struct wl_surface;
 struct wl_output;
 class ConfigService;
+class NotificationManager;
 
 class CompositorPlatform;
 class FaceAuthenticator;
@@ -34,8 +38,9 @@ class RenderContext;
 class SessionActionRunner;
 class SharedTextureCache;
 class SystemBus;
-class WaylandConnection;
+class ShellWaylandConnection;
 class WeatherService;
+struct LockscreenConfig;
 enum class LockscreenTransition : std::uint8_t;
 
 class LockScreen {
@@ -44,7 +49,7 @@ public:
   ~LockScreen();
 
   bool initialize(
-      WaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
+      ShellWaylandConnection& wayland, RenderContext* renderContext, ConfigService* configService,
       SharedTextureCache* textureCache, SystemBus* systemBus, CompositorPlatform* compositorPlatform
   );
   void setSessionHooks(
@@ -54,8 +59,15 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
-  void setPhoneServices(const LinkService* link);
+  void setPhoneServices(LinkService* link);
+  void setNotificationManager(const NotificationManager* notifications);
   bool lock();
+  // Lock from the paired phone (Link): password only, no grace, until the next unlock.
+  bool lockFromPhone();
+  // Battery and network for the status island; the keyboard layout comes from the surface indicators.
+  void setStatus(AuthColumn::Status status);
+  // Gradient clock colors from the resolved palette, packed 0xRRGGBBAA.
+  void setClockGradient(std::uint32_t from, std::uint32_t to);
   void primeDesktopCaptures();
   void clearPrimedDesktopCaptures();
   void unlock();
@@ -79,6 +91,19 @@ public:
   void onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] bool isActive() const noexcept;
+  // Palette colours of the gradient clock style (packed 0xRRGGBBAA).
+  [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> clockGradient() const noexcept {
+    return {m_clockGradientFrom, m_clockGradientTo};
+  }
+  // A lock image of its own (lockscreen.wallpaper or wallpaper_outputs), not the desktop wallpaper.
+  [[nodiscard]] bool hasOwnWallpaper(const std::string& connectorName) const;
+  [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
+  // "video" or "shader" for a wallpaper the lock helper plays (by file extension), else empty.
+  [[nodiscard]] static std::string liveWallpaperType(const std::string& path);
+  // wallpaper_outputs value that shows the desktop wallpaper on that display, whatever lockscreen.wallpaper says.
+  static constexpr const char* kDesktopWallpaper = "desktop";
+  // Live card and widget data for the editor preview, with `lock` as the widget and bottom slot choice.
+  [[nodiscard]] LockCards::Data previewCards(const LockscreenConfig& lock) const;
   [[nodiscard]] bool isSessionLocked() const noexcept;
   [[nodiscard]] bool isReadyForSleep() const;
   /// Revoke passwordless unlock and wait for an uncovered lock frame before sleep.
@@ -110,6 +135,8 @@ public:
   static void handleLocked(void* data, ext_session_lock_v1* lock);
   static void handleFinished(void* data, ext_session_lock_v1* lock);
 
+  static void clearSensitiveString(std::string& value);
+
 private:
   struct Instance {
     std::uint32_t outputName = 0;
@@ -134,8 +161,8 @@ private:
   void applyLockscreenStyle(LockSurface& surface) const;
   void applyOutputRestriction();
   void applyWallpaperStyleToSurfaces();
+  void applyWallpaperPath(LockSurface& surface, const std::string& connectorName) const;
   [[nodiscard]] bool isInteractiveOutput(const WaylandOutput& output) const;
-  [[nodiscard]] std::string wallpaperPathForOutput(const std::string& connectorName) const;
   void createInstance(const WaylandOutput& output);
   void chooseTransition();
   void handleTransitionStateChanged();
@@ -151,6 +178,8 @@ private:
   void handlePasswordEdited(const std::string& value);
   void tryAuthenticate();
   void handleAuthResult(std::uint64_t generation, const PamAuthenticator::Result& result);
+  // Shows the wrong-password countdown while it runs; false when no delay is active.
+  bool applyFailDelay();
   void invalidatePendingAuthentication();
   void startFingerprint();
   void stopFingerprint();
@@ -158,7 +187,6 @@ private:
   [[nodiscard]] bool faceEnabled() const;
   void startFace();
   void stopFace();
-  static void clearSensitiveString(std::string& value);
   /// Passwordless grace window: any keypress or pointer movement beyond 5px unlocks
   /// without a password while the window is live (matches hyprlock).
   [[nodiscard]] bool isInGracePeriod() const noexcept;
@@ -167,7 +195,7 @@ private:
   /// (even if suppressed as a wake key), so the key is consumed.
   bool tryActionShortcut(std::uint32_t sym, std::uint32_t modifiers);
 
-  WaylandConnection* m_wayland = nullptr;
+  ShellWaylandConnection* m_wayland = nullptr;
   RenderContext* m_renderContext = nullptr;
   ConfigService* m_configService = nullptr;
   SharedTextureCache* m_textureCache = nullptr;
@@ -212,7 +240,10 @@ private:
   MprisService* m_mpris = nullptr;
   const WeatherService* m_weather = nullptr;
   HttpClient* m_httpClient = nullptr;
-  const LinkService* m_link = nullptr;
+  LinkService* m_link = nullptr;
+  // Decline pressed on the call card: declined after the next successful unlock if that call still rings.
+  std::string m_pendingDecline;
+  const NotificationManager* m_notifications = nullptr;
   Timer m_suspendTimeoutTimer;
   Timer m_outputPowerOffTimer;
   // CLOCK_BOOTTIME millis when the lock flow started; grace expires gracePeriodSeconds after it.
@@ -223,4 +254,13 @@ private:
   double m_pointerEnterX = 0.0;
   double m_pointerEnterY = 0.0;
   Timer m_unlockTransitionTimer;
+  LockFailDelay m_failDelay{LockFailDelay::defaultPath()};
+  Timer m_failDelayTimer;
+  bool m_passwordOnly = false;
+  bool m_lastRejected = false;
+  AuthColumn::Status m_statusIsland;
+  std::uint32_t m_clockGradientFrom = 0;
+  std::uint32_t m_clockGradientTo = 0;
+  // LockFromPhone arrived during the unlock animation.
+  bool m_phoneLockAfterUnlock = false;
 };

@@ -8,7 +8,7 @@ set -euo pipefail
 # The disable and re-enable phases replace the whole config rather than
 # appending, because re-enabling means the key is gone again. Keeping the
 # instance's pristine config in a variable avoids restating the [general] block
-# that keeps Xwayland and the cheatsheet out of this instance.
+# that keeps Xwayland out of this instance.
 BASELINE=$(< "$ANDROMEDA_CONFIG")
 
 log_mark() { wc -l < "$ANDROMEDA_LOG"; }

@@ -47,6 +47,12 @@ namespace andromeda {
       return m_current != m_settled ? Observation::Pending : Observation::Settled;
     }
 
+    // A later event of the same grouped backend commit: not a new scene commit, but it consumed a backend sequence.
+    void absorbGroupedCommit(uint32_t commitSeq) {
+      ++m_groupedEvents;
+      m_commitSeq = commitSeq;
+    }
+
     // Adopts the observed state once it has held. True when the settled state changed.
     bool settle() {
       if (m_current == m_settled) {
@@ -61,6 +67,7 @@ namespace andromeda {
     [[nodiscard]] const DirectScanoutState& settled() const { return m_settled; }
     [[nodiscard]] uint64_t commits() const { return m_commits; }
     [[nodiscard]] uint64_t scanoutCommits() const { return m_scanoutCommits; }
+    [[nodiscard]] uint64_t groupedEvents() const { return m_groupedEvents; }
     [[nodiscard]] uint32_t commitSeq() const { return m_commitSeq; }
 
     // Whether the last settle is worth a log line: scanout started or stopped, or moved to another window. A change
@@ -75,6 +82,7 @@ namespace andromeda {
     DirectScanoutState m_previous;
     uint64_t m_commits = 0;
     uint64_t m_scanoutCommits = 0;
+    uint64_t m_groupedEvents = 0;
     uint32_t m_commitSeq = 0;
   };
 

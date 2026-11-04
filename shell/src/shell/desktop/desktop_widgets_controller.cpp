@@ -133,7 +133,7 @@ void DesktopWidgetsController::registerIpc(IpcService& ipc) {
   });
 
   // Ephemeral runtime show/hide override layered on top of the saved `desktop_widgets.enabled`
-  // setting (bidirectional version of bar-show/bar-hide/bar-toggle). These never touch settings.toml
+  // setting (bidirectional version of bar-show/bar-hide/bar-toggle). These never touch overrides.toml
   // -- they flip a runtime override that resets on restart -- so a peek-desktop keybind can reveal
   // widgets on demand without rewriting the user's saved preference on every keypress. `show` is a
   // force-show: it reveals widgets even when the saved setting is disabled, so an opt-in workflow

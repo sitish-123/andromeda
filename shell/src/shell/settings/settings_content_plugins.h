@@ -33,7 +33,6 @@ namespace settings {
     std::vector<scripting::PluginStatus> plugins;
     std::vector<PluginSourceConfig> sources;
     bool searchActive = false;
-    Flex* pageTitleRow = nullptr;
     Flex* groupJumpRow = nullptr;
     std::function<void(const Node&)> scrollContentToTop;
     std::unordered_map<std::string, std::unordered_set<std::string>>& expandedGroupsByPage;
@@ -53,7 +52,7 @@ namespace settings {
 
     // Background auto-update scope for git sources; drives the "auto-update plugins"
     // dropdown. setAutoUpdate persists the mode for all git sources.
-    PluginAutoUpdateMode autoUpdateMode = PluginAutoUpdateMode::All;
+    PluginAutoUpdateMode autoUpdateMode = PluginAutoUpdateMode::None;
     std::function<void(PluginAutoUpdateMode)> setAutoUpdate;
     // Update every enabled git source at once (the "update all" action).
     std::function<void()> updateAll;
@@ -64,10 +63,8 @@ namespace settings {
     std::function<void(std::string id)> onRemove;
     std::function<void()> openStore;
 
-    // Plugin id awaiting delete confirmation; its row shows an inline confirm panel.
-    std::string pendingDeletePluginId;
-    std::function<void(std::string id)> requestDeleteConfirm;
-    std::function<void()> cancelDelete;
+    // Opens the delete alert.
+    std::function<void(std::string id, std::string name)> requestDeleteConfirm;
   };
 
   // Render the Plugins section into `content` when ctx.selectedSection == "plugins".

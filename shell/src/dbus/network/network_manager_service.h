@@ -81,6 +81,8 @@ public:
   [[nodiscard]] bool hasSavedConnection(const std::string& ssid) const override;
 
 private:
+  // full = false: access points and state only, for scan results and signal strength.
+  void runRefresh(bool full);
   void refreshAccessPoints(const std::function<void()>& onComplete);
   void refreshSavedConnections(const std::function<void()>& onComplete);
   // Rebuilds the VPN profile list and, from one pass over NM's active
@@ -162,6 +164,7 @@ private:
   std::shared_ptr<int> m_lifetimeToken;
   bool m_refreshInFlight = false;
   bool m_refreshQueued = false;
+  bool m_refreshQueuedFull = false;
   bool m_rebindInFlight = false;
   bool m_rebindQueued = false;
   bool m_emitOnNextRefresh = false;

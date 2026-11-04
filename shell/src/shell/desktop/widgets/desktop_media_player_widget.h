@@ -21,7 +21,7 @@ class DesktopMediaPlayerWidget : public DesktopWidget {
 public:
   struct Options {
     bool vertical = false;
-    ColorSpec color = colorSpecFromRole(ColorRole::OnSurface);
+    ColorSpec color = colorSpecFromRole(ColorRole::Label1);
     bool shadow = true;
     bool hideWhenNoMedia = false;
     bool albumArtBackground = false;

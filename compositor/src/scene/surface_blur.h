@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pixman.h>
 #include <optional>
 
 struct fx_corner_radii;
@@ -28,20 +29,36 @@ namespace andromeda {
     // (position + size of the node). surfaceBox: content box in surface-local coordinates (opaque-region test).
     // clipBox: optional visible subset in `parent` coordinates; nullptr = full nodeBox. surfaceOpacity: opacity applied
     // to the surface buffers, used only to decide whether an opaque client reveals the blur. maskSource: optional scene
-    // buffer to use instead of finding the surface's regular scene buffer.
+    // buffer to use instead of finding the surface's regular scene buffer. clipRegion: optional exact blur area in
+    // surface-local coordinates (a client blur region); the blur draws only inside it.
     void update(
         wlr_scene_tree* parent, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& surfaceBox,
         fx_corner_radii corners, const wlr_box* clipBox = nullptr, const SurfaceBlurOptions& options = {},
-        float surfaceOpacity = 1.0F, wlr_scene_buffer* maskSource = nullptr
+        float surfaceOpacity = 1.0F, wlr_scene_buffer* maskSource = nullptr,
+        const pixman_region32_t* clipRegion = nullptr
     );
     // Opacity of the blur effect itself. Keep this independent from surface
     // opacity so compositor opacity matches equivalent client alpha.
     void setAlpha(float alpha);
+    // Liquid glass strength, 0 to 1 (dsk_surface_v1 property liquid).
+    void setLiquid(float liquid);
+    // Specular rim alone (frosted sheets): no refraction, no lighter blur.
+    void setRim(float rim);
+    // Fade of a surface, 0 to 1: it scales the blur size, so a fading surface defocuses its backdrop instead of
+    // blending a blurred copy over the sharp one.
+    void setFade(float fade);
     // Forces a live blur of everything below, overriding the optimized option, for a surface drawn over scene
     // content the cached background blur lacks.
     void setLive(bool live);
+    // Samples the blurred backdrop on each render of the node (wlr_scene_blur_set_backdrop_sampling).
+    void setBackdropSampling(bool enabled);
+    // Never blocks: true with the mean luminance (0 to 1) when a sample finished since the last call.
+    bool pollBackdrop(float* luminance);
+    [[nodiscard]] bool backdropPending() const;
     // Disable the node (unmap path); update() re-enables.
     void hide();
+    // True while the blur node is shown.
+    [[nodiscard]] bool active() const;
 
   private:
     wlr_scene_blur* m_node = nullptr;
@@ -49,6 +66,10 @@ namespace andromeda {
     bool m_optimized = false;
     bool m_live = false;
     float m_alpha = 1.0F;
+    float m_liquid = 0.0F;
+    float m_rim = 0.0F;
+    float m_fade = 1.0F;
+    bool m_backdropSampling = false;
   };
 
 } // namespace andromeda

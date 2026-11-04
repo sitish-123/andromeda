@@ -88,6 +88,11 @@ namespace settings {
   struct ToggleSetting {
     bool checked = false;
     bool enabled = true; // false renders the toggle in a disabled/non-interactive state
+    // A toggle that writes a string key: `onValue` when on, `offValue` when off, to `valuePath`.
+    std::vector<std::string> valuePath;
+    std::string onValue;
+    std::string offValue;
+    std::string id; // stable key of a row without a config path
   };
 
   struct SelectOption {
@@ -118,6 +123,7 @@ namespace settings {
     bool clearOnEmpty = false;
     bool allowEmptySelection = false; // empty selectedValue shows a cleared select (no matching option)
     bool segmented = false;           // render as Segmented pill group instead of dropdown Select
+    bool tiles = false;               // render as a row of preview tiles (mode, edge)
     SelectValueType valueType = SelectValueType::String; // storage type for option values
     float preferredWidth = 0.0F;                         // 0 = default settings dropdown width
     std::vector<std::string> linkedPath;                 // companion path for groupedCommit / override reset
@@ -337,6 +343,9 @@ namespace settings {
     bool ddcutilAvailable = false;              // disable ddcutil toggle when ddcutil is not on PATH
     bool systemdUserManaged = false;            // disable systemd app launching when the shell is not a user unit
     bool gammaControlAvailable = false;         // hide night-light entries when gamma control is unavailable
+    std::string schedExtScheduler; // the running sched_ext scheduler; app priority (CPU weights) has no effect under it
+    std::optional<std::size_t> backgroundActivityCount; // flagged background services at the last check; none = not checked
+    std::function<void()> openActivity;
     bool greeterSyncAvailable = false;          // hide greeter appearance sync when greeter is not installed
     std::vector<SelectOption> availableOutputs; // monitor selectors available on this machine
     bool batteryAvailable = false;
@@ -376,7 +385,7 @@ namespace settings {
   [[nodiscard]] std::string_view sectionGlyph(SettingsSection section);
   [[nodiscard]] std::optional<SettingsSection> settingsSectionFromId(std::string_view id);
   // Entries for compositor settings carry {"andromeda", <config key parts>...}; they commit through the compositor's
-  // settings manager instead of settings.toml. Returns the dotted compositor key, or nothing for a shell path.
+  // settings manager instead of overrides.toml. Returns the dotted compositor key, or nothing for a shell path.
   [[nodiscard]] std::optional<std::string> compositorSettingKey(const std::vector<std::string>& path);
   // Maps ids of merged sections (templates, osd, andromeda) to the page that now holds them.
   [[nodiscard]] std::string canonicalSettingsSectionId(std::string_view id);

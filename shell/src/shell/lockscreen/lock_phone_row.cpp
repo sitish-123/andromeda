@@ -29,7 +29,7 @@ namespace {
         .out = out,
         .glyph = std::move(glyph),
         .glyphSize = Style::fontSizeTitle,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
     });
   }
 
@@ -37,7 +37,7 @@ namespace {
     return ui::label({
         .out = out,
         .fontSize = Style::fontSizeBody,
-        .color = colorSpecFromRole(ColorRole::OnSurface),
+        .color = colorSpecFromRole(ColorRole::Label1),
         .maxLines = 1,
     });
   }
@@ -51,7 +51,7 @@ std::unique_ptr<Flex> LockPhoneRow::create() {
       .gap = Style::spaceSm,
       .paddingV = Style::spaceSm,
       .paddingH = Style::spaceMd,
-      .fill = colorSpecFromRole(ColorRole::Surface),
+      .fill = colorSpecFromRole(ColorRole::SolidRegular),
       .radius = Style::scaledRadiusLg(1.0F),
       .visible = false,
       .configure = [](Flex& flex) { flex.setZIndex(3); },

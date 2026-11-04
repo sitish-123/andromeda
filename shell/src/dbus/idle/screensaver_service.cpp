@@ -178,21 +178,37 @@ void ScreenSaverService::registerLogindIdleMonitor(SystemBus* systemBus) {
           if (interfaceName != kLogindManagerInterface) {
             return;
           }
-          const auto it = changedProperties.find("BlockInhibited");
-          if (it == changedProperties.end()) {
+          if (!changedProperties.contains("BlockInhibited")) {
             return;
           }
-          applyLogindBlockInhibited(it->second.get<std::string>());
+          // Any peer can send this signal directly to us, so read the value from logind instead.
+          readLogindBlockInhibited();
         });
 
-    const auto blockInhibited =
-        m_logindProxy->getProperty("BlockInhibited").onInterface(kLogindManagerInterface).get<std::string>();
-    applyLogindBlockInhibited(blockInhibited);
+    readLogindBlockInhibited();
     kLog.info("logind idle inhibit monitor active");
   } catch (const std::exception& e) {
     kLog.warn("logind idle inhibit monitor disabled: {}", e.what());
     m_logindProxy.reset();
   }
+}
+
+void ScreenSaverService::readLogindBlockInhibited() {
+  const std::weak_ptr<int> aliveToken = m_aliveToken;
+  const std::uint64_t read = ++m_blockInhibitedReads;
+  m_logindProxy->getPropertyAsync("BlockInhibited")
+      .onInterface(kLogindManagerInterface)
+      .uponReplyInvoke([this, aliveToken, read](std::optional<sdbus::Error> e, sdbus::Variant value) {
+        // Only the newest read applies, so a late reply cannot undo a newer state.
+        if (aliveToken.expired() || read != m_blockInhibitedReads) {
+          return;
+        }
+        if (e.has_value()) {
+          kLog.warn("logind idle inhibit read failed: {}", e->what());
+          return;
+        }
+        applyLogindBlockInhibited(value.get<std::string>());
+      });
 }
 
 void ScreenSaverService::applyLogindBlockInhibited(const std::string& inhibits) {

@@ -170,12 +170,26 @@ namespace {
     glClear(GL_COLOR_BUFFER_BIT);
 
     const TextureId textureId(texture);
+    const WallpaperLayer layer{
+        .kind = WallpaperSourceKind::Image,
+        .texture = textureId,
+        .imageWidth = static_cast<float>(textureWidth),
+        .imageHeight = static_cast<float>(textureHeight),
+    };
     program.draw(
-        WallpaperTransition::Fade, WallpaperSourceKind::Image, textureId, {}, WallpaperSourceKind::Image, textureId, {},
-        static_cast<float>(width), static_cast<float>(height), static_cast<float>(width), static_cast<float>(height),
-        static_cast<float>(textureWidth), static_cast<float>(textureHeight), static_cast<float>(textureWidth),
-        static_cast<float>(textureHeight), 0.0f, static_cast<float>(fillMode), {}, rgba(0.0f, 1.0f, 0.0f, 1.0f),
-        Mat3::identity(), span
+        WallpaperDrawParams{
+            .transition = WallpaperTransition::Fade,
+            .from = layer,
+            .to = layer,
+            .surfaceWidth = static_cast<float>(width),
+            .surfaceHeight = static_cast<float>(height),
+            .quadWidth = static_cast<float>(width),
+            .quadHeight = static_cast<float>(height),
+            .progress = 0.0f,
+            .fillMode = static_cast<float>(fillMode),
+            .fillColor = rgba(0.0f, 1.0f, 0.0f, 1.0f),
+            .span = span,
+        }
     );
     requireGl("wallpaper draw");
 

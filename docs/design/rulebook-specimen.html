@@ -1,0 +1,1112 @@
+<!doctype html>
+<!-- Template for docs/design/rulebook.html (build: python3 docs/design/build_rulebook.py). Each CH:n marker takes chapter n of
+     rulebook.md (CH:D = deviations.md); the NAV marker takes the navigation. Demos run on the rulebook's spring set. -->
+<html lang="en"><head><meta charset="utf-8"><title>Andromeda rulebook specimen</title>
+<style>
+:root {
+  --font: "Inter Variable", "Inter", system-ui, sans-serif;
+  --wall-l: radial-gradient(120% 90% at 15% 0%, #f7d9bf 0, transparent 55%), radial-gradient(90% 80% at 100% 20%, #c9d3ff 0, transparent 60%),
+            radial-gradient(80% 70% at 60% 100%, #bfe8de 0, transparent 60%), #e9e6f2;
+  --wall-d: radial-gradient(120% 90% at 15% 0%, #3b2333 0, transparent 55%), radial-gradient(90% 80% at 100% 20%, #1c2450 0, transparent 60%),
+            radial-gradient(80% 70% at 60% 100%, #0f3a35 0, transparent 60%), #111118;
+}
+.light {
+  --wall: var(--wall-l);
+  --l1: rgba(20,20,24,.92); --l2: rgba(20,20,24,.62); --l3: rgba(20,20,24,.38);
+  --f1: rgba(0,0,0,.04); --f2: rgba(0,0,0,.08); --f3: rgba(0,0,0,.12);
+  --sep: rgba(0,0,0,.08); --stroke: rgba(0,0,0,.07); --edge: rgba(255,255,255,.75);
+  --acc: #5147e5; --acct: #5147e5; --danger: #d93025; --dangert: #d93025; --warn: #b45309; --ok: #1a7f37;
+  --reg: rgba(255,255,255,.62); --thick: rgba(255,255,255,.76);
+  --lens: rgba(255,255,255,.92); --lens-edge: 0 0 0 transparent;
+  --plane: #f2f2f6; --card: #fff; --view: #fff; --header: #ececf1; --popover: #f8f8fa; --sidebar: #ececf1;
+  --sc: 20,20,40; --a1: .10; --a2: .12; --a2c: .08; --a3: .16; --a3c: .08; --a4: .22; --a4c: .10;
+  --bf: blur(24px) saturate(1.8) brightness(1.05);
+  --page: #fbfbfc; --ink: #141418; --muted: #6b6b76; --rule: #ececf0;
+}
+.dark {
+  --wall: var(--wall-d);
+  --l1: rgba(244,244,246,.92); --l2: rgba(244,244,246,.62); --l3: rgba(244,244,246,.38);
+  --f1: rgba(255,255,255,.06); --f2: rgba(255,255,255,.10); --f3: rgba(255,255,255,.16);
+  --sep: rgba(255,255,255,.08); --stroke: rgba(255,255,255,.08); --edge: rgba(255,255,255,.12);
+  --acc: #6159f5; --acct: #8c85ff; --danger: #d93025; --dangert: #ff6b5e; --warn: #f5a524; --ok: #3fb950;
+  --reg: rgba(28,28,32,.70); --thick: rgba(32,32,36,.84);
+  --lens: rgba(255,255,255,.14); --lens-edge: inset 0 .5px 0 rgba(255,255,255,.18);
+  --plane: #1e1e22; --card: #28282c; --view: #18181b; --header: #222226; --popover: #28282c; --sidebar: #1c1c20;
+  --sc: 0,0,0; --a1: .30; --a2: .30; --a2c: .20; --a3: .40; --a3c: .24; --a4: .50; --a4c: .30;
+  --bf: blur(24px) saturate(1.6) brightness(.95) contrast(.95);
+  --page: #131316; --ink: #f4f4f6; --muted: #9a9aa6; --rule: #26262c;
+}
+.light, .dark {
+  --e1: 0 1px 2px rgba(var(--sc),var(--a1)), 0 0 0 .5px rgba(var(--sc),.07);
+  --e2: 0 6px 16px rgba(var(--sc),var(--a2)), 0 1px 4px rgba(var(--sc),var(--a2c));
+  --e3: 0 12px 32px rgba(var(--sc),var(--a3)), 0 2px 8px rgba(var(--sc),var(--a3c));
+  --e4: 0 24px 64px rgba(var(--sc),var(--a4)), 0 2px 8px rgba(var(--sc),var(--a4c));
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font: 400 13px/16px var(--font); letter-spacing: -.003em; font-feature-settings: "tnum"; background: var(--page); color: var(--ink);
+  -webkit-font-smoothing: antialiased; }
+.shell { display: grid; grid-template-columns: 272px minmax(0, 1fr); min-width: 1360px; }
+nav#nav { position: sticky; top: 0; height: 100vh; overflow: auto; border-right: 1px solid var(--rule); background: var(--page); padding: 16px 12px 24px; }
+nav#nav .brand { padding: 4px 8px 12px; } nav#nav .brand b { display: block; font: 600 15px/20px var(--font); } nav#nav .brand span { font: 400 12px/16px var(--font); color: var(--muted); }
+nav#nav .tg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; padding: 4px 8px 12px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+nav#nav .tg label { display: flex; align-items: center; gap: 8px; font: 500 12px/16px var(--font); color: var(--muted); }
+nav#nav input.q { width: 100%; height: 32px; border-radius: 8px; border: 0; box-shadow: inset 0 0 0 1px var(--rule); background: transparent; color: var(--ink); padding: 0 12px; font: 400 13px/16px var(--font); margin-bottom: 8px; outline: none; }
+nav#nav input.q:focus { box-shadow: inset 0 0 0 1px var(--rule), 0 0 0 2px var(--page), 0 0 0 4px #5147e5; }
+nav#nav .list { position: relative; }
+nav#nav a { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 8px; color: var(--ink); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav#nav a:hover { background: var(--f1); }
+nav#nav a.sub { height: 28px; padding-left: 32px; font: 400 12px/16px var(--font); color: var(--muted); display: none; }
+nav#nav a.sub.show { display: flex; }
+nav#nav a.on { font-weight: 600; } nav#nav a.sub.on { color: var(--ink); }
+nav#nav a i { font-style: normal; width: 16px; text-align: right; color: var(--muted); font: 500 11px/16px var(--font); flex: none; }
+nav#nav .grp { padding: 16px 8px 4px; font: 600 11px/16px var(--font); color: var(--muted); }
+nav#nav .navlens { position: absolute; left: 0; right: 0; border-radius: 8px; background: var(--f2); z-index: 0; }
+main { min-width: 0; }
+.doc { padding: 48px 56px 8px; }
+.cover h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; margin-bottom: 8px; }
+.cover { border-bottom: 1px solid var(--rule); padding-bottom: 40px; }
+.hero { padding-top: 32px; }
+.heropair { display: grid; grid-template-columns: repeat(2, 560px); gap: 24px; margin-top: 8px; }
+.comp { zoom: .5; border-radius: 32px; overflow: hidden; box-shadow: 0 0 0 1px var(--rule); }
+.doc h2 { font: 600 28px/36px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 28; margin-bottom: 16px; }
+.doc h3 { font: 600 17px/24px var(--font); letter-spacing: -.013em; margin: 32px 0 8px; scroll-margin-top: 16px; }
+.doc p, .doc li { font: 400 14px/22px var(--font); color: var(--ink); max-width: 880px; }
+.doc p { margin: 8px 0; } .doc ul, .doc ol { padding-left: 20px; margin: 8px 0; } .doc li { margin: 4px 0; }
+.doc strong { font-weight: 600; } .doc code { font: 500 12px/16px ui-monospace, monospace; background: var(--f1); padding: 2px 4px; border-radius: 4px; }
+.doc table { border-collapse: collapse; margin: 12px 0 16px; width: 100%; max-width: 1120px; font: 400 13px/20px var(--font); }
+.doc th { text-align: left; font: 600 12px/16px var(--font); color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+.doc td { padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.doc td:first-child { font-weight: 500; white-space: nowrap; }
+.doc + section, section + section { scroll-margin-top: 0; }
+section.demo { padding-top: 24px; }
+section.demo > .eyebrow::before { content: "Live specimen · "; color: #5147e5; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: default; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; display: block; }
+svg.i12 { width: 12px; height: 12px; } svg.i20 { width: 20px; height: 20px; } svg.i48 { width: 48px; height: 48px; stroke-width: 1.5; }
+
+/* Specimen chrome (not part of the system) */
+.top { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 16px; height: 56px; padding: 0 64px; background: var(--page);
+  border-bottom: 1px solid var(--rule); }
+.top b { font: 600 15px/20px var(--font); margin-right: auto; }
+.top label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+section { padding: 48px 56px; border-bottom: 1px solid var(--rule); }
+.eyebrow { font: 600 11px/16px var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+h1 { font: 600 34px/40px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 32; }
+h2 { font: 600 22px/28px var(--font); letter-spacing: 0; font-variation-settings: "opsz" 22; margin-bottom: 8px; }
+h3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; margin-bottom: 4px; }
+.lead { font: 400 15px/24px var(--font); color: var(--muted); max-width: 840px; margin-top: 8px; }
+.note { font: 400 12px/16px var(--font); color: var(--muted); max-width: 1100px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 24px; }
+.grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-top: 24px; }
+.panel { border: 1px solid var(--rule); border-radius: 16px; padding: 24px; }
+.cap { font: 400 12px/16px var(--font); color: var(--muted); margin-top: 8px; }
+.cap b { color: var(--ink); font-weight: 600; }
+.row-flex { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.stage { position: relative; overflow: hidden; border-radius: 16px; background: var(--wall); color: var(--l1); }
+.btnbar { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.sbtn { height: 24px; padding: 0 8px; border-radius: 12px; background: var(--f2); color: var(--ink); font: 500 12px/16px var(--font); }
+.sbtn:hover { background: var(--f3); }
+
+/* ---------- The system ---------- */
+.glass { background: var(--reg); backdrop-filter: var(--bf); -webkit-backdrop-filter: var(--bf);
+  box-shadow: var(--e2), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
+.glass.thick { background: var(--thick); box-shadow: var(--e3), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke); }
+.lens { background: var(--lens); box-shadow: var(--e1), var(--lens-edge); }
+body { font-optical-sizing: none; font-variation-settings: "opsz" 14; }
+.cap11 { font: 500 11px/16px var(--font); letter-spacing: .005em; }
+.fn { font: 400 12px/16px var(--font); letter-spacing: .0005em; }
+.glass .fn, .glass .body { font-weight: 500; }
+.hl { font: 600 13px/16px var(--font); letter-spacing: -.003em; }
+.t3 { font: 600 15px/20px var(--font); letter-spacing: -.009em; font-variation-settings: "opsz" 15; }
+.t2 { font: 600 17px/24px var(--font); letter-spacing: -.013em; font-variation-settings: "opsz" 17; }
+.lab2 { color: var(--l2); } .lab3 { color: var(--l3); }
+
+/* island */
+.island { height: 32px; border-radius: 16px; display: flex; align-items: center; }
+.island.txt { padding: 0 12px; } .island.sym { padding: 0 8px; }
+.island .g8 { display: flex; gap: 8px; align-items: center; }
+.island .g12 { display: flex; gap: 12px; align-items: center; }
+.ws { position: relative; display: flex; height: 24px; }
+.ws > span { position: relative; z-index: 1; min-width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; color: var(--l3); }
+.ws > span.occ { color: var(--l2); } .ws > span.on { color: var(--l1); font-weight: 600; }
+.lensbox { position: absolute; top: 0; left: 0; z-index: 0; }
+
+/* sheet */
+.sheet { width: 360px; border-radius: 28px; padding: 12px; display: grid; grid-template-columns: 164px 164px; gap: 8px; }
+.tile { height: 56px; border-radius: 16px; padding: 12px; display: flex; align-items: center; gap: 12px; background: var(--f1); min-width: 0; }
+.tile:hover { background: var(--f2); }
+.ri { width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; background: var(--f2); color: var(--l1); flex: none; }
+.on > .ri, .ri.on { background: var(--acc); color: #fff; }
+.tt { min-width: 0; } .tt > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.span2 { grid-column: span 2; }
+.pill { height: 48px; border-radius: 16px; background: var(--f2); position: relative; overflow: hidden; display: flex; align-items: center; }
+.pill > i { position: absolute; inset: 0 auto 0 0; background: rgba(255,255,255,.92); }
+.pill > svg { position: relative; margin-left: 16px; color: rgba(0,0,0,.62); }
+.light .pill { background: rgba(0,0,0,.20); } .light .pill > i { background: rgba(255,255,255,.94); } .light .pill > svg { color: rgba(20,20,24,.62); }
+.pill::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(0,0,0,.07); pointer-events: none; } .dark .pill::after { box-shadow: none; }
+.pill > span { position: relative; margin-left: auto; margin-right: 16px; color: var(--l2); }
+.media { height: 72px; border-radius: 16px; padding: 8px; display: flex; align-items: center; gap: 12px; background: var(--f1); }
+.art { width: 56px; height: 56px; border-radius: 8px; background: linear-gradient(135deg, #ff9a6b, #8a5cff); flex: none; }
+.ctl { display: flex; gap: 8px; margin-left: auto; margin-right: 4px; }
+.cb { width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+.cb:hover { background: var(--f2); }
+
+/* dock */
+.dock { height: 64px; border-radius: 24px; padding: 8px; display: inline-flex; gap: 8px; position: relative; }
+.app { width: 48px; height: 48px; border-radius: 12px; position: relative; z-index: 1; box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+.dot4 { position: absolute; bottom: 2px; margin-left: -2px; width: 4px; height: 4px; border-radius: 2px; background: var(--l2); z-index: 1; }
+.badge { position: absolute; top: -4px; right: -4px; height: 16px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--danger);
+  color: #fff; font: 600 11px/16px var(--font); text-align: center; z-index: 2; }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; white-space: nowrap; }
+.btn.s { height: 24px; padding: 0 8px; min-width: 48px; font: 500 12px/16px var(--font); }
+.btn.m { height: 32px; padding: 0 12px; min-width: 64px; }
+.btn.l { height: 40px; padding: 0 16px; min-width: 80px; }
+.btn.s:not(.primary), .btn.m:not(.primary) { border-radius: 8px; }
+.btn.primary { background: var(--acc); color: #fff; font-weight: 600; }
+.btn.primary:hover { background-image: linear-gradient(rgba(255,255,255,.08), rgba(255,255,255,.08)); }
+.btn.secondary { background: var(--f2); color: var(--l1); font-weight: 500; } .btn.secondary:hover { background: var(--f3); }
+.btn.plain { color: var(--l1); } .btn.plain:hover { background: var(--f1); }
+.btn.destructive { background: var(--danger); color: #fff; font-weight: 600; }
+.ib { width: 32px; height: 32px; border-radius: 16px; display: grid; place-items: center; color: var(--l1); }
+.ib:hover { background: var(--f1); } .ib.s { width: 24px; height: 24px; }
+
+/* fields */
+.field { height: 32px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; background: var(--view);
+  box-shadow: inset 0 0 0 1px var(--sep); color: var(--l3); width: 240px; }
+.field.search { padding: 0 6px 0 8px; } .field .kc { margin-left: auto; }
+.field.popup { color: var(--l1); justify-content: space-between; }
+.focus { box-shadow: inset 0 0 0 1px var(--sep), 0 0 0 2px var(--page), 0 0 0 4px var(--acc) !important; }
+.kc { height: 20px; border-radius: 4px; padding: 0 4px; font: 500 11px/20px var(--font); color: var(--l2); box-shadow: inset 0 0 0 1px var(--sep); }
+.seg { position: relative; display: inline-flex; height: 32px; padding: 2px; border-radius: 16px; background: var(--f1); }
+.seg > span { position: relative; z-index: 1; height: 28px; padding: 0 12px; min-width: 72px; display: grid; place-items: center; color: var(--l2); font-weight: 500; }
+.seg > span.on { color: var(--l1); font-weight: 600; }
+.tog { width: 40px; height: 24px; border-radius: 12px; background: var(--f2); position: relative; flex: none; }
+.tog > b { position: absolute; inset: 0; border-radius: 12px; background: var(--acc); opacity: 0; }
+.tog > i { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 0 0 .5px rgba(0,0,0,.06); }
+.chk { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--l3); display: grid; place-items: center; color: #fff; }
+.chk.on { background: var(--acc); box-shadow: none; }
+.rad { width: 16px; height: 16px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--l3); display: grid; place-items: center; }
+.rad.on { background: var(--acc); box-shadow: none; } .rad.on::after { content: ""; width: 6px; height: 6px; border-radius: 3px; background: #fff; }
+.rng { width: 200px; height: 24px; position: relative; display: flex; align-items: center; }
+.rng > s { position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--f2); }
+.rng > u { position: absolute; left: 0; width: 64%; height: 4px; border-radius: 2px; background: var(--acc); }
+.rng > b { position: absolute; left: calc(64% - 10px); width: 20px; height: 20px; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 0 0 .5px rgba(0,0,0,.06); }
+.bar4 { width: 200px; height: 4px; border-radius: 2px; background: var(--f2); position: relative; overflow: hidden; }
+.bar4 > i { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 2px; background: var(--acc); }
+.bar4.ind > i { width: 30%; animation: ind 1.4s linear infinite; }
+@keyframes ind { from { left: -30%; } to { left: 100%; } }
+.spin { animation: rot .8s linear infinite; } @keyframes rot { to { transform: rotate(360deg); } }
+.chip { height: 24px; border-radius: 12px; padding: 0 8px; display: inline-flex; align-items: center; gap: 4px; background: var(--f1); font: 500 12px/16px var(--font); }
+.cnt { height: 16px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--f3); font: 600 11px/16px var(--font); text-align: center; }
+.av { border-radius: 50%; display: grid; place-items: center; background: var(--f2); color: var(--l2); font-weight: 600; flex: none; }
+.tip { height: 24px; border-radius: 8px; padding: 4px 8px; display: inline-block; }
+
+/* windows, lists, menus */
+.win { border-radius: 20px; overflow: hidden; background: var(--plane); box-shadow: var(--e4), 0 0 0 .5px var(--stroke); position: relative; }
+.tbar { height: 40px; background: var(--header); display: flex; align-items: center; justify-content: center; position: relative; }
+.wbtns { position: absolute; right: 8px; top: 8px; display: flex; gap: 8px; }
+.wbtns > span { width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; color: var(--l2); }
+.wbtns > span:hover { background: var(--f1); } .wbtns > span.x:hover { background: var(--danger); color: #fff; }
+.gcard { border-radius: 12px; padding: 4px; background: var(--card); box-shadow: 0 0 0 .5px var(--stroke); }
+.lrow { height: 40px; border-radius: 8px; padding: 0 12px; display: flex; align-items: center; gap: 8px; position: relative; }
+.lrow.two { height: 56px; gap: 12px; }
+.lrow:hover { background: var(--f1); }
+.lrow + .lrow::before { content: ""; position: absolute; left: 12px; right: -4px; top: 0; height: 1px; background: var(--sep); }
+.lrow:has(> svg:first-child) + .lrow:has(> svg:first-child)::before { left: 36px; }
+.lrow.two + .lrow::before, .lrow + .lrow.two::before { left: 56px; }
+.lrow:hover::before, .lrow:hover + .lrow::before { opacity: 0; }
+.lrow .grow { flex: 1; min-width: 0; }
+.shead { padding: 0 16px 8px; font: 600 12px/16px var(--font); color: var(--l2); }
+.sfoot { padding: 8px 16px 0; font: 400 12px/16px var(--font); color: var(--l2); }
+.menu { width: 224px; border-radius: 12px; padding: 4px; position: relative; }
+.mi { height: 28px; border-radius: 8px; padding: 0 8px; display: flex; align-items: center; gap: 8px; position: relative; z-index: 1; }
+.mi .sc { margin-left: auto; color: var(--l3); font: 400 12px/16px var(--font); }
+.msep { height: 8px; position: relative; } .msep::after { content: ""; position: absolute; left: 8px; right: -4px; top: 3.5px; height: 1px; background: var(--sep); }
+.mhead { height: 24px; padding: 0 8px; display: flex; align-items: center; font: 600 11px/16px var(--font); color: var(--l3); }
+.alert { width: 320px; border-radius: 24px; padding: 24px; background: var(--popover); box-shadow: var(--e4), 0 0 0 .5px var(--stroke); }
+.alert .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 24px; }
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { height: 32px; padding: 0 12px; text-align: left; font: 500 12px/16px var(--font); color: var(--l2); border-bottom: 1px solid var(--sep); }
+.tbl td { height: 40px; padding: 0 12px; } .tbl .num { text-align: right; }
+.tbl tr.sel td { background: var(--lens); } .tbl tr.sel td:first-child { border-radius: 8px 0 0 8px; } .tbl tr.sel td:last-child { border-radius: 0 8px 8px 0; }
+.side { width: 240px; padding: 8px; background: var(--sidebar); display: flex; flex-direction: column; position: relative; }
+.srow { height: 32px; border-radius: 8px; padding: 0 8px; display: flex; align-items: center; gap: 8px; position: relative; z-index: 1; }
+.srow svg { color: var(--l2); } .srow.on { font-weight: 600; } .srow.on svg { color: var(--acct); }
+.sgh { padding: 16px 8px 4px; font: 600 11px/16px var(--font); color: var(--l3); }
+.empty { width: 320px; display: flex; flex-direction: column; align-items: center; text-align: center; color: var(--l1); }
+.skel { background: var(--f1); position: relative; overflow: hidden; }
+.skel::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); transform: translateX(-100%); animation: shim 1.4s linear infinite; }
+.dark .skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent); }
+@keyframes shim { to { transform: translateX(100%); } }
+body.rm .skel::after, body.rm .bar4.ind > i { animation: none; }
+
+/* scales */
+.scale { display: flex; align-items: flex-end; gap: 16px; }
+.scale div { display: flex; flex-direction: column; align-items: center; gap: 8px; font: 500 11px/16px var(--font); color: var(--muted); }
+.scale i { display: block; background: rgba(81,71,229,.18); box-shadow: inset 0 0 0 1px rgba(81,71,229,.5); }
+.typ div { display: flex; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.typ small { width: 200px; font: 500 11px/16px var(--font); color: var(--muted); flex: none; }
+.sw { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.sw div { font: 500 11px/16px var(--font); color: var(--muted); }
+.sw i { display: block; height: 40px; border-radius: 8px; margin-bottom: 4px; box-shadow: 0 0 0 .5px rgba(128,128,128,.3); }
+.states { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+.st { display: flex; flex-direction: column; gap: 8px; }
+.st .srow { width: 100%; }
+canvas.plot { width: 100%; height: 120px; display: block; }
+.plots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-top: 24px; }
+.plots > div { border: 1px solid var(--rule); border-radius: 12px; padding: 12px; }
+
+/* redlines */
+.rl { position: absolute; pointer-events: none; z-index: 40; border-style: solid; border-color: rgba(255,0,128,.16); outline: 1px solid rgba(255,0,128,.7); }
+.rl > em { position: absolute; left: -1px; bottom: 100%; margin-bottom: 2px; font: 600 10px/14px var(--font); font-style: normal; color: #fff; background: #e0006c;
+  padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+
+/* Control Center v2 (9.16), scoped */
+.ccv2 .stage{border-radius:24px}
+.ccv2 .row3{display:flex;gap:24px;margin:16px 0 40px}
+.ccv2 .fr{display:flex;flex-direction:column;gap:8px}
+.ccv2 .fh b{font:600 15px/20px var(--font);margin-right:8px}
+.ccv2 .fh span{color:var(--muted);font:400 12px/16px var(--font)}
+.light .ccv2 .pill{background:var(--f3)}
+.ccv2 .pill>i{box-shadow:var(--e1)}
+.ccv2 .tile.edit::before,.ccv2 .isl-edit::before{content:"";position:absolute;left:-4px;top:-4px;width:16px;height:16px;border-radius:8px;background:var(--l2) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 8h8' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>");z-index:2}
+.ccv2 .isl-edit{position:relative}
+.ccv2 .pill.edit{position:relative;overflow:visible}
+.ccv2 .pill.edit::before{content:"";position:absolute;left:-4px;top:-4px;width:16px;height:16px;border-radius:8px;background:var(--l2) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 8h8' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>");z-index:2}
+.ccv2 .tile.add{opacity:.72;box-shadow:inset 0 0 0 1px var(--sep);background:transparent}
+.ccv2 .tile.add::after{content:"+";position:absolute;right:12px;top:18px;width:20px;height:20px;border-radius:10px;background:var(--acc);color:#fff;font:600 16px/20px var(--font);text-align:center}
+.ccv2 .tile.edit{animation:none}
+.light .ccv2 .pill{background:rgba(0,0,0,.20)}
+.light .ccv2 .pill>i{background:rgba(255,255,255,.94);box-shadow:none}
+.light .ccv2 .pill>svg{color:rgba(20,20,24,.62)}
+.light .ccv2 .pill>span{color:rgba(20,20,24,.62)}
+.ccv2 .dark .pill>i{box-shadow:none}
+.ccv2 .pill::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(0,0,0,.07);pointer-events:none}
+.ccv2 .pill>i{box-shadow:1px 0 0 rgba(0,0,0,.06)!important}
+</style></head>
+<body class="light">
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="wifi" viewBox="0 0 24 24"><path d="M12 18h.01M9.17 15.17a4 4 0 0 1 5.66 0M6.34 12.34a8 8 0 0 1 11.32 0M3.51 9.51a12 12 0 0 1 16.98 0"/></symbol>
+  <symbol id="bt" viewBox="0 0 24 24"><path d="M7 8l10 8-5 4V4l5 4-10 8"/></symbol>
+  <symbol id="moon" viewBox="0 0 24 24"><path d="M12 3h.39a7.5 7.5 0 0 0 7.92 12.45A9 9 0 1 1 12 3z"/></symbol>
+  <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M3 12h1m8-9v1m8 8h1m-9 8v1M5.6 5.6l.7.7m12.1-.7-.7.7m0 11.4.7.7m-12.1-.7-.7.7"/></symbol>
+  <symbol id="vol" viewBox="0 0 24 24"><path d="M15 8a5 5 0 0 1 0 8M6 15H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2l3.5-4.5A.8.8 0 0 1 11 5v14a.8.8 0 0 1-1.5.5z"/></symbol>
+  <symbol id="phone" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M11 4h2M12 17v.01"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M10 5a2 2 0 1 1 4 0 7 7 0 0 1 4 6v3a4 4 0 0 0 2 3H4a4 4 0 0 0 2-3v-3a7 7 0 0 1 4-6M9 17v1a3 3 0 0 0 6 0v-1"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="M21 21l-6-6"/></symbol>
+  <symbol id="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="chevd" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></symbol>
+  <symbol id="next" viewBox="0 0 24 24"><path d="M3 5v14l8-7zM14 5v14l8-7z"/></symbol>
+  <symbol id="prev" viewBox="0 0 24 24"><path d="M21 5v14l-8-7zM10 5v14l-8-7z"/></symbol>
+  <symbol id="x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2"/></symbol>
+  <symbol id="img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 16l5-5 5 5M14 14l2-2 5 5"/><circle cx="15.5" cy="8.5" r="1"/></symbol>
+  <symbol id="pal" viewBox="0 0 24 24"><path d="M12 21a9 9 0 0 1 0-18c4.97 0 9 3.58 9 8a4.5 4.5 0 0 1-4.5 4.5H14a2 2 0 0 0-1 3.75A1.3 1.3 0 0 1 12 21"/><circle cx="7.5" cy="10.5" r=".5"/><circle cx="12" cy="7.5" r=".5"/><circle cx="16.5" cy="10.5" r=".5"/></symbol>
+  <symbol id="disp" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M7 20h10M9 16v4M15 16v4"/></symbol>
+  <symbol id="kb" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
+  <symbol id="bat" viewBox="0 0 24 24"><path d="M6 7h11a2 2 0 0 1 2 2v.5a.5.5 0 0 0 .5.5.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5.5.5 0 0 0-.5.5v.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2"/><path d="M7 10v4M10 10v4"/></symbol>
+  <symbol id="sort" viewBox="0 0 24 24"><path d="M4 6h9M4 12h7M4 18h7M15 15l3 3 3-3M18 6v12"/></symbol>
+  <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="inbox" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 13h3l3 3h4l3-3h3"/></symbol>
+<symbol id="back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol><symbol id="lockc" viewBox="0 0 24 24"><rect x="6" y="11" width="12" height="9" rx="2"/><path d="M9 11V8a3 3 0 0 1 6 0v3"/></symbol><symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol><symbol id="pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4M13.5 6.5l4 4"/></symbol><symbol id="speaker" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2"/><circle cx="12" cy="14" r="3"/><path d="M12 7h.01"/></symbol><symbol id="gauge" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13l3-3M7 13h.01M17 13h.01M12 8h.01"/></symbol><symbol id="night" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/><path d="M17 4h4M19 2v4"/></symbol><symbol id="plane" viewBox="0 0 24 24"><path d="M16 10h4a2 2 0 0 1 0 4h-4l-4 7h-3l2-7H7l-2 2H2l2-4-2-4h3l2 2h4L9 3h3z"/></symbol><symbol id="mirror" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></symbol><symbol id="dnd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol></svg>
+
+<div class="shell">
+<nav id="nav">
+  <div class="brand"><b>Andromeda rulebook</b><span>Design language "The Lens"</span></div>
+  <div class="tg"><label><input type="checkbox" id="tDark"> Dark</label><label><input type="checkbox" id="tRL"> Redlines</label>
+    <label><input type="checkbox" id="tRM"> Reduce motion</label><label><input type="checkbox" id="tSlow"> Slow x4</label></div>
+  <input class="q" id="navq" placeholder="Search chapters   /">
+  <div class="list" id="navlist"><!--NAV--></div>
+</nav>
+<main>
+<!--COVER-->
+<section class="hero" id="hero">
+  <div class="eyebrow">The desktop, built only from these rules</div>
+  <div class="heropair">
+    <div class="comp light"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+    <div class="comp dark"><div class="stage" style="width:1120px;height:680px;border-radius:0">
+  <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px"><span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#9a8cff,#5147e5);box-shadow:none"></span><span class="hl">Settings</span></span>
+    <span class="ws" style="margin-left:12px"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+  <div class="island glass" style="position:absolute;left:480px;top:8px;width:160px;justify-content:center;gap:8px"><span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+  <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+  <div class="win" style="position:absolute;left:48px;top:72px;width:660px;height:500px;display:flex;flex-direction:column">
+    <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="display:flex;flex:1;min-height:0">
+      <div class="side">
+        <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="sgh">Look and feel</div>
+        <div class="srow on" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div><div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div>
+      </div>
+      <div style="flex:1;padding:24px">
+        <div class="t2" style="margin-bottom:16px">Appearance</div>
+        <div class="gcard">
+          <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:48px;padding:0 8px">Auto</span><span class="on" style="height:20px;min-width:48px;padding:0 8px;border-radius:10px;background:var(--lens);box-shadow:var(--e1)">Light</span><span style="height:20px;min-width:48px;padding:0 8px">Dark</span></span></div>
+          <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+          <div class="lrow"><span class="grow">Accent colour</span><span style="display:flex;gap:8px"><i style="width:16px;height:16px;border-radius:8px;background:#5147e5;box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--l3)"></i><i style="width:16px;height:16px;border-radius:8px;background:#2f7df6"></i><i style="width:16px;height:16px;border-radius:8px;background:#14a38b"></i><i style="width:16px;height:16px;border-radius:8px;background:#e8613c"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="sheet glass thick" style="position:absolute;right:8px;top:48px">
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+    <div class="tile"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+    <div class="tile on"><span class="ri"><svg class="i"><use href="#phone"/></svg></span><div class="tt"><div class="hl">Pixel 9</div><div class="fn lab2">Linked</div></div></div>
+    <div class="pill span2"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+    <div class="pill span2"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+    <div class="media span2"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+  </div>
+  <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)">
+    <span class="lens" style="position:absolute;left:116px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+    <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+    <span class="app" style="background:linear-gradient(135deg,#9a8cff,#5147e5)"></span><span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+    <span class="dot4" style="left:32px"></span><span class="dot4" style="left:88px"></span>
+  </div>
+</div></div>
+  </div>
+</section>
+<!--CH:0-->
+<!--CH:1-->
+<!--CH:2-->
+<!-- ============ FOUNDATIONS ============ -->
+<section class="demo">
+  <div class="eyebrow">2 · Foundations</div>
+  <h2>Scales</h2>
+  <div class="grid2">
+    <div class="panel"><h3>Space</h3><p class="note">2 only inside controls of 32 or less. Everything else is on the 4 grid (R1).</p>
+      <div class="scale" style="margin-top:16px" id="spaceScale"></div></div>
+    <div class="panel"><h3>Radius</h3><p class="note">Capsule = height / 2. Nested radius = outer radius - padding (R7).</p>
+      <div class="scale" style="margin-top:16px" id="radScale"></div></div>
+    <div class="panel"><h3>Heights</h3><p class="note">Controls 24 / 32 / 40 / 48. Rows 32 / 40 (one line), 48 / 56 (two lines). Padding follows: (height - line) / 2 (R2).</p>
+      <div class="scale" style="margin-top:16px" id="hScale"></div></div>
+    <div class="panel"><h3>Concentric (R7)</h3><p class="note">Sheet r 28, p 12 → tile r 16, p 8 → image r 8. The dock: r 24, inset 4 → lens r 20. The island: 32 capsule, inset 4 → 24 capsule.</p>
+      <div class="row-flex" style="margin-top:16px;align-items:flex-start">
+        <div style="padding:12px;border-radius:28px;background:var(--f2)" data-m="r 28 · p 12"><div style="padding:8px;border-radius:16px;background:var(--card);box-shadow:0 0 0 .5px var(--stroke)" data-m="r 16 · p 8"><div style="width:120px;height:56px;border-radius:8px;background:rgba(81,71,229,.18)" data-m="r 8"></div></div></div>
+        <div class="island" style="background:var(--f2);padding:0 4px" data-m="32 capsule · inset 4 → 24 capsule"><span class="ws"><span class="occ">1</span><span class="on" style="background:var(--lens);box-shadow:var(--e1)">2</span><span>3</span><span>4</span></span></div>
+      </div></div>
+  </div>
+  <div class="grid3">
+    <div class="panel"><h3>R5 End caps</h3><p class="note">Symbol end: inset = (h - symbol) / 2. Text end: h x 3/8 → 8, 12, 16, 20.</p>
+      <div class="row-flex" style="margin-top:16px">
+        <span class="btn s secondary" data-m="24 · p 8">Small</span><span class="btn m secondary" data-m="32 · p 12">Regular</span><span class="btn l secondary" data-m="40 · p 16">Large</span>
+        <span class="island sym" style="background:var(--f2)" data-m="symbol end 8"><svg class="i"><use href="#wifi"/></svg></span></div></div>
+    <div class="panel"><h3>R3 Proximity ladder</h3><p class="note">Inside a group 4 or 8. Between groups at least twice that. Padding ≥ the largest inside gap.</p>
+      <div class="row-flex" style="margin-top:16px;gap:12px"><span class="g8" style="display:flex;gap:8px" data-m="g 8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></div>
+      <p class="cap">Status symbols g 8; group to clock g 12.</p></div>
+    <div class="panel"><h3>R6 One edge</h3><p class="note">Header, row text and footnote share one line; symbols hang left of it.</p>
+      <div style="margin-top:16px;width:320px"><div class="shead">Header on the text line</div><div class="gcard"><div class="lrow"><span class="grow">Row text, 16 from the card edge</span></div></div><div class="sfoot">Footnote on the same line.</div></div></div>
+  </div>
+</section>
+
+<!--CH:3-->
+<section class="demo">
+  <div class="eyebrow">3 · Type</div>
+  <h2>Ten styles, three weights, lines on the 4 grid</h2>
+  <div class="typ" style="margin-top:16px" id="typeScale"></div>
+  <p class="cap">Tracking = -0.0223 + 0.185 e<sup>-0.1745 size</sup> (Inter dynamic metrics). On glass, body and footnote go +100 weight.</p>
+</section>
+
+<!--CH:4-->
+<section class="demo">
+  <div class="eyebrow">4 · Colour</div>
+  <h2>Roles, not colours</h2>
+  <div class="sw" style="margin-top:16px" id="swatches"></div>
+  <p class="cap">Hover moves one step up the fill ladder (none → fill_1 → fill_2 → fill_3). Accent fills only on-states, the focus ring and the lens symbol.</p>
+</section>
+
+<!--CH:5-->
+<section class="demo">
+  <div class="eyebrow">5 · Material and depth</div>
+  <h2>Four planes, four elevations</h2>
+  <div class="stage" style="height:240px;margin-top:24px;display:flex;align-items:center;justify-content:space-around">
+    <div style="text-align:center"><div style="width:120px;height:32px;border-radius:8px" class="lens"></div><p class="cap" style="color:var(--l1)"><b>E1</b> lens · 1 / 2</p></div>
+    <div style="text-align:center"><div style="width:160px;height:64px;border-radius:24px" class="glass"></div><p class="cap" style="color:var(--l1)"><b>E2</b> float · regular · 6 / 16</p></div>
+    <div style="text-align:center"><div style="width:160px;height:120px;border-radius:28px" class="glass thick"></div><p class="cap" style="color:var(--l1)"><b>E3</b> over · thick · 12 / 32</p></div>
+    <div style="text-align:center"><div style="width:200px;height:140px" class="win"><div class="tbar hl">Window</div></div><p class="cap" style="color:var(--l1)"><b>E4</b> window · solid · 24 / 64</p></div>
+  </div>
+</section>
+
+<!--CH:6-->
+<section class="demo">
+  <div class="eyebrow">6 · The lens</div>
+  <h2>One selection object, every state</h2>
+  <div class="states" style="margin-top:24px" id="lensStates"></div>
+</section>
+
+<!-- ============ MOTION ============ -->
+<!--CH:7-->
+<section class="demo">
+  <div class="eyebrow">7 · Motion</div>
+  <h2>Twelve springs</h2>
+  <p class="note">k = (2π / d)², z = 1 - b, mass 1. Each plot shows 0.8 s. Spatial springs (blue) may bounce; effect springs (grey) never do.</p>
+  <div class="plots" id="plots"></div>
+</section>
+
+<section class="demo">
+  <div class="eyebrow">7.6 P1 · P2 · P4 · P14</div>
+  <h2>Travel, press, toggle, content swap</h2>
+  <div class="grid4">
+    <div class="panel"><h3>P1 Lens travel</h3><p class="note">Leading edge on snap, trailing edge on trail: it stretches toward the target, then settles. Click rows fast.</p>
+      <div class="side" style="margin-top:16px;border-radius:12px" id="sideDemo">
+        <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+        <div class="srow"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div>
+        <div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div><div class="srow"><svg class="i"><use href="#kb"/></svg>Keyboard</div></div>
+      <div style="margin-top:16px"><span class="seg" id="segDemo"><span>Auto</span><span>Light</span><span>Dark</span></span></div></div>
+    <div class="panel"><h3>P2 Press</h3><p class="note">Hold the mouse. Down on press (0.12 s, no bounce), up on release (bounce 0.35). 0.96 up to 96 px, 0.98 up to 240 px.</p>
+      <div class="row-flex" style="margin-top:16px">
+        <span class="btn m primary pz">Connect</span><span class="ri pz on" style="width:32px;height:32px"><svg class="i"><use href="#wifi"/></svg></span></div>
+      <div class="tile pz" style="margin-top:16px;width:164px"><span class="ri on"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div></div>
+    <div class="panel"><h3>P4 Toggle</h3><p class="note">Knob travels on snap and widens by 6 while pressed; the track colour runs on fade.</p>
+      <div class="row-flex" style="margin-top:16px"><span class="tog" id="togDemo"><b></b><i></i></span><span class="tog" id="togDemo2"><b></b><i></i></span></div>
+      <h3 style="margin-top:24px">P14 Content swap</h3><p class="note">Only the changed digits move: out up 8 on fade_out, in from below on fade.</p>
+      <div class="row-flex" style="margin-top:12px"><span class="ib" id="vDown"><svg class="i"><use href="#minus"/></svg></span>
+        <span class="t2" id="roll" style="display:inline-flex;height:24px;overflow:hidden;min-width:56px;justify-content:center"></span>
+        <span class="ib" id="vUp"><svg class="i"><use href="#plus"/></svg></span></div></div>
+    <div class="panel"><h3>P13 List change</h3><p class="note">Insert: height grows on move, content fades in from 35 %. Remove: fade_out, then the gap closes on move.</p>
+      <div class="gcard" style="margin-top:16px" id="listDemo"></div>
+      <div class="btnbar"><button class="sbtn" id="listAdd">Insert row</button></div></div>
+  </div>
+</section>
+
+<section class="demo">
+  <div class="eyebrow">7.6 P5 · P6 · P7 · P8 · P9</div>
+  <h2>Grow from the island, morph in place</h2>
+  <p class="note">Click the right island (or drag down from it): the sheet grows out of it, keeps its right edge, and returns into it. Click the center island buttons to morph it. Click again during any motion: it turns around from its current velocity.</p>
+  <div class="stage" id="deskStage" style="height:560px;margin-top:24px">
+    <div class="island glass" style="position:absolute;left:8px;top:8px;padding:0 4px 0 8px" id="leftIsl">
+      <span class="g8"><span class="app" style="width:16px;height:16px;border-radius:4px;background:linear-gradient(135deg,#6cc3ff,#3d6cf0);box-shadow:none"></span><span class="hl">Files</span></span>
+      <span class="ws" id="wsDemo" style="margin-left:12px"><span class="occ">1</span><span class="occ">2</span><span>3</span><span>4</span></span>
+    </div>
+    <div id="center" class="glass" style="position:absolute;top:8px;overflow:hidden">
+      <div class="face" data-face="rest" style="width:160px;height:32px;display:flex;align-items:center;justify-content:center;gap:8px">
+        <span class="fn" style="font-weight:500">Mon 2 Nov</span><span style="width:1px;height:12px;background:var(--sep)"></span>
+        <span style="width:6px;height:6px;border-radius:3px;background:var(--warn)"></span><span class="cap11 lab2">3</span></div>
+      <div class="face" data-face="osd" style="width:240px;height:40px;display:flex;align-items:center;gap:12px;padding:0 12px">
+        <svg class="i"><use href="#vol"/></svg><span style="flex:1;height:4px;border-radius:2px;background:var(--f2);position:relative"><i style="position:absolute;inset:0 40% 0 0;border-radius:2px;background:var(--l1)"></i></span><span class="cap11" style="width:24px;text-align:right">60</span></div>
+      <div class="face" data-face="live" style="width:360px;height:56px;display:flex;align-items:center;gap:12px;padding:8px">
+        <span class="ri on" style="width:40px;height:40px;border-radius:20px"><svg class="i"><use href="#phone"/></svg></span>
+        <div class="tt" style="flex:1"><div class="hl">Mom</div><div class="fn lab2">Incoming call</div></div>
+        <span class="ri" style="width:40px;height:40px;border-radius:20px;background:var(--danger);color:#fff"><svg class="i"><use href="#x"/></svg></span>
+        <span class="ri" style="width:40px;height:40px;border-radius:20px;background:var(--ok);color:#fff;margin-left:-4px"><svg class="i"><use href="#phone"/></svg></span></div>
+      <div class="face" data-face="banner" style="width:360px;height:88px;display:flex;gap:12px;padding:12px">
+        <span class="app" style="width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#7ee0a1,#2b9e63);flex:none"></span>
+        <div class="tt" style="flex:1"><div style="display:flex"><span class="cap11 lab2">Messages</span><span class="cap11 lab3" style="margin-left:auto">now</span></div>
+          <div class="hl">Anna</div><div class="fn lab2" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">Are we still on for 7? I booked the place by the river, the one with the long tables.</div></div></div>
+    </div>
+    <div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 12px;cursor:pointer" id="rightIsl">
+      <span class="g12" id="rightFace" style="margin-left:-4px"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">14:05</span></span></div>
+    <div id="sheetShape" class="glass thick" style="position:absolute;display:none;overflow:hidden">
+      <div class="sheet" id="sheetContent" style="position:absolute;right:0;top:0;transform-origin:100% 0">
+        <div class="tile on st0"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div></div>
+        <div class="tile on st0"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div></div>
+        <div class="tile st0"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt"><div class="hl">Focus</div><div class="fn lab2">Off</div></div></div>
+        <div class="tile st0"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt"><div class="hl">Dark Mode</div><div class="fn lab2">Off</div></div></div>
+        <div class="pill span2 st0"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div>
+        <div class="pill span2 st0"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">Speakers</span></div>
+        <div class="media span2 st0"><span class="art"></span><div class="tt"><div class="hl">Holocene</div><div class="fn lab2">Bon Iver</div></div>
+          <div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div>
+      </div>
+    </div>
+    <div id="stack" style="position:absolute;left:0;top:0"></div>
+    <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)" id="dockDemo">
+      <span class="lens" style="position:absolute;left:4px;top:4px;width:56px;height:56px;border-radius:20px"></span>
+      <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="dot4" style="left:88px"></span><span class="dot4" style="left:200px"></span>
+      <span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"><span class="badge">3</span></span>
+      <span class="app" style="background:linear-gradient(135deg,#7ee0a1,#2b9e63)"></span>
+      <span class="app" style="background:linear-gradient(135deg,#c3a6ff,#7b5cf0)"></span>
+    </div>
+  </div>
+  <div class="btnbar"><button class="sbtn" data-cs="rest">Rest</button><button class="sbtn" data-cs="osd">OSD</button><button class="sbtn" data-cs="live">Live activity</button>
+    <button class="sbtn" data-cs="banner">Banner</button><button class="sbtn" id="pushBanner">P8 Stack a banner</button><button class="sbtn" id="sheetToggle">P5 Sheet</button></div>
+</section>
+
+<section class="demo">
+  <div class="eyebrow">7.6 P10 · P11 · P12 · P15 · P16</div>
+  <h2>Menus, dialogs, pages, windows</h2>
+  <div class="grid2">
+    <div class="panel"><h3>P10 Menu from its button · P12 Pages</h3><p class="note">The menu grows from the button corner (or the pointer: right-click the area). The current item is the lens. Drag the pages: 1:1, rubber band at the ends, release projects and settles on page with your velocity.</p>
+      <div class="stage" id="menuStage" style="height:320px;margin-top:16px">
+        <button class="btn m secondary" id="menuBtn" style="position:absolute;left:24px;top:24px"><svg class="i"><use href="#sort"/></svg>Sort</button>
+        <div id="pager" style="position:absolute;right:24px;top:24px;width:320px;height:176px;border-radius:16px;overflow:hidden;touch-action:none" class="glass">
+          <div id="pages" style="display:flex;gap:32px;height:100%"></div>
+        </div>
+        <div id="pdots" style="position:absolute;right:24px;top:208px;width:320px;display:flex;justify-content:center;gap:6px"></div>
+      </div></div>
+    <div class="panel"><h3>P15 Window from its dock icon · P16 minimize, close · P11 dialog</h3><p class="note">Click a dock icon: the window grows out of it. Minimize returns into the icon; close shrinks to 0.96 and fades. "Delete" opens an alert from the button.</p>
+      <div class="stage" id="winStage" style="height:320px;margin-top:16px">
+        <div class="dock glass" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%)" id="wdock">
+          <span class="app" style="background:linear-gradient(135deg,#6cc3ff,#3d6cf0)"></span><span class="app" style="background:linear-gradient(135deg,#ffb36b,#f0603d)"></span></div>
+      </div></div>
+  </div>
+</section>
+
+<!--CH:8-->
+<!--CH:9-->
+<section class="demo">
+  <div class="eyebrow">9 · Components</div>
+  <h2>Controls</h2>
+  <div class="grid3">
+    <div class="panel"><h3>Buttons</h3><p class="note">Actions are capsules. One primary per surface, last in the row.</p>
+      <div class="row-flex" style="margin-top:16px;gap:8px"><span class="btn l primary" data-m="40 · p 16">Continue</span><span class="btn m primary" data-m="32 · p 12">Connect</span><span class="btn s primary" data-m="24 · p 8">Join</span></div>
+      <div class="row-flex" style="margin-top:12px;gap:8px"><span class="btn m secondary">Cancel</span><span class="btn m plain">Learn More</span><span class="btn m destructive">Delete</span></div>
+      <div class="row-flex" style="margin-top:12px;gap:8px"><span class="ib" data-m="32 circle"><svg class="i"><use href="#search"/></svg></span><span class="ib s" data-m="24"><svg class="i i12"><use href="#x"/></svg></span>
+        <span class="btn m secondary"><svg class="i"><use href="#plus"/></svg>Add Device</span></div></div>
+    <div class="panel"><h3>Fields</h3><p class="note">Values are rounded rectangles, r 8 at 32.</p>
+      <div class="field" style="margin-top:16px" data-m="32 · r 8 · p 12">Name</div>
+      <div class="field search focus" style="margin-top:12px" data-m="symbol inset 8"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+      <div class="field popup" style="margin-top:12px"><span>Automatic</span><svg class="i i12" style="color:var(--l3)"><use href="#chevd"/></svg></div></div>
+    <div class="panel"><h3>Choice</h3>
+      <div class="row-flex" style="margin-top:16px"><span class="seg" id="segDemo2"><span>Day</span><span>Week</span><span>Month</span></span></div>
+      <div class="row-flex" style="margin-top:16px"><span class="tog" id="togDemo3"><b></b><i></i></span>
+        <span class="row-flex" style="gap:8px"><span class="chk on"><svg class="i i12"><use href="#check"/></svg></span>Checked</span>
+        <span class="row-flex" style="gap:8px"><span class="chk"></span>Off</span>
+        <span class="row-flex" style="gap:8px"><span class="rad on"></span>Radio</span></div>
+      <div class="rng" style="margin-top:16px"><s></s><u></u><b></b></div></div>
+    <div class="panel"><h3>Indicators</h3>
+      <div class="bar4" style="margin-top:16px"><i></i></div><div class="bar4 ind" style="margin-top:12px"><i></i></div>
+      <div class="row-flex" style="margin-top:16px">
+        <svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.75" fill="none" stroke="var(--f2)" stroke-width="2.5"/><circle cx="12" cy="12" r="10.75" fill="none" stroke="var(--acc)" stroke-width="2.5" stroke-dasharray="45 100" stroke-linecap="round" transform="rotate(-90 12 12)"/></svg>
+        <svg class="spin" width="24" height="24" viewBox="0 0 24 24"><path d="M12 1.25A10.75 10.75 0 1 1 1.25 12" fill="none" stroke="var(--l2)" stroke-width="2.5" stroke-linecap="round"/></svg>
+        <span class="cnt">12</span><span class="chip">Work<svg class="i i12"><use href="#x"/></svg></span><span class="kc">⌘ K</span>
+        <span class="av" style="width:32px;height:32px">AK</span></div></div>
+    <div class="panel"><h3>Tooltip · toast</h3>
+      <div class="stage" style="height:120px;margin-top:16px;display:flex;align-items:center;justify-content:space-around">
+        <span class="tip glass thick fn" data-m="24 · r 8 · p 4/8">Bluetooth settings</span>
+        <span class="island glass thick" style="height:40px;border-radius:20px;padding:0 16px 0 12px;gap:8px" data-m="40 · symbol inset 12"><svg class="i" style="color:var(--ok)"><use href="#check"/></svg><span>Copied</span></span></div></div>
+    <div class="panel"><h3>Menu</h3><p class="note">r 12, p 4, items 28 with r 8 (12 - 4); text sits 12 from the edge.</p>
+      <div class="stage" style="height:248px;margin-top:16px;padding:16px">
+        <div class="menu glass thick" id="menuStatic" data-m="r 12 · p 4">
+          <div class="mhead">Sort by</div>
+          <div class="mi"><span style="width:16px"><svg class="i i12" style="color:var(--acct);margin:2px"><use href="#check"/></svg></span>Name<span class="sc">⌘1</span></div>
+          <div class="mi"><span style="width:16px"></span>Date Modified<span class="sc">⌘2</span></div>
+          <div class="mi"><span style="width:16px"></span>Size<span class="sc">⌘3</span></div>
+          <div class="msep"></div>
+          <div class="mi"><span style="width:16px"></span>Show Hidden Files</div>
+          <div class="mi" style="color:var(--dangert)"><span style="width:16px"></span>Move to Trash</div>
+        </div></div></div>
+  </div>
+</section>
+
+<section class="demo">
+  <div class="eyebrow">9.7 · 9.10 · 9.12 · 9.13</div>
+  <h2>Lists, windows, dialogs, states</h2>
+  <div class="grid2">
+    <div class="win" style="height:560px;display:flex;flex-direction:column">
+      <div class="tbar hl">Settings<div class="wbtns"><span><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span class="x"><svg class="i i12"><use href="#x"/></svg></span></div></div>
+      <div style="display:flex;flex:1;min-height:0">
+        <div class="side" id="sideDemo2" data-m="w 240 · p 8">
+          <div class="field search" style="width:100%;margin-bottom:8px"><svg class="i"><use href="#search"/></svg>Search<span class="kc">/</span></div>
+          <div class="srow"><svg class="i"><use href="#wifi"/></svg>Wi-Fi</div><div class="srow"><svg class="i"><use href="#bt"/></svg>Bluetooth</div>
+          <div class="sgh">Look and feel</div>
+          <div class="srow"><svg class="i"><use href="#pal"/></svg>Appearance</div><div class="srow"><svg class="i"><use href="#img"/></svg>Wallpaper</div>
+          <div class="srow"><svg class="i"><use href="#disp"/></svg>Displays</div><div class="srow"><svg class="i"><use href="#bell"/></svg>Notifications</div>
+          <div class="sgh">System</div><div class="srow"><svg class="i"><use href="#kb"/></svg>Keyboard</div><div class="srow"><svg class="i"><use href="#lock"/></svg>Privacy</div>
+        </div>
+        <div style="flex:1;padding:24px;overflow:hidden" data-m="page p 24">
+          <div class="t2" style="margin-bottom:16px">Appearance</div>
+          <div class="shead">Mode</div>
+          <div class="gcard" data-m="r 12 · p 4">
+            <div class="lrow"><span class="grow">Appearance</span><span class="seg" style="height:24px"><span style="height:20px;min-width:56px;padding:0 8px">Auto</span><span class="on lens" style="height:20px;min-width:56px;padding:0 8px;border-radius:10px;z-index:1">Light</span><span style="height:20px;min-width:56px;padding:0 8px">Dark</span></span></div>
+            <div class="lrow"><span class="grow">Reduce transparency</span><span class="tog"><b></b><i></i></span></div>
+            <div class="lrow two" data-m="56 · p 12"><span class="av" style="width:32px;height:32px;background:linear-gradient(135deg,#f0a77d,#8a8cff)"></span><div class="grow"><div>Accent colour</div><div class="fn lab2">Indigo</div></div><svg class="i i12" style="color:var(--l3)"><use href="#chev"/></svg></div>
+          </div>
+          <div class="sfoot">Apps that follow the system use these colours.</div>
+          <div class="shead" style="margin-top:24px">Files</div>
+          <div class="gcard" style="padding:4px 4px"><table class="tbl"><tr><th>Name</th><th>Kind</th><th class="num" style="text-align:right">Size</th></tr>
+            <tr><td><span class="row-flex" style="gap:8px"><svg class="i" style="color:var(--l2)"><use href="#folder"/></svg>Projects</span></td><td class="lab2">Folder</td><td class="num lab2">—</td></tr>
+            <tr class="sel"><td><span class="row-flex" style="gap:8px"><svg class="i" style="color:var(--acct)"><use href="#img"/></svg>wallpaper.png</span></td><td class="lab2">Image</td><td class="num lab2">4.2 MB</td></tr>
+            <tr><td><span class="row-flex" style="gap:8px"><svg class="i" style="color:var(--l2)"><use href="#copy"/></svg>notes.txt</span></td><td class="lab2">Text</td><td class="num lab2">12 KB</td></tr></table></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div class="stage" style="height:248px;display:flex;align-items:center;justify-content:center">
+        <div class="alert" data-m="w 320 · r 24 · p 24"><div class="t3">Delete “wallpaper.png”?</div><p style="margin-top:8px;line-height:20px;color:var(--l2)">You can’t undo this action. The file is removed from all your devices.</p>
+          <div class="btns"><span class="btn m secondary">Cancel</span><span class="btn m destructive">Delete</span></div></div></div>
+      <div class="grid3" style="margin-top:0;gap:16px">
+        <div class="panel" style="display:flex;justify-content:center"><div class="empty" style="width:auto"><svg class="i i48" style="color:var(--l3)"><use href="#inbox"/></svg>
+          <div class="t3" style="margin-top:16px">No notifications</div><p class="lab2" style="margin-top:4px;line-height:20px">New ones show up here.</p></div></div>
+        <div class="panel"><div class="skel" style="height:16px;width:60%;border-radius:4px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:12px"></div><div class="skel" style="height:40px;border-radius:8px;margin-top:8px"></div>
+          <p class="cap">Loading: skeleton after 200 ms.</p></div>
+        <div class="panel"><div class="row-flex" style="gap:8px;align-items:flex-start"><svg class="i" style="color:var(--dangert)"><use href="#alert"/></svg><span class="fn" style="flex:1">Couldn’t reach the update server.</span></div>
+          <span class="btn s plain" style="margin-top:8px;color:var(--acct)">Try Again</span><p class="cap">Error: inline, where it happened.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="demo ccv2">
+  <div class="eyebrow">9.16</div>
+  <h2>Control center v2</h2>
+  <p class="cap">One sheet from the right island: pages of tiles with dots, detail pages that slide in, edit mode with a gallery, Apple-style sliders. Light and dark.</p>
+<div class="row3"><div class="fr"><div class="fh"><b>1 · Page 1</b><span>dots under the grid show the pages</span></div><div class="stage light" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;"><div class="span2" style="overflow:hidden"><div style="display:flex;gap:12px;transform:translateX(0px)">
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt" style="flex:1"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt" style="flex:1"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt" style="flex:1"><div class="hl">Focus</div><div class="fn lab2">Off</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt" style="flex:1"><div class="hl">Dark Mode</div><div class="fn lab2">On</div></div></div></div>
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#night"/></svg></span><div class="tt" style="flex:1"><div class="hl">Night Light</div><div class="fn lab2">Until 7:00</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#plane"/></svg></span><div class="tt" style="flex:1"><div class="hl">Airplane</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#dnd"/></svg></span><div class="tt" style="flex:1"><div class="hl">Caffeine</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#mirror"/></svg></span><div class="tt" style="flex:1"><div class="hl">Cast Screen</div><div class="fn lab2"></div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div></div></div></div>
+<div class="span2" style="height:16px;display:flex;justify-content:center;align-items:center;gap:6px"><span style="width:16px;height:6px;border-radius:3px;background:var(--l1)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--l3)"></span></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">40%</span></div><span class="outbtn" style="width:48px;height:48px;border-radius:16px;background:var(--f2);display:grid;place-items:center;flex:none"><svg class="i"><use href="#speaker"/></svg></span></div><div class="media span2"><span class="art"></span><div class="tt" style="flex:1"><div class="hl">Black Catcher</div><div class="fn lab2">VK Blanka</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div><div class="tile span2"><span class="ri on"><svg class="i"><use href="#phone"/></svg></span><div class="tt" style="flex:1"><div class="hl">OnePlus 12</div><div class="fn lab2">Linked · 26%</div></div><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#bell"/></svg></span><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#mirror"/></svg></span></div><div class="span2" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 4px 0 12px"><svg class="i" style="color:var(--l2)"><use href="#bat"/></svg><span class="fn lab2" style="flex:1">99% · Charging</span><span class="btn s secondary"><svg class="i i12"><use href="#gauge"/></svg>Performance</span><span class="ib"><svg class="i"><use href="#pen"/></svg></span><span class="ib"><svg class="i"><use href="#gear"/></svg></span></div></div></div></div><div class="fr"><div class="fh"><b>2 · Mid-swipe</b><span>the grid follows the finger 1:1; sliders, media, phone stay</span></div><div class="stage light" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;"><div class="span2" style="overflow:hidden"><div style="display:flex;gap:12px;transform:translateX(-150px)">
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt" style="flex:1"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt" style="flex:1"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt" style="flex:1"><div class="hl">Focus</div><div class="fn lab2">Off</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt" style="flex:1"><div class="hl">Dark Mode</div><div class="fn lab2">On</div></div></div></div>
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#night"/></svg></span><div class="tt" style="flex:1"><div class="hl">Night Light</div><div class="fn lab2">Until 7:00</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#plane"/></svg></span><div class="tt" style="flex:1"><div class="hl">Airplane</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#dnd"/></svg></span><div class="tt" style="flex:1"><div class="hl">Caffeine</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#mirror"/></svg></span><div class="tt" style="flex:1"><div class="hl">Cast Screen</div><div class="fn lab2"></div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div></div></div></div>
+<div class="span2" style="height:16px;display:flex;justify-content:center;align-items:center;gap:6px"><span style="width:16px;height:6px;border-radius:3px;background:var(--l1)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--l3)"></span></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">40%</span></div><span class="outbtn" style="width:48px;height:48px;border-radius:16px;background:var(--f2);display:grid;place-items:center;flex:none"><svg class="i"><use href="#speaker"/></svg></span></div><div class="media span2"><span class="art"></span><div class="tt" style="flex:1"><div class="hl">Black Catcher</div><div class="fn lab2">VK Blanka</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div><div class="tile span2"><span class="ri on"><svg class="i"><use href="#phone"/></svg></span><div class="tt" style="flex:1"><div class="hl">OnePlus 12</div><div class="fn lab2">Linked · 26%</div></div><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#bell"/></svg></span><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#mirror"/></svg></span></div><div class="span2" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 4px 0 12px"><svg class="i" style="color:var(--l2)"><use href="#bat"/></svg><span class="fn lab2" style="flex:1">99% · Charging</span><span class="btn s secondary"><svg class="i i12"><use href="#gauge"/></svg>Performance</span><span class="ib"><svg class="i"><use href="#pen"/></svg></span><span class="ib"><svg class="i"><use href="#gear"/></svg></span></div></div></div></div><div class="fr"><div class="fh"><b>3 · Page 2</b><span>more controls; release settles on the page spring</span></div><div class="stage light" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;"><div class="span2" style="overflow:hidden"><div style="display:flex;gap:12px;transform:translateX(-348px)">
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt" style="flex:1"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt" style="flex:1"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt" style="flex:1"><div class="hl">Focus</div><div class="fn lab2">Off</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt" style="flex:1"><div class="hl">Dark Mode</div><div class="fn lab2">On</div></div></div></div>
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#night"/></svg></span><div class="tt" style="flex:1"><div class="hl">Night Light</div><div class="fn lab2">Until 7:00</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#plane"/></svg></span><div class="tt" style="flex:1"><div class="hl">Airplane</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#dnd"/></svg></span><div class="tt" style="flex:1"><div class="hl">Caffeine</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#mirror"/></svg></span><div class="tt" style="flex:1"><div class="hl">Cast Screen</div><div class="fn lab2"></div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div></div></div></div>
+<div class="span2" style="height:16px;display:flex;justify-content:center;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:3px;background:var(--l3)"></span><span style="width:16px;height:6px;border-radius:3px;background:var(--l1)"></span></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">40%</span></div><span class="outbtn" style="width:48px;height:48px;border-radius:16px;background:var(--f2);display:grid;place-items:center;flex:none"><svg class="i"><use href="#speaker"/></svg></span></div><div class="media span2"><span class="art"></span><div class="tt" style="flex:1"><div class="hl">Black Catcher</div><div class="fn lab2">VK Blanka</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div><div class="tile span2"><span class="ri on"><svg class="i"><use href="#phone"/></svg></span><div class="tt" style="flex:1"><div class="hl">OnePlus 12</div><div class="fn lab2">Linked · 26%</div></div><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#bell"/></svg></span><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#mirror"/></svg></span></div><div class="span2" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 4px 0 12px"><svg class="i" style="color:var(--l2)"><use href="#bat"/></svg><span class="fn lab2" style="flex:1">99% · Charging</span><span class="btn s secondary"><svg class="i i12"><use href="#gauge"/></svg>Performance</span><span class="ib"><svg class="i"><use href="#pen"/></svg></span><span class="ib"><svg class="i"><use href="#gear"/></svg></span></div></div></div></div></div><div class="row3"><div class="fr"><div class="fh"><b>4 · Wi-Fi detail</b><span>the chevron opens the page inside the sheet; back returns</span></div><div class="stage light" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;display:block">
+<div style="display:flex;align-items:center;gap:8px;height:48px;padding:0 4px"><span class="ib"><svg class="i"><use href="#back"/></svg></span><span class="t3" style="flex:1">Wi-Fi</span><span class="tog"><b style="opacity:1"></b><i style="left:18px"></i></span></div>
+<div class="fn lab2" style="padding:8px 16px 8px;font-weight:600">Connected</div>
+<div class="gcard" style="background:var(--f1);box-shadow:none"><div class="lrow" style="background:var(--lens);box-shadow:var(--e1)"><svg class="i" style="color:var(--acct)"><use href="#wifi"/></svg><span class="grow" style="font-weight:600">Home 5G</span><span class="fn lab2">Connected</span><svg class="i i12" style="color:var(--l3)"><use href="#lockc"/></svg></div></div>
+<div class="fn lab2" style="padding:16px 16px 8px;font-weight:600">Other networks</div>
+<div class="gcard" style="background:var(--f1);box-shadow:none"><div class="lrow" style=""><svg class="i" style="color:var(--l2)"><use href="#wifi"/></svg><span class="grow" style="">Office</span><span class="fn lab2"></span><svg class="i i12" style="color:var(--l3)"><use href="#lockc"/></svg></div><div class="lrow" style=""><svg class="i" style="color:var(--l2)"><use href="#wifi"/></svg><span class="grow" style="">Pixel 9 Hotspot</span><span class="fn lab2"></span><svg class="i i12" style="color:var(--l3)"><use href="#lockc"/></svg></div><div class="lrow" style=""><svg class="i" style="color:var(--l2)"><use href="#wifi"/></svg><span class="grow" style="">Cafe Guest</span><span class="fn lab2">Open</span></div><div class="lrow" style=""><svg class="i" style="color:var(--l2)"><use href="#wifi"/></svg><span class="grow" style="">Neighbour</span><span class="fn lab2"></span><svg class="i i12" style="color:var(--l3)"><use href="#lockc"/></svg></div></div>
+<div style="display:flex;justify-content:space-between;padding:12px 4px 0"><span class="btn s plain">Other Network…</span><span class="btn s plain">Wi-Fi Settings…</span></div></div></div></div><div class="fr"><div class="fh"><b>5 · Edit</b><span>remove, drag to reorder across pages, add from the gallery</span></div><div class="stage light" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;"><div class="span2" style="display:flex;align-items:center;height:32px;padding:0 4px"><span class="t3" style="flex:1">Edit Controls</span><span class="btn s primary">Done</span></div><div class="tile edit on" style="position:relative"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt" style="flex:1"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile edit on" style="position:relative"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt" style="flex:1"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile edit" style="position:relative"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt" style="flex:1"><div class="hl">Focus</div><div class="fn lab2">Off</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile edit on" style="position:relative"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt" style="flex:1"><div class="hl">Dark Mode</div><div class="fn lab2">On</div></div></div><div class="tile edit" style="position:relative"><span class="ri"><svg class="i"><use href="#night"/></svg></span><div class="tt" style="flex:1"><div class="hl">Night Light</div><div class="fn lab2">Until 7:00</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile edit" style="position:relative"><span class="ri"><svg class="i"><use href="#plane"/></svg></span><div class="tt" style="flex:1"><div class="hl">Airplane</div><div class="fn lab2">Off</div></div></div><div class="span2 fn lab2" style="padding:8px 4px 0;font-weight:600">Add controls</div><div class="tile add" style="position:relative"><span class="ri"><svg class="i"><use href="#dnd"/></svg></span><div class="tt" style="flex:1"><div class="hl">Caffeine</div><div class="fn lab2">Off</div></div></div><div class="tile add" style="position:relative"><span class="ri"><svg class="i"><use href="#mirror"/></svg></span><div class="tt" style="flex:1"><div class="hl">Cast Screen</div><div class="fn lab2"></div></div></div><div class="span2 fn lab3" style="padding:0 4px">Drag to reorder. Page 2 starts after the fourth control.</div></div></div></div><div class="fr"><div class="fh"><b>6 · Dark</b><span>same sheet, dark scheme</span></div><div class="stage dark" style="width:400px;height:600px"><div class="island glass" style="position:absolute;right:8px;top:8px;padding:0 12px 0 8px;background:var(--thick)"><span class="g12"><span class="g8"><svg class="i"><use href="#wifi"/></svg><svg class="i"><use href="#vol"/></svg><svg class="i"><use href="#bat"/></svg></span><span class="hl">12:39</span></span></div><div class="sheet glass thick" style="position:absolute;right:8px;top:48px;"><div class="span2" style="overflow:hidden"><div style="display:flex;gap:12px;transform:translateX(0px)">
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#wifi"/></svg></span><div class="tt" style="flex:1"><div class="hl">Wi-Fi</div><div class="fn lab2">Home 5G</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#bt"/></svg></span><div class="tt" style="flex:1"><div class="hl">Bluetooth</div><div class="fn lab2">2 devices</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#moon"/></svg></span><div class="tt" style="flex:1"><div class="hl">Focus</div><div class="fn lab2">Off</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile on" style="position:relative"><span class="ri"><svg class="i"><use href="#sun"/></svg></span><div class="tt" style="flex:1"><div class="hl">Dark Mode</div><div class="fn lab2">On</div></div></div></div>
+<div style="flex:none;width:336px;display:grid;grid-template-columns:164px 164px;gap:8px"><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#night"/></svg></span><div class="tt" style="flex:1"><div class="hl">Night Light</div><div class="fn lab2">Until 7:00</div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#plane"/></svg></span><div class="tt" style="flex:1"><div class="hl">Airplane</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#dnd"/></svg></span><div class="tt" style="flex:1"><div class="hl">Caffeine</div><div class="fn lab2">Off</div></div></div><div class="tile" style="position:relative"><span class="ri"><svg class="i"><use href="#mirror"/></svg></span><div class="tt" style="flex:1"><div class="hl">Cast Screen</div><div class="fn lab2"></div></div><svg class="i i12" style="color:var(--l3);flex:none"><use href="#chev"/></svg></div></div></div></div>
+<div class="span2" style="height:16px;display:flex;justify-content:center;align-items:center;gap:6px"><span style="width:16px;height:6px;border-radius:3px;background:var(--l1)"></span><span style="width:6px;height:6px;border-radius:3px;background:var(--l3)"></span></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:64%"></i><svg class="i"><use href="#sun"/></svg><span class="fn">64%</span></div></div><div class="span2" style="display:flex;gap:8px"><div class="pill" style="flex:1"><i style="width:40%"></i><svg class="i"><use href="#vol"/></svg><span class="fn">40%</span></div><span class="outbtn" style="width:48px;height:48px;border-radius:16px;background:var(--f2);display:grid;place-items:center;flex:none"><svg class="i"><use href="#speaker"/></svg></span></div><div class="media span2"><span class="art"></span><div class="tt" style="flex:1"><div class="hl">Black Catcher</div><div class="fn lab2">VK Blanka</div></div><div class="ctl"><span class="cb"><svg class="i"><use href="#prev"/></svg></span><span class="cb"><svg class="i"><use href="#play"/></svg></span><span class="cb"><svg class="i"><use href="#next"/></svg></span></div></div><div class="tile span2"><span class="ri on"><svg class="i"><use href="#phone"/></svg></span><div class="tt" style="flex:1"><div class="hl">OnePlus 12</div><div class="fn lab2">Linked · 26%</div></div><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#bell"/></svg></span><span class="ri" style="background:var(--f2)"><svg class="i"><use href="#mirror"/></svg></span></div><div class="span2" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 4px 0 12px"><svg class="i" style="color:var(--l2)"><use href="#bat"/></svg><span class="fn lab2" style="flex:1">99% · Charging</span><span class="btn s secondary"><svg class="i i12"><use href="#gauge"/></svg>Performance</span><span class="ib"><svg class="i"><use href="#pen"/></svg></span><span class="ib"><svg class="i"><use href="#gear"/></svg></span></div></div></div></div></div>
+</section>
+<!--CH:10-->
+<!--CH:11-->
+<!--CH:12-->
+<!--CH:13-->
+<!--CH:14-->
+<!--CH:15-->
+<!--CH:D-->
+</main>
+</div>
+<script>
+/* ---------- Spring engine (rulebook 7.2) ---------- */
+const SP = { snap:[.26,.15], trail:[.34,.20], move:[.35,.10], open:[.42,.22], close:[.28,0], morph:[.46,.18], collapse:[.42,.20],
+  page:[.32,.05], press:[.12,0], release:[.32,.25], fade:[.16,0], fade_out:[.10,0] };
+const EFFECT = new Set(['fade','fade_out']);
+const opt = { rm:false, slow:false, still: location.hash.includes('still') };
+function kz(n){ const [d,b] = SP[n]; const k = (2*Math.PI/d)**2; return { k, c: 2*(1-b)*Math.sqrt(k) }; }
+const active = new Set(); let last = 0, raf = 0;
+class Spring {
+  constructor(x, eps = .5, on){ this.x = x; this.v = 0; this.t = x; this.eps = eps; this.p = kz('move'); this.on = on; this.done = null; }
+  to(t, name, v){
+    this.t = t; this.name = name; if (v !== undefined) this.v = v;
+    if (opt.still || (opt.rm && !EFFECT.has(name))) { this.set(t); return this; }
+    this.p = kz(opt.rm ? 'fade' : name); active.add(this); kick(); return this;
+  }
+  set(x){ this.x = this.t = x; this.v = 0; active.delete(this); this.on && this.on(this.x); const d = this.done; this.done = null; d && d(); return this; }
+  step(dt){
+    const n = Math.max(1, Math.ceil(dt / .002)), h = dt / n;
+    for (let i = 0; i < n; i++) { const a = -this.p.k*(this.x - this.t) - this.p.c*this.v; this.v += a*h; this.x += this.v*h; }
+    if (Math.abs(this.x - this.t) < this.eps && Math.abs(this.v) < this.eps*62.5) { this.set(this.t); return; }
+    this.on && this.on(this.x);
+  }
+}
+function kick(){ if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
+function frame(now){
+  let dt = Math.min(.05, (now - last) / 1000); last = now; if (opt.slow) dt /= 4;
+  for (const s of [...active]) s.step(dt);
+  tickers.forEach(f => f());
+  raf = active.size ? requestAnimationFrame(frame) : 0;
+}
+const tickers = [];
+const lerp = (a, b, t) => a + (b - a) * t, clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+
+/* ---------- Static builders ---------- */
+$('#spaceScale').innerHTML = [2,4,8,12,16,20,24,32,40,48,64].map(v => `<div><i style="width:${v}px;height:${v}px"></i>${v}</div>`).join('');
+$('#radScale').innerHTML = [4,8,12,16,20,24,28].map(v => `<div><i style="width:56px;height:56px;border-radius:${v}px"></i>${v}</div>`).join('') + `<div><i style="width:72px;height:32px;border-radius:16px"></i>capsule</div>`;
+$('#hScale').innerHTML = [[24,'S'],[32,'M'],[40,'L'],[48,'XL'],[32,'row c'],[40,'row'],[48,'2-line c'],[56,'2-line']].map(([v,n]) => `<div><i style="width:48px;height:${v}px;border-radius:8px"></i>${v} ${n}</div>`).join('');
+const TYPES = [['caption',11,16,500],['footnote',12,16,400],['body',13,16,400],['headline',13,16,600],['title-3',15,20,600],['title-2',17,24,600],['title-1',22,28,600],['large',28,32,600],['display',34,40,500],['hero',80,80,300]];
+const track = s => (-0.0223 + 0.185*Math.exp(-0.1745*s));
+$('#typeScale').innerHTML = TYPES.map(([n,s,l,w]) => `<div><small>${n} · ${s} / ${l} · ${w} · ${(track(s)*100).toFixed(1)} %</small><span style="font:${w} ${s}px/${l}px var(--font);letter-spacing:${track(s).toFixed(4)}em;background:rgba(81,71,229,.08)">${n === 'hero' ? '14:05' : 'Wi-Fi joins Home 5G'}</span></div>`).join('');
+const ROLES = ['l1:label_1','l2:label_2','l3:label_3','f1:fill_1','f2:fill_2','f3:fill_3','sep:separator','acc:accent','acct:accent_text','danger:danger','dangert:danger_text','warn:warning','ok:success','reg:glass regular','thick:glass thick'];
+$('#swatches').innerHTML = ROLES.map(r => { const [v,n] = r.split(':'); const bg = (v === 'reg' || v === 'thick') ? `linear-gradient(var(--${v}),var(--${v})),var(--wall)` : `var(--${v})`; return `<div><i style="background:${bg}"></i>${n}</div>`; }).join('');
+$('#lensStates').innerHTML = [['','Rest'],['background:var(--f1)','Hover · fill_1'],['background:var(--lens);box-shadow:var(--e1);transform:scale(.97);filter:brightness(.97)','Pressed · lens 97 %'],
+  ['background:var(--lens);box-shadow:var(--e1)','Selected · lens'],['background:var(--lens);box-shadow:var(--e1),0 0 0 2px var(--page),0 0 0 4px var(--acc)','Selected + focus'],['opacity:.38','Disabled · 38 %']]
+  .map(([s,c],i) => `<div class="st"><div class="srow ${i>=3&&i<5?'on':''}" style="${s}"><svg class="i"><use href="#img"/></svg>Wallpaper</div><span class="cap">${c}</span></div>`).join('');
+
+/* spring plots */
+function drawPlots(){
+  $('#plots').innerHTML = Object.keys(SP).map(n => { const [d,b] = SP[n], {k,c} = kz(n);
+    return `<div><canvas class="plot" data-s="${n}"></canvas><div class="hl" style="margin-top:8px">${n}</div><div class="cap" style="margin-top:0">d ${d} · b ${b} · k ${Math.round(k)} · z ${(1-b).toFixed(2)}</div></div>`; }).join('');
+  $$('canvas.plot').forEach(cv => {
+    const r = devicePixelRatio, W = cv.clientWidth, H = cv.clientHeight; cv.width = W*r; cv.height = H*r;
+    const g = cv.getContext('2d'); g.scale(r, r); const n = cv.dataset.s, {k,c} = kz(n);
+    const y = v => H - 12 - v*(H - 36);
+    g.strokeStyle = getComputedStyle(document.body).getPropertyValue('--rule'); g.setLineDash([3,3]); g.beginPath(); g.moveTo(0,y(1)); g.lineTo(W,y(1)); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = EFFECT.has(n) ? '#8a8a96' : '#5147e5'; g.lineWidth = 2; g.beginPath();
+    let x = 0, v = 0; const T = .8, dt = .0005; for (let t = 0; t <= T; t += dt) { const a = -k*(x-1) - c*v; v += a*dt; x += v*dt; const px = t/T*W; t === 0 ? g.moveTo(px, y(x)) : g.lineTo(px, y(x)); }
+    g.stroke(); });
+}
+
+/* ---------- P1 lens travel ---------- */
+function makeLens(track, items, axis, lensCss, onSel){
+  track.style.position = 'relative';
+  const lens = document.createElement('div'); lens.className = 'lensbox lens'; Object.assign(lens.style, lensCss || {}); track.prepend(lens);
+  const A = axis === 'y' ? ['offsetTop','offsetHeight'] : ['offsetLeft','offsetWidth'];
+  let cur = 0, switched = true;
+  const a = new Spring(0, .5), b = new Spring(0, .5), op = new Spring(1, .004);
+  const paint = () => { const it = items[cur];
+    if (axis === 'y') { lens.style.top = a.x+'px'; lens.style.height = (b.x-a.x)+'px'; lens.style.left = it.offsetLeft+'px'; lens.style.width = it.offsetWidth+'px'; }
+    else { lens.style.left = a.x+'px'; lens.style.width = (b.x-a.x)+'px'; lens.style.top = it.offsetTop+'px'; lens.style.height = it.offsetHeight+'px'; }
+    lens.style.opacity = op.x;
+    if (!switched) { const s = it[A[0]], e = s + it[A[1]], ov = Math.max(0, Math.min(e, b.x) - Math.max(s, a.x)) / it[A[1]];
+      if (ov > .5) { items.forEach(x => x.classList.remove('on')); it.classList.add('on'); switched = true; } } };
+  a.on = b.on = op.on = paint;
+  function select(i, instant){
+    const it = items[i], s = it[A[0]], e = s + it[A[1]], fwd = s > a.x; cur = i; switched = false;
+    if (instant) { a.set(s); b.set(e); return; }
+    if (opt.rm) { op.set(0); a.set(s); b.set(e); op.to(1, 'fade'); return; }
+    a.to(s, fwd ? 'trail' : 'snap'); b.to(e, fwd ? 'snap' : 'trail');
+    onSel && onSel(i);
+  }
+  items.forEach((it, i) => it.addEventListener('click', () => select(i)));
+  requestAnimationFrame(() => select(items.findIndex(x => x.classList.contains('on')) >= 0 ? items.findIndex(x => x.classList.contains('on')) : 0, true));
+  return { select };
+}
+$$('#sideDemo .srow')[2].classList.add('on');
+makeLens($('#sideDemo'), $$('#sideDemo .srow'), 'y', { borderRadius: '8px' });
+$$('#sideDemo2 .srow')[2].classList.add('on');
+makeLens($('#sideDemo2'), $$('#sideDemo2 .srow'), 'y', { borderRadius: '8px' });
+$$('#segDemo > span')[1].classList.add('on'); makeLens($('#segDemo'), $$('#segDemo > span'), 'x', { borderRadius: '14px' });
+$$('#segDemo2 > span')[0].classList.add('on'); makeLens($('#segDemo2'), $$('#segDemo2 > span'), 'x', { borderRadius: '14px' });
+$$('#wsDemo > span')[1].classList.add('on'); makeLens($('#wsDemo'), $$('#wsDemo > span'), 'x', { borderRadius: '12px' });
+
+/* ---------- P2 press ---------- */
+$$('.pz, .tile, .btn, .ri.pz').forEach(el => {
+  const size = Math.max(el.offsetWidth, el.offsetHeight) || 64; const to = size <= 96 ? .96 : size <= 240 ? .98 : 1;
+  if (to === 1) return;
+  const s = new Spring(1, .002, x => el.style.transform = `scale(${x})`);
+  el.addEventListener('pointerdown', () => s.to(to, 'press'));
+  ['pointerup','pointerleave','pointercancel'].forEach(e => el.addEventListener(e, () => { if (s.t !== 1) s.to(1, 'release'); }));
+});
+
+/* ---------- P4 toggle ---------- */
+function toggle(el, on){
+  const knob = el.querySelector('i'), fill = el.querySelector('b');
+  const x = new Spring(on ? 16 : 0, .3), w = new Spring(20, .3), f = new Spring(on ? 1 : 0, .004);
+  const paint = () => { const left = 2 + x.x - (x.t > 0 ? (w.x - 20) : 0); knob.style.left = left + 'px'; knob.style.width = w.x + 'px'; fill.style.opacity = f.x; };
+  x.on = w.on = f.on = paint; paint();
+  el.addEventListener('pointerdown', () => w.to(26, 'press'));
+  el.addEventListener('pointerleave', () => w.to(20, 'release'));
+  el.addEventListener('pointerup', () => { on = !on; w.to(20, 'release'); x.to(on ? 16 : 0, 'snap'); f.to(on ? 1 : 0, on ? 'fade' : 'fade_out'); });
+}
+toggle($('#togDemo'), true); toggle($('#togDemo2'), false); toggle($('#togDemo3'), true);
+$$('.lrow .tog').forEach(t => toggle(t, false));
+
+/* ---------- P14 number roll ---------- */
+let vol = 48;
+function renderRoll(prev, next){
+  const r = $('#roll'), ps = String(prev).padStart(3, ' '), ns = String(next).padStart(3, ' ');
+  r.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const cell = document.createElement('span'); cell.style.cssText = 'position:relative;display:inline-block;width:.62em;height:24px';
+    const mk = ch => { const d = document.createElement('span'); d.textContent = ch.trim(); d.style.cssText = 'position:absolute;left:0;right:0;text-align:center'; cell.append(d); return d; };
+    if (ps[i] === ns[i]) { mk(ns[i]); } else {
+      const o = mk(ps[i]), n = mk(ns[i]);
+      const so = new Spring(1, .004, v => { o.style.opacity = v; o.style.transform = `translateY(${opt.rm ? 0 : (v-1)*8}px)`; });
+      const sn = new Spring(0, .004, v => { n.style.opacity = v; n.style.transform = `translateY(${opt.rm ? 0 : (1-v)*8}px)`; });
+      sn.on(0); so.to(0, 'fade_out'); sn.to(1, 'fade');
+    }
+    r.append(cell);
+  }
+  r.append(Object.assign(document.createElement('span'), { textContent: '%' }));
+}
+renderRoll(vol, vol);
+$('#vUp').onclick = () => { const p = vol; vol = Math.min(100, vol + 7); renderRoll(p, vol); };
+$('#vDown').onclick = () => { const p = vol; vol = Math.max(0, vol - 7); renderRoll(p, vol); };
+
+/* ---------- P13 list ---------- */
+const names = ['Living Room', 'Office', 'Pixel 9', 'Galaxy Buds', 'Desk Speaker', 'Car', 'Kitchen'];
+let ni = 0;
+function listRow(name, animate){
+  const row = document.createElement('div'); row.className = 'lrow';
+  row.innerHTML = `<svg class="i" style="color:var(--l2)"><use href="#bt"/></svg><span class="grow">${name}</span><span class="ib s rm"><svg class="i i12"><use href="#minus"/></svg></span>`;
+  row.style.overflow = 'hidden';
+  const h = new Spring(animate ? 0 : 40, .3), o = new Spring(animate ? 0 : 1, .004);
+  let faded = !animate;
+  h.on = v => { row.style.height = Math.max(0, v) + 'px'; if (!faded && v / 40 > .35) { faded = true; o.to(1, 'fade'); } };
+  o.on = v => { for (const c of row.children) c.style.opacity = v; };
+  h.on(h.x); o.on(o.x);
+  if (animate) h.to(40, 'move');
+  row.querySelector('.rm').onclick = () => { o.done = () => { h.done = () => row.remove(); h.to(0, 'move'); }; o.to(0, 'fade_out'); };
+  return row;
+}
+for (let i = 0; i < 3; i++) $('#listDemo').append(listRow(names[ni++ % names.length], false));
+$('#listAdd').onclick = () => $('#listDemo').prepend(listRow(names[ni++ % names.length], true));
+
+/* ---------- P5/P6 sheet from island ---------- */
+const desk = $('#deskStage'), rIsl = $('#rightIsl'), shape = $('#sheetShape'), content = $('#sheetContent');
+const SHEET_W = 360;
+function rectIn(el, host){ const a = el.getBoundingClientRect(), b = host.getBoundingClientRect(); return { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height }; }
+let sheetOpen = false, contentShown = false, faceBack = true;
+const sheetP = new Spring(0, .001), sheetFade = new Spring(0, .004), sheetOp = new Spring(1, .004);
+const tiles = $$('#sheetContent .st0'); const tileFade = tiles.map((t, i) => new Spring(0, .004, v => { t.style.opacity = v; t.style.transform = `translateY(${opt.rm ? 0 : (1 - v) * 8}px)`; }));
+const faceSp = new Spring(1, .004, v => rIsl.style.background = `color-mix(in srgb, var(--reg) ${v * 100}%, var(--thick))`);
+function sheetGeo(){
+  const src = rectIn(rIsl, desk), H = content.offsetHeight;
+  const dst = { x: src.x + src.w - SHEET_W, y: src.y + src.h + 8, w: SHEET_W, h: H };
+  return { src, dst };
+}
+function paintSheet(){
+  const p = sheetP.x;
+  if (p <= .0005 && !sheetOpen) { shape.style.display = 'none'; return; }
+  shape.style.display = 'block';
+  const { src, dst } = sheetGeo();
+  const x = lerp(src.x, dst.x, p), y = lerp(src.y, dst.y, p), w = lerp(src.w, dst.w, p), h = lerp(src.h, dst.h, p);
+  const q = clamp(p, 0, 1);
+  Object.assign(shape.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', borderRadius: lerp(16, 28, q) + 'px', opacity: sheetOp.x });
+  const sc = Math.min(w / dst.w, h / dst.h); content.style.transform = `scale(${opt.rm ? 1 : Math.max(.2, Math.min(1.05, sc))})`;
+  shape.style.background = `color-mix(in srgb, var(--reg) ${100 - q * 100}%, var(--thick))`;
+  const m = (a, b) => lerp(a, b, q).toFixed(2);
+  shape.style.boxShadow = `0 ${m(6,12)}px ${m(16,32)}px rgba(var(--sc),${m(+getV('--a2'), +getV('--a3'))}), 0 ${m(1,2)}px ${m(4,8)}px rgba(var(--sc),${m(+getV('--a2c'), +getV('--a3c'))}), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke)`;
+  if (sheetOpen && !contentShown && p > .35) { contentShown = true; tileFade.forEach((s, i) => opt.still ? s.to(1, 'fade') : setTimeout(() => sheetOpen && s.to(1, 'fade'), Math.min(i, 5) * 16)); }
+  if (!sheetOpen && !faceBack && p < .3) { faceBack = true; faceSp.to(1, 'fade'); }
+}
+const getV = n => getComputedStyle(document.body).getPropertyValue(n);
+sheetP.on = paintSheet; sheetOp.on = paintSheet;
+function setSheet(open, v){
+  sheetOpen = open;
+  if (open) { faceBack = false; faceSp.set(0); contentShown = false; tileFade.forEach(s => s.set(0));
+    if (opt.rm) { sheetP.set(1); sheetOp.set(0); sheetOp.to(1, 'fade'); tileFade.forEach(s => s.set(1)); contentShown = true; } else sheetP.to(1, 'open', v); }
+  else { tileFade.forEach(s => s.to(0, 'fade_out'));
+    if (opt.rm) { sheetOp.done = () => { sheetP.set(0); sheetOp.set(1); }; sheetOp.to(0, 'fade_out'); faceSp.to(1, 'fade'); faceBack = true; } else sheetP.to(0, 'close', v); }
+}
+let drag = null, moved = false;
+rIsl.addEventListener('pointerdown', e => { rIsl.setPointerCapture(e.pointerId); drag = { y0: e.clientY, p0: sheetP.x, samples: [[performance.now(), e.clientY]] }; moved = false; });
+rIsl.addEventListener('pointermove', e => {
+  if (!drag) return; const dy = e.clientY - drag.y0; if (!moved && Math.abs(dy) < 8) return;
+  if (!moved) { moved = true; sheetOpen = true; faceBack = false; faceSp.set(0); }
+  drag.samples.push([performance.now(), e.clientY]); drag.samples = drag.samples.filter(s => performance.now() - s[0] < 100);
+  let p = drag.p0 + dy / 240; if (p > 1) p = 1 + (1 - 1 / ((p - 1) * .55 + 1)); if (p < 0) p = 0;
+  sheetP.set(p); if (!contentShown && p > .35) paintSheet();
+});
+rIsl.addEventListener('pointerup', e => {
+  if (!drag) return; const d = drag; drag = null;
+  if (!moved) { setSheet(!sheetOpen); return; }
+  const s = d.samples, dtm = (s[s.length - 1][0] - s[0][0]) / 1000 || 1, vpx = (s[s.length - 1][1] - s[0][1]) / dtm;
+  const vp = vpx / 240, proj = sheetP.x + vp * .998 / (1 - .998) / 1000;
+  const open = proj > .5 || vpx > 300; sheetOpen = open;
+  if (open) { if (!contentShown) { contentShown = true; tileFade.forEach((t, i) => setTimeout(() => t.to(1, 'fade'), Math.min(i, 5) * 16)); } sheetP.to(1, opt.rm ? 'close' : 'page', opt.rm ? 0 : vp); }
+  else { tileFade.forEach(t => t.to(0, 'fade_out')); sheetP.to(0, 'close', vp); }
+});
+$('#sheetToggle').onclick = () => setSheet(!sheetOpen);
+
+/* ---------- P7 center island morph ---------- */
+const center = $('#center'), faces = Object.fromEntries($$('#center .face').map(f => [f.dataset.face, f]));
+const CS = { rest: [160, 32, 16], osd: [240, 40, 20], live: [360, 56, 28], banner: [360, 88, 24] };
+let cstate = 'rest', startW = 160;
+const cw = new Spring(160, .3), ch = new Spring(32, .3), cr = new Spring(16, .3);
+const fo = Object.fromEntries(Object.keys(faces).map(k => [k, new Spring(k === 'rest' ? 1 : 0, .004)]));
+const shown = new Set(['rest']);
+function paintCenter(){
+  const W = desk.clientWidth;
+  Object.assign(center.style, { left: (W / 2 - cw.x / 2) + 'px', width: cw.x + 'px', height: ch.x + 'px', borderRadius: Math.min(cr.x, ch.x / 2) + 'px' });
+  const q = clamp((ch.x - 32) / 24, 0, 1), m = (a, b) => lerp(a, b, q).toFixed(2);
+  center.style.boxShadow = `0 ${m(6,12)}px ${m(16,32)}px rgba(var(--sc),${m(+getV('--a2'), +getV('--a3'))}), 0 ${m(1,2)}px ${m(4,8)}px rgba(var(--sc),${m(+getV('--a2c'), +getV('--a3c'))}), inset 0 .5px 0 var(--edge), 0 0 0 .5px var(--stroke)`;
+  center.style.background = `color-mix(in srgb, var(--reg) ${100 - q * 100}%, var(--thick))`;
+  for (const [k, f] of Object.entries(faces)) {
+    const o = fo[k].x; f.style.display = o > .003 ? 'flex' : 'none';
+    f.style.position = 'absolute'; f.style.top = '0'; f.style.left = (cw.x / 2 - parseFloat(f.style.width) / 2) + 'px';
+    f.style.opacity = o; f.style.transform = opt.rm ? '' : `scale(${.92 + .08 * o})`; f.style.filter = opt.rm || o > .99 ? '' : `blur(${(1 - o) * 8}px)`;
+  }
+  const tw = CS[cstate][0], prog = Math.abs(tw - startW) < 1 ? 1 : (cw.x - startW) / (tw - startW);
+  if (!shown.has(cstate) && prog > .5) { shown.add(cstate); fo[cstate].to(1, 'fade'); }
+}
+cw.on = ch.on = cr.on = paintCenter; Object.values(fo).forEach(s => s.on = paintCenter);
+function setCenter(s){
+  if (s === cstate) return; const sp = s === 'rest' ? 'collapse' : 'morph';
+  startW = cw.x; cstate = s; const [w, h, r] = CS[s];
+  for (const k of Object.keys(fo)) if (k !== s) { shown.delete(k); fo[k].to(0, 'fade_out'); }
+  cw.to(w, sp); ch.to(h, sp); cr.to(r, sp);
+  if (opt.rm || Math.abs(w - startW) < 1) { shown.add(s); fo[s].to(1, 'fade'); }
+}
+$$('[data-cs]').forEach(b => b.onclick = () => setCenter(b.dataset.cs));
+paintCenter();
+
+/* ---------- P8 banner stack ---------- */
+const stack = []; let bn = 0;
+const BN = [['Messages', 'Anna', 'Running 10 minutes late.'], ['Calendar', 'Design review', 'In 15 minutes · Room 2'], ['Mail', 'Invoice 2026-114', 'Your invoice is ready to download.'], ['Link', 'Pixel 9', 'Photo received.']];
+function pushBanner(){
+  const [app, t, b] = BN[bn++ % BN.length];
+  const el = document.createElement('div'); el.className = 'glass thick';
+  el.style.cssText = 'position:absolute;overflow:hidden;width:360px;height:88px';
+  el.innerHTML = `<div style="position:absolute;inset:0;padding:12px;display:flex;gap:12px" class="bf"><span class="app" style="width:32px;height:32px;border-radius:8px;flex:none;background:linear-gradient(135deg,#ffcf6b,#f08a3d)"></span><div class="tt" style="flex:1"><div style="display:flex"><span class="cap11 lab2">${app}</span><span class="cap11 lab3" style="margin-left:auto">now</span></div><div class="hl">${t}</div><div class="fn lab2">${b}</div></div></div>`;
+  $('#stack').append(el);
+  const W = desk.clientWidth, src = { x: W / 2 - 80, y: 8, w: 160, h: 32 }, dst = { x: W / 2 - 180, y: 48, w: 360, h: 88 };
+  const item = { el, p: new Spring(0, .001), depth: new Spring(0, .01), fade: new Spring(0, .004), shown: false, dying: false };
+  const bf = el.querySelector('.bf');
+  const paint = () => { const p = item.p.x, d = item.depth.x;
+    const x = lerp(src.x, dst.x, p), y = lerp(src.y, dst.y, p) + d * 8, w = lerp(src.w, dst.w, p), h = lerp(src.h, dst.h, p), sc = 1 - .04 * d;
+    Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px', borderRadius: lerp(16, 24, clamp(p, 0, 1)) + 'px',
+      transform: `scale(${sc})`, transformOrigin: '50% 100%', zIndex: 20 - Math.round(d), opacity: clamp(3 - d, 0, 1) * (opt.rm ? item.fade.x : 1) });
+    bf.style.opacity = item.fade.x; bf.style.transform = opt.rm ? '' : `scale(${Math.min(1, w / 360)})`; bf.style.transformOrigin = '50% 0';
+    if (!item.shown && !item.dying && p > .35) { item.shown = true; item.fade.to(1, 'fade'); } };
+  item.p.on = item.depth.on = item.fade.on = paint;
+  stack.forEach(o => o.depth.to(o.depth.t + 1, 'move'));
+  stack.unshift(item); item.p.to(1, 'open'); if (opt.rm) item.fade.to(1, 'fade');
+  setTimeout(() => { item.dying = true; item.fade.to(0, 'fade_out'); item.p.done = () => { el.remove(); stack.splice(stack.indexOf(item), 1); }; item.p.to(0, 'close');
+    stack.filter(o => stack.indexOf(o) > stack.indexOf(item)).forEach(o => o.depth.to(o.depth.t - 1, 'move')); }, 5000 * (opt.slow ? 4 : 1));
+}
+$('#pushBanner').onclick = pushBanner;
+
+/* ---------- P10 menu ---------- */
+const mStage = $('#menuStage'); let menu = null;
+function openMenu(x, y, origin){
+  closeMenu();
+  const m = $('#menuStatic').cloneNode(true); m.removeAttribute('id'); m.removeAttribute('data-m'); m.style.cssText = `position:absolute;left:${x}px;top:${y}px;transform-origin:${origin};z-index:5`;
+  mStage.append(m); const items = [...m.querySelectorAll('.mi')];
+  const lens = makeLens(m, items, 'y', { borderRadius: '8px' }); items.forEach((it, i) => it.addEventListener('pointerenter', () => lens.select(i)));
+  const s = new Spring(.92, .002, v => m.style.transform = `scale(${v})`), o = new Spring(0, .004, v => m.style.opacity = v);
+  s.on(s.x); o.on(0); s.to(1, 'open'); o.to(1, 'fade'); menu = { m, s, o };
+}
+function closeMenu(){ if (!menu) return; const { m, s, o } = menu; menu = null; s.to(.96, 'close'); o.done = () => m.remove(); o.to(0, 'fade_out'); }
+$('#menuBtn').addEventListener('click', e => { e.stopPropagation(); if (menu) return closeMenu(); const r = rectIn($('#menuBtn'), mStage); openMenu(r.x, r.y + r.h + 4, '0 0'); });
+mStage.addEventListener('contextmenu', e => { e.preventDefault(); const b = mStage.getBoundingClientRect(); openMenu(e.clientX - b.left, e.clientY - b.top, '0 0'); });
+mStage.addEventListener('click', e => { if (menu && !menu.m.contains(e.target)) closeMenu(); });
+
+/* ---------- P12 pager ---------- */
+const pages = $('#pages'), PW = 320, NP = 3;
+pages.innerHTML = ['Today', 'Week', 'Month'].map((t, i) => `<div style="flex:none;width:320px;padding:16px"><div class="t3">${t}</div><p class="fn lab2" style="margin-top:4px">Page ${i + 1} of 3. Drag me.</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:16px">${'<div class="tile" style="height:48px"></div>'.repeat(4)}</div></div>`).join('');
+$('#pdots').innerHTML = [0,1,2].map(() => '<span style="height:6px;width:6px;border-radius:3px;background:var(--l3)"></span>').join('');
+const dots = $$('#pdots span'), px = new Spring(0, .5), dw = dots.map((d, i) => new Spring(i ? 6 : 16, .3, v => { d.style.width = v + 'px'; d.style.background = v > 11 ? 'var(--l1)' : 'var(--l3)'; }));
+dw.forEach(s => s.on(s.x));
+let page = 0; px.on = v => pages.style.transform = `translateX(${v}px)`;
+const goPage = (i, v) => { page = clamp(i, 0, NP - 1); px.to(-page * (PW + 32), opt.rm ? 'close' : 'page', v); dw.forEach((s, j) => s.to(j === page ? 16 : 6, 'snap')); };
+let pd = null;
+$('#pager').addEventListener('pointerdown', e => { $('#pager').setPointerCapture(e.pointerId); pd = { x0: e.clientX, b: px.x, s: [[performance.now(), e.clientX]] }; });
+$('#pager').addEventListener('pointermove', e => { if (!pd) return; pd.s.push([performance.now(), e.clientX]); pd.s = pd.s.filter(s => performance.now() - s[0] < 100);
+  let x = pd.b + e.clientX - pd.x0; const min = -(NP - 1) * (PW + 32), D = PW;
+  if (x > 0) x = (1 - 1 / (x * .55 / D + 1)) * D; else if (x < min) x = min - (1 - 1 / ((min - x) * .55 / D + 1)) * D; px.set(x); });
+$('#pager').addEventListener('pointerup', () => { if (!pd) return; const s = pd.s; pd = null; const dt = (s[s.length - 1][0] - s[0][0]) / 1000 || 1, v = (s[s.length - 1][1] - s[0][1]) / dt;
+  const proj = px.x + v * .998 / (1 - .998) / 1000; goPage(Math.round(-proj / (PW + 32)), v); });
+
+/* ---------- P15/P16 window + P11 dialog ---------- */
+const wStage = $('#winStage'); const wins = new Map();
+$$('#wdock .app').forEach((icon, idx) => icon.addEventListener('click', () => {
+  if (wins.has(idx)) return; const W = wStage.clientWidth;
+  const w = document.createElement('div'); w.className = 'win'; w.style.cssText = 'position:absolute;overflow:hidden';
+  w.innerHTML = `<div class="tbar hl">${idx ? 'Photos' : 'Files'}<div class="wbtns"><span class="mn"><svg class="i i12"><use href="#minus"/></svg></span><span><svg class="i i12"><use href="#max"/></svg></span><span class="x"><svg class="i i12"><use href="#x"/></svg></span></div></div>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:8px" class="wc"><div class="skel" style="height:40px;border-radius:8px"></div><div class="skel" style="height:40px;border-radius:8px"></div>
+    <span class="btn s destructive dl" style="align-self:flex-start;margin-top:8px">Delete…</span></div>`;
+  wStage.append(w);
+  const dst = { x: 40 + idx * 80, y: 24 + idx * 16, w: 360, h: 200 };
+  const st = { p: new Spring(0, .001), s: new Spring(1, .002), o: new Spring(1, .004) };
+  const wc = w.querySelector('.wc');
+  const paint = () => { const src = rectIn(icon, wStage), p = st.p.x;
+    Object.assign(w.style, { left: lerp(src.x, dst.x, p) + 'px', top: lerp(src.y, dst.y, p) + 'px', width: lerp(src.w, dst.w, p) + 'px', height: lerp(src.h, dst.h, p) + 'px',
+      borderRadius: lerp(12, 20, clamp(p, 0, 1)) + 'px', transform: `scale(${st.s.x})`, opacity: st.o.x });
+    wc.style.opacity = clamp((p - .35) / .4, 0, 1); };
+  st.p.on = st.s.on = st.o.on = paint;
+  if (opt.rm) { st.p.set(1); st.o.set(0); st.o.to(1, 'fade'); } else st.p.to(1, 'open');
+  wins.set(idx, w);
+  w.querySelector('.mn').onclick = () => { st.p.done = () => { w.remove(); wins.delete(idx); }; if (opt.rm) { st.o.done = () => st.p.set(0); st.o.to(0, 'fade_out'); } else st.p.to(0, 'close'); };
+  w.querySelector('.x').onclick = () => { st.s.to(.96, 'close'); st.o.done = () => { w.remove(); wins.delete(idx); }; st.o.to(0, 'fade_out'); };
+  w.querySelector('.dl').onclick = e => { e.stopPropagation(); openAlert(w, e.currentTarget); };
+}));
+requestAnimationFrame(() => $$('#wdock .app')[0].click());
+function openAlert(win, btn){
+  const scrim = document.createElement('div'); scrim.style.cssText = 'position:absolute;inset:0;background:#000;opacity:0;z-index:3';
+  win.append(scrim);
+  const a = document.createElement('div'); a.className = 'alert'; a.style.cssText = 'position:absolute;z-index:4;width:280px;padding:24px';
+  a.innerHTML = `<div class="t3">Delete 2 items?</div><p style="margin-top:8px;line-height:20px;color:var(--l2)">You can’t undo this action.</p><div class="btns"><span class="btn m secondary c">Cancel</span><span class="btn m destructive c">Delete</span></div>`;
+  win.append(a);
+  const W = win.clientWidth, H = win.clientHeight; a.style.left = (W / 2 - 140) + 'px'; a.style.top = Math.max(8, H / 2 - 80) + 'px';
+  const b = rectIn(btn, win); a.style.transformOrigin = `${b.x + b.w / 2 - (W / 2 - 140)}px ${b.y + b.h / 2 - Math.max(8, H / 2 - 80)}px`;
+  const s = new Spring(.96, .002, v => a.style.transform = `scale(${v})`), o = new Spring(0, .004, v => { a.style.opacity = v; scrim.style.opacity = v * (document.body.classList.contains('dark') ? .4 : .2); });
+  s.on(s.x); o.on(0); s.to(1, 'open'); o.to(1, 'fade');
+  a.querySelectorAll('.c').forEach(c => c.onclick = () => { s.to(.96, 'close'); o.done = () => { a.remove(); scrim.remove(); }; o.to(0, 'fade_out'); });
+}
+
+/* ---------- Redlines ---------- */
+function redlines(){
+  $$('.rl').forEach(e => e.remove()); if (!$('#tRL').checked) return;
+  $$('[data-m]').forEach(el => { const r = el.getBoundingClientRect(); if (!r.width) return; const cs = getComputedStyle(el);
+    const d = document.createElement('div'); d.className = 'rl';
+    Object.assign(d.style, { left: r.left + scrollX + 'px', top: r.top + scrollY + 'px', width: r.width + 'px', height: r.height + 'px',
+      borderWidth: `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`, borderRadius: cs.borderRadius });
+    d.innerHTML = `<em>${el.dataset.m}</em>`; document.body.append(d); });
+}
+
+/* ---------- Toggles ---------- */
+function theme(){ document.body.className = ($('#tDark').checked ? 'dark' : 'light') + (opt.rm ? ' rm' : ''); drawPlots(); paintCenter(); redlines(); }
+$('#tDark').onchange = theme; $('#tRM').onchange = () => { opt.rm = $('#tRM').checked; theme(); }; $('#tSlow').onchange = () => opt.slow = $('#tSlow').checked;
+$('#tRL').onchange = redlines;
+if (location.hash.includes('dark')) $('#tDark').checked = true;
+if (location.hash.includes('rl')) $('#tRL').checked = true;
+addEventListener('resize', redlines);
+document.fonts.ready.then(() => { theme(); if (location.hash.includes('demo')) { setSheet(true); setCenter('banner'); } });
+/* ---------- Navigation: scrollspy, lens, search ---------- */
+(function(){
+  const list = $('#navlist'), links = [...list.querySelectorAll('a')];
+  const lens = document.createElement('div'); lens.className = 'navlens'; list.prepend(lens);
+  const top = new Spring(0, .5), bot = new Spring(0, .5); let first = true, cur = null;
+  top.on = bot.on = () => { lens.style.top = top.x + 'px'; lens.style.height = Math.max(0, bot.x - top.x) + 'px'; };
+  function activate(a){
+    if (!a || a === cur) return; cur = a; const ch = a.dataset.ch;
+    links.forEach(l => { const sub = l.classList.contains('sub');
+      if (sub) l.classList.toggle('show', l.dataset.ch === ch);
+      l.classList.toggle('on', l === a || (!sub && l.dataset.ch === ch)); });
+    const t = a.offsetTop, b = t + a.offsetHeight;
+    if (first) { first = false; top.set(t); bot.set(b); } else { const fwd = t > top.x; top.to(t, fwd ? 'trail' : 'snap'); bot.to(b, fwd ? 'snap' : 'trail'); }
+    const nr = $('#nav').getBoundingClientRect(), ar = a.getBoundingClientRect();
+    if (ar.top < nr.top + 120 || ar.bottom > nr.bottom - 24) $('#nav').scrollTop += ar.top - nr.top - nr.height / 3;
+  }
+  const targets = links.map(l => [l, document.getElementById(l.hash.slice(1))]).filter(x => x[1]);
+  function spy(){ let best = targets[0]; for (const t of targets) if (t[1].getBoundingClientRect().top < innerHeight * .3) best = t; activate(best[0]); }
+  addEventListener('scroll', spy, { passive: true });
+  links.forEach(l => l.addEventListener('click', e => { e.preventDefault(); const t = document.getElementById(l.hash.slice(1));
+    history.replaceState(null, '', l.hash); t.scrollIntoView({ behavior: opt.rm ? 'auto' : 'smooth' }); }));
+  const q = $('#navq');
+  q.addEventListener('input', () => { const v = q.value.trim().toLowerCase();
+    links.forEach(l => l.style.display = v ? (l.textContent.toLowerCase().includes(v) ? 'flex' : 'none') : '');
+    $$('#navlist .grp').forEach(g => g.style.display = v ? 'none' : ''); lens.style.opacity = v ? 0 : 1; });
+  q.addEventListener('keydown', e => { if (e.key === 'Enter') { const m = links.find(l => l.style.display === 'flex'); m && m.click(); q.blur(); }
+    if (e.key === 'Escape') { q.value = ''; q.dispatchEvent(new Event('input')); q.blur(); } });
+  addEventListener('keydown', e => { if (e.key === '/' && document.activeElement !== q) { e.preventDefault(); q.focus(); } });
+  document.fonts.ready.then(() => { const h = location.hash.match(/^#(ch-[\w-]+|demo-\d+)/); if (h) document.getElementById(h[1])?.scrollIntoView(); spy(); });
+})();
+</script>
+</body></html>

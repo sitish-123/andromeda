@@ -1,5 +1,7 @@
 #include "lock/session_lock.h"
 
+#include "server/background_effect.h"
+
 #include "core/log.h"
 #include "input/seat.h"
 #include "output/output.h"
@@ -33,6 +35,8 @@ namespace andromeda {
     wl_signal_add(&m_lockSurface->events.destroy, &m_destroy);
     m_outputCommit.notify = onOutputCommit;
     wl_signal_add(&m_lockSurface->output->events.commit, &m_outputCommit);
+    m_commit.notify = onCommit;
+    wl_signal_add(&m_lockSurface->surface->events.commit, &m_commit);
 
     configure();
   }
@@ -43,6 +47,7 @@ namespace andromeda {
       wl_list_remove(&m_unmap.link);
       wl_list_remove(&m_destroy.link);
       wl_list_remove(&m_outputCommit.link);
+      wl_list_remove(&m_commit.link);
     }
     if (m_lockSurface != nullptr && m_lockSurface->data == this) {
       m_lockSurface->data = nullptr;
@@ -123,6 +128,29 @@ namespace andromeda {
     self->handleOutputCommit();
   }
 
+  void LockSurface::onCommit(wl_listener* listener, void* /*data*/) {
+    LockSurface* self = wl_container_of(listener, self, m_commit);
+    self->updateBlur();
+  }
+
+  void LockSurface::updateBlur() {
+    wlr_surface* surface = this->surface();
+    const BackgroundEffectManager* effects = m_server->backgroundEffects();
+    const pixman_region32_t* region =
+        surface != nullptr && effects != nullptr ? effects->blurRegion(surface) : nullptr;
+    if (m_sceneTree == nullptr || region == nullptr) {
+      m_blur.hide();
+      return;
+    }
+    const wlr_box box{0, 0, surface->current.width, surface->current.height};
+    const pixman_box32_t* extents = pixman_region32_extents(region);
+    const wlr_box clip{extents->x1, extents->y1, extents->x2 - extents->x1, extents->y2 - extents->y1};
+    // Optimized: samples the cached wallpaper blur, never the windows under the lock.
+    m_blur.update(
+        m_sceneTree, surface, box, box, corner_radii_none(), &clip, SurfaceBlurOptions{.enabled = true, .optimized = true}
+    );
+  }
+
   void LockSurface::handleMap() {
     m_mapped = true;
     if (SessionLock* lock = m_server->sessionLock()) {
@@ -147,6 +175,7 @@ namespace andromeda {
     wl_list_remove(&m_unmap.link);
     wl_list_remove(&m_destroy.link);
     wl_list_remove(&m_outputCommit.link);
+    wl_list_remove(&m_commit.link);
     m_map.link.next = nullptr;
     m_unmap.link.next = nullptr;
     m_destroy.link.next = nullptr;

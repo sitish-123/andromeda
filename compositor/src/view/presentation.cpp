@@ -5,11 +5,16 @@
 
 // clang-format off
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include "wlr.h"
 // clang-format on
 
 namespace andromeda {
+
+  namespace {
+    constexpr std::array<float, 4> kOpaqueBlack{0.0F, 0.0F, 0.0F, 1.0F};
+  } // namespace
 
   // Presented size
   void ViewPresentation::setSize(int width, int height) {
@@ -101,6 +106,7 @@ namespace andromeda {
     const bool validSize = tileWidth > 0 && tileHeight > 0;
     m_fullscreenSized = fullscreen && validSize;
     setBackdropEnabled(m_fullscreenSized && m_fullscreenOpaque);
+    markOverBlack(surfaceNode, m_fullscreenSized && m_fullscreenOpaque && config().colors.backdrop == kOpaqueBlack);
     if (m_fullscreenSized) {
       setBackdropBox(0, 0, tileWidth, tileHeight);
       m_offsetX = fullscreenCenterOffset(tileWidth, geometry.width);
@@ -121,6 +127,24 @@ namespace andromeda {
       }
       m_contentCentered = false;
     }
+  }
+
+  void ViewPresentation::markOverBlack(wlr_scene_node* surfaceNode, bool overBlack) {
+    if (surfaceNode == nullptr) {
+      return;
+    }
+    wlr_scene_node_for_each_buffer(
+        surfaceNode,
+        [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+          const bool overBlack = *static_cast<bool*>(data);
+          wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+          // Only the root surface sits straight on the backdrop; a subsurface below it would be overwritten.
+          const bool root = sceneSurface != nullptr && wlr_subsurface_try_from_wlr_surface(sceneSurface->surface) == nullptr
+              && wl_list_empty(&sceneSurface->surface->current.subsurfaces_below);
+          wlr_scene_buffer_set_over_black(buffer, overBlack && root);
+        },
+        &overBlack
+    );
   }
 
   // Buffer crop

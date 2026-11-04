@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "server/drm_policy.h"
+#include "util/driver_threads.h"
 #include "wlr.h"
 
 #include <cstdlib>
@@ -292,6 +293,7 @@ namespace andromeda {
 
     [[nodiscard]] wlr_backend* backend() const { return m_backend; }
     [[nodiscard]] wlr_session* session() const { return m_session; }
+    [[nodiscard]] wl_event_loop* eventLoop() const { return wl_display_get_event_loop(m_display); }
 
     [[nodiscard]] wlr_renderer* createRenderer() {
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
@@ -897,7 +899,14 @@ namespace andromeda {
 
   wlr_backend* BackendManager::backend() const { return m_impl->backend(); }
   wlr_session* BackendManager::session() const { return m_impl->session(); }
-  wlr_renderer* BackendManager::createRenderer() { return m_impl->createRenderer(); }
+  wlr_renderer* BackendManager::createRenderer() {
+    wlr_renderer* renderer = m_impl->createRenderer();
+    if (renderer != nullptr) {
+      fx_renderer_set_event_loop(renderer, m_impl->eventLoop());
+      kLog.info("{} GPU driver thread(s) share the main thread's real-time policy", shareSchedulingWithDriverThreads());
+    }
+    return renderer;
+  }
   bool BackendManager::verifyOpenDevices(std::string_view context) { return m_impl->verifyOpenDevices(context); }
   void BackendManager::markStarted() { m_impl->markStarted(); }
 

@@ -315,8 +315,8 @@ void DesktopAudioVisualizerWidget::startOpacityAnimation(float targetOpacity, bo
     return;
   }
 
-  m_visibilityAnimId = m_animations->animate(
-      root()->opacity(), targetOpacity, Style::animNormal, Easing::EaseOutCubic,
+  m_visibilityAnimId = m_animations->animateSpring(
+      root()->opacity(), targetOpacity, Style::spring(targetOpacity > root()->opacity() ? Tokens::springFade : Tokens::springFadeOut),
       [this](float opacity) {
         if (root() != nullptr) {
           root()->setOpacity(opacity);

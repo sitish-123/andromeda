@@ -1,8 +1,11 @@
 #pragma once
 
+#include "shell/bar/center_island_space.h"
+
 #include "config/config_service.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
+#include "render/core/render_styles.h"
 #include "render/scene/input_area.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
@@ -11,6 +14,7 @@
 #include "ui/signal.h"
 #include "wayland/layer_surface.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -18,6 +22,8 @@
 #include <vector>
 
 class Box;
+class DskSurfaceClient;
+class DskTrackerClient;
 class Flex;
 class Node;
 
@@ -34,9 +40,6 @@ struct BarCapsuleRun {
   // Hover highlight overlays, parallel to `widgets` for group runs; one shared box for single runs.
   std::vector<Box*> hoverBoxes;
   bool accordion = false;
-  // Unfold animation time in milliseconds. Matches Style::animNormal; always overwritten from the
-  // group's accordion_duration setting when the run is built.
-  float accordionDurationMs = 200.0F;
   // Hover time in milliseconds before unfolding starts (expand only; collapse is immediate).
   float accordionDelayMs = 0.0F;
   // Pending delayed expand; cancelled when the pointer leaves, the state resolves, or the run dies.
@@ -61,6 +64,13 @@ struct BarInstance {
   std::size_t barIndex = 0;
   BarConfig barConfig;
   std::unique_ptr<LayerSurface> surface;
+  // Drag on the end island opens the control center under the finger (top islands bar with dsk_surface_v1). Declared
+  // after `surface`: it is destroyed first. Shared so an opening panel can hold it weakly.
+  std::shared_ptr<DskTrackerClient> sheetTracker;
+  std::array<float, 4> sheetTrackerRect{};
+  // Liquid glass on the islands (dsk_surface_v1 v5); destroyed before `surface`.
+  std::unique_ptr<DskSurfaceClient> dsk;
+  std::optional<bool> backdropDark; // dsk_surface_v1.backdrop, unset until the first measurement
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;
@@ -73,6 +83,8 @@ struct BarInstance {
   noctalia::bar::WidgetActionBindings deadZoneBindings;
   InputArea deadZoneAxisSink;
   float hideOpacity = 1.0F;
+  AnimationManager::Id slideAnimId = 0;
+  std::vector<InputRect> islandBlurStrips; // last island region sent; empty = none sent
   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
   bool ipcLayoutReleased = false;
   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.
@@ -89,6 +101,14 @@ struct BarInstance {
 
   // Bar background, shadow, and layout sections (start/center/end along main axis)
   Box* bg = nullptr;
+  // Islands mode: one pill per section (start, center, end), in slideRoot coordinates.
+  std::array<Box*, 3> islands{};
+  // Glass recipe of each island: drop shadow below it and the top edge highlight above its fill.
+  std::array<Box*, 3> islandShadows{};
+  std::optional<RoundedRectStyle> islandShadowStyle;
+  ShadowDirectionOffset islandShadowOffset{};
+  std::array<float, 6> lastCenterSpaceKey{-2.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+  std::optional<CenterIslandSpace> centerSpace;
   Box* shadow = nullptr;
   Node* shadowLeftClip = nullptr;
   Node* shadowRightClip = nullptr;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/poll_source.h"
+#include "core/poll_source.h"
 #include "calendar/calendar_reminder_monitor.h"
 
 class CalendarReminderPollSource final : public PollSource {

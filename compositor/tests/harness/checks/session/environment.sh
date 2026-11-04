@@ -24,7 +24,6 @@ write_fixture() {
   cat > "$runtime/config.toml" << EOF
 [general]
 xwayland = $xwayland
-show_cheatsheet = false
 autostart = ["$runtime/bin/capture-environment"]
 
 [environment]

@@ -4,7 +4,7 @@
 #include "core/timer_manager.h"
 #include "shell/bar/widget.h"
 #include "shell/bar/widget_custom_image.h"
-#include "shell/tooltip/tooltip_content.h"
+#include "ui/tooltip_content.h"
 #include "system/format_units.h"
 #include "ui/controls/flex.h"
 #include "ui/palette.h"
@@ -63,7 +63,7 @@ public:
     int networkSpeedDecimalPlaces = 1;
     SysmonVisualization visualization = SysmonVisualization::Gauge;
     bool showCpuCores = false;
-    ColorSpec highlightColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec highlightColor = colorSpecFromRole(ColorRole::DangerText);
     bool showGlyph = true;
     bool showValue = true;
     int labelMinWidth = 0;
@@ -114,7 +114,7 @@ private:
   SysmonStat m_stat;
   SysmonVisualization m_visualization;
   bool m_showCpuCores = false;
-  ColorSpec m_highlightColor = colorSpecFromRole(ColorRole::Error);
+  ColorSpec m_highlightColor = colorSpecFromRole(ColorRole::DangerText);
   ConfigService& m_configService;
   bool m_showGlyph;
   bool m_showValue;

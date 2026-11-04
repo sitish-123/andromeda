@@ -1,4 +1,5 @@
 #include "shell/session/session_action_runner.h"
+#include "util/thread_name.h"
 
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
@@ -134,28 +135,59 @@ namespace {
     return true;
   }
 
-  void runPowerAction(std::function<bool()> hook, std::function<bool()> action, std::string_view actionName) {
-    std::thread([hook = std::move(hook), action = std::move(action), actionName = std::string(actionName)] mutable {
-      if (hook && !hook()) {
+  // The hook runs through the async process manager on the main loop; the action runs after it
+  // finishes, on a worker thread because it may block on D-Bus or a command.
+  void runPowerAction(
+      const std::weak_ptr<void>& guard, SessionActionHooks::AsyncHook hook, std::function<bool()> action,
+      std::string_view actionName
+  ) {
+    auto runAction = [action = std::move(action), actionName = std::string(actionName)] {
+      std::thread([action, actionName] {
+        nameThisThread("dsk-action");
+        if (!action()) {
+          kLog.warn("{} failed after hooks completed", actionName);
+        }
+      }).detach();
+    };
+    if (!hook) {
+      runAction();
+      return;
+    }
+    hook([guard, runAction = std::move(runAction), actionName = std::string(actionName)](bool ok) {
+      if (guard.expired()) {
+        return;
+      }
+      if (!ok) {
         kLog.warn("{} cancelled because a configured hook failed", actionName);
         return;
       }
-      if (!action()) {
-        kLog.warn("{} failed after hooks completed", actionName);
-      }
-    }).detach();
+      runAction();
+    });
   }
 
-  void runShellCommand(std::function<bool()> hook, std::string command, std::string_view actionName) {
-    std::thread([hook = std::move(hook), command = std::move(command), actionName = std::string(actionName)] mutable {
-      if (hook && !hook()) {
-        kLog.warn("{} cancelled because a configured hook failed", actionName);
-        return;
-      }
+  void runShellCommand(
+      const std::weak_ptr<void>& guard, SessionActionHooks::AsyncHook hook, std::string command,
+      std::string_view actionName
+  ) {
+    auto launch = [command = std::move(command), actionName = std::string(actionName)] {
       if (!process::runAsync(command)) {
         kLog.warn("{}: command failed", actionName);
       }
-    }).detach();
+    };
+    if (!hook) {
+      launch();
+      return;
+    }
+    hook([guard, launch = std::move(launch), actionName = std::string(actionName)](bool ok) {
+      if (guard.expired()) {
+        return;
+      }
+      if (!ok) {
+        kLog.warn("{} cancelled because a configured hook failed", actionName);
+        return;
+      }
+      launch();
+    });
   }
 
 } // namespace
@@ -176,7 +208,7 @@ void SessionActionRunner::setPowerConfig(const ShellSessionConfig::ShellSessionP
 
 void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   if (cfg.command.has_value() && !StringUtils::trim(*cfg.command).empty()) {
-    runShellCommand(hookFor(cfg.action), StringUtils::trim(*cfg.command), cfg.action);
+    runShellCommand(m_aliveGuard, hookFor(cfg.action), StringUtils::trim(*cfg.command), cfg.action);
     return;
   }
 
@@ -186,11 +218,11 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   }
 
   if (cfg.action == "logout") {
-    runPowerAction(m_hooks.onLogout, [platform = &m_platform] { return platform->requestSessionExit(); }, "logout");
+    runPowerAction(m_aliveGuard, m_hooks.onLogout, [platform = &m_platform] { return platform->requestSessionExit(); }, "logout");
     return;
   }
   if (cfg.action == "suspend") {
-    runPowerAction({}, [this] { return requestSuspendDetached(); }, "suspend");
+    runPowerAction(m_aliveGuard, {}, [this] { return requestSuspendDetached(); }, "suspend");
     return;
   }
   if (cfg.action == "lock_and_suspend") {
@@ -200,7 +232,7 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
     return;
   }
   if (cfg.action == "reboot") {
-    runPowerAction(m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot");
+    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot");
     return;
   }
   if (cfg.action == "reboot_uefi") {
@@ -209,19 +241,19 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
       kLog.error("reboot_uefi: requires systemd and a UEFI boot");
       return;
     }
-    runPowerAction(m_hooks.onReboot, [this] { return requestRebootUefiDetached(); }, "reboot_uefi");
+    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootUefiDetached(); }, "reboot_uefi");
     return;
   }
   if (cfg.action == "shutdown") {
-    runPowerAction(m_hooks.onShutdown, [this] { return requestShutdownDetached(); }, "shutdown");
+    runPowerAction(m_aliveGuard, m_hooks.onShutdown, [this] { return requestShutdownDetached(); }, "shutdown");
     return;
   }
   if (cfg.action == "hibernate") {
-    runPowerAction({}, [this]() { return requestHibernateDetached(); }, "hibernate");
+    runPowerAction(m_aliveGuard, {}, [this]() { return requestHibernateDetached(); }, "hibernate");
     return;
   }
   if (cfg.action == "suspend_then_hibernate") {
-    runPowerAction({}, [this]() { return requestSuspendThenHibernateDetached(); }, "suspend_then_hibernate");
+    runPowerAction(m_aliveGuard, {}, [this]() { return requestSuspendThenHibernateDetached(); }, "suspend_then_hibernate");
     return;
   }
   if (cfg.action == "lock") {
@@ -232,7 +264,7 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   }
 }
 
-std::function<bool()> SessionActionRunner::hookFor(std::string_view action) const {
+SessionActionHooks::AsyncHook SessionActionRunner::hookFor(std::string_view action) const {
   if (action == "logout") {
     return m_hooks.onLogout;
   }
@@ -271,6 +303,32 @@ bool SessionActionRunner::requestRebootUefiDetached() const {
   logActionContext("reboot_uefi");
   std::scoped_lock lock(m_powerMutex);
   return callLogind("reboot_uefi", "SetRebootToFirmwareSetup") && callLogind("reboot_uefi", "Reboot");
+}
+
+bool SessionActionRunner::requestPowerSkippingInhibitors(std::string_view action) const {
+  // SD_LOGIND_SKIP_INHIBITORS (systemd login-util.h).
+  constexpr std::uint64_t kSkipInhibitors = std::uint64_t{1} << 4;
+  const char* method = action == "suspend" ? "SuspendWithFlags"
+      : action == "reboot"                 ? "RebootWithFlags"
+      : action == "shutdown"               ? "PowerOffWithFlags"
+                                           : nullptr;
+  if (method == nullptr) {
+    return false;
+  }
+  logActionContext(action);
+  std::scoped_lock lock(m_powerMutex);
+  try {
+    const auto connection = sdbus::createSystemBusConnection();
+    const auto manager = sdbus::createProxy(
+        *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+    );
+    manager->callMethod(method).onInterface("org.freedesktop.login1.Manager").withArguments(kSkipInhibitors);
+    kLog.info("{}: logind {} accepted", action, method);
+    return true;
+  } catch (const sdbus::Error& e) {
+    kLog.warn("{}: logind {} failed: {}", action, method, e.what());
+    return false;
+  }
 }
 
 bool SessionActionRunner::requestShutdownDetached() const {

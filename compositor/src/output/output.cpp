@@ -21,7 +21,6 @@
 #include "output/rendered_state_commit.h"
 #include "output/sdr_format.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/config_banner.h"
 #include "scene/fps_overlay.h"
 #include "scene/node.h"
@@ -29,6 +28,7 @@
 #include "server/color_manager.h"
 #include "server/desktop_output_manager.h"
 #include "server/fifo.h"
+#include "server/greeter_mode.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "view/view.h"
@@ -38,10 +38,12 @@
 
 extern "C" {
 #include <andromedafx/render/effect.h>
+#include <andromedafx/render/frame_stats.h>
 #include <wlr/util/transform.h>
 }
 
 #include <algorithm>
+#include <cstdio>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -146,6 +148,16 @@ namespace andromeda {
     }
 #endif
 
+    // Greeter outputs have no user config: 160 DPI per 1.0 scale, in 0.25 steps, from 1 to 3.
+    [[nodiscard]] float greeterScale(const wlr_output& output, const wlr_output_mode* mode) {
+      const int width = mode != nullptr ? mode->width : output.width;
+      if (output.phys_width <= 0 || width <= 0) {
+        return 1.0F;
+      }
+      const double dpi = width * 25.4 / output.phys_width;
+      return static_cast<float>(std::clamp(std::round(dpi / 160.0 * 4.0) / 4.0, 1.0, 3.0));
+    }
+
   } // namespace
 
   OutputIdentity Output::identity() const {
@@ -174,20 +186,17 @@ namespace andromeda {
     }
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
 
-    m_frame.notify = onFrame;
-    wl_signal_add(&m_output->events.frame, &m_frame);
+    m_frame.connect(&m_output->events.frame, this, onFrame);
 
-    m_requestState.notify = onRequestState;
-    wl_signal_add(&m_output->events.request_state, &m_requestState);
+    m_requestState.connect(&m_output->events.request_state, this, onRequestState);
 
-    m_present.notify = onPresent;
-    wl_signal_add(&m_output->events.present, &m_present);
+    m_present.connect(&m_output->events.present, this, onPresent);
 
-    m_destroy.notify = onDestroy;
-    wl_signal_add(&m_output->events.destroy, &m_destroy);
+    m_destroy.connect(&m_output->events.destroy, this, onDestroy);
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
+    m_backdropTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onBackdropTimer, this);
     m_directScanoutTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
 
@@ -210,17 +219,17 @@ namespace andromeda {
       m_layerTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
       m_layerPopupTrees[layer] = wlr_scene_tree_create(m_server->shellLayerTree(layer));
     }
-    m_backgroundUpdate.notify = onBackgroundUpdate;
-    if (!wlr_scene_node_add_update_listener(
-            &layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundUpdate
-        )) {
+    if (!m_backgroundUpdate.connectVia(this, onBackgroundUpdate, [this](wl_listener* listener) {
+          return wlr_scene_node_add_update_listener(&layerTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, listener);
+        })) {
       kLog.error("output '{}': failed to watch background scene updates", m_output->name);
       std::abort();
     }
-    m_backgroundPopupUpdate.notify = onBackgroundPopupUpdate;
-    if (!wlr_scene_node_add_update_listener(
-            &layerPopupTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, &m_backgroundPopupUpdate
-        )) {
+    if (!m_backgroundPopupUpdate.connectVia(this, onBackgroundPopupUpdate, [this](wl_listener* listener) {
+          return wlr_scene_node_add_update_listener(
+              &layerPopupTree(ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)->node, listener
+          );
+        })) {
       kLog.error("output '{}': failed to watch background popup updates", m_output->name);
       std::abort();
     }
@@ -666,6 +675,9 @@ namespace andromeda {
       if (configuredScale) {
         wlr_output_state_set_scale(&state, static_cast<float>(*configuredScale));
         scaleStaged = true;
+      } else if (greeterMode()) {
+        wlr_output_state_set_scale(&state, greeterScale(*m_output, stagedMode));
+        scaleStaged = true;
       } else if (m_appliedConfiguredScale) {
         wlr_output_state_set_scale(&state, m_defaultScale);
         scaleStaged = true;
@@ -1081,7 +1093,7 @@ namespace andromeda {
       m_fullscreenHdrRequested = hasFullscreenView();
     } else if (mode == HdrMode::Auto) {
       m_fullscreenHdrRequested = false;
-      if (!autoHdrEligible(m_autoHdrOwner)) {
+      if (!autoHdrEligible(m_autoHdrOwner.get())) {
         m_autoHdrOwner = findAutoHdrCandidate();
       }
     } else {
@@ -1095,12 +1107,9 @@ namespace andromeda {
     m_server->updateColorPreferences();
   }
 
-  void Output::forgetHdrView(const View* view) {
+  void Output::onViewRemoved(const View* view) {
     if (hdrMode() == HdrMode::Fullscreen && !hasFullscreenView(view)) {
       m_fullscreenHdrRequested = false;
-    }
-    if (m_autoHdrOwner == view) {
-      m_autoHdrOwner = nullptr;
     }
     if (m_hdrTransition.pending(m_output->enabled, hdrRequested())) {
       scheduleFullFrame();
@@ -1188,7 +1197,7 @@ namespace andromeda {
     const HdrMode nextHdrMode = hdrMode();
     if (nextHdrMode == HdrMode::Auto) {
       m_fullscreenHdrRequested = false;
-      if (!autoHdrEligible(m_autoHdrOwner)) {
+      if (!autoHdrEligible(m_autoHdrOwner.get())) {
         m_autoHdrOwner = findAutoHdrCandidate();
       }
     } else if (nextHdrMode == HdrMode::Fullscreen) {
@@ -1442,6 +1451,70 @@ namespace andromeda {
     }
   }
 
+  // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns, then effect work
+  // (fx_frame_stats): blurs blur_px lens lens_px backdrop_rebuilds backdrop_px fp16_passes.
+  struct Output::FrameTimers {
+    static constexpr std::size_t kDepth = 3;
+    std::array<wlr_scene_timer, kDepth> timers{};
+    std::array<bool, kDepth> used{};
+    std::array<int64_t, kDepth> startNs{};
+    std::array<fx_frame_stats, kDepth> stats{};
+    std::size_t next = 0;
+    std::size_t built = kDepth;
+
+    static FILE* log() {
+      static FILE* file = [] {
+        const char* path = std::getenv("ANDROMEDA_FRAME_LOG");
+        FILE* f = path != nullptr && path[0] != '\0' ? std::fopen(path, "w") : nullptr;
+        if (f != nullptr) {
+          std::setvbuf(f, nullptr, _IOLBF, 0);
+        }
+        return f;
+      }();
+      return file;
+    }
+
+    // Writes the slot's finished frame, then hands the slot to the next build.
+    wlr_scene_timer* take(const char* output) {
+      // The effect work done since the last take belongs to the frame that take built.
+      const fx_frame_stats work = fx_frame_stats_take();
+      if (built < kDepth) {
+        stats[built] = work;
+      }
+      wlr_scene_timer* timer = &timers[next];
+      if (used[next]) {
+        const int64_t total = wlr_scene_timer_get_duration_ns(timer);
+        if (total >= 0) {
+          const fx_frame_stats& st = stats[next];
+          int64_t cpuNs = -1;
+          int64_t gpuExecNs = -1;
+          (void)fx_render_timer_split(timer->render_timer, &cpuNs, &gpuExecNs);
+          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld\n", static_cast<long long>(startNs[next]),
+                       output, static_cast<long long>(timer->pre_render_duration),
+                       static_cast<long long>(total - timer->pre_render_duration), st.blurs,
+                       static_cast<unsigned long long>(st.blur_px), st.lens, static_cast<unsigned long long>(st.lens_px),
+                       st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes,
+                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs));
+        }
+      }
+      built = next;
+      timespec now{};
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      startNs[next] = static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
+      used[next] = true;
+      next = (next + 1) % kDepth;
+      return timer;
+    }
+
+    ~FrameTimers() {
+      for (std::size_t i = 0; i < kDepth; ++i) {
+        if (used[i]) {
+          wlr_scene_timer_finish(&timers[i]);
+        }
+      }
+    }
+  };
+
   Output::~Output() {
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
@@ -1452,17 +1525,15 @@ namespace andromeda {
     if (m_lastFrame != nullptr) {
       wlr_buffer_unlock(m_lastFrame);
     }
-    if (m_backgroundPopupUpdate.link.next != nullptr) {
-      wl_list_remove(&m_backgroundPopupUpdate.link);
-      m_backgroundPopupUpdate.link.next = nullptr;
-    }
-    if (m_backgroundUpdate.link.next != nullptr) {
-      wl_list_remove(&m_backgroundUpdate.link);
-      m_backgroundUpdate.link.next = nullptr;
-    }
+    m_backgroundPopupUpdate.disconnect();
+    m_backgroundUpdate.disconnect();
     if (m_frameRetryTimer != nullptr) {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
+    }
+    if (m_backdropTimer != nullptr) {
+      wl_event_source_remove(m_backdropTimer);
+      m_backdropTimer = nullptr;
     }
     if (m_effectFrameTimer != nullptr) {
       wl_event_source_remove(m_effectFrameTimer);
@@ -1483,12 +1554,10 @@ namespace andromeda {
     if (m_output != nullptr && m_output->data == this) {
       m_output->data = nullptr;
     }
-    if (m_frame.link.next != nullptr) {
-      wl_list_remove(&m_frame.link);
-      wl_list_remove(&m_requestState.link);
-      wl_list_remove(&m_present.link);
-      wl_list_remove(&m_destroy.link);
-    }
+    m_frame.disconnect();
+    m_requestState.disconnect();
+    m_present.disconnect();
+    m_destroy.disconnect();
     // Workspace destructors reparent leftover views onto the server trees, so the group has to go before the roots it
     // hangs under.
     m_workspaceGroup.reset();
@@ -1678,6 +1747,45 @@ namespace andromeda {
     }
   }
 
+  void Output::markBlurBackgroundDirty(const wlr_box& box) {
+    if (m_optimizedBlur != nullptr && !wlr_box_empty(&box)) {
+      wlr_scene_optimized_blur_mark_dirty_box(m_optimizedBlur, &box);
+    }
+  }
+
+  void Output::markBlurBackgroundDirty(wlr_scene_node* node) {
+    if (node->type == WLR_SCENE_NODE_TREE) {
+      // A moved or hidden tree leaves each leaf's previous box; the leaves remember it.
+      wlr_scene_node* child = nullptr;
+      wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+        markBlurBackgroundDirty(child);
+      }
+      return;
+    }
+    wlr_box box{};
+    int x = 0;
+    int y = 0;
+    const bool drawn = wlr_scene_node_coords(node, &x, &y) && wlr_scene_node_effect_bounds(node, &box);
+    auto previous = m_blurNodeBoxes.find(node);
+    if (!drawn) {
+      if (previous != m_blurNodeBoxes.end()) {
+        markBlurBackgroundDirty(previous->second);
+        m_blurNodeBoxes.erase(previous);
+      }
+      return;
+    }
+    box.x += x;
+    box.y += y;
+    if (previous == m_blurNodeBoxes.end()) {
+      // The node's earlier box is unknown (it moved in from another tree).
+      markBlurBackgroundDirty();
+    } else {
+      markBlurBackgroundDirty(previous->second);
+    }
+    markBlurBackgroundDirty(box);
+    m_blurNodeBoxes[node] = box;
+  }
+
   void Output::onGammaChanged(wlr_gamma_control_v1* control) {
     updateSceneHdrWhitePoint(control);
     if (hdrActive()) {
@@ -1691,51 +1799,59 @@ namespace andromeda {
     wlr_output_schedule_frame(m_output);
   }
 
-  void Output::onFrame(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_frame);
+  void Output::onFrame(Output* self, void* /*data*/) {
     self->handleFrame();
   }
 
-  void Output::onBackgroundUpdate(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_backgroundUpdate);
-    self->markBlurBackgroundDirty();
+  void Output::onBackgroundUpdate(Output* self, void* data) {
+    self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
   }
 
-  void Output::onBackgroundPopupUpdate(wl_listener* listener, void* /*data*/) {
-    Output* self = wl_container_of(listener, self, m_backgroundPopupUpdate); // NOLINT(modernize-use-auto)
-    self->markBlurBackgroundDirty();
+  void Output::onBackgroundPopupUpdate(Output* self, void* data) {
+    self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
   }
 
-  void Output::onRequestState(wl_listener* listener, void* data) {
-    Output* self;
-    self = wl_container_of(listener, self, m_requestState);
+  void Output::onRequestState(Output* self, void* data) {
     self->handleRequestState(data);
   }
 
-  void Output::onPresent(wl_listener* listener, void* data) {
-    Output* self;
-    self = wl_container_of(listener, self, m_present);
+  void Output::onPresent(Output* self, void* data) {
     self->handlePresent(data);
   }
 
-  void Output::onDestroy(wl_listener* listener, void* /*data*/) {
-    Output* self;
-    self = wl_container_of(listener, self, m_destroy);
+  void Output::onDestroy(Output* self, void* /*data*/) {
     self->handleDestroy();
+  }
+
+  int Output::onBackdropTimer(void* data) {
+    static_cast<Output*>(data)->pollBackdrops();
+    return 0;
+  }
+
+  void Output::pollBackdrops() {
+    constexpr int kBackdropRecheckMs = 16;
+    bool pending = false;
+    for (const auto& layer : m_server->layerSurfaces()) {
+      if (layer->output() == this && layer->pollBackdrop()) {
+        pending = true;
+      }
+    }
+    if (pending && m_backdropTimer != nullptr) {
+      wl_event_source_timer_update(m_backdropTimer, kBackdropRecheckMs);
+    }
   }
 
   int Output::onFrameRetryTimer(void* data) {
     auto* self = static_cast<Output*>(data);
+    self->m_frameRetryArmed = false;
     if (outputFrameAllowed(self->m_server->stopping(), self->m_server->session())) {
       wlr_output_schedule_frame(self->m_output);
     }
     return 0;
   }
 
-  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state) : m_output(output) {
-    wl_list_init(&m_commit.link);
+  Output::SceneCommit::SceneCommit(Output& output, const wlr_output_state& state, bool grouped)
+      : m_output(output), m_grouped(grouped) {
     if ((state.committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state.buffer == nullptr) {
       return;
     }
@@ -1743,23 +1859,27 @@ namespace andromeda {
     // the scene, and avoid attributing a later cursor or metadata commit to an earlier failed scene build.
     m_buffer = state.buffer;
     m_state = output.builtDirectScanout();
-    m_commit.notify = onCommit;
-    wl_signal_add(&output.m_output->events.commit, &m_commit);
+    m_commit.connect(&output.m_output->events.commit, this, onCommit);
   }
 
-  Output::SceneCommit::~SceneCommit() { wl_list_remove(&m_commit.link); }
+  Output::SceneCommit::~SceneCommit() = default;
 
-  void Output::SceneCommit::onCommit(wl_listener* listener, void* data) {
-    SceneCommit* self;
-    self = wl_container_of(listener, self, m_commit);
+  void Output::SceneCommit::onCommit(SceneCommit* self, void* data) {
     const auto* event = static_cast<wlr_output_event_commit*>(data);
     if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
       return;
     }
+    if (self->m_counted) {
+      self->m_output.absorbGroupedCommit(event->output->commit_seq);
+      return;
+    }
     self->m_output.recordDirectScanout(self->m_state, event->output->commit_seq);
+    self->m_counted = true;
+    if (self->m_grouped) {
+      return;
+    }
     // A synchronous backend attempt can account for this built buffer only once.
-    wl_list_remove(&self->m_commit.link);
-    wl_list_init(&self->m_commit.link);
+    self->m_commit.disconnect();
   }
 
   DirectScanoutState Output::builtDirectScanout() const {
@@ -1812,6 +1932,7 @@ namespace andromeda {
   void Output::armFrameRetry() {
     if (m_frameRetryTimer != nullptr && outputFrameAllowed(m_server->stopping(), m_server->session())) {
       wl_event_source_timer_update(m_frameRetryTimer, kFrameRetryDelayMs);
+      m_frameRetryArmed = true;
     }
   }
 
@@ -1913,9 +2034,6 @@ namespace andromeda {
     if (has(pending, Dirty::Backdrop)) {
       m_server->updateBackdrop();
     }
-    if (has(pending, Dirty::Cheatsheet)) {
-      m_server->relayoutCheatsheet();
-    }
     if (has(pending, Dirty::QuitConfirm)) {
       m_server->relayoutQuitConfirm();
     }
@@ -1930,8 +2048,10 @@ namespace andromeda {
       return;
     }
     const OutputFrameScope frameScope(*m_server);
-    if (m_frameRetryTimer != nullptr) {
+    // A disarm is a timerfd_settime syscall: only when armed.
+    if (m_frameRetryArmed) {
       wl_event_source_timer_update(m_frameRetryTimer, 0);
+      m_frameRetryArmed = false;
     }
     m_handlingFrame = true;
 
@@ -2025,9 +2145,6 @@ namespace andromeda {
     } else if (m_server->configBanner() != nullptr && m_server->configBanner()->visible()) {
       tearingFrameEligible = false;
       m_tearingFallbackReason = "configuration banner visible";
-    } else if (m_server->cheatsheet() != nullptr && m_server->cheatsheet()->visible()) {
-      tearingFrameEligible = false;
-      m_tearingFallbackReason = "cheatsheet visible";
     } else if (m_server->quitConfirm() != nullptr && m_server->quitConfirm()->visible()) {
       tearingFrameEligible = false;
       m_tearingFallbackReason = "quit confirmation visible";
@@ -2120,6 +2237,15 @@ namespace andromeda {
         sceneOptions.workspace_from = m_workspaceGroup->revealRoot(false);
         sceneOptions.workspace_to = m_workspaceGroup->revealRoot(true);
       }
+      if (FrameTimers::log() != nullptr) {
+        if (m_frameTimers == nullptr) {
+          m_frameTimers = std::make_unique<FrameTimers>();
+        }
+        sceneOptions.timer = m_frameTimers->take(m_output->name);
+      }
+      // Before the render, so clients draw their next frame while we composite (1-3 ms more per period). No client
+      // request runs until this handler returns, so the call at the bottom then finds no new callbacks.
+      wlr_scene_output_send_frame_done(m_sceneOutput, &now);
       bool built = false;
       {
         ANDROMEDA_ZONE("Output::buildState");
@@ -2261,6 +2387,8 @@ namespace andromeda {
       fifo->latched(m_output);
     }
 
+    pollBackdrops();
+
     // Unconditional: see comment above. Never gate this on commit success.
     wlr_scene_output_send_frame_done(m_sceneOutput, &now);
   }
@@ -2354,14 +2482,10 @@ namespace andromeda {
     if (m_output->data == this) {
       m_output->data = nullptr;
     }
-    wl_list_remove(&m_frame.link);
-    wl_list_remove(&m_requestState.link);
-    wl_list_remove(&m_present.link);
-    wl_list_remove(&m_destroy.link);
-    m_frame.link.next = nullptr;
-    m_requestState.link.next = nullptr;
-    m_present.link.next = nullptr;
-    m_destroy.link.next = nullptr;
+    m_frame.disconnect();
+    m_requestState.disconnect();
+    m_present.disconnect();
+    m_destroy.disconnect();
     if (m_optimizedBlur != nullptr && m_server->scene() != nullptr) {
       wlr_scene_node_destroy(&m_optimizedBlur->node);
     }

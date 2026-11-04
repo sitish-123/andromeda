@@ -20,12 +20,13 @@ public:
   struct Options {
     std::string deviceSelector = "auto";
     int warningThreshold = 0;
-    ColorSpec warningColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec warningColor = colorSpecFromRole(ColorRole::DangerText);
     BatteryDisplayMode displayMode = BatteryDisplayMode::Glyph;
     BatteryLabelContent labelContent = BatteryLabelContent::Percent;
     bool showLabel = true;
     bool hideWhenPlugged = false;
     bool hideWhenFull = false;
+    bool islandStyle = false; // outlined 22 px icon of the design reference (horizontal bars)
   };
 
   BatteryWidget(UPowerService* upower, Options options);
@@ -58,6 +59,7 @@ private:
   bool m_showLabel = true;
   bool m_hideWhenPlugged = false;
   bool m_hideWhenFull = false;
+  bool m_islandStyle = false;
 
   // Glyph mode nodes
   Glyph* m_glyph = nullptr;

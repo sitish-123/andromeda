@@ -1,4 +1,5 @@
 #include "system/system_monitor_service.h"
+#include "util/thread_name.h"
 
 #include "core/log.h"
 #include "system/cpu_freq.h"
@@ -1277,6 +1278,7 @@ void SystemMonitorService::logDetectedSources() {
 }
 
 void SystemMonitorService::samplingLoop() {
+  nameThisThread("dsk-sysmon");
   using Clock = std::chrono::steady_clock;
 
   namespace cpu_stat = noctalia::system::cpu_stat;

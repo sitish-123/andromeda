@@ -12,7 +12,7 @@ ANDROMEDA_TEST(insertedViewsAreNeverMembers) {
   auto layout = createLayout(LayoutMode::Floating);
   View* view = reinterpret_cast<View*>(uintptr_t{0x1000});
   layout->insertView(view, 0);
-  layout->insertViewIntoColumn(view, 0, 0);
+  CHECK(layout->columnOps() == nullptr);
   layout->arrange({0, 0, 1280, 720});
   CHECK(layout->mode() == LayoutMode::Floating);
   CHECK_EQ(layout->columnOf(view), -1);

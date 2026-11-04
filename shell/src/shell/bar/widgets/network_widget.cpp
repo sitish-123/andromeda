@@ -89,7 +89,7 @@ void NetworkWidget::create() {
           .out = &m_vpnGlyph,
           .glyph = "shield-check",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
           .visible = false,
       })
   );
@@ -99,7 +99,7 @@ void NetworkWidget::create() {
           .out = &m_glyph,
           .glyph = "wifi-off",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
       })
   );
 
@@ -107,7 +107,7 @@ void NetworkWidget::create() {
   area->addChild(
       ui::spinner({
           .out = &m_spinner,
-          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
           .spinnerSize = Style::baseGlyphSize * 0.8F * m_contentScale,
           .visible = false,
       })
@@ -284,7 +284,7 @@ void NetworkWidget::syncState(Renderer& renderer) {
     if (showVpn) {
       m_vpnGlyph->setGlyph(network_display::vpnGlyph());
       m_vpnGlyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-      m_vpnGlyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+      m_vpnGlyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
       m_vpnGlyph->measure(renderer);
     }
   }
@@ -303,7 +303,7 @@ void NetworkWidget::syncState(Renderer& renderer) {
     m_glyph->setGlyph(network_display::glyphForState(s));
   }
   m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+  m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
   m_glyph->measure(renderer);
 
   if (m_spinner != nullptr) {
@@ -332,7 +332,7 @@ void NetworkWidget::syncState(Renderer& renderer) {
       }
       m_label->setFontSize((m_isVertical ? Style::fontSizeCaption : Style::fontSizeBody) * fontScale());
       m_label->setText(text);
-      m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+      m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
       m_label->measure(renderer);
     }
   }
@@ -348,7 +348,7 @@ void NetworkWidget::syncState(Renderer& renderer) {
       }
       m_vpnLabel->setFontSize((m_isVertical ? Style::fontSizeCaption : Style::fontSizeBody) * fontScale());
       m_vpnLabel->setText(vpnText);
-      m_vpnLabel->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+      m_vpnLabel->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
       m_vpnLabel->measure(renderer);
     }
   }

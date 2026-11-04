@@ -12,13 +12,17 @@
 class HookManager {
 public:
   using CommandRunner = std::function<bool(const std::string& command)>;
+  using AsyncCommandRunner = std::function<void(const std::string& command, std::function<void(bool ok)> done)>;
   using EnvVar = std::pair<const char*, std::string>;
 
   void setCommandRunner(CommandRunner runner);
   void setBlockingCommandRunner(CommandRunner runner);
+  void setAsyncCommandRunner(AsyncCommandRunner runner);
   void reload(const HooksConfig& config);
   void fire(HookKind kind) const;
   [[nodiscard]] bool fireBlocking(HookKind kind) const;
+  // Runs the hook's commands one after another; done(ok) runs after the last one finishes.
+  void fireAsync(HookKind kind, std::function<void(bool ok)> done) const;
   void fire(HookKind kind, std::initializer_list<EnvVar> env) const;
   void fire(HookKind kind, const std::vector<EnvVar>& env) const;
 
@@ -31,4 +35,5 @@ private:
   HooksConfig m_config;
   CommandRunner m_runner;
   CommandRunner m_blockingRunner;
+  AsyncCommandRunner m_asyncRunner;
 };

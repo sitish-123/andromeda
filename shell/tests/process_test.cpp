@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <mutex>
@@ -158,6 +159,44 @@ namespace {
     return ok;
   }
 
+  bool asyncFeedsStdinAndEnv() {
+    const std::string outPath = std::format("/tmp/noctalia_process_stdin_{}", ::getpid());
+    std::string payload(1 << 20, '\0');
+    for (std::size_t i = 0; i < payload.size(); ++i) {
+      payload[i] = static_cast<char>(i * 31);
+    }
+
+    process::RunOptions options;
+    options.stdinData = payload;
+    options.env.push_back({"NOCTALIA_PROCESS_FEED_PATH", outPath});
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    int exitCode = -1;
+    process::RunCallbacks callbacks{.onExit = [&](process::RunResult result) {
+      std::scoped_lock lock(mutex);
+      exitCode = result.exitCode;
+      done = true;
+      cv.notify_all();
+    }};
+    bool ok = expect(
+        process::runAsync({"/bin/sh", "-c", "cat > \"$NOCTALIA_PROCESS_FEED_PATH\""}, std::move(callbacks), options),
+        "stdin async command did not launch"
+    );
+    std::unique_lock lock(mutex);
+    ok = expect(waitPumping(lock, std::chrono::seconds(5), [&] { return done; }), "stdin async command timed out")
+         && ok;
+    lock.unlock();
+    ok = expect(exitCode == 0, "stdin async command failed") && ok;
+
+    std::ifstream in(outPath, std::ios::binary);
+    const std::string got((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ::unlink(outPath.c_str());
+    ok = expect(got == payload, "stdin bytes did not reach the command intact") && ok;
+    return ok;
+  }
+
   bool stringCommandsSupportShellComposition() {
     const auto result = process::runSync("printf first && printf second");
     bool ok = expect(result.exitCode == 0, "composed shell command failed");
@@ -266,6 +305,7 @@ int main() {
   ok = capturedAsyncDeliversCallbacksAndResult() && ok;
   ok = capturedAsyncDeliversCompletionOnly() && ok;
   ok = syncAppliesEnvOverrides() && ok;
+  ok = asyncFeedsStdinAndEnv() && ok;
   ok = stringCommandsSupportShellComposition() && ok;
   ok = detachedAsyncInheritsLaunchEnvironment() && ok;
   ok = detachedMissingBinaryReturnsFalse() && ok;

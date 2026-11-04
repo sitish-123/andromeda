@@ -1,347 +1,119 @@
-#include "app/application.h"
-#include "app/single_instance_lock.h"
-#include "auth/pam_authenticator.h"
-#include "cli/completions.h"
-#include "cli/help.h"
-#include "cli/schema_root.h"
-#include "config/cli.h"
-#include "core/build_info.h"
-#include "core/log.h"
-#include "core/process/process_fds.h"
-#include "ipc/cli.h"
-#include "launcher/dmenu_cli.h"
-#include "scripting/plugin_lint.h"
-#include "theme/cli.h"
-#include "theme/firefox_theme/firefox_theme.h"
+#include "greeter/greeter_host.h"
 
-#include <array>
 #include <cerrno>
 #include <clocale>
-#include <cstddef>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fcntl.h>
+#include <dlfcn.h>
+#include <filesystem>
 #include <print>
 #include <string>
+#include <system_error>
 #include <unistd.h>
 
 #ifdef __GLIBC__
-#ifdef NOCTALIA_USE_JEMALLOC
-#include <jemalloc/jemalloc.h>
-#else
 #include <malloc.h>
-#endif
 #endif
 
 namespace {
 
-  enum class SpawnResult { Parent, Error };
+#ifdef NOCTALIA_USE_JEMALLOC
+  // The long-running shell runs on jemalloc (lower fragmentation over days). Greeter mode and CLI calls stay on glibc
+  // malloc and save jemalloc's ~8 MB of fixed metadata. jemalloc must replace malloc before the first allocation, so a
+  // shell run re-execs once with it preloaded; shell_main.cpp removes the preload so launched apps never inherit it.
+  constexpr const char* kJemallocConf =
+      "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
 
-  constexpr const char* kDaemonPipeEnv = "NOCTALIA_DAEMON_PIPE_FD";
-  int g_daemonPipe = -1;
+  bool isShellRun(int argc, char* argv[]) {
+    for (int i = 1; i < argc; ++i) {
+      if (std::strcmp(argv[i], "-d") != 0 && std::strcmp(argv[i], "--daemon") != 0
+          && std::strcmp(argv[i], "--daemonize") != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
 
-  void closeFd(int& fd) {
-    if (fd == -1) {
+  void execWithJemalloc(char* argv[]) {
+    if (std::getenv("NOCTALIA_JEMALLOC") != nullptr || access(NOCTALIA_JEMALLOC_PATH, R_OK) != 0) {
       return;
     }
-    (void)::close(fd);
-    fd = -1;
+    std::string preload = NOCTALIA_JEMALLOC_PATH;
+    if (const char* own = std::getenv("LD_PRELOAD"); own != nullptr && own[0] != '\0') {
+      setenv("NOCTALIA_LD_PRELOAD_ORIG", own, 1);
+      preload += ':';
+      preload += own;
+    }
+    setenv("LD_PRELOAD", preload.c_str(), 1);
+    // The user's own MALLOC_CONF keys come last, so they override single keys as with the old compiled-in malloc_conf.
+    std::string conf = kJemallocConf;
+    if (const char* own = std::getenv("MALLOC_CONF"); own != nullptr) {
+      setenv("NOCTALIA_MALLOC_CONF_ORIG", own, 1);
+      conf += ',';
+      conf += own;
+    }
+    setenv("MALLOC_CONF", conf.c_str(), 1);
+    setenv("NOCTALIA_JEMALLOC", "1", 1);
+    // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep noctalia` must work.
+    std::error_code ec;
+    const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    execv(ec ? "/proc/self/exe" : self.c_str(), argv);
+    std::println(stderr, "warning: cannot re-exec with jemalloc ({}); running on glibc malloc", std::strerror(errno));
   }
+#endif
 
-  bool writeAll(int fd, const void* data, std::size_t size) {
-    const char* bytes = static_cast<const char*>(data);
-    while (size > 0) {
-      const ssize_t written = ::write(fd, bytes, size);
-      if (written < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return false;
+  constexpr const char* kShellModule = "noctalia-shell.so";
+  constexpr const char* kShellEntry = "noctalia_shell_main_v1";
+
+  using ShellMain = int (*)(int, char*[]);
+
+  // The shell and its library tree live in noctalia-shell.so, so greeter mode maps neither. The build directory copy
+  // wins over the installed one, as for noctalia-calc.so.
+  ShellMain loadShell() {
+    std::error_code ec;
+    const auto exeDir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+    for (const auto& path :
+         {exeDir / kShellModule,
+          std::filesystem::path(NOCTALIA_INSTALL_PREFIX) / NOCTALIA_INSTALL_LIBDIR / "noctalia" / kShellModule}) {
+      if (!std::filesystem::exists(path, ec)) {
+        continue;
       }
-      if (written == 0) {
-        return false;
+      void* module = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+      if (module == nullptr) {
+        std::println(stderr, "error: cannot load {}", dlerror());
+        return nullptr;
       }
-      bytes += written;
-      size -= static_cast<std::size_t>(written);
-    }
-    return true;
-  }
-
-  bool readAll(int fd, void* data, std::size_t size) {
-    char* bytes = static_cast<char*>(data);
-    while (size > 0) {
-      const ssize_t received = ::read(fd, bytes, size);
-      if (received < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return false;
+      void* symbol = dlsym(module, kShellEntry);
+      if (symbol == nullptr) {
+        std::println(stderr, "error: {} has no {}; it is from another noctalia version", path.string(), kShellEntry);
+        return nullptr;
       }
-      if (received == 0) {
-        return false;
-      }
-      bytes += received;
-      size -= static_cast<std::size_t>(received);
+      ShellMain entry = nullptr;
+      std::memcpy(&entry, &symbol, sizeof(entry));
+      return entry;
     }
-    return true;
-  }
-
-  bool redirectStdioToNull() {
-    int fd = ::open("/dev/null", O_RDWR);
-    if (fd == -1) {
-      std::perror("open(\"/dev/null\")");
-      return false;
-    }
-
-    bool ok = true;
-    if (::dup2(fd, STDIN_FILENO) == -1) {
-      std::perror("dup2(stdin)");
-      ok = false;
-    }
-    if (::dup2(fd, STDOUT_FILENO) == -1) {
-      std::perror("dup2(stdout)");
-      ok = false;
-    }
-    if (::dup2(fd, STDERR_FILENO) == -1) {
-      std::perror("dup2(stderr)");
-      ok = false;
-    }
-
-    if (fd > STDERR_FILENO) {
-      (void)::close(fd);
-    }
-    return ok;
-  }
-
-  void completeDaemonStartup(int code) {
-    if (g_daemonPipe == -1) {
-      return;
-    }
-
-    const int result = code;
-    if (!writeAll(g_daemonPipe, &result, sizeof(result))) {
-      std::println(stderr, "error: failed to notify daemon parent: {}", std::strerror(errno));
-    }
-    closeFd(g_daemonPipe);
-    if (code == 0 && !redirectStdioToNull()) {
-      std::println(stderr, "error: failed to redirect daemon stdio");
-    }
-  }
-
-  int runTopLevelFlag(const char* flag) {
-    if (std::strcmp(flag, "--version") == 0 || std::strcmp(flag, "-v") == 0) {
-      const std::string version = noctalia::build_info::displayVersion();
-      std::println("noctalia {}", version);
-      return 0;
-    }
-    if (std::strcmp(flag, "--help") == 0 || std::strcmp(flag, "-h") == 0) {
-      std::print("{}", noctalia::cli::renderHelp(noctalia::cli::kRootCmd, "noctalia"));
-      return 0;
-    }
-    return -1;
-  }
-
-  bool takeDaemonPipeFromEnv() {
-    const char* value = std::getenv(kDaemonPipeEnv);
-    if (value == nullptr || value[0] == '\0') {
-      return false;
-    }
-
-    errno = 0;
-    char* end = nullptr;
-    const long fd = std::strtol(value, &end, 10);
-    (void)::unsetenv(kDaemonPipeEnv);
-    if (errno != 0 || end == value || *end != '\0' || fd < 0) {
-      std::println(stderr, "error: invalid {} value: {}", kDaemonPipeEnv, value);
-      return false;
-    }
-
-    g_daemonPipe = static_cast<int>(fd);
-    return true;
-  }
-
-  SpawnResult daemonize(pid_t* outPid, int* parentPipe, char* const argv[]) {
-    auto pipeFds = std::array<int, 2>{-1, -1};
-    if (::pipe(pipeFds.data()) == -1) {
-      std::perror("pipe");
-      return SpawnResult::Error;
-    }
-
-    pid_t pid = ::fork();
-    if (pid < 0) {
-      std::perror("fork");
-      closeFd(pipeFds[0]);
-      closeFd(pipeFds[1]);
-      return SpawnResult::Error;
-    }
-
-    if (pid > 0) {
-      if (outPid)
-        *outPid = pid;
-      if (parentPipe)
-        *parentPipe = pipeFds[0];
-      closeFd(pipeFds[1]);
-      return SpawnResult::Parent;
-    }
-
-    closeFd(pipeFds[0]);
-    // Match v4's early daemon boundary, but exec before shell startup so GLib,
-    // D-Bus, and polkit start from a normal process image rather than a raw
-    // post-fork child.
-    if (::setsid() == -1) {
-      std::perror("setsid");
-      const int daemonResult = 1;
-      (void)writeAll(pipeFds[1], &daemonResult, sizeof(daemonResult));
-      closeFd(pipeFds[1]);
-      _exit(1);
-    }
-
-    const std::string pipeFd = std::to_string(pipeFds[1]);
-    if (::setenv(kDaemonPipeEnv, pipeFd.c_str(), 1) == -1) {
-      std::perror("setenv");
-      const int daemonResult = 1;
-      (void)writeAll(pipeFds[1], &daemonResult, sizeof(daemonResult));
-      closeFd(pipeFds[1]);
-      _exit(1);
-    }
-
-    ::execvp(argv[0], argv);
-    std::perror("execvp");
-    const int daemonResult = 1;
-    (void)writeAll(pipeFds[1], &daemonResult, sizeof(daemonResult));
-    closeFd(pipeFds[1]);
-    _exit(1);
-  }
-
-  int runShell() {
-    // Raise the soft fd limit before any Wayland/EGL init. The NVIDIA EGL/Wayland
-    // driver leaks internal sync_file fences slowly across a session; the default
-    // 1024 soft cap can be exhausted in a long-running session, after which the
-    // Wayland connection fails fatally.
-    ProcessFds::raiseOpenFileLimit();
-
-    // Claim the single-instance lock before any shell/Wayland init so the answer
-    // is settled before bars or surfaces are created. Held for the process lifetime.
-    SingleInstanceLock instanceLock;
-    if (!instanceLock.tryAcquire()) {
-      std::println(stderr, "error: noctalia is already running");
-      completeDaemonStartup(1);
-      _exit(1);
-    }
-    try {
-      Application app;
-      app.run([] { completeDaemonStartup(0); });
-    } catch (const std::exception& e) {
-      logError("fatal: {}", e.what());
-      completeDaemonStartup(1);
-      return 1;
-    }
-    return 0;
+    std::println(stderr, "error: {} is not installed next to noctalia or in the noctalia libdir", kShellModule);
+    return nullptr;
   }
 
 } // namespace
 
-#ifdef NOCTALIA_USE_JEMALLOC
-// jemalloc reads this before its first allocation; the background thread runs
-// decay even while the shell is idle.
-const char* malloc_conf = "background_thread:true,narenas:2,dirty_decay_ms:1000,muzzy_decay_ms:5000,lg_tcache_max:12";
-#endif
-
 int main(int argc, char* argv[]) {
-
-#if defined(__GLIBC__) && !defined(NOCTALIA_USE_JEMALLOC)
+#ifdef NOCTALIA_USE_JEMALLOC
+  if (isShellRun(argc, argv)) {
+    execWithJemalloc(argv);
+  }
+#endif
+#ifdef __GLIBC__
   mallopt(M_ARENA_MAX, 2);
 #endif
 
   std::setlocale(LC_ALL, "");
   std::setlocale(LC_NUMERIC, "C");
 
-  const bool isDaemonChild = takeDaemonPipeFromEnv();
-  bool shouldDaemonize = false;
-
-  for (int i = 1; i < argc; ++i) {
-    if (std::strcmp(argv[i], "--daemon") == 0
-        || std::strcmp(argv[i], "--daemonize") == 0
-        || std::strcmp(argv[i], "-d") == 0) {
-      shouldDaemonize = true;
-      for (int j = i; j < argc - 1; ++j) {
-        argv[j] = argv[j + 1];
-      }
-      --argc;
-      argv[argc] = nullptr;
-      break;
-    }
+  if (argc >= 2 && std::strcmp(argv[1], "greeter") == 0) {
+    return runGreeterHost(argc, argv);
   }
-
-  if (argc >= 2) {
-    if (noctalia::theme::isFirefoxNativeMessagingLaunch(argc, argv))
-      return noctalia::theme::runFirefoxNativeMessagingHost();
-    if (std::strcmp(argv[1], "completions") == 0)
-      return noctalia::cli::runCompletionsCli(argc, argv);
-    if (std::strcmp(argv[1], "firefox-theme") == 0)
-      return noctalia::theme::runFirefoxThemeCli(argc, argv);
-    if (std::strcmp(argv[1], "theme") == 0)
-      return noctalia::theme::runCli(argc, argv);
-    if (std::strcmp(argv[1], "msg") == 0)
-      return noctalia::ipc::runCli(argc, argv);
-    // Internal mode for PAM authentication after re-exec.
-    if (std::strcmp(argv[1], "pam-helper") == 0)
-      return PamAuthenticator::runHelperMode(argc, argv);
-    if (std::strcmp(argv[1], "config") == 0)
-      return noctalia::config::runCli(argc, argv);
-    if (std::strcmp(argv[1], "dmenu") == 0)
-      return noctalia::launcher::runDmenuCli(argc, argv);
-    if (std::strcmp(argv[1], "plugins") == 0)
-      return noctalia::plugins::runCli(argc, argv);
-  }
-
-  for (int i = 1; i < argc; ++i) {
-    if (argv[i][0] == '-') {
-      const int rc = runTopLevelFlag(argv[i]);
-      if (rc >= 0)
-        return rc;
-
-      std::println(stderr, "error: unknown option: {}", argv[i]);
-      return 1;
-    }
-  }
-
-  if (argc >= 2) {
-    std::println(stderr, "error: unknown command: {}", argv[1]);
-    std::println(stderr, "Run 'noctalia --help' for usage.");
-    return 1;
-  }
-
-  {
-    const char* home = std::getenv("HOME");
-    if (home != nullptr && home[0] != '\0' && ::chdir(home) != 0) {
-      std::println(stderr, "warning: failed to chdir to HOME ({}): {}", home, std::strerror(errno));
-    }
-  }
-
-  if (shouldDaemonize && !isDaemonChild) {
-    pid_t pid = -1;
-    int parentPipe = -1;
-    SpawnResult result = daemonize(&pid, &parentPipe, argv);
-
-    if (result == SpawnResult::Error) {
-      return 1;
-    }
-    if (result == SpawnResult::Parent) {
-      int daemonResult = 1;
-      const bool receivedResult = readAll(parentPipe, &daemonResult, sizeof(daemonResult));
-      closeFd(parentPipe);
-      if (!receivedResult) {
-        std::println(stderr, "error: failed to wait for daemon startup");
-        return 1;
-      }
-      if (daemonResult == 0) {
-        std::println("noctalia started [pid: {}]", pid);
-      }
-      return daemonResult;
-    }
-  }
-
-  return runShell();
+  const ShellMain shell = loadShell();
+  return shell != nullptr ? shell(argc, argv) : 1;
 }

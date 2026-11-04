@@ -111,7 +111,6 @@ namespace noctalia::theme {
   GeneratedPalette expandFixedPalettes(const FixedPalette& dark, const FixedPalette& light);
   // Inverse of expandFixedPaletteMode(): reads the source colors back out of a token set.
   [[nodiscard]] FixedPalette fixedPaletteFromTokens(const TokenMap& tokens);
-  ::Palette mapGeneratedPaletteMode(const TokenMap& tokens);
 
   // Wallpaper schemes have no hover role of their own: hover mirrors the tertiary accent,
   // the pairing the builtin palettes use.

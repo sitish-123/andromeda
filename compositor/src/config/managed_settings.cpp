@@ -2,11 +2,18 @@
 
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
+#include "config/config_registry.h"
+#include "config/value_parse.h"
+#include "andromeda_data_dir.h"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdlib>
 #include <format>
+#include <functional>
+#include <map>
+#include <sstream>
 #include <vector>
 
 namespace andromeda {
@@ -16,13 +23,15 @@ namespace andromeda {
     constexpr std::string_view kHeader = "# Written by Andromeda when settings are changed from a settings app.\n"
                                          "# Loaded after config.toml and its includes, so these values win.\n\n";
 
-    enum class Kind : uint8_t { Bool, Int, Real, Choice, Layout, Text, Action };
+    enum class Kind : uint8_t { Bool, Int, Real, Choice, Layout, Text, Color, Action };
 
     constexpr std::array<std::string_view, 3> kDragToggle = {"none", "floating", "pinned"};
     constexpr std::array<std::string_view, 2> kTrackLayout = {"global", "window"};
     constexpr std::array<std::string_view, 2> kAccel = {"flat", "adaptive"};
     constexpr std::array<std::string_view, 2> kClickMethod = {"button_areas", "clickfinger"};
     constexpr std::array<std::string_view, 2> kTapMap = {"left_right_middle", "left_middle_right"};
+    constexpr std::array<std::string_view, 3> kDragLock = {"off", "timeout", "sticky"};
+    constexpr std::array<std::string_view, 2> kScheme = {"dark", "light"};
     constexpr std::array<std::string_view, 5> kButtons = {
         "MouseLeft", "MouseRight", "MouseMiddle", "MouseBack", "MouseForward",
     };
@@ -54,6 +63,10 @@ namespace andromeda {
       return *method == ClickMethod::ButtonAreas ? "button_areas" : "clickfinger";
     }
 
+    std::string text(const std::optional<DragLock>& lock) {
+      return lock ? std::string(kDragLock[static_cast<size_t>(*lock)]) : "";
+    }
+
     std::string text(const std::optional<TapButtonMap>& map) {
       if (!map) {
         return "";
@@ -81,6 +94,10 @@ namespace andromeda {
 
     std::string text(WindowDragToggle toggle) { return std::string(kDragToggle[static_cast<size_t>(toggle)]); }
     std::string text(TrackLayout track) { return track == TrackLayout::Global ? "global" : "window"; }
+    std::string text(ColorScheme scheme) { return std::string(kScheme[static_cast<size_t>(scheme)]); }
+    std::string text(const std::optional<std::array<float, 4>>& color) {
+      return color ? registry::formatColor(*color) : "";
+    }
 
     std::string scrollFactorText(const std::optional<Config::Input::Touchpad::ScrollFactor>& factor) {
       if (!factor) {
@@ -101,6 +118,7 @@ namespace andromeda {
       double max = 0.0;
       std::span<const std::string_view> choices{};
       std::string (*get)(const Config&) = nullptr;
+      bool isVolatile = false; // applied and sent to subscribers, never written to the settings file
     };
 
     // Every entry maps to a key the config reader accepts; the ranges repeat the reader's own.
@@ -168,6 +186,30 @@ namespace andromeda {
             0,
             {},
             [](const Config& c) { return text(c.input.touchpad.naturalSwipe); }
+        },
+        Spec{
+            "input.touchpad.tap_and_drag",
+            Kind::Bool,
+            0,
+            0,
+            {},
+            [](const Config& c) { return text(c.input.touchpad.tapAndDrag.value_or(true)); }
+        },
+        Spec{
+            "input.touchpad.drag_lock", Kind::Choice, 0, 0, kDragLock,
+            [](const Config& c) { return text(c.input.touchpad.dragLock); }
+        },
+        Spec{
+            "input.touchpad.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.touchpad.enabled); }
+        },
+        Spec{"input.touch.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.touch.enabled); }},
+        Spec{
+            "input.window_snapping",
+            Kind::Bool,
+            0,
+            0,
+            {},
+            [](const Config& c) { return text(c.input.windowSnapping); }
         },
         Spec{
             "input.touchpad.left_handed",
@@ -323,6 +365,12 @@ namespace andromeda {
         Spec{"appearance.drag_opacity", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.dragOpacity); }},
         Spec{"appearance.prefer_no_csd", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.preferNoCsd); }},
         Spec{"appearance.opaque_fullscreen", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.opaqueFullscreen); }},
+        Spec{"appearance.scheme", Kind::Choice, 0, 0, kScheme, [](const Config& c) { return text(c.appearance.scheme); }},
+        Spec{"appearance.accent", Kind::Color, 0, 0, {}, [](const Config& c) { return text(c.appearance.accent); }},
+        Spec{"appearance.glass", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.glass); }},
+        Spec{"appearance.reduce_transparency", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceTransparency); }},
+        Spec{"appearance.increase_contrast", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.increaseContrast); }},
+        Spec{"appearance.reduce_motion", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.reduceMotion); }},
         Spec{"appearance.blur.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.blur.enabled); }},
         Spec{"appearance.blur.optimized", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.blur.optimized); }},
         Spec{"appearance.blur.passes", Kind::Int, 0, 8, {}, [](const Config& c) { return text(c.appearance.blur.passes); }},
@@ -378,14 +426,32 @@ namespace andromeda {
         Spec{"hot_corners.bottom_right.delay_ms", Kind::Int, 0, 10000, {}, [](const Config& c) { return text(c.hotCorners.corners[3].delayMs); }},
         Spec{"hot_corners.bottom_right.action", Kind::Action, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[3].action); }},
         Spec{"general.mod_key", Kind::Choice, 0, 0, kModKeys, [](const Config& c) { return text(c.general.modKey); }},
-        Spec{"general.show_cheatsheet", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.showCheatsheet); }},
+        Spec{"power.on_battery", Kind::Bool, 0, 0, {}, [](const Config&) { return std::string("false"); }, true},
     };
 
-    const std::array kKeys = [] {
-      std::array<std::string_view, kSpecs.size()> keys{};
-      std::ranges::transform(kSpecs, keys.begin(), &Spec::key);
+    // Keys the settings file and the config reader know; volatile keys are in neither.
+    const std::vector<std::string_view> kKeys = [] {
+      std::vector<std::string_view> keys;
+      for (const Spec& spec : kSpecs) {
+        if (!spec.isVolatile) {
+          keys.push_back(spec.key);
+        }
+      }
       return keys;
     }();
+
+    const std::vector<std::string_view> kVolatileKeys = [] {
+      std::vector<std::string_view> keys;
+      for (const Spec& spec : kSpecs) {
+        if (spec.isVolatile) {
+          keys.push_back(spec.key);
+        }
+      }
+      return keys;
+    }();
+
+    std::map<std::string, std::string, std::less<>> volatileValues;
+    std::string runtimeOverlay;
 
     const Spec* findSpec(std::string_view key) {
       const auto it = std::ranges::find(kSpecs, key, &Spec::key);
@@ -447,10 +513,45 @@ namespace andromeda {
 
   std::span<const std::string_view> managedSettingKeys() { return kKeys; }
 
+  std::span<const std::string_view> volatileSettingKeys() { return kVolatileKeys; }
+
+  bool isVolatileSetting(std::string_view key) {
+    const Spec* spec = findSpec(key);
+    return spec != nullptr && spec->isVolatile;
+  }
+
+  void setVolatileSetting(std::string_view key, const ManagedSettingValue& value) {
+    const auto it = volatileValues.find(key);
+    if (const bool* flag = std::get_if<bool>(&value)) {
+      volatileValues.insert_or_assign(std::string(key), *flag ? "true" : "false");
+    } else if (it != volatileValues.end()) {
+      volatileValues.erase(it);
+    }
+  }
+
   std::string managedSettingValue(const Config& config, std::string_view key) {
     const Spec* spec = findSpec(key);
-    return spec != nullptr ? spec->get(config) : std::string();
+    if (spec == nullptr) {
+      return {};
+    }
+    if (spec->isVolatile) {
+      const auto it = volatileValues.find(key);
+      return it != volatileValues.end() ? it->second : spec->get(config);
+    }
+    return spec->get(config);
   }
+
+  void setManagedRuntimeOverlay(std::span<const std::pair<std::string, ManagedSettingValue>> values) {
+    toml::table root;
+    for (const auto& [key, value] : values) {
+      applySetting(root, key, value);
+    }
+    std::ostringstream out;
+    out << root;
+    runtimeOverlay = values.empty() ? std::string() : out.str();
+  }
+
+  const std::string& managedRuntimeOverlay() { return runtimeOverlay; }
 
   ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text) {
     const Spec* spec = findSpec(key);
@@ -502,6 +603,11 @@ namespace andromeda {
       }
       return invalid("an action a keybind accepts");
     }
+    case Kind::Color:
+      if (std::array<float, 4> parsed{}; parseColor(text, parsed)) {
+        return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
+      }
+      return invalid("a color such as #4a80ff");
     case Kind::Text:
       if (isPlainText(text)) {
         return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
@@ -520,7 +626,24 @@ namespace andromeda {
   }
 
   std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot) {
-    return configRoot.parent_path() / "settings.toml";
+    // A root from a system config dir means the user has no config.toml yet: the user's choices still belong in
+    // the user's config dir, never next to a read-only system file.
+    std::vector<std::filesystem::path> systemDirs{std::filesystem::path(kDataDir) / "andromeda"};
+    const char* configDirs = std::getenv("XDG_CONFIG_DIRS");
+    std::istringstream dirs(configDirs != nullptr && configDirs[0] != '\0' ? configDirs : "/etc/xdg");
+    for (std::string dir; std::getline(dirs, dir, ':');) {
+      if (!dir.empty()) {
+        systemDirs.push_back(std::filesystem::path(dir) / "andromeda");
+      }
+    }
+    if (std::ranges::find(systemDirs, configRoot.parent_path()) == systemDirs.end()) {
+      return configRoot.parent_path() / "settings.toml";
+    }
+    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0') {
+      return std::filesystem::path(xdg) / "andromeda/settings.toml";
+    }
+    const char* home = std::getenv("HOME");
+    return std::filesystem::path(home != nullptr ? home : "") / ".config/andromeda/settings.toml";
   }
 
   bool saveManagedKeybind(const std::filesystem::path& file, std::string_view chord, std::string_view action) {

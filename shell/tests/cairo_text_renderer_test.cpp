@@ -88,11 +88,36 @@ namespace {
 
 } // namespace
 
+namespace {
+  // Positive tracking widens the run, negative narrows it, and an unchanged run keeps its width.
+  int trackingCase(CairoTextRenderer& renderer) {
+    constexpr std::string_view text = "Tracking width";
+    TextFont plain{FontWeight::Normal};
+    TextFont wide = plain;
+    wide.tracking = 0.05F;
+    TextFont tight = plain;
+    tight.tracking = -0.05F;
+    const float w0 = renderer.measure(1.0F, text, 13.0F, plain).width;
+    const float w1 = renderer.measure(1.0F, text, 13.0F, wide).width;
+    const float w2 = renderer.measure(1.0F, text, 13.0F, tight).width;
+    // 14 glyphs, 13 gaps: spacing after the last glyph would widen the run by a 14th unit.
+    const float unit = 0.05F * 13.0F;
+    if (std::abs((w1 - w0) - 13.0F * unit) < 0.25F && std::abs((w0 - w2) - 13.0F * unit) < 0.25F) {
+      return 0;
+    }
+    std::println(stderr, "cairo_text_renderer_test: FAIL: tracking widths {} {} {}", w2, w0, w1);
+    return 1;
+  }
+}  // namespace
+
 int main() {
   CairoTextRenderer renderer;
   renderer.initialize(nullptr, nullptr);
 
   if (const int rc = scaleKeyedCacheCase(renderer); rc != 0) {
+    return rc;
+  }
+  if (const int rc = trackingCase(renderer); rc != 0) {
     return rc;
   }
   return wrappingBoundaryCase(renderer);

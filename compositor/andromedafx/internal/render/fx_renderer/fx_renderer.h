@@ -174,7 +174,10 @@ struct fx_render_timer {
   struct timespec cpu_start;
   struct timespec cpu_end;
   GLuint id;
+  GLuint begin_id;
   GLint64 gl_cpu_end;
+  // Set by the duration read: first to last GPU timestamp of the pass.
+  int64_t gpu_exec_ns;
 };
 
 bool wlr_render_timer_is_fx(struct wlr_render_timer* timer);
@@ -201,7 +204,16 @@ struct fx_renderer {
 
   struct wlr_egl* egl;
   int drm_fd;
+  // Set by the compositor; NULL disables zero-copy shm import.
+  struct wl_event_loop* event_loop;
   struct wlr_allocator* allocator;
+
+  // GL timestamp minus CLOCK_MONOTONIC (ns), resynced once per second: a GL_TIMESTAMP read is a register read that
+  // spins on i915 forcewake, too slow for every frame.
+  int64_t gl_clock_offset_ns;
+  int64_t gl_clock_synced_ns;
+  // KHR_debug output and debug groups: ANDROMEDA_GL_DEBUG or a debug log level.
+  bool gl_debug;
 
   struct wlr_drm_format_set shm_texture_formats;
 
@@ -291,6 +303,7 @@ struct fx_renderer {
 
   struct wl_list buffers;           // fx_framebuffer.link
   struct wl_list textures;          // fx_texture.link
+  struct wl_list backdrop_probes;   // fx_backdrop_probe.link
   struct wl_list offscreen_buffers; // fx_offscreen_buffers.link
   struct wl_list output_luts;       // fx_output_lut.link
 

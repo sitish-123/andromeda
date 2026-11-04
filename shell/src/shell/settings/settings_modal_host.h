@@ -33,6 +33,7 @@ namespace settings {
     std::function<void()> onClosed;
     float contentPadding = 12.0F;
     float windowMargin = 24.0F;
+    float scale = 1.0F;
   };
 
   // Owns an in-scene stack of modal dialogs above the Settings content. The stack uses the

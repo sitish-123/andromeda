@@ -1,14 +1,17 @@
 #include "shell/settings/settings_control_factory.h"
+#include "shell/settings/settings_pages.h"
 
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "i18n/i18n.h"
 #include "render/scene/input_area.h"
+#include "render/scene/rect_node.h"
 #include "shell/bar/widget_action.h"
 #include "shell/bar/widget_gesture.h"
 #include "shell/settings/color_spec_picker.h"
 #include "shell/settings/path_browse.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
@@ -50,7 +53,7 @@ namespace settings {
           ui::label({
               .text = std::move(suffix),
               .fontSize = Style::fontSizeCaption * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
     }
@@ -58,11 +61,11 @@ namespace settings {
     // Horizontal space the leading invert slot occupies: corner glyph + gap + a Small toggle.
     // Invertible sliders give this much (plus the row gap) back from their track so the toggle tucks
     // in on the left without widening the control cluster.
-    constexpr float kInvertSlotContentWidth = Style::fontSizeBody
-        + Style::spaceXs
-        + Style::toggleThumbSizeSm
-        + (2.0F * Style::toggleInsetSm)
-        + Style::toggleTravelSm;
+    TOKENS_LIVE(
+        kInvertSlotContentWidth,
+        Style::fontSizeBody + Style::spaceXs + Style::toggleThumbSizeSm + (2.0F * Style::toggleInsetSm)
+            + Style::toggleTravelSm
+    );
 
     // Leading slot carrying the concave-corner invert toggle: a corner glyph (labelling the toggle
     // in lieu of a text caption) plus a Small toggle. The slot sizes to its content. Reserve builds
@@ -83,7 +86,7 @@ namespace settings {
           ui::glyph({
               .glyph = "border-corner-pill",
               .glyphSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(enabled ? ColorRole::OnSurfaceVariant : ColorRole::OutlineVariant),
+              .color = colorSpecFromRole(enabled ? ColorRole::Label2 : ColorRole::Stroke),
               .visible = hidden,
           })
       );
@@ -190,8 +193,8 @@ namespace settings {
         .glyphSize = Style::fontSizeBody * scale,
         .variant = pendingConfirmation ? ButtonVariant::Destructive : ButtonVariant::Ghost,
         .tooltip = i18n::tr("settings.actions.reset-to-default"),
-        .minWidth = Style::controlHeightSm * scale,
-        .minHeight = Style::controlHeightSm * scale,
+        .minWidth = Style::controlHeight * scale,
+        .minHeight = Style::controlHeight * scale,
         .paddingV = Style::spaceXs * scale,
         .paddingH = Style::spaceXs * scale,
         .radius = Style::scaledRadiusMd(scale),
@@ -222,15 +225,8 @@ namespace settings {
          .paddingH = matchResetHeight ? Style::spaceSm * scale : Style::spaceXs * scale,
          .fill = fill,
          .radius = Style::scaledRadiusSm(scale),
-         .minHeight = matchResetHeight ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt},
+         .minHeight = matchResetHeight ? std::optional<float>{Style::controlHeight * scale} : std::nullopt},
         makeLabel(label, Style::fontSizeCaption * scale, color, FontWeight::Bold)
-    );
-  }
-
-  std::unique_ptr<Flex> SettingsControlFactory::makeAdvancedBadge() {
-    return makeStatusBadge(
-        i18n::tr("settings.badges.advanced"), colorSpecFromRole(ColorRole::SurfaceContainer),
-        colorSpecFromRole(ColorRole::OnSurfaceVariant), false
     );
   }
 
@@ -238,6 +234,82 @@ namespace settings {
     const float scale = m_scale;
     return ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, makeResetButton(path));
   }
+
+  namespace {
+
+    // R7: the tile radius minus its ring and gap.
+    constexpr float kPreviewRadius = metrics::kPickerRadius - Style::focusRingWidth - Style::focusRingGap;
+
+    // Mode illustration (mockup .agent/mockups/settings.html A): wallpaper, two bar pills and a window in the mode's
+    // colours; auto splits all three down the middle. 116 x 74 at r 10 (R7 inside the 12 tile with its 2 + 2 ring).
+    constexpr float kModeThumbWidth = 116.0F;
+    constexpr float kModeThumbHeight = 74.0F;
+
+    std::unique_ptr<RectNode> modeLayer(float x, float y, float w, float h, float radius, std::array<Color, 3> stops,
+                                        bool split) {
+      auto rect = std::make_unique<RectNode>();
+      rect->setParticipatesInLayout(false);
+      rect->setPosition(x, y);
+      rect->setFrameSize(w, h);
+      const float mid = split ? 0.5F : 0.6F;
+      rect->setStyle(RoundedRectStyle{
+          .fill = stops[0],
+          .border = clearColor(),
+          .fillMode = FillMode::LinearGradient,
+          .gradientDirection = GradientDirection::Horizontal,
+          .gradientStops = {GradientStop{0.0F, stops[0]}, GradientStop{mid, stops[split ? 0 : 1]},
+                            GradientStop{mid, stops[split ? 2 : 1]}, GradientStop{1.0F, stops[2]}},
+          .radius = radius,
+          .softness = 1.0F,
+          .borderWidth = 0.0F,
+      });
+      return rect;
+    }
+
+    std::unique_ptr<Flex> makeModePreview(std::string_view value, float scale) {
+      const bool dark = value == "dark";
+      const bool split = value == "auto";
+      const float w = kModeThumbWidth * scale;
+      const float h = kModeThumbHeight * scale;
+      const Color wpLight0 = rgbHex(0xF6C9A8);
+      const Color wpLight1 = rgbHex(0x9FB6FF);
+      const Color wpLight2 = rgbHex(0x8FE6D2);
+      const Color wpDark0 = rgbHex(0x24161C);
+      const Color wpDark1 = rgbHex(0x121A33);
+      const Color wpDark2 = rgbHex(0x0C2A28);
+      const Color winLight = rgbHex(0xF2F2F6);
+      const Color winDark = rgbHex(0x1E1E22);
+      const Color pillLight{1.0F, 1.0F, 1.0F, 0.7F};
+      const Color pillDark{28.0F / 255.0F, 28.0F / 255.0F, 32.0F / 255.0F, 0.75F};
+
+      auto thumb = ui::column({
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Separator),
+          .borderWidth = 0.5F * scale,
+          .width = w,
+          .height = h,
+      });
+      std::array<Color, 3> wallpaper = dark ? std::array{wpDark0, wpDark1, wpDark2}
+          : split                         ? std::array{wpLight0, wpLight0, wpDark1}
+                                          : std::array{wpLight0, wpLight1, wpLight2};
+      thumb->addChild(modeLayer(0.0F, 0.0F, w, h, kPreviewRadius * scale, wallpaper, split));
+      const float pillW = 22.0F * scale;
+      const float pillH = 7.0F * scale;
+      const float inset = 6.0F * scale;
+      const Color pillStart = dark ? pillDark : pillLight;
+      const Color pillEnd = dark || split ? pillDark : pillLight;
+      thumb->addChild(modeLayer(inset, 5.0F * scale, pillW, pillH, pillH * 0.5F, {pillStart, pillStart, pillStart}, false));
+      thumb->addChild(modeLayer(w - inset - pillW, 5.0F * scale, pillW, pillH, pillH * 0.5F, {pillEnd, pillEnd, pillEnd}, false));
+      const Color winStart = dark ? winDark : winLight;
+      const Color winEnd = dark || split ? winDark : winLight;
+      // The auto window straddles the split: its own halves meet at the thumbnail's centre line.
+      const float winX = split ? w * 0.5F - 32.0F * scale : 18.0F * scale;
+      thumb->addChild(modeLayer(winX, 20.0F * scale, 64.0F * scale, 42.0F * scale, 5.0F * scale,
+                                {winStart, winStart, winEnd}, split));
+      return thumb;
+    }
+
+  } // namespace
 
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
     auto& ctx = m_ctx;
@@ -260,34 +332,20 @@ namespace settings {
         .fillWidth = true,
     });
     titleRow->addChild(
-        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::OnSurface), FontWeight::Bold)
+        makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
     );
-    if (entry.advanced) {
-      titleRow->addChild(makeAdvancedBadge());
-    }
     if (monitorExplicit) {
       titleRow->addChild(makeStatusBadge(
-          i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::SecondaryContainer),
-          colorSpecFromRole(ColorRole::OnSecondaryContainer), false
+          i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::Fill1),
+          colorSpecFromRole(ColorRole::Label1), false
       ));
     } else if (monitorInherited) {
       titleRow->addChild(makeStatusBadge(
-          i18n::tr("settings.badges.inherited"), colorSpecFromRole(ColorRole::SurfaceContainer),
-          colorSpecFromRole(ColorRole::OnSurfaceVariant), false
+          i18n::tr("settings.badges.inherited"), colorSpecFromRole(ColorRole::Fill2),
+          colorSpecFromRole(ColorRole::Label2), false
       ));
     }
     titleRow->addChild(ui::spacer());
-
-    ui::FlexProps copyProps{.align = FlexAlign::Start, .flexGrow = 1.0F};
-    if (!isTemplateEnableTogglePath(entry.path)) {
-      copyProps.gap = Style::spaceXs * scale;
-    }
-    auto copy = ui::column(copyProps);
-    copy->addChild(std::move(titleRow));
-
-    if (!entry.subtitle.empty()) {
-      copy->addChild(makeSettingSubtitleLabel(entry.subtitle, scale));
-    }
 
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
     if (overridden) {
@@ -306,17 +364,48 @@ namespace settings {
     tagTabFocusKey(*control, joinSettingPath(entry.path));
     actions->addChild(std::move(control));
 
-    auto row = ui::row(
+    auto row = layoutRow(
+        std::move(titleRow), settingEntryShowsCaption(entry) ? std::string_view{entry.subtitle} : std::string_view{},
+        !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
+    );
+    section.addChild(std::move(row));
+  }
+
+  std::unique_ptr<Flex> SettingsControlFactory::makeRow(
+      std::string_view title, std::unique_ptr<Node> control, float scale, std::string_view subtitle
+  ) {
+    auto titleRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
+    titleRow->addChild(
+        makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
+    );
+    titleRow->addChild(ui::spacer());
+    auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
+    actions->addChild(std::move(control));
+    return layoutRow(std::move(titleRow), subtitle, true, std::move(actions), scale);
+  }
+
+  std::unique_ptr<Flex> SettingsControlFactory::layoutRow(
+      std::unique_ptr<Flex> titleRow, std::string_view subtitle, bool tightCopy, std::unique_ptr<Flex> actions,
+      float scale
+  ) {
+    ui::FlexProps copyProps{.align = FlexAlign::Start, .flexGrow = 1.0F};
+    if (tightCopy) {
+      copyProps.gap = Style::spaceXs * scale;
+    }
+    auto copy = ui::column(copyProps);
+    copy->addChild(std::move(titleRow));
+    if (!subtitle.empty()) {
+      copy->addChild(makeSettingSubtitleLabel(subtitle, scale));
+    }
+    return ui::row(
         {.align = FlexAlign::Center,
          .justify = FlexJustify::SpaceBetween,
          .gap = Style::spaceXs * scale,
          .paddingV = 2.0F * scale,
          .paddingH = 0.0F,
-         .minHeight = Style::controlHeight * scale},
+         .minHeight = (subtitle.empty() ? metrics::kRowHeight : metrics::kRowHeightTwoLine) * scale},
         std::move(copy), std::move(actions)
     );
-
-    section.addChild(std::move(row));
   }
 
   std::unique_ptr<Toggle> SettingsControlFactory::makeToggle(
@@ -357,18 +446,140 @@ namespace settings {
   SettingsControlFactory::makeSelect(const SelectSetting& setting, const std::vector<std::string>& path) {
     auto& ctx = m_ctx;
     const float scale = m_scale;
+    if (setting.tiles) {
+      const bool swatches = !path.empty() && path.back() == "builtin";
+      const auto commit = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild, path](std::string value) {
+        setOverride(path, std::move(value));
+        if (requestRebuild) {
+          requestRebuild();
+        }
+      };
+      const auto ringed = [scale](bool selected, const ColorSpec& ring) {
+        const ColorSpec none = clearColorSpec();
+        const Button::ButtonStateColors state{.bg = none, .border = selected ? ring : none, .label = none};
+        return Button::ButtonPalette{
+            .borderWidth = Style::focusRingWidth * scale, .normal = state, .hover = state, .pressed = state,
+            .disabled = state
+        };
+      };
+      if (swatches) {
+        // The first palettes as 20 px circles; the last circle opens the whole catalog.
+        constexpr std::size_t kShown = 5;
+        auto strip = ui::row({.align = FlexAlign::Center, .gap = Style::focusRingGap * scale});
+        std::vector<SelectOption> shown;
+        for (const auto& opt : setting.options) {
+          if (shown.size() < kShown) {
+            shown.push_back(opt);
+          }
+        }
+        // The positions stay fixed; a choice beyond them rings the catalog button.
+        const bool hiddenSelected = !setting.selectedValue.empty()
+            && std::ranges::none_of(shown, [&](const SelectOption& o) { return o.value == setting.selectedValue; });
+        const ColorSpec ringFill = colorSpecFromRole(ColorRole::Fill2);
+        const Button::ButtonStateColors catalogState{
+            .bg = ringFill, .border = hiddenSelected ? colorSpecFromRole(ColorRole::Label3) : clearColorSpec(),
+            .label = colorSpecFromRole(ColorRole::Label2)
+        };
+        const float circle = metrics::kSwatchSize * scale;
+        for (const auto& opt : shown) {
+          const bool selected = opt.value == setting.selectedValue;
+          const ColorSpec fill = opt.preview.swatches.empty() ? colorSpecFromRole(ColorRole::Accent) : opt.preview.swatches.front();
+          auto dot = ui::button({
+              .variant = ButtonVariant::Ghost,
+              .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label3)),
+              .tooltip = opt.label,
+              .minWidth = circle + 2.0F * Style::focusRingWidth * scale + 2.0F * Style::focusRingGap * scale,
+              .minHeight = circle + 2.0F * Style::focusRingWidth * scale + 2.0F * Style::focusRingGap * scale,
+              .padding = Style::focusRingGap * scale,
+              .radius = circle,
+              .onClick = [commit, value = opt.value] { commit(value); },
+              .configure = [fill, circle](Button& button) {
+                button.setTabStop(false);
+                button.addChild(ui::box({.fill = fill, .radius = circle * 0.5F, .width = circle, .height = circle}));
+              },
+          });
+          strip->addChild(std::move(dot));
+        }
+        strip->addChild(ui::button({
+            .glyph = "chevron-down",
+            .glyphSize = Style::fontSizeCaption * scale,
+            .variant = ButtonVariant::Tonal,
+            .customPalette = Button::ButtonPalette{
+                .borderWidth = Style::focusRingWidth * scale, .normal = catalogState, .hover = catalogState,
+                .pressed = catalogState, .disabled = catalogState
+            },
+            .tooltip = i18n::tr("settings.schema.appearance.builtin-palette.label"),
+            .minWidth = circle,
+            .minHeight = circle,
+            .padding = 0.0F,
+            .radius = circle * 0.5F,
+            .onClick = [openPopup = ctx.openSearchPickerPopup, options = setting.options,
+                        selectedValue = setting.selectedValue, path, commit] {
+              if (openPopup) {
+                openPopup(SearchPickerOpenRequest{
+                    .title = i18n::tr("settings.schema.appearance.builtin-palette.label"),
+                    .options = options,
+                    .selectedValue = selectedValue,
+                    .settingPath = path,
+                    .onSelect = commit,
+                });
+              }
+            },
+            .configure = [](Button& button) { button.setTabStop(false); },
+        }));
+        return strip;
+      }
+      // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
+      auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = 22.0F * scale,
+                            .fillWidth = true});
+      auto ordered = setting.options;
+      std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
+        return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+      });
+      for (const auto& opt : ordered) {
+        const bool selected = opt.value == setting.selectedValue;
+        auto tile = ui::button({
+            .variant = ButtonVariant::Ghost,
+            .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label1)),
+            .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
+            .radius = metrics::kPickerRadius * scale,
+            .onClick = [commit, value = opt.value] { commit(value); },
+            .configure = [value = opt.value, scale, selected](Button& button) {
+              button.setTabStop(false);
+              button.setFlexGrow(0.0F);
+              button.addChild(makeModePreview(value, scale));
+              // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
+              button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
+                                   colorSpecFromRole(ColorRole::Accent));
+            },
+        });
+        strip->addChild(ui::column(
+            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+            std::move(tile),
+            ui::row(
+                {.justify = FlexJustify::Center},
+                makeLabel(
+                    opt.label, Style::fontSizeCaption * scale,
+                    colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
+                    selected ? FontWeight::Bold : FontWeight::Medium
+                )
+            )
+        ));
+      }
+      return strip;
+    }
     if (setting.segmented) {
+      const auto& options = setting.options;
       std::vector<ui::SegmentedOption> segmentedOptions;
-      segmentedOptions.reserve(setting.options.size());
-      for (const auto& opt : setting.options) {
+      segmentedOptions.reserve(options.size());
+      for (const auto& opt : options) {
         segmentedOptions.push_back(ui::SegmentedOption{.label = opt.label});
       }
-      auto options = setting.options;
       const SelectValueType valueType = setting.valueType;
       const auto groupedCommit = setting.groupedCommit;
       return ui::segmented({
           .options = std::move(segmentedOptions),
-          .selectedIndex = optionIndex(setting.options, setting.selectedValue),
+          .selectedIndex = optionIndex(options, setting.selectedValue),
           .scale = scale,
           .onChange = [setOverride = ctx.setOverride, setOverrides = ctx.setOverrides,
                        clearOverride = ctx.clearOverride, requestRebuild = ctx.requestRebuild, path, options, valueType,
@@ -502,10 +713,10 @@ namespace settings {
         .out = &valueInputPtr,
         .value = formatSliderValue(sliderValue, integerValue),
         .fontSize = Style::fontSizeCaption * scale,
-        .controlHeight = Style::controlHeightSm * scale,
+        .controlHeight = Style::controlHeight * scale,
         .horizontalPadding = Style::spaceXs * scale,
         .width = 50.0F * scale,
-        .height = Style::controlHeightSm * scale,
+        .height = Style::controlHeight * scale,
     });
 
     Slider* sliderPtr = nullptr;
@@ -555,7 +766,15 @@ namespace settings {
       commitValue = [commit, inverted](double magValue) { commit(*inverted ? -magValue : magValue); };
     }
 
-    slider->setOnDragEnd([commitValue, sliderPtr] { commitValue(sliderPtr->value()); });
+    const std::string joined = joinSettingPath(path);
+    // The glass slider has a detent at Tinted (0.5, the design values), as Apple's Clear / Tinted choice.
+    const bool glassDetent = joined == "appearance.glass";
+    slider->setOnDragEnd([commitValue, sliderPtr, glassDetent] {
+      if (glassDetent && std::abs(sliderPtr->value() - 0.5) < 0.08) {
+        sliderPtr->setValue(0.5);
+      }
+      commitValue(sliderPtr->value());
+    });
 
     const auto commitInputText = [commitValue, sliderPtr, valueInputPtr, minValue, maxValue,
                                   integerValue](const std::string& text) {
@@ -582,7 +801,30 @@ namespace settings {
     if (auto invert = makeInvertSlot(invertSlot, invertEnabled, inverted, commitValue, sliderPtr, scale)) {
       wrap->addChild(std::move(invert));
     }
+    std::pair<std::string, std::string> ends;
+    if (joined == "accessibility.ui_scale") {
+      ends = {"A", "A"};
+    } else if (glassDetent) {
+      ends = {i18n::tr("settings.sliders.clear"), i18n::tr("settings.sliders.frosted")};
+    } else if (joined == "dock.icon_size") {
+      ends = {i18n::tr("settings.sliders.small"), i18n::tr("settings.sliders.large")};
+    }
+    const bool labelled = !ends.first.empty();
+    const auto endLabel = [&](const std::string& text, bool large) {
+      return makeLabel(
+          text, (large ? Style::fontSizeTitle : Style::fontSizeCaption) * scale,
+          colorSpecFromRole(ColorRole::Label2)
+      );
+    };
+    if (labelled) {
+      wrap->addChild(endLabel(ends.first, false));
+    }
     wrap->addChild(std::move(slider));
+    if (labelled) {
+      wrap->addChild(endLabel(ends.second, true));
+      valueInput->setVisible(false);
+      valueInput->setParticipatesInLayout(false);
+    }
     wrap->addChild(std::move(valueInput));
     if (auto suffix = makeSuffixSlot(std::move(valueSuffix), scale)) {
       wrap->addChild(std::move(suffix));
@@ -603,10 +845,10 @@ namespace settings {
           .out = out,
           .value = formatSliderValue(value, integerValue),
           .fontSize = Style::fontSizeCaption * scale,
-          .controlHeight = Style::controlHeightSm * scale,
+          .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceXs * scale,
           .width = 50.0F * scale,
-          .height = Style::controlHeightSm * scale,
+          .height = Style::controlHeight * scale,
       });
     };
 
@@ -696,7 +938,7 @@ namespace settings {
 
     wrap->addChild(std::move(slider));
     wrap->addChild(std::move(lowInput));
-    wrap->addChild(makeLabel("–", Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant)));
+    wrap->addChild(makeLabel("–", Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
     wrap->addChild(std::move(highInput));
     if (auto suffix = makeSuffixSlot(setting.valueSuffix, scale)) {
       wrap->addChild(std::move(suffix));
@@ -1115,15 +1357,15 @@ namespace settings {
     auto titleRow = ui::row({
         .align = FlexAlign::Center,
         .gap = Style::spaceSm * scale,
-        .minHeight = reserveTitleHeight ? std::optional<float>{Style::controlHeightSm * scale} : std::nullopt,
+        .minHeight = reserveTitleHeight ? std::optional<float>{Style::controlHeight * scale} : std::nullopt,
         .fillWidth = compactTitleDescription ? std::optional<bool>{true} : std::nullopt,
     });
     titleRow->addChild(
         ui::label({
             .text = entry.title,
             .fontSize = Style::fontSizeBody * scale,
-            .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .fontWeight = FontWeight::Normal,
+            .color = colorSpecFromRole(ColorRole::Label1),
             .maxLines = titleMaxTwoLines ? std::optional<int>{2} : std::nullopt,
         })
     );
@@ -1140,7 +1382,7 @@ namespace settings {
     }
     auto copy = ui::column(copyProps);
     copy->addChild(std::move(titleRow));
-    if (!entry.subtitle.empty()) {
+    if (settingEntryShowsCaption(entry) && !entry.subtitle.empty()) {
       auto subtitle = makeSettingSubtitleLabel(entry.subtitle, scale);
       if (compactTitleDescription) {
         subtitle->setFlexGrow(1.0F);
@@ -1259,7 +1501,7 @@ namespace settings {
           ui::label({
               .text = key,
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurface),
+              .color = colorSpecFromRole(ColorRole::Label1),
               .flexGrow = 1.0F,
           })
       );
@@ -1267,7 +1509,7 @@ namespace settings {
           ui::label({
               .text = "->",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -1329,7 +1571,7 @@ namespace settings {
           ui::label({
               .text = "->",
               .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              .color = colorSpecFromRole(ColorRole::Label2),
           })
       );
       row->addChild(
@@ -1384,7 +1626,7 @@ namespace settings {
         ui::label({
             .text = "->",
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     addRow->addChild(

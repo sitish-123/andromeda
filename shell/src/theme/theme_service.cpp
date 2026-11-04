@@ -3,6 +3,7 @@
 #include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "core/scoped_timer.h"
 #include "ipc/ipc_service.h"
 #include "net/http_client.h"
@@ -15,6 +16,7 @@
 #include "theme/palette_generator.h"
 #include "theme/palette_transform.h"
 #include "theme/scheme.h"
+#include "theme/shell_palette.h"
 #include "ui/app_icon_colorization.h"
 #include "util/checksum.h"
 #include "util/string_utils.h"
@@ -39,7 +41,8 @@ namespace noctalia::theme {
     constexpr auto kLog = Logger("theme");
 
     constexpr float kTransitionDurationMs = 400.0F;
-    constexpr std::chrono::milliseconds kTransitionTick{8};
+    // One 60 Hz frame: a faster tick repaints every surface more often than the screen can show it.
+    constexpr std::chrono::milliseconds kTransitionTick{16};
 
     struct ResolvedTheme {
       GeneratedPalette generated;
@@ -47,6 +50,8 @@ namespace noctalia::theme {
       // Resolved [theme].mode (apps) and the mode Noctalia itself runs in.
       std::string mode;
       std::string shellMode;
+      // The Andromeda palette is the tokens themselves: the shell palette is not recoloured.
+      bool tokensOnly = false;
     };
 
     // Pure and thread-safe: runs on the wallpaper palette worker as well as the main thread.
@@ -75,15 +80,16 @@ namespace noctalia::theme {
     ResolvedTheme resolveBuiltin(const ThemeConfig& cfg, std::string_view mode, std::string_view shellMode) {
       const auto* palette = findBuiltinPalette(cfg.builtinPalette);
       if (palette == nullptr) {
-        kLog.warn("unknown builtin palette '{}', falling back to Noctalia", cfg.builtinPalette);
-        palette = findBuiltinPalette("Noctalia");
+        kLog.warn("unknown builtin palette '{}', falling back to Andromeda", cfg.builtinPalette);
+        palette = findBuiltinPalette("Andromeda");
       }
       const GeneratedPalette generated = expandBuiltinPalette(*palette);
       return {
           .generated = generated,
-          .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+          .palette = tokenPalette(shellMode == "light"),
           .mode = std::string(mode),
           .shellMode = std::string(shellMode),
+          .tokensOnly = palette->name == "Andromeda",
       };
     }
 
@@ -223,7 +229,7 @@ namespace noctalia::theme {
       const GeneratedPalette generated = expandBuiltinPalette(bp);
       return {
           .generated = generated,
-          .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+          .palette = tokenPalette(shellMode == "light"),
           .mode = std::string(mode),
           .shellMode = std::string(shellMode),
       };
@@ -289,17 +295,33 @@ namespace noctalia::theme {
   ThemeService::ThemeService(ConfigService& config, HttpClient& httpClient)
       : m_config(config), m_httpClient(httpClient) {}
 
-  ThemeService::~ThemeService() {
-    m_alive.reset();
-    {
-      std::scoped_lock lock(m_wallpaperWorkerMutex);
-      m_wallpaperWorkerShutdown = true;
-      m_wallpaperQueued.reset();
+  ThemeService::~ThemeService() = default;
+
+  namespace {
+
+    // Applies the compositor accent; high contrast makes secondary text read as primary text and strokes opaque.
+    void applyLivePalette(::Palette& palette, std::string_view accent, bool highContrast) {
+      ::Color color;
+      if (!accent.empty() && tryParseHexColor(accent, color)) {
+        palette.accent = color;
+        palette.onAccent = onAccentOn(readableTextColorForBackground(color), color);
+        palette.accentText = accentTextOn(color, palette.solidRegular);
+      }
+      if (highContrast) {
+        palette.label2 = palette.label1;
+        palette.stroke.a = 1.0F;
+      }
     }
-    m_wallpaperWorkerCv.notify_all();
-    if (m_wallpaperWorker.joinable()) {
-      m_wallpaperWorker.join();
+
+  } // namespace
+
+  void ThemeService::setLiveAppearance(std::string accent, bool increaseContrast) {
+    if (accent == m_liveAccent && increaseContrast == m_liveHighContrast) {
+      return;
     }
+    m_liveAccent = std::move(accent);
+    m_liveHighContrast = increaseContrast;
+    resolveAndSet(/*animate=*/true);
   }
 
   void ThemeService::apply() { resolveAndSet(/*animate=*/false); }
@@ -507,37 +529,10 @@ namespace noctalia::theme {
       return;
     }
     m_wallpaperRequested = key;
-    {
-      std::scoped_lock lock(m_wallpaperWorkerMutex);
-      m_wallpaperQueued = key;
-    }
-    if (!m_wallpaperWorker.joinable()) {
-      m_wallpaperWorker = std::thread([this] { wallpaperWorkerLoop(); });
-    }
-    m_wallpaperWorkerCv.notify_one();
-  }
-
-  void ThemeService::wallpaperWorkerLoop() {
-    const std::weak_ptr<bool> alive = m_alive;
-    while (true) {
-      WallpaperPaletteKey key;
-      {
-        std::unique_lock lock(m_wallpaperWorkerMutex);
-        m_wallpaperWorkerCv.wait(lock, [this] { return m_wallpaperWorkerShutdown || m_wallpaperQueued.has_value(); });
-        if (m_wallpaperWorkerShutdown) {
-          return;
-        }
-        key = std::move(*m_wallpaperQueued);
-        m_wallpaperQueued.reset();
-      }
-      auto generated = decodeWallpaperPalette(key.path, key.scheme);
-      DeferredCall::callLater([this, alive, key = std::move(key), generated = std::move(generated)] mutable {
-        if (alive.expired()) {
-          return;
-        }
-        onWallpaperPaletteDecoded(key, std::move(generated));
-      });
-    }
+    SharedWorker::instance().post<std::optional<GeneratedPalette>>(
+        std::weak_ptr<void>(m_alive), [key] { return decodeWallpaperPalette(key.path, key.scheme); },
+        [this, key](std::optional<GeneratedPalette> generated) { onWallpaperPaletteDecoded(key, std::move(generated)); }
+    );
   }
 
   void
@@ -599,7 +594,7 @@ namespace noctalia::theme {
         const GeneratedPalette& generated = *lookup.generated;
         resolved = ResolvedTheme{
             .generated = generated,
-            .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
+            .palette = tokenPalette(shellMode == "light"),
             .mode = mode,
             .shellMode = shellMode,
         };
@@ -636,17 +631,18 @@ namespace noctalia::theme {
     if (cfg.pureBlackDark) {
       applyPureBlackDark(resolved->generated);
     }
-    if (m_config.config().accessibility.highContrast) {
+    const bool highContrast = m_config.config().accessibility.highContrast || m_liveHighContrast;
+    if (highContrast) {
       applyHighContrast(resolved->generated);
     }
-
-    if (cfg.pureBlackDark || m_config.config().accessibility.highContrast) {
-      if (resolved->shellMode != "light") {
-        resolved->palette = mapGeneratedPaletteMode(resolved->generated.dark);
-      } else {
-        resolved->palette = mapGeneratedPaletteMode(resolved->generated.light);
-      }
-    }
+    const auto paletteFor = [&](bool light) {
+      ::Palette p = resolved->tokensOnly ? tokenPalette(light) : recolorShellPalette(tokenPalette(light), resolved->generated, light);
+      applyLivePalette(p, m_liveAccent, highContrast);
+      return p;
+    };
+    resolved->palette = paletteFor(resolved->shellMode == "light");
+    const ::Palette appPalette = resolved->mode == resolved->shellMode ? resolved->palette : paletteFor(resolved->mode == "light");
+    m_toolkitColors = {.accent = appPalette.accent, .accentText = appPalette.accentText, .onAccent = appPalette.onAccent};
 
     queueResolvedCallback(resolved->generated, resolved->mode);
     m_isLightMode = resolved->mode == "light";
@@ -714,8 +710,8 @@ namespace noctalia::theme {
     m_fromPalette = palette;
     m_targetPalette = target;
     m_transitionResolvedCallbackFlushed = false;
-    m_transitionAnimId = m_animations.animate(
-        0.0F, 1.0F, kTransitionDurationMs, Easing::EaseOutCubic,
+    m_transitionAnimId = m_animations.animateSpring(
+        0.0F, 1.0F, Style::spring(Tokens::springFade),
         [this](float t) {
           setPalette(lerpPalette(m_fromPalette, m_targetPalette, t));
           if (m_changeCallback) {

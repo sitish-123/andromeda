@@ -8,6 +8,8 @@
 #include "layout/scrolling.h"
 #include "output/output.h"
 #include "overview/overview.h"
+#include "server/dsk_surface.h"
+#include "server/greeter_mode.h"
 #include "server/server.h"
 #include "view/view.h"
 // clang-format off
@@ -178,6 +180,13 @@ namespace andromeda {
     };
   }
 
+  void Gestures::scheduleTrackerFrames() const {
+    // Bound surfaces may sit on any output; the frame loop then runs while the tracker is driven.
+    for (const auto& output : m_server->outputs()) {
+      wlr_output_schedule_frame(output->wlr());
+    }
+  }
+
   void Gestures::cancelActive() {
     switch (m_state) {
     case State::Scroll:
@@ -198,6 +207,10 @@ namespace andromeda {
       if (Overview* overview = m_server->overview()) {
         overview->endNavigation(true, 0, NavigationSource::Swipe);
       }
+      m_state = State::Idle;
+      break;
+    case State::Tracker:
+      m_server->dskSurfaces()->cancelSwipe();
       m_state = State::Idle;
       break;
     case State::Pending:
@@ -331,6 +344,10 @@ namespace andromeda {
       }
       m_state = State::Idle;
       break;
+    case State::Tracker:
+      m_server->dskSurfaces()->cancelSwipe();
+      m_state = State::Idle;
+      break;
     case State::Forward:
     case State::Pending:
     case State::Idle:
@@ -354,6 +371,24 @@ namespace andromeda {
     }
     if (m_state != State::Idle) {
       cancelActive();
+    }
+    // The login screen has no overview or workspaces: every swipe goes to the greeter.
+    if (greeterMode()) {
+      m_state = State::Forward;
+      wlr_pointer_gestures_v1_send_swipe_begin(
+          m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->fingers
+      );
+      return;
+    }
+    // Our clients' compositor-owned gestures win over compositor gestures inside their source region.
+    if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
+        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        && m_server->dskSurfaces()->beginSwipe(
+            pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
+        )) {
+      m_state = State::Tracker;
+      scheduleTrackerFrames();
+      return;
     }
     Overview* overview = m_server->overview();
     if (event->fingers == 4 && overview != nullptr) {
@@ -401,6 +436,10 @@ namespace andromeda {
     }
 
     switch (m_state) {
+    case State::Tracker:
+      m_server->dskSurfaces()->updateSwipe(event->dx, event->dy, event->time_msec);
+      scheduleTrackerFrames();
+      return;
     case State::Forward:
       wlr_pointer_gestures_v1_send_swipe_update(
           m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->dx, event->dy
@@ -539,6 +578,11 @@ namespace andromeda {
     }
 
     switch (m_state) {
+    case State::Tracker:
+      m_server->dskSurfaces()->endSwipe(event->time_msec);
+      m_state = State::Idle;
+      scheduleTrackerFrames();
+      return;
     case State::Forward:
       wlr_pointer_gestures_v1_send_swipe_end(
           m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->cancelled
@@ -732,6 +776,15 @@ namespace andromeda {
     if (m_server->sessionLocked()) {
       return;
     }
+    if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
+        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        && m_server->dskSurfaces()->beginPinch(
+            pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
+        )) {
+      m_trackerPinch = true;
+      scheduleTrackerFrames();
+      return;
+    }
     wlr_pointer_gestures_v1_send_pinch_begin(
         m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->fingers
     );
@@ -743,6 +796,11 @@ namespace andromeda {
     if (m_server->sessionLocked()) {
       return;
     }
+    if (m_trackerPinch) {
+      m_server->dskSurfaces()->updatePinch(event->scale, event->time_msec);
+      scheduleTrackerFrames();
+      return;
+    }
     wlr_pointer_gestures_v1_send_pinch_update(
         m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->dx, event->dy, event->scale,
         event->rotation
@@ -752,6 +810,12 @@ namespace andromeda {
   void Gestures::handlePinchEnd(void* data) {
     auto* event = static_cast<wlr_pointer_pinch_end_event*>(data);
     m_server->notifyIdleActivity();
+    if (m_trackerPinch) {
+      m_trackerPinch = false;
+      m_server->dskSurfaces()->endSwipe(event->time_msec);
+      scheduleTrackerFrames();
+      return;
+    }
     if (m_server->sessionLocked()) {
       return;
     }

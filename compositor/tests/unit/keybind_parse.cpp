@@ -986,8 +986,11 @@ ANDROMEDA_TEST(defaultKeybindsAreUsable) {
   const auto binds = andromeda::defaultKeybinds();
   CHECK(!binds.empty());
 
-  // Every default is Mod-based, so a bare keystroke always reaches the client.
-  CHECK(std::ranges::all_of(binds, [](const Keybind& bind) { return bind.useMod; }));
+  // Every default is Mod-based, so a bare keystroke always reaches the client; the one exception is the Activity
+  // spawn on Ctrl+Shift+Esc, the system-wide task-manager key.
+  CHECK(std::ranges::all_of(binds, [](const Keybind& bind) {
+    return bind.useMod || (bind.action == KeybindAction::Spawn && bind.modifiers == (WLR_MODIFIER_CTRL | WLR_MODIFIER_SHIFT));
+  }));
 
   // No default may carry an unset action.
   CHECK(std::ranges::none_of(binds, [](const Keybind& bind) { return bind.action == KeybindAction::None; }));

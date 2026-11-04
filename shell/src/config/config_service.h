@@ -7,6 +7,7 @@
 #include "core/inotify/inotify.h"
 #include "core/timer_manager.h"
 #include "core/toml.h"
+#include "ui/ui_settings.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -29,7 +30,10 @@ struct OverrideDiagnostics {
   const noctalia::config::schema::Diagnostics* candidate = nullptr; // for the candidate table
 };
 
-class ConfigService {
+// Settings overrides file in stateDir. Renames a legacy overrides.toml there to it once.
+[[nodiscard]] std::string resolveOverridesPath(const std::string& stateDir);
+
+class ConfigService : public UiSettings {
 public:
   using ReloadCallback = std::function<void()>;
   using ChangeCallback = std::function<void()>;
@@ -49,12 +53,14 @@ public:
   };
 
   ConfigService();
-  ~ConfigService() = default;
+  ~ConfigService() override = default;
 
   ConfigService(const ConfigService&) = delete;
   ConfigService& operator=(const ConfigService&) = delete;
 
   [[nodiscard]] const Config& config() const noexcept { return m_config; }
+  [[nodiscard]] float uiScale() const override { return m_config.accessibility.uiScale; }
+  [[nodiscard]] ShadowStyle shadowStyle() const override { return m_config.shell.shadow; }
   [[nodiscard]] std::shared_ptr<const toml::table> configTable() const noexcept { return m_configTable; }
   [[nodiscard]] bool isLockScreenEnabled() const noexcept { return ::isLockScreenEnabled(m_config.lockscreen); }
   [[nodiscard]] bool shouldLockBeforeSuspend() const noexcept { return ::shouldLockBeforeSuspend(m_config.lockscreen); }
@@ -92,10 +98,12 @@ public:
   void setNotificationManager(NotificationManager* manager);
   void checkReload();
   void forceReload();
+  // forceReload() with every section marked changed, for edits that no config diff shows (dev token reload).
+  void reloadAllSections();
 
   void registerIpc(IpcService& ipc);
 
-  // Persisted wallpaper paths (written to settings.toml, app-managed).
+  // Persisted wallpaper paths (written to overrides.toml, app-managed).
   [[nodiscard]] std::string getWallpaperPath(const std::string& connectorName) const;
   [[nodiscard]] const std::unordered_map<std::string, std::string>& monitorWallpaperPaths() const {
     return m_monitorWallpaperPaths;
@@ -122,7 +130,7 @@ public:
   );
 
   // Add/remove a plugin id ("author/plugin") from the effective [plugins].enabled
-  // list. Persists the resulting override list to settings.toml and triggers the
+  // list. Persists the resulting override list to overrides.toml and triggers the
   // reload pipeline. No-op if already in that state.
   void setPluginEnabled(std::string_view pluginId, bool enabled);
 
@@ -131,17 +139,17 @@ public:
   void addPluginSource(const PluginSourceConfig& source);
   void removePluginSource(std::string_view name);
 
-  // Persist the global [plugins].auto_update mode to settings.toml and trigger the
+  // Persist the global [plugins].auto_update mode to overrides.toml and trigger the
   // reload pipeline. Drives background auto-update of git sources per mode.
   void setPluginsAutoUpdate(PluginAutoUpdateMode mode);
 
-  // Persist a theme-mode override to settings.toml and trigger the reload pipeline.
+  // Persist a theme-mode override to overrides.toml and trigger the reload pipeline.
   void setThemeMode(ThemeMode mode);
   // Persist `[theme].source` and the palette field for that source, then reload.
   [[nodiscard]] bool setThemeColorScheme(PaletteSource source, std::string_view value);
-  // Persist dock enabled override to settings.toml and trigger the reload pipeline.
+  // Persist dock enabled override to overrides.toml and trigger the reload pipeline.
   void setDockEnabled(bool enabled);
-  // Persist desktop widget layout/editor state to settings.toml and trigger the reload pipeline.
+  // Persist desktop widget layout/editor state to overrides.toml and trigger the reload pipeline.
   bool setDesktopWidgetsState(const DesktopWidgetsConfig& desktopWidgets);
   bool setLockscreenWidgetsState(const LockscreenWidgetsConfig& lockscreenWidgets);
   // Persist app-owned UI/runtime state to state.toml. This does not affect Config reloads.
@@ -193,7 +201,8 @@ public:
   bool clearOverrides(const std::vector<std::vector<std::string>>& paths, bool* changed);
   bool renameOverrideTable(const std::vector<std::string>& oldPath, const std::vector<std::string>& newPath);
 
-  [[nodiscard]] static BarConfig resolveForOutput(const BarConfig& base, const WaylandOutput& output);
+  // uiScale (accessibility.ui_scale) grows the resolved bar thickness and content scale.
+  [[nodiscard]] static BarConfig resolveForOutput(const BarConfig& base, const WaylandOutput& output, float uiScale);
   [[nodiscard]] static DockConfig resolveForOutput(const DockConfig& base, const WaylandOutput& output);
 
   // Recursively overlays `overlay` onto `base` (tables merge, everything else

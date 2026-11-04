@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <regex>
 #include <nlohmann/json.hpp>
 
 namespace {
@@ -87,12 +88,12 @@ namespace {
     if (config == nullptr) {
       return 0.97F;
     }
-    return std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F);
+    return Style::glassAlpha(std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F));
   }
 
   [[nodiscard]] ColorSpec osdBorderColor(const ConfigService* config) {
     if (config == nullptr) {
-      return colorSpecFromRole(ColorRole::OutlineVariant);
+      return colorSpecFromRole(ColorRole::Stroke);
     }
     return config->config().osd.borderColor;
   }
@@ -158,7 +159,7 @@ namespace {
 
   [[nodiscard]] float glyphSize(float s) { return (Style::fontSizeTitle + Style::borderWidth * 4) * s; }
 
-  [[nodiscard]] float valueFontSize(float s) { return Style::fontSizeBody * s; }
+  [[nodiscard]] float valueFontSize(float s) { return Tokens::typeTitle3.size * s; }
 
   [[nodiscard]] float progressHeight(float s) { return (Style::spaceXs + Style::borderWidth * 2) * s; }
 
@@ -305,6 +306,20 @@ void OsdOverlay::registerIpc(IpcService& ipc) {
       icon = input.substr(0, split);
       if (split != std::string::npos) {
         value = StringUtils::trim(input.substr(split));
+        // A level is "NN%" or a decimal 0.0 to 1.0 with a point (strict digits, no hex); other text is a label.
+        static const std::regex kPercent(R"(^(\d{1,3}(\.\d+)?)%$)");
+        static const std::regex kUnit(R"(^[01]\.\d+$)");
+        std::smatch match;
+        std::optional<double> level;
+        if (std::regex_match(value, match, kPercent)) {
+          level = std::stod(match[1].str()) / 100.0;
+        } else if (std::regex_match(value, match, kUnit)) {
+          level = std::stod(value);
+        }
+        if (level.has_value() && *level >= 0.0 && *level <= 1.0) {
+          progress = *level;
+          value = std::to_string(static_cast<int>(std::lround(*level * 100.0))) + "%";
+        }
       }
     }
 
@@ -354,6 +369,9 @@ void OsdOverlay::show(const OsdContent& content) {
   if (m_config != nullptr && !isOsdKindEnabled(m_config->config().osd.kinds, content.kind)) {
     return;
   }
+  if (m_islandShow && m_islandShow(content)) {
+    return;
+  }
 
   const bool followFocusedOutput = m_config != nullptr && m_config->config().osd.followFocusedOutput;
   if (followFocusedOutput && !isVisible() && m_platform != nullptr) {
@@ -370,7 +388,15 @@ void OsdOverlay::show(const OsdContent& content) {
   }
 }
 
+void OsdOverlay::setIsland(std::function<bool(const OsdContent&)> show, std::function<bool()> visible) {
+  m_islandShow = std::move(show);
+  m_islandVisible = std::move(visible);
+}
+
 bool OsdOverlay::isVisible() const {
+  if (m_islandVisible && m_islandVisible()) {
+    return true;
+  }
   return std::ranges::any_of(m_instances, [](const auto& inst) {
     return inst->visible || inst->showPending || inst->showAnimId != 0;
   });
@@ -736,7 +762,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
           .width = cw,
           .height = ch,
           .configure = [cardX, cardY, cw, ch, s, border, borderColor, backgroundOpacity](Box& box) {
-            box.setFill(colorSpecFromRole(ColorRole::Surface, backgroundOpacity));
+            box.setFill(colorSpecFromRole(materialRole(), backgroundOpacity));
             box.setBorder(borderColor, border);
             box.setRadius(osdCardRadius(cw, ch, s));
             box.setPosition(cardX, cardY);
@@ -770,7 +796,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   auto icon = ui::glyph({
       .out = &inst.glyph,
       .glyphSize = glyphSize(s),
-      .color = colorSpecFromRole(ColorRole::Primary),
+      .color = colorSpecFromRole(ColorRole::AccentText),
       .configure = [](Glyph& glyph) { glyph.setZIndex(1); },
   });
 
@@ -779,7 +805,8 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
       .text = "100%",
       .fontSize = valueFontSize(s),
       .fontWeight = FontWeight::Bold,
-      .color = colorSpecFromRole(ColorRole::OnSurface),
+      .fontFeatures = "tnum",
+      .color = colorSpecFromRole(ColorRole::Label1),
       .maxWidth = vertical ? cw - pad * 2.0F : 0.0F,
       .maxLines = 1,
       .textAlign = vertical ? TextAlign::Center : TextAlign::End,
@@ -793,8 +820,8 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   const float ph = progressHeight(s);
   auto progress = ui::progressBar({
       .out = &inst.progress,
-      .fill = colorSpecFromRole(ColorRole::Primary),
-      .track = colorSpecFromRole(ColorRole::SurfaceContainer),
+      .fill = colorSpecFromRole(ColorRole::Accent),
+      .track = colorSpecFromRole(ColorRole::Fill2),
       .radius = osdProgressRadius(s),
       .orientation = vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal,
       .width = vertical ? verticalProgressWidth(s) : 0.0F,
@@ -833,12 +860,12 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   // Card frame size is animated during reveal; measure layout against intrinsic size.
   const float cw = cardWidth(s, m_lastOrientation);
   const float ch = cardHeight(s, m_lastOrientation, m_lastShowProgress);
-  inst.background->setFill(colorSpecFromRole(ColorRole::Surface, osdBackgroundOpacity(m_config)));
+  inst.background->setFill(colorSpecFromRole(materialRole(), osdBackgroundOpacity(m_config)));
   inst.background->setBorder(osdBorderColor(m_config), osdBorderWidth(m_config, s));
 
-  const ColorRole accentRole = m_content.overLimit ? ColorRole::Error
-      : m_content.inactive                         ? ColorRole::OnSurfaceVariant
-                                                   : ColorRole::Primary;
+  const ColorRole accentRole = m_content.overLimit ? ColorRole::Danger
+      : m_content.inactive                         ? ColorRole::Label2
+                                                   : ColorRole::Accent;
   inst.glyph->setGlyph(m_content.icon);
   inst.glyph->setColor(colorSpecFromRole(accentRole));
   inst.progress->setVisible(m_content.showProgress);
@@ -846,9 +873,9 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   inst.progress->setOrientation(vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal);
   inst.row->setJustify((vertical || !m_content.showProgress) ? FlexJustify::Center : FlexJustify::Start);
   inst.value->setFontSize(valueFontSize(s));
-  const ColorRole valueRole = m_content.overLimit ? ColorRole::Error
-      : m_content.inactive                        ? ColorRole::OnSurfaceVariant
-                                                  : ColorRole::OnSurface;
+  const ColorRole valueRole = m_content.overLimit ? ColorRole::Danger
+      : m_content.inactive                        ? ColorRole::Label2
+                                                  : ColorRole::Label1;
   inst.value->setColor(colorSpecFromRole(valueRole));
   inst.value->setTextAlign((vertical || !m_content.showProgress) ? TextAlign::Center : TextAlign::End);
   // Text OSDs (media title, device name, ...) carry arbitrary-length values; cap them to the card
@@ -895,6 +922,7 @@ void OsdOverlay::updateBlurRegion(Instance& inst) const {
   const int rh = std::max(1, static_cast<int>(std::ceil(inst.background->height())));
   const float radius = osdCardRadius(inst.background->width(), inst.background->height(), inst.uiLayoutScale);
   inst.surface->setBlurRegion(Surface::tessellateRoundedRect(rx, ry, rw, rh, radius));
+  inst.glass.apply(m_wayland->dskSurfaceManager(), inst.surface->wlSurface(), GlassSurface::Kind::Sheet);
 }
 
 void OsdOverlay::applyReveal(Instance& inst, float reveal) {
@@ -974,13 +1002,13 @@ void OsdOverlay::animateInstance(Instance& inst) {
     if (inst.showAnimId == 0) {
       inst.sceneRoot->setOpacity(1.0F);
       applyReveal(inst, 0.0F);
-      inst.showAnimId = inst.animations.animate(
-          0.0F, 1.0F, Style::animNormal, Easing::EaseOutCubic, [this, &inst](float v) { applyReveal(inst, v); },
+      inst.showAnimId = inst.animations.animateSpring(
+          0.0F, 1.0F, Style::spring(Tokens::springMorph), [this, &inst](float v) { applyReveal(inst, v); },
           [&inst] {
             inst.showAnimId = 0;
             inst.visible = true;
           }
-      );
+      , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
     }
   } else {
     applyReveal(inst, 1.0F);
@@ -988,11 +1016,12 @@ void OsdOverlay::animateInstance(Instance& inst) {
 
   const float hideDelayMs =
       static_cast<float>(m_config != nullptr ? m_config->config().osd.hideDelayMs : OsdConfig{}.hideDelayMs);
+  // Timer: the configured hide delay.
   inst.hideAnimId = inst.animations.animateTimer(
       1.0F, 0.0F, hideDelayMs, Easing::Linear, [](float /*v*/) {},
       [this, &inst] {
-        inst.hideAnimId = inst.animations.animate(
-            1.0F, 0.0F, Style::animNormal, Easing::EaseInQuad, [this, &inst](float v) { applyReveal(inst, v); },
+        inst.hideAnimId = inst.animations.animateSpring(
+            1.0F, 0.0F, Style::spring(Tokens::springCollapse), [this, &inst](float v) { applyReveal(inst, v); },
             [this, &inst] {
               inst.hideAnimId = 0;
               inst.visible = false;
@@ -1006,7 +1035,7 @@ void OsdOverlay::animateInstance(Instance& inst) {
                 }
               });
             }
-        );
+        , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
       }
   );
 }

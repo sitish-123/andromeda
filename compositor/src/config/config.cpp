@@ -99,6 +99,9 @@ namespace andromeda {
       if (!overlayManagedSettings(result.merged, managedSettingsFile(rootPath))) {
         result.hadError = true;
       }
+      if (const std::string& layers = managedRuntimeOverlay(); !layers.empty()) {
+        configmerge::deepMerge(result.merged, toml::parse(layers));
+      }
       store.setMissingIncludes(result.missingIncludes);
       for (auto& diagnostic : result.diagnostics) {
         store.addDiagnostic(std::move(diagnostic));

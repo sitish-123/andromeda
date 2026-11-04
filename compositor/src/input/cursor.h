@@ -1,6 +1,8 @@
 #pragma once
 #include "layout/drop_target.h"
 #include "scene/ssd_frame_geometry.h"
+#include "util/listener.h"
+#include "util/tracked.h"
 #include "view/snap.h"
 
 #include <cstdint>
@@ -135,21 +137,12 @@ namespace andromeda {
       // Last tilt pair.
       double tiltX = 0;
       double tiltY = 0;
-      wl_listener destroy{};
-      wl_listener setCursor{};
+      Listener destroy;
+      Listener setCursor;
 
       TabletToolState() = default;
       TabletToolState(const TabletToolState&) = delete;
       TabletToolState& operator=(const TabletToolState&) = delete;
-
-      ~TabletToolState() {
-        if (destroy.link.next != nullptr) {
-          wl_list_remove(&destroy.link);
-        }
-        if (setCursor.link.next != nullptr) {
-          wl_list_remove(&setCursor.link);
-        }
-      }
     };
 
   public:
@@ -198,6 +191,8 @@ namespace andromeda {
     void handleDataDragEnded();
     void setCursorSurface(wlr_surface* surface, int32_t hotspotX, int32_t hotspotY, wl_client* owner);
     void setXcursor(const char* name);
+    // Rulebook §10: the arrow becomes the busy cursor (arrow + spinner) while an app launch is pending.
+    void setLaunchBusy(bool busy);
     void noteActivity();
     void hideCursor();
     bool beginMove(View* view, uint32_t button, bool deferUntilThreshold = false);
@@ -205,9 +200,6 @@ namespace andromeda {
     // A null seat client is an X11 move/resize request, which carries no serial.
     void beginClientMove(View* view, wlr_seat_client* seatClient, uint32_t serial);
     void beginClientResize(View* view, wlr_seat_client* seatClient, uint32_t serial, uint32_t edges);
-    // A view is going away: drop the click-pair record that references it. The
-    // grab reset paths cover any deferred or promoted press.
-    void forgetView(const View* view);
     void resetMode();
     // Warp the cursor to a layout position and run the motion pipeline (pointer focus, xcursor, pointer-output
     // tracking, idle). Output actions use it so focus follows the cursor onto the target monitor.
@@ -252,6 +244,9 @@ namespace andromeda {
     [[nodiscard]] std::string clientCursorSourceForTest() const;
     [[nodiscard]] std::string clientCursorNameForTest() const { return m_clientCursorShape; }
     [[nodiscard]] bool clientCursorFromXwaylandForTest() const { return m_clientCursorFromXwayland; }
+    [[nodiscard]] std::string xcursorNameForTest() const {
+      return m_activeXcursorName.empty() ? std::string{} : std::string(effectiveXcursor(m_activeXcursorName.c_str()));
+    }
     [[nodiscard]] std::optional<RenderedCursorStateForTest> renderedCursorStateForTest() const;
 #endif
 
@@ -274,23 +269,23 @@ namespace andromeda {
     void notePointerFocusChange(wlr_surface* newSurface);
 
   private:
-    static void onMotion(wl_listener* listener, void* data);
-    static void onMotionAbsolute(wl_listener* listener, void* data);
-    static void onButton(wl_listener* listener, void* data);
-    static void onAxis(wl_listener* listener, void* data);
-    static void onFrame(wl_listener* listener, void* data);
-    static void onConstraintDestroy(wl_listener* listener, void* data);
-    static void onTouchDown(wl_listener* listener, void* data);
-    static void onTouchUp(wl_listener* listener, void* data);
-    static void onTouchMotion(wl_listener* listener, void* data);
-    static void onTouchCancel(wl_listener* listener, void* data);
-    static void onTouchFrame(wl_listener* listener, void* data);
-    static void onTabletToolAxis(wl_listener* listener, void* data);
-    static void onTabletToolProximity(wl_listener* listener, void* data);
-    static void onTabletToolTip(wl_listener* listener, void* data);
-    static void onTabletToolButton(wl_listener* listener, void* data);
-    static void onToolDestroy(wl_listener* listener, void* data);
-    static void onToolSetCursor(wl_listener* listener, void* data);
+    static void onMotion(Cursor* self, void* data);
+    static void onMotionAbsolute(Cursor* self, void* data);
+    static void onButton(Cursor* self, void* data);
+    static void onAxis(Cursor* self, void* data);
+    static void onFrame(Cursor* self, void* data);
+    static void onConstraintDestroy(Cursor* self, void* data);
+    static void onTouchDown(Cursor* self, void* data);
+    static void onTouchUp(Cursor* self, void* data);
+    static void onTouchMotion(Cursor* self, void* data);
+    static void onTouchCancel(Cursor* self, void* data);
+    static void onTouchFrame(Cursor* self, void* data);
+    static void onTabletToolAxis(Cursor* self, void* data);
+    static void onTabletToolProximity(Cursor* self, void* data);
+    static void onTabletToolTip(Cursor* self, void* data);
+    static void onTabletToolButton(Cursor* self, void* data);
+    static void onToolDestroy(TabletToolState* watch, void* data);
+    static void onToolSetCursor(TabletToolState* watch, void* data);
 
     void handleMotion(void* data);
     void handleMotionAbsolute(void* data);
@@ -379,10 +374,10 @@ namespace andromeda {
     [[nodiscard]] std::optional<std::string> matchXwaylandCursor() const;
     void finishClientCursorFrame() const;
     void forgetClientCursor();
-    static void onClientCursorOwnerDestroy(wl_listener* listener, void* data);
-    static void onClientCursorDestroy(wl_listener* listener, void* data);
-    static void onClientCursorClientCommit(wl_listener* listener, void* data);
-    static void onClientCursorCommit(wl_listener* listener, void* data);
+    static void onClientCursorOwnerDestroy(Cursor* self, void* data);
+    static void onClientCursorDestroy(Cursor* self, void* data);
+    static void onClientCursorClientCommit(Cursor* self, void* data);
+    static void onClientCursorCommit(Cursor* self, void* data);
     void updateHideTimer();
     // Sends the pointer and its visibility to the cursor effect, only while one is active.
     void forwardEffectPointer() const;
@@ -417,6 +412,7 @@ namespace andromeda {
     wlr_xcursor_manager* m_activeXcursorManager = nullptr;
     std::string m_xcursorTheme;
     std::string m_activeXcursorName;
+    [[nodiscard]] const char* effectiveXcursor(const char* name) const;
     int m_xcursorSize = 0;
     wlr_pointer_constraint_v1* m_activeConstraint = nullptr;
     // A stable map ID preserves keyboard escape when a focus-sensitive rule stops matching, without retaining a
@@ -436,6 +432,30 @@ namespace andromeda {
       double y;
     };
     std::optional<ClientPointerPress> m_clientPointerPress;
+    // A left press on a dsk_tracker_v1 drag region (fingers 0). The client gets the press; past kTrackerDragSlop px
+    // along the tracker's axis the compositor claims the drag and the client gets a pointer leave.
+    struct TrackerDrag {
+      wlr_surface* surface = nullptr;
+      double sx = 0.0;
+      double sy = 0.0;
+      double startX = 0.0;
+      double startY = 0.0;
+      bool horizontal = false;
+      bool claimed = false;
+    };
+    std::optional<TrackerDrag> m_trackerDrag;
+    // The touch counterpart: one touch point on a drag tracker; a claim sends the client a touch cancel.
+    struct TrackerTouch {
+      int32_t touchId = 0;
+      TrackerDrag drag;
+      double lastX = 0.0;
+      double lastY = 0.0;
+    };
+    std::optional<TrackerTouch> m_trackerTouch;
+    static constexpr double kTrackerDragSlop = 8.0;
+    // Returns true when the tracker drag owns this motion.
+    bool processTrackerDragMotion(uint32_t timeMsec, double oldX, double oldY);
+    bool handleTrackerTouchMotion(uint32_t timeMsec, double lx, double ly);
     // Last layout output under the pointer; crossing heads updates seat focus like workspace switch.
     wlr_output* m_pointerOutput = nullptr;
     double m_wheelAccum[2]{};
@@ -447,24 +467,25 @@ namespace andromeda {
       uint32_t timeMsec = 0;
       double x = 0;
       double y = 0;
-      View* view = nullptr;
+      Ref<View> view;
     };
     ModRightClick m_lastModRightClick;
     struct TitleBarClick {
       uint32_t timeMsec = 0;
       double x = 0;
       double y = 0;
-      View* view = nullptr;
+      Ref<View> view;
     } m_lastTitleBarClick;
     struct SsdButtonPress {
-      View* view = nullptr;
+      Ref<View> view;
       SsdFramePart part = SsdFramePart::None;
     } m_ssdButtonPress;
-    View* m_ssdHoverView = nullptr;
+    Ref<View> m_ssdHoverView;
     std::vector<std::unique_ptr<TabletToolState>> m_tools;
     bool m_hoverFocusInvalidated = false;
     bool m_compositorOwnsCursor = false;
     bool m_cursorHidden = false;
+    bool m_launchBusy = false;
     std::string m_compositorCursorName;
     // What the focused client last asked the cursor to be, replayed when a
     // compositor override ends. Wayland scopes a cursor to the pointer focus,
@@ -493,25 +514,25 @@ namespace andromeda {
     bool m_hotCornerTriggered = false;
     size_t m_hotCornerIndex = 4;
 
-    wl_listener m_motion{};
-    wl_listener m_motionAbsolute{};
-    wl_listener m_button{};
-    wl_listener m_axis{};
-    wl_listener m_frame{};
-    wl_listener m_constraintDestroy{};
-    wl_listener m_touchDown{};
-    wl_listener m_touchUp{};
-    wl_listener m_touchMotion{};
-    wl_listener m_touchCancel{};
-    wl_listener m_touchFrame{};
-    wl_listener m_tabletToolAxis{};
-    wl_listener m_tabletToolProximity{};
-    wl_listener m_tabletToolTip{};
-    wl_listener m_tabletToolButton{};
-    wl_listener m_clientCursorOwnerDestroy{};
-    wl_listener m_clientCursorDestroy{};
-    wl_listener m_clientCursorClientCommit{};
-    wl_listener m_clientCursorCommit{};
+    Listener m_motion;
+    Listener m_motionAbsolute;
+    Listener m_button;
+    Listener m_axis;
+    Listener m_frame;
+    Listener m_constraintDestroy;
+    Listener m_touchDown;
+    Listener m_touchUp;
+    Listener m_touchMotion;
+    Listener m_touchCancel;
+    Listener m_touchFrame;
+    Listener m_tabletToolAxis;
+    Listener m_tabletToolProximity;
+    Listener m_tabletToolTip;
+    Listener m_tabletToolButton;
+    Listener m_clientCursorOwnerDestroy;
+    Listener m_clientCursorDestroy;
+    Listener m_clientCursorClientCommit;
+    Listener m_clientCursorCommit;
   };
 
 } // namespace andromeda

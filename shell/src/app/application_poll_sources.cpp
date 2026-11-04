@@ -3,6 +3,7 @@
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "dbus/idle/screensaver_poll_source.h"
+#include "launcher/files_provider.h"
 #include "dbus/idle/screensaver_service.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/session_bus_poll_source.h"
@@ -17,8 +18,8 @@ std::vector<PollSource*> Application::currentPollSources() {
   if (m_busPollSource != nullptr) {
     sources.push_back(m_busPollSource.get());
   }
-  if (m_screenSaverService != nullptr
-      && m_screenSaverService->hasScreenSaverBus()
+  if (screenSaver() != nullptr
+      && screenSaver()->hasScreenSaverBus()
       && m_screenSaverPollSource != nullptr) {
     sources.push_back(m_screenSaverPollSource.get());
   }
@@ -33,6 +34,9 @@ std::vector<PollSource*> Application::currentPollSources() {
     sources.push_back(m_screenRecorder.get());
   }
   sources.push_back(&m_timePollSource);
+  if (m_filesProvider != nullptr) {
+    sources.push_back(m_filesProvider);
+  }
   sources.push_back(&m_configPollSource);
   sources.push_back(&m_desktopEntryPollSource);
   sources.push_back(&m_iconThemePollSource);
@@ -88,9 +92,9 @@ std::vector<PollSource*> Application::buildPollSources() {
   } else {
     m_busPollSource.reset();
   }
-  if (m_screenSaverService != nullptr && m_screenSaverService->hasScreenSaverBus()) {
+  if (screenSaver() != nullptr && screenSaver()->hasScreenSaverBus()) {
     if (m_screenSaverPollSource == nullptr) {
-      m_screenSaverPollSource = std::make_unique<ScreenSaverPollSource>(*m_screenSaverService);
+      m_screenSaverPollSource = std::make_unique<ScreenSaverPollSource>(*screenSaver());
     }
   } else {
     m_screenSaverPollSource.reset();
@@ -102,9 +106,9 @@ std::vector<PollSource*> Application::buildPollSources() {
   } else {
     m_systemBusPollSource.reset();
   }
-  if (m_pipewireService != nullptr) {
+  if (pipewire() != nullptr) {
     if (m_pipewirePollSource == nullptr) {
-      m_pipewirePollSource = std::make_unique<PipeWirePollSource>(*m_pipewireService);
+      m_pipewirePollSource = std::make_unique<PipeWirePollSource>(*pipewire());
     }
   } else {
     m_pipewirePollSource.reset();

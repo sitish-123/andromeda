@@ -12,7 +12,7 @@ namespace andromeda {
   class Server;
 
   // Configuration diagnostics panel, drawn with the same chrome as the
-  // cheatsheet and the session-quit confirmation: shadow, severity-colored
+  // session-quit confirmation: shadow, severity-colored
   // border, rounded background. Errors stay up, warnings auto-hide.
   class ConfigBanner {
   public:

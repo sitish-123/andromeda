@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 class Image;
 class Label;
@@ -38,9 +39,13 @@ public:
     ActiveWindowTitleScrollMode titleScrollMode = ActiveWindowTitleScrollMode::None;
     ActiveWindowDisplayMode displayMode = ActiveWindowDisplayMode::IconAndText;
     bool showEmptyLabel = false;
+    float iconGap = Style::spaceXs;
+    bool appName = false; // show the app's desktop-entry name instead of the window title
+    float leadingInset = 0.0F; // empty space before the icon that shows and hides with the widget (island group gap)
   };
 
   ActiveWindowWidget(ConfigService& config, CompositorPlatform& platform, Options options);
+  ~ActiveWindowWidget() override;
 
   void create() override;
 
@@ -50,6 +55,11 @@ private:
   void applyTitleScrollMode(bool titleVisible);
   void syncWidgetVisibility(bool showWidget);
   void syncState(Renderer& renderer);
+  // Gaps the section draws beside this widget: first while it is shown, second once it is hidden.
+  [[nodiscard]] std::pair<float, float> gapsBeside() const;
+  void setGapExcluded(bool excluded);
+  void morphWidth(float fromExtent, float toExtent);
+  void finishMorph();
   [[nodiscard]] std::string resolveIconPath(const std::string& appId);
   void buildDesktopIconIndex();
 
@@ -61,6 +71,9 @@ private:
   ActiveWindowTitleScrollMode m_titleScrollMode = ActiveWindowTitleScrollMode::None;
   ActiveWindowDisplayMode m_displayMode = ActiveWindowDisplayMode::IconAndText;
   bool m_showEmptyLabel = false;
+  float m_iconGap = Style::spaceXs;
+  bool m_appName = false;
+  float m_leadingInset = 0.0F;
   InputArea* m_area = nullptr;
   Image* m_icon = nullptr;
   Label* m_title = nullptr;
@@ -76,5 +89,18 @@ private:
   std::string m_lastTooltipTitle;
   bool m_lastEmptyState = false;
   bool m_iconColorizeRefreshPending = false;
+  // While m_widthAnimId runs, the section gap is excluded and m_shownWidth is the extent (width + gaps), so
+  // show, hide and title changes move the island and its neighbours on one spring.
+  float m_shownWidth = 0.0F;
+  float m_targetWidth = 0.0F;
+  float m_targetContent = 0.0F; // width without gaps that the running spring ends at
+  float m_collapseFrom = 0.0F;
+  std::uint32_t m_widthAnimId = 0;
+  bool m_collapsing = false;
+  float m_contentFade = 1.0F; // owner key and value of the title and icon fade on a window change
+  bool m_fromHidden = false;
+  bool m_gapExcluded = false;
+  float m_contentShift = 0.0F; // the gap before the widget, carried inside it while the section gap is excluded
+  bool m_vertical = false;
   Signal<>::ScopedConnection m_appIconColorizeConn;
 };

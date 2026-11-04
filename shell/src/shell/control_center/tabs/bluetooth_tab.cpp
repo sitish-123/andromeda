@@ -23,7 +23,7 @@ using namespace control_center;
 
 namespace {
 
-  constexpr float kRowMinHeight = Style::controlHeightLg;
+  TOKENS_LIVE(kRowMinHeight, Style::controlHeightLg);
 
   // Bounds an explicit Rescan: BlueZ discovery is stopped again when this window elapses.
   constexpr auto kDiscoveryTimeout = std::chrono::seconds(10);
@@ -133,13 +133,13 @@ namespace {
         ui::glyph({
             .glyph = glyphName,
             .glyphSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         }),
         ui::label({
             .out = valueOut,
             .text = std::move(text),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
   }
@@ -152,7 +152,7 @@ public:
       : m_device(std::move(device)), m_service(service) {
     setScale(scale);
     setRadius(Style::scaledRadiusMd(scale));
-    setFill(colorSpecFromRole(ColorRole::Surface));
+    setFill(colorSpecFromRole(ColorRole::SolidRegular));
     clearBorder();
 
     auto header = ui::row(
@@ -163,13 +163,13 @@ public:
         ui::glyph({
             .glyph = glyphFor(m_device.kind),
             .glyphSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         }),
         ui::label({
             .text = m_device.alias,
             .fontSize = Style::fontSizeBody * scale,
             .fontWeight = m_device.connected ? FontWeight::Bold : FontWeight::Normal,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -200,7 +200,7 @@ public:
       header->addChild(
           ui::spinner({
               .out = &m_connectingSpinner,
-              .color = colorSpecFromRole(ColorRole::Primary),
+              .color = colorSpecFromRole(ColorRole::Accent),
               .spinnerSize = Style::baseGlyphSize * scale,
           })
       );
@@ -283,7 +283,7 @@ public:
               ui::label({
                   .text = i18n::tr("control-center.bluetooth.auto-reconnect"),
                   .fontSize = Style::fontSizeCaption * scale,
-                  .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                  .color = colorSpecFromRole(ColorRole::Label2),
                   .flexGrow = 1.0F,
               }),
               ui::toggle({
@@ -306,13 +306,13 @@ public:
             ui::label({
                 .text = i18n::tr("control-center.bluetooth.address"),
                 .fontSize = Style::fontSizeCaption * scale,
-                .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+                .color = colorSpecFromRole(ColorRole::Label2),
                 .flexGrow = 1.0F,
             }),
             ui::label(
                 {.text = m_device.address,
                  .fontSize = Style::fontSizeCaption * scale,
-                 .color = colorSpecFromRole(ColorRole::OnSurface)}
+                 .color = colorSpecFromRole(ColorRole::Label1)}
             )
         )
     );
@@ -376,7 +376,7 @@ std::unique_ptr<Flex> BluetoothTab::create() {
           .out = &m_pairingTitle,
           .fontSize = Style::fontSizeBody * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
       })
   );
 
@@ -384,7 +384,7 @@ std::unique_ptr<Flex> BluetoothTab::create() {
       ui::label({
           .out = &m_pairingDetail,
           .fontSize = Style::fontSizeCaption * scale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
       })
   );
 
@@ -393,7 +393,7 @@ std::unique_ptr<Flex> BluetoothTab::create() {
           .out = &m_pairingCode,
           .fontSize = Style::fontSizeTitle * scale,
           .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Primary),
+          .color = colorSpecFromRole(ColorRole::AccentText),
       })
   );
 
@@ -879,7 +879,7 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
         ui::label({
             .text = i18n::tr("control-center.bluetooth.unavailable"),
             .fontSize = Style::fontSizeCaption * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     m_list->layout(renderer);
@@ -897,12 +897,12 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
     auto powerRow = ui::row(
         {.align = FlexAlign::Center,
          .gap = Style::spaceSm * scale,
-         .minHeight = Style::controlHeightSm * scale,
-         .maxHeight = Style::controlHeightSm * scale},
+         .minHeight = Style::controlHeight * scale,
+         .maxHeight = Style::controlHeight * scale},
         ui::label({
             .text = i18n::tr("control-center.bluetooth.bluetooth"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         })
     );
@@ -910,7 +910,7 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
     powerRow->addChild(
         ui::spinner({
             .out = &m_scanSpinner,
-            .color = colorSpecFromRole(ColorRole::Primary),
+            .color = colorSpecFromRole(ColorRole::Accent),
             .spinnerSize = Style::baseGlyphSize * scale,
             .visible = false,
         })
@@ -960,12 +960,12 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
     auto visibleRow = ui::row(
         {.align = FlexAlign::Center,
          .gap = Style::spaceSm * scale,
-         .minHeight = Style::controlHeightSm * scale,
-         .maxHeight = Style::controlHeightSm * scale},
+         .minHeight = Style::controlHeight * scale,
+         .maxHeight = Style::controlHeight * scale},
         ui::label({
             .text = i18n::tr("control-center.bluetooth.visible"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
             .flexGrow = 1.0F,
         }),
         ui::toggle({
@@ -994,7 +994,7 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
             .text = s.rfkillSoftBlocked ? i18n::tr("control-center.bluetooth.rfkill-blocked")
                                         : i18n::tr("control-center.bluetooth.off"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     m_list->layout(renderer);
@@ -1006,7 +1006,7 @@ void BluetoothTab::rebuildDeviceList(Renderer& renderer) {
         ui::label({
             .text = i18n::tr("control-center.bluetooth.no-devices"),
             .fontSize = Style::fontSizeBody * scale,
-            .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+            .color = colorSpecFromRole(ColorRole::Label2),
         })
     );
     m_list->layout(renderer);
@@ -1059,3 +1059,5 @@ void BluetoothTab::onPanelCardOpacityChanged(float opacity) {
     applySectionCardStyle(*m_adapterCard, contentScale(), opacity);
   }
 }
+
+const char* bluetoothDeviceGlyph(BluetoothDeviceKind kind) { return glyphFor(kind); }

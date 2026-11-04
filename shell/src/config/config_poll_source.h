@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/poll_source.h"
+#include "core/poll_source.h"
 #include "config/config_service.h"
 
 class ConfigPollSource final : public PollSource {

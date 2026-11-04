@@ -3,6 +3,7 @@
 #include "core/log.h"
 
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
@@ -18,14 +19,18 @@ namespace {
   enum : std::uint32_t {
     kHello = 1,
     kRequest = 2,
+    kNoDmabuf = 3,
+    kPause = 4,
   };
 
   enum : std::uint32_t {
     kBuffer = 1,
     kFrame = 2,
+    kDmabuf = 3,
   };
 
   constexpr std::size_t kBufferMessageSize = 16;
+  constexpr std::size_t kDmabufMessageSize = 36;
   constexpr std::size_t kFrameMessageSize = 8;
   // Bounds one dispatch so a flooding companion cannot starve the main loop.
   constexpr int kMaxMessagesPerDispatch = 16;
@@ -70,6 +75,18 @@ bool PixelStreamClient::setPath(std::string path) {
   m_path = std::move(path);
   m_retryAt = {};
   return true;
+}
+
+void PixelStreamClient::adopt(int fd) {
+  disconnect();
+  m_path.clear();
+  m_fd = fd;
+  if (send(kHello, kDmabufProtocolVersion) && send(kRequest, 0)) {
+    m_requested = true;
+  }
+  if (m_paused) {
+    (void)send(kPause, 1);
+  }
 }
 
 std::optional<std::chrono::steady_clock::time_point> PixelStreamClient::retryAt() const {
@@ -130,6 +147,7 @@ void PixelStreamClient::disconnect() {
     unmap(buffer);
   }
   m_frameBuffer.reset();
+  closeReleaseFence();
   m_requested = false;
   m_retryAt = std::chrono::steady_clock::now() + kRetryInterval;
 }
@@ -142,6 +160,14 @@ void PixelStreamClient::fail(std::string_view reason) {
 
 void PixelStreamClient::reconnect() {
   if (m_path.empty()) {
+    // An adopted socket cannot reconnect; a second HELLO asks for the current frame again.
+    if (connected() && send(kHello, kDmabufProtocolVersion)) {
+      m_frameBuffer.reset();
+      closeReleaseFence();
+      if (!m_requested && send(kRequest, 0)) {
+        m_requested = true;
+      }
+    }
     return;
   }
   disconnect();
@@ -177,7 +203,7 @@ void PixelStreamClient::dispatch(short revents) {
 }
 
 bool PixelStreamClient::readMessage() {
-  std::array<std::uint8_t, kBufferMessageSize + 1> payload{};
+  std::array<std::uint8_t, kDmabufMessageSize + 1> payload{};
   alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int) * kMaxFdsPerMessage)> control{};
   iovec vector{.iov_base = payload.data(), .iov_len = payload.size()};
   msghdr message{};
@@ -223,13 +249,26 @@ bool PixelStreamClient::readMessage() {
     attachBuffer(readLe32(payload.data() + 4), readLe32(payload.data() + 8), readLe32(payload.data() + 12), fds.fds[0]);
     return connected();
   }
+  if (type == kDmabuf && !m_path.empty()) {
+    fail("DMABUF on a version 1 stream");
+    return false;
+  }
+  if (type == kDmabuf && size == kDmabufMessageSize && fds.count == 1) {
+    const std::uint8_t* p = payload.data();
+    const std::uint64_t modifier = readLe32(p + 20) | (std::uint64_t{readLe32(p + 24)} << 32U);
+    attachDmabuf(
+        readLe32(p + 4), readLe32(p + 8), readLe32(p + 12), readLe32(p + 16), modifier, readLe32(p + 28),
+        readLe32(p + 32), std::exchange(fds.fds[0], -1)
+    );
+    return connected();
+  }
   if (type == kFrame && size == kFrameMessageSize && fds.count == 0) {
     const std::uint32_t id = readLe32(payload.data() + 4);
     if (!m_requested) {
       fail("FRAME without a pending REQUEST");
       return false;
     }
-    if (id >= kMaxBuffers || m_buffers[id].data == nullptr) {
+    if (id >= kMaxBuffers || (m_buffers[id].data == nullptr && m_buffers[id].dmabufFd < 0)) {
       fail("FRAME names an unattached buffer");
       return false;
     }
@@ -281,9 +320,61 @@ void PixelStreamClient::attachBuffer(std::uint32_t id, std::uint32_t width, std:
   buffer = Buffer{.data = data, .size = bytes, .width = static_cast<int>(width), .height = static_cast<int>(height)};
 }
 
+void PixelStreamClient::attachDmabuf(
+    std::uint32_t id, std::uint32_t width, std::uint32_t height, std::uint32_t fourcc, std::uint64_t modifier,
+    std::uint32_t stride, std::uint32_t offset, int fd
+) {
+  if (id >= kMaxBuffers || m_frameBuffer == id || width == 0 || height == 0 || width > kMaxDimension
+      || height > kMaxDimension) {
+    ::close(fd);
+    fail("DMABUF out of range or replaces the buffer the shell is reading");
+    return;
+  }
+  constexpr auto code = [](char a, char b, char c, char d) {
+    return std::uint32_t(a) | std::uint32_t(b) << 8U | std::uint32_t(c) << 16U | std::uint32_t(d) << 24U;
+  };
+  const bool rgba8 = fourcc == code('A', 'B', '2', '4') || fourcc == code('X', 'B', '2', '4')
+      || fourcc == code('A', 'R', '2', '4') || fourcc == code('X', 'R', '2', '4');
+  const off_t fdSize = ::lseek(fd, 0, SEEK_END);
+  if (!rgba8 || std::size_t{width} * height > kMaxPixels || stride < std::uint64_t{width} * 4
+      || stride > INT32_MAX || offset > INT32_MAX || fdSize < 0
+      || static_cast<std::uint64_t>(fdSize) < offset + std::uint64_t{stride} * height) {
+    ::close(fd);
+    fail("DMABUF layout does not fit its buffer");
+    return;
+  }
+  Buffer& buffer = m_buffers[id];
+  unmap(buffer);
+  buffer = Buffer{
+      .width = static_cast<int>(width),
+      .height = static_cast<int>(height),
+      .dmabufFd = fd,
+      .fourcc = fourcc,
+      .modifier = modifier,
+      .stride = stride,
+      .offset = offset,
+      .serial = ++m_serial,
+  };
+}
+
+void PixelStreamClient::refuseDmabuf() {
+  if (connected()) {
+    (void)send(kNoDmabuf, 0);
+  }
+}
+
+void PixelStreamClient::setPaused(bool paused) {
+  if (std::exchange(m_paused, paused) != paused && m_path.empty() && connected()) {
+    (void)send(kPause, paused ? 1 : 0);
+  }
+}
+
 void PixelStreamClient::unmap(Buffer& buffer) {
   if (buffer.data != nullptr) {
     ::munmap(buffer.data, buffer.size);
+  }
+  if (buffer.dmabufFd >= 0) {
+    ::close(buffer.dmabufFd);
   }
   buffer = Buffer{};
 }
@@ -293,16 +384,54 @@ std::optional<PixelStreamClient::Frame> PixelStreamClient::frame() const {
     return std::nullopt;
   }
   const Buffer& buffer = m_buffers[*m_frameBuffer];
-  return Frame{.pixels = static_cast<const std::uint8_t*>(buffer.data), .width = buffer.width, .height = buffer.height};
+  return Frame{
+      .pixels = static_cast<const std::uint8_t*>(buffer.data),
+      .width = buffer.width,
+      .height = buffer.height,
+      .dmabufFd = buffer.dmabufFd,
+      .fourcc = buffer.fourcc,
+      .modifier = buffer.modifier,
+      .stride = buffer.stride,
+      .offset = buffer.offset,
+      .serial = buffer.serial,
+  };
 }
 
-void PixelStreamClient::releaseFrame() {
+void PixelStreamClient::releaseFrame(int fenceFd) {
   if (!m_frameBuffer.has_value()) {
+    if (fenceFd >= 0) {
+      ::close(fenceFd);
+    }
     return;
   }
   m_frameBuffer.reset();
+  if (fenceFd >= 0 && connected()) {
+    closeReleaseFence();
+    m_releaseFence = fenceFd;
+    return;
+  }
+  if (fenceFd >= 0) {
+    ::close(fenceFd);
+  }
   if (connected() && send(kRequest, 0)) {
     m_requested = true;
+  }
+}
+
+void PixelStreamClient::dispatchReleaseFence() {
+  if (m_releaseFence < 0) {
+    return;
+  }
+  closeReleaseFence();
+  if (connected() && !m_requested && send(kRequest, 0)) {
+    m_requested = true;
+  }
+}
+
+void PixelStreamClient::closeReleaseFence() {
+  if (m_releaseFence >= 0) {
+    ::close(m_releaseFence);
+    m_releaseFence = -1;
   }
 }
 

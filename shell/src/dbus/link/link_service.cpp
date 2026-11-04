@@ -9,14 +9,18 @@
 #include "net/url_open.h"
 #include "notification/notification_manager.h"
 #include "pipewire/sound_player.h"
+#include "render/core/image_file_loader.h"
 #include "util/string_utils.h"
-#include "wayland/clipboard_service.h"
+#include "clipboard/clipboard_service.h"
 
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <expected>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -177,8 +181,8 @@ LinkService::LinkService(
       .onInterface(kLinkInterface)
       .call([this](
                 const std::string& deviceId, const std::string& state, const std::string& number,
-                const std::string& name
-            ) { onCall(deviceId, state, number, name); });
+                const std::string& name, const std::string& app
+            ) { onCall(deviceId, state, number, name, app); });
   m_link->uponSignal("RingRequested").onInterface(kLinkInterface).call([this](const std::string& deviceId, bool on) {
     onRingRequested(deviceId, on);
   });
@@ -256,6 +260,21 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed Devices: {}", e.what());
+    }
+    for (const LinkDevice& device : m_devices) {
+      if (device.connected) {
+        m_connectDeadline.erase(device.id);
+      } else {
+        forgetPhotos(device.id);
+      }
+    }
+  }
+  if (const auto it = properties.find("Paused"); it != properties.end()) {
+    try {
+      const auto ids = it->second.get<std::vector<std::string>>();
+      m_paused = std::set<std::string>(ids.begin(), ids.end());
+    } catch (const sdbus::Error& e) {
+      kLog.warn("malformed Paused: {}", e.what());
     }
   }
   if (const auto it = properties.find("LocalSendVisible"); it != properties.end()) {
@@ -657,6 +676,55 @@ void LinkService::onOffered(
   }
 }
 
+std::optional<LinkService::TransferStatus> LinkService::activeTransfer() const {
+  const std::pair<const std::string, Transfer>* latest = nullptr;
+  for (const auto& entry : m_transfers) {
+    if (entry.second.progressSerial != 0 && (latest == nullptr || entry.second.progressSerial > latest->second.progressSerial)) {
+      latest = &entry;
+    }
+  }
+  if (latest == nullptr) {
+    return std::nullopt;
+  }
+  const Transfer& transfer = latest->second;
+  const std::string device =
+      transfer.deviceId.empty() ? i18n::tr("notifications.internal.link") : deviceName(transfer.deviceId);
+  return TransferStatus{
+      .transferId = latest->first,
+      .title = i18n::tr(
+          transfer.incoming ? "notifications.internal.link-receiving" : "notifications.internal.link-sending", "device",
+          device
+      ),
+      .subtitle = i18n::tr(
+          "notifications.internal.link-progress", "done", formatBytes(transfer.bytes), "total",
+          formatBytes(transfer.total)
+      ),
+      .progress = transfer.total == 0 ? 0.0F
+                                      : static_cast<float>(static_cast<double>(transfer.bytes) /
+                                                           static_cast<double>(transfer.total)),
+  };
+}
+
+void LinkService::setActivityCallback(ChangeCallback callback) { m_activityCallback = std::move(callback); }
+
+void LinkService::cancelTransfer(const std::string& transferId) { callTransfer("CancelTransfer", transferId); }
+
+std::optional<LinkService::CallStatus> LinkService::activeCall() const { return m_call; }
+
+void LinkService::declineCall(const std::string& deviceId) {
+  m_link->callMethodAsync("CallAction")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, std::string{"decline"})
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
+}
+
+void LinkService::muteCall(const std::string& deviceId) {
+  m_link->callMethodAsync("CallAction")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, std::string{"mute"})
+      .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CallAction", error); });
+}
+
 void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes, std::uint64_t total) {
   auto it = m_transfers.find(transferId);
   if (it == m_transfers.end()) {
@@ -664,7 +732,14 @@ void LinkService::onProgress(const std::string& transferId, std::uint64_t bytes,
     it = m_transfers.emplace(transferId, Transfer{.deviceId = {}, .incoming = true}).first;
   }
   Transfer& transfer = it->second;
+  transfer.bytes = bytes;
+  transfer.total = total;
+  transfer.progressSerial = ++m_progressSerial;
   closeTransferNotification(transfer.offerNotification);
+  if (m_activityCallback) {
+    m_activityCallback();
+    return;
+  }
   const std::string body =
       i18n::tr("notifications.internal.link-progress", "done", formatBytes(bytes), "total", formatBytes(total));
   if (transfer.progressDismissed) {
@@ -712,6 +787,9 @@ void LinkService::onFinished(
   }
   Transfer transfer = std::move(it->second);
   m_transfers.erase(it);
+  if (m_activityCallback) {
+    m_activityCallback();
+  }
   closeTransferNotification(transfer.offerNotification);
   closeTransferNotification(transfer.progressNotification);
   const std::string device =
@@ -747,6 +825,168 @@ void LinkService::onFinished(
   if (const std::uint32_t id = m_notifications.addOrReplace(std::move(request)); id != 0 && !paths.empty()) {
     m_transferActions[id] = TransferAction{.transferId = transferId, .paths = paths};
   }
+}
+
+bool LinkService::connecting(const std::string& deviceId) const {
+  const auto it = m_connectDeadline.find(deviceId);
+  if (it == m_connectDeadline.end() || m_paused.contains(deviceId)) {
+    return false;
+  }
+  const auto device = std::ranges::find(m_devices, deviceId, &LinkDevice::id);
+  return device != m_devices.end() && !device->connected && std::chrono::steady_clock::now() < it->second;
+}
+
+namespace {
+
+  // The daemon's typed refusal: error org.andromeda.Link1.Error.Refused with the reason as its message.
+  bool isDenied(const sdbus::Error& error) {
+    return error.getName() == "org.andromeda.Link1.Error.Refused" && error.getMessage() == "denied";
+  }
+
+} // namespace
+
+void LinkService::connect(const std::string& deviceId, std::function<void(bool)> done) {
+  constexpr auto kPhoneRetry = std::chrono::seconds(30);
+  m_connectDeadline[deviceId] = std::chrono::steady_clock::now() + kPhoneRetry;
+  m_connectTimer.start(kPhoneRetry + std::chrono::seconds(1), [this] { notify(); });
+  m_link->callMethodAsync("Connect")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId)
+      .uponReplyInvoke([this, deviceId, done = std::move(done)](std::optional<sdbus::Error> error) {
+        logFailure("Connect", error);
+        if (error.has_value()) {
+          m_connectDeadline.erase(deviceId);
+        }
+        if (done) {
+          done(!error.has_value());
+        }
+        notify();
+      });
+}
+
+void LinkService::disconnect(const std::string& deviceId, std::function<void(bool)> done) {
+  m_connectDeadline.erase(deviceId);
+  m_link->callMethodAsync("Disconnect")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId)
+      .uponReplyInvoke([this, done = std::move(done)](std::optional<sdbus::Error> error) {
+        logFailure("Disconnect", error);
+        if (done) {
+          done(!error.has_value());
+        }
+        notify();
+      });
+}
+
+void LinkService::forgetPhotos(const std::string& deviceId) {
+  m_photoLists.erase(deviceId);
+  ++m_photoGeneration[deviceId];
+  for (auto it = m_thumbnails.begin(); it != m_thumbnails.end();) {
+    it = it->first.first == deviceId ? m_thumbnails.erase(it) : std::next(it);
+  }
+}
+
+void LinkService::requestPhotos(const std::string& deviceId, std::uint16_t count) {
+  m_photoLists[deviceId].state = LinkPhotosState::Loading;
+  const std::uint64_t generation = ++m_photoGeneration[deviceId];
+  m_link->callMethodAsync("RecentPhotos")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, count)
+      .uponReplyInvoke([this, deviceId, generation](
+                           std::optional<sdbus::Error> error,
+                           std::vector<sdbus::Struct<std::string, std::string, std::uint64_t>> photos
+                       ) {
+        if (m_photoGeneration[deviceId] != generation) {
+          return;
+        }
+        PhotoList& result = m_photoLists[deviceId];
+        result.photos.clear();
+        if (error.has_value()) {
+          result.state = isDenied(*error) ? LinkPhotosState::Denied : LinkPhotosState::Unavailable;
+          kLog.debug("RecentPhotos failed: {}", error->getMessage());
+        } else {
+          result.state = LinkPhotosState::Ready;
+          for (const auto& photo : photos) {
+            result.photos.push_back({.path = photo.get<0>(), .name = photo.get<1>(), .added = photo.get<2>()});
+          }
+        }
+        notify();
+      });
+}
+
+LinkPhotosState LinkService::photosState(const std::string& deviceId) const {
+  const auto it = m_photoLists.find(deviceId);
+  return it != m_photoLists.end() ? it->second.state : LinkPhotosState::Unknown;
+}
+
+const std::vector<LinkPhoto>* LinkService::photos(const std::string& deviceId) const {
+  const auto it = m_photoLists.find(deviceId);
+  return it != m_photoLists.end() && it->second.state == LinkPhotosState::Ready ? &it->second.photos : nullptr;
+}
+
+std::shared_ptr<const NotificationImageData>
+LinkService::photoThumbnail(const std::string& deviceId, const std::string& path, std::uint16_t size) {
+  const auto key = std::make_pair(deviceId, path);
+  if (const auto it = m_thumbnails.find(key); it != m_thumbnails.end()) {
+    return it->second;
+  }
+  m_thumbnails[key] = nullptr;
+  const std::uint64_t generation = m_photoGeneration[deviceId];
+  m_link->callMethodAsync("Thumbnail")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, path, size)
+      .uponReplyInvoke([this, key, generation](std::optional<sdbus::Error> error, std::vector<std::uint8_t> png) {
+        logFailure("Thumbnail", error);
+        if (m_photoGeneration[key.first] != generation) {
+          return;
+        }
+        if (error.has_value() || png.empty()) {
+          m_thumbnails.erase(key);
+          return;
+        }
+        // The decoder takes a file: write the PNG, decode it, and remove it.
+        char name[] = "/tmp/noctalia-link-thumbnail-XXXXXX";
+        const int fd = mkstemp(name);
+        if (fd < 0) {
+          m_thumbnails.erase(key);
+          return;
+        }
+        const bool wrote = write(fd, png.data(), png.size()) == static_cast<ssize_t>(png.size());
+        close(fd);
+        auto decoded = wrote ? loadImageFile(name) : std::unexpected(std::string("write failed"));
+        std::filesystem::remove(name);
+        if (!decoded) {
+          kLog.debug("thumbnail did not decode: {}", decoded.error());
+          m_thumbnails.erase(key);
+          return;
+        }
+        auto image = std::make_shared<NotificationImageData>();
+        image->width = decoded->width;
+        image->height = decoded->height;
+        image->rowStride = decoded->width * 4;
+        image->channels = 4;
+        image->hasAlpha = true;
+        image->data = std::move(decoded->rgba);
+        m_thumbnails[key] = std::move(image);
+        notify();
+      });
+  return nullptr;
+}
+
+void LinkService::savePhoto(
+    const std::string& deviceId, const std::string& path, std::function<void(LinkSaveResult)> done
+) {
+  m_link->callMethodAsync("SavePhoto")
+      .onInterface(kLinkInterface)
+      .withArguments(deviceId, path)
+      .uponReplyInvoke([done = std::move(done)](std::optional<sdbus::Error> error, std::string) {
+        logFailure("SavePhoto", error);
+        if (!error.has_value()) {
+          done(LinkSaveResult::Saved);
+        } else {
+          done(isDenied(*error) ? LinkSaveResult::Denied : LinkSaveResult::Failed);
+        }
+      });
 }
 
 void LinkService::ring(const std::string& deviceId, bool on) {
@@ -852,8 +1092,36 @@ void LinkService::onRingRequested(const std::string& deviceId, bool on) {
 }
 
 void LinkService::onCall(
-    const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name
+    const std::string& deviceId, const std::string& state, const std::string& number, const std::string& name,
+    const std::string& app
 ) {
+  const bool wasRinging = m_call.has_value() && m_call->deviceId == deviceId && m_call->ringing;
+  if (state == "ringing" || state == "active") {
+    const std::string who =
+        !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
+    const bool wasActive = m_call.has_value() && m_call->deviceId == deviceId && m_call->since.has_value();
+    m_call = CallStatus{
+        .deviceId = deviceId,
+        .caller = who,
+        .device = app.empty() ? deviceName(deviceId) : app + " · " + deviceName(deviceId),
+        .ringing = state == "ringing",
+        .since = state == "ringing" ? std::nullopt
+            : wasActive             ? m_call->since
+                                    : std::optional(std::chrono::steady_clock::now()),
+    };
+  } else if (m_call.has_value() && m_call->deviceId == deviceId) {
+    m_call.reset();
+  }
+  if (m_activityCallback) {
+    m_activityCallback();
+    // The island shows the call and its actions; the alert sound replaces the toast's.
+    if (state == "ringing" && !wasRinging) {
+      if (const auto sounds = m_sounds.lock()) {
+        sounds->play(SoundPlayer::kEventNotification);
+      }
+    }
+    return;
+  }
   const auto shown = m_callNotifications.find(deviceId);
   if (state != "ringing") {
     if (shown != m_callNotifications.end()) {
@@ -870,9 +1138,8 @@ void LinkService::onCall(
   request.replacesId = shown != m_callNotifications.end() ? shown->second : 0;
   request.appName = i18n::tr("notifications.internal.link");
   request.summary = i18n::tr("notifications.internal.link-call-title", "caller", caller);
-  request.body = name.empty() || number.empty()
-      ? i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId))
-      : number + " · " + i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId));
+  const std::string body = i18n::tr("notifications.internal.link-call-body", "device", deviceName(deviceId));
+  request.body = !app.empty() ? app + " · " + body : name.empty() || number.empty() ? body : number + " · " + body;
   request.origin = NotificationOrigin::Internal;
   request.urgency = Urgency::Critical;
   request.timeout = 0;

@@ -36,7 +36,7 @@ void BrightnessWidget::create() {
             .out = &m_glyph,
             .glyph = "brightness-high",
             .glyphSize = Style::baseGlyphSize * m_contentScale,
-            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)),
+            .color = widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)),
         })
     );
   }
@@ -136,7 +136,7 @@ void BrightnessWidget::syncState(Renderer& renderer) {
       if (m_showWhenUnavailable && m_glyph != nullptr) {
         m_glyph->setGlyph("sun-off");
         m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-        m_glyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+        m_glyph->setColor(colorSpecFromRole(ColorRole::Label2));
         m_glyph->measure(renderer);
         area->setTooltip(i18n::tr("bar.widgets.brightness.unavailable"));
       } else {
@@ -150,7 +150,7 @@ void BrightnessWidget::syncState(Renderer& renderer) {
   if (m_glyph != nullptr) {
     m_glyph->setGlyph(brightnessGlyphName(brightness));
     m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     m_glyph->measure(renderer);
   }
 
@@ -159,7 +159,7 @@ void BrightnessWidget::syncState(Renderer& renderer) {
     int pct = static_cast<int>(std::round(brightness * 100.0F));
     m_label->setFontSize((m_isVertical ? Style::fontSizeCaption : Style::fontSizeBody) * fontScale());
     m_label->setText(m_isVertical ? std::to_string(pct) : std::to_string(pct) + "%");
-    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)));
+    m_label->setColor(widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)));
     m_label->measure(renderer);
   }
 

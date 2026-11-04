@@ -1,4 +1,5 @@
 #include "scripting/script_worker_pool.h"
+#include "util/thread_name.h"
 
 #include <algorithm>
 
@@ -45,6 +46,7 @@ namespace scripting {
   }
 
   void ScriptWorkerPool::runWorker() {
+    nameThisThread("dsk-script");
     for (;;) {
       std::function<void()> task;
       {

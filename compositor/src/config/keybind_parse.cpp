@@ -252,9 +252,6 @@ namespace andromeda {
     }
 
     constexpr ActionSpec kActionSpecs[] = {
-        {"cheatsheet-close", "", "Hide the keybind cheatsheet", KeybindAction::CheatsheetClose},
-        {"cheatsheet-open", "", "Show the keybind cheatsheet", KeybindAction::CheatsheetOpen},
-        {"cheatsheet-toggle", "", "Show or hide the keybind cheatsheet", KeybindAction::CheatsheetToggle},
         {"column-center", "", "Center the focused column in the viewport", KeybindAction::ColumnCenter},
         {"column-focus-first", "", "Focus the first column in the workspace", KeybindAction::ColumnFocusFirst},
         {"column-focus-last", "", "Focus the last column in the workspace", KeybindAction::ColumnFocusLast},
@@ -1086,6 +1083,16 @@ namespace andromeda {
       wheel.wheel = WheelDirection::Down;
       wheel.action = KeybindAction::WindowFocusRight;
       keybinds.push_back(std::move(wheel));
+    }
+    {
+      // Ctrl+Shift+Esc without Mod, as on Windows and GNOME.
+      Keybind activity;
+      activity.modifiers = WLR_MODIFIER_CTRL | WLR_MODIFIER_SHIFT;
+      activity.keysym = XKB_KEY_Escape;
+      activity.repeat = false;
+      activity.action = KeybindAction::Spawn;
+      activity.payload = SpawnArg{.command = "noctalia msg activity-open"};
+      keybinds.push_back(std::move(activity));
     }
 
     return keybinds;

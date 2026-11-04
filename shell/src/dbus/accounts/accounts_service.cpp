@@ -2,7 +2,11 @@
 
 #include "core/log.h"
 #include "dbus/system_bus.h"
+#include "dbus/system_interactive_call.h"
 
+#include <gio/gio.h>
+#include <pwd.h>
+#include <crypt.h>
 #include <cstdint>
 #include <optional>
 #include <sdbus-c++/Error.h>
@@ -10,9 +14,13 @@
 #include <sdbus-c++/Types.h>
 #include <string>
 #include <unistd.h>
+#include <cstdlib>
+#include <cstring>
 #include <utility>
 
 namespace {
+
+  using dbus::callInteractive;
 
   constexpr Logger kLog("accounts");
 
@@ -137,4 +145,71 @@ void AccountsService::emitChangedIfNeeded(std::string_view nextIconFile) {
   if (m_changeCallback) {
     m_changeCallback();
   }
+}
+
+void AccountsService::createUser(
+    const std::string& login, const std::string& realName, bool admin, const std::string& password,
+    std::function<void(std::string)> done
+) {
+  const char* salt = crypt_gensalt_ra(nullptr, 0, nullptr, 0);
+  crypt_data data{};
+  const char* hashed = salt != nullptr ? crypt_r(password.c_str(), salt, &data) : nullptr;
+  std::free(const_cast<char*>(salt));
+  const std::string hash = hashed != nullptr && hashed[0] != '*' ? std::string(hashed) : std::string{};
+  explicit_bzero(&data, sizeof(data));
+  if (hash.empty()) {
+    done("could not hash the password");
+    return;
+  }
+  callInteractive(
+      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "CreateUser",
+      g_variant_new("(ssi)", login.c_str(), realName.c_str(), admin ? 1 : 0),
+      [hash, login, done = std::move(done)](GVariant* created, std::string error) {
+        if (created == nullptr) {
+          kLog.warn("CreateUser failed: {}", error);
+          done(std::move(error));
+          return;
+        }
+        const char* userPath = nullptr;
+        g_variant_get(created, "(&o)", &userPath);
+        callInteractive(
+            "org.freedesktop.Accounts", userPath, kUserInterface, "SetPassword", g_variant_new("(ss)", hash.c_str(), ""),
+            [login, done](GVariant* set, std::string passwordError) {
+              if (set != nullptr) {
+                done({});
+                return;
+              }
+              kLog.warn("SetPassword failed: {}", passwordError);
+              // An account without a password cannot log in and blocks a retry with the same name: remove it.
+              const passwd* pw = getpwnam(login.c_str());
+              if (pw == nullptr) {
+                done(std::move(passwordError));
+                return;
+              }
+              callInteractive(
+                  "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser",
+                  g_variant_new("(xb)", static_cast<gint64>(pw->pw_uid), TRUE),
+                  [done, passwordError](GVariant* deleted, std::string deleteError) {
+                    if (deleted == nullptr) {
+                      kLog.warn("DeleteUser after a failed SetPassword failed: {}", deleteError);
+                    }
+                    done(passwordError);
+                  }
+              );
+            }
+        );
+      }
+  );
+}
+
+void AccountsService::deleteUser(uid_t uid, std::function<void(std::string)> done) {
+  callInteractive(
+      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser", g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
+      [done = std::move(done)](GVariant* deleted, std::string error) {
+        if (deleted == nullptr) {
+          kLog.warn("DeleteUser failed: {}", error);
+        }
+        done(deleted == nullptr ? std::move(error) : std::string{});
+      }
+  );
 }

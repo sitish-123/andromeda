@@ -7,7 +7,7 @@
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
-#include "ui/controls/keybind_recorder.h"
+#include "shell/settings/keybind_recorder.h"
 #include "ui/controls/select.h"
 #include "ui/controls/stepper.h"
 #include "ui/dialogs/glyph_picker_dialog.h"
@@ -53,7 +53,7 @@ namespace settings {
       auto block = ui::column(
           {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale, .flexGrow = grow},
           makeLabel(
-              std::move(label), Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::OnSurfaceVariant),
+              std::move(label), Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2),
               FontWeight::Normal
           )
       );

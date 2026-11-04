@@ -1,0 +1,9 @@
+id         = "me/lockbox"
+name       = "Lock box"
+version    = "1.0.0"
+plugin_api = 3
+author     = "me"
+
+[[desktop_widget]]
+id    = "box"
+entry = "box.luau"

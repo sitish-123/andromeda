@@ -1,4 +1,5 @@
 #include "shell/bar/widgets/taskbar_widget.h"
+#include "config/app_icon_settings.h"
 
 #include "compositors/compositor_detect.h"
 #include "compositors/hyprland/hyprland_window_id.h"
@@ -24,7 +25,7 @@
 #include "ui/style.h"
 #include "util/string_utils.h"
 #include "wayland/wayland_seat.h"
-#include "wayland/wayland_toplevels.h"
+#include "compositors/wayland_toplevels.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>
@@ -933,9 +934,9 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
-      m_animations->animate(
-          *progress, 1.0F, Style::animFast, Easing::EaseOutCubic,
+      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
+      m_animations->animateSpring(
+          *progress, 1.0F, Style::spring(Tokens::springFadeOut),
           [this, hoverBoxPtr, fill, progress](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);
@@ -952,9 +953,9 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface));
-      m_animations->animate(
-          *progress, 0.0F, Style::animFast, Easing::EaseOutCubic,
+      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
+      m_animations->animateSpring(
+          *progress, 0.0F, Style::spring(Tokens::springFade),
           [this, hoverBoxPtr, fill, progress](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);
@@ -1193,7 +1194,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
           .height = iconSize,
       });
       if (task.icon.symbolic) {
-        image->setForegroundTint(widgetIconColorOr(colorSpecFromRole(ColorRole::OnSurface)));
+        image->setForegroundTint(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
       } else {
         image->setAppIconColorization(effectiveShellAppIconColorizationTint(m_configService.config().shell));
       }
@@ -1223,8 +1224,8 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     const float minusWidth = std::max(0.0F, markerWidth - 4.0F * m_contentScale);
     const float minusHeight = std::min(markerHeight, std::round(2.0F * m_contentScale));
     auto minimizeIndicator = ui::box({
-        .fill = colorSpecFromRole(ColorRole::Surface),
-        .border = colorSpecFromRole(ColorRole::Secondary),
+        .fill = colorSpecFromRole(ColorRole::SolidRegular),
+        .border = colorSpecFromRole(ColorRole::Accent),
         .borderWidth = m_contentScale,
         .radius = markerHeight * 0.5F,
         .width = markerWidth,
@@ -1236,7 +1237,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     minimizeIndicator->setPosition(0.0F, std::round(iconSize - markerHeight));
     minimizeIndicator->setHitTestVisible(false);
     auto minus = ui::box({
-        .fill = colorSpecFromRole(ColorRole::OnSurface),
+        .fill = colorSpecFromRole(ColorRole::Label1),
         .radius = minusHeight * 0.5F,
         .width = minusWidth,
         .height = minusHeight,
@@ -1273,7 +1274,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       const float iconRightInset = std::round(std::max(1.0F, iconSize * 0.08F));
       const float dotX = std::round(centeredOffset(tileSize, iconSize) + iconSize - dotSize - iconRightInset);
       const float startY = std::round(centeredOffset(tileSize, iconSize) + (iconSize - runHeight) * 0.5F);
-      const ColorSpec dotColor = colorSpecFromRole(ColorRole::Primary, 0.9F);
+      const ColorSpec dotColor = colorSpecFromRole(ColorRole::Accent, 0.9F);
 
       for (std::size_t i = 0; i < dotCount; ++i) {
         auto dot = ui::box({
@@ -1479,7 +1480,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
             .fontSize = countFontSize,
             .fontWeight = fontWeight,
             .fontFamily = fontFamily,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         });
         label->measure(renderer);
         content->addChild(std::move(label));
@@ -1556,7 +1557,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       for (const TaskModel* task : visibleDots) {
         const bool highlight = task != nullptr && task->active && m_showActiveIndicator;
         const ColorSpec fill =
-            highlight ? activeDotFill : colorSpecFromRole(ColorRole::OnSurface, anyActive ? 0.55F : 0.35F);
+            highlight ? activeDotFill : colorSpecFromRole(ColorRole::Label1, anyActive ? 0.55F : 0.35F);
         const bool minimized = task != nullptr && allWindowsMinimized(*task);
         auto dot = ui::box({
             .fill = minimized ? clearColorSpec() : fill,
@@ -1575,7 +1576,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
             .fontSize = overflowFontSize,
             .fontWeight = fontWeight,
             .fontFamily = fontFamily,
-            .color = colorSpecFromRole(ColorRole::OnSurface, anyActive ? 0.7F : 0.5F),
+            .color = colorSpecFromRole(ColorRole::Label1, anyActive ? 0.7F : 0.5F),
             .width = overflowLabelWidth,
             .height = std::max(dotSize, overflowLabelHeight),
         });
@@ -1665,7 +1666,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       const bool emptyWorkspace = tasks.empty();
       const bool focusedWorkspace = workspaceUsesFocusedStyle(ws);
 
-      const auto surfaceFill = colorSpecFromRole(ColorRole::SurfaceContainer, focusedWorkspace ? 0.52F : 0.18F);
+      const auto surfaceFill = colorSpecFromRole(ColorRole::Fill2, focusedWorkspace ? 0.52F : 0.18F);
 
       const auto borderColor = focusedWorkspace ? m_workspaceGroupActiveBorder : m_workspaceGroupInactiveBorder;
 
@@ -3684,45 +3685,12 @@ ColorSpec TaskbarWidget::workspaceTextColor(const WorkspaceModel& model) const {
 
 ColorRole TaskbarWidget::onRoleForFill(ColorRole fill) {
   switch (fill) {
-  case ColorRole::Primary:
-    return ColorRole::OnPrimary;
-  case ColorRole::Secondary:
-    return ColorRole::OnSecondary;
-  case ColorRole::Tertiary:
-    return ColorRole::OnTertiary;
-  case ColorRole::Error:
-    return ColorRole::OnError;
-  case ColorRole::PrimaryContainer:
-    return ColorRole::OnPrimaryContainer;
-  case ColorRole::SecondaryContainer:
-    return ColorRole::OnSecondaryContainer;
-  case ColorRole::TertiaryContainer:
-    return ColorRole::OnTertiaryContainer;
-  case ColorRole::ErrorContainer:
-    return ColorRole::OnErrorContainer;
-  case ColorRole::Surface:
-  case ColorRole::SurfaceContainerLow:
-  case ColorRole::SurfaceContainer:
-  case ColorRole::SurfaceContainerHigh:
-  case ColorRole::SurfaceContainerHighest:
-  case ColorRole::OutlineVariant:
-  case ColorRole::Shadow:
-  case ColorRole::Scrim:
-  case ColorRole::Hover:
-  case ColorRole::OnPrimary:
-  case ColorRole::OnPrimaryContainer:
-  case ColorRole::OnSecondary:
-  case ColorRole::OnSecondaryContainer:
-  case ColorRole::OnTertiary:
-  case ColorRole::OnTertiaryContainer:
-  case ColorRole::OnError:
-  case ColorRole::OnErrorContainer:
-  case ColorRole::OnSurface:
-  case ColorRole::OnSurfaceVariant:
-  case ColorRole::OnHover:
-    return ColorRole::OnSurface;
+  case ColorRole::Accent:
+  case ColorRole::Danger:
+    return ColorRole::OnAccent;
+  default:
+    return ColorRole::Label1;
   }
-  return ColorRole::OnSurface;
 }
 
 ColorSpec TaskbarWidget::readableColorForFill(const ColorSpec& fill) {

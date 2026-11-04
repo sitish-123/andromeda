@@ -2,7 +2,7 @@
 
 #include "compositors/keyboard_backend.h"
 #include "compositors/workspace_backend.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <chrono>
 #include <cstdint>
@@ -53,7 +53,7 @@ class CompositorPlatform {
 public:
   using ChangeCallback = std::function<void()>;
 
-  explicit CompositorPlatform(WaylandConnection& wayland);
+  explicit CompositorPlatform(ShellWaylandConnection& wayland);
   ~CompositorPlatform();
 
   CompositorPlatform(const CompositorPlatform&) = delete;
@@ -63,12 +63,12 @@ public:
   void startKdeActiveWindow(SessionBus& bus);
   void cleanup();
 
-  [[nodiscard]] WaylandConnection& wayland() noexcept { return m_wayland; }
-  [[nodiscard]] const WaylandConnection& wayland() const noexcept { return m_wayland; }
+  [[nodiscard]] ShellWaylandConnection& wayland() noexcept { return m_wayland; }
+  [[nodiscard]] const ShellWaylandConnection& wayland() const noexcept { return m_wayland; }
   [[nodiscard]] wl_display* display() const noexcept;
   [[nodiscard]] bool hasXdgShell() const noexcept;
   [[nodiscard]] bool hasXdgActivation() const noexcept;
-  [[nodiscard]] std::string requestActivationToken(wl_surface* surface) const;
+  [[nodiscard]] std::string requestActivationToken(wl_surface* surface, const std::string& appId = {}) const;
   [[nodiscard]] bool hasGammaControl() const noexcept;
   [[nodiscard]] const std::vector<WaylandOutput>& outputs() const noexcept;
   [[nodiscard]] const WaylandOutput* findOutputByWl(wl_output* output) const;
@@ -185,6 +185,8 @@ public:
   [[nodiscard]] std::unordered_map<std::uintptr_t, WorkspaceWindow>
   assignTaskbarWindows(const std::vector<TaskbarWindowCandidate>& windows, wl_output* outputFilter = nullptr) const;
   [[nodiscard]] const char* workspaceBackendName() const noexcept;
+  // PID and app_id of every window the compositor reports a PID for (Andromeda IPC).
+  [[nodiscard]] std::vector<std::pair<int, std::string>> windowPids() const;
 
   [[nodiscard]] bool cycleKeyboardLayout() const;
   [[nodiscard]] bool hasKeyboardLayoutBackend() const noexcept;
@@ -198,6 +200,8 @@ public:
 
   [[nodiscard]] bool requestSessionExit() const;
   [[nodiscard]] bool setOutputPower(bool on) const;
+  // Connector name -> powered on, for the outputs the compositor reports.
+  [[nodiscard]] std::unordered_map<std::string, bool> outputPowerStates() const;
   void setOutputPowerOffPending(bool pending) noexcept { m_outputPowerOffPending = pending; }
   [[nodiscard]] bool shouldSuppressLockTransition() const;
   void setOutputPowerChangeCallback(const ChangeCallback& callback);
@@ -235,7 +239,7 @@ private:
   );
   [[nodiscard]] bool extToplevelIsLive(const ext_foreign_toplevel_handle_v1* handle) const;
 
-  WaylandConnection& m_wayland;
+  ShellWaylandConnection& m_wayland;
   WorkspaceAlertService* m_workspaceAlertService = nullptr;
   std::unique_ptr<compositors::CompositorRuntimeRegistry> m_runtimeRegistry;
   std::unique_ptr<WaylandWorkspaces> m_workspaces;

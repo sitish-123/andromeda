@@ -1,4 +1,5 @@
 #include "shell/dock/dock_items.h"
+#include "config/app_icon_settings.h"
 
 #include "config/config_service.h"
 #include "core/ui_phase.h"
@@ -30,18 +31,23 @@
 
 namespace {
 
-  // Instance-count badge geometry — scales with icon size.
-  constexpr float kBadgeSizeRatio = 0.30F; // fraction of icon size
-  constexpr float kBadgeMinSize = 16.0F;   // minimum diameter in px
-  constexpr float kBadgeFontRatio = 0.72F; // font size relative to badge diameter
-  constexpr float kBadgeCornerInsetX = 0.55F;
-  constexpr float kBadgeCornerInsetY = 0.45F;
+  // Badge geometry (component.badge at component.dock.icon), scaled with the icon size.
+  TOKENS_LIVE(kBadgeSizeRatio, Tokens::componentBadgeHeight / Tokens::componentDockIcon);
+  constexpr float kBadgeMinSize = 16.0F;
+  TOKENS_LIVE(kBadgePaddingX, Tokens::componentBadgePaddingX);
+  TOKENS_LIVE(kBadgeFontRatio, Tokens::typeCaption.size / Tokens::componentBadgeHeight);
+  TOKENS_LIVE(kBadgeCornerInsetX, 1.0F - Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
+  TOKENS_LIVE(kBadgeCornerInsetY, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   constexpr float kDotSizeRatio = 0.09F;
   constexpr float kDotMinSize = 4.0F;
   constexpr float kDotGap = 3.0F;
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
-  constexpr float kCellPad = 6.0F;
+  // Running dot (rulebook 9.4): centred in the bottom padding, so 2 below the icon.
+  TOKENS_LIVE(kRunningDot, Tokens::componentDockRunningDot);
+  TOKENS_LIVE(kRunningDotOffset, (Tokens::componentDockPadding - Tokens::componentDockRunningDot) * 0.5F);
+  // component.dock.padding and .gap space the icons; a cell adds none.
+  constexpr float kCellPad = 0.0F;
   constexpr float kLauncherGlyphSizeRatio = 0.8F;
   constexpr float kHoverZoomLerp = 0.28F;
   constexpr float kHoverZoomReferenceFrameMs = 1000.0F / 60.0F;
@@ -335,8 +341,9 @@ namespace {
     if (animId != 0) {
       instance.animations.cancel(animId);
     }
-    animId = instance.animations.animate(
-        visualScale, targetScale, Style::animNormal, Easing::EaseOutCubic,
+    const Tokens::Spring& token = targetScale < visualScale ? Tokens::springPress : Tokens::springRelease;
+    animId = instance.animations.animateSpatial(
+        visualScale, targetScale, {.damping = token.damping, .stiffness = token.stiffness},
         [node = iconNode, visualScalePtr = &visualScale](float value) {
           *visualScalePtr = value;
           node->setScale(value);
@@ -404,6 +411,32 @@ namespace shell::dock {
 
   void handleItemClick(DockInstance& instance, const DockItemAction& action, DockItemClickContext& context);
 
+  // The focused app sits on the lens (rulebook 6, 9.4): the icon rect grown by the lens inset.
+  void syncDockLens(shell::dock::DockInstance& instance, const shell::dock::DockSnapshot& snapshot) {
+    const auto& cfg = instance.config;
+    const auto iSize = static_cast<float>(cfg.iconSize);
+    const float k = iSize / Tokens::componentDockIcon;
+    const float inset = Tokens::componentDockLensInset * k;
+    const bool vert = shell::dock::isVerticalEdge(cfg.position);
+    const std::size_t count = std::min(instance.items.size(), snapshot.items.size());
+    for (std::size_t i = 0; i < count; ++i) {
+      const auto& item = instance.items[i];
+      if (snapshot.items[i].active && item.area != nullptr) {
+        const float main = item.restMainPos;
+        const float cross = item.restCrossPos;
+        const bool animate = instance.lensActiveIndex != i;
+        instance.lensActiveIndex = i;
+        instance.lens.moveTo(
+            main - inset, main + iSize + inset, cross - inset, iSize + 2.0F * inset,
+            Tokens::componentDockLensRadius * k, animate
+        );
+        return;
+      }
+    }
+    instance.lensActiveIndex = static_cast<std::size_t>(-1);
+    instance.lens.hide();
+  }
+
   std::unique_ptr<InputArea> createLauncherButton(
       DockInstance& instance, const DockConfig& cfg, Renderer& renderer,
       const std::shared_ptr<DockItemClickContext>& clickContext
@@ -430,7 +463,7 @@ namespace shell::dock {
           .configure = [&cfg, iSize, &renderer, iconDecodeTarget](Image& image) {
             image.setSourceFile(renderer, cfg.launcherCustomImage, iconDecodeTarget, true);
             image.setForegroundTint(
-                cfg.launcherCustomImageColorize ? std::optional<ColorSpec>{colorSpecFromRole(ColorRole::OnSurface)}
+                cfg.launcherCustomImageColorize ? std::optional<ColorSpec>{colorSpecFromRole(ColorRole::Label1)}
                                                 : std::nullopt
             );
             image.setPosition(kCellPad, launcherIconBaseY(cfg, iSize));
@@ -441,7 +474,7 @@ namespace shell::dock {
     } else {
       auto launcherGlyph = ui::glyph({
           .glyphSize = iSize * kLauncherGlyphSizeRatio,
-          .color = colorSpecFromRole(ColorRole::OnSurface),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .width = iSize,
           .height = iSize,
           .configure = [&cfg, iSize](Glyph& glyph) {
@@ -530,6 +563,7 @@ namespace shell::dock {
         : instance.slideRoot != nullptr            ? instance.slideRoot
                                                    : static_cast<Node*>(instance.panel);
     instance.row = static_cast<Flex*>(rowParent->addChild(std::move(freshRow)));
+        instance.lens.attach(*instance.row, instance.animations, vert, iSize / Tokens::componentDockIcon);
     const auto& itemModels = snapshot.items;
 
     if (launcherPosition == DockLauncherPosition::Start) {
@@ -538,9 +572,18 @@ namespace shell::dock {
 
     // Reserve up-front so emplace_back never reallocates while lambdas hold raw pointers.
     instance.items.reserve(itemModels.size());
-    const std::size_t pinnedCount = cfg.pinned.size();
+    const std::size_t pinnedCount = snapshot.pinnedCount;
 
     for (std::size_t itemIndex = 0; itemIndex < itemModels.size(); ++itemIndex) {
+      if (itemIndex == pinnedCount && pinnedCount > 0) {
+        instance.row->addChild(
+            ui::box({
+                .fill = colorSpecFromRole(ColorRole::Separator),
+                .width = vert ? Tokens::componentDockSeparatorHeight : 1.0F,
+                .height = vert ? 1.0F : Tokens::componentDockSeparatorHeight,
+            })
+        );
+      }
       const auto& model = itemModels[itemIndex];
       auto& item = instance.items.emplace_back();
       DockItemAction action{
@@ -592,7 +635,7 @@ namespace shell::dock {
             ui::glyph({
                 .glyph = "app-window",
                 .glyphSize = iSize,
-                .color = colorSpecFromRole(ColorRole::OnSurface),
+                .color = colorSpecFromRole(ColorRole::Label1),
                 .width = iSize,
                 .height = iSize,
                 .configure = [](Glyph& glyph) { glyph.setPosition(kCellPad, kCellPad); },
@@ -607,7 +650,7 @@ namespace shell::dock {
         for (auto& dotIndicator : item.dotIndicators) {
           dotIndicator = static_cast<Box*>(areaNode->addChild(
               ui::box({
-                  .fill = colorSpecFromRole(ColorRole::Secondary),
+                  .fill = colorSpecFromRole(ColorRole::Accent),
                   .radius = dot * 0.5F,
                   .width = dot,
                   .height = dot,
@@ -629,7 +672,7 @@ namespace shell::dock {
       areaNode->addChild(
           ui::box({
               .out = &item.minimizedIndicator,
-              .fill = colorSpecFromRole(ColorRole::Secondary),
+              .fill = colorSpecFromRole(ColorRole::Accent),
               .radius = kMinimizedIndicatorThickness * 0.5F,
               .width = vert ? kMinimizedIndicatorThickness : kMinimizedIndicatorLength,
               .height = vert ? kMinimizedIndicatorLength : kMinimizedIndicatorThickness,
@@ -644,7 +687,27 @@ namespace shell::dock {
           })
       );
 
-      if (cfg.showInstanceCount) {
+      if (cfg.runningBar && !cfg.showDots) {
+        areaNode->addChild(
+            ui::box({
+                .out = &item.runningIndicator,
+                .fill = colorSpecFromRole(ColorRole::Label2),
+                .radius = kRunningDot * 0.5F,
+                .width = kRunningDot,
+                .height = kRunningDot,
+                .visible = false,
+                .participatesInLayout = false,
+                .configure = [vert, edge, cellMain](Box& box) {
+                  const float centered = std::round((cellMain - kRunningDot) * 0.5F);
+                  const bool atStart = edge == DockEdge::Top || edge == DockEdge::Left;
+                  const float outer = atStart ? -(kRunningDotOffset + kRunningDot) : cellMain + kRunningDotOffset;
+                  box.setPosition(vert ? outer : centered, vert ? centered : outer);
+                },
+            })
+        );
+      }
+
+      {
         const float bd = std::max(kBadgeMinSize, iSize * kBadgeSizeRatio);
 
         areaNode->addChild(
@@ -664,7 +727,7 @@ namespace shell::dock {
             ui::label({
                 .out = &item.badgeLabel,
                 .fontSize = bd * kBadgeFontRatio,
-                .fontWeight = FontWeight::Bold,
+                .fontWeight = static_cast<FontWeight>(Tokens::typeHeadline.weight),
                 .maxLines = 1,
                 .visible = false,
             })
@@ -680,6 +743,26 @@ namespace shell::dock {
       areaNode->setOnPress([instPtr, clickContext, itemIndex, itemPinned](const InputArea::PointerData& d) {
         if (d.button != BTN_LEFT) {
           return;
+        }
+        if (itemIndex < instPtr->items.size()) {
+          // Press scales the cell to 0.97 and release springs back.
+          auto& pressed = instPtr->items[itemIndex];
+          if (pressed.area != nullptr) {
+            const Tokens::Spring& token = d.pressed ? Tokens::springPress : Tokens::springRelease;
+            if (pressed.pressAnimId != 0) {
+              instPtr->animations.cancel(pressed.pressAnimId);
+            }
+            pressed.pressAnimId = instPtr->animations.animateSpatial(
+                pressed.pressScale, d.pressed ? 0.97F : 1.0F,
+                {.damping = token.damping, .stiffness = token.stiffness},
+                [item = &pressed](float v) {
+                  item->pressScale = v;
+                  item->area->setTransformOrigin(item->area->width() * 0.5F, item->area->height() * 0.5F);
+                  item->area->setScale(v);
+                },
+                [item = &pressed] { item->pressAnimId = 0; }, pressed.area
+            );
+          }
         }
         auto& drag = instPtr->drag;
         const auto& dockCfg = instPtr->config;
@@ -799,6 +882,7 @@ namespace shell::dock {
     if (instance.surface == nullptr) {
       return;
     }
+    syncDockLens(instance, snapshot);
     Renderer& renderer = instance.surface->renderTarget().renderer();
 
     const auto& cfg = instance.config;
@@ -851,8 +935,9 @@ namespace shell::dock {
             if (item.opacityAnimId != 0) {
               instance.animations.cancel(item.opacityAnimId);
             }
-            item.opacityAnimId = instance.animations.animate(
-                item.visualOpacity, iconOpacity, Style::animNormal, Easing::EaseOutCubic,
+            item.opacityAnimId = instance.animations.animateSpatial(
+                item.visualOpacity, iconOpacity,
+                {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
                 [node = iconNode, itemPtr = &item](float value) {
                   itemPtr->visualOpacity = value;
                   node->setOpacity(value);
@@ -874,6 +959,34 @@ namespace shell::dock {
       if (item.minimizedIndicator != nullptr) {
         item.minimizedIndicator->setVisible(model.allMinimized);
       }
+      if (item.runningIndicator != nullptr) {
+        const bool runningNow = model.running && !model.allMinimized && !model.active;
+        item.runningIndicator->setVisible(runningNow || item.runningScale > 0.001F);
+        if (runningNow != item.runningShown) {
+          item.runningShown = runningNow;
+          if (item.runningAnimId != 0) {
+            instance.animations.cancel(item.runningAnimId);
+          }
+          // The dot grows from its center on the effects spring.
+          item.runningAnimId = instance.animations.animateSpatial(
+              item.runningScale, runningNow ? 1.0F : 0.0F,
+              {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
+              [&instance, itemPtr = &item, vert = shell::dock::isVerticalEdge(cfg.position)](float v) {
+                itemPtr->runningScale = v;
+                Node* bar = itemPtr->runningIndicator;
+                bar->setTransformOrigin(bar->width() * 0.5F, bar->height() * 0.5F);
+                if (vert) {
+                  bar->setScale(1.0F, std::max(v, 0.0F));
+                } else {
+                  bar->setScale(std::max(v, 0.0F), 1.0F);
+                }
+                bar->setVisible(v > 0.001F);
+                instance.surface->requestRedraw();
+              },
+              [itemPtr = &item] { itemPtr->runningAnimId = 0; }, item.runningIndicator
+          );
+        }
+      }
 
       if (cfg.showDots) {
         const std::size_t dotCount = model.allMinimized ? 0 : std::min<std::size_t>(count, 3);
@@ -892,7 +1005,7 @@ namespace shell::dock {
           Box* dotNode = item.dotIndicators[dotIndex];
           const bool visible = dotIndex < dotCount;
           dotNode->setVisible(visible);
-          dotNode->setFill(colorSpecFromRole(model.active ? ColorRole::Primary : ColorRole::Secondary));
+          dotNode->setFill(colorSpecFromRole(model.active ? ColorRole::Accent : ColorRole::Accent));
           if (visible) {
             const float main = groupStart + static_cast<float>(dotIndex) * (dot + kDotGap);
             if (verticalDots) {
@@ -907,18 +1020,28 @@ namespace shell::dock {
       }
 
       if (item.badge != nullptr && item.badgeLabel != nullptr) {
-        const bool show = count >= 2;
+        // Unread notifications take the badge before the window count.
+        const bool unread = model.unreadCount > 0;
+        const std::size_t shown = unread ? model.unreadCount : count;
+        const bool show = unread || (cfg.showInstanceCount && count >= 2);
         item.badge->setVisible(show);
         item.badgeLabel->setVisible(show);
         if (show) {
-          const std::string label = (count > 9) ? "9+" : std::to_string(count);
+          const std::string label = (shown > 99) ? "99+" : std::to_string(shown);
           item.badgeLabel->setText(label);
-          item.badgeLabel->setColor(colorSpecFromRole(ColorRole::OnPrimary));
-          item.badge->setFill(colorSpecFromRole(ColorRole::Primary));
+          item.badgeLabel->setColor(
+              unread ? fixedColorSpec(Color{.r = 1.0F, .g = 1.0F, .b = 1.0F}) : colorSpecFromRole(ColorRole::OnAccent)
+          );
+          item.badge->setFill(colorSpecFromRole(unread ? ColorRole::Danger : ColorRole::Accent));
           const float bd = std::max(kBadgeMinSize, static_cast<float>(cfg.iconSize) * kBadgeSizeRatio);
           item.badgeLabel->measure(renderer);
+          const float badgeW = std::max(bd, std::round(item.badgeLabel->width() + 2.0F * kBadgePaddingX));
+          if (edge != DockEdge::Right) {
+            item.badge->setPosition(item.badge->x() + item.badge->width() - badgeW, item.badge->y());
+          }
+          item.badge->setFrameSize(badgeW, bd);
           item.badgeLabel->setPosition(
-              std::round((bd - item.badgeLabel->width()) * 0.5F), std::round((bd - item.badgeLabel->height()) * 0.5F)
+              std::round((badgeW - item.badgeLabel->width()) * 0.5F), std::round((bd - item.badgeLabel->height()) * 0.5F)
           );
         }
       }

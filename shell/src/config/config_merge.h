@@ -38,7 +38,7 @@ namespace noctalia::config {
   //   - [include].autoload = false in a root file restricts the load set to only
   //     the root file(s) that set it (plus their recursive includes).
   // Each file is loaded at most once; cycles are warned and skipped. The caller is
-  // responsible for overlaying settings.toml afterwards (it is never include-expanded).
+  // responsible for overlaying overrides.toml afterwards (it is never include-expanded).
   [[nodiscard]] MergeResult mergeConfigWithIncludes(std::string_view configDir);
 
 } // namespace noctalia::config

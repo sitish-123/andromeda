@@ -2,6 +2,7 @@
 
 #include "compositors/compositor_platform.h"
 #include "render/animation/animation_manager.h"
+#include "shell/bar/lens_track.h"
 #include "shell/bar/widget.h"
 #include "system/icon_resolver.h"
 #include "ui/palette.h"
@@ -39,10 +40,10 @@ public:
     WorkspacesLabelSource labelSource = WorkspacesLabelSource::Id;
     bool showLabels = true;
     bool showIcons = true;
-    ColorSpec focusedColor = colorSpecFromRole(ColorRole::Primary);
-    ColorSpec occupiedColor = colorSpecFromRole(ColorRole::Secondary);
-    ColorSpec emptyColor = colorSpecFromRole(ColorRole::Secondary);
-    ColorSpec urgentColor = colorSpecFromRole(ColorRole::Error);
+    ColorSpec focusedColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec occupiedColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec emptyColor = colorSpecFromRole(ColorRole::Accent);
+    ColorSpec urgentColor = colorSpecFromRole(ColorRole::Danger);
     bool changeColorOnHover = true;
     std::size_t maxLabelChars = 1;
     bool labelsOnlyWhenOccupied = false;
@@ -52,6 +53,7 @@ public:
     float activePillSize = 2.2F;
     float inactivePillSize = 1.0F;
     bool focusedOutputOnly = false;
+    bool islandDots = false; // plain dots: token dot gap, no dimming of empty workspaces
   };
 
   WorkspacesWidget(CompositorPlatform& platform, ConfigService& config, wl_output* output, Options options);
@@ -75,6 +77,7 @@ private:
   void startAnimation();
   void cancelAnimation();
   void finishAnimation();
+  void syncLens(bool animate);
   void applyItemLayout(Item& item);
   void applyItemLayouts();
   void snapshotItemsForRebuild();
@@ -179,6 +182,8 @@ private:
   float m_inactivePillSize = 1.0F;
   WorkspacesStyle m_style = WorkspacesStyle::Regular;
   bool m_focusedOutputOnly = false;
+  bool m_islandDots = false;
+  LensTrack m_lens; // islandDots: the current-workspace capsule, travels per P1
   bool m_changeColorOnHover = true;
   wl_output* m_lastFocusedOutput = nullptr;
   std::string m_cachedActiveWindowAppId;
@@ -202,8 +207,8 @@ private:
   bool m_isVertical = false;
 
   AnimationManager::Id m_animId = 0;
-  ColorSpec m_focusedColor = colorSpecFromRole(ColorRole::Primary);
-  ColorSpec m_occupiedColor = colorSpecFromRole(ColorRole::Secondary);
-  ColorSpec m_emptyColor = colorSpecFromRole(ColorRole::Secondary);
-  ColorSpec m_urgentColor = colorSpecFromRole(ColorRole::Error);
+  ColorSpec m_focusedColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_occupiedColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_emptyColor = colorSpecFromRole(ColorRole::Accent);
+  ColorSpec m_urgentColor = colorSpecFromRole(ColorRole::Danger);
 };

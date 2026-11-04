@@ -1,6 +1,7 @@
 #include "render/animation/animation_manager.h"
 #include "render/animation/motion_service.h"
 
+#include <chrono>
 #include <cmath>
 #include <iostream>
 
@@ -33,18 +34,26 @@ int main() {
 
     float value = 0.0F;
     bool completed = false;
-    const auto id = manager.animate(
-        0.0F, 10.0F, 200.0F, Easing::Linear, [&value](float v) { value = v; }, [&completed]() { completed = true; }
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 342.0};
+    const auto id = manager.animateSpatial(
+        0.0F, 10.0F, spring, [&value](float v) { value = v; }, [&completed]() { completed = true; }
     );
 
-    ok &= check(id != 0, "reduced-motion animation with completion should remain cancellable");
-    ok &= check(nearlyEqual(value, 10.0F), "reduced-motion animation did not snap to target");
-    ok &= check(!completed, "reduced-motion completion ran synchronously");
-
+    ok &= check(nearlyEqual(value, 10.0F), "motion off: setter did not run at once");
+    ok &= check(id != 0 && !completed && manager.hasActive(), "motion off: completion must wait for the next tick");
     manager.tick(0.0F);
+    ok &= check(completed && !manager.hasActive(), "motion off: completion did not run on the next tick");
 
-    ok &= check(completed, "reduced-motion completion did not run on tick");
-    ok &= check(!manager.hasActive(), "reduced-motion animation stayed active after completion");
+    // A callback that stores its own id must not be overwritten by the caller's assignment.
+    AnimationManager::Id slot = 0;
+    completed = false;
+    slot = manager.animateSpring(0.0F, 10.0F, spring, {}, [&] {
+      slot = 0;
+      completed = true;
+    });
+    ok &= check(slot != 0 && !completed, "motion off: the id was overwritten by an inline callback");
+    manager.tick(0.0F);
+    ok &= check(slot == 0 && completed, "motion off: the callback did not clear its id");
   }
 
   resetMotion();
@@ -54,8 +63,9 @@ int main() {
 
     float value = 0.0F;
     bool completed = false;
-    const auto id = manager.animate(
-        0.0F, 10.0F, 1000.0F, Easing::Linear, [&value](float v) { value = v; }, [&completed]() { completed = true; }
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 342.0};
+    const auto id = manager.animateSpring(
+        0.0F, 10.0F, spring, [&value](float v) { value = v; }, [&completed]() { completed = true; }
     );
 
     ok &= check(id != 0, "normal animation did not start");
@@ -91,6 +101,160 @@ int main() {
     ok &= check(!completed, "timer animation completed early while motion was disabled");
     ok &= check(manager.hasActive(), "timer animation was removed early while motion was disabled");
     manager.cancel(id);
+  }
+
+  resetMotion();
+
+  {
+    // Progress gate: fires after the driver passes the fraction, not at a fixed time, and only once.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 342.0};
+    float value = 0.0F;
+    int passed = 0;
+    float valueAtPass = -1.0F;
+    const auto t0 = std::chrono::steady_clock::now();
+    manager.animateGated(
+        0.0F, 100.0F, spring, [&value](float v) { value = v; }, 0.35F,
+        [&] {
+          ++passed;
+          valueAtPass = value;
+        },
+        {}, nullptr, 0.0F, Unit::Px
+    );
+    for (int i = 1; i <= 200 && manager.hasActive(); ++i) {
+      manager.tickAt(t0 + std::chrono::milliseconds(16 * i));
+      ok &= check(passed == 0 || valueAtPass >= 35.0F, "gate fired before the fraction of travel");
+    }
+    ok &= check(passed == 1, "gate did not fire exactly once");
+    ok &= check(nearlyEqual(value, 100.0F), "gated spring did not settle on its target");
+  }
+
+  {
+    // Stagger: 16 ms apart, the sixth and later start together; the first child moves on the first step.
+    ok &= check(nearlyEqual(AnimationManager::staggerDelayMs(0), 0.0F), "first child delayed");
+    ok &= check(nearlyEqual(AnimationManager::staggerDelayMs(2), 32.0F), "stagger not 16 ms apart");
+    ok &= check(
+        nearlyEqual(AnimationManager::staggerDelayMs(5), AnimationManager::staggerDelayMs(40)),
+        "children after the sixth did not start with the sixth"
+    );
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 342.0};
+    float first = 0.0F;
+    float last = 0.0F;
+    const auto t0 = std::chrono::steady_clock::now();
+    manager.animateStaggered(0, 0.0F, 1.0F, spring, [&first](float v) { first = v; });
+    manager.animateStaggered(5, 0.0F, 1.0F, spring, [&last](float v) { last = v; });
+    manager.tickAt(t0 + std::chrono::milliseconds(16));
+    ok &= check(first > 0.0F, "first staggered child did not start");
+    ok &= check(nearlyEqual(last, 0.0F), "sixth staggered child started early");
+    manager.tickAt(t0 + std::chrono::milliseconds(66));
+    manager.tickAt(t0 + std::chrono::milliseconds(116));
+    manager.tickAt(t0 + std::chrono::milliseconds(166));
+    ok &= check(last > 0.0F, "sixth staggered child never started");
+    manager.cancelAll();
+  }
+
+  {
+    // Reduced motion: a spatial spring jumps (no bounce, no stagger); an effect spring still runs.
+    AnimationManager manager;
+    MotionService::instance().setReduced(true);
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 342.0};
+    float pos = 0.0F;
+    float fade = 0.0F;
+    manager.animateSpatial(0.0F, 50.0F, spring, [&pos](float v) { pos = v; });
+    ok &= check(nearlyEqual(pos, 50.0F), "reduced motion: spatial spring did not jump");
+    manager.animateSpring(0.0F, 1.0F, spring, [&fade](float v) { fade = v; });
+    manager.tickAt(std::chrono::steady_clock::now() + std::chrono::milliseconds(16));
+    ok &= check(fade < 1.0F, "reduced motion: effect spring should still crossfade");
+    float stagger = -1.0F;
+    manager.animateStaggered(5, 0.0F, 1.0F, spring, [&stagger](float v) { stagger = v; });
+    manager.tickAt(std::chrono::steady_clock::now() + std::chrono::milliseconds(16));
+    ok &= check(stagger > 0.0F, "reduced motion: stagger delayed");
+    manager.cancelAll();
+    MotionService::instance().setReduced(false);
+  }
+
+  {
+    // Idle threshold: a spring stops at 0.5 px of its target and lands exactly on it.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 584.0};
+    float value = 0.0F;
+    bool done = false;
+    const auto t0 = std::chrono::steady_clock::now();
+    manager.animateSpring(0.0F, 100.0F, spring, [&value](float v) { value = v; }, [&done] { done = true; }, nullptr, 0.0F, Unit::Px);
+    for (int i = 1; i <= 100 && !done; ++i) {
+      manager.tickAt(t0 + std::chrono::milliseconds(16 * i));
+    }
+    ok &= check(manager.hasActive() == false && value == 100.0F, "spring did not land exactly on its target");
+  }
+
+  {
+    // Retarget, never restart: a second drive in flight keeps value and velocity (no jump back to `from`).
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 584.0};
+    float value = 0.0F;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto id = manager.drive(0, 0.0F, 1.0F, spring, [&value](float v) { value = v; });
+    manager.tickAt(t0 + std::chrono::milliseconds(50));
+    manager.tickAt(t0 + std::chrono::milliseconds(100));
+    const float before = value;
+    const float speed = manager.velocity(id);
+    const auto again = manager.drive(id, 1.0F, 0.0F, spring, [&value](float v) { value = v; });
+    ok &= check(again == id, "drive started a new spring instead of retargeting");
+    ok &= check(nearlyEqual(manager.velocity(id), speed), "retarget lost the velocity");
+    manager.tickAt(t0 + std::chrono::milliseconds(104));
+    ok &= check(std::fabs(value - before) < 0.1F, "retarget jumped");
+    manager.cancelAll();
+  }
+
+  {
+    // A gate callback that cancels its animation stops that animation's completion in the same tick.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 584.0};
+    bool completed = false;
+    AnimationManager::Id id = 0;
+    id = manager.animateGated(
+        0.0F, 0.0F, spring, {}, 0.0F, [&] { manager.cancel(id); }, [&completed] { completed = true; }
+    );
+    manager.tickAt(std::chrono::steady_clock::now());
+    ok &= check(!completed, "completion ran after its gate cancelled the animation");
+  }
+
+  {
+    // Cancel scope: a callback's cancel or drive on another animation never blocks a finished one.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 0.8, .stiffness = 584.0};
+    int ownerA = 0;
+    int ownerB = 0;
+    int ownerD = 0;
+    bool bDone = false;
+    bool dRan = false;
+    AnimationManager::Id b = 0;
+    AnimationManager::Id d = 0;
+    manager.animateSpring(0.0F, 0.0F, spring, {}, [&] {
+      manager.drive(b, 1.0F, 0.0F, spring, {});
+      manager.cancelForOwner(&ownerA);
+      manager.cancel(d);
+      manager.tickAt(std::chrono::steady_clock::now());
+    }, &ownerA);
+    b = manager.animateSpring(0.0F, 0.0F, spring, {}, [&bDone] { bDone = true; }, &ownerB);
+    d = manager.animateSpring(0.0F, 0.0F, spring, {}, [&dRan] { dRan = true; }, &ownerD);
+    manager.tickAt(std::chrono::steady_clock::now());
+    ok &= check(bDone, "a stale drive or a cancel of another owner blocked a finished animation");
+    ok &= check(!dRan, "a cancelled animation still completed after a nested tick");
+    manager.cancelAll();
+  }
+
+  {
+    // A stall counts as 50 ms: one huge step does not jump to the target.
+    AnimationManager manager;
+    const desk::motion::SpringConfig spring{.damping = 1.0, .stiffness = 100.0};
+    float value = 0.0F;
+    const auto t0 = std::chrono::steady_clock::now();
+    manager.animateSpring(0.0F, 100.0F, spring, [&value](float v) { value = v; });
+    manager.tickAt(t0 + std::chrono::seconds(10));
+    ok &= check(value < 50.0F, "dt was not clamped after a stall");
+    manager.cancelAll();
   }
 
   resetMotion();

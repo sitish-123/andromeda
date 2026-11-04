@@ -15,7 +15,7 @@ namespace noctalia::cli {
       "Check config validity",
       "With no path, validates the merged configuration the way the shell loads it:\n"
       "  - every *.toml in the active config dir, then\n"
-      "  - the state-dir settings.toml overrides.\n\n"
+      "  - the state-dir overrides.toml overrides.\n\n"
       "With a directory path, validates only that directory's *.toml files.\n"
       "With a file path, validates only that file.\n\n"
       "Reports TOML syntax errors, unknown sections/settings, and bad values\n"
@@ -36,7 +36,7 @@ namespace noctalia::cli {
       "Print the active config as TOML",
       "Prints TOML to stdout from the same config stack used by the shell:\n"
       "  - every *.toml in the active config dir, then\n"
-      "  - the state-dir settings.toml overrides.\n\n"
+      "  - the state-dir overrides.toml overrides.\n\n"
       "Modes:\n"
       "  merged  Export merged user config only (default)\n"
       "  full    Export full effective config, including built-in defaults",

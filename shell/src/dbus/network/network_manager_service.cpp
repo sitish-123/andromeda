@@ -358,13 +358,16 @@ NetworkManagerService::~NetworkManagerService() { m_lifetimeToken.reset(); }
 
 void NetworkManagerService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
-void NetworkManagerService::refresh() {
+void NetworkManagerService::refresh() { runRefresh(true); }
+
+void NetworkManagerService::runRefresh(bool full) {
   if (!available()) {
     return;
   }
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   if (m_refreshInFlight) {
     m_refreshQueued = true;
+    m_refreshQueuedFull = m_refreshQueuedFull || full;
     return;
   }
   m_refreshInFlight = true;
@@ -375,7 +378,7 @@ void NetworkManagerService::refresh() {
   pending->capturedSaved = m_savedSsids;
   pending->capturedWired = m_savedWiredConnectionPaths;
   pending->capturedCellular = m_savedCellularConnectionPaths;
-  pending->pendingOps = 3;
+  pending->pendingOps = full ? 3 : 1;
 
   // Must stay local: `pending` must not own a callback that captures `pending`, or the refresh
   // state cannot be freed when the completion path is skipped (e.g. lifetime expiry).
@@ -420,8 +423,10 @@ void NetworkManagerService::refresh() {
 
       m_refreshInFlight = false;
       if (m_refreshQueued) {
+        const bool queuedFull = m_refreshQueuedFull;
         m_refreshQueued = false;
-        refresh();
+        m_refreshQueuedFull = false;
+        runRefresh(queuedFull);
       }
     });
   };
@@ -436,8 +441,10 @@ void NetworkManagerService::refresh() {
   };
 
   refreshAccessPoints(onOpComplete);
-  refreshVpnAndActiveConnections(onOpComplete);
-  refreshSavedConnections(onOpComplete);
+  if (full) {
+    refreshVpnAndActiveConnections(onOpComplete);
+    refreshSavedConnections(onOpComplete);
+  }
 }
 
 void NetworkManagerService::requestScan() {
@@ -1867,8 +1874,9 @@ void NetworkManagerService::ensureWifiDeviceSubscribed(const std::string& device
               } catch (const sdbus::Error&) {
               }
             }
+            // Scan results change only the access point list; saved and VPN connections stay as they are.
             if (changedProperties.contains("AccessPoints") || changedProperties.contains("LastScan")) {
-              refresh();
+              runRefresh(false);
             }
           } else if (interfaceName == kNmDeviceInterface && changedProperties.contains("State")) {
             refresh();
@@ -2546,8 +2554,10 @@ void NetworkManagerService::rebindActiveAccessPoint(const std::string& apPath) {
           if (interfaceName != kNmAccessPointInterface) {
             return;
           }
-          if (changedProperties.contains("Strength") || changedProperties.contains("Ssid")) {
+          if (changedProperties.contains("Ssid")) {
             refresh();
+          } else if (changedProperties.contains("Strength")) {
+            runRefresh(false);
           }
         });
   } catch (const sdbus::Error& e) {

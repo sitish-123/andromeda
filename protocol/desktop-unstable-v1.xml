@@ -100,7 +100,7 @@
       <arg name="reason" type="string"/>
     </event>
   </interface>
-  <interface name="dsk_settings_manager_v1" version="1">
+  <interface name="dsk_settings_manager_v1" version="2">
     <description summary="compositor settings and input devices">
       Every compositor setting a settings app may change: input, appearance,
       animation, layout, workspaces, overview, and focus. Settings are named by
@@ -109,7 +109,9 @@
       means unset, which restores the value from the user's config files or the
       built-in default. The compositor validates, applies, and persists every
       change in its settings file, which it loads after the user's config files,
-      so a change made here always takes effect.
+      so a change made here always takes effect. A volatile key (such as
+      "power.on_battery") is applied and sent to subscribers but never
+      persisted.
     </description>
 
     <enum name="kind">
@@ -156,6 +158,30 @@
       <description summary="stop recording a chord"/>
     </request>
 
+    <request name="set_in_layer" since="2">
+      <description summary="change one setting in a temporary layer">
+        Sets key to value in the named layer. A layer sits above the user's
+        values, is never written to the settings file, and is dropped when
+        this object is destroyed or its client disconnects; subscribers then
+        see the user's value again. An empty value removes the key from the
+        layer. A volatile key is rejected: it takes set. Layers apply in the
+        order they were first used, across all clients: a later layer sits
+        above an earlier one. Answered by setting events and done, or by
+        failed.
+      </description>
+      <arg name="layer" type="string"/>
+      <arg name="key" type="string"/>
+      <arg name="value" type="string"/>
+    </request>
+
+    <request name="clear_layer" since="2">
+      <description summary="drop a layer">
+        Removes every key of the named layer. Answered by setting events and
+        done.
+      </description>
+      <arg name="layer" type="string"/>
+    </request>
+
     <event name="device_added">
       <description summary="an input device is connected">
         Sent for every connected device on bind and whenever one connects.
@@ -172,7 +198,8 @@
       <description summary="effective value of one setting">
         Sent for every setting on bind and after every configuration change.
         customized is 1 when the settings file holds a value for the key, so
-        setting it to the empty value changes what applies.
+        setting it to the empty value changes what applies. It reflects the
+        user's value only: a layer does not change it.
       </description>
       <arg name="key" type="string"/>
       <arg name="value" type="string"/>
@@ -218,7 +245,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_shell_v1" version="2">
+  <interface name="dsk_shell_v1" version="3">
     <description summary="compositor-to-shell events">
       Bound by the desktop shell. Keybinds that drive the shell arrive as
       action events on the connection the shell already holds, so no process
@@ -227,6 +254,52 @@
     </description>
 
     <request name="destroy" type="destructor"/>
+
+    <enum name="error">
+      <entry name="invalid_key_state" value="0" summary="key state is not a wl_keyboard key_state value"/>
+    </enum>
+
+    <request name="app_activity" since="3">
+      <description summary="report what an app process is doing">
+        The shell reports the activity of the app process pid. flags is a bit
+        set the compositor stores per pid; a pid with flags 0 is forgotten.
+        The compositor stores only pids that exist, at most 256 at once, and
+        forgets the pids a shell reported when that shell's object goes away.
+      </description>
+      <arg name="pid" type="uint"/>
+      <arg name="flags" type="uint"/>
+    </request>
+
+    <request name="insert_text" since="3">
+      <description summary="type text into the focused client">
+        Inserts text where the user types. When the focused client has text
+        input enabled, the compositor sends it as a text-input-v3
+        commit_string. Otherwise it sends key events for each character the
+        active keymap has at its base level and drops the others. The text
+        does not run keybinds. While the session is locked the compositor
+        drops the request, so the shell cannot type into the lock screen.
+        Limit: a text-input-v3 client is focused only while an input method
+        is bound, so without an input method the text always goes out as key
+        events.
+      </description>
+      <arg name="text" type="string"/>
+    </request>
+
+    <request name="key" since="3">
+      <description summary="press or release a key">
+        Sends one key event to the focused client. The event enters the
+        input pipeline after the compositor keybinds, so a bound key is not
+        consumed by its bind. keysym is an XKB keysym; state is a
+        wl_keyboard key_state value; any other state is an invalid_key_state
+        error. A keysym above the base level is sent with its level's
+        modifiers, and a modifier keysym changes the seat modifier state.
+        The compositor releases the keys still pressed when the shell object
+        is destroyed or the session locks. While the session is locked the
+        compositor drops the request.
+      </description>
+      <arg name="keysym" type="uint"/>
+      <arg name="state" type="uint"/>
+    </request>
 
     <event name="action">
       <description summary="run a shell command">
@@ -253,6 +326,38 @@
         empty when the bell came without a surface.
       </description>
       <arg name="app_id" type="string"/>
+    </event>
+
+    <event name="text_input_state" since="3">
+      <description summary="focused text input changed">
+        Sent when the focused text-input-v3 client enables or disables its
+        text input, or changes its content type or cursor rectangle while
+        enabled. purpose and hint are the text-input-v3 content_purpose and
+        content_hint values. rect is the cursor rectangle in output
+        coordinates: x, y, width, height. All values are 0 when disabled.
+        Limit: a text-input-v3 client is focused only while an input method
+        is bound, so without an input method the state stays disabled.
+      </description>
+      <arg name="enabled" type="uint"/>
+      <arg name="purpose" type="uint"/>
+      <arg name="hint" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+
+    <event name="relock" since="3">
+      <description summary="the lock client died and the session stays locked">
+        The session lock client went away without unlocking. The compositor
+        keeps the session locked and waits for a new lock client.
+      </description>
+    </event>
+
+    <event name="recovered" since="3">
+      <description summary="a new lock client took over">
+        A new lock client confirmed the lock after a relock.
+      </description>
     </event>
   </interface>
 </protocol>

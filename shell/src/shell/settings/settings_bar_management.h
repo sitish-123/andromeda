@@ -24,13 +24,9 @@ namespace settings {
     const DockMonitorOverride* selectedDockMonitorOverride = nullptr;
 
     std::string& renamingBarName;
-    std::string& pendingDeleteBarName;
     std::string& renamingMonitorOverrideBarName;
     std::string& renamingMonitorOverrideMatch;
-    std::string& pendingDeleteMonitorOverrideBarName;
-    std::string& pendingDeleteMonitorOverrideMatch;
     std::string& renamingDockMonitorOverride;
-    std::string& pendingDeleteDockMonitorOverride;
 
     std::function<void()> requestRebuild;
     std::function<void(std::string, std::string)> renameBar;
@@ -43,6 +39,8 @@ namespace settings {
     std::function<void(std::string)> createMonitorOverride;
     std::function<void(std::string, std::string)> renameDockMonitorOverride;
     std::function<void(std::string)> deleteDockMonitorOverride;
+    // Shows a destructive alert (title, body, action label); the action runs only on confirm.
+    std::function<void(std::string, std::string, std::string, std::function<void()>)> confirmDelete;
   };
 
   void addSettingsBarManagement(Flex& content, SettingsBarManagementContext ctx);

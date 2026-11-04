@@ -124,6 +124,10 @@ bool fx_framebuffer_ensure_stencil(struct fx_framebuffer* buffer) {
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, 0);
     glDeleteRenderbuffers(1, &buffer->sb);
     buffer->sb = 0;
+  } else {
+    // A new renderbuffer is undefined; masks clear only their own box afterwards.
+    glClearStencil(0);
+    glClear(GL_STENCIL_BUFFER_BIT);
   }
 
   pop_fx_debug(buffer->renderer);

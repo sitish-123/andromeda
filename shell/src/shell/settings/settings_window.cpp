@@ -1,10 +1,15 @@
 #include "shell/settings/settings_window.h"
 
+#include "shell/settings/settings_alert.h"
+
+#include "shell/settings/settings_pages.h"
+
 #include "calendar/calendar_service.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "core/deferred_call.h"
+#include "core/shared_worker.h"
 #include "core/files/file_watcher.h"
 #include "core/input/key_modifiers.h"
 #include "core/input/key_symbols.h"
@@ -33,9 +38,10 @@
 #include "ui/style.h"
 #include "util/clamp.h"
 #include "wayland/toplevel_surface.h"
-#include "wayland/wayland_connection.h"
+#include "compositors/shell_wayland_connection.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <cstdint>
 #include <linux/input-event-codes.h>
@@ -98,7 +104,7 @@ namespace {
     return {"bar", barName, std::string(lane)};
   }
 
-  void focusExistingSettingsWindow(CompositorPlatform& platform, WaylandConnection& wayland, wl_surface* surface) {
+  void focusExistingSettingsWindow(CompositorPlatform& platform, ShellWaylandConnection& wayland, wl_surface* surface) {
     static constexpr std::string_view kSettingsAppId = "dev.noctalia.Noctalia";
     wayland.activateSurface(surface);
     platform.activateToplevelForAppId(kSettingsAppId);
@@ -197,7 +203,7 @@ void SettingsWindow::setCalendarService(CalendarService* service) {
 }
 
 void SettingsWindow::initialize(
-    WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
+    ShellWaylandConnection& wayland, ConfigService* config, RenderContext* renderContext, DependencyService* dependencies,
     UPowerService* upower, IdleManager* idleManager, CompositorPlatform* platform, AccountsService* accounts
 ) {
   m_wayland = &wayland;
@@ -208,7 +214,6 @@ void SettingsWindow::initialize(
   m_dependencies = dependencies;
   m_upower = upower;
   m_accounts = accounts;
-  m_showAdvanced = m_config != nullptr ? m_config->config().shell.settingsShowAdvanced : false;
   m_modalHost.initialize(
       m_inputDispatcher,
       [this] {
@@ -413,12 +418,33 @@ std::optional<LayerPopupParentContext> SettingsWindow::popupParentContextForSurf
 void SettingsWindow::open(std::string context) {
   TooltipManager::instance().forceDestroy();
 
-  const bool navigate = !context.empty() && context != m_selectedSection;
+  // Context forms: "bar:<name>", "search:<query>", "<page or legacy section id>" with an optional "/expert" suffix.
+  std::string page;
+  std::string bar;
+  std::string search;
+  bool expert = false;
   if (context.starts_with("bar:")) {
-    m_selectedBarName = context.substr(4);
-    m_selectedSection = "bar";
+    page = "bar";
+    bar = context.substr(4);
+  } else if (context.starts_with("search:")) {
+    search = context.substr(7);
   } else if (!context.empty()) {
-    m_selectedSection = settings::canonicalSettingsSectionId(context);
+    constexpr std::string_view kExpertSuffix = "/expert";
+    expert = context.ends_with(kExpertSuffix);
+    if (expert) {
+      context.resize(context.size() - kExpertSuffix.size());
+    }
+    if (const auto* target = settings::settingsPageFromId(context)) {
+      page = target->id;
+    }
+  }
+  const bool navigate = !page.empty() || !search.empty();
+  if (!page.empty()) {
+    navigateTo(page, bar, expert);
+  }
+  if (!search.empty()) {
+    m_searchQuery = std::move(search);
+    m_focusSearchOnRebuild = false;
   }
 
   if (m_wayland == nullptr || m_renderContext == nullptr || !m_wayland->hasXdgShell()) {
@@ -431,9 +457,6 @@ void SettingsWindow::open(std::string context) {
 
   if (isOpen()) {
     if (navigate) {
-      m_searchQuery.clear();
-      m_selectedMonitorOverride.clear();
-      m_contentScrollState.offset = 0.0F;
       requestSceneRebuild();
     }
     const auto refocus = [this] {
@@ -443,10 +466,27 @@ void SettingsWindow::open(std::string context) {
     };
     refocus();
     DeferredCall::callLater(refocus);
+    // E2E hook: a second settings-open shows a modal, since headless tests have no pointer to reach the menus.
+    if (const char* modal = std::getenv("NOCTALIA_SETTINGS_TEST_MODAL"); modal != nullptr && !m_modalHost.isOpen()) {
+      DeferredCall::callLater([this, kind = std::string(modal)] {
+        if (kind == "export") {
+          openConfigExportDialog();
+        } else if (kind == "alert") {
+          settings::showSettingsAlert(
+              m_modalHost,
+              settings::SettingsAlertRequest{
+                  .title = i18n::tr("settings.users.delete-confirm", "name", "test"),
+                  .body = i18n::tr("settings.users.delete-body"),
+                  .buttons = {{.text = i18n::tr("common.actions.cancel")},
+                              {.text = i18n::tr("settings.users.delete"), .variant = ButtonVariant::Destructive}},
+                  .scale = uiScale(),
+              }
+          );
+        }
+      });
+    }
     return;
   }
-
-  m_showAdvanced = m_config != nullptr ? m_config->config().shell.settingsShowAdvanced : false;
 
   wl_output* output = m_wayland->lastPointerOutput();
   if (output == nullptr) {
@@ -526,13 +566,8 @@ void SettingsWindow::open(std::string context) {
 }
 
 void SettingsWindow::openToBarWidget(std::string barName, std::string widgetName) {
-  clearTransientSettingsState();
   clearStatusMessage();
-  m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_selectedSection = "bar";
-  m_selectedBarName = std::move(barName);
-  m_selectedMonitorOverride.clear();
+  navigateTo("bar", std::move(barName));
   m_pendingOpenWidgetInspectorName = std::move(widgetName);
   m_contentScrollState.offset = 0.0F;
   m_sidebarScrollState.offset = 0.0F;
@@ -550,11 +585,8 @@ bool SettingsWindow::openToPlugin(std::string pluginId) {
     return false;
   }
 
-  clearTransientSettingsState();
   clearStatusMessage();
-  m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_selectedSection = "plugins";
+  navigateTo("plugins");
   m_pendingOpenPluginSettingsId = std::move(pluginId);
   m_contentScrollState.offset = 0.0F;
   m_sidebarScrollState.offset = 0.0F;
@@ -622,9 +654,7 @@ void SettingsWindow::destroyWindow() {
   m_idleLiveStatusLabel = nullptr;
   m_mainContainer = nullptr;
   m_headerRow = nullptr;
-  m_filterRow = nullptr;
   m_contentContainer = nullptr;
-  m_pageTitleRow = nullptr;
   m_groupJumpRow = nullptr;
   m_contentScrollView = nullptr;
   m_sidebarScrollView = nullptr;
@@ -665,13 +695,9 @@ void SettingsWindow::destroyWindow() {
   m_statusIsError = false;
   m_creatingBarName.clear();
   m_renamingBarName.clear();
-  m_pendingDeleteBarName.clear();
   m_renamingMonitorOverrideBarName.clear();
   m_renamingMonitorOverrideMatch.clear();
-  m_pendingDeleteMonitorOverrideBarName.clear();
-  m_pendingDeleteMonitorOverrideMatch.clear();
   m_renamingDockMonitorOverride.clear();
-  m_pendingDeleteDockMonitorOverride.clear();
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
   m_searchQuery.clear();
@@ -680,12 +706,17 @@ void SettingsWindow::destroyWindow() {
   m_selectedSection.clear();
   m_selectedBarName.clear();
   m_selectedMonitorOverride.clear();
+  m_navHistory.clear();
+  m_navIndex = 0;
+  m_expertOpen = false;
+  m_detail.clear();
+  m_expertQuery.clear();
+  m_highlightKey.clear();
   m_pendingOpenWidgetInspectorName.clear();
   m_pendingOpenPluginSettingsId.clear();
   m_editingWidgetName.clear();
   m_editingCapsuleGroupId.clear();
   m_selectedLaneWidgets.clear();
-  m_pendingDeleteWidgetName.clear();
   m_pendingDeleteWidgetSettingPath.clear();
   m_renamingWidgetName.clear();
   m_sidebarScrollState = {};
@@ -913,26 +944,30 @@ void SettingsWindow::refreshPluginListIfNeeded() {
   const std::uint64_t generation = m_pluginListRefreshGeneration;
   auto* manager = m_pluginManager;
   PluginsConfig pluginsSnapshot = m_config->config().plugins;
-  std::thread([this, manager, generation, pluginsSnapshot = std::move(pluginsSnapshot)] {
-    // Refresh the browsable catalog (throttled) so newly published plugins and update
-    // badges appear on open, then list against the fetched revision.
-    manager->fetchStaleCatalogs(pluginsSnapshot);
-    auto plugins = manager->list(pluginsSnapshot, scripting::CatalogAccess::Network);
-    DeferredCall::callLater([this, generation, plugins = std::move(plugins)] mutable {
-      m_pluginListRefreshInFlight = false;
-      if (generation != m_pluginListRefreshGeneration) {
-        refreshPluginListIfNeeded();
-        return;
+  // Refresh the browsable catalog (throttled) so newly published plugins and update
+  // badges appear on open, then list against the fetched revision.
+  auto fetchSources = manager->claimStaleCatalogFetches(pluginsSnapshot);
+  SharedWorker::instance().post<std::vector<scripting::PluginStatus>>(
+      std::weak_ptr<void>(m_aliveGuard),
+      [fetchSources = std::move(fetchSources), pluginsSnapshot = std::move(pluginsSnapshot)] {
+        scripting::PluginManager::fetchCatalogSources(fetchSources);
+        return scripting::PluginManager::list(pluginsSnapshot, scripting::CatalogAccess::Network);
+      },
+      [this, generation](std::vector<scripting::PluginStatus> plugins) mutable {
+        m_pluginListRefreshInFlight = false;
+        if (generation != m_pluginListRefreshGeneration) {
+          refreshPluginListIfNeeded();
+          return;
+        }
+        m_pluginList = std::move(plugins);
+        m_pluginListDirty = false;
+        if (isOpen() && m_selectedSection == "plugins") {
+          requestContentRebuild(
+              /*refreshRegistry=*/false, /*refreshFilterRow=*/false, /*rebuildEditorSheet=*/m_pluginStoreSheetOpen
+          );
+        }
       }
-      m_pluginList = std::move(plugins);
-      m_pluginListDirty = false;
-      if (isOpen() && m_selectedSection == "plugins") {
-        requestContentRebuild(
-            /*refreshRegistry=*/false, /*refreshFilterRow=*/false, /*rebuildEditorSheet=*/m_pluginStoreSheetOpen
-        );
-      }
-    });
-  }).detach();
+  );
 }
 
 void SettingsWindow::clearStatusMessage() {
@@ -947,17 +982,17 @@ void SettingsWindow::clearTransientSettingsState() {
   m_editingCapsuleGroupId.clear();
   m_selectedLaneWidgets.clear();
   m_renamingWidgetName.clear();
-  m_pendingDeleteWidgetName.clear();
   m_pendingDeleteWidgetSettingPath.clear();
   m_creatingBarName.clear();
   m_renamingBarName.clear();
-  m_pendingDeleteBarName.clear();
   m_renamingMonitorOverrideBarName.clear();
   m_renamingMonitorOverrideMatch.clear();
-  m_pendingDeleteMonitorOverrideBarName.clear();
-  m_pendingDeleteMonitorOverrideMatch.clear();
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
+  m_expertOpen = false;
+  m_detail.clear();
+  m_expertQuery.clear();
+  m_highlightKey.clear();
   if (m_widgetAddPopup != nullptr && m_widgetAddPopup->isOpen()) {
     m_widgetAddPopup->close();
   }
@@ -1142,26 +1177,19 @@ void SettingsWindow::onKeyboardEvent(const KeyboardEvent& event) {
         || !m_editingCapsuleGroupId.empty()
         || !m_selectedLaneWidgets.empty()
         || !m_renamingWidgetName.empty()
-        || !m_pendingDeleteWidgetName.empty()
         || !m_pendingDeleteWidgetSettingPath.empty()
         || !m_creatingBarName.empty()
         || !m_renamingBarName.empty()
-        || !m_pendingDeleteBarName.empty()
-        || !m_renamingMonitorOverrideBarName.empty()
-        || !m_pendingDeleteMonitorOverrideBarName.empty()) {
+        || !m_renamingMonitorOverrideBarName.empty()) {
       m_editingWidgetName.clear();
       m_editingCapsuleGroupId.clear();
       m_selectedLaneWidgets.clear();
       m_renamingWidgetName.clear();
-      m_pendingDeleteWidgetName.clear();
       m_pendingDeleteWidgetSettingPath.clear();
       m_creatingBarName.clear();
       m_renamingBarName.clear();
-      m_pendingDeleteBarName.clear();
       m_renamingMonitorOverrideBarName.clear();
       m_renamingMonitorOverrideMatch.clear();
-      m_pendingDeleteMonitorOverrideBarName.clear();
-      m_pendingDeleteMonitorOverrideMatch.clear();
       requestRebuild();
       return;
     }
@@ -1284,12 +1312,12 @@ void SettingsWindow::refreshIdleLiveStatusText() {
 
   const std::int64_t sec = m_idleManager != nullptr ? m_idleManager->liveIdleSeconds() : 0;
   if (sec <= 0) {
-    m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+    m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Label2));
     m_idleLiveStatusLabel->setText(i18n::tr("settings.idle.live-status.active"));
     return;
   }
 
-  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::Primary));
+  m_idleLiveStatusLabel->setColor(colorSpecFromRole(ColorRole::AccentText));
   if (sec == 1) {
     m_idleLiveStatusLabel->setText(i18n::tr("settings.idle.live-status.idle-for-one"));
   } else {

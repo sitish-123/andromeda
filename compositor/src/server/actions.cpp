@@ -9,7 +9,6 @@
 #include "output/identity.h"
 #include "output/output.h"
 #include "overview/overview.h"
-#include "scene/cheatsheet.h"
 #include "scene/fps_overlay.h"
 #include "scene/quit_confirm.h"
 #include "server/desktop_shell.h"
@@ -309,7 +308,9 @@ namespace andromeda {
       for (size_t row = 1; row < column.views.size(); ++row) {
         View* view = column.views[row];
         view->moveToWorkspace(&target, /*attachToLayout=*/false);
-        target.layout().insertViewIntoColumn(view, target.layout().columnOf(insertionAnchor), static_cast<int>(row));
+        if (ColumnOps* ops = target.layout().columnOps()) {
+          ops->insertViewIntoColumn(view, target.layout().columnOf(insertionAnchor), static_cast<int>(row));
+        }
         if (target.layout().columnOf(view) != target.layout().columnOf(first)) {
           // Splitting layouts flatten a source stack. Advance the insertion
           // anchor so three or more members retain their original order.
@@ -2033,27 +2034,6 @@ namespace andromeda {
       return true;
     }
 
-    bool actionCheatsheetToggle(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->toggle();
-      }
-      return true;
-    }
-
-    bool actionCheatsheetOpen(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->show();
-      }
-      return true;
-    }
-
-    bool actionCheatsheetClose(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
-      if (Cheatsheet* sheet = server.cheatsheet()) {
-        sheet->hide();
-      }
-      return true;
-    }
-
     // +1 magnifies the output under the pointer one step, -1 shrinks it one step, 0 turns the magnifier off.
     template <int Direction> bool actionZoom(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       constexpr double kStep = 1.25;
@@ -2311,9 +2291,6 @@ namespace andromeda {
         &actionOverviewToggle,
         &actionOverviewOpen,
         &actionOverviewClose,
-        &actionCheatsheetToggle,
-        &actionCheatsheetOpen,
-        &actionCheatsheetClose,
         &actionFpsOverlayToggle,
         &actionMoveToScratchpad,
         &actionScratchpadToggle,

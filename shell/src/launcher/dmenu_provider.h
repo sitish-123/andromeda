@@ -21,6 +21,11 @@ class ClipboardService;
 // The listing command runs on a worker thread (never the main loop, which would
 // deadlock IPC/DBus commands like `notify-send` or `noctalia msg`). Its stdout is
 // parsed even on non-zero exit, so error messages still show up in the launcher.
+// The exec template runs through /bin/sh; {selection} and {query} become "$1" and "$2", so a listed line (often a
+// file name) is passed as data and never parsed as shell text.
+[[nodiscard]] std::vector<std::string>
+dmenuExecArgv(std::string tmpl, std::string_view selection, std::string_view query);
+
 class DmenuProvider : public LauncherProvider {
 public:
   DmenuProvider(DmenuEntryConfig entry, ClipboardService* clipboard);

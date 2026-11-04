@@ -1,5 +1,6 @@
 #pragma once
 
+#include "design_tokens.h"
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
 
@@ -27,7 +28,7 @@ public:
   void onOpen(std::string_view context) override;
   void onClose() override;
 
-  [[nodiscard]] float preferredWidth() const override { return scaled(480.0F); }
+  [[nodiscard]] float preferredWidth() const override { return scaled(Tokens::componentDialogWidth); }
   // Fits its content (the prompt grows when a password is needed); this is the maximum.
   [[nodiscard]] float preferredHeight() const override { return scaled(640.0F); }
   [[nodiscard]] bool fitsContentHeight() const noexcept override { return true; }

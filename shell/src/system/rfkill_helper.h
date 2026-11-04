@@ -31,3 +31,6 @@ struct RfkillSwitchResult {
 
 /// True when at least one radio exists and all of them are soft-blocked.
 [[nodiscard]] bool areAllRadiosSoftBlocked();
+
+/// True when the system has at least one rfkill radio.
+[[nodiscard]] bool hasRfkillRadios();

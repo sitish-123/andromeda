@@ -49,7 +49,8 @@ namespace andromeda {
     }
 
   private:
-    enum class State { Idle, Forward, Pending, Scroll, Switch, Overview, OverviewSelect };
+    // Tracker: a dsk_tracker_v1 under the pointer owns the swipe.
+    enum class State { Idle, Forward, Pending, Scroll, Switch, Overview, OverviewSelect, Tracker };
     enum class ScrollSource { None, Swipe, Pointer, OverviewPointer };
 
     static void onSwipeBegin(wl_listener* listener, void* data);
@@ -61,6 +62,8 @@ namespace andromeda {
     static void onHoldBegin(wl_listener* listener, void* data);
     static void onHoldEnd(wl_listener* listener, void* data);
 
+    void scheduleTrackerFrames() const;
+    bool m_trackerPinch = false; // a dsk_tracker_v1 pinch tracker owns the running pinch
     void handleSwipeBegin(void* data);
     void handleSwipeUpdate(void* data);
     void handleSwipeEnd(void* data);

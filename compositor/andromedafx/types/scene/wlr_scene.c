@@ -1,4 +1,5 @@
 #include "andromedafx/types/wlr_scene.h"
+#include "andromedafx/render/backdrop_probe.h"
 
 #include "render/color.h"
 #include "render/fx_renderer/animation_history.h"
@@ -19,12 +20,14 @@
 #include "util/time.h"
 
 #include <assert.h>
+#include <drm_fourcc.h>
 #include <math.h>
 #include <pixman.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/backend.h>
+#include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/config.h>
 #include <wlr/render/drm_syncobj.h>
 #include <wlr/render/swapchain.h>
@@ -167,6 +170,7 @@ bool wlr_scene_node_add_update_listener(struct wlr_scene_node* node, struct wl_l
 
 static void scene_node_note_update(struct wlr_scene_node* node) {
   struct wlr_scene_node* changed = node;
+  scene_node_get_root(node)->update_serial++;
   for (; node != NULL; node = node->parent != NULL ? &node->parent->node : NULL) {
     struct scene_node_update_observer* observer = scene_node_update_observer_get(node);
     if (observer != NULL) {
@@ -522,6 +526,7 @@ void wlr_scene_node_destroy(struct wlr_scene_node* node) {
       wl_list_remove(&scene->gamma_control_manager_v1_destroy.link);
       wl_list_remove(&scene->gamma_control_manager_v1_set_gamma.link);
       wl_list_remove(&scene->color_manager_v1_destroy.link);
+      pixman_region32_fini(&scene->blur_visibility_stale);
     } else {
       assert(node->parent);
     }
@@ -531,6 +536,11 @@ void wlr_scene_node_destroy(struct wlr_scene_node* node) {
   } else if (node->type == WLR_SCENE_NODE_BLUR) {
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
     linked_node_destroy(&blur->transparency_mask_source);
+    fx_backdrop_probe_destroy(blur->backdrop_probe);
+  } else if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
+    struct wlr_scene_optimized_blur* optimized = wlr_scene_optimized_blur_from_node(node);
+    pixman_region32_fini(&optimized->pending);
+    pixman_region32_fini(&optimized->consumers);
   }
 
   assert(wl_list_empty(&node->events.destroy.listener_list));
@@ -571,6 +581,7 @@ struct wlr_scene* wlr_scene_create(void) {
 
   scene->blur_data = blur_data_get_default();
   scene->background_color[3] = 1.0f;
+  pixman_region32_init(&scene->blur_visibility_stale);
 
   return scene;
 }
@@ -848,7 +859,7 @@ static void scene_node_opaque_region(
       return;
     }
 
-    if (!scene_buffer->buffer_is_opaque) {
+    if (!scene_buffer->buffer_is_opaque && !scene_buffer->over_black) {
       pixman_region32_copy(opaque, &scene_buffer->opaque_region);
       pixman_region32_intersect_rect(opaque, opaque, 0, 0, width, height);
       pixman_region32_translate(opaque, x, y);
@@ -1208,6 +1219,82 @@ static void restack_xwayland_surface(struct wlr_scene_node* node, struct wlr_box
 }
 #endif
 
+// Adds the visible part of every enabled blur node that samples the optimized cache, grown by the blur reach. A node
+// hidden under an opaque window (a bar island under fullscreen video) needs no cache until it shows again.
+static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y, int reach, pixman_region32_t* out) {
+  if (!node->enabled) {
+    return;
+  }
+  if (node->type == WLR_SCENE_NODE_TREE) {
+    struct wlr_scene_node* child;
+    wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+      scene_blur_cache_consumers(child, x + child->x, y + child->y, reach, out);
+    }
+  } else if (node->type == WLR_SCENE_NODE_BLUR) {
+    struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
+    if (blur->should_only_blur_bottom_layer && pixman_region32_not_empty(&node->visible)) {
+      pixman_region32_t grown;
+      pixman_region32_init(&grown);
+      wlr_region_expand(&grown, &node->visible, reach);
+      pixman_region32_union(out, out, &grown);
+      pixman_region32_fini(&grown);
+    }
+  }
+}
+
+// How far, in layout pixels, a change reaches into the cache: the blur kernel is in buffer pixels.
+static int scene_blur_reach(struct wlr_scene* scene) {
+  int reach = blur_data_calc_size(&scene->blur_data);
+  float scale = 1.0f;
+  struct wlr_scene_output* scene_output;
+  wl_list_for_each(scene_output, &scene->outputs, link) {
+    if (scene_output->output->scale < scale) {
+      scale = scene_output->output->scale;
+    }
+  }
+  return scale > 0.0f ? (int)ceilf(reach / scale) : reach;
+}
+
+static const pixman_region32_t* optimized_blur_consumers(struct wlr_scene_optimized_blur* blur, int reach) {
+  struct wlr_scene* scene = scene_node_get_root(&blur->node);
+  if (!blur->consumers_valid || blur->consumers_serial != scene->update_serial || blur->consumers_reach != reach) {
+    pixman_region32_clear(&blur->consumers);
+    scene_blur_cache_consumers(&scene->tree.node, 0, 0, reach, &blur->consumers);
+    blur->consumers_serial = scene->update_serial;
+    blur->consumers_reach = reach;
+    blur->consumers_valid = true;
+  }
+  return &blur->consumers;
+}
+
+// Layout coordinates the cache must re-render now: the whole node when it is dirty, else the pending
+// parts that a blur node samples. Returns whether that is not empty.
+static bool optimized_blur_work(struct wlr_scene_optimized_blur* blur, pixman_region32_t* work) {
+  pixman_region32_clear(work);
+  int x, y;
+  if (!wlr_scene_node_coords(&blur->node, &x, &y)) {
+    return false;
+  }
+  if (blur->dirty) {
+    pixman_region32_union_rect(work, work, x, y, blur->width, blur->height);
+    return true;
+  }
+  if (!pixman_region32_not_empty(&blur->pending)) {
+    return false;
+  }
+  const int reach = scene_blur_reach(scene_node_get_root(&blur->node));
+  pixman_region32_intersect(work, optimized_blur_consumers(blur, reach), &blur->pending);
+  return pixman_region32_not_empty(work);
+}
+
+static bool optimized_blur_needs_render(struct wlr_scene_optimized_blur* blur) {
+  pixman_region32_t work;
+  pixman_region32_init(&work);
+  const bool needed = optimized_blur_work(blur, &work);
+  pixman_region32_fini(&work);
+  return needed;
+}
+
 static bool scene_node_update_iterator(
     struct wlr_scene_node* node, int lx, int ly, const pixman_region32_t* acc_clip, void* _data
 ) {
@@ -1215,13 +1302,15 @@ static bool scene_node_update_iterator(
 
   if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
     struct wlr_scene_optimized_blur* scene_blur = wlr_scene_optimized_blur_from_node(node);
-    if (scene_blur->dirty) {
-      // Restore the visible region back to default, without any opaque
-      // regions. This ensures that all nodes below are fully re-rendered
-      // and not culled by above nodes.
-      pixman_region32_clear(data->visible);
-      pixman_region32_copy(data->visible, data->update_region);
+    // Nodes below are not culled where the cache re-renders now, so its capture sees them; elsewhere they stay
+    // culled by opaque nodes above (a fullscreen window over the wallpaper).
+    pixman_region32_t work;
+    pixman_region32_init(&work);
+    if (optimized_blur_work(scene_blur, &work)) {
+      pixman_region32_intersect(&work, &work, data->update_region);
+      pixman_region32_union(data->visible, data->visible, &work);
     }
+    pixman_region32_fini(&work);
   }
 
   struct wlr_box box = {.x = lx, .y = ly};
@@ -1475,6 +1564,8 @@ void wlr_scene_set_effect_light_layer(struct wlr_scene* scene, struct wlr_scene_
 }
 
 static void scene_update_region(struct wlr_scene* scene, const pixman_region32_t* update_region) {
+  // Visibility changes which blur nodes sample the optimized cache.
+  scene->update_serial++;
   pixman_region32_t visible;
   pixman_region32_init(&visible);
   pixman_region32_copy(&visible, update_region);
@@ -2407,6 +2498,56 @@ void wlr_scene_blur_set_alpha(struct wlr_scene_blur* blur, float alpha) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_liquid_shape(struct wlr_scene_blur* blur, const struct wlr_box* box, int radius) {
+  const struct wlr_box next = box != NULL ? *box : (struct wlr_box){0};
+  if (wlr_box_equal(&blur->liquid_box, &next) && blur->liquid_radius == radius) {
+    return;
+  }
+  blur->liquid_box = next;
+  blur->liquid_radius = radius;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
+  if (blur->liquid == liquid) {
+    return;
+  }
+
+  blur->liquid = liquid;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim) {
+  if (blur->rim == rim) {
+    return;
+  }
+
+  blur->rim = rim;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_backdrop_sampling(struct wlr_scene_blur* blur, bool enabled) {
+  if (blur->backdrop_sampling == enabled) {
+    return;
+  }
+  blur->backdrop_sampling = enabled;
+  if (!enabled) {
+    fx_backdrop_probe_destroy(blur->backdrop_probe);
+    blur->backdrop_probe = NULL;
+  } else {
+    // Sample the current backdrop at once rather than on the next unrelated damage.
+    scene_node_update(&blur->node, NULL);
+  }
+}
+
+bool wlr_scene_blur_poll_backdrop(struct wlr_scene_blur* blur, float* luminance) {
+  return blur->backdrop_probe != NULL && fx_backdrop_probe_poll(blur->backdrop_probe, luminance);
+}
+
+bool wlr_scene_blur_backdrop_pending(const struct wlr_scene_blur* blur) {
+  return fx_backdrop_probe_pending(blur->backdrop_probe);
+}
+
 void wlr_scene_blur_set_ignore_alpha(struct wlr_scene_blur* blur, float ignore_alpha) {
   if (blur->ignore_alpha == ignore_alpha) {
     return;
@@ -2543,6 +2684,8 @@ struct wlr_scene_optimized_blur* wlr_scene_optimized_blur_create(struct wlr_scen
   scene_blur->width = width;
   scene_blur->height = height;
   scene_blur->dirty = false;
+  pixman_region32_init(&scene_blur->pending);
+  pixman_region32_init(&scene_blur->consumers);
 
   scene_node_update(&scene_blur->node, NULL);
 
@@ -2570,6 +2713,29 @@ void wlr_scene_optimized_blur_mark_dirty(struct wlr_scene_optimized_blur* blur_n
   blur_node->dirty = true;
 
   scene_node_update(&blur_node->node, NULL);
+}
+
+void wlr_scene_optimized_blur_mark_dirty_box(struct wlr_scene_optimized_blur* blur_node, const struct wlr_box* box) {
+  int x, y;
+  if (!blur_node->node.enabled || blur_node->dirty || !wlr_scene_node_coords(&blur_node->node, &x, &y)) {
+    return;
+  }
+  struct wlr_scene* scene = scene_node_get_root(&blur_node->node);
+  const int reach = scene_blur_reach(scene);
+
+  pixman_region32_t grown;
+  pixman_region32_init_rect(&grown, box->x - reach, box->y - reach, box->width + 2 * reach, box->height + 2 * reach);
+  pixman_region32_intersect_rect(&grown, &grown, x, y, blur_node->width, blur_node->height);
+  pixman_region32_union(&blur_node->pending, &blur_node->pending, &grown);
+
+  // Only parts that a blur node samples need a frame; the rest waits in pending.
+  pixman_region32_intersect(&grown, &grown, optimized_blur_consumers(blur_node, reach));
+  if (pixman_region32_not_empty(&grown)) {
+    scene_node_note_update(&blur_node->node);
+    scene_update_region(scene, &grown);
+    scene_damage_outputs(scene, &grown);
+  }
+  pixman_region32_fini(&grown);
 }
 
 struct wlr_scene_buffer* wlr_scene_buffer_create(struct wlr_scene_tree* parent, struct wlr_buffer* buffer) {
@@ -2634,8 +2800,9 @@ void wlr_scene_buffer_set_buffer_with_options(
 
   // If this is a buffer change, check if it's a single pixel buffer.
   // Cache that so we can still apply rendering optimisations even when
-  // the original buffer has been freed after texture upload.
-  if (buffer != scene_buffer->buffer) {
+  // the original buffer has been freed after texture upload. A 1x1 shm
+  // buffer can change content in place, so it is checked on each commit.
+  if (buffer != scene_buffer->buffer || (buffer != NULL && buffer->width == 1 && buffer->height == 1)) {
     scene_buffer->is_single_pixel_buffer = false;
     struct wlr_client_buffer* client_buffer = NULL;
     if (buffer != NULL) {
@@ -2650,6 +2817,21 @@ void wlr_scene_buffer_set_buffer_with_options(
         scene_buffer->single_pixel_buffer_color[1] = single_pixel_buffer->g;
         scene_buffer->single_pixel_buffer_color[2] = single_pixel_buffer->b;
         scene_buffer->single_pixel_buffer_color[3] = single_pixel_buffer->a;
+      } else if (client_buffer->source->width == 1 && client_buffer->source->height == 1) {
+        // A 1x1 shm buffer stretched by a viewport (input-only surfaces) counts as a single pixel when fully
+        // transparent, so the scene skips drawing it over the whole output.
+        void* data = NULL;
+        uint32_t format = 0;
+        size_t stride = 0;
+        if (wlr_buffer_begin_data_ptr_access(client_buffer->source, WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format,
+                                             &stride)) {
+          const bool alpha_last_byte = format == DRM_FORMAT_ARGB8888 || format == DRM_FORMAT_ABGR8888;
+          if (alpha_last_byte && ((const uint8_t*)data)[3] == 0) {
+            scene_buffer->is_single_pixel_buffer = true;
+            memset(scene_buffer->single_pixel_buffer_color, 0, sizeof(scene_buffer->single_pixel_buffer_color));
+          }
+          wlr_buffer_end_data_ptr_access(client_buffer->source);
+        }
       }
     }
   }
@@ -2766,6 +2948,22 @@ void wlr_scene_buffer_set_buffer_with_damage(
 
 void wlr_scene_buffer_set_buffer(struct wlr_scene_buffer* scene_buffer, struct wlr_buffer* buffer) {
   wlr_scene_buffer_set_buffer_with_options(scene_buffer, buffer, NULL);
+}
+
+void wlr_scene_buffer_set_over_black(struct wlr_scene_buffer* scene_buffer, bool over_black) {
+  if (scene_buffer->over_black == over_black) {
+    return;
+  }
+  scene_buffer->over_black = over_black;
+  int x, y;
+  if (!wlr_scene_node_coords(&scene_buffer->node, &x, &y)) {
+    return;
+  }
+  pixman_region32_t update_region;
+  pixman_region32_init(&update_region);
+  scene_node_bounds(&scene_buffer->node, x, y, &update_region);
+  scene_update_region(scene_node_get_root(&scene_buffer->node), &update_region);
+  pixman_region32_fini(&update_region);
 }
 
 void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer* scene_buffer, const pixman_region32_t* region) {
@@ -3300,7 +3498,8 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
   pixman_region32_init(&render_region);
   pixman_region32_copy(&render_region, &node->visible);
   pixman_region32_translate(&render_region, -data->logical.x, -data->logical.y);
-  logical_to_buffer_coords(&render_region, data, true);
+  // Blur draws the raw backdrop: the 1 px safety expansion for fractional scales would show it outside its clip.
+  logical_to_buffer_coords(&render_region, data, node->type != WLR_SCENE_NODE_BLUR);
   pixman_region32_intersect(&render_region, &render_region, &data->damage);
   if (pixman_region32_empty(&render_region)) {
     pixman_region32_fini(&render_region);
@@ -3699,32 +3898,93 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
     break;
   case WLR_SCENE_NODE_OPTIMIZED_BLUR:;
     struct wlr_scene_optimized_blur* scene_blur = wlr_scene_optimized_blur_from_node(node);
-    // Re-render the optimized blur buffer when needed. Retry rendering
-    // until there's a visible blur_node. A stale cache waits for a dirty mark.
-    if (fx_pass->has_blur && is_scene_blur_enabled(&scene->blur_data) && scene_blur->dirty) {
-      const float opacity = 1.0f;
-      enum wl_output_transform transform = wlr_output_transform_invert(data->transform);
-      transform = wlr_output_transform_compose(transform, data->transform);
-      struct fx_render_blur_pass_options blur_options = {
-          .tex_options =
-              {.base =
-                   {
-                       .transform = transform,
-                       .alpha = &opacity,
-                       .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
-                       .dst_box = dst_box,
-                   },
-               .clip_box = &dst_box,
-               .discard_transparent = false,
-               .clipped_region = {0}},
-          .blur_data = &scene->blur_data,
-          .blur_strength = 1.0f,
-      };
-      bool result = fx_render_pass_add_optimized_blur(fx_pass, &blur_options);
-      if (result) {
+    // A valid cache whose content or blur parameters changed (wallpaper, glass slider, scheme) needs a new blur only
+    // where blur nodes sample it; a whole-output re-blur costs about 10 ms on a low-end GPU. The rest waits in pending.
+    if (scene_blur->dirty && fx_pass->has_blur && fx_render_pass_optimized_blur_reusable(fx_pass)) {
+      int blur_x, blur_y;
+      if (wlr_scene_node_coords(node, &blur_x, &blur_y)) {
+        pixman_region32_union_rect(&scene_blur->pending, &scene_blur->pending, blur_x, blur_y, scene_blur->width,
+                                   scene_blur->height);
         scene_blur->dirty = false;
       }
     }
+    // Re-render the optimized blur buffer when needed. Retry rendering
+    // until there's a visible blur_node. A stale cache waits for a dirty mark.
+    pixman_region32_t work;
+    pixman_region32_init(&work);
+    if (fx_pass->has_blur && is_scene_blur_enabled(&scene->blur_data) && optimized_blur_work(scene_blur, &work)) {
+      const bool whole = scene_blur->dirty;
+      // A partial render needs a valid cache; an invalid one waits for a whole-node mark.
+      if (whole || !fx_render_pass_optimized_blur_stale(fx_pass)) {
+        pixman_region32_t clip;
+        pixman_region32_init(&clip);
+        // Layout-coordinate parts of `work` that this frame's render region covers.
+        pixman_region32_t rendered;
+        pixman_region32_init(&rendered);
+        if (!whole) {
+          int rects = 0;
+          const pixman_box32_t* boxes = pixman_region32_rectangles(&work, &rects);
+          for (int i = 0; i < rects; i++) {
+            pixman_region32_t part;
+            pixman_region32_init_rect(&part, boxes[i].x1, boxes[i].y1, boxes[i].x2 - boxes[i].x1, boxes[i].y2 - boxes[i].y1);
+            pixman_region32_t buffer_part;
+            pixman_region32_init(&buffer_part);
+            pixman_region32_copy(&buffer_part, &part);
+            pixman_region32_translate(&buffer_part, -data->logical.x, -data->logical.y);
+            logical_to_buffer_coords(&buffer_part, data, true);
+            pixman_region32_t uncovered;
+            pixman_region32_init(&uncovered);
+            pixman_region32_subtract(&uncovered, &buffer_part, &render_region);
+            if (!pixman_region32_not_empty(&uncovered)) {
+              pixman_region32_union(&rendered, &rendered, &part);
+            }
+            pixman_region32_intersect(&buffer_part, &buffer_part, &render_region);
+            pixman_region32_union(&clip, &clip, &buffer_part);
+            pixman_region32_fini(&uncovered);
+            pixman_region32_fini(&buffer_part);
+            pixman_region32_fini(&part);
+          }
+        }
+        const float opacity = 1.0f;
+        enum wl_output_transform transform = wlr_output_transform_invert(data->transform);
+        transform = wlr_output_transform_compose(transform, data->transform);
+        struct fx_render_blur_pass_options blur_options = {
+            .tex_options =
+                {.base =
+                     {
+                         .transform = transform,
+                         .alpha = &opacity,
+                         .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+                         .dst_box = dst_box,
+                         .clip = whole ? NULL : &clip,
+                     },
+                 .clip_box = &dst_box,
+                 .discard_transparent = false,
+                 .clipped_region = {0}},
+            .blur_data = &scene->blur_data,
+            .blur_strength = 1.0f,
+        };
+        bool result = pixman_region32_not_empty(&clip) || whole
+            ? fx_render_pass_add_optimized_blur(fx_pass, &blur_options)
+            : false;
+        // Pixels that this frame did not draw stay pending.
+        struct wlr_scene* scene_root = scene_node_get_root(node);
+        if (result && whole) {
+          scene_blur->dirty = false;
+          pixman_region32_clear(&scene_blur->pending);
+          pixman_region32_union(&scene_root->blur_visibility_stale, &scene_root->blur_visibility_stale, &work);
+        } else if (result) {
+          pixman_region32_subtract(&scene_blur->pending, &scene_blur->pending, &rendered);
+          pixman_region32_union(&scene_root->blur_visibility_stale, &scene_root->blur_visibility_stale, &rendered);
+        }
+        pixman_region32_fini(&rendered);
+        pixman_region32_fini(&clip);
+      } else {
+        // An invalid cache re-renders whole; the whole-node mark that made it invalid follows.
+        pixman_region32_clear(&scene_blur->pending);
+      }
+    }
+    pixman_region32_fini(&work);
     break;
   case WLR_SCENE_NODE_BLUR:;
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
@@ -3767,7 +4027,30 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .blur_data = &scene->blur_data,
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
+        .liquid = blur->liquid,
+        .rim = blur->rim,
+        .liquid_box =
+            wlr_box_empty(&blur->liquid_box)
+                ? (struct wlr_box){0}
+                : (struct wlr_box){
+                      .x = dst_box.x + (int)lround(blur->liquid_box.x * data->scale),
+                      .y = dst_box.y + (int)lround(blur->liquid_box.y * data->scale),
+                      .width = (int)lround(blur->liquid_box.width * data->scale),
+                      .height = (int)lround(blur->liquid_box.height * data->scale),
+                  },
+        .liquid_radius = (float)blur->liquid_radius * data->scale,
     };
+    if (blur->backdrop_sampling) {
+      struct wlr_renderer* renderer = data->output->output->renderer;
+      if (blur->backdrop_probe != NULL && fx_backdrop_probe_renderer(blur->backdrop_probe) != renderer) {
+        fx_backdrop_probe_destroy(blur->backdrop_probe);
+        blur->backdrop_probe = NULL;
+      }
+      if (blur->backdrop_probe == NULL) {
+        blur->backdrop_probe = fx_backdrop_probe_create(renderer);
+      }
+      blur_options.backdrop_probe = blur->backdrop_probe;
+    }
     fx_render_pass_add_blur(fx_pass, &blur_options);
     break;
   }
@@ -5310,6 +5593,14 @@ static bool construct_render_list_iterator(
     }
   }
 
+  // A fully transparent single-pixel buffer (an input-only surface such as a panel click shield) draws nothing.
+  if (node->type == WLR_SCENE_NODE_BUFFER && !(data->persistent_effects && effect_over_node(node) != NULL)) {
+    struct wlr_scene_buffer* scene_buffer = wlr_scene_buffer_from_node(node);
+    if (scene_buffer->is_single_pixel_buffer && scene_buffer->single_pixel_buffer_color[3] == 0) {
+      return false;
+    }
+  }
+
   pixman_region32_t intersection;
   pixman_region32_init(&intersection);
   const int expand = data->effect_expand > 0 ? scene_node_effect_expand(node) : 0;
@@ -5432,6 +5723,82 @@ enum scene_direct_scanout_result {
   // Scanout is successful.
   SCANOUT_SUCCESS,
 };
+
+// Black rects at the bottom of the list (the fullscreen backdrop behind a buffer with alpha) change no pixel on a
+// plane: KMS blends the primary plane over a black CRTC background, as the composite blends over a black clear.
+static int scanout_list_len(const struct render_list_entry* list, int len) {
+  while (len > 1 && list[len - 1].node->type == WLR_SCENE_NODE_RECT) {
+    const struct wlr_scene_rect* rect = wlr_scene_rect_from_node(list[len - 1].node);
+    if (rect->color[0] != 0.0f || rect->color[1] != 0.0f || rect->color[2] != 0.0f) {
+      break;
+    }
+    len--;
+  }
+  return len;
+}
+
+// ANDROMEDA_SCANOUT_DEBUG=1: once per second, log the nodes that keep an output composited.
+static void log_composited_entries(struct wlr_scene* scene, const struct render_list_entry* list, int len) {
+  static bool enabled = false;
+  static bool checked = false;
+  static int64_t last_ns = 0;
+  if (!checked) {
+    enabled = getenv("ANDROMEDA_SCANOUT_DEBUG") != NULL;
+    checked = true;
+  }
+  if (!enabled) {
+    return;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  const int64_t now_ns = timespec_to_nsec(&now);
+  if (now_ns - last_ns < 1000000000) {
+    return;
+  }
+  last_ns = now_ns;
+  const struct scene_effects* effects = scene_effects_get(scene, false);
+  wlr_log(WLR_INFO, "scanout blocked: effects transient %u persistent %u bounded %u", effects ? effects->transient : 0,
+          effects ? effects->persistent : 0, effects ? effects->bounded : 0);
+  for (int i = 0; i < len; i++) {
+    struct wlr_scene_node* node = list[i].node;
+    int w = 0, h = 0;
+    const char* kind = "tree";
+    const char* app = "";
+    if (node->type == WLR_SCENE_NODE_BUFFER) {
+      struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+      kind = "buffer";
+      scene_node_get_size(node, &w, &h);
+      struct wlr_scene_surface* surface = wlr_scene_surface_try_from_buffer(buffer);
+      if (surface != NULL && surface->surface->resource != NULL) {
+        app = surface->surface->role != NULL ? surface->surface->role->name : "no-role";
+        struct wlr_layer_surface_v1* layer = wlr_layer_surface_v1_try_from_wlr_surface(surface->surface);
+        if (layer != NULL && layer->namespace != NULL) {
+          app = layer->namespace;
+        }
+      }
+    } else if (node->type == WLR_SCENE_NODE_RECT) {
+      kind = "rect";
+      scene_node_get_size(node, &w, &h);
+    }
+    pixman_region32_t opaque;
+    pixman_region32_init(&opaque);
+    scene_node_opaque_region(scene_effects_get(scene, false), node, list[i].x, list[i].y, &opaque);
+    uint32_t client_opaque = 0;
+    float opacity = 1.0f;
+    bool corners = false;
+    if (node->type == WLR_SCENE_NODE_BUFFER) {
+      struct wlr_scene_buffer* buffer = wlr_scene_buffer_from_node(node);
+      client_opaque = buffer->buffer_is_opaque ? UINT32_MAX : region_area(&buffer->opaque_region);
+      opacity = buffer->opacity;
+      corners = !fx_corner_radii_is_empty(&buffer->corners) || !wlr_box_empty(&buffer->corner_box);
+    }
+    wlr_log(WLR_INFO,
+            "scanout blocked: entry %d/%d %s %s at %d,%d %dx%d visible %u opaque %u (client %u alpha %.2f corners %d)",
+            i + 1, len, kind, app, list[i].x, list[i].y, w, h, region_area(&node->visible), region_area(&opaque),
+            client_opaque, opacity, corners);
+    pixman_region32_fini(&opaque);
+  }
+}
 
 static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     struct render_list_entry* entry, struct wlr_output_state* state, const struct render_data* data,
@@ -5606,7 +5973,7 @@ static bool should_blur_node_extend_damage(
     break;
   case WLR_SCENE_NODE_OPTIMIZED_BLUR:;
     struct wlr_scene_optimized_blur* optimized_node = wlr_scene_optimized_blur_from_node(node);
-    if (!optimized_node->dirty) {
+    if (!optimized_blur_needs_render(optimized_node)) {
       return false;
     }
     break;
@@ -5963,6 +6330,16 @@ static bool scene_output_build_state(
     return true;
   }
 
+  struct wlr_scene* stale_scene = scene_output->scene;
+  if (pixman_region32_not_empty(&stale_scene->blur_visibility_stale)) {
+    pixman_region32_t stale;
+    pixman_region32_init(&stale);
+    pixman_region32_copy(&stale, &stale_scene->blur_visibility_stale);
+    pixman_region32_clear(&stale_scene->blur_visibility_stale);
+    scene_update_region(stale_scene, &stale);
+    pixman_region32_fini(&stale);
+  }
+
   struct wlr_output* output = scene_output->output;
   enum wlr_scene_debug_damage_option debug_damage = scene_output->scene->debug_damage_option;
   struct scene_effects* effects = scene_effects_get(scene_output->scene, false);
@@ -6192,8 +6569,9 @@ static bool scene_output_build_state(
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COLOR;
   } else if (list_len == 0) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE;
-  } else if (list_len > 1) {
+  } else if (scanout_list_len(list_data, list_len) > 1) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COMPOSITED;
+    log_composited_entries(scene_output->scene, list_data, list_len);
   } else if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE;
   } else {

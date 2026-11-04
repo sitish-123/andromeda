@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scripting/plugin_permissions.h"
 #include "config/config_types.h"
 #include "scripting/plugin_layer_config.h"
 
@@ -175,6 +176,8 @@ namespace scripting {
     // shared across every entry (widget, shortcut, service). Distinct from a
     // per-entry instance setting; seeded into all of the plugin's runtimes.
     std::vector<ManifestField> settings;
+    // Requested in [permissions]; the plugin runs only once the user has approved all of them.
+    PluginPermissions permissions;
 
     [[nodiscard]] const PluginEntry* findEntry(std::string_view entryId) const;
   };

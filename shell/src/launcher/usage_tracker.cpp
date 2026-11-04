@@ -2,6 +2,7 @@
 
 #include "util/file_utils.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -14,11 +15,14 @@ UsageTracker::UsageTracker() {
   const std::string dir = FileUtils::stateDir();
   m_usageCountsPath = (dir.empty() ? "." : dir) + "/usage_counts.json";
   m_recentlyUsedPath = (dir.empty() ? "." : dir) + "/recently_used.json";
+  m_lastUsedPath = (dir.empty() ? "." : dir) + "/usage_times.json";
 }
 
 void UsageTracker::record(std::string_view providerId, std::string_view resultId) {
   ensureLoaded();
   ++m_counts[std::string(providerId)][std::string(resultId)];
+  m_lastUsed[std::string(providerId)][std::string(resultId)] =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
   auto& recentlyUsedList = m_recentlyUsed[std::string(providerId)];
   const auto id = std::string(resultId);
@@ -40,6 +44,7 @@ void UsageTracker::clear() {
   m_counts.clear();
   m_recentlyUsed.clear();
   m_recentlyUsedIndex.clear();
+  m_lastUsed.clear();
   m_loaded = true;
   save();
 }
@@ -70,6 +75,16 @@ std::size_t UsageTracker::getRecentlyUsedCount(std::string_view providerId) {
   return provIt != m_recentlyUsed.end() ? provIt->second.size() : 0;
 }
 
+std::optional<std::int64_t> UsageTracker::getLastUsed(std::string_view providerId, std::string_view resultId) {
+  ensureLoaded();
+  const auto provIt = m_lastUsed.find(std::string(providerId));
+  if (provIt == m_lastUsed.end()) {
+    return std::nullopt;
+  }
+  const auto idIt = provIt->second.find(std::string(resultId));
+  return idIt != provIt->second.end() ? std::optional(idIt->second) : std::nullopt;
+}
+
 void UsageTracker::ensureLoaded() {
   if (m_loaded) {
     return;
@@ -84,6 +99,21 @@ void UsageTracker::ensureLoaded() {
         for (const auto& [provider, ids] : json.items()) {
           for (const auto& [id, count] : ids.items()) {
             m_counts[provider][id] = count.get<int>();
+          }
+        }
+      } catch (const nlohmann::json::exception&) {
+        // Ignore malformed file — starts fresh
+      }
+    }
+  }
+  {
+    std::ifstream file(m_lastUsedPath);
+    if (file.is_open()) {
+      try {
+        const auto json = nlohmann::json::parse(file);
+        for (const auto& [provider, ids] : json.items()) {
+          for (const auto& [id, seconds] : ids.items()) {
+            m_lastUsed[provider][id] = seconds.get<std::int64_t>();
           }
         }
       } catch (const nlohmann::json::exception&) {
@@ -108,6 +138,19 @@ void UsageTracker::ensureLoaded() {
       }
     }
   }
+  // Counts from before use times were kept migrate as used now (docs/search.md §3).
+  const auto now =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  bool migrated = false;
+  for (const auto& [provider, ids] : m_counts) {
+    auto& times = m_lastUsed[provider];
+    for (const auto& [id, count] : ids) {
+      migrated |= times.try_emplace(id, now).second;
+    }
+  }
+  if (migrated) {
+    save();
+  }
 }
 
 void UsageTracker::save() const {
@@ -124,6 +167,11 @@ void UsageTracker::save() const {
   {
     nlohmann::json json = m_recentlyUsed;
     std::ofstream file(m_recentlyUsedPath, std::ios::trunc);
+    file << json.dump(2) << '\n';
+  }
+  {
+    nlohmann::json json = m_lastUsed;
+    std::ofstream file(m_lastUsedPath, std::ios::trunc);
     file << json.dump(2) << '\n';
   }
 }

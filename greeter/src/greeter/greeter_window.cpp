@@ -232,14 +232,14 @@ bool GreeterWindow::ensureRenderTarget() {
   if (m_renderTarget.isReady()) {
     m_renderTarget.resize(bufferWidth, bufferHeight);
     m_renderTarget.setLogicalSize(m_width, m_height);
-    m_renderContext.syncContentScale(m_renderTarget);
+    m_renderTarget.setContentScale(m_width > 0 ? std::max(1.0F, static_cast<float>(bufferWidth) / static_cast<float>(m_width)) : 1.0F);
     return true;
   }
 
   m_renderTarget.create(m_wlSurface, m_renderContext);
   m_renderTarget.resize(bufferWidth, bufferHeight);
   m_renderTarget.setLogicalSize(m_width, m_height);
-  m_renderContext.syncContentScale(m_renderTarget);
+  m_renderTarget.setContentScale(m_width > 0 ? std::max(1.0F, static_cast<float>(bufferWidth) / static_cast<float>(m_width)) : 1.0F);
 
   if (!m_renderTarget.isReady()) {
     kLog.error("render target not ready ({}x{} logical, {}x{} buffer)", m_width, m_height, bufferWidth, bufferHeight);

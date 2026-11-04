@@ -49,7 +49,7 @@ void MediaWidget::create() {
   area->addChild(
       ui::progressBar(
           {.out = &m_progressBar,
-           .fill = scaleAlpha(widgetForegroundOr(colorSpecFromRole(ColorRole::Primary)), 0.25F),
+           .fill = scaleAlpha(widgetForegroundOr(colorSpecFromRole(ColorRole::Accent)), 0.25F),
            .track = clearColorSpec(),
            .visible = false,
            .participatesInLayout = false,
@@ -76,7 +76,7 @@ void MediaWidget::create() {
           .fontSize = Style::fontSizeBody * fontScale(),
           .fontWeight = labelFontWeight(),
           .fontFamily = labelFontFamily(),
-          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface)),
+          .color = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1)),
           .maxWidth = m_maxWidth * m_contentScale,
           .maxLines = 1,
           .autoScroll = false,
@@ -88,7 +88,7 @@ void MediaWidget::create() {
           .out = &m_emptyGlyph,
           .glyph = "music-off",
           .glyphSize = Style::baseGlyphSize * m_contentScale,
-          .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
       })
   );
@@ -116,12 +116,12 @@ void MediaWidget::doLayout(Renderer& renderer, float containerWidth, float conta
   const bool showProgressFill = progressFillEligible(active);
 
   m_label->setColor(
-      m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface))
-                                        : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+      m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::Label1))
+                                        : colorSpecFromRole(ColorRole::Label2)
   );
   m_emptyGlyph->setGlyph(active.has_value() ? "disc" : "music-off");
   m_emptyGlyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
-  m_emptyGlyph->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
+  m_emptyGlyph->setColor(colorSpecFromRole(ColorRole::Label2));
   m_emptyGlyph->measure(renderer);
 
   const bool hideAlbumArt = m_hideAlbumArt && !m_isVertical;
@@ -332,8 +332,8 @@ void MediaWidget::syncState(Renderer& renderer, const std::optional<MprisPlayerI
   if (playbackChanged && !textChanged && !artChanged && !artAwaitingDecode) {
     m_lastPlaybackStatus = playbackStatus;
     m_label->setColor(
-        m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface))
-                                          : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+        m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::Label1))
+                                          : colorSpecFromRole(ColorRole::Label2)
     );
     if (needsFrameTick()) {
       requestFrameTick();
@@ -350,8 +350,8 @@ void MediaWidget::syncState(Renderer& renderer, const std::optional<MprisPlayerI
     m_label->setText(m_lastText);
   }
   m_label->setColor(
-      m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::OnSurface))
-                                        : colorSpecFromRole(ColorRole::OnSurfaceVariant)
+      m_lastPlaybackStatus == "Playing" ? widgetForegroundOr(colorSpecFromRole(ColorRole::Label1))
+                                        : colorSpecFromRole(ColorRole::Label2)
   );
 
   const int artDecodePx = static_cast<int>(std::round(64.0F * m_contentScale));

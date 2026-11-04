@@ -16,7 +16,6 @@ trap 'kill "$NESTED" 2>/dev/null; wait 2>/dev/null; rm -f "$CONFIG"' EXIT
 cat > "$CONFIG" <<'CONF'
 [general]
 autostart = []
-show_cheatsheet = false
 
 [output.WL-2]
 mirror = "WL-1"

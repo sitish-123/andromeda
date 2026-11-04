@@ -7,6 +7,7 @@
 #include <andromedafx/render/audio.h>
 #include <wlr/util/box.h>
 
+struct wlr_output;
 struct wlr_output_state;
 struct wlr_renderer;
 struct wlr_scene;
@@ -245,6 +246,8 @@ void wlr_scene_output_acknowledge_damage_for_test(
 );
 // Exists for tests/effects.c: makes fx_render_pass_read_to_buffer fail as if its source could not be sampled.
 void fx_renderer_fail_target_copies_for_test(struct wlr_renderer* renderer, bool fail);
+// Exists for the blur-cache-pixels harness IPC: pixels the output's optimized blur cache has re-rendered.
+uint64_t fx_output_optimized_blur_pixels_for_test(struct wlr_output* output);
 // Exists for tests/effects.c: makes saving an unfiltered effect capture fail.
 void fx_renderer_fail_effect_capture_for_test(struct wlr_renderer* renderer, bool fail);
 // Exists for tests/effects.c and the animation-capture-fail harness IPC: makes every animation capture fail.

@@ -74,7 +74,7 @@ namespace settings {
             .text = m_title,
             .fontSize = Style::fontSizeBody * m_scale,
             .fontWeight = FontWeight::Bold,
-            .color = colorSpecFromRole(ColorRole::OnSurface),
+            .color = colorSpecFromRole(ColorRole::Label1),
         })
     );
     header->addChild(ui::spacer());
@@ -90,8 +90,8 @@ namespace settings {
               .glyph = "trash",
               .glyphSize = Style::fontSizeBody * m_scale,
               .variant = ButtonVariant::Destructive,
-              .minWidth = Style::controlHeightSm * m_scale,
-              .minHeight = Style::controlHeightSm * m_scale,
+              .minWidth = Style::controlHeight * m_scale,
+              .minHeight = Style::controlHeight * m_scale,
               .padding = Style::spaceXs * m_scale,
               .radius = Style::scaledRadiusMd(m_scale),
               .onClick = [removeAction = m_removeAction] {
@@ -108,8 +108,8 @@ namespace settings {
               .glyph = "close",
               .glyphSize = Style::fontSizeBody * m_scale,
               .variant = ButtonVariant::Default,
-              .minWidth = Style::controlHeightSm * m_scale,
-              .minHeight = Style::controlHeightSm * m_scale,
+              .minWidth = Style::controlHeight * m_scale,
+              .minHeight = Style::controlHeight * m_scale,
               .padding = Style::spaceXs * m_scale,
               .radius = Style::scaledRadiusMd(m_scale),
               .onClick = [onCloseRequested = m_onCloseRequested, closeAction = m_closeAction] {

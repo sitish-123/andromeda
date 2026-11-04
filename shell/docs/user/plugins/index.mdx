@@ -27,7 +27,7 @@ Open **Settings → Plugins**. Use **Add source** to add a git repo or local dir
 
 Plugins that expose **plugin-level settings** show a **gear** on their row - open it to configure options shared across all of the plugin's parts (for example the screen recorder's codec, quality, and output folder). Settings persist to the state dir, so a read-only config directory is fine. Bar-widget entries can also declare widget settings, edited where that widget is configured.
 
-If a plugin is enabled in `config.toml` and you disable it in Settings, Noctalia writes an app-owned `[plugins].enabled` override to `settings.toml`. That override wins until you remove or edit it.
+If a plugin is enabled in `config.toml` and you disable it in Settings, Noctalia writes an app-owned `[plugins].enabled` override to `overrides.toml`. That override wins until you remove or edit it.
 
 ### From the command line
 
@@ -47,7 +47,7 @@ noctalia msg plugins source add my-dev path ~/dev/my-plugins
 noctalia msg plugins source remove my-repo
 ```
 
-The built-in `official` and `community` sources can be updated and enabled or disabled in Settings, but are protected from removal in Settings and IPC. Custom git/path sources are removable. **Auto-update plugins** is a dropdown that controls the global `[plugins].auto_update` mode: **All sources** (default), **Official only**, or **None**.
+The built-in `official` and `community` sources can be updated and enabled or disabled in Settings, but are protected from removal in Settings and IPC. Custom git/path sources are removable. **Auto-update plugins** is a dropdown that controls the global `[plugins].auto_update` mode: **All sources**, **Official only**, or **None** (default).
 
 Enabling a plugin makes its entries available. Its **bar widget** then shows up in the Add-widget picker - add a widget instance just like any built-in widget (or configure one by hand with `type = "<author>/<plugin>:<entry>"`). A **control-center shortcut** is added from the control-center shortcuts settings, like any other shortcut. A **panel** opens with `noctalia msg panel-toggle <author>/<plugin>:<entry>` (or from a bar widget that runs the same command). Panel **placement** (attached/floating, screen position, open-near-click) is configured per panel entry under **Settings → Plugins**, same as built-in shell panels.
 
@@ -59,7 +59,7 @@ Plugin state lives under `[plugins]`. The `enabled` list and the sources are use
 [plugins]
 # Fully-qualified ids ("<author>/<plugin>") that are active.
 enabled = ["noctalia/screen_recorder"]
-auto_update = "all" # "all" | "official" | "none"; background git updates on startup and every 6 hours
+auto_update = "none" # "all" | "official" | "none" (default); background git updates on startup and every 6 hours
 
 # A git source: cached and updated by Noctalia.
 [[plugins.source]]
@@ -79,9 +79,9 @@ enabled  = true
 
 `auto_update` accepts one of:
 
-- `"all"` (default) - update every enabled git source on startup and every 6 hours
+- `"all"` - update every enabled git source on startup and every 6 hours
 - `"official"` - update only the built-in `official` source if enabled (matched by name **and** location, so a custom source reusing the name isn't trusted)
-- `"none"` - never auto-update
+- `"none"` (default) - never auto-update
 
 The boolean form (`auto_update = true` / `false`) from earlier builds is no longer accepted - use `"all"` or `"none"`. `enabled = false` on a source prevents it from being scanned or updated while retaining its app-managed clone.
 
@@ -107,7 +107,7 @@ No account is needed. Clicking the thumb sends your choice and a private identif
 
 ## Updating
 
-`noctalia msg plugins update <source>` updates the source and hot-reloads its enabled plugins. The global `[plugins].auto_update` mode decides what the background tick (startup + every 6 hours) updates: `"all"` (default) pulls every enabled git source, `"official"` pulls only the built-in `official` source, and `"none"` disables background updates. Updates are safe per enabled plugin: if one enabled plugin's new version targets an unsupported plugin API level, Noctalia keeps that plugin's previous exported copy, still updates compatible enabled plugins from the same source, and advances the source catalog. After Noctalia gains support for that API level, the held plugin can catch up from the already-updated source revision.
+`noctalia msg plugins update <source>` updates the source and hot-reloads its enabled plugins. The global `[plugins].auto_update` mode decides what the background tick (startup + every 6 hours) updates: `"all"` pulls every enabled git source, `"official"` pulls only the built-in `official` source, and `"none"` (default) disables background updates. Updates are safe per enabled plugin: if one enabled plugin's new version targets an unsupported plugin API level, Noctalia keeps that plugin's previous exported copy, still updates compatible enabled plugins from the same source, and advances the source catalog. After Noctalia gains support for that API level, the held plugin can catch up from the already-updated source revision.
 
 ## Compatibility
 

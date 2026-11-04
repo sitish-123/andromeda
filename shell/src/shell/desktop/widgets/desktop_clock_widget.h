@@ -20,7 +20,7 @@ public:
   struct Options {
     Style style = Style::Digital;
     std::string format;
-    ColorSpec color = colorSpecFromRole(ColorRole::OnSurface);
+    ColorSpec color = colorSpecFromRole(ColorRole::Label1);
     bool shadow = true;
     bool showCircle = true;
     bool showSeconds = true;

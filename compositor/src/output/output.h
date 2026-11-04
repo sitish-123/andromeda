@@ -8,6 +8,8 @@
 #include "output/hdr_transition.h"
 #include "scene/effect_audio.h"
 #include "scene/effect_selection.h"
+#include "util/listener.h"
+#include "util/tracked.h"
 
 #include <array>
 #include <cstdint>
@@ -15,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <wayland-server-core.h>
 
 struct wlr_buffer;
@@ -25,6 +28,7 @@ struct wlr_buffer;
 struct wlr_output_layout_output;
 struct wlr_scene_rect;
 struct wlr_scene_output;
+struct wlr_scene_node;
 struct wlr_scene_optimized_blur;
 struct wlr_scene_tree;
 struct wlr_surface;
@@ -44,7 +48,7 @@ namespace andromeda {
   class WorkspaceGroup;
   struct OutputIdentity;
 
-  class Output {
+  class Output : public Trackable {
   public:
     static constexpr uint32_t kLayerCount = 4;
 
@@ -155,17 +159,20 @@ namespace andromeda {
     // when a grouped output transaction later fails on another backend.
     class SceneCommit {
     public:
-      SceneCommit(Output& output, const wlr_output_state& state);
+      // `grouped`: stay connected for the whole wlr_backend_commit; its later events for this buffer are not commits.
+      SceneCommit(Output& output, const wlr_output_state& state, bool grouped = false);
       ~SceneCommit();
       SceneCommit(const SceneCommit&) = delete;
       SceneCommit& operator=(const SceneCommit&) = delete;
 
     private:
-      static void onCommit(wl_listener* listener, void* data);
+      static void onCommit(SceneCommit* self, void* data);
       Output& m_output;
       wlr_buffer* m_buffer = nullptr;
+      bool m_grouped = false;
+      bool m_counted = false;
       DirectScanoutState m_state;
-      wl_listener m_commit{};
+      Listener m_commit;
     };
     [[nodiscard]] bool clientTearingHintAsync(const View* view) const;
     [[nodiscard]] bool tearingEligible(View* view) const;
@@ -193,8 +200,15 @@ namespace andromeda {
     // Re-evaluate automatic HDR after surface color, fullscreen, visibility,
     // or output membership changes.
     void updateHdr();
-    void forgetHdrView(const View* view);
+    // Re-evaluate HDR after `view` left; the view has already invalidated its refs, so an auto owner is gone.
+    void onViewRemoved(const View* view);
+    // Whole output.
     void markBlurBackgroundDirty();
+    // `box` is in layout coordinates.
+    void markBlurBackgroundDirty(const wlr_box& box);
+    // The node's drawn bounds now and at its previous call; a destroyed or hidden node marks only the previous ones.
+    void markBlurBackgroundDirty(wlr_scene_node* node);
+    [[nodiscard]] size_t blurNodeCount() const { return m_blurNodeBoxes.size(); }
     void scheduleFullFrame();
     // Commit this custom mode and arrange around it. `refreshMHz` paces frames; 0 keeps the backend's default.
     void applyMode(int width, int height, int refreshMHz = 0);
@@ -212,13 +226,16 @@ namespace andromeda {
 
     Dirty m_dirty = Dirty::None;
 
-    static void onFrame(wl_listener* listener, void* data);
-    static void onRequestState(wl_listener* listener, void* data);
-    static void onPresent(wl_listener* listener, void* data);
-    static void onBackgroundUpdate(wl_listener* listener, void* data);
-    static void onBackgroundPopupUpdate(wl_listener* listener, void* data);
-    static void onDestroy(wl_listener* listener, void* data);
+    static void onFrame(Output* self, void* data);
+    static void onRequestState(Output* self, void* data);
+    static void onPresent(Output* self, void* data);
+    static void onBackgroundUpdate(Output* self, void* data);
+    static void onBackgroundPopupUpdate(Output* self, void* data);
+    static void onDestroy(Output* self, void* data);
     static int onFrameRetryTimer(void* data);
+    static int onBackdropTimer(void* data);
+    // Reads finished backdrop samples of liquid layers on this output; re-checks in 16 ms while one is in flight.
+    void pollBackdrops();
     static int onEffectFrameTimer(void* data);
     static int onDirectScanoutTimer(void* data);
 
@@ -239,6 +256,7 @@ namespace andromeda {
     void armFrameRetry();
     [[nodiscard]] DirectScanoutState builtDirectScanout() const;
     void recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq);
+    void absorbGroupedCommit(uint32_t commitSeq) { m_directScanout.absorbGroupedCommit(commitSeq); }
     void armEffectFrame(uint64_t nowMsec);
     // Render locks other than this output's animation lock.
     [[nodiscard]] int externalRenderLocks() const;
@@ -270,6 +288,7 @@ namespace andromeda {
     wlr_scene_tree* m_fullscreenRoot = nullptr;
     wlr_scene_tree* m_pinnedRoot = nullptr;
     wlr_scene_optimized_blur* m_optimizedBlur = nullptr;
+    std::unordered_map<const wlr_scene_node*, wlr_box> m_blurNodeBoxes;
     std::unique_ptr<WorkspaceGroup> m_workspaceGroup;
     wlr_box m_localUsableArea{};
     wlr_box m_loggedUsableArea{};
@@ -305,6 +324,8 @@ namespace andromeda {
     uint64_t m_refreshNs = 0;
     bool m_appliedConfiguredScale = false;
     wl_event_source* m_frameRetryTimer = nullptr;
+    bool m_frameRetryArmed = false;
+    wl_event_source* m_backdropTimer = nullptr;
     Output* m_mirrorSource = nullptr;
     int m_mirrorTargets = 0;
     // A mirror target draws only when its source delivered a new frame or a full redraw was asked for; every commit
@@ -321,11 +342,14 @@ namespace andromeda {
     EffectSlot m_screenEffectSlot;
     EffectAudio m_effectAudio{}; // bands and availability latched at the last effect frame
     uint64_t m_effectFrames = 0;
+    // ANDROMEDA_FRAME_LOG: GPU timer queries, read two frames later so the GPU is done (tests/glass-bench.sh).
+    struct FrameTimers;
+    std::unique_ptr<FrameTimers> m_frameTimers;
     float m_effectSeconds = 0.0F;
     bool m_outputEffectsTimed = false; // a visible screen or cursor instance here reads andromeda_time
     char m_cursorEffectOwner{};        // ledger identity of the cursor slot; the screen slot uses `this`
     bool m_effectCaptureBuilt = false; // the last built frame had an effect capture pending
-    View* m_autoHdrOwner = nullptr;
+    Ref<View> m_autoHdrOwner;
     std::string m_hdrFallbackReason;
     std::string m_tearingFallbackReason;
     std::string m_bitDepthFallbackReason;
@@ -343,12 +367,12 @@ namespace andromeda {
     int m_deferredHeight = 0;
     int m_deferredRefresh = 0;
 
-    wl_listener m_frame{};
-    wl_listener m_requestState{};
-    wl_listener m_present{};
-    wl_listener m_backgroundUpdate{};
-    wl_listener m_backgroundPopupUpdate{};
-    wl_listener m_destroy{};
+    Listener m_frame;
+    Listener m_requestState;
+    Listener m_present;
+    Listener m_backgroundUpdate;
+    Listener m_backgroundPopupUpdate;
+    Listener m_destroy;
   };
 
 } // namespace andromeda

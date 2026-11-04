@@ -11,7 +11,7 @@ boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
   # No first-run wizard: it takes the keyboard from the window under test.
   printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
-  printf '[general]\nautostart = []\nshow_cheatsheet = false\n' > "$RUNTIME/andromeda.toml"
+  printf '[general]\nautostart = []\n' > "$RUNTIME/andromeda.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
   cat > "$RUNTIME/bus.conf" <<'CONF'
 <busconfig>
@@ -42,13 +42,15 @@ run() {
 
 # with_noctalia SCRIPT: run a bash script while Noctalia runs on a private bus, used as both session and system bus
 # so the test shell never reaches the real BlueZ, NetworkManager, or logind. The script sees $NOCTALIA, $OUT,
-# $ANDROMEDA, $DESKTOP_CLIENT, and $RUNTIME, and Noctalia is answering IPC when it starts.
+# $ANDROMEDA, $DESKTOP_CLIENT, and $RUNTIME, and Noctalia is answering IPC when it starts. $BEFORE_NOCTALIA runs on
+# that bus before Noctalia starts (for a mock service the shell must find at startup).
 with_noctalia() {
-  run env NOCTALIA="$NOCTALIA" OUT="$OUT" ANDROMEDA="$ANDROMEDA" DESKTOP_CLIENT="$DESKTOP_CLIENT" RUNTIME="$RUNTIME" \
+  run env NOCTALIA="$NOCTALIA" OUT="$OUT" BEFORE_NOCTALIA="${BEFORE_NOCTALIA:-}" ANDROMEDA="$ANDROMEDA" DESKTOP_CLIENT="$DESKTOP_CLIENT" RUNTIME="$RUNTIME" \
     dbus-run-session --config-file="$RUNTIME/bus.conf" -- bash -c '
       set -euo pipefail
       export DBUS_SYSTEM_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS
       trap '"'"'kill $(jobs -p) 2>/dev/null || true; wait'"'"' EXIT
+      eval "${BEFORE_NOCTALIA:-}"
       "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
       for _ in $(seq 100); do "$NOCTALIA" msg settings-close > /dev/null 2>&1 && break; sleep 0.1; done
       eval "$1"
