@@ -1,6 +1,7 @@
 #include "ipc/service_ipc.h"
 
 #include "dbus/bluetooth/bluetooth_service.h"
+#include "dbus/network/inetwork_service.h"
 #include "dbus/power/power_profiles_service.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
@@ -126,4 +127,98 @@ void registerBluetoothIpc(IpcService& ipc, BluetoothService& service, const std:
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
+}
+
+void registerNetworkIpc(IpcService& ipc, INetworkService& service, const std::function<void(bool)>& wirelessFeedback) {
+  auto setWifi = [&service, wirelessFeedback](bool enabled) -> std::string {
+    if (!service.hasStateSnapshot()) {
+      return "error: network state unavailable\n";
+    }
+    if (service.state().wirelessEnabled == enabled) {
+      return "ok\n";
+    }
+    service.setWirelessEnabled(enabled);
+    if (wirelessFeedback) {
+      wirelessFeedback(enabled);
+    }
+    return "ok\n";
+  };
+
+  ipc.bind(noctalia::cli::msg::wifiEnable, [setWifi](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("wifi-enable", args); err.has_value()) {
+      return *err;
+    }
+    return setWifi(true);
+  });
+
+  ipc.bind(noctalia::cli::msg::wifiDisable, [setWifi](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("wifi-disable", args); err.has_value()) {
+      return *err;
+    }
+    return setWifi(false);
+  });
+
+  ipc.bind(noctalia::cli::msg::wifiToggle, [&service, setWifi](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("wifi-toggle", args); err.has_value()) {
+      return *err;
+    }
+    if (!service.hasStateSnapshot()) {
+      return "error: network state unavailable\n";
+    }
+    return setWifi(!service.state().wirelessEnabled);
+  });
+
+  ipc.bind(
+      noctalia::cli::msg::wifiStatus,
+      [&service](const std::string& args) -> std::string {
+        if (auto err = rejectArgs("wifi-status", args); err.has_value()) {
+          return *err;
+        }
+        if (!service.hasStateSnapshot()) {
+          return "error: network state unavailable\n";
+        }
+        return service.state().wirelessEnabled ? "on\n" : "off\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
+
+  ipc.bind(noctalia::cli::msg::networkToggle, [&service, setWifi](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("network-toggle", args); err.has_value()) {
+      return *err;
+    }
+    if (!service.hasStateSnapshot()) {
+      return "error: network state unavailable\n";
+    }
+    const NetworkState& s = service.state();
+    // Drop whatever is up, otherwise bring back whichever transport can come up.
+    if (s.kind == NetworkConnectivity::Wireless && (s.connected || s.resolving)) {
+      return setWifi(false);
+    }
+    if (s.kind == NetworkConnectivity::Wired && (s.connected || s.resolving)) {
+      service.disconnect();
+      return "ok\n";
+    }
+    if (s.kind == NetworkConnectivity::Cellular && (s.connected || s.resolving)) {
+      if (!service.deactivateCellularConnection()) {
+        return "error: failed to disconnect the cellular connection\n";
+      }
+      return "ok\n";
+    }
+    if (!s.wirelessEnabled) {
+      return setWifi(true);
+    }
+    if (service.canActivateWiredConnection()) {
+      if (!service.activateWiredConnection()) {
+        return "error: failed to activate the wired connection\n";
+      }
+      return "ok\n";
+    }
+    if (service.canActivateCellularConnection()) {
+      if (!service.activateCellularConnection()) {
+        return "error: failed to activate the cellular connection\n";
+      }
+      return "ok\n";
+    }
+    return "error: nothing to toggle (Wi-Fi is on and no wired or cellular connection is available)\n";
+  });
 }

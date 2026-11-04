@@ -40,6 +40,14 @@ _deps = [
 ]
 
 _sources = files(
+  'src/dbus/network/iwd_diagnostics.cpp',
+  'src/dbus/network/iwd_secret_agent.cpp',
+  'src/dbus/network/iwd_service.cpp',
+  'src/dbus/network/network_display.cpp',
+  'src/dbus/network/network_manager_service.cpp',
+  'src/dbus/network/network_secret_agent.cpp',
+  'src/dbus/network/wpa_supplicant_service.cpp',
+  'src/dbus/network/nm_hotspot.cpp',
   'src/dbus/bluetooth/bluetooth_agent.cpp',
   'src/dbus/bluetooth/bluetooth_service.cpp',
   'src/dbus/bluetooth/bluetooth_uuid_names.cpp',

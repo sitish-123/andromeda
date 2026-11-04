@@ -9,12 +9,10 @@
 
 // Abstract interface shared by the NetworkManager, wpa_supplicant, and iwd
 // backends. UI code should use this type so it works with any backend.
-class IpcService;
 
 class INetworkService {
 public:
   using ChangeCallback = std::function<void(const NetworkState&, NetworkChangeOrigin)>;
-  using WirelessFeedbackCallback = std::function<void(bool enabled)>;
   using WirelessEnabledCompletion = std::function<void(bool success)>;
 
   virtual ~INetworkService() = default;
@@ -57,5 +55,4 @@ public:
   virtual void disconnect() = 0;
   virtual void forgetSsid(const std::string& ssid) = 0;
   [[nodiscard]] virtual bool hasSavedConnection(const std::string& ssid) const = 0;
-  void registerIpc(IpcService& ipc, const WirelessFeedbackCallback& wirelessFeedback = {});
 };

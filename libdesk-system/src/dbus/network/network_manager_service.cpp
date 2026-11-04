@@ -4,7 +4,7 @@
 #include "dbus/network/network_manager_security.h"
 #include "dbus/system_bus.h"
 #include "i18n/i18n.h"
-#include "notification/notifications.h"
+#include "dbus/service_notice.h"
 #include "system/rfkill_helper.h"
 
 #include <algorithm>
@@ -87,7 +87,7 @@ namespace {
   constexpr std::uint32_t k_nmSettingsUpdate2FlagToDisk = 0x01;
 
   void notifyConnectFailed(const std::string& ssid, std::string body) {
-    notify::error(
+    service_notice::error(
         i18n::tr("notifications.internal.network"),
         i18n::tr("notifications.internal.network-connect-failed-title", "ssid", ssid), std::move(body)
     );

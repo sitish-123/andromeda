@@ -4,6 +4,7 @@
 #include <string_view>
 
 class BluetoothService;
+class INetworkService;
 class IpcService;
 class PowerProfilesService;
 
@@ -13,4 +14,7 @@ void registerPowerProfilesIpc(
 );
 void registerBluetoothIpc(
     IpcService& ipc, BluetoothService& service, const std::function<void(bool)>& stateFeedback = {}
+);
+void registerNetworkIpc(
+    IpcService& ipc, INetworkService& service, const std::function<void(bool)>& wirelessFeedback = {}
 );

@@ -795,7 +795,7 @@ void Application::initIpc() {
     });
   }
   if (network() != nullptr) {
-    network()->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
+    registerNetworkIpc(m_ipcService, *network(), [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
   }
   if (m_linkService != nullptr) {
     m_linkService->registerIpc(m_ipcService);
