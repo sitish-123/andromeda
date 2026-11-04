@@ -202,12 +202,12 @@ private:
   };
 
   [[nodiscard]] UPowerState readDefaultState() const;
-  [[nodiscard]] UPowerDeviceInfo readDeviceInfoBase(std::string path, sdbus::IProxy& proxy) const;
-  [[nodiscard]] UPowerChargeLimitState readChargeLimitState(
-      const UPowerDeviceInfo& info, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable
-  ) const;
-  [[nodiscard]] UPowerDeviceInfo
-  readDeviceInfo(std::string path, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable) const;
+  struct PropertyCache;
+
+  [[nodiscard]] UPowerDeviceInfo readDeviceInfoBase(std::string path) const;
+  [[nodiscard]] UPowerChargeLimitState
+  readChargeLimitState(const UPowerDeviceInfo& info, std::optional<bool>& chargeThresholdMethodAvailable) const;
+  [[nodiscard]] UPowerDeviceInfo readDeviceInfo(std::string path, std::optional<bool>& chargeThresholdMethodAvailable) const;
   void refreshDisplayDeviceProxy(const std::optional<std::string>& displayPath);
   void applyEnumeratedDevices(const std::vector<std::string>& paths);
   [[nodiscard]] bool finishFirstSnapshot();
@@ -218,13 +218,15 @@ private:
   void rescanDevices();
   [[nodiscard]] RefreshChanges refreshDevice(std::string_view devicePath, bool refreshChargeLimit);
   [[nodiscard]] RefreshChanges refreshTrackedDevice(TrackedDevice& device, bool refreshChargeLimit);
-  [[nodiscard]] RefreshChanges refreshDeviceStates();
+  [[nodiscard]] bool chargeThresholdRequestIsCurrent(const std::string& path, std::uint64_t requestId) const;
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_upowerProxy;
   std::unique_ptr<sdbus::IProxy> m_powerProxy;
   std::unique_ptr<sdbus::IProxy> m_displayDeviceProxy;
   std::string m_displayDevicePath;
+  std::unique_ptr<PropertyCache> m_props;
+  bool m_onBattery = false;
   std::vector<TrackedDevice> m_devices;
   std::optional<UPowerDeviceInfo> m_dummyDevice;
   UPowerState m_state;

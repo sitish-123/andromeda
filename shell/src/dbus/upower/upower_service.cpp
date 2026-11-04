@@ -124,46 +124,27 @@ const char* batteryDeviceGlyphName(UPowerDeviceType type) {
 
 namespace {
 
-  template <typename T>
-  T getPropertyOr(sdbus::IProxy& proxy, std::string_view iface, std::string_view propertyName, T fallback) {
-    try {
-      const sdbus::Variant value = proxy.getProperty(propertyName).onInterface(iface);
-      return value.get<T>();
-    } catch (const sdbus::Error&) {
-      return fallback;
-    }
-  }
+  using Props = std::map<std::string, sdbus::Variant>;
 
-  using Props = std::map<sdbus::PropertyName, sdbus::Variant>;
-
-  // One GetAll per object instead of one Get per property: each Get wakes andromeda-system.
-  Props getAllOr(sdbus::IProxy& proxy, std::string_view iface) {
-    try {
-      return proxy.getAllProperties().onInterface(iface);
-    } catch (const sdbus::Error&) {
-      return {};
-    }
-  }
-
-  template <typename T> T propOr(const Props& props, std::string_view name, T fallback) {
-    const auto it = props.find(sdbus::PropertyName{std::string(name)});
+  template <typename T> std::optional<T> optProp(const Props& props, std::string_view name) {
+    const auto it = props.find(std::string(name));
     if (it == props.end()) {
-      return fallback;
+      return std::nullopt;
     }
     try {
       return it->second.get<T>();
     } catch (const sdbus::Error&) {
-      return fallback;
+      return std::nullopt;
     }
   }
 
-  template <typename T>
-  std::optional<T> getOptionalProperty(sdbus::IProxy& proxy, std::string_view iface, std::string_view propertyName) {
-    try {
-      const sdbus::Variant value = proxy.getProperty(propertyName).onInterface(iface);
-      return value.get<T>();
-    } catch (const sdbus::Error&) {
-      return std::nullopt;
+  template <typename T> T propOr(const Props& props, std::string_view name, T fallback) {
+    return optProp<T>(props, name).value_or(std::move(fallback));
+  }
+
+  void merge(Props& props, const Props& changed) {
+    for (const auto& [name, value] : changed) {
+      props.insert_or_assign(name, value);
     }
   }
 
@@ -307,6 +288,18 @@ namespace {
 
 } // namespace
 
+// Battery properties by object path, from GetManagedObjects and PropertiesChanged: andromeda-system sends values
+// in its signals, so the shell never blocks on a property read.
+struct UPowerService::PropertyCache {
+  std::map<std::string, Props> byPath;
+
+  [[nodiscard]] const Props& at(const std::string& path) const {
+    static const Props kEmpty;
+    const auto it = byPath.find(path);
+    return it != byPath.end() ? it->second : kEmpty;
+  }
+};
+
 std::optional<double> UPowerDeviceInfo::healthPercent() const {
   if (energyFullDesign <= 0.0 || energyFull <= 0.0) {
     return std::nullopt;
@@ -346,17 +339,17 @@ bool upowerDeviceMatchesSelector(const UPowerDeviceInfo& info, std::string_view 
       || selectorMatchesField(info.vendor, trimmed);
 }
 
-UPowerService::UPowerService(SystemBus& bus) : m_bus(bus) {
+UPowerService::UPowerService(SystemBus& bus) : m_bus(bus), m_props(std::make_unique<PropertyCache>()) {
   m_upowerProxy = sdbus::createProxy(m_bus.connection(), kSystemBusName, kRootPath);
   m_powerProxy = sdbus::createProxy(m_bus.connection(), kSystemBusName, kPowerPath);
 
   m_powerProxy->uponSignal("PropertiesChanged")
       .onInterface(kPropertiesInterface)
       .call([this](
-                const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& /*changed*/,
-                const std::vector<std::string>& /*invalidated*/
+                const std::string& interfaceName, const Props& changed, const std::vector<std::string>& /*invalidated*/
             ) {
         if (interfaceName == kPowerInterface) {
+          m_onBattery = propOr<bool>(changed, "OnBattery", m_onBattery);
           (void)refreshDefaultState();
         }
       });
@@ -386,14 +379,7 @@ UPowerService::~UPowerService() { m_lifetimeToken.reset(); }
 
 void UPowerService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
-void UPowerService::refresh() {
-  const auto changes = refreshDeviceStates();
-  if (changes.devicesChanged) {
-    emitChangedIfNeeded(true, changes.chargeLimitChanged, changes.deviceCatalogChanged);
-  } else if (!refreshDefaultState()) {
-    emitChangedIfNeeded(false, changes.chargeLimitChanged, changes.deviceCatalogChanged);
-  }
-}
+void UPowerService::refresh() { rescanDevices(); }
 
 std::vector<UPowerDeviceInfo> UPowerService::batteryDevices() const {
   std::vector<UPowerDeviceInfo> devices;
@@ -419,7 +405,7 @@ UPowerState UPowerService::stateForDevice(std::string_view selector) const {
   }
 
   UPowerState missing;
-  missing.onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
+  missing.onBattery = m_onBattery;
   return missing;
 }
 
@@ -431,7 +417,7 @@ void UPowerService::rescanDevices() {
   m_rescanInFlight = true;
 
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
-  using ManagedObjects = std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
+  using ManagedObjects = std::map<sdbus::ObjectPath, std::map<std::string, Props>>;
   m_upowerProxy->callMethodAsync("GetManagedObjects")
       .onInterface(kObjectManagerInterface)
       .uponReplyInvoke([this, lifetimeToken](std::optional<sdbus::Error> err, ManagedObjects objects) {
@@ -448,10 +434,16 @@ void UPowerService::rescanDevices() {
         } else {
           std::optional<std::string> display;
           std::vector<std::string> paths;
-          for (const auto& [path, interfaces] : objects) {
-            if (!interfaces.contains(kDeviceInterface)) {
+          m_props->byPath.clear();
+          for (auto& [path, interfaces] : objects) {
+            if (const auto power = interfaces.find(kPowerInterface); path == kPowerPath && power != interfaces.end()) {
+              m_onBattery = propOr<bool>(power->second, "OnBattery", false);
+            }
+            const auto device = interfaces.find(kDeviceInterface);
+            if (device == interfaces.end()) {
               continue;
             }
+            m_props->byPath.insert_or_assign(std::string(path), std::move(device->second));
             if (std::string_view(path).ends_with(kDisplayDeviceSuffix)) {
               display = std::string(path);
             } else {
@@ -501,7 +493,7 @@ void UPowerService::applyEnumeratedDevices(const std::vector<std::string>& paths
       std::optional<bool> knownMethod =
           previous != m_devices.end() ? previous->chargeThresholdMethodAvailable : std::nullopt;
       auto proxy = sdbus::createProxy(m_bus.connection(), kSystemBusName, sdbus::ObjectPath{path});
-      auto info = readDeviceInfo(devicePath, *proxy, knownMethod);
+      auto info = readDeviceInfo(devicePath, knownMethod);
       if (!isBatteryCapableDeviceType(info.type)) {
         continue;
       }
@@ -510,10 +502,10 @@ void UPowerService::applyEnumeratedDevices(const std::vector<std::string>& paths
       proxy->uponSignal("PropertiesChanged")
           .onInterface(kPropertiesInterface)
           .call([this, lifetimeToken, devicePath](
-                    const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changed,
-                    const std::vector<std::string>& invalidated
+                    const std::string& interfaceName, const Props& changed, const std::vector<std::string>& invalidated
                 ) {
             if (!lifetimeToken.expired() && interfaceName == kDeviceInterface) {
+              merge(m_props->byPath[devicePath], changed);
               const auto changes = refreshDevice(devicePath, chargeLimitPropertiesChanged(changed, invalidated));
               emitChangedIfNeeded(changes.devicesChanged, changes.chargeLimitChanged, changes.deviceCatalogChanged);
             }
@@ -568,11 +560,11 @@ void UPowerService::applyEnumeratedDevices(const std::vector<std::string>& paths
 
 UPowerState UPowerService::readDefaultState() const {
   UPowerState next;
-  const bool onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
+  const bool onBattery = m_onBattery;
   next.onBattery = onBattery;
 
   if (m_displayDeviceProxy != nullptr) {
-    next = deviceState(getAllOr(*m_displayDeviceProxy, kDeviceInterface), onBattery);
+    next = deviceState(m_props->at(m_displayDevicePath), onBattery);
     if (next.isPresent) {
       return next;
     }
@@ -591,8 +583,8 @@ UPowerState UPowerService::readDefaultState() const {
   return next;
 }
 
-UPowerDeviceInfo UPowerService::readDeviceInfoBase(std::string path, sdbus::IProxy& proxy) const {
-  const Props props = getAllOr(proxy, kDeviceInterface);
+UPowerDeviceInfo UPowerService::readDeviceInfoBase(std::string path) const {
+  const Props& props = m_props->at(path);
   UPowerDeviceInfo info;
   info.path = std::move(path);
   info.nativePath = propOr<std::string>(props, "NativePath", "");
@@ -604,13 +596,13 @@ UPowerDeviceInfo UPowerService::readDeviceInfoBase(std::string path, sdbus::IPro
   info.energyFull = propOr<double>(props, "EnergyFullWh", 0.0);
   info.energyFullDesign = propOr<double>(props, "EnergyFullDesignWh", 0.0);
   info.chargeCycles = propOr<std::int32_t>(props, "Cycles", -1);
-  info.state = deviceState(props, getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false));
+  info.state = deviceState(props, m_onBattery);
   info.isPresent = info.state.isPresent;
   return info;
 }
 
 UPowerChargeLimitState UPowerService::readChargeLimitState(
-    const UPowerDeviceInfo& info, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable
+    const UPowerDeviceInfo& info, std::optional<bool>& chargeThresholdMethodAvailable
 ) const {
   UPowerChargeLimitState state;
   if (!info.isLaptopBattery()) {
@@ -619,7 +611,7 @@ UPowerChargeLimitState UPowerService::readChargeLimitState(
   }
 
   using ChargeLimit = sdbus::Struct<bool, bool, std::uint32_t, std::uint32_t, std::uint32_t>;
-  const auto limit = getOptionalProperty<ChargeLimit>(proxy, kDeviceInterface, "ChargeLimit");
+  const auto limit = optProp<ChargeLimit>(m_props->at(info.path), "ChargeLimit");
   if (!limit.has_value()) {
     return state;
   }
@@ -642,11 +634,10 @@ UPowerChargeLimitState UPowerService::readChargeLimitState(
   return state;
 }
 
-UPowerDeviceInfo UPowerService::readDeviceInfo(
-    std::string path, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable
-) const {
-  auto info = readDeviceInfoBase(std::move(path), proxy);
-  info.chargeLimit = readChargeLimitState(info, proxy, chargeThresholdMethodAvailable);
+UPowerDeviceInfo
+UPowerService::readDeviceInfo(std::string path, std::optional<bool>& chargeThresholdMethodAvailable) const {
+  auto info = readDeviceInfoBase(std::move(path));
+  info.chargeLimit = readChargeLimitState(info, chargeThresholdMethodAvailable);
   return info;
 }
 
@@ -722,29 +713,24 @@ bool UPowerService::enableChargeThreshold(std::string_view devicePath, bool enab
         .onInterface(kDeviceInterface)
         .withArguments(enabled, UINT32_MAX, UINT32_MAX)
         .uponReplyInvoke([this, lifetimeToken, path, requestId, keepAlive = proxy](std::optional<sdbus::Error> error) {
-          (void)keepAlive;
-          if (lifetimeToken.expired()) {
+          if (lifetimeToken.expired() || !chargeThresholdRequestIsCurrent(path, requestId)) {
             return;
           }
-
-          const auto current = std::ranges::find_if(m_devices, [&path](const TrackedDevice& device) {
-            return device.info.path == path;
-          });
-          if (current == m_devices.end() || current->chargeThresholdRequestId != requestId) {
-            return;
-          }
-
-          // Refresh on every completion: UPower may have changed a subset of the hardware state even
-          // when the method reports an error.
-          auto changes = refreshDeviceStates();
-          const auto refreshed = std::ranges::find_if(m_devices, [&path](const TrackedDevice& device) {
-            return device.info.path == path;
-          });
-          if (refreshed != m_devices.end() && refreshed->chargeThresholdRequestId == requestId) {
-            refreshed->chargeThresholdRequestId.reset();
-            refreshed->info.chargeLimit.requestPending = false;
-            refreshed->info.chargeLimit.requestedEnabled.reset();
-            refreshed->info.chargeLimit.operationError = !error.has_value()
+          auto finish = [this, path, requestId, error](std::optional<Props> props) {
+            if (props.has_value()) {
+              m_props->byPath.insert_or_assign(path, std::move(*props));
+            }
+            const auto current = std::ranges::find_if(m_devices, [&path](const TrackedDevice& device) {
+              return device.info.path == path;
+            });
+            if (current == m_devices.end() || current->chargeThresholdRequestId != requestId) {
+              return;
+            }
+            auto changes = refreshTrackedDevice(*current, true);
+            current->chargeThresholdRequestId.reset();
+            current->info.chargeLimit.requestPending = false;
+            current->info.chargeLimit.requestedEnabled.reset();
+            current->info.chargeLimit.operationError = !error.has_value()
                 ? ChargeLimitOperationError::None
                 : (isAuthorizationError(*error) ? ChargeLimitOperationError::PermissionDenied
                                                 : ChargeLimitOperationError::Failed);
@@ -753,6 +739,20 @@ bool UPowerService::enableChargeThreshold(std::string_view devicePath, bool enab
             }
             changes.chargeLimitChanged = true;
             emitChangedIfNeeded(changes.devicesChanged, changes.chargeLimitChanged, changes.deviceCatalogChanged);
+          };
+          // Read the device again on every completion: UPower may have changed a subset of the hardware state
+          // even when the method reports an error.
+          try {
+            keepAlive->callMethodAsync("GetAll")
+                .onInterface(kPropertiesInterface)
+                .withArguments(std::string(kDeviceInterface))
+                .uponReplyInvoke([lifetimeToken, finish, keepAlive](std::optional<sdbus::Error> readError, Props props) {
+                  if (!lifetimeToken.expired()) {
+                    finish(readError.has_value() ? std::nullopt : std::optional<Props>{std::move(props)});
+                  }
+                });
+          } catch (const sdbus::Error&) {
+            finish(std::nullopt);
           }
         });
   } catch (const sdbus::Error& error) {
@@ -834,11 +834,11 @@ void UPowerService::refreshDisplayDeviceProxy(const std::optional<std::string>& 
     auto proxy = sdbus::createProxy(m_bus.connection(), kSystemBusName, sdbus::ObjectPath{nextPath});
     proxy->uponSignal("PropertiesChanged")
         .onInterface(kPropertiesInterface)
-        .call([this](
-                  const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& /*changed*/,
-                  const std::vector<std::string>& /*invalidated*/
+        .call([this, nextPath](
+                  const std::string& interfaceName, const Props& changed, const std::vector<std::string>& /*invalidated*/
               ) {
           if (interfaceName == kDeviceInterface) {
+            merge(m_props->byPath[nextPath], changed);
             (void)refreshDefaultState();
           }
         });
@@ -870,10 +870,10 @@ bool UPowerService::refreshDefaultState() {
 
 UPowerService::RefreshChanges UPowerService::refreshTrackedDevice(TrackedDevice& device, bool refreshChargeLimit) {
   RefreshChanges changes;
-  auto next = readDeviceInfoBase(device.info.path, *device.proxy);
+  auto next = readDeviceInfoBase(device.info.path);
   const bool laptopCapabilityChanged = next.isLaptopBattery() != device.info.isLaptopBattery();
   if (refreshChargeLimit || laptopCapabilityChanged) {
-    next.chargeLimit = readChargeLimitState(next, *device.proxy, device.chargeThresholdMethodAvailable);
+    next.chargeLimit = readChargeLimitState(next, device.chargeThresholdMethodAvailable);
     next.chargeLimit.requestPending = device.info.chargeLimit.requestPending;
     next.chargeLimit.requestedEnabled = device.info.chargeLimit.requestedEnabled;
     next.chargeLimit.operationError = device.info.chargeLimit.operationError;
@@ -900,15 +900,10 @@ UPowerService::RefreshChanges UPowerService::refreshDevice(std::string_view devi
   return refreshTrackedDevice(*device, refreshChargeLimit);
 }
 
-UPowerService::RefreshChanges UPowerService::refreshDeviceStates() {
-  RefreshChanges changes;
-  for (auto& device : m_devices) {
-    const auto deviceChanges = refreshTrackedDevice(device, true);
-    changes.devicesChanged = changes.devicesChanged || deviceChanges.devicesChanged;
-    changes.chargeLimitChanged = changes.chargeLimitChanged || deviceChanges.chargeLimitChanged;
-    changes.deviceCatalogChanged = changes.deviceCatalogChanged || deviceChanges.deviceCatalogChanged;
-  }
-  return changes;
+bool UPowerService::chargeThresholdRequestIsCurrent(const std::string& path, std::uint64_t requestId) const {
+  return std::ranges::any_of(m_devices, [&path, requestId](const TrackedDevice& device) {
+    return device.info.path == path && device.chargeThresholdRequestId == requestId;
+  });
 }
 
 void UPowerService::emitChangedIfNeeded(bool devicesChanged, bool chargeLimitChanged, bool deviceCatalogChanged) {
