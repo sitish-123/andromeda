@@ -43,6 +43,10 @@ struct fx_renderer* fx_get_renderer(struct wlr_renderer* wlr_renderer) {
   return renderer;
 }
 
+void fx_renderer_set_event_loop(struct wlr_renderer* wlr_renderer, struct wl_event_loop* loop) {
+  fx_get_renderer(wlr_renderer)->event_loop = loop;
+}
+
 void fx_renderer_set_allocator(struct wlr_renderer* wlr_renderer, struct wlr_allocator* allocator) {
   struct fx_renderer* renderer = fx_get_renderer(wlr_renderer);
   renderer->allocator = allocator;

@@ -10,6 +10,7 @@
 
 struct fx_renderer;
 struct wlr_output;
+struct wl_event_loop;
 
 struct wlr_renderer* fx_renderer_create_with_drm_fd(int drm_fd);
 /* Creates through GBM without enumerating EGL devices. */
@@ -17,6 +18,12 @@ struct wlr_renderer* fx_renderer_create_with_drm_fd_gbm(int drm_fd);
 struct wlr_renderer* fx_renderer_create(struct wlr_backend* backend);
 
 struct fx_renderer* fx_get_renderer(struct wlr_renderer* wlr_renderer);
+
+/**
+ * Enables zero-copy import of large sealed shm buffers through /dev/udmabuf.
+ * The loop releases each client buffer once the GPU has finished reading it.
+ */
+void fx_renderer_set_event_loop(struct wlr_renderer* renderer, struct wl_event_loop* loop);
 
 bool fx_renderer_check_ext(struct wlr_renderer* renderer, const char* ext);
 GLuint fx_renderer_get_buffer_fbo(struct wlr_renderer* renderer, struct wlr_buffer* buffer);

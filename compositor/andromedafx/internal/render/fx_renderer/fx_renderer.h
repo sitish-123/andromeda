@@ -204,6 +204,8 @@ struct fx_renderer {
 
   struct wlr_egl* egl;
   int drm_fd;
+  // Set by the compositor; NULL disables zero-copy shm import.
+  struct wl_event_loop* event_loop;
   struct wlr_allocator* allocator;
 
   // GL timestamp minus CLOCK_MONOTONIC (ns), resynced once per second: a GL_TIMESTAMP read is a register read that
