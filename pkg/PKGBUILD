@@ -1,6 +1,6 @@
 pkgbase=desktop-git
 pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-  andromeda-power-git noctalia-greeter-desktop-git)
+  andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r0
@@ -27,6 +27,7 @@ pkgver() {
 prepare() {
   git -C desktop submodule update --init link
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
+  cargo fetch --locked --manifest-path desktop/system/Cargo.toml
 }
 
 build() {
@@ -45,6 +46,23 @@ build() {
   # makepkg's -flto=auto turns ring's C and cxx-qt's C++ objects into GCC LTO bitcode, which the Rust linker cannot read.
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror -p link-desk -p link-session
+  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
+}
+
+package_andromeda-system-git() {
+  pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
+  depends=(dbus polkit upower power-profiles-daemon)
+  optdepends=('networkmanager: network state')
+  install -Dm755 desktop/system/target/release/andromeda-system "$pkgdir/usr/lib/andromeda/andromeda-system"
+  # Started on demand by D-Bus activation from the shell or the greeter.
+  install -Dm644 desktop/system/data/andromeda-system.service "$pkgdir/usr/lib/systemd/system/andromeda-system.service"
+  install -Dm644 desktop/system/data/org.andromeda.System1.conf "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.System1.conf"
+  install -Dm644 desktop/system/data/org.andromeda.System1.service \
+    "$pkgdir/usr/share/dbus-1/system-services/org.andromeda.System1.service"
+  install -Dm644 desktop/system/data/org.andromeda.system.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.system.policy"
+  install -Dm644 desktop/system/data/org.andromeda.System1.xml \
+    "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.System1.xml"
 }
 
 package_andromeda() {
@@ -93,7 +111,7 @@ package_noctalia-desktop-git() {
   depends=(bash cairo curl fontconfig freetype2 git glib2 glibc harfbuzz hicolor-icon-theme jemalloc libgcc libglvnd
     libical libjxl libpipewire libqalculate librsvg libsecret libsndfile libsodium libstdc++ libwebp libwireplumber
     libxkbcommon libxml2 md4c pam polkit pango qrencode sdbus-cpp tomlplusplus wayland
-    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va)
+    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va andromeda-system-git)
   optdepends=('ddcutil: monitor brightness control')
   provides=(noctalia)
   conflicts=(noctalia)
