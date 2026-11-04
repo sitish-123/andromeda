@@ -30,7 +30,7 @@ dwell = "1m"
 holds = [{ knob = "app.freeze", value = true }]
 
 # Cools the machine: while a zone is past a trip point, hidden apps run at T3 (efficiency CPUs, low weight).
-# Not built from the doc yet: the fps cap for hidden content, and the alert after 5 min.
+# Not built from the doc yet: the fps cap for hidden content. The alert is thermal.hot below.
 [[rule]]
 id = "thermal.relief"
 scope = "session"
@@ -41,3 +41,14 @@ for = "1m"
 clear = "not thermal.throttled"
 dwell = "2m"
 holds = [{ knob = "app.tier", value = "T3" }]
+
+# thermal.relief's alert: one per episode, only when throttling lasts 5 min.
+[[rule]]
+id = "thermal.hot"
+scope = "session"
+priority = "safety"
+when = "thermal.throttled"
+for = "5m"
+clear = "not thermal.throttled"
+dwell = "2m"
+alert = { urgency = "normal", text = "thermal_hot" }

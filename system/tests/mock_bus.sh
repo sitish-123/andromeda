@@ -154,7 +154,7 @@ grep -c '^notify' "$OUT/notes.log" | grep -qx 1 || fail "the rule alerted more t
 RULES=(call org.andromeda.System1 /org/andromeda/System1/Rules org.andromeda.System1.Rules)
 until_has 10 '"power.low_power_plan" true ""' "${S[@]}" "${RULES[@]}" List
 # Every shipped rule loads: an empty third field is no load error.
-for rule in apps.drainer memory.relief thermal.relief storage.low battery.optimized_charging; do
+for rule in apps.drainer memory.relief thermal.relief thermal.hot storage.low battery.optimized_charging; do
   until_has 10 "\"$rule\" true \"\"" "${S[@]}" "${RULES[@]}" List
 done
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan true 1 low_pct d 10

@@ -48,6 +48,9 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         }
         "battery_critical" => ("Battery critically low", "Plug in now. The computer will soon shut down."),
         "drainer" => ("{app} uses a lot of energy", "It used {cpu} % of a CPU core for 2 minutes."),
+        "thermal_hot" => {
+            ("The computer is hot", "It runs slower to cool down. Background apps use less power until it cools.")
+        }
         "storage_low" => {
             ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
         }
