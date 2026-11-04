@@ -79,6 +79,7 @@
 #include "shell/activity/activity_window.h"
 #include "system/container_service.h"
 #include "system/activity_actions.h"
+#include "system/ambient_brightness.h"
 #include "system/activity_monitor.h"
 #include "system/background_activity_monitor.h"
 #include "system/background_warning_state.h"
@@ -140,6 +141,7 @@ class KeyboardBacklightService;
 class DebugService;
 class AndromedaShellService;
 class EasyEffectsService;
+class AmbientLightService;
 class SystemHealthService;
 class INetworkService;
 class IwdSecretAgent;
@@ -378,7 +380,19 @@ private:
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
   IdleInhibitor m_idleInhibitor;
   IdleManager m_idleManager;
+  // Automatic brightness: the sensor client, the learned curve, the level it last left on each built-in panel
+  // (before the low-power step) and the lux of that level. A level that differs later is the user's choice.
+  std::unique_ptr<AmbientLightService> m_ambientLight;
+  AmbientBrightnessModel m_ambientModel;
+  std::map<std::string, float> m_ambientSet;
+  double m_ambientLux = -1.0;
+  void syncAmbientLight();
+  void applyAmbientLight(double lux);
   PluginIdleWatches m_pluginIdleWatches;
+  bool m_dndByRule = false;
+  void applyRuleDoNotDisturb();
+  // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
+  void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);
   IdleGraceOverlay m_idleGraceOverlay;
   std::uint64_t m_idleGraceOverlayGeneration = 0;
   std::unique_ptr<SystemHealthService> m_systemHealthService;

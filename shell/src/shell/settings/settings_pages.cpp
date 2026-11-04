@@ -107,7 +107,7 @@ namespace settings {
         "shell.font_family",
         "wallpaper.enabled", "wallpaper.fill_mode", "wallpaper.directory", "wallpaper.transition",
         "wallpaper.automation.enabled", "wallpaper.automation.interval_seconds",
-        "brightness.sync_all_monitors",
+        "brightness.sync_all_monitors", "brightness.automatic",
         "audio.enable_sounds", "audio.sound_volume", "audio.auto_switch_hdmi", "bluetooth.connect_when_enabled",
         "notification.enable_daemon", "notification.position", "notification.show_app_name",
         "notification.keep_dismissed_in_history", "osd.enabled", "osd.position",

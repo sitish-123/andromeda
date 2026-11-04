@@ -44,6 +44,7 @@
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
+#include "dbus/sensor/ambient_light_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
 #include "dbus/system_bus.h"

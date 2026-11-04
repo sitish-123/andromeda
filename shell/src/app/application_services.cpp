@@ -36,6 +36,7 @@
 #include "dbus/notification/notification_dbus_host.h"
 #include "dbus/notification/notification_service.h"
 #include "dbus/polkit/polkit_agent.h"
+#include "dbus/sensor/ambient_light_service.h"
 #include "dbus/polkit/polkit_poll_source.h"
 #include "dbus/polkit/polkit_session_support.h"
 #include "dbus/portal/global_shortcuts_portal.h"
@@ -120,6 +121,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <gio/gio.h>
 #include <limits>
 #include <malloc.h>
@@ -1720,6 +1722,7 @@ void Application::initBrightnessAndPipewire() {
             return;
           }
           m_brightnessService->reload(m_configService.config().brightness);
+          syncAmbientLight();
           m_bar.refresh();
           if (shouldRefreshControlCenter()) {
             m_panelManager.refresh();
@@ -1731,6 +1734,7 @@ void Application::initBrightnessAndPipewire() {
     kLog.warn("brightness service disabled: {}", e.what());
     m_brightnessService.reset();
   }
+  syncAmbientLight();
 
   m_pipewireModule = m_services.add<PipeWireModule>();
   if (!m_services.start(m_configService.config())) {
@@ -1908,6 +1912,91 @@ void Application::applyBrightnessStep() {
   }
 }
 
+// notifications.dnd (the Presenting mode): Do Not Disturb while the hold lasts. It turns off again only if the rule
+// turned it on and the user left it on.
+void Application::applyRuleDoNotDisturb() {
+  const bool hold = m_systemHealthService != nullptr
+      && m_systemHealthService->knob("notifications.dnd").value_or(0.0) > 0.0;
+  if (hold && !m_notificationManager.doNotDisturb()) {
+    m_notificationManager.setDoNotDisturb(true);
+    m_dndByRule = true;
+  } else if (!hold && m_dndByRule) {
+    m_dndByRule = false;
+    if (m_notificationManager.doNotDisturb()) {
+      m_notificationManager.setDoNotDisturb(false);
+    }
+  }
+}
+
+void Application::notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs) {
+  if (rejectedAtMs.empty()) {
+    return;
+  }
+  std::string times;
+  const auto* zone = std::chrono::current_zone();
+  for (const std::int64_t ms : rejectedAtMs) {
+    const auto local = zone->to_local(std::chrono::sys_time<std::chrono::milliseconds>(std::chrono::milliseconds(ms)));
+    times += std::format("{}{:%H:%M}", times.empty() ? "" : ", ", std::chrono::floor<std::chrono::minutes>(local));
+  }
+  m_notificationManager.addInternal(
+      "Noctalia", i18n::tr("lockscreen.failed-unlocks.summary", "count", rejectedAtMs.size()),
+      i18n::tr("lockscreen.failed-unlocks.body", "times", times), Urgency::Normal
+  );
+}
+
+void Application::syncAmbientLight() {
+  const bool want = m_systemBus != nullptr && m_brightnessService != nullptr
+      && m_configService.config().brightness.automatic;
+  if (want == (m_ambientLight != nullptr)) {
+    return;
+  }
+  m_ambientSet.clear();
+  m_ambientLux = -1.0;
+  if (!want) {
+    m_ambientLight.reset();
+    return;
+  }
+  try {
+    m_ambientLight = std::make_unique<AmbientLightService>(*m_systemBus, [this](double lux) { applyAmbientLight(lux); });
+  } catch (const std::exception& e) {
+    kLog.warn("automatic brightness disabled: {}", e.what());
+  }
+}
+
+// Only built-in panels follow the sensor: it sits in the lid, away from an external monitor's room light.
+// While the idle dim holds, the levels stay; the low-power step stays 0.1 below the ambient level.
+void Application::applyAmbientLight(double lux) {
+  if (m_brightnessService == nullptr || !m_idleDimmed.empty()) {
+    return;
+  }
+  constexpr float kStep = 0.1F;
+  const float floor = m_configService.config().brightness.minimumBrightness;
+  const std::vector<BrightnessDisplay> displays = m_brightnessService->displays();
+  for (const auto& d : displays) {
+    if (!d.controllable || !(d.id.starts_with("eDP") || d.id.starts_with("LVDS") || d.id.starts_with("DSI"))) {
+      continue;
+    }
+    const bool stepped = m_dimmedFrom.contains(d.id);
+    const float level = stepped ? d.brightness + kStep : d.brightness;
+    const auto set = m_ambientSet.find(d.id);
+    if (set != m_ambientSet.end() && m_ambientLux >= 0.0 && std::abs(level - set->second) >= 0.02F) {
+      m_ambientModel.learn(m_ambientLux, level);
+    }
+    const float target = std::max(floor, m_ambientModel.target(lux));
+    if (std::abs(target - level) < 0.04F) {
+      m_ambientSet[d.id] = level;
+      continue;
+    }
+    m_ambientSet[d.id] = target;
+    m_brightnessOsd.suppressFor(std::chrono::seconds(2));
+    if (stepped) {
+      m_dimmedFrom[d.id] = target;
+    }
+    m_brightnessService->setBrightness(d.id, stepped ? std::max(kStep, target - kStep) : target);
+  }
+  m_ambientLux = lux;
+}
+
 // The idle "dim" behavior halves each display's brightness (not below 0.05) and restores it on input, unless the user
 // moved the brightness meanwhile.
 void Application::applyIdleDim(bool dim) {
@@ -1956,7 +2045,10 @@ void Application::initSessionBusServices() {
     try {
       m_systemHealthService = std::make_unique<SystemHealthService>(*m_bus);
       m_systemHealthService->setChangeCallback([this] { m_settingsWindow.onPowerChanged(); });
-      m_systemHealthService->setKnobCallback([this] { applyBrightnessStep(); });
+      m_systemHealthService->setKnobCallback([this] {
+        applyBrightnessStep();
+        applyRuleDoNotDisturb();
+      });
     } catch (const std::exception& e) {
       kLog.warn("system health client disabled: {}", e.what());
       m_systemHealthService.reset();

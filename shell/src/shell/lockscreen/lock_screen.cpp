@@ -1705,6 +1705,7 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
   m_lastRejected = result.rejected;
   if (result.rejected) {
     m_failDelay.recordRejected(wallClockMillis());
+    m_rejectedAt.push_back(wallClockMillis());
     applyFailDelay();
   }
   updatePromptOnSurfaces();

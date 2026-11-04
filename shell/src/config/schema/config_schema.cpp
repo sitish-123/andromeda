@@ -693,6 +693,15 @@ namespace noctalia::config::schema {
                 .tags = "floor clamp",
             }
         ),
+        field(
+            &BrightnessConfig::automatic, "automatic",
+            RowSpec{
+                .section = "services",
+                .group = "brightness",
+                .label = "services.automatic-brightness",
+                .tags = "ambient light sensor auto adaptive",
+            }
+        ),
         // Map key seeds `match`; an explicit `match` key inside overrides it.
         namedMap<BrightnessConfig, BrightnessMonitorOverride>(
             &BrightnessConfig::monitorOverrides, "monitor", brightnessMonitorSchema(),

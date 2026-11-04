@@ -437,6 +437,7 @@ void Application::initLockScreenAndSession() {
         m_idleManager.setSessionLocked(false);
         m_screenTimeService.setSessionLocked(false);
         m_hookManager.fire(HookKind::SessionUnlocked);
+        notifyFailedUnlocks(m_lockScreen.takeRejectedWhileLocked());
         releaseSleepDelayInhibitIfPending();
         requestAllSurfacesRedraw();
         // The bar skipped ticks while locked; refresh it now rather than at the next minute.

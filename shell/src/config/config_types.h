@@ -1571,6 +1571,7 @@ struct BrightnessConfig {
   std::vector<std::string> ddcutilIgnoreMmids;
   std::vector<BrightnessMonitorOverride> monitorOverrides;
   float minimumBrightness = 0.0F;
+  bool automatic = true; // built-in panels follow the ambient light sensor
 
   bool operator==(const BrightnessConfig&) const = default;
 };

@@ -1316,6 +1316,10 @@
     "authenticating": "Authenticating…",
     "authentication-failed": "Authentication failed",
     "caps-lock-on": "Caps Lock is on",
+    "failed-unlocks": {
+      "summary": "Wrong password while locked ({count}×)",
+      "body": "At {times}. If this was not you, change your password."
+    },
     "alert": {
       "cancel": "Cancel",
       "restart-title": "Restart anyway?",
@@ -2124,7 +2128,10 @@
       "rule-thermal-hot": "Overheating alert",
       "rule-thermal-fps": "Slower hidden animations when hot",
       "rule-captive-portal": "Open network sign-in pages",
+      "rule-leaving-home": "Save power on metered networks",
+      "rule-presenting": "Do Not Disturb while sharing the screen",
       "rule-drive-failing": "Failing disk alert",
+      "rule-fs-errors": "File system error alert",
       "sot": "Screen on time",
       "sot-since-unplugged": "Since unplugged",
       "sot-since-full": "Since full charge",
@@ -3960,8 +3967,8 @@
       },
       "services": {
         "audio-hdmi-switch": {
-          "description": "Play sound on a TV or monitor when it is plugged in, instead of the laptop speaker",
-          "label": "Switch to HDMI Audio"
+          "description": "Play sound on a TV, monitor or Bluetooth device when it connects, instead of the laptop speaker",
+          "label": "Switch to New Audio Devices"
         },
         "audio-overdrive": {
           "description": "Allow volume above 100%",
@@ -4092,6 +4099,10 @@
         "longitude": {
           "description": "Manual longitude for the sunrise/sunset schedule, used when auto-locate and address are off",
           "label": "Longitude"
+        },
+        "automatic-brightness": {
+          "description": "Change the built-in screen's brightness with the light around you. It learns from your own changes",
+          "label": "Automatic Brightness"
         },
         "minimum-brightness": {
           "description": "Prevent the screen from going completely dark",

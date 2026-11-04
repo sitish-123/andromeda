@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct ScreencopyImage;
@@ -61,6 +62,8 @@ public:
   );
   void setPhoneServices(LinkService* link);
   void setNotificationManager(const NotificationManager* notifications);
+  // Wall-clock ms of each rejected password since the last unlock; clears it.
+  [[nodiscard]] std::vector<std::int64_t> takeRejectedWhileLocked() { return std::exchange(m_rejectedAt, {}); }
   bool lock();
   // Lock from the paired phone (Link): password only, no grace, until the next unlock.
   bool lockFromPhone();
@@ -255,6 +258,7 @@ private:
   double m_pointerEnterY = 0.0;
   Timer m_unlockTransitionTimer;
   LockFailDelay m_failDelay{LockFailDelay::defaultPath()};
+  std::vector<std::int64_t> m_rejectedAt;
   Timer m_failDelayTimer;
   bool m_passwordOnly = false;
   bool m_lastRejected = false;

@@ -73,11 +73,20 @@ namespace settings {
       if (id == "storage.low") {
         return i18n::tr("settings.power.rule-storage");
       }
+      if (id == "storage.fs_errors") {
+        return i18n::tr("settings.power.rule-fs-errors");
+      }
       if (id == "storage.drive_failing") {
         return i18n::tr("settings.power.rule-drive-failing");
       }
       if (id == "network.captive_portal") {
         return i18n::tr("settings.power.rule-captive-portal");
+      }
+      if (id == "mode.presenting") {
+        return i18n::tr("settings.power.rule-presenting");
+      }
+      if (id == "mode.leaving_home") {
+        return i18n::tr("settings.power.rule-leaving-home");
       }
       if (id == "thermal.fps_cap") {
         return i18n::tr("settings.power.rule-thermal-fps");

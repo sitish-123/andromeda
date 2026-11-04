@@ -639,6 +639,7 @@ namespace settings {
         generateSchemaEntries(noctalia::config::schema::brightnessSchema(), cfg.brightness, {"brightness"});
     appendRow(entries, brightnessRows, "minimum_brightness");
     appendRow(entries, brightnessRows, "sync_all_monitors");
+    appendRow(entries, brightnessRows, "automatic");
     auto bluetoothRows =
         generateSchemaEntries(noctalia::config::schema::bluetoothSchema(), cfg.bluetooth, {"bluetooth"});
     appendGroup(entries, bluetoothRows, "bluetooth");
