@@ -315,12 +315,14 @@ namespace bar_detail {
       island->setSize(w, h);
       island->setRadius(std::min(w, h) * 0.5F);
       if (shadow != nullptr && instance.islandShadowStyle.has_value()) {
-        shadow->setStyle(*instance.islandShadowStyle);
+        // One setStyle with the final radius: a style-then-radius pair marks the shadow dirty on every bar update.
+        RoundedRectStyle shadowStyle = *instance.islandShadowStyle;
+        shadowStyle.radius = std::min(w, h) * 0.5F;
+        shadow->setStyle(shadowStyle);
         // The style cuts the island out at +offset, so the shadow node sits at the island + offset (as the dock).
         const ShadowDirectionOffset offset = instance.islandShadowOffset;
         shadow->setPosition(island->x() + static_cast<float>(offset.x), island->y() + static_cast<float>(offset.y));
         shadow->setSize(w, h);
-        shadow->setRadius(std::min(w, h) * 0.5F);
       }
     }
   }
