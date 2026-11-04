@@ -6,11 +6,12 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use tokio::task::JoinHandle;
+use zbus::message::Header;
 use zbus::object_server::InterfaceRef;
 use zbus::{Connection, OwnedObjectPath, interface};
 
 use crate::bus::{self, Props, Remote};
-use crate::{manager, power};
+use crate::{manager, polkit, power};
 
 pub const AREA: &str = "battery";
 pub const UPOWER: &str = "org.freedesktop.UPower";
@@ -227,6 +228,27 @@ impl Battery {
         self.data.charge_limit
     }
 
+    /// The user's charge-limit choice for this battery: on or off. Start and end take 4294967295 (keep); values
+    /// come from UPower (hwdb or sysfs) until the system part writes them (docs/system-health.md §5).
+    async fn set_charge_limit(
+        &self,
+        enabled: bool,
+        start: u32,
+        end: u32,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        polkit::check(conn, &header, "org.andromeda.system.charge-limit").await?;
+        if start != u32::MAX || end != u32::MAX {
+            return Err(zbus::fdo::Error::NotSupported("charge-limit values are not settable yet".into()));
+        }
+        if !self.data.charge_limit.0 {
+            return Err(zbus::fdo::Error::NotSupported("this battery has no charge limit".into()));
+        }
+        let device = DeviceProxy::builder(conn).path(self.upower_path.clone()).build().await?;
+        Ok(device.enable_charge_threshold(enabled).await?)
+    }
+
     /// UPower's history: kind `rate` or `charge`, timespan in seconds, resolution in points; returns
     /// (unix time, value, state index as in `State`).
     async fn get_history(
@@ -367,23 +389,4 @@ async fn follow(conn: &Connection, devices: &mut Devices) -> Result<()> {
             Some(signal) = removed.next() => devices.remove(signal.args()?.device()).await,
         }
     }
-}
-
-/// The user's charge-limit choice for every battery that powers this machine and supports a limit. Values come
-/// from UPower (hwdb or sysfs) until step 3.
-pub async fn set_charge_limit_enabled(conn: &Connection, enabled: bool) -> Result<()> {
-    let mut applied = 0;
-    for path in UPowerProxy::new(conn).await?.enumerate_devices().await? {
-        let device = Remote::new(conn, UPOWER, path.to_string(), DEVICE_IFACE).await?;
-        let wanted = bus::get::<bool>(&device.props, "PowerSupply").unwrap_or_default()
-            && bus::get::<bool>(&device.props, "ChargeThresholdSupported").unwrap_or_default();
-        if wanted {
-            DeviceProxy::builder(conn).path(path).build().await?.enable_charge_threshold(enabled).await?;
-            applied += 1;
-        }
-    }
-    if applied == 0 {
-        return Err(anyhow!("no battery here supports a charge limit"));
-    }
-    Ok(())
 }

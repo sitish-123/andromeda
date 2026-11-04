@@ -2,6 +2,11 @@
  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
   <interface name="org.andromeda.System1.Battery">
+    <method name="SetChargeLimit">
+      <arg name="enabled" type="b" direction="in" />
+      <arg name="start" type="u" direction="in" />
+      <arg name="end" type="u" direction="in" />
+    </method>
     <method name="GetHistory">
       <arg name="kind" type="s" direction="in" />
       <arg name="timespan" type="u" direction="in" />

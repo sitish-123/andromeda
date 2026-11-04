@@ -59,8 +59,7 @@ until_has 10 'b true' get /org/andromeda/System1/Power Power OnBattery
   power.profile s performance
 until_has 10 's "performance"' get /org/andromeda/System1/Power Power Profile
 grep -qx 'ActiveProfile=performance' "$OUT/mock.log" || fail "profile did not reach the backend"
-"${B[@]}" call org.andromeda.System1 /org/andromeda/System1/Knobs org.andromeda.System1.Knobs Set sv \
-  battery.charge_limit '(buu)' true 4294967295 4294967295
+"${B[@]}" call org.andromeda.System1 "$BAT" org.andromeda.System1.Battery SetChargeLimit buu true 4294967295 4294967295
 until_has 10 '(bbuuu) true true 75 80 3' get "$BAT" Battery ChargeLimit
 grep -qx 'EnableChargeThreshold=True' "$OUT/mock.log" || fail "charge limit did not reach the backend"
 
