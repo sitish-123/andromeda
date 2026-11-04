@@ -12,6 +12,7 @@
 #include "pipewire/pipewire_spectrum_poll_source.h"
 #include "pipewire/wireplumber_mixer.h"
 #include "system/brightness_poll_source.h"
+#include "system/memory_pressure_poll_source.h"
 
 std::vector<PollSource*> Application::currentPollSources() {
   std::vector<PollSource*> sources;
@@ -129,3 +130,8 @@ std::vector<PollSource*> Application::buildPollSources() {
   }
   return currentPollSources();
 }
+  if (m_memoryPressurePollSource == nullptr) {
+    m_memoryPressurePollSource = std::make_unique<MemoryPressurePollSource>([this] {
+      trimAllocator();
+    });
+  }

@@ -98,6 +98,7 @@
 #include "system/distro_info.h"
 #include "system/easyeffects_service.h"
 #include "system/keyboard_backlight_service.h"
+#include "system/memory_pressure_poll_source.h"
 #include "system/system_monitor_service.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/controls/input.h"
@@ -212,6 +213,28 @@ void Application::restoreShellHandoff() {
   const std::string context = handoff.value("context", "");
   kLog.info("reopening the panel '{}' open before the compositor restart", panel);
   m_panelManager.openPanel(panel, PanelOpenRequest{.context = context});
+}
+
+
+void trimAllocator() {
+#ifdef __GLIBC__
+#ifdef NOCTALIA_USE_JEMALLOC
+  // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
+  // looked up; without it the shell runs on glibc malloc.
+  using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
+  if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
+    Mallctl mallctlFn = nullptr;
+    std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
+    const int purgeResult =
+        mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+    if (purgeResult != 0) {
+      kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+    }
+    return;
+  }
+#endif
+  malloc_trim(0);
+#endif
 }
 
 Application::Application()
@@ -350,26 +373,7 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
     m_telemetryService.maybeSend(m_configService, m_httpClient, m_wayland);
   });
 
-#ifdef __GLIBC__
-  runStartupPhase("allocator_trim", [] {
-#ifdef NOCTALIA_USE_JEMALLOC
-    // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
-    // looked up; without it the shell runs on glibc malloc.
-    using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
-    if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
-      Mallctl mallctlFn = nullptr;
-      std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
-      const int purgeResult =
-          mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
-      if (purgeResult != 0) {
-        kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
-      }
-      return;
-    }
-#endif
-    malloc_trim(0);
-  });
-#endif
+  runStartupPhase("allocator_trim", [] { trimAllocator(); });
 
   m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this] { syncPolkitAgent(); });
 

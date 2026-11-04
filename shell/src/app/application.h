@@ -134,6 +134,7 @@ class AccountsService;
 class BluetoothAgent;
 class BluetoothService;
 class BrightnessPollSource;
+class MemoryPressurePollSource;
 class BrightnessService;
 class KeyboardBacklightService;
 class DebugService;
@@ -522,6 +523,7 @@ private:
   KeyboardLayoutPollSource m_keyboardLayoutPollSource{m_compositorPlatform};
   LockKeysPollSource m_lockKeysPollSource{m_lockKeysService};
   std::unique_ptr<BrightnessPollSource> m_brightnessPollSource;
+  std::unique_ptr<MemoryPressurePollSource> m_memoryPressurePollSource;
   std::unique_ptr<PipeWirePollSource> m_pipewirePollSource;
   std::unique_ptr<PipeWireSpectrumPollSource> m_pipewireSpectrumPollSource;
   std::unique_ptr<PolkitPollSource> m_polkitPollSource;
