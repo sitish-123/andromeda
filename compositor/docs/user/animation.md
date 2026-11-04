@@ -10,13 +10,15 @@ curve = "easeout"
 
 [animation.windows_in]
 enabled = true
-curve = "spring:1,900"
+duration_ms = 150
+curve = "easeoutcubic"
 style = "popin"
 scale = 0.5
 
 [animation.windows_out]
 enabled = true
-curve = "spring:1,1400"
+duration_ms = 150
+curve = "easeoutcubic"
 style = "popin"
 scale = 0.8
 
@@ -87,7 +89,7 @@ Each event other than `windows_drag` also accepts `enabled`, `duration_ms`, and 
 | `[animation.layers]`         | none                                                                | Layer-shell map and unmap                                  |
 | `[animation.windows_drag]`   | `physics` (default `false`) plus the drag-physics tuning keys below | Drag physics                                               |
 
-`windows_in` accepts `popin`, `zoom`, `slide`, `fade`, or `none`. `windows_out` accepts `fade`, `slide`, `popin`, or `zoom`. `workspaces` accepts `slide` or `reveal` (see [Workspace reveal](#workspace-reveal)). `scale` applies to `popin`: an opening window grows from it to full size, and a closing window shrinks toward it, while both fade.
+`windows_in` accepts `popin`, `zoom`, `slide`, `fade`, or `none`. `windows_out` accepts `fade`, `slide`, `popin`, or `zoom`. `workspaces` accepts `slide` or `reveal` (see [Workspace reveal](#workspace-reveal)). `scale` applies to `popin`: an opening window grows from it to full size, and a closing window shrinks toward it, while both fade. A window that opens fullscreen only grows: it covers what a fade would reveal, and the fade costs two full-screen passes per frame.
 
 `windows_move` moves a window while `windows_resize` changes its size, so a slow move can still resize quickly. While the size animates, the window's latest frame is stretched to fit. With `windows_resize` disabled, the size changes at once while the window still moves. When the two timelines differ, a window can briefly overlap its neighbours during a reflow.
 

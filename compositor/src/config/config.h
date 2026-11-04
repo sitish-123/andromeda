@@ -813,8 +813,8 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         // Springs derive their own length; duration_ms stays at the shared value for a duration-based curve.
-        int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 900.0}};
+        int durationMs = 150;
+        AnimationCurve curve{.easing = Easing::EaseOutCubic};
         std::string style = "popin";
         double scale = 0.5;
         bool operator==(const WindowsIn&) const = default;
@@ -823,8 +823,8 @@ namespace andromeda {
       struct WindowsOut {
         std::string effect;
         bool enabled = true;
-        int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 1400.0}};
+        int durationMs = 150;
+        AnimationCurve curve{.easing = Easing::EaseOutCubic};
         std::string style = "popin";
         double scale = 0.8;
         bool operator==(const WindowsOut&) const = default;

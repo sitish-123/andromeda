@@ -699,6 +699,7 @@ namespace andromeda {
     // The same for a window that opens fullscreen: the layout owns the output box it rests in, windows_in owns the
     // scaled box it is presented at until the fade ends.
     [[nodiscard]] bool fullscreenOpeningActive() const;
+    [[nodiscard]] bool scaleOnlyOpening() const;
     // A built-in popin, zoom, or slide open offsets the presented box inside the box the layout assigned it, until
     // the fade that drives it reaches rest.
     [[nodiscard]] bool openingInsetPending() const { return m_openingScale < 1.0 || m_openingSlide != 0; }
