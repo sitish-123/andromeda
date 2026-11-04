@@ -2,7 +2,12 @@
 Description=Andromeda Wayland compositor
 Documentation=https://github.com/noctalia-dev/andromeda
 Wants=graphical-session-pre.target andromeda-session.target
-After=graphical-session-pre.target
+Requires=andromeda.socket
+After=graphical-session-pre.target andromeda.socket
+# Three crashes in a minute end the session cleanly instead of looping.
+StartLimitBurst=3
+StartLimitIntervalSec=60
+OnFailure=andromeda-shutdown.target
 BindsTo=graphical-session.target
 PartOf=andromeda-session.target
 Before=andromeda-session.target graphical-session.target
@@ -11,6 +16,17 @@ Before=andromeda-session.target graphical-session.target
 Type=notify
 Slice=session.slice
 ExecStart=@ANDROMEDA_EXECUTABLE@
+# A crash or a hung event loop restarts the compositor; andromeda.socket keeps the listening socket, so clients
+# reconnect to the same WAYLAND_DISPLAY.
+Restart=on-failure
+# direct (systemd 254+): a restart skips the failed state, so OnFailure=, BindsTo= dependents and start-andromeda's
+# systemctl --wait see one unbroken run; only the start limit fails the unit.
+RestartMode=direct
+RestartSec=0
+WatchdogSec=5
+# A clean exit (log out) stops the socket at once, so a client that reconnects in the gap cannot start a second
+# compositor. --no-block: the stop job must not wait for this unit, which is still stopping.
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" != success ] || systemctl --user --no-block stop andromeda.socket'
 # Under build load the kernel must not swap out the compositor's working set (RSS about 130 MB): a page fault
 # stalls a frame even at real-time priority. The parent slices carry a floor too (session/memory).
 MemoryMin=256M

@@ -1,0 +1,7 @@
+[Unit]
+Description=Andromeda Wayland socket
+# Log out stops the socket, so a late client cannot start the compositor again.
+PartOf=andromeda-session.target
+
+[Socket]
+ListenStream=%t/wayland-andromeda

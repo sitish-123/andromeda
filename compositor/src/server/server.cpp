@@ -67,6 +67,8 @@ extern "C" {
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 #include <vector>
 
@@ -1156,6 +1158,10 @@ namespace andromeda {
       wl_event_source_remove(m_startupRulesTimer);
       m_startupRulesTimer = nullptr;
     }
+    if (m_watchdogTimer != nullptr) {
+      wl_event_source_remove(m_watchdogTimer);
+      m_watchdogTimer = nullptr;
+    }
     for (wl_event_source*& source : m_signalSources) {
       if (source != nullptr) {
         wl_event_source_remove(source);
@@ -1236,13 +1242,80 @@ namespace andromeda {
     }
   }
 
-  bool Server::start(const char* startupCmd) {
-    const char* socket = wl_display_add_socket_auto(m_display);
-    if (socket == nullptr) {
-      wlr_log(WLR_ERROR, "failed to add Wayland socket");
-      return false;
+  namespace {
+    // Socket activation (andromeda.socket): the listening socket is fd 3 and outlives a compositor restart, so
+    // clients keep the same WAYLAND_DISPLAY. Returns the socket name, nullopt when not socket-activated, or an
+    // empty name when fd 3 cannot be used: then systemd owns a name no compositor serves, so the start must fail.
+    std::optional<std::string> adoptListenSocket(wl_display* display) {
+      const char* pid = std::getenv("LISTEN_PID");
+      const char* fds = std::getenv("LISTEN_FDS");
+      const bool ours = pid != nullptr && fds != nullptr && std::strtol(pid, nullptr, 10) == getpid()
+                        && std::strtol(fds, nullptr, 10) >= 1;
+      unsetenv("LISTEN_PID");
+      unsetenv("LISTEN_FDS");
+      unsetenv("LISTEN_FDNAMES");
+      if (!ours) {
+        return std::nullopt;
+      }
+      constexpr int kListenFd = 3;
+      sockaddr_un address{};
+      socklen_t length = sizeof(address);
+      // systemd does not set FD_CLOEXEC, and spawned apps must not inherit the listening socket.
+      if (fcntl(kListenFd, F_SETFD, FD_CLOEXEC) != 0
+          || getsockname(kListenFd, reinterpret_cast<sockaddr*>(&address), &length) != 0
+          || address.sun_family != AF_UNIX || address.sun_path[0] == '\0') {
+        kLog.error("socket activation: fd 3 is not a Unix path socket: {}", std::strerror(errno));
+        return std::string();
+      }
+      if (wl_display_add_socket_fd(display, kListenFd) != 0) {
+        kLog.error("socket activation: wl_display_add_socket_fd failed");
+        return std::string();
+      }
+      const std::string_view path(address.sun_path);
+      return std::string(path.substr(path.rfind('/') + 1));
     }
-    m_socketName = socket;
+  } // namespace
+
+  // WatchdogSec= in andromeda.service: a ping from the event loop, so a hung loop counts as a crash and restarts.
+  void Server::startWatchdog(const std::string& notifySocket) {
+    const char* usec = std::getenv("WATCHDOG_USEC");
+    const char* pid = std::getenv("WATCHDOG_PID");
+    const long long interval = usec != nullptr ? std::strtoll(usec, nullptr, 10) : 0;
+    const bool ours = pid == nullptr || std::strtol(pid, nullptr, 10) == getpid();
+    unsetenv("WATCHDOG_USEC");
+    unsetenv("WATCHDOG_PID");
+    if (notifySocket.empty() || interval <= 0 || !ours) {
+      return;
+    }
+    m_notifySocket = notifySocket;
+    m_watchdogIntervalMs = static_cast<int>(std::max(1LL, interval / 2000));
+    m_watchdogTimer = wl_event_loop_add_timer(
+        wl_display_get_event_loop(m_display),
+        [](void* data) {
+          auto* server = static_cast<Server*>(data);
+          (void)notifyService(server->m_notifySocket, "WATCHDOG=1");
+          wl_event_source_timer_update(server->m_watchdogTimer, server->m_watchdogIntervalMs);
+          return 0;
+        },
+        this
+    );
+    wl_event_source_timer_update(m_watchdogTimer, m_watchdogIntervalMs);
+  }
+
+  bool Server::start(const char* startupCmd) {
+    if (const std::optional<std::string> name = adoptListenSocket(m_display)) {
+      if (name->empty()) {
+        return false;
+      }
+      m_socketName = *name;
+    } else {
+      const char* socket = wl_display_add_socket_auto(m_display);
+      if (socket == nullptr) {
+        wlr_log(WLR_ERROR, "failed to add Wayland socket");
+        return false;
+      }
+      m_socketName = socket;
+    }
 
     refreshSystemKeymap();
     if (!wlr_backend_start(m_backend)) {
@@ -1408,6 +1481,7 @@ namespace andromeda {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
       return false;
     }
+    startWatchdog(notifySocket);
     if (greeterMode()) {
       // The greeter session runs the greeter alone and ends with it; config autostart does not apply.
       m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this] {

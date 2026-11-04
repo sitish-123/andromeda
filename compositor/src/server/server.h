@@ -976,6 +976,10 @@ namespace andromeda {
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
+    void startWatchdog(const std::string& notifySocket);
+    wl_event_source* m_watchdogTimer = nullptr;
+    int m_watchdogIntervalMs = 0;
+    std::string m_notifySocket;
     // Non-null while a windows-event idle callback is pending. The idle source
     // removes itself when it runs, so a non-null pointer means "already queued".
     wl_event_source* m_ipcWindowsIdle = nullptr;
