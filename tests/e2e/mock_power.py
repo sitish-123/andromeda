@@ -96,16 +96,20 @@ class Device(PropertyObject):
         points = []
         if os.environ.get("MOCK_HISTORY") == "0":
             return dbus.Array(points, signature="(udu)")
-        for i in range(min(int(resolution), 96)):
-            t = now - i * (int(timespan) // 96)
+        # A sample each 15 min (UPower logs each change), thinned evenly to `resolution`.
+        samples = max(1, int(timespan) // 900)
+        count = min(int(resolution), samples)
+        for i in range(count):
+            t = now - (i * samples // count) * 900
             hour = (t % 86400) / 3600
             charging = 6 <= hour < 11 or hour >= 21
             if kind == "rate":
                 value = 12.0 if charging else 6.0 + 4.0 * ((i * 7) % 5) / 5
             else:
-                value = min(100.0, 45 + (hour - 6) * 11) if 6 <= hour < 11 else (
+                value = min(100.0, 45 + (hour - 6) * 13.75) if 6 <= hour < 11 else (
                     100 - (hour - 11) * 5 if 11 <= hour < 21 else (50 + (hour - 21) * 10 / 3 if hour >= 21 else 60 - hour * 2.5))
-            points.append((dbus.UInt32(t), dbus.Double(value), dbus.UInt32(1 if charging else 2)))
+            state = (4 if value >= 100 else 1) if charging else 2
+            points.append((dbus.UInt32(t), dbus.Double(value), dbus.UInt32(state)))
         return dbus.Array(points, signature="(udu)")
 
 

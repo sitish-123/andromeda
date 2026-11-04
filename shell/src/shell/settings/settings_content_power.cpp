@@ -11,6 +11,7 @@
 #include "system/activity_monitor.h"
 #include "system/battery_history.h"
 #include "system/battery_impact.h"
+#include "system/screen_on_time.h"
 #include "system/screen_time_service.h"
 #include "protocols/app_energy_log.h"
 #include "protocols/screen_activity_log.h"
@@ -954,6 +955,205 @@ namespace settings {
     }
 
     // Apps card (mockup A): the Activity battery ranking, or screen time, or windowless apps; top 4 and "All apps".
+    // Screen-on time needs history back to the last full charge, whatever the chart's range: its own 10-day fetch.
+    struct SotCache {
+      bool pending = false;
+      std::int64_t fetchedAt = 0;
+      std::vector<UPowerHistoryPoint> charge;
+    };
+    SotCache& sotCache() {
+      static SotCache cache;
+      return cache;
+    }
+
+    void fetchSotHistory(UPowerService& upower, const std::string& path, std::function<void()> rebuild) {
+      SotCache& cache = sotCache();
+      if (cache.pending || unixNow() - cache.fetchedAt < 300) {
+        return;
+      }
+      cache.pending = true;
+      upower.requestHistory(path, "charge", 10 * kDay, 400, [rebuild](std::vector<UPowerHistoryPoint> points) {
+        SotCache& c = sotCache();
+        c.charge = std::move(points);
+        c.pending = false;
+        c.fetchedAt = unixNow();
+        if (rebuild) {
+          rebuild();
+        }
+      });
+    }
+
+    // -1 until the user picks a period: since unplugged on battery, since full charge on power.
+    int& sotPeriodIndex() {
+      static int index = -1;
+      return index;
+    }
+
+    std::string clockTime(std::int64_t when) {
+      const std::time_t t = static_cast<std::time_t>(when);
+      std::tm local{};
+      localtime_r(&t, &local);
+      return std::format("{:02}:{:02}", local.tm_hour, local.tm_min);
+    }
+
+    // Screen-on time since unplugged / since the last full charge: the compositor's measured state spans over the
+    // battery line, the measured times and drain, then two estimates from the measured screen-on drain.
+    void addScreenOnTime(Flex& content, const SettingsPowerContext& ctx, const UPowerState& state) {
+      const float scale = ctx.scale;
+      const std::int64_t now = unixNow();
+      const bool discharging = state.state == BatteryState::Discharging;
+      const int periodIndex = sotPeriodIndex() >= 0 ? sotPeriodIndex() : (discharging ? 0 : 1);
+      const SotPeriod period = periodIndex == 0 ? SotPeriod::SinceUnplugged : SotPeriod::SinceFullCharge;
+      const auto& points = sotCache().charge;
+
+      auto tabs = ui::row({.justify = FlexJustify::End, .flexGrow = 1.0F});
+      tabs->addChild(ui::segmented({
+          .options =
+              std::vector<ui::SegmentedOption>{
+                  ui::SegmentedOption{.label = i18n::tr("settings.power.sot-since-unplugged")},
+                  ui::SegmentedOption{.label = i18n::tr("settings.power.sot-since-full")},
+              },
+          .selectedIndex = static_cast<std::size_t>(periodIndex),
+          .scale = scale,
+          .compact = true,
+          .onChange =
+              [rebuild = ctx.rebuild](std::size_t index) {
+                sotPeriodIndex() = static_cast<int>(index);
+                if (rebuild) {
+                  rebuild();
+                }
+              },
+      }));
+      addHeader(content, i18n::tr("settings.power.sot"), std::move(tabs), scale);
+      Flex* card = addCard(content, scale);
+
+      const std::optional<std::int64_t> start = sotPeriodStart(points, period);
+      if (!start.has_value() || *start >= now) {
+        auto note = ui::column({.padding = Style::spaceLg * scale, .fillWidth = true});
+        note->addChild(ui::label({
+            .text = i18n::tr(period == SotPeriod::SinceUnplugged && !points.empty() ? "settings.power.sot-plugged"
+                                                                                    : "settings.power.sot-no-data"),
+            .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label3), .maxLines = 0,
+        }));
+        card->addChild(std::move(note));
+        return;
+      }
+      const ScreenActivityLog log = readScreenActivity();
+      const std::vector<ScreenActivityLog::Span> spans = log.spans(*start, now);
+      const ScreenOnTime sot = screenOnTime(spans, points, *start, now);
+
+      auto top = ui::row({.align = FlexAlign::End, .gap = Style::spaceMd * scale, .padding = Style::spaceLg * scale,
+                          .fillWidth = true});
+      top->addChild(ui::label({
+          .text = hoursMinutes(sot.onSeconds + sot.idleSeconds), .fontSize = Style::fontSizeHeader * scale,
+          .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1),
+      }));
+      top->addChild(ui::label({
+          .text = i18n::tr("settings.power.sot-since", "time", dayAndTime(static_cast<std::time_t>(*start)), "used",
+                           std::format("{:.0f}", sot.usedPercent)),
+          .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2), .flexGrow = 1.0F,
+      }));
+      card->addChild(std::move(top));
+
+      // Battery line over the period, and below it one strip of the screen's state.
+      const float width = (metrics::kContentMaxWidth - 4.0F * Style::spaceLg - 32.0F) * scale;
+      const float height = 96.0F * scale;
+      const float stripHeight = 10.0F * scale;
+      const auto span = static_cast<std::uint32_t>(now - *start);
+      const BatteryLevelSeries level = batteryLevelSeries(points, static_cast<std::uint32_t>(now), span, 96);
+      auto body = ui::column({.gap = Style::spaceSm * scale, .padding = Style::spaceLg * scale, .fillWidth = true});
+      auto plot = ui::node({});
+      plot->setSize(width, height);
+      if (!level.level.empty()) {
+        auto graph = std::make_unique<Graph>();
+        graph->setColor(colorSpecFromRole(ColorRole::Success));
+        graph->setFillOpacity(0.18F);
+        graph->setValues(level.level);
+        graph->setSize(width * (1.0F - level.startFraction), height);
+        graph->setPosition(width * level.startFraction, 0.0F);
+        graph->setParticipatesInLayout(false);
+        plot->addChild(std::move(graph));
+      }
+      const std::vector<std::pair<float, std::string>> xLabels = {{0.0F, clockTime(*start)}, {1.0F, i18n::tr("settings.power.now")}};
+      body->addChild(chartFrame(std::move(plot), width, height, {"0%", "50%", "100%"}, xLabels, scale));
+
+      using State = ScreenActivityLog::State;
+      const auto stateStyle = [](State s) -> std::pair<ColorRole, float> {
+        switch (s) {
+        case State::On:
+          return {ColorRole::Accent, 1.0F};
+        case State::Idle:
+          return {ColorRole::Accent, 0.45F};
+        case State::Off:
+          return {ColorRole::Label3, 0.35F};
+        case State::Sleep:
+          return {ColorRole::Label3, 0.12F};
+        }
+        return {ColorRole::Label3, 0.0F};
+      };
+      const float gutter = 32.0F * scale;
+      auto strip = ui::node({});
+      strip->setSize(gutter + width, stripHeight);
+      for (const auto& s : spans) {
+        const float from = static_cast<float>(std::max(s.start, *start) - *start) / static_cast<float>(span);
+        const float to = static_cast<float>(std::min(s.end, now) - *start) / static_cast<float>(span);
+        if (to <= from) {
+          continue;
+        }
+        const auto [role, opacity] = stateStyle(s.state);
+        auto box = ui::box({.fill = colorSpecFromRole(role), .width = std::max((to - from) * width, scale),
+                            .height = stripHeight, .opacity = opacity, .participatesInLayout = false});
+        box->setPosition(gutter + from * width, 0.0F);
+        strip->addChild(std::move(box));
+      }
+      body->addChild(std::move(strip));
+      auto legend = ui::row({.gap = Style::spaceMd * scale, .padding = 0.0F, .fillWidth = true});
+      for (const auto& [s, key] : std::array<std::pair<State, const char*>, 4>{{{State::On, "settings.power.sot-screen-on"},
+                                                                                {State::Idle, "settings.power.sot-screen-idle"},
+                                                                                {State::Off, "settings.power.sot-screen-off"},
+                                                                                {State::Sleep, "settings.power.sot-sleep"}}}) {
+        const auto [role, opacity] = stateStyle(s);
+        auto item = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * scale});
+        item->addChild(ui::box({.fill = colorSpecFromRole(role), .radius = 2.0F * scale, .width = 8.0F * scale,
+                                .height = 8.0F * scale, .opacity = std::max(opacity, 0.25F)}));
+        item->addChild(ui::label({.text = i18n::tr(key), .fontSize = Style::fontSizeCaption * scale,
+                                  .color = colorSpecFromRole(ColorRole::Label2)}));
+        legend->addChild(std::move(item));
+      }
+      body->addChild(std::move(legend));
+      card->addChild(std::move(body));
+      card->addChild(hairline(scale, false));
+
+      const auto perHour = [](double rate) { return rate > 0.0 ? std::format("{:.1f} %/h", rate) : std::string("–"); };
+      auto measured = ui::row({.align = FlexAlign::Stretch, .fillWidth = true});
+      measured->addChild(statTile(hoursMinutes(sot.onSeconds), i18n::tr("settings.power.sot-screen-on"), scale));
+      measured->addChild(hairline(scale, true));
+      measured->addChild(statTile(hoursMinutes(sot.idleSeconds), i18n::tr("settings.power.sot-screen-idle"), scale));
+      measured->addChild(hairline(scale, true));
+      measured->addChild(statTile(hoursMinutes(sot.offSeconds), i18n::tr("settings.power.sot-screen-off"), scale));
+      measured->addChild(hairline(scale, true));
+      measured->addChild(statTile(hoursMinutes(sot.sleepSeconds), i18n::tr("settings.power.sot-sleep"), scale));
+      card->addChild(std::move(measured));
+      card->addChild(hairline(scale, false));
+
+      auto drain = ui::row({.align = FlexAlign::Stretch, .fillWidth = true});
+      drain->addChild(statTile(perHour(sot.screenOnDrainPerHour), i18n::tr("settings.power.sot-drain-on"), scale));
+      drain->addChild(hairline(scale, true));
+      drain->addChild(statTile(perHour(sot.screenOffDrainPerHour), i18n::tr("settings.power.sot-drain-off"), scale));
+      drain->addChild(hairline(scale, true));
+      const double rate = sot.screenOnDrainPerHour;
+      drain->addChild(statTile(
+          rate > 0.0 ? hoursMinutes(static_cast<std::int64_t>(state.percentage / rate * 3600.0)) : std::string("–"),
+          i18n::tr("settings.power.sot-est-left"), scale
+      ));
+      drain->addChild(hairline(scale, true));
+      drain->addChild(statTile(
+          rate > 0.0 ? hoursMinutes(static_cast<std::int64_t>(100.0 / rate * 3600.0)) : std::string("–"),
+          i18n::tr("settings.power.sot-est-full"), scale
+      ));
+      card->addChild(std::move(drain));
+    }
+
     int& appsTab() {
       static int tab = 0;
       return tab;
@@ -985,16 +1185,23 @@ namespace settings {
       std::vector<BatteryImpact> ranked = rankBatteryImpact(rows, ctx.activityDetails, [tab](const ActivityRow& r) {
         return tab != 2 || !r.hasWindow;
       });
-      // Over 10 days the battery tab ranks the CPU time the compositor booked per day, closed apps included.
+      // The battery tab ranks what the compositor booked per hour, closed apps included: Wh (package energy split by
+      // CPU share) where andromeda-system reports RAPL, else CPU time over 10 days.
       std::vector<ActivityRow> pastRows;
-      if (tenDays && tab == 0) {
+      if (tab == 0) {
         std::ifstream in(appEnergyPath());
         std::stringstream text;
         text << in.rdbuf();
-        AppEnergyLog energy;
-        energy.parse(text.str());
-        if (auto booked = energy.totals(unixNow(), AppEnergyLog::kKeepDays); !booked.empty()) {
-          ranked = rankAppEnergy(booked, rows, pastRows);
+        AppEnergyLog log;
+        log.parse(text.str());
+        const std::int64_t seconds = static_cast<std::int64_t>(tenDays ? 10 * kDay : kDay);
+        auto booked = log.wattHours(unixNow(), seconds);
+        const bool energy = !booked.empty();
+        if (!energy && tenDays) {
+          booked = log.cpuSeconds(unixNow(), seconds);
+        }
+        if (!booked.empty()) {
+          ranked = rankAppEnergy(booked, rows, pastRows, energy);
         }
       }
       if (tab == 1) {
@@ -1023,10 +1230,12 @@ namespace settings {
       addHeader(content, i18n::tr("settings.power.apps"), std::move(tabs), scale);
       Flex* card = addCard(content, scale);
       std::size_t shown = 0;
-      for (const auto& [app, share] : ranked) {
+      for (const BatteryImpact& impact : ranked) {
         if (++shown > 4) {
           break;
         }
+        const ActivityRow* app = impact.row;
+        const double share = impact.sharePercent;
         const RowIdentity id = identityFor(*app);
         const std::int64_t screen = onScreen(*app);
         std::string sub = screen > 0 ? i18n::tr("settings.power.on-screen", "time", hoursMinutes(screen))
@@ -1056,7 +1265,8 @@ namespace settings {
         meter->addChild(std::move(fill));
         r->addChild(std::move(meter));
         r->addChild(ui::label({
-            .text = std::format("{:.0f} %", share), .fontSize = Style::fontSizeBody * scale,
+            .text = impact.wattHours >= 0.0 ? std::format("{:.1f} Wh", impact.wattHours) : std::format("{:.0f} %", share),
+            .fontSize = Style::fontSizeBody * scale,
             .color = colorSpecFromRole(ColorRole::Label1),
         }));
         if (ctx.openActivity) {
@@ -1109,6 +1319,8 @@ namespace settings {
         content.addChild(std::move(titleRow));
       }
       addBatteryHero(content, state, ctx, tenDays);
+      fetchSotHistory(*ctx.upower, battery->path, ctx.rebuild);
+      addScreenOnTime(content, ctx, state);
       addCharts(content, ctx, tenDays);
       addApps(content, ctx, tenDays);
     }

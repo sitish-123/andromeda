@@ -18,13 +18,20 @@ for h in $(seq 23 -1 0); do
   start=$(((now / 3600 - h) * 3600))
   hour=$(((start / 3600) % 24))
   if ((hour >= 8 && hour < 23)); then echo "$start $((1200 + (hour * 97) % 1800)) $((120 + (hour * 53) % 480))"; fi
+  # Exact spans for screen-on time: in use, idle, off while awake; asleep at night.
+  if ((h == 0)); then continue; fi # the running hour: the compositor records it
+  if ((hour >= 8 && hour < 23)); then
+    echo "s $start $((start + 2400)) n"; echo "s $((start + 2400)) $((start + 3000)) i"; echo "s $((start + 3000)) $((start + 3600)) o"
+  else
+    echo "s $start $((start + 3600)) z"
+  fi
 done > "$STATE/screen-activity"
-# CPU seconds per app unit for the 10-day Apps view; Files ran 2 days ago and runs no more.
-day=$((now / 86400))
+# Per hour: app CPU s, all CPU s, package J. Firefox 5 Wh in the last day; Files (2 days ago, closed) 2.5 Wh, Spotify 1.25 Wh.
+hr=$((now / 3600))
 {
-  echo "d $day 3600 app-gnome-org.mozilla.firefox-1234.scope"
-  echo "d $((day - 2)) 1800 app-gnome-org.gnome.Nautilus-55.scope"
-  echo "d $((day - 3)) 900 flatpak-com.spotify.Client-9.scope"
+  echo "d $((hr - 1)) 1800 app-gnome-org.mozilla.firefox-1234.scope"; echo "t $((hr - 1)) 3600"; echo "e $((hr - 1)) 36000"
+  echo "d $((hr - 50)) 900 app-gnome-org.gnome.Nautilus-55.scope"; echo "t $((hr - 50)) 1800"; echo "e $((hr - 50)) 18000"
+  echo "d $((hr - 75)) 450 flatpak-com.spotify.Client-9.scope"; echo "t $((hr - 75)) 900"; echo "e $((hr - 75)) 9000"
 } > "$STATE/app-energy"
 # After the fixture: the compositor records into the same file and keeps what it read at start.
 boot_headless 1

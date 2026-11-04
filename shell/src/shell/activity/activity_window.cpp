@@ -1153,7 +1153,7 @@ void ActivityWindow::addBatteryCards(Renderer& /*renderer*/, Flex& list, float s
   );
 
   Flex* card = nullptr;
-  for (const auto& [row, share] :
+  for (const auto& [row, share, wattHours] :
        rankBatteryImpact(m_monitor->activity().rows(), m_details, [this](const ActivityRow& r) { return inTab(r, Tab::Battery); })) {
     if (card == nullptr) {
       card = settings::addSettingsGroupCard(list, i18n::tr("activity.battery-since-start"), scale);

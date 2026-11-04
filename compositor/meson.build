@@ -876,6 +876,7 @@ core_sources = files(
   'src/motion/desk_motion.cpp',
   'src/core/application_scope.cpp',
   'src/core/cpu_boost.cpp',
+  'src/core/package_energy.cpp',
   'src/core/screen_activity_recorder.cpp',
   'src/core/systemd_units.cpp',
   'src/qos/actuator.cpp',

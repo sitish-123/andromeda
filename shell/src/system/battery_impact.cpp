@@ -47,11 +47,12 @@ std::vector<BatteryImpact> rankBatteryImpact(
 }
 
 std::vector<BatteryImpact> rankAppEnergy(
-    const std::map<std::string, double>& unitSeconds, std::span<const ActivityRow> rows, std::vector<ActivityRow>& past
+    const std::map<std::string, double>& perUnit, std::span<const ActivityRow> rows, std::vector<ActivityRow>& past,
+    bool wattHours
 ) {
   std::map<std::string, double> byApp;
   double total = 0.0;
-  for (const auto& [unit, seconds] : unitSeconds) {
+  for (const auto& [unit, seconds] : perUnit) {
     const std::string appId = appIdFromUnit(unit);
     byApp[appId.empty() ? unit : appId] += seconds;
     total += seconds;
@@ -65,13 +66,14 @@ std::vector<BatteryImpact> rankAppEnergy(
       continue;
     }
     const auto live = std::ranges::find_if(rows, [&key](const ActivityRow& r) { return r.key == key || r.appId == key; });
+    const double wh = wattHours ? seconds : -1.0;
     if (live != rows.end()) {
-      out.push_back({.row = &*live, .sharePercent = share});
+      out.push_back({.row = &*live, .sharePercent = share, .wattHours = wh});
       continue;
     }
     const bool isUnit = key.ends_with(".scope") || key.ends_with(".service");
     past.push_back(ActivityRow{.key = key, .appId = isUnit ? std::string() : key, .units = {}});
-    out.push_back({.row = &past.back(), .sharePercent = share});
+    out.push_back({.row = &past.back(), .sharePercent = share, .wattHours = wh});
   }
   std::ranges::sort(out, std::greater{}, &BatteryImpact::sharePercent);
   return out;

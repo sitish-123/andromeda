@@ -4,6 +4,7 @@
 
 #include <wayland-server-core.h>
 
+#include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -20,6 +21,18 @@ namespace andromeda {
       clock_gettime(CLOCK_REALTIME_COARSE, &ts);
       return ts.tv_sec;
     }
+
+    // Seconds the machine spent suspended since boot.
+    std::int64_t sleptSeconds() {
+      timespec boot{};
+      timespec mono{};
+      clock_gettime(CLOCK_BOOTTIME, &boot);
+      clock_gettime(CLOCK_MONOTONIC, &mono);
+      return boot.tv_sec - mono.tv_sec;
+    }
+
+    // A clock read rounds; a smaller difference is no suspend.
+    constexpr std::int64_t kMinSleepSeconds = 2;
 
     constexpr int kIdleCheckMs = static_cast<int>(ScreenActivityLog::kIdleAfter * 1000);
     // Input pauses flip idle often while the user types; the file is rewritten at most this often for them.
@@ -61,11 +74,12 @@ namespace andromeda {
 
   } // namespace
 
-  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop) {
+  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop) : m_packageEnergy(loop) {
     m_log.parse(readFile(screenActivityPath()));
     m_energy.parse(readFile(appEnergyPath()));
     const std::int64_t now = unixNow();
     m_lastInput = now;
+    m_sleptSeconds = sleptSeconds();
     m_log.setScreenOn(true, now);
     m_timer = wl_event_loop_add_timer(loop, onIdleCheck, this);
     if (m_timer != nullptr) {
@@ -81,13 +95,28 @@ namespace andromeda {
     }
   }
 
+  void ScreenActivityRecorder::checkSleep(std::int64_t now) {
+    const std::int64_t slept = sleptSeconds();
+    if (slept - m_sleptSeconds >= kMinSleepSeconds) {
+      m_log.suspended(slept - m_sleptSeconds, now);
+      m_sleptSeconds = slept;
+      write(true);
+    }
+  }
+
   void ScreenActivityRecorder::setScreenOn(bool on) {
-    m_log.setScreenOn(on, unixNow());
+    const std::int64_t now = unixNow();
+    checkSleep(now);
+    m_log.setScreenOn(on, now);
     write(true);
   }
 
   void ScreenActivityRecorder::inputActivity() {
     const std::int64_t now = unixNow();
+    // A suspend leaves a gap between inputs; within a stream of input the clocks are not read.
+    if (now - m_lastInput >= kMinSleepSeconds) {
+      checkSleep(now);
+    }
     m_lastInput = now;
     if (m_idle) {
       m_idle = false;
@@ -103,6 +132,7 @@ namespace andromeda {
   int ScreenActivityRecorder::onIdleCheck(void* data) {
     auto* self = static_cast<ScreenActivityRecorder*>(data);
     const std::int64_t now = unixNow();
+    self->checkSleep(now);
     const std::int64_t quiet = now - self->m_lastInput;
     if (quiet >= ScreenActivityLog::kIdleAfter) {
       // The pause began at the last input, so idle time starts there.
@@ -131,7 +161,16 @@ namespace andromeda {
       }
     }
     m_energy.keepUnits(live);
+    if (const auto all = readUsageUsec("/sys/fs/cgroup"); all.has_value()) {
+      m_energy.bookTotal(*all, now);
+    }
     writeFile(appEnergyPath(), m_energy.serialize(now));
+    m_packageEnergy.request([this, now](double joules) {
+      if (!std::isnan(joules)) {
+        m_energy.bookPackage(joules, now);
+        writeFile(appEnergyPath(), m_energy.serialize(now));
+      }
+    });
   }
 
 } // namespace andromeda
