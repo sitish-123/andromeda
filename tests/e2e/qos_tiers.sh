@@ -109,7 +109,23 @@ await "switcher open: thawed" 0 1000 freeze
 kill "$SWITCHER"
 wait "$SWITCHER" 2>/dev/null || true
 await "switcher closed: frozen again" 1 2000 freeze
+# Q6: shown from frozen, the app draws a new frame within 50 ms of the switch request (thaw + frame callback).
+frames() { grep -c '^frame$' "$OUT/client.log" || true; }
+resumes() { grep -c '^resumed$' "$OUT/client.log" || true; }
+before=$(frames)
+resumed_before=$(resumes)
+start=$(ms)
 run "$ANDROMEDA" msg workspace-switch:1 > /dev/null
+sent=$(($(ms) - start))
+resumed=
+while (($(frames) <= before)); do
+  [[ -z $resumed ]] && (($(resumes) > resumed_before)) && resumed=$(($(ms) - start))
+  (($(ms) - start > 1000)) && fail "shown: no new frame within 1000 ms (request $sent ms, resumed ${resumed:-never})"
+  sleep 0.005
+done
+took=$(($(ms) - start))
+echo "shown: new frame in $took ms (request $sent ms, resumed ${resumed:-with the frame} ms)" | tee -a "$OUT/result.txt"
+((took <= 50)) || fail "shown: new frame took $took ms, budget 50 ms"
 await "shown: thawed" 0 1000 freeze
 # A freeze still in flight at the thaw must not win afterwards.
 for _ in {1..15}; do [[ $(freeze) == 0 ]] || fail "shown: frozen again"; sleep 0.02; done

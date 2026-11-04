@@ -243,6 +243,8 @@ namespace andromeda {
     void applyVisibility();
     void beginSwitchTransition();
     void showSwitchViews();
+    // Off-screen parts of a slide get no scene callbacks; the views still draw while they slide into view.
+    void sendSwitchFrameDone(timespec* now) const;
     void endSwitchTransition();
     void setSlideOffset(double x, double y);
     void applyLayoutConfig(ResolvedLayoutConfig layoutConfig);
@@ -438,6 +440,7 @@ namespace andromeda {
     // per second, and starts the settle from that speed instead of from rest; callers that are not a gesture pass 0.
     void slideSettle(int delta, double velocity = 0);
     void slideFinish();
+    void sendSlideFrameDone(timespec* now) const;
     // Refresh the native pair bindings and shader inputs before output composition.
     void refreshReveal();
     [[nodiscard]] wlr_scene_node* revealRoot(bool incoming) const;

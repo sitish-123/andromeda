@@ -2364,6 +2364,19 @@ namespace andromeda {
     }
   }
 
+  void Workspace::sendSwitchFrameDone(timespec* now) const {
+    for (View* view : m_switchViews) {
+      if (!view->suspended()) {
+        view->forEachSurface(
+            [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* userData) {
+              wlr_surface_send_frame_done(surface, static_cast<timespec*>(userData));
+            },
+            now
+        );
+      }
+    }
+  }
+
   void Workspace::setSlideOffset(double x, double y) {
     m_slideOffsetX = static_cast<int>(std::lround(x));
     m_slideOffsetY = static_cast<int>(std::lround(y));
@@ -3219,6 +3232,14 @@ namespace andromeda {
       m_slide.reveal = nullptr;
       m_slide.revealPreset.reset();
       slideApply(m_slide.progress);
+    }
+  }
+
+  void WorkspaceGroup::sendSlideFrameDone(timespec* now) const {
+    for (const Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+      if (workspace != nullptr && workspace->switchTransitionActive()) {
+        workspace->sendSwitchFrameDone(now);
+      }
     }
   }
 

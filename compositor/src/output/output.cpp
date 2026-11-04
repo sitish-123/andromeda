@@ -2490,6 +2490,9 @@ namespace andromeda {
 
     // Unconditional: see comment above. Never gate this on commit success.
     wlr_scene_output_send_frame_done(m_sceneOutput, &now);
+    if (m_workspaceGroup != nullptr) {
+      m_workspaceGroup->sendSlideFrameDone(&now);
+    }
   }
 
   void Output::handleRequestState(void* data) {
