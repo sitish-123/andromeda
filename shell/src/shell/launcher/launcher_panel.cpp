@@ -980,7 +980,9 @@ namespace {
       m_header->setPosition(0.0F, 0.0F);
       m_header->setFrameSize(width, height);
       if (headerVisible) {
-        m_headerGlyph->setGlyph(row.glyphName);
+        if (!row.glyphName.empty()) {
+          m_headerGlyph->setGlyph(row.glyphName);
+        }
         m_headerGlyph->setVisible(!row.glyphName.empty());
         m_headerGlyph->setParticipatesInLayout(!row.glyphName.empty());
         m_headerLabel->setText(row.label);
