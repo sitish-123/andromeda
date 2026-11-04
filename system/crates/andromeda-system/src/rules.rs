@@ -25,9 +25,13 @@ pub enum Priority {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct Hold {
     pub knob: String,
     pub value: toml::Value,
+    /// Per-app rules only: the hold is placed when the episode starts only if this holds for the app.
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -63,6 +67,8 @@ struct RuleSpec {
     holds: Vec<Hold>,
     #[serde(default)]
     alert: Option<Alert>,
+    #[serde(default)]
+    per: Option<String>,
 }
 
 /// A loaded rule. Users may change only `enabled` and the values of declared params.
@@ -77,8 +83,15 @@ pub struct Rule {
     pub clear: Expr,
     pub dwell: Duration,
     pub holds: Vec<Hold>,
+    /// Each hold's compiled `when`, in the order of `holds`.
+    pub hold_when: Vec<Option<Expr>>,
     pub alert: Option<Alert>,
+    /// `app`: one episode per app, read from the `app.*` fields; its holds go to that app, not to the knobs.
+    pub per: Option<String>,
 }
+
+/// What a per-app rule may hold on its app (the compositor's `HoldTier` and `HoldFreeze`).
+pub const APP_HOLDS: [&str; 2] = ["app.tier", "app.freeze"];
 
 /// `0s`, `30s`, `2m`, `1h`.
 pub fn duration(text: &str) -> Result<Duration, String> {
@@ -158,6 +171,22 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
     let clear = Expr::parse(&spec.clear, &schema).map_err(|e| fail("clear", &e))?;
     let hold_for = duration(spec.for_.as_deref().unwrap_or("0s")).map_err(|e| fail("for", &e))?;
     let dwell = duration(spec.dwell.as_deref().unwrap_or("0s")).map_err(|e| fail("dwell", &e))?;
+    if let Some(per) = spec.per.as_deref() {
+        if per != "app" {
+            return Err(fail("per", &"only \"app\""));
+        }
+        if let Some(h) = spec.holds.iter().find(|h| !APP_HOLDS.contains(&h.knob.as_str())) {
+            return Err(fail("holds", &format!("a per-app rule holds only {APP_HOLDS:?}, not {:?}", h.knob)));
+        }
+    }
+    let mut hold_when = Vec::new();
+    for hold in &spec.holds {
+        hold_when.push(match (&hold.when, spec.per.is_some()) {
+            (Some(when), true) => Some(Expr::parse(when, &schema).map_err(|e| fail("holds.when", &e))?),
+            (Some(_), false) => return Err(fail("holds.when", &"only a per-app rule has a hold condition")),
+            (None, _) => None,
+        });
+    }
     Ok(Rule {
         id: spec.id,
         scope: spec.scope,
@@ -168,7 +197,9 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
         clear,
         dwell,
         holds: spec.holds,
+        hold_when,
         alert: spec.alert,
+        per: spec.per,
     })
 }
 

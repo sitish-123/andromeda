@@ -20,7 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
 zbus_polkit = { version = "6", default-features = false, features = ["tokio"] }
-tokio = { version = "1", features = ["rt", "macros", "time", "sync", "signal"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "signal", "process"] }
 zbus = { version = "6", default-features = false, features = ["tokio", "proxy", "service", "object-manager"] }
 
 [workspace.lints.rust]

@@ -18,6 +18,11 @@ const FIELDS: &[(&str, Type)] = &[
     ("battery.state", Type::Str),
     ("battery.time_to_empty_s", Type::Num),
     ("power.profile_by_rule", Type::Bool),
+    // One app, for per-app rules (`per = "app"`): from org.andromeda.Compositor1.Apps.
+    ("app.cpu_pct", Type::Num),
+    ("app.rss_mb", Type::Num),
+    ("app.visible", Type::Bool),
+    ("app.focused", Type::Bool),
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -74,5 +79,29 @@ impl Snapshot {
             Some(v) => self.0.insert(name, v),
             None => self.0.remove(name),
         };
+    }
+}
+
+/// One app's sample from `Compositor1.Apps`: (unit, visible, focused, tier, frozen, cpu % of one core, rss bytes).
+pub type AppRow = (String, bool, bool, String, bool, f64, u64);
+
+/// The session state plus one app's `app.*` fields.
+pub struct AppValues<'a> {
+    pub state: &'a Snapshot,
+    pub app: &'a AppRow,
+}
+
+impl Values for AppValues<'_> {
+    fn value_of(&self, name: &str) -> Option<Value> {
+        let (_, visible, focused, _, _, cpu, rss) = self.app;
+        #[allow(clippy::cast_precision_loss)] // MiB
+        let rss_mb = *rss as f64 / 1_048_576.0;
+        match name {
+            "app.cpu_pct" => Some(Value::Num(*cpu)),
+            "app.rss_mb" => Some(Value::Num(rss_mb)),
+            "app.visible" => Some(Value::Bool(*visible)),
+            "app.focused" => Some(Value::Bool(*focused)),
+            _ => self.state.value_of(name),
+        }
     }
 }

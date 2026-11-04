@@ -38,6 +38,9 @@ pub struct Entry {
     pub measured: Option<String>,
     #[serde(default)]
     pub note: String,
+    /// The app (unit) of a per-app rule's episode; empty for other rules.
+    #[serde(default)]
+    pub instance: String,
 }
 
 pub struct Log {
@@ -66,19 +69,13 @@ impl Log {
     /// Entries at or after `since_ms`, oldest first. Lines that do not parse are skipped.
     pub fn since(&self, since_ms: u64) -> Vec<Entry> {
         let text = fs::read_to_string(&self.path).unwrap_or_default();
-        text.lines()
-            .filter_map(|l| serde_json::from_str::<Entry>(l).ok())
-            .filter(|e| e.time_ms >= since_ms)
-            .collect()
+        text.lines().filter_map(|l| serde_json::from_str::<Entry>(l).ok()).filter(|e| e.time_ms >= since_ms).collect()
     }
 
     /// Drops entries older than 7 days, then the oldest until the file fits the cap; writes through a temp file.
     pub fn trim(&self, now_ms: u64) -> std::io::Result<()> {
-        let mut lines: Vec<String> = self
-            .since(now_ms.saturating_sub(KEEP_MS))
-            .iter()
-            .filter_map(|e| serde_json::to_string(e).ok())
-            .collect();
+        let mut lines: Vec<String> =
+            self.since(now_ms.saturating_sub(KEEP_MS)).iter().filter_map(|e| serde_json::to_string(e).ok()).collect();
         let mut size: usize = lines.iter().map(|l| l.len() + 1).sum();
         let mut first = 0;
         while size > MAX_BYTES / 2 && first < lines.len() {
@@ -96,7 +93,7 @@ pub const PATH: &str = "/org/andromeda/System1/Explain";
 
 impl Entry {
     /// The entry as `a{sv}`: `id`, `time_usec`, `rule`, `episode`, `event`, `trigger` a(ss), `holds` a(ss),
-    /// `changes` a(sss), `measured`, `note`.
+    /// `changes` a(sss), `measured`, `note`, `instance`.
     pub fn to_dict(&self) -> HashMap<String, OwnedVariant> {
         let mut out = HashMap::new();
         let mut put = |key: &str, value: Variant<'_>| {
@@ -114,6 +111,7 @@ impl Entry {
         put("changes", self.changes.clone().into());
         put("measured", self.measured.clone().unwrap_or_default().into());
         put("note", self.note.as_str().into());
+        put("instance", self.instance.as_str().into());
         out
     }
 }
@@ -168,6 +166,7 @@ mod tests {
             changes: vec![("power.profile".to_owned(), "balanced".to_owned(), "power-saver".to_owned())],
             measured: None,
             note: String::new(),
+            instance: String::new(),
         }
     }
 

@@ -9,18 +9,19 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, MatchRule, MessageStream, OwnedVariant, Variant, interface};
 
 use crate::bus::{self, Remote};
 use crate::engine::{Changes, Engine};
 use crate::explain::{self, Entry, Log};
+use crate::expr::Value;
 use crate::holds::{Knob, KnobValue, Merge};
 use crate::policy::now_ms;
+use crate::rules::RuleValues;
 use crate::rules::{self, Alert, Scope};
-use crate::expr::Value;
-use crate::state::{Fields, Snapshot};
+use crate::state::{AppRow, AppValues, Fields, Snapshot};
 use crate::{NAME, knobs, nm, power};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
@@ -31,14 +32,46 @@ const SYSTEM_KNOBS: [&str; 1] = ["power.profile"];
 const PROFILE_BY_RULE: &str = "power.profile_by_rule";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
+const COMPOSITOR: &str = "org.andromeda.Compositor1";
+const APPS_PATH: &str = "/org/andromeda/Compositor1/Apps";
+const APPS: &str = "org.andromeda.Compositor1.Apps";
+/// `List()` keeps the compositor sampling for 2 min; asking every minute keeps it on while a per-app rule is on.
+const APPS_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Alert strings until the i18n catalog reaches this process: key -> (summary, body).
 fn alert_text(key: &str) -> (&'static str, &'static str) {
     match key {
-        "low_power_plan" => ("Low Power Mode is on", "The battery is low. The desktop uses less power until you plug in."),
+        "low_power_plan" => {
+            ("Low Power Mode is on", "The battery is low. The desktop uses less power until you plug in.")
+        }
         "battery_critical" => ("Battery critically low", "Plug in now. The computer will soon shut down."),
+        "drainer" => ("{app} uses a lot of energy", "It used {cpu} % of a CPU core for 2 minutes."),
         _ => ("The desktop changed a setting", "Open Settings > Battery and Power to see why."),
     }
+}
+
+/// Opens Activity on one app, as its alert's Open action asks.
+fn open_activity(unit: &str) {
+    match tokio::process::Command::new("noctalia").args(["msg", "activity-open", unit]).spawn() {
+        Ok(mut child) => {
+            tokio::spawn(async move { child.wait().await });
+        }
+        Err(e) => log::warn!("session: could not open Activity: {e}"),
+    }
+}
+
+/// A readable name from an app unit: `app-gnome-org.mozilla.firefox-1234.scope` -> `Firefox`.
+fn app_name(unit: &str) -> String {
+    let base = unit.strip_prefix("app-").unwrap_or(unit);
+    let base = base.rsplit_once('.').filter(|(_, ext)| *ext == "scope" || *ext == "service").map_or(base, |(b, _)| b);
+    let base = base.split('@').next().unwrap_or(base);
+    let base =
+        base.rsplit_once('-').filter(|(_, tail)| tail.chars().all(|c| c.is_ascii_hexdigit())).map_or(base, |(b, _)| b);
+    // A launcher prefix (`gnome-`, `andromeda-`, `flatpak-`) comes before a reverse-DNS app id.
+    let base = base.split_once('-').filter(|(_, id)| id.contains('.')).map_or(base, |(_, id)| id);
+    let name = base.rsplit('.').next().unwrap_or(base);
+    let mut chars = name.chars();
+    chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
 }
 
 struct Spec {
@@ -55,9 +88,17 @@ struct Session {
     /// Notification id -> episode.
     alerts: HashMap<u32, u64>,
     state: Snapshot,
+    /// The last Compositor1.Apps sample, for per-app rules.
+    apps: Vec<AppRow>,
+    /// Open per-app episodes: episode -> the compositor hold ids.
+    app_held: HashMap<u64, Vec<String>>,
+    /// Wakes the step loop when a new app sample lands.
+    wake: Arc<Notify>,
 }
 
 type Shared = Arc<Mutex<Session>>;
+/// The body of `InterfacesAdded`: interface -> properties.
+type Interfaces = HashMap<String, HashMap<String, OwnedVariant>>;
 
 fn variant(value: &toml::Value) -> Option<Variant<'static>> {
     Some(match value {
@@ -81,11 +122,13 @@ impl Session {
             }
             let Some(value) = variant(&hold.value) else { continue };
             let reply = system
-                .call_method(Some(NAME), knobs::PATH, Some("org.andromeda.System1.Knobs"), "Hold", &(
-                    hold.knob.as_str(),
-                    value,
-                    rule,
-                ))
+                .call_method(
+                    Some(NAME),
+                    knobs::PATH,
+                    Some("org.andromeda.System1.Knobs"),
+                    "Hold",
+                    &(hold.knob.as_str(), value, rule),
+                )
                 .await;
             match reply.and_then(|r| r.body().deserialize::<String>()) {
                 Ok(id) => ids.push(id),
@@ -95,9 +138,65 @@ impl Session {
         ids
     }
 
+    /// Places a per-app episode's holds on its app through Compositor1.Apps; a hold with a `when` only if it holds.
+    async fn place_app(&self, session: &Connection, entry: &Entry) -> Vec<String> {
+        let mut ids = Vec::new();
+        let Some((rule, _)) = self.engine.rules().find(|(r, _)| r.id == entry.rule) else { return ids };
+        let Some(app) = self.apps.iter().find(|a| a.0 == entry.instance) else { return ids };
+        // Decided before the first call: the values borrow state that must not live across an await.
+        let holds: Vec<&rules::Hold> = {
+            let values = AppValues { state: &self.state, app };
+            let values = RuleValues { state: &values, params: &rule.params };
+            rule.holds
+                .iter()
+                .zip(&rule.hold_when)
+                .filter(|(_, when)| when.as_ref().is_none_or(|w| w.holds(&values)))
+                .map(|(hold, _)| hold)
+                .collect()
+        };
+        for hold in holds {
+            let reply = match (hold.knob.as_str(), hold.value.as_str()) {
+                ("app.tier", Some(tier)) => {
+                    session
+                        .call_method(
+                            Some(COMPOSITOR),
+                            APPS_PATH,
+                            Some(APPS),
+                            "HoldTier",
+                            &(entry.instance.as_str(), tier, entry.rule.as_str()),
+                        )
+                        .await
+                }
+                ("app.freeze", _) => {
+                    session
+                        .call_method(
+                            Some(COMPOSITOR),
+                            APPS_PATH,
+                            Some(APPS),
+                            "HoldFreeze",
+                            &(entry.instance.as_str(), entry.rule.as_str()),
+                        )
+                        .await
+                }
+                _ => continue,
+            };
+            match reply.and_then(|r| r.body().deserialize::<String>()) {
+                Ok(id) => ids.push(id),
+                Err(e) => log::warn!("session: {} could not hold {} on {}: {e}", entry.rule, hold.knob, entry.instance),
+            }
+        }
+        ids
+    }
+
     async fn alert(&mut self, session: &Connection, entry: &Entry) {
         let Some(alert) = self.specs.get(&entry.rule).and_then(|s| s.alert.clone()) else { return };
         let (summary, body) = alert_text(&alert.text);
+        let cpu = entry.trigger.iter().find(|(k, _)| k == "app.cpu_pct").and_then(|(_, v)| v.parse::<f64>().ok());
+        let fill = |text: &str| {
+            text.replace("{app}", &app_name(&entry.instance))
+                .replace("{cpu}", &cpu.map_or_else(String::new, |c| format!("{c:.0}")))
+        };
+        let (summary, body) = (fill(summary), fill(body));
         let actions: Vec<&str> = match alert.action.as_deref() {
             Some("undo") => vec!["undo", "Undo"],
             Some("open") => vec!["default", "Open"],
@@ -113,16 +212,22 @@ impl Session {
         hints.insert("x-andromeda-rule", entry.rule.as_str().into());
         hints.insert("x-andromeda-episode", entry.id.as_str().into());
         let reply = session
-            .call_method(Some(NOTIFICATIONS), NOTIFICATIONS_PATH, Some(NOTIFICATIONS), "Notify", &(
-                "Andromeda",
-                0u32,
-                "battery-caution-symbolic",
-                summary,
-                body,
-                actions,
-                hints,
-                -1i32,
-            ))
+            .call_method(
+                Some(NOTIFICATIONS),
+                NOTIFICATIONS_PATH,
+                Some(NOTIFICATIONS),
+                "Notify",
+                &(
+                    "Andromeda",
+                    0u32,
+                    "battery-caution-symbolic",
+                    summary.as_str(),
+                    body.as_str(),
+                    actions,
+                    hints,
+                    -1i32,
+                ),
+            )
             .await;
         match reply.and_then(|r| r.body().deserialize::<u32>()) {
             Ok(id) => {
@@ -142,10 +247,19 @@ impl Session {
                 let _ = explain::Explain::entry(&emitter, entry.to_dict()).await;
             }
             if entry.event == "started" {
-                let ids = self.place(system, &entry.rule).await;
-                self.held.insert(entry.episode, (entry.rule.clone(), ids));
+                if entry.instance.is_empty() {
+                    let ids = self.place(system, &entry.rule).await;
+                    self.held.insert(entry.episode, (entry.rule.clone(), ids));
+                } else {
+                    let ids = self.place_app(session, &entry).await;
+                    self.app_held.insert(entry.episode, ids);
+                }
                 self.alert(session, &entry).await;
                 continue;
+            }
+            for id in self.app_held.remove(&entry.episode).unwrap_or_default() {
+                // The hold is gone already when the app or the compositor ended.
+                let _ = session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "Release", &(id,)).await;
             }
             for id in self.held.remove(&entry.episode).map(|(_, ids)| ids).unwrap_or_default() {
                 // The hold may already be gone (a user Set ended it, or the system part restarted).
@@ -157,9 +271,13 @@ impl Session {
             for note in ended {
                 self.alerts.remove(&note);
                 let _ = session
-                    .call_method(Some(NOTIFICATIONS), NOTIFICATIONS_PATH, Some(NOTIFICATIONS), "CloseNotification", &(
-                        note,
-                    ))
+                    .call_method(
+                        Some(NOTIFICATIONS),
+                        NOTIFICATIONS_PATH,
+                        Some(NOTIFICATIONS),
+                        "CloseNotification",
+                        &(note,),
+                    )
                     .await;
             }
         }
@@ -174,6 +292,41 @@ impl Session {
                 }
             }
             publish(session, knob, value.as_ref()).await;
+        }
+    }
+
+    /// Steps the rules on the current state, then the per-app rules on the last app sample.
+    async fn step_all(&mut self, system: &Connection, session: &Connection) {
+        let by_rule = self
+            .held
+            .values()
+            .any(|(rule, _)| self.specs.get(rule).is_some_and(|s| s.holds.iter().any(|h| h.knob == "power.profile")));
+        self.state.set_flag(PROFILE_BY_RULE, by_rule);
+        let state = self.state.clone();
+        let changes = self.engine.step(&state, Instant::now(), now_ms());
+        self.commit(system, session, changes).await;
+        let changes = {
+            let apps = self.apps.clone();
+            let values: Vec<AppValues<'_>> = apps.iter().map(|app| AppValues { state: &state, app }).collect();
+            let rows: Vec<(String, &dyn crate::expr::Values)> =
+                apps.iter().zip(&values).map(|(a, v)| (a.0.clone(), v as &dyn crate::expr::Values)).collect();
+            self.engine.step_instances(&rows, Instant::now(), now_ms())
+        };
+        self.commit(system, session, changes).await;
+    }
+
+    /// A notification action: Undo ends the episode; the default action of a per-app alert opens Activity on it.
+    async fn action(&mut self, system: &Connection, session: &Connection, note: u32, action: &str) {
+        match (self.alerts.get(&note).copied(), action) {
+            (Some(episode), "undo") => {
+                self.undo(system, session, episode).await;
+            }
+            (Some(episode), "default") => {
+                if let Some((_, app)) = self.engine.instance_of(episode) {
+                    open_activity(app);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -230,7 +383,8 @@ impl SessionExplain {
             Err(_) => Vec::new(),
         };
         let own = self.shared.lock().await.log.since(since_usec / 1000);
-        let mut all: Vec<(u64, HashMap<String, OwnedVariant>)> = own.iter().map(|e| (e.time_ms * 1000, e.to_dict())).collect();
+        let mut all: Vec<(u64, HashMap<String, OwnedVariant>)> =
+            own.iter().map(|e| (e.time_ms * 1000, e.to_dict())).collect();
         for entry in system {
             let time = entry.get("time_usec").and_then(|v| u64::try_from(v).ok()).unwrap_or(0);
             all.push((time, entry));
@@ -372,7 +526,8 @@ impl RulesObject {
             .collect::<zbus::fdo::Result<_>>()?;
         let mut inner = self.shared.lock().await;
         let changes = inner.engine.configure(id, enabled, &params, now_ms()).map_err(zbus::fdo::Error::InvalidArgs)?;
-        let (rule, _) = inner.engine.rules().find(|(r, _)| r.id == id).ok_or_else(|| zbus::fdo::Error::Failed(id.into()))?;
+        let (rule, _) =
+            inner.engine.rules().find(|(r, _)| r.id == id).ok_or_else(|| zbus::fdo::Error::Failed(id.into()))?;
         let mut entry = toml::Table::new();
         entry.insert("enabled".into(), toml::Value::Boolean(enabled));
         for (k, v) in &rule.params {
@@ -416,6 +571,9 @@ pub async fn run() -> Result<()> {
         held: HashMap::new(),
         alerts: HashMap::new(),
         state: Snapshot::default(),
+        apps: Vec::new(),
+        app_held: HashMap::new(),
+        wake: Arc::new(Notify::new()),
     }));
     let session = zbus::connection::Builder::session()
         .serve_at(explain::PATH, SessionExplain { shared: shared.clone(), system: system.clone() })
@@ -424,6 +582,7 @@ pub async fn run() -> Result<()> {
         .name(NAME)
         .build()
         .await?;
+    tokio::spawn(follow_apps(session.clone(), shared.clone()));
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     log::info!("serving {NAME} on the session bus");
     loop {
@@ -434,32 +593,24 @@ pub async fn run() -> Result<()> {
     }
 }
 
+/// A stream of one signal, from `sender` when given.
+async fn signals(conn: &Connection, sender: Option<&str>, interface: &str, member: &str) -> Result<MessageStream> {
+    let mut rule = MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(interface).member(member);
+    if let Some(sender) = sender {
+        rule = rule.sender(sender);
+    }
+    Ok(MessageStream::for_match_rule(rule.build()?, conn, None).await?)
+}
+
 /// One life of the system part: follows its state, steps the rules, and re-places the holds of open episodes.
 async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> Result<()> {
     let gone = bus::vanished(system, NAME);
     let mut power = Remote::new(system, NAME, power::PATH.to_owned(), "org.andromeda.System1.Power").await?;
+    // The system part exports the battery once UPower reports it, which can be after this starts.
+    let mut added = signals(system, Some(NAME), "org.freedesktop.DBus.ObjectManager", "InterfacesAdded").await?;
     let mut battery = Remote::new(system, NAME, BATTERY.to_owned(), "org.andromeda.System1.Battery").await.ok();
-    let mut released = MessageStream::for_match_rule(
-        MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .sender(NAME)
-            .interface("org.andromeda.System1.Knobs")
-            .member("Released")
-            .build()?,
-        system,
-        None,
-    )
-    .await?;
-    let mut actions = MessageStream::for_match_rule(
-        MatchRule::builder()
-            .msg_type(zbus::message::Type::Signal)
-            .interface(NOTIFICATIONS)
-            .member("ActionInvoked")
-            .build()?,
-        session,
-        None,
-    )
-    .await?;
+    let mut released = signals(system, Some(NAME), "org.andromeda.System1.Knobs", "Released").await?;
+    let mut actions = signals(session, None, NOTIFICATIONS, "ActionInvoked").await?;
     let me = system.unique_name().map(ToString::to_string).unwrap_or_default();
     {
         let mut inner = shared.lock().await;
@@ -473,17 +624,11 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
     }
     tokio::pin!(gone);
     loop {
-        {
-            let mut inner = shared.lock().await;
-            let by_rule = inner.held.values().any(|(rule, _)| {
-                inner.specs.get(rule).is_some_and(|s| s.holds.iter().any(|h| h.knob == "power.profile"))
-            });
-            inner.state.set_flag(PROFILE_BY_RULE, by_rule);
-            let state = inner.state.clone();
-            let changes = inner.engine.step(&state, Instant::now(), now_ms());
-            inner.commit(system, session, changes).await;
-        }
-        let deadline = shared.lock().await.engine.deadline();
+        shared.lock().await.step_all(system, session).await;
+        let (deadline, wake) = {
+            let inner = shared.lock().await;
+            (inner.engine.deadline(), inner.wake.clone())
+        };
         let sleep = async {
             match deadline {
                 Some(at) => tokio::time::sleep_until(at.into()).await,
@@ -509,6 +654,14 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
                 let mut inner = shared.lock().await;
                 inner.state.set_battery(battery.as_ref().map(|b| &b.props));
             }
+            message = added.next() => {
+                let message = message.context("InterfacesAdded stream ended")??;
+                let Ok((path, _)) = message.body().deserialize::<(zbus::OwnedObjectPath, Interfaces)>() else { continue };
+                if battery.is_none() && path.as_str() == BATTERY {
+                    battery = Remote::new(system, NAME, BATTERY.to_owned(), "org.andromeda.System1.Battery").await.ok();
+                    shared.lock().await.state.set_battery(battery.as_ref().map(|b| &b.props));
+                }
+            }
             message = released.next() => {
                 let message = message.context("Released stream ended")??;
                 let Ok((id, owner)) = message.body().deserialize::<(String, String)>() else { continue };
@@ -524,12 +677,58 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
             message = actions.next() => {
                 let message = message.context("ActionInvoked stream ended")??;
                 let Ok((note, action)) = message.body().deserialize::<(u32, String)>() else { continue };
-                let mut inner = shared.lock().await;
-                if let (Some(episode), "undo") = (inner.alerts.get(&note).copied(), action.as_str()) {
-                    inner.undo(system, session, episode).await;
-                }
+                shared.lock().await.action(system, session, note, &action).await;
             }
             () = sleep => {}
+            () = wake.notified() => {}
+        }
+    }
+}
+
+/// Feeds per-app rules: `Compositor1.Apps` samples (`AppStats` every 30 s), asking `List()` each minute so the
+/// compositor keeps sampling. Idle, with no `List()` call, while no per-app rule is on.
+async fn follow_apps(session: Connection, shared: Shared) {
+    let rule = MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .sender(COMPOSITOR)
+        .path(APPS_PATH)
+        .interface(APPS)
+        .member("AppStats")
+        .build();
+    let stats = match rule {
+        Ok(rule) => MessageStream::for_match_rule(rule, &session, None).await,
+        Err(e) => Err(e),
+    };
+    let mut stats = match stats {
+        Ok(stream) => stream,
+        Err(e) => {
+            log::warn!("session: no AppStats stream: {e}");
+            return;
+        }
+    };
+    let mut tick = tokio::time::interval(APPS_EVERY);
+    loop {
+        let rows: Option<Vec<AppRow>> = tokio::select! {
+            _ = tick.tick() => {
+                let wanted = shared.lock().await.engine.rules().any(|(r, on)| on && r.per.is_some());
+                if !wanted {
+                    continue;
+                }
+                match session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "List", &()).await {
+                    Ok(reply) => reply.body().deserialize().ok(),
+                    // No compositor with the API (a nested or older one): per-app rules see no apps.
+                    Err(_) => Some(Vec::new()),
+                }
+            }
+            message = stats.next() => match message {
+                Some(Ok(message)) => message.body().deserialize::<(Vec<AppRow>,)>().ok().map(|(rows,)| rows),
+                _ => return,
+            },
+        };
+        if let Some(rows) = rows {
+            let mut inner = shared.lock().await;
+            inner.apps = rows;
+            inner.wake.notify_one();
         }
     }
 }

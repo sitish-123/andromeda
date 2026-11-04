@@ -4,8 +4,8 @@
 mod battery;
 mod bus;
 mod engine;
-mod expr;
 mod explain;
+mod expr;
 mod holds;
 mod kbd_backlight;
 mod knobs;

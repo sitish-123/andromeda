@@ -1,0 +1,16 @@
+# Per-app rules (docs/system-health.md §4.3): one episode per app, from org.andromeda.Compositor1.Apps samples
+# (every 30 s). Users change only `enabled` and the params.
+[[rule]]
+id = "apps.drainer"
+scope = "session"
+priority = "automatic"
+per = "app"
+params = { busy_pct = 50, calm_pct = 20 }
+when = "app.cpu_pct >= busy_pct and not app.focused"
+for = "2m"
+# The doc clears after 1 min below calm_pct. The engine has no clear delay: the episode lasts at least 1 min
+# (dwell) and ends at the first calm sample after that.
+clear = "app.cpu_pct < calm_pct"
+dwell = "1m"
+holds = [{ knob = "app.tier", value = "T3", when = "not app.visible" }]
+alert = { urgency = "normal", action = "open", text = "drainer" }

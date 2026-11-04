@@ -109,7 +109,12 @@ impl Knobs {
     }
 
     /// Ends one of the caller's holds.
-    async fn release(&self, id: &str, #[zbus(header)] header: Header<'_>, #[zbus(connection)] conn: &Connection) -> Result<()> {
+    async fn release(
+        &self,
+        id: &str,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<()> {
         let id = id.parse().map_err(|_| Error::InvalidArgs(format!("bad hold id {id:?}")))?;
         let owner = sender(&header)?;
         let mut policy = self.policy.lock().await;
