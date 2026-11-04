@@ -794,6 +794,7 @@ ext_workspace_client_c = custom_target(
 # compositor and the tests, so a test never recompiles a translation unit. Keep this list free of anything needing
 # andromedafx, pango, or a running server.
 pure_sources = files(
+  'src/qos/policy.cpp',
   'src/config/change.cpp',
   'src/config/resolve.cpp',
   'src/config/generated_file.cpp',
