@@ -3344,7 +3344,7 @@
         },
         "pre-action-fade": {
           "description": "Seconds of fullscreen dim before the idle command (0 disables)",
-          "label": "Idle Dim"
+          "label": "Fade Before Idle Action"
         }
       },
       "keybinds": {
