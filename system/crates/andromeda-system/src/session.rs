@@ -118,6 +118,8 @@ struct Session {
     held: HashMap<u64, (String, Vec<String>)>,
     /// Notification id -> episode.
     alerts: HashMap<u32, u64>,
+    /// Open episodes whose alert comes again: episode -> (its start entry, the whole unit the field must fall below).
+    again: HashMap<u64, (Entry, f64)>,
     state: Snapshot,
     /// The last Compositor1.Apps sample, for per-app rules.
     apps: Vec<AppRow>,
@@ -248,6 +250,8 @@ impl Session {
             "low" => 0,
             _ => 1,
         };
+        // A repeat alert replaces the episode's earlier notification instead of adding one.
+        let replaces = self.alerts.iter().find(|(_, e)| **e == entry.episode).map_or(0, |(n, _)| *n);
         let mut hints: HashMap<&str, Variant<'_>> = HashMap::new();
         hints.insert("urgency", urgency.into());
         hints.insert("x-andromeda-rule", entry.rule.as_str().into());
@@ -260,7 +264,7 @@ impl Session {
                 "Notify",
                 &(
                     "Andromeda",
-                    0u32,
+                    replaces,
                     "battery-caution-symbolic",
                     summary.as_str(),
                     body.as_str(),
@@ -272,6 +276,7 @@ impl Session {
             .await;
         match reply.and_then(|r| r.body().deserialize::<u32>()) {
             Ok(id) => {
+                self.alerts.remove(&replaces);
                 self.alerts.insert(id, entry.episode);
             }
             Err(e) => log::warn!("session: alert for {}: {e}", entry.rule),
@@ -296,8 +301,13 @@ impl Session {
                     self.app_held.insert(entry.episode, ids);
                 }
                 self.alert(session, &entry).await;
+                let field = self.specs.get(&entry.rule).and_then(|s| s.alert.as_ref()).and_then(|a| a.again.as_deref());
+                if let Some(Value::Num(now)) = field.and_then(|f| self.state.value_of(f)) {
+                    self.again.insert(entry.episode, (entry, now.floor()));
+                }
                 continue;
             }
+            self.again.remove(&entry.episode);
             for id in self.app_held.remove(&entry.episode).unwrap_or_default() {
                 // The hold is gone already when the app or the compositor ended.
                 let _ = session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "Release", &(id,)).await;
@@ -346,6 +356,7 @@ impl Session {
         let state = self.state.clone();
         let changes = self.engine.step(&state, Instant::now(), now_ms());
         self.commit(system, session, changes).await;
+        self.alert_again(session).await;
         let changes = {
             let apps = self.apps.clone();
             let values: Vec<AppValues<'_>> = apps.iter().map(|app| AppValues { state: &state, app }).collect();
@@ -354,6 +365,23 @@ impl Session {
             self.engine.step_instances(&rows, Instant::now(), now_ms())
         };
         self.commit(system, session, changes).await;
+    }
+
+    /// Sends an open episode's alert again once its `again` field is below the next whole unit.
+    async fn alert_again(&mut self, session: &Connection) {
+        let due: Vec<(u64, Entry, f64)> = self
+            .again
+            .iter()
+            .filter_map(|(episode, (entry, below))| {
+                let field = self.specs.get(&entry.rule)?.alert.as_ref()?.again.as_deref()?;
+                let Some(Value::Num(now)) = self.state.value_of(field) else { return None };
+                (now < *below).then(|| (*episode, entry.clone(), now.floor()))
+            })
+            .collect();
+        for (episode, entry, below) in due {
+            self.alert(session, &entry).await;
+            self.again.insert(episode, (entry, below));
+        }
     }
 
     /// The system part is back: places the holds of the open episodes again.
@@ -628,6 +656,7 @@ pub async fn run() -> Result<()> {
         specs,
         held: HashMap::new(),
         alerts: HashMap::new(),
+        again: HashMap::new(),
         state: Snapshot::default(),
         apps: Vec::new(),
         app_held: HashMap::new(),

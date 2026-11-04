@@ -41,6 +41,9 @@ pub struct Alert {
     pub action: Option<String>,
     /// Key of the alert's strings in the i18n catalog.
     pub text: String,
+    /// A state field: while the episode is open, the alert comes again each time it falls past one more whole unit.
+    #[serde(default)]
+    pub again: Option<String>,
 }
 
 #[derive(Deserialize)]
