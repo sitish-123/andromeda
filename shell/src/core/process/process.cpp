@@ -4,6 +4,8 @@
 #include "core/process/async_process_manager.h"
 #include "util/string_utils.h"
 
+#include <sdbus-c++/sdbus-c++.h>
+
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -17,6 +19,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <poll.h>
@@ -668,10 +671,127 @@ namespace {
     return res;
   }
 
+  std::string resolveCommand(const std::string& name) {
+    if (name.find('/') != std::string::npos) {
+      return name;
+    }
+    const char* pathEnv = std::getenv("PATH");
+    std::string_view path = pathEnv != nullptr && pathEnv[0] != '\0' ? pathEnv : "/usr/local/bin:/usr/bin:/bin";
+    while (!path.empty()) {
+      const std::string_view dir = path.substr(0, path.find(':'));
+      path.remove_prefix(std::min(path.size(), dir.size() + 1));
+      if (dir.empty()) {
+        continue;
+      }
+      std::string candidate = std::string(dir) + "/" + name;
+      std::error_code ec;
+      if (::access(candidate.c_str(), X_OK) == 0 && std::filesystem::is_regular_file(candidate, ec)) {
+        return candidate;
+      }
+    }
+    return {};
+  }
+
+  // The launch connection to the user manager: made on the first launch, its replies run on sdbus's own thread.
+  sdbus::IProxy* systemdManager() {
+    static std::once_flag once;
+    static std::unique_ptr<sdbus::IConnection> connection;
+    static std::unique_ptr<sdbus::IProxy> manager;
+    std::call_once(once, [] {
+      try {
+        connection = sdbus::createSessionBusConnection();
+        manager = sdbus::createProxy(
+            *connection, sdbus::ServiceName{"org.freedesktop.systemd1"}, sdbus::ObjectPath{"/org/freedesktop/systemd1"}
+        );
+        connection->enterEventLoopAsync();
+      } catch (const sdbus::Error& e) {
+        kLog.warn("launch: no session bus for StartTransientUnit ({}); using systemd-run", e.getMessage());
+        manager.reset();
+      }
+    });
+    return manager.get();
+  }
+
+  // StartTransientUnit with the properties systemd-run sends for the same arguments, without its process start.
+  bool startSystemdServiceOverBus(
+      const std::vector<std::string>& args, const std::string& activationToken, const std::string& workingDir,
+      const std::string& unit, bool launchBoost
+  ) {
+    sdbus::IProxy* manager = systemdManager();
+    const std::string executable = resolveCommand(args.front());
+    if (manager == nullptr || executable.empty()) {
+      return false;
+    }
+    using Property = sdbus::Struct<std::string, sdbus::Variant>;
+    std::vector<std::string> environment;
+    for (char** entry = ::environ; *entry != nullptr; ++entry) {
+      const std::string_view value(*entry);
+      // systemd rejects the whole unit for one entry that is not NAME=VALUE with a valid name.
+      const std::string_view name = value.substr(0, value.find('='));
+      if (name.size() == value.size() || name.empty() || std::isdigit(static_cast<unsigned char>(name.front())) != 0
+          || !std::ranges::all_of(name, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_'; })) {
+        continue;
+      }
+      if (!activationToken.empty()
+          && (value.starts_with("XDG_ACTIVATION_TOKEN=") || value.starts_with("DESKTOP_STARTUP_ID="))) {
+        continue;
+      }
+      environment.emplace_back(value);
+    }
+    if (!activationToken.empty()) {
+      environment.push_back("XDG_ACTIVATION_TOKEN=" + activationToken);
+      environment.push_back("DESKTOP_STARTUP_ID=" + activationToken);
+    }
+    std::string description;
+    for (const std::string& arg : args) {
+      description += description.empty() ? arg : " " + arg;
+    }
+    using Exec = sdbus::Struct<std::string, std::vector<std::string>, bool>;
+    std::vector<Property> properties{
+        {"Description", sdbus::Variant{description}},
+        {"Slice", sdbus::Variant{std::string("app.slice")}},
+        {"ExitType", sdbus::Variant{std::string("cgroup")}},
+        {"OOMPolicy", sdbus::Variant{std::string("continue")}},
+        {"Environment", sdbus::Variant{environment}},
+        {"ExecStart", sdbus::Variant{std::vector<Exec>{{executable, args, false}}}},
+    };
+    if (launchBoost) {
+      properties.push_back({"CPUWeight", sdbus::Variant{std::uint64_t{1000}}});
+    }
+    if (!workingDir.empty()) {
+      properties.push_back({"WorkingDirectory", sdbus::Variant{workingDir}});
+    }
+    try {
+      manager->callMethodAsync("StartTransientUnit")
+          .onInterface("org.freedesktop.systemd1.Manager")
+          .withArguments(
+              unit, std::string("fail"), properties,
+              std::vector<sdbus::Struct<std::string, std::vector<Property>>>{}
+          )
+          .uponReplyInvoke([unit](std::optional<sdbus::Error> error, const sdbus::ObjectPath& /*job*/) {
+            if (error.has_value()) {
+              kLog.error("launch: StartTransientUnit {} failed: {}", unit, error->getMessage());
+            }
+          });
+    } catch (const sdbus::Error& e) {
+      kLog.warn("launch: StartTransientUnit {} not sent ({}); using systemd-run", unit, e.getMessage());
+      return false;
+    }
+    return true;
+  }
+
   bool startSystemdService(
       const std::vector<std::string>& args, const std::string& activationToken, const std::string& workingDir,
       const std::string& appName
   ) {
+    std::string uuid = StringUtils::generateUuid();
+    std::erase(uuid, '-');
+    const std::string busUnit = !appName.empty()
+        ? std::format("app-{}@{}.service", escapeSystemdUnitName(appName), uuid)
+        : std::format("app-noctalia-{}.service", uuid);
+    if (!uuid.empty() && startSystemdServiceOverBus(args, activationToken, workingDir, busUnit, !appName.empty())) {
+      return true;
+    }
     std::vector<std::string> systemdArgs;
     systemdArgs.emplace_back("systemd-run");
     systemdArgs.emplace_back("--user");
@@ -689,10 +809,8 @@ namespace {
     // limits or env vars.
     // 2. See the app's output and exit code (if it fails) in `systemctl status`.
     if (!appName.empty()) {
-      std::string uuid = StringUtils::generateUuid();
-      std::erase(uuid, '-');
       if (!uuid.empty()) {
-        systemdArgs.push_back(std::format("--unit=app-{}@{}.service", escapeSystemdUnitName(appName), uuid));
+        systemdArgs.push_back("--unit=" + busUnit);
       }
       // Launch boost; the compositor resets it (cpu_boost.cpp) when the first window maps or the launch expires.
       systemdArgs.emplace_back("--property=CPUWeight=1000");
