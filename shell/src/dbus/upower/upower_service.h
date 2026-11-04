@@ -202,7 +202,6 @@ private:
   };
 
   [[nodiscard]] UPowerState readDefaultState() const;
-  [[nodiscard]] UPowerState readDeviceState(sdbus::IProxy& proxy) const;
   [[nodiscard]] UPowerDeviceInfo readDeviceInfoBase(std::string path, sdbus::IProxy& proxy) const;
   [[nodiscard]] UPowerChargeLimitState readChargeLimitState(
       const UPowerDeviceInfo& info, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable

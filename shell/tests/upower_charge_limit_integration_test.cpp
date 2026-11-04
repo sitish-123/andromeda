@@ -296,12 +296,15 @@ int main() {
     TEST_CHECK(!PowerTabTestAccess::managementVisible(tab, 0));
     TEST_CHECK(PowerTabTestAccess::controlVisible(tab, 0));
     // sd-bus's GetManagedObjects reads every property; after it, a change that would refresh a laptop battery's
-    // charge limit (PowerSupply) must not make the shell read a peripheral's.
+    // charge limit (PowerSupply) must not make the shell read a peripheral's on its own: the device's one GetAll
+    // reads ChargeLimit with Percent, so both counters move together.
     const int mouseChargeLimitReads = mouse.chargeLimitReadCount();
     const int mousePercentReads = mouse.percentageReadCount();
     mouse.emitChanged("PowerSupply");
     drainUntil(bus, [&]() { return mouse.percentageReadCount() > mousePercentReads; });
-    TEST_CHECK(mouse.chargeLimitReadCount() == mouseChargeLimitReads);
+    TEST_CHECK(
+        mouse.chargeLimitReadCount() - mouseChargeLimitReads == mouse.percentageReadCount() - mousePercentReads
+    );
 
     const int bat0SupportedBeforePercentage = bat0.chargeLimitReadCount();
     const int bat0PercentageBeforePercentage = bat0.percentageReadCount();
@@ -314,7 +317,11 @@ int main() {
       return current != nullptr && current->state.percentage == 57.0;
     });
     TEST_CHECK(bat0.percentageReadCount() > bat0PercentageBeforePercentage);
-    TEST_CHECK(bat0.chargeLimitReadCount() == bat0SupportedBeforePercentage);
+    // Only GetAll reads: no separate ChargeLimit Get for a Percent change. The Percent emit itself reads Percent once.
+    TEST_CHECK(
+        bat0.chargeLimitReadCount() - bat0SupportedBeforePercentage
+        == bat0.percentageReadCount() - bat0PercentageBeforePercentage - 1
+    );
     TEST_CHECK(bat1.percentageReadCount() == bat1PercentageBeforePercentage);
     TEST_CHECK(bat1.chargeLimitReadCount() == bat1SupportedBeforePercentage);
 

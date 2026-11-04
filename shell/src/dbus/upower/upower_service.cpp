@@ -134,6 +134,29 @@ namespace {
     }
   }
 
+  using Props = std::map<sdbus::PropertyName, sdbus::Variant>;
+
+  // One GetAll per object instead of one Get per property: each Get wakes andromeda-system.
+  Props getAllOr(sdbus::IProxy& proxy, std::string_view iface) {
+    try {
+      return proxy.getAllProperties().onInterface(iface);
+    } catch (const sdbus::Error&) {
+      return {};
+    }
+  }
+
+  template <typename T> T propOr(const Props& props, std::string_view name, T fallback) {
+    const auto it = props.find(sdbus::PropertyName{std::string(name)});
+    if (it == props.end()) {
+      return fallback;
+    }
+    try {
+      return it->second.get<T>();
+    } catch (const sdbus::Error&) {
+      return fallback;
+    }
+  }
+
   template <typename T>
   std::optional<T> getOptionalProperty(sdbus::IProxy& proxy, std::string_view iface, std::string_view propertyName) {
     try {
@@ -235,6 +258,29 @@ namespace {
       return static_cast<BatteryState>(raw);
     }
     return BatteryState::Unknown;
+  }
+
+  UPowerState deviceState(const Props& props, bool onBattery) {
+    UPowerState next;
+    next.onBattery = onBattery;
+    next.percentage = propOr<double>(props, "Percent", 0.0);
+    next.isPresent = propOr<bool>(props, "Present", false);
+    next.state = decodeBatteryState(propOr<std::string>(props, "State", ""));
+    next.timeToEmpty = propOr<std::int64_t>(props, "TimeToEmptyS", 0);
+    next.timeToFull = propOr<std::int64_t>(props, "TimeToFullS", 0);
+    next.energyRate = propOr<double>(props, "RateW", 0.0);
+    next.energy = propOr<double>(props, "EnergyWh", 0.0);
+
+    // Fallback calculation for timeToEmpty / timeToFull if they are reported as 0 or less
+    if (next.state == BatteryState::Discharging && next.timeToEmpty <= 0 && next.energyRate > 0.0 && next.energy > 0.0) {
+      next.timeToEmpty = static_cast<std::int64_t>(std::round((next.energy / next.energyRate) * 3600.0));
+    } else if (next.state == BatteryState::Charging && next.timeToFull <= 0 && next.energyRate > 0.0) {
+      const auto energyFull = propOr<double>(props, "EnergyFullWh", 0.0);
+      if (energyFull > next.energy) {
+        next.timeToFull = static_cast<std::int64_t>(std::round(((energyFull - next.energy) / next.energyRate) * 3600.0));
+      }
+    }
+    return next;
   }
 
   constexpr Logger kLog("upower");
@@ -522,12 +568,11 @@ void UPowerService::applyEnumeratedDevices(const std::vector<std::string>& paths
 
 UPowerState UPowerService::readDefaultState() const {
   UPowerState next;
-
-  next.onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
+  const bool onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
+  next.onBattery = onBattery;
 
   if (m_displayDeviceProxy != nullptr) {
-    next = readDeviceState(*m_displayDeviceProxy);
-    next.onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
+    next = deviceState(getAllOr(*m_displayDeviceProxy, kDeviceInterface), onBattery);
     if (next.isPresent) {
       return next;
     }
@@ -542,48 +587,24 @@ UPowerState UPowerService::readDefaultState() const {
   if (m_dummyDevice && device == &*m_dummyDevice) {
     return next;
   }
-  next.onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
-  return next;
-}
-
-UPowerState UPowerService::readDeviceState(sdbus::IProxy& proxy) const {
-  UPowerState next;
-
-  next.onBattery = getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false);
-  next.percentage = getPropertyOr<double>(proxy, kDeviceInterface, "Percent", 0.0);
-  next.isPresent = getPropertyOr<bool>(proxy, kDeviceInterface, "Present", false);
-  next.state = decodeBatteryState(getPropertyOr<std::string>(proxy, kDeviceInterface, "State", ""));
-  next.timeToEmpty = getPropertyOr<std::int64_t>(proxy, kDeviceInterface, "TimeToEmptyS", 0);
-  next.timeToFull = getPropertyOr<std::int64_t>(proxy, kDeviceInterface, "TimeToFullS", 0);
-  next.energyRate = getPropertyOr<double>(proxy, kDeviceInterface, "RateW", 0.0);
-  next.energy = getPropertyOr<double>(proxy, kDeviceInterface, "EnergyWh", 0.0);
-
-  // Fallback calculation for timeToEmpty / timeToFull if they are reported as 0 or less
-  if (next.state == BatteryState::Discharging && next.timeToEmpty <= 0 && next.energyRate > 0.0 && next.energy > 0.0) {
-    next.timeToEmpty = static_cast<std::int64_t>(std::round((next.energy / next.energyRate) * 3600.0));
-  } else if (next.state == BatteryState::Charging && next.timeToFull <= 0 && next.energyRate > 0.0) {
-    const auto energyFull = getPropertyOr<double>(proxy, kDeviceInterface, "EnergyFullWh", 0.0);
-    if (energyFull > next.energy) {
-      next.timeToFull = static_cast<std::int64_t>(std::round(((energyFull - next.energy) / next.energyRate) * 3600.0));
-    }
-  }
-
+  next.onBattery = onBattery;
   return next;
 }
 
 UPowerDeviceInfo UPowerService::readDeviceInfoBase(std::string path, sdbus::IProxy& proxy) const {
+  const Props props = getAllOr(proxy, kDeviceInterface);
   UPowerDeviceInfo info;
   info.path = std::move(path);
-  info.nativePath = getPropertyOr<std::string>(proxy, kDeviceInterface, "NativePath", "");
-  info.vendor = getPropertyOr<std::string>(proxy, kDeviceInterface, "Vendor", "");
-  info.model = getPropertyOr<std::string>(proxy, kDeviceInterface, "Model", "");
-  info.serial = getPropertyOr<std::string>(proxy, kDeviceInterface, "Serial", "");
-  info.type = static_cast<UPowerDeviceType>(indexOf(kKinds, getPropertyOr<std::string>(proxy, kDeviceInterface, "Kind", "")));
-  info.powerSupply = getPropertyOr<bool>(proxy, kDeviceInterface, "PowerSupply", false);
-  info.energyFull = getPropertyOr<double>(proxy, kDeviceInterface, "EnergyFullWh", 0.0);
-  info.energyFullDesign = getPropertyOr<double>(proxy, kDeviceInterface, "EnergyFullDesignWh", 0.0);
-  info.chargeCycles = getPropertyOr<std::int32_t>(proxy, kDeviceInterface, "Cycles", -1);
-  info.state = readDeviceState(proxy);
+  info.nativePath = propOr<std::string>(props, "NativePath", "");
+  info.vendor = propOr<std::string>(props, "Vendor", "");
+  info.model = propOr<std::string>(props, "Model", "");
+  info.serial = propOr<std::string>(props, "Serial", "");
+  info.type = static_cast<UPowerDeviceType>(indexOf(kKinds, propOr<std::string>(props, "Kind", "")));
+  info.powerSupply = propOr<bool>(props, "PowerSupply", false);
+  info.energyFull = propOr<double>(props, "EnergyFullWh", 0.0);
+  info.energyFullDesign = propOr<double>(props, "EnergyFullDesignWh", 0.0);
+  info.chargeCycles = propOr<std::int32_t>(props, "Cycles", -1);
+  info.state = deviceState(props, getPropertyOr<bool>(*m_powerProxy, kPowerInterface, "OnBattery", false));
   info.isPresent = info.state.isPresent;
   return info;
 }
