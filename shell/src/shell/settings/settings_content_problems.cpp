@@ -9,6 +9,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <charconv>
 #include <ctime>
 #include <filesystem>
 
@@ -19,6 +20,12 @@ namespace settings {
   namespace {
 
     constexpr std::size_t kMaxRows = 20;
+
+    // Units the desktop starts: the session services it ships and the app units it launches (app-*.scope, app-*.service).
+    bool isDesktopUnit(std::string_view unit) {
+      return unit == "andromeda.service" || unit == "noctalia.service" || unit == "xdg-desktop-portal-andromeda.service"
+          || (unit.starts_with("andromeda-") && unit.ends_with(".service")) || unit.starts_with("app-");
+    }
 
     std::string displayName(const std::string& exe) {
       const std::string base = std::filesystem::path(exe).filename().string();
@@ -57,18 +64,33 @@ namespace settings {
 
   } // namespace
 
-  std::vector<CrashRecord> parseCrashRecords(std::string_view json) {
+  std::vector<CrashRecord> parseCrashRecords(std::string_view jsonLines) {
     std::vector<CrashRecord> records;
-    const nlohmann::json list = nlohmann::json::parse(json, nullptr, false);
-    if (!list.is_array()) {
-      return records;
-    }
-    for (const auto& entry : list) {
-      if (entry.is_object()) {
-        records.push_back(
-            {.exe = entry.value("exe", ""), .pid = entry.value("pid", 0), .timeUs = entry.value("time", std::int64_t{0})}
-        );
+    std::size_t start = 0;
+    while (start < jsonLines.size()) {
+      std::size_t end = jsonLines.find('\n', start);
+      if (end == std::string_view::npos) {
+        end = jsonLines.size();
       }
+      const nlohmann::json entry = nlohmann::json::parse(jsonLines.substr(start, end - start), nullptr, false);
+      start = end + 1;
+      if (!entry.is_object()) {
+        continue;
+      }
+      const auto field = [&entry](const char* key) {
+        const auto it = entry.find(key);
+        return it != entry.end() && it->is_string() ? it->get<std::string>() : std::string();
+      };
+      if (!isDesktopUnit(field("COREDUMP_USER_UNIT"))) {
+        continue;
+      }
+      const std::string timeText = field("COREDUMP_TIMESTAMP");
+      const std::string pidText = field("COREDUMP_PID");
+      std::int64_t timeUs = 0;
+      int pid = 0;
+      std::from_chars(timeText.data(), timeText.data() + timeText.size(), timeUs);
+      std::from_chars(pidText.data(), pidText.data() + pidText.size(), pid);
+      records.push_back({.exe = field("COREDUMP_EXE"), .pid = pid, .timeUs = timeUs});
     }
     std::ranges::sort(records, std::ranges::greater{}, &CrashRecord::timeUs);
     if (records.size() > kMaxRows) {

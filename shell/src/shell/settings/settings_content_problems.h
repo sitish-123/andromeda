@@ -16,8 +16,10 @@ namespace settings {
     std::int64_t timeUs = 0; // CLOCK_REALTIME
   };
 
-  // The user's core dumps from `coredumpctl list --json=short`, newest first, at most 20.
-  [[nodiscard]] std::vector<CrashRecord> parseCrashRecords(std::string_view json);
+  // Core dumps from journal JSON lines (`journalctl -o json`, systemd-coredump entries), newest first, at most 20.
+  // Only processes the desktop started count: its session services and app units. A dump from a terminal or a
+  // `systemd-run` scope (a test or a manual run) is not a desktop problem.
+  [[nodiscard]] std::vector<CrashRecord> parseCrashRecords(std::string_view jsonLines);
 
   // Problems page (.agent/DESIGN.md "Settings > Problems", direction A). `records` is empty while loading;
   // `available` is false when coredumpctl is missing or failed.

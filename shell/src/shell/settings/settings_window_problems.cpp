@@ -15,13 +15,17 @@ void SettingsWindow::addProblemsContent(float scale) {
   if (!m_crashRecords.has_value() && !m_crashRecordsLoading) {
     m_crashRecordsLoading = true;
     const bool started = process::runAsync(
-        std::vector<std::string>{"coredumpctl", "list", "--json=short", "--since=-30d", "--no-pager"},
+        std::vector<std::string>{
+            "journalctl", "--no-pager", "-o", "json",
+            "--output-fields=COREDUMP_EXE,COREDUMP_PID,COREDUMP_TIMESTAMP,COREDUMP_USER_UNIT",
+            // systemd-coredump's "process dumped core" message.
+            "MESSAGE_ID=fc2e22bc6ee647b6b90729ab34a250b1", "--since=-30d"
+        },
         process::RunCallbacks{
             .onExit =
                 [this, alive = std::weak_ptr<void>(m_aliveGuard)](process::RunResult result) {
                   // Runs on the process worker thread: parse here, apply on the main loop.
-                  // coredumpctl exits 1 with no output when there are no dumps.
-                  const bool available = result.exitCode == 0 || (result.exitCode == 1 && result.out.empty());
+                  const bool available = result.exitCode == 0;
                   auto records = settings::parseCrashRecords(result.out);
                   DeferredCall::callLater([this, alive, available, records = std::move(records)]() mutable {
                     if (alive.expired()) {

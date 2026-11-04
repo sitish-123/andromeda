@@ -1178,6 +1178,7 @@ if build_tests
   )
 
   _cpp_test_names = [
+    'crash_records',
     'damage_region',
     'annotation_document',
     'annotation_raster',
