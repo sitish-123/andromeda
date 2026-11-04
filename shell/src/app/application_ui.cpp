@@ -824,16 +824,16 @@ void Application::initPanelManagerAndPanels() {
     auto files = std::make_unique<FilesProvider>(&m_clipboardService, m_bus.get());
     m_filesProvider = files.get();
     launcherPanel->addProvider(std::move(files));
-    launcherPanel->setCopiedActivationCallback([this] {
+    launcherPanel->setCopiedActivationCallback([this](bool isImage) {
       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
       if (mode == ClipboardAutoPasteMode::Off) {
         return;
       }
       m_launcherAutoPasteTimer.stop();
-      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(150), [this] {
-        DeferredCall::callLater([this] {
+      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(150), [this, isImage] {
+        DeferredCall::callLater([this, isImage] {
           const ClipboardAutoPasteMode activeMode = m_configService.config().shell.launcher.autoPaste;
-          (void)clipboard_paste::pasteEntry(false, activeMode, m_virtualKeyboardService);
+          (void)clipboard_paste::pasteEntry(isImage, activeMode, m_virtualKeyboardService);
         });
       });
     });

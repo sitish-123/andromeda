@@ -1816,9 +1816,12 @@ void LauncherPanel::finishActivation(
   if (trackUsage && provider.trackUsage()) {
     m_usageTracker.record(provider.id(), resultId);
   }
+  const auto activated = std::ranges::find(m_results, resultId, &LauncherResult::id);
+  const bool isImage = activated != m_results.end()
+      && (activated->presentation == "clipboard-image" || isMediaPresentation(*activated));
   PanelManager::instance().closePanel(false);
   if (copied && provider.supportsAutoPaste() && m_onCopiedActivation) {
-    m_onCopiedActivation();
+    m_onCopiedActivation(isImage);
   }
   if (appLaunch && m_onAppLaunch) {
     m_onAppLaunch();
