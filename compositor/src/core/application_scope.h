@@ -37,6 +37,13 @@ namespace andromeda {
   [[nodiscard]] ApplicationScopeEnvironmentArguments
   applicationScopeEnvironmentArguments(std::span<const std::pair<std::string, std::string>> configuredEnvironment);
 
+  // In a forked child: waits for the parent's StartTransientUnit result on `gateFd` ('1' = started), then until
+  // /proc/self/cgroup names `unit` (at most 200 ms), so the command and its children start inside the scope.
+  // Async-signal-safe. False when the scope did not start.
+  [[nodiscard]] bool awaitApplicationScope(int gateFd, const char* unit);
+  // In a forked child: applies the configured values of `arguments` (each "--setenv=NAME=VALUE") to the environment.
+  void applyApplicationScopeEnvironment(const ApplicationScopeEnvironmentArguments& arguments);
+
   // Replace the current child with systemd-run. The caller must pass an
   // absolute executable, preformatted lifecycle properties, and any explicit
   // command environment arguments. Environment expansion is disabled so the

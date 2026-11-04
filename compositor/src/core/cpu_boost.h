@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -15,6 +16,7 @@ namespace andromeda {
 
   // systemd-run argument for a launching app unit: 10x the default weight (the shell's process.cpp sends the same).
   inline constexpr const char* kLaunchWeightProperty = "--property=CPUWeight=1000";
+  inline constexpr std::uint64_t kLaunchWeight = 1000; // the same weight for a scope started over D-Bus
 
   // The launch CPU boost (.agent/TASK-boost.md): an app unit runs at the launch weight until its first window or 5 s.
   // After that the QoS controller owns the unit's CPUWeight (docs/qos.md §3).

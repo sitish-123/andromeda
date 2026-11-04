@@ -58,6 +58,7 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <charconv>
 #include <cmath>
 #include <csignal>
@@ -65,6 +66,7 @@ extern "C" {
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <memory>
 #include <fstream>
 #include <optional>
 #include <ranges>
@@ -1905,8 +1907,18 @@ namespace andromeda {
 
     const char* launchWeight =
         !launchTokenName.empty() && m_cpuBoost != nullptr && m_cpuBoost->active() ? kLaunchWeightProperty : nullptr;
+    const std::string scopeUnit = scopeRequired ? scopeUnitArgument.substr(std::string_view("--unit=").size()) : "";
+    // The scope starts over the compositor's own bus connection; systemd-run is the fallback without one.
+    std::array<int, 2> gate{-1, -1};
+    const bool scopeOverBus = scopeRequired && m_systemdUnits != nullptr && m_systemdUnits->active()
+        && pipe2(gate.data(), O_CLOEXEC) == 0;
+    const auto requested = std::chrono::steady_clock::now();
     pid_t pid = fork();
     if (pid < 0) {
+      if (scopeOverBus) {
+        close(gate[0]);
+        close(gate[1]);
+      }
       if (launchToken != nullptr) {
         wlr_xdg_activation_token_v1_destroy(launchToken);
       }
@@ -1916,6 +1928,12 @@ namespace andromeda {
     if (pid == 0) {
       resetChildSignalState();
       restoreFileDescriptorLimit();
+      if (scopeOverBus) {
+        close(gate[1]);
+        if (!awaitApplicationScope(gate[0], scopeUnit.c_str())) {
+          _exit(1);
+        }
+      }
       if (scopeRequired) {
         if (!closeChildFileDescriptors() || !restoreSystemdControlEnvironment(m_systemdControlEnvironment)) {
           _exit(1);
@@ -1939,7 +1957,9 @@ namespace andromeda {
         unsetenv("DESKTOP_STARTUP_ID");
         unsetenv(kLaunchTokenEnvironment.data());
       }
-      if (scopeRequired) {
+      if (scopeOverBus) {
+        applyApplicationScopeEnvironment(m_applicationScopeEnvironmentArguments);
+      } else if (scopeRequired) {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
             m_applicationScopeAfterProperty.c_str(),
@@ -1950,6 +1970,42 @@ namespace andromeda {
       _exit(1);
     }
 
+    if (scopeOverBus) {
+      close(gate[0]);
+      // Closing the write end without a result byte makes the child exit: no scope, no launch.
+      const auto release = std::shared_ptr<int>(new int(gate[1]), [](const int* fd) {
+        close(*fd);
+        delete fd;
+      });
+      SystemdUnits::ScopeOptions options{
+          .description = "Andromeda application",
+          .partOf = {"andromeda-session.target"},
+          .after = {m_applicationScopeAfterProperty.substr(std::string_view("--property=After=").size())},
+          .cpuWeight = std::nullopt,
+      };
+      if (launchWeight != nullptr) {
+        options.cpuWeight = kLaunchWeight;
+      }
+      const bool sent = m_systemdUnits->startScope(
+          scopeUnit, pid,
+          [release, scopeUnit, requested](bool ok) {
+            const char result = ok ? '1' : '0';
+            if (write(*release, &result, 1) != 1 || !ok) {
+              kLog.error("cannot start application scope {}", scopeUnit);
+              return;
+            }
+            const auto elapsed = std::chrono::steady_clock::now() - requested;
+            kLog.info(
+                "application scope {} started in {} us", scopeUnit,
+                std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()
+            );
+          },
+          options
+      );
+      if (!sent) {
+        kLog.error("cannot request application scope {}", scopeUnit);
+      }
+    }
     if (scopeRequired && launchWeight != nullptr) {
       m_cpuBoost->beginLaunch(launchTokenName, scopeUnitArgument.substr(std::string_view("--unit=").size()));
     }

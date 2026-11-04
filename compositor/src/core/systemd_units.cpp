@@ -210,18 +210,42 @@ namespace andromeda {
     return sent;
   }
 
-  void SystemdUnits::startScope(const std::string& unit, int pid, std::function<void(bool ok)> done) {
+  bool SystemdUnits::startScope(
+      const std::string& unit, int pid, std::function<void(bool ok)> done, const ScopeOptions& options
+  ) {
     if (m_bus == nullptr || unit.empty()) {
-      return;
+      return false;
     }
     sd_bus_message* message = nullptr;
-    const bool built = sd_bus_message_new_method_call(m_bus, &message, kService, kPath, kManager, "StartTransientUnit") >= 0
+    bool built = sd_bus_message_new_method_call(m_bus, &message, kService, kPath, kManager, "StartTransientUnit") >= 0
+        && sd_bus_message_append(message, "ss", unit.c_str(), "fail") >= 0
+        && sd_bus_message_open_container(message, 'a', "(sv)") >= 0
         && sd_bus_message_append(
-               message, "ssa(sv)a(sa(sv))", unit.c_str(), "fail", 3, "PIDs", "au", 1, static_cast<std::uint32_t>(pid),
-               "Slice", "s", "app.slice", "CollectMode", "s", "inactive-or-failed", 0
+               message, "(sv)(sv)(sv)", "PIDs", "au", 1, static_cast<std::uint32_t>(pid), "Slice", "s", "app.slice",
+               "CollectMode", "s", "inactive-or-failed"
            ) >= 0;
+    if (built && !options.description.empty()) {
+      built = sd_bus_message_append(message, "(sv)", "Description", "s", options.description.c_str()) >= 0;
+    }
+    for (const auto& [name, units] : {std::pair{"PartOf", &options.partOf}, std::pair{"After", &options.after}}) {
+      if (!built || units->empty()) {
+        continue;
+      }
+      built = sd_bus_message_open_container(message, 'r', "sv") >= 0 && sd_bus_message_append(message, "s", name) >= 0
+          && sd_bus_message_open_container(message, 'v', "as") >= 0
+          && sd_bus_message_open_container(message, 'a', "s") >= 0;
+      for (const std::string& dependency : *units) {
+        built = built && sd_bus_message_append(message, "s", dependency.c_str()) >= 0;
+      }
+      built = built && sd_bus_message_close_container(message) >= 0 && sd_bus_message_close_container(message) >= 0
+          && sd_bus_message_close_container(message) >= 0;
+    }
+    if (built && options.cpuWeight) {
+      built = sd_bus_message_append(message, "(sv)", "CPUWeight", "t", *options.cpuWeight) >= 0;
+    }
+    built = built && sd_bus_message_close_container(message) >= 0 && sd_bus_message_append(message, "a(sa(sv))", 0) >= 0;
     if (built) {
-      call(message, [unit, done = std::move(done)](sd_bus_message* reply) {
+      built = call(message, [unit, done = std::move(done)](sd_bus_message* reply) {
         const bool ok = sd_bus_message_is_method_error(reply, nullptr) == 0;
         if (!ok) {
           logFailure("StartTransientUnit " + unit, reply);
@@ -230,6 +254,7 @@ namespace andromeda {
       });
     }
     sd_bus_message_unref(message);
+    return built;
   }
 
   void SystemdUnits::listUnits(const std::vector<std::string>& patterns, std::function<void(const std::string&)> found) {
@@ -276,7 +301,9 @@ namespace andromeda {
   bool SystemdUnits::setFrozen(const std::string& /*unit*/, bool /*frozen*/, std::function<void(bool)> /*done*/) {
     return false;
   }
-  void SystemdUnits::startScope(const std::string& /*unit*/, int /*pid*/, std::function<void(bool)> /*done*/) {}
+  bool SystemdUnits::startScope(const std::string& /*unit*/, int /*pid*/, std::function<void(bool)> /*done*/, const ScopeOptions& /*options*/) {
+    return false;
+  }
   void SystemdUnits::listUnits(const std::vector<std::string>& /*patterns*/, std::function<void(const std::string&)>) {}
 #endif
 

@@ -23,6 +23,13 @@ namespace andromeda {
       std::optional<std::uint64_t> ioWeight;
       std::optional<std::vector<int>> allowedCpus; // empty = every CPU
     };
+    // Extra properties of a new scope; an empty field is not sent.
+    struct ScopeOptions {
+      std::string description;
+      std::vector<std::string> partOf;
+      std::vector<std::string> after;
+      std::optional<std::uint64_t> cpuWeight;
+    };
 
     explicit SystemdUnits(wl_event_loop* loop);
     ~SystemdUnits();
@@ -35,7 +42,10 @@ namespace andromeda {
     // Returns false when the call was not sent; `done` then never runs.
     bool setFrozen(const std::string& unit, bool frozen, std::function<void(bool ok)> done = {});
     // Moves `pid` into a new transient scope `unit` under app.slice. `done` gets true once systemd started it.
-    void startScope(const std::string& unit, int pid, std::function<void(bool ok)> done);
+    // Returns false when the call was not sent; `done` then never runs.
+    bool startScope(
+        const std::string& unit, int pid, std::function<void(bool ok)> done, const ScopeOptions& options = {}
+    );
     // Calls `found` once for each loaded unit whose name matches one of the patterns.
     void listUnits(const std::vector<std::string>& patterns, std::function<void(const std::string&)> found);
 

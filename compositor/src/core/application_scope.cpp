@@ -1,7 +1,11 @@
 #include "core/application_scope.h"
 
 #include <array>
+#include <cerrno>
 #include <charconv>
+#include <cstring>
+#include <ctime>
+#include <fcntl.h>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -139,6 +143,45 @@ namespace andromeda {
     append(command);
     execv(systemdRun, arguments.data());
     _exit(1);
+  }
+
+  bool awaitApplicationScope(int gateFd, const char* unit) {
+    char result = 0;
+    ssize_t size = 0;
+    do {
+      size = read(gateFd, &result, 1);
+    } while (size < 0 && errno == EINTR);
+    if (size != 1 || result != '1') {
+      return false;
+    }
+    constexpr timespec kStep{0, 1'000'000};
+    for (int attempt = 0; attempt < 200; ++attempt) {
+      const int fd = open("/proc/self/cgroup", O_RDONLY | O_CLOEXEC);
+      if (fd < 0) {
+        return true;
+      }
+      char cgroup[1024];
+      const ssize_t length = read(fd, cgroup, sizeof(cgroup) - 1);
+      close(fd);
+      if (length <= 0) {
+        return true;
+      }
+      cgroup[length] = '\0';
+      if (std::strstr(cgroup, unit) != nullptr) {
+        return true;
+      }
+      nanosleep(&kStep, nullptr);
+    }
+    return true;
+  }
+
+  void applyApplicationScopeEnvironment(const ApplicationScopeEnvironmentArguments& arguments) {
+    constexpr std::string_view kPrefix = "--setenv=";
+    for (const std::string& argument : arguments) {
+      if (argument.size() > kPrefix.size()) {
+        putenv(const_cast<char*>(argument.c_str() + kPrefix.size()));
+      }
+    }
   }
 
 } // namespace andromeda
