@@ -916,6 +916,8 @@ namespace andromeda {
       bool m_retainedPersistent = false;
       bool m_retainedInPlace = false;
       bool m_retainedLight = false;
+      // One buffer and nothing it does not cover: the built-in fade runs per buffer, without an offscreen capture.
+      bool m_perBufferFade = false;
       int m_shadowWidth = 0;
       int m_shadowHeight = 0;
       wlr_box m_shadowHole{};

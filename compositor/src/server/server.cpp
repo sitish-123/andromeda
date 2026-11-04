@@ -2009,6 +2009,26 @@ namespace andromeda {
       }
     };
     captureNodes(captureNodes, m_tree);
+    // The capture only matters where snapshot nodes overlap: with one buffer whose opaque region hides every rect
+    // (a fullscreen backdrop), fading the buffer alone gives the same pixels for one pass instead of two.
+    m_perBufferFade = m_buffers.size() == 1
+        && !requirements.persistent
+        && !requirements.in_place
+        && !requirements.light
+        && effectRegistry().animationEffect(event) == nullptr
+        && std::ranges::all_of(m_rects, [&](const Rect& rect) {
+             int bx = 0, by = 0, rx = 0, ry = 0;
+             wlr_scene_node_coords(&m_buffers.front().node->node, &bx, &by);
+             wlr_scene_node_coords(&rect.node->node, &rx, &ry);
+             const pixman_box32_t covered{rx - bx, ry - by, rx - bx + rect.box.width, ry - by + rect.box.height};
+             return pixman_region32_contains_rectangle(&m_buffers.front().node->opaque_region, &covered)
+                 == PIXMAN_REGION_IN;
+           });
+    if (m_perBufferFade) {
+      for (const Rect& rect : m_rects) {
+        wlr_scene_node_set_enabled(&rect.node->node, false);
+      }
+    }
     m_alpha.snap(1.0);
     m_alpha.retarget(0.0, durationMs, curve);
 
@@ -2185,7 +2205,11 @@ namespace andromeda {
   bool Server::CloseSnapshot::tickAnimations(double nowMsec) {
     const bool movedAlpha = m_alpha.tick(nowMsec);
     const bool movedSlide = m_slide.tick(nowMsec);
-    bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
+    if (m_perBufferFade) {
+      wlr_scene_node_set_animation(&m_tree->node, static_cast<unsigned>(m_event), nullptr, nullptr);
+    } else {
+      bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
+    }
 
     if (!movedAlpha && !movedSlide) {
       return false;
@@ -2193,7 +2217,7 @@ namespace andromeda {
     // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
     const float rawAlpha = std::clamp(static_cast<float>(m_alpha.current()), 0.0F, 1.0F);
     // A lifecycle shader fades the whole snapshot at once, so its buffers and borders stay opaque under it.
-    const bool composited = effectRegistry().lifecycleEffect(m_event) != nullptr;
+    const bool composited = !m_perBufferFade && effectRegistry().lifecycleEffect(m_event) != nullptr;
     const bool builtInSlide = !composited && m_slide.target() != m_slide.from();
     // Keep the moving snapshot visible long enough for slide to read as motion. Fade keeps the configured timeline.
     const float alpha = composited ? 1.0F : (builtInSlide ? std::sqrt(rawAlpha) : rawAlpha);
