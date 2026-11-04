@@ -132,6 +132,7 @@
 #endif
 
 std::atomic<bool> Application::s_shutdownRequested{false};
+std::atomic<bool> Application::s_displayLost{false};
 
 namespace {
   constexpr Logger kLog("app");

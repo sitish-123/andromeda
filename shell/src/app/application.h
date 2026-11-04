@@ -193,6 +193,9 @@ public:
 
   // Public for signal handler
   static std::atomic<bool> s_shutdownRequested;
+  // The compositor closed the display (a crash or a log out): the process exits with kDisplayLostExitCode.
+  static std::atomic<bool> s_displayLost;
+  static constexpr int kDisplayLostExitCode = 75;
 
   bool runShellCommand(const std::string& command);
   void triggerShellAction(const std::string& action, wl_output* output = nullptr);

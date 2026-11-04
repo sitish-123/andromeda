@@ -264,7 +264,8 @@ namespace {
     throw std::runtime_error(std::format("{}: {}", operation, wayland.describeDisplayError(operationErrno)));
   }
 
-  // EPIPE/ECONNRESET: compositor closed the display (logout). Exit cleanly.
+  // EPIPE/ECONNRESET: the compositor closed the display (log out or crash). noctalia.service restarts on this exit
+  // code, so after a compositor restart the shell reconnects to the same socket.
   bool isWaylandDisconnectErrno(int operationErrno) { return operationErrno == EPIPE || operationErrno == ECONNRESET; }
 
   bool handleWaylandDisconnect(const WaylandConnection& wayland, std::string_view operation, int operationErrno) {
@@ -274,6 +275,7 @@ namespace {
     kLog.info(
         "Wayland display closed during {}; shutting down ({})", operation, wayland.describeDisplayError(operationErrno)
     );
+    Application::s_displayLost = true;
     Application::s_shutdownRequested = true;
     return true;
   }
