@@ -976,6 +976,11 @@ namespace andromeda {
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
     void startWatchdog(const std::string& notifySocket);
+    // docs/resilience.md §4: a crash must never show a locked desktop unlocked.
+    [[nodiscard]] static std::string lockFilePath();
+    void enterRestartLock();
+    wl_event_source* m_restartLockEscape = nullptr;
+    bool m_lockFileManaged = false;
     wl_event_source* m_watchdogTimer = nullptr;
     int m_watchdogIntervalMs = 0;
     std::string m_notifySocket;

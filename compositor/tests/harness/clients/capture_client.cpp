@@ -51,6 +51,8 @@ namespace {
     uint32_t format = 0;
     uint32_t frames = 0;
     uint32_t damage = 0;
+    const std::uint32_t* pixels = nullptr;
+    std::size_t pixelCount = 0;
   };
 
   struct State {
@@ -127,6 +129,14 @@ namespace {
         "frame {} {} damage {} size {} {}", target.label, target.frames, target.damage, target.frameWidth,
         target.frameHeight
     );
+    // CAPTURE_PIXELS: whether the whole frame is one colour (a lock blank) and that colour, so a check can tell a
+    // covered output from one that shows content.
+    if (target.pixels != nullptr && std::getenv("CAPTURE_PIXELS") != nullptr) {
+      const bool uniform = std::all_of(
+          target.pixels, target.pixels + target.pixelCount, [&](std::uint32_t p) { return p == target.pixels[0]; }
+      );
+      std::println("pixels {} uniform={} color={:08x}", target.label, uniform ? 1 : 0, target.pixels[0]);
+    }
     std::fflush(stdout);
     ext_image_copy_capture_frame_v1_destroy(frame);
     target.frame = nullptr;
@@ -171,6 +181,12 @@ namespace {
         target.format != 0 ? target.format : static_cast<std::uint32_t>(WL_SHM_FORMAT_ARGB8888)
     );
     wl_shm_pool_destroy(pool);
+    if (target.pixels != nullptr) {
+      munmap(const_cast<std::uint32_t*>(target.pixels), target.pixelCount * 4);
+    }
+    void* map = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
+    target.pixels = map == MAP_FAILED ? nullptr : static_cast<const std::uint32_t*>(map);
+    target.pixelCount = target.pixels != nullptr ? size / 4 : 0;
     close(fd);
     target.bufferWidth = target.width;
     target.bufferHeight = target.height;

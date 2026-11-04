@@ -1162,6 +1162,10 @@ namespace andromeda {
       wl_event_source_remove(m_watchdogTimer);
       m_watchdogTimer = nullptr;
     }
+    if (m_restartLockEscape != nullptr) {
+      wl_event_source_remove(m_restartLockEscape);
+      m_restartLockEscape = nullptr;
+    }
     for (wl_event_source*& source : m_signalSources) {
       if (source != nullptr) {
         wl_event_source_remove(source);
@@ -1302,7 +1306,45 @@ namespace andromeda {
     wl_event_source_timer_update(m_watchdogTimer, m_watchdogIntervalMs);
   }
 
+  std::string Server::lockFilePath() {
+    return std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/locked";
+  }
+
+  // The previous compositor stopped while the session was locked: the lock blank covers every output from its first
+  // frame and only a lock client's unlock ends it. Without a lock client in 10 s the session ends. Any other exit
+  // (a failed start, SIGTERM, a lost DRM backend) keeps the lock file, so the next start is locked too.
+  void Server::enterRestartLock() {
+    kLog.warn("the session was locked when the compositor stopped; it stays locked until a lock client unlocks");
+    m_sessionLocked = true;
+    m_effects.setSuspended(true);
+    // No layout exists yet; until updateLockBlank sizes the blank to it, cover any position an output can take.
+    constexpr int kCover = 1 << 25;
+    wlr_scene_rect_set_size(m_lockBlank, kCover, kCover);
+    wlr_scene_node_set_position(&m_lockBlank->node, -kCover / 2, -kCover / 2);
+    setLockBlankEnabled(true);
+    m_desktopShell->sendRelock();
+    m_restartLockEscape = wl_event_loop_add_timer(
+        wl_display_get_event_loop(m_display),
+        [](void* data) {
+          auto* server = static_cast<Server*>(data);
+          kLog.error("no lock client in time after a restart; ending the session");
+          // The session ends here, so the next login starts unlocked at the greeter.
+          unlink(lockFilePath().c_str());
+          server->requestSessionExit();
+          return 0;
+        },
+        this
+    );
+    // ANDROMEDA_LOCK_ESCAPE_MS shortens the 10 s for the harness check.
+    const char* escape = std::getenv("ANDROMEDA_LOCK_ESCAPE_MS");
+    wl_event_source_timer_update(m_restartLockEscape, escape != nullptr ? std::atoi(escape) : 10000);
+  }
+
   bool Server::start(const char* startupCmd) {
+    m_lockFileManaged = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
+    if (m_lockFileManaged && access(lockFilePath().c_str(), F_OK) == 0) {
+      enterRestartLock();
+    }
     if (const std::optional<std::string> name = adoptListenSocket(m_display)) {
       if (name->empty()) {
         return false;
@@ -1430,6 +1472,9 @@ namespace andromeda {
     // now, and Xwayland itself spawns when the first X client connects.
     if (config().general.xwayland) {
       m_eisInput = std::make_unique<EisInput>(*this);
+      if (m_sessionLocked) {
+        m_eisInput->setSessionLocked(true);
+      }
       m_eisInput->setAuthenticate([this](pid_t peer) {
         return m_xwayland != nullptr && m_xwayland->authenticateInputPeer(peer);
       });

@@ -41,6 +41,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -95,6 +100,19 @@ namespace andromeda {
     if (m_sessionLock.get() != lock) {
       return;
     }
+    if (m_restartLockEscape != nullptr) {
+      wl_event_source_remove(m_restartLockEscape);
+      m_restartLockEscape = nullptr;
+    }
+    if (m_lockFileManaged) {
+      const std::string path = lockFilePath();
+      mkdir(path.substr(0, path.rfind('/')).c_str(), 0700);
+      if (const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
+        close(fd);
+      } else {
+        kLog.error("cannot write the lock file {}: {}", path, std::strerror(errno));
+      }
+    }
 
     if (!m_sessionLocked) {
       m_lockFocusOutput.clear();
@@ -141,6 +159,9 @@ namespace andromeda {
 
   void Server::unlockSession() {
     m_sessionLocked = false;
+    if (m_lockFileManaged) {
+      unlink(lockFilePath().c_str());
+    }
     if (m_eisInput != nullptr) {
       m_eisInput->setSessionLocked(false);
     }

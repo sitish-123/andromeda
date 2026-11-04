@@ -52,6 +52,10 @@ namespace andromeda {
     self->m_resources.push_back(resource);
     self->sendLockKeys(resource);
     self->sendTextInputState(resource);
+    // A shell that binds after a restart into the lock (Server::enterRestartLock) still must start its lock screen.
+    if (self->m_relocked && version >= DSK_SHELL_V1_RELOCK_SINCE_VERSION) {
+      dsk_shell_v1_send_relock(resource);
+    }
   }
 
   void DesktopShell::handleDestroy(wl_client*, wl_resource* resource) { wl_resource_destroy(resource); }

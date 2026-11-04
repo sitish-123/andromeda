@@ -59,6 +59,15 @@ def await_notify(notify, want, timeout):
     raise AssertionError(f"no {want!r} within {timeout} s")
 
 
+def await_line(path, prefix, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists() and any(line.startswith(prefix) for line in path.read_text().splitlines()):
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"no '{prefix}' in {path.name} within {timeout} s: {path.read_text() if path.exists() else ''}")
+
+
 def main(binary):
     with tempfile.TemporaryDirectory(prefix="um-restart.") as directory:
         root = Path(directory)
@@ -91,6 +100,7 @@ def main(binary):
             RESTART_ROOT=str(root),
             LISTEN_FDS="1",
             WATCHDOG_USEC="400000",
+            ANDROMEDA_LOCK_ESCAPE_MS="2000",
             WLR_BACKENDS="headless",
             WLR_HEADLESS_OUTPUTS="1",
             WLR_LIBINPUT_NO_DEVICES="1",
@@ -107,6 +117,7 @@ def main(binary):
                                     pass_fds=(fd,))
 
         processes = []
+        clients = []
         with (root / "compositor.log").open("w+") as log:
             try:
                 processes.append(start(log))
@@ -138,11 +149,78 @@ def main(binary):
                     await_notify(notify, b"READY=1", 10)
                     await_callback(client, 5)
                 assert (root / "imported").read_text().split() == ["wayland-andromeda"] * 2
+
+                # R3: a crash while locked restarts into the lock; only a lock client's unlock ends it.
+                client_env = {k: v for k, v in environment.items() if not k.startswith(("LISTEN_", "WATCHDOG_"))}
+                client_env.update(WAYLAND_DISPLAY="wayland-andromeda", LOG_LOCK_INPUT="1")
+                lock_file = root / "andromeda" / "locked"
+
+                def client(argv, name, stdin=None):
+                    out = (root / name).open("w")
+                    clients.append(subprocess.Popen(argv, env=client_env, stdin=stdin, stdout=out, stderr=out))
+                    return root / name
+
+                lock_log = client([os.environ["ANDROMEDA_LOCK_CLIENT"]], "lock-1.log", subprocess.PIPE)
+                await_line(lock_log, "locked", 5)
+                assert lock_file.exists(), "a confirmed lock wrote no lock file"
+                os.kill(processes[1].pid, signal.SIGSEGV)
+                processes[1].wait(timeout=10)
+                processes.append(start(log))
+                await_notify(notify, b"READY=1", 10)
+                shell_log = client([os.environ["ANDROMEDA_DESKTOP_CLIENT"], "shell-events"], "shell.log", subprocess.PIPE)
+                await_line(shell_log, "relock", 5)
+                # A headless seat has no keyboard until a virtual one arrives; without it no window gets
+                # keyboard-enter, and the focus checks below would pass for nothing.
+                keyboard = client([os.environ["ANDROMEDA_POINTER_CLIENT"], "1", "1", "keyboard-only", "mod", "none",
+                                   "mark", "ready", "pause", "86400000"], "keyboard.log")
+                await_line(keyboard, "ready", 5)
+                window_log = client([os.environ["ANDROMEDA_SEAT_LOG_CLIENT"], "key-window"], "window.log")
+                capture_env = dict(client_env, CAPTURE_PIXELS="1")
+                capture_out = (root / "capture.log").open("w")
+                clients.append(subprocess.Popen([os.environ["ANDROMEDA_CAPTURE_CLIENT"]], env=capture_env,
+                                                stdout=capture_out, stderr=capture_out))
+                capture_log = root / "capture.log"
+                await_line(capture_log, "pixels", 5)
+                time.sleep(1)
+                assert "keyboard-enter" not in window_log.read_text(), "a window got focus in the restart lock"
+                frames = [line for line in capture_log.read_text().splitlines() if line.startswith("pixels")]
+                assert all("uniform=1" in line for line in frames), f"the restart lock showed content: {frames}"
+                relock = client([os.environ["ANDROMEDA_LOCK_CLIENT"]], "lock-2.log", subprocess.PIPE)
+                await_line(relock, "locked", 5)
+                await_line(shell_log, "recovered", 5)
+                clients[-1].stdin.write(b"unlock\n")
+                clients[-1].stdin.flush()
+                await_line(relock, "unlocked", 5)
+                await_line(window_log, "keyboard-enter", 5)
+                assert not lock_file.exists(), "the unlock left the lock file"
+                # The control: after the unlock the same capture sees the window, so uniform=1 above meant blank.
+                deadline = time.monotonic() + 5
+                while not capture_log.read_text().splitlines()[-1:] or "uniform=0" not in capture_log.read_text():
+                    assert time.monotonic() < deadline, "the capture never showed the window after the unlock"
+                    time.sleep(0.05)
+                # The escape must not fire once a lock client took over.
+                time.sleep(2.5)
+                assert processes[2].poll() is None, "the restart-lock escape ended an unlocked session"
+
+                # Escape: with no lock client after a locked crash the session ends in about 10 s, and unlocked.
+                for c in clients:
+                    c.kill()
+                lock_file.touch()
+                os.kill(processes[2].pid, signal.SIGSEGV)
+                processes[2].wait(timeout=10)
+                processes.append(start(log))
+                await_notify(notify, b"READY=1", 10)
+                assert processes[3].wait(timeout=6) == 0, "the restart lock did not end the session cleanly"
+                assert not lock_file.exists(), "the escape left the lock file"
             except BaseException:
                 log.seek(0)
                 print(log.read()[-6000:], file=sys.stderr)
                 raise
             finally:
+                for c in clients:
+                    if c.poll() is None:
+                        c.kill()
+                        c.wait(timeout=5)
                 for process in processes:
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGTERM)
@@ -151,7 +229,7 @@ def main(binary):
                         except subprocess.TimeoutExpired:
                             os.killpg(process.pid, signal.SIGKILL)
                             process.wait(timeout=5)
-        print("a crashed compositor restarts on the same socket; a client from the gap is served")
+        print("a crashed compositor restarts on the same socket and into the lock; a client from the gap is served")
 
 
 if __name__ == "__main__":
