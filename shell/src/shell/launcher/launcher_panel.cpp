@@ -2232,6 +2232,8 @@ void LauncherPanel::create() {
         .maxLines = 1,
         .ellipsize = TextEllipsize::End,
     }));
+    // A new preview image holds no picture yet: the next selection decodes again.
+    m_previewShotId.clear();
     preview->addChild(ui::image({
         .out = &m_previewShot,
         .width = Tokens::componentLauncherPreviewMedia * scale * 1.75F,
