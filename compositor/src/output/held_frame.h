@@ -2,13 +2,29 @@
 
 #include "motion/desk_motion.h"
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 struct wlr_output;
 struct wlr_scene_buffer;
 struct wlr_scene_tree;
 
 namespace andromeda {
+
+  // A plane that scanned out on this output's CRTC before the compositor's first commit.
+  struct ForeignPlane {
+    uint32_t plane = 0;
+    uint32_t crtc = 0;
+    uint32_t fb = 0;
+    unsigned long buffer = 0;   // dmabuf inode: fb ids are reused, so the id alone does not name the buffer
+    std::shared_ptr<void> keep; // the open dmabuf; keeps the buffer, and so its inode, from being reused
+  };
+  // Planes that show a framebuffer on this output's CRTC now; empty for a non-DRM output.
+  std::vector<ForeignPlane> foreignPlanes(wlr_output* output);
+  // Turns off each plane from `before` that still shows the same framebuffer (libliftoff never touches a plane it did
+  // not use, so a console or greeter buffer would stay under the compositor's overlay); returns how many.
+  int disableForeignPlanes(wlr_output* output, const std::vector<ForeignPlane>& before);
 
   // The frame a previous DRM master (the greeter) left on this output's CRTC, shown above everything from the first
   // commit until the session shell is ready, then crossed into the desktop (.agent/DESIGN.md "Login transition design").

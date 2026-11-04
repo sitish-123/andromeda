@@ -349,6 +349,7 @@ namespace andromeda {
     // Login cross (output/held_frame.h): the greeter's frame until the shell's wallpaper commits (+300 ms for the bar)
     // or 3 s pass.
     std::unique_ptr<HeldFrame> m_heldFrame;
+    std::vector<ForeignPlane> m_foreignPlanes; // until the first present
     wl_event_source* m_heldFrameTimer = nullptr;
     bool m_heldFrameGated = false;
     std::chrono::steady_clock::time_point m_heldFrameLastStep{};

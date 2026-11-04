@@ -195,6 +195,7 @@ namespace andromeda {
       kLog.error("output '{}': failed to create scene output", m_output->name);
       std::abort();
     }
+    m_foreignPlanes = foreignPlanes(m_output);
     // Before the first commit: the greeter's frame is still on the CRTC and stays on screen through the modeset.
     if (HeldFrame::loginHandoff()) {
       m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
@@ -2529,6 +2530,12 @@ namespace andromeda {
 
   void Output::handlePresent(void* data) {
     const auto* event = static_cast<const wlr_output_event_present*>(data);
+    if (event->presented && !m_foreignPlanes.empty()) {
+      if (const int count = disableForeignPlanes(m_output, m_foreignPlanes); count > 0) {
+        kLog.info("output '{}': turned off {} planes left by the previous master", m_output->name, count);
+      }
+      m_foreignPlanes.clear();
+    }
 #ifdef TRACY_ENABLE
     if (event->presented) {
       if (m_tracyIntervalPlot == nullptr) {

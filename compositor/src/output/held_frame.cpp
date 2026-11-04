@@ -5,12 +5,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include <drm_fourcc.h>
 #include <fcntl.h>
+#include <memory>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -60,33 +67,149 @@ namespace andromeda {
     };
 
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
-    // GETFB2 on the CRTC that drives this connector, exported as dmabuf fds. GEM handles are closed again: the fds keep
-    // the buffer alive after the next commit replaces it on the CRTC.
-    wlr_buffer* exportCrtcFrame(wlr_output* output) {
+    struct ScanoutPlane {
+      uint32_t plane = 0;
+      uint32_t fb = 0;
+      uint64_t zpos = 0;
+      bool coversMode = false;
+      uint32_t fbProperty = 0;
+      uint32_t crtcProperty = 0;
+    };
+
+    // The DRM fd of a DRM output and the id of the CRTC that drives its connector; crtc 0 when there is none.
+    std::pair<int, uint32_t> outputCrtc(wlr_output* output, drmModeModeInfo* mode) {
       if (!wlr_output_is_drm(output)) {
-        return nullptr;
+        return {-1, 0};
       }
       const int fd = wlr_backend_get_drm_fd(output->backend);
       if (fd < 0) {
-        return nullptr;
+        return {-1, 0};
       }
       drmModeConnector* connector = drmModeGetConnector(fd, wlr_drm_connector_get_id(output));
       if (connector == nullptr) {
-        return nullptr;
+        return {fd, 0};
       }
       drmModeEncoder* encoder = connector->encoder_id != 0 ? drmModeGetEncoder(fd, connector->encoder_id) : nullptr;
       drmModeFreeConnector(connector);
       if (encoder == nullptr) {
-        return nullptr;
+        return {fd, 0};
       }
       drmModeCrtc* crtc = encoder->crtc_id != 0 ? drmModeGetCrtc(fd, encoder->crtc_id) : nullptr;
       drmModeFreeEncoder(encoder);
-      if (crtc == nullptr) {
+      if (crtc == nullptr || crtc->mode_valid == 0) {
+        drmModeFreeCrtc(crtc);
+        return {fd, 0};
+      }
+      *mode = crtc->mode;
+      const uint32_t id = crtc->crtc_id;
+      drmModeFreeCrtc(crtc);
+      return {fd, id};
+    }
+
+    // Every plane that scans out a framebuffer on `crtcId`, with its stacking order and whether it fills the mode.
+    std::vector<ScanoutPlane> scanoutPlanes(int fd, uint32_t crtcId, const drmModeModeInfo& mode) {
+      std::vector<ScanoutPlane> planes;
+      drmModePlaneRes* resources = drmModeGetPlaneResources(fd);
+      if (resources == nullptr) {
+        return planes;
+      }
+      for (uint32_t i = 0; i < resources->count_planes; ++i) {
+        drmModePlane* plane = drmModeGetPlane(fd, resources->planes[i]);
+        if (plane == nullptr) {
+          continue;
+        }
+        if (plane->crtc_id == crtcId && plane->fb_id != 0) {
+          ScanoutPlane entry{.plane = plane->plane_id, .fb = plane->fb_id};
+          uint64_t x = 1;
+          uint64_t y = 1;
+          uint64_t w = 0;
+          uint64_t h = 0;
+          if (drmModeObjectProperties* props = drmModeObjectGetProperties(fd, plane->plane_id, DRM_MODE_OBJECT_PLANE)) {
+            for (uint32_t p = 0; p < props->count_props; ++p) {
+              drmModePropertyRes* property = drmModeGetProperty(fd, props->props[p]);
+              if (property == nullptr) {
+                continue;
+              }
+              const std::string_view name = property->name;
+              const uint64_t value = props->prop_values[p];
+              if (name == "zpos") {
+                entry.zpos = value;
+              } else if (name == "CRTC_X") {
+                x = value;
+              } else if (name == "CRTC_Y") {
+                y = value;
+              } else if (name == "CRTC_W") {
+                w = value;
+              } else if (name == "CRTC_H") {
+                h = value;
+              } else if (name == "FB_ID") {
+                entry.fbProperty = property->prop_id;
+              } else if (name == "CRTC_ID") {
+                entry.crtcProperty = property->prop_id;
+              }
+              drmModeFreeProperty(property);
+            }
+            drmModeFreeObjectProperties(props);
+          }
+          entry.coversMode = x == 0 && y == 0 && w == mode.hdisplay && h == mode.vdisplay;
+          planes.push_back(entry);
+        }
+        drmModeFreePlane(plane);
+      }
+      drmModeFreePlaneResources(resources);
+      return planes;
+    }
+
+    // The buffer behind an fb id, as the inode of its dmabuf export: fb ids are reused, buffers are not. The dmabuf fd
+    // stays open in `keep` so the buffer (and its inode) cannot be freed and reused while it is compared.
+    ino_t bufferInode(int fd, uint32_t fbId, std::shared_ptr<void>* keep) {
+      drmModeFB2* fb = drmModeGetFB2(fd, fbId);
+      if (fb == nullptr || fb->handles[0] == 0) {
+        drmModeFreeFB2(fb);
+        return 0;
+      }
+      int dmabuf = -1;
+      const bool exported = drmPrimeHandleToFD(fd, fb->handles[0], DRM_CLOEXEC, &dmabuf) == 0;
+      std::array<uint32_t, 4> closed{};
+      for (int i = 0; i < 4 && fb->handles[i] != 0; ++i) {
+        if (std::ranges::find(closed, fb->handles[i]) == closed.end()) {
+          drmCloseBufferHandle(fd, fb->handles[i]);
+          closed[static_cast<std::size_t>(i)] = fb->handles[i];
+        }
+      }
+      drmModeFreeFB2(fb);
+      struct stat info{};
+      if (!exported || fstat(dmabuf, &info) != 0) {
+        if (dmabuf >= 0) {
+          close(dmabuf);
+        }
+        return 0;
+      }
+      if (keep != nullptr) {
+        *keep = std::shared_ptr<void>(nullptr, [dmabuf](void*) { close(dmabuf); });
+      } else {
+        close(dmabuf);
+      }
+      return info.st_ino;
+    }
+
+    // GETFB2 on the topmost plane that fills this output's CRTC (with libliftoff the greeter's frame can sit on an
+    // overlay above a stale primary), exported as dmabuf fds. GEM handles are closed again: the fds keep the buffer
+    // alive after the next commit replaces it.
+    wlr_buffer* exportCrtcFrame(wlr_output* output) {
+      drmModeModeInfo mode{};
+      const auto [fd, crtcId] = outputCrtc(output, &mode);
+      if (crtcId == 0) {
         return nullptr;
       }
-      // A scanout offset means the FB is larger than the mode; the frame would show the wrong area.
-      const uint32_t fbId = crtc->mode_valid != 0 && crtc->x == 0 && crtc->y == 0 ? crtc->buffer_id : 0;
-      drmModeFreeCrtc(crtc);
+      uint32_t fbId = 0;
+      uint64_t top = 0;
+      for (const ScanoutPlane& plane : scanoutPlanes(fd, crtcId, mode)) {
+        if (plane.coversMode && (fbId == 0 || plane.zpos >= top)) {
+          fbId = plane.fb;
+          top = plane.zpos;
+        }
+      }
       drmModeFB2* fb = fbId != 0 ? drmModeGetFB2(fd, fbId) : nullptr;
       if (fb == nullptr) {
         return nullptr;
@@ -129,6 +252,62 @@ namespace andromeda {
 #endif
 
   } // namespace
+
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
+  std::vector<ForeignPlane> foreignPlanes(wlr_output* output) {
+    drmModeModeInfo mode{};
+    const auto [fd, crtcId] = outputCrtc(output, &mode);
+    std::vector<ForeignPlane> planes;
+    if (crtcId == 0) {
+      return planes;
+    }
+    for (const ScanoutPlane& plane : scanoutPlanes(fd, crtcId, mode)) {
+      ForeignPlane entry{.plane = plane.plane, .crtc = crtcId, .fb = plane.fb, .buffer = 0, .keep = nullptr};
+      entry.buffer = bufferInode(fd, plane.fb, &entry.keep);
+      if (entry.buffer != 0) {
+        planes.push_back(std::move(entry));
+      }
+    }
+    return planes;
+  }
+
+  int disableForeignPlanes(wlr_output* output, const std::vector<ForeignPlane>& before) {
+    drmModeModeInfo mode{};
+    const auto [fd, crtcId] = outputCrtc(output, &mode);
+    if (crtcId == 0 || before.empty() || before.front().crtc != crtcId) {
+      return 0;
+    }
+    drmModeAtomicReq* request = drmModeAtomicAlloc();
+    if (request == nullptr) {
+      return 0;
+    }
+    int count = 0;
+    for (const ScanoutPlane& plane : scanoutPlanes(fd, crtcId, mode)) {
+      const bool stale = std::ranges::any_of(before, [&](const ForeignPlane& old) {
+        return old.plane == plane.plane && old.fb == plane.fb && bufferInode(fd, plane.fb, nullptr) == old.buffer;
+      });
+      if (stale && plane.fbProperty != 0 && plane.crtcProperty != 0) {
+        drmModeAtomicAddProperty(request, plane.plane, plane.fbProperty, 0);
+        drmModeAtomicAddProperty(request, plane.plane, plane.crtcProperty, 0);
+        ++count;
+      }
+    }
+    // Blocking: it runs in the present handler, after the page flip completed, so no flip is pending; the output misses
+    // one frame once. Without atomic modesetting (WLR_DRM_NO_ATOMIC) the commit fails with EINVAL and is skipped.
+    if (count > 0 && drmModeAtomicCommit(fd, request, 0, nullptr) != 0) {
+      if (errno != EINVAL && errno != EOPNOTSUPP) {
+        kLog.warn("output '{}': could not turn off {} planes left by the previous master: {}", output->name, count,
+                  std::strerror(errno));
+      }
+      count = 0;
+    }
+    drmModeAtomicFree(request);
+    return count;
+  }
+#else
+  std::vector<ForeignPlane> foreignPlanes(wlr_output*) { return {}; }
+  int disableForeignPlanes(wlr_output*, const std::vector<ForeignPlane>&) { return 0; }
+#endif
 
   std::unique_ptr<HeldFrame> HeldFrame::capture(wlr_output* output, wlr_scene_tree* parent) {
     wlr_buffer* buffer = exportCrtcFrame(output);
