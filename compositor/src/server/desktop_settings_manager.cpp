@@ -330,11 +330,13 @@ namespace andromeda {
   }
 
   void DesktopSettingsManager::sendSettings(wl_resource* resource) const {
-    const std::string saved = readFile(managedSettingsFile(configRootPath()));
-    for (const std::string_view key : managedSettingKeys()) {
+    const std::span<const std::string_view> keys = managedSettingKeys();
+    const std::vector<bool> customizedKeys = documentSetsKeys(readFile(managedSettingsFile(configRootPath())), keys);
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+      const std::string_view key = keys[i];
       const std::string keyText(key);
       const std::string value = managedSettingValue(config(), key);
-      const uint32_t customized = documentSetsKey(saved, key) ? 1U : 0U;
+      const uint32_t customized = customizedKeys[i] ? 1U : 0U;
       dsk_settings_manager_v1_send_setting(resource, keyText.c_str(), value.c_str(), customized);
     }
     if (wl_resource_get_version(resource) >= 2) {

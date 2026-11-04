@@ -264,7 +264,9 @@ namespace andromeda {
   void Server::handleConfigReload(const ConfigReloadResult& result) {
     cancelModifierTap();
     if (result.success) {
-      const bool systemKeymapChanged = refreshSystemKeymap();
+      // The localed query is a blocking D-Bus round trip plus a keymap compile (~10 ms on an HD 520 laptop): only an
+      // input edit asks for it, not every appearance change.
+      const bool systemKeymapChanged = result.change.input && refreshSystemKeymap();
       if (result.change.drm) {
         kLog.warn("DRM configuration changed; restart Andromeda to apply it");
       }

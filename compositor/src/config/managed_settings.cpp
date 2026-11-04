@@ -681,12 +681,19 @@ namespace andromeda {
   }
 
   bool documentSetsKey(std::string_view root, std::string_view key) {
+    return documentSetsKeys(root, std::span<const std::string_view>(&key, 1)).front();
+  }
+
+  std::vector<bool> documentSetsKeys(std::string_view root, std::span<const std::string_view> keys) {
+    std::vector<bool> set(keys.size(), false);
     try {
       const toml::table table = toml::parse(root);
-      return table.at_path(key).node() != nullptr;
+      for (std::size_t i = 0; i < keys.size(); ++i) {
+        set[i] = table.at_path(keys[i]).node() != nullptr;
+      }
     } catch (const toml::parse_error&) {
-      return false;
     }
+    return set;
   }
 
 } // namespace andromeda

@@ -64,5 +64,7 @@ namespace andromeda {
 
   // True when the TOML document `root` sets `key`.
   [[nodiscard]] bool documentSetsKey(std::string_view root, std::string_view key);
+  // documentSetsKey for many keys with one parse.
+  [[nodiscard]] std::vector<bool> documentSetsKeys(std::string_view root, std::span<const std::string_view> keys);
 
 } // namespace andromeda
