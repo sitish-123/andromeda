@@ -625,6 +625,16 @@ namespace andromeda {
     return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { applySetting(root, key, value); });
   }
 
+  bool saveManagedSettings(
+      const std::filesystem::path& file, const std::vector<std::pair<std::string, ManagedSettingValue>>& values
+  ) {
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+      for (const auto& [key, value] : values) {
+        applySetting(root, key, value);
+      }
+    });
+  }
+
   std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot) {
     // A root from a system config dir means the user has no config.toml yet: the user's choices still belong in
     // the user's config dir, never next to a read-only system file.

@@ -3,10 +3,12 @@
 #include "core/log.h"
 
 #include <poll.h>
+#include <sys/auxv.h>
 #include <wayland-server-core.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <utility>
 
@@ -47,10 +49,36 @@ namespace andromeda {
       }
       return mask;
     }
+    // sd_bus_open_user reads DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR with secure_getenv, which returns nothing
+    // in a secure-exec process (the packaged cap_sys_nice binary); main() restored them into environ for getenv.
+    int openUserBus(sd_bus** bus) {
+      const char* address = std::getenv("DBUS_SESSION_BUS_ADDRESS");
+      if (getauxval(AT_SECURE) == 0 || address == nullptr) {
+        return sd_bus_open_user(bus);
+      }
+      sd_bus* opened = nullptr;
+      int r = sd_bus_new(&opened);
+      if (r >= 0) {
+        r = sd_bus_set_address(opened, address);
+      }
+      if (r >= 0) {
+        r = sd_bus_set_bus_client(opened, 1);
+      }
+      if (r >= 0) {
+        r = sd_bus_start(opened);
+      }
+      if (r < 0) {
+        sd_bus_unref(opened);
+        return r;
+      }
+      *bus = opened;
+      return 0;
+    }
   } // namespace
 
   SystemdUnits::SystemdUnits(wl_event_loop* loop) {
-    if (loop == nullptr || sd_bus_open_user(&m_bus) < 0) {
+    if (loop == nullptr || openUserBus(&m_bus) < 0) {
+      kLog.info("no systemd user manager: app QoS and launch boost are off");
       m_bus = nullptr;
       return;
     }

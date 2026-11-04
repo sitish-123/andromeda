@@ -67,6 +67,7 @@ namespace andromeda {
     void set(wl_resource* resource, std::string_view key, std::string_view value);
     void setInLayer(wl_resource* resource, std::string_view layer, std::string_view key, std::string_view value);
     void applyLayers();
+    void savePendingSets();
     void dropLayers(wl_resource* owner, const std::string* name);
     void bindChord(wl_resource* resource, std::string_view chord, std::string_view action);
     void sendSettings(wl_resource* resource) const;
@@ -81,6 +82,15 @@ namespace andromeda {
     std::vector<Layer> m_layers;
     std::vector<std::pair<std::string, ManagedSettingValue>> m_appliedOverlay;
     wl_event_source* m_applyIdle = nullptr;
+    // Saved settings wait for the end of the event-loop turn: the requests a client sends together become one file
+    // write and one reload. The owner is null once its resource is gone.
+    struct PendingSet {
+      wl_resource* owner;
+      std::string key;
+      ManagedSettingValue value;
+    };
+    std::vector<PendingSet> m_pendingSets;
+    wl_event_source* m_saveIdle = nullptr;
   };
 
 } // namespace andromeda

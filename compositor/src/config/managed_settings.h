@@ -40,6 +40,11 @@ namespace andromeda {
   // Sets or removes `key` in the generated settings `file`. Returns false on I/O error.
   bool saveManagedSetting(const std::filesystem::path& file, std::string_view key, const ManagedSettingValue& value);
 
+  // Sets or removes every key, in order, in one rewrite of `file`. Returns false on I/O error.
+  bool saveManagedSettings(
+      const std::filesystem::path& file, const std::vector<std::pair<std::string, ManagedSettingValue>>& values
+  );
+
   // Same edit on a TOML document, for tests.
   [[nodiscard]] std::string
   editManagedSetting(std::string_view existing, std::string_view key, const ManagedSettingValue& value);
