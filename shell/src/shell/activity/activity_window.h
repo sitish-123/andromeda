@@ -1,5 +1,8 @@
 #pragma once
 
+#include "dbus/systemd/systemd_units_service.h"
+#include "system/container_service.h"
+
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
@@ -41,7 +44,7 @@ struct wl_surface;
 // Holds an ActivityMonitor reference while open, so sampling runs only while the window shows.
 class ActivityWindow {
 public:
-  enum class Tab : std::uint8_t { Apps, Background, Battery, History };
+  enum class Tab : std::uint8_t { Apps, Background, Containers, Battery, History };
 
   ActivityWindow();
   ~ActivityWindow();
@@ -60,8 +63,10 @@ public:
     m_sysmonProvider = std::move(provider);
   }
   void setUPowerProvider(std::function<UPowerService*()> provider) { m_upowerProvider = std::move(provider); }
+  // Docker / Podman engines for the Containers tab; the tab shows only when an engine socket exists.
+  void setContainers(ContainerService* containers) { m_containers = containers; }
 
-  // rowKey selects that row (and its tab) when it exists.
+  // rowKey selects that row (and its tab) when it exists; "containers" or "ctr:<id>" opens the Containers tab.
   void open(const std::string& rowKey = {});
   void close();
 
@@ -70,6 +75,8 @@ public:
   [[nodiscard]] bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   void onThemeChanged() { requestRebuild(); }
+  // Visible buttons as a JSON array of {text, x, y} centres in surface coordinates, for E2E clicks.
+  [[nodiscard]] std::string buttonsJson() const;
 
 private:
   void destroyWindow();
@@ -107,6 +114,14 @@ private:
   void refreshRowStates(bool force);
   [[nodiscard]] bool inTab(const ActivityRow& row, Tab tab) const;
   void stopSelected();
+  // Lists containers every sample on the Containers tab, else every 5th; engine units every 5th, before the list.
+  void refreshContainers();
+  // An engine whose socket unit listens while its service is down is not asked: the request would start it.
+  void listContainers();
+  void addContainerCards(Flex& list, float scale);
+  void addContainerInspector(Flex& inspector, const ContainerInfo& container, float scale);
+  void runContainerAction(const ContainerInfo& container, int action);
+  [[nodiscard]] std::vector<SystemdUnit> engineUnits(const ContainerEngine& engine) const;
   void requestRebuild();
   void invalidate();
   [[nodiscard]] float uiScale() const;
@@ -118,6 +133,10 @@ private:
   RenderContext* m_renderContext = nullptr;
   ActivityMonitor* m_monitor = nullptr;
   ActivityActions* m_actions = nullptr;
+  ContainerService* m_containers = nullptr;
+  std::map<std::string, SystemdUnit> m_engineUnits; // by engine socket + "|" + unit name
+  unsigned m_containerTicks = 0;
+  bool m_engineUnitsRead = false; // no list before the first unit read, so an idle engine is never woken
   BackgroundActivityMonitor* m_background = nullptr;
   ActivityDetails* m_details = nullptr;
   std::function<SystemMonitorService*()> m_sysmonProvider;

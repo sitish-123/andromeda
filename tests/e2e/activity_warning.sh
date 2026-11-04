@@ -20,6 +20,7 @@ mkdir -p "$RUNTIME/home/.config/systemd/user"
 : > "$RUNTIME/home/.config/systemd/user/opencode.service"
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_systemd1.py"
+export E2E="$(cd "$(dirname "$0")" && pwd)" POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 export NOCTALIA_CGROUP_ROOT=$CG
 BEFORE_NOCTALIA='python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done'
@@ -38,6 +39,10 @@ with_noctalia '
   "$NOCTALIA" msg activity-open opencode.service > /dev/null
   sleep 1.5 # real time: the Activity window maps and paints
   grim "$OUT/activity-limit.png"
+  bash "$E2E/activity_click.sh" "10 %" # the Limit picker, a real click
+  for _ in $(seq 50); do grep -q "^SetUnitProperties opencode.service True CPUQuotaPerSecUSec=$(( $(nproc) * 100000 )) " "$OUT/calls.txt" && break; sleep 0.1; done
+  bash "$E2E/activity_click.sh" Pause
+  for _ in $(seq 50); do grep -qx "FreezeUnit opencode.service" "$OUT/calls.txt" && break; sleep 0.1; done
   echo "findings=$(findings)" > "$OUT/result.txt"
   [[ -s $HOME/.local/state/noctalia/activity.json || -n $(find "$HOME/.local/state" -name activity.json 2>/dev/null) ]] \
     && echo "state=saved" >> "$OUT/result.txt"
@@ -51,4 +56,7 @@ grep -q "background finding: opencode.service (uses resources" "$OUT/noctalia.lo
 grep -qx "state=saved" "$OUT/result.txt" || { echo "FAIL: notified state not saved" >&2; exit 1; }
 grep -qx "action=ok" "$OUT/result.txt" || { echo "FAIL: no stop action on the warning" >&2; exit 1; }
 grep -qx "StopUnit opencode.service replace" "$OUT/calls.txt" || { echo "FAIL: Stop did not reach systemd" >&2; exit 1; }
-echo "PASS: one warning for opencode, none repeated, Stop reached systemd; artifacts: $OUT"
+grep -q "^SetUnitProperties opencode.service True CPUQuotaPerSecUSec=$(( $(nproc) * 100000 )) MemoryHigh=18446744073709551615$" "$OUT/calls.txt" \
+  || { echo "FAIL: clicking CPU 10 % did not set CPUQuota: $(grep SetUnit "$OUT/calls.txt" || true)" >&2; exit 1; }
+grep -qx "FreezeUnit opencode.service" "$OUT/calls.txt" || { echo "FAIL: clicking Pause did not freeze opencode" >&2; exit 1; }
+echo "PASS: one warning for opencode, none repeated, Stop reached systemd; the Limit and Pause clicks reached systemd; artifacts: $OUT"

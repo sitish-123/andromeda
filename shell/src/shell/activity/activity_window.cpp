@@ -28,6 +28,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <nlohmann/json.hpp>
 #include <array>
 #include <cctype>
 #include <chrono>
@@ -248,6 +249,8 @@ bool ActivityWindow::inTab(const ActivityRow& row, Tab tab) const {
     return row.hasWindow;
   case Tab::Background:
     return !row.hasWindow;
+  case Tab::Containers:
+    return false;
   case Tab::Battery:
   case Tab::History:
     return true;
@@ -289,7 +292,12 @@ void ActivityWindow::refreshRowStates(bool force) {
 }
 
 void ActivityWindow::open(const std::string& rowKey) {
-  if (!rowKey.empty()) {
+  if (rowKey == "containers" || rowKey.starts_with("ctr:")) {
+    m_tab = Tab::Containers;
+    m_selectedKey = rowKey == "containers" ? "" : rowKey;
+    m_inspectorScroll = {};
+    m_containerTicks = 0;
+  } else if (!rowKey.empty()) {
     m_selectedKey = rowKey;
     m_inspectorScroll = {};
     if (const ActivityRow* row = selectedRow(); row != nullptr) {
@@ -399,6 +407,7 @@ void ActivityWindow::destroyWindow() {
 }
 
 void ActivityWindow::onSample() {
+  refreshContainers();
   if (m_monitor != nullptr && m_details != nullptr) {
     const auto& activity = m_monitor->activity();
     const auto start = std::chrono::steady_clock::now();
@@ -634,6 +643,20 @@ std::string ActivityWindow::structureKey() const {
     const Limits limits = limitsOf(*row);
     key += std::format("|l{}{}", limits.cpu, limits.memory);
   }
+  if (m_containers != nullptr) {
+    key += std::format("|c{}", m_containers->runningCount());
+    if (m_tab == Tab::Containers) {
+      for (const auto& engine : m_containers->engines()) {
+        key += std::format("\ne{}|{}|{}", engine.socket, engine.name, engine.error);
+        for (const auto& unit : engineUnits(engine)) {
+          key += std::format("|{}:{}:{}", unit.name, unit.activeState, unit.unitFileState);
+        }
+      }
+      for (const auto& container : m_containers->containers()) {
+        key += std::format("\nk{}|{}", container.id, container.state);
+      }
+    }
+  }
   if (m_sysmon != nullptr) {
     const auto history = m_sysmon->history();
     key += !history.empty() && history.back().gpuUsagePercent.has_value() ? "|gpu" : "|nogpu";
@@ -660,7 +683,7 @@ void ActivityWindow::refreshAfterSample() {
     return;
   }
   refreshRowStates(false);
-  if ((m_tab == Tab::Apps || m_tab == Tab::Background)
+  if ((m_tab == Tab::Apps || m_tab == Tab::Background || m_tab == Tab::Containers)
       && m_sceneRoot != nullptr
       && !m_rebuildRequested
       && structureKey() == m_structure) {
@@ -769,6 +792,12 @@ std::unique_ptr<Flex> ActivityWindow::buildSidebar(float scale) {
   };
   sidebar->addChild(tabRow(Tab::Apps, "apps", i18n::tr("activity.tab-apps"), apps, 0));
   sidebar->addChild(tabRow(Tab::Background, "stack", i18n::tr("activity.tab-background"), background, attention));
+  if (m_containers != nullptr && m_containers->available()) {
+    sidebar->addChild(tabRow(
+        Tab::Containers, "package", i18n::tr("activity.tab-containers"),
+        static_cast<std::size_t>(m_containers->runningCount()), 0
+    ));
+  }
   sidebar->addChild(tabRow(Tab::Battery, "battery", i18n::tr("activity.tab-battery"), 0, 0));
   sidebar->addChild(tabRow(Tab::History, "history", i18n::tr("activity.tab-history"), 0, 0));
   sidebar->addChild(ui::spacer());
@@ -1015,7 +1044,11 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
         })
     );
   };
-  if (m_tab == Tab::Battery) {
+  if (m_tab == Tab::Containers) {
+    headerCell("activity.column-cpu", kColumnWidth);
+    headerCell("activity.column-memory", kColumnWidth);
+    headerCell("activity.column-state", kColumnWidth);
+  } else if (m_tab == Tab::Battery) {
     headerCell("activity.column-impact", kColumnWidth);
   } else if (m_tab == Tab::History) {
     headerCell("activity.column-24h", kHistoryGraphWidth);
@@ -1045,7 +1078,7 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
 
   const auto& rows = m_monitor->activity().rows();
   const bool any = std::ranges::any_of(rows, [this](const ActivityRow& row) { return inTab(row, m_tab); });
-  if (!any) {
+  if (!any && m_tab != Tab::Containers) {
     list.addChild(
         ui::label({
             .text = i18n::tr(m_monitor->sampling() && !rows.empty() ? "activity.empty" : "activity.loading"),
@@ -1090,6 +1123,8 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
     }
     addCard(i18n::tr("activity.group-apps"), [](const ActivityRow& row) { return !row.systemManager; });
     addCard(i18n::tr("activity.group-system"), [](const ActivityRow& row) { return row.systemManager; });
+  } else if (m_tab == Tab::Containers) {
+    addContainerCards(list, scale);
   } else if (m_tab == Tab::Battery) {
     addBatteryCards(renderer, list, scale);
   } else if (m_tab == Tab::History) {
@@ -1246,7 +1281,16 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
       .padding = Style::spaceLg * scale,
       .width = kInspectorWidth * scale,
   });
-  const ActivityRow* row = selectedRow();
+  if (m_tab == Tab::Containers) {
+    const ContainerInfo* container = m_containers != nullptr && m_selectedKey.starts_with("ctr:")
+        ? m_containers->find(m_selectedKey.substr(4))
+        : nullptr;
+    if (container != nullptr) {
+      addContainerInspector(*inspector, *container, scale);
+      return inspector;
+    }
+  }
+  const ActivityRow* row = m_tab == Tab::Containers ? nullptr : selectedRow();
   if (row == nullptr) {
     inspector->addChild(
         ui::label({
@@ -1696,4 +1740,462 @@ void ActivityWindow::onKeyboardEvent(const KeyboardEvent& event) {
   }
   m_inputDispatcher.keyEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);
   invalidate();
+}
+
+namespace {
+
+  std::string containerStateText(const std::string& state) {
+    static const std::map<std::string, std::string> kKeys{
+        {"running", "activity.state-running"}, {"paused", "activity.state-paused"},
+        {"exited", "activity.state-exited"},   {"created", "activity.state-created"},
+        {"restarting", "activity.state-restarting"},
+    };
+    const auto it = kKeys.find(state);
+    return it != kKeys.end() ? i18n::tr(it->second) : state;
+  }
+
+  std::string lowerText(std::string text) {
+    std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return text;
+  }
+
+  bool hasUsage(const ContainerInfo& container) { return container.state == "running" || container.state == "paused"; }
+
+  std::uint64_t cgroupMemory(const std::string& root, const std::string& cgroup) {
+    if (cgroup.empty()) {
+      return 0;
+    }
+    std::ifstream in(root + cgroup + "/memory.current");
+    std::uint64_t bytes = 0;
+    in >> bytes;
+    return bytes;
+  }
+
+} // namespace
+
+std::vector<SystemdUnit> ActivityWindow::engineUnits(const ContainerEngine& engine) const {
+  std::vector<SystemdUnit> units;
+  for (const auto& name : engine.units) {
+    if (const auto it = m_engineUnits.find(engine.socket + "|" + name); it != m_engineUnits.end()) {
+      units.push_back(it->second);
+    }
+  }
+  return units;
+}
+
+void ActivityWindow::refreshContainers() {
+  if (m_containers == nullptr || !m_containers->available() || m_surface == nullptr) {
+    return;
+  }
+  const bool describe = m_containerTicks % 5 == 0;
+  const bool list = describe || m_tab == Tab::Containers;
+  ++m_containerTicks;
+  if (!describe || m_actions == nullptr) {
+    if (list && (m_engineUnitsRead || m_actions == nullptr)) {
+      listContainers();
+    }
+    return;
+  }
+  auto pending = std::make_shared<std::size_t>(0);
+  for (const auto& engine : m_containers->engines()) {
+    *pending += engine.units.size();
+  }
+  if (*pending == 0) {
+    listContainers();
+    return;
+  }
+  for (const auto& engine : m_containers->engines()) {
+    for (const auto& name : engine.units) {
+      m_actions->describeUnit(
+          name, !engine.rootless,
+          [this, pending, key = engine.socket + "|" + name](std::optional<SystemdUnit> unit) {
+            if (unit.has_value()) {
+              m_engineUnits[key] = std::move(*unit);
+            } else {
+              m_engineUnits.erase(key);
+            }
+            if (--*pending == 0) {
+              listContainers();
+            }
+          }
+      );
+    }
+  }
+}
+
+void ActivityWindow::listContainers() {
+  if (m_containers == nullptr || m_surface == nullptr) {
+    return;
+  }
+  m_engineUnitsRead = true;
+  std::set<std::string> idle;
+  for (const auto& engine : m_containers->engines()) {
+    const auto units = engineUnits(engine);
+    const auto active = [&](const char* suffix) {
+      return std::ranges::any_of(units, [suffix](const SystemdUnit& u) {
+        return u.name.ends_with(suffix) && u.activeState == "active";
+      });
+    };
+    if (active(".socket") && !active(".service")) {
+      idle.insert(engine.socket);
+    }
+  }
+  m_containers->refresh(std::move(idle), [this] { refreshAfterSample(); });
+}
+
+void ActivityWindow::runContainerAction(const ContainerInfo& container, int action) {
+  if (m_containers == nullptr) {
+    return;
+  }
+  m_containers->act(container, static_cast<ContainerService::Action>(action), [this](const std::string& error) {
+    m_actionError = error == "permission" ? i18n::tr("activity.engine-permission") : error;
+    m_containerTicks = 0; // list again now, and re-read the engine units
+    refreshContainers();
+    requestRebuild();
+  });
+}
+
+void ActivityWindow::addContainerCards(Flex& list, float scale) {
+  const std::string& root = m_monitor->activity().cgroupRoot();
+  const auto& containers = m_containers != nullptr ? m_containers->containers() : std::vector<ContainerInfo>{};
+  if (m_containers == nullptr || m_containers->engines().empty()) {
+    list.addChild(ui::label({
+        .text = i18n::tr("activity.loading"),
+        .fontSize = Style::fontSizeBody * scale,
+        .color = colorSpecFromRole(ColorRole::Label2),
+        .textAlign = TextAlign::Center,
+    }));
+    return;
+  }
+  for (const auto& engine : m_containers->engines()) {
+    const std::vector<SystemdUnit> units = engineUnits(engine);
+    const auto service = std::ranges::find_if(units, [](const SystemdUnit& u) { return u.name.ends_with(".service"); });
+    const bool active = std::ranges::any_of(units, [](const SystemdUnit& u) { return u.activeState == "active"; });
+    const bool atLogin = std::ranges::any_of(units, [](const SystemdUnit& u) { return u.unitFileState == "enabled"; });
+    const std::string name = engine.name.empty() ? engine.socket : engine.name;
+    std::string title;
+    if (!engine.error.empty()) {
+      title = name;
+    } else if (service != units.end() && service->activeState != "active" && active) {
+      title = i18n::tr("activity.engine-on-demand", "name", name);
+    } else {
+      title = i18n::tr("activity.engine-running", "name", name);
+    }
+    const auto summaryText = [this, root, socket = engine.socket] {
+      const auto& all = m_containers->engines();
+      const auto live = std::ranges::find(all, socket, &ContainerEngine::socket);
+      if (live == all.end()) {
+        return std::string();
+      }
+      if (live->error == "permission") {
+        return i18n::tr("activity.engine-permission");
+      }
+      if (!live->error.empty()) {
+        return i18n::tr("activity.engine-error", "error", live->error);
+      }
+      if (live->idle) {
+        return i18n::tr("activity.engine-idle");
+      }
+      const auto& list = m_containers->containers();
+      const auto total = std::ranges::count(list, socket, &ContainerInfo::engineSocket);
+      const auto running = std::ranges::count_if(list, [&](const ContainerInfo& c) {
+        return c.engineSocket == socket && c.state == "running";
+      });
+      std::string text =
+          i18n::tr("activity.engine-summary", "running", std::to_string(running), "total", std::to_string(total));
+      const auto units = engineUnits(*live);
+      const auto service = std::ranges::find_if(units, [](const SystemdUnit& u) { return u.name.ends_with(".service"); });
+      if (const std::uint64_t bytes = service != units.end() ? cgroupMemory(root, service->controlGroup) : 0; bytes > 0) {
+        text += " · " + memoryText(bytes);
+      }
+      return text;
+    };
+    const std::string summary = summaryText();
+    Label* summaryLabel = nullptr;
+    Flex* card = settings::addSettingsGroupCard(list, i18n::tr("activity.group-engine"), scale);
+    auto engineRow = ui::row(
+        {.align = FlexAlign::Center,
+         .gap = Style::spaceSm * scale,
+         .paddingH = Style::spaceSm * scale,
+         .minHeight = Tokens::sizeRowTwoCompact * scale},
+        ui::glyph({
+            .glyph = "package",
+            .glyphSize = kRowIcon * scale,
+            .color = colorSpecFromRole(ColorRole::Label2),
+        }),
+        ui::column(
+            {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
+            ui::label(
+                {.text = title,
+                 .fontSize = Style::fontSizeBody * scale,
+                 .color = colorSpecFromRole(ColorRole::Label1),
+                 .maxLines = 1,
+                 .ellipsize = TextEllipsize::End}
+            ),
+            ui::label(
+                {.out = &summaryLabel,
+                 .text = summary,
+                 .fontSize = Style::fontSizeCaption * scale,
+                 .color = colorSpecFromRole(engine.error.empty() ? ColorRole::Label2 : ColorRole::Warning),
+                 .maxLines = 2,
+                 .ellipsize = TextEllipsize::End}
+            )
+        )
+    );
+    if (active && m_actions != nullptr) {
+      engineRow->addChild(ui::button({
+          .text = i18n::tr("activity.action-stop-engine"),
+          .fontSize = Style::fontSizeCaption * scale,
+          .variant = ButtonVariant::Default,
+          .minHeight = Style::controlHeightSm * scale,
+          .radius = Tokens::radiusR8 * scale,
+          .onClick = [this, units] {
+            const auto done = [this](const ActivityActionResult& result) {
+              m_actionError = result.ok ? "" : result.accessDenied ? i18n::tr("activity.error-admin") : result.error;
+              m_containerTicks = 0;
+              refreshContainers();
+              requestRebuild();
+            };
+            const auto find = [&](const char* suffix) -> std::optional<SystemdUnit> {
+              const auto it = std::ranges::find_if(units, [suffix](const SystemdUnit& u) {
+                return u.name.ends_with(suffix) && u.activeState == "active";
+              });
+              return it != units.end() ? std::optional{*it} : std::nullopt;
+            };
+            const auto service = find(".service");
+            const auto stopService = [this, service, done] {
+              if (service.has_value()) {
+                m_actions->stop(*service, done);
+              } else {
+                done(ActivityActionResult{.ok = true});
+              }
+            };
+            // The socket first and alone: while it listens, the next client starts the service again.
+            if (const auto socket = find(".socket"); socket.has_value()) {
+              m_actions->stop(*socket, [stopService, done](const ActivityActionResult& result) {
+                result.ok ? stopService() : done(result);
+              });
+            } else {
+              stopService();
+            }
+          },
+      }));
+    }
+    if (atLogin && m_actions != nullptr) {
+      engineRow->addChild(ui::button({
+          .text = i18n::tr("notifications.internal.activity-dont-start"),
+          .fontSize = Style::fontSizeCaption * scale,
+          .variant = ButtonVariant::Default,
+          .minHeight = Style::controlHeightSm * scale,
+          .radius = Tokens::radiusR8 * scale,
+          .onClick = [this, units] {
+            for (const auto& unit : units) {
+              if (unit.unitFileState != "enabled") {
+                continue;
+              }
+              m_actions->disableAtLogin(unit, {}, {}, [this](const ActivityActionResult& result) {
+                m_actionError = result.ok ? "" : result.accessDenied ? i18n::tr("activity.error-admin") : result.error;
+                m_containerTicks = 0;
+                refreshContainers();
+                requestRebuild();
+              });
+            }
+          },
+      }));
+    }
+    card->addChild(std::move(engineRow));
+    m_liveText.push_back({summaryLabel, summaryText});
+    if (!m_actionError.empty() && !m_selectedKey.starts_with("ctr:")) {
+      card->addChild(ui::label({
+          .text = m_actionError,
+          .fontSize = Style::fontSizeCaption * scale,
+          .color = colorSpecFromRole(ColorRole::Warning),
+          .maxLines = 3,
+      }));
+    }
+
+    Flex* rows = nullptr;
+    const std::string needle = lowerText(m_query);
+    for (const auto& container : containers) {
+      if (container.engineSocket != engine.socket
+          || (!needle.empty() && !lowerText(container.name).contains(needle) && !lowerText(container.image).contains(needle))) {
+        continue;
+      }
+      if (rows == nullptr) {
+        rows = settings::addSettingsGroupCard(list, name, scale);
+      }
+      const std::string key = "ctr:" + container.id;
+      const bool selected = key == m_selectedKey;
+      rows->addChild(ui::button({
+          .text = container.name,
+          .glyph = "package",
+          .fontSize = Style::fontSizeBody * scale,
+          .contentAlign = ButtonContentAlign::Start,
+          .variant = ButtonVariant::Tab,
+          .customPalette = selected ? std::optional{settings::selectedRowPalette(
+                                          settings::selectionStyle().rowFill, settings::selectionStyle().rowLabel
+                                      )}
+                                    : std::nullopt,
+          .minHeight = kRowHeight * scale,
+          .paddingV = 0.0F,
+          .paddingH = Style::spaceSm * scale,
+          .gap = Style::spaceSm * scale,
+          .radius = Style::scaledRadiusMd(scale),
+          .onClick =
+              [this, key] {
+                m_selectedKey = key;
+                m_inspectorScroll = {};
+                m_actionError.clear();
+                requestRebuild();
+              },
+          .configure =
+              [&](Button& button) {
+                button.setTabStop(false);
+                if (Label* label = button.label(); label != nullptr) {
+                  label->setMaxLines(1);
+                }
+                button.addChild(ui::label({
+                    .text = container.image,
+                    .fontSize = Style::fontSizeCaption * scale,
+                    .color = colorSpecFromRole(ColorRole::Label3),
+                    .maxLines = 1,
+                    .ellipsize = TextEllipsize::Middle,
+                    .flexGrow = 1.0F,
+                }));
+                const auto bind = [&](std::unique_ptr<Label> label, auto text) {
+                  m_liveText.push_back(
+                      {static_cast<Label*>(button.addChild(std::move(label))), [this, id = container.id, text] {
+                         const ContainerInfo* live = m_containers->find(id);
+                         return live != nullptr ? text(*live) : std::string();
+                       }}
+                  );
+                };
+                bind(cell(hasUsage(container) ? cpuText(container.cpuPercent) : "–", scale), [](const ContainerInfo& c) {
+                  return hasUsage(c) ? cpuText(c.cpuPercent) : std::string("–");
+                });
+                bind(
+                    cell(hasUsage(container) ? memoryText(container.memoryBytes) : "–", scale, ColorRole::Label1),
+                    [](const ContainerInfo& c) { return hasUsage(c) ? memoryText(c.memoryBytes) : std::string("–"); }
+                );
+                button.addChild(cell(containerStateText(container.state), scale));
+              },
+      }));
+    }
+  }
+  if (containers.empty()) {
+    list.addChild(ui::label({
+        .text = i18n::tr("activity.containers-empty"),
+        .fontSize = Style::fontSizeBody * scale,
+        .color = colorSpecFromRole(ColorRole::Label2),
+        .textAlign = TextAlign::Center,
+    }));
+  }
+}
+
+void ActivityWindow::addContainerInspector(Flex& inspector, const ContainerInfo& container, float scale) {
+  const auto engine = std::ranges::find(m_containers->engines(), container.engineSocket, &ContainerEngine::socket);
+  const std::string engineName = engine != m_containers->engines().end() ? engine->name : container.engineSocket;
+  inspector.addChild(ui::row(
+      {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
+      ui::glyph({
+          .glyph = "package",
+          .glyphSize = kInspectorIcon * scale,
+          .color = colorSpecFromRole(ColorRole::Label2),
+      }),
+      ui::column(
+          {.align = FlexAlign::Stretch, .gap = Tokens::spaceP2 * scale, .flexGrow = 1.0F},
+          ui::label({
+              .text = container.name,
+              .fontSize = Style::fontSizeTitle * scale,
+              .fontWeight = FontWeight::Bold,
+              .color = colorSpecFromRole(ColorRole::Label1),
+              .maxLines = 1,
+              .ellipsize = TextEllipsize::End,
+          }),
+          ui::label({
+              .text = container.image + " · " + engineName,
+              .fontSize = Style::fontSizeCaption * scale,
+              .color = colorSpecFromRole(ColorRole::Label2),
+              .maxLines = 1,
+              .ellipsize = TextEllipsize::Middle,
+          })
+      )
+  ));
+  auto chips = ui::row({.align = FlexAlign::Center, .wrap = true, .gap = Style::spaceXs * scale});
+  chips->addChild(chip(containerStateText(container.state), scale));
+  inspector.addChild(std::move(chips));
+  const auto fact = [&](std::string name, std::function<std::string(const ContainerInfo&)> text) {
+    Label* value = nullptr;
+    inspector.addChild(factRow(std::move(name), text(container), scale, &value));
+    m_liveText.push_back({value, [this, id = container.id, text = std::move(text)] {
+                            const ContainerInfo* live = m_containers->find(id);
+                            return live != nullptr ? text(*live) : std::string();
+                          }});
+  };
+  fact(i18n::tr("activity.column-cpu"), [](const ContainerInfo& c) {
+    return hasUsage(c) ? cpuText(c.cpuPercent) : std::string("–");
+  });
+  fact(i18n::tr("activity.column-memory"), [](const ContainerInfo& c) {
+    return hasUsage(c) ? memoryText(c.memoryBytes) : std::string("–");
+  });
+  fact(i18n::tr("activity.fact-status"), [](const ContainerInfo& c) { return c.status; });
+  inspector.addChild(ui::spacer());
+  if (!m_actionError.empty()) {
+    inspector.addChild(ui::label({
+        .text = m_actionError,
+        .fontSize = Style::fontSizeCaption * scale,
+        .color = colorSpecFromRole(ColorRole::Warning),
+        .maxLines = 3,
+    }));
+  }
+  const auto action = [&](const char* key, ContainerService::Action kind) {
+    inspector.addChild(ui::button({
+        .text = i18n::tr(key),
+        .fontSize = Style::fontSizeBody * scale,
+        .variant = ButtonVariant::Default,
+        .minHeight = Style::controlHeight * scale,
+        .radius = Style::controlHeight * scale / 2.0F,
+        .onClick = [this, id = container.id, kind] {
+          if (const ContainerInfo* live = m_containers->find(id); live != nullptr) {
+            runContainerAction(*live, static_cast<int>(kind));
+          }
+        },
+    }));
+  };
+  if (hasUsage(container) || container.state == "restarting") {
+    action("activity.action-stop", ContainerService::Action::Stop);
+  }
+  if (container.state == "running") {
+    action("activity.action-pause", ContainerService::Action::Pause);
+  } else if (container.state == "paused") {
+    action("activity.action-resume", ContainerService::Action::Unpause);
+  }
+}
+
+std::string ActivityWindow::buttonsJson() const {
+  nlohmann::json out = nlohmann::json::array();
+  const std::function<void(const Node&)> walk = [&](const Node& node) {
+    if (!node.visible()) {
+      return;
+    }
+    if (const auto* button = dynamic_cast<const Button*>(&node); button != nullptr && button->enabled()) {
+      float left = 0.0F;
+      float top = 0.0F;
+      float right = 0.0F;
+      float bottom = 0.0F;
+      Node::transformedBounds(&node, left, top, right, bottom);
+      out.push_back(
+          {{"text", button->label() != nullptr ? button->label()->text() : std::string()},
+           {"x", (left + right) / 2.0F},
+           {"y", (top + bottom) / 2.0F}}
+      );
+    }
+    for (const auto& child : node.children()) {
+      walk(*child);
+    }
+  };
+  if (m_sceneRoot != nullptr) {
+    walk(*m_sceneRoot);
+  }
+  return out.dump();
 }

@@ -4,6 +4,7 @@
 #include "dbus/session_bus.h"
 #include "dbus/system_bus.h"
 #include "util/file_utils.h"
+#include "util/string_utils.h"
 
 #include <cstdlib>
 #include <string_view>
@@ -77,5 +78,19 @@ void Application::initActivity() {
   m_activityWindow.setDetails(&m_activityDetails);
   m_activityWindow.setSystemMonitorProvider([this]() { return m_systemMonitor.get(); });
   m_activityWindow.setUPowerProvider([this]() { return upower(); });
+  // NOCTALIA_CONTAINER_SOCKETS (colon-separated) replaces the engine socket search, for tests.
+  std::vector<std::string> sockets = ContainerService::defaultSockets();
+  if (const char* list = std::getenv("NOCTALIA_CONTAINER_SOCKETS"); list != nullptr) {
+    sockets.clear();
+    for (const auto part : StringUtils::split(list, ':')) {
+      if (!part.empty()) {
+        sockets.emplace_back(part);
+      }
+    }
+  }
+  m_containerService = std::make_unique<ContainerService>(
+      m_activityMonitor->activity().cgroupRoot(), m_activityMonitor->activity().cpuCount(), std::move(sockets)
+  );
+  m_activityWindow.setContainers(m_containerService.get());
   m_backgroundActivityMonitor->start();
 }

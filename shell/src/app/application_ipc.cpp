@@ -749,6 +749,14 @@ void Application::initIpc() {
             row["gpu_percent"] = m_activityDetails.gpuPercent(key);
           }
         }
+        if (m_containerService != nullptr) {
+          auto containers = nlohmann::json::parse(m_containerService->dumpJson());
+          dump["engines"] = std::move(containers["engines"]);
+          dump["containers"] = std::move(containers["containers"]);
+        }
+        if (m_activityWindow.isOpen()) {
+          dump["buttons"] = nlohmann::json::parse(m_activityWindow.buttonsJson());
+        }
         return dump.dump() + "\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}

@@ -213,6 +213,60 @@ void ActivityActions::setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaP
   }
 }
 
+void ActivityActions::describeUnit(
+    const std::string& name, bool systemManager, std::function<void(std::optional<SystemdUnit>)> reply
+) {
+  SystemdUnit unit{.name = name, .systemManager = systemManager};
+  if (systemManager && m_systemBus == nullptr) {
+    reply(std::nullopt);
+    return;
+  }
+  using Properties = std::map<sdbus::PropertyName, sdbus::Variant>;
+  const auto text = [](const Properties& props, const char* key) {
+    const auto it = props.find(sdbus::PropertyName{key});
+    return it != props.end() ? it->second.get<std::string>() : std::string();
+  };
+  try {
+    proxyFor(unit, kManagerPath).callMethodAsync("GetUnit").onInterface(kManager).withArguments(name).uponReplyInvoke(
+        [this, unit, reply, text](const std::optional<sdbus::Error>& error, const sdbus::ObjectPath& path) {
+          if (error.has_value()) {
+            reply(std::nullopt);
+            return;
+          }
+          SystemdUnit found = unit;
+          found.objectPath = path;
+          auto& proxy = proxyFor(found, path);
+          proxy.getAllPropertiesAsync().onInterface("org.freedesktop.systemd1.Unit").uponReplyInvoke(
+              [found, reply, text, &proxy](const std::optional<sdbus::Error>& unitError, const Properties& props) {
+                if (unitError.has_value()) {
+                  reply(std::nullopt);
+                  return;
+                }
+                SystemdUnit unit = found;
+                unit.activeState = text(props, "ActiveState");
+                unit.subState = text(props, "SubState");
+                unit.unitFileState = text(props, "UnitFileState");
+                unit.fragmentPath = text(props, "FragmentPath");
+                const char* typed = unit.name.ends_with(".socket") ? "org.freedesktop.systemd1.Socket"
+                                                                   : "org.freedesktop.systemd1.Service";
+                proxy.getAllPropertiesAsync().onInterface(typed).uponReplyInvoke(
+                    [unit, reply, text](const std::optional<sdbus::Error>& typedError, const Properties& typedProps) {
+                      SystemdUnit described = unit;
+                      if (!typedError.has_value()) {
+                        described.controlGroup = text(typedProps, "ControlGroup");
+                      }
+                      reply(std::move(described));
+                    }
+                );
+              }
+          );
+        }
+    );
+  } catch (const sdbus::Error&) {
+    reply(std::nullopt);
+  }
+}
+
 void ActivityActions::disableAtLogin(
     const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply
 ) {
