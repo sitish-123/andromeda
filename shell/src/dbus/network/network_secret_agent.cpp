@@ -66,6 +66,8 @@ struct NetworkSecretAgent::Impl {
   SystemBus& bus;
   std::unique_ptr<sdbus::IObject> object;
   std::unique_ptr<sdbus::IProxy> nameWatcher;
+  // Owns the pending Register call: destroying it cancels the reply.
+  std::unique_ptr<sdbus::IProxy> agentManager;
   bool registered = false;
   RequestCallback requestCallback;
   std::optional<sdbus::Result<SecretsDict>> pendingResult;
@@ -74,15 +76,21 @@ struct NetworkSecretAgent::Impl {
   explicit Impl(SystemBus& b) : bus(b) {}
 
   void registerAgent() {
+    registered = false;
     try {
-      auto agentManager = sdbus::createProxy(bus.connection(), kNmBusName, kAgentManagerObjectPath);
-      agentManager->callMethod("Register")
+      agentManager = sdbus::createProxy(bus.connection(), kNmBusName, kAgentManagerObjectPath);
+      agentManager->callMethodAsync("Register")
           .onInterface(kAgentManagerInterface)
-          .withArguments(std::string(kAgentIdentifier));
-      registered = true;
-      kLog.info("registered NetworkManager secret agent as {}", kAgentIdentifier);
+          .withArguments(std::string(kAgentIdentifier))
+          .uponReplyInvoke([this](std::optional<sdbus::Error> error) {
+            registered = !error.has_value();
+            if (error.has_value()) {
+              kLog.warn("secret agent registration failed: {}", error->getMessage());
+              return;
+            }
+            kLog.info("registered NetworkManager secret agent as {}", kAgentIdentifier);
+          });
     } catch (const sdbus::Error& e) {
-      registered = false;
       kLog.warn("secret agent registration failed: {}", e.what());
     }
   }
