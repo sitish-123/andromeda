@@ -9,6 +9,8 @@ use crate::expr::{Schema, Type, Value, Values};
 const PROFILES: &[&str] = &["power-saver", "balanced", "performance"];
 /// UPower's warning levels in order; `unknown` is left out, so it reads as an absent field.
 const WARNINGS: &[&str] = &["none", "discharging", "low", "critical", "action"];
+/// `org.andromeda.System1.Memory.Level`, from PSI.
+const MEMORY_LEVELS: &[&str] = &["normal", "medium", "critical"];
 
 const FIELDS: &[(&str, Type)] = &[
     ("power.on_battery", Type::Bool),
@@ -18,6 +20,8 @@ const FIELDS: &[(&str, Type)] = &[
     ("battery.state", Type::Str),
     ("battery.time_to_empty_s", Type::Num),
     ("power.profile_by_rule", Type::Bool),
+    ("memory.level", Type::Level(MEMORY_LEVELS)),
+    ("thermal.throttled", Type::Bool),
     // One app, for per-app rules (`per = "app"`): from org.andromeda.Compositor1.Apps.
     ("app.cpu_pct", Type::Num),
     ("app.rss_mb", Type::Num),
@@ -67,6 +71,17 @@ impl Snapshot {
         #[allow(clippy::cast_precision_loss)] // seconds
         let tte = props.and_then(|p| bus::get::<i64>(p, "TimeToEmptyS")).filter(|s| *s > 0).map(|s| s as f64);
         self.put("battery.time_to_empty_s", tte.map(Value::Num));
+    }
+
+    /// From `org.andromeda.System1.Memory`; `None` when the system part has no memory source.
+    pub fn set_memory(&mut self, props: Option<&Props>) {
+        let level = props.and_then(|p| bus::get::<String>(p, "Level")).filter(|l| MEMORY_LEVELS.contains(&l.as_str()));
+        self.put("memory.level", level.map(Value::Str));
+    }
+
+    /// From `org.andromeda.System1.Thermal`: a zone is past a trip point.
+    pub fn set_thermal(&mut self, props: Option<&Props>) {
+        self.put("thermal.throttled", props.and_then(|p| bus::get::<bool>(p, "Throttled")).map(Value::Bool));
     }
 
     /// A field the session part computes itself.

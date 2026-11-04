@@ -22,7 +22,7 @@ use crate::policy::now_ms;
 use crate::rules::RuleValues;
 use crate::rules::{self, Alert, Scope};
 use crate::state::{AppRow, AppValues, Fields, Snapshot};
-use crate::{NAME, knobs, nm, power};
+use crate::{NAME, knobs, memory, nm, power, thermal};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
@@ -315,6 +315,23 @@ impl Session {
         self.commit(system, session, changes).await;
     }
 
+    /// The system part is back: places the holds of the open episodes again.
+    async fn resume(&mut self, system: &Connection) {
+        let open: Vec<(u64, String)> = self.held.iter().map(|(e, (rule, _))| (*e, rule.clone())).collect();
+        for (episode, rule) in open {
+            let ids = self.place(system, &rule).await;
+            self.held.insert(episode, (rule, ids));
+        }
+    }
+
+    /// A user change ended one of our system holds: that is the Undo of its episode.
+    async fn released(&mut self, system: &Connection, session: &Connection, id: &str) {
+        let episode = self.held.iter().find(|(_, (_, ids))| ids.iter().any(|i| i == id)).map(|(e, _)| *e);
+        if let Some(episode) = episode {
+            self.undo(system, session, episode).await;
+        }
+    }
+
     /// A notification action: Undo ends the episode; the default action of a per-app alert opens Activity on it.
     async fn action(&mut self, system: &Connection, session: &Connection, note: u32, action: &str) {
         match (self.alerts.get(&note).copied(), action) {
@@ -593,6 +610,14 @@ pub async fn run() -> Result<()> {
     }
 }
 
+/// The next property change of an optional remote; false when its stream ended. Never resolves for `None`.
+async fn changed(remote: &mut Option<Remote>) -> bool {
+    match remote.as_mut() {
+        Some(r) => matches!(r.next().await, Some(Ok(()))),
+        None => std::future::pending().await,
+    }
+}
+
 /// A stream of one signal, from `sender` when given.
 async fn signals(conn: &Connection, sender: Option<&str>, interface: &str, member: &str) -> Result<MessageStream> {
     let mut rule = MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(interface).member(member);
@@ -609,6 +634,8 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
     // The system part exports the battery once UPower reports it, which can be after this starts.
     let mut added = signals(system, Some(NAME), "org.freedesktop.DBus.ObjectManager", "InterfacesAdded").await?;
     let mut battery = Remote::new(system, NAME, BATTERY.to_owned(), "org.andromeda.System1.Battery").await.ok();
+    let mut memory = Remote::new(system, NAME, memory::PATH.to_owned(), "org.andromeda.System1.Memory").await.ok();
+    let mut thermal = Remote::new(system, NAME, thermal::PATH.to_owned(), "org.andromeda.System1.Thermal").await.ok();
     let mut released = signals(system, Some(NAME), "org.andromeda.System1.Knobs", "Released").await?;
     let mut actions = signals(session, None, NOTIFICATIONS, "ActionInvoked").await?;
     let me = system.unique_name().map(ToString::to_string).unwrap_or_default();
@@ -616,11 +643,9 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
         let mut inner = shared.lock().await;
         inner.state.set_power(&power.props);
         inner.state.set_battery(battery.as_ref().map(|b| &b.props));
-        let open: Vec<(u64, String)> = inner.held.iter().map(|(e, (rule, _))| (*e, rule.clone())).collect();
-        for (episode, rule) in open {
-            let ids = inner.place(system, &rule).await;
-            inner.held.insert(episode, (rule, ids));
-        }
+        inner.state.set_memory(memory.as_ref().map(|m| &m.props));
+        inner.state.set_thermal(thermal.as_ref().map(|t| &t.props));
+        inner.resume(system).await;
     }
     tokio::pin!(gone);
     loop {
@@ -665,14 +690,21 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
             message = released.next() => {
                 let message = message.context("Released stream ended")??;
                 let Ok((id, owner)) = message.body().deserialize::<(String, String)>() else { continue };
-                if owner != me {
-                    continue;
+                if owner == me {
+                    shared.lock().await.released(system, session, &id).await;
                 }
-                let mut inner = shared.lock().await;
-                let episode = inner.held.iter().find(|(_, (_, ids))| ids.contains(&id)).map(|(e, _)| *e);
-                if let Some(episode) = episode {
-                    inner.undo(system, session, episode).await;
+            }
+            alive = changed(&mut memory) => {
+                if !alive {
+                    memory = None;
                 }
+                shared.lock().await.state.set_memory(memory.as_ref().map(|m| &m.props));
+            }
+            alive = changed(&mut thermal) => {
+                if !alive {
+                    thermal = None;
+                }
+                shared.lock().await.state.set_thermal(thermal.as_ref().map(|t| &t.props));
             }
             message = actions.next() => {
                 let message = message.context("ActionInvoked stream ended")??;

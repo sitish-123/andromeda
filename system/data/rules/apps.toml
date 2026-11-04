@@ -14,3 +14,30 @@ clear = "app.cpu_pct < calm_pct"
 dwell = "1m"
 holds = [{ knob = "app.tier", value = "T3", when = "not app.visible" }]
 alert = { urgency = "normal", action = "open", text = "drainer" }
+
+# Frees memory under critical pressure: hidden apps over big_mb freeze until pressure is back to normal.
+# Not built from the doc yet: the portal low-memory signal first, and "largest first, one at a time".
+[[rule]]
+id = "memory.relief"
+scope = "session"
+priority = "automatic"
+per = "app"
+params = { big_mb = 500 }
+when = "memory.level == 'critical' and not app.visible and app.rss_mb >= big_mb"
+for = "10s"
+clear = "memory.level == 'normal'"
+dwell = "1m"
+holds = [{ knob = "app.freeze", value = true }]
+
+# Cools the machine: while a zone is past a trip point, hidden apps run at T3 (efficiency CPUs, low weight).
+# Not built from the doc yet: the fps cap for hidden content, and the alert after 5 min.
+[[rule]]
+id = "thermal.relief"
+scope = "session"
+priority = "safety"
+per = "app"
+when = "thermal.throttled and not app.visible"
+for = "1m"
+clear = "not thermal.throttled"
+dwell = "2m"
+holds = [{ knob = "app.tier", value = "T3" }]

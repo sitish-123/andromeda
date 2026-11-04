@@ -140,6 +140,10 @@ grep -c '^notify' "$OUT/notes.log" | grep -qx 1 || fail "the rule alerted more t
 # Settings rows: the rules list, and a threshold change stored in the user's settings file.
 RULES=(call org.andromeda.System1 /org/andromeda/System1/Rules org.andromeda.System1.Rules)
 until_has 10 '"power.low_power_plan" true ""' "${S[@]}" "${RULES[@]}" List
+# Every shipped per-app rule loads: an empty third field is no load error.
+for rule in apps.drainer memory.relief thermal.relief; do
+  until_has 10 "\"$rule\" true \"\"" "${S[@]}" "${RULES[@]}" List
+done
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan true 1 low_pct d 10
 grep -q 'low_pct = 10' "$OUT/andromeda/system-rules.toml" || fail "the threshold was not stored"
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan false 0
