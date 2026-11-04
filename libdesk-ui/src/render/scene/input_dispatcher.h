@@ -22,6 +22,12 @@ public:
   };
 
   InputDispatcher() = default;
+  ~InputDispatcher();
+  InputDispatcher(const InputDispatcher&) = delete;
+  InputDispatcher& operator=(const InputDispatcher&) = delete;
+
+  // The dispatcher whose scene root is `node` or one of its ancestors (assistive-technology focus requests).
+  [[nodiscard]] static InputDispatcher* owning(const Node* node);
 
   void setSceneRoot(Node* root);
   void setCursorShapeCallback(CursorShapeCallback callback);

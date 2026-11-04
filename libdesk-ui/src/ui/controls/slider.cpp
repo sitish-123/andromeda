@@ -9,6 +9,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/clamp.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +36,13 @@ namespace {
 } // namespace
 
 Slider::Slider() {
+  setAccessible({.role = AccessibleRole::Slider});
+  accessibleState().setValue = [this](double value) {
+    setValue(value);
+    if (m_onDragEnd) {
+      m_onDragEnd();
+    }
+  };
   auto track = std::make_unique<RectNode>();
   m_track = static_cast<RectNode*>(addChild(std::move(track)));
 
@@ -201,6 +209,7 @@ void Slider::setValue(double value) {
 }
 
 void Slider::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }
@@ -260,6 +269,7 @@ LayoutSize Slider::doMeasure(Renderer& renderer, const LayoutConstraints& constr
 void Slider::doArrange(Renderer& renderer, const LayoutRect& rect) { arrangeByLayout(renderer, rect); }
 
 void Slider::updateGeometry() {
+  accessibleState().value = AccessibleValue{.current = m_value, .minimum = m_min, .maximum = m_max, .step = m_step};
   const float widthPx = width() > 0.0F ? width() : Style::sliderDefaultWidth;
   const float heightPx =
       m_filled ? m_controlHeightPx : std::max({m_thumbSizePx, m_trackHeight, m_controlHeightPx});

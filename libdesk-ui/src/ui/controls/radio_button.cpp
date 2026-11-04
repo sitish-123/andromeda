@@ -4,11 +4,13 @@
 #include "ui/controls/box.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <memory>
 
 RadioButton::RadioButton() {
+  setAccessible({.role = AccessibleRole::RadioButton, .checked = false, .actionName = "select"});
   auto outer = std::make_unique<Box>();
   m_outer = static_cast<Box*>(addChild(std::move(outer)));
 
@@ -35,6 +37,7 @@ RadioButton::RadioButton() {
 }
 
 void RadioButton::setChecked(bool checked) {
+  accessibleState().checked = checked;
   if (m_checked == checked) {
     return;
   }
@@ -43,6 +46,7 @@ void RadioButton::setChecked(bool checked) {
 }
 
 void RadioButton::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }

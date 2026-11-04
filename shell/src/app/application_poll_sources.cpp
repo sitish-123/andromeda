@@ -1,5 +1,6 @@
 #include "application.h"
 #include "application_internal.h"
+#include "a11y/atspi_poll_source.h"
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "dbus/idle/screensaver_poll_source.h"
@@ -85,6 +86,8 @@ std::vector<PollSource*> Application::currentPollSources() {
   sources.push_back(&m_asyncTextureCache);
   sources.push_back(&m_sharedTextureCache);
   sources.push_back(&m_pixelStreamService);
+  static AtspiPollSource atspiPollSource;
+  sources.push_back(&atspiPollSource);
   return sources;
 }
 
@@ -133,6 +136,7 @@ std::vector<PollSource*> Application::buildPollSources() {
   }
   if (m_memoryPressurePollSource == nullptr) {
     m_memoryPressurePollSource = std::make_unique<MemoryPressurePollSource>([this] {
+      m_renderContext.releaseUnusedCaches();
       trimAllocator();
     });
   }

@@ -1,4 +1,5 @@
 #include "application.h"
+#include "a11y/atspi_bridge.h"
 
 #include "app/main_loop.h"
 #include "theme/dev_tokens.h"
@@ -278,6 +279,7 @@ Application::Application()
 }
 
 Application::~Application() {
+  AtspiBridge::instance().stop();
   m_bar.setCenterIslandSpaceCallback({});
   m_notificationManager.removeUnreadCountCallback(m_islandUnreadToken);
   m_compositorPlatform.setOutputPowerChangeCallback({});

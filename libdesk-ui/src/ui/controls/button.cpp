@@ -8,6 +8,7 @@
 #include "ui/controls/label.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <cmath>
 #include <memory>
@@ -202,6 +203,7 @@ namespace {
 Button::ButtonPalette Button::defaultPalette(ButtonVariant variant) { return paletteForVariant(variant); }
 
 Button::Button() {
+  setAccessible({.role = AccessibleRole::Button, .actionName = "press"});
   setAlign(FlexAlign::Center);
   setMinHeight(Style::controlHeight);
   setPadding(Style::spaceSm);
@@ -286,6 +288,9 @@ Button::~Button() {
 }
 
 void Button::setText(std::string_view text) {
+  // An icon-only button is named by its tooltip (kept in the description).
+  auto& accessible = accessibleState();
+  accessible.name = text.empty() ? accessible.description : std::string(text);
   // A glyph-only button must not grow the text-tier chrome (control height,
   // wider padding) just because its text was cleared: creating the label is
   // what flips the size tier, so skip it for empty text.
@@ -429,6 +434,11 @@ void Button::setBadgeFontSize(float size) {
 }
 
 void Button::setTooltip(std::string_view text) {
+  auto& accessible = accessibleState();
+  if (accessible.name.empty() || accessible.name == accessible.description) {
+    accessible.name = std::string(text);
+  }
+  accessible.description = std::string(text);
   if (m_inputArea == nullptr) {
     return;
   }
@@ -522,6 +532,7 @@ bool Button::hovered() const noexcept { return m_inputArea != nullptr && m_input
 bool Button::pressed() const noexcept { return m_inputArea != nullptr && m_inputArea->pressed(); }
 
 void Button::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }

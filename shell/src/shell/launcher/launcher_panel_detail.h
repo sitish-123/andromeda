@@ -1,5 +1,7 @@
 #pragma once
 
+#include "render/scene/accessible.h"
+
 // Launcher helpers and row nodes shared by the launcher_panel*.cpp files.
 
 #include "shell/launcher/launcher_panel.h"
@@ -413,6 +415,12 @@ namespace launcher_detail {
     void
     bind(Renderer& renderer, const LauncherResult& result, float width, float height, bool selected, bool hovered) {
       m_selected = selected;
+      auto& accessible = accessibleState();
+      accessible.role = AccessibleRole::ListItem;
+      accessible.name = result.title;
+      accessible.description = result.subtitle;
+      accessible.selected = selected;
+      accessible.actionName = "activate";
       m_hovered = hovered;
       m_iconPath = result.iconPath;
       m_fallbackGlyph = result.glyphName.empty() ? "app-window" : result.glyphName;
@@ -712,6 +720,12 @@ namespace launcher_detail {
     void
     bind(Renderer& renderer, const LauncherResult& result, float width, float height, bool selected, bool hovered) {
       m_selected = selected;
+      auto& accessible = accessibleState();
+      accessible.role = AccessibleRole::ListItem;
+      accessible.name = result.title;
+      accessible.description = result.subtitle;
+      accessible.selected = selected;
+      accessible.actionName = "activate";
       m_hovered = hovered;
       m_iconPath = result.iconPath;
       m_fallbackGlyph = result.glyphName.empty() ? "app-window" : result.glyphName;

@@ -1,6 +1,7 @@
 #include "app/main_loop.h"
 #include "config/app_icon_settings.h"
 #include "application.h"
+#include "a11y/atspi_bridge.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
@@ -1259,11 +1260,11 @@ void Application::initAuxServicesAndHooks() {
     m_trayMenu.onThemeChanged();
     m_backdrop.onThemeChanged();
     m_settingsWindow.onThemeChanged();
+    m_activityWindow.onThemeChanged();
     scheduleGreeterAutoSync();
   });
 
   if (const auto distro = DistroDetector::detect(); distro.has_value()) {
-    m_activityWindow.onThemeChanged();
     const auto& label = !distro->prettyName.empty() ? distro->prettyName
         : !distro->name.empty()                     ? distro->name
                                                     : distro->id;
@@ -1843,6 +1844,7 @@ void Application::initEarlySessionBusAndTray() {
   try {
     m_bus = std::make_unique<SessionBus>();
     kLog.info("connected to session bus");
+    AtspiBridge::instance().start(m_bus->connection(), "andromeda-shell");
   } catch (const std::exception& e) {
     // i18n is initialized later, in initStyleThemeAndWayland(), so hold the reason
     // and report it once translations are available.

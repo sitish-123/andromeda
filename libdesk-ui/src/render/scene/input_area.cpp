@@ -1,5 +1,7 @@
 #include "render/scene/input_area.h"
 
+#include <linux/input-event-codes.h>
+
 #include "cursor-shape-v1-client-protocol.h"
 
 #include <algorithm>
@@ -83,6 +85,29 @@ void InputArea::setOnAxis(PointerCallback callback) {
   };
 }
 void InputArea::setOnAxisHandler(AxisCallback callback) { m_onAxis = std::move(callback); }
+bool InputArea::activate() {
+  if (!m_onClick && !m_onPress) {
+    return false;
+  }
+  PointerData data;
+  data.localX = width() * 0.5F;
+  data.localY = height() * 0.5F;
+  Node::absolutePosition(this, data.sceneX, data.sceneY);
+  data.sceneX += data.localX;
+  data.sceneY += data.localY;
+  data.button = BTN_LEFT;
+  // Areas that act on release (launcher rows) get a press and a release; others get a click.
+  if (!m_onClick) {
+    data.pressed = true;
+    m_onPress(data);
+    data.pressed = false;
+    m_onPress(data);
+    return true;
+  }
+  m_onClick(data);
+  return true;
+}
+
 void InputArea::setOnClick(PointerCallback callback) {
   m_onClick = std::move(callback);
   if (m_onClick && m_cursorShape == 0) {

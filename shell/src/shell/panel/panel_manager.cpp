@@ -35,6 +35,7 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <cmath>
@@ -415,6 +416,17 @@ PanelManager* PanelManager::current() noexcept { return s_instance; }
 WaylandConnection* PanelManager::wayland() const noexcept {
   return m_platform != nullptr ? &m_platform->wayland() : nullptr;
 }
+
+namespace {
+  // "control-center" -> "Control center": the window name a screen reader announces.
+  std::string panelAccessibleTitle(std::string title) {
+    std::ranges::replace(title, '-', ' ');
+    if (!title.empty()) {
+      title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+    }
+    return title;
+  }
+} // namespace
 
 void PanelManager::initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext) {
   m_glassPaletteConn = paletteChanged().connect([this] {
@@ -1320,6 +1332,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     auto layerSurfaceUnique = std::make_unique<LayerSurface>(m_platform->wayland(), std::move(attachedConfig));
     m_layerSurface = layerSurfaceUnique.get();
     m_surface = std::move(layerSurfaceUnique);
+    m_surface->setAccessibleTitle(panelAccessibleTitle(m_activePanelId));
     configureSurfaceCallbacks(*m_surface);
     logFirstFrame(*m_surface);
     if (wantsOutsideDismiss) {
@@ -1396,6 +1409,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
   auto layerSurface = std::make_unique<LayerSurface>(m_platform->wayland(), std::move(surfaceConfig));
   m_layerSurface = layerSurface.get();
   m_surface = std::move(layerSurface);
+  m_surface->setAccessibleTitle(panelAccessibleTitle(m_activePanelId));
   m_panelInsetX = detachedShadowBleed.left;
   m_panelInsetY = detachedShadowBleed.up;
   m_panelVisualWidth = panelWidth;

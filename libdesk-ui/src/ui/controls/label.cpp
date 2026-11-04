@@ -8,6 +8,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <cmath>
@@ -46,6 +47,7 @@ std::optional<LabelBaselineMode> labelBaselineModeFromToken(std::string_view tok
 }
 
 Label::Label() {
+  setAccessible({.role = AccessibleRole::Label});
   auto textNode = std::make_unique<TextNode>();
   m_textNode = static_cast<TextNode*>(addChild(std::move(textNode)));
   m_textNode->setFontSize(Style::fontSizeBody);
@@ -58,6 +60,7 @@ Label::Label() {
 }
 
 bool Label::setText(std::string_view text) {
+  accessibleState().name = std::string(text);
   if (m_plainText == text) {
     return false;
   }

@@ -1,5 +1,7 @@
 #include "render/scene/node.h"
 
+#include "render/scene/accessible.h"
+
 #include "core/ui_phase.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/mat3.h"
@@ -91,6 +93,27 @@ LayoutSize LayoutConstraints::constrain(LayoutSize size) const noexcept {
 }
 
 Node::Node(NodeType type) : m_type(type) {}
+
+namespace {
+  std::uint64_t nextAccessibleSerial() {
+    static std::uint64_t serial = 0;
+    return ++serial;
+  }
+} // namespace
+
+void Node::setAccessible(const Accessible& accessible) {
+  const std::uint64_t serial = m_accessible != nullptr ? m_accessible->serial : nextAccessibleSerial();
+  m_accessible = std::make_unique<Accessible>(accessible);
+  m_accessible->serial = serial;
+}
+
+Accessible& Node::accessibleState() {
+  if (m_accessible == nullptr) {
+    m_accessible = std::make_unique<Accessible>();
+    m_accessible->serial = nextAccessibleSerial();
+  }
+  return *m_accessible;
+}
 
 Node::~Node() {
   // Ensure any animation still targeting this node is cancelled before the node goes away.

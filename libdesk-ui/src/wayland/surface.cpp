@@ -1,5 +1,7 @@
 #include "wayland/surface.h"
 
+#include "a11y/atspi_bridge.h"
+
 #include "core/log.h"
 #include "core/ui_phase.h"
 #include "ext-background-effect-v1-client-protocol.h"
@@ -12,6 +14,7 @@
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <format>
@@ -501,10 +504,30 @@ void Surface::setSceneRoot(Node* root) {
   if (m_sceneRoot == root) {
     return;
   }
+  if (m_sceneRoot != nullptr) {
+    AtspiBridge::instance().removeRoot(m_sceneRoot);
+  }
   m_sceneRoot = root;
   if (m_sceneRoot == nullptr) {
     return;
   }
+  AtspiBridge::instance().addRoot(m_sceneRoot, [this] {
+    if (!m_accessibleTitle.empty()) {
+      return m_accessibleTitle;
+    }
+    // "layer:noctalia-launcher" -> "Launcher".
+    std::string title = m_debugName.substr(m_debugName.find(':') + 1);
+    for (const std::string_view prefix : {"noctalia-", "andromeda-"}) {
+      if (title.starts_with(prefix)) {
+        title.erase(0, prefix.size());
+      }
+    }
+    std::ranges::replace(title, '-', ' ');
+    if (!title.empty()) {
+      title[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(title[0])));
+    }
+    return title;
+  });
 
   const std::weak_ptr<InvalidationToken> token = m_invalidationToken;
   m_sceneRoot->setInvalidationCallback([this, token](NodeInvalidation invalidation) {
@@ -1285,6 +1308,9 @@ void Surface::render() {
 
   if (m_sceneRoot != nullptr) {
     m_sceneRoot->clearDirty();
+  }
+  if (presented) {
+    AtspiBridge::instance().markDirty();
   }
   m_redrawRequested = false;
 }

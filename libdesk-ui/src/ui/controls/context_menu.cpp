@@ -6,6 +6,7 @@
 #include "ui/controls/box.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <cmath>
@@ -64,7 +65,7 @@ namespace {
 
 } // namespace
 
-ContextMenuControl::ContextMenuControl() : Node(NodeType::Base) {}
+ContextMenuControl::ContextMenuControl() : Node(NodeType::Base) { setAccessible({.role = AccessibleRole::Menu}); }
 
 void ContextMenuControl::setEntries(std::vector<ContextMenuControlEntry> entries) {
   m_entries = std::move(entries);
@@ -302,6 +303,20 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
     row->setFrameSize(rowWidth, rowHeight);
     row->setPosition(menuPadding, currentY);
     row->setEnabled(interactive);
+    if (separator) {
+      row->setAccessible({.role = AccessibleRole::Separator});
+    } else {
+      row->setAccessible({
+          .role = entry.header ? AccessibleRole::Label : AccessibleRole::MenuItem,
+          .name = entry.label,
+          .checked = entry.checkmark || entry.radio || entry.toggleState >= 0
+              ? std::optional<bool>(entry.toggleState == 1)
+              : std::nullopt,
+          .expandable = entry.hasSubmenu,
+          .disabled = !interactive,
+          .actionName = entry.header ? "" : "click",
+      });
+    }
 
     Box* rowBgPtr = nullptr;
     Label* labelPtr = nullptr;

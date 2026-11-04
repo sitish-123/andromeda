@@ -79,6 +79,8 @@ struct LayoutConstraints {
   [[nodiscard]] LayoutSize constrain(LayoutSize size) const noexcept;
 };
 
+struct Accessible;
+
 class Node {
 public:
   explicit Node(NodeType type = NodeType::Base);
@@ -118,6 +120,11 @@ public:
   [[nodiscard]] std::int32_t zIndex() const noexcept { return m_zIndex; }
   [[nodiscard]] Node* parent() const noexcept { return m_parent; }
   [[nodiscard]] const std::vector<std::unique_ptr<Node>>& children() const noexcept { return m_children; }
+  // What assistive technology sees for this node; null = not exposed (children join the nearest exposed ancestor).
+  void setAccessible(const Accessible& accessible);
+  [[nodiscard]] const Accessible* accessible() const noexcept { return m_accessible.get(); }
+  // Creates the record on first use; controls update name, value and state through it.
+  Accessible& accessibleState();
 
   void setPosition(float x, float y);
   virtual void setSize(float width, float height);
@@ -240,6 +247,7 @@ private:
   std::function<void(NodeInvalidation)> m_invalidationCallback;
   Node* m_parent = nullptr;
   std::vector<std::unique_ptr<Node>> m_children;
+  std::unique_ptr<Accessible> m_accessible;
 
   void propagatePaintDirty();
   void propagateLayoutDirty();
