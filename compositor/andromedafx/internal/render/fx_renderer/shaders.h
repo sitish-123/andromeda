@@ -161,6 +161,7 @@ struct tex_shader {
     GLint rim;
     GLint lens;
     GLint lens_tex;
+    GLint tint_mix;
     GLint liquid_texel;
     GLint liquid_size;
     GLint liquid_position;

@@ -1405,7 +1405,7 @@ void Application::initWidgetControllersAndCallbacks() {
         appearance.glass, appearance.reduceTransparency, appearance.increaseContrast, appearance.reduceMotion,
         appearance.accent
     );
-    Style::setGlass(appearance.glass, appearance.reduceTransparency);
+    Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
     MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled);
     MotionService::instance().setReduced(appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);

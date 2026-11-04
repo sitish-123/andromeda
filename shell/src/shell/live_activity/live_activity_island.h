@@ -125,12 +125,14 @@ private:
     float width = 0.0F; // surface width: the widest card
     CenterIslandSpace space;
     float liveWidth = 0.0F; // widest card the free center space allows
+    // Last blur and input regions sent; nullopt = none yet. A tick with the same rects sends nothing.
+    std::optional<std::vector<InputRect>> sentBlur;
+    std::optional<std::vector<InputRect>> sentInput;
     float restWidth = 0.0F;
     float scale = 1.0F; // surface px per layout px
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
-    std::optional<bool> backdropDark;
     // sceneRoot must be destroyed before `animations`: ~Node() cancels its animations.
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;

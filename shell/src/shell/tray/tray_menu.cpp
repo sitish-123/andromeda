@@ -892,6 +892,9 @@ void TrayMenu::buildScene(MenuInstance& inst, uint32_t width, uint32_t height) {
     );
   }
   (void)popup_chrome::addCardBackground(*inst.sceneRoot, inst.chrome, contentScale());
+  if (inst.surface != nullptr) {
+    popup_chrome::setCardBlurRegion(*inst.surface, inst.chrome, contentScale());
+  }
 
   std::vector<ContextMenuControlEntry> entries;
   entries.reserve(m_entries.size());
@@ -1247,6 +1250,9 @@ void TrayMenu::buildSubmenuScene(std::size_t levelIndex, MenuInstance& inst, uin
     );
   }
   (void)popup_chrome::addCardBackground(*inst.sceneRoot, inst.chrome, contentScale());
+  if (inst.surface != nullptr) {
+    popup_chrome::setCardBlurRegion(*inst.surface, inst.chrome, contentScale());
+  }
 
   if (levelIndex >= m_submenuLevels.size()) {
     return;

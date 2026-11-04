@@ -96,6 +96,14 @@ namespace popup_chrome {
     surface.setInputRegion({geometry.inputRect()});
   }
 
+  void setCardBlurRegion(PopupSurface& surface, const Geometry& geometry, float contentScale) {
+    surface.setBlurRegion(Surface::tessellateRoundedRect(
+        static_cast<int>(std::lround(geometry.contentX())), static_cast<int>(std::lround(geometry.contentY())),
+        static_cast<int>(std::lround(geometry.contentWidth)), static_cast<int>(std::lround(geometry.contentHeight)),
+        Style::scaledRadiusLg(contentScale)
+    ));
+  }
+
   RectNode* addShadow(
       Node& parent, const Geometry& geometry, const ShadowStyle& shadow, float radius,
       float backgroundOpacity
@@ -122,7 +130,7 @@ namespace popup_chrome {
   Box* addCardBackground(Node& parent, const Geometry& geometry, float contentScale) {
     // Menus and popovers are over-plane surfaces: thick glass with a hairline stroke (rulebook 5, 9 menu).
     auto box = ui::box({});
-    box->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(kTintRegularAlpha)));
+    box->setGlassFill(glass::Kind::Menu);
     box->setBorder(colorSpecFromRole(ColorRole::Stroke), Style::borderWidth);
     box->setRadius(Style::scaledRadiusLg(contentScale));
     box->setPosition(geometry.contentX(), geometry.contentY());

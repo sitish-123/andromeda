@@ -30,6 +30,7 @@ namespace andromeda {
     struct State {
       SurfaceMotion motion;
       int backdropTone = -1; // last dsk_surface_v1.backdrop sent, -1 = none yet
+      int version = 0; // dsk_surface_v1 version the client bound
       // dsk_surface_v1.set_visible_region (v8), surface-local; nullopt = the whole surface.
       std::optional<std::vector<pixman_box32_t>> visibleRegion;
     };

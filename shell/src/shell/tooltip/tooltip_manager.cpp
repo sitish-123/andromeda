@@ -692,13 +692,19 @@ void TooltipManager::buildScene(const TooltipContent& content, float w, float h,
   const float radius = Style::scaledRadius(Tokens::componentTooltipRadius, scale);
   m_sceneRoot->addChild(
       ui::box({
-          .fill = colorSpecFromRole(panelMaterialRole(), kTintThickAlpha),
           .radius = radius,
           .width = w,
           .height = h,
-          .configure = [](Box& box) { box.setBorder(colorSpecFromRole(ColorRole::Stroke), kBorder); },
+          .configure =
+              [](Box& box) {
+                box.setGlassFill(glass::Kind::Tooltip);
+                box.setBorder(colorSpecFromRole(ColorRole::Stroke), kBorder);
+              },
       })
   );
+  m_surface->setBlurRegion(Surface::tessellateRoundedRect(
+      0, 0, static_cast<int>(std::lround(w)), static_cast<int>(std::lround(h)), radius
+  ));
 
   const float maxContentWidth = kMaxContentWidth * scale;
   const float fontSize = Style::fontSizeCaption * scale;

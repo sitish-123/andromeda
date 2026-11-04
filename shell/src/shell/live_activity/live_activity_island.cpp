@@ -29,6 +29,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/dsk_surface_client.h"
+#include "wayland/glass_surface.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
@@ -520,11 +521,6 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->surface->setInputRegion({});
     if (auto* manager = m_wayland->dskSurfaceManager(); manager != nullptr) {
       inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
-      inst->dsk->setOnBackdrop([this, instPtr = inst.get()](bool dark) {
-        instPtr->backdropDark = dark;
-        applyContent(*instPtr);
-        instPtr->surface->requestRedraw();
-      });
     }
     inst->liveWidth = std::min(inst->width, static_cast<float>(kExpandedWidth));
     inst->restWidth = std::min(space->width / inst->scale, static_cast<float>(kRestWidth));
@@ -924,13 +920,13 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
 
   auto shadowBox = ui::box({.out = &inst.shadow});
   shadowBox->setStyle(ui::surface_shadow::style(
-      m_config->config().shell.shadow, Style::glassAlpha(inst.space.backgroundOpacity), ui::surface_shadow::Shape{}
+      m_config->config().shell.shadow, Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity), ui::surface_shadow::Shape{}
   ));
   auto material = ui::box({.out = &inst.material});
   material->setClipChildren(true);
   auto tint = ui::box({
       .out = &inst.tint,
-      .fill = colorSpecFromRole(panelMaterialRole(), Style::glassAlpha(kTintThickAlpha)),
+      .fill = colorSpecFromRole(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint),
   });
   tint->setClipChildren(true);
 
@@ -1403,10 +1399,16 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   // A small shape: liquid glass with the launcher pill's clear tint.
   const bool liquid = inst.dsk != nullptr && inst.dsk->hasLiquidProperty() && !Style::reduceTransparency();
   if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
-    inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
+    const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
+    inst.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
+    // The island paints its own tint until its morph moves to the compositor (two tint layers while expanded).
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->set(DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), 0.0F));
+    }
   }
   inst.material->setFill(colorSpecFromRole(
-      materialRole(), liquid ? Style::liquidTintFor(inst.backdropDark) : Style::glassAlpha(inst.space.backgroundOpacity)
+      materialRole(), liquid ? Style::glassMaterial(glass::Kind::Shape).tint
+                 : Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity)
   ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 
@@ -1800,12 +1802,29 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const auto iy = static_cast<int>(cur.y * k);
   const auto iw = std::max(1, static_cast<int>(cur.w * k));
   const auto ih = std::max(1, static_cast<int>(cur.h * k));
-  if (shown > 0.01F) {
-    inst.surface->setBlurRegion(Surface::tessellateRoundedRect(ix, iy, iw, ih, cur.radius * k));
-  } else {
-    inst.surface->clearBlurRegion();
+  // With the compositor its clip and radius are the blur shape, so the region stays the whole surface during a morph.
+  std::vector<InputRect> blur = shown <= 0.01F ? std::vector<InputRect>{}
+      : inst.dsk != nullptr
+          ? std::vector<InputRect>{InputRect{0, 0, static_cast<int>(maxW * k), static_cast<int>(maxH * k)}}
+          : Surface::tessellateRoundedRect(ix, iy, iw, ih, cur.radius * k);
+  if (blur != inst.sentBlur) {
+    if (blur.empty()) {
+      inst.surface->clearBlurRegion();
+    } else {
+      inst.surface->setBlurRegion(blur);
+    }
+    inst.sentBlur = std::move(blur);
   }
-  inst.surface->setInputRegion(shown >= 0.5F ? std::vector<InputRect>{InputRect{ix, iy, iw, ih}} : std::vector<InputRect>{});
+  // A morph on the compositor clip takes input at its target box, so the region changes once per morph.
+  const Rect hit = mirrored(inst) ? inst.to : cur;
+  std::vector<InputRect> input = shown >= 0.5F
+      ? std::vector<InputRect>{InputRect{static_cast<int>(hit.x * k), static_cast<int>(hit.y * k),
+                                         std::max(1, static_cast<int>(hit.w * k)), std::max(1, static_cast<int>(hit.h * k))}}
+      : std::vector<InputRect>{};
+  if (input != inst.sentInput) {
+    inst.surface->setInputRegion(input);
+    inst.sentInput = std::move(input);
+  }
   inst.surface->requestRedraw();
 }
 

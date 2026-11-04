@@ -458,7 +458,7 @@ namespace bar_detail {
       instance.shadow->setVisible(false);
       instance.islandShadowOffset = shadowDirectionOffset(shadowConfig.direction);
       instance.islandShadowStyle = ui::surface_shadow::style(
-          shadowConfig, Style::glassAlpha(std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F)),
+          shadowConfig, Style::glassTint(glass::Kind::Shape, std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F)),
           ui::surface_shadow::Shape{}
       );
       return;
@@ -473,7 +473,7 @@ namespace bar_detail {
     // the concave inset into the visual rect, so concave spikes cast a matching shadow.
     const float barAreaW = barVisual.width + concave.logicalInset.left + concave.logicalInset.right;
     const float barAreaH = barVisual.height + concave.logicalInset.top + concave.logicalInset.bottom;
-    const float bgOpacity = Style::glassAlpha(std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F));
+    const float bgOpacity = Style::glassTint(glass::Kind::Shape, std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F));
     const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
     const float shadowX = barVisual.x - concave.logicalInset.left + static_cast<float>(shadowOff.x);
     const float shadowY = barVisual.y - concave.logicalInset.top + static_cast<float>(shadowOff.y);
@@ -1167,7 +1167,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     // In islands mode the island pills carry the material; the bar body stays unpainted.
     const bool paintBody = !instance.barConfig.islands;
     const RoundedRectStyle bgStyle{
-        .fill = paintBody ? colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity))
+        .fill = paintBody ? colorForRole(materialRole(), Style::glassTint(glass::Kind::Shape, instance.barConfig.backgroundOpacity))
                           : rgba(0.0F, 0.0F, 0.0F, 0.0F),
         .border = resolveColorSpec(instance.barConfig.border),
         .fillMode = FillMode::Solid,

@@ -184,6 +184,10 @@ namespace andromeda {
       for (View* view : sortedEffectViews()) {
         view->refreshConfigChrome();
       }
+      Popup::applyGlassToAll();
+      if (m_scratchpadManager != nullptr) {
+        m_scratchpadManager->refreshBackdrops();
+      }
       // Screen and cursor presets take their palette from [colors] too.
       m_effects.applyOutputEffects();
       markDirty(Dirty::Backdrop);

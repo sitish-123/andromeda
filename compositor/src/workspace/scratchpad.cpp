@@ -5,6 +5,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/effect_registry.h"
+#include "scene/surface_blur.h"
 #include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -756,6 +757,8 @@ namespace andromeda {
         wlr_scene_blur_set_size(blur, box.width, box.height);
         wlr_scene_blur_set_corner_radius(blur, 0);
         wlr_scene_blur_set_alpha(blur, std::clamp(currentAlpha, 0.0F, 1.0F));
+        // A full-screen backdrop follows the slider's blur strength only: no rim or lens on the screen edge.
+        wlr_scene_blur_set_strength(blur, configGlass(glass::Kind::Sheet).blurStrength);
         wlr_scene_node_set_enabled(&blur->node, true);
       }
     }
@@ -790,6 +793,12 @@ namespace andromeda {
       if (scratchpad != nullptr && scratchpad->visible && entry.view->m_floatingMaximized) {
         syncViewPresentation(entry.view, true);
       }
+    }
+  }
+
+  void ScratchpadManager::refreshBackdrops() {
+    for (auto& [output, fade] : m_backdropFades) {
+      updateDimAndBlur(output);
     }
   }
 

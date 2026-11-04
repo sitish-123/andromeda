@@ -1959,7 +1959,7 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
 
   bool use_effects =
       !fx_corner_fradii_is_empty(&fx_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region)
-      || fx_options->liquid > 0.0f || fx_options->rim > 0.0f;
+      || fx_options->liquid > 0.0f || fx_options->rim > 0.0f || fx_options->tint_mix[3] > 0.0f;
   // A non-empty sample box selects the clamp variant. Everything else runs
   // the same fetch as before the clamp existed, so a driver only ever sees
   // the extra uniform on fractionally cropped surfaces.
@@ -2148,8 +2148,10 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
                 1.0f / (float)texture->wlr_texture.height);
     // Unit 2: units 0 and 1 hold the source and the colour LUT.
     glUniform1i(shader->effects.lens_tex, 2);
-    const bool lens = fx_options->lens_texture != NULL && fx_options->liquid > 0.0f;
-    glUniform1f(shader->effects.lens, lens ? fx_options->liquid : 0.0f);
+    glUniform4f(shader->effects.tint_mix, fx_options->tint_mix[0], fx_options->tint_mix[1], fx_options->tint_mix[2],
+                fx_options->tint_mix[3]);
+    const bool lens = fx_options->lens_texture != NULL && fx_options->lens > 0.0f;
+    glUniform1f(shader->effects.lens, lens ? fx_options->lens : 0.0f);
     if (lens) {
       struct fx_texture* lens_texture = fx_get_texture(fx_options->lens_texture);
       glActiveTexture(GL_TEXTURE2);
@@ -3024,7 +3026,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
   // more than copy it.
   // Liquid glass needs the composite draw: the fused upsample has no refraction.
   const bool fuse =
-      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && fx_options->rim <= 0.0f && blur_composite_is_copy(pass, tex_options);
+      (!use_optimized || has_strength) && fx_options->liquid <= 0.0f && fx_options->rim <= 0.0f && fx_options->tint_mix[3] <= 0.0f
+      && blur_composite_is_copy(pass, tex_options);
   struct blur_data final_upsample = {0};
   TRACY_ZONE_TEXT_f("Use Optimized Blur: %d", fx_options->use_optimized_blur);
   TRACY_ZONE_TEXT_f("Fused Composite: %d", fuse);
@@ -3131,6 +3134,8 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
     tex_options->clipped_region = fx_options->clipped_region;
     tex_options->liquid = fx_options->liquid;
     tex_options->rim = fx_options->rim;
+    tex_options->lens = fx_options->lens;
+    memcpy(tex_options->tint_mix, fx_options->tint_mix, sizeof(tex_options->tint_mix));
     tex_options->liquid_box = fx_options->liquid_box;
     tex_options->liquid_radius = fx_options->liquid_radius;
     // Lens: a copy of the sharp backdrop, only the shape's rectangle. The live target cannot be sampled while it is
@@ -3141,7 +3146,7 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass* pass, struct fx_render_
       const char* env = getenv("ANDROMEDA_LENS");
       lens_enabled = env == NULL || strcmp(env, "0") != 0;
     }
-    if (lens_enabled && fx_options->liquid > 0.0f && sharp != NULL && !wlr_box_empty(&probe_box)) {
+    if (lens_enabled && fx_options->lens > 0.0f && sharp != NULL && !wlr_box_empty(&probe_box)) {
       struct fx_framebuffer* copy = ensure_offscreen_buffer(pass, &target_buffers(pass)->lens_source, true);
       if (copy != NULL) {
         pixman_region32_t region;

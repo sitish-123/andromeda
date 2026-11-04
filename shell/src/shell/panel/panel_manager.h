@@ -254,7 +254,12 @@ private:
   void bindBackdrop();
   // Low-contrast backdrop (light glass on dark, dark glass on bright): m_glassDark -> 1; instant skips the cross-fade.
   void updateGlassTone(bool instant = false);
-  void releaseHeldOpen();
+  // True when the compositor draws this sheet's tint (dsk v9); the sheet then paints no material fill.
+  [[nodiscard]] bool compositorTint() const;
+  // The sheet tint alpha `liquid` (0 to 1) of the way to the launcher pill's shape tint.
+  [[nodiscard]] float sheetTintAlpha(float liquid) const;
+  // Sends the sheet tint to the compositor; `animate` runs it on the open spring with the liquid value.
+  void sendSheetTint(bool animate = false);
   [[nodiscard]] float densityCardOpacity(float opacity) const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
@@ -401,8 +406,6 @@ private:
   Timer m_keyboardRelaxTimer;
   Timer m_contentGateTimer;
   // The scale-open motion, held until the first backdrop measurement (light glass) or 50 ms.
-  Timer m_openHoldTimer;
-  std::function<void()> m_pendingOpen;
   // Content opacity from the 35 % gate (rulebook 7.4 / P5): 0 until the open spring has travelled 35 %, then fades in.
   float m_contentGate = 1.0F;
   // Grow / Return (rulebook 7.4): the client mirrors the compositor's clip spring as a 0..1 progress and fits the

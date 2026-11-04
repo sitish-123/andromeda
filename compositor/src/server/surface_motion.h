@@ -13,14 +13,14 @@ namespace andromeda {
   class SurfaceMotion {
   public:
     // Values match dsk_surface_v1.property.
-    enum class Property : uint8_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke };
+    enum class Property : uint8_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke, Tint };
     // Values match dsk_surface_v1.curve.
     enum class Curve : uint8_t {
       None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose,
       SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast
     };
     enum class Reason : uint8_t { Finished, Retargeted, Cancelled };
-    static constexpr std::size_t kPropertyCount = 8;
+    static constexpr std::size_t kPropertyCount = 9;
 
     using Value = std::array<double, 4>;
 

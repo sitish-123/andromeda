@@ -392,6 +392,12 @@ private:
   std::unique_ptr<Node> m_sceneRoot;
   Flex* m_mainContainer = nullptr; // Outer Flex inside m_sceneRoot, sized to the window
   Box* m_panelBackground = nullptr;
+  // Settings window glass (CLAUDE.md): the sidebar shows the glass background; header and content stay solid.
+  bool m_glassSidebar = false;
+  Node* m_sidebarNode = nullptr;
+  // Last blur region sent; nullopt = none.
+  std::optional<InputRect> m_sidebarBlurSent;
+  void syncSidebarBlur();
   Node* m_headerRow = nullptr;
   Button* m_actionsMenuButton = nullptr;
   Flex* m_contentContainer = nullptr;

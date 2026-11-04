@@ -75,6 +75,12 @@ bool DskSurfaceClient::hasLiquidProperty() const { return dsk_surface_v1_get_ver
 
 bool DskSurfaceClient::hasStrokeProperty() const { return dsk_surface_v1_get_version(m_surface) >= 7; }
 
+bool DskSurfaceClient::hasTintProperty() const { return dsk_surface_v1_get_version(m_surface) >= 9; }
+
+bool DskSurfaceClient::managerHasTint(dsk_surface_manager_v1* manager) {
+  return manager != nullptr && dsk_surface_manager_v1_get_version(manager) >= 9;
+}
+
 DskSurfaceClient::Curve DskSurfaceClient::effectiveCurve(Curve curve) const {
   return compatCurve(curve, dsk_surface_v1_get_version(m_surface));
 }

@@ -70,7 +70,6 @@ struct BarInstance {
   std::array<float, 4> sheetTrackerRect{};
   // Liquid glass on the islands (dsk_surface_v1 v5); destroyed before `surface`.
   std::unique_ptr<DskSurfaceClient> dsk;
-  std::optional<bool> backdropDark; // dsk_surface_v1.backdrop, unset until the first measurement
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;
@@ -84,7 +83,8 @@ struct BarInstance {
   InputArea deadZoneAxisSink;
   float hideOpacity = 1.0F;
   AnimationManager::Id slideAnimId = 0;
-  std::vector<InputRect> islandBlurStrips; // last island region sent; empty = none sent
+  bool compositorTint = false; // the compositor draws the island tint (dsk v9); islands paint no fill
+  std::vector<InputRect> islandBlurStrips; // last blur region sent (islands or bar body); empty = none sent
   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
   bool ipcLayoutReleased = false;
   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.

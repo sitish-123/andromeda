@@ -20,7 +20,7 @@ struct dsk_tracker_v1_listener;
 class DskSurfaceClient {
 public:
   // Values match the protocol enums.
-  enum class Property : uint32_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke };
+  enum class Property : uint32_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke, Tint };
   enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose, SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast };
   // A compositor that binds protocol version < 3 knows only the first seven curves: use the closest one.
   [[nodiscard]] static Curve compatCurve(Curve curve, uint32_t version);
@@ -48,6 +48,10 @@ public:
   [[nodiscard]] bool hasLiquidProperty() const;
   // Protocol version 7: the compositor draws a 1 px hairline (rgba) inside the clip shape while a clip is set.
   [[nodiscard]] bool hasStrokeProperty() const;
+  // Protocol version 9: liquid [2] = lens, and the tint property (the compositor adapts its density).
+  [[nodiscard]] bool hasTintProperty() const;
+  // hasTintProperty for surfaces of `manager`, before a DskSurfaceClient exists.
+  [[nodiscard]] static bool managerHasTint(dsk_surface_manager_v1* manager);
   // The curve the compositor runs for `curve` on this connection's protocol version.
   [[nodiscard]] Curve effectiveCurve(Curve curve) const;
   // Sets Clip to `rect` (x, y, width, height) of `source`, another layer surface of this client, mapped by the

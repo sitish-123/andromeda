@@ -46,7 +46,7 @@ namespace shell::panel_surface {
   [[nodiscard]] inline float backgroundOpacity(const ConfigService* configService) noexcept {
     const auto mode =
         configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
-    return Style::panelGlassAlpha(detachedPanelBackgroundOpacityForTransparencyMode(mode));
+    return Style::glassTint(glass::Kind::Sheet, detachedPanelBackgroundOpacityForTransparencyMode(mode));
   }
 
   [[nodiscard]] inline ColorSpec
@@ -66,7 +66,7 @@ namespace shell::panel_surface {
   [[nodiscard]] inline float cardOpacity(const ConfigService* configService, float panelBackgroundOpacity) noexcept {
     const auto mode =
         configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
-    return Style::panelGlassAlpha(panelCardOpacityForTransparencyMode(mode, panelBackgroundOpacity));
+    return Style::glassTint(glass::Kind::Sheet, panelCardOpacityForTransparencyMode(mode, panelBackgroundOpacity));
   }
 
 } // namespace shell::panel_surface

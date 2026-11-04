@@ -319,6 +319,7 @@ bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source sourc
   shader->effects.liquid = glGetUniformLocation(prog, "liquid");
   shader->effects.rim = glGetUniformLocation(prog, "rim");
   shader->effects.lens = glGetUniformLocation(prog, "lens");
+  shader->effects.tint_mix = glGetUniformLocation(prog, "tint_mix");
   shader->effects.lens_tex = glGetUniformLocation(prog, "lens_tex");
   shader->effects.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
   shader->effects.liquid_size = glGetUniformLocation(prog, "liquid_size");

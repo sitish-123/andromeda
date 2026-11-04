@@ -24,6 +24,7 @@
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
 #include "wayland/dsk_surface_client.h"
+#include "wayland/glass_surface.h"
 #include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
@@ -315,16 +316,19 @@ bool Bar::syncIslandLiquid(BarInstance& instance) {
   if (instance.dsk == nullptr && want && manager != nullptr && instance.surface != nullptr
       && instance.surface->wlSurface() != nullptr) {
     instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
-    // The callback dies with instance.dsk, which instance owns.
-    instance.dsk->setOnBackdrop([this, inst = &instance](bool dark) {
-      inst->backdropDark = dark;
-      applyBackgroundPalette(*inst);
-    });
   }
+  instance.compositorTint = false;
   if (instance.dsk == nullptr || !instance.dsk->hasLiquidProperty()) {
     return false;
   }
-  instance.dsk->set(DskSurfaceClient::Property::Liquid, {want ? Style::liquidLevel() : 0.0, want ? 1.0 : 0.0, 0.0, 0.0});
+  const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
+  instance.dsk->set(DskSurfaceClient::Property::Liquid, want ? glassLiquid(material) : DskSurfaceClient::Value{});
+  if (instance.dsk->hasTintProperty()) {
+    instance.compositorTint = want && instance.barConfig.compositorBlur && Style::compositorDrawsTint();
+    instance.dsk->set(
+        DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), instance.compositorTint ? material.tint : 0.0F)
+    );
+  }
   return want;
 }
 
@@ -332,10 +336,12 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
-  const Color material = colorForRole(materialRole(), Style::glassAlpha(instance.barConfig.backgroundOpacity));
+  const Color material = colorForRole(materialRole(), Style::glassTint(glass::Kind::Shape, instance.barConfig.backgroundOpacity));
   // Islands are small shapes: liquid glass with the launcher pill's clear tint.
   const bool liquid = syncIslandLiquid(instance);
-  const Color islandMaterial = liquid ? colorForRole(materialRole(), Style::liquidTintFor(instance.backdropDark)) : material;
+  const Color islandMaterial = instance.compositorTint ? rgba(0.0F, 0.0F, 0.0F, 0.0F)
+      : liquid                                        ? colorForRole(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint)
+                                                      : material;
   const auto applyMaterial = [&](Box* box, bool painted) {
     auto style = box->style();
     style.fill = painted ? (box == instance.bg ? material : islandMaterial) : rgba(0.0F, 0.0F, 0.0F, 0.0F);
@@ -505,7 +511,11 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
       px + insetL, py + insetT, pw - insetL - insetR, ph - insetT - insetB, concave.corners, concave.logicalInset,
       concave.radii
   );
+  if (blurStrips == instance.islandBlurStrips) {
+    return;
+  }
   instance.surface->setBlurRegion(blurStrips);
+  instance.islandBlurStrips = std::move(blurStrips);
 }
 
 void Bar::startHideFadeOut(BarInstance& instance, bool immediate) {

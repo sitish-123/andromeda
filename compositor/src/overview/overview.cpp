@@ -459,6 +459,7 @@ namespace andromeda {
       roundToCardBox(entry->buffer);
       const wlr_box blurBox{0, 0, contentW, contentH};
       card.blur.setAlpha(1.0F);
+      card.blur.setMaterial(configGlass(glass::Kind::Sheet));
       card.blur.update(
           card.tree, surface, blurBox, geometry, contentCorners, nullptr, view->blurOptions(), entry->buffer->opacity,
           entry->buffer
@@ -596,8 +597,10 @@ namespace andromeda {
       if (blur->alpha != level) {
         wlr_scene_blur_set_alpha(blur, level);
       }
-      if (blur->strength != level) {
-        wlr_scene_blur_set_strength(blur, level);
+      // A full-screen backdrop follows the slider's blur strength only: no rim or lens on the screen edge.
+      const float strength = level * configGlass(glass::Kind::Sheet).blurStrength;
+      if (blur->strength != strength) {
+        wlr_scene_blur_set_strength(blur, strength);
       }
     }
 

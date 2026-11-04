@@ -118,6 +118,7 @@ namespace andromeda {
         .unfocused = rule.borderColorUnfocused.value_or(border.unfocused),
         .outer = rule.borderColorOuter.value_or(border.outer),
     };
+    m_ruleBlur = rule.blur;
     m_blurOptions = SurfaceBlurOptions{
         .ignoreAlpha = static_cast<float>(rule.blurIgnoreAlpha.value_or(0.0)),
         .enabled = rule.blur.value_or(false),
@@ -147,10 +148,22 @@ namespace andromeda {
   // Blur
   void ViewDecoration::updateBlur(
       wlr_scene_tree* tree, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& geometry,
-      fx_corner_radii corners, const wlr_box* clip, float surfaceOpacity, float blurAlpha
+      fx_corner_radii corners, const wlr_box* clip, float surfaceOpacity, float blurAlpha,
+      const pixman_region32_t* clientRegion
   ) {
     m_blur.setAlpha(blurAlpha);
-    m_blur.update(tree, surface, nodeBox, geometry, corners, clip, m_blurOptions, surfaceOpacity);
+    m_blur.setMaterial(configGlass(glass::Kind::Sheet));
+    const bool regionSet = clientRegion != nullptr && pixman_region32_not_empty(clientRegion);
+    SurfaceBlurOptions options = m_blurOptions;
+    if (regionSet && m_ruleBlur.value_or(true)) {
+      // The region is the exact shape, so the alpha test must not cut a clear tint out of it.
+      options.enabled = true;
+      options.ignoreAlpha = 0.0F;
+    }
+    m_blur.update(
+        tree, surface, nodeBox, geometry, corners, clip, options, surfaceOpacity, nullptr,
+        regionSet ? clientRegion : nullptr
+    );
   }
 
   void ViewDecoration::hideBlur() { m_blur.hide(); }

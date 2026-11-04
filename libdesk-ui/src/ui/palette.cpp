@@ -266,7 +266,7 @@ Palette tokenPalette(bool light) noexcept {
       .onAccent = tokenColor(s.onAccent),
       .danger = tokenColor(s.danger),
       .shadow = tokenColor(s.shadow),
-      .tintRegular = tokenColor(s.tintRegular | 0xffU), // callers carry the alpha: kTintRegularAlpha, glass opacity
+      .tintRegular = tokenColor(s.tintRegular | 0xffU), // callers carry the alpha (Style::glassTint)
       .tintThick = tokenColor(s.tintThick | 0xffU),
       .label3 = tokenColor(s.label3),
       .accentText = tokenColor(s.accentText),

@@ -2592,6 +2592,26 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
   scene_node_update(&blur->node, NULL);
 }
 
+void wlr_scene_blur_set_lens(struct wlr_scene_blur* blur, float lens) {
+  if (blur->lens == lens) {
+    return;
+  }
+  blur->lens = lens;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_tint_mix(struct wlr_scene_blur* blur, const float rgb[3], float amount) {
+  if (blur->tint_mix[0] == rgb[0] && blur->tint_mix[1] == rgb[1] && blur->tint_mix[2] == rgb[2]
+      && blur->tint_mix[3] == amount) {
+    return;
+  }
+  blur->tint_mix[0] = rgb[0];
+  blur->tint_mix[1] = rgb[1];
+  blur->tint_mix[2] = rgb[2];
+  blur->tint_mix[3] = amount;
+  scene_node_update(&blur->node, NULL);
+}
+
 void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim) {
   if (blur->rim == rim) {
     return;
@@ -4116,6 +4136,8 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .blur_strength = blur->strength,
         .liquid = blur->liquid,
         .rim = blur->rim,
+        .lens = blur->lens,
+        .tint_mix = {blur->tint_mix[0], blur->tint_mix[1], blur->tint_mix[2], blur->tint_mix[3]},
         .liquid_box =
             wlr_box_empty(&blur->liquid_box)
                 ? (struct wlr_box){0}

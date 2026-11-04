@@ -2403,7 +2403,7 @@ InputArea* NotificationToast::buildCard(
   });
   *outCardForeground = foreground.get();
 
-  const float bgAlpha = Style::glassAlpha(m_config != nullptr ? m_config->config().notification.backgroundOpacity : 0.97F);
+  const float bgAlpha = Style::glassTint(glass::Kind::Sheet, m_config != nullptr ? m_config->config().notification.backgroundOpacity : 0.97F);
   const float borderWidth = toastBorderWidth(m_config, entry.urgency, scale);
   const ColorSpec borderColor = toastBorderColor(m_config, entry.urgency);
   foreground->addChild(
@@ -2755,7 +2755,7 @@ InputArea* NotificationToast::buildCard(
           .configure = [scale, bgAlpha, borderWidth, borderColor](Box& box) {
             box.setCardStyle();
             box.setRadius(Style::scaledRadiusXl(scale));
-            box.setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(bgAlpha)));
+            box.setFill(colorSpecFromRole(panelMaterialRole(), glass::thickOpacity(bgAlpha)));
             box.setBorder(borderColor, borderWidth);
           },
       })

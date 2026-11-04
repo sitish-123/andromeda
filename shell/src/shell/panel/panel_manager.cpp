@@ -28,6 +28,7 @@
 #include "ui/style.h"
 #include "util/string_utils.h"
 #include "util/sys_utils.h"
+#include "wayland/glass_surface.h"
 #include "wayland/hyprland/focus_grab_service.h"
 #include "wayland/layer_surface.h"
 #include "wayland/wayland_connection.h"
@@ -419,9 +420,10 @@ void PanelManager::initialize(CompositorPlatform& platform, ConfigService* confi
   m_glassPaletteConn = paletteChanged().connect([this] {
     if (isOpen()) {
       updateGlassTone();
-      if (m_dsk != nullptr && !m_attachedToBar && m_dsk->hasLiquidProperty()) {
+      if (m_dsk != nullptr && m_dsk->hasLiquidProperty()) {
         m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_panelLiquid));
       }
+      sendSheetTint();
     }
   });
   m_platform = &platform;
@@ -1000,7 +1002,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
 
   // It keeps the island's glass, as an attached panel keeps the bar's.
   m_islandBackgroundOpacity = morphFromIsland && m_activePanel->inheritsBarBackgroundOpacity()
-      ? std::optional<float>{Style::panelGlassAlpha(barConfig.backgroundOpacity)}
+      ? std::optional<float>{Style::glassTint(glass::Kind::Sheet, barConfig.backgroundOpacity)}
       : std::nullopt;
   const bool useAttachedPlacement = activePlacement == PanelPlacement::Attached
       && !morphFromIsland
@@ -1215,7 +1217,7 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     m_panelVisualWidth = panelWidth;
     m_panelVisualHeight = panelHeight;
     m_attachedBackgroundOpacity = m_activePanel->inheritsBarBackgroundOpacity()
-        ? Style::panelGlassAlpha(barConfig.backgroundOpacity)
+        ? Style::glassTint(glass::Kind::Sheet, barConfig.backgroundOpacity)
         : m_activePanel->attachedBackgroundOpacityOverride();
     m_attachedContactShadow = barConfig.contactShadow;
     m_attachedRevealProgress = 0.0F;
@@ -1332,6 +1334,11 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     if (ok) {
       m_output = request.output;
       m_wlSurface = m_surface->wlSurface();
+      if (dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+          manager != nullptr && m_dsk == nullptr) {
+        m_dsk = std::make_unique<DskSurfaceClient>(manager, m_wlSurface);
+        bindBackdrop();
+      }
       m_surface->setInputRegion(
           {InputRect{m_panelInsetX, m_panelInsetY, static_cast<int>(panelWidth), static_cast<int>(panelHeight)}}
       );
@@ -1719,8 +1726,6 @@ void PanelManager::handleCaptureCloseFrame(void* data, wl_callback* callback, st
 void PanelManager::destroyPanel() {
   m_captureCloseTimer.stop();
   m_contentGateTimer.stop();
-  m_openHoldTimer.stop();
-  m_pendingOpen = nullptr;
   m_contentGate = 1.0F;
   if (m_captureCloseFrame != nullptr) {
     wl_callback_destroy(m_captureCloseFrame);
@@ -2463,13 +2468,11 @@ float PanelManager::detachedBackgroundOpacity() const {
 }
 
 float PanelManager::detachedFillAlpha() const {
-  const float thick = panelMaterialAlpha(detachedBackgroundOpacity());
   if (Style::reduceTransparency()) {
-    return thick;
+    return glass::thickOpacity(detachedBackgroundOpacity());
   }
   // Liquid glass shows the refracted backdrop through a clear tint (.agent/mockups/launcher-material.html).
-  const float liquid = Style::liquidTintAlpha(isLightPalette());
-  return thick + (std::min(thick, liquid) - thick) * m_panelLiquid;
+  return sheetTintAlpha(m_panelLiquid);
 }
 
 void PanelManager::sendSheetStroke() {
@@ -2488,9 +2491,8 @@ ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
 }
 
 ColorSpec PanelManager::detachedFill() const {
-  // Low-contrast backdrop: the tint gets denser (up to the light Frosted tint, 0.84); it never changes colour.
-  const float base = detachedFillAlpha();
-  return colorSpecFromRole(panelMaterialRole(), std::lerp(base, std::max(base, 0.84F), m_glassDark));
+  // The compositor draws the tint and its density (dsk v9); without it the sheet paints the slider tint.
+  return compositorTint() ? clearColorSpec() : colorSpecFromRole(panelMaterialRole(), detachedFillAlpha());
 }
 
 void PanelManager::bindBackdrop() {
@@ -2503,21 +2505,44 @@ void PanelManager::bindBackdrop() {
     const bool first = !m_backdropMeasured;
     m_backdropMeasured = true;
     updateGlassTone(first);
-    if (m_pendingOpen) {
-      releaseHeldOpen();
-    }
   });
-  // One glass system: every detached sheet carries the specular rim, liquid or frosted.
-  if (!m_attachedToBar && m_dsk->hasLiquidProperty()) {
+  // One glass system: every sheet, detached or bar-attached, carries the slider's material.
+  if (m_dsk->hasLiquidProperty()) {
     m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_liquidTarget));
+  }
+  sendSheetTint();
+}
+
+bool PanelManager::compositorTint() const {
+  // The manager version, not m_dsk: the fill is built before the sheet's dsk client exists.
+  dsk_surface_manager_v1* manager = wayland() != nullptr ? wayland()->dskSurfaceManager() : nullptr;
+  return DskSurfaceClient::managerHasTint(manager) && Style::compositorDrawsTint();
+}
+
+float PanelManager::sheetTintAlpha(float liquid) const {
+  if (m_attachedToBar) {
+    return glass::thickOpacity(m_attachedBackgroundOpacity);
+  }
+  const float thick = glass::thickOpacity(detachedBackgroundOpacity());
+  return std::lerp(thick, std::min(thick, Style::glassMaterial(glass::Kind::Shape).tint), liquid);
+}
+
+void PanelManager::sendSheetTint(bool animate) {
+  if (m_dsk == nullptr || !m_dsk->hasTintProperty()) {
+    return;
+  }
+  const DskSurfaceClient::Value tint =
+      glassTintValue(panelMaterialRole(), compositorTint() ? sheetTintAlpha(m_liquidTarget) : 0.0F);
+  if (animate) {
+    m_dsk->animate(DskSurfaceClient::Property::Tint, DskSurfaceClient::Curve::SpringOpen, tint);
+  } else {
+    m_dsk->set(DskSurfaceClient::Property::Tint, tint);
   }
 }
 
-// The liquid value for a sheet blending `liquid` (0 frosted, 1 liquid) at the glass level, with the rim always on.
+// The liquid value for a sheet `liquid` (0 to 1) of the way to a shape (the launcher pill).
 DskSurfaceClient::Value PanelManager::sheetLiquid(float liquid) {
-  const bool glass = !Style::reduceTransparency();
-  const float level = std::lerp(Style::sheetLevel(), Style::liquidLevel(), std::clamp(liquid, 0.0F, 1.0F));
-  return {glass ? level : 0.0, glass ? 1.0 : 0.0, 0.0, 0.0};
+  return glassLiquid(glass::mix(Style::glassMaterial(glass::Kind::Sheet), Style::glassMaterial(glass::Kind::Shape), liquid));
 }
 
 float PanelManager::densityCardOpacity(float opacity) const {
@@ -2716,6 +2741,8 @@ void PanelManager::setPanelLiquid(float liquid, bool animate) {
   } else {
     m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(liquid));
   }
+  // One clock: the compositor runs the tint cross-fade on the liquid value's spring.
+  sendSheetTint(animate);
 }
 
 bool PanelManager::startDetachedScaleOpen() {
@@ -2738,31 +2765,12 @@ bool PanelManager::startDetachedScaleOpen() {
   m_dsk->set(Property::Scale, {kScaleOpenFrom, 0.0, 0.0, 0.0});
   m_dsk->set(Property::Translate, detachedScaleShift(kScaleOpenFrom));
   m_scaleMode = true;
-  const auto start = [this] {
-    m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
-    m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
-    m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
-  };
-  // Glass density follows the backdrop, measured 2-3 frames after the first draw. Hold the sheet invisible until
-  // then, so its density never changes in view. 0.004, not 0: the blur must still render.
-  if (!Style::reduceTransparency() && Style::liquidLevel() > 0.0F) {
-    m_dsk->set(Property::Opacity, {0.004, 0.0, 0.0, 0.0});
-    m_pendingOpen = start;
-    m_openHoldTimer.start(std::chrono::milliseconds(50), [this] { releaseHeldOpen(); });
-  } else {
-    m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
-    start();
-  }
+  // The compositor adds the glass density in the frame it samples the backdrop, so the open starts at once.
+  m_dsk->set(Property::Opacity, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Scale, Curve::SpringOpen, {1.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Translate, Curve::SpringOpen, {0.0, 0.0, 0.0, 0.0});
+  m_dsk->animate(Property::Opacity, opacityCurve(false), {1.0, 0.0, 0.0, 0.0});
   return true;
-}
-
-void PanelManager::releaseHeldOpen() {
-  m_openHoldTimer.stop();
-  auto start = std::move(m_pendingOpen);
-  m_pendingOpen = nullptr;
-  if (start && m_dsk != nullptr) {
-    start();
-  }
 }
 
 bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
@@ -2771,8 +2779,6 @@ bool PanelManager::startDetachedScaleClose(std::uint64_t gen) {
   if (m_dsk == nullptr || !m_scaleMode) {
     return false;
   }
-  m_openHoldTimer.stop();
-  m_pendingOpen = nullptr;
   m_dsk->animate(Property::Opacity, opacityCurve(true), {0.0, 0.0, 0.0, 0.0});
   m_dsk->animate(Property::Translate, Curve::SpringClose, detachedScaleShift(kScaleOpenFrom));
   m_dsk->animate(
@@ -3192,7 +3198,10 @@ void PanelManager::applyAttachedDecorationStyle() {
 
   if (m_bgNode != nullptr) {
     auto* bg = static_cast<Box*>(m_bgNode);
-    bg->setFill(colorSpecFromRole(panelMaterialRole(), panelMaterialAlpha(m_attachedBackgroundOpacity)));
+    bg->setFill(
+        compositorTint() ? clearColorSpec()
+                         : colorSpecFromRole(panelMaterialRole(), glass::thickOpacity(m_attachedBackgroundOpacity))
+    );
   }
 
   if (m_panelShadowNode != nullptr && m_config != nullptr) {
@@ -3308,9 +3317,10 @@ void PanelManager::onConfigReloaded() {
   const auto& barConfig = *barConfigOpt;
   bool changed = false;
   if (m_activePanel->inheritsBarBackgroundOpacity()) {
-    const float newOpacity = Style::panelGlassAlpha(barConfig.backgroundOpacity);
+    const float newOpacity = Style::glassTint(glass::Kind::Sheet, barConfig.backgroundOpacity);
     if (std::abs(newOpacity - m_attachedBackgroundOpacity) >= 0.001F) {
       m_attachedBackgroundOpacity = newOpacity;
+      sendSheetTint();
       m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, m_attachedBackgroundOpacity)));
       changed = true;
     }

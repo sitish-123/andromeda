@@ -15,6 +15,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/dsk_surface_client.h"
+#include "wayland/glass_surface.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
 
@@ -178,19 +179,32 @@ namespace shell::dock {
     );
   }
 
+  // The hide spring calls this every frame; send only a changed region.
+  void sendDockBlur(DockInstance& instance, std::vector<InputRect> region) {
+    if (instance.sentBlur == region) {
+      return;
+    }
+    if (region.empty()) {
+      instance.surface->clearBlurRegion();
+    } else {
+      instance.surface->setBlurRegion(region);
+    }
+    instance.sentBlur = std::move(region);
+  }
+
   void applyDockCompositorBlur(DockInstance& instance, const DockConfig& cfg) {
     if (instance.surface == nullptr) {
       return;
     }
     if (!cfg.compositorBlur) {
-      instance.surface->clearBlurRegion();
+      sendDockBlur(instance, {});
       return;
     }
     // Compositor blur is independent of scene opacity — clear it while auto-hide
     // has faded the dock out so a transparent buffer does not leave a blur halo.
     constexpr float kBlurVisibleOpacity = 0.02F;
     if (dockUsesAnyAutoHide(cfg) && instance.hideOpacity < kBlurVisibleOpacity) {
-      instance.surface->clearBlurRegion();
+      sendDockBlur(instance, {});
       return;
     }
     if (instance.panel == nullptr) {
@@ -209,8 +223,7 @@ namespace shell::dock {
     const int py = static_cast<int>(std::lround(absY + insetT));
     const int pw = static_cast<int>(std::lround(instance.panel->width() - insetL - insetR));
     const int ph = static_cast<int>(std::lround(instance.panel->height() - insetT - insetB));
-    auto blurStrips = Surface::tessellateShape(px, py, pw, ph, concave.corners, concave.logicalInset, concave.radii);
-    instance.surface->setBlurRegion(blurStrips);
+    sendDockBlur(instance, Surface::tessellateShape(px, py, pw, ph, concave.corners, concave.logicalInset, concave.radii));
   }
 
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg);
@@ -223,11 +236,6 @@ namespace shell::dock {
     if (instance.dsk == nullptr && instance.surface->wlSurface() != nullptr) {
       if (auto* manager = deps.platform.wayland().dskSurfaceManager(); manager != nullptr) {
         instance.dsk = std::make_unique<DskSurfaceClient>(manager, instance.surface->wlSurface());
-        instance.dsk->setOnBackdrop([inst = &instance](bool dark) {
-          inst->backdropDark = dark;
-          applyPanelPalette(*inst, inst->config);
-          inst->surface->requestRedraw();
-        });
       }
     }
 
@@ -357,7 +365,7 @@ namespace shell::dock {
       const auto shadowOffsetX = static_cast<float>(shadowOff.x);
       const auto shadowOffsetY = static_cast<float>(shadowOff.y);
       const RoundedRectStyle shadowStyle = ui::surface_shadow::style(
-          shadowConfig, Style::glassAlpha(cfg.backgroundOpacity),
+          shadowConfig, Style::glassTint(glass::Kind::Shape, cfg.backgroundOpacity),
           ui::surface_shadow::Shape{
               .corners = concave.corners, .logicalInset = concave.logicalInset, .radius = concave.radii
           }
@@ -437,10 +445,21 @@ namespace shell::dock {
       return;
     // A small shape: liquid glass with the launcher pill's clear tint.
     const bool liquid = instance.dsk != nullptr && instance.dsk->hasLiquidProperty() && !Style::reduceTransparency();
+    bool compositorTint = false;
     if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
-      instance.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
+      const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
+      instance.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
+      if (instance.dsk->hasTintProperty()) {
+        compositorTint = liquid && cfg.compositorBlur && Style::compositorDrawsTint();
+        instance.dsk->set(
+            DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F)
+        );
+      }
     }
-    const float opacity = liquid ? Style::liquidTintFor(instance.backdropDark) : Style::glassAlpha(cfg.backgroundOpacity);
+    // The compositor draws the tint (dsk v9): the dock paints no material fill.
+    const float opacity = compositorTint ? 0.0F
+        : liquid                         ? Style::glassMaterial(glass::Kind::Shape).tint
+                                         : Style::glassTint(glass::Kind::Shape, cfg.backgroundOpacity);
     instance.panel->setFill(colorSpecFromRole(materialRole(), opacity));
     instance.panel->setBorder(cfg.border, cfg.borderWidth);
   }

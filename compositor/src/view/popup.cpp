@@ -6,9 +6,24 @@
 #include "view/view.h"
 #include "wlr.h"
 
+#include <algorithm>
 #include <cassert>
+#include <vector>
 
 namespace andromeda {
+
+  namespace {
+    std::vector<Popup*>& livePopups() {
+      static std::vector<Popup*> popups;
+      return popups;
+    }
+  } // namespace
+
+  void Popup::applyGlassToAll() {
+    for (Popup* popup : livePopups()) {
+      popup->m_blur.setMaterial(configGlass(glass::Kind::Menu));
+    }
+  }
 
   Popup::Popup(wlr_xdg_popup* popup, wlr_scene_tree* parentTree, wlr_scene_tree* captureTree) : m_popup(popup) {
     if (parentTree == nullptr) {
@@ -31,9 +46,11 @@ namespace andromeda {
     wl_signal_add(&m_popup->base->surface->events.unmap, &m_unmap);
     m_destroy.notify = onDestroy;
     wl_signal_add(&m_popup->events.destroy, &m_destroy);
+    livePopups().push_back(this);
   }
 
   Popup::~Popup() {
+    std::erase(livePopups(), this);
     if (m_commit.link.next != nullptr) {
       wl_list_remove(&m_commit.link);
       wl_list_remove(&m_reposition.link);
@@ -71,14 +88,26 @@ namespace andromeda {
   void Popup::handleCommit() {
     const wlr_box& geometry = m_popup->base->geometry;
     SurfaceBlurOptions blurOptions;
+    const pixman_region32_t* region = nullptr;
+    wlr_surface* surface = m_popup->base->surface;
     if (LayerSurface* layer = LayerSurface::fromSurface(m_popup->parent)) {
       blurOptions = layer->popupBlurOptions();
+      region = layer->clientBlurRegion(surface);
     } else if (View* view = View::fromSurface(m_popup->parent)) {
       blurOptions = view->popupBlurOptions();
+      region = view->clientBlurRegion(surface);
     }
+    // A client blur region turns popup blur on, as it does for windows; it is the exact shape, so no alpha test.
+    if (region != nullptr && pixman_region32_not_empty(region)) {
+      blurOptions.enabled = true;
+      blurOptions.ignoreAlpha = 0.0F;
+    } else {
+      region = nullptr;
+    }
+    m_blur.setMaterial(configGlass(glass::Kind::Menu));
     m_blur.update(
-        static_cast<wlr_scene_tree*>(m_popup->base->data), m_popup->base->surface,
-        wlr_box{0, 0, geometry.width, geometry.height}, geometry, corner_radii_none(), nullptr, blurOptions
+        static_cast<wlr_scene_tree*>(m_popup->base->data), surface, wlr_box{0, 0, geometry.width, geometry.height},
+        geometry, corner_radii_none(), nullptr, blurOptions, 1.0F, nullptr, region
     );
     if (!m_popup->base->initial_commit) {
       return;

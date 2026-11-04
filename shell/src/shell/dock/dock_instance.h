@@ -9,6 +9,7 @@
 #include "shell/dock/dock_items.h"
 #include "shell/dock/dock_model.h"
 #include "ui/signal.h"
+#include "wayland/surface.h"
 
 #include <cstdint>
 #include <functional>
@@ -57,7 +58,6 @@ namespace shell::dock {
     std::unique_ptr<LayerSurface> surface;
     // Liquid glass on the dock (dsk_surface_v1 v5); declared after `surface`: destroyed first.
     std::unique_ptr<DskSurfaceClient> dsk;
-    std::optional<bool> backdropDark;
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
@@ -87,6 +87,7 @@ namespace shell::dock {
     AnimationManager::Id launcherScaleAnimId = 0;
     // Auto-hide: tracks visibility [0,1] driven by hover.
     float hideOpacity = 1.0F;
+    std::optional<std::vector<InputRect>> sentBlur; // last blur region sent; empty vector = cleared
     AnimationManager::Id hideAnimId = 0;
     // smart_auto_hide: active workspace empty (or overview open) — keep the dock visible.
     bool smartAutoHidePinnedVisible = false;

@@ -10,10 +10,6 @@
 namespace andromeda {
 
   namespace {
-    // Liquid is the glass slider's clarity (1 Clear, 0.5 Tinted, 0 Frosted): Clear blurs at 30 %, Tinted at 65 %, so
-    // the rim refraction bends shapes, not a smear, yet the backdrop stays calm behind text.
-    float liquidBlurStrength(float liquid) { return 1.0F - 0.7F * liquid; }
-
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
         wlr_surface* surface;
@@ -38,6 +34,11 @@ namespace andromeda {
     }
 
   } // namespace
+
+  glass::Material configGlass(glass::Kind kind) {
+    const Config::Appearance& a = config().appearance;
+    return glass::material(kind, static_cast<float>(a.glass), a.reduceTransparency, false);
+  }
 
   bool surfaceTransparent(wlr_surface* surface, const wlr_box& surfaceBox) {
     const pixman_box32_t box = {
@@ -121,8 +122,10 @@ namespace andromeda {
     }
     wlr_scene_blur_set_liquid(m_node, m_liquid);
     wlr_scene_blur_set_rim(m_node, m_rim);
+    wlr_scene_blur_set_lens(m_node, m_lens);
+    wlr_scene_blur_set_tint_mix(m_node, m_tintRgb.data(), m_tintAmount);
     wlr_scene_blur_set_backdrop_sampling(m_node, m_backdropSampling);
-    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * m_fade);
+    wlr_scene_blur_set_strength(m_node, glass::blurStrength(m_liquid) * m_fade);
     // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
     // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
     if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
@@ -187,7 +190,7 @@ namespace andromeda {
     m_liquid = liquid;
     if (m_node != nullptr) {
       wlr_scene_blur_set_liquid(m_node, liquid);
-      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid) * m_fade);
+      wlr_scene_blur_set_strength(m_node, glass::blurStrength(liquid) * m_fade);
     }
   }
 
@@ -198,10 +201,31 @@ namespace andromeda {
     }
   }
 
+  void SurfaceBlur::setMaterial(const glass::Material& material) {
+    setLiquid(material.level);
+    setRim(material.rim);
+    setLens(material.lens);
+  }
+
+  void SurfaceBlur::setLens(float lens) {
+    m_lens = lens;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_lens(m_node, lens);
+    }
+  }
+
+  void SurfaceBlur::setTintMix(const std::array<float, 3>& rgb, float amount) {
+    m_tintRgb = rgb;
+    m_tintAmount = amount;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_tint_mix(m_node, rgb.data(), amount);
+    }
+  }
+
   void SurfaceBlur::setFade(float fade) {
     m_fade = fade;
     if (m_node != nullptr) {
-      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * fade);
+      wlr_scene_blur_set_strength(m_node, glass::blurStrength(m_liquid) * fade);
     }
   }
 

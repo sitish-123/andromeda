@@ -647,6 +647,8 @@ namespace andromeda {
     void updateBlur(int contentWidth, int contentHeight);
     [[nodiscard]] SurfaceBlurOptions blurOptions() const { return m_decoration.blurOptions(); }
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const { return m_decoration.popupBlurOptions(); }
+    // The ext-background-effect blur region a client set on `surface` (one of its popups), or null.
+    [[nodiscard]] const pixman_region32_t* clientBlurRegion(wlr_surface* surface) const;
     void updateShadow();
     void updateShadow(int contentWidth, int contentHeight);
     // Show the borders and refresh everything derived from them. The four steps are always wanted together: a ring that

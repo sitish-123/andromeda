@@ -248,6 +248,8 @@ struct wlr_scene_blur {
   float ignore_alpha;
   float liquid; // liquid glass strength, 0 to 1
   float rim; // specular rim only, 0 to 1: no refraction and no lighter blur (frosted sheets)
+  float lens; // sharp backdrop through the rim band, 0 to 1
+  float tint_mix[4]; // backdrop pre-mix toward rgb by a (glass density)
   struct wlr_box liquid_box; // node-local; empty = the node box and corners
   int liquid_radius;
 
@@ -960,6 +962,16 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
  * Sets the specular rim alone, 0 to 1, for shapes that stay frosted. The drawn rim is the larger of rim and liquid.
  */
 void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim);
+
+/**
+ * Sets the lens strength, 0 to 1: the sharp backdrop, displaced, shows through the rim band. Costs a backdrop copy.
+ */
+void wlr_scene_blur_set_lens(struct wlr_scene_blur* blur, float lens);
+
+/**
+ * Mixes the blurred backdrop toward the colour rgb by amount (0 to 1), so a tint over it reads denser.
+ */
+void wlr_scene_blur_set_tint_mix(struct wlr_scene_blur* blur, const float rgb[3], float amount);
 
 /**
  * Turns backdrop luminance sampling on or off. While on, each render of this node samples its blurred region; the

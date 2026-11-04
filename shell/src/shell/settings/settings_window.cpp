@@ -840,6 +840,7 @@ void SettingsWindow::prepareFrame(bool needsUpdate, bool needsLayout) {
     logSettingsProfile("prepareFrame rebuildContent", phaseProfileWatch);
     phaseProfileWatch.reset();
     m_sceneRoot->layout(renderer);
+    syncSidebarBlur();
     logSettingsProfile("prepareFrame layout", phaseProfileWatch);
     phaseProfileWatch.reset();
     applyPendingContentScrollTarget(Style::spaceMd * uiScale());
@@ -1339,4 +1340,32 @@ void SettingsWindow::onSecondTick() { onIdleLiveStatusChanged(); }
 
 bool SettingsWindow::wantsSecondTicks() const noexcept {
   return m_idleLiveStatusLabel != nullptr && m_surface != nullptr;
+}
+
+void SettingsWindow::syncSidebarBlur() {
+  if (m_surface == nullptr) {
+    return;
+  }
+  if (!m_glassSidebar || m_sidebarNode == nullptr) {
+    if (m_sidebarBlurSent.has_value()) {
+      m_surface->clearBlurRegion();
+      m_sidebarBlurSent.reset();
+    }
+    return;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(m_sidebarNode, x, y);
+  const InputRect rect{
+      .x = static_cast<int>(std::floor(x)),
+      .y = static_cast<int>(std::floor(y)),
+      .width = static_cast<int>(std::ceil(m_sidebarNode->width())),
+      .height = static_cast<int>(std::ceil(m_sidebarNode->height())),
+  };
+  if (m_sidebarBlurSent.has_value() && m_sidebarBlurSent->x == rect.x && m_sidebarBlurSent->y == rect.y
+      && m_sidebarBlurSent->width == rect.width && m_sidebarBlurSent->height == rect.height) {
+    return;
+  }
+  m_sidebarBlurSent = rect;
+  m_surface->setBlurRegion({rect});
 }

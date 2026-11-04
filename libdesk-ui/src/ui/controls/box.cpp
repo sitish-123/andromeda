@@ -20,6 +20,7 @@ const RoundedRectStyle& Box::style() const noexcept { return m_style; }
 
 void Box::setStyle(const RoundedRectStyle& style) {
   m_style = style;
+  m_glassKind.reset();
   m_resolveFill = false;
   m_resolveBorder = false;
   m_borderWidth = style.borderWidth;
@@ -27,12 +28,19 @@ void Box::setStyle(const RoundedRectStyle& style) {
 }
 
 void Box::setFill(const ColorSpec& color) {
+  m_glassKind.reset();
   m_fill = color;
   m_resolveFill = true;
   applyPalette();
 }
 
 void Box::setFill(const Color& color) { setFill(fixedColorSpec(color)); }
+
+void Box::setGlassFill(glass::Kind kind) {
+  m_glassKind = kind;
+  m_resolveFill = true;
+  applyPalette();
+}
 
 void Box::setBorder(const ColorSpec& color, float width) {
   m_border = color;
@@ -90,7 +98,15 @@ void Box::setFrameSize(float w, float h) {
   m_rect->setFrameSize(w, h);
 }
 
+void Box::resolveGlassFill() {
+  if (m_glassKind.has_value()) {
+    const ColorRole role = *m_glassKind == glass::Kind::Shape ? materialRole() : panelMaterialRole();
+    m_fill = colorSpecFromRole(role, Style::glassMaterial(*m_glassKind).tint);
+  }
+}
+
 void Box::applyPalette() {
+  resolveGlassFill();
   if (m_resolveFill) {
     m_style.fill = resolveColorSpec(m_fill);
     m_style.fillMode = FillMode::Solid;
@@ -103,6 +119,7 @@ void Box::applyPalette() {
 }
 
 void Box::setFlatStyle() {
+  m_glassKind.reset();
   m_fill = colorSpecFromRole(ColorRole::SolidRegular);
   m_border = colorSpecFromRole(ColorRole::Stroke);
   m_borderWidth = 0.0F;
@@ -120,7 +137,8 @@ void Box::setFlatStyle() {
 }
 
 void Box::setPanelStyle(bool showBorder) {
-  m_fill = colorSpecFromRole(panelMaterialRole(), Style::glassAlpha(kTintThickAlpha));
+  m_glassKind = glass::Kind::Sheet;
+  resolveGlassFill();
   if (showBorder) {
     m_border = colorSpecFromRole(ColorRole::Stroke);
     m_borderWidth = Style::borderWidth;
@@ -142,6 +160,7 @@ void Box::setPanelStyle(bool showBorder) {
 }
 
 void Box::setDialogStyle() {
+  m_glassKind.reset();
   m_fill = colorSpecFromRole(ColorRole::Popover);
   m_border = colorSpecFromRole(ColorRole::Stroke);
   m_borderWidth = Style::borderWidth;

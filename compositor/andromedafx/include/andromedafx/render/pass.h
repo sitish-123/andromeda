@@ -136,6 +136,10 @@ struct fx_render_texture_options {
   float liquid;
   // Specular rim only, 0 to 1 (frosted shapes); the shader draws the larger of rim and liquid.
   float rim;
+  // Lens strength, 0 to 1: the sharp backdrop shows through the rim band (needs lens_texture).
+  float lens;
+  // Backdrop pre-mix toward the tint colour: rgb, a = amount 0 to 1 (glass density over a same-tone backdrop).
+  float tint_mix[4];
   // Sharp backdrop for the liquid lens, same size and orientation as texture; NULL = no lens.
   struct wlr_texture* lens_texture;
   // The liquid shape (render coords, radius in render px) whose edge gets the rim; empty = clip_box and corners.
@@ -201,6 +205,8 @@ struct fx_render_blur_pass_options {
   struct clipped_fregion clipped_region;
   float liquid; // 0 to 1, see fx_render_texture_options.liquid
   float rim;    // 0 to 1, see fx_render_texture_options.rim
+  float lens;   // 0 to 1, see fx_render_texture_options.lens
+  float tint_mix[4]; // see fx_render_texture_options.tint_mix
   struct wlr_box liquid_box;
   float liquid_radius;
   struct fx_backdrop_probe* backdrop_probe; // optional: sampled from the blurred region, see backdrop_probe.h

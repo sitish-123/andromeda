@@ -10,21 +10,23 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 8;
-    constexpr uint32_t kPropertyCount = 8;
+    constexpr int kVersion = 9;
+    constexpr uint32_t kPropertyCount = 9;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
 
     constexpr int kElevationPropertySince = 4;
     constexpr int kLiquidPropertySince = 5;
     constexpr int kStrokePropertySince = 7;
+    constexpr int kTintPropertySince = 9;
 
     bool validProperty(wl_resource* resource, uint32_t property) {
       const int version = wl_resource_get_version(resource);
       return property < kPropertyCount
           && (property != static_cast<uint32_t>(SurfaceMotion::Property::Elevation) || version >= kElevationPropertySince)
           && (property != static_cast<uint32_t>(SurfaceMotion::Property::Liquid) || version >= kLiquidPropertySince)
-          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Stroke) || version >= kStrokePropertySince);
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Stroke) || version >= kStrokePropertySince)
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Tint) || version >= kTintPropertySince);
     }
 
     SurfaceMotion::Value toValue(int32_t a, int32_t b, int32_t c, int32_t d) {
@@ -167,6 +169,7 @@ namespace andromeda {
       return;
     }
     auto* state = new Surface{.manager = self, .resource = object, .surface = surface};
+    state->current.version = wl_resource_get_version(object);
     wlr_addon_init(&state->addon, &surface->addons, self, &kAddonInterface);
     state->clientCommit.notify = handleClientCommit;
     wl_signal_add(&surface->events.client_commit, &state->clientCommit);

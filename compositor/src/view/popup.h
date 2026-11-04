@@ -16,6 +16,9 @@ namespace andromeda {
     Popup(const Popup&) = delete;
     Popup& operator=(const Popup&) = delete;
 
+    // Applies the current glass slider to every live popup's blur (a config reload does not commit them).
+    static void applyGlassToAll();
+
   private:
     static void onCommit(wl_listener* listener, void* data);
     static void onReposition(wl_listener* listener, void* data);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include "config/config.h"
@@ -46,7 +47,13 @@ namespace andromeda {
     // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns
     // true while a sample still waits for the GPU.
     bool pollBackdrop();
+    // Moves the density toward the tone of the last backdrop sample.
+    void updateDensity();
+    // Sends the density to the blur nodes as a backdrop pre-mix toward the tint.
+    void applyDensity();
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
+    // The ext-background-effect blur region a client set on `surface` (one of its popups), or null.
+    [[nodiscard]] const pixman_region32_t* clientBlurRegion(wlr_surface* surface) const;
 
     void focus();
     // A grabbing xdg_popup of this layer mapped. wlroots routes the grab's keys to the seat's focused surface and
@@ -104,7 +111,17 @@ namespace andromeda {
     std::vector<SurfaceBlur> m_shapeBlurs;
     float m_liquid = 0.0F;
     float m_rim = 0.0F;
+    float m_lens = 0.0F;
     bool m_backdropDark = false;
+    // dsk_surface_v1 tint (v9): the client's tint over the blur, rgba; the compositor adds the density to it.
+    std::array<float, 4> m_tint{};
+    bool m_tintLight = false;
+    // Glass density, 0 to 1: how far the tint is raised over a same-tone backdrop. Rises only while mapped.
+    AnimatedValue m_density{0.0};
+    float m_densityTarget = 0.0F;
+    bool m_densityMeasured = false;
+    // Surface opacity (layer fade x dsk opacity): the compositor-drawn tint fades with the surface it belongs to.
+    float m_tintFade = 1.0F;
     float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
     // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.

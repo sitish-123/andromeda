@@ -1522,6 +1522,9 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
         })
     );
   }
+  if (m_glassSidebar) {
+    row->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+  }
   return row;
 }
 
@@ -1591,6 +1594,10 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
       }
   );
 
+  if (m_glassSidebar) {
+    sidebar->setFill(clearColorSpec());
+  }
+  m_sidebarNode = sidebar.get();
   body->addChild(std::move(sidebar));
 
   auto contentColumn =
@@ -1655,7 +1662,15 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   rebuildSettingsContent();
 
   contentColumn->addChild(std::move(scroll));
-  body->addChild(std::move(contentColumn));
+  if (m_glassSidebar) {
+    auto solid = ui::column(
+        {.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::SolidRegular), .flexGrow = 1.0F}
+    );
+    solid->addChild(std::move(contentColumn));
+    body->addChild(std::move(solid));
+  } else {
+    body->addChild(std::move(contentColumn));
+  }
   outer->addChild(std::move(body));
   return outer;
 }
@@ -2369,6 +2384,8 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
   m_mainContainer = nullptr;
   m_headerRow = nullptr;
   m_panelBackground = nullptr;
+  m_sidebarNode = nullptr;
+  m_sidebarBlurSent.reset();
   m_contentContainer = nullptr;
   m_sceneRoot = ui::node({});
   m_sceneRoot->setSize(w, h);
@@ -2380,17 +2397,19 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
     m_sceneRoot->setPopupContext(m_selectPopup.get());
   }
 
-  const float bgOpacity = cfg.shell.settingsWindowTranslucent ? 0.8F : 1.0F;
+  m_glassSidebar = cfg.shell.settingsWindowTranslucent && !Style::reduceTransparency();
 
   auto bg = ui::box({
       .width = w,
       .height = h,
-      .configure = [bgOpacity, translucent = cfg.shell.settingsWindowTranslucent](Box& box) {
+      .configure = [glassSidebar = m_glassSidebar](Box& box) {
         box.setPanelStyle();
         box.setRadius(0.0F);
         box.setBorder(clearColor(), 0);
         box.setPosition(0.0F, 0.0F);
-        box.setFill(colorSpecFromRole(translucent ? panelMaterialRole() : ColorRole::SolidRegular, panelMaterialAlpha(bgOpacity)));
+        if (!glassSidebar) {
+          box.setFill(colorSpecFromRole(ColorRole::SolidRegular));
+        }
       },
   });
   m_panelBackground = static_cast<Box*>(m_sceneRoot->addChild(std::move(bg)));
@@ -2406,6 +2425,7 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
 
   main->setSize(w, h);
   main->layout(renderer);
+  syncSidebarBlur();
   logSettingsProfile("buildScene layout", phaseProfileWatch);
   phaseProfileWatch.reset();
   applyPendingContentScrollTarget(Style::spaceMd * scale);

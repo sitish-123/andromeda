@@ -259,7 +259,7 @@ namespace andromeda {
   }
 
   bool LayerSurface::hasActiveAnimations() const {
-    if (m_fade.animating()) {
+    if (m_fade.animating() || m_density.animating()) {
       return true;
     }
     const DskSurfaceManager* dsk = m_server->dskSurfaces();
@@ -277,13 +277,17 @@ namespace andromeda {
       applySurfaceMotion();
       applyFadeAlpha();
     }
+    const bool densityTicked = m_density.tick(nowMsec);
+    if (densityTicked) {
+      applyDensity();
+    }
     const bool ticked = m_fade.tick(nowMsec);
     if (m_scene != nullptr) {
       bindAnimationEffect(&m_scene->tree->node, AnimationEvent::Layers, m_fade);
       bindAnimationEffect(&m_popupTree->node, AnimationEvent::Layers, m_fade);
     }
     if (!ticked) {
-      return false;
+      return densityTicked;
     }
     applyFadeAlpha();
     if (m_layerSurface != nullptr && m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
@@ -319,6 +323,10 @@ namespace andromeda {
       for (SurfaceBlur& blur : m_shapeBlurs) {
         blur.setFade(m_blurFade);
       }
+    }
+    if (alpha != m_tintFade) {
+      m_tintFade = alpha;
+      applyDensity();
     }
     for (auto* tree : {m_scene->tree, m_popupTree}) {
       wlr_scene_node_for_each_buffer(
@@ -660,6 +668,11 @@ namespace andromeda {
     };
   }
 
+  const pixman_region32_t* LayerSurface::clientBlurRegion(wlr_surface* surface) const {
+    const BackgroundEffectManager* effects = m_server->backgroundEffects();
+    return effects != nullptr ? effects->blurRegion(surface) : nullptr;
+  }
+
   void LayerSurface::unconstrainPopup(wlr_xdg_popup* popup) {
     Output* out = output();
     if (out == nullptr || m_scene == nullptr) {
@@ -689,8 +702,43 @@ namespace andromeda {
       if (const DskSurfaceManager* dsk = m_server->dskSurfaces()) {
         dsk->sendBackdrop(m_layerSurface->surface, m_backdropDark);
       }
+      updateDensity();
     }
     return m_blur.backdropPending();
+  }
+
+  void LayerSurface::updateDensity() {
+    const bool light = 0.2126F * m_tint[0] + 0.7152F * m_tint[1] + 0.0722F * m_tint[2] > 0.5F;
+    // A light/dark switch starts over; otherwise density only rises, so it never pulses over video.
+    if (light != m_tintLight) {
+      m_tintLight = light;
+      m_densityTarget = 0.0F;
+    }
+    const bool glassOn = m_liquid > 0.0F || m_rim > 0.0F;
+    const bool contrastLow = glassOn && m_tint[3] > 0.0F && light == m_backdropDark;
+    m_densityTarget = std::max(m_densityTarget, contrastLow ? 1.0F : 0.0F);
+    if (!m_densityMeasured) {
+      // The first sample lands 1-3 frames after map, inside the open fade: apply it at once.
+      m_densityMeasured = true;
+      m_density.snap(m_densityTarget);
+    } else if (m_density.target() != m_densityTarget) {
+      m_density.retarget(m_densityTarget, 150);
+      if (Output* out = output()) {
+        wlr_output_schedule_frame(out->wlr());
+      }
+    }
+    applyDensity();
+  }
+
+  void LayerSurface::applyDensity() {
+    // The compositor draws the client's tint over the blur, raised by the density.
+    const float t = m_tint[3];
+    const float amount = t <= 0.0F ? 0.0F : glass::denser(t, static_cast<float>(m_density.current())) * m_tintFade;
+    const std::array<float, 3> rgb{m_tint[0], m_tint[1], m_tint[2]};
+    m_blur.setTintMix(rgb, amount);
+    for (SurfaceBlur& blur : m_shapeBlurs) {
+      blur.setTintMix(rgb, amount);
+    }
   }
 
   void LayerSurface::updateBlur() {
@@ -716,9 +764,21 @@ namespace andromeda {
     m_rim = state != nullptr
         ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[1], 0.0, 1.0))
         : 0.0F;
+    // Liquid value [2] (v9): the lens; an older client gets it at the refraction strength.
+    m_lens = state == nullptr ? 0.0F
+        : state->version >= 9
+        ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[2], 0.0, 1.0))
+        : m_liquid;
+    if (state != nullptr) {
+      const auto& tint = state->motion.value(SurfaceMotion::Property::Tint);
+      m_tint = {static_cast<float>(tint[0]), static_cast<float>(tint[1]), static_cast<float>(tint[2]),
+                static_cast<float>(std::clamp(tint[3], 0.0, 1.0))};
+    }
     m_blur.setLiquid(m_liquid);
     m_blur.setRim(m_rim);
-    m_blur.setBackdropSampling(m_liquid > 0.0F);
+    m_blur.setLens(m_lens);
+    // Density follows the backdrop at every glass level, Frosted too (rim > 0 = glass on).
+    m_blur.setBackdropSampling(m_liquid > 0.0F || m_rim > 0.0F);
     if (state != nullptr) {
       const auto& c = state->motion.value(SurfaceMotion::Property::Clip);
       const double scale = shownScale(state->motion, m_layerSurface->surface);
@@ -815,6 +875,7 @@ namespace andromeda {
       }
       blur.setLiquid(m_liquid);
       blur.setRim(m_rim);
+      blur.setLens(m_lens);
       blur.setFade(m_blurFade);
       blur.update(
           m_scene->tree, m_layerSurface->surface, nodeBox, box,
@@ -822,6 +883,7 @@ namespace andromeda {
           options
       );
     }
+    applyDensity();
   }
 
   void LayerSurface::applyConfig() {
@@ -920,6 +982,9 @@ namespace andromeda {
     for (SurfaceBlur& blur : m_shapeBlurs) {
       blur.hide();
     }
+    m_densityMeasured = false;
+    m_densityTarget = 0.0F;
+    m_density.snap(0.0);
     m_fade.snap(1.0);
     // Avoid sending configures while unmapping (wrong serial / client abort).
     m_arrangingOut = true;

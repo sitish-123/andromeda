@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "config/config.h"
 #include "scene/border_rect.h"
 #include "scene/surface_blur.h"
@@ -58,9 +60,12 @@ namespace andromeda {
     // Blur
     [[nodiscard]] SurfaceBlurOptions blurOptions() const { return m_blurOptions; }
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const { return m_popupBlurOptions; }
+    // clientRegion: the client's blur region (ext-background-effect-v1), surface-local; it turns blur on unless a
+    // rule sets blur, and the blur draws only inside it.
     void updateBlur(
         wlr_scene_tree* tree, wlr_surface* surface, const wlr_box& nodeBox, const wlr_box& geometry,
-        fx_corner_radii corners, const wlr_box* clip, float surfaceOpacity, float blurAlpha
+        fx_corner_radii corners, const wlr_box* clip, float surfaceOpacity, float blurAlpha,
+        const pixman_region32_t* clientRegion = nullptr
     );
     void hideBlur();
     void setBlurLive(bool live) { m_blur.setLive(live); }
@@ -100,6 +105,7 @@ namespace andromeda {
     std::optional<bool> m_ruleShadow;
     SurfaceBlur m_blur;
     SurfaceBlurOptions m_blurOptions;
+    std::optional<bool> m_ruleBlur;
     SurfaceBlurOptions m_popupBlurOptions;
     SurfaceShadow m_shadow;
     wlr_scene_tree* m_shadowContainer = nullptr;

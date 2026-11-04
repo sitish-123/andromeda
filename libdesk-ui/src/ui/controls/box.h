@@ -1,5 +1,7 @@
 #pragma once
 
+#include "protocols/glass_material.h"
+
 #include "render/core/render_styles.h"
 #include "render/scene/node.h"
 #include "ui/palette.h"
@@ -22,6 +24,8 @@ public:
   void setFill(const ColorSpec& color);
   // Explicit fixed color.
   void setFill(const Color& color);
+  // Glass material fill of `kind`; it follows the glass slider and reduce transparency live.
+  void setGlassFill(glass::Kind kind);
   void setBorder(const ColorSpec& color, float width);
   void setBorder(const Color& color, float width);
   void clearBorder();
@@ -47,11 +51,13 @@ public:
 
 private:
   void applyPalette();
+  void resolveGlassFill();
   void syncStyle();
 
   RectNode* m_rect = nullptr;
   RoundedRectStyle m_style;
   ColorSpec m_fill = clearColorSpec();
+  std::optional<glass::Kind> m_glassKind;
   ColorSpec m_border = clearColorSpec();
   float m_borderWidth = 0.0F;
   bool m_resolveFill = true;

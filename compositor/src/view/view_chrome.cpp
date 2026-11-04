@@ -8,6 +8,7 @@
 #include "overview/overview.h"
 #include "scene/effect_registry.h"
 #include "scene/surface_blur.h"
+#include "server/background_effect.h"
 #include "server/server.h"
 #include "view/view.h"
 extern "C" {
@@ -291,8 +292,10 @@ namespace andromeda {
     // Content and its backdrop share a square seam below the title bar.
     const fx_corner_radii corners =
         titleBarHeight() > 0 ? corner_radii_new(0, 0, radius, radius) : corner_radii_all(radius);
+    const BackgroundEffectManager* effects = m_server->backgroundEffects();
     m_decoration.updateBlur(
-        m_contentTree, rootSurface(), nodeBox, geometryBox(), corners, nullptr, effectiveOpacity(), m_fadeAlpha
+        m_contentTree, rootSurface(), nodeBox, geometryBox(), corners, nullptr, effectiveOpacity(), m_fadeAlpha,
+        effects != nullptr && rootSurface() != nullptr ? effects->blurRegion(rootSurface()) : nullptr
     );
   }
 
@@ -404,4 +407,9 @@ namespace andromeda {
     reloadBackdropColor();
     syncModalShade();
   }
+  const pixman_region32_t* View::clientBlurRegion(wlr_surface* surface) const {
+    const BackgroundEffectManager* effects = m_server->backgroundEffects();
+    return effects != nullptr ? effects->blurRegion(surface) : nullptr;
+  }
+
 } // namespace andromeda
