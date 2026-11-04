@@ -118,7 +118,19 @@ namespace {
         bottom = std::max(bottom, corner.y);
       }
       pad += std::max(std::abs(text->shadowOffsetX()), std::abs(text->shadowOffsetY()));
+    } else if (node->type() == NodeType::Rect) {
+      // Same overhang as the rect quad (RectProgram::draw: border + softness + 2 px).
+      const auto& style = static_cast<const RectNode*>(node)->style();
+      pad = std::max(pad, style.borderWidth + style.softness + 2.0F);
+    } else if (node->type() == NodeType::Glyph) {
+      const auto* glyph = static_cast<const GlyphNode*>(node);
+      pad += std::max(std::abs(glyph->shadowOffsetX()), std::abs(glyph->shadowOffsetY()));
     }
+    // The pads above are local units; a scaled or rotated node moves its overhang up to its largest axis scale.
+    const Vec2 o = world.transformPoint(0.0F, 0.0F);
+    const Vec2 ax = world.transformPoint(1.0F, 0.0F);
+    const Vec2 ay = world.transformPoint(0.0F, 1.0F);
+    pad *= std::max(1.0F, std::max(std::hypot(ax.x - o.x, ax.y - o.y), std::hypot(ay.x - o.x, ay.y - o.y)));
     return DamageRect{left - pad, top - pad, right + pad, bottom + pad};
   }
 
@@ -254,19 +266,27 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   const DamageRect surfaceRect{0.0F, 0.0F, sw, sh};
 
   // A full repaint is needed when the buffer changed, GPU resources or glyphs were rebuilt, or the wallpaper mask
-  // (drawn over everything) is in use.
+  // changed; an unchanged mask is redrawn inside each repainted rect.
   // NOCTALIA_FULL_REDRAW turns damage tracking off, to rule it out when a surface shows stale pixels.
   static const bool forceFull = std::getenv("NOCTALIA_FULL_REDRAW") != nullptr;
-  bool full = forceFull
-      || target.takeDamageReset(sceneRoot)
-      || sceneRoot == nullptr
-      || wallpaperMask != nullptr
-      || m_glyphTexturesDirty
-      || (m_gpuResourceGeneration != 0 && sceneRoot->gpuResourceGeneration() != m_gpuResourceGeneration);
+  const bool damageReset = target.takeDamageReset(sceneRoot);
+  const bool maskChanged = target.takeWallpaperMaskChange(wallpaperMask);
+  // Why this frame repaints everything (NOCTALIA_PROFILE frame stats); the first reason found wins.
+  const char* fullReason = forceFull ? "env"
+      : damageReset                  ? "reset"
+      : sceneRoot == nullptr         ? "no-root"
+      : maskChanged                  ? "wallpaper-mask"
+      : m_glyphTexturesDirty         ? "glyphs"
+      : (m_gpuResourceGeneration != 0 && sceneRoot->gpuResourceGeneration() != m_gpuResourceGeneration) ? "gpu-reset"
+                                     : nullptr;
+  bool full = fullReason != nullptr;
   DamageRegion damage;
   if (sceneRoot != nullptr) {
     damage = sceneRoot->takePendingDamage();
-    full = !collectDamage(sceneRoot, Mat3::identity(), false, damage) || full;
+    if (!collectDamage(sceneRoot, Mat3::identity(), false, damage) && !full) {
+      full = true;
+      fullReason = "render-proxy";
+    }
   }
   damage.clipTo(surfaceRect);
   if (!full && damage.empty()) {
@@ -280,8 +300,12 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   }
   const float renderScale = target.contentScale();
   std::optional<DamageRegion> repaint;
+  const int bufferAge = full ? -1 : m_backend->bufferAge(target);
   if (!full) {
-    repaint = target.damageHistory().regionFor(m_backend->bufferAge(target), damage);
+    repaint = target.damageHistory().regionFor(bufferAge, damage);
+    if (!repaint) {
+      fullReason = "buffer-age";
+    }
   }
   if (full) {
     damage.clear();
@@ -302,6 +326,8 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   }
 
   const auto drawStart = std::chrono::steady_clock::now();
+  m_statDrawn = 0;
+  m_statCulled = 0;
   std::vector<DamageRect> bufferDamage;
   {
     UiPhaseScope renderPhase(UiPhase::Render);
@@ -327,9 +353,15 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
             renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1, true,
             false, false
         );
+        // The mask cuts the repainted pixels only; pixels outside the rect keep their earlier cut.
+        if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
+          m_backend->setScissor(scissorForClip(sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1));
+          m_backend->setBlendMode(RenderBlendMode::DestinationOut);
+          m_backend->drawWallpaperMask(*wallpaperMask);
+        }
       }
     }
-    if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
+    if (!repaint && wallpaperMask != nullptr && wallpaperMask->texture != 0) {
       m_backend->disableScissor();
       m_backend->setBlendMode(RenderBlendMode::DestinationOut);
       m_backend->drawWallpaperMask(*wallpaperMask);
@@ -341,6 +373,17 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
       target.bufferWidth(), target.bufferHeight()
   );
 
+  if (noctalia::profiling::enabled()) {
+    float area = 0.0F;
+    for (const DamageRect& r : repaint ? repaint->rects() : damage.rects()) {
+      area += r.area();
+    }
+    kLog.info(
+        "frame-stats {}x{} age={} rects={} full={} area={:.0F}% drawn={} culled={} draw_ms={:.3F}", target.logicalWidth(),
+        target.logicalHeight(), bufferAge, repaint ? repaint->rects().size() : std::size_t{0}, fullReason != nullptr ? fullReason : "-",
+        sw * sh > 0.0F ? area * 100.0F / (sw * sh) : 0.0F, m_statDrawn, m_statCulled, ms
+    );
+  }
   m_backend->endFrame(target, bufferDamage);
   const RenderGraphicsResetStatus resetStatus = m_backend->graphicsResetStatus();
   ms = elapsedSince(totalStart);
@@ -468,7 +511,23 @@ void RenderContext::renderNode(
           || boundsLeft - kPaintCullSlack >= clipRight
           || boundsBottom + kPaintCullSlack <= clipTop
           || boundsTop - kPaintCullSlack >= clipBottom)) {
+    ++m_statCulled;
     return;
+  }
+
+  // The node's own draw is skipped when it misses the clip; its children may still reach it. Same bounds as damage.
+  // Glyph nodes have no size (ink sits above and right of the baseline origin), so they are never culled.
+  bool drawSelf = true;
+  if (hasClip && node->type() != NodeType::RenderProxy && node->type() != NodeType::Glyph) {
+    const std::optional<DamageRect> paint = paintBounds(node, worldTransform);
+    drawSelf = paint
+        && paint->x1 > clipLeft
+        && paint->x0 < clipRight
+        && paint->y1 > clipTop
+        && paint->y0 < clipBottom;
+  }
+  if (node->type() != NodeType::Base) {
+    ++(drawSelf ? m_statDrawn : m_statCulled);
   }
 
   if (hasClip) {
@@ -477,7 +536,7 @@ void RenderContext::renderNode(
     m_backend->disableScissor();
   }
 
-  switch (node->type()) {
+  switch (drawSelf ? node->type() : NodeType::Base) {
   case NodeType::Rect: {
     const auto* rect = static_cast<const RectNode*>(node);
     auto style = rect->style();

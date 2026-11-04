@@ -3,9 +3,11 @@
 #include "render/core/damage_region.h"
 
 #include "render/core/renderer.h"
+#include "render/core/wallpaper_types.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 struct wl_surface;
 
@@ -114,6 +116,17 @@ public:
     m_damageRoot = sceneRoot;
     return changed;
   }
+  // True when the wallpaper mask (set, cleared, moved or a new image: WallpaperMaskDrawParams::revision) differs from
+  // the last frame's.
+  [[nodiscard]] bool takeWallpaperMaskChange(const WallpaperMaskDrawParams* mask) {
+    std::optional<WallpaperMaskDrawParams> now;
+    if (mask != nullptr) {
+      now = *mask;
+    }
+    const bool changed = now != m_wallpaperMask;
+    m_wallpaperMask = now;
+    return changed;
+  }
 
   void setLogicalSize(std::uint32_t w, std::uint32_t h) noexcept {
     m_logicalWidth = w;
@@ -128,6 +141,7 @@ private:
   std::uint32_t m_damageWidth = 0;
   std::uint32_t m_damageHeight = 0;
   const void* m_damageRoot = nullptr;
+  std::optional<WallpaperMaskDrawParams> m_wallpaperMask;
   std::uint32_t m_bufferWidth = 0;
   std::uint32_t m_bufferHeight = 0;
   std::uint32_t m_logicalWidth = 0;

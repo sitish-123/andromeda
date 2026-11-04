@@ -98,6 +98,9 @@ private:
   std::uint64_t m_textMetricsGeneration = 1;
   std::uint64_t m_gpuResourceGeneration = 0;
   bool m_glyphTexturesDirty = false;
+  // NOCTALIA_PROFILE frame stats: nodes drawn and culled in the current renderScene.
+  std::uint32_t m_statDrawn = 0;
+  std::uint32_t m_statCulled = 0;
   bool m_graphicsResetPending = false;
   GlSharedContext* m_shared = nullptr;
 };

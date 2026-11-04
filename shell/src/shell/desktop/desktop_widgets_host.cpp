@@ -148,6 +148,9 @@ void DesktopWidgetsHost::validateWallpaperMask(const std::string& outputName) {
 }
 
 void DesktopWidgetsHost::onWallpaperMaskTextureChanged(const std::string& outputName) {
+  if (const auto it = m_wallpaperMasks.find(outputName); it != m_wallpaperMasks.end()) {
+    ++it->second.revision;
+  }
   validateWallpaperMask(outputName);
   for (auto& instance : m_instances) {
     if (instance->effectiveOutputName == outputName) {
@@ -485,6 +488,7 @@ void DesktopWidgetsHost::updateWallpaperMask(DesktopWidgetInstance& instance) {
           .imageHeight = static_cast<float>(texture.height),
           .fillMode = static_cast<float>(fillMode),
           .span = span,
+          .revision = maskIt->second.revision,
       }
   );
 }
