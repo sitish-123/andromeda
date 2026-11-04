@@ -35,13 +35,16 @@ public:
   );
 
 private:
+  void bindUser(const std::string& userPath);
   void readIconFile();
   void emitChangedIfNeeded(std::string_view nextIconFile);
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_accountsProxy;
+  std::unique_ptr<sdbus::IProxy> m_pendingUserProxy;
   std::unique_ptr<sdbus::IProxy> m_userProxy;
   uid_t m_sessionUid = 0;
   std::string m_iconFile;
   ChangeCallback m_changeCallback;
+  std::shared_ptr<int> m_aliveToken = std::make_shared<int>(0);
 };

@@ -40,17 +40,6 @@ namespace {
     }
   }
 
-  [[nodiscard]] std::optional<uid_t> readUserUid(sdbus::IProxy& userProxy) {
-    try {
-      const sdbus::Variant value = userProxy.getProperty("Uid").onInterface(kUserInterface);
-      const auto uid = value.get<std::uint64_t>();
-      return static_cast<uid_t>(uid);
-    } catch (const sdbus::Error& e) {
-      kLog.warn("failed to read Accounts.User Uid: {}", e.what());
-      return std::nullopt;
-    }
-  }
-
 } // namespace
 
 AccountsService::AccountsService(SystemBus& bus) : m_bus(bus) {
@@ -62,44 +51,77 @@ AccountsService::AccountsService(SystemBus& bus) : m_bus(bus) {
   }
 
   m_accountsProxy = sdbus::createProxy(m_bus.connection(), kAccountsBusName, kAccountsObjectPath);
-
-  sdbus::ObjectPath userPath;
-  m_accountsProxy->callMethod("FindUserById")
+  const std::weak_ptr<int> alive = m_aliveToken;
+  m_accountsProxy->callMethodAsync("FindUserById")
       .onInterface(kAccountsInterface)
       .withArguments(static_cast<std::int64_t>(m_sessionUid))
-      .storeResultsTo(userPath);
-
-  m_userProxy = sdbus::createProxy(m_bus.connection(), kAccountsBusName, userPath);
-
-  const std::optional<uid_t> reportedUid = readUserUid(*m_userProxy);
-  if (!reportedUid.has_value() || *reportedUid != m_sessionUid) {
-    throw sdbus::Error(
-        sdbus::Error::Name{"org.freedesktop.DBus.Error.Failed"}, "AccountsService user Uid does not match session uid"
-    );
-  }
-
-  m_userProxy->uponSignal("PropertiesChanged")
-      .onInterface(kPropertiesInterface)
-      .call([this](
-                const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changedProperties,
-                const std::vector<std::string>& /*invalidatedProperties*/
-            ) {
-        if (interfaceName != kUserInterface) {
+      .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error, sdbus::ObjectPath userPath) {
+        if (alive.expired()) {
           return;
         }
-        const auto it = changedProperties.find("IconFile");
-        if (it == changedProperties.end()) {
+        if (error.has_value()) {
+          kLog.info("accounts service disabled: {}", error->getMessage());
           return;
         }
-        try {
-          emitChangedIfNeeded(it->second.get<std::string>());
-        } catch (const sdbus::Error& e) {
-          kLog.warn("failed to decode IconFile property change: {}", e.what());
-        }
+        bindUser(userPath);
       });
+}
 
-  readIconFile();
-  kLog.info("session user avatar path: {}", m_iconFile.empty() ? "<unset>" : m_iconFile);
+void AccountsService::bindUser(const std::string& userPath) {
+  m_pendingUserProxy = sdbus::createProxy(m_bus.connection(), kAccountsBusName, sdbus::ObjectPath{userPath});
+  const std::weak_ptr<int> alive = m_aliveToken;
+  m_pendingUserProxy->callMethodAsync("GetAll")
+      .onInterface(kPropertiesInterface)
+      .withArguments(std::string(kUserInterface))
+      .uponReplyInvoke([this,
+                        alive](std::optional<sdbus::Error> error, std::map<std::string, sdbus::Variant> properties) {
+        if (alive.expired()) {
+          return;
+        }
+        std::optional<std::uint64_t> uid;
+        std::string iconFile;
+        try {
+          if (!error.has_value()) {
+            if (const auto it = properties.find("Uid"); it != properties.end()) {
+              uid = it->second.get<std::uint64_t>();
+            }
+            if (const auto it = properties.find("IconFile"); it != properties.end()) {
+              iconFile = it->second.get<std::string>();
+            }
+          }
+        } catch (const sdbus::Error& e) {
+          error = e;
+        }
+        if (error.has_value() || uid != m_sessionUid) {
+          kLog.warn(
+              "accounts service disabled: {}",
+              error.has_value() ? error->getMessage() : "user Uid does not match session uid"
+          );
+          return;
+        }
+        m_userProxy = std::move(m_pendingUserProxy);
+        m_userProxy->uponSignal("PropertiesChanged")
+            .onInterface(kPropertiesInterface)
+            .call([this](
+                      const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changedProperties,
+                      const std::vector<std::string>& /*invalidatedProperties*/
+                  ) {
+              if (interfaceName != kUserInterface) {
+                return;
+              }
+              const auto it = changedProperties.find("IconFile");
+              if (it == changedProperties.end()) {
+                return;
+              }
+              try {
+                emitChangedIfNeeded(it->second.get<std::string>());
+              } catch (const sdbus::Error& e) {
+                kLog.warn("failed to decode IconFile property change: {}", e.what());
+              }
+            });
+        kLog.info("session user avatar path: {}", iconFile.empty() ? "<unset>" : iconFile);
+        emitChangedIfNeeded(iconFile);
+      });
 }
 
 void AccountsService::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
@@ -173,8 +195,8 @@ void AccountsService::createUser(
         const char* userPath = nullptr;
         g_variant_get(created, "(&o)", &userPath);
         callInteractive(
-            "org.freedesktop.Accounts", userPath, kUserInterface, "SetPassword", g_variant_new("(ss)", hash.c_str(), ""),
-            [login, done](GVariant* set, std::string passwordError) {
+            "org.freedesktop.Accounts", userPath, kUserInterface, "SetPassword",
+            g_variant_new("(ss)", hash.c_str(), ""), [login, done](GVariant* set, std::string passwordError) {
               if (set != nullptr) {
                 done({});
                 return;
@@ -204,7 +226,8 @@ void AccountsService::createUser(
 
 void AccountsService::deleteUser(uid_t uid, std::function<void(std::string)> done) {
   callInteractive(
-      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser", g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
+      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser",
+      g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
       [done = std::move(done)](GVariant* deleted, std::string error) {
         if (deleted == nullptr) {
           kLog.warn("DeleteUser failed: {}", error);
