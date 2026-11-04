@@ -605,14 +605,19 @@ void LiveActivityIsland::setFullscreen(bool fullscreen) {
   m_fullscreen = fullscreen;
   for (auto& inst : m_instances) {
     applyLayer(*inst);
+    // The waveform loop stops under a fullscreen window, so the compositor can scan the window out directly.
+    inst->surface->requestRedraw();
   }
 }
 
 // The plain rest pill goes under a fullscreen window (Top layer), so fullscreen video gets direct scanout. A call at rest
 // stays over it; a collapse to rest moves down only when its morph ends.
+bool LiveActivityIsland::restUnderFullscreen(const Instance& inst) const {
+  return inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
+}
+
 void LiveActivityIsland::applyLayer(Instance& inst) {
-  const bool under = inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
-  inst.surface->setLayer(under ? LayerShellLayer::Top : LayerShellLayer::Overlay);
+  inst.surface->setLayer(restUnderFullscreen(inst) ? LayerShellLayer::Top : LayerShellLayer::Overlay);
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
@@ -921,11 +926,16 @@ void LiveActivityIsland::prepareFrame(Instance& inst, bool needsUpdate, bool nee
     applyContent(inst);
     applyReveal(inst, inst.reveal);
   }
+  syncBarShapes(inst);
+  if (!m_barsTimer.active() && barsNeedTimer()) {
+    syncBars();
+  }
 }
 
 void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   inst.sceneRoot = ui::node({});
   inst.bannerIconKey.clear();
+  inst.barShapeKey.reset(); // the new bar boxes show until syncBarShapes hides them
   inst.sceneRoot->setSize(width, height);
   inst.sceneRoot->setTransformOrigin(0.0F, 0.0F);
   inst.sceneRoot->setScale(inst.scale);
@@ -2076,9 +2086,13 @@ void LiveActivityIsland::syncBars() {
     return;
   }
   if (spectrum != nullptr && m_spectrumListener == 0) {
-    m_spectrumListener = spectrum->addChangeListener(static_cast<int>(std::tuple_size_v<decltype(Instance::barBox)>), [] {});
+    m_spectrumListener = spectrum->addChangeListener(static_cast<int>(std::tuple_size_v<decltype(Instance::barBox)>), [this] {
+      if (!m_barsTimer.active() && realSpectrum()) {
+        syncBars();
+      }
+    });
   }
-  if (!m_barsTimer.active()) {
+  if (!m_barsTimer.active() && barsNeedTimer()) {
     m_barsTimer.startRepeating(std::chrono::milliseconds(33), [this] { tickBars(); });
   }
 }
@@ -2123,6 +2137,75 @@ void LiveActivityIsland::tickBars() {
     if (inst->face == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible()) {
       inst->surface->requestRedraw();
     }
+  }
+  if (!barsNeedTimer()) {
+    m_barsTimer.stop();
+  }
+}
+
+bool LiveActivityIsland::realSpectrum() const {
+  PipeWireSpectrum* spectrum = m_spectrum ? m_spectrum() : nullptr;
+  return spectrum != nullptr && m_spectrumListener != 0 && !spectrum->idle();
+}
+
+// The shell wakes every 33 ms only for a real spectrum, the hover progress, or client-drawn bars; the looping
+// compositor shapes need no wake-up.
+bool LiveActivityIsland::barsNeedTimer() const {
+  if (realSpectrum()) {
+    return true;
+  }
+  return std::ranges::any_of(m_instances, [this](const auto& inst) {
+    return inst->face == Face::HoverMedia
+        || (inst->face == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible() && !inst->barShapeKey
+            && !restUnderFullscreen(*inst));
+  });
+}
+
+void LiveActivityIsland::syncBarShapes(Instance& inst) {
+  std::optional<std::array<float, 6>> key;
+  if (inst.dsk != nullptr && inst.dsk->hasShapes() && inst.bars != nullptr && inst.face == Face::Rest && inst.revealAnimId == 0
+      && !inst.mirror.active && inst.mediaGroup->visible() && !realSpectrum() && !restUnderFullscreen(inst)
+      && MotionService::instance().enabled() && !MotionService::instance().reduced()) {
+    float x = 0.0F;
+    float y = 0.0F;
+    Node::absolutePosition(inst.bars, x, y);
+    const Color c = colorForRole(ColorRole::Accent, 1.0F);
+    key = std::array<float, 6>{x, y, c.r, c.g, c.b, c.a};
+  }
+  if (key == inst.barShapeKey) {
+    return;
+  }
+  if (key) {
+    const double k = inst.scale;
+    for (std::size_t i = 0; i < inst.barShape.size() && key; ++i) {
+      if (inst.barShape[i] == nullptr) {
+        inst.barShape[i] = std::make_unique<DskShapeClient>(*inst.dsk);
+      }
+      DskShapeClient& shape = *inst.barShape[i];
+      const double x = ((*key)[0] + static_cast<float>(i) * (kBarWidth + kBarGap)) * k;
+      const double y = (*key)[1] * k;
+      shape.set(DskShapeClient::Property::Fill, {(*key)[2], (*key)[3], (*key)[4], (*key)[5]});
+      shape.set(DskShapeClient::Property::Radius, {1.5 * k, 0.0, 0.0, 0.0});
+      shape.set(DskShapeClient::Property::Clip, {x, y + (kArt - 4.0F) * 0.5F * k, kBarWidth * k, 4.0 * k});
+      if (!shape.loop(DskShapeClient::Property::Clip, DskShapeClient::Wave::Noise, 1100, static_cast<std::uint32_t>(i + 1),
+                      {x, y, kBarWidth * k, kArt * k})) {
+        kLog.debug("media bars: the compositor cannot loop");
+        key.reset();
+      }
+    }
+  }
+  if (!key) {
+    for (auto& shape : inst.barShape) {
+      shape.reset();
+    }
+  }
+  kLog.debug(
+      "media bars: {} (face {}, reveal anim {}, mirror {}, media {}, real spectrum {})", key ? "compositor loop" : "client",
+      static_cast<int>(inst.face), inst.revealAnimId, inst.mirror.active, inst.mediaGroup->visible(), realSpectrum()
+  );
+  inst.barShapeKey = key;
+  for (Box* box : inst.barBox) {
+    box->setVisible(!key);
   }
 }
 

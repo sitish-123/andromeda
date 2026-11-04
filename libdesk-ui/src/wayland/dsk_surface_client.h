@@ -114,6 +114,12 @@ public:
 
   void set(Property property, const Value& value);
   void animate(Property property, Curve curve, const Value& to, DskSurfaceClient::DoneCallback onDone = {});
+  // Values match dsk_shape_v1.wave.
+  enum class Wave : uint32_t { Sine, Noise };
+  // The compositor repeats the property between its current value and `high` every frame, with no client wake-up,
+  // until a set or animate replaces it. False when it cannot (an older compositor, or motion off or reduced): the
+  // caller shows a still state.
+  [[nodiscard]] bool loop(Property property, Wave wave, uint32_t periodMs, uint32_t seed, const Value& high);
 
 private:
   static const dsk_shape_v1_listener kListener;

@@ -30,6 +30,7 @@ struct Notification;
 enum class NotificationEvent;
 class PipeWireSpectrum;
 class DskSurfaceClient;
+class DskShapeClient;
 class ConfigService;
 class Glyph;
 class InputArea;
@@ -133,6 +134,9 @@ private:
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
+    // Rest-face waveform drawn by the compositor as flat looping shapes; after `dsk`, so destroyed first.
+    std::array<std::unique_ptr<DskShapeClient>, 3> barShape;
+    std::optional<std::array<float, 6>> barShapeKey; // x, y, r, g, b, a of the looping bars; empty = client bars
     // sceneRoot must be destroyed before `animations`: ~Node() cancels its animations.
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
@@ -288,6 +292,10 @@ private:
   void loadArt(Instance& inst, Renderer& renderer, const std::string& artUrl);
   void syncBars();
   void tickBars();
+  void syncBarShapes(Instance& inst);
+  [[nodiscard]] bool restUnderFullscreen(const Instance& inst) const;
+  [[nodiscard]] bool realSpectrum() const;
+  [[nodiscard]] bool barsNeedTimer() const;
   void syncHoverProgress(Instance& inst);
   void startNextBanner();
   void endBanner();

@@ -176,6 +176,20 @@ void DskShapeClient::set(Property property, const Value& value) {
   );
 }
 
+bool DskShapeClient::loop(Property property, Wave wave, uint32_t periodMs, uint32_t seed, const Value& high) {
+  const auto& motion = MotionService::instance();
+  if (m_shape == nullptr
+      || wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_shape)) < DSK_SHAPE_V1_LOOP_SINCE_VERSION
+      || !motion.enabled() || motion.reduced()) {
+    return false;
+  }
+  dsk_shape_v1_loop(
+      m_shape, m_nextSerial++, static_cast<uint32_t>(property), static_cast<uint32_t>(wave), periodMs, seed,
+      fixed(high[0]), fixed(high[1]), fixed(high[2]), fixed(high[3])
+  );
+  return true;
+}
+
 void DskShapeClient::animate(Property property, Curve curve, const Value& to, DskSurfaceClient::DoneCallback onDone) {
   // Rulebook 7.8, as DskSurfaceClient::animate.
   const auto& motion = MotionService::instance();
