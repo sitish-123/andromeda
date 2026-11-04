@@ -61,6 +61,8 @@ struct AudioState {
   std::uint32_t defaultSourceId = 0;
   // Processes with a running audio stream (playback or capture), sorted: QoS keeps them out of the hidden tiers.
   std::vector<std::uint32_t> audioPids;
+  // Some app's playback stream is running; the spectrum captures the sink monitor only then.
+  bool playing = false;
 
   bool operator==(const AudioState&) const = default;
 };

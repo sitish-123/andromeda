@@ -442,7 +442,8 @@ void PipeWireSpectrum::handleAudioStateChanged() {
   if (target != m_boundNodeId
       || targetObject != m_boundTargetObject
       || (target == 0 && m_stream != nullptr)
-      || (target != 0 && targetNode == nullptr)) {
+      || (target != 0 && targetNode == nullptr)
+      || sinkIdle(targetNode) == (m_stream != nullptr)) {
     rebuildStream();
   }
 }
@@ -455,7 +456,8 @@ void PipeWireSpectrum::rebuildStream() {
 
   const std::uint32_t target = resolvedTargetNodeId();
   const auto* targetNode = resolvedTargetNode();
-  if (!hasListeners() || target == 0 || targetNode == nullptr) {
+  // A capture of the sink monitor keeps the audio graph and device awake: connect only while an app plays.
+  if (!hasListeners() || target == 0 || targetNode == nullptr || sinkIdle(targetNode)) {
     return;
   }
   if (targetNode->name.empty()) {
@@ -483,6 +485,10 @@ void PipeWireSpectrum::rebuildStream() {
     resetListenerState(state, false);
   }
   m_nextFrameAt = std::chrono::steady_clock::now();
+}
+
+bool PipeWireSpectrum::sinkIdle(const AudioNode* target) const noexcept {
+  return target != nullptr && target->mediaClass == "Audio/Sink" && !m_service.state().playing;
 }
 
 std::uint32_t PipeWireSpectrum::resolvedTargetNodeId() const noexcept {

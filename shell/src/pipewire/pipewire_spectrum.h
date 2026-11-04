@@ -71,6 +71,8 @@ private:
   void rebuildStream();
   [[nodiscard]] std::uint32_t resolvedTargetNodeId() const noexcept;
   [[nodiscard]] const AudioNode* resolvedTargetNode() const noexcept;
+  // A sink with no app playing: its monitor carries silence, and capturing it keeps the graph awake.
+  [[nodiscard]] bool sinkIdle(const AudioNode* target) const noexcept;
   void clearValues(bool notify);
   void emitChanged(ListenerId id);
 

@@ -2018,6 +2018,7 @@ void PipeWireService::rebuildState() {
     if (node != nullptr && node->running && node->processId != 0 && node->processId != static_cast<std::uint32_t>(getpid())
         && node->mediaClass.starts_with("Stream/") && node->mediaClass.ends_with("/Audio")) {
       next.audioPids.push_back(node->processId);
+      next.playing = next.playing || node->mediaClass == "Stream/Output/Audio";
     }
   }
   std::ranges::sort(next.audioPids);
