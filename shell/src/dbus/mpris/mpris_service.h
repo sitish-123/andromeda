@@ -215,6 +215,7 @@ private:
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_recentNoSignalPauseAt;
   std::unordered_map<std::string, std::int64_t> m_pendingPositionCandidateUs;
   std::unordered_map<std::string, int> m_pendingPositionCandidateMatches;
+  std::unordered_map<std::string, int> m_positionCandidateMisses;
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_pendingPositionCandidateAt;
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_lastPositionSampleAt;
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_lastPropertiesUpdate;

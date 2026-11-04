@@ -332,6 +332,9 @@ namespace {
   constexpr Logger kLog("mpris");
   constexpr auto kPositionRetryInterval = std::chrono::milliseconds{1000};
   constexpr auto kPositionCandidateRetryInterval = std::chrono::milliseconds{250};
+  // A player whose Position does not advance while Playing (a stalled stream, a phone player bridged with a fixed
+  // position) never confirms a candidate: stop polling after this many misses instead of every 250 ms forever.
+  constexpr int kMaxPositionCandidateMisses = 8;
   constexpr auto kPositionRetryInitialBackoff = std::chrono::milliseconds{2000};
   constexpr auto kPositionRetryMaxBackoff = std::chrono::milliseconds{30'000};
   // Threshold for consecutive failures while fetching full player properties in addOrRefreshPlayer.
@@ -599,7 +602,8 @@ void MprisService::applyPositionSample(const std::string& busName, int64_t rawPo
       m_pendingPositionCandidateUs[busName] = normalizedUs;
       m_pendingPositionCandidateMatches[busName] = 0;
       m_pendingPositionCandidateAt[busName] = now;
-      if (playerIt->second.playbackStatus == "Playing" && shouldRetryPropertiesRefresh(busName)) {
+      if (playerIt->second.playbackStatus == "Playing" && shouldRetryPropertiesRefresh(busName)
+          && ++m_positionCandidateMisses[busName] <= kMaxPositionCandidateMisses) {
         schedulePositionRefreshRetry(busName, kPositionCandidateRetryInterval, false);
       }
       return;
@@ -643,6 +647,7 @@ void MprisService::applyPositionSample(const std::string& busName, int64_t rawPo
   m_hasAuthoritativePositionSample[busName] = true;
   m_pendingPositionCandidateUs.erase(busName);
   m_pendingPositionCandidateMatches.erase(busName);
+  m_positionCandidateMisses.erase(busName);
   m_pendingPositionCandidateAt.erase(busName);
 }
 
@@ -1784,6 +1789,7 @@ void MprisService::addOrRefreshPlayer(const std::string& busName) {
       m_previousTrackRawPositionUs.erase(busName);
       m_pendingPositionCandidateUs.erase(busName);
       m_pendingPositionCandidateMatches.erase(busName);
+      m_positionCandidateMisses.erase(busName);
       m_pendingPositionCandidateAt.erase(busName);
       if (m_changeCallback) {
         m_changeCallback();
@@ -1971,6 +1977,7 @@ void MprisService::applyPlayerSnapshot(
     m_previousTrackRawPositionUs.erase(busName);
     m_pendingPositionCandidateUs.erase(busName);
     m_pendingPositionCandidateMatches.erase(busName);
+    m_positionCandidateMisses.erase(busName);
     m_pendingPositionCandidateAt.erase(busName);
     m_players.emplace(busName, std::move(initial));
     emitPlayersChanged();
@@ -2137,6 +2144,7 @@ void MprisService::applyPlayerSnapshot(
       m_lastPositionSampleAt[busName] = now;
       m_pendingPositionCandidateUs.erase(busName);
       m_pendingPositionCandidateMatches.erase(busName);
+      m_positionCandidateMisses.erase(busName);
       m_pendingPositionCandidateAt.erase(busName);
     }
 
@@ -2243,6 +2251,7 @@ void MprisService::clearPlayerState(const std::string& busName) {
   m_recentNoSignalPauseAt.erase(busName);
   m_pendingPositionCandidateUs.erase(busName);
   m_pendingPositionCandidateMatches.erase(busName);
+  m_positionCandidateMisses.erase(busName);
   m_pendingPositionCandidateAt.erase(busName);
   m_lastPositionSampleAt.erase(busName);
   m_lastPropertiesUpdate.erase(busName);
