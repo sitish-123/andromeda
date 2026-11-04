@@ -690,7 +690,10 @@ holds = [{ knob = "app.freeze", value = true }]
         };
         assert!(starts(engine.step_instances(&apps(), t0, 0)).is_empty());
         assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(10), 1)), ["huge"]);
-        assert!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(15), 2)).is_empty(), "the rest wait 10 s again");
+        assert!(
+            starts(engine.step_instances(&apps(), t0 + Duration::from_secs(15), 2)).is_empty(),
+            "the rest wait 10 s again"
+        );
         assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(20), 3)), ["big"]);
         assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(30), 4)), ["small"]);
         assert!(load(&text.replace("per = \"app\"\n", ""), &Mem(0.0)).unwrap()[0].is_err(), "only per-app rules");

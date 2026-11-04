@@ -70,9 +70,9 @@ fn domain_joules(domain: &str, state: &std::sync::Mutex<(Option<u64>, f64)>) -> 
 
 /// The package's `uncore` subdomain (Intel: the integrated GPU and the ring); absent on AMD.
 fn uncore_domain() -> Option<String> {
-    (0..4).map(|i| format!("{RAPL}:{i}")).find(|d| {
-        std::fs::read_to_string(format!("{d}/name")).is_ok_and(|n| n.trim() == "uncore")
-    })
+    (0..4)
+        .map(|i| format!("{RAPL}:{i}"))
+        .find(|d| std::fs::read_to_string(format!("{d}/name")).is_ok_and(|n| n.trim() == "uncore"))
 }
 
 #[interface(name = "org.andromeda.System1.Power")]
