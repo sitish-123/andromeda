@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <time.h>
 #include <unistd.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/interface.h>
@@ -210,6 +211,30 @@ static void shm_slot_write(struct wlr_buffer* slot, const pixman_region32_t* reg
   ioctl(staging->dmabuf.fd[0], DMA_BUF_IOCTL_SYNC, &sync);
 }
 
+// Slot pressure under scanout: slots added after the first, and writes into the
+// slot the last frame used because every other slot was locked or missing.
+static struct {
+  uint64_t created, in_place, logged_created, logged_in_place;
+  int64_t last_log_ms;
+} slot_stats;
+
+static void slot_stats_log(void) {
+  if (slot_stats.created == slot_stats.logged_created && slot_stats.in_place == slot_stats.logged_in_place) {
+    return;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  const int64_t ms = (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+  if (ms - slot_stats.last_log_ms < 1000) {
+    return;
+  }
+  slot_stats.last_log_ms = ms;
+  slot_stats.logged_created = slot_stats.created;
+  slot_stats.logged_in_place = slot_stats.in_place;
+  wlr_log(WLR_INFO, "shm staging: %llu slots created, %llu in-place writes", (unsigned long long)slot_stats.created,
+          (unsigned long long)slot_stats.in_place);
+}
+
 static bool fx_texture_update_from_buffer(
     struct wlr_texture* wlr_texture, struct wlr_buffer* buffer, const pixman_region32_t* damage
 ) {
@@ -272,8 +297,13 @@ static bool fx_texture_update_from_buffer(
       if (!texture->slot_failed) {
         pixman_region32_init_rect(&texture->slot_stale[count], 0, 0, buffer->width, buffer->height);
         next = count;
+        ++slot_stats.created;
       }
     }
+    if (next < 0) {
+      ++slot_stats.in_place;
+    }
+    slot_stats_log();
     if (next >= 0) {
       texture->slot = next;
       texture->tex = texture->slot_tex[next];
