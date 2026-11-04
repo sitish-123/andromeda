@@ -761,7 +761,7 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
         let (deadline, wake) = {
             let inner = shared.lock().await;
             let clock = inner.state.clock_runs().then(|| Instant::now() + CLOCK_STEP);
-            let deadline = [inner.engine.deadline(), clock].into_iter().flatten().min();
+            let deadline = [inner.engine.deadline(Instant::now()), clock].into_iter().flatten().min();
             (deadline, inner.wake.clone())
         };
         let sleep = async {

@@ -279,14 +279,14 @@ impl Engine {
         Ok(changes)
     }
 
-    /// The next time `step` must run with no state change.
-    pub fn deadline(&self) -> Option<Instant> {
+    /// The next time after `now` that `step` must run with no state change.
+    pub fn deadline(&self, now: Instant) -> Option<Instant> {
         self.slots
             .iter()
             .filter(|s| s.enabled)
             .flat_map(|s| {
-                std::iter::once(s.episode.deadline(&s.rule))
-                    .chain(s.instances.values().map(|(e, _)| e.deadline(&s.rule)))
+                std::iter::once(s.episode.deadline(&s.rule, now))
+                    .chain(s.instances.values().map(|(e, _)| e.deadline(&s.rule, now)))
             })
             .flatten()
             .min()

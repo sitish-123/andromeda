@@ -330,11 +330,12 @@ impl Episode {
         }
     }
 
-    /// When `step` must run again even if no value changes: the end of `for` or of `dwell`.
-    pub fn deadline(&self, rule: &Rule) -> Option<Instant> {
+    /// When `step` must run again even if no value changes: the end of `for`, or of `dwell` while it is after `now`
+    /// (past the dwell only a state change can clear the episode).
+    pub fn deadline(&self, rule: &Rule, now: Instant) -> Option<Instant> {
         match self.phase {
             Phase::Pending { since } => Some(since + rule.hold_for),
-            Phase::Active { since, .. } if !rule.dwell.is_zero() => Some(since + rule.dwell),
+            Phase::Active { since, .. } if since + rule.dwell > now => Some(since + rule.dwell),
             _ => None,
         }
     }
@@ -390,11 +391,23 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
         let mut ep = Episode::default();
         let t0 = Instant::now();
         assert_eq!(ep.step(&rule, &at(true, 19.0), t0), None);
-        assert_eq!(ep.deadline(&rule), Some(t0 + Duration::from_secs(10)));
+        assert_eq!(ep.deadline(&rule, t0), Some(t0 + Duration::from_secs(10)));
         assert_eq!(ep.step(&rule, &at(true, 19.0), t0 + Duration::from_secs(10)), Some(Event::Started));
         // Charger in after 30 s: clear holds, but dwell keeps the episode until 2 min.
         assert_eq!(ep.step(&rule, &at(false, 19.0), t0 + Duration::from_secs(40)), None);
         assert_eq!(ep.step(&rule, &at(false, 19.0), t0 + Duration::from_secs(130)), Some(Event::Ended(End::Cleared)));
+    }
+
+    #[test]
+    fn an_episode_past_its_dwell_has_no_deadline_until_it_clears() {
+        let rule = load(RULE, &at(false, 0.0)).unwrap().pop().unwrap().unwrap();
+        let mut ep = Episode::default();
+        let t0 = Instant::now();
+        ep.step(&rule, &at(true, 19.0), t0);
+        assert_eq!(ep.step(&rule, &at(true, 19.0), t0 + Duration::from_secs(10)), Some(Event::Started));
+        let later = t0 + Duration::from_secs(300);
+        assert_eq!(ep.step(&rule, &at(true, 19.0), later), None, "still low: no clear");
+        assert_eq!(ep.deadline(&rule, later), None, "a past deadline makes the session loop spin");
     }
 
     #[test]
