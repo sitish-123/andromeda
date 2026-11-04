@@ -4,7 +4,7 @@
 # Needs: the compositor started with ANDROMEDA_FRAME_LOG=$OUT/frames.log, and foot, mpv, ffmpeg, ydotool, notify-send.
 # Usage: OUT=/tmp/glass-live SECONDS_PER=12 RECORD=0 tests/glass-live.sh
 #   SCENARIOS="cc_over_video worst" runs only those scenarios.
-# MPV_ARGS="--vo=dmabuf-wayland --hwdec=vaapi" is a diagnostic run only (no mpv GPU render); final numbers use plain mpv.
+# mpv reads /etc/mpv/mpv.conf (the shipped default, session/mpv/mpv.conf); final numbers need it installed. MPV_ARGS adds options.
 #   RECORD=1 also records the screen to $OUT/run.mp4 (wf-recorder costs GPU time: use it on a second pass, not for numbers).
 set -uo pipefail
 OUT=${OUT:-/tmp/glass-live}
