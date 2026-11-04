@@ -112,6 +112,7 @@ namespace andromeda {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("HoldTier", "sss", "s", onHoldTier, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("HoldFreeze", "ss", "s", onHoldFreeze, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("SetHiddenFpsCap", "u", "", onSetHiddenFpsCap, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("Release", "s", "", onRelease, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL("AppStats", "a(sbbsbdt)", 0),
@@ -324,6 +325,17 @@ namespace andromeda {
     return sd_bus_reply_method_return(message, "s", id->c_str());
   }
 
+  int AppsBus::onSetHiddenFpsCap(sd_bus_message* message, void* /*data*/, sd_bus_error* /*error*/) {
+    std::uint32_t hz = 0;
+    if (const int r = sd_bus_message_read(message, "u", &hz); r < 0) {
+      return r;
+    }
+    qos::Registry& registry = qos::registry();
+    registry.hiddenFpsCap = hz;
+    registry.fpsCapOwner = hz == 0 ? "" : sd_bus_message_get_sender(message);
+    return sd_bus_reply_method_return(message, "");
+  }
+
   int AppsBus::onRelease(sd_bus_message* message, void* data, sd_bus_error* error) {
     auto* self = static_cast<AppsBus*>(data);
     const char* id = nullptr;
@@ -362,6 +374,10 @@ namespace andromeda {
     }
     if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().holds.releaseOwner(name)) {
       self->changed();
+    }
+    if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().fpsCapOwner == name) {
+      qos::registry().hiddenFpsCap = 0;
+      qos::registry().fpsCapOwner.clear();
     }
     return 0;
   }

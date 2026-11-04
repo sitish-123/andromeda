@@ -32,7 +32,7 @@ dwell = "1m"
 holds = [{ knob = "app.freeze", value = true }]
 
 # Cools the machine: while a zone is past a trip point, hidden apps run at T3 (efficiency CPUs, low weight).
-# Not built from the doc yet: the fps cap for hidden content. The alert is thermal.hot below.
+# The fps cap is thermal.fps_cap and the alert thermal.hot, below.
 [[rule]]
 id = "thermal.relief"
 scope = "session"
@@ -43,6 +43,17 @@ for = "1m"
 clear = "not thermal.throttled"
 dwell = "2m"
 holds = [{ knob = "app.tier", value = "T3" }]
+
+# thermal.relief's frame cap: hidden content that still draws (background_render windows) gets 15 frames/s.
+[[rule]]
+id = "thermal.fps_cap"
+scope = "session"
+priority = "safety"
+when = "thermal.throttled"
+for = "1m"
+clear = "not thermal.throttled"
+dwell = "2m"
+holds = [{ knob = "display.fps_cap_hidden", value = 15 }]
 
 # thermal.relief's alert: one per episode, only when throttling lasts 5 min.
 [[rule]]

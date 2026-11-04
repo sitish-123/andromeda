@@ -64,6 +64,10 @@ namespace andromeda::qos {
   struct Registry {
     Holds holds;
     std::map<std::string, AppState> apps; // by unit
+    // display.fps_cap_hidden from SetHiddenFpsCap: frame callbacks per second for hidden content that still draws
+    // (background_render windows); 0 = no cap. Ends when `fpsCapOwner` leaves the bus.
+    unsigned hiddenFpsCap = 0;
+    std::string fpsCapOwner;
     std::function<void()> changed;
   };
   Registry& registry();

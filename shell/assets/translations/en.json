@@ -2114,6 +2114,7 @@
       "rule-storage": "Low storage alert",
       "rule-optimized-charging": "Optimized charging",
       "rule-thermal-hot": "Overheating alert",
+      "rule-thermal-fps": "Slower hidden animations when hot",
       "sot": "Screen on time",
       "sot-since-unplugged": "Since unplugged",
       "sot-since-full": "Since full charge",

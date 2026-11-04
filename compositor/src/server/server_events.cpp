@@ -22,6 +22,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "qos/controller.h"
+#include "qos/holds.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -357,14 +358,13 @@ namespace andromeda {
 
   namespace {
     // A hidden background_render window's callback interval: its output's refresh period, or 60 Hz when the output
-    // reports none (headless and nested outputs).
+    // reports none (headless and nested outputs); never faster than the display.fps_cap_hidden hold.
     int backgroundRenderIntervalMs(const View& view) {
       const Output* output = view.currentOutput();
       const int refreshMhz = output != nullptr ? output->wlr()->refresh : 0;
-      if (refreshMhz <= 0) {
-        return 16;
-      }
-      return std::max(1, (1'000'000 + refreshMhz / 2) / refreshMhz);
+      const int interval = refreshMhz <= 0 ? 16 : std::max(1, (1'000'000 + refreshMhz / 2) / refreshMhz);
+      const unsigned cap = qos::registry().hiddenFpsCap;
+      return cap == 0 ? interval : std::max(interval, static_cast<int>((1000 + cap / 2) / cap));
     }
 
     bool needsBackgroundRender(const View& view) {

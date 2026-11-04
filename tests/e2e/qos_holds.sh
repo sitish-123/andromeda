@@ -84,4 +84,43 @@ await "owner left the bus: thawed" 0 2000 freeze
 unknown=$(busctl --user call "${APPS[@]}" HoldFreeze ss app-none-$$.scope e2e 2>&1 || true)
 [[ $unknown == *"not an app scope"* ]] || fail "hold on an unknown unit: $unknown"
 echo "unknown unit: refused" | tee -a "$OUT/result.txt"
+# display.fps_cap_hidden: SetHiddenFpsCap slows a hidden background_render window's frame callbacks, and the cap ends
+# when its owner leaves the bus.
+printf '\n[[window_rule]]\nmatch.title = "^paced$"\nbackground_render = true\n' >> "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
+mkfifo "$RUNTIME/paced.fifo"
+REPAINT_ON_STDIN=1 env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" \
+  "$ROOT/compositor/build-debug/tests/unmap-client" paced 400 300 < "$RUNTIME/paced.fifo" > "$OUT/paced.log" 2>&1 &
+exec 4> "$RUNTIME/paced.fifo"
+for _ in $(seq 100); do run "$ANDROMEDA" windows --json 2> /dev/null | grep -q '"paced"' && break; sleep 0.05; done
+run "$ANDROMEDA" msg workspace-switch:3 > /dev/null
+sleep 0.3
+# Milliseconds for ten frame callbacks one after another.
+ten_frames() {
+  local start=$(ms) before
+  for _ in $(seq 10); do
+    before=$(grep -c '^repainted ' "$OUT/paced.log" || true)
+    printf R >&4
+    until (($(grep -c '^repainted ' "$OUT/paced.log" || true) > before)); do
+      (($(ms) - start > 5000)) && fail "the hidden background_render window stopped getting frame callbacks"
+      sleep 0.005
+    done
+  done
+  echo $(($(ms) - start))
+}
+coproc CAPPER {
+  python3 -u -c '
+import sys, dbus
+apps = dbus.Interface(dbus.SessionBus().get_object(sys.argv[1], sys.argv[2]), sys.argv[3])
+apps.SetHiddenFpsCap(dbus.UInt32(5)); print("capped", flush=True); sys.stdin.readline()
+' "${APPS[@]}"
+}
+read -r -t 5 reply <&"${CAPPER[0]}" || fail "SetHiddenFpsCap: no reply"
+capped=$(ten_frames)
+((capped >= 1600)) || fail "ten hidden frames at a 5 Hz cap took ${capped} ms, want >= 1600"
+kill "$CAPPER_PID" 2> /dev/null || true
+sleep 0.5
+free=$(ten_frames)
+((free < 800)) || fail "after the capper left, ten hidden frames took ${free} ms, want < 800"
+echo "fps cap: ten hidden frames ${capped} ms at 5 Hz, ${free} ms after the owner left" | tee -a "$OUT/result.txt"
 echo "PASS: $OUT/result.txt"

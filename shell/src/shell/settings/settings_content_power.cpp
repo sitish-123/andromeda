@@ -73,6 +73,9 @@ namespace settings {
       if (id == "storage.low") {
         return i18n::tr("settings.power.rule-storage");
       }
+      if (id == "thermal.fps_cap") {
+        return i18n::tr("settings.power.rule-thermal-fps");
+      }
       if (id == "thermal.hot") {
         return i18n::tr("settings.power.rule-thermal-hot");
       }

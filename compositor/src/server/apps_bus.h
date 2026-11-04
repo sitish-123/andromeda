@@ -37,6 +37,7 @@ namespace andromeda {
     static int onSample(void* data);
     static int onHoldTier(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onHoldFreeze(sd_bus_message* message, void* data, sd_bus_error* error);
+    static int onSetHiddenFpsCap(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onRelease(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onList(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onOwnerChanged(sd_bus_message* message, void* data, sd_bus_error* error);
