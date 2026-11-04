@@ -2848,6 +2848,9 @@ void wlr_scene_buffer_set_buffer_with_options(
     }
   }
 
+  if (buffer != NULL && (options->damage == NULL || pixman_region32_not_empty(options->damage))) {
+    scene_buffer->content_seq++;
+  }
   scene_buffer_set_buffer(scene_buffer, buffer);
   scene_buffer_set_texture(scene_buffer, NULL);
   scene_buffer_set_wait_timeline(scene_buffer, options->wait_timeline, options->wait_point);
@@ -5908,10 +5911,27 @@ static bool overlay_scanout_allowed(struct wlr_output* output, int animation_ren
   return true;
 }
 
-// With a layer, the entry goes on the primary plane under that layer; the caller checks that only nodes above hide it.
+// The buffer a plane shows for a scene buffer: the client's dmabuf, or the linear staging copy a large shm buffer is
+// drawn from (fx_texture.c).
+static struct wlr_buffer* scene_buffer_scanout_buffer(struct wlr_scene_buffer* scene_buffer) {
+  struct wlr_buffer* buffer = scene_buffer->buffer;
+  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(buffer);
+  if (client_buffer == NULL) {
+    return buffer;
+  }
+  struct wlr_buffer* source = client_buffer->source != NULL && client_buffer->source->n_locks > 0 ? client_buffer->source : NULL;
+  struct wlr_dmabuf_attributes dmabuf;
+  if (source != NULL && wlr_buffer_get_dmabuf(source, &dmabuf)) {
+    return source;
+  }
+  struct wlr_buffer* slot = client_buffer->texture != NULL ? fx_texture_get_scanout_buffer(client_buffer->texture) : NULL;
+  return slot != NULL ? slot : source != NULL ? source : buffer;
+}
+
 // The compositor's libliftoff interposer defines it; absent in other programs that link the scene.
 bool andromeda_liftoff_take_composited(void) __attribute__((weak));
 
+// With a layer, the entry goes on the primary plane under that layer; the caller checks that only nodes above hide it.
 static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     struct render_list_entry* entry, struct wlr_output_state* state, const struct render_data* data,
     struct wlr_output_layer_state* layer, size_t layers_len, enum wlr_scene_direct_scanout_status* status
@@ -6024,11 +6044,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   scene_node_get_size(node, &pending.buffer_dst_box.width, &pending.buffer_dst_box.height);
   transform_output_box(&pending.buffer_dst_box, data);
 
-  struct wlr_buffer* wlr_buffer = buffer->buffer;
-  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(wlr_buffer);
-  if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
-    wlr_buffer = client_buffer->source;
-  }
+  struct wlr_buffer* wlr_buffer = scene_buffer_scanout_buffer(buffer);
 
   wlr_output_state_set_buffer(&pending, wlr_buffer);
   if (buffer->wait_timeline != NULL) {
@@ -6154,10 +6170,7 @@ static bool overlay_video_layer_state(
       return false;
     }
   }
-  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(buffer);
-  if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
-    buffer = client_buffer->source;
-  }
+  buffer = scene_buffer_scanout_buffer(scene_buffer);
   *layer = (struct wlr_output_layer_state){
       .layer = scene_output->overlay_video_layer,
       .buffer = buffer,
@@ -6211,11 +6224,8 @@ static bool scene_output_try_overlay(
   }
   struct wlr_dmabuf_attributes video_dmabuf = {0};
   if (video >= 0) {
-    struct wlr_buffer* source = wlr_scene_buffer_from_node(list[video].node)->buffer;
-    struct wlr_client_buffer* client_buffer = source != NULL ? wlr_client_buffer_get(source) : NULL;
-    if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
-      source = client_buffer->source;
-    }
+    struct wlr_scene_buffer* video_buffer = wlr_scene_buffer_from_node(list[video].node);
+    struct wlr_buffer* source = video_buffer->buffer != NULL ? scene_buffer_scanout_buffer(video_buffer) : NULL;
     if (scene_output->overlay_video_block > 0) {
       scene_output->overlay_video_block--;
     }
@@ -6240,21 +6250,17 @@ static bool scene_output_try_overlay(
   int width, height;
   scene_node_get_size(entry->node, &width, &height);
   // Only a buffer that keeps updating (video) pays for a second plane; a still one (wallpaper) composites.
-  // A surface gets a new client buffer per commit, often at a reused address: compare the client's own buffers.
-  const struct wlr_buffer* source = wlr_scene_buffer_from_node(entry->node)->buffer;
-  const struct wlr_client_buffer* client_buffer = wlr_client_buffer_get((struct wlr_buffer*)source);
-  if (client_buffer != NULL && client_buffer->source != NULL) {
-    source = client_buffer->source;
-  }
+  // Buffer identity cannot tell: clients reuse buffers, and while composited the staging slot stays the same.
+  const uint32_t seq = wlr_scene_buffer_from_node(entry->node)->content_seq;
   if (entry->node != scene_output->overlay_candidate) {
     scene_output->overlay_candidate = entry->node;
     scene_output->overlay_candidate_still = UINT8_MAX;
-  } else if (source != scene_output->overlay_candidate_buffer) {
+  } else if (seq != scene_output->overlay_candidate_seq) {
     scene_output->overlay_candidate_still = 0;
   } else if (scene_output->overlay_candidate_still < UINT8_MAX) {
     scene_output->overlay_candidate_still++;
   }
-  scene_output->overlay_candidate_buffer = source;
+  scene_output->overlay_candidate_seq = seq;
   if (scene_output->overlay_candidate_still > 30) {
     overlay_refusal = "bottom buffer still";
     return false;

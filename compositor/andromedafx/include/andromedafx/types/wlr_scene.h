@@ -348,6 +348,8 @@ struct wlr_scene_buffer {
     // If is_single_pixel_buffer is set, contains the color of the buffer
     // as {R, G, B, A} where the max value of each component is UINT32_MAX
     uint32_t single_pixel_buffer_color[4];
+    // Counts buffer commits with damage; tells new content apart from a reused buffer or staging slot.
+    uint32_t content_seq;
   } WLR_PRIVATE;
 
   struct fx_corner_radii corners;
@@ -473,9 +475,9 @@ struct wlr_scene_output {
     uint8_t overlay_untested_frames;
     // Frames left before the next overlay attempt after a rejected one.
     uint8_t overlay_backoff;
-    // Identity only, never dereferenced: the last bottom candidate, its buffer, and frames built without a new one.
+    // Identity only, never dereferenced: the last bottom candidate, its content_seq, and frames built without new content.
     const void* overlay_candidate;
-    const void* overlay_candidate_buffer;
+    uint32_t overlay_candidate_seq;
     uint8_t overlay_candidate_still;
   } WLR_PRIVATE;
 };
