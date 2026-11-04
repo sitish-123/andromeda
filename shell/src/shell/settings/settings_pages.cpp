@@ -123,7 +123,6 @@ namespace settings {
         "andromeda.layout.mode", "andromeda.layout.gap", "andromeda.input.focus.follows_mouse",
         "andromeda.workspaces.back_and_forth", "hot_corners.enabled", "shell.window_switcher.style",
         "andromeda.overview.zoom",
-        "andromeda.general.mod_key", "shell.keyboard_layout.custom_labels",
         "shell.session.actions", "idle.behavior",
         "lockscreen.enabled", "lockscreen.lock_before_suspend", "lockscreen.grace_period_seconds",
         "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",

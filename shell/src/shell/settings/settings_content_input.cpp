@@ -6,6 +6,7 @@
 #include "shell/settings/settings_selection_style.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/select.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
@@ -336,26 +337,30 @@ namespace settings {
         body->addChild(std::move(row));
       }
       {
-        std::vector<std::string> addLabels;
-        std::vector<std::string> addNames;
+        std::vector<const xkb::Layout*> addable;
         for (const xkb::Layout& layout : catalog.layouts) {
           if (!std::ranges::contains(sources, layout.name)) {
-            addNames.push_back(layout.name);
-            addLabels.push_back(layout.description);
+            addable.push_back(&layout);
           }
         }
-        body->addChild(makeInputRow(
-            i18n::tr("settings.input.keyboard.add-source"),
-            makeInputSelect(
-                std::move(addLabels), std::nullopt, ctx.scale,
-                [set = ctx.set, sources, addNames = std::move(addNames)](std::size_t index) {
-                  std::vector<std::string> next = sources;
-                  next.push_back(addNames[index]);
-                  set("input.keyboard.layout", joinOptions(next));
-                }
-            ),
-            layoutKey, ctx
-        ));
+        std::ranges::sort(addable, {}, &xkb::Layout::description);
+        std::vector<std::string> addLabels;
+        std::vector<std::string> addNames;
+        for (const xkb::Layout* layout : addable) {
+          addNames.push_back(layout->name);
+          addLabels.push_back(layout->description);
+        }
+        auto addSelect = makeInputSelect(
+            std::move(addLabels), std::nullopt, ctx.scale,
+            [set = ctx.set, sources, addNames = std::move(addNames)](std::size_t index) {
+              std::vector<std::string> next = sources;
+              next.push_back(addNames[index]);
+              set("input.keyboard.layout", joinOptions(next));
+            }
+        );
+        // An add picker has no current value: with an item preselected, picking that item would add nothing.
+        static_cast<Select*>(addSelect.get())->clearSelection();
+        body->addChild(makeInputRow(i18n::tr("settings.input.keyboard.add-source"), std::move(addSelect), layoutKey, ctx));
       }
 
       if (const xkb::Layout* layout = sources.size() == 1 ? xkb::findLayout(catalog, currentLayout) : nullptr;
@@ -383,11 +388,12 @@ namespace settings {
         ));
       }
 
+      // Slider ranges cover what people use (keys per second, ms); the config allows wider values.
       constexpr std::string_view repeatRateKey = "input.keyboard.repeat_rate";
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.repeat-rate"),
           makeInputSlider(
-              toDouble(input.value("input.keyboard.repeat_rate"), 25.0), 0.0, 1000.0, 1.0, true, ctx.scale,
+              toDouble(input.value("input.keyboard.repeat_rate"), 25.0), 2.0, 60.0, 1.0, true, ctx.scale,
               [set = ctx.set](double v) { set("input.keyboard.repeat_rate", std::format("{}", static_cast<int>(v))); },
               i18n::tr("settings.sliders.slow"), i18n::tr("settings.sliders.fast")
           ),
@@ -398,7 +404,7 @@ namespace settings {
       body->addChild(makeInputRow(
           i18n::tr("settings.input.keyboard.repeat-delay"),
           makeInputSlider(
-              toDouble(input.value("input.keyboard.repeat_delay"), 600.0), 0.0, 10000.0, 50.0, true, ctx.scale,
+              toDouble(input.value("input.keyboard.repeat_delay"), 600.0), 150.0, 2000.0, 50.0, true, ctx.scale,
               [set = ctx.set](double v) { set("input.keyboard.repeat_delay", std::format("{}", static_cast<int>(v))); },
               i18n::tr("settings.sliders.short"), i18n::tr("settings.sliders.long")
           ),

@@ -30,10 +30,20 @@ namespace {
 
   // The arrangement canvas places each output by hand (participatesInLayout false). Flex skips such children, so their
   // own content (the wallpaper and the name) would never lay out; lay them out at the size they were given.
+  // A parent Flex reaches this node through arrange(), which skips doLayout, so both entry points do it.
   class PositionedLayout final : public Flex {
   protected:
     void doLayout(Renderer& renderer) override {
       Flex::doLayout(renderer);
+      layoutPositioned(renderer);
+    }
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      Flex::doArrange(renderer, rect);
+      layoutPositioned(renderer);
+    }
+
+  private:
+    void layoutPositioned(Renderer& renderer) {
       for (const auto& child : children()) {
         if (child->visible() && !child->participatesInLayout()) {
           child->layout(renderer);
