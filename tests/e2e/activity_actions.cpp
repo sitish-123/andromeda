@@ -80,6 +80,11 @@ int main(int argc, char** argv) {
   r = run([&](auto reply) { actions.setFrozen(*opencode, false, reply); });
   check(r.ok, "resume opencode (" + r.error + ")");
 
+  r = run([&](auto reply) { actions.setLimits(*opencode, 2'000'000, 512ULL << 20, reply); });
+  check(r.ok, "limit opencode (" + r.error + ")");
+  r = run([&](auto reply) { actions.setLimits(*opencode, ActivityActions::kNoLimit, ActivityActions::kNoLimit, reply); });
+  check(r.ok, "remove opencode limits (" + r.error + ")");
+
   r = run([&](auto reply) { actions.stop(*opencode, reply); });
   check(r.ok, "stop opencode (" + r.error + ")");
 

@@ -124,6 +124,13 @@ class Manager(dbus.service.Object):
         if name in self.mirrored:
             subprocess.run(["systemctl", "--user", "thaw", name], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
 
+    @dbus.service.method(MANAGER, in_signature="sba(sv)")
+    def SetUnitProperties(self, name, runtime, props):
+        self.record(f"SetUnitProperties {name} {bool(runtime)} " + " ".join(f"{k}={int(v)}" for k, v in props))
+        if name in self.mirrored:
+            args = [f"{'CPUQuota' if k == 'CPUQuotaPerSecUSec' else k}={'infinity' if int(v) == 2**64 - 1 else (str(int(v) // 10000) + '%' if k == 'CPUQuotaPerSecUSec' else int(v))}" for k, v in props]
+            subprocess.run(["systemctl", "--user", "set-property", "--runtime", name, *args], env={**os.environ, "XDG_RUNTIME_DIR": self.mirrored[name]}, check=False)
+
     def set_file_state(self, names, state):
         for n in names:
             if n in self.units:

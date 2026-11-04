@@ -3,6 +3,7 @@
 #include "dbus/systemd/systemd_units_service.h"
 #include "system/xdg_autostart.h"
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -43,6 +44,9 @@ public:
   void forceQuit(const SystemdUnit& unit, Reply reply);
   // Pause: FreezeUnit stops every process of the unit (cgroup freezer) until ThawUnit; memory stays allocated.
   void setFrozen(const SystemdUnit& unit, bool frozen, Reply reply);
+  // Runtime CPUQuotaPerSecUSec and MemoryHigh (soft cap) until the unit restarts; kNoLimit removes a limit.
+  static constexpr std::uint64_t kNoLimit = UINT64_MAX;
+  void setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaPerSecUsec, std::uint64_t memoryHighBytes, Reply reply);
   // An autostart unit (app-*@autostart.service) gets the XDG override in autostartUserDir; any other unit gets
   // DisableUnitFiles, which keeps the unit file and removes only its [Install] links.
   void disableAtLogin(const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply);

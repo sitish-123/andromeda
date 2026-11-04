@@ -28,6 +28,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -124,6 +125,19 @@ namespace {
   }
 
   std::string cpuText(double percent) { return std::format("{:.1f} %", percent); }
+
+  constexpr std::array<int, 4> kCpuLimitPercent{0, 50, 25, 10}; // share of all cores, like the CPU column
+  constexpr std::array<std::uint64_t, 4> kMemoryLimitBytes{0, 1ULL << 30, 512ULL << 20, 256ULL << 20};
+
+  template <typename T, std::size_t N> std::size_t nearestIndex(const std::array<T, N>& options, double value) {
+    std::size_t best = 1;
+    for (std::size_t i = 2; i < N; ++i) {
+      if (std::abs(static_cast<double>(options[i]) - value) < std::abs(static_cast<double>(options[best]) - value)) {
+        best = i;
+      }
+    }
+    return best;
+  }
 
   std::string uptimeText(std::uint64_t startedUsec) {
     if (startedUsec == 0) {
@@ -277,6 +291,7 @@ void ActivityWindow::refreshRowStates(bool force) {
 void ActivityWindow::open(const std::string& rowKey) {
   if (!rowKey.empty()) {
     m_selectedKey = rowKey;
+    m_inspectorScroll = {};
     if (const ActivityRow* row = selectedRow(); row != nullptr) {
       m_tab = row->hasWindow ? Tab::Apps : Tab::Background;
     }
@@ -376,6 +391,7 @@ void ActivityWindow::destroyWindow() {
   m_rebuildRequested = false;
   m_actionError.clear();
   m_listScroll = {};
+  m_inspectorScroll = {};
   m_rowStates.clear();
   m_searchInput = nullptr;
   m_keptSearch.reset();
@@ -535,6 +551,51 @@ bool ActivityWindow::isFrozen(const ActivityRow& row) const {
   return false;
 }
 
+ActivityWindow::Limits ActivityWindow::limitsOf(const ActivityRow& row) const {
+  const auto& units = m_monitor->userUnits().units();
+  for (const auto& name : row.units) {
+    const auto it = std::ranges::find(units, name, &SystemdUnit::name);
+    if (it == units.end() || it->controlGroup.empty()) {
+      continue;
+    }
+    const std::string dir = m_monitor->activity().cgroupRoot() + it->controlGroup;
+    Limits limits;
+    std::string quota;
+    double period = 0.0;
+    if (std::ifstream cpu(dir + "/cpu.max"); cpu >> quota >> period && quota != "max" && period > 0.0) {
+      limits.cpu = nearestIndex(kCpuLimitPercent, std::stod(quota) / period / m_monitor->activity().cpuCount() * 100.0);
+    }
+    if (std::string high; std::ifstream(dir + "/memory.high") >> high && high != "max") {
+      limits.memory = nearestIndex(kMemoryLimitBytes, std::stod(high));
+    }
+    return limits;
+  }
+  return {};
+}
+
+void ActivityWindow::setSelectedLimits(Limits limits) {
+  const ActivityRow* row = selectedRow();
+  if (row == nullptr || m_actions == nullptr) {
+    return;
+  }
+  const std::uint64_t cpu = limits.cpu == 0 ? ActivityActions::kNoLimit
+                                            : static_cast<std::uint64_t>(kCpuLimitPercent[limits.cpu]) * 10'000ULL
+                                                  * static_cast<std::uint64_t>(m_monitor->activity().cpuCount());
+  const std::uint64_t memory = limits.memory == 0 ? ActivityActions::kNoLimit : kMemoryLimitBytes[limits.memory];
+  if (limits.cpu != 0 || limits.memory != 0) {
+    m_limitedKeys.insert(row->key);
+  }
+  const auto& known = m_monitor->userUnits().units();
+  for (const auto& name : row->units) {
+    if (const auto it = std::ranges::find(known, name, &SystemdUnit::name); it != known.end()) {
+      m_actions->setLimits(*it, cpu, memory, [this](const ActivityActionResult& result) {
+        m_actionError = result.ok ? "" : result.accessDenied ? i18n::tr("activity.error-admin") : result.error;
+        requestRebuild();
+      });
+    }
+  }
+}
+
 std::string ActivityWindow::structureKey() const {
   // Everything that decides which nodes exist: row order and membership, captions, chips, meters, counts, groups.
   std::string key = std::format(
@@ -553,6 +614,10 @@ std::string ActivityWindow::structureKey() const {
           BackgroundActivityMonitor::reasonText(*state, row.memoryBytes).empty()
       );
     }
+    if (m_limitedKeys.contains(row.key)) {
+      const Limits limits = limitsOf(row);
+      key += std::format("|L{}{}", limits.cpu, limits.memory);
+    }
     if (m_details != nullptr && m_details->expanded(row.key)) {
       key += "|+";
       if (const auto* groups = m_details->groups(row.key); groups != nullptr) {
@@ -566,6 +631,8 @@ std::string ActivityWindow::structureKey() const {
     const auto* history = m_details->history(row->key);
     key += history != nullptr && history->memoryMb.size() > 1 ? "|graph" : "|nograph";
     key += isFrozen(*row) ? "|frozen" : "";
+    const Limits limits = limitsOf(*row);
+    key += std::format("|l{}{}", limits.cpu, limits.memory);
   }
   if (m_sysmon != nullptr) {
     const auto history = m_sysmon->history();
@@ -815,6 +882,7 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
       .onClick =
           [this, key = row.key] {
             m_selectedKey = key;
+            m_inspectorScroll = {};
             m_actionError.clear();
             requestRebuild();
           },
@@ -862,7 +930,11 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
                    }}
               );
             };
-            bind(cell(cpuText(row.cpuPercent), scale), [](const ActivityRow& r) { return cpuText(r.cpuPercent); });
+            const Limits limits = m_limitedKeys.contains(row.key) ? limitsOf(row) : Limits{};
+            const std::string mark = limits.cpu != 0 || limits.memory != 0 ? "↓ " : "";
+            bind(cell(mark + cpuText(row.cpuPercent), scale), [mark](const ActivityRow& r) {
+              return mark + cpuText(r.cpuPercent);
+            });
             bind(cell(memoryText(row.memoryBytes), scale, ColorRole::Label1), [](const ActivityRow& r) {
               return memoryText(r.memoryBytes);
             });
@@ -1187,10 +1259,15 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
     return inspector;
   }
 
+  ScrollView* detailScroll = nullptr;
+  inspector->addChild(ui::scrollView({.out = &detailScroll, .state = &m_inspectorScroll, .scrollbarAutoHide = true, .flexGrow = 1.0F}));
+  Flex* details = detailScroll->content();
+  details->setAlign(FlexAlign::Stretch);
+  details->setGap(Style::spaceSm * scale);
   const RowIdentity id = identityFor(*row);
   Image* icon = nullptr;
   const int inspectorPx = static_cast<int>(std::round(kInspectorIcon * scale));
-  inspector->addChild(
+  details->addChild(
       ui::row(
           {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
           ui::image({.out = &icon, .width = kInspectorIcon * scale, .height = kInspectorIcon * scale}),
@@ -1230,16 +1307,20 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (frozen) {
     chips->addChild(chip(i18n::tr("activity.chip-paused"), scale));
   }
+  const Limits limits = limitsOf(*row);
+  if (limits.cpu != 0 || limits.memory != 0) {
+    chips->addChild(chip(i18n::tr("activity.chip-limited"), scale, ColorRole::Fill2, ColorRole::Accent));
+  }
   if (energyBars(row->cpuPercent, gpu) >= 3) {
     chips->addChild(chip(i18n::tr("activity.chip-high-energy"), scale, ColorRole::Warning, ColorRole::AccentText));
   }
-  inspector->addChild(std::move(chips));
+  details->addChild(std::move(chips));
 
   if (const auto* history = m_details != nullptr ? m_details->history(row->key) : nullptr;
       history != nullptr && history->memoryMb.size() > 1) {
     const float width = (kInspectorWidth - 2.0F * Style::spaceLg) * scale;
     Label* graphValue = nullptr;
-    inspector->addChild(
+    details->addChild(
         ui::row(
             {.align = FlexAlign::Center},
             ui::label(
@@ -1256,7 +1337,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
             )
         )
     );
-    auto* graph = static_cast<Graph*>(inspector->addChild(
+    auto* graph = static_cast<Graph*>(details->addChild(
         makeGraph(normalized(history->memoryMb), width, kInspectorGraphHeight * scale, ColorRole::Accent)
     ));
     m_liveText.push_back({graphValue, [this, key = row->key] {
@@ -1271,7 +1352,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
 
   const auto fact = [&](std::string name, std::function<std::string(const ActivityRow&)> text) {
     Label* value = nullptr;
-    inspector->addChild(factRow(std::move(name), text(*row), scale, &value));
+    details->addChild(factRow(std::move(name), text(*row), scale, &value));
     m_liveText.push_back({value, [this, key = row->key, text = std::move(text)] {
                             const ActivityRow* live = findRow(key);
                             return live != nullptr ? text(*live) : std::string();
@@ -1296,10 +1377,10 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
                                     : std::format("{:.0f} KB/s", *rate / 1024.0);
   });
   fact(i18n::tr("activity.fact-running-for"), [](const ActivityRow& r) { return uptimeText(r.startedUsec); });
-  inspector->addChild(factRow(i18n::tr("activity.fact-units"), std::to_string(row->units.size()), scale));
+  details->addChild(factRow(i18n::tr("activity.fact-units"), std::to_string(row->units.size()), scale));
   const auto* state = rowState(row->key);
   if (state != nullptr && !row->hasWindow) {
-    inspector->addChild(
+    details->addChild(
         factRow(i18n::tr("activity.fact-at-login"), i18n::tr(state->atLogin ? "activity.yes" : "activity.no"), scale)
     );
   }
@@ -1307,7 +1388,7 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
           state != nullptr ? BackgroundActivityMonitor::reasonText(*state, row->memoryBytes) : "";
       !reason.empty()) {
     Label* reasonLabel = nullptr;
-    inspector->addChild(
+    details->addChild(
         ui::row(
             {.align = FlexAlign::Start,
              .gap = Style::spaceSm * scale,
@@ -1338,7 +1419,45 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
                           }});
   }
 
-  inspector->addChild(ui::spacer());
+  if (state != nullptr && !row->hasWindow && m_actions != nullptr) {
+    const auto picker = [&](std::string title, std::vector<std::string> labels, std::size_t selected,
+                            std::function<void(std::size_t)> onChange) {
+      std::vector<ui::SegmentedOption> options;
+      for (auto& label : labels) {
+        options.push_back({.label = std::move(label)});
+      }
+      details->addChild(ui::label(
+          {.text = std::move(title), .fontSize = Style::fontSizeCaption * scale, .color = colorSpecFromRole(ColorRole::Label2)}
+      ));
+      details->addChild(ui::segmented({
+          .options = std::move(options),
+          .selectedIndex = selected,
+          .scale = scale,
+          .compact = true,
+          .equalSegmentWidths = true,
+          .onChange = std::move(onChange),
+      }));
+    };
+    details->addChild(ui::label({
+        .text = i18n::tr("activity.limit-title"),
+        .fontSize = Style::fontSizeCaption * scale,
+        .fontWeight = FontWeight::Bold,
+        .color = colorSpecFromRole(ColorRole::Label3),
+    }));
+    const std::string off = i18n::tr("activity.limit-off");
+    picker(i18n::tr("activity.column-cpu"), {off, "50 %", "25 %", "10 %"}, limits.cpu, [this, limits](std::size_t index) {
+      setSelectedLimits({.cpu = index, .memory = limits.memory});
+    });
+    picker(i18n::tr("activity.column-memory"), {off, "1 GB", "512 MB", "256 MB"}, limits.memory, [this, limits](std::size_t index) {
+      setSelectedLimits({.cpu = limits.cpu, .memory = index});
+    });
+    details->addChild(ui::label({
+        .text = i18n::tr("activity.limit-resets"),
+        .fontSize = Style::fontSizeCaption * scale,
+        .color = colorSpecFromRole(ColorRole::Label2),
+    }));
+  }
+
   if (!m_actionError.empty()) {
     inspector->addChild(
         ui::label({

@@ -29,7 +29,7 @@ dbus-run-session -- bash -c '
 ' _ "$MOCK" "$OUT" "$BIN"
 grep -q "^PASS" "$OUT/activity-actions.txt" && ! grep -q "^FAIL" "$OUT/activity-actions.txt" \
   || { echo "activity-actions reported a failure" >&2; exit 1; }
-for call in "DisableUnitFiles opencode.service False" "EnableUnitFiles opencode.service False False" "FreezeUnit opencode.service" "ThawUnit opencode.service" "StopUnit opencode.service replace" "Reload"; do
+for call in "DisableUnitFiles opencode.service False" "EnableUnitFiles opencode.service False False" "FreezeUnit opencode.service" "ThawUnit opencode.service" "SetUnitProperties opencode.service True CPUQuotaPerSecUSec=2000000 MemoryHigh=536870912" "SetUnitProperties opencode.service True CPUQuotaPerSecUSec=18446744073709551615 MemoryHigh=18446744073709551615" "StopUnit opencode.service replace" "Reload"; do
   grep -qx "$call" "$OUT/calls.txt" || { echo "FAIL: mock never received: $call" >&2; exit 1; }
 done
 echo "PASS: stop, disable, undo and autostart override; artifacts: $OUT"

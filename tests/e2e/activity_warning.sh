@@ -11,7 +11,7 @@ source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
 CG=$RUNTIME/cgroup
-OC=$CG/user.slice/user-1000.slice/user@1000.service/app.slice/opencode.service
+export OC=$CG/user.slice/user-1000.slice/user@1000.service/app.slice/opencode.service
 mkdir -p "$OC"
 printf 'usage_usec 10000000\nuser_usec 1\nsystem_usec 1\n' > "$OC/cpu.stat"
 echo $((480 * 1024 * 1024)) > "$OC/memory.current"
@@ -33,6 +33,11 @@ with_noctalia '
   "$NOCTALIA" msg settings-open "search:background activity" > /dev/null
   sleep 1.5 # real time: the Settings window maps and paints
   grim "$OUT/settings.png"
+  printf "%s 100000\n" $(( $(nproc) * 25000 )) > "$OC/cpu.max" # CPU limit 25 %
+  echo max > "$OC/memory.high"
+  "$NOCTALIA" msg activity-open opencode.service > /dev/null
+  sleep 1.5 # real time: the Activity window maps and paints
+  grim "$OUT/activity-limit.png"
   echo "findings=$(findings)" > "$OUT/result.txt"
   [[ -s $HOME/.local/state/noctalia/activity.json || -n $(find "$HOME/.local/state" -name activity.json 2>/dev/null) ]] \
     && echo "state=saved" >> "$OUT/result.txt"

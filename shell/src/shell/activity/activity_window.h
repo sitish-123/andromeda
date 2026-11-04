@@ -14,6 +14,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -91,6 +92,13 @@ private:
   [[nodiscard]] const ActivityRow* findRow(const std::string& key) const;
   // True when the row's first unit cgroup reports "frozen 1" in cgroup.events (Pause).
   [[nodiscard]] bool isFrozen(const ActivityRow& row) const;
+  // Limit picker indexes (0 = Off) read from the first unit cgroup's cpu.max and memory.high.
+  struct Limits {
+    std::size_t cpu = 0;
+    std::size_t memory = 0;
+  };
+  [[nodiscard]] Limits limitsOf(const ActivityRow& row) const;
+  void setSelectedLimits(Limits limits);
   void updateLive();
   void forceQuitSelected();
   [[nodiscard]] const ActivityRow* selectedRow() const;
@@ -126,6 +134,7 @@ private:
   InputDispatcher m_inputDispatcher;
   IconResolver m_icons;
   ScrollViewState m_listScroll;
+  ScrollViewState m_inspectorScroll;
   wl_output* m_output = nullptr;
 
   Tab m_tab = Tab::Apps;
@@ -136,6 +145,7 @@ private:
   std::unique_ptr<Node> m_keptSearch; // the search field between removal from the old tree and the new sidebar
   float m_searchScale = 0.0F;
   std::string m_actionError;
+  std::set<std::string> m_limitedKeys; // rows limited from this window; only these get the list mark
   bool m_pointerInside = false;
   bool m_rebuildRequested = false;
   bool m_buttonDown = false;

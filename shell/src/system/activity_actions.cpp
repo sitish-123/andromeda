@@ -187,6 +187,32 @@ void ActivityActions::setFrozen(const SystemdUnit& unit, bool frozen, Reply repl
   }
 }
 
+void ActivityActions::setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaPerSecUsec, std::uint64_t memoryHighBytes, Reply reply) {
+  if (unit.systemManager) {
+    GVariantBuilder props;
+    g_variant_builder_init(&props, G_VARIANT_TYPE("a(sv)"));
+    g_variant_builder_add(&props, "(sv)", "CPUQuotaPerSecUSec", g_variant_new_uint64(cpuQuotaPerSecUsec));
+    g_variant_builder_add(&props, "(sv)", "MemoryHigh", g_variant_new_uint64(memoryHighBytes));
+    callSystemInteractive("SetUnitProperties", g_variant_new("(sba(sv))", unit.name.c_str(), TRUE, &props), std::move(reply));
+    return;
+  }
+  const std::vector<sdbus::Struct<std::string, sdbus::Variant>> props{
+      {std::string("CPUQuotaPerSecUSec"), sdbus::Variant(cpuQuotaPerSecUsec)},
+      {std::string("MemoryHigh"), sdbus::Variant(memoryHighBytes)},
+  };
+  try {
+    proxyFor(unit, kManagerPath)
+        .callMethodAsync("SetUnitProperties")
+        .onInterface(kManager)
+        .withArguments(unit.name, true, props)
+        .uponReplyInvoke([reply = std::move(reply)](const std::optional<sdbus::Error>& error) {
+          reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
+        });
+  } catch (const sdbus::Error& e) {
+    reply(fromError(e.what()));
+  }
+}
+
 void ActivityActions::disableAtLogin(
     const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply
 ) {
