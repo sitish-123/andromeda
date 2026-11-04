@@ -147,6 +147,9 @@ endif
 # ── libdesk-ui: the toolkit (ui, render, wayland) shared with the greeter ────────────────────────
 desk_ui_dep = subproject('libdesk-ui', default_options: ['install_toolkit_themes=true']).get_variable('desk_ui_dep')
 
+# ── libdesk-system: D-Bus clients shared with the greeter and apps (M7) ───────────────────────────
+desk_system_dep = subproject('libdesk-system').get_variable('desk_system_dep')
+
 # ── Vendored: Material Color Utilities (Google) ───────────────────────────────
 # Upstream uses #include "cpp/..." prefixes, so the include root is the
 # material_color_utilities/ dir itself. Built as a quiet static library.
@@ -432,19 +435,11 @@ _noctalia_sources = files(
   'src/core/process/process.cpp',
   'src/core/shared_worker.cpp',
   'src/core/inotify/inotify.cpp',
-  'src/dbus/accounts/accounts_service.cpp',
-  'src/dbus/system_interactive_call.cpp',
   'src/dbus/bluetooth/bluetooth_agent.cpp',
   'src/dbus/bluetooth/bluetooth_service.cpp',
   'src/dbus/bluetooth/bluetooth_uuid_names.cpp',
-  'src/dbus/idle/screensaver_service.cpp',
-  'src/dbus/locale/locale_service.cpp',
   'src/dbus/logind/logind_service.cpp',
   'src/dbus/logind/power_config_service.cpp',
-  'src/dbus/systemd/systemd_unit_name.cpp',
-  'src/dbus/systemd/systemd_units_service.cpp',
-  'src/dbus/timedate/timedate_service.cpp',
-  'src/dbus/modem/modem_manager_service.cpp',
   'src/dbus/mpris/mpris_art.cpp',
   'src/dbus/mpris/mpris_service.cpp',
   'src/dbus/network/external_ip_service.cpp',
@@ -456,28 +451,15 @@ _noctalia_sources = files(
   'src/dbus/network/network_manager_service.cpp',
   'src/dbus/network/network_secret_agent.cpp',
   'src/dbus/network/wpa_supplicant_service.cpp',
-  'src/dbus/polkit/polkit_agent.cpp',
-  'src/dbus/polkit/polkit_session_support.cpp',
   'src/dbus/notification/kde_notification_client.cpp',
   'src/dbus/notification/notification_poll_source.cpp',
   'src/dbus/notification/notification_service.cpp',
   'src/dbus/power/power_profiles_service.cpp',
-  'src/dbus/secret/secret_collection_probe.cpp',
-  'src/dbus/session_bus.cpp',
-  'src/dbus/system_bus.cpp',
-  'src/dbus/tray/fcitx_status.cpp',
-  'src/dbus/tray/tray_service.cpp',
-  'src/dbus/upower/upower_charge_limit_support.cpp',
+  'src/dbus/sensor/ambient_light_service.cpp',
   'src/dbus/link/link_service.cpp',
   'src/dbus/link/link_device_state.cpp',
   'src/dbus/link/quickshare_service.cpp',
   'src/dbus/network/nm_hotspot.cpp',
-  'src/dbus/portal/global_shortcuts_portal.cpp',
-  'src/dbus/portal/background_portal.cpp',
-  'src/dbus/portal/inhibit_portal.cpp',
-  'src/dbus/portal/settings_portal.cpp',
-  'src/dbus/udisks/udisks_service.cpp',
-  'src/dbus/upower/upower_service.cpp',
   'src/dbus/andromeda/shell_service.cpp',
   'src/dbus/andromeda/system_health_service.cpp',
   'src/debug/debug_service.cpp',
@@ -1023,6 +1005,7 @@ _noctalia_inc = [
 # ── Application library and executable ────────────────────────────────────────
 _noctalia_system_dependencies = [
   desk_ui_dep,
+  desk_system_dep,
   sdbus_cpp_dep,
   wayland_client_dep,
   egl_dep,
@@ -1205,6 +1188,7 @@ if build_tests
     'audio_glyphs',
     'audio_media_class',
     'audio_route_selection',
+    'ambient_brightness',
     'battery_health',
     'battery_hook_state',
     'battery_warning_threshold',

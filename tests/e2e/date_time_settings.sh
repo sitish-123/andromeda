@@ -9,8 +9,8 @@ source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
 SRC=$ROOT/shell
-g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -o "$RUNTIME/timedate-set" \
-  "$(dirname "$0")/timedate_set.cpp" "$SRC/src/dbus/timedate/timedate_service.cpp" "$SRC/src/dbus/system_bus.cpp" \
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-system/src" -I"$ROOT/libdesk-ui/src" -o "$RUNTIME/timedate-set" \
+  "$(dirname "$0")/timedate_set.cpp" "$ROOT/libdesk-system/src/dbus/timedate/timedate_service.cpp" "$ROOT/libdesk-system/src/dbus/system_bus.cpp" \
   "$ROOT/libdesk-ui/src/core/log.cpp" -lsdbus-c++
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_timedate1.py"

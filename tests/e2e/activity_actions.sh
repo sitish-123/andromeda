@@ -11,10 +11,10 @@ rm -rf "$OUT"; mkdir -p "$OUT/scratch"
 : > "$OUT/calls.txt"
 SRC=$ROOT/shell
 BIN=$OUT/activity-actions
-g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" $(pkg-config --cflags gio-2.0) -o "$BIN" \
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-system/src" -I"$ROOT/libdesk-ui/src" $(pkg-config --cflags gio-2.0) -o "$BIN" \
   "$(dirname "$0")/activity_actions.cpp" "$SRC/src/system/activity_actions.cpp" "$SRC/src/system/xdg_autostart.cpp" \
-  "$SRC/src/dbus/systemd/systemd_units_service.cpp" "$SRC/src/dbus/systemd/systemd_unit_name.cpp" \
-  "$SRC/src/dbus/system_interactive_call.cpp" "$SRC/src/dbus/session_bus.cpp" \
+  "$ROOT/libdesk-system/src/dbus/systemd/systemd_units_service.cpp" "$ROOT/libdesk-system/src/dbus/systemd/systemd_unit_name.cpp" \
+  "$ROOT/libdesk-system/src/dbus/system_interactive_call.cpp" "$ROOT/libdesk-system/src/dbus/session_bus.cpp" \
   "$ROOT/libdesk-ui/src/core/log.cpp" -lsdbus-c++ $(pkg-config --libs gio-2.0)
 
 MOCK="$ROOT/tests/e2e/mock_systemd1.py"
