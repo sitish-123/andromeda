@@ -1,4 +1,5 @@
 #include "layer/layer_surface.h"
+#include "scene/surface_shape.h"
 
 #include "server/background_effect.h"
 
@@ -950,6 +951,7 @@ namespace andromeda {
     // dsk_surface_v1 state applied on this commit: show set values now, and run the frame loop for animations.
     if (const DskSurfaceManager* dsk = m_server->dskSurfaces();
         dsk != nullptr && dsk->state(m_layerSurface->surface) != nullptr) {
+      applyVisibleRegion();
       applySurfaceMotion();
       applyFadeAlpha();
       if (Output* out = hasActiveAnimations() ? output() : nullptr) {
@@ -990,6 +992,21 @@ namespace andromeda {
         out->markDirty(Dirty::LayerArrange);
       }
     }
+  }
+
+  // The client promises no pixels outside its visible region: clipping the surface there keeps a tall, mostly clear
+  // panel slot from costing a full redraw (and the overlay plane from covering it).
+  void LayerSurface::applyVisibleRegion() {
+    wlr_surface* surface = m_layerSurface->surface;
+    const DskSurfaceManager::State& state = *m_server->dskSurfaces()->state(surface);
+    if (!state.visibleRegion) {
+      applySurfaceTreeShape(&m_scene->tree->node, surface, nullptr);
+      return;
+    }
+    pixman_region32_t region;
+    pixman_region32_init_rects(&region, state.visibleRegion->data(), static_cast<int>(state.visibleRegion->size()));
+    applySurfaceTreeShape(&m_scene->tree->node, surface, &region);
+    pixman_region32_fini(&region);
   }
 
   // Client opaque regions are ignored in general (scene surface.c: a browser declared translucent pixels opaque). A
