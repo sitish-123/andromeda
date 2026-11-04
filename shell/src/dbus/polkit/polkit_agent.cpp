@@ -327,6 +327,8 @@ struct PolkitAgent::Impl {
   PolkitAgentSession* session = nullptr;
   GMainContext* context = nullptr;
   GCancellable* registerCancellable = nullptr;
+  // Held so libpolkit-agent's register reuses it instead of a blocking authority lookup.
+  PolkitAuthority* authority = nullptr;
   bool m_nextInternal = false;
   bool starting = false;
   bool registered = false;
@@ -361,6 +363,9 @@ struct PolkitAgent::Impl {
       g_object_unref(registerCancellable);
       registerCancellable = nullptr;
     }
+    if (authority != nullptr) {
+      g_object_unref(authority);
+    }
     if (listener != nullptr) {
       listener->owner = nullptr;
       listener->initiate = nullptr;
@@ -380,17 +385,39 @@ struct PolkitAgent::Impl {
     });
   }
 
+  static void authorityReadyTrampoline(GObject* /*source*/, GAsyncResult* result, gpointer userData) noexcept {
+    guardPolkitCallback("authorityReady", [&] {
+      GError* error = nullptr;
+      PolkitAuthority* ready = polkit_authority_get_finish(result, &error);
+      if (error != nullptr && g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+        g_clear_error(&error);
+        return;
+      }
+      auto* self = static_cast<Impl*>(userData);
+      if (ready == nullptr) {
+        self->beginRegisterSubject(nullptr, error);
+        return;
+      }
+      g_clear_error(&error);
+      self->authority = ready;
+      self->startSubject();
+    });
+  }
+
   void start() {
     if (starting || registered) {
       return;
     }
     starting = true;
+    registerCancellable = g_cancellable_new();
+    polkit_authority_get_async(registerCancellable, &Impl::authorityReadyTrampoline, this);
+  }
 
+  void startSubject() {
     // Prefer the session id exported by the user's login/session manager. The
     // process lookup path below is asynchronous in API shape, but it still can
     // enter GLib's global worker pool before returning.
     const char* sessionId = std::getenv("XDG_SESSION_ID");
-    registerCancellable = g_cancellable_new();
     // E2E only: serve one process, so a test pkexec reaches this agent while the user's own agent keeps the session.
     if (const char* testPid = std::getenv("NOCTALIA_POLKIT_TEST_PROCESS"); testPid != nullptr && testPid[0] != '\0') {
       beginRegisterSubject(
