@@ -73,6 +73,9 @@ namespace settings {
       if (id == "storage.low") {
         return i18n::tr("settings.power.rule-storage");
       }
+      if (id == "network.captive_portal") {
+        return i18n::tr("settings.power.rule-captive-portal");
+      }
       if (id == "thermal.fps_cap") {
         return i18n::tr("settings.power.rule-thermal-fps");
       }

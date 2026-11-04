@@ -22,7 +22,7 @@ use crate::policy::now_ms;
 use crate::rules::RuleValues;
 use crate::rules::{self, Alert, Scope};
 use crate::state::{AppRow, AppValues, Fields, Snapshot};
-use crate::{NAME, knobs, memory, nm, power, storage, thermal};
+use crate::{NAME, knobs, memory, network, nm, power, storage, thermal};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
@@ -51,6 +51,7 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         "thermal_hot" => {
             ("The computer is hot", "It runs slower to cool down. Background apps use less power until it cools.")
         }
+        "captive_portal" => ("Sign in to the network", "This network asks you to sign in before it lets you online."),
         "storage_low" => {
             ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
         }
@@ -87,6 +88,24 @@ fn human_bytes(bytes: u64) -> String {
 }
 
 /// Opens Activity on one app, as its alert's Open action asks.
+/// Opens NetworkManager's check URL in the browser: the portal redirects it to its sign-in page.
+async fn open_portal(system: &Connection) {
+    let uri = match nm::connectivity_check_uri(system).await {
+        Ok(uri) if !uri.is_empty() => uri,
+        Ok(_) => return,
+        Err(e) => {
+            log::warn!("session: no connectivity check URL: {e:#}");
+            return;
+        }
+    };
+    match tokio::process::Command::new("xdg-open").arg(&uri).spawn() {
+        Ok(mut child) => {
+            tokio::spawn(async move { child.wait().await });
+        }
+        Err(e) => log::warn!("session: could not open {uri}: {e}"),
+    }
+}
+
 fn open_activity(unit: &str) {
     match tokio::process::Command::new("noctalia").args(["msg", "activity-open", unit]).spawn() {
         Ok(mut child) => {
@@ -248,6 +267,7 @@ impl Session {
         let actions: Vec<&str> = match alert.action.as_deref() {
             Some("undo") => vec!["undo", "Undo"],
             Some("open") => vec!["default", "Open"],
+            Some("portal") => vec!["default", "Sign In"],
             _ => Vec::new(),
         };
         let urgency: u8 = match alert.urgency.as_str() {
@@ -306,6 +326,10 @@ impl Session {
                     self.app_held.insert(entry.episode, ids);
                 }
                 self.alert(session, &entry).await;
+                // A captive portal: its sign-in page opens once per episode, the alert reopens it.
+                if self.alert_action(Some(&entry.rule)) == Some("portal") {
+                    open_portal(system).await;
+                }
                 let field = self.specs.get(&entry.rule).and_then(|s| s.alert.as_ref()).and_then(|a| a.again.as_deref());
                 if let Some(Value::Num(now)) = field.and_then(|f| self.state.value_of(f)) {
                     self.again.insert(entry.episode, (entry, now.floor()));
@@ -428,10 +452,16 @@ impl Session {
             (Some(episode), "default") => {
                 if let Some((_, app)) = self.engine.instance_of(episode) {
                     open_activity(app);
+                } else if self.alert_action(self.held.get(&episode).map(|(rule, _)| rule.as_str())) == Some("portal") {
+                    open_portal(system).await;
                 }
             }
             _ => {}
         }
+    }
+
+    fn alert_action(&self, rule: Option<&str>) -> Option<&str> {
+        self.specs.get(rule?)?.alert.as_ref()?.action.as_deref()
     }
 
     async fn undo(&mut self, system: &Connection, session: &Connection, episode: u64) -> bool {
@@ -701,16 +731,17 @@ pub async fn run() -> Result<()> {
 }
 
 /// The state setters of the optional sources in `follow`, in the order of its `extra` remotes.
-const EXTRA_SETTERS: [fn(&mut Snapshot, Option<&bus::Props>); 3] =
-    [Snapshot::set_memory, Snapshot::set_thermal, Snapshot::set_storage];
+const EXTRA_SETTERS: [fn(&mut Snapshot, Option<&bus::Props>); 4] =
+    [Snapshot::set_memory, Snapshot::set_thermal, Snapshot::set_storage, Snapshot::set_network];
 
 /// The first property change among optional remotes: its index, and false when its stream ended.
-async fn changed_any(remotes: &mut [Option<Remote>; 3]) -> (usize, bool) {
-    let [memory, thermal, storage] = remotes;
+async fn changed_any(remotes: &mut [Option<Remote>; 4]) -> (usize, bool) {
+    let [memory, thermal, storage, network] = remotes;
     tokio::select! {
         alive = changed(memory) => (0, alive),
         alive = changed(thermal) => (1, alive),
         alive = changed(storage) => (2, alive),
+        alive = changed(network) => (3, alive),
     }
 }
 
@@ -742,6 +773,7 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
         Remote::new(system, NAME, memory::PATH.to_owned(), "org.andromeda.System1.Memory").await.ok(),
         Remote::new(system, NAME, thermal::PATH.to_owned(), "org.andromeda.System1.Thermal").await.ok(),
         Remote::new(system, NAME, storage::PATH.to_owned(), "org.andromeda.System1.Storage").await.ok(),
+        Remote::new(system, NAME, network::PATH.to_owned(), "org.andromeda.System1.Network").await.ok(),
     ];
     let mut released = signals(system, Some(NAME), "org.andromeda.System1.Knobs", "Released").await?;
     let mut actions = signals(session, None, NOTIFICATIONS, "ActionInvoked").await?;

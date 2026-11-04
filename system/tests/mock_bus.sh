@@ -138,8 +138,12 @@ until_has 50 unix: cat "$OUT/session-addr"
 SESSION_BUS=$(head -n1 "$OUT/session-addr")
 python3 "$ROOT/system/tests/mock_notifications.py" "$OUT/notes.log" "$SESSION_BUS" >"$OUT/notes.out" 2>&1 & PIDS+=($!)
 until_has 50 ready cat "$OUT/notes.out"
-DBUS_SESSION_BUS_ADDRESS=$SESSION_BUS XDG_STATE_HOME=$OUT XDG_CONFIG_HOME=$OUT ANDROMEDA_RULES_DIR=$ROOT/system/data/rules \
-  "$BIN" --session >"$OUT/session.log" 2>&1 & PIDS+=($!)
+# xdg-open of the captive portal check: recorded, no browser.
+mkdir -p "$OUT/bin"
+printf '#!/bin/sh\necho "$@" >> "%s/opened.log"\n' "$OUT" > "$OUT/bin/xdg-open"
+chmod +x "$OUT/bin/xdg-open"
+PATH=$OUT/bin:$PATH DBUS_SESSION_BUS_ADDRESS=$SESSION_BUS XDG_STATE_HOME=$OUT XDG_CONFIG_HOME=$OUT \
+  ANDROMEDA_RULES_DIR=$ROOT/system/data/rules "$BIN" --session >"$OUT/session.log" 2>&1 & PIDS+=($!)
 S=(busctl --address="$SESSION_BUS")
 until_has 30 'aa{sv}' "${S[@]}" call org.andromeda.System1 /org/andromeda/System1/Explain \
   org.andromeda.System1.Explain List t 0
@@ -158,11 +162,19 @@ grep -c '^notify' "$OUT/notes.log" | grep -qx 1 || fail "the rule alerted more t
 RULES=(call org.andromeda.System1 /org/andromeda/System1/Rules org.andromeda.System1.Rules)
 until_has 10 '"power.low_power_plan" true ""' "${S[@]}" "${RULES[@]}" List
 # Every shipped rule loads: an empty third field is no load error.
-for rule in apps.drainer memory.relief thermal.relief thermal.hot storage.low battery.optimized_charging; do
+for rule in apps.drainer memory.relief thermal.relief thermal.fps_cap thermal.hot storage.low battery.optimized_charging \
+  network.captive_portal; do
   until_has 10 "\"$rule\" true \"\"" "${S[@]}" "${RULES[@]}" List
 done
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan true 1 low_pct d 10
 grep -q 'low_pct = 10' "$OUT/andromeda/system-rules.toml" || fail "the threshold was not stored"
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan false 0
 until_has 10 '"power.low_power_plan" false ""' "${S[@]}" "${RULES[@]}" List
+# network.captive_portal (§12.1): a portal opens NetworkManager's check URL once and alerts with Sign In.
+python3 "$ROOT/system/tests/mock_nm.py" >"$OUT/nm.out" 2>&1 & PIDS+=($!)
+until_has 50 ready cat "$OUT/nm.out"
+until_has 30 '"network" true ""' get /org/andromeda/System1 Manager Areas
+"${B[@]}" call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager dsk.test.NM SetConnectivity u 2
+until_has 80 'Sign in to the network default,Sign In network.captive_portal' cat "$OUT/notes.log"
+until_has 20 'http://nmcheck.test/check' cat "$OUT/opened.log"
 echo PASS

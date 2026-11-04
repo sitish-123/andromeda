@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+# NetworkManager on a test system bus: the root object's Connectivity, Metered, ActiveConnections and
+# ConnectivityCheckUri, no devices. dsk.test.NM.SetConnectivity(u) changes Connectivity (1 none, 2 portal, 4 full).
+import os
+
+import dbus
+import dbus.mainloop.glib
+import dbus.service
+from gi.repository import GLib
+
+NM = "org.freedesktop.NetworkManager"
+PROPS = "org.freedesktop.DBus.Properties"
+
+
+class NetworkManager(dbus.service.Object):
+    def __init__(self, bus):
+        super().__init__(bus, "/org/freedesktop/NetworkManager")
+        self.props = {
+            "Connectivity": dbus.UInt32(4),
+            "Metered": dbus.UInt32(4),
+            "ActiveConnections": dbus.Array([], signature="o"),
+            "ConnectivityCheckUri": "http://nmcheck.test/check",
+        }
+
+    @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
+    def Get(self, interface, name):
+        return self.props[name]
+
+    @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}")
+    def GetAll(self, interface):
+        return self.props if interface == NM else {}
+
+    @dbus.service.signal(PROPS, signature="sa{sv}as")
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
+    @dbus.service.method(NM, out_signature="ao")
+    def GetDevices(self):
+        return dbus.Array([], signature="o")
+
+    @dbus.service.method("dsk.test.NM", in_signature="u")
+    def SetConnectivity(self, value):
+        self.props["Connectivity"] = dbus.UInt32(value)
+        self.PropertiesChanged(NM, {"Connectivity": self.props["Connectivity"]}, dbus.Array([], signature="s"))
+
+
+dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+bus = dbus.bus.BusConnection(os.environ["DBUS_SYSTEM_BUS_ADDRESS"])
+name = dbus.service.BusName(NM, bus)
+nm = NetworkManager(bus)
+print("ready", flush=True)
+GLib.MainLoop().run()

@@ -32,6 +32,10 @@ const FIELDS: &[(&str, Type)] = &[
     ("storage.free_pct", Type::Num),
     ("storage.free_gb", Type::Num),
     ("storage.mount", Type::Str),
+    // From org.andromeda.System1.Network (NetworkManager): unknown, none, portal, limited or full.
+    ("network.connectivity", Type::Str),
+    ("network.metered", Type::Bool),
+    ("network.vpn", Type::Bool),
     // One app, for per-app rules (`per = "app"`): from org.andromeda.Compositor1.Apps.
     ("app.cpu_pct", Type::Num),
     ("app.rss_mb", Type::Num),
@@ -126,6 +130,13 @@ impl Snapshot {
         self.put("storage.free_pct", least.as_ref().map(|l| Value::Num(l.1)));
         self.put("storage.free_gb", least.as_ref().map(|l| Value::Num(l.2)));
         self.put("storage.mount", least.map(|l| Value::Str(l.0)));
+    }
+
+    /// From `org.andromeda.System1.Network`.
+    pub fn set_network(&mut self, props: Option<&Props>) {
+        self.put("network.connectivity", props.and_then(|p| bus::get::<String>(p, "Connectivity")).map(Value::Str));
+        self.put("network.metered", props.and_then(|p| bus::get::<bool>(p, "Metered")).map(Value::Bool));
+        self.put("network.vpn", props.and_then(|p| bus::get::<bool>(p, "Vpn")).map(Value::Bool));
     }
 
     /// A field the session part computes itself.
