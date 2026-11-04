@@ -257,10 +257,11 @@ namespace andromeda {
     m_initialRuleState = ruleState();
     m_initialRuleState.focused = false;
     m_initialRuleState.alone = false;
-    const ResolvedWindowRule rule = resolveWindowRules(
+    ResolvedWindowRule rule = resolveWindowRules(
         config(), ruleText(appId()), ruleText(title()), m_xdgTag, m_contentType, m_initialRuleState,
         m_server->uptimeMs()
     );
+    m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, true);
     m_initialRules = rule;
     m_initialRuleHistory.clear();
     m_initialRuleHistory.push_back(rule);
@@ -847,6 +848,7 @@ namespace andromeda {
       ResolvedWindowRule rule = resolveWindowRules(
           config(), ruleText(appId()), ruleText(title()), m_xdgTag, m_contentType, openingState, m_server->uptimeMs()
       );
+      m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, false);
       ScratchpadManager* scratchpadManager = m_server->scratchpadManager();
       const bool launchRuleOverride = m_launchPlacementPending
           && (rule.defaultOutput.has_value()

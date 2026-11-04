@@ -79,7 +79,7 @@ def main(binary, mode):
         for name in ("systemctl", "dbus-update-activation-environment", "systemd-run"):
             (root / "bin" / name).symlink_to(helper)
         config = root / "config.toml"
-        config.write_text('[general]\nxwayland = false\nautostart = []\n')
+        config.write_text('[general]\nxwayland = false\nautostart = []\n\n[output.HEADLESS-1]\nworkspaces = 2\n')
 
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         listener.bind(str(root / "wayland-andromeda"))
@@ -140,7 +140,12 @@ def main(binary, mode):
                         wl_sync(client)
                         await_callback(client, 5)
 
-                    # R6: the window list reaches session.json within about a second of a map.
+                    # R6: the window list reaches session.json within about a second of a map. The window sits on workspace 2,
+                    # so the restore below must move it off the active workspace 1.
+                    ipc_env = dict(environment, ANDROMEDA_SOCKET=str(root / "andromeda-wayland-andromeda.sock"))
+                    def ipc(*args):
+                        return subprocess.run([str(binary), *args], env=ipc_env, capture_output=True, text=True, timeout=5).stdout
+                    ipc("msg", "workspace-switch:2")
                     window_env = {k: v for k, v in environment.items() if not k.startswith(("LISTEN_", "WATCHDOG_"))}
                     window_env.update(WAYLAND_DISPLAY="wayland-andromeda", SEAT_LOG_APP_ID="restart.test")
                     out = (root / "window.log").open("w")
@@ -152,6 +157,7 @@ def main(binary, mode):
                         assert time.monotonic() < deadline, "the mapped window never reached session.json"
                         time.sleep(0.05)
                     assert json.loads(saved.read_text())["windows"][0]["app_id"] == "restart.test"
+                    assert json.loads(saved.read_text())["windows"][0]["workspace"].endswith(":2"), saved.read_text()
 
                     os.kill(first, signal.SIGSEGV)
                     processes[0].wait(timeout=10)
@@ -168,6 +174,20 @@ def main(binary, mode):
                     crash_list = root / "state" / "andromeda" / "session-crash.json"
                     assert crash_list.exists() and "restart.test" in crash_list.read_text(), \
                         "the restart lost the window list from before the crash"
+
+                    # The same app maps again on the restarted compositor: it returns to workspace 2, not the active 1.
+                    out = (root / "window-2.log").open("w")
+                    clients.append(subprocess.Popen([os.environ["ANDROMEDA_SEAT_LOG_CLIENT"], "key-window"],
+                                                    env=window_env, stdout=out, stderr=out))
+                    deadline = time.monotonic() + 5
+                    while True:
+                        listing = json.loads(ipc("windows", "--json") or "[]")
+                        placed = [w["workspace"] for w in listing if w.get("app_id") == "restart.test"]
+                        if placed:
+                            break
+                        assert time.monotonic() < deadline, "the restored app never mapped"
+                        time.sleep(0.05)
+                    assert placed[0].endswith(":2"), f"the restored window opened on {placed[0]}, not its saved workspace 2"
 
                 else:
                     # R3: a crash while locked restarts into the lock; only a lock client's unlock ends it.

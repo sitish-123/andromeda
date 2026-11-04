@@ -17,6 +17,7 @@
 #include "server/focus.h"
 #include "view/registry.h"
 
+#include <filesystem>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -977,6 +978,25 @@ namespace andromeda {
     wl_event_source* m_startupRulesTimer = nullptr;
     void startWatchdog(const std::string& notifySocket);
     void scheduleSessionSave();
+    // A window from the pre-crash list: the next window of that app id within 2 min maps where this one was.
+    struct RestorePlacement {
+      std::string appId;
+      std::string output;
+      std::string workspace;
+      bool floating = false;
+      bool fullscreen = false;
+      int width = 0;
+      int height = 0;
+    };
+    std::vector<RestorePlacement> m_restorePlacements;
+    uint64_t m_restorePlacementDeadlineMs = 0;
+    void loadRestorePlacements(const std::filesystem::path& crashList);
+
+  public:
+    // Applies a pending pre-crash placement for `appId`; `consume` drops it once the view maps (docs/resilience.md §5).
+    void applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume);
+
+  private:
     void saveSession();
     wl_event_source* m_sessionSaveTimer = nullptr;
     bool m_sessionSavePending = false;

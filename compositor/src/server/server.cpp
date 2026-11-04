@@ -56,12 +56,14 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <ranges>
 #include <sstream>
@@ -72,6 +74,8 @@ extern "C" {
 #include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace andromeda {
 
@@ -1314,6 +1318,63 @@ namespace andromeda {
     wl_event_source_timer_update(m_watchdogTimer, m_watchdogIntervalMs);
   }
 
+  void Server::loadRestorePlacements(const std::filesystem::path& crashList) {
+    std::ifstream in(crashList);
+    const nlohmann::json session = nlohmann::json::parse(in, nullptr, false);
+    if (session.is_discarded() || !session.contains("windows") || !session["windows"].is_array()) {
+      return;
+    }
+    for (const auto& window : session["windows"]) {
+      RestorePlacement placement{
+          .appId = window.value("app_id", ""),
+          .output = window.value("output", ""),
+          .workspace = window.value("workspace", ""),
+          .floating = window.value("floating", false),
+          .fullscreen = window.value("fullscreen", false),
+          .width = window.value("w", 0),
+          .height = window.value("h", 0),
+      };
+      if (!placement.appId.empty()) {
+        m_restorePlacements.push_back(std::move(placement));
+      }
+    }
+    m_restorePlacementDeadlineMs = uptimeMs() + 120000;
+  }
+
+  void Server::applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume) {
+    if (m_restorePlacements.empty() || uptimeMs() > m_restorePlacementDeadlineMs) {
+      m_restorePlacements.clear();
+      return;
+    }
+    const auto it = std::ranges::find(m_restorePlacements, appId, &RestorePlacement::appId);
+    if (it == m_restorePlacements.end()) {
+      return;
+    }
+    if (!it->output.empty()) {
+      rule.defaultOutput = it->output;
+    }
+    // Workspace ids are "OUTPUT:NAME"; a numeric name is a position.
+    const std::string name = it->workspace.substr(it->workspace.rfind(':') + 1);
+    if (!name.empty()) {
+      size_t position = 0;
+      const auto [end, error] = std::from_chars(name.data(), name.data() + name.size(), position);
+      if (error == std::errc{} && end == name.data() + name.size() && position > 0) {
+        rule.defaultWorkspace = WorkspaceIndex{position};
+      } else {
+        rule.defaultWorkspace = WorkspaceName{name};
+      }
+    }
+    rule.defaultFloating = it->floating;
+    rule.defaultFullscreen = it->fullscreen;
+    if (it->floating && it->width > 0 && it->height > 0) {
+      rule.defaultFloatingWidthPx = it->width;
+      rule.defaultFloatingHeightPx = it->height;
+    }
+    if (consume) {
+      m_restorePlacements.erase(it);
+    }
+  }
+
   std::string Server::lockFilePath() {
     return std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/locked";
   }
@@ -1365,6 +1426,7 @@ namespace andromeda {
         std::filesystem::copy_file(
             dir / "session.json", dir / "session-crash.json", std::filesystem::copy_options::overwrite_existing, error
         );
+        loadRestorePlacements(dir / "session-crash.json");
       }
       mkdir(running.substr(0, running.rfind('/')).c_str(), 0700);
       if (const int fd = open(running.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
