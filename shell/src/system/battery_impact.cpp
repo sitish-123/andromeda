@@ -1,5 +1,6 @@
 #include "system/battery_impact.h"
 
+#include "dbus/systemd/systemd_unit_name.h"
 #include "system/app_identity.h"
 #include "system/desktop_entry.h"
 
@@ -42,5 +43,36 @@ std::vector<BatteryImpact> rankBatteryImpact(
     }
     out.push_back({.row = row, .sharePercent = share});
   }
+  return out;
+}
+
+std::vector<BatteryImpact> rankAppEnergy(
+    const std::map<std::string, double>& unitSeconds, std::span<const ActivityRow> rows, std::vector<ActivityRow>& past
+) {
+  std::map<std::string, double> byApp;
+  double total = 0.0;
+  for (const auto& [unit, seconds] : unitSeconds) {
+    const std::string appId = appIdFromUnit(unit);
+    byApp[appId.empty() ? unit : appId] += seconds;
+    total += seconds;
+  }
+  past.clear();
+  past.reserve(byApp.size());
+  std::vector<BatteryImpact> out;
+  for (const auto& [key, seconds] : byApp) {
+    const double share = total > 0.0 ? seconds / total * 100.0 : 0.0;
+    if (share < 0.5) {
+      continue;
+    }
+    const auto live = std::ranges::find_if(rows, [&key](const ActivityRow& r) { return r.key == key || r.appId == key; });
+    if (live != rows.end()) {
+      out.push_back({.row = &*live, .sharePercent = share});
+      continue;
+    }
+    const bool isUnit = key.ends_with(".scope") || key.ends_with(".service");
+    past.push_back(ActivityRow{.key = key, .appId = isUnit ? std::string() : key, .units = {}});
+    out.push_back({.row = &past.back(), .sharePercent = share});
+  }
+  std::ranges::sort(out, std::greater{}, &BatteryImpact::sharePercent);
   return out;
 }

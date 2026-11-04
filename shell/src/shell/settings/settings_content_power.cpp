@@ -12,6 +12,7 @@
 #include "system/battery_history.h"
 #include "system/battery_impact.h"
 #include "system/screen_time_service.h"
+#include "protocols/app_energy_log.h"
 #include "protocols/screen_activity_log.h"
 #include "ui/controls/graph.h"
 #include "time/time_format.h"
@@ -70,6 +71,12 @@ namespace settings {
       }
       if (id == "storage.low") {
         return i18n::tr("settings.power.rule-storage");
+      }
+      if (id == "thermal.hot") {
+        return i18n::tr("settings.power.rule-thermal-hot");
+      }
+      if (id == "battery.optimized_charging") {
+        return i18n::tr("settings.power.rule-optimized-charging");
       }
       return i18n::tr("settings.power.rule-other");
     }
@@ -978,6 +985,18 @@ namespace settings {
       std::vector<BatteryImpact> ranked = rankBatteryImpact(rows, ctx.activityDetails, [tab](const ActivityRow& r) {
         return tab != 2 || !r.hasWindow;
       });
+      // Over 10 days the battery tab ranks the CPU time the compositor booked per day, closed apps included.
+      std::vector<ActivityRow> pastRows;
+      if (tenDays && tab == 0) {
+        std::ifstream in(appEnergyPath());
+        std::stringstream text;
+        text << in.rdbuf();
+        AppEnergyLog energy;
+        energy.parse(text.str());
+        if (auto booked = energy.totals(unixNow(), AppEnergyLog::kKeepDays); !booked.empty()) {
+          ranked = rankAppEnergy(booked, rows, pastRows);
+        }
+      }
       if (tab == 1) {
         std::ranges::stable_sort(ranked, std::greater{}, [&](const BatteryImpact& b) { return onScreen(*b.row); });
       }

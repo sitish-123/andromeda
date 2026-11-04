@@ -19,6 +19,13 @@ for h in $(seq 23 -1 0); do
   hour=$(((start / 3600) % 24))
   if ((hour >= 8 && hour < 23)); then echo "$start $((1200 + (hour * 97) % 1800)) $((120 + (hour * 53) % 480))"; fi
 done > "$STATE/screen-activity"
+# CPU seconds per app unit for the 10-day Apps view; Files ran 2 days ago and runs no more.
+day=$((now / 86400))
+{
+  echo "d $day 3600 app-gnome-org.mozilla.firefox-1234.scope"
+  echo "d $((day - 2)) 1800 app-gnome-org.gnome.Nautilus-55.scope"
+  echo "d $((day - 3)) 900 flatpak-com.spotify.Client-9.scope"
+} > "$STATE/app-energy"
 # After the fixture: the compositor records into the same file and keeps what it read at start.
 boot_headless 1
 # Explain logs and rule settings of earlier runs would show as old entries.
@@ -66,6 +73,15 @@ with_noctalia '
     grim "$OUT/battery-$mode-3.png"
     "$NOCTALIA" msg settings-close > /dev/null
   done
+  # The 10 days range (dark): Last 10 days sits in the title row.
+  "$NOCTALIA" msg settings-open power > /dev/null
+  sleep 2
+  "$POINTER" 1280 720 move 1032 113 click 272 > /dev/null
+  sleep 1
+  grim "$OUT/battery-10days-1.png"
+  scroll 8
+  grim "$OUT/battery-10days-2.png"
+  cp "$STATE/app-energy" "$OUT/app-energy"
   kill "$shell" "$session" "$system" "$mock" "$sysbus"
 '
 echo "PASS: artifacts in $OUT"

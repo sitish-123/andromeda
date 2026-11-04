@@ -2111,6 +2111,8 @@
       "rule-memory": "Memory relief",
       "rule-thermal": "Cooling",
       "rule-storage": "Low storage alert",
+      "rule-optimized-charging": "Optimized charging",
+      "rule-thermal-hot": "Overheating alert",
       "rule-for-app": "{rule}: {app}",
       "event-on": "{rule} on",
       "event-off": "{rule} off",
@@ -2218,6 +2220,7 @@
         "backdrop": "Backdrop",
         "background": "Background",
         "battery": "Battery",
+        "background-apps": "Background Apps",
         "behavior": "Behavior",
         "bluetooth": "Bluetooth",
         "borders": "Borders",
@@ -5048,6 +5051,10 @@
         "general-focus-on-activate": {
           "label": "Focus on Activation",
           "description": "Focus and reveal a window when an app asks for attention"
+        },
+        "general-freeze-background-apps": {
+          "label": "Freeze Idle Background Services",
+          "description": "On battery, pause apps with no open window after they stay hidden for a long time"
         },
         "hot-corners-top-left-enabled": {
           "label": "Top Left Corner",

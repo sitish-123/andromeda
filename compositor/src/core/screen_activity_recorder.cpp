@@ -1,10 +1,14 @@
 #include "core/screen_activity_recorder.h"
 
+#include "qos/holds.h"
+
 #include <wayland-server-core.h>
 
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <set>
 #include <sstream>
 
 namespace andromeda {
@@ -21,15 +25,45 @@ namespace andromeda {
     // Input pauses flip idle often while the user types; the file is rewritten at most this often for them.
     constexpr std::int64_t kWriteEverySeconds = 300;
 
+    std::string readFile(const std::string& path) {
+      std::ifstream in(path);
+      std::stringstream text;
+      text << in.rdbuf();
+      return text.str();
+    }
+
+    // Replaces `path` whole, so the shell never reads half a file.
+    void writeFile(const std::filesystem::path& path, const std::string& text) {
+      std::error_code ec;
+      std::filesystem::create_directories(path.parent_path(), ec);
+      const std::filesystem::path tmp = path.string() + ".tmp";
+      {
+        std::ofstream out(tmp, std::ios::trunc);
+        out << text;
+        if (!out) {
+          return;
+        }
+      }
+      std::filesystem::rename(tmp, path, ec);
+    }
+
+    std::optional<std::uint64_t> readUsageUsec(const std::string& cgroupDir) {
+      std::ifstream in(cgroupDir + "/cpu.stat");
+      std::string key;
+      std::uint64_t value = 0;
+      while (in >> key >> value) {
+        if (key == "usage_usec") {
+          return value;
+        }
+      }
+      return std::nullopt;
+    }
+
   } // namespace
 
   ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop) {
-    std::ifstream in(screenActivityPath());
-    if (in) {
-      std::stringstream text;
-      text << in.rdbuf();
-      m_log.parse(text.str());
-    }
+    m_log.parse(readFile(screenActivityPath()));
+    m_energy.parse(readFile(appEnergyPath()));
     const std::int64_t now = unixNow();
     m_lastInput = now;
     m_log.setScreenOn(true, now);
@@ -88,18 +122,16 @@ namespace andromeda {
       return;
     }
     m_writtenAt = now;
-    const std::filesystem::path path = screenActivityPath();
-    std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    const std::filesystem::path tmp = path.string() + ".tmp";
-    {
-      std::ofstream out(tmp, std::ios::trunc);
-      out << m_log.snapshot(now);
-      if (!out) {
-        return;
+    writeFile(screenActivityPath(), m_log.snapshot(now));
+    std::set<std::string> live;
+    for (const auto& [unit, app] : qos::registry().apps) {
+      if (const auto usage = readUsageUsec(app.dir); usage.has_value()) {
+        m_energy.book(unit, *usage, now);
+        live.insert(unit);
       }
     }
-    std::filesystem::rename(tmp, path, ec);
+    m_energy.keepUnits(live);
+    writeFile(appEnergyPath(), m_energy.serialize(now));
   }
 
 } // namespace andromeda

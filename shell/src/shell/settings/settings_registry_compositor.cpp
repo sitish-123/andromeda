@@ -224,6 +224,7 @@ namespace settings {
       toggle(Windows, "focus", "input.focus.follows_mouse", "focus follows mouse hover pointer");
       toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");
       toggle(Windows, "focus", "general.focus_on_activate", "focus activation request urgent");
+      toggle(Power, "background-apps", "general.freeze_background_apps", "freeze background services battery energy");
       toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
