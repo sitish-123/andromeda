@@ -57,7 +57,7 @@ namespace andromeda {
     }
   }
 
-  void PackageEnergy::request(std::function<void(double)> done) {
+  void PackageEnergy::request(const char* method, std::function<void(double)> done) {
     if (m_done) {
       return;
     }
@@ -68,7 +68,7 @@ namespace andromeda {
     m_done = std::move(done);
     const int result = sd_bus_call_method_async(
         m_bus, nullptr, "org.andromeda.System1", "/org/andromeda/System1/Power", "org.andromeda.System1.Power",
-        "PackageEnergyJ", onReply, this, ""
+        method, onReply, this, ""
     );
     if (result < 0) {
       auto callback = std::move(m_done);

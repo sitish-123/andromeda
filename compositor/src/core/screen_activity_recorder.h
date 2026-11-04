@@ -29,6 +29,7 @@ namespace andromeda {
   private:
     static int onIdleCheck(void* data);
     void write(bool force);
+    void bookGpu(std::int64_t now);
     // Books a suspend that ended before `now`: CLOCK_BOOTTIME runs on in suspend, CLOCK_MONOTONIC does not.
     void checkSleep(std::int64_t now);
 

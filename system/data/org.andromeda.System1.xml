@@ -102,6 +102,9 @@
     <method name="PackageEnergyJ">
       <arg type="d" direction="out" />
     </method>
+    <method name="UncoreEnergyJ">
+      <arg type="d" direction="out" />
+    </method>
     <property name="ChargeLimitSupported" type="b" access="read" />
     <property name="LearnedUnplugMin" type="i" access="read" />
     <property name="OnBattery" type="b" access="read" />

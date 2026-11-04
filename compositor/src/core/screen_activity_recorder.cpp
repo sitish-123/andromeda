@@ -1,13 +1,16 @@
 #include "core/screen_activity_recorder.h"
 
+#include "core/drm_clients.h"
 #include "qos/holds.h"
 
+#include <unistd.h>
 #include <wayland-server-core.h>
 
 #include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -146,6 +149,30 @@ namespace andromeda {
     return 0;
   }
 
+  // GPU time of every DRM client the user's processes hold, booked to its app unit (others only count in the total).
+  void ScreenActivityRecorder::bookGpu(std::int64_t now) {
+    std::map<pid_t, std::string> unitOf;
+    for (const auto& [unit, app] : qos::registry().apps) {
+      for (const pid_t pid : cgroupPids(app.dir)) {
+        unitOf[pid] = unit;
+      }
+    }
+    const std::string manager = userManagerCgroup();
+    std::vector<pid_t> pids = manager.empty() ? std::vector<pid_t>{getpid()} : cgroupPids(manager);
+    if (manager.empty()) {
+      for (const auto& entry : unitOf) {
+        pids.push_back(entry.first);
+      }
+    }
+    std::set<std::string> live;
+    for (const DrmClient& client : drmClients(pids)) {
+      const auto unit = unitOf.find(client.pid);
+      m_energy.bookGpu(client.key, unit == unitOf.end() ? std::string() : unit->second, client.busyNs, now);
+      live.insert(client.key);
+    }
+    m_energy.keepGpuClients(live);
+  }
+
   void ScreenActivityRecorder::write(bool force) {
     const std::int64_t now = unixNow();
     if (!force && now - m_writtenAt < kWriteEverySeconds) {
@@ -164,12 +191,20 @@ namespace andromeda {
     if (const auto all = readUsageUsec("/sys/fs/cgroup"); all.has_value()) {
       m_energy.bookTotal(*all, now);
     }
+    bookGpu(now);
     writeFile(appEnergyPath(), m_energy.serialize(now));
-    m_packageEnergy.request([this, now](double joules) {
-      if (!std::isnan(joules)) {
-        m_energy.bookPackage(joules, now);
-        writeFile(appEnergyPath(), m_energy.serialize(now));
+    m_packageEnergy.request("PackageEnergyJ", [this, now](double joules) {
+      if (std::isnan(joules)) {
+        return;
       }
+      m_energy.bookPackage(joules, now);
+      writeFile(appEnergyPath(), m_energy.serialize(now));
+      m_packageEnergy.request("UncoreEnergyJ", [this, now](double uncore) {
+        if (!std::isnan(uncore)) {
+          m_energy.bookUncore(uncore, now);
+          writeFile(appEnergyPath(), m_energy.serialize(now));
+        }
+      });
     });
   }
 

@@ -49,6 +49,30 @@ pub struct Power {
     data: PowerData,
     /// RAPL package counter at the last `PackageEnergyJ` call, and the joules counted since the daemon started.
     energy: std::sync::Mutex<(Option<u64>, f64)>,
+    /// The same for the uncore domain (`UncoreEnergyJ`).
+    uncore: std::sync::Mutex<(Option<u64>, f64)>,
+}
+
+/// Joules a RAPL domain counted since the first call, from `state` (last raw counter, sum); NaN where it is missing.
+fn domain_joules(domain: &str, state: &std::sync::Mutex<(Option<u64>, f64)>) -> f64 {
+    let (Some(raw), Some(range)) =
+        (read_u64(&format!("{domain}/energy_uj")), read_u64(&format!("{domain}/max_energy_range_uj")))
+    else {
+        return f64::NAN;
+    };
+    let Ok(mut energy) = state.lock() else { return f64::NAN };
+    if let Some(last) = energy.0 {
+        energy.1 += rapl_joules(last, raw, range);
+    }
+    energy.0 = Some(raw);
+    energy.1
+}
+
+/// The package's `uncore` subdomain (Intel: the integrated GPU and the ring); absent on AMD.
+fn uncore_domain() -> Option<String> {
+    (0..4).map(|i| format!("{RAPL}:{i}")).find(|d| {
+        std::fs::read_to_string(format!("{d}/name")).is_ok_and(|n| n.trim() == "uncore")
+    })
 }
 
 #[interface(name = "org.andromeda.System1.Power")]
@@ -85,17 +109,13 @@ impl Power {
     /// CPU package energy in J since the daemon started, from RAPL; NaN where RAPL is missing. Read on demand, no
     /// timer: the hardware counter wraps after some hours at full load, so a caller reads it at least that often.
     fn package_energy_j(&self) -> f64 {
-        let (Some(raw), Some(range)) =
-            (read_u64(&format!("{RAPL}/energy_uj")), read_u64(&format!("{RAPL}/max_energy_range_uj")))
-        else {
-            return f64::NAN;
-        };
-        let Ok(mut energy) = self.energy.lock() else { return f64::NAN };
-        if let Some(last) = energy.0 {
-            energy.1 += rapl_joules(last, raw, range);
-        }
-        energy.0 = Some(raw);
-        energy.1
+        domain_joules(RAPL, &self.energy)
+    }
+
+    /// Integrated-GPU (RAPL uncore) energy in J since the daemon started, part of `PackageEnergyJ`; NaN where the
+    /// domain is missing. Read on demand like `PackageEnergyJ`.
+    fn uncore_energy_j(&self) -> f64 {
+        uncore_domain().map_or(f64::NAN, |d| domain_joules(&d, &self.uncore))
     }
 
     /// The usual time the charger comes out after an overnight charge, in minutes after midnight UTC, learned from

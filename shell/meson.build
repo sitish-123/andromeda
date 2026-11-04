@@ -1198,6 +1198,7 @@ if build_tests
     'background_warning_state',
     'battery_history',
     'screen_activity_log',
+    'app_energy_log',
     'screen_on_time',
     'app_identity',
     'app_provider_typo',
