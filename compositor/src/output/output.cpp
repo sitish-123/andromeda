@@ -204,16 +204,7 @@ namespace andromeda {
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
-    m_paceTimer = wl_event_loop_add_timer( // TEMP-PACE
         wl_display_get_event_loop(m_server->display()),
-        [](void* data) { // TEMP-PACE
-          auto* self = static_cast<Output*>(data); // TEMP-PACE
-          self->m_paced = true; // TEMP-PACE
-          self->handleFrame(); // TEMP-PACE
-          self->m_paced = false; // TEMP-PACE
-          return 0; // TEMP-PACE
-        }, // TEMP-PACE
-        this); // TEMP-PACE
     m_backdropTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onBackdropTimer, this);
     m_directScanoutTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
@@ -1564,10 +1555,6 @@ namespace andromeda {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
     }
-    if (m_paceTimer != nullptr) { // TEMP-PACE
-      wl_event_source_remove(m_paceTimer); // TEMP-PACE
-      m_paceTimer = nullptr; // TEMP-PACE
-    } // TEMP-PACE
     if (m_backdropTimer != nullptr) {
       wl_event_source_remove(m_backdropTimer);
       m_backdropTimer = nullptr;
@@ -2126,23 +2113,6 @@ namespace andromeda {
     if (!outputFrameAllowed(m_server->stopping(), m_server->session())) {
       return;
     }
-    { // TEMP-PACE: delay the render by /tmp/andromeda-render-delay ms after the frame event
-      static int delayMs = 0; // TEMP-PACE
-      static int countdown = 0; // TEMP-PACE
-      if (--countdown <= 0) { // TEMP-PACE
-        countdown = 30; // TEMP-PACE
-        FILE* f = std::fopen("/tmp/andromeda-render-delay", "r"); // TEMP-PACE
-        delayMs = 0; // TEMP-PACE
-        if (f != nullptr) { // TEMP-PACE
-          if (std::fscanf(f, "%d", &delayMs) != 1) delayMs = 0; // TEMP-PACE
-          std::fclose(f); // TEMP-PACE
-        } // TEMP-PACE
-      } // TEMP-PACE
-      if (delayMs > 0 && !m_paced && m_paceTimer != nullptr) { // TEMP-PACE
-        wl_event_source_timer_update(m_paceTimer, delayMs); // TEMP-PACE
-        return; // TEMP-PACE
-      } // TEMP-PACE
-    } // TEMP-PACE
     const OutputFrameScope frameScope(*m_server);
     stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
