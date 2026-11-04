@@ -805,7 +805,7 @@ void Application::initIpc() {
   }
   m_locationService.registerIpc(m_ipcService);
   if (bluetooth() != nullptr) {
-    bluetooth()->registerIpc(m_ipcService, [this](bool enabled) {
+    registerBluetoothIpc(m_ipcService, *bluetooth(), [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));
     });
   }

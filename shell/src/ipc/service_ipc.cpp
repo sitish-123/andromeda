@@ -1,11 +1,24 @@
 #include "ipc/service_ipc.h"
 
+#include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/power/power_profiles_service.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <optional>
 #include <string>
+
+namespace {
+
+  std::optional<std::string> rejectArgs(std::string_view command, const std::string& args) {
+    if (StringUtils::trim(args).empty()) {
+      return std::nullopt;
+    }
+    return "error: " + std::string(command) + " takes no arguments\n";
+  }
+
+} // namespace
 
 void registerPowerProfilesIpc(
     IpcService& ipc, PowerProfilesService& service, const std::function<void(std::string_view)>& stateFeedback
@@ -56,4 +69,61 @@ void registerPowerProfilesIpc(
     }
     return "ok\n";
   });
+}
+
+void registerBluetoothIpc(IpcService& ipc, BluetoothService& service, const std::function<void(bool)>& stateFeedback) {
+  auto setBluetooth = [&service, stateFeedback](bool enabled) -> std::string {
+    if (!service.hasStateSnapshot()) {
+      return "error: bluetooth state unavailable\n";
+    }
+    if (!service.state().adapterPresent) {
+      return "error: bluetooth adapter unavailable\n";
+    }
+    if (service.state().powered == enabled) {
+      return "ok\n";
+    }
+    service.setPowered(enabled);
+    if (stateFeedback) {
+      stateFeedback(enabled);
+    }
+    return "ok\n";
+  };
+
+  ipc.bind(noctalia::cli::msg::bluetoothEnable, [setBluetooth](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("bluetooth-enable", args); err.has_value()) {
+      return *err;
+    }
+    return setBluetooth(true);
+  });
+
+  ipc.bind(noctalia::cli::msg::bluetoothDisable, [setBluetooth](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("bluetooth-disable", args); err.has_value()) {
+      return *err;
+    }
+    return setBluetooth(false);
+  });
+
+  ipc.bind(noctalia::cli::msg::bluetoothToggle, [&service, setBluetooth](const std::string& args) -> std::string {
+    if (auto err = rejectArgs("bluetooth-toggle", args); err.has_value()) {
+      return *err;
+    }
+    if (!service.hasStateSnapshot()) {
+      return "error: bluetooth state unavailable\n";
+    }
+    return setBluetooth(!service.state().powered);
+  });
+
+  ipc.bind(
+      noctalia::cli::msg::bluetoothStatus,
+      [&service](const std::string& args) -> std::string {
+        if (auto err = rejectArgs("bluetooth-status", args); err.has_value()) {
+          return *err;
+        }
+        if (!service.hasStateSnapshot()) {
+          return "error: bluetooth state unavailable\n";
+        }
+        return service.state().powered ? "on\n" : "off\n";
+      },
+      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
+  );
 }

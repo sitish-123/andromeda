@@ -4,8 +4,7 @@
 #include "dbus/system_bus.h"
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
-#include "ipc/ipc_service.h"
-#include "notification/notifications.h"
+#include "dbus/service_notice.h"
 #include "system/rfkill_helper.h"
 #include "util/string_utils.h"
 
@@ -37,12 +36,6 @@ namespace {
   using ObjectInterfaces = std::map<std::string, InterfaceProps>;
   using ManagedObjects = std::map<sdbus::ObjectPath, ObjectInterfaces>;
 
-  std::optional<std::string> rejectArgs(std::string_view command, const std::string& args) {
-    if (StringUtils::trim(args).empty()) {
-      return std::nullopt;
-    }
-    return "error: " + std::string(command) + " takes no arguments\n";
-  }
 
   template <typename T> std::optional<T> variantGet(const sdbus::Variant& value) {
     try {
@@ -487,62 +480,6 @@ BluetoothService::~BluetoothService() = default;
 void BluetoothService::setStateCallback(StateCallback callback) { m_stateCallback = std::move(callback); }
 void BluetoothService::setDevicesCallback(DevicesCallback callback) { m_devicesCallback = std::move(callback); }
 
-void BluetoothService::registerIpc(IpcService& ipc, const StateFeedbackCallback& stateFeedback) {
-  auto setBluetooth = [this, stateFeedback](bool enabled) -> std::string {
-    if (!hasStateSnapshot()) {
-      return "error: bluetooth state unavailable\n";
-    }
-    if (!state().adapterPresent) {
-      return "error: bluetooth adapter unavailable\n";
-    }
-    if (state().powered == enabled) {
-      return "ok\n";
-    }
-    setPowered(enabled);
-    if (stateFeedback) {
-      stateFeedback(enabled);
-    }
-    return "ok\n";
-  };
-
-  ipc.bind(noctalia::cli::msg::bluetoothEnable, [setBluetooth](const std::string& args) -> std::string {
-    if (auto err = rejectArgs("bluetooth-enable", args); err.has_value()) {
-      return *err;
-    }
-    return setBluetooth(true);
-  });
-
-  ipc.bind(noctalia::cli::msg::bluetoothDisable, [setBluetooth](const std::string& args) -> std::string {
-    if (auto err = rejectArgs("bluetooth-disable", args); err.has_value()) {
-      return *err;
-    }
-    return setBluetooth(false);
-  });
-
-  ipc.bind(noctalia::cli::msg::bluetoothToggle, [this, setBluetooth](const std::string& args) -> std::string {
-    if (auto err = rejectArgs("bluetooth-toggle", args); err.has_value()) {
-      return *err;
-    }
-    if (!hasStateSnapshot()) {
-      return "error: bluetooth state unavailable\n";
-    }
-    return setBluetooth(!state().powered);
-  });
-
-  ipc.bind(
-      noctalia::cli::msg::bluetoothStatus,
-      [this](const std::string& args) -> std::string {
-        if (auto err = rejectArgs("bluetooth-status", args); err.has_value()) {
-          return *err;
-        }
-        if (!hasStateSnapshot()) {
-          return "error: bluetooth state unavailable\n";
-        }
-        return state().powered ? "on\n" : "off\n";
-      },
-      IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
-  );
-}
 
 void BluetoothService::refresh() {
   if (m_impl == nullptr || m_impl->root == nullptr) {
@@ -738,7 +675,7 @@ bool BluetoothService::dispatchConnect(const std::string& devicePath, std::funct
             if (auto* dev = findDevice(devicePath)) {
               dev->connecting = false;
               if (local && m_connectionNotifications) {
-                notify::error(
+                service_notice::error(
                     i18n::tr("notifications.internal.bluetooth"),
                     i18n::tr("notifications.internal.bluetooth-connect-failed-title", "device", dev->alias),
                     err->getMessage()
@@ -913,7 +850,7 @@ void BluetoothService::notifyConnectionChange(const BluetoothDeviceInfo& dev) {
   }
   const char* titleKey = dev.connected ? "notifications.internal.bluetooth-connected-title"
                                        : "notifications.internal.bluetooth-disconnected-title";
-  notify::info(i18n::tr("notifications.internal.bluetooth"), i18n::tr(titleKey, "device", dev.alias), "");
+  service_notice::info(i18n::tr("notifications.internal.bluetooth"), i18n::tr(titleKey, "device", dev.alias), "");
 }
 
 void BluetoothService::settleLocalDeviceRequest(const std::string& devicePath) {

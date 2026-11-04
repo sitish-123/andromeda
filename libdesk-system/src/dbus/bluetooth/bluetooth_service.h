@@ -12,7 +12,6 @@
 #include <vector>
 
 class SystemBus;
-class IpcService;
 class UPowerService;
 
 namespace sdbus {
@@ -76,7 +75,6 @@ class BluetoothService {
 public:
   using StateCallback = std::function<void(const BluetoothState&, BluetoothStateChangeOrigin)>;
   using DevicesCallback = std::function<void(const std::vector<BluetoothDeviceInfo>&)>;
-  using StateFeedbackCallback = std::function<void(bool enabled)>;
 
   // upowerService may be null when UPower is unavailable; it must outlive this service.
   explicit BluetoothService(SystemBus& bus, UPowerService* upowerService);
@@ -88,7 +86,6 @@ public:
   void setStateCallback(StateCallback callback);
   void setDevicesCallback(DevicesCallback callback);
   void refresh();
-  void registerIpc(IpcService& ipc, const StateFeedbackCallback& stateFeedback = {});
 
   [[nodiscard]] const BluetoothState& state() const noexcept { return m_state; }
   [[nodiscard]] bool hasStateSnapshot() const noexcept { return m_hasStateSnapshot; }
