@@ -296,6 +296,10 @@ struct fx_renderer {
     struct tex_shader tex_effects_flares_rgba;
     struct blur2_composite_shader blur2_composite_flares;
     struct blur2_composite_shader blur2_with_effects_composite_flares;
+    struct blur2_composite_shader blur2_glass_composite;
+    struct blur2_composite_shader blur2_glass_composite_flares;
+    struct blur2_composite_shader blur2_with_effects_glass_composite;
+    struct blur2_composite_shader blur2_with_effects_glass_composite_flares;
   } shaders;
 
   bool animation_shadow_attempted;

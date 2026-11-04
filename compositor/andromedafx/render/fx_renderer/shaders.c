@@ -400,11 +400,11 @@ bool link_blur1_program(struct blur_shader* shader) {
 
 // Links one variant of blur2.frag and loads the uniforms every variant shares.
 static bool link_blur2_variant(
-    struct blur2_with_effects_shader* shader, bool effects, bool composite, bool corners, bool flares
+    struct blur2_with_effects_shader* shader, bool effects, bool composite, bool corners, bool flares, bool glass
 ) {
   GLchar frag_src_part[12288];
   GLchar frag_src[sizeof(frag_src_part) + sizeof(kFlaresDefine) + sizeof(corner_alpha_frag_src) + 3];
-  snprintf(frag_src_part, sizeof(frag_src_part), blur2_frag_src, effects, composite, corners);
+  snprintf(frag_src_part, sizeof(frag_src_part), blur2_frag_src, effects, composite, corners, glass);
   snprintf(
       frag_src, sizeof(frag_src), "%s\n%s%s\n", frag_src_part, corners && flares ? kFlaresDefine : "",
       corners ? corner_alpha_frag_src : ""
@@ -435,7 +435,7 @@ static bool link_blur2_variant(
 
 bool link_blur2_program(struct blur_shader* shader) {
   struct blur2_with_effects_shader variant;
-  if (!link_blur2_variant(&variant, false, false, false, false)) {
+  if (!link_blur2_variant(&variant, false, false, false, false, false)) {
     return false;
   }
   *shader = variant.base;
@@ -443,11 +443,13 @@ bool link_blur2_program(struct blur_shader* shader) {
 }
 
 bool link_blur2_with_effects_program(struct blur2_with_effects_shader* shader) {
-  return link_blur2_variant(shader, true, false, false, false);
+  return link_blur2_variant(shader, true, false, false, false, false);
 }
 
-bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool effects, bool corners, bool flares) {
-  if (!link_blur2_variant(&shader->blur, effects, true, corners, flares)) {
+bool link_blur2_composite_program(
+    struct blur2_composite_shader* shader, bool effects, bool corners, bool flares, bool glass
+) {
+  if (!link_blur2_variant(&shader->blur, effects, true, corners, flares, glass)) {
     return false;
   }
   GLuint prog = shader->blur.base.program;
@@ -467,6 +469,16 @@ bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool ef
   shader->corners.clip_radius.top_right = glGetUniformLocation(prog, "clip_radius_top_right");
   shader->corners.clip_radius.bottom_left = glGetUniformLocation(prog, "clip_radius_bottom_left");
   shader->corners.clip_radius.bottom_right = glGetUniformLocation(prog, "clip_radius_bottom_right");
+
+  shader->glass.liquid = glGetUniformLocation(prog, "liquid");
+  shader->glass.rim = glGetUniformLocation(prog, "rim");
+  shader->glass.lens = glGetUniformLocation(prog, "lens");
+  shader->glass.lens_tex = glGetUniformLocation(prog, "lens_tex");
+  shader->glass.tint_mix = glGetUniformLocation(prog, "tint_mix");
+  shader->glass.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
+  shader->glass.liquid_size = glGetUniformLocation(prog, "liquid_size");
+  shader->glass.liquid_position = glGetUniformLocation(prog, "liquid_position");
+  shader->glass.liquid_radius = glGetUniformLocation(prog, "liquid_radius");
 
   return true;
 }

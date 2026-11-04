@@ -247,8 +247,23 @@ struct blur2_composite_shader {
     GLint clip_position;
     struct shader_corner_radii clip_radius;
   } corners;
+
+  // -1 outside the glass variants.
+  struct {
+    GLint liquid;
+    GLint rim;
+    GLint lens;
+    GLint lens_tex;
+    GLint tint_mix;
+    GLint liquid_texel;
+    GLint liquid_size;
+    GLint liquid_position;
+    GLint liquid_radius;
+  } glass;
 };
 
-bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool effects, bool corners, bool flares);
+bool link_blur2_composite_program(
+    struct blur2_composite_shader* shader, bool effects, bool corners, bool flares, bool glass
+);
 
 #endif
