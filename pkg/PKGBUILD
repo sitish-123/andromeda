@@ -55,6 +55,7 @@ build() {
 package_andromeda-system-git() {
   pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
   depends=(dbus polkit upower power-profiles-daemon)
+  backup=(etc/UPower/UPower.conf.d/50-andromeda.conf)
   optdepends=('networkmanager: network state')
   install -Dm755 desktop/system/target/release/andromeda-system "$pkgdir/usr/lib/andromeda/andromeda-system"
   # Started on demand by D-Bus activation from the shell or the greeter.
@@ -72,6 +73,7 @@ package_andromeda-system-git() {
   ln -s ../andromeda-system-session.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-system-session.service"
   install -Dm644 -t "$pkgdir/usr/share/andromeda/system/rules" desktop/system/data/rules/*.toml
+  install -Dm644 desktop/system/data/upower-50-andromeda.conf "$pkgdir/etc/UPower/UPower.conf.d/50-andromeda.conf"
 }
 
 package_andromeda() {
@@ -106,6 +108,8 @@ package_andromeda-compositor-git() {
     "$pkgdir/usr/lib/systemd/user/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf"
   install -Dm644 desktop/session/memory/user-session.slice.conf \
     "$pkgdir/usr/lib/systemd/user/session.slice.d/andromeda-ui-memory.conf"
+  install -Dm644 desktop/session/memory/user-app.slice.conf \
+    "$pkgdir/usr/lib/systemd/user/app.slice.d/andromeda-qos.conf"
   install -Dm644 desktop/session/memory/user-service.conf \
     "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-ui-memory.conf"
   for slice in user.slice user-.slice; do

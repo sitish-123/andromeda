@@ -1,0 +1,9 @@
+# Built-in battery rules (docs/system-health.md §4.3, §8.1). UPower performs the critical action itself
+# (UPower.conf.d: Hibernate after a passed trial, else PowerOff); this rule only warns, and the alert stays.
+[[rule]]
+id = "battery.critical"
+scope = "session"
+priority = "safety"
+when = "power.on_battery and battery.warning >= 'critical'"
+clear = "not power.on_battery"
+alert = { urgency = "critical", text = "battery_critical" }

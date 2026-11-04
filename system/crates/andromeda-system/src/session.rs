@@ -30,6 +30,7 @@ const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 fn alert_text(key: &str) -> (&'static str, &'static str) {
     match key {
         "low_power_plan" => ("Low Power Mode is on", "The battery is low. The desktop uses less power until you plug in."),
+        "battery_critical" => ("Battery critically low", "Plug in now. The computer will soon shut down."),
         _ => ("The desktop changed a setting", "Open Settings > Battery and Power to see why."),
     }
 }
@@ -231,6 +232,14 @@ fn load_rules() -> (Engine, HashMap<String, Spec>) {
                 }
             }
             Err(e) => log::warn!("{}: {e}", path.display()),
+        }
+    }
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+    if let Some(text) = config.and_then(|c| std::fs::read_to_string(c.join("andromeda/system-rules.toml")).ok()) {
+        for warning in rules::apply_settings(&mut rules, &text) {
+            log::warn!("{warning}");
         }
     }
     let specs = rules.iter().map(|r| (r.id.clone(), Spec { holds: r.holds.clone(), alert: r.alert.clone() })).collect();

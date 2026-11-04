@@ -51,8 +51,13 @@ fn millidegrees(path: &Path) -> Option<f64> {
     })
 }
 
-/// State and next trip of one zone from its trips (type, °C). Active trips (fans) do not count as throttling.
+/// The kernel's `THERMAL_TEMP_INVALID` (-274 °C) marks a disabled trip.
+const DISABLED_TRIP: f64 = -273.0;
+
+/// State and next trip of one zone from its trips (type, °C). Active trips (fans) and disabled trips do not count
+/// as throttling.
 pub fn zone_state(temp: f64, trips: &[(String, f64)]) -> (String, f64) {
+    let trips: Vec<&(String, f64)> = trips.iter().filter(|(_, t)| *t > DISABLED_TRIP).collect();
     let rank = |kind: &str| match kind {
         "passive" => 1,
         "hot" => 2,
@@ -62,6 +67,7 @@ pub fn zone_state(temp: f64, trips: &[(String, f64)]) -> (String, f64) {
     let state = trips
         .iter()
         .filter(|(kind, t)| rank(kind) > 0 && temp >= *t)
+        .copied()
         .max_by_key(|(kind, _)| rank(kind))
         .map_or("normal", |(kind, _)| kind.as_str());
     let next = trips.iter().map(|(_, t)| *t).filter(|t| *t > temp).fold(f64::NAN, f64::min);
@@ -270,5 +276,14 @@ mod tests {
         assert_eq!(zone_state(60.0, &trips).0, "normal");
         let (state, next) = zone_state(95.0, &trips);
         assert_eq!((state.as_str(), next), ("passive", 105.0));
+    }
+
+    #[test]
+    fn disabled_trips_do_not_throttle() {
+        // iwlwifi and x86_pkg_temp list passive trips at THERMAL_TEMP_INVALID.
+        let trips = vec![("passive".to_owned(), -274.0), ("passive".to_owned(), -274.0)];
+        let (state, next) = zone_state(61.0, &trips);
+        assert_eq!(state, "normal");
+        assert!(next.is_nan());
     }
 }

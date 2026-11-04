@@ -172,6 +172,35 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
     })
 }
 
+/// Applies the user's settings file (`[<rule id>]` tables with `enabled` and declared params): drops the disabled
+/// rules and sets the params. Returns a warning per setting it ignored; an unknown key never turns a rule off.
+pub fn apply_settings(rules: &mut Vec<Rule>, text: &str) -> Vec<String> {
+    let table: toml::Table = match toml::from_str(text) {
+        Ok(t) => t,
+        Err(e) => return vec![format!("settings: {e}")],
+    };
+    let mut warnings = Vec::new();
+    rules.retain_mut(|rule| {
+        let Some(settings) = table.get(&rule.id).and_then(toml::Value::as_table) else { return true };
+        for (key, value) in settings {
+            if key == "enabled" {
+                continue;
+            }
+            let same_type = matches!(
+                (rule.params.get(key), param_value(value)),
+                (Some(Value::Num(_)), Some(Value::Num(_))) | (Some(Value::Bool(_)), Some(Value::Bool(_)))
+            );
+            if same_type {
+                rule.params.insert(key.clone(), param_value(value).unwrap_or(Value::Bool(false)));
+            } else {
+                warnings.push(format!("{}: {key} is not a param of this type", rule.id));
+            }
+        }
+        settings.get("enabled").and_then(toml::Value::as_bool) != Some(false)
+    });
+    warnings
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum End {
     Cleared,
@@ -266,7 +295,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
-    use super::{End, Episode, Event, load};
+    use super::{End, Episode, Event, apply_settings, load};
     use crate::expr::{Schema, Type, Value, Values};
 
     struct State(HashMap<&'static str, Value>);
@@ -341,6 +370,19 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
         // The next discharge starts a new episode.
         assert_eq!(ep.step(&rule, &at(true, 15.0), t0 + Duration::from_secs(300)), None);
         assert_eq!(ep.step(&rule, &at(true, 15.0), t0 + Duration::from_secs(310)), Some(Event::Started));
+    }
+
+    #[test]
+    fn settings_change_params_and_turn_rules_off() {
+        let mut rules: Vec<_> = load(RULE, &at(false, 0.0)).unwrap().into_iter().map(Result::unwrap).collect();
+        let warnings = apply_settings(&mut rules, "[\"power.low_power_plan\"]\nlow_pct = 15\nnope = 1\n");
+        assert_eq!(warnings.len(), 1);
+        let mut ep = Episode::default();
+        let t0 = Instant::now();
+        ep.step(&rules[0], &at(true, 18.0), t0);
+        assert_eq!(ep.step(&rules[0], &at(true, 18.0), t0 + Duration::from_secs(20)), None);
+        assert!(apply_settings(&mut rules, "[\"power.low_power_plan\"]\nenabled = false\n").is_empty());
+        assert!(rules.is_empty());
     }
 
     #[test]
