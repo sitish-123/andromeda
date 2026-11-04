@@ -59,7 +59,7 @@ mono_ns() { python3 -c 'import time; print(time.monotonic_ns())'; }
 # A tiled window takes only a column: test windows run fullscreen (video cropped to fill) so every sheet, banner and
 # the center island sit over moving content. Fullscreen hides the side bar islands and the dock.
 edges() { sleep 1.5; }
-video() { mpv --really-quiet --loop=inf --no-audio $MPV_ARGS --fs --panscan=1 --title=glass-video "$OUT/motion.mkv" > /dev/null 2>&1 & echo $!; }
+video() { mpv --really-quiet --loop=inf --no-audio ${MPV_ARGS:-} --fs --panscan=1 --title=glass-video "$OUT/motion.mkv" > /dev/null 2>&1 & echo $!; }
 scroller() {
   foot --fullscreen --title=glass-scroll -o colors-dark.background=1e1e2e -o colors-light.background=fdf6e3 sh -c \
     'W=$(printf "The quick brown fox jumps over the lazy dog | %.0s" 1 2 3 4 5 6); i=0; while :; do i=$((i+1)); printf "\033[3%dm%06d %s %s\033[0m\n" $((i%7+1)) $i "$(date +%N)" "$W"; done' \
@@ -81,7 +81,7 @@ s_bar_dock_over_video() {
   if [[ -f $SHELL_CONF ]]; then cp "$SHELL_CONF" "$SHELL_CONF.glass-live"; else : > "$SHELL_CONF.glass-live-none"; fi
   printf '\n[bar.default]\nreserve_space = false\n\n[dock]\nreserve_space = false\n' >> "$SHELL_CONF"
   sleep 1
-  mpv --really-quiet --loop=inf --no-audio $MPV_ARGS --panscan=1 --title=glass-video "$OUT/motion.mkv" > /dev/null 2>&1 &
+  mpv --really-quiet --loop=inf --no-audio ${MPV_ARGS:-} --panscan=1 --title=glass-video "$OUT/motion.mkv" > /dev/null 2>&1 &
   local v=$!; sleep 1.2; andromeda msg window-toggle-maximize-to-edges > /dev/null 2>&1
   sleep "$SECONDS_PER"; kill "$v"
   if [[ -f $SHELL_CONF.glass-live ]]; then mv "$SHELL_CONF.glass-live" "$SHELL_CONF"; else rm -f "$SHELL_CONF" "$SHELL_CONF.glass-live-none"; fi
