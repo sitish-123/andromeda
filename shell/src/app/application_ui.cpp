@@ -108,7 +108,10 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
+#include "desktop-unstable-v1-client-protocol.h"
+
 #include <algorithm>
+#include <iterator>
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -1369,6 +1372,7 @@ void Application::initWidgetControllersAndCallbacks() {
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();
       }
+      syncAppActivity();
       if (pipewire() != nullptr) {
         m_hdmiAudioSwitch.onAudioStateChanged(*pipewire(), m_configService.config().audio.autoSwitchHdmi);
         m_audioOsd.onAudioStateChanged(*pipewire());
@@ -1451,4 +1455,19 @@ void Application::syncLockStreamPause() {
   m_lockscreenWidgetsController.setStreamsPaused(
       profiles != nullptr && profiles->activeProfile() == "power-saver", m_compositorPlatform.outputPowerStates()
   );
+}
+
+void Application::syncAppActivity() {
+  const std::vector<std::uint32_t> audio = pipewire() != nullptr ? pipewire()->state().audioPids : std::vector<std::uint32_t>{};
+  std::vector<std::uint32_t> stopped;
+  std::ranges::set_difference(m_sentAudioPids, audio, std::back_inserter(stopped));
+  std::vector<std::uint32_t> started;
+  std::ranges::set_difference(audio, m_sentAudioPids, std::back_inserter(started));
+  for (const std::uint32_t pid : stopped) {
+    m_wayland.sendAppActivity(pid, 0);
+  }
+  for (const std::uint32_t pid : started) {
+    m_wayland.sendAppActivity(pid, DSK_SHELL_V1_APP_ACTIVITY_FLAG_AUDIO);
+  }
+  m_sentAudioPids = audio;
 }

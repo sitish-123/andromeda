@@ -59,6 +59,8 @@ struct AudioState {
   std::vector<AudioNode> programOutputs; // "Stream/Output/Audio" (application playback streams)
   std::uint32_t defaultSinkId = 0;
   std::uint32_t defaultSourceId = 0;
+  // Processes with a running audio stream (playback or capture), sorted: QoS keeps them out of the hidden tiers.
+  std::vector<std::uint32_t> audioPids;
 
   bool operator==(const AudioState&) const = default;
 };
@@ -166,6 +168,8 @@ public:
     std::string mediaClass;
     std::string linkGroup;
     std::string targetObject;
+    std::uint32_t processId = 0; // application.process.id; 0 when unknown or in another pid namespace (Flatpak)
+    bool running = false;
     bool nodePassive = false;
     bool streamCaptureSink = false;
     bool streamClassificationReady = false;
@@ -203,6 +207,8 @@ public:
     std::string appId;
     std::string binary;
     std::string iconName;
+    // application.process.id, else the socket peer pid (pipewire.sec.pid); a PulseAudio client's peer is pipewire-pulse.
+    std::uint32_t processId = 0;
     struct pw_client* proxy = nullptr;
     spa_hook* listener = nullptr;
   };

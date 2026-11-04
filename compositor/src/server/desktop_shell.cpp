@@ -182,6 +182,7 @@ namespace andromeda {
     }
     if (flags == 0) {
       if (self->m_appActivity.erase(pid) != 0) {
+        kLog.debug("app activity pid={} cleared", pid);
         self->m_server.scheduleQos();
       }
       return;

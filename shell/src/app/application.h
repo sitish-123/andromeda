@@ -207,6 +207,8 @@ public:
   [[nodiscard]] LayerShellLayer hotCornerLayerForOutput(wl_output* output) const noexcept;
 
 private:
+  // Reports processes that start or stop audio to the compositor's QoS.
+  void syncAppActivity();
   void initServices();
   // Sub-phases of initServices(), called in order.
   void initStyleThemeAndWayland();
@@ -319,6 +321,8 @@ private:
   [[nodiscard]] std::vector<PollSource*> buildPollSources();
 
   ShellWaylandConnection m_wayland;
+  // Pids last reported to the compositor with dsk_shell_v1 app_activity audio (docs/qos.md §2).
+  std::vector<std::uint32_t> m_sentAudioPids;
   WorkspaceAlertService m_workspaceAlertService;
   CompositorPlatform m_compositorPlatform{m_wayland};
   security::SecretStore m_secretStore;
