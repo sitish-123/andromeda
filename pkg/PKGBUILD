@@ -83,6 +83,8 @@ package_andromeda() {
     noctalia-greeter-desktop-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
     poppler-glib libzip exiv2 taglib)
   optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
+  backup=(etc/mpv/mpv.conf)
+  install -Dm644 desktop/session/mpv/mpv.conf "$pkgdir/etc/mpv/mpv.conf"
   install -Dm755 desktop/session/audio-park/andromeda-audio-park "$pkgdir/usr/bin/andromeda-audio-park"
   install -Dm644 desktop/session/audio-park/andromeda-audio-park.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-audio-park.service"
