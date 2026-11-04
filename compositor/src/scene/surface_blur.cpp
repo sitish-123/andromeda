@@ -129,11 +129,22 @@ namespace andromeda {
     wlr_scene_blur_set_backdrop_sampling(m_node, m_backdropSampling);
     wlr_scene_blur_set_strength(m_node, glass::blurStrength(m_liquid) * m_fade);
     // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
-    // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
+    // its sheet. The radius is where the staircase first reaches the full width (a rectangle, e.g. a settings
+    // sidebar: 0; the launcher pill: half its height).
     if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
       const pixman_box32_t* e = pixman_region32_extents(clipRegion);
       const wlr_box shape{e->x1 + nodeBox.x - drawBox.x, e->y1 + nodeBox.y - drawBox.y, e->x2 - e->x1, e->y2 - e->y1};
-      wlr_scene_blur_set_liquid_shape(m_node, &shape, std::min(shape.width, shape.height) / 2);
+      int count = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(clipRegion, &count);
+      int radius = std::min(shape.width, shape.height) / 2;
+      for (int i = 0; i < count; ++i) {
+        if (rects[i].x1 == e->x1 && rects[i].x2 == e->x2) {
+          const int offset = rects[i].y1 - e->y1;
+          radius = std::min(radius, offset > 0 ? offset + 1 : 0);
+          break;
+        }
+      }
+      wlr_scene_blur_set_liquid_shape(m_node, &shape, radius);
     } else {
       wlr_scene_blur_set_liquid_shape(m_node, nullptr, 0);
     }
