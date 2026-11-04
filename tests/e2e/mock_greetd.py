@@ -7,6 +7,7 @@ pam_gaze (sequential) then pam_unix:
   noface   info, a 2 s face check, info "Face not detected...", then a secret "Password:" prompt
   plain    a secret "Password:" prompt at once (nothing enrolled)
   race     pam_gaze simultaneous for a marker host: GAZE_MSG_LOOK_OR_PASSWORD, then the prompt at once
+  broken   create_session fails with greetd's own error (its session worker is gone: "unable to send msg: os error")
 The password "right" succeeds, and in race so does GAZE_CONFIRMED (the host saw gazed's match); anything else is an
 auth_error. start_session and cancel_session always succeed.
 """
@@ -65,7 +66,12 @@ def run(conn):
             return
         kind = request["type"]
         if kind == "create_session":
-            queue = steps(scenarios.pop(0) if scenarios else "plain")
+            name = scenarios.pop(0) if scenarios else "plain"
+            if name == "broken":
+                queue = []
+                send(conn, {"type": "error", "error_type": "error", "description": "unable to send msg: os error"})
+                continue
+            queue = steps(name)
         elif kind == "cancel_session":
             queue = []
             send(conn, SUCCESS)

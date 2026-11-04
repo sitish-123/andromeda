@@ -185,7 +185,9 @@ namespace andromeda {
       std::abort();
     }
     // Before the first commit: the greeter's frame is still on the CRTC and stays on screen through the modeset.
-    m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
+    if (HeldFrame::loginHandoff()) {
+      m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
+    }
     if (m_heldFrame != nullptr) {
       m_heldFrameTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onHeldFrameTimer, this);
       wl_event_source_timer_update(m_heldFrameTimer, 3000);
@@ -202,6 +204,16 @@ namespace andromeda {
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
+    m_paceTimer = wl_event_loop_add_timer( // TEMP-PACE
+        wl_display_get_event_loop(m_server->display()),
+        [](void* data) { // TEMP-PACE
+          auto* self = static_cast<Output*>(data); // TEMP-PACE
+          self->m_paced = true; // TEMP-PACE
+          self->handleFrame(); // TEMP-PACE
+          self->m_paced = false; // TEMP-PACE
+          return 0; // TEMP-PACE
+        }, // TEMP-PACE
+        this); // TEMP-PACE
     m_backdropTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onBackdropTimer, this);
     m_directScanoutTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
@@ -221,7 +233,13 @@ namespace andromeda {
     if (m_heldFrame != nullptr) {
       wlr_box box{};
       wlr_output_layout_get_box(m_server->outputLayout(), m_output, &box);
-      m_heldFrame->setBox(box.x, box.y, box.width, box.height);
+      // The CRTC frame is in panel pixels: it maps 1:1 only onto an enabled, unrotated output of the same mode.
+      if (!desktopEnabled() || wlr_box_empty(&box) || m_output->transform != WL_OUTPUT_TRANSFORM_NORMAL
+          || m_heldFrame->bufferWidth() != m_output->width || m_heldFrame->bufferHeight() != m_output->height) {
+        dropHeldFrame();
+      } else {
+        m_heldFrame->setBox(box.x, box.y, box.width, box.height);
+      }
     }
     m_server->resolveOutputEffect(*this);
     applyOutputEffects();
@@ -1231,6 +1249,8 @@ namespace andromeda {
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
       wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
+      // A held frame lives in layout space: off the layout it would cover another output.
+      dropHeldFrame();
     }
     applyOutputEffects();
     markDirty(Dirty::LayerArrange | Dirty::Banner);
@@ -1261,6 +1281,8 @@ namespace andromeda {
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
       wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
+      // A held frame lives in layout space: off the layout it would cover another output.
+      dropHeldFrame();
     }
     applyOutputEffects();
     handleExternalConfigChange();
@@ -1542,6 +1564,10 @@ namespace andromeda {
       wl_event_source_remove(m_frameRetryTimer);
       m_frameRetryTimer = nullptr;
     }
+    if (m_paceTimer != nullptr) { // TEMP-PACE
+      wl_event_source_remove(m_paceTimer); // TEMP-PACE
+      m_paceTimer = nullptr; // TEMP-PACE
+    } // TEMP-PACE
     if (m_backdropTimer != nullptr) {
       wl_event_source_remove(m_backdropTimer);
       m_backdropTimer = nullptr;
@@ -1550,11 +1576,7 @@ namespace andromeda {
       wl_event_source_remove(m_effectFrameTimer);
       m_effectFrameTimer = nullptr;
     }
-    if (m_heldFrameTimer != nullptr) {
-      wl_event_source_remove(m_heldFrameTimer);
-      m_heldFrameTimer = nullptr;
-    }
-    m_heldFrame.reset();
+    dropHeldFrame();
     if (m_directScanoutTimer != nullptr) {
       wl_event_source_remove(m_directScanoutTimer);
       m_directScanoutTimer = nullptr;
@@ -1842,6 +1864,14 @@ namespace andromeda {
     wlr_output_schedule_frame(m_output);
   }
 
+  void Output::dropHeldFrame() {
+    if (m_heldFrameTimer != nullptr) {
+      wl_event_source_remove(m_heldFrameTimer);
+      m_heldFrameTimer = nullptr;
+    }
+    m_heldFrame.reset();
+  }
+
   void Output::stepHeldFrame() {
     if (m_heldFrame == nullptr || !m_heldFrame->released()) {
       return;
@@ -2096,6 +2126,23 @@ namespace andromeda {
     if (!outputFrameAllowed(m_server->stopping(), m_server->session())) {
       return;
     }
+    { // TEMP-PACE: delay the render by /tmp/andromeda-render-delay ms after the frame event
+      static int delayMs = 0; // TEMP-PACE
+      static int countdown = 0; // TEMP-PACE
+      if (--countdown <= 0) { // TEMP-PACE
+        countdown = 30; // TEMP-PACE
+        FILE* f = std::fopen("/tmp/andromeda-render-delay", "r"); // TEMP-PACE
+        delayMs = 0; // TEMP-PACE
+        if (f != nullptr) { // TEMP-PACE
+          if (std::fscanf(f, "%d", &delayMs) != 1) delayMs = 0; // TEMP-PACE
+          std::fclose(f); // TEMP-PACE
+        } // TEMP-PACE
+      } // TEMP-PACE
+      if (delayMs > 0 && !m_paced && m_paceTimer != nullptr) { // TEMP-PACE
+        wl_event_source_timer_update(m_paceTimer, delayMs); // TEMP-PACE
+        return; // TEMP-PACE
+      } // TEMP-PACE
+    } // TEMP-PACE
     const OutputFrameScope frameScope(*m_server);
     stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.

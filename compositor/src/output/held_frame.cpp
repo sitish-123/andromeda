@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <ctime>
 #include <drm_fourcc.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -83,7 +84,8 @@ namespace andromeda {
       if (crtc == nullptr) {
         return nullptr;
       }
-      const uint32_t fbId = crtc->mode_valid != 0 ? crtc->buffer_id : 0;
+      // A scanout offset means the FB is larger than the mode; the frame would show the wrong area.
+      const uint32_t fbId = crtc->mode_valid != 0 && crtc->x == 0 && crtc->y == 0 ? crtc->buffer_id : 0;
       drmModeFreeCrtc(crtc);
       drmModeFB2* fb = fbId != 0 ? drmModeGetFB2(fd, fbId) : nullptr;
       if (fb == nullptr) {
@@ -140,10 +142,22 @@ namespace andromeda {
       return nullptr;
     }
     kLog.info("output '{}': holding the previous frame ({}x{})", output->name, buffer->width, buffer->height);
-    return std::unique_ptr<HeldFrame>(new HeldFrame(node));
+    return std::unique_ptr<HeldFrame>(new HeldFrame(node, buffer->width, buffer->height));
   }
 
-  HeldFrame::HeldFrame(wlr_scene_buffer* node) : m_node(node) {}
+  bool HeldFrame::loginHandoff() {
+    const char* value = std::getenv("ANDROMEDA_LOGIN_HANDOFF");
+    if (value == nullptr) {
+      return false;
+    }
+    char* end = nullptr;
+    const long long stamp = std::strtoll(value, &end, 10);
+    const long long now = static_cast<long long>(std::time(nullptr));
+    return end != value && *end == '\0' && stamp <= now && now - stamp <= 15;
+  }
+
+  HeldFrame::HeldFrame(wlr_scene_buffer* node, int bufferWidth, int bufferHeight)
+      : m_node(node), m_bufferWidth(bufferWidth), m_bufferHeight(bufferHeight) {}
 
   HeldFrame::~HeldFrame() { wlr_scene_node_destroy(&m_node->node); }
 
