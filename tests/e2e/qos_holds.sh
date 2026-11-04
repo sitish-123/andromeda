@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # org.andromeda.Compositor1.Apps holds (docs/system-health.md §5) on the real systemd user manager: List shows an app
 # scope; a freeze hold does not touch the focused app, freezes it once hidden, and ends on Release and when its owner
-# leaves the bus; a hold on an unknown unit fails. Writes result.txt to $OUT (default ./artifacts/qos-holds).
+# leaves the bus; a hold on an unknown unit fails; Presenting follows a screen recorder. Writes result.txt to $OUT (default ./artifacts/qos-holds).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/qos-holds}
 source "$(dirname "$0")/lib.sh"
@@ -130,4 +130,15 @@ grep -q 'never_throttle' "$RUNTIME/settings.toml" || fail "settings.toml has no 
 busctl --user call "${APPS[@]}" SetAppRule ss org.example.Tool normal > /dev/null
 [[ $(busctl --user call "${APPS[@]}" AppRules) == "a(ss) 0" ]] || fail "normal did not remove the rule"
 echo "app rules: set, listed, removed" | tee -a "$OUT/result.txt"
+# Presenting (the mode.presenting rule): true while a capture session is open, false after its client quits.
+presenting() { busctl --user get-property "${APPS[@]}" Presenting; }
+[[ $(presenting) == "b false" ]] || fail "Presenting before a capture: $(presenting)"
+# The recorder holds an ext-image-copy-capture session, as the portal's screen share does.
+env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" "$ROOT/compositor/build-debug/tests/capture-client" \
+  > "$OUT/recorder.log" 2>&1 &
+RECORDER_PID=$!
+await "Presenting on capture" "b true" 5000 presenting
+kill "$RECORDER_PID" 2> /dev/null || true
+wait "$RECORDER_PID" 2> /dev/null || true
+await "Presenting after capture" "b false" 5000 presenting
 echo "PASS: $OUT/result.txt"

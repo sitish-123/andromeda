@@ -2607,6 +2607,7 @@ namespace andromeda {
     }
     m_mirrorSource = source;
     m_mirrorDirty = true;
+    m_server->updatePresenting();
     if (source != nullptr) {
       source->attachMirrorTarget();
       kLog.info("output '{}': mirroring '{}'", m_output->name, source->m_output->name);

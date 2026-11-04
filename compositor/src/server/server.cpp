@@ -1022,6 +1022,18 @@ namespace andromeda {
     return false;
   }
 
+  void Server::updatePresenting() {
+    if (m_appsBus == nullptr) {
+      return;
+    }
+    const bool capture = std::ranges::any_of(m_imageCopySessions, [this](const std::unique_ptr<ImageCopySessionWatch>& w) {
+      return w->session != nullptr
+          && (m_desktopShell == nullptr || !m_desktopShell->boundBy(wl_resource_get_client(w->session->resource)));
+    });
+    const bool mirror = std::ranges::any_of(m_outputs, [](const auto& o) { return o->mirrorSource() != nullptr; });
+    m_appsBus->setPresenting(capture || mirror);
+  }
+
   Server::~Server() {
     m_stopping = true;
     if (m_lockFileManaged) {

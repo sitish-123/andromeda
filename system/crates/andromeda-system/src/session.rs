@@ -609,6 +609,7 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
         Knob::new("display.brightness_step", Merge::Min),
         Knob::new("display.fps_cap_hidden", Merge::Min),
         Knob::new("display.refresh_cap_hz", Merge::Min),
+        Knob::new("notifications.dnd", Merge::AnyTrue),
         Knob::new("battery.charge_limit", Merge::AnyTrue),
     ];
     let (mut engine, refused) = Engine::new(knobs, rules, now_ms());
@@ -739,6 +740,7 @@ pub async fn run() -> Result<()> {
         .build()
         .await?;
     tokio::spawn(follow_apps(session.clone(), shared.clone()));
+    tokio::spawn(follow_presenting(session.clone(), shared.clone()));
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     log::info!("serving {NAME} on the session bus");
     loop {
@@ -869,6 +871,28 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
             () = sleep => {}
             () = wake.notified() => {}
         }
+    }
+}
+
+/// Feeds `display.presenting` from `Compositor1.Apps` `Presenting`. Without a compositor it is false and it asks again
+/// every 30 s, so a compositor that starts later is followed.
+async fn follow_presenting(session: Connection, shared: Shared) {
+    let set = async |on: bool| {
+        let mut inner = shared.lock().await;
+        inner.state.set_flag("display.presenting", on);
+        inner.wake.notify_one();
+    };
+    loop {
+        if let Ok(mut remote) = Remote::new(&session, COMPOSITOR, APPS_PATH.to_owned(), APPS).await {
+            loop {
+                set(bus::get::<bool>(&remote.props, "Presenting").unwrap_or(false)).await;
+                if !matches!(remote.next().await, Some(Ok(()))) {
+                    break;
+                }
+            }
+        }
+        set(false).await;
+        tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
 

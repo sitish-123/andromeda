@@ -601,6 +601,7 @@ namespace andromeda {
     watch->destroy.notify = onImageCopySessionDestroy;
     wl_signal_add(&session->events.destroy, &watch->destroy);
     self->m_imageCopySessions.push_back(std::move(watch));
+    self->updatePresenting();
     self->scheduleSuspensionSync();
     self->refreshCaptureRuleEffects(session->source);
   }
@@ -618,6 +619,7 @@ namespace andromeda {
     for (const auto& output : server->m_outputs) {
       output->scheduleEffectCaptureRelease();
     }
+    server->updatePresenting();
     server->scheduleSuspensionSync();
     server->refreshCaptureRuleEffects(source);
   }

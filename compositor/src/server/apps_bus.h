@@ -25,6 +25,8 @@ namespace andromeda {
     ~AppsBus();
     AppsBus(const AppsBus&) = delete;
     AppsBus& operator=(const AppsBus&) = delete;
+    // The `Presenting` property: an app other than the shell captures a screen or window, or a display mirrors one.
+    void setPresenting(bool presenting);
 
   private:
     struct Sample {
@@ -46,6 +48,8 @@ namespace andromeda {
     static int onRelease(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onList(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onOwnerChanged(sd_bus_message* message, void* data, sd_bus_error* error);
+    static int getPresenting(sd_bus* bus, const char* path, const char* interface, const char* property,
+                             sd_bus_message* reply, void* data, sd_bus_error* error);
 
     void dispatch();
     void updateEvents();
@@ -57,6 +61,7 @@ namespace andromeda {
 
     std::function<void()> m_reloadConfig;
     std::function<void()> m_refreshCapChanged;
+    bool m_presenting = false;
     sd_bus* m_bus = nullptr;
     sd_bus_slot* m_object = nullptr;
     sd_bus_slot* m_ownerMatch = nullptr;

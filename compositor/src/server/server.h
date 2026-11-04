@@ -214,6 +214,8 @@ namespace andromeda {
     [[nodiscard]] wlr_export_dmabuf_manager_v1* exportDmabufManager() const { return m_exportDmabufManager; }
     // True while a live cursor session is attached to a capture source of this output.
     [[nodiscard]] bool hasCopyCaptureFor(const wlr_output* output) const;
+    // Sends AppsBus `Presenting` when it changes: a non-shell capture session or a mirrored output exists.
+    void updatePresenting();
     [[nodiscard]] wlr_tearing_control_manager_v1* tearingControlManager() const { return m_tearingControlManager; }
     [[nodiscard]] ColorManager* colorManager() const { return m_colorManager.get(); }
     [[nodiscard]] const wlr_image_description_v1_data* surfaceImageDescription(wlr_surface* surface) const;

@@ -42,6 +42,8 @@ const FIELDS: &[(&str, Type)] = &[
     ("network.connectivity", Type::Str),
     ("network.metered", Type::Bool),
     ("network.vpn", Type::Bool),
+    // From org.andromeda.Compositor1.Apps `Presenting`: an app captures the screen or a display mirrors.
+    ("display.presenting", Type::Bool),
     // One app, for per-app rules (`per = "app"`): from org.andromeda.Compositor1.Apps.
     ("app.cpu_pct", Type::Num),
     ("app.rss_mb", Type::Num),

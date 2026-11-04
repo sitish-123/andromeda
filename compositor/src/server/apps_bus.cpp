@@ -124,6 +124,7 @@ namespace andromeda {
         SD_BUS_METHOD("Release", "s", "", onRelease, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL("AppStats", "a(sbbsbdt)", 0),
+        SD_BUS_PROPERTY("Presenting", "b", getPresenting, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_VTABLE_END,
     };
     if (loop == nullptr || openUserBus(&m_bus) < 0) {
@@ -234,6 +235,22 @@ namespace andromeda {
       sample();
       wl_event_source_timer_update(m_sampleTimer, kSampleMs);
     }
+  }
+
+  void AppsBus::setPresenting(bool presenting) {
+    if (presenting == m_presenting) {
+      return;
+    }
+    m_presenting = presenting;
+    if (m_bus != nullptr) {
+      (void)sd_bus_emit_properties_changed(m_bus, kPath, kInterface, "Presenting", nullptr);
+      updateEvents();
+    }
+  }
+
+  int AppsBus::getPresenting(sd_bus* /*bus*/, const char* /*path*/, const char* /*interface*/,
+                             const char* /*property*/, sd_bus_message* reply, void* data, sd_bus_error* /*error*/) {
+    return sd_bus_message_append(reply, "b", static_cast<int>(static_cast<AppsBus*>(data)->m_presenting));
   }
 
   int AppsBus::onSample(void* data) {
