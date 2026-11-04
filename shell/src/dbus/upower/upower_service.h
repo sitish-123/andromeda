@@ -58,6 +58,13 @@ enum class BatteryState : std::uint8_t {
   PendingDischarge = 6,
 };
 
+// One sample of UPower Device.GetHistory: UNIX time, value (percent for "charge", W for "rate") and state.
+struct UPowerHistoryPoint {
+  std::uint32_t time = 0;
+  double value = 0.0;
+  BatteryState state = BatteryState::Unknown;
+};
+
 enum class ChargeLimitOperationError : std::uint8_t {
   None,
   PermissionDenied,
@@ -121,6 +128,7 @@ struct UPowerDeviceInfo {
   std::string serial;
   double energyFull = 0.0;       // Wh
   double energyFullDesign = 0.0; // Wh
+  std::int32_t chargeCycles = -1; // -1 when the battery does not report it
   UPowerDeviceType type = UPowerDeviceType::Unknown;
   bool powerSupply = false;
   bool isPresent = false;
@@ -172,6 +180,12 @@ public:
   // Applies or removes UPower's configured preset. Completion is reflected in the device's
   // chargeLimit fields and delivered through the normal change callback.
   [[nodiscard]] bool enableChargeThreshold(std::string_view devicePath, bool enabled);
+  // UPower keeps this history across reboots. `type` is "charge" or "rate"; `done` runs on the main loop, with an
+  // empty list on error. Points come newest first, at most `resolution` of them.
+  void requestHistory(
+      std::string_view devicePath, std::string_view type, std::uint32_t timespanSeconds, std::uint32_t resolution,
+      std::function<void(std::vector<UPowerHistoryPoint>)> done
+  );
 
 private:
   struct TrackedDevice {
@@ -197,7 +211,6 @@ private:
   readDeviceInfo(std::string path, sdbus::IProxy& proxy, std::optional<bool>& chargeThresholdMethodAvailable) const;
   void refreshDisplayDeviceProxy(const std::optional<std::string>& displayPath);
   void applyEnumeratedDevices(const std::vector<std::string>& paths);
-  void requestChargeMethodDetection(const TrackedDevice& device);
   [[nodiscard]] bool finishFirstSnapshot();
   [[nodiscard]] bool refreshDefaultState();
   void emitChangedIfNeeded(bool devicesChanged, bool chargeLimitChanged = false, bool deviceCatalogChanged = false);
@@ -210,6 +223,7 @@ private:
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_upowerProxy;
+  std::unique_ptr<sdbus::IProxy> m_powerProxy;
   std::unique_ptr<sdbus::IProxy> m_displayDeviceProxy;
   std::string m_displayDevicePath;
   std::vector<TrackedDevice> m_devices;
@@ -218,7 +232,6 @@ private:
   ChangeCallback m_changeCallback;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
   std::uint64_t m_nextChargeThresholdRequestId = 1;
-  std::set<std::string> m_introspectPending;
   bool m_rescanInFlight = false;
   bool m_rescanQueued = false;
   bool m_firstSnapshotPending = true;

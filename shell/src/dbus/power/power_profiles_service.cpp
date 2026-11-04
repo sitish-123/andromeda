@@ -32,9 +32,12 @@ namespace {
 
   constexpr Logger kLog("power");
 
-  const sdbus::ServiceName kPowerProfilesBusName{"org.freedesktop.UPower.PowerProfiles"};
-  const sdbus::ObjectPath kPowerProfilesObjectPath{"/org/freedesktop/UPower/PowerProfiles"};
-  constexpr auto kPowerProfilesInterface = "org.freedesktop.UPower.PowerProfiles";
+  // andromeda-system (docs/system-health.md) wraps power-profiles-daemon; the shell reads only its API.
+  const sdbus::ServiceName kPowerProfilesBusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kPowerProfilesObjectPath{"/org/andromeda/System1/Power"};
+  const sdbus::ObjectPath kKnobsPath{"/org/andromeda/System1/Knobs"};
+  constexpr auto kPowerProfilesInterface = "org.andromeda.System1.Power";
+  constexpr auto kKnobsInterface = "org.andromeda.System1.Knobs";
   constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
   using VariantMap = std::map<std::string, sdbus::Variant>;
 
@@ -42,19 +45,9 @@ namespace {
     std::vector<std::string> profiles;
 
     try {
-      const auto profileMaps = value.get<std::vector<std::map<std::string, sdbus::Variant>>>();
-      profiles.reserve(profileMaps.size());
-      for (const auto& profileMap : profileMaps) {
-        auto it = profileMap.find("Profile");
-        if (it == profileMap.end()) {
-          continue;
-        }
-        try {
-          const auto profile = it->second.get<std::string>();
-          if (!profile.empty()) {
-            profiles.push_back(profile);
-          }
-        } catch (const sdbus::Error&) {
+      for (auto& profile : value.get<std::vector<std::string>>()) {
+        if (!profile.empty()) {
+          profiles.push_back(std::move(profile));
         }
       }
     } catch (const sdbus::Error&) {
@@ -80,10 +73,10 @@ namespace {
 
   PowerProfilesState decodeState(const VariantMap& properties) {
     PowerProfilesState next;
-    next.activeProfile = stringProperty(properties, "ActiveProfile");
-    next.performanceInhibited = stringProperty(properties, "PerformanceInhibited");
+    next.activeProfile = stringProperty(properties, "Profile");
+    next.performanceInhibited = stringProperty(properties, "PerformanceDegraded");
 
-    const auto profilesIt = properties.find("Profiles");
+    const auto profilesIt = properties.find("ProfileChoices");
     if (profilesIt != properties.end()) {
       next.profiles = decodeProfiles(profilesIt->second);
     }
@@ -156,14 +149,14 @@ PowerProfilesService::PowerProfilesService(SystemBus& bus) : m_bus(bus) {
           return;
         }
 
-        bool relevant = changedProperties.contains("ActiveProfile")
-            || changedProperties.contains("Profiles")
-            || changedProperties.contains("PerformanceInhibited");
+        bool relevant = changedProperties.contains("Profile")
+            || changedProperties.contains("ProfileChoices")
+            || changedProperties.contains("PerformanceDegraded");
 
         if (!relevant) {
-          relevant = std::ranges::contains(invalidatedProperties, "ActiveProfile")
-              || std::ranges::contains(invalidatedProperties, "Profiles")
-              || std::ranges::contains(invalidatedProperties, "PerformanceInhibited");
+          relevant = std::ranges::contains(invalidatedProperties, "Profile")
+              || std::ranges::contains(invalidatedProperties, "ProfileChoices")
+              || std::ranges::contains(invalidatedProperties, "PerformanceDegraded");
         }
 
         if (relevant) {
@@ -233,10 +226,12 @@ bool PowerProfilesService::setActiveProfile(std::string_view profile) {
 
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   try {
-    m_proxy->setPropertyAsync("ActiveProfile")
-        .onInterface(kPowerProfilesInterface)
-        .toValue(requested)
-        .uponReplyInvoke([lifetimeToken, requested](std::optional<sdbus::Error> err) {
+    const std::shared_ptr<sdbus::IProxy> knobs =
+        sdbus::createProxy(m_bus.connection(), kPowerProfilesBusName, kKnobsPath);
+    knobs->callMethodAsync("Set")
+        .onInterface(kKnobsInterface)
+        .withArguments(std::string("power.profile"), sdbus::Variant(requested))
+        .uponReplyInvoke([lifetimeToken, requested, knobs](std::optional<sdbus::Error> err) {
           if (lifetimeToken.expired() || !err.has_value()) {
             return;
           }

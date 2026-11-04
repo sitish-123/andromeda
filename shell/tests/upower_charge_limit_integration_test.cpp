@@ -21,19 +21,21 @@
 
 namespace {
 
-  const sdbus::ServiceName kBusName{"org.freedesktop.UPower"};
-  const sdbus::ObjectPath kManagerPath{"/org/freedesktop/UPower"};
-  constexpr auto kManagerInterface = "org.freedesktop.UPower";
-  constexpr auto kDeviceInterface = "org.freedesktop.UPower.Device";
+  // A fake andromeda-system (org.andromeda.System1): the API the shell reads instead of UPower.
+  const sdbus::ServiceName kBusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kRootPath{"/org/andromeda/System1"};
+  const sdbus::ObjectPath kPowerPath{"/org/andromeda/System1/Power"};
+  constexpr auto kPowerInterface = "org.andromeda.System1.Power";
+  constexpr auto kDeviceInterface = "org.andromeda.System1.Battery";
+  using ChargeLimit = sdbus::Struct<bool, bool, std::uint32_t, std::uint32_t, std::uint32_t>;
+
   class FakeBattery {
   public:
     FakeBattery(
-        sdbus::IConnection& connection, std::string path, std::string nativePath, std::string model, bool powerSupply,
-        bool registerChargeMethod, bool unregisterBeforeFirstIntrospection
+        sdbus::IConnection& connection, std::string path, std::string nativePath, std::string model, bool powerSupply
     )
         : connection(connection), path(std::move(path)), nativePath(std::move(nativePath)), model(std::move(model)),
-          powerSupply(powerSupply), chargeMethodRegistered(registerChargeMethod),
-          unregisterBeforeFirstIntrospection(unregisterBeforeFirstIntrospection) {
+          powerSupply(powerSupply) {
       registerObject();
     }
 
@@ -45,77 +47,34 @@ namespace {
               sdbus::registerProperty("Vendor").withGetter([]() { return std::string{"Noctalia Test"}; }),
               sdbus::registerProperty("Model").withGetter([this]() { return this->model; }),
               sdbus::registerProperty("Serial").withGetter([this]() { return this->nativePath; }),
-              sdbus::registerProperty("Type").withGetter([]() { return std::uint32_t{2}; }),
+              sdbus::registerProperty("Kind").withGetter([]() { return std::string{"battery"}; }),
               sdbus::registerProperty("PowerSupply").withGetter([this]() { return this->powerSupply; }),
-              sdbus::registerProperty("EnergyFull").withGetter([]() { return 50.0; }),
-              sdbus::registerProperty("EnergyFullDesign").withGetter([]() { return 55.0; }),
-              sdbus::registerProperty("Percentage").withGetter([this]() {
+              sdbus::registerProperty("EnergyFullWh").withGetter([]() { return 50.0; }),
+              sdbus::registerProperty("EnergyFullDesignWh").withGetter([]() { return 55.0; }),
+              sdbus::registerProperty("Percent").withGetter([this]() {
                 std::scoped_lock lock(stateMutex);
                 ++percentageReads;
                 return percentage;
               }),
-              sdbus::registerProperty("IsPresent").withGetter([this]() { return present; }),
-              sdbus::registerProperty("State").withGetter([]() { return std::uint32_t{2}; }),
-              sdbus::registerProperty("TimeToEmpty").withGetter([]() { return std::int64_t{7200}; }),
-              sdbus::registerProperty("TimeToFull").withGetter([]() { return std::int64_t{0}; }),
-              sdbus::registerProperty("EnergyRate").withGetter([]() { return 8.0; }),
-              sdbus::registerProperty("Energy").withGetter([]() { return 30.0; }),
-              sdbus::registerProperty("ChargeThresholdSupported").withGetter([this]() {
-                bool shouldUnregister = false;
-                bool supported = false;
-                {
-                  std::scoped_lock lock(stateMutex);
-                  ++supportedReads;
-                  shouldUnregister = unregisterBeforeFirstIntrospection && supportedReads == 1;
-                  supported = thresholdSupported;
-                }
-                if (shouldUnregister) {
-                  object->unregister();
-                }
-                return supported;
-              }),
-              sdbus::registerProperty("ChargeThresholdEnabled").withGetter([this]() {
+              sdbus::registerProperty("Present").withGetter([this]() { return present; }),
+              sdbus::registerProperty("State").withGetter([]() { return std::string{"discharging"}; }),
+              sdbus::registerProperty("TimeToEmptyS").withGetter([]() { return std::int64_t{7200}; }),
+              sdbus::registerProperty("TimeToFullS").withGetter([]() { return std::int64_t{0}; }),
+              sdbus::registerProperty("RateW").withGetter([]() { return 8.0; }),
+              sdbus::registerProperty("EnergyWh").withGetter([]() { return 30.0; }),
+              sdbus::registerProperty("ChargeLimit").withGetter([this]() {
                 std::scoped_lock lock(stateMutex);
-                ++enabledReads;
-                return thresholdEnabled;
+                ++chargeLimitReads;
+                return ChargeLimit{thresholdSupported, thresholdEnabled, 75U, 80U, supportedSettings};
               }),
-              sdbus::registerProperty("ChargeThresholdSettingsSupported").withGetter([this]() {
-                std::scoped_lock lock(stateMutex);
-                return supportedSettings;
-              }),
-              sdbus::registerProperty("ChargeStartThreshold").withGetter([]() { return std::uint32_t{75}; }),
-              sdbus::registerProperty("ChargeEndThreshold").withGetter([]() { return std::uint32_t{80}; })
-          )
-          .forInterface(kDeviceInterface);
-      if (chargeMethodRegistered) {
-        registerChargeMethodVTable();
-      }
-    }
-
-    void registerChargeMethodVTable() {
-      object
-          ->addVTable(
-              sdbus::registerMethod("EnableChargeThreshold")
-                  .withInputParamNames("enabled")
-                  .implementedAs([this](sdbus::Result<>&& result, bool /*enabled*/) {
+              sdbus::registerMethod("SetChargeLimit")
+                  .withInputParamNames("enabled", "start", "end")
+                  .implementedAs([this](sdbus::Result<>&& result, bool /*enabled*/, std::uint32_t, std::uint32_t) {
                     std::scoped_lock lock(stateMutex);
                     pendingResults.push_back(std::move(result));
                   })
           )
           .forInterface(kDeviceInterface);
-    }
-
-    void reappearWithChargeMethod() {
-      object.reset();
-      chargeMethodRegistered = true;
-      unregisterBeforeFirstIntrospection = false;
-      registerObject();
-    }
-
-    void exposeChargeMethod() {
-      TEST_CHECK(!chargeMethodRegistered);
-      chargeMethodRegistered = true;
-      registerChargeMethodVTable();
     }
 
     void disableThresholdSupport() {
@@ -150,7 +109,7 @@ namespace {
         result.emplace(std::move(pendingResults.front()));
         pendingResults.erase(pendingResults.begin());
       }
-      result->returnError(sdbus::Error{sdbus::Error::Name{"org.freedesktop.UPower.GeneralError"}, std::move(message)});
+      result->returnError(sdbus::Error{sdbus::Error::Name{"org.freedesktop.DBus.Error.Failed"}, std::move(message)});
     }
 
     void emitChanged() { object->emitPropertiesChangedSignal(kDeviceInterface); }
@@ -167,13 +126,9 @@ namespace {
       std::scoped_lock lock(stateMutex);
       return pendingResults.size();
     }
-    int supportedReadCount() const {
+    int chargeLimitReadCount() const {
       std::scoped_lock lock(stateMutex);
-      return supportedReads;
-    }
-    int enabledReadCount() const {
-      std::scoped_lock lock(stateMutex);
-      return enabledReads;
+      return chargeLimitReads;
     }
     int percentageReadCount() const {
       std::scoped_lock lock(stateMutex);
@@ -186,95 +141,56 @@ namespace {
     bool powerSupply = true;
     bool present = true;
     mutable std::mutex stateMutex;
-    bool chargeMethodRegistered = true;
-    bool unregisterBeforeFirstIntrospection = false;
     bool thresholdSupported = true;
     bool thresholdEnabled = false;
     std::uint32_t supportedSettings = 3;
     double percentage = 55.0;
-    int supportedReads = 0;
-    int enabledReads = 0;
+    int chargeLimitReads = 0;
     int percentageReads = 0;
     std::vector<sdbus::Result<>> pendingResults;
     std::unique_ptr<sdbus::IObject> object;
   };
 
-  class FakeUPower {
+  // sd-bus answers GetManagedObjects for the root and its children; batteries announce themselves with
+  // InterfacesAdded / InterfacesRemoved.
+  class FakeSystem {
   public:
-    FakeUPower()
-        : connection(sdbus::createSessionBusConnection(kBusName)),
-          manager(sdbus::createObject(*connection, kManagerPath)) {
-      manager
-          ->addVTable(
-              sdbus::registerMethod("EnumerateDevices").implementedAs([this]() {
-                std::function<void()> hook;
-                std::vector<sdbus::ObjectPath> result;
-                {
-                  std::scoped_lock lock(pathsMutex);
-                  hook = std::move(enumerateHook);
-                  enumerateHook = nullptr;
-                  result = paths;
-                }
-                if (hook) {
-                  hook();
-                }
-                return result;
-              }),
-              sdbus::registerMethod("GetDisplayDevice").implementedAs([]() { return sdbus::ObjectPath{"/"}; }),
-              sdbus::registerSignal("DeviceAdded").withParameters<sdbus::ObjectPath>("device"),
-              sdbus::registerSignal("DeviceRemoved").withParameters<sdbus::ObjectPath>("device"),
-              sdbus::registerProperty("OnBattery").withGetter([]() { return false; })
-          )
-          .forInterface(kManagerInterface);
+    FakeSystem()
+        : connection(sdbus::createSessionBusConnection(kBusName)), root(sdbus::createObject(*connection, kRootPath)),
+          power(sdbus::createObject(*connection, kPowerPath)) {
+      root->addObjectManager();
+      power->addVTable(sdbus::registerProperty("OnBattery").withGetter([]() { return false; }))
+          .forInterface(kPowerInterface);
       connection->enterEventLoopAsync();
     }
 
-    ~FakeUPower() { connection->leaveEventLoop(); }
+    ~FakeSystem() { connection->leaveEventLoop(); }
 
-    FakeBattery& addBattery(
-        std::string id, std::string model, bool emitSignal = false, bool powerSupply = true,
-        bool registerChargeMethod = true, bool unregisterBeforeFirstIntrospection = false
-    ) {
-      const std::string path = "/org/freedesktop/UPower/devices/battery_" + id;
+    FakeBattery& addBattery(std::string id, std::string model, bool emitSignal = false, bool powerSupply = true) {
+      const std::string path = "/org/andromeda/System1/Battery/battery_" + id;
       batteries.push_back(
-          std::make_unique<FakeBattery>(
-              *connection, path, "NOCTALIA_TEST_" + id, std::move(model), powerSupply, registerChargeMethod,
-              unregisterBeforeFirstIntrospection
-          )
+          std::make_unique<FakeBattery>(*connection, path, "NOCTALIA_TEST_" + id, std::move(model), powerSupply)
       );
-      {
-        std::scoped_lock lock(pathsMutex);
-        paths.emplace_back(path);
-      }
       if (emitSignal) {
-        manager->emitSignal("DeviceAdded").onInterface(kManagerInterface).withArguments(sdbus::ObjectPath{path});
+        batteries.back()->object->emitInterfacesAddedSignal();
       }
       return *batteries.back();
     }
 
-    void removeBattery(FakeBattery& battery) {
-      {
-        std::scoped_lock lock(pathsMutex);
-        std::erase(paths, sdbus::ObjectPath{battery.path});
-      }
-      manager->emitSignal("DeviceRemoved")
-          .onInterface(kManagerInterface)
-          .withArguments(sdbus::ObjectPath{battery.path});
+    void removeBattery(FakeBattery& battery) const {
+      battery.object->emitInterfacesRemovedSignal();
+      battery.object->unregister();
     }
 
-    void readdBattery(FakeBattery& battery) {
-      {
-        std::scoped_lock lock(pathsMutex);
-        paths.emplace_back(battery.path);
-      }
-      manager->emitSignal("DeviceAdded").onInterface(kManagerInterface).withArguments(sdbus::ObjectPath{battery.path});
+    void readdBattery(FakeBattery& battery) const {
+      battery.object.reset();
+      battery.registerObject();
+      battery.object->emitInterfacesAddedSignal();
     }
 
     std::unique_ptr<sdbus::IConnection> connection;
-    std::unique_ptr<sdbus::IObject> manager;
-    std::mutex pathsMutex;
-    std::function<void()> enumerateHook;
-    std::vector<sdbus::ObjectPath> paths;
+    std::unique_ptr<sdbus::IObject> root;
+    std::unique_ptr<sdbus::IObject> power;
     std::vector<std::unique_ptr<FakeBattery>> batteries;
   };
 
@@ -341,37 +257,10 @@ public:
 
 int main() {
   i18n::Service::instance().init("en");
-  FakeUPower fake;
+  FakeSystem fake;
   auto& bat0 = fake.addBattery("BAT0", "Primary Battery");
   auto& bat1 = fake.addBattery("BAT1", "Secondary Battery");
   auto& mouse = fake.addBattery("MOUSE0", "Wireless Mouse", false, false);
-  auto& retryBattery = fake.addBattery("RETRY", "Retry Battery", false, true, true, true);
-  auto& unsupportedMethod = fake.addBattery("NO_METHOD", "No Method Battery", false, true, false);
-
-  {
-    SystemBus capabilityBus;
-    UPowerService capabilityService(capabilityBus);
-    drainUntil(capabilityBus, [&]() { return findBattery(capabilityService, retryBattery.path) != nullptr; });
-    auto* retryInfo = findBattery(capabilityService, retryBattery.path);
-    TEST_CHECK(retryInfo != nullptr && !retryInfo->chargeLimit.methodAvailable);
-    retryBattery.reappearWithChargeMethod();
-    retryBattery.emitChanged();
-    drainUntil(capabilityBus, [&]() {
-      const auto* current = findBattery(capabilityService, retryBattery.path);
-      return current != nullptr && current->chargeLimit.methodAvailable;
-    });
-    const auto* unsupportedInfo = findBattery(capabilityService, unsupportedMethod.path);
-    TEST_CHECK(unsupportedInfo != nullptr && !unsupportedInfo->chargeLimit.methodAvailable);
-    unsupportedMethod.exposeChargeMethod();
-    unsupportedMethod.emitChanged();
-    for (int i = 0; i < 20; ++i) {
-      capabilityBus.processPendingEvents();
-    }
-    unsupportedInfo = findBattery(capabilityService, unsupportedMethod.path);
-    TEST_CHECK(unsupportedInfo != nullptr && !unsupportedInfo->chargeLimit.methodAvailable);
-  }
-  fake.removeBattery(retryBattery);
-  fake.removeBattery(unsupportedMethod);
   auto& hiddenBattery = fake.addBattery("UNSUPPORTED", "Unsupported Battery");
   hiddenBattery.disableThresholdSupport();
 
@@ -406,30 +295,35 @@ int main() {
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
     TEST_CHECK(!PowerTabTestAccess::managementVisible(tab, 0));
     TEST_CHECK(PowerTabTestAccess::controlVisible(tab, 0));
-    TEST_CHECK(mouse.supportedReadCount() == 0);
-    TEST_CHECK(mouse.enabledReadCount() == 0);
+    // sd-bus's GetManagedObjects reads every property; after it, a change that would refresh a laptop battery's
+    // charge limit (PowerSupply) must not make the shell read a peripheral's.
+    const int mouseChargeLimitReads = mouse.chargeLimitReadCount();
+    const int mousePercentReads = mouse.percentageReadCount();
+    mouse.emitChanged("PowerSupply");
+    drainUntil(bus, [&]() { return mouse.percentageReadCount() > mousePercentReads; });
+    TEST_CHECK(mouse.chargeLimitReadCount() == mouseChargeLimitReads);
 
-    const int bat0SupportedBeforePercentage = bat0.supportedReadCount();
+    const int bat0SupportedBeforePercentage = bat0.chargeLimitReadCount();
     const int bat0PercentageBeforePercentage = bat0.percentageReadCount();
-    const int bat1SupportedBeforePercentage = bat1.supportedReadCount();
+    const int bat1SupportedBeforePercentage = bat1.chargeLimitReadCount();
     const int bat1PercentageBeforePercentage = bat1.percentageReadCount();
     bat0.setPercentage(57.0);
-    bat0.emitChanged("Percentage");
+    bat0.emitChanged("Percent");
     drainUntil(bus, [&]() {
       const auto* current = service.deviceForSelector(bat0.path);
       return current != nullptr && current->state.percentage == 57.0;
     });
     TEST_CHECK(bat0.percentageReadCount() > bat0PercentageBeforePercentage);
-    TEST_CHECK(bat0.supportedReadCount() == bat0SupportedBeforePercentage);
+    TEST_CHECK(bat0.chargeLimitReadCount() == bat0SupportedBeforePercentage);
     TEST_CHECK(bat1.percentageReadCount() == bat1PercentageBeforePercentage);
-    TEST_CHECK(bat1.supportedReadCount() == bat1SupportedBeforePercentage);
+    TEST_CHECK(bat1.chargeLimitReadCount() == bat1SupportedBeforePercentage);
 
-    const int bat0SupportedBeforeThreshold = bat0.supportedReadCount();
-    const int bat1SupportedBeforeThreshold = bat1.supportedReadCount();
+    const int bat0SupportedBeforeThreshold = bat0.chargeLimitReadCount();
+    const int bat1SupportedBeforeThreshold = bat1.chargeLimitReadCount();
     const int bat1PercentageBeforeThreshold = bat1.percentageReadCount();
-    bat0.emitChanged("ChargeThresholdEnabled");
-    drainUntil(bus, [&]() { return bat0.supportedReadCount() > bat0SupportedBeforeThreshold; });
-    TEST_CHECK(bat1.supportedReadCount() == bat1SupportedBeforeThreshold);
+    bat0.emitChanged("ChargeLimit");
+    drainUntil(bus, [&]() { return bat0.chargeLimitReadCount() > bat0SupportedBeforeThreshold; });
+    TEST_CHECK(bat1.chargeLimitReadCount() == bat1SupportedBeforeThreshold);
     TEST_CHECK(bat1.percentageReadCount() == bat1PercentageBeforeThreshold);
     deviceChanges = 0;
     chargeLimitChanges = 0;
@@ -476,7 +370,7 @@ int main() {
     TEST_CHECK(PowerTabTestAccess::behavior(tab, 0) == "Can charge to 100%");
     TEST_CHECK(PowerTabTestAccess::behaviorOpacity(tab, 0) == colorForRole(ColorRole::Label1).a);
     TEST_CHECK(!PowerTabTestAccess::configuredVisible(tab, 0));
-    const int enabledReadsBeforeFailure = bat0.enabledReadCount();
+    const int enabledReadsBeforeFailure = bat0.chargeLimitReadCount();
     bat0.completeFailure("hardware rejected the write");
     drainUntil(bus, [&]() {
       const auto* current = findBattery(service, bat0.path);
@@ -485,7 +379,7 @@ int main() {
     info = findBattery(service, bat0.path);
     TEST_CHECK(info != nullptr && info->chargeLimit.enabled);
     TEST_CHECK(info->chargeLimit.operationError == ChargeLimitOperationError::Failed);
-    TEST_CHECK(bat0.enabledReadCount() > enabledReadsBeforeFailure);
+    TEST_CHECK(bat0.chargeLimitReadCount() > enabledReadsBeforeFailure);
     PowerTabTestAccess::rebuild(tab);
     TEST_CHECK(PowerTabTestAccess::toggleChecked(tab, 0));
     TEST_CHECK(PowerTabTestAccess::toggleEnabled(tab, 0));
@@ -552,29 +446,6 @@ int main() {
   for (int i = 0; i < 20; ++i) {
     bus.processPendingEvents();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-
-  // A rescan replaces the proxies while an Introspect call is in flight; detection must be requested again.
-  {
-    auto& late = fake.addBattery("LATE", "Late Support Battery");
-    late.disableThresholdSupport();
-    UPowerService service(bus);
-    drainUntil(bus, [&]() {
-      const auto* current = findBattery(service, late.path);
-      return current != nullptr && !current->chargeLimit.supported;
-    });
-    {
-      std::scoped_lock lock(fake.pathsMutex);
-      fake.enumerateHook = [&late]() {
-        late.enableThresholdSupport();
-        late.emitChanged("ChargeThresholdSupported");
-      };
-    }
-    fake.addBattery("RESCAN", "Rescan Battery", true);
-    drainUntil(bus, [&]() {
-      const auto* current = findBattery(service, late.path);
-      return current != nullptr && current->chargeLimit.methodAvailable;
-    });
   }
 
   return 0;

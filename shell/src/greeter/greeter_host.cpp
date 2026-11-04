@@ -306,14 +306,20 @@ namespace {
   AuthColumn::Status readStatus() {
     AuthColumn::Status status;
     if (GVariant* dict = properties(
-            "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device"
+            "org.andromeda.System1", "/org/andromeda/System1/Battery/DisplayDevice", "org.andromeda.System1.Battery"
         )) {
       gboolean present = FALSE;
       gdouble percentage = 0.0;
-      guint32 state = 0;
-      g_variant_lookup(dict, "IsPresent", "b", &present);
-      g_variant_lookup(dict, "Percentage", "d", &percentage);
-      g_variant_lookup(dict, "State", "u", &state);
+      const gchar* stateName = nullptr;
+      g_variant_lookup(dict, "Present", "b", &present);
+      g_variant_lookup(dict, "Percent", "d", &percentage);
+      g_variant_lookup(dict, "State", "&s", &stateName);
+      const std::string_view stateText = stateName != nullptr ? stateName : "";
+      // Back to UPower's state numbers, which batteryGlyph takes: 1 charging, 4 fully charged, 5 pending charge.
+      const guint32 state = stateText == "charging" ? 1U
+          : stateText == "fully-charged"            ? 4U
+          : stateText == "pending-charge"           ? 5U
+                                                    : 0U;
       if (present != FALSE) {
         status.batteryGlyph = batteryGlyph(percentage, state);
         status.batteryText = std::format("{}%", static_cast<int>(std::lround(percentage)));
