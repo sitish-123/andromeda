@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="7">
+  <interface name="dsk_surface_manager_v1" version="8">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="7">
+  <interface name="dsk_surface_v1" version="8">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -204,6 +204,18 @@
       </description>
       <arg name="tone" type="uint" enum="backdrop"/>
     </event>
+
+    <request name="set_visible_region" since="8">
+      <description summary="the part of the surface that can show pixels">
+        Surface-local area outside of which every pixel of this surface is
+        fully transparent, shadows included. The compositor may skip drawing
+        anything of the surface outside it, in every path (composition and
+        planes). A null region means the whole surface (the default).
+        Double-buffered: it applies on the next wl_surface.commit, so a client
+        that grows its content sends the new region with the same commit.
+      </description>
+      <arg name="region" type="object" interface="wl_region" allow-null="true"/>
+    </request>
   </interface>
 
   <interface name="dsk_tracker_v1" version="4">

@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 7;
+    constexpr int kVersion = 8;
     constexpr uint32_t kPropertyCount = 8;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
@@ -44,6 +44,7 @@ namespace andromeda {
       .set = handleSet,
       .animate = handleAnimate,
       .set_clip_from = handleSetClipFrom,
+      .set_visible_region = handleSetVisibleRegion,
   };
 
   const wlr_addon_interface DskSurfaceManager::kAddonInterface = {
@@ -279,6 +280,20 @@ namespace andromeda {
     );
   }
 
+  void DskSurfaceManager::handleSetVisibleRegion(wl_client* /*client*/, wl_resource* resource, wl_resource* region) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr) {
+      return;
+    }
+    if (region == nullptr) {
+      state->pendingVisibleRegion.emplace();
+      return;
+    }
+    int count = 0;
+    const pixman_box32_t* boxes = pixman_region32_rectangles(wlr_region_from_resource(region), &count);
+    state->pendingVisibleRegion = std::vector<pixman_box32_t>(boxes, boxes + count);
+  }
+
   void DskSurfaceManager::handleSurfaceResourceDestroyed(wl_resource* resource) {
     auto* state = static_cast<Surface*>(wl_resource_get_user_data(resource));
     if (state == nullptr) {
@@ -322,6 +337,10 @@ namespace andromeda {
       }
     }
     state->pending.clear();
+    if (state->pendingVisibleRegion) {
+      state->current.visibleRegion = std::move(*state->pendingVisibleRegion);
+      state->pendingVisibleRegion.reset();
+    }
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     sendEvents(*state, static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000));

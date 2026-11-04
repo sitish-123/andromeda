@@ -3684,6 +3684,21 @@ bool PanelManager::setCardHeight(std::uint32_t height) {
     geometry.height -= static_cast<float>(slack);
     m_attachedPanelGeometry = geometry;
   }
+  // Only the card band of the tall slot surface can show pixels: the compositor skips the rest (dsk v8).
+  if (m_dsk != nullptr && wayland() != nullptr && wayland()->compositor() != nullptr && m_sceneRoot != nullptr) {
+    // An attached card keeps no detached bleed; its shadow still reaches below the card.
+    const std::int32_t bleedBelow = std::max(
+        m_detachedBleedBottom,
+        shell::panel_surface::bleed(m_activePanel != nullptr && m_activePanel->hasDecoration(), m_config->config().shell.shadow).down
+    );
+    wl_region* visible = wl_compositor_create_region(wayland()->compositor());
+    wl_region_add(
+        visible, 0, m_panelInsetY - m_contentFit.slotInsetY, static_cast<std::int32_t>(std::ceil(m_sceneRoot->width())),
+        m_contentFit.slotInsetY + static_cast<std::int32_t>(height) + bleedBelow
+    );
+    (void)m_dsk->setVisibleRegion(visible);
+    wl_region_destroy(visible);
+  }
   // The reveal functions republish the attached geometry and the compositor blur region.
   if (m_attachedToBar) {
     applyAttachedReveal(m_attachedRevealProgress);

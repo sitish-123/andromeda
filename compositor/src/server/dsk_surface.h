@@ -30,6 +30,8 @@ namespace andromeda {
     struct State {
       SurfaceMotion motion;
       int backdropTone = -1; // last dsk_surface_v1.backdrop sent, -1 = none yet
+      // dsk_surface_v1.set_visible_region (v8), surface-local; nullopt = the whole surface.
+      std::optional<std::vector<pixman_box32_t>> visibleRegion;
     };
 
     explicit DskSurfaceManager(wl_display* display);
@@ -123,6 +125,7 @@ namespace andromeda {
       wlr_addon addon{};
       wl_listener clientCommit{};
       std::vector<Op> pending{};
+      std::optional<std::optional<std::vector<pixman_box32_t>>> pendingVisibleRegion{};
       State current{};
     };
 
@@ -138,6 +141,7 @@ namespace andromeda {
     static void handleGetTracker(wl_client* client, wl_resource* resource, uint32_t id, wl_resource* surface);
     static void handleSurfaceDestroy(wl_client* client, wl_resource* resource);
     static void handleSetElevation(wl_client* client, wl_resource* resource, uint32_t level);
+    static void handleSetVisibleRegion(wl_client* client, wl_resource* resource, wl_resource* region);
     static void
     handleSet(wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d);
     static void handleAnimate(

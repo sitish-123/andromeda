@@ -53,6 +53,9 @@ public:
   // Sets Clip to `rect` (x, y, width, height) of `source`, another layer surface of this client, mapped by the
   // compositor into this surface's coordinates. False when the compositor lacks it (protocol version 1).
   bool setClipFrom(wl_surface* source, const Value& rect);
+  // Protocol version 8: the surface-local area outside of which every pixel is transparent, shadows included; null
+  // = the whole surface. Applies on the next commit. False when the compositor lacks it.
+  bool setVisibleRegion(wl_region* region);
   // The clip the last setClipFrom computed, in this surface's coordinates; empty until the compositor reports it.
   [[nodiscard]] const std::optional<Value>& mappedClip() const noexcept { return m_mappedClip; }
   // Runs when the compositor reports the clip of the last setClipFrom.
