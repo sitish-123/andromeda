@@ -104,7 +104,7 @@ namespace andromeda {
   }
 
   void execApplicationInScope(
-      const char* systemdRun, const char* unitArgument, const char* partOfProperty, const char* bindsToProperty,
+      const char* systemdRun, const char* unitArgument, const char* partOfProperty,
       const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command,
       const char* cpuWeightProperty
   ) {
@@ -124,7 +124,6 @@ namespace andromeda {
     append("--description=Andromeda application");
     append(unitArgument);
     append(partOfProperty);
-    append(bindsToProperty);
     append(afterProperty);
     if (cpuWeightProperty != nullptr) {
       append(cpuWeightProperty);

@@ -34,6 +34,8 @@ namespace andromeda {
     // activation token) or the 5 s limit moves it to the default weight, unless it has the focus.
     void beginLaunch(std::string token, std::string unit);
     void launchMapped(std::string_view token);
+    // A restarted compositor has no record of the weights its predecessor set: every app unit goes to the default.
+    void resetAppWeights();
     // False without a user bus: nothing could reset a launch weight, so spawns must not set one.
     [[nodiscard]] bool active() const { return m_bus != nullptr && m_loop != nullptr; }
 
@@ -47,6 +49,7 @@ namespace andromeda {
     void armLaunchTimer();
     static int onLaunchTimer(void* data);
     void setWeight(const std::string& unit, unsigned weight);
+    void resetMatching(const std::string& pattern);
     void dispatch();
     void updateEvents();
     static int onEvent(int fd, unsigned mask, void* data);

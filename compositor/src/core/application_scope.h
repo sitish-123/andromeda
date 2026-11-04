@@ -44,7 +44,7 @@ namespace andromeda {
   // Failure is closed: this function exits without executing the application.
   // cpuWeightProperty: an optional preformatted --property=CPUWeight=<n> (the launch boost, core/cpu_boost.h).
   [[noreturn]] void execApplicationInScope(
-      const char* systemdRun, const char* unitArgument, const char* partOfProperty, const char* bindsToProperty,
+      const char* systemdRun, const char* unitArgument, const char* partOfProperty,
       const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command,
       const char* cpuWeightProperty = nullptr
   );

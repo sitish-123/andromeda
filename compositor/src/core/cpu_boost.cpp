@@ -126,11 +126,21 @@ namespace andromeda {
   }
 
   void CpuBoost::expireLaunch(std::string_view appId) {
-    if (m_bus == nullptr || appId.empty()) {
+    if (!appId.empty()) {
+      resetMatching("app-" + escapeUnitName(appId) + "@*.service");
+    }
+  }
+
+  void CpuBoost::resetAppWeights() {
+    resetMatching("app-*.scope");
+    resetMatching("app-*.service");
+  }
+
+  void CpuBoost::resetMatching(const std::string& pattern) {
+    if (m_bus == nullptr) {
       return;
     }
     sd_bus_message* message = nullptr;
-    const std::string pattern = "app-" + escapeUnitName(appId) + "@*.service";
     if (sd_bus_message_new_method_call(
             m_bus, &message, "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
             "org.freedesktop.systemd1.Manager", "ListUnitsByPatterns"
@@ -170,6 +180,7 @@ namespace andromeda {
   void CpuBoost::updateEvents() {}
   void CpuBoost::setWeight(const std::string& /*unit*/, unsigned /*weight*/) {}
   void CpuBoost::expireLaunch(std::string_view /*appId*/) {}
+  void CpuBoost::resetAppWeights() {}
 #endif
 
   void CpuBoost::beginLaunch(std::string token, std::string unit) {

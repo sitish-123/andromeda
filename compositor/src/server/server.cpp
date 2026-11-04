@@ -1362,7 +1362,6 @@ namespace andromeda {
         kLog.warn("application scope isolation unavailable: cannot identify the compositor unit");
       } else {
         m_applicationScopePartOfProperty = "--property=PartOf=andromeda-session.target";
-        m_applicationScopeBindsToProperty = "--property=BindsTo=" + ownerUnit;
         m_applicationScopeAfterProperty = "--property=After=" + ownerUnit;
         m_applicationScopeEnvironmentArguments = applicationScopeEnvironmentArguments(config().environment.variables);
         kLog.info("application processes will use transient scopes under app.slice");
@@ -1383,6 +1382,9 @@ namespace andromeda {
     }
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
     m_cpuBoost = std::make_unique<CpuBoost>(wl_display_get_event_loop(m_display));
+    if (m_applicationScopesRequired) {
+      m_cpuBoost->resetAppWeights();
+    }
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);
@@ -1693,7 +1695,6 @@ namespace andromeda {
     if (scopeRequired
         && (m_systemdRunExecutable.empty()
             || m_applicationScopePartOfProperty.empty()
-            || m_applicationScopeBindsToProperty.empty()
             || m_applicationScopeAfterProperty.empty())) {
       kLog.error("cannot launch application because systemd scope isolation is unavailable");
       return;
@@ -1754,7 +1755,7 @@ namespace andromeda {
       if (scopeRequired) {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
-            m_applicationScopeBindsToProperty.c_str(), m_applicationScopeAfterProperty.c_str(),
+            m_applicationScopeAfterProperty.c_str(),
             m_applicationScopeEnvironmentArguments, command, launchWeight
         );
       }

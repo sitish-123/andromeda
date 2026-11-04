@@ -411,7 +411,7 @@ ANDROMEDA_TEST(systemdRunReceivesExactScopeArguments) {
     close(outputPipe[1]);
     execApplicationInScope(
         "/proc/self/exe", "--unit=app-andromeda-arguments.scope", "--property=PartOf=andromeda-session.target",
-        "--property=BindsTo=andromeda.service", "--property=After=andromeda.service", environmentArguments, command
+        "--property=After=andromeda.service", environmentArguments, command
     );
   }
   close(outputPipe[1]);
@@ -447,7 +447,6 @@ ANDROMEDA_TEST(systemdRunReceivesExactScopeArguments) {
           + "--description=Andromeda application\n"
           + "--unit=app-andromeda-arguments.scope\n"
           + "--property=PartOf=andromeda-session.target\n"
-          + "--property=BindsTo=andromeda.service\n"
           + "--property=After=andromeda.service\n"
           + "--setenv=XDG_RUNTIME_DIR=/tmp/application runtime\n"
           + "--setenv=DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/application-$bus\n"
@@ -478,7 +477,7 @@ ANDROMEDA_TEST(missingSystemdRunFailsClosed) {
     const ApplicationScopeEnvironmentArguments environmentArguments{};
     execApplicationInScope(
         "/nonexistent/andromeda-systemd-run", "--unit=app-andromeda-missing.scope",
-        "--property=PartOf=andromeda-session.target", "--property=BindsTo=andromeda.service",
+        "--property=PartOf=andromeda-session.target",
         "--property=After=andromeda.service", environmentArguments, "printf launched"
     );
   }
@@ -526,7 +525,6 @@ ANDROMEDA_TEST(systemdRunMovesTheCommandIntoAnApplicationScope) {
       + ".scope";
   const std::string unitArgument = "--unit=" + unit;
   const std::string partOfProperty = "--property=PartOf=andromeda-session.target";
-  const std::string bindsToProperty = "--property=BindsTo=" + ownerUnit;
   const std::string afterProperty = "--property=After=" + ownerUnit;
   const ApplicationScopeEnvironmentArguments environmentArguments{
       "--setenv=XDG_RUNTIME_DIR=/tmp/andromeda application $runtime",
@@ -557,7 +555,7 @@ ANDROMEDA_TEST(systemdRunMovesTheCommandIntoAnApplicationScope) {
       _exit(2);
     }
     execApplicationInScope(
-        systemdRun.c_str(), unitArgument.c_str(), partOfProperty.c_str(), bindsToProperty.c_str(),
+        systemdRun.c_str(), unitArgument.c_str(), partOfProperty.c_str(),
         afterProperty.c_str(), environmentArguments,
         "printf '%s\\n' '$HOME ${USER} $$' \"$XDG_RUNTIME_DIR\" \"$DBUS_SESSION_BUS_ADDRESS\" "
         "\"$SYSTEMD_BUS_ADDRESS\"; cat /proc/self/cgroup; read ignored || :"
@@ -596,8 +594,8 @@ ANDROMEDA_TEST(systemdRunMovesTheCommandIntoAnApplicationScope) {
   CHECK_EQ(systemctlProperty(systemctl, unit, "Description"), "Andromeda application");
   const std::string partOf = systemctlProperty(systemctl, unit, "PartOf");
   CHECK(containsWord(partOf, "andromeda-session.target"));
-  const std::string bindsTo = systemctlProperty(systemctl, unit, "BindsTo");
-  CHECK(containsWord(bindsTo, ownerUnit));
+  // A compositor restart must not stop apps (docs/resilience.md R2): only log out does, through PartOf.
+  CHECK(!containsWord(systemctlProperty(systemctl, unit, "BindsTo"), ownerUnit));
   CHECK(containsWord(systemctlProperty(systemctl, unit, "After"), ownerUnit));
 
   close(inputPipe[1]);
