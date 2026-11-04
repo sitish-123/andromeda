@@ -10,6 +10,7 @@
 #include <drm_fourcc.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <i915_drm.h>
 #include <linux/dma-buf.h>
 #include <linux/udmabuf.h>
 #include <sys/mman.h>
@@ -22,6 +23,10 @@
 #include <wlr/render/pass.h>
 #include <wlr/types/wlr_buffer.h>
 #include <wlr/util/log.h>
+#include <xf86drm.h>
+#if defined(__x86_64__)
+#include <immintrin.h>
+#endif
 
 static const struct wlr_texture_impl texture_impl;
 
@@ -44,6 +49,8 @@ struct shm_staging {
   struct wlr_dmabuf_attributes dmabuf;
   uint8_t* map;
   size_t size;
+  // The GPU does not snoop the CPU cache, and the udmabuf sync ioctl does not flush it on x86.
+  bool flush;
 };
 
 static void shm_staging_destroy(struct wlr_buffer* buffer) {
@@ -75,6 +82,39 @@ static int udmabuf_open(void) {
   }
   return dev;
 }
+
+// Only i915 with a shared LLC is known to read CPU-cached pages coherently.
+static bool gpu_snoops_cpu_cache(struct fx_renderer* renderer) {
+  const int fd = wlr_renderer_get_drm_fd(&renderer->wlr_renderer);
+  drmVersion* version = fd >= 0 ? drmGetVersion(fd) : NULL;
+  int has_llc = 0;
+  if (version != NULL && strcmp(version->name, "i915") == 0) {
+    struct drm_i915_getparam param = {.param = I915_PARAM_HAS_LLC, .value = &has_llc};
+    if (drmIoctl(fd, DRM_IOCTL_I915_GETPARAM, &param) != 0) {
+      has_llc = 0;
+    }
+  }
+  drmFreeVersion(version);
+  return has_llc != 0;
+}
+
+#if defined(__x86_64__)
+__attribute__((target("clflushopt"))) static void flush_range_opt(const uint8_t* p, size_t len) {
+  for (uintptr_t a = (uintptr_t)p & ~(uintptr_t)63; a < (uintptr_t)p + len; a += 64) {
+    _mm_clflushopt((void*)a);
+  }
+}
+
+static void flush_range(const uint8_t* p, size_t len) {
+  if (__builtin_cpu_supports("clflushopt")) {
+    flush_range_opt(p, len);
+    return;
+  }
+  for (uintptr_t a = (uintptr_t)p & ~(uintptr_t)63; a < (uintptr_t)p + len; a += 64) {
+    _mm_clflush((void*)a);
+  }
+}
+#endif
 
 // Allocates one staging slot and its GL texture; needs the EGL context current.
 static struct wlr_buffer* shm_slot_create(struct fx_renderer* renderer, uint32_t format, int width, int height,
@@ -116,6 +156,7 @@ static struct wlr_buffer* shm_slot_create(struct fx_renderer* renderer, uint32_t
   wlr_buffer_init(&staging->base, &shm_staging_impl, width, height);
   staging->map = map;
   staging->size = size;
+  staging->flush = !gpu_snoops_cpu_cache(renderer);
   staging->dmabuf = (struct wlr_dmabuf_attributes){
       .width = width,
       .height = height,
@@ -153,8 +194,18 @@ static void shm_slot_write(struct wlr_buffer* slot, const pixman_region32_t* reg
     const size_t len = (size_t)(rects[i].x2 - rects[i].x1) * 4;
     for (int y = rects[i].y1; y < rects[i].y2; y++) {
       memcpy(staging->map + y * dst_stride + x, data + y * src_stride + x, len);
+#if defined(__x86_64__)
+      if (staging->flush) {
+        flush_range(staging->map + y * dst_stride + x, len);
+      }
+#endif
     }
   }
+#if defined(__x86_64__)
+  if (staging->flush) {
+    _mm_sfence();
+  }
+#endif
   sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_WRITE;
   ioctl(staging->dmabuf.fd[0], DMA_BUF_IOCTL_SYNC, &sync);
 }
