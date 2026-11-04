@@ -971,9 +971,11 @@ struct render_data {
   bool transient_effects;
   // A persistent effect draws on this output this frame: veto scanout and keep effect buffers.
   bool persistent_visible;
-  // An overlay plane frame: entries below overlay_entry are not drawn, and overlay_entry only inside overlay_clip
-  // (buffer coordinates).
+  // An overlay plane frame: overlay_entry and the entries below it are drawn only inside overlay_clip (buffer
+  // coordinates).
   const struct render_list_entry* overlay_entry;
+  // The overlay frame's primary plane entry: overlay_entry, or the opaque buffer under a video layer.
+  const struct render_list_entry* overlay_primary;
   const pixman_region32_t* overlay_clip;
   int animation_render_locks;
 };
@@ -3858,10 +3860,11 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .release_timeline = data->output->in_timeline,
         .release_point = data->output->in_point,
     };
-    // A buffer on the primary plane already reported its scanout sample.
+    // A buffer on a plane already reported its scanout sample.
     if (!data->shadow_capture
         && !data->sampled_earlier
         && entry != data->overlay_entry
+        && entry != data->overlay_primary
         && data->backdrop_group == NULL
         && !workspace_repeated(entry->node, data)) {
       wl_signal_emit_mutable(&scene_buffer->events.output_sample, &sample_event);
@@ -5220,11 +5223,29 @@ static void scene_output_handle_commit(struct wl_listener* listener, void* data)
     scene_output->overlay_shown_buffer = NULL;
   }
   if ((state->committed & WLR_OUTPUT_STATE_LAYERS)
-      && state->layers_len == 1
-      && state->layers[0].layer == scene_output->overlay_layer) {
-    struct wlr_buffer* shown = state->layers[0].accepted ? state->layers[0].buffer : NULL;
-    if (state->layers[0].buffer != NULL && !state->layers[0].accepted) {
-      wlr_log(WLR_INFO, "overlay plane: the commit left the layer to composition");
+      && state->layers_len > 0
+      && state->layers[state->layers_len - 1].layer == scene_output->overlay_layer) {
+    const struct wlr_output_layer_state* top = &state->layers[state->layers_len - 1];
+    struct wlr_buffer* shown = top->accepted ? top->buffer : NULL;
+    bool left = false;
+    for (size_t i = 0; i < state->layers_len; i++) {
+      left |= state->layers[i].buffer != NULL && !state->layers[i].accepted;
+    }
+    if (left) {
+      for (size_t i = 0; i < state->layers_len; i++) {
+        struct wlr_dmabuf_attributes dmabuf = {0};
+        if (state->layers[i].buffer != NULL && !state->layers[i].accepted) {
+          wlr_buffer_get_dmabuf(state->layers[i].buffer, &dmabuf);
+          if (state->layers[i].layer == scene_output->overlay_video_layer) {
+            scene_output->overlay_video_rejected_format = dmabuf.format;
+            scene_output->overlay_video_rejected_modifier = dmabuf.modifier;
+            scene_output->overlay_video_block = 600;
+          }
+          wlr_log(WLR_INFO, "overlay plane: the commit left layer %zu of %zu to composition (%dx%d format 0x%08x modifier 0x%016llx)",
+                  i, state->layers_len, state->layers[i].buffer->width, state->layers[i].buffer->height, dmabuf.format,
+                  (unsigned long long)dmabuf.modifier);
+        }
+      }
       scene_output->overlay_tested_candidate = NULL;
       // The real commit left the layer to composition: this frame lacks the UI. Composite for a while, or modeset
       // once on the next attempt.
@@ -5407,9 +5428,10 @@ void wlr_scene_output_destroy(struct wlr_scene_output* scene_output) {
     highlight_region_destroy(damage);
   }
 
-  wlr_buffer_unlock(scene_output->overlay_layer_state.buffer);
+  wlr_buffer_unlock(scene_output->overlay_layer_states[1].buffer);
   wlr_buffer_unlock(scene_output->overlay_shown_buffer);
   wlr_swapchain_destroy(scene_output->overlay_swapchain);
+  wlr_output_layer_destroy(scene_output->overlay_video_layer);
   wlr_output_layer_destroy(scene_output->overlay_layer);
   wlr_addon_finish(&scene_output->addon);
   wlr_damage_ring_finish(&scene_output->damage_ring);
@@ -5887,9 +5909,12 @@ static bool overlay_scanout_allowed(struct wlr_output* output, int animation_ren
 }
 
 // With a layer, the entry goes on the primary plane under that layer; the caller checks that only nodes above hide it.
+// The compositor's libliftoff interposer defines it; absent in other programs that link the scene.
+bool andromeda_liftoff_take_composited(void) __attribute__((weak));
+
 static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     struct render_list_entry* entry, struct wlr_output_state* state, const struct render_data* data,
-    struct wlr_output_layer_state* layer, enum wlr_scene_direct_scanout_status* status
+    struct wlr_output_layer_state* layer, size_t layers_len, enum wlr_scene_direct_scanout_status* status
 ) {
   struct wlr_scene_output* scene_output = data->output;
   struct wlr_scene_node* node = entry->node;
@@ -6015,7 +6040,13 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     wlr_output_state_set_signal_timeline(&pending, scene_output->out_timeline, scene_output->out_point);
   }
   if (layer != NULL) {
-    wlr_output_state_set_layers(&pending, layer, 1);
+    wlr_output_state_set_layers(&pending, layer, layers_len);
+  }
+  // The video layer's buffer changes every frame; the tested layout is its node, format and modifier.
+  const void* video = layers_len > 1 && layer[0].buffer != NULL ? scene_output->overlay_candidate : NULL;
+  struct wlr_dmabuf_attributes video_dmabuf = {0};
+  if (video != NULL) {
+    wlr_buffer_get_dmabuf(layer[0].buffer, &video_dmabuf);
   }
 
   // wlroots 0.20 (DRM, libliftoff) sets layer->accepted only on a real commit, so a passing test is the answer here;
@@ -6024,12 +6055,20 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   const bool known_layout = layer != NULL
       && wlr_buffer_get_dmabuf(wlr_buffer, &dmabuf)
       && scene_output->overlay_tested_candidate == node
+      && scene_output->overlay_tested_video == video
+      && scene_output->overlay_tested_video_format == video_dmabuf.format
+      && scene_output->overlay_tested_video_modifier == video_dmabuf.modifier
       && scene_output->overlay_tested_format == dmabuf.format
       && scene_output->overlay_tested_modifier == dmabuf.modifier
       && scene_output->overlay_untested_frames < 120;
+  if (andromeda_liftoff_take_composited != NULL) {
+    andromeda_liftoff_take_composited();
+  }
   if (known_layout) {
     scene_output->overlay_untested_frames++;
-  } else if (!wlr_output_test_state(scene_output->output, &pending)) {
+  } else if (!wlr_output_test_state(scene_output->output, &pending)
+             || (layer != NULL && andromeda_liftoff_take_composited != NULL && andromeda_liftoff_take_composited())) {
+    // libliftoff passes a test that leaves a layer to composition; that frame would lose the layer.
     if (layer != NULL) {
       scene_output->overlay_tested_candidate = NULL;
     }
@@ -6038,6 +6077,9 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     return SCANOUT_CANDIDATE;
   } else if (layer != NULL && dmabuf.n_planes > 0) {
     scene_output->overlay_tested_candidate = node;
+    scene_output->overlay_tested_video = video;
+    scene_output->overlay_tested_video_format = video_dmabuf.format;
+    scene_output->overlay_tested_video_modifier = video_dmabuf.modifier;
     scene_output->overlay_tested_format = dmabuf.format;
     scene_output->overlay_tested_modifier = dmabuf.modifier;
     scene_output->overlay_untested_frames = 0;
@@ -6057,9 +6099,9 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   return SCANOUT_SUCCESS;
 }
 
-// Video under glass: the bottom entry of list[0, len) covers the output, so it goes on the primary plane and the
-// entries above it are composited into one overlay plane. The bottom entry is drawn there only where those entries or
-// their blur read it: clip (buffer coordinates) receives that region.
+// Video under glass: a covering buffer of list[0, len) goes on the primary plane (or on the video layer over the opaque
+// buffer on the primary plane) and the entries above it are composited into one overlay plane. The buffers below are
+// drawn there only where those entries or their blur read them: clip (buffer coordinates) receives that region.
 // A client buffer that covers the output exactly; *opaque tells whether it has no alpha anywhere.
 static bool overlay_entry_covers_output(const struct render_list_entry* entry, const struct render_data* data, bool* opaque) {
   if (entry->node->type != WLR_SCENE_NODE_BUFFER || entry->x != data->logical.x || entry->y != data->logical.y) {
@@ -6081,9 +6123,54 @@ static bool overlay_entry_covers_output(const struct render_list_entry* entry, c
   return true;
 }
 
+// A state carries every overlay layer that exists, bottom to top; one without a buffer is off.
+static void scene_output_set_overlay_layers(struct wlr_scene_output* scene_output, struct wlr_output_state* state) {
+  const bool video = scene_output->overlay_video_layer != NULL;
+  wlr_output_state_set_layers(state, &scene_output->overlay_layer_states[video ? 0 : 1], video ? 2 : 1);
+}
+
+// The video layer shows the entry's client buffer as it is: no crop, transform, opacity or rounded corners.
+static bool overlay_video_layer_state(
+    struct wlr_scene_output* scene_output, const struct wlr_output_state* state, const struct render_data* data,
+    const struct render_list_entry* entry, struct wlr_output_layer_state* layer
+) {
+  struct wlr_scene_buffer* scene_buffer = wlr_scene_buffer_from_node(entry->node);
+  struct wlr_buffer* buffer = scene_buffer->buffer;
+  if (buffer == NULL
+      || scene_buffer->transform != data->transform
+      || scene_buffer->opacity != 1
+      || !fx_corner_radii_is_empty(&scene_buffer->corners)
+      || (!wlr_fbox_empty(&scene_buffer->src_box)
+          && !wlr_fbox_equal(&scene_buffer->src_box, &(struct wlr_fbox){.width = buffer->width, .height = buffer->height}))
+      || !color_management_is_scanout_allowed(output_pending_image_description(scene_output->output, state), scene_buffer)
+      || !((scene_buffer->color_encoding == WLR_COLOR_ENCODING_NONE && scene_buffer->color_range == WLR_COLOR_RANGE_NONE)
+           || (scene_buffer->color_encoding == WLR_COLOR_ENCODING_IDENTITY
+               && scene_buffer->color_range == WLR_COLOR_RANGE_FULL))) {
+    return false;
+  }
+  if (scene_output->overlay_video_layer == NULL) {
+    scene_output->overlay_video_layer = wlr_output_layer_create(scene_output->output);
+    if (scene_output->overlay_video_layer == NULL) {
+      return false;
+    }
+  }
+  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(buffer);
+  if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
+    buffer = client_buffer->source;
+  }
+  *layer = (struct wlr_output_layer_state){
+      .layer = scene_output->overlay_video_layer,
+      .buffer = buffer,
+      .dst_box = {.x = entry->x - scene_output->x, .y = entry->y - scene_output->y},
+  };
+  scene_node_get_size(entry->node, &layer->dst_box.width, &layer->dst_box.height);
+  transform_output_box(&layer->dst_box, data);
+  return true;
+}
+
 static bool scene_output_try_overlay(
     struct wlr_scene_output* scene_output, struct wlr_output_state* state, const struct render_data* data,
-    struct render_list_entry* list, int len, pixman_region32_t* clip, int* index, bool* opaque_whole
+    struct render_list_entry* list, int len, pixman_region32_t* clip, int* index, int* primary, bool* opaque_whole
 ) {
   struct wlr_output* output = scene_output->output;
   // Other backends may accept a layer and never show it (headless).
@@ -6096,22 +6183,63 @@ static bool scene_output_try_overlay(
   }
   // The plane buffer is the topmost opaque covering buffer: entries below it are hidden and only feed blur caches.
   // Else the bottom entry, whose alpha then blends over the black CRTC background as the composite blends over black.
-  *index = len - 1;
+  // A covering buffer with alpha above that opaque one (a maximized video) takes the video layer between the two
+  // planes, when nothing between them draws.
+  *primary = len - 1;
+  int video = -1;
   for (int i = 0; i < len; i++) {
     bool opaque = false;
-    if (overlay_entry_covers_output(&list[i], data, &opaque) && opaque) {
-      *index = i;
-      break;
+    if (overlay_entry_covers_output(&list[i], data, &opaque)) {
+      if (opaque) {
+        *primary = i;
+        break;
+      }
+      if (video < 0) {
+        video = i;
+      }
     }
   }
+  bool primary_opaque = false;
+  if (video >= 0 && (video >= *primary || !overlay_entry_covers_output(&list[*primary], data, &primary_opaque)
+                     || !primary_opaque)) {
+    video = -1;
+  }
+  for (int i = video + 1; video >= 0 && i < *primary; i++) {
+    if (list[i].node->type != WLR_SCENE_NODE_OPTIMIZED_BLUR && !pixman_region32_empty(&list[i].node->visible)) {
+      video = -1;
+    }
+  }
+  struct wlr_dmabuf_attributes video_dmabuf = {0};
+  if (video >= 0) {
+    struct wlr_buffer* source = wlr_scene_buffer_from_node(list[video].node)->buffer;
+    struct wlr_client_buffer* client_buffer = source != NULL ? wlr_client_buffer_get(source) : NULL;
+    if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
+      source = client_buffer->source;
+    }
+    if (scene_output->overlay_video_block > 0) {
+      scene_output->overlay_video_block--;
+    }
+    if (source == NULL
+        || !wlr_buffer_get_dmabuf(source, &video_dmabuf)
+        || (scene_output->overlay_video_block > 0
+            && video_dmabuf.format == scene_output->overlay_video_rejected_format
+            && video_dmabuf.modifier == scene_output->overlay_video_rejected_modifier)) {
+      video = -1;
+    }
+  }
+  *index = video >= 0 ? video : *primary;
   struct render_list_entry* entry = &list[*index];
   if (!overlay_entry_covers_output(entry, data, opaque_whole)) {
     overlay_refusal = "no covering buffer";
     return false;
   }
+  if (video >= 0) {
+    // The opaque primary buffer is under the video everywhere.
+    *opaque_whole = true;
+  }
   int width, height;
   scene_node_get_size(entry->node, &width, &height);
-  // Only a bottom buffer that keeps updating (video) pays for a second plane; a still one (wallpaper) composites.
+  // Only a buffer that keeps updating (video) pays for a second plane; a still one (wallpaper) composites.
   // A surface gets a new client buffer per commit, often at a reused address: compare the client's own buffers.
   const struct wlr_buffer* source = wlr_scene_buffer_from_node(entry->node)->buffer;
   const struct wlr_client_buffer* client_buffer = wlr_client_buffer_get((struct wlr_buffer*)source);
@@ -6145,6 +6273,22 @@ static bool scene_output_try_overlay(
     wlr_region_expand(&region, &list[i].node->visible, reach);
     pixman_region32_union(clip, clip, &region);
     pixman_region32_fini(&region);
+  }
+  if (video >= 0) {
+    // The primary buffer bypasses its visible region too; the entries above it, the video included, may hide it.
+    struct render_list_entry* below = &list[*primary];
+    pixman_region32_t below_hidden;
+    pixman_region32_init_rect(&below_hidden, below->x, below->y, width, height);
+    pixman_region32_subtract(&below_hidden, &below_hidden, &below->node->visible);
+    for (int i = 0; i < *primary; i++) {
+      pixman_region32_t region;
+      pixman_region32_init(&region);
+      scene_node_opaque_region(data->effects, list[i].node, list[i].x, list[i].y, &region);
+      pixman_region32_subtract(&below_hidden, &below_hidden, &region);
+      pixman_region32_fini(&region);
+    }
+    pixman_region32_union(&hidden, &hidden, &below_hidden);
+    pixman_region32_fini(&below_hidden);
   }
   const bool cropped = !pixman_region32_empty(&hidden);
   pixman_region32_fini(&hidden);
@@ -6188,11 +6332,24 @@ static bool scene_output_try_overlay(
     overlay_refusal = "swapchain acquire";
     return false;
   }
-  scene_output->overlay_layer_state = (struct wlr_output_layer_state){
+  scene_output->overlay_layer_states[1] = (struct wlr_output_layer_state){
       .layer = scene_output->overlay_layer,
       .buffer = buffer,
       .dst_box = {.width = output->width, .height = output->height},
   };
+  if (video >= 0 && !overlay_video_layer_state(scene_output, state, data, entry, &scene_output->overlay_layer_states[0])) {
+    wlr_buffer_unlock(buffer);
+    scene_output->overlay_layer_states[1].buffer = NULL;
+    overlay_refusal = "video layer";
+    return false;
+  }
+  struct wlr_output_layer_state* layers = &scene_output->overlay_layer_states[1];
+  size_t layers_len = 1;
+  if (scene_output->overlay_video_layer != NULL) {
+    scene_output->overlay_layer_states[0].layer = scene_output->overlay_video_layer;
+    layers = scene_output->overlay_layer_states;
+    layers_len = 2;
+  }
   enum wlr_scene_direct_scanout_status status;
   // wlroots registers planes lit at startup with libliftoff only on a modeset; the session starts without one.
   if (scene_output->overlay_modeset_next) {
@@ -6202,13 +6359,16 @@ static bool scene_output_try_overlay(
     wlr_log(WLR_INFO, "overlay plane: one modeset to register planes and settle the display clock");
   }
   enum scene_direct_scanout_result result =
-      scene_entry_try_direct_scanout(entry, state, data, &scene_output->overlay_layer_state, &status);
-  if (result != SCANOUT_SUCCESS && status == WLR_SCENE_DIRECT_SCANOUT_REJECTED && !scene_output->overlay_modeset_tried) {
+      scene_entry_try_direct_scanout(&list[*primary], state, data, layers, layers_len, &status);
+  if (result != SCANOUT_SUCCESS
+      && status == WLR_SCENE_DIRECT_SCANOUT_REJECTED
+      && !scene_output->overlay_modeset_tried
+      && video < 0) {
     // i915 recomputes the display clock (CDCLK) when a plane first turns on; a firmware clock kept by fastboot then
     // differs, and only a modeset may change it. One blocking modeset per output settles it, usually lower.
     scene_output->overlay_modeset_tried = true;
     state->allow_reconfiguration = true;
-    result = scene_entry_try_direct_scanout(entry, state, data, &scene_output->overlay_layer_state, &status);
+    result = scene_entry_try_direct_scanout(&list[*primary], state, data, layers, layers_len, &status);
     if (result == SCANOUT_SUCCESS) {
       wlr_log(WLR_INFO, "overlay plane: one modeset to settle the display clock");
     }
@@ -6216,8 +6376,15 @@ static bool scene_output_try_overlay(
   if (result != SCANOUT_SUCCESS) {
     state->allow_reconfiguration = false;
     wlr_buffer_unlock(buffer);
-    scene_output->overlay_layer_state.buffer = NULL;
-    if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED) {
+    scene_output->overlay_layer_states[1].buffer = NULL;
+    scene_output->overlay_layer_states[0].buffer = NULL;
+    if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED && video >= 0) {
+      // Often the planes take no such buffer (Skylake sprites lack 10-bit formats with alpha); the cause may also
+      // pass, so the video retries the layer after about 10 s of overlay attempts.
+      scene_output->overlay_video_rejected_format = video_dmabuf.format;
+      scene_output->overlay_video_rejected_modifier = video_dmabuf.modifier;
+      scene_output->overlay_video_block = 600;
+    } else if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED) {
       // A rejected test costs an atomic test commit: retry about once a second.
       scene_output->overlay_backoff = 60;
     }
@@ -6235,7 +6402,16 @@ static bool scene_output_try_overlay(
         : "primary plane ineligible";
     return false;
   }
-  overlay_refusal = "active";
+  if (video >= 0) {
+    struct wlr_scene_output_sample_event sample_event = {
+        .output = scene_output,
+        .direct_scanout = true,
+        .release_timeline = scene_output->out_timeline,
+        .release_point = scene_output->out_point,
+    };
+    wl_signal_emit_mutable(&wlr_scene_buffer_from_node(entry->node)->events.output_sample, &sample_event);
+  }
+  overlay_refusal = video >= 0 ? "active, video layer" : "active";
   return true;
 }
 
@@ -6646,9 +6822,9 @@ static bool scene_output_build_state(
     options = &default_options;
   }
   // The state that showed the previous overlay buffer was committed or dropped by now.
-  if (scene_output->overlay_layer_state.buffer != NULL) {
-    wlr_buffer_unlock(scene_output->overlay_layer_state.buffer);
-    scene_output->overlay_layer_state.buffer = NULL;
+  if (scene_output->overlay_layer_states[1].buffer != NULL) {
+    wlr_buffer_unlock(scene_output->overlay_layer_states[1].buffer);
+    scene_output->overlay_layer_states[1].buffer = NULL;
   }
   struct wlr_scene_timer* timer = options->timer;
   struct timespec start_time;
@@ -6897,8 +7073,9 @@ static bool scene_output_build_state(
   const bool layers_allowed = output->enabled && !(state->committed & (WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_MODE));
   if (scene_output->overlay_layer != NULL && layers_allowed) {
     // A layer left out of a state keeps its last buffer: each state turns it off unless it shows it.
-    scene_output->overlay_layer_state = (struct wlr_output_layer_state){.layer = scene_output->overlay_layer};
-    wlr_output_state_set_layers(state, &scene_output->overlay_layer_state, 1);
+    scene_output->overlay_layer_states[0] = (struct wlr_output_layer_state){.layer = scene_output->overlay_video_layer};
+    scene_output->overlay_layer_states[1] = (struct wlr_output_layer_state){.layer = scene_output->overlay_layer};
+    scene_output_set_overlay_layers(scene_output, state);
   }
   // The policy comes first: an output with scanout turned off reports that, whatever else is on screen.
   if (!scene_output->scene->direct_scanout || !scene_output->direct_scanout_enabled) {
@@ -6928,13 +7105,15 @@ static bool scene_output_build_state(
       const int len = scanout_list_len(list_data, list_len);
       render_data.animation_render_locks = options->animation_render_locks;
       int index = 0;
+      int primary = 0;
       overlay = scene_output_try_overlay(
-          scene_output, state, &render_data, list_data, len, &overlay_clip, &index, &overlay_opaque
+          scene_output, state, &render_data, list_data, len, &overlay_clip, &index, &primary, &overlay_opaque
       );
       if (overlay) {
         scanout_status = WLR_SCENE_DIRECT_SCANOUT_OVERLAY;
         scanout_result = SCANOUT_CANDIDATE;
         render_data.overlay_entry = &list_data[index];
+        render_data.overlay_primary = &list_data[primary];
         render_data.overlay_clip = &overlay_clip;
       }
     }
@@ -6945,12 +7124,12 @@ static bool scene_output_build_state(
   } else if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE;
   } else {
-    scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data, NULL, &scanout_status);
+    scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data, NULL, 0, &scanout_status);
   }
   scene_output->direct_scanout_status = scanout_status;
   scene_output->direct_scanout_buffer = scanout_result == SCANOUT_SUCCESS
       ? wlr_scene_buffer_from_node(list_data[0].node)
-      : overlay ? wlr_scene_buffer_from_node(render_data.overlay_entry->node)
+      : overlay ? wlr_scene_buffer_from_node(render_data.overlay_primary->node)
                 : NULL;
 
   if (scanout_result == SCANOUT_INELIGIBLE) {
@@ -6990,7 +7169,7 @@ static bool scene_output_build_state(
 
   struct wlr_buffer* buffer = NULL;
   if (overlay) {
-    buffer = wlr_buffer_lock(scene_output->overlay_layer_state.buffer);
+    buffer = wlr_buffer_lock(scene_output->overlay_layer_states[1].buffer);
   } else {
     struct wlr_swapchain* swapchain = options->swapchain;
     if (!swapchain) {

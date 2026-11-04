@@ -445,9 +445,12 @@ struct wlr_scene_output {
     struct wl_listener output_destroy;
     bool overlay_planes_enabled;
     struct wlr_output_layer* overlay_layer;
+    // Holds a covering client buffer with alpha (a maximized video) between the primary and the overlay plane.
+    struct wlr_output_layer* overlay_video_layer;
     struct wlr_swapchain* overlay_swapchain;
-    // Points into the committed state; the buffer stays locked until the next frame is built.
-    struct wlr_output_layer_state overlay_layer_state;
+    // Points into the committed state, bottom to top: [0] the video layer, [1] the overlay layer. The overlay buffer
+    // stays locked until the next frame is built.
+    struct wlr_output_layer_state overlay_layer_states[2];
     // The overlay buffer the last committed layer state shows: locked, so the swapchain never renders into it on screen.
     struct wlr_buffer* overlay_shown_buffer;
     // The one overlay attempt that may modeset (to settle the display clock) is spent.
@@ -457,6 +460,14 @@ struct wlr_scene_output {
     // The plane layout of the last overlay test that passed and of a commit that kept the layer on its plane since;
     // identity only. A matching frame skips the atomic test (1-2 ms on i915), re-testing every 120 frames.
     const void* overlay_tested_candidate;
+    const void* overlay_tested_video;
+    uint32_t overlay_tested_video_format;
+    uint64_t overlay_tested_video_modifier;
+    // The video buffer format and modifier of the last rejected video layer layout, and the overlay attempts left
+    // before such a video gets the video layer again.
+    uint32_t overlay_video_rejected_format;
+    uint64_t overlay_video_rejected_modifier;
+    uint16_t overlay_video_block;
     uint32_t overlay_tested_format;
     uint64_t overlay_tested_modifier;
     uint8_t overlay_untested_frames;
