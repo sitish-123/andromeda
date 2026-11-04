@@ -21,6 +21,7 @@ system:
     cd system && cargo fmt --check
     cd system && cargo clippy --all-targets -- -D warnings
     cd system && cargo test
+    cd system && cargo build
     system/tests/mock_bus.sh
 
 test: build
