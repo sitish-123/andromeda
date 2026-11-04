@@ -787,6 +787,7 @@ namespace andromeda {
     wlr_scene_rect_set_corner_radius(m_lockBlank, 0);
     wlr_scene_node_set_enabled(&m_lockBlank->node, false);
     wlr_scene_node_set_enabled(&m_lockTree->node, false);
+    m_heldFrameTree = wlr_scene_tree_create(&m_scene->tree);
     wlr_scene_node_lower_to_bottom(&m_backdrop->node);
     m_effects.syncLightLayer();
 

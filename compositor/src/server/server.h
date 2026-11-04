@@ -236,6 +236,7 @@ namespace andromeda {
     [[nodiscard]] wlr_scene_tree* xwaylandUnmanagedTree() const { return m_xwaylandUnmanagedTree; }
     [[nodiscard]] wlr_scene_tree* imPopupTree() const { return m_imPopupTree; }
     [[nodiscard]] wlr_scene_tree* lockTree() const { return m_lockTree; }
+    [[nodiscard]] wlr_scene_tree* heldFrameTree() const { return m_heldFrameTree; }
     [[nodiscard]] wlr_scene_tree* shellLayerTree(uint32_t layer) const;
     [[nodiscard]] wlr_output_layout* outputLayout() const { return m_outputLayout; }
     [[nodiscard]] wlr_scene_output_layout* sceneLayout() const { return m_sceneLayout; }
@@ -818,6 +819,8 @@ namespace andromeda {
     wlr_scene_tree* m_xwaylandUnmanagedTree = nullptr;
     wlr_scene_tree* m_imPopupTree = nullptr;
     wlr_scene_tree* m_lockTree = nullptr;
+    // The greeter's last frame during the login cross (output/held_frame.h), above everything.
+    wlr_scene_tree* m_heldFrameTree = nullptr;
     wlr_scene_rect* m_lockBlank = nullptr;
     wlr_scene_rect* m_backdrop = nullptr;
     bool m_sessionLocked = false;

@@ -497,9 +497,45 @@ void AuthColumn::setSheetOpen(bool open, bool instant) {
   );
 }
 
+void AuthColumn::playAccepted(Node* alongside, std::function<void()> done) {
+  if (m_animations == nullptr) {
+    if (done) {
+      done();
+    }
+    return;
+  }
+  m_accepted = true;
+  const bool reduced = MotionService::instance().reduced();
+  m_columnGroup->setTransformOrigin(m_capsuleRect.x + m_capsuleRect.w * 0.5F, m_capsuleRect.y);
+  m_sheetAnim = m_animations->drive(
+      m_sheetAnim, 0.0F, 1.0F, Style::spring(reduced ? Tokens::springFadeOut : Tokens::springClose),
+      [this, alongside, reduced](float t) {
+        const float opacity = 1.0F - std::clamp(t, 0.0F, 1.0F);
+        m_columnGroup->setOpacity(opacity);
+        if (!reduced) {
+          m_columnGroup->setScale(1.0F - 0.08F * t);
+        }
+        if (alongside != nullptr) {
+          alongside->setOpacity(opacity);
+        }
+      },
+      [this, done = std::move(done)] {
+        m_sheetAnim = 0;
+        if (done) {
+          done();
+        }
+      },
+      m_columnGroup
+  );
+}
+
 // Glance: the sheet Grows from 60 % of its size at the centre while the column fades in; the glance layer recedes
 // to 40 % and its hint fades out. Other layouts: no sheet, everything at full opacity.
 void AuthColumn::applySheet() {
+  // After an accepted login the Return owns the column's opacity and scale until the process exits.
+  if (m_accepted) {
+    return;
+  }
   const AuthRect& sheet = m_place.sheet;
   if (sheet.empty()) {
     m_sheet->setVisible(false);

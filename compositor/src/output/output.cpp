@@ -184,6 +184,12 @@ namespace andromeda {
       kLog.error("output '{}': failed to create scene output", m_output->name);
       std::abort();
     }
+    // Before the first commit: the greeter's frame is still on the CRTC and stays on screen through the modeset.
+    m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
+    if (m_heldFrame != nullptr) {
+      m_heldFrameTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onHeldFrameTimer, this);
+      wl_event_source_timer_update(m_heldFrameTimer, 3000);
+    }
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
 
     m_frame.connect(&m_output->events.frame, this, onFrame);
@@ -211,6 +217,11 @@ namespace andromeda {
     if (desktopEnabled()) {
       wlr_output_layout_output* layoutOutput = addToLayout();
       wlr_scene_output_layout_add_output(m_server->sceneLayout(), layoutOutput, m_sceneOutput);
+    }
+    if (m_heldFrame != nullptr) {
+      wlr_box box{};
+      wlr_output_layout_get_box(m_server->outputLayout(), m_output, &box);
+      m_heldFrame->setBox(box.x, box.y, box.width, box.height);
     }
     m_server->resolveOutputEffect(*this);
     applyOutputEffects();
@@ -1539,6 +1550,11 @@ namespace andromeda {
       wl_event_source_remove(m_effectFrameTimer);
       m_effectFrameTimer = nullptr;
     }
+    if (m_heldFrameTimer != nullptr) {
+      wl_event_source_remove(m_heldFrameTimer);
+      m_heldFrameTimer = nullptr;
+    }
+    m_heldFrame.reset();
     if (m_directScanoutTimer != nullptr) {
       wl_event_source_remove(m_directScanoutTimer);
       m_directScanoutTimer = nullptr;
@@ -1805,6 +1821,39 @@ namespace andromeda {
 
   void Output::onBackgroundUpdate(Output* self, void* data) {
     self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
+    // The shell's wallpaper is up: give the bar 300 ms to join, then cross.
+    if (self->m_heldFrame != nullptr && !self->m_heldFrameGated) {
+      self->m_heldFrameGated = true;
+      wl_event_source_timer_update(self->m_heldFrameTimer, 300);
+    }
+  }
+
+  int Output::onHeldFrameTimer(void* data) {
+    static_cast<Output*>(data)->releaseHeldFrame();
+    return 0;
+  }
+
+  void Output::releaseHeldFrame() {
+    if (m_heldFrame == nullptr || m_heldFrame->released()) {
+      return;
+    }
+    m_heldFrame->release(config().appearance.reduceMotion);
+    m_heldFrameLastStep = std::chrono::steady_clock::now();
+    wlr_output_schedule_frame(m_output);
+  }
+
+  void Output::stepHeldFrame() {
+    if (m_heldFrame == nullptr || !m_heldFrame->released()) {
+      return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const double seconds = std::chrono::duration<double>(now - m_heldFrameLastStep).count();
+    m_heldFrameLastStep = now;
+    if (m_heldFrame->step(seconds)) {
+      wlr_output_schedule_frame(m_output);
+    } else {
+      m_heldFrame.reset();
+    }
   }
 
   void Output::onBackgroundPopupUpdate(Output* self, void* data) {
@@ -2048,6 +2097,7 @@ namespace andromeda {
       return;
     }
     const OutputFrameScope frameScope(*m_server);
+    stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
     if (m_frameRetryArmed) {
       wl_event_source_timer_update(m_frameRetryTimer, 0);

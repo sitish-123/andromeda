@@ -43,6 +43,8 @@ public:
   void build(Node& root);
   // Minimal lock layout: the chrome hides until the pointer moves.
   void setVisible(bool visible);
+  // The whole chrome (buttons, chips, menu), for the login Return.
+  [[nodiscard]] Node& layer() noexcept { return *m_group; }
   void setState(State state);
   [[nodiscard]] const State& state() const noexcept { return m_state; }
   // scale = accessibility.ui_scale.

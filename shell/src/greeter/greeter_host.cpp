@@ -505,6 +505,9 @@ namespace {
         if (m_greetdLost) {
           return 1;
         }
+        if (m_exiting && (m_exitsDone >= m_views.size() || std::chrono::steady_clock::now() >= m_exitDeadline)) {
+          m_sessionStarted = true;
+        }
         if (m_sessionStarted) {
           kLog.info("session started; greeter exits");
           return 0;
@@ -912,7 +915,7 @@ namespace {
         if (m_phase == Phase::Cancelling) {
           createSession();
         } else if (m_phase == Phase::Starting) {
-          m_sessionStarted = true;
+          beginExit();
         } else if (m_sessionIndex < m_sessions.size()) {
           writeState("last-user", m_user);
           writeState("last-session", m_sessions[m_sessionIndex].id);
@@ -965,6 +968,22 @@ namespace {
     bool m_hintError = false;
     bool m_submitQueued = false;
     bool m_sessionStarted = false;
+    // Login accepted: the auth column Returns, then the greeter exits and leaves its last frame on screen for the
+    // session compositor's held frame (.agent/DESIGN.md "Login transition design").
+    bool m_exiting = false;
+    std::size_t m_exitsDone = 0;
+    std::chrono::steady_clock::time_point m_exitDeadline{};
+    void beginExit() {
+      if (m_exiting) {
+        return;
+      }
+      m_exiting = true;
+      m_exitDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(600);
+      for (auto& view : m_views) {
+        view->auth.playAccepted(&view->chrome.layer(), [this] { ++m_exitsDone; });
+        view->surface->requestRedraw();
+      }
+    }
     bool m_trimmed = false;
     bool m_greetdLost = false;
     WaylandConnection m_wayland;
