@@ -30,6 +30,8 @@ namespace {
 struct BluetoothAgent::Impl {
   SystemBus& bus;
   std::unique_ptr<sdbus::IObject> object;
+  // Owns the pending registration calls: destroying it cancels their replies.
+  std::unique_ptr<sdbus::IProxy> agentManager;
   BluetoothAgent::RequestCallback requestCallback;
 
   BluetoothPairingRequest pending;
@@ -224,12 +226,27 @@ BluetoothAgent::BluetoothAgent(SystemBus& bus) : m_impl(std::make_unique<Impl>(b
       .forInterface(kAgentInterface);
 
   try {
-    auto agentManager = sdbus::createProxy(bus.connection(), kBluezBusName, kBluezRoot);
-    agentManager->callMethod("RegisterAgent")
+    m_impl->agentManager = sdbus::createProxy(bus.connection(), kBluezBusName, kBluezRoot);
+    sdbus::IProxy* agentManager = m_impl->agentManager.get();
+    agentManager->callMethodAsync("RegisterAgent")
         .onInterface(kAgentManagerInterface)
-        .withArguments(kAgentObjectPath, std::string(kCapability));
-    agentManager->callMethod("RequestDefaultAgent").onInterface(kAgentManagerInterface).withArguments(kAgentObjectPath);
-    kLog.info("registered BlueZ agent at {}", std::string(kAgentObjectPath));
+        .withArguments(kAgentObjectPath, std::string(kCapability))
+        .uponReplyInvoke([agentManager](std::optional<sdbus::Error> error) {
+          if (error.has_value()) {
+            kLog.warn("BlueZ agent registration failed: {}", error->getMessage());
+            return;
+          }
+          agentManager->callMethodAsync("RequestDefaultAgent")
+              .onInterface(kAgentManagerInterface)
+              .withArguments(kAgentObjectPath)
+              .uponReplyInvoke([](std::optional<sdbus::Error> defaultError) {
+                if (defaultError.has_value()) {
+                  kLog.warn("BlueZ default agent request failed: {}", defaultError->getMessage());
+                  return;
+                }
+                kLog.info("registered BlueZ agent at {}", std::string(kAgentObjectPath));
+              });
+        });
   } catch (const sdbus::Error& e) {
     kLog.warn("BlueZ agent registration failed: {}", e.what());
   }
