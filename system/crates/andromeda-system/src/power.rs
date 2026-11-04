@@ -47,6 +47,8 @@ impl Default for PowerData {
 #[derive(Default)]
 pub struct Power {
     data: PowerData,
+    /// RAPL package counter at the last `PackageEnergyJ` call, and the joules counted since the daemon started.
+    energy: std::sync::Mutex<(Option<u64>, f64)>,
 }
 
 #[interface(name = "org.andromeda.System1.Power")]
@@ -78,6 +80,22 @@ impl Power {
     #[zbus(property, name = "PackagePowerW")]
     fn package_power_w(&self) -> f64 {
         self.data.package_power_w
+    }
+
+    /// CPU package energy in J since the daemon started, from RAPL; NaN where RAPL is missing. Read on demand, no
+    /// timer: the hardware counter wraps after some hours at full load, so a caller reads it at least that often.
+    fn package_energy_j(&self) -> f64 {
+        let (Some(raw), Some(range)) =
+            (read_u64(&format!("{RAPL}/energy_uj")), read_u64(&format!("{RAPL}/max_energy_range_uj")))
+        else {
+            return f64::NAN;
+        };
+        let Ok(mut energy) = self.energy.lock() else { return f64::NAN };
+        if let Some(last) = energy.0 {
+            energy.1 += rapl_joules(last, raw, range);
+        }
+        energy.0 = Some(raw);
+        energy.1
     }
 
     /// The usual time the charger comes out after an overnight charge, in minutes after midnight UTC, learned from
@@ -182,12 +200,16 @@ pub async fn set_profile(conn: &Connection, profile: &str) -> Result<()> {
     Ok(())
 }
 
-/// Average power between two `energy_uj` readings; the counter wraps at `max_energy_range_uj`.
-pub fn rapl_watts(before_uj: u64, after_uj: u64, range_uj: u64, seconds: f64) -> f64 {
+/// Energy between two `energy_uj` readings; the counter wraps at `max_energy_range_uj`.
+#[allow(clippy::cast_precision_loss)] // µJ deltas stay far below 2^52
+pub fn rapl_joules(before_uj: u64, after_uj: u64, range_uj: u64) -> f64 {
     let delta = if after_uj >= before_uj { after_uj - before_uj } else { range_uj - before_uj + after_uj };
-    #[allow(clippy::cast_precision_loss)] // µJ deltas over one second stay far below 2^52
-    let joules = delta as f64 / 1e6;
-    joules / seconds
+    delta as f64 / 1e6
+}
+
+/// Average power between two `energy_uj` readings.
+pub fn rapl_watts(before_uj: u64, after_uj: u64, range_uj: u64, seconds: f64) -> f64 {
+    rapl_joules(before_uj, after_uj, range_uj) / seconds
 }
 
 fn read_u64(path: &str) -> Option<u64> {
