@@ -122,6 +122,8 @@ bool fx_framebuffer_copy(
 /// fx_texture
 ///
 
+#define FX_SHM_SLOTS 3
+
 struct fx_texture {
   struct wlr_texture wlr_texture;
   struct fx_renderer* fx_renderer;
@@ -141,18 +143,23 @@ struct fx_texture {
   struct fx_framebuffer* buffer; // for DMA-BUF imports only
   struct wlr_buffer* locked_buffer;
 
-  // Large shm buffers alternate between two linear staging buffers the GPU
-  // samples in place (fx_texture.c struct shm_staging).
-  struct wlr_buffer* slots[2];
-  GLuint slot_tex[2];
+  // Large shm buffers rotate through up to FX_SHM_SLOTS linear staging buffers
+  // the GPU samples in place (fx_texture.c struct shm_staging). A slot the
+  // display still scans out holds a lock and is never written.
+  struct wlr_buffer* slots[FX_SHM_SLOTS];
+  GLuint slot_tex[FX_SHM_SLOTS];
+  pixman_region32_t slot_stale[FX_SHM_SLOTS]; // damage each slot has not received yet
   int slot;
-  bool slot_failed; // slot 1 could not be created; keep writing slot 0
-  pixman_region32_t slot_stale; // damage the other slot has not received yet
+  bool slot_failed; // a slot could not be created; stop adding slots
 };
 
 struct fx_texture* fx_get_texture(struct wlr_texture* wlr_texture);
 
 void fx_texture_destroy(struct fx_texture* texture);
+
+// The staging slot that holds the texture's current pixels, as a linear
+// dmabuf for direct scanout; NULL when the texture has no staging slots.
+struct wlr_buffer* fx_texture_get_scanout_buffer(struct wlr_texture* wlr_texture);
 
 bool wlr_texture_is_fx(struct wlr_texture* wlr_texture);
 

@@ -248,25 +248,33 @@ static bool fx_texture_update_from_buffer(
   }
 
   if (texture->slots[0] != NULL) {
-    pixman_region32_t region;
-    pixman_region32_init(&region);
-    pixman_region32_copy(&region, damage);
-    const int next = texture->slot ^ 1;
-    if (texture->slots[next] == NULL && !texture->slot_failed) {
+    int count = 0;
+    while (count < FX_SHM_SLOTS && texture->slots[count] != NULL) {
+      pixman_region32_union(&texture->slot_stale[count], &texture->slot_stale[count], damage);
+      ++count;
+    }
+    // Write a slot the last frame did not sample and the display does not scan out.
+    int next = -1;
+    for (int i = 1; i < count && next < 0; ++i) {
+      const int candidate = (texture->slot + i) % count;
+      if (texture->slots[candidate]->n_locks == 0) {
+        next = candidate;
+      }
+    }
+    if (next < 0 && count < FX_SHM_SLOTS && !texture->slot_failed) {
       struct wlr_egl_context prev_ctx;
       wlr_egl_make_current(texture->fx_renderer->egl, &prev_ctx);
-      texture->slots[next] = shm_slot_create(
-          texture->fx_renderer, texture->drm_format, buffer->width, buffer->height, &texture->slot_tex[next]
+      texture->slots[count] = shm_slot_create(
+          texture->fx_renderer, texture->drm_format, buffer->width, buffer->height, &texture->slot_tex[count]
       );
       wlr_egl_restore_context(&prev_ctx);
-      texture->slot_failed = texture->slots[next] == NULL;
-      pixman_region32_union_rect(&region, &region, 0, 0, buffer->width, buffer->height);
-    } else {
-      pixman_region32_union(&region, &region, &texture->slot_stale);
+      texture->slot_failed = texture->slots[count] == NULL;
+      if (!texture->slot_failed) {
+        pixman_region32_init_rect(&texture->slot_stale[count], 0, 0, buffer->width, buffer->height);
+        next = count;
+      }
     }
-    // Alternating slots keeps the CPU off the slot the last frame sampled.
-    if (texture->slots[next] != NULL) {
-      pixman_region32_copy(&texture->slot_stale, damage);
+    if (next >= 0) {
       texture->slot = next;
       texture->tex = texture->slot_tex[next];
       // read_pixels attached the old slot's texture to this framebuffer.
@@ -277,11 +285,9 @@ static bool fx_texture_update_from_buffer(
         wlr_egl_restore_context(&prev_ctx);
         texture->fbo = 0;
       }
-    } else {
-      pixman_region32_copy(&region, damage);
     }
-    shm_slot_write(texture->slots[texture->slot], &region, data, stride);
-    pixman_region32_fini(&region);
+    shm_slot_write(texture->slots[texture->slot], &texture->slot_stale[texture->slot], data, stride);
+    pixman_region32_clear(&texture->slot_stale[texture->slot]);
     wlr_buffer_end_data_ptr_access(buffer);
     return true;
   }
@@ -336,11 +342,10 @@ void fx_texture_destroy(struct fx_texture* texture) {
     glDeleteFramebuffers(1, &texture->fbo);
     wlr_egl_restore_context(&prev_ctx);
     // The slot framebuffers own the GL textures.
-    wlr_buffer_drop(texture->slots[0]);
-    if (texture->slots[1] != NULL) {
-      wlr_buffer_drop(texture->slots[1]);
+    for (int i = 0; i < FX_SHM_SLOTS && texture->slots[i] != NULL; ++i) {
+      wlr_buffer_drop(texture->slots[i]);
+      pixman_region32_fini(&texture->slot_stale[i]);
     }
-    pixman_region32_fini(&texture->slot_stale);
   } else {
     struct wlr_egl_context prev_ctx;
     wlr_egl_make_current(texture->fx_renderer->egl, &prev_ctx);
@@ -818,13 +823,19 @@ static struct wlr_texture* fx_texture_from_shm_slots(struct fx_renderer* rendere
   texture->has_alpha = pixel_format_has_alpha(format);
   texture->drm_format = format;
   texture->tex = texture->slot_tex[0];
-  pixman_region32_init(&texture->slot_stale);
-  pixman_region32_t all;
-  pixman_region32_init_rect(&all, 0, 0, buffer->width, buffer->height);
-  shm_slot_write(texture->slots[0], &all, data, stride);
-  pixman_region32_fini(&all);
+  pixman_region32_init_rect(&texture->slot_stale[0], 0, 0, buffer->width, buffer->height);
+  shm_slot_write(texture->slots[0], &texture->slot_stale[0], data, stride);
+  pixman_region32_clear(&texture->slot_stale[0]);
   wlr_buffer_end_data_ptr_access(buffer);
   return &texture->wlr_texture;
+}
+
+struct wlr_buffer* fx_texture_get_scanout_buffer(struct wlr_texture* wlr_texture) {
+  if (!wlr_texture_is_fx(wlr_texture)) {
+    return NULL;
+  }
+  struct fx_texture* texture = fx_get_texture(wlr_texture);
+  return texture->slots[0] != NULL ? texture->slots[texture->slot] : NULL;
 }
 
 struct wlr_texture* fx_texture_from_buffer(struct wlr_renderer* wlr_renderer, struct wlr_buffer* buffer) {
