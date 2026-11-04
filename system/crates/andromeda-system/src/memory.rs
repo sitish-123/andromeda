@@ -9,7 +9,8 @@ use rustix::event::{PollFd, PollFlags};
 use rustix::fs::{Mode, OFlags};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
-use zbus::object_server::InterfaceRef;
+use zbus::fdo::{RequestNameFlags, RequestNameReply};
+use zbus::object_server::{InterfaceRef, SignalEmitter};
 use zbus::{Connection, interface};
 
 use crate::manager;
@@ -64,6 +65,40 @@ impl Memory {
     }
 }
 
+/// low-memory-monitor's bus name: `GLib`'s `GMemoryMonitor` (and through it the portal) listens to its owner.
+pub const LMM_NAME: &str = "org.freedesktop.LowMemoryMonitor";
+const LMM_PATH: &str = "/org/freedesktop/LowMemoryMonitor";
+const LMM_ACTIVATABLE: &str = "/usr/share/dbus-1/system-services/org.freedesktop.LowMemoryMonitor.service";
+
+pub struct LowMemoryMonitor;
+
+#[interface(name = "org.freedesktop.LowMemoryMonitor")]
+impl LowMemoryMonitor {
+    /// `GLib` `GMemoryMonitorWarningLevel`: 50 low, 100 medium, 255 critical.
+    #[zbus(signal)]
+    async fn low_memory_warning(emitter: &SignalEmitter<'_>, state: u8) -> zbus::Result<()>;
+}
+
+/// Takes low-memory-monitor's name when that service is not installed (docs/system-health.md §9).
+pub async fn serve_low_memory_monitor(conn: &Connection) -> zbus::Result<bool> {
+    if std::path::Path::new(LMM_ACTIVATABLE).exists() {
+        return Ok(false);
+    }
+    if conn.request_name_with_flags(LMM_NAME, RequestNameFlags::DO_NOT_QUEUE).await? != RequestNameReply::PrimaryOwner {
+        return Ok(false);
+    }
+    conn.object_server().at(LMM_PATH, LowMemoryMonitor).await?;
+    Ok(true)
+}
+
+fn warning_byte(level: &str) -> u8 {
+    match level {
+        "critical" => 255,
+        "medium" => 100,
+        _ => 0,
+    }
+}
+
 #[allow(clippy::float_cmp)] // exact change detection: any new value is published
 async fn update(conn: &Connection, data: MemoryData) -> zbus::Result<()> {
     let iface: InterfaceRef<Memory> = conn.object_server().interface(PATH).await?;
@@ -72,6 +107,11 @@ async fn update(conn: &Connection, data: MemoryData) -> zbus::Result<()> {
     let e = iface.signal_emitter();
     if old.level != data.level {
         memory.level_changed(e).await?;
+        if warning_byte(&data.level) > warning_byte(&old.level)
+            && let Ok(lmm) = conn.object_server().interface::<_, LowMemoryMonitor>(LMM_PATH).await
+        {
+            LowMemoryMonitor::low_memory_warning(lmm.signal_emitter(), warning_byte(&data.level)).await?;
+        }
     }
     if old.some_avg10 != data.some_avg10 {
         memory.some_avg10_changed(e).await?;

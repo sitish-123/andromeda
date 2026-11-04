@@ -72,6 +72,8 @@ struct RuleSpec {
     alert: Option<Alert>,
     #[serde(default)]
     per: Option<String>,
+    #[serde(default)]
+    largest_first: Option<String>,
 }
 
 /// A loaded rule. Users may change only `enabled` and the values of declared params.
@@ -91,6 +93,8 @@ pub struct Rule {
     pub alert: Option<Alert>,
     /// `app`: one episode per app, read from the `app.*` fields; its holds go to that app, not to the knobs.
     pub per: Option<String>,
+    /// A numeric `app.*` field: per step, only the largest app that is due starts; the others wait `for` again.
+    pub largest_first: Option<String>,
 }
 
 /// What a per-app rule may hold on its app (the compositor's `HoldTier` and `HoldFreeze`).
@@ -182,6 +186,14 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
             return Err(fail("holds", &format!("a per-app rule holds only {APP_HOLDS:?}, not {:?}", h.knob)));
         }
     }
+    if let Some(field) = spec.largest_first.as_deref() {
+        if spec.per.is_none() {
+            return Err(fail("largest_first", &"only a per-app rule"));
+        }
+        if expr::Schema::type_of(&schema, field) != Some(Type::Num) {
+            return Err(fail("largest_first", &format!("{field:?} is not a number field")));
+        }
+    }
     let mut hold_when = Vec::new();
     for hold in &spec.holds {
         hold_when.push(match (&hold.when, spec.per.is_some()) {
@@ -203,6 +215,7 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
         hold_when,
         alert: spec.alert,
         per: spec.per,
+        largest_first: spec.largest_first,
     })
 }
 
@@ -296,6 +309,13 @@ impl Episode {
                 (!muted).then_some(Event::Ended(End::Cleared))
             }
             Phase::Idle | Phase::Pending { .. } | Phase::Active { .. } => None,
+        }
+    }
+
+    /// Restarts the `for` wait of a pending episode.
+    pub fn wait_again(&mut self, now: Instant) {
+        if let Phase::Pending { .. } = self.phase {
+            self.phase = Phase::Pending { since: now };
         }
     }
 

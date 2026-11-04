@@ -53,6 +53,11 @@ async fn main() -> Result<()> {
         .name(NAME)
         .build()
         .await?;
+    match memory::serve_low_memory_monitor(&conn).await {
+        Ok(true) => log::info!("serving {} for GLib memory monitors", memory::LMM_NAME),
+        Ok(false) => {}
+        Err(e) => log::warn!("{}: {e}", memory::LMM_NAME),
+    }
     tokio::spawn(knobs::release_on_exit(conn.clone(), policy.clone()));
     tokio::spawn(power::run(conn.clone()));
     tokio::spawn(battery::run(conn.clone(), policy));

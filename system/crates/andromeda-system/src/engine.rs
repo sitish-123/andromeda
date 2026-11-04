@@ -360,10 +360,23 @@ impl Engine {
     pub fn step_instances(&mut self, apps: &[(String, &dyn Values)], now: Instant, time_ms: u64) -> Changes {
         let mut changes = Changes::default();
         for slot in self.slots.iter_mut().filter(|s| s.enabled && s.rule.per.is_some()) {
-            for (app, values) in apps {
+            let mut order: Vec<&(String, &dyn Values)> = apps.iter().collect();
+            let mut started = false;
+            if let Some(field) = &slot.rule.largest_first {
+                let size = |v: &dyn Values| match v.value_of(field) {
+                    Some(Value::Num(n)) => n,
+                    _ => f64::MIN,
+                };
+                order.sort_by(|a, b| size(b.1).total_cmp(&size(a.1)));
+            }
+            for (app, values) in order {
                 let (episode, id) = slot.instances.entry(app.clone()).or_insert((Episode::default(), 0));
+                if started {
+                    episode.wait_again(now);
+                }
                 let Some(event) = episode.step(&slot.rule, *values, now) else { continue };
                 if event == Event::Started {
+                    started = slot.rule.largest_first.is_some();
                     *id = self.next_id;
                     self.next_id += 1;
                 }
@@ -631,5 +644,55 @@ holds = [{ knob = "app.tier", value = "T3", when = "not app.focused" }]
         assert_eq!(again.len(), 1, "after it cleared, the app can start a new episode");
         let gone = engine.step_instances(&rows(&[("b.scope", &focused)]), later + Duration::from_secs(130), 7).entries;
         assert_eq!((gone[0].event.as_str(), gone[0].note.as_str()), ("cleared", "app ended"));
+    }
+
+    struct Mem(f64);
+
+    impl Values for Mem {
+        fn value_of(&self, name: &str) -> Option<Value> {
+            (name == "app.rss_mb").then_some(Value::Num(self.0))
+        }
+    }
+
+    impl Schema for Mem {
+        fn type_of(&self, name: &str) -> Option<Type> {
+            (name == "app.rss_mb").then_some(Type::Num)
+        }
+    }
+
+    #[test]
+    fn largest_first_freezes_one_app_per_wait_biggest_first() {
+        let text = r#"
+[[rule]]
+id = "memory.relief"
+scope = "session"
+priority = "automatic"
+per = "app"
+largest_first = "app.rss_mb"
+when = "app.rss_mb >= 500"
+for = "10s"
+clear = "app.rss_mb < 500"
+holds = [{ knob = "app.freeze", value = true }]
+"#;
+        let rules = load(text, &Mem(0.0)).unwrap().into_iter().map(Result::unwrap).collect();
+        let (mut engine, _) = Engine::new(Vec::new(), rules, 1);
+        let (small, big, huge) = (Mem(600.0), Mem(900.0), Mem(2000.0));
+        let apps = || {
+            vec![
+                ("small".to_owned(), &small as &dyn Values),
+                ("huge".to_owned(), &huge as &dyn Values),
+                ("big".to_owned(), &big as &dyn Values),
+            ]
+        };
+        let t0 = Instant::now();
+        let starts = |c: super::Changes| -> Vec<String> {
+            c.entries.into_iter().filter(|e| e.event == "started").map(|e| e.instance).collect()
+        };
+        assert!(starts(engine.step_instances(&apps(), t0, 0)).is_empty());
+        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(10), 1)), ["huge"]);
+        assert!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(15), 2)).is_empty(), "the rest wait 10 s again");
+        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(20), 3)), ["big"]);
+        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(30), 4)), ["small"]);
+        assert!(load(&text.replace("per = \"app\"\n", ""), &Mem(0.0)).unwrap()[0].is_err(), "only per-app rules");
     }
 }

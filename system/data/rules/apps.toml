@@ -15,13 +15,15 @@ dwell = "1m"
 holds = [{ knob = "app.tier", value = "T3", when = "not app.visible" }]
 alert = { urgency = "normal", action = "open", text = "drainer" }
 
-# Frees memory under critical pressure: hidden apps over big_mb freeze until pressure is back to normal.
-# Not built from the doc yet: the portal low-memory signal first, and "largest first, one at a time".
+# Frees memory under critical pressure: hidden apps over big_mb freeze, largest first, one each 10 s while the
+# level stays critical, until it is back to normal. Apps hear it first: the system part sends LowMemoryWarning
+# (org.freedesktop.LowMemoryMonitor) when the level rises, 10 s before the first freeze.
 [[rule]]
 id = "memory.relief"
 scope = "session"
 priority = "automatic"
 per = "app"
+largest_first = "app.rss_mb"
 params = { big_mb = 500 }
 when = "memory.level == 'critical' and not app.visible and app.rss_mb >= big_mb"
 for = "10s"

@@ -40,6 +40,10 @@ STATE_DIRECTORY=$OUT ANDROMEDA_SYSTEM_TEST=1 "$BIN" >"$OUT/daemon.log" 2>&1 & PI
 until_has 30 '"battery" true ""' get /org/andromeda/System1 Manager Areas
 until_has 10 '"power" true ""' get /org/andromeda/System1 Manager Areas
 until_has 10 '"memory" true ""' get /org/andromeda/System1 Manager Areas
+# GLib apps and the portal hear memory pressure through low-memory-monitor's name (not installed here).
+if [ ! -e /usr/share/dbus-1/system-services/org.freedesktop.LowMemoryMonitor.service ]; then
+  until_has 10 LowMemoryWarning "${B[@]}" introspect org.freedesktop.LowMemoryMonitor /org/freedesktop/LowMemoryMonitor
+fi
 until_has 10 '"storage" true ""' get /org/andromeda/System1 Manager Areas
 until_has 10 '"thermal" true' get /org/andromeda/System1 Manager Areas
 until_has 10 '"network" false "org.freedesktop.NetworkManager' get /org/andromeda/System1 Manager Areas
