@@ -1854,6 +1854,16 @@ bool CompositorPlatform::isOverviewOpen() const noexcept {
   return m_workspaceMetadataBackend->isOverviewOpen();
 }
 
+bool CompositorPlatform::toggleOverview() const {
+  if (compositors::isAndromeda()) {
+    return andromedaRuntime().requestAction("overview-toggle");
+  }
+  if (compositors::isNiri()) {
+    return niriRuntime().requestAction(nlohmann::json{{"ToggleOverview", nlohmann::json::object()}});
+  }
+  return false;
+}
+
 bool CompositorPlatform::closeOverview() const {
   if (!tracksOverviewState() || !hasOverviewState() || !isOverviewOpen()) {
     return false;

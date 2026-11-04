@@ -211,6 +211,8 @@ public:
   [[nodiscard]] bool isOverviewOpen() const noexcept;
 
   [[nodiscard]] bool closeOverview() const;
+  // Opens or closes the compositor overview; false when the compositor has no overview action.
+  bool toggleOverview() const;
 
   [[nodiscard]] compositors::niri::NiriRuntime& niriRuntime() noexcept;
   [[nodiscard]] const compositors::niri::NiriRuntime& niriRuntime() const noexcept;
