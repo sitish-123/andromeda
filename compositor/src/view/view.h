@@ -103,6 +103,9 @@ namespace andromeda {
     // Suspends a mapped window that is neither presented nor drawn off the scene, and resumes it otherwise. Callers
     // schedule it through Server::scheduleSuspensionSync.
     void syncSuspendedState();
+    // The hidden state syncSuspendedState last found, for X11 windows too; it tells QoS when it changes.
+    [[nodiscard]] bool hiddenFromUser() const { return m_mapped && m_hiddenFromUser; }
+    [[nodiscard]] qos::Rule qosRule() const { return m_qosRule; }
     void setFullscreenState(bool fullscreen);
     void setMaximizedState(bool maximized);
     void requestClose();
@@ -1078,6 +1081,8 @@ namespace andromeda {
     bool m_initialContentTypeRulesSettled = false;
     float m_ruleOpacity = 1.0F;
     bool m_backgroundRender = false;
+    bool m_hiddenFromUser = false;
+    qos::Rule m_qosRule = qos::Rule::Normal;
     bool m_allowShortcutsInhibit = true;
     float m_dragOpacity = 1.0F;
     float m_overviewOpacity = 1.0F;

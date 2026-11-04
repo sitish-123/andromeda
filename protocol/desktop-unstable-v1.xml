@@ -259,10 +259,17 @@
       <entry name="invalid_key_state" value="0" summary="key state is not a wl_keyboard key_state value"/>
     </enum>
 
+    <enum name="app_activity_flag" bitfield="true" since="3">
+      <entry name="audio" value="1" summary="plays or records audio"/>
+      <entry name="call" value="2" summary="is in a call"/>
+    </enum>
+
     <request name="app_activity" since="3">
       <description summary="report what an app process is doing">
         The shell reports the activity of the app process pid. flags is a bit
-        set the compositor stores per pid; a pid with flags 0 is forgotten.
+        set of app_activity_flag the compositor stores per pid; a pid with
+        flags 0 is forgotten. An app unit with audio or call activity is not
+        throttled while hidden.
         The compositor stores only pids that exist, at most 256 at once, and
         forgets the pids a shell reported when that shell's object goes away.
       </description>

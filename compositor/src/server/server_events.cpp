@@ -21,6 +21,7 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
+#include "qos/controller.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -67,6 +68,7 @@ namespace andromeda {
     if (!effects.any()) {
       return;
     }
+    scheduleQos();
     // Settle every interaction whose meaning depends on the workspace axis or the
     // layout objects about to be replaced, while those still exist.
     if (effects.workspaceLayout || effects.workspaceInventory || effects.outputState) {
@@ -759,6 +761,20 @@ namespace andromeda {
       kLog.debug("idle {}", inhibited ? "inhibited" : "no longer inhibited");
     }
     wlr_idle_notifier_v1_set_inhibited(m_idleNotifier, inhibited);
+    // Every map, unmap and inhibitor change passes here.
+    scheduleQos();
+  }
+
+  void Server::scheduleQos() {
+    if (m_qos != nullptr) {
+      m_qos->schedule();
+    }
+  }
+
+  void Server::holdQosThawIntent(bool held) {
+    if (m_qos != nullptr) {
+      m_qos->holdThawIntent(held);
+    }
   }
 
   void Server::notifyIdleActivity() { wlr_idle_notifier_v1_notify_activity(m_idleNotifier, m_seat->wlr()); }

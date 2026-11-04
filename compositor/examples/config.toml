@@ -33,6 +33,8 @@ files = []
 # xwayland_xsettings = false
 # Modal dialogs hang on their parent window and follow it. Turn this off to keep them ordinary windows.
 # attach_modal_dialogs = false
+# Freeze applications with no open window after 10 min on battery, as if they had qos = "freeze_when_hidden".
+# freeze_background_apps = true
 
 # ==============================================================================
 # Lid events
@@ -322,6 +324,12 @@ default_pinned = true
 # [[window_rule]]
 # match.app_id = "^obs$"
 # background_render = true
+
+# Quality of service while an application is hidden: "normal" moves it to the efficiency cores after 5 s,
+# "never_throttle" keeps its full share, "freeze_when_hidden" also freezes it after 10 min hidden on battery.
+# [[window_rule]]
+# match.app_id = "^discord$"
+# qos = "freeze_when_hidden"
 
 # Keep one application's modal dialogs as ordinary windows.
 # [[window_rule]]

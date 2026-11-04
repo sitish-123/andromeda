@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct dsk_shell_v1_interface;
@@ -40,6 +41,12 @@ namespace andromeda {
     void releaseKeys();
     // The flags the shell last reported for the app process, from dsk_shell_v1 app_activity.
     [[nodiscard]] std::optional<uint32_t> appActivity(uint32_t pid) const;
+    // dsk_shell_v1 app_activity_flag bits.
+    static constexpr uint32_t kActivityAudio = 1;
+    static constexpr uint32_t kActivityCall = 2;
+    // Every pid with flags, as (pid, app_activity_flag bits).
+    [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> appActivities() const;
+    [[nodiscard]] bool boundBy(const wl_client* client) const;
 
   private:
     // The scanner also declares a wl_interface variable of this name, so the struct needs its elaborated form.

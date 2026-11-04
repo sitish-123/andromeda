@@ -1,4 +1,6 @@
 #include "core/cpu_boost.h"
+#include "core/systemd_units.h"
+#include "qos/controller.h"
 #include "server/server.h"
 
 #include "config/config.h"
@@ -1149,7 +1151,9 @@ namespace andromeda {
   // Event sources hold a Server pointer; they go once nothing that fires them is left.
   void Server::removeEventSources() {
     // Its bus fd and launch timer live on the display's event loop, which destroyDisplay frees.
+    m_qos.reset();
     m_cpuBoost.reset();
+    m_systemdUnits.reset();
     if (m_launchBusyTimer != nullptr) {
       wl_event_source_remove(m_launchBusyTimer);
       m_launchBusyTimer = nullptr;
@@ -1514,10 +1518,53 @@ namespace andromeda {
       wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
     }
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
-    m_cpuBoost = std::make_unique<CpuBoost>(wl_display_get_event_loop(m_display));
-    if (m_applicationScopesRequired) {
-      m_cpuBoost->resetAppWeights();
+    m_systemdUnits = std::make_unique<SystemdUnits>(wl_display_get_event_loop(m_display));
+    if (m_systemdUnits->active()) {
+      m_qos = std::make_unique<qos::Controller>(wl_display_get_event_loop(m_display), *m_systemdUnits, m_applicationScopesRequired, [this] {
+        qos::Snapshot snapshot;
+        for (const auto& view : views()) {
+          if (view->mapped()) {
+            snapshot.windows.push_back(
+                {.pid = view->pid(),
+                 .hidden = view->hiddenFromUser(),
+                 .screenCast = viewCaptured(*view),
+                 .rule = view->qosRule(),
+                 .adoptable = !view->xwayland() && view->rootSurface() != nullptr
+                     && (m_desktopShell == nullptr
+                         || !m_desktopShell->boundBy(wl_resource_get_client(view->rootSurface()->resource)))}
+            );
+          }
+        }
+        if (m_idleInhibitManager != nullptr) {
+          wlr_idle_inhibitor_v1* inhibitor;
+          wl_list_for_each(inhibitor, &m_idleInhibitManager->inhibitors, link) {
+            View* view = View::fromSurface(wlr_surface_get_root_surface(inhibitor->surface));
+            snapshot.idleInhibitorPids.push_back(view != nullptr ? view->pid() : surfaceClientPid(inhibitor->surface));
+          }
+        }
+        if (m_desktopShell != nullptr) {
+          for (const auto& [pid, flags] : m_desktopShell->appActivities()) {
+            snapshot.activity.push_back(
+                {.pid = static_cast<pid_t>(pid),
+                 .audio = (flags & DesktopShell::kActivityAudio) != 0,
+                 .call = (flags & DesktopShell::kActivityCall) != 0}
+            );
+          }
+        }
+        snapshot.freezeBackgroundApps = config().general.freezeBackgroundApps;
+        return snapshot;
+      });
+      if (m_applicationScopesRequired) {
+        // The reply comes after autostart spawns: their launch weight stays.
+        m_qos->resetAppUnits([this](const std::string& unit) {
+          return m_cpuBoost != nullptr && m_cpuBoost->launching(unit);
+        });
+      }
     }
+    m_cpuBoost = std::make_unique<CpuBoost>(
+        wl_display_get_event_loop(m_display), *m_systemdUnits,
+        [this](const std::string& unit) { return m_qos != nullptr && m_qos->launchEnded(unit); }
+    );
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);

@@ -794,6 +794,7 @@ ext_workspace_client_c = custom_target(
 # compositor and the tests, so a test never recompiles a translation unit. Keep this list free of anything needing
 # andromedafx, pango, or a running server.
 pure_sources = files(
+  'src/qos/actuation.cpp',
   'src/qos/cpu_topology.cpp',
   'src/qos/policy.cpp',
   'src/config/change.cpp',
@@ -874,6 +875,9 @@ core_sources = files(
   'src/motion/desk_motion.cpp',
   'src/core/application_scope.cpp',
   'src/core/cpu_boost.cpp',
+  'src/core/systemd_units.cpp',
+  'src/qos/actuator.cpp',
+  'src/qos/controller.cpp',
   'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',
   'src/core/log.cpp',

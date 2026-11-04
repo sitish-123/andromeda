@@ -60,6 +60,8 @@ namespace andromeda {
 
   namespace {
     constexpr Logger kLog("server");
+    // shell/src/shell/switcher/window_switcher.cpp creates it on open and destroys it on close.
+    constexpr std::string_view kWindowSwitcherNamespace = "noctalia-window-switcher";
   } // namespace
 
   void Server::onNewLayerSurface(wl_listener* listener, void* data) {
@@ -68,6 +70,24 @@ namespace andromeda {
     auto surface = std::make_unique<LayerSurface>(*self, static_cast<wlr_layer_surface_v1*>(data));
     if (surface->layerSurface() == nullptr) {
       return;
+    }
+    auto* wlrLayer = static_cast<wlr_layer_surface_v1*>(data);
+    if (wlrLayer->namespace_ != nullptr && std::string_view(wlrLayer->namespace_) == kWindowSwitcherNamespace) {
+      // The shell's app switcher lives exactly as long as this surface: frozen apps thaw while it is open.
+      struct ThawWatch {
+        Server* server = nullptr;
+        wl_listener destroy{};
+      };
+      auto* watch = new ThawWatch{.server = self, .destroy = {}};
+      watch->destroy.notify = [](wl_listener* listener, void* /*data*/) {
+        ThawWatch* owner;
+        owner = wl_container_of(listener, owner, destroy);
+        wl_list_remove(&owner->destroy.link);
+        owner->server->holdQosThawIntent(false);
+        delete owner;
+      };
+      wl_signal_add(&wlrLayer->events.destroy, &watch->destroy);
+      self->holdQosThawIntent(true);
     }
     self->m_layerSurfaces.push_back(std::move(surface));
     self->scheduleIpcLayersEvent();

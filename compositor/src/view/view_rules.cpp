@@ -726,6 +726,10 @@ namespace andromeda {
       m_backgroundRender = backgroundRender;
       m_server->scheduleSuspensionSync();
     }
+    if (const qos::Rule qosRule = rule.qos.value_or(qos::Rule::Normal); qosRule != m_qosRule) {
+      m_qosRule = qosRule;
+      m_server->scheduleQos();
+    }
     m_presentation.setFullscreenOpaque(fullscreenOpaque());
     updateBlur();
     // updateBlur creates the full node box. Re-apply the owning output's clip immediately, because focus, title, and

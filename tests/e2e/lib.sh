@@ -11,7 +11,8 @@ boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
   # No first-run wizard: it takes the keyboard from the window under test.
   printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
-  printf '[general]\nautostart = []\n' > "$RUNTIME/andromeda.toml"
+  # AUTOSTART: TOML string items, for a test that needs a client the compositor spawns itself.
+  printf '[general]\nautostart = [%s]\n' "${AUTOSTART:-}" > "$RUNTIME/andromeda.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
   cat > "$RUNTIME/bus.conf" <<'CONF'
 <busconfig>
@@ -29,8 +30,9 @@ CONF
   env -u WAYLAND_DISPLAY -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$RUNTIME" \
     WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_HEADLESS_OUTPUTS="$1" \
     "$ANDROMEDA" -c "$RUNTIME/andromeda.toml" > "$OUT/andromeda.log" 2>&1 &
-  for _ in $(seq 100); do [[ -S $RUNTIME/wayland-0 ]] && break; sleep 0.05; done
-  [[ -S $RUNTIME/wayland-0 ]] || { echo "andromeda did not start" >&2; exit 1; }
+  # The IPC socket comes after the Wayland socket (server.cpp creates Ipc later); `msg` needs it.
+  for _ in $(seq 100); do [[ -S $RUNTIME/wayland-0 && -S $RUNTIME/andromeda-wayland-0.sock ]] && break; sleep 0.05; done
+  [[ -S $RUNTIME/andromeda-wayland-0.sock ]] || { echo "andromeda did not start" >&2; exit 1; }
 }
 
 # run CMD...: run inside the session. A private HOME keeps Noctalia's theme templates and gsettings writes out of the

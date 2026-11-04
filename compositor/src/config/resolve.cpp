@@ -351,6 +351,9 @@ namespace andromeda {
       if (rule.backgroundRender) {
         resolved.backgroundRender = rule.backgroundRender;
       }
+      if (rule.qos) {
+        resolved.qos = rule.qos;
+      }
       if (rule.focusOnActivate) {
         resolved.focusOnActivate = rule.focusOnActivate;
       }

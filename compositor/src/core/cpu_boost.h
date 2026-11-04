@@ -1,43 +1,43 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <string>
 #include <string_view>
-#include <sys/types.h>
 #include <vector>
 
-struct sd_bus;
 struct wl_event_loop;
 struct wl_event_source;
 
 namespace andromeda {
 
+  class SystemdUnits;
+
   // systemd-run argument for a launching app unit: 10x the default weight (the shell's process.cpp sends the same).
   inline constexpr const char* kLaunchWeightProperty = "--property=CPUWeight=1000";
 
-  // CPU weights of app units, like macOS QoS classes (.agent/TASK-boost.md): the shell starts an app unit at the
-  // launch weight; this class moves the focused app unit to the focus weight, the one it leaves back to the default,
-  // and drops a launch that never mapped back to the default. Calls go over the user bus asynchronously, so the
-  // compositor never waits on systemd. Without sd-bus every call is a no-op.
+  // The launch CPU boost (.agent/TASK-boost.md): an app unit runs at the launch weight until its first window or 5 s.
+  // After that the QoS controller owns the unit's CPUWeight (docs/qos.md §3).
   class CpuBoost {
   public:
-    explicit CpuBoost(wl_event_loop* loop);
+    // A launch ended for `unit`. Returns true when the QoS controller took the unit; otherwise it goes back to the
+    // default weight here.
+    using LaunchEnded = std::function<bool(const std::string& unit)>;
+
+    CpuBoost(wl_event_loop* loop, SystemdUnits& units, LaunchEnded launchEnded);
     ~CpuBoost();
     CpuBoost(const CpuBoost&) = delete;
     CpuBoost& operator=(const CpuBoost&) = delete;
 
-    // Keyboard focus moved to a client. Focus on a non-app unit (the shell's panels) keeps the last app's boost.
-    void focus(pid_t pid);
-    // A launch of `appId` ended without a window (5 s): its app units go back to the default weight.
+    // A launch of `appId` ended without a window (5 s): its app units leave the launch weight.
     void expireLaunch(std::string_view appId);
     // A compositor spawn started `unit` at the launch weight. Its first window (launchMapped with the spawn's
-    // activation token) or the 5 s limit moves it to the default weight, unless it has the focus.
+    // activation token) or the 5 s limit ends the launch.
     void beginLaunch(std::string token, std::string unit);
     void launchMapped(std::string_view token);
-    // A restarted compositor has no record of the weights its predecessor set: every app unit goes to the default.
-    void resetAppWeights();
-    // False without a user bus: nothing could reset a launch weight, so spawns must not set one.
-    [[nodiscard]] bool active() const { return m_bus != nullptr && m_loop != nullptr; }
+    // False without a user bus: nothing could end a launch weight, so spawns must not set one.
+    [[nodiscard]] bool active() const;
+    [[nodiscard]] bool launching(const std::string& unit) const;
 
   private:
     struct Launch {
@@ -45,21 +45,15 @@ namespace andromeda {
       std::string unit;
       std::chrono::steady_clock::time_point deadline;
     };
-    void endLaunch(const Launch& launch);
+    void endLaunch(const std::string& unit);
     void armLaunchTimer();
     static int onLaunchTimer(void* data);
-    void setWeight(const std::string& unit, unsigned weight);
-    void resetMatching(const std::string& pattern);
-    void dispatch();
-    void updateEvents();
-    static int onEvent(int fd, unsigned mask, void* data);
 
-    sd_bus* m_bus = nullptr;
-    wl_event_source* m_source = nullptr;
+    SystemdUnits& m_units;
+    LaunchEnded m_launchEnded;
     wl_event_loop* m_loop = nullptr;
     wl_event_source* m_launchTimer = nullptr;
     std::vector<Launch> m_launches;
-    std::string m_focused;
   };
 
 } // namespace andromeda

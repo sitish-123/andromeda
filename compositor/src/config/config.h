@@ -7,6 +7,7 @@
 #include "config/window_position.h"
 #include "core/animation.h"
 #include "layout/layout.h"
+#include "qos/policy.h"
 #include "scene/ssd_frame_geometry.h"
 
 #include <algorithm>
@@ -463,6 +464,8 @@ namespace andromeda {
     // Keep a hidden window unsuspended and pace its frame callbacks at its output's refresh rate, for clients whose
     // non-rendering work stalls without them.
     std::optional<bool> backgroundRender;
+    // App quality of service while hidden (docs/qos.md §2).
+    std::optional<qos::Rule> qos;
     std::optional<VrrMode> vrr;
     // Overrides the client's tearing-control hint. Omitted follows the hint,
     // true forces async preference, and false vetoes it.
@@ -532,6 +535,7 @@ namespace andromeda {
           && confinePointer == other.confinePointer
           && allowShortcutsInhibit == other.allowShortcutsInhibit
           && backgroundRender == other.backgroundRender
+          && qos == other.qos
           && vrr == other.vrr
           && allowTearing == other.allowTearing
           && hdr == other.hdr
@@ -581,6 +585,7 @@ namespace andromeda {
     std::optional<bool> confinePointer;
     std::optional<bool> allowShortcutsInhibit;
     std::optional<bool> backgroundRender;
+    std::optional<qos::Rule> qos;
     std::optional<VrrMode> vrr;
     std::optional<bool> allowTearing;
     std::optional<HdrMode> hdr;
@@ -1074,6 +1079,8 @@ namespace andromeda {
       bool attachModalDialogs = true;
       // Honor maximized state restored by a client while its window opens.
       bool honorRestoredMaximize = false;
+      // Let app units with no mapped window freeze when hidden long on battery (docs/qos.md §3, T3).
+      bool freezeBackgroundApps = false;
       bool operator==(const General&) const = default;
     } general;
 

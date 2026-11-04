@@ -18,11 +18,11 @@ namespace andromeda::qos {
     if (exempt) {
       return {.tier = Tier::Visible};
     }
-    const std::uint64_t hiddenAt = *m_hiddenSinceMs + kHiddenDelayMs;
+    const std::uint64_t hiddenAt = *m_hiddenSinceMs + m_delays.hiddenMs;
     if (nowMs < hiddenAt) {
       return {.tier = Tier::Visible, .recheckAtMs = hiddenAt};
     }
-    const std::uint64_t longAt = hiddenAt + kHiddenLongDelayMs;
+    const std::uint64_t longAt = hiddenAt + m_delays.hiddenLongMs;
     if (!onBattery || nowMs < longAt) {
       // Off battery T3 never comes; a battery change is an input change and calls update again.
       return {.tier = Tier::Hidden, .recheckAtMs = onBattery ? std::optional(longAt) : std::nullopt};

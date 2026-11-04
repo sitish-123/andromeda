@@ -96,6 +96,10 @@ struct wlr_virtual_pointer_v1;
 
 namespace andromeda {
   class CpuBoost;
+  class SystemdUnits;
+  namespace qos {
+    class Controller;
+  }
   enum class ContentType;
   struct ConfigEffects;
 
@@ -364,6 +368,10 @@ namespace andromeda {
     // Re-derive every toplevel's suspended state once the current dispatch settles, so a transition that hides and
     // shows a window within one dispatch never reaches the client.
     void scheduleSuspensionSync();
+    // An input of the app QoS tiers changed (docs/qos.md §2).
+    void scheduleQos();
+    // The user starts to reach hidden apps: frozen apps thaw until every hold ends (docs/qos.md §3).
+    void holdQosThawIntent(bool held);
     // True while `view`'s client must keep drawing although its frame is hidden: an overview card or a toplevel capture
     // draws its content off the shared scene, or a `background_render` rule asks for it.
     [[nodiscard]] bool viewRenderedOffscreen(const View& view) const;
@@ -970,7 +978,9 @@ namespace andromeda {
     };
     std::vector<LaunchBusy> m_launchBusy;
     wl_event_source* m_launchBusyTimer = nullptr;
+    std::unique_ptr<SystemdUnits> m_systemdUnits;
     std::unique_ptr<CpuBoost> m_cpuBoost;
+    std::unique_ptr<qos::Controller> m_qos;
     void beginLaunchBusy(std::string token, std::string appId);
     void syncLaunchBusy();
     static int onLaunchBusyTimer(void* data);

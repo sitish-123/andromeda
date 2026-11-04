@@ -103,7 +103,12 @@ namespace andromeda {
     if (!m_mapped || m_tiledOpeningDeferred) {
       return;
     }
-    setSuspendedState(!seen() && !m_server->viewRenderedOffscreen(*this));
+    const bool hidden = !seen() && !m_server->viewRenderedOffscreen(*this);
+    if (hidden != m_hiddenFromUser) {
+      m_hiddenFromUser = hidden;
+      m_server->scheduleQos();
+    }
+    setSuspendedState(hidden);
   }
 
   void View::setFullscreenState(bool fullscreen) {

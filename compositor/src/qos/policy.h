@@ -33,12 +33,19 @@ namespace andromeda::qos {
   inline constexpr std::uint64_t kHiddenDelayMs = 5'000;
   inline constexpr std::uint64_t kHiddenLongDelayMs = 10ULL * 60 * 1000; // in T2 before T3
 
+  struct Delays {
+    std::uint64_t hiddenMs = kHiddenDelayMs;
+    std::uint64_t hiddenLongMs = kHiddenLongDelayMs;
+  };
+
   class ScopePolicy {
   public:
-    // Promotes at once; demotes only after the delays above, counted from the moment every window was hidden.
+    explicit ScopePolicy(Delays delays = {}) : m_delays(delays) {}
+    // Promotes at once; demotes only after the delays, counted from the moment every window was hidden.
     Decision update(const AppInputs& inputs, bool onBattery, std::uint64_t nowMs);
 
   private:
+    Delays m_delays;
     std::optional<std::uint64_t> m_hiddenSinceMs;
   };
 

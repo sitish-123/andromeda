@@ -711,6 +711,7 @@ namespace andromeda {
       wl_event_source_remove(m_acceptClientMaximizeIdle);
       m_acceptClientMaximizeIdle = nullptr;
     }
+    m_hiddenFromUser = false;
     m_server->updateIdleInhibit();
     if (m_workspace != nullptr && m_workspace->group() != nullptr) {
       Output* output = m_workspace->group()->output();

@@ -6,6 +6,7 @@
 // `popup-on-release` batches the release until the pointer frame and anchors its menu at the last valid position.
 // LAYER_CONTROL enables stdin commands: frames LABEL COUNT, color LABEL AARRGGBB, child-color LABEL AARRGGBB,
 // child-move LABEL X Y, and margins LABEL TOP RIGHT BOTTOM LEFT. Each prints done after its frame callbacks arrive.
+// LAYER_NAMESPACE sets the layer surface namespace.
 
 #include <wayland-client.h>
 
@@ -870,8 +871,10 @@ int main(int argc, char** argv) {
     layer = ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY;
   }
   state.surface = wl_compositor_create_surface(state.compositor);
+  const char* layerNamespace = std::getenv("LAYER_NAMESPACE");
   state.layerSurface = zwlr_layer_shell_v1_get_layer_surface(
-      state.layerShell, state.surface, (*selected)->resource, layer, "andromeda-output-restore-regression"
+      state.layerShell, state.surface, (*selected)->resource, layer,
+      layerNamespace != nullptr ? layerNamespace : "andromeda-output-restore-regression"
   );
   zwlr_layer_surface_v1_add_listener(state.layerSurface, &kLayerSurfaceListener, &state);
   if (state.keyboardInteractivity != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE) {
