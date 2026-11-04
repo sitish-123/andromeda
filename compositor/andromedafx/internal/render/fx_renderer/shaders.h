@@ -169,7 +169,10 @@ struct tex_shader {
   } effects;
 };
 
-bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source source, bool effects, bool sample_clamp);
+// `flares`: corners may be negative (concave flares, corner_alpha.frag CORNER_FLARES).
+bool link_tex_program(
+    struct tex_shader* shader, enum fx_tex_shader_source source, bool effects, bool sample_clamp, bool flares
+);
 
 struct output_shader {
   GLuint program;
@@ -246,6 +249,6 @@ struct blur2_composite_shader {
   } corners;
 };
 
-bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool effects, bool corners);
+bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool effects, bool corners, bool flares);
 
 #endif

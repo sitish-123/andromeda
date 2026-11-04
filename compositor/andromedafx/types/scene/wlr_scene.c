@@ -780,27 +780,28 @@ static bool scene_nodes_in_box(
   return found;
 }
 
+// A negative radius (concave flare) leaves no corner arc inside the box.
 static pixman_region32_t
 create_corner_location_region(struct fx_corner_radii corners, int x, int y, int width, int height) {
   pixman_region32_t corner_region;
   pixman_region32_init(&corner_region);
-  if (corners.top_left) {
+  if (corners.top_left > 0) {
     pixman_region32_union_rect(&corner_region, &corner_region, x, y, corners.top_left, corners.top_left);
   }
 
-  if (corners.top_right) {
+  if (corners.top_right > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x + (width - corners.top_right), y, corners.top_right, corners.top_right
     );
   }
 
-  if (corners.bottom_left) {
+  if (corners.bottom_left > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x, y + (height - corners.bottom_left), corners.bottom_left, corners.bottom_left
     );
   }
 
-  if (corners.bottom_right) {
+  if (corners.bottom_right > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x + (width - corners.bottom_right), y + (height - corners.bottom_right),
         corners.bottom_right, corners.bottom_right

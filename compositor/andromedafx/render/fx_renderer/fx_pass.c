@@ -1737,6 +1737,11 @@ static float* pass_gradient_colors(struct fx_gles_render_pass* pass, const struc
   return colors;
 }
 
+// A negative radius is a concave flare: only the CORNER_FLARES programs draw it.
+static bool corners_flared(const struct fx_corner_fradii* c) {
+  return c->top_left < 0.0f || c->top_right < 0.0f || c->bottom_left < 0.0f || c->bottom_right < 0.0f;
+}
+
 static bool apply_clip_region(
     pixman_region32_t* clip_region, const struct wlr_box* clipped_region_box, const struct fx_corner_fradii* corners
 ) {
@@ -1748,10 +1753,11 @@ static bool apply_clip_region(
   // is certainly inside the hole, leaving every corner pixel for exact GPU
   // coverage. Truncating a diagonal approximation can otherwise cull a pixel
   // that the rounded shader needs to paint.
-  const int top = ceilf(fmax(corners->top_left, corners->top_right));
-  const int bottom = ceilf(fmax(corners->bottom_left, corners->bottom_right));
-  const int left = ceilf(fmax(corners->top_left, corners->bottom_left));
-  const int right = ceilf(fmax(corners->top_right, corners->bottom_right));
+  // A negative radius is a flare outside the hole: it never widens the certain interior.
+  const int top = ceilf(fmax(fmax(corners->top_left, corners->top_right), 0.0f));
+  const int bottom = ceilf(fmax(fmax(corners->bottom_left, corners->bottom_right), 0.0f));
+  const int left = ceilf(fmax(fmax(corners->top_left, corners->bottom_left), 0.0f));
+  const int right = ceilf(fmax(fmax(corners->top_right, corners->bottom_right), 0.0f));
 
   const int horizontal_height = clipped_region_box->height - top - bottom;
   if (horizontal_height > 0) {
@@ -1983,6 +1989,10 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass* pass, const struct f
     break;
   default:
     abort();
+  }
+  // Glass of a joined shape: blur textures are RGBA with no sample box.
+  if (shader == &renderer->shaders.tex_effects_rgba && corners_flared(&fx_options->corners)) {
+    shader = &renderer->shaders.tex_effects_flares_rgba;
   }
 
   struct wlr_box dst_box;
@@ -2919,10 +2929,14 @@ static void render_blur_composite(
   const bool effects = blur_data_should_parameters_blur_effects(blur_data);
   const bool corners =
       !fx_corner_fradii_is_empty(&tex_options->corners) || clipped_fregion_is_valid(&fx_options->clipped_region);
+  const bool flares = corners_flared(&tex_options->corners);
   struct blur2_composite_shader* shader = effects
-      ? (corners ? &renderer->shaders.blur2_with_effects_composite_corners
-                 : &renderer->shaders.blur2_with_effects_composite)
-      : (corners ? &renderer->shaders.blur2_composite_corners : &renderer->shaders.blur2_composite);
+      ? (flares    ? &renderer->shaders.blur2_with_effects_composite_flares
+             : corners ? &renderer->shaders.blur2_with_effects_composite_corners
+                       : &renderer->shaders.blur2_with_effects_composite)
+      : (flares    ? &renderer->shaders.blur2_composite_flares
+             : corners ? &renderer->shaders.blur2_composite_corners
+                       : &renderer->shaders.blur2_composite);
 
   const int width = texture->wlr_texture.width;
   const int height = texture->wlr_texture.height;

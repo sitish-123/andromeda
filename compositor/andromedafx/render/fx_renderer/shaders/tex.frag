@@ -191,6 +191,7 @@ float corner_alpha(
 float rounded_rect_distance_at(
     vec2 point, vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
 );
+float body_distance_at(vec2 point, vec2 size, vec2 position, float tl, float tr, float bl, float br);
 
 float liquid_distance(vec2 point) {
   if (liquid_radius >= 0.0) {
@@ -198,7 +199,7 @@ float liquid_distance(vec2 point) {
         point, liquid_size, liquid_position, liquid_radius, liquid_radius, liquid_radius, liquid_radius
     );
   }
-  return rounded_rect_distance_at(
+  return body_distance_at(
       point, size, position, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right
   );
 }
