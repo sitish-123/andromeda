@@ -356,9 +356,6 @@ private:
   std::unique_ptr<AccountsService> m_accountsService;
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
-  std::unique_ptr<DebugService> m_debugService;
-  std::unique_ptr<AndromedaShellService> m_andromedaShellService;
-  IdleInhibitor m_idleInhibitor;
   // Created on the first Activity request; samples only under a lease.
   std::unique_ptr<ActivityMonitor> m_activityMonitor;
   std::unique_ptr<ActivityActions> m_activityActions;
