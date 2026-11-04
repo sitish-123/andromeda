@@ -43,6 +43,8 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cassert>
 #include <cmath>
@@ -50,6 +52,7 @@ extern "C" {
 #include <ctime>
 #include <drm_fourcc.h>
 #include <format>
+#include <thread>
 
 #ifdef TRACY_ENABLE
 #include <set>
@@ -60,6 +63,11 @@ namespace andromeda {
   namespace {
     constexpr Logger kLog("output");
     constexpr int kFrameRetryDelayMs = 16;
+    // A nonblocking flip can fail with EBUSY while the kernel still finishes the previous commit on a plane
+    // ("busy with a previous commit"); it clears within about a millisecond. Committing the built state again beats
+    // re-rendering on the 16 ms retry.
+    constexpr int kBusyCommitRetries = 3;
+    constexpr auto kBusyCommitRetryDelay = std::chrono::microseconds(1000);
     // wlroots paces frame callbacks and picks buffer scale from every output a surface overlaps, so an off-layout
     // output that keeps drawing (a mirror) must sit where no surface can reach it.
     constexpr int kOffLayoutOrigin = -(1 << 24);
@@ -2366,7 +2374,14 @@ namespace andromeda {
         {
           ANDROMEDA_ZONE("Output::commitState");
           SceneCommit observation(*this, state);
+          errno = 0;
           commitOk = wlr_output_commit_state(m_output, &state);
+          for (int retry = 1; !commitOk && hasBuffer && errno == EBUSY && retry <= kBusyCommitRetries; ++retry) {
+            std::this_thread::sleep_for(kBusyCommitRetryDelay);
+            errno = 0;
+            commitOk = wlr_output_commit_state(m_output, &state);
+            kLog.debug("output '{}': commit busy, retry {} {}", m_output->name, retry, commitOk ? "passed" : "failed");
+          }
         }
         if (hasBuffer) {
           m_tearingRecovery.recordCommit(commitTearing, commitOk);
