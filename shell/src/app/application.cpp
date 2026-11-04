@@ -212,6 +212,8 @@ Application::~Application() {
   FileDialog::setPresenter(nullptr);
   SearchPickerDialog::setPopup(nullptr);
   m_settingsWindow.shutdownDialogPresenter();
+  // m_activityWindow outlives m_renderContext and the activity monitor (declared before them): close it while they live.
+  m_activityWindow.close();
   // m_systemMonitor is declared after the plugin hosts, so it is destroyed first; drop the script
   // API's pointer to it here, while both are still alive, or a plugin that used noctalia.cpuCores
   // releases its reference through a dangling pointer as its host is torn down.
