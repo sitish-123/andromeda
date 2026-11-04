@@ -140,6 +140,14 @@ struct fx_texture {
   uint32_t drm_format;           // for mutable textures only, used to interpret upload data
   struct fx_framebuffer* buffer; // for DMA-BUF imports only
   struct wlr_buffer* locked_buffer;
+
+  // Large shm buffers alternate between two linear staging buffers the GPU
+  // samples in place (fx_texture.c struct shm_staging).
+  struct wlr_buffer* slots[2];
+  GLuint slot_tex[2];
+  int slot;
+  bool slot_failed; // slot 1 could not be created; keep writing slot 0
+  pixman_region32_t slot_stale; // damage the other slot has not received yet
 };
 
 struct fx_texture* fx_get_texture(struct wlr_texture* wlr_texture);
@@ -204,8 +212,6 @@ struct fx_renderer {
 
   struct wlr_egl* egl;
   int drm_fd;
-  // Set by the compositor; NULL disables zero-copy shm import.
-  struct wl_event_loop* event_loop;
   struct wlr_allocator* allocator;
 
   // GL timestamp minus CLOCK_MONOTONIC (ns), resynced once per second: a GL_TIMESTAMP read is a register read that
