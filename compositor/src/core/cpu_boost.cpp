@@ -65,7 +65,7 @@ namespace andromeda {
 
   void CpuBoost::endLaunch(const std::string& unit) {
     if (!m_launchEnded || !m_launchEnded(unit)) {
-      m_units.setProperties(unit, {.cpuWeight = kDefaultWeight, .ioWeight = std::nullopt, .allowedCpus = std::nullopt});
+      m_units.setProperties(unit, {.cpuWeight = kDefaultWeight, .ioWeight = std::nullopt, .allowedCpus = std::nullopt, .memoryLow = std::nullopt});
     }
   }
 

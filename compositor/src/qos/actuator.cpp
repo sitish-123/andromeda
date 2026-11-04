@@ -3,8 +3,13 @@
 #include "core/log.h"
 #include "core/systemd_units.h"
 
+#include <cerrno>
+#include <filesystem>
 #include <fstream>
 #include <utility>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace andromeda::qos {
 
@@ -30,7 +35,10 @@ namespace andromeda::qos {
         writeThaw(applied.cgroupDir);
         m_units.setFrozen(unit, false);
       }
-      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}});
+      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0});
+      if (applied.timerSlackNs != 0) {
+        writeTimerSlack(applied.cgroupDir, 0);
+      }
     }
   }
 
@@ -51,9 +59,17 @@ namespace andromeda::qos {
     if (fresh || applied.allowedCpus != settings.allowedCpus) {
       properties.allowedCpus = settings.allowedCpus;
     }
+    if (fresh || applied.memoryLow != settings.memoryLow) {
+      properties.memoryLow = settings.memoryLow;
+    }
     applied.cpuWeight = settings.cpuWeight;
     applied.ioWeight = settings.ioWeight;
     applied.allowedCpus = settings.allowedCpus;
+    applied.memoryLow = settings.memoryLow;
+    if (fresh || applied.timerSlackNs != settings.timerSlackNs) {
+      applied.timerSlackNs = settings.timerSlackNs;
+      writeTimerSlack(cgroupDir, settings.timerSlackNs);
+    }
     if (applied.frozenWanted != frozen) {
       applied.freezerFailures = 0;
     }
@@ -61,7 +77,7 @@ namespace andromeda::qos {
     if (!frozen) {
       syncFreezer(unit);
     }
-    if (properties.cpuWeight || properties.ioWeight || properties.allowedCpus) {
+    if (properties.cpuWeight || properties.ioWeight || properties.allowedCpus || properties.memoryLow) {
       m_units.setProperties(unit, properties);
     }
     if (frozen) {
@@ -104,6 +120,33 @@ namespace andromeda::qos {
     }
   }
 
+  void Actuator::writeTimerSlack(const std::string& cgroupDir, std::uint64_t ns) {
+    if (m_timerSlackDenied || cgroupDir.empty()) {
+      return;
+    }
+    std::ifstream procs(cgroupDir + "/cgroup.procs");
+    const std::string value = std::to_string(ns);
+    std::error_code ec;
+    for (std::string pid; std::getline(procs, pid);) {
+      // Tasks exit and threads come and go during the walk: a missing one is skipped.
+      for (std::filesystem::directory_iterator task("/proc/" + pid + "/task", ec), end; !ec && task != end;
+           task.increment(ec)) {
+        const int fd = open((task->path() / "timerslack_ns").c_str(), O_WRONLY | O_CLOEXEC);
+        if (fd < 0) {
+          continue;
+        }
+        const bool written = write(fd, value.data(), value.size()) == static_cast<ssize_t>(value.size());
+        const int error = errno;
+        close(fd);
+        if (!written && error == EPERM) {
+          m_timerSlackDenied = true;
+          kLog.info("no timer slack for hidden apps: the compositor lacks CAP_SYS_NICE");
+          return;
+        }
+      }
+    }
+  }
+
   void Actuator::invalidateCpuWeight(const std::string& unit) {
     if (auto it = m_applied.find(unit); it != m_applied.end()) {
       it->second.cpuWeight.reset();
@@ -115,7 +158,7 @@ namespace andromeda::qos {
       if (skip(unit)) {
         return;
       }
-      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}});
+      m_units.setProperties(unit, {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = std::vector<int>{}, .memoryLow = 0});
       m_units.setFrozen(unit, false);
     });
   }

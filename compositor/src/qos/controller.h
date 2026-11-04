@@ -105,6 +105,7 @@ namespace andromeda::qos {
     std::string m_focused;
     int m_thawHolds = 0;
     std::vector<int> m_efficiencyCpus;
+    std::uint64_t m_focusMemoryLow; // 25 % of RAM (docs/qos.md §3)
     Delays m_delays;
     std::filesystem::path m_powerSupply;
   };

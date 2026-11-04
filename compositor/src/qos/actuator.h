@@ -39,6 +39,8 @@ namespace andromeda::qos {
       std::optional<std::uint64_t> cpuWeight;
       std::uint64_t ioWeight = 0;
       std::vector<int> allowedCpus;
+      std::uint64_t timerSlackNs = 0;
+      std::uint64_t memoryLow = 0;
       bool frozenWanted = false;
       std::optional<bool> frozenDone = false; // the state systemd last confirmed; empty after a failed call
       bool freezerBusy = false;
@@ -46,7 +48,11 @@ namespace andromeda::qos {
     };
     void syncFreezer(const std::string& unit);
 
+    // Writes the slack of every thread in the cgroup; needs CAP_SYS_NICE (the package's file capability).
+    void writeTimerSlack(const std::string& cgroupDir, std::uint64_t ns);
+
     SystemdUnits& m_units;
+    bool m_timerSlackDenied = false;
     std::unordered_map<std::string, Applied> m_applied;
     std::uint64_t m_nextId = 0;
   };

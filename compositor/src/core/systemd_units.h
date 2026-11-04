@@ -22,6 +22,7 @@ namespace andromeda {
       std::optional<std::uint64_t> cpuWeight;
       std::optional<std::uint64_t> ioWeight;
       std::optional<std::vector<int>> allowedCpus; // empty = every CPU
+      std::optional<std::uint64_t> memoryLow;      // bytes
     };
     // Extra properties of a new scope; an empty field is not sent.
     struct ScopeOptions {

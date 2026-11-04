@@ -4,14 +4,14 @@
 
 namespace andromeda::qos {
 
-  TierSettings settingsFor(Tier tier, const std::vector<int>& efficiencyCpus) {
+  TierSettings settingsFor(Tier tier, const std::vector<int>& efficiencyCpus, std::uint64_t focusMemoryLow) {
     switch (tier) {
     case Tier::Focus:
-      return {.cpuWeight = 400, .ioWeight = 500, .allowedCpus = {}};
+      return {.cpuWeight = 400, .ioWeight = 500, .allowedCpus = {}, .timerSlackNs = 0, .memoryLow = focusMemoryLow};
     case Tier::Visible:
-      return {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = {}};
+      return {.cpuWeight = 100, .ioWeight = 100, .allowedCpus = {}, .timerSlackNs = 0, .memoryLow = 0};
     case Tier::Hidden:
-      return {.cpuWeight = 30, .ioWeight = 10, .allowedCpus = efficiencyCpus};
+      return {.cpuWeight = 30, .ioWeight = 10, .allowedCpus = efficiencyCpus, .timerSlackNs = 20'000'000, .memoryLow = 0};
     case Tier::HiddenLong:
       break;
     }
@@ -19,7 +19,7 @@ namespace andromeda::qos {
     if (!efficiencyCpus.empty()) {
       one.push_back(efficiencyCpus.front());
     }
-    return {.cpuWeight = 30, .ioWeight = 10, .allowedCpus = std::move(one)};
+    return {.cpuWeight = 30, .ioWeight = 10, .allowedCpus = std::move(one), .timerSlackNs = 100'000'000, .memoryLow = 0};
   }
 
 } // namespace andromeda::qos

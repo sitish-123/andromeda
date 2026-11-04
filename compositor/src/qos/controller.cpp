@@ -85,6 +85,7 @@ namespace andromeda::qos {
         m_actuator(units),
         m_snapshot(std::move(snapshot)),
         m_efficiencyCpus(efficiencyCpus("/sys/devices/system/cpu")),
+        m_focusMemoryLow(static_cast<std::uint64_t>(sysconf(_SC_PHYS_PAGES)) * static_cast<std::uint64_t>(sysconf(_SC_PAGESIZE)) / 4),
         m_delays(delaysFromEnvironment()) {
     const char* powerSupply = std::getenv("ANDROMEDA_QOS_TEST_POWER_SUPPLY");
     m_powerSupply = powerSupply != nullptr ? powerSupply : "/sys/class/power_supply";
@@ -97,13 +98,13 @@ namespace andromeda::qos {
     // shares the user manager.
     m_pinsBackground = ownsSession && !m_efficiencyCpus.empty();
     if (m_pinsBackground) {
-      units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = m_efficiencyCpus});
+      units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = m_efficiencyCpus, .memoryLow = std::nullopt});
     }
   }
 
   Controller::~Controller() {
     if (m_pinsBackground) {
-      m_units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = std::vector<int>{}});
+      m_units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = std::vector<int>{}, .memoryLow = std::nullopt});
     }
     if (m_idle != nullptr) {
       wl_event_source_remove(m_idle);
@@ -317,7 +318,7 @@ namespace andromeda::qos {
       if (decision.tier != scope.tier || decision.frozen != scope.frozen) {
         kLog.debug("{} {}{}", unit, tierName(decision.tier), decision.frozen ? " frozen" : "");
       }
-      m_actuator.apply(unit, scope.dir, settingsFor(decision.tier, m_efficiencyCpus), decision.frozen);
+      m_actuator.apply(unit, scope.dir, settingsFor(decision.tier, m_efficiencyCpus, m_focusMemoryLow), decision.frozen);
       scope.tier = decision.tier;
       scope.frozen = decision.frozen;
       if (decision.recheckAtMs) {

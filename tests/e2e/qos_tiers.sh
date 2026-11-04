@@ -54,6 +54,12 @@ cpus() { expand "$(awk '/^Cpus_allowed_list/ {print $2}' "/proc/$PID/status")"; 
 # cgroup.events "frozen" is the state the kernel reached; cgroup.freeze is only the last request.
 freeze() { awk '$1 == "frozen" {print $2}' "$CGROUP/cgroup.events"; }
 weight() { cat "$CGROUP/cpu.weight"; }
+slack() { cat "/proc/$PID/timerslack_ns"; }
+memlow() { cat "$CGROUP/memory.low"; }
+# T0 MemoryLow: 25 % of RAM, in whole pages as the kernel stores it.
+FOCUS_LOW=$(($(getconf _PHYS_PAGES) / 4 * $(getconf PAGESIZE)))
+# Timer slack needs CAP_SYS_NICE on the compositor (the package sets it); a plain build skips the check.
+SLACK=$([[ $(getcap "$ANDROMEDA") == *cap_sys_nice* ]] && echo yes || echo no)
 # await LABEL WANT LIMIT_MS CMD...: no event reports a cgroup change to a script, so this reads CMD every 20 ms.
 await() {
   local label=$1 want=$2 limit=$3 start got
@@ -84,16 +90,20 @@ PID=$(head -n 1 "$CGROUP/cgroup.procs")
 ALL=$(cpus)
 echo "unit $UNIT pid $PID cpus $ALL efficiency $EFFICIENCY" | tee -a "$OUT/result.txt"
 await "focused: T0 weight 400" 400 2000 weight
+await "focused: MemoryLow 25 % of RAM" "$FOCUS_LOW" 1000 memlow
 
 # On AC: T2 (efficiency CPUs, weight 30) after the hidden delay, never T3.
 run "$ANDROMEDA" msg workspace-switch:2 > /dev/null
 start=$(ms)
 await "hidden: T2 on efficiency CPUs" "$EFFICIENCY" 4000 cpus
+if [[ $SLACK == yes ]]; then await "hidden: timer slack 20 ms" 20000000 1000 slack; else echo "hidden: timer slack not checked: no cap_sys_nice on $ANDROMEDA" | tee -a "$OUT/result.txt"; fi
 (($(ms) - start >= 900)) || fail "T2 came before the hidden delay"
 [[ $(weight) == 30 ]] || fail "T2 weight $(weight)"
+[[ $(memlow) == 0 ]] || fail "T2 MemoryLow $(memlow)"
 run "$ANDROMEDA" msg workspace-switch:1 > /dev/null
 await "focused again: every CPU" "$ALL" 1000 cpus
 await "focused again: weight 400" 400 1000 weight
+[[ $SLACK == no ]] || await "focused again: default timer slack" 50000 1000 slack
 
 # On battery with freeze_when_hidden: T3 is one efficiency CPU and a frozen scope.
 echo Discharging > "$RUNTIME/power/BAT0/status"
