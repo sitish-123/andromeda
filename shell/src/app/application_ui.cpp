@@ -564,7 +564,20 @@ void Application::initInputDispatch() {
   auto restoreId = std::make_shared<std::uint32_t>(0);
   m_notificationManager.addInternalActionCallback(
       [this, restoreId](std::uint32_t id, const std::string& action, const std::string& token, const std::string&) {
-        if (id != *restoreId || action != "restore") {
+        if (id != *restoreId) {
+          return;
+        }
+        if (action == "report") {
+          // A local text file with the core dump summary and the compositor log; nothing is sent anywhere.
+          (void)process::runAsync(
+              "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/andromeda/crash-reports\"; mkdir -p \"$d\"; "
+              "f=\"$d/$(date +%Y%m%d-%H%M%S).txt\"; "
+              "{ echo \"Andromeda crash report $(date -Is)\"; coredumpctl info --no-pager -1 andromeda 2>&1; echo; "
+              "journalctl --user -u andromeda.service -n 300 --no-pager 2>&1; } > \"$f\"; xdg-open \"$f\""
+          );
+          return;
+        }
+        if (action != "restore") {
           return;
         }
         const std::vector<std::string> running = m_wayland.runningAppIds();
@@ -593,6 +606,8 @@ void Application::initInputDispatch() {
     if (!saved.empty()) {
       request.actions = {"restore", i18n::tr("notifications.internal.desktop-restore")};
     }
+    request.actions.push_back("report");
+    request.actions.push_back(i18n::tr("notifications.internal.desktop-report"));
     *restoreId = m_notificationManager.addOrReplace(std::move(request));
   });
   m_wayland.setLockKeysChangeCallback([this] {

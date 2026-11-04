@@ -1511,6 +1511,7 @@
       "desktop-restarted-body": "{count} apps closed.",
       "desktop-restarted-none": "Your apps kept their windows.",
       "desktop-restore": "Restore apps",
+      "desktop-report": "Save crash report",
       "desktop": "Desktop"
     }
   },
