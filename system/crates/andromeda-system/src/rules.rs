@@ -74,6 +74,8 @@ struct RuleSpec {
     per: Option<String>,
     #[serde(default)]
     largest_first: Option<String>,
+    #[serde(default)]
+    holds_of: Vec<String>,
 }
 
 /// A loaded rule. Users may change only `enabled` and the values of declared params.
@@ -95,6 +97,8 @@ pub struct Rule {
     pub per: Option<String>,
     /// A numeric `app.*` field: per step, only the largest app that is due starts; the others wait `for` again.
     pub largest_first: Option<String>,
+    /// A mode: these rules' holds join its own (`resolve_modes`).
+    pub holds_of: Vec<String>,
 }
 
 /// What a per-app rule may hold on its app (the compositor's `HoldTier` and `HoldFreeze`).
@@ -179,6 +183,9 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
     let hold_for = duration(spec.for_.as_deref().unwrap_or("0s")).map_err(|e| fail("for", &e))?;
     let dwell = duration(spec.dwell.as_deref().unwrap_or("0s")).map_err(|e| fail("dwell", &e))?;
     if let Some(per) = spec.per.as_deref() {
+        if !spec.holds_of.is_empty() {
+            return Err(fail("holds_of", &"a per-app rule is no mode"));
+        }
         if per != "app" {
             return Err(fail("per", &"only \"app\""));
         }
@@ -216,7 +223,32 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
         alert: spec.alert,
         per: spec.per,
         largest_first: spec.largest_first,
+        holds_of: spec.holds_of,
     })
+}
+
+/// Gives each mode the holds of the rules it names in `holds_of` and removes the modes that name a missing rule, a
+/// per-app rule or another mode. Returns those, with why.
+pub fn resolve_modes(rules: &mut Vec<Rule>) -> Vec<(String, String)> {
+    let mut broken = Vec::new();
+    let mut joined = Vec::new();
+    for (i, mode) in rules.iter().enumerate() {
+        let mut holds = Vec::new();
+        for id in &mode.holds_of {
+            match rules.iter().find(|r| &r.id == id) {
+                Some(r) if r.per.is_none() && r.holds_of.is_empty() => holds.extend(r.holds.iter().cloned()),
+                Some(_) => broken.push((mode.id.clone(), format!("holds_of: {id:?} is a per-app rule or a mode"))),
+                None => broken.push((mode.id.clone(), format!("holds_of: no rule {id:?}"))),
+            }
+        }
+        joined.push((i, holds));
+    }
+    for (i, holds) in joined {
+        rules[i].hold_when.extend(holds.iter().map(|_| None));
+        rules[i].holds.extend(holds);
+    }
+    rules.retain(|r| !broken.iter().any(|(id, _)| id == &r.id));
+    broken
 }
 
 /// One rule's entry in the user's settings file.
@@ -347,7 +379,7 @@ mod tests {
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
-    use super::{End, Episode, Event, load, parse_settings};
+    use super::{End, Episode, Event, load, parse_settings, resolve_modes};
     use crate::expr::{Schema, Type, Value, Values};
 
     struct State(HashMap<&'static str, Value>);
@@ -454,5 +486,23 @@ holds = [{ knob = "power.profile", value = "power-saver" }]
         let (id, why) = rules[1].as_ref().unwrap_err();
         assert_eq!(id, "bad");
         assert!(why.contains("unknown name"), "{why}");
+    }
+
+    #[test]
+    fn a_mode_holds_what_the_rules_it_names_hold() {
+        let mode = |id: &str, of: &str| {
+            format!(
+                "[[rule]]\nid = \"{id}\"\nscope = \"session\"\npriority = \"automatic\"\nwhen = \"power.on_battery\"\nclear = \"true\"\nholds = [{{ knob = \"display.refresh_cap_hz\", value = 60 }}]\nholds_of = [\"{of}\"]\n"
+            )
+        };
+        let text = format!("{RULE}\n{}\n{}", mode("mode.away", "power.low_power_plan"), mode("mode.gone", "nope"));
+        let mut rules: Vec<_> = load(&text, &at(false, 0.0)).unwrap().into_iter().map(Result::unwrap).collect();
+        let broken = resolve_modes(&mut rules);
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].0, "mode.gone");
+        let away = rules.iter().find(|r| r.id == "mode.away").unwrap();
+        let knobs: Vec<_> = away.holds.iter().map(|h| h.knob.as_str()).collect();
+        assert_eq!(knobs, ["display.refresh_cap_hz", "power.profile"]);
+        assert_eq!(away.hold_when.len(), away.holds.len());
     }
 }

@@ -1,0 +1,10 @@
+# Cross-area modes (docs/system-health.md §12.5): a mode is a rule that also holds the holds of the rules in holds_of.
+[[rule]]
+id = "mode.leaving_home"
+scope = "session"
+priority = "automatic"
+when = "network.metered and power.on_battery"
+for = "1m"
+clear = "not network.metered or not power.on_battery"
+holds_of = ["power.low_power_plan"]
+alert = { urgency = "low", action = "undo", text = "leaving_home" }

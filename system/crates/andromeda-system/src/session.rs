@@ -56,6 +56,10 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
             "Back up your files soon. A check at the next start can repair it.",
         ),
         "drive_failing" => ("A disk is failing", "Back up your files now. {drive} reports a hardware fault."),
+        "leaving_home" => (
+            "Saving power on the go",
+            "You use a metered network on battery. Low Power Mode is on until you plug in or change networks.",
+        ),
         "captive_portal" => ("Sign in to the network", "This network asks you to sign in before it lets you online."),
         "storage_low" => {
             ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
@@ -593,6 +597,10 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
             }
             Err(e) => log::warn!("{}: {e}", path.display()),
         }
+    }
+    for (id, why) in rules::resolve_modes(&mut rules) {
+        log::warn!("rule {id} is off: {why}");
+        broken.push((id, why));
     }
     let specs = rules.iter().map(|r| (r.id.clone(), Spec { holds: r.holds.clone(), alert: r.alert.clone() })).collect();
     let knobs = vec![
