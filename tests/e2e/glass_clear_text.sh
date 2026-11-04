@@ -18,11 +18,26 @@ printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/noctalia/c
 TAG=$SCHEME-g$GLASS
 with_noctalia '
   foot --fullscreen -o main.font=monospace:size=11 sh -c "cat '"$RUNTIME"'/text.txt; exec sleep 600" > "$OUT/foot.log" 2>&1 &
+  # shoot NAME: wait until the screen differs from $OUT/base.png (the panel shows), then until two shots 0.2 s apart
+  # are equal (its open animation is done); keep that shot as NAME.
+  shoot() {
+    for _ in $(seq 50); do
+      grim "$OUT/now.png"; cmp -s "$OUT/base.png" "$OUT/now.png" || break; sleep 0.05
+    done
+    for _ in $(seq 25); do
+      grim "$OUT/prev.png"; sleep 0.2; grim "$OUT/now.png"
+      cmp -s "$OUT/prev.png" "$OUT/now.png" && { mv "$OUT/now.png" "$OUT/$1"; rm -f "$OUT/prev.png"; return 0; }
+    done
+    echo "the screen did not settle for $1" >&2; exit 1
+  }
   sleep 1.5
-  "$NOCTALIA" msg panel-open launcher > /dev/null; sleep 1.2
-  grim "$OUT/'"$TAG"'-pill.png"
+  grim "$OUT/base.png"
+  "$NOCTALIA" msg panel-open launcher > /dev/null
+  shoot "'"$TAG"'-pill.png"
   "$NOCTALIA" msg panel-close launcher > /dev/null 2>&1 || true; sleep 0.6
-  "$NOCTALIA" msg panel-open control-center > /dev/null; sleep 1.2
-  grim "$OUT/'"$TAG"'-cc.png"
+  grim "$OUT/base.png"
+  "$NOCTALIA" msg panel-open control-center > /dev/null
+  shoot "'"$TAG"'-cc.png"
+  rm -f "$OUT/base.png"
 '
 echo "captures: $OUT/$TAG-pill.png $OUT/$TAG-cc.png"
