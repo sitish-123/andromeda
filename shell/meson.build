@@ -1358,8 +1358,8 @@ if build_tests
     'window_switcher_shortcut_state',
     'workspace_alert_service',
     'workspaces_widget',
-  ]
     'xdg_autostart',
+  ]
 
   foreach test_name : _cpp_test_names
     if test_name == 'plugin_git_export' and not git_program.found()
