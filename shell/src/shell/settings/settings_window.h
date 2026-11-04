@@ -9,6 +9,7 @@
 #include "scripting/plugin_file_cache.h"
 #include "scripting/plugin_manager.h"
 #include "shell/settings/config_export_dialog_modal.h"
+#include "shell/settings/settings_content_problems.h"
 #include "shell/settings/settings_content_shortcuts.h"
 #include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_control_factory.h"
@@ -267,6 +268,7 @@ private:
   void onLanguageChanged();
   void addDefaultAppsContent(float scale);
   void addDevicesContent(float scale);
+  void addProblemsContent(float scale);
   void addWifiContent(float scale);
   void addBluetoothContent(float scale);
   void addNetworkContent(float scale);
@@ -515,6 +517,10 @@ private:
   settings::NewUserDraft m_newUser;
   bool m_renaming = false;
   int m_updateCount = -1;
+  // Problems page: nullopt until coredumpctl answers; reloaded each time the page opens.
+  std::optional<std::vector<settings::CrashRecord>> m_crashRecords;
+  bool m_crashRecordsLoading = false;
+  bool m_crashRecordsAvailable = true;
   std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
   std::string m_renameError;
   bool m_userDeleteBusy = false;

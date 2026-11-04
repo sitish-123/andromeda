@@ -39,7 +39,7 @@ namespace settings {
     constexpr PageGroup kSys = PageGroup::System;
 
     // IA order (DESIGN.md "Settings information architecture").
-    const std::array<SettingsPage, 27> kPages{{
+    const std::array<SettingsPage, 28> kPages{{
         {"wifi", kConn, "wifi", {}},
         {"bluetooth", kConn, "bluetooth", {}},
         {"network", kConn, "world", {}},
@@ -65,6 +65,7 @@ namespace settings {
         {"services", kSys, "adjustments-horizontal", kServices},
         {"plugins", kSys, "puzzle", kPlugins},
         {"automation", kSys, "link", kAutomation},
+        {"problems", kSys, "alert-triangle", {}},
         {"about", kSys, "info-circle", kAbout},
         {"users", kSys, "user", {}, false},
     }};
@@ -209,7 +210,7 @@ namespace settings {
 
   std::span<const SettingsPage> settingsPages() { return kPages; }
 
-  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users"; }
+  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users" || pageId == "problems"; }
 
   const SettingsPage* settingsPageFromId(std::string_view id) {
     if (const auto* it = std::ranges::find(kPages, id, &SettingsPage::id); it != kPages.end()) {

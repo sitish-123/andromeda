@@ -9,6 +9,7 @@
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/process/process.h"
+#include "system/crash_report.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
@@ -568,13 +569,7 @@ void Application::initInputDispatch() {
           return;
         }
         if (action == "report") {
-          // A local text file with the core dump summary and the compositor log; nothing is sent anywhere.
-          (void)process::runAsync(
-              "d=\"${XDG_STATE_HOME:-$HOME/.local/state}/andromeda/crash-reports\"; mkdir -p \"$d\"; "
-              "f=\"$d/$(date +%Y%m%d-%H%M%S).txt\"; "
-              "{ echo \"Andromeda crash report $(date -Is)\"; coredumpctl info --no-pager -1 andromeda 2>&1; echo; "
-              "journalctl --user -u andromeda.service -n 300 --no-pager 2>&1; } > \"$f\"; xdg-open \"$f\""
-          );
+          crash_report::save(0);
           return;
         }
         if (action != "restore") {

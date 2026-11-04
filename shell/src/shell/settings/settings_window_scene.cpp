@@ -1160,6 +1160,7 @@ void SettingsWindow::rebuildSettingsContent() {
     addUsersContent(scale);
     addPowerContent(scale);
     addAboutContent(scale);
+    addProblemsContent(scale);
   }
   const std::size_t visibleEntries = detailOpen ? 0
       : settings::addSettingsContentSections(

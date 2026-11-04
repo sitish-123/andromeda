@@ -2119,6 +2119,7 @@
       "keyboard": "Keyboard",
       "mouse": "Mouse and Touchpad",
       "devices": "Devices",
+      "problems": "Problems",
       "power": "Battery and Power",
       "privacy": "Privacy and Security",
       "date-time": "Date and Time",
@@ -6550,6 +6551,17 @@
       "phones": "Phones",
       "phones-hint": "Pair phones and choose what they share in Link.",
       "open": "Open Link"
+    },
+    "problems": {
+      "desktop": "Desktop",
+      "shell": "Bar and panels",
+      "stopped": "Stopped unexpectedly, {when}",
+      "today": "Today {time}",
+      "yesterday": "Yesterday {time}",
+      "save-report": "Save report",
+      "open-folder": "Open reports folder",
+      "empty": "No crashes in the last 30 days.",
+      "unavailable": "Crash records are not available on this system."
     }
   },
   "setup-wizard": {
