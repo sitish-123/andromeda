@@ -305,6 +305,13 @@ namespace andromeda {
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
     bool m_animationRenderLocked = false;
+    // EBUSY page flips per one-second log window.
+    struct {
+      std::chrono::steady_clock::time_point since;
+      int busy = 0;
+      int retriedOk = 0;
+      int gaveUp = 0;
+    } m_busyStats;
     CursorPlaneState m_lastCursorPlane{};
 #ifdef ANDROMEDA_TEST_IPC
     std::optional<CursorPlaneState> m_syntheticPlaneCursor;

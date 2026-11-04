@@ -2376,11 +2376,22 @@ namespace andromeda {
           SceneCommit observation(*this, state);
           errno = 0;
           commitOk = wlr_output_commit_state(m_output, &state);
-          for (int retry = 1; !commitOk && hasBuffer && errno == EBUSY && retry <= kBusyCommitRetries; ++retry) {
-            std::this_thread::sleep_for(kBusyCommitRetryDelay);
-            errno = 0;
-            commitOk = wlr_output_commit_state(m_output, &state);
-            kLog.debug("output '{}': commit busy, retry {} {}", m_output->name, retry, commitOk ? "passed" : "failed");
+          if (!commitOk && hasBuffer && errno == EBUSY) {
+            ++m_busyStats.busy;
+            for (int retry = 1; !commitOk && errno == EBUSY && retry <= kBusyCommitRetries; ++retry) {
+              std::this_thread::sleep_for(kBusyCommitRetryDelay);
+              errno = 0;
+              commitOk = wlr_output_commit_state(m_output, &state);
+            }
+            ++(commitOk ? m_busyStats.retriedOk : m_busyStats.gaveUp);
+          }
+          const auto now = std::chrono::steady_clock::now();
+          if (m_busyStats.busy > 0 && now - m_busyStats.since >= std::chrono::seconds(1)) {
+            kLog.info(
+                "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
+                m_busyStats.retriedOk, m_busyStats.gaveUp
+            );
+            m_busyStats = {.since = now};
           }
         }
         if (hasBuffer) {
