@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include <cstdint>
+#include <cstring>
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -31,6 +32,12 @@ namespace {
   std::vector<LayerRecord> g_layers;
   std::vector<LayerRecord> g_compositionLayers;
   bool g_composited = false;
+  // Layers that hold an IN_FENCE_FD; fresh = set since the output's last apply.
+  struct FenceRecord {
+    void* layer;
+    bool fresh;
+  };
+  std::vector<FenceRecord> g_fences;
 
   template <typename Fn> Fn next(const char* name) { return reinterpret_cast<Fn>(dlsym(RTLD_NEXT, name)); }
 } // namespace
@@ -48,6 +55,7 @@ extern "C" __attribute__((visibility("default"))) void liftoff_layer_destroy(voi
   static const auto real = next<void (*)(void*)>("liftoff_layer_destroy");
   std::erase_if(g_layers, [layer](const LayerRecord& r) { return r.layer == layer; });
   std::erase_if(g_compositionLayers, [layer](const LayerRecord& r) { return r.layer == layer; });
+  std::erase_if(g_fences, [layer](const FenceRecord& r) { return r.layer == layer; });
   real(layer);
 }
 
@@ -56,6 +64,36 @@ extern "C" __attribute__((visibility("default"))) void liftoff_output_set_compos
   std::erase_if(g_compositionLayers, [output](const LayerRecord& r) { return r.output == output; });
   g_compositionLayers.push_back({output, layer});
   real(output, layer);
+}
+
+extern "C" __attribute__((visibility("default"))) int liftoff_layer_set_property(void* layer, const char* name, uint64_t value) {
+  static const auto real = next<int (*)(void*, const char*, uint64_t)>("liftoff_layer_set_property");
+  if (std::strcmp(name, "IN_FENCE_FD") == 0) {
+    std::erase_if(g_fences, [layer](const FenceRecord& r) { return r.layer == layer; });
+    g_fences.push_back({layer, true});
+  }
+  return real(layer, name, value);
+}
+
+// wlroots 0.20 sets IN_FENCE_FD on the primary and composition layers only for a commit that has a fence, never clears
+// it, and closes the fd after the commit. A later commit without a fence (a direct-scanout buffer with no acquire
+// point) then sends that closed fd and the kernel fails it with EINVAL. Clear each fence that was not set again.
+static void clearStaleFences(liftoff_output* output) {
+  static const auto unset = next<void (*)(void*, const char*)>("liftoff_layer_unset_property");
+  std::erase_if(g_fences, [output](FenceRecord& fence) {
+    const bool ours = std::ranges::any_of(g_layers, [&](const LayerRecord& r) {
+      return r.layer == fence.layer && r.output == output;
+    });
+    if (!ours) {
+      return false;
+    }
+    if (fence.fresh) {
+      fence.fresh = false;
+      return false;
+    }
+    unset(fence.layer, "IN_FENCE_FD");
+    return true;
+  });
 }
 
 // Whether the plane search since the last call left a layer to composition. wlroots' test commit passes then, and the
@@ -76,6 +114,7 @@ extern "C" __attribute__((visibility("default"))) int liftoff_output_apply(
   }();
   static const auto needsComposition =
       reinterpret_cast<bool (*)(void*)>(dlsym(RTLD_DEFAULT, "liftoff_layer_needs_composition"));
+  clearStaleFences(output);
   const liftoff_output_apply_options longer{.timeout_ns = kPlaneSearchNs};
   const int ret = real(output, req, flags, options != nullptr && options->timeout_ns != 0 ? options : &longer);
   if (ret == 0 && needsComposition != nullptr) {
