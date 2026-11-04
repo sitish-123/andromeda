@@ -100,6 +100,7 @@ namespace andromeda {
   namespace qos {
     class Controller;
   }
+  class AppsBus;
   enum class ContentType;
   struct ConfigEffects;
 
@@ -999,6 +1000,7 @@ namespace andromeda {
     void syncLaunchBusy();
     static int onLaunchBusyTimer(void* data);
     // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.
+    std::unique_ptr<AppsBus> m_appsBus; // after m_qos: its holds go through the controller
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;

@@ -5,6 +5,7 @@
 #include "core/systemd_units.h"
 #include "qos/actuation.h"
 #include "qos/cpu_topology.h"
+#include "qos/holds.h"
 
 #include <unistd.h>
 #include <wayland-server-core.h>
@@ -100,9 +101,11 @@ namespace andromeda::qos {
     if (m_pinsBackground) {
       units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = m_efficiencyCpus, .memoryLow = std::nullopt});
     }
+    registry().changed = [this] { schedule(); };
   }
 
   Controller::~Controller() {
+    registry().changed = nullptr;
     if (m_pinsBackground) {
       m_units.setProperties("background.slice", {.cpuWeight = std::nullopt, .ioWeight = std::nullopt, .allowedCpus = std::vector<int>{}, .memoryLow = std::nullopt});
     }
@@ -283,6 +286,8 @@ namespace andromeda::qos {
         if (!std::filesystem::exists(scope.dir, error)) {
           kLog.debug("{} ended", unit);
           m_actuator.forget(unit);
+          registry().holds.forget(unit);
+          registry().apps.erase(unit);
           if (m_focused == unit) {
             m_focused.clear();
           }
@@ -314,7 +319,11 @@ namespace andromeda::qos {
         }
         discharging = *battery;
       }
-      const Decision decision = scope.policy.update(inputs, discharging, now);
+      const Decision decision = registry().holds.apply(unit, scope.policy.update(inputs, discharging, now), exempt || inputs.focused);
+      registry().apps[unit] = AppState{
+          .dir = scope.dir, .visible = inputs.visible, .focused = inputs.focused, .exempt = exempt,
+          .tier = decision.tier, .frozen = decision.frozen,
+      };
       if (decision.tier != scope.tier || decision.frozen != scope.frozen) {
         kLog.debug("{} {}{}", unit, tierName(decision.tier), decision.frozen ? " frozen" : "");
       }

@@ -2,6 +2,7 @@
 #include "core/systemd_units.h"
 #include "qos/controller.h"
 #include "server/server.h"
+#include "server/apps_bus.h"
 
 #include "config/config.h"
 #include "config/config_diag.h"
@@ -1166,6 +1167,7 @@ namespace andromeda {
     m_systemdUnits.reset();
     if (m_launchBusyTimer != nullptr) {
       wl_event_source_remove(m_launchBusyTimer);
+    m_appsBus.reset();
       m_launchBusyTimer = nullptr;
     }
     if (m_backgroundFrameTimer != nullptr) {
@@ -1571,6 +1573,7 @@ namespace andromeda {
         m_qos->resetAppUnits([this](const std::string& unit) {
           return m_cpuBoost != nullptr && m_cpuBoost->launching(unit);
         });
+      m_appsBus = std::make_unique<AppsBus>(wl_display_get_event_loop(m_display));
       }
     }
     m_cpuBoost = std::make_unique<CpuBoost>(

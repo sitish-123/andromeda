@@ -3,6 +3,7 @@
 unit_tests = [
   ['qos-policy', ['unit/qos_policy.cpp'], []],
   ['qos-cpu-topology', ['unit/qos_cpu_topology.cpp'], []],
+  ['qos-holds', ['unit/qos_holds.cpp'], []],
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['overview-preview-geometry', ['unit/overview_preview_geometry.cpp'], [andromeda_core_dep]],
