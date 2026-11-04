@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.andromeda.System1
+Exec=/bin/false
+User=root
+SystemdService=andromeda-system.service

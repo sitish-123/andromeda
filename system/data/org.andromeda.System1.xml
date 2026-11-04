@@ -1,0 +1,82 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.andromeda.System1.Battery">
+    <method name="GetHistory">
+      <arg name="kind" type="s" direction="in" />
+      <arg name="timespan" type="u" direction="in" />
+      <arg name="resolution" type="u" direction="in" />
+      <arg type="a(udu)" direction="out" />
+    </method>
+    <property name="ChargeLimit" type="(bbuuu)" access="read" />
+    <property name="Cycles" type="i" access="read" />
+    <property name="EnergyFullDesignWh" type="d" access="read" />
+    <property name="EnergyFullWh" type="d" access="read" />
+    <property name="EnergyWh" type="d" access="read" />
+    <property name="HealthPercent" type="d" access="read" />
+    <property name="Kind" type="s" access="read" />
+    <property name="Model" type="s" access="read" />
+    <property name="NativePath" type="s" access="read" />
+    <property name="Percent" type="d" access="read" />
+    <property name="PowerSupply" type="b" access="read" />
+    <property name="Present" type="b" access="read" />
+    <property name="RateW" type="d" access="read" />
+    <property name="Serial" type="s" access="read" />
+    <property name="State" type="s" access="read" />
+    <property name="TimeToEmptyS" type="x" access="read" />
+    <property name="TimeToFullS" type="x" access="read" />
+    <property name="Vendor" type="s" access="read" />
+    <property name="Warning" type="s" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.KbdBacklight">
+    <method name="SetBrightness">
+      <arg name="value" type="i" direction="in" />
+    </method>
+    <property name="Brightness" type="i" access="read" />
+    <property name="MaxBrightness" type="i" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.Knobs">
+    <method name="Set">
+      <arg name="knob" type="s" direction="in" />
+      <arg name="value" type="v" direction="in" />
+    </method>
+  </interface>
+  <interface name="org.andromeda.System1.Manager">
+    <method name="Watch">
+      <arg name="areas" type="as" direction="in" />
+      <arg type="u" direction="out" />
+    </method>
+    <method name="Unwatch">
+      <arg name="id" type="u" direction="in" />
+    </method>
+    <property name="Areas" type="a{s(bs)}" access="read" />
+    <property name="Version" type="u" access="read">
+      <annotation name="org.freedesktop.DBus.Property.EmitsChangedSignal" value="const" />
+    </property>
+  </interface>
+  <interface name="org.andromeda.System1.Memory">
+    <property name="AvailableBytes" type="t" access="read" />
+    <property name="FullAvg10" type="d" access="read" />
+    <property name="Level" type="s" access="read" />
+    <property name="SomeAvg10" type="d" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.Network">
+    <property name="Connectivity" type="s" access="read" />
+    <property name="Metered" type="b" access="read" />
+    <property name="Vpn" type="b" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.Power">
+    <property name="OnBattery" type="b" access="read" />
+    <property name="PackagePowerW" type="d" access="read" />
+    <property name="PerformanceDegraded" type="s" access="read" />
+    <property name="Profile" type="s" access="read" />
+    <property name="ProfileChoices" type="as" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.Storage">
+    <property name="Mounts" type="a(sstt)" access="read" />
+  </interface>
+  <interface name="org.andromeda.System1.Thermal">
+    <property name="Throttled" type="b" access="read" />
+    <property name="Zones" type="a(sdsd)" access="read" />
+  </interface>
+</node>

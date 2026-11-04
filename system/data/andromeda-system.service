@@ -1,0 +1,38 @@
+[Unit]
+Description=Andromeda system state and policy (org.andromeda.System1)
+Documentation=https://github.com/sitish-123/andromeda/blob/main/docs/system-health.md
+After=dbus.service
+
+[Service]
+Type=notify
+ExecStart=/usr/lib/andromeda/andromeda-system
+Restart=on-failure
+WatchdogSec=30s
+# Root only for reads the kernel keeps from users (RAPL energy_uj 0400); PSI triggers with 1 s windows need
+# CAP_SYS_RESOURCE. Nothing in /sys or /etc is written yet (step 1 of docs/system-health.md).
+CapabilityBoundingSet=CAP_SYS_RESOURCE
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=no
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target

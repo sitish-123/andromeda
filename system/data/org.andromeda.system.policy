@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- andromeda-system intents (docs/system-health.md §3.3). Reading state needs no action. -->
+<policyconfig>
+  <vendor>Andromeda</vendor>
+  <action id="org.andromeda.system.power-profile">
+    <description>Choose the power profile</description>
+    <message>Authentication is required to choose the power profile</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.andromeda.system.charge-limit">
+    <description>Change the battery charge limit</description>
+    <message>Authentication is required to change the battery charge limit</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.andromeda.system.keyboard-backlight">
+    <description>Change the keyboard backlight</description>
+    <message>Authentication is required to change the keyboard backlight</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
