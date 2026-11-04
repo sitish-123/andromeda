@@ -18,6 +18,7 @@
 #include "output/mirror.h"
 #include "output/zoom.h"
 #include "output/mode_selection.h"
+#include "qos/holds.h"
 #include "output/rendered_state_commit.h"
 #include "output/sdr_format.h"
 #include "overview/overview.h"
@@ -698,7 +699,7 @@ namespace andromeda {
           }
         }
       } else if (!wlr_output_is_wl(m_output)) {
-        stagedMode = fastestPreferredMode(m_output);
+        stagedMode = fastestPreferredMode(m_output, static_cast<int>(qos::registry().refreshCap * 1000));
         if (stagedMode != nullptr) {
           keptLiveMode = keepLiveModeOrStage(state, *m_output, stagedMode);
         }

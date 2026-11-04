@@ -378,16 +378,19 @@ impl Session {
                     log::warn!("session: Wi-Fi power save: {e:#}");
                 }
             }
-            if knob == "display.fps_cap_hidden" {
+            let method = match knob {
+                "display.fps_cap_hidden" => Some("SetHiddenFpsCap"),
+                "display.refresh_cap_hz" => Some("SetRefreshCap"),
+                _ => None,
+            };
+            if let Some(method) = method {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Hz from a rule, 0 = no cap
                 let hz = match value {
                     Some(KnobValue::Num(n)) => n.max(0.0) as u32,
                     _ => 0,
                 };
-                if let Err(e) =
-                    session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "SetHiddenFpsCap", &(hz,)).await
-                {
-                    log::warn!("session: hidden fps cap: {e}");
+                if let Err(e) = session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), method, &(hz,)).await {
+                    log::warn!("session: {knob}: {e}");
                 }
             }
             publish(session, knob, value.as_ref()).await;
@@ -597,6 +600,7 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
         Knob::new("network.wifi_power_save", Merge::AnyTrue),
         Knob::new("display.brightness_step", Merge::Min),
         Knob::new("display.fps_cap_hidden", Merge::Min),
+        Knob::new("display.refresh_cap_hz", Merge::Min),
         Knob::new("battery.charge_limit", Merge::AnyTrue),
     ];
     let (mut engine, refused) = Engine::new(knobs, rules, now_ms());

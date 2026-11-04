@@ -111,7 +111,8 @@ namespace andromeda {
     }
   } // namespace
 
-  AppsBus::AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig) : m_reloadConfig(std::move(reloadConfig)) {
+  AppsBus::AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig, std::function<void()> refreshCapChanged)
+      : m_reloadConfig(std::move(reloadConfig)), m_refreshCapChanged(std::move(refreshCapChanged)) {
     static const sd_bus_vtable kVtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("HoldTier", "sss", "s", onHoldTier, SD_BUS_VTABLE_UNPRIVILEGED),
@@ -119,6 +120,7 @@ namespace andromeda {
         SD_BUS_METHOD("SetAppRule", "ss", "", onSetAppRule, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("AppRules", "", "a(ss)", onAppRules, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("SetHiddenFpsCap", "u", "", onSetHiddenFpsCap, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("SetRefreshCap", "u", "", onSetRefreshCap, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("Release", "s", "", onRelease, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL("AppStats", "a(sbbsbdt)", 0),
@@ -369,6 +371,22 @@ namespace andromeda {
     return r;
   }
 
+  int AppsBus::onSetRefreshCap(sd_bus_message* message, void* data, sd_bus_error* /*error*/) {
+    auto* self = static_cast<AppsBus*>(data);
+    std::uint32_t hz = 0;
+    if (const int r = sd_bus_message_read(message, "u", &hz); r < 0) {
+      return r;
+    }
+    qos::Registry& registry = qos::registry();
+    const bool changed = registry.refreshCap != hz;
+    registry.refreshCap = hz;
+    registry.refreshCapOwner = hz == 0 ? "" : sd_bus_message_get_sender(message);
+    if (changed && self->m_refreshCapChanged) {
+      self->m_refreshCapChanged();
+    }
+    return sd_bus_reply_method_return(message, "");
+  }
+
   int AppsBus::onSetHiddenFpsCap(sd_bus_message* message, void* /*data*/, sd_bus_error* /*error*/) {
     std::uint32_t hz = 0;
     if (const int r = sd_bus_message_read(message, "u", &hz); r < 0) {
@@ -418,6 +436,13 @@ namespace andromeda {
     }
     if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().holds.releaseOwner(name)) {
       self->changed();
+    }
+    if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().refreshCapOwner == name) {
+      qos::registry().refreshCap = 0;
+      qos::registry().refreshCapOwner.clear();
+      if (self->m_refreshCapChanged) {
+        self->m_refreshCapChanged();
+      }
     }
     if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().fpsCapOwner == name) {
       qos::registry().hiddenFpsCap = 0;

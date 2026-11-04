@@ -1574,9 +1574,14 @@ namespace andromeda {
         snapshot.optimizeBackgroundApps = config().general.optimizeBackgroundApps;
         return snapshot;
       });
-      m_appsBus = std::make_unique<AppsBus>(wl_display_get_event_loop(m_display), [this] {
-        handleConfigReload(reloadConfig());
-      });
+      m_appsBus = std::make_unique<AppsBus>(
+          wl_display_get_event_loop(m_display), [this] { handleConfigReload(reloadConfig()); },
+          [this] {
+            for (const auto& output : m_outputs) {
+              (void)output->applyOutputState();
+            }
+          }
+      );
       if (m_applicationScopesRequired) {
         // The reply comes after autostart spawns: their launch weight stays.
         m_qos->resetAppUnits([this](const std::string& unit) {

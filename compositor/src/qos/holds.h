@@ -68,6 +68,10 @@ namespace andromeda::qos {
     // (background_render windows); 0 = no cap. Ends when `fpsCapOwner` leaves the bus.
     unsigned hiddenFpsCap = 0;
     std::string fpsCapOwner;
+    // display.refresh_cap_hz from SetRefreshCap: outputs with no configured mode pick their fastest mode at or below
+    // it; 0 = no cap. Ends when `refreshCapOwner` leaves the bus.
+    unsigned refreshCap = 0;
+    std::string refreshCapOwner;
     std::function<void()> changed;
   };
   Registry& registry();

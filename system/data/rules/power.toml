@@ -1,5 +1,5 @@
 # Built-in power rules (docs/system-health.md §4.3). Users change only `enabled` and the params.
-# The compositor holds of low_power_plan (background tier, refresh cap) and paused units join as their knobs are built.
+# The compositor holds of low_power_plan (background tier) and paused units join as their knobs are built.
 [[rule]]
 id = "power.low_power_plan"
 scope = "session"
@@ -12,6 +12,7 @@ holds = [
   { knob = "power.profile", value = "power-saver" },
   { knob = "network.wifi_power_save", value = true },
   { knob = "display.brightness_step", value = -1 },
+  { knob = "display.refresh_cap_hz", value = 60 },
 ]
 alert = { urgency = "normal", action = "undo", text = "low_power_plan" }
 
@@ -24,4 +25,4 @@ priority = "automatic"
 when = "power.profile == 'power-saver' and not power.profile_by_rule"
 for = "5s"
 clear = "power.profile != 'power-saver'"
-holds = [{ knob = "network.wifi_power_save", value = true }]
+holds = [{ knob = "network.wifi_power_save", value = true }, { knob = "display.refresh_cap_hz", value = 60 }]

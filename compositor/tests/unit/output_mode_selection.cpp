@@ -203,6 +203,25 @@ ANDROMEDA_TEST(automaticModeKeepsPreferredWhenItIsFastest) {
   CHECK(fastestPreferredMode(&output) == &preferred);
 }
 
+// Low Power Mode caps the refresh: a 120 Hz panel runs at 60 Hz, a 60 Hz one is unchanged, and a panel with nothing
+// at or below the cap keeps its preferred mode.
+ANDROMEDA_TEST(automaticModeHonorsTheRefreshCap) {
+  wlr_output output{};
+  wl_list_init(&output.modes);
+  wlr_output_mode slower = outputMode(2880, 1800, 59940);
+  wlr_output_mode preferred = outputMode(2880, 1800, 120000, true);
+  addMode(output, slower);
+  addMode(output, preferred);
+  CHECK(fastestPreferredMode(&output, 60000) == &slower);
+  CHECK(fastestPreferredMode(&output, 0) == &preferred);
+
+  wlr_output only{};
+  wl_list_init(&only.modes);
+  wlr_output_mode fast = outputMode(1920, 1080, 144000, true);
+  addMode(only, fast);
+  CHECK(fastestPreferredMode(&only, 60000) == &fast);
+}
+
 ANDROMEDA_TEST(automaticModeWithoutPreferredUsesFirstModesResolution) {
   wlr_output output{};
   wl_list_init(&output.modes);

@@ -20,8 +20,8 @@ namespace andromeda {
   // called List() in the last 2 minutes.
   class AppsBus {
   public:
-    // `reloadConfig` runs after SetAppRule rewrote the settings file.
-    AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig);
+    // `reloadConfig` runs after SetAppRule rewrote the settings file; `refreshCapChanged` after the refresh cap moved.
+    AppsBus(wl_event_loop* loop, std::function<void()> reloadConfig, std::function<void()> refreshCapChanged);
     ~AppsBus();
     AppsBus(const AppsBus&) = delete;
     AppsBus& operator=(const AppsBus&) = delete;
@@ -41,6 +41,7 @@ namespace andromeda {
     static int onHoldFreeze(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onSetAppRule(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onAppRules(sd_bus_message* message, void* data, sd_bus_error* error);
+    static int onSetRefreshCap(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onSetHiddenFpsCap(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onRelease(sd_bus_message* message, void* data, sd_bus_error* error);
     static int onList(sd_bus_message* message, void* data, sd_bus_error* error);
@@ -55,6 +56,7 @@ namespace andromeda {
     void changed();
 
     std::function<void()> m_reloadConfig;
+    std::function<void()> m_refreshCapChanged;
     sd_bus* m_bus = nullptr;
     sd_bus_slot* m_object = nullptr;
     sd_bus_slot* m_ownerMatch = nullptr;
