@@ -25,7 +25,10 @@ pkgver() {
 }
 
 prepare() {
-  git -C desktop submodule update --init link
+  git -C desktop submodule init link
+  # A local build takes link from the local checkout, so an unpushed link commit still resolves.
+  [[ -z $ANDROMEDA_LINK_SOURCE ]] || git -C desktop config submodule.link.url "$ANDROMEDA_LINK_SOURCE"
+  git -C desktop -c protocol.file.allow=always submodule update link
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
   cargo fetch --locked --manifest-path desktop/system/Cargo.toml
 }
@@ -93,8 +96,6 @@ package_andromeda-compositor-git() {
   conflicts=(andromeda-compositor umbriel umbriel-desktop-git)
   replaces=(umbriel-desktop-git)
   meson install -C build-compositor --destdir "$pkgdir"
-  install -Dm644 desktop/session/background.slice.d/andromeda-lp-e-cores.conf \
-    "$pkgdir/usr/lib/systemd/user/background.slice.d/andromeda-lp-e-cores.conf"
   install -Dm644 desktop/session/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf \
     "$pkgdir/usr/lib/systemd/user/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf"
   install -Dm644 desktop/session/memory/user-session.slice.conf \
