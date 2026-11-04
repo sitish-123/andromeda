@@ -146,6 +146,31 @@ namespace andromeda {
           : corner_radii_all(radius);
     }
 
+    // A body that flares along its left or right edge (an attached panel of a vertical bar) is a top or bottom
+    // joined shape turned 90 degrees: parse the transposed region, then turn the result back.
+    std::optional<RoundedShape> sideJoinedShapeOf(const std::vector<pixman_box32_t>& rects) {
+      std::vector<pixman_box32_t> swapped;
+      swapped.reserve(rects.size());
+      for (const pixman_box32_t& r : rects) {
+        swapped.push_back({r.y1, r.x1, r.y2, r.x2});
+      }
+      pixman_region32_t transposed;
+      pixman_region32_init_rects(&transposed, swapped.data(), static_cast<int>(swapped.size()));
+      int count = 0;
+      const pixman_box32_t* bands = pixman_region32_rectangles(&transposed, &count);
+      std::optional<RoundedShape> shape;
+      if (count > 0) {
+        shape = roundedShapeOf(std::vector<pixman_box32_t>(bands, bands + count));
+      }
+      pixman_region32_fini(&transposed);
+      if (!shape || shape->flare == 0) {
+        return std::nullopt;
+      }
+      shape->box = {shape->box.y, shape->box.x, shape->box.height, shape->box.width};
+      shape->joinEdge = shape->joinEdge == 1 ? 4 : 2;
+      return shape;
+    }
+
     // A client blur region made of rounded rectangles (a bar sends all its islands in one region) -> one shape each,
     // so every blur gets the shader's anti-aliased edge instead of the staircase. Any other shape -> empty.
     std::vector<RoundedShape> roundedShapesOf(const pixman_region32_t* region) {
@@ -183,7 +208,10 @@ namespace andromeda {
       }
       std::vector<RoundedShape> shapes;
       for (const auto& group : groups) {
-        const auto shape = roundedShapeOf(group);
+        auto shape = roundedShapeOf(group);
+        if (!shape) {
+          shape = sideJoinedShapeOf(group);
+        }
         if (!shape) {
           return {};
         }
