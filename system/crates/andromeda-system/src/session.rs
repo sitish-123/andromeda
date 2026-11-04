@@ -51,6 +51,7 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         "thermal_hot" => {
             ("The computer is hot", "It runs slower to cool down. Background apps use less power until it cools.")
         }
+        "drive_failing" => ("A disk is failing", "Back up your files now. {drive} reports a hardware fault."),
         "captive_portal" => ("Sign in to the network", "This network asks you to sign in before it lets you online."),
         "storage_low" => {
             ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
@@ -260,6 +261,7 @@ impl Session {
                 .replace("{cpu}", &cpu.map_or_else(String::new, |c| format!("{c:.0}")))
                 .replace("{free}", &field("storage.free_gb"))
                 .replace("{mount}", &field("storage.mount"))
+                .replace("{drive}", &field("storage.drive"))
                 .replace("{cache}", &human_bytes(cache))
                 .replace("{trash}", &human_bytes(trash))
         };

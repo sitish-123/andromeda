@@ -32,6 +32,9 @@ const FIELDS: &[(&str, Type)] = &[
     ("storage.free_pct", Type::Num),
     ("storage.free_gb", Type::Num),
     ("storage.mount", Type::Str),
+    // A drive whose SMART data fails, as "<model> (<what fails>)"; empty when none does.
+    ("storage.drive_failing", Type::Bool),
+    ("storage.drive", Type::Str),
     // From org.andromeda.System1.Network (NetworkManager): unknown, none, portal, limited or full.
     ("network.connectivity", Type::Str),
     ("network.metered", Type::Bool),
@@ -130,6 +133,10 @@ impl Snapshot {
         self.put("storage.free_pct", least.as_ref().map(|l| Value::Num(l.1)));
         self.put("storage.free_gb", least.as_ref().map(|l| Value::Num(l.2)));
         self.put("storage.mount", least.map(|l| Value::Str(l.0)));
+        let failing = props.and_then(|p| bus::get::<Vec<(String, String)>>(p, "FailingDrives"));
+        self.put("storage.drive_failing", failing.as_ref().map(|f| Value::Bool(!f.is_empty())));
+        let first = failing.and_then(|f| f.into_iter().next()).map(|(model, what)| format!("{model} ({what})"));
+        self.put("storage.drive", Some(Value::Str(first.unwrap_or_default())));
     }
 
     /// From `org.andromeda.System1.Network`.
