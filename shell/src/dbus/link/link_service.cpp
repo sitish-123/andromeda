@@ -140,6 +140,10 @@ LinkService::LinkService(
         notify();
       });
   m_link->uponSignal("PairingFailed").onInterface(kLinkInterface).call([this](const std::string& reason) {
+    // No window of ours is open: the failure is the echo of cancelPairing(), which already cleared the state.
+    if (!m_pairing.has_value()) {
+      return;
+    }
     m_pairing.reset();
     m_outcome = LinkPairingOutcome{.paired = false, .detail = reason};
     notify();
@@ -408,6 +412,7 @@ void LinkService::notify() {
 }
 
 void LinkService::startPairing() {
+  m_outcome.reset();
   m_link->callMethodAsync("StartPairing")
       .onInterface(kLinkInterface)
       .uponReplyInvoke([this](std::optional<sdbus::Error> error, std::string code, std::string uri) {
@@ -439,6 +444,8 @@ void LinkService::confirmBluetoothPairing(std::uint32_t passkey, std::function<v
 }
 
 void LinkService::cancelPairing() {
+  m_pairing.reset();
+  m_outcome.reset();
   m_link->callMethodAsync("CancelPairing")
       .onInterface(kLinkInterface)
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("CancelPairing", error); });
