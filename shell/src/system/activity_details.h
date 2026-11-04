@@ -19,7 +19,8 @@ struct SystemdUnit;
 cgroupPids(const std::string& cgroupRoot, const std::string& controlGroup, std::vector<std::uint64_t>* ids = nullptr);
 
 // TCP bytes received + sent per socket inode, by owning cgroup ID (NETLINK_SOCK_DIAG with tcp_info; no root needed).
-[[nodiscard]] std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCgroup();
+// Empty when the dump failed or ended early: a partial dump would make known sockets look new.
+[[nodiscard]] std::optional<std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>>> readTcpBytesByCgroup();
 
 // utime + stime of one process in clock ticks (/proc/<pid>/stat), 0 when it has exited.
 [[nodiscard]] std::uint64_t readProcessCpuTicks(int pid);
@@ -83,7 +84,8 @@ public:
     std::map<std::string, std::map<std::string, std::uint64_t>> clientBusyNs;
     std::map<int, std::uint64_t> pidTicks; // CPU ticks of expanded rows' processes at the previous probe
     std::map<int, DrmFds> drmFds;
-    std::map<std::uint32_t, std::uint64_t> socketBytes; // TCP socket inode -> bytes at the previous probe
+    std::map<std::uint32_t, std::uint64_t> socketBytes; // every dumped TCP socket inode -> bytes at the previous probe
+    bool socketsComplete = false; // socketBytes came from a full dump: an inode not in it opened since then
   };
   struct ProbeRow {
     std::string key;

@@ -5,6 +5,7 @@
 #include "system/activity_service.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <cstring>
 #include <filesystem>
@@ -181,12 +182,13 @@ namespace {
 
 } // namespace
 
-std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCgroup() {
+std::optional<std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>>> readTcpBytesByCgroup() {
   std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> result;
   const int fd = ::socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_SOCK_DIAG);
   if (fd < 0) {
-    return result;
+    return std::nullopt;
   }
+  bool complete = true;
   for (const std::uint8_t family : {std::uint8_t{AF_INET}, std::uint8_t{AF_INET6}}) {
     struct {
       nlmsghdr header;
@@ -200,18 +202,24 @@ std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCg
     message.request.idiag_states = ~0U;
     message.request.idiag_ext = 1U << (INET_DIAG_INFO - 1);
     if (::send(fd, &message, sizeof(message), 0) < 0) {
-      continue;
+      complete = false;
+      break;
     }
     alignas(nlmsghdr) char buffer[32768];
-    for (bool done = false; !done;) {
+    for (bool done = false; !done && complete;) {
       const ssize_t received = ::recv(fd, buffer, sizeof(buffer), 0);
+      if (received < 0 && errno == EINTR) {
+        continue;
+      }
       if (received <= 0) {
+        complete = false;
         break;
       }
       auto left = static_cast<unsigned int>(received);
       for (auto* header = reinterpret_cast<nlmsghdr*>(buffer); NLMSG_OK(header, left);
            header = NLMSG_NEXT(header, left)) {
         if (header->nlmsg_type == NLMSG_DONE || header->nlmsg_type == NLMSG_ERROR) {
+          complete = header->nlmsg_type == NLMSG_DONE;
           done = true;
           break;
         }
@@ -236,6 +244,9 @@ std::map<std::uint64_t, std::map<std::uint32_t, std::uint64_t>> readTcpBytesByCg
     }
   }
   ::close(fd);
+  if (!complete) {
+    return std::nullopt;
+  }
   return result;
 }
 
@@ -347,24 +358,22 @@ ActivityDetails::ProbeResult ActivityDetails::probe(
       pids.insert(pids.end(), unitPids.begin(), unitPids.end());
     }
     seenPids.insert(pids.begin(), pids.end());
-    std::uint64_t netDelta = 0;
-    for (const std::uint64_t id : cgroupIds) {
-      const auto sockets = tcp.find(id);
-      if (sockets == tcp.end()) {
-        continue;
-      }
-      for (const auto& [inode, bytes] : sockets->second) {
-        // A socket first seen after the first probe opened since then: all its bytes are new.
-        const auto before = state.socketBytes.find(inode);
-        if (before != state.socketBytes.end()) {
-          netDelta += bytes >= before->second ? bytes - before->second : 0;
-        } else if (seconds > 0.0) {
-          netDelta += bytes;
+    if (tcp.has_value() && seconds > 0.0) {
+      std::uint64_t netDelta = 0;
+      for (const std::uint64_t id : cgroupIds) {
+        const auto sockets = tcp->find(id);
+        if (sockets == tcp->end()) {
+          continue;
         }
-        result.state.socketBytes[inode] = bytes;
+        for (const auto& [inode, bytes] : sockets->second) {
+          const auto before = state.socketBytes.find(inode);
+          if (before != state.socketBytes.end()) {
+            netDelta += bytes >= before->second ? bytes - before->second : 0;
+          } else if (state.socketsComplete) {
+            netDelta += bytes; // not in the previous full dump: it opened since then
+          }
+        }
       }
-    }
-    if (seconds > 0.0) {
       result.networkBytesPerSec[row.key] = static_cast<double>(netDelta) / seconds;
     }
     std::map<std::string, std::uint64_t> deltaNs; // by engine, summed over the row's clients
@@ -414,6 +423,14 @@ ActivityDetails::ProbeResult ActivityDetails::probe(
       list.push_back(std::move(group));
     }
     std::ranges::sort(list, std::greater{}, &ProcessGroupUsage::residentBytes);
+  }
+  if (tcp.has_value()) {
+    for (const auto& [cgroup, sockets] : *tcp) {
+      result.state.socketBytes.insert(sockets.begin(), sockets.end());
+    }
+    result.state.socketsComplete = true;
+  } else {
+    result.state.socketBytes = std::move(state.socketBytes);
   }
   std::erase_if(state.drmFds, [&seenPids](const auto& entry) { return !seenPids.contains(entry.first); });
   result.state.drmFds = std::move(state.drmFds);

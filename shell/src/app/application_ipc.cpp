@@ -744,9 +744,9 @@ void Application::initIpc() {
         auto dump = nlohmann::json::parse(m_activityMonitor->dumpJson());
         for (auto& row : dump["rows"]) {
           const std::string key = row["key"];
-          row["gpu_percent"] = m_activityDetails.gpuPercent(key);
-          if (const auto net = m_activityDetails.networkBytesPerSec(key)) {
+          if (const auto net = m_activityDetails.networkBytesPerSec(key)) { // set only by a probe (window open)
             row["net_bps"] = *net;
+            row["gpu_percent"] = m_activityDetails.gpuPercent(key);
           }
         }
         return dump.dump() + "\n";
