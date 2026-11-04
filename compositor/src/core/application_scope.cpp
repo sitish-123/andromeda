@@ -1,5 +1,6 @@
 #include "core/application_scope.h"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <charconv>
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <poll.h>
 #include <string>
 #include <unistd.h>
 
@@ -146,6 +148,22 @@ namespace andromeda {
   }
 
   bool awaitApplicationScope(int gateFd, const char* unit) {
+    constexpr long kCapMs = 100;
+    timespec start{};
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    const auto remainingMs = [&start] {
+      timespec now{};
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      return kCapMs - ((now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1'000'000);
+    };
+    pollfd gate{.fd = gateFd, .events = POLLIN, .revents = 0};
+    int ready = 0;
+    do {
+      ready = poll(&gate, 1, static_cast<int>(std::max(0L, remainingMs())));
+    } while (ready < 0 && errno == EINTR);
+    if (ready <= 0) {
+      return true;
+    }
     char result = 0;
     ssize_t size = 0;
     do {
@@ -154,8 +172,9 @@ namespace andromeda {
     if (size != 1 || result != '1') {
       return false;
     }
+    // The reply means the job is queued; a busy user manager moves the PID later.
     constexpr timespec kStep{0, 1'000'000};
-    for (int attempt = 0; attempt < 200; ++attempt) {
+    while (remainingMs() > 0) {
       const int fd = open("/proc/self/cgroup", O_RDONLY | O_CLOEXEC);
       if (fd < 0) {
         return true;

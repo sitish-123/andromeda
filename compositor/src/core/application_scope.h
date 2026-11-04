@@ -38,8 +38,8 @@ namespace andromeda {
   applicationScopeEnvironmentArguments(std::span<const std::pair<std::string, std::string>> configuredEnvironment);
 
   // In a forked child: waits for the parent's StartTransientUnit result on `gateFd` ('1' = started), then until
-  // /proc/self/cgroup names `unit` (at most 200 ms), so the command and its children start inside the scope.
-  // Async-signal-safe. False when the scope did not start.
+  // /proc/self/cgroup names `unit`, so the command and its children start inside the scope. Both waits share a
+  // 100 ms cap; past it the child runs unscoped. Async-signal-safe. False when the scope did not start.
   [[nodiscard]] bool awaitApplicationScope(int gateFd, const char* unit);
   // In a forked child: applies the configured values of `arguments` (each "--setenv=NAME=VALUE") to the environment.
   void applyApplicationScopeEnvironment(const ApplicationScopeEnvironmentArguments& arguments);

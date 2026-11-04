@@ -1644,7 +1644,8 @@ namespace andromeda {
     // Wait before applying configured values locally, so the importer keeps
     // the inherited PATH and bus addresses. Readiness and autostart must not
     // release session services until these imports have completed.
-    if (!m_nested) {
+    // A compositor in another user unit (a headless test or bench) must not overwrite the session's environment.
+    if (!m_nested && (!m_applicationScopesRequired || currentSystemdUnit() == "andromeda.service")) {
       const std::string command = sessionEnvironmentCommand(!notifySocket.empty());
       if (!runShellCommand(command)) {
         kLog.error("session environment synchronization failed: {}", std::strerror(errno));
