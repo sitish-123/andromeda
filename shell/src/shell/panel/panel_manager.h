@@ -1,5 +1,6 @@
 #pragma once
 #include "config/config_types.h"
+#include "design_tokens.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
@@ -137,7 +138,7 @@ public:
 
   [[nodiscard]] bool isOpen() const noexcept;
   // Time the open spring needs to travel 35 % of its way: the content fades in from then on.
-  [[nodiscard]] static std::chrono::milliseconds openContentGate();
+  [[nodiscard]] static std::chrono::milliseconds openContentGate(const Tokens::Spring& spring = Tokens::springOpen);
   [[nodiscard]] bool isOpenPanel(std::string_view panelId) const noexcept;
   [[nodiscard]] bool isPanelTransitionActive() const noexcept;
   [[nodiscard]] bool isAttachedOpen() const noexcept;
@@ -242,6 +243,8 @@ private:
   [[nodiscard]] static DskSurfaceClient::Curve opacityCurve(bool fast);
   void fadeSceneRoot(float to, std::function<void()> onDone);
   [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
+  [[nodiscard]] DskSurfaceClient::Curve openCurve() const;
+  [[nodiscard]] const Tokens::Spring& openSpringToken() const;
   // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
   [[nodiscard]] float detachedBackgroundOpacity() const;
   // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
