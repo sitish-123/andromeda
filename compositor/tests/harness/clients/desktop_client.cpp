@@ -15,7 +15,7 @@
 //   desktop-client keybind-set CHORD ACTION  exit 1 and print the reason if the compositor rejects it
 //   desktop-client shell-events              bind dsk_shell_v1 as the shell does and print "ready", then
 //                                            "action COMMAND", "bell APP_ID", "text-input-state enabled=E purpose=P hint=H
-//                                            rect=X,Y,W,H", "relock" and "recovered" per event until killed. Stdin lines
+//                                            rect=X,Y,W,H", "relock", "recovered" and "restarted" per event until killed. Stdin lines
 //                                            send requests: "insert TEXT" (a backslash and n sends a newline), "key KEYSYM STATE" (decimal), "activity PID
 //                                            FLAGS", and "mark LABEL" prints "mark LABEL" after the compositor handled
 //                                            every earlier request. DESKTOP_CLIENT_SHELL_VERSION=2 binds version 2.
@@ -123,6 +123,10 @@ namespace {
     std::println("recovered");
     std::fflush(stdout);
   }
+  void onShellRestarted(void*, dsk_shell_v1*) {
+    std::println("restarted");
+    std::fflush(stdout);
+  }
   const dsk_shell_v1_listener kShell = {
       .action = onShellAction,
       .lock_keys = onShellLockKeys,
@@ -130,6 +134,7 @@ namespace {
       .text_input_state = onShellTextInputState,
       .relock = onShellRelock,
       .recovered = onShellRecovered,
+      .restarted = onShellRestarted,
   };
 
   uint32_t settingsVersion() {
@@ -153,7 +158,7 @@ namespace {
       auto* state = static_cast<State*>(data);
       const char* wanted = std::getenv("DESKTOP_CLIENT_SHELL_VERSION");
       state->shell = static_cast<dsk_shell_v1*>(wl_registry_bind(
-          registry, name, &dsk_shell_v1_interface, std::min(version, wanted != nullptr ? static_cast<uint32_t>(std::atoi(wanted)) : 3U)
+          registry, name, &dsk_shell_v1_interface, std::min(version, wanted != nullptr ? static_cast<uint32_t>(std::atoi(wanted)) : 4U)
       ));
       dsk_shell_v1_add_listener(state->shell, &kShell, state);
     }

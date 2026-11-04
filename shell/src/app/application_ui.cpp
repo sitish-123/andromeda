@@ -522,6 +522,17 @@ void Application::initInputDispatch() {
     m_notificationToast.onPointerEvent(event);
   });
 
+  // The lock client died, or the compositor restarted into the lock (docs/resilience.md §4): lock again at once.
+  m_wayland.setRelockCallback([this] {
+    if (!m_lockScreen.isActive()) {
+      m_lockScreen.lock();
+    }
+  });
+  m_wayland.setRestartedCallback([this] {
+    m_notificationManager.addInternal(
+        "Desktop", "The desktop restarted after a problem", "Apps that could not reconnect were closed."
+    );
+  });
   m_wayland.setLockKeysChangeCallback([this] {
     if (m_lockScreen.isActive()) {
       m_lockScreen.onLockKeysChanged();

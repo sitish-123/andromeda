@@ -171,6 +171,8 @@ def main(binary, mode):
                     await_notify(notify, b"READY=1", 10)
                     shell_log = client([os.environ["ANDROMEDA_DESKTOP_CLIENT"], "shell-events"], "shell.log", subprocess.PIPE)
                     await_line(shell_log, "relock", 5)
+                    # The compositor's runtime marker shows the crash: the first shell to bind hears it once.
+                    await_line(shell_log, "restarted", 5)
                     # A headless seat has no keyboard until a virtual one arrives; without it no window gets
                     # keyboard-enter, and the focus checks below would pass for nothing.
                     keyboard = client([os.environ["ANDROMEDA_POINTER_CLIENT"], "1", "1", "keyboard-only", "mod", "none",

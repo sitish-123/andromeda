@@ -245,7 +245,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_shell_v1" version="3">
+  <interface name="dsk_shell_v1" version="4">
     <description summary="compositor-to-shell events">
       Bound by the desktop shell. Keybinds that drive the shell arrive as
       action events on the connection the shell already holds, so no process
@@ -357,6 +357,13 @@
     <event name="recovered" since="3">
       <description summary="a new lock client took over">
         A new lock client confirmed the lock after a relock.
+      </description>
+    </event>
+
+    <event name="restarted" since="4">
+      <description summary="the compositor restarted after a crash">
+        The previous compositor of this session stopped without a clean exit. Sent once, to the first shell that
+        binds after the restart.
       </description>
     </event>
   </interface>

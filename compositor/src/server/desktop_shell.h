@@ -33,6 +33,8 @@ namespace andromeda {
     void setTextInputState(bool enabled, uint32_t purpose, uint32_t hint, int x, int y, int width, int height);
     // Both reach only shells that bound version 3. sendRecovered does nothing unless sendRelock came before it.
     void sendRelock();
+    // The previous compositor crashed: the next shell to bind gets `restarted` once.
+    void setRestarted() { m_restartPending = true; }
     void sendRecovered();
     // Releases the keys the shell pressed with dsk_shell_v1 key and has not released.
     void releaseKeys();
@@ -60,6 +62,7 @@ namespace andromeda {
     bool m_numLock = false;
     bool m_scrollLock = false;
     bool m_relocked = false;
+    bool m_restartPending = false;
     struct TextInputState {
       bool enabled = false;
       uint32_t purpose = 0;

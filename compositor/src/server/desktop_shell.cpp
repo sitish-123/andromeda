@@ -19,7 +19,7 @@ namespace andromeda {
   namespace {
 
     constexpr Logger kLog("desktop-shell");
-    constexpr uint32_t kVersion = 3;
+    constexpr uint32_t kVersion = 4;
     constexpr size_t kMaxAppActivity = 256;
 
     DesktopShell* shellFrom(wl_resource* resource) {
@@ -55,6 +55,10 @@ namespace andromeda {
     // A shell that binds after a restart into the lock (Server::enterRestartLock) still must start its lock screen.
     if (self->m_relocked && version >= DSK_SHELL_V1_RELOCK_SINCE_VERSION) {
       dsk_shell_v1_send_relock(resource);
+    }
+    if (self->m_restartPending && version >= DSK_SHELL_V1_RESTARTED_SINCE_VERSION) {
+      self->m_restartPending = false;
+      dsk_shell_v1_send_restarted(resource);
     }
   }
 

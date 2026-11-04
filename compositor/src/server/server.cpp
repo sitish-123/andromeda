@@ -239,7 +239,7 @@ namespace andromeda {
           configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
       std::string command =
           "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
-          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET'; systemd_ready=false; "
+          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET QT_WAYLAND_RECONNECT'; systemd_ready=false; "
           "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
           "if systemctl --user import-environment $variables";
       command += publishConfigured;
@@ -1007,6 +1007,9 @@ namespace andromeda {
 
   Server::~Server() {
     m_stopping = true;
+    if (m_lockFileManaged) {
+      unlink((std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/running").c_str());
+    }
     m_inputCapture.reset();
     if (m_sessionActive.link.next != nullptr) {
       wl_list_remove(&m_sessionActive.link);
@@ -1342,6 +1345,17 @@ namespace andromeda {
 
   bool Server::start(const char* startupCmd) {
     m_lockFileManaged = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
+    if (m_lockFileManaged) {
+      // Present from start to clean exit: finding it means the previous compositor crashed.
+      const std::string running = std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/running";
+      if (access(running.c_str(), F_OK) == 0) {
+        m_desktopShell->setRestarted();
+      }
+      mkdir(running.substr(0, running.rfind('/')).c_str(), 0700);
+      if (const int fd = open(running.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
+        close(fd);
+      }
+    }
     if (m_lockFileManaged && access(lockFilePath().c_str(), F_OK) == 0) {
       enterRestartLock();
     }
@@ -1441,6 +1455,8 @@ namespace andromeda {
     setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
+    // Qt 6.6+ apps reconnect to a restarted compositor and keep their windows (docs/resilience.md §2).
+    setenv("QT_WAYLAND_RECONNECT", "1", 0);
 
     // Export cursor settings so X11 clients and toolkit clients pick up the
     // compositor's configured cursor.
