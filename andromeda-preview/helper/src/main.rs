@@ -21,6 +21,8 @@ fn main() -> ExitCode {
     };
     let sock = socket();
     if rustix::fs::fstat(&sock).is_err() {
+        // Not ours to close: fd 3 is not open, and dropping the OwnedFd would abort.
+        std::mem::forget(sock);
         eprintln!("andromeda-preview-helper: no socket on fd 3");
         return ExitCode::from(2);
     }

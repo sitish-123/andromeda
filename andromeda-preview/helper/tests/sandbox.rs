@@ -10,7 +10,7 @@ fn raw_syscall(nr: libc::c_long, a: libc::c_long, b: libc::c_long) -> (libc::c_l
         if ret == 0 && nr == libc::SYS_clone {
             libc::_exit(0);
         }
-        (ret, *libc::__errno_location())
+        (ret, if ret < 0 { *libc::__errno_location() } else { 0 })
     }
 }
 
@@ -36,5 +36,15 @@ fn sandbox_confines_files_sockets_signals_and_namespaces() {
     assert_eq!(raw_syscall(libc::SYS_kill, neighbour_pid, libc::SIGKILL.into()), (-1, libc::EPERM));
     let new_user = libc::c_long::from(libc::CLONE_NEWUSER | libc::SIGCHLD);
     assert_eq!(raw_syscall(libc::SYS_clone, new_user, 0), (-1, libc::EPERM));
+    // Not on the allowlist: a harmless call that works outside the sandbox.
+    assert_eq!(raw_syscall(libc::SYS_getppid, 0, 0), (-1, libc::EPERM));
+    // Signals to itself (the abort path) still work; F_SETOWN would aim the socket's signals elsewhere.
+    let own = libc::c_long::from(std::process::id().cast_signed());
+    assert_eq!(raw_syscall(libc::SYS_kill, own, 0), (0, 0));
+    assert_eq!(raw_syscall(libc::SYS_fcntl, 0, libc::F_SETOWN.into()), (-1, libc::EPERM));
+    assert_eq!(raw_syscall(libc::SYS_prctl, libc::PR_SET_DUMPABLE.into(), 1), (-1, libc::EPERM));
+    // clone3 must say ENOSYS so glibc falls back to clone, where threads are allowed.
+    assert_eq!(raw_syscall(libc::SYS_clone3, 0, 0), (-1, libc::ENOSYS));
+    assert_eq!(std::thread::spawn(|| vec![1u8; 1 << 20].len()).join().unwrap(), 1 << 20);
 
 }

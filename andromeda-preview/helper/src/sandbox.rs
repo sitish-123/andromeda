@@ -1,5 +1,5 @@
 //! Confines the helper after it opened its one file: resource limits, Landlock (read-only system and font
-//! paths, no TCP, no signals or abstract sockets outside the sandbox) and a seccomp deny list.
+//! paths, no TCP, no signals or abstract sockets outside the sandbox) and a seccomp allowlist.
 
 use landlock::{
     ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, Ruleset, RulesetAttr, RulesetCreatedAttr,
@@ -66,63 +66,54 @@ fn landlock() -> Result<(), Error> {
     Ok(())
 }
 
-/// Syscalls a decoder never needs once its file is open: new sockets, exec, other processes, namespaces,
-/// mounts, kernel modules and keyrings. Each returns EPERM.
-const DENIED: &[libc::c_long] = &[
-    libc::SYS_socket,
-    libc::SYS_socketpair,
-    libc::SYS_connect,
-    libc::SYS_bind,
-    libc::SYS_listen,
-    libc::SYS_accept,
-    libc::SYS_accept4,
-    libc::SYS_execve,
-    libc::SYS_execveat,
-    libc::SYS_ptrace,
-    libc::SYS_process_vm_readv,
-    libc::SYS_process_vm_writev,
-    libc::SYS_pidfd_open,
-    libc::SYS_pidfd_getfd,
-    libc::SYS_pidfd_send_signal,
-    libc::SYS_kcmp,
-    libc::SYS_mount,
-    libc::SYS_umount2,
-    libc::SYS_fsopen,
-    libc::SYS_fsconfig,
-    libc::SYS_fsmount,
-    libc::SYS_fspick,
-    libc::SYS_open_tree,
-    libc::SYS_move_mount,
-    libc::SYS_mount_setattr,
-    libc::SYS_pivot_root,
-    libc::SYS_chroot,
-    libc::SYS_unshare,
-    libc::SYS_setns,
-    libc::SYS_kexec_load,
-    libc::SYS_init_module,
-    libc::SYS_finit_module,
-    libc::SYS_delete_module,
-    libc::SYS_bpf,
-    libc::SYS_perf_event_open,
-    libc::SYS_keyctl,
-    libc::SYS_add_key,
-    libc::SYS_request_key,
-    libc::SYS_userfaultfd,
-    libc::SYS_io_uring_setup,
-    libc::SYS_open_by_handle_at,
-    libc::SYS_name_to_handle_at,
-    libc::SYS_personality,
-];
-
-const CLONE_NAMESPACES: &[libc::c_int] = &[
-    libc::CLONE_NEWNS,
-    libc::CLONE_NEWUSER,
-    libc::CLONE_NEWPID,
-    libc::CLONE_NEWNET,
-    libc::CLONE_NEWIPC,
-    libc::CLONE_NEWUTS,
-    libc::CLONE_NEWCGROUP,
-    libc::CLONE_NEWTIME,
+/// The only syscalls a decoder may make once its file is open: what `strace -f` showed for poppler, cairo,
+/// fontconfig and the text path over real documents, plus the Rust and glibc runtime (memory, threads,
+/// time, random, signals to itself, abort). Anything else returns EPERM. stat, access and readlink are left
+/// out: Landlock does not check them, so they would reveal paths outside the sandbox. mprotect stays without
+/// a W^X limit, because glibc and glib load gconv and GIO modules after the sandbox starts.
+const ALLOWED: &[libc::c_long] = &[
+    libc::SYS_read,
+    libc::SYS_pread64,
+    libc::SYS_readv,
+    libc::SYS_write,
+    libc::SYS_writev,
+    libc::SYS_openat,
+    libc::SYS_close,
+    libc::SYS_lseek,
+    libc::SYS_fstat,
+    libc::SYS_getdents64,
+    libc::SYS_memfd_create,
+    libc::SYS_brk,
+    libc::SYS_mmap,
+    libc::SYS_mremap,
+    libc::SYS_munmap,
+    libc::SYS_mprotect,
+    libc::SYS_madvise,
+    libc::SYS_futex,
+    libc::SYS_set_robust_list,
+    libc::SYS_rseq,
+    libc::SYS_sched_yield,
+    libc::SYS_sched_getaffinity,
+    libc::SYS_getpid,
+    libc::SYS_gettid,
+    libc::SYS_getuid,
+    libc::SYS_geteuid,
+    libc::SYS_getgid,
+    libc::SYS_getegid,
+    libc::SYS_clock_gettime,
+    libc::SYS_clock_getres,
+    libc::SYS_clock_nanosleep,
+    libc::SYS_nanosleep,
+    libc::SYS_getrandom,
+    libc::SYS_rt_sigaction,
+    libc::SYS_rt_sigprocmask,
+    libc::SYS_rt_sigreturn,
+    libc::SYS_sigaltstack,
+    libc::SYS_restart_syscall,
+    libc::SYS_recvmsg,
+    libc::SYS_sendmsg,
+    libc::SYS_exit,
+    libc::SYS_exit_group,
 ];
 
 /// x32 syscall numbers have this bit set; they reach the same handlers, so they must not bypass the list.
@@ -133,12 +124,18 @@ fn cond(arg: u8, op: SeccompCmpOp, value: u64) -> Result<SeccompRule, Error> {
     SeccompRule::new(vec![c]).map_err(|e| err("seccomp", e))
 }
 
-fn compile(rules: BTreeMap<i64, Vec<SeccompRule>>, errno: i32) -> Result<BpfProgram, Error> {
+fn compile(
+    rules: BTreeMap<i64, Vec<SeccompRule>>,
+    mismatch: SeccompAction,
+    matched: SeccompAction,
+) -> Result<BpfProgram, Error> {
     let arch = TargetArch::try_from(std::env::consts::ARCH).map_err(|e| err("seccomp arch", e))?;
-    let filter =
-        SeccompFilter::new(rules, SeccompAction::Allow, SeccompAction::Errno(errno.cast_unsigned()), arch)
-            .map_err(|e| err("seccomp", e))?;
+    let filter = SeccompFilter::new(rules, mismatch, matched, arch).map_err(|e| err("seccomp", e))?;
     filter.try_into().map_err(|e: seccompiler::BackendError| err("seccomp", e))
+}
+
+fn errno(code: i32) -> SeccompAction {
+    SeccompAction::Errno(code.cast_unsigned())
 }
 
 /// `ld [nr]; jge X32 -> errno; allow`.
@@ -159,25 +156,41 @@ fn x32_filter() -> BpfProgram {
 
 fn seccomp() -> Result<(), Error> {
     let own_pid = u64::from(std::process::id());
-    let mut denied: BTreeMap<i64, Vec<SeccompRule>> = DENIED.iter().map(|&nr| (nr, vec![])).collect();
+    let mut allowed: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED.iter().map(|&nr| (nr, vec![])).collect();
     // Signals only to this process (abort() raises SIGABRT on itself).
-    denied.insert(libc::SYS_kill, vec![cond(0, SeccompCmpOp::Ne, own_pid)?]);
-    denied.insert(libc::SYS_tkill, vec![cond(0, SeccompCmpOp::Ne, own_pid)?]);
-    denied.insert(libc::SYS_tgkill, vec![cond(0, SeccompCmpOp::Ne, own_pid)?]);
-    denied.insert(
-        libc::SYS_clone,
-        CLONE_NAMESPACES
+    for nr in [libc::SYS_kill, libc::SYS_tgkill] {
+        allowed.insert(nr, vec![cond(0, SeccompCmpOp::Eq, own_pid)?]);
+    }
+    // Threads only: a clone without CLONE_THREAD would be a new process or namespace.
+    let thread = u64::from(libc::CLONE_THREAD.cast_unsigned());
+    allowed.insert(libc::SYS_clone, vec![cond(0, SeccompCmpOp::MaskedEq(thread), thread)?]);
+    // clone3 passes flags in memory, which seccomp cannot read; ENOSYS makes glibc fall back to clone. The
+    // kernel keeps the first of equal-rank results from the newest filter, so the allowlist must allow clone3
+    // for the older filter's ENOSYS to win over its EPERM.
+    allowed.insert(libc::SYS_clone3, vec![]);
+    let clone3 = BTreeMap::from([(libc::SYS_clone3, vec![])]);
+    // fcntl without F_SETOWN or F_SETSIG: those would let the socket signal another process.
+    allowed.insert(
+        libc::SYS_fcntl,
+        [libc::F_GETFD, libc::F_SETFD, libc::F_GETFL, libc::F_SETFL, libc::F_DUPFD_CLOEXEC, libc::F_ADD_SEALS, libc::F_GET_SEALS]
             .iter()
-            .map(|&flag| {
-                let flag = u64::from(flag.cast_unsigned());
-                cond(0, SeccompCmpOp::MaskedEq(flag), flag)
-            })
+            .map(|&cmd| cond(1, SeccompCmpOp::Eq, u64::from(cmd.cast_unsigned())))
             .collect::<Result<_, _>>()?,
     );
-    // clone3 passes flags in memory, which seccomp cannot read; ENOSYS makes glibc fall back to clone.
-    let clone3 = BTreeMap::from([(libc::SYS_clone3, vec![])]);
+    // prctl: thread names and anonymous memory names (glibc malloc) only.
+    allowed.insert(
+        libc::SYS_prctl,
+        [libc::PR_SET_NAME, libc::PR_GET_NAME, libc::PR_SET_VMA]
+            .iter()
+            .map(|&op| cond(0, SeccompCmpOp::Eq, u64::from(op.cast_unsigned())))
+            .collect::<Result<_, _>>()?,
+    );
 
-    for program in [x32_filter(), compile(clone3, libc::ENOSYS)?, compile(denied, libc::EPERM)?] {
+    for program in [
+        x32_filter(),
+        compile(clone3, SeccompAction::Allow, errno(libc::ENOSYS))?,
+        compile(allowed, errno(libc::EPERM), SeccompAction::Allow)?,
+    ] {
         seccompiler::apply_filter_all_threads(&program).map_err(|e| err("seccomp", e))?;
     }
     Ok(())
