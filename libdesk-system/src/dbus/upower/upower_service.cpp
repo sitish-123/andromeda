@@ -328,7 +328,12 @@ bool UPowerDeviceInfo::sameCatalogEntry(const UPowerDeviceInfo& other) const {
 }
 
 bool upowerDeviceMatchesSelector(const UPowerDeviceInfo& info, std::string_view selector) {
-  const std::string trimmed = StringUtils::trim(selector);
+  std::string trimmed = StringUtils::trim(selector);
+  // Configs saved before andromeda-system name devices by UPower path; its object name is our path's last segment.
+  constexpr std::string_view kUPowerDevicePrefix = "/org/freedesktop/UPower/devices/";
+  if (trimmed.starts_with(kUPowerDevicePrefix)) {
+    trimmed.erase(0, kUPowerDevicePrefix.size());
+  }
   if (trimmed.empty()) {
     return false;
   }
