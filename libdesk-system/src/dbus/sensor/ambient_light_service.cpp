@@ -24,8 +24,19 @@ AmbientLightService::AmbientLightService(SystemBus& bus, LuxCallback onLux) : m_
   m_proxy->uponSignal("PropertiesChanged")
       .onInterface(kPropertiesInterface)
       .call([this](const std::string& interfaceName, const VariantMap& changed, const std::vector<std::string>&) {
-        if (interfaceName == kInterface && (changed.contains("LightLevel") || changed.contains("HasAmbientLight"))) {
+        if (interfaceName != kInterface) {
+          return;
+        }
+        if (changed.contains("HasAmbientLight")) {
           refresh();
+          return;
+        }
+        // iio-sensor-proxy sends the unit with every reading.
+        if (const auto unit = changed.find("LightLevelUnit"); unit != changed.end()) {
+          m_luxSensor = unit->second.get<std::string>() == "lux";
+        }
+        if (const auto level = changed.find("LightLevel"); level != changed.end() && m_luxSensor) {
+          m_onLux(level->second.get<double>());
         }
       });
   const std::weak_ptr<int> alive = m_lifetimeToken;
@@ -62,6 +73,7 @@ void AmbientLightService::refresh() {
         if (alive.expired() || err.has_value()) {
           return;
         }
+        m_luxSensor = false;
         const auto has = properties.find("HasAmbientLight");
         const auto unit = properties.find("LightLevelUnit");
         const auto level = properties.find("LightLevel");
@@ -69,6 +81,7 @@ void AmbientLightService::refresh() {
             || unit->second.get<std::string>() != "lux" || level == properties.end()) {
           return;
         }
+        m_luxSensor = true;
         m_onLux(level->second.get<double>());
       });
 }

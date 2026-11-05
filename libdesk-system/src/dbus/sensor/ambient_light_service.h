@@ -26,5 +26,7 @@ private:
   std::unique_ptr<sdbus::IProxy> m_proxy;
   LuxCallback m_onLux;
   bool m_claimed = false;
+  // The sensor reports lux, so a LightLevel change carries the reading itself.
+  bool m_luxSensor = false;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
 };
