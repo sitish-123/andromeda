@@ -35,6 +35,18 @@ _foreign_c = custom_target('xdg-foreign-v2-client-source',
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+_dmabuf_xml = dependency('wayland-protocols').get_variable('pkgdatadir') / 'stable/linux-dmabuf/linux-dmabuf-v1.xml'
+_dmabuf_h = custom_target('linux-dmabuf-v1-client-header',
+  input: _dmabuf_xml,
+  output: 'linux-dmabuf-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+_dmabuf_c = custom_target('linux-dmabuf-v1-client-source',
+  input: _dmabuf_xml,
+  output: 'linux-dmabuf-v1-client-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 helper_path = get_option('prefix') / get_option('libexecdir') / 'andromeda' / 'andromeda-preview-helper'
 
 _core = static_library('preview_core',
@@ -50,7 +62,8 @@ executable('andromeda-preview',
   'src/main.cpp',
   'src/preview_service.cpp',
   'src/preview_window.cpp',
-  _foreign_c, _foreign_h,
+  'src/video_view.cpp',
+  _foreign_c, _foreign_h, _dmabuf_c, _dmabuf_h,
   link_with: _core,
   dependencies: [desk_app_dep, glycin_dep, gio_dep, wayland_client_dep],
   install: true,

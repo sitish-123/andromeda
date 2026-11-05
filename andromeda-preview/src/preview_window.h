@@ -3,6 +3,7 @@
 #include "file_kind.h"
 #include "helper_client.h"
 #include "image_loader.h"
+#include "video_view.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/animation/animation_manager.h"
 
@@ -55,6 +56,8 @@ namespace preview {
 
     void load(const std::string& path);
     void loadPdf();
+    void loadVideo(HelperKind kind);
+    void dropHelper();
     void requestVisiblePages();
     void onPage(std::size_t index, const HelperReply& reply);
     void uploadPendingPages(Renderer& renderer);
@@ -88,6 +91,9 @@ namespace preview {
     FileKind m_kind = FileKind::Other;
     std::uint64_t m_generation = 0;
     std::unique_ptr<HelperClient> m_helper;
+    // Declared after m_helper: it uses the helper, so it goes first.
+    std::unique_ptr<VideoView> m_video;
+    Node* m_videoBox = nullptr;
     ImageDecoder m_decoder;
     Pixels m_image;
     std::vector<Page> m_pages;

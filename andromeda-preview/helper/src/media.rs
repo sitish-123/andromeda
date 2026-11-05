@@ -129,9 +129,16 @@ impl Media {
     /// Builds the pipeline and opens the VA display, before the sandbox: VA finds render nodes through udev and
     /// sysfs, which the sandbox hides. No file data is read here. The display reaches the decoder later as a
     /// pipeline context.
+    /// `hw` false ranks the VA features out, so decodebin3 picks a software decoder and frames arrive as BGRx.
     #[must_use]
-    pub fn prepare() -> gst::Pipeline {
+    pub fn prepare(hw: bool) -> gst::Pipeline {
         let pipeline = gst::Pipeline::new();
+        if !hw {
+            for feature in gst::Registry::get().features_by_plugin("va") {
+                feature.set_rank(gst::Rank::NONE);
+            }
+            return pipeline;
+        }
         if let Ok(probe) = gst::ElementFactory::make("vapostproc").build()
             && pipeline.add(&probe).is_ok()
         {

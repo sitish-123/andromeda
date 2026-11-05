@@ -26,6 +26,8 @@ namespace preview {
   namespace {
     constexpr Logger kLog("preview-helper");
     constexpr std::size_t kMsgSize = 24;
+    constexpr std::size_t kMaxPayload = 256;
+    constexpr std::size_t kMaxFds = 4;
     constexpr int kHelperSocketFd = 3;
 
     std::array<std::uint8_t, kMsgSize> encode(const HelperMsg& m) {
@@ -53,6 +55,14 @@ namespace preview {
       return env;
     }
     return ANDROMEDA_PREVIEW_HELPER_PATH;
+  }
+
+  SharedFd::SharedFd(int fd) : m_fd(fd) {}
+
+  SharedFd::~SharedFd() {
+    if (m_fd >= 0) {
+      ::close(m_fd);
+    }
   }
 
   std::shared_ptr<MappedFd> MappedFd::map(int fd) {
@@ -88,9 +98,12 @@ namespace preview {
     posix_spawn_file_actions_addclosefrom_np(&actions, kHelperSocketFd + 1);
 
     const std::string helper = helperPath();
-    const std::string kindArg = kind == HelperKind::Pdf ? "pdf" : "text";
+    const std::string kindArg = kind == HelperKind::Pdf ? "pdf" : kind == HelperKind::Media ? "media"
+        : kind == HelperKind::MediaSoftware                         ? "media-sw"
+                                                                    : "text";
     std::vector<std::string> envStrings;
-    for (const char* name : {"HOME", "XDG_CACHE_HOME", "RUST_BACKTRACE"}) {
+    // GST_DEBUG lets a test see which decoder the helper picked.
+    for (const char* name : {"HOME", "XDG_CACHE_HOME", "RUST_BACKTRACE", "GST_DEBUG"}) {
       if (const char* value = std::getenv(name); value != nullptr) {
         envStrings.push_back(std::string(name) + "=" + value);
       }
@@ -143,9 +156,17 @@ namespace preview {
     m_pending.push_back(std::move(callback));
   }
 
+  void HelperClient::notify(const HelperMsg& msg) {
+    const auto bytes = encode(msg);
+    // No fail() here: it runs the pending callbacks inside the caller. A dead helper shows up as a hangup in dispatch.
+    if (m_fd >= 0) {
+      (void)send(m_fd, bytes.data(), bytes.size(), MSG_NOSIGNAL);
+    }
+  }
+
   void HelperClient::readOne() {
-    std::array<std::uint8_t, kMsgSize> bytes{};
-    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int))> control{};
+    std::array<std::uint8_t, kMsgSize + kMaxPayload> bytes{};
+    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int) * kMaxFds)> control{};
     iovec iov{.iov_base = bytes.data(), .iov_len = bytes.size()};
     msghdr hdr{};
     hdr.msg_iov = &iov;
@@ -157,22 +178,29 @@ namespace preview {
     if (got < 0 && (errno == EAGAIN || errno == EINTR)) {
       return;
     }
-    int fd = -1;
+    std::vector<std::shared_ptr<SharedFd>> fds;
     for (cmsghdr* c = CMSG_FIRSTHDR(&hdr); c != nullptr; c = CMSG_NXTHDR(&hdr, c)) {
-      if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_RIGHTS && c->cmsg_len >= CMSG_LEN(sizeof(int))) {
-        std::memcpy(&fd, CMSG_DATA(c), sizeof(int));
+      if (c->cmsg_level == SOL_SOCKET && c->cmsg_type == SCM_RIGHTS) {
+        const std::size_t n = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+        for (std::size_t i = 0; i < n; ++i) {
+          int fd = -1;
+          std::memcpy(&fd, CMSG_DATA(c) + i * sizeof(int), sizeof(int));
+          fds.push_back(std::make_shared<SharedFd>(fd));
+        }
       }
     }
-    if (got != static_cast<ssize_t>(kMsgSize) || (hdr.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) {
-      if (fd >= 0) {
-        ::close(fd);
-      }
+    if (got < static_cast<ssize_t>(kMsgSize) || (hdr.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) != 0) {
       fail();
       return;
     }
-    HelperReply reply{.msg = decode(bytes), .data = nullptr};
-    if (fd >= 0) {
-      reply.data = MappedFd::map(fd);
+    std::array<std::uint8_t, kMsgSize> head{};
+    std::memcpy(head.data(), bytes.data(), kMsgSize);
+    HelperReply reply{.msg = decode(head), .data = nullptr, .payload = {}, .fds = {}};
+    if (reply.msg.op == op::FrameReply) {
+      reply.payload.assign(bytes.begin() + kMsgSize, bytes.begin() + got);
+      reply.fds = std::move(fds);
+    } else if (fds.size() == 1) {
+      reply.data = MappedFd::map(::dup(fds.front()->get()));
       if (reply.data == nullptr) {
         reply.msg = HelperMsg{};
       }

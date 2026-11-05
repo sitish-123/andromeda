@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Quick Look over D-Bus: ShowFile on org.gnome.NautilusPreviewer2 opens an `andromeda-preview` window for a PNG,
-# a PDF and a text file; Close removes it. Fails when no preview window maps, a file is not decoded and shown
+# a PDF, a text file and an H.264 MP4; Close removes it. Fails when no preview window maps, a file is not decoded and shown
 # ("shown <kind>" in the previewer log) within 5 s, or the window stays after Close.
-# Writes preview-{png,pdf,rs}.png and preview.log to $OUT (default ./artifacts/preview-show).
+# Writes preview-{png,pdf,rs,mp4}.png and preview.log to $OUT (default ./artifacts/preview-show).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/preview-show}
 PREVIEW=${PREVIEW:-$(cd "$(dirname "$0")/../.." && pwd)/andromeda-preview/build-debug/andromeda-preview}
@@ -20,6 +20,8 @@ for page in range(3):
     c.set_font_size(48); c.move_to(72, 144); c.show_text(f"Page {page + 1}"); c.show_page()
 s.finish()
 PY
+ffmpeg -loglevel error -f lavfi -i testsrc2=size=640x360:rate=30 -t 10 -c:v libx264 -pix_fmt yuv420p \
+  "$RUNTIME/files/sample.mp4"
 printf 'fn main() {\n    println!("hello from quick look");\n}\n' > "$RUNTIME/files/sample.rs"
 
 with_noctalia '
@@ -27,16 +29,18 @@ with_noctalia '
   previews() { "$ANDROMEDA" windows --json | jq "[.[] | select(.app_id == \"andromeda-preview\")] | length"; }
   call() { gdbus call --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer \
     --method org.gnome.NautilusPreviewer2.$1 "${@:2}" > /dev/null; }
-  ANDROMEDA_PREVIEW_HELPER='"$PREVIEW_HELPER"' '"$PREVIEW"' > "$OUT/preview.log" 2>&1 &
+  GST_DEBUG=va*:4 ANDROMEDA_PREVIEW_HELPER='"$PREVIEW_HELPER"' '"$PREVIEW"' > "$OUT/preview.log" 2>&1 &
   wait_for "previewer did not take its bus name" "gdbus introspect --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer > /dev/null 2>&1"
   shown() { grep -c "shown $1" "$OUT/preview.log" || true; }
-  for pair in png:image pdf:pdf rs:text; do
+  for pair in png:image pdf:pdf rs:text mp4:video; do
     kind=${pair%%:*} what=${pair##*:}
     call ShowFile "file://$RUNTIME/files/sample.$kind" "" false
     wait_for "no preview window for $kind" "(( \$(previews) == 1 ))"
     wait_for "$kind was not decoded and shown" "(( \$(shown $what) >= 1 ))"
     grim "$OUT/preview-$kind.png"
   done
+  # The helper log names the decoder; a host without VA-API decodes in software.
+  grep -o "vah264dec" "$OUT/preview.log" | head -n 1 || echo "decoder: software"
   call Close
   wait_for "preview window stayed after Close" "(( \$(previews) == 0 ))"
   echo PASS

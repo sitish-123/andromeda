@@ -79,10 +79,7 @@ namespace preview {
     ++m_generation;
     m_decoder.cancel();
     m_pendingUploads.clear();
-    if (m_helper) {
-      m_loop.removeSource(m_helper.get());
-      m_helper.reset();
-    }
+    dropHelper();
     m_path = path;
     m_contentType = guessContentType(path);
     m_kind = kindForContentType(m_contentType);
@@ -137,8 +134,11 @@ namespace preview {
         invalidate();
       });
       break;
+    case FileKind::Video:
+      loadVideo(HelperKind::Media);
+      break;
     default:
-      // Video and audio arrive in S7; everything else shows the file card.
+      // Audio arrives in S7d; everything else shows the file card.
       m_loading = false;
       break;
     }
@@ -167,6 +167,69 @@ namespace preview {
       m_pages.resize(std::min<std::uint32_t>(reply.msg.b, 10000));
       m_loading = false;
       requestPage(0);
+      invalidate();
+    });
+  }
+
+  void PreviewWindow::dropHelper() {
+    m_video.reset();
+    m_videoBox = nullptr;
+    if (m_helper) {
+      m_loop.removeSource(m_helper.get());
+      m_helper.reset();
+    }
+  }
+
+  void PreviewWindow::loadVideo(HelperKind kind) {
+    m_helper = HelperClient::start(kind, m_path);
+    if (!m_helper) {
+      m_loading = false;
+      m_failed = true;
+      return;
+    }
+    m_loop.addSource(m_helper.get());
+    const auto generation = m_generation;
+    m_helper->request({.op = op::Info}, [this, generation, kind](const HelperReply& reply) {
+      if (generation != m_generation) {
+        return;
+      }
+      constexpr std::uint32_t kFlagVideo = 1;
+      if (reply.msg.op != op::InfoReply || (reply.msg.e & kFlagVideo) == 0 || !m_surface) {
+        helperFailed();
+        return;
+      }
+      m_video = std::make_unique<VideoView>(
+          m_loop.wayland(), *m_helper,
+          VideoView::Callbacks{
+              .firstFrame = [](std::uint32_t w, std::uint32_t h) { kLog.info("shown video {}x{}", w, h); },
+              .failed =
+                  [this, kind](bool unsupported) {
+                    if (!unsupported || kind != HelperKind::Media) {
+                      helperFailed();
+                      return;
+                    }
+                    // Runs inside the helper's callback: restart after it returns.
+                    DeferredCall::callLater([this, generation = m_generation] {
+                      if (generation == m_generation) {
+                        dropHelper();
+                        loadVideo(HelperKind::MediaSoftware);
+                      }
+                    });
+                  },
+              .moved =
+                  [this] {
+                    if (m_surface) {
+                      m_surface->requestRedraw();
+                    }
+                  },
+          }
+      );
+      m_video->setVideoSize(reply.msg.b, reply.msg.c);
+      if (!m_video->attach(m_surface->wlSurface())) {
+        helperFailed();
+        return;
+      }
+      m_loading = false;
       invalidate();
     });
   }
@@ -222,9 +285,8 @@ namespace preview {
   void PreviewWindow::helperFailed() {
     // Runs inside the helper client's own callback: drop the client after it returns.
     DeferredCall::callLater([this, generation = m_generation] {
-      if (generation == m_generation && m_helper) {
-        m_loop.removeSource(m_helper.get());
-        m_helper.reset();
+      if (generation == m_generation) {
+        dropHelper();
       }
     });
     m_loading = false;
@@ -286,6 +348,9 @@ namespace preview {
     case FileKind::Text:
       size = {720.0F, 560.0F};
       break;
+    case FileKind::Video:
+      size = {854.0F, 480.0F + kHeaderHeight + 1.0F};
+      break;
     default:
       break;
     }
@@ -327,10 +392,7 @@ namespace preview {
       m_surface.reset();
       ++m_generation;
       m_decoder.cancel();
-      if (m_helper) {
-        m_loop.removeSource(m_helper.get());
-        m_helper.reset();
-      }
+      dropHelper();
       if (m_callbacks.closed) {
         m_callbacks.closed();
       }
@@ -345,10 +407,7 @@ namespace preview {
       return;
     }
     ++m_generation;
-    if (m_helper) {
-      m_loop.removeSource(m_helper.get());
-      m_helper.reset();
-    }
+    dropHelper();
     m_input.pointerLeave();
     m_input.setSceneRoot(nullptr);
     m_surface->setSceneRoot(nullptr);
@@ -396,6 +455,12 @@ namespace preview {
         m_root->layout(renderer);
       }
     }
+    if (m_video && m_videoBox != nullptr) {
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(m_videoBox, x, y);
+      m_video->place(x, y, m_videoBox->width(), m_videoBox->height());
+    }
     // Logged once the decoded content is on screen (the E2E waits for it before its screenshot).
     if (!m_shownNote.empty()) {
       m_surface->callOnNextPresent([note = std::move(m_shownNote)] { kLog.info("{}", note); });
@@ -407,6 +472,7 @@ namespace preview {
     const float offset = m_scroll != nullptr ? m_scroll->scrollOffset() : 0.0F;
     m_input.setSceneRoot(nullptr);
     m_scroll = nullptr;
+    m_videoBox = nullptr;
     m_pageImages.clear();
     m_pendingUploads.clear();
     auto root = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height});
@@ -498,6 +564,14 @@ namespace preview {
       m_scroll = scroll.get();
       return scroll;
     }
+    case FileKind::Video:
+      if (m_video) {
+        // The video subsurface covers this box; the window draws only the letterbox.
+        auto box = ui::column({.flexGrow = 1.0F});
+        m_videoBox = box.get();
+        return box;
+      }
+      return message("Video");
     default:
       return message(m_contentType.empty() ? "File" : std::string(g_content_type_get_description(m_contentType.c_str())));
     }
@@ -524,6 +598,11 @@ namespace preview {
     case XKB_KEY_Escape:
     case XKB_KEY_space:
       DeferredCall::callLater([this] { close(); });
+      break;
+    case XKB_KEY_k:
+      if (m_video) {
+        m_video->togglePlaying();
+      }
       break;
     case XKB_KEY_Return:
     case XKB_KEY_KP_Enter:
@@ -574,7 +653,9 @@ namespace preview {
     case PointerEvent::Type::Button:
       if (m_pointerInside) {
         m_input.pointerMotion(x, y, event.serial);
-        if (event.pressed && event.button == BTN_LEFT && y < kHeaderHeight && m_input.hoveredArea() == nullptr) {
+        if (event.pressed && event.button == BTN_LEFT && m_video && m_video->contains(x, y)) {
+          m_video->togglePlaying();
+        } else if (event.pressed && event.button == BTN_LEFT && y < kHeaderHeight && m_input.hoveredArea() == nullptr) {
           m_surface->beginMove(event.serial);
         } else {
           m_input.pointerButton(x, y, event.button, event.pressed, event.serial, event.time, event.touch);

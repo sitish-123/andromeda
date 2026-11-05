@@ -10,6 +10,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 namespace preview {
@@ -28,13 +29,33 @@ namespace preview {
     inline constexpr std::uint32_t Info = 1;
     inline constexpr std::uint32_t Render = 2;
     inline constexpr std::uint32_t Text = 3;
+    inline constexpr std::uint32_t Frame = 4;
+    // a = frame id. No reply.
+    inline constexpr std::uint32_t Release = 5;
     inline constexpr std::uint32_t InfoReply = 0x81;
     inline constexpr std::uint32_t Page = 0x82;
     inline constexpr std::uint32_t TextReply = 0x83;
+    // a = width, b = height, c = DRM fourcc, d = planes, e = frame id; payload: u64 modifier, u64 pts ns, then per
+    // plane u32 fd index, offset, stride; fds = the plane buffers.
+    inline constexpr std::uint32_t FrameReply = 0x84;
+    inline constexpr std::uint32_t End = 0x85;
     inline constexpr std::uint32_t Error = 0xff;
   } // namespace op
 
-  enum class HelperKind : std::uint8_t { Text, Pdf };
+  enum class HelperKind : std::uint8_t { Text, Pdf, Media, MediaSoftware };
+
+  // Closes the fd when the last copy goes away.
+  class SharedFd {
+  public:
+    explicit SharedFd(int fd);
+    ~SharedFd();
+    SharedFd(const SharedFd&) = delete;
+    SharedFd& operator=(const SharedFd&) = delete;
+    [[nodiscard]] int get() const noexcept { return m_fd; }
+
+  private:
+    int m_fd;
+  };
 
   // A read-only mapping of a memfd the helper sent.
   class MappedFd {
@@ -54,7 +75,11 @@ namespace preview {
 
   struct HelperReply {
     HelperMsg msg;
+    // The one fd of a page or text reply, mapped.
     std::shared_ptr<MappedFd> data;
+    // Frame replies: the payload after the header and the plane buffers, not mapped.
+    std::vector<std::uint8_t> payload;
+    std::vector<std::shared_ptr<SharedFd>> fds;
     [[nodiscard]] bool ok() const noexcept { return msg.op != 0 && msg.op != op::Error; }
   };
 
@@ -72,6 +97,8 @@ namespace preview {
     static std::unique_ptr<HelperClient> start(HelperKind kind, const std::string& path);
 
     void request(const HelperMsg& msg, ReplyCallback callback);
+    // A message the helper answers with nothing (Release).
+    void notify(const HelperMsg& msg);
     [[nodiscard]] bool alive() const noexcept { return m_fd >= 0; }
 
     // Blocks until every queued request is answered. For tests and the first frame of a cold start.
