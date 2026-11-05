@@ -1,0 +1,29 @@
+[package]
+name = "andromeda-preview-helper"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+cairo-rs = { version = "0.22", default-features = false }
+glib = "0.22"
+landlock = "0.4"
+log = "0.4"
+poppler-rs = { version = "0.26", features = ["v21_12"] }
+rustix = { version = "1", default-features = false, features = ["std", "fs", "net", "process"] }
+seccompiler = "0.5"
+libc = "0.2"
+
+[dev-dependencies]
+cairo-rs = { version = "0.22", features = ["pdf"] }
+command-fds = "0.3.3"
+libc = "0.2"
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[profile.release]
+lto = "thin"
+panic = "abort"
