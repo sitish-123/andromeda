@@ -70,7 +70,7 @@ namespace {
     return digits.size() > 9 ? digits.substr(digits.size() - 9) : digits;
   }
 
-  void logFailure(std::string_view method, const std::optional<sdbus::Error>& error) {
+  void logFailure(std::string_view method, std::optional<sdbus::Error> error) {
     if (error.has_value()) {
       kLog.warn("{} failed: {}", method, error->what());
     }

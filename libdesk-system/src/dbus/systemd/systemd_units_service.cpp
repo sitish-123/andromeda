@@ -91,7 +91,7 @@ void SystemdUnitsService::refresh() {
   const std::uint64_t generation = ++m_generation;
   m_proxy->callMethodAsync("ListUnits")
       .onInterface(kManagerInterface)
-      .uponReplyInvoke([this, generation](const std::optional<sdbus::Error>& error, const std::vector<UnitRow>& rows) {
+      .uponReplyInvoke([this, generation](std::optional<sdbus::Error> error, const std::vector<UnitRow>& rows) {
         if (generation != m_generation) {
           return;
         }
@@ -145,7 +145,7 @@ void SystemdUnitsService::finishOne(std::uint64_t generation) {
 void SystemdUnitsService::loadDetails(const std::string& name, const std::string& path, std::uint64_t generation) {
   auto& proxy = unitProxy(path);
   proxy.getAllPropertiesAsync().onInterface(kUnitInterface).uponReplyInvoke(
-      [this, name, generation](const std::optional<sdbus::Error>& error, const Properties& props) {
+      [this, name, generation](std::optional<sdbus::Error> error, const Properties& props) {
         if (generation != m_generation) {
           return;
         }
@@ -157,7 +157,7 @@ void SystemdUnitsService::loadDetails(const std::string& name, const std::string
       }
   );
   proxy.getAllPropertiesAsync().onInterface(typeInterface(name)).uponReplyInvoke(
-      [this, name, generation](const std::optional<sdbus::Error>& error, const Properties& props) {
+      [this, name, generation](std::optional<sdbus::Error> error, const Properties& props) {
         if (generation != m_generation) {
           return;
         }
@@ -187,7 +187,7 @@ void SystemdUnitsService::loadUnit(const std::string& name, const std::string& p
     return;
   }
   unitProxy(path).getAllPropertiesAsync().onInterface(kUnitInterface).uponReplyInvoke(
-      [this, name, path](const std::optional<sdbus::Error>& error, const Properties& props) {
+      [this, name, path](std::optional<sdbus::Error> error, const Properties& props) {
         if (error.has_value() || !running(valueOr<std::string>(props, "ActiveState", {}))) {
           removeUnit(name);
           return;
@@ -203,7 +203,7 @@ void SystemdUnitsService::loadUnit(const std::string& name, const std::string& p
         }
         applyUnitProperties(*it, props);
         unitProxy(path).getAllPropertiesAsync().onInterface(typeInterface(name)).uponReplyInvoke(
-            [this, name](const std::optional<sdbus::Error>& typeError, const Properties& typeProps) {
+            [this, name](std::optional<sdbus::Error> typeError, const Properties& typeProps) {
               auto unit = std::ranges::find(m_units, name, &SystemdUnit::name);
               if (unit == m_units.end()) {
                 return;
@@ -225,7 +225,7 @@ void SystemdUnitsService::setLive(bool live) {
   }
   if (!live) {
     m_signalSlots.clear();
-    m_proxy->callMethodAsync("Unsubscribe").onInterface(kManagerInterface).uponReplyInvoke([](const std::optional<sdbus::Error>&) {});
+    m_proxy->callMethodAsync("Unsubscribe").onInterface(kManagerInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
     return;
   }
   m_signalSlots.push_back(m_proxy->uponSignal("UnitNew").onInterface(kManagerInterface).call(
@@ -241,7 +241,7 @@ void SystemdUnitsService::setLive(bool live) {
         }
         // JobRemoved carries no unit path; ask the manager for it.
         m_proxy->callMethodAsync("GetUnit").onInterface(kManagerInterface).withArguments(name).uponReplyInvoke(
-            [this, name](const std::optional<sdbus::Error>& error, const sdbus::ObjectPath& path) {
+            [this, name](std::optional<sdbus::Error> error, const sdbus::ObjectPath& path) {
               if (error.has_value()) {
                 removeUnit(name);
               } else {
@@ -252,7 +252,7 @@ void SystemdUnitsService::setLive(bool live) {
       },
       sdbus::return_slot
   ));
-  m_proxy->callMethodAsync("Subscribe").onInterface(kManagerInterface).uponReplyInvoke([](const std::optional<sdbus::Error>& error) {
+  m_proxy->callMethodAsync("Subscribe").onInterface(kManagerInterface).uponReplyInvoke([](std::optional<sdbus::Error> error) {
     if (error.has_value()) {
       kLog.warn("Subscribe failed: {}", error->what());
     }

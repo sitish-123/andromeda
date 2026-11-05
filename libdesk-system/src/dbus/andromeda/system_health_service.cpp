@@ -87,7 +87,7 @@ void SystemHealthService::loadAppRules() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     m_apps->callMethodAsync("AppRules").onInterface(kAppsInterface).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error, const std::vector<sdbus::Struct<std::string, std::string>>& rules) {
+        [this, alive](std::optional<sdbus::Error> error, const std::vector<sdbus::Struct<std::string, std::string>>& rules) {
           if (alive.expired() || error.has_value()) {
             return;
           }
@@ -162,7 +162,7 @@ void SystemHealthService::loadKnobs() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     m_knobs->getPropertyAsync("Effective").onInterface(kKnobsInterface).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error, const sdbus::Variant& value) {
+        [this, alive](std::optional<sdbus::Error> error, const sdbus::Variant& value) {
           if (alive.expired() || error.has_value()) {
             return;
           }
@@ -192,7 +192,7 @@ void SystemHealthService::loadRules() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     m_rulesProxy->callMethodAsync("List").onInterface(kRulesInterface).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error, const std::vector<RuleRow>& rows) {
+        [this, alive](std::optional<sdbus::Error> error, const std::vector<RuleRow>& rows) {
           if (alive.expired() || error.has_value()) {
             return;
           }
@@ -220,7 +220,7 @@ void SystemHealthService::loadEntries() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     m_explain->callMethodAsync("List").onInterface(kExplainInterface).withArguments(dayAgoUsec()).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error, const std::vector<VariantMap>& items) {
+        [this, alive](std::optional<sdbus::Error> error, const std::vector<VariantMap>& items) {
           if (alive.expired() || error.has_value()) {
             return;
           }

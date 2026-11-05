@@ -359,7 +359,9 @@ namespace {
       .axis_discrete = [](void*, wl_pointer*, uint32_t, int32_t) {},
       .axis_value120 = [](void*, wl_pointer*, uint32_t, int32_t) {},
       .axis_relative_direction = [](void*, wl_pointer*, uint32_t, uint32_t) {},
+#ifdef WL_POINTER_WARP_SINCE_VERSION
       .warp = [](void*, wl_pointer*, wl_fixed_t, wl_fixed_t) {},
+#endif
   };
 
   void wmBasePing(void*, xdg_wm_base* base, uint32_t serial) { xdg_wm_base_pong(base, serial); }
