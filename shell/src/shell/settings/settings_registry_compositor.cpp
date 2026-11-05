@@ -197,9 +197,14 @@ namespace settings {
       }
 
       const std::string mode = compositor.value("layout.mode");
-      choice(Layout, "layout", "layout.mode", {"scrolling", "dwindle", "master"}, true, "tiling layout mode");
+      choice(
+          Layout, "layout", "layout.mode", {"floating", "scrolling", "dwindle", "master"}, false,
+          "window arrangement free floating scrolling split tiling main stack master layout mode"
+      );
       stepper(Layout, "layout", "layout.gap", 0, 500, 1, "px", "gaps spacing between windows");
-      if (mode == "scrolling") {
+      if (mode == "floating") {
+        toggle(Layout, "layout", "input.window_snapping", "snap tile half quarter edge drag");
+      } else if (mode == "scrolling") {
         choice(
             Layout, "layout", "layout.scrolling.center_focused", {"never", "always", "on_overflow"}, false,
             "center focused column"
@@ -216,7 +221,15 @@ namespace settings {
       toggle(Layout, "workspaces", "workspaces.back_and_forth", "workspace back and forth previous");
       toggle(Layout, "workspaces", "workspaces.empty_above", "workspace empty");
 
-      slider(Overview, "overview", "overview.zoom", 0.1, 0.75, 0.05, false, "overview zoom scale size");
+      const std::string overviewStyle = compositor.value("overview.style");
+      choice(
+          Overview, "overview", "overview.style", {"spaces", "taskview", "strip", "grid"}, false,
+          "overview style spaces task view strip grid mission control expose"
+      );
+      choice(Overview, "overview", "overview.titles", {"hover", "always"}, true, "overview window titles names");
+      if (overviewStyle == "strip") {
+        slider(Overview, "overview", "overview.zoom", 0.1, 0.75, 0.05, false, "overview zoom scale size");
+      }
       toggle(Overview, "overview", "overview.background_blur", "overview blur wallpaper");
       toggle(Overview, "overview", "overview.workspace_wallpaper", "overview wallpaper preview");
       toggle(Overview, "overview", "overview.shortcuts", "overview keyboard shortcut badges");
@@ -227,7 +240,6 @@ namespace settings {
       toggle(Power, "background-apps", "general.optimize_background_apps", "optimize background apps priority efficiency cores battery");
       toggle(Power, "background-apps", "general.freeze_background_apps", "freeze background services battery energy");
       toggle(Power, "background-apps", "general.freeze_hidden_apps", "freeze hidden apps power saver battery energy");
-      toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
 

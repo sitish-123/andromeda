@@ -4,6 +4,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "i18n/i18n.h"
+#include "render/scene/accessible.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "shell/bar/widget_action.h"
@@ -310,6 +311,54 @@ namespace settings {
       return thumb;
     }
 
+    // Window arrangement drawings (prototype .agent/mockups/overview-proto/index.html "Window arrangement"): the
+    // windows of each mode on a 64 x 40 grid, scaled into the mode thumbnail; off-screen columns are faint.
+    struct ArrangementRect {
+      float x, y, w, h;
+      bool faint = false;
+    };
+
+    std::vector<ArrangementRect> arrangementRects(std::string_view value) {
+      if (value == "floating") {
+        return {{6, 6, 30, 20}, {26, 14, 32, 20}};
+      }
+      if (value == "scrolling") {
+        return {{-10, 6, 22, 28, true}, {16, 6, 22, 28}, {42, 6, 22, 28}, {68, 6, 22, 28, true}};
+      }
+      if (value == "dwindle") {
+        return {{6, 6, 25, 28}, {34, 6, 24, 13}, {34, 21, 11, 13}, {47, 21, 11, 13}};
+      }
+      return {{6, 6, 32, 28}, {41, 6, 17, 8}, {41, 16, 17, 8}, {41, 26, 17, 8}};
+    }
+
+    std::unique_ptr<Flex> makeArrangementPreview(std::string_view value, float scale) {
+      const float w = kModeThumbWidth * scale;
+      const float h = kModeThumbHeight * scale;
+      auto thumb = ui::column({
+          .fill = colorSpecFromRole(ColorRole::Fill2),
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Separator),
+          .borderWidth = 0.5F * scale,
+          .clipChildren = true,
+          .width = w,
+          .height = h,
+      });
+      const float sx = w / 64.0F;
+      const float sy = h / 40.0F;
+      for (const ArrangementRect& r : arrangementRects(value)) {
+        auto window = ui::column({
+            .fill = colorSpecFromRole(r.faint ? ColorRole::Fill1 : ColorRole::Label3),
+            .radius = Style::scaledRadiusSm(scale),
+            .width = r.w * sx,
+            .height = r.h * sy,
+        });
+        window->setParticipatesInLayout(false);
+        window->setPosition(r.x * sx, r.y * sy);
+        thumb->addChild(std::move(window));
+      }
+      return thumb;
+    }
+
   } // namespace
 
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
@@ -533,10 +582,13 @@ namespace settings {
       // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
       auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = kModeThumbGap * scale,
                             .fillWidth = true});
+      const bool arrangement = path == std::vector<std::string>{"andromeda", "layout", "mode"};
       auto ordered = setting.options;
-      std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
-        return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
-      });
+      if (!arrangement) {
+        std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
+          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+        });
+      }
       for (const auto& opt : ordered) {
         const bool selected = opt.value == setting.selectedValue;
         auto tile = ui::button({
@@ -545,10 +597,16 @@ namespace settings {
             .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
             .onClick = [commit, value = opt.value] { commit(value); },
-            .configure = [value = opt.value, scale, selected](Button& button) {
-              button.setTabStop(false);
+            .configure = [value = opt.value, label = opt.label, scale, selected, arrangement](Button& button) {
+              // The arrangement picks are the page's main control, so they take keyboard focus and read as radios.
+              button.setTabStop(arrangement);
+              if (arrangement) {
+                button.setAccessible(
+                    {.role = AccessibleRole::RadioButton, .name = label, .checked = selected, .actionName = "press"}
+                );
+              }
               button.setFlexGrow(0.0F);
-              button.addChild(makeModePreview(value, scale));
+              button.addChild(arrangement ? makeArrangementPreview(value, scale) : makeModePreview(value, scale));
               // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
               button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
                                    colorSpecFromRole(ColorRole::Accent));

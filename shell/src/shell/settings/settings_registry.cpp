@@ -328,7 +328,8 @@ namespace settings {
       if (auto* select = std::get_if<SelectSetting>(&entry.control);
           select != nullptr
           && (entry.path == std::vector<std::string>{"theme", "mode"}
-              || entry.path == std::vector<std::string>{"theme", "builtin"})) {
+              || entry.path == std::vector<std::string>{"theme", "builtin"}
+              || entry.path == std::vector<std::string>{"andromeda", "layout", "mode"})) {
         select->tiles = true;
       }
     }
