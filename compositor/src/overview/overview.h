@@ -4,6 +4,7 @@
 #include "core/animation.h"
 #include "layout/drop_target.h"
 #include "overview/navigation.h"
+#include "overview/style.h"
 #include "scene/hint_rect.h"
 #include "scene/surface_blur.h"
 #include "util/listener.h"
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <wayland-server-core.h>
@@ -41,9 +43,10 @@ namespace andromeda {
   class Workspace;
   class WorkspaceGroup;
 
-  // Zoomed-out view of every workspace on every output, arranged as one vertical filmstrip per output. Clients are
-  // never reconfigured: the real window trees are hidden and re-rendered as "cards", per-surface scene buffers sharing
-  // the client textures and scaled by the scene graph. The overview is also an editor (click to focus, middle-click to
+  // Zoomed-out view of every workspace on every output, arranged by `[overview] style` (overview/style.h). Clients
+  // are never reconfigured: the real window trees are hidden and re-rendered as "cards", per-surface scene buffers
+  // sharing the client textures and scaled by the scene graph. Each card moves from its desktop rect to its placement
+  // rect with the open progress. The overview is also an editor (click to focus, middle-click to
   // close, drag to relocate), so it owns pointer and keyboard input while open.
   class Overview : public Animatable {
   public:
@@ -125,16 +128,16 @@ namespace andromeda {
     // Clear pending badge input for directional focus while interactive. Configured
     // actions retain their regular handlers throughout the closing animation.
     bool handleKeybindAction(KeybindAction action);
-    // Step the active workspace `delta` rows down the filmstrip on `output` (null: wherever the pointer is). Returns
+    // Step the active workspace `delta` rows along the workspaces on `output` (null: wherever the pointer is). Returns
     // false at either end. The wheel and middle-button drag use discrete steps;
     // touchpad navigation moves the rows continuously and selects on release.
     bool selectRelativeWorkspace(int delta, Output* output);
     // The workspace row a pointer drag at this point pans. The row extends along its scrolling axis across the
     // whole output, because its cards may overhang the centered workspace preview.
     [[nodiscard]] Workspace* pointerScrollWorkspace(double lx, double ly);
-    // The scale previews rest at once open. Gesture travel maps onto the settled layout, so it must not depend on
-    // how far the zoom has come.
-    [[nodiscard]] static double settledZoom();
+    // How much smaller than on the desktop `workspace` shows in the overview, so a pointer pan over it moves its
+    // content under the pointer. 1 when it is not shown.
+    [[nodiscard]] double workspaceScale(const Workspace* workspace) const;
     [[nodiscard]] bool dragging() const { return m_dragCard != nullptr || m_middlePressed; }
 
   private:
@@ -200,6 +203,11 @@ namespace andromeda {
       std::unique_ptr<ViewChromeAttachment> frame;
       std::vector<std::unique_ptr<CardSurface>> surfaces;
       wlr_box box{}; // content box in layout coordinates
+      // Card scale against the view's presented box, its placement opacity and its clip in card-local pixels (empty:
+      // none), as the latest output layout left them.
+      double scale = 1.0;
+      float opacity = 1.0F;
+      wlr_box clip{};
       wlr_scene_tree* badge = nullptr;
       wlr_scene_rect* badgeRect = nullptr;
       wlr_scene_buffer* badgeText = nullptr;
@@ -250,8 +258,36 @@ namespace andromeda {
       std::vector<std::unique_ptr<DesktopMirror>> mirrors;
     };
 
+    // Where one workspace shows at the current progress: its card in layout coordinates and the map from its
+    // output-local desktop into the overview. The chosen workspace of Spaces and Task View maps into the main area.
+    struct WorkspaceView {
+      wlr_box box{};
+      ov::Fit fit{};
+      ov::CardKind kind = ov::CardKind::Frame;
+      bool shown = false;
+    };
+
     struct OutputState {
       Output* output = nullptr;
+      // Refreshed by every layoutOutput. `usableBox` is the output minus the layer-shell exclusive zones: panels of
+      // the top and overlay layers draw over the overview, so on-output is not on-screen for anything readable.
+      wlr_box outputBox{};
+      wlr_box usableBox{};
+      std::vector<WorkspaceView> workspaceViews;
+      // Spaces and Task View: the chosen workspace's windows fill this area instead of its card.
+      std::optional<wlr_box> mainBox;
+      ov::Fit mainFit{};
+      size_t mainWorkspace = 0;
+      // Cards step along x (thumb rows, grid rows, a horizontal strip) rather than y.
+      bool cardsHorizontal = false;
+      // The settled placement, recomputed only when its input, the chosen row or the style changes, so an open or
+      // close in flight only interpolates. `placeOf[k]` is card k's entry, or null.
+      ov::Input placedInput;
+      ov::Placement placement;
+      std::vector<const ov::WindowPlace*> placeOf;
+      ov::Style placedStyle = ov::Style::Spaces;
+      double placedRow = 0;
+      bool placed = false;
       wlr_scene_tree* tree = nullptr;
       wlr_scene_blur* backgroundBlur = nullptr;
       wlr_scene_rect* backgroundTint = nullptr;
@@ -260,27 +296,11 @@ namespace andromeda {
       std::vector<WorkspaceBackground> workspaceBackgrounds;
       std::vector<std::unique_ptr<Card>> cards;
       std::vector<std::unique_ptr<DesktopSurface>> desktop;
-      // Filmstrip position in workspace rows: 1.5 sits halfway between rows 1 and 2. Wheel steps, keyboard moves and
-      // touchpad releases all animate this one value; a gesture in flight snaps it to follow the fingers.
+      // The chosen workspace, fractional while it moves: 1.5 sits halfway between workspaces 1 and 2. Strip scrolls
+      // its rows by it, Spaces and Task View morph between neighbours. Wheel steps, keyboard moves and touchpad
+      // releases all animate this one value; a gesture in flight snaps it to follow the fingers.
       AnimatedValue rowScroll;
       size_t activeWorkspaceIndex = 0;
-    };
-
-    // Workspace preview placement for one output at the current progress. Previews
-    // step along the output's workspace axis; the other axis stays centered.
-    struct PreviewMetrics {
-      wlr_box outputBox{};
-      // Output box minus the layer-shell exclusive zones. Panels of the top and
-      // overlay layers draw over the overview, so on-output is not the same as
-      // on-screen for anything the overview wants readable.
-      wlr_box usableBox{};
-      double zoom = 1.0;
-      WorkspaceAxis axis = WorkspaceAxis::Vertical;
-      int previewW = 0;
-      int previewH = 0;
-      int baseX = 0;
-      int baseY = 0;
-      int gap = 0;
     };
 
     static void onCardSurfaceCommit(CardSurface* entry, void* data);
@@ -304,19 +324,17 @@ namespace andromeda {
     static void onDesktopMirrorOutputSample(DesktopMirror* mirror, void* data);
     static void onDesktopMirrorFrameDone(DesktopMirror* mirror, void* data);
 
-    // Preview scale for the current open or close progress.
-    [[nodiscard]] double zoom() const;
+    // Placement input for one output: every laid-out card as a member of its workspace, id = index in `state.cards`.
+    // `targets` reads where the layout is heading instead of where windows show now.
+    [[nodiscard]] ov::Input placementInput(const OutputState& state, bool targets) const;
     // How much of the desktop's own chrome (window shadows, pinned windows) shows: 1 at rest on the desktop, fading to
     // 0 over the first stretch of the open, so a close brings it back while the zoom is still settling.
     [[nodiscard]] float desktopChromeAlpha() const;
-    // Upper bound on how far any visible card pixel moves per unit of zoom animation value, for ending a spring once
-    // its remaining motion can no longer change a pixel.
-    [[nodiscard]] double zoomPixelsPerUnit() const;
-    [[nodiscard]] static bool
-    previewMetrics(const OutputState& state, const Server& server, double zoom, PreviewMetrics& out);
-    // The workspace preview's box in layout coordinates.
-    [[nodiscard]] static wlr_box
-    previewBox(const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex);
+    // Upper bound on how far any visible card pixel moves per unit of the open or row animation value, for ending a
+    // spring once its remaining motion can no longer change a pixel.
+    [[nodiscard]] double motionPixelsPerUnit(bool rows) const;
+    // Re-reads the output and usable boxes; false while the output has no size.
+    bool refreshOutputBoxes(OutputState& state) const;
 
     bool beginPresentation();
     void buildState();
@@ -324,7 +342,7 @@ namespace andromeda {
     Card* createCard(OutputState& state, View* view, size_t workspaceIndex);
     void snapshotCardForClose(Card& card);
     void destroyCard(Card* card);
-    void layoutCardShadow(Card& card, double zoom, float alpha) const;
+    void layoutCardShadow(Card& card, float alpha) const;
     static void destroyCardShadow(Card& card);
     // Lay the card's chrome copy over `world`, the view's presented box, at `zoom`, or drop it with the view's chrome.
     void layoutCardChrome(Card& card, const wlr_box& world, int borderInset, double zoom, float alpha) const;
@@ -349,7 +367,10 @@ namespace andromeda {
     // Applies `alpha` to every pinned window and full opacity to every other.
     void applyPinnedOpacity(float alpha) const;
     void layoutOutput(OutputState& state);
-    void layoutCard(Card& card, const PreviewMetrics& metrics, double workspaceScroll, const View* liveTarget);
+    // Lays the card out at its stored box, scale, opacity and clip.
+    void layoutCard(Card& card, const View* liveTarget);
+    // The workspace whose card or main area holds the point, on its output only.
+    [[nodiscard]] static bool workspaceViewContains(const OutputState& state, size_t index, double lx, double ly);
     // Refreshes a card's animation and persistent effect slots from its view.
     void syncCardEffects(Card& card);
     void syncCardEffects();
@@ -389,10 +410,9 @@ namespace andromeda {
     void updateDrag(double lx, double ly);
     void endDrag(bool drop);
     void syncWorkspaceRows(OutputState& state, WorkspaceGroup& group);
-    void showDropHint(
-        const wlr_box& worldBox, const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex,
-        Output* output
-    );
+    // The desk->overview map of workspace `index` on `state`: the main area for the chosen workspace when it has one.
+    [[nodiscard]] static ov::Fit workspaceFit(const OutputState& state, size_t index);
+    void showDropHint(const wlr_box& worldBox, const OutputState& state, size_t workspaceIndex);
     void showWorkspaceInsertHint(Output* output, const wlr_box& box);
     void hideDropHint();
 

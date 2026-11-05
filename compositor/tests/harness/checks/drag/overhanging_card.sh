@@ -47,6 +47,7 @@ workspace_background = "#000000FF"
 default_extent_fraction = 0.5
 
 [overview]
+style = "strip"
 zoom = 0.5
 
 [output."HEADLESS-1"]

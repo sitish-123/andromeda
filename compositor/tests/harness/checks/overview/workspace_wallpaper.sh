@@ -27,6 +27,7 @@ enabled = false
 
 # Last section, so the second phase appends `workspace_wallpaper` to it.
 [overview]
+style = "strip"
 background_blur = false
 EOF
 

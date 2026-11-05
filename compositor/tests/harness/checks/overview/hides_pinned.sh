@@ -56,6 +56,7 @@ corner_radius = 0
 enabled = false
 
 [overview]
+style = "strip"
 zoom = 0.5
 background_blur = false
 shortcuts = false

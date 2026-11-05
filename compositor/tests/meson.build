@@ -7,7 +7,6 @@ unit_tests = [
   ['overview-arrange', ['unit/overview_arrange.cpp'], []],
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
-  ['overview-preview-geometry', ['unit/overview_preview_geometry.cpp'], [andromeda_core_dep]],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],
   ['scene-clip', ['unit/scene_clip.cpp'], [wayland_server_dep]],

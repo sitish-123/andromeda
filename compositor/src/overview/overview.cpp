@@ -1,6 +1,5 @@
 #include "overview/overview.h"
 
-#include "overview/preview_geometry.h"
 extern "C" {
 #include <andromedafx/render/effect.h>
 }
@@ -52,6 +51,53 @@ namespace andromeda {
 
     // Overview progress over which the desktop's shadows and pinned windows fade, starting from the desktop.
     constexpr double kDesktopChromeFade = 0.1;
+    // Below this a card is neither drawn nor hit.
+    constexpr float kHiddenOpacity = 0.004F;
+
+    static_assert(static_cast<int>(OverviewStyle::Grid) == static_cast<int>(ov::Style::Grid));
+    ov::Style configuredStyle() { return static_cast<ov::Style>(config().overview.style); }
+
+    ov::Arrangement arrangementOf(LayoutMode mode) {
+      switch (mode) {
+      case LayoutMode::Floating:
+        return ov::Arrangement::Free;
+      case LayoutMode::Scrolling:
+        return ov::Arrangement::Scrolling;
+      case LayoutMode::Dwindle:
+      case LayoutMode::Master:
+        return ov::Arrangement::Tiled;
+      }
+      return ov::Arrangement::Scrolling;
+    }
+
+    // Whole layout pixels: a settled card sits on the pixel grid.
+    wlr_box layoutBox(const ov::Rect& rect, const wlr_box& output) {
+      return {
+          .x = static_cast<int>(std::lround(output.x + rect.x)),
+          .y = static_cast<int>(std::lround(output.y + rect.y)),
+          .width = std::max(1, static_cast<int>(std::lround(rect.w))),
+          .height = std::max(1, static_cast<int>(std::lround(rect.h))),
+      };
+    }
+
+    ov::Rect localRect(const wlr_box& box, const wlr_box& output) {
+      return {
+          static_cast<double>(box.x - output.x), static_cast<double>(box.y - output.y), static_cast<double>(box.width),
+          static_cast<double>(box.height)
+      };
+    }
+
+    // A view with a box to draw: a tiled opener waiting for the arrange that places it, and a hidden tab sharing its
+    // box with the tab on show, have none.
+    bool laidOut(const View* view) {
+      const wlr_box& geometry = view->geometryBox();
+      const wlr_box& world = view->presentedBox();
+      return geometry.width > 0
+          && geometry.height > 0
+          && world.width > 0
+          && world.height > 0
+          && !view->presentationSuppressed();
+    }
     // Pointer travel that promotes a press on a card into a relocate drag.
     constexpr double kDragThreshold = 10.0;
     // How much of the focused border color mixes into the unfocused one for a landing target that is not the live one.
@@ -193,126 +239,141 @@ namespace andromeda {
     teardown();
   }
 
-  double Overview::settledZoom() { return std::clamp(config().overview.zoom, 0.1, 0.75); }
-
-  double Overview::zoom() const { return 1.0 - m_progress * (1.0 - settledZoom()); }
-
   float Overview::desktopChromeAlpha() const {
     return static_cast<float>(std::clamp(1.0 - m_progress / kDesktopChromeFade, 0.0, 1.0));
   }
 
-  double Overview::zoomPixelsPerUnit() const {
-    // A point `d` along an output extent `E` sits at `base + d * z`, with `base` centering the preview, so it moves
-    // at most E / 2 per unit of zoom. Neighbouring rows add a whole step, E * (1 + gap), but they only show near the
-    // open end; a close ends with them off the output.
-    const double rowFactor = m_targetProgress < m_progressFrom ? 0.5 : 1.5 + kPreviewRowGapFraction;
-    double extent = 0.0;
+  double Overview::motionPixelsPerUnit(bool rows) const {
+    // A window travels at most from its desktop rect, one output extent away per workspace, to its place; a row step
+    // moves anything by at most one output extent. Whole pixels per unit keep the target on the pixel grid
+    // finishSpringTail rounds against.
+    double bound = 0.0;
     for (const auto& state : m_outputs) {
-      wlr_box box{};
-      wlr_output_layout_get_box(m_server->outputLayout(), state->output->wlr(), &box);
-      extent = std::max(extent, static_cast<double>(std::max(box.width, box.height)));
+      const auto extent = static_cast<double>(std::max(state->outputBox.width, state->outputBox.height));
+      const double steps = rows ? 1.0 : static_cast<double>(state->workspaceViews.size() + 1);
+      bound = std::max(bound, extent * steps);
     }
-    const double zoomSpan = std::abs(m_targetProgress - m_progressFrom) * (1.0 - settledZoom());
-    // Whole pixels per unit keep the target (1.0) on the pixel grid finishSpringTail rounds against.
-    return std::ceil(zoomSpan * extent * rowFactor);
+    if (!rows) {
+      bound *= std::abs(m_targetProgress - m_progressFrom);
+    }
+    return std::ceil(bound);
   }
 
   // -: geometry
 
-  bool Overview::previewMetrics(const OutputState& state, const Server& server, double zoom, PreviewMetrics& out) {
+  bool Overview::refreshOutputBoxes(OutputState& state) const {
     wlr_box outputBox{};
-    wlr_output_layout_get_box(server.outputLayout(), state.output->wlr(), &outputBox);
+    wlr_output_layout_get_box(m_server->outputLayout(), state.output->wlr(), &outputBox);
     if (outputBox.width <= 0 || outputBox.height <= 0) {
       return false;
     }
-    const WorkspaceGroup* group = state.output->workspaceGroup();
-    out.outputBox = outputBox;
-    out.usableBox = state.output->usableArea();
-    if (out.usableBox.width <= 0 || out.usableBox.height <= 0) {
-      out.usableBox = outputBox;
+    state.outputBox = outputBox;
+    state.usableBox = state.output->usableArea();
+    if (state.usableBox.width <= 0 || state.usableBox.height <= 0) {
+      state.usableBox = outputBox;
     }
-    out.zoom = zoom;
-    out.axis = group != nullptr ? group->workspaceAxis() : WorkspaceAxis::Vertical;
-    const PreviewGrid grid = previewGrid(
-        outputBox.x, outputBox.y, outputBox.width, outputBox.height, zoom, out.axis == WorkspaceAxis::Horizontal
-    );
-    out.previewW = grid.width;
-    out.previewH = grid.height;
-    out.baseX = grid.baseX;
-    out.baseY = grid.baseY;
-    out.gap = grid.gap;
     return true;
   }
 
-  wlr_box Overview::previewBox(const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex) {
-    const bool horizontal = metrics.axis == WorkspaceAxis::Horizontal;
-    const PreviewGrid grid{
-        .width = metrics.previewW,
-        .height = metrics.previewH,
-        .baseX = metrics.baseX,
-        .baseY = metrics.baseY,
-        .gap = metrics.gap,
-    };
-    const int origin = previewAxisOrigin(grid, horizontal, workspaceIndex, workspaceScroll);
-    return {
-        .x = horizontal ? origin : metrics.baseX,
-        .y = horizontal ? metrics.baseY : origin,
-        .width = metrics.previewW,
-        .height = metrics.previewH,
-    };
+  ov::Input Overview::placementInput(const OutputState& state, bool targets) const {
+    ov::Input input;
+    input.width = state.outputBox.width;
+    input.height = state.outputBox.height;
+    input.usable = localRect(state.usableBox, state.outputBox);
+    input.stripScale = std::clamp(config().overview.zoom, 0.1, 0.75);
+    const WorkspaceGroup* group = state.output->workspaceGroup();
+    input.horizontal = group != nullptr && group->workspaceAxis() == WorkspaceAxis::Horizontal;
+    input.workspaces.resize(state.workspaceBackgrounds.size());
+    for (size_t index = 0; group != nullptr && index < input.workspaces.size(); ++index) {
+      if (const Workspace* workspace = group->workspaceAt(index)) {
+        input.workspaces[index].arrangement = arrangementOf(workspace->layoutMode());
+      }
+    }
+    for (size_t k = 0; k < state.cards.size(); ++k) {
+      const Card& card = *state.cards[k];
+      if (card.workspaceIndex >= input.workspaces.size() || !laidOut(card.view)) {
+        continue;
+      }
+      wlr_box world = card.view->presentedBox();
+      if (targets) {
+        world.x = card.view->layoutTargetX();
+        world.y = card.view->layoutTargetY();
+      }
+      input.workspaces[card.workspaceIndex].members.push_back(
+          {static_cast<uint32_t>(k), localRect(world, state.outputBox), card.view->minimized()}
+      );
+    }
+    return input;
   }
 
-  void Overview::layoutCard(Card& card, const PreviewMetrics& metrics, double workspaceScroll, const View* liveTarget) {
+  ov::Fit Overview::workspaceFit(const OutputState& state, size_t index) {
+    if (state.mainBox.has_value() && index == state.mainWorkspace) {
+      return state.mainFit;
+    }
+    if (index < state.workspaceViews.size() && state.workspaceViews[index].shown) {
+      return state.workspaceViews[index].fit;
+    }
+    return {1.0, static_cast<double>(state.outputBox.x), static_cast<double>(state.outputBox.y)};
+  }
+
+  bool Overview::workspaceViewContains(const OutputState& state, size_t index, double lx, double ly) {
+    if (state.mainBox.has_value() && index == state.mainWorkspace && boxContains(*state.mainBox, lx, ly)) {
+      return true;
+    }
+    return index < state.workspaceViews.size()
+        && state.workspaceViews[index].shown
+        && boxContains(state.workspaceViews[index].box, lx, ly);
+  }
+
+  double Overview::workspaceScale(const Workspace* workspace) const {
+    for (const auto& state : m_outputs) {
+      const WorkspaceGroup* group = state->output->workspaceGroup();
+      if (workspace == nullptr || group == nullptr || workspace->group() != group || !state->placed) {
+        continue;
+      }
+      // The settled scale, not the one mid-zoom: travel means the same before the opening has landed as after.
+      const ov::Placement& placement = state->placement;
+      const size_t index = workspace->index();
+      if (placement.mainFit.has_value() && index == state->mainWorkspace) {
+        return std::max(0.01, placement.mainFit->s);
+      }
+      for (const ov::Card& card : placement.cards) {
+        if (card.workspace == index && state->placedInput.width > 0) {
+          return std::max(0.01, card.rect.w / state->placedInput.width);
+        }
+      }
+    }
+    return 1.0;
+  }
+
+  void Overview::layoutCard(Card& card, const View* liveTarget) {
     View* view = card.view;
     if (card.shadowTree != nullptr) {
       wlr_scene_node_set_enabled(&card.shadowTree->node, false);
     }
     const wlr_box& geometry = view->geometryBox();
-    if (geometry.width <= 0 || geometry.height <= 0) {
+    const wlr_box& world = view->presentedBox();
+    // Not laid out yet (a tiled opener waiting for its arrange, a hidden tab sharing the shown tab's box), or faded
+    // out by the placement: nothing to draw, nothing to hit.
+    if (!laidOut(view) || (card.opacity < kHiddenOpacity && &card != m_dragCard)) {
       card.blur.hide();
       wlr_scene_node_set_enabled(&card.tree->node, false);
       syncCardEffects(card);
       return;
     }
     wlr_scene_node_set_enabled(&card.tree->node, true);
-    // A tiled opener waiting for the arrange that places it is not showing yet, and a hidden tab shares its box with
-    // the tab on show. Their cards follow.
-    if (view->presentationSuppressed()) {
-      card.blur.hide();
-      wlr_scene_node_set_enabled(&card.tree->node, false);
-      syncCardEffects(card);
-      return;
-    }
 
-    const double z = metrics.zoom;
-    const wlr_box& world = view->presentedBox();
-    if (world.width <= 0 || world.height <= 0) {
-      card.blur.hide();
-      wlr_scene_node_set_enabled(&card.tree->node, false);
-      syncCardEffects(card);
-      return;
-    }
+    const double z = card.scale;
     const int contentW = std::max(1, static_cast<int>(std::lround(world.width * z)));
     const int contentH = std::max(1, static_cast<int>(std::lround(world.height * z)));
-    if (&card == m_dragCard) {
-      // The drag owns the card origin; only the scale still tracks progress.
-      card.box.width = contentW;
-      card.box.height = contentH;
-    } else {
-      const wlr_box preview = previewBox(metrics, workspaceScroll, card.workspaceIndex);
-      card.box = {
-          .x = preview.x + static_cast<int>(std::lround((world.x - metrics.outputBox.x) * z)),
-          .y = preview.y + static_cast<int>(std::lround((world.y - metrics.outputBox.y) * z)),
-          .width = contentW,
-          .height = contentH,
-      };
-    }
+    // The drag owns the card origin; the size always follows the presented box, which may have changed since the
+    // output was laid out.
+    card.box.width = contentW;
+    card.box.height = contentH;
     wlr_scene_node_set_position(&card.tree->node, card.box.x, card.box.y);
-    // Cards overhang their preview by design; the output's overview tree clip is
-    // what keeps them off the neighbouring monitor.
-    wlr_scene_tree_set_clip(card.tree, nullptr);
-    layoutCardShadow(card, z, desktopChromeAlpha());
-    const float cardOpacity = &card == m_dragCard ? config().appearance.dragOpacity : 1.0F;
+    wlr_scene_tree_set_clip(card.tree, card.clip.width > 0 && card.clip.height > 0 ? &card.clip : nullptr);
+    layoutCardShadow(card, desktopChromeAlpha() * card.opacity);
+    const float cardOpacity = (&card == m_dragCard ? config().appearance.dragOpacity : 1.0F) * card.opacity;
     const float presentedOpacity = view->presentedOpacity() * cardOpacity;
 
     const int borderWidth = view->decorationBorderWidth();
@@ -370,8 +431,8 @@ namespace andromeda {
           );
         };
         wlr_scene_node_set_position(
-            &card.badge->node, inset(card.box.x, contentW, card.badgeWidth, metrics.usableBox.x),
-            inset(card.box.y, contentH, card.badgeHeight, metrics.usableBox.y)
+            &card.badge->node, inset(card.box.x, contentW, card.badgeWidth, card.owner->usableBox.x),
+            inset(card.box.y, contentH, card.badgeHeight, card.owner->usableBox.y)
         );
         wlr_scene_buffer_set_opacity(card.badgeText, badgeAlpha);
         const std::array<float, 4> background = tint(card.badgeBackground, badgeAlpha);
@@ -503,7 +564,8 @@ namespace andromeda {
     update(card.view->chromeAttachment(), card.chrome);
   }
 
-  void Overview::layoutCardShadow(Card& card, double zoom, float alpha) const {
+  void Overview::layoutCardShadow(Card& card, float alpha) const {
+    const double zoom = card.scale;
     const wlr_scene_shadow* source = card.view->shadowNode();
     if (alpha <= 0.0F || source == nullptr || !source->node.enabled || &card == m_dragCard) {
       return;
@@ -575,21 +637,21 @@ namespace andromeda {
 
   void Overview::layoutOutput(OutputState& state) {
     ANDROMEDA_ZONE("Overview::layoutOutput");
-    PreviewMetrics metrics{};
-    if (!previewMetrics(state, *m_server, zoom(), metrics)) {
+    if (!refreshOutputBoxes(state)) {
       return;
     }
+    const wlr_box& outputBox = state.outputBox;
 
-    // Previews overhang the output by design (adjacent workspaces peek in). One clip on this output's overview tree
-    // contains every card, ring, and workspace background, so none needs to trim its own geometry. The dragged card
-    // is reparented out to the unclipped overview root, which is what lets it span outputs.
-    wlr_scene_tree_set_clip(state.tree, &metrics.outputBox);
+    // Cards moving in from other workspaces start past the output. One clip on this output's overview tree contains
+    // every card, ring, and workspace background, so none needs to trim its own geometry. The dragged card is
+    // reparented out to the unclipped overview root, which is what lets it span outputs.
+    wlr_scene_tree_set_clip(state.tree, &outputBox);
     if (state.backgroundBlur != nullptr) {
       wlr_scene_blur* blur = state.backgroundBlur;
       wlr_scene_node_set_enabled(&blur->node, m_progress > 0.001);
-      wlr_scene_node_set_position(&blur->node, metrics.outputBox.x, metrics.outputBox.y);
-      if (blur->width != metrics.outputBox.width || blur->height != metrics.outputBox.height) {
-        wlr_scene_blur_set_size(blur, metrics.outputBox.width, metrics.outputBox.height);
+      wlr_scene_node_set_position(&blur->node, outputBox.x, outputBox.y);
+      if (blur->width != outputBox.width || blur->height != outputBox.height) {
+        wlr_scene_blur_set_size(blur, outputBox.width, outputBox.height);
       }
       // Blur alpha and strength are normalized to [0, 1]; clamp an overshooting progress.
       const auto level = static_cast<float>(std::clamp(m_progress, 0.0, 1.0));
@@ -603,26 +665,78 @@ namespace andromeda {
       }
     }
 
-    wlr_scene_node_set_position(&state.backgroundTint->node, metrics.outputBox.x, metrics.outputBox.y);
-    wlr_scene_rect_set_size(state.backgroundTint, metrics.outputBox.width, metrics.outputBox.height);
+    wlr_scene_node_set_position(&state.backgroundTint->node, outputBox.x, outputBox.y);
+    wlr_scene_rect_set_size(state.backgroundTint, outputBox.width, outputBox.height);
     const std::array<float, 4> backgroundTint = tint(config().colors.overview.backgroundTint, m_progress);
     // A fully transparent tint leaves the wallpaper untouched.
     wlr_scene_node_set_enabled(&state.backgroundTint->node, backgroundTint[3] > 0.001F);
     wlr_scene_rect_set_color(state.backgroundTint, backgroundTint.data());
 
     refreshDesktop(state);
-    const int backgroundRadius = static_cast<int>(std::lround(config().appearance.cornerRadius * metrics.zoom));
+
+    // Placement is pure and settled; only its input changing re-runs it. An open or close in flight interpolates.
+    const ov::Style style = configuredStyle();
+    const double row = state.rowScroll.current();
+    ov::Input input = placementInput(state, false);
+    if (!state.placed || style != state.placedStyle || row != state.placedRow || input != state.placedInput) {
+      state.placement = ov::placeAt(style, input, row);
+      state.placedInput = std::move(input);
+      state.placedStyle = style;
+      state.placedRow = row;
+      state.placed = true;
+      state.placeOf.assign(state.cards.size(), nullptr);
+      for (const ov::WindowPlace& place : state.placement.windows) {
+        if (place.id < state.placeOf.size()) {
+          state.placeOf[place.id] = &place;
+        }
+      }
+    }
+    const ov::Input& in = state.placedInput;
+    const ov::Placement& placement = state.placement;
+    const double p = m_progress;
+    const ov::Rect output{0.0, 0.0, in.width, in.height};
+
+    state.cardsHorizontal = style != ov::Style::Strip || in.horizontal;
+    state.workspaceViews.assign(state.workspaceBackgrounds.size(), WorkspaceView{});
+    for (const ov::Card& card : placement.cards) {
+      if (card.workspace >= state.workspaceViews.size()) {
+        continue;
+      }
+      const wlr_box box = layoutBox(ov::lerpRect(ov::cardDeskRect(style, in, card, row), card.rect, p), outputBox);
+      state.workspaceViews[card.workspace] = {
+          .box = box,
+          .fit =
+              {static_cast<double>(box.width) / outputBox.width, static_cast<double>(box.x),
+               static_cast<double>(box.y)},
+          .kind = card.kind,
+          .shown = true,
+      };
+    }
+    state.mainBox.reset();
+    if (placement.main.has_value() && placement.mainFit.has_value() && !state.workspaceViews.empty()) {
+      const ov::Fit& fit = *placement.mainFit;
+      state.mainWorkspace =
+          static_cast<size_t>(std::clamp(std::lround(row), 0L, static_cast<long>(state.workspaceViews.size() - 1)));
+      state.mainBox = layoutBox(ov::lerpRect(output, *placement.main, p), outputBox);
+      state.mainFit = {1.0 + (fit.s - 1.0) * p, outputBox.x + fit.ox * p, outputBox.y + fit.oy * p};
+    }
+
     const std::array<float, 4> backgroundColor = tint(config().colors.overview.workspaceBackground, m_progress);
-    const double z = metrics.zoom;
     for (size_t index = 0; index < state.workspaceBackgrounds.size(); ++index) {
       const WorkspaceBackground& background = state.workspaceBackgrounds[index];
-      const wlr_box full = previewBox(metrics, state.rowScroll.current(), index);
+      const WorkspaceView& view = state.workspaceViews[index];
+      wlr_scene_node_set_enabled(&background.tree->node, view.shown);
+      if (!view.shown) {
+        continue;
+      }
+      const double z = view.fit.s;
+      const wlr_box& full = view.box;
+      const int backgroundRadius = static_cast<int>(std::lround(config().appearance.cornerRadius * z));
       layoutWorkspaceBackground(background.fill, full, backgroundRadius, backgroundColor);
       if (background.mirrors.empty()) {
         continue;
       }
-      // The preview is the viewport onto the mirrored stack: a partially anchored surface must not reach into the
-      // gap between previews.
+      // The card is the viewport onto the mirrored stack: a partially anchored surface must not reach past it.
       wlr_scene_tree_set_clip(background.tree, &full);
       for (const auto& mirror : background.mirrors) {
         wlr_box box{};
@@ -642,18 +756,42 @@ namespace andromeda {
         setScaledOpaqueRegion(
             mirror->buffer, mirror->source->surface->opaque_region, box.width, box.height, destWidth, destHeight
         );
-        // Only a surface spanning the whole output takes the preview's rounding; a smaller one keeps its own edges.
-        const bool spansOutput = box.x <= 0
-            && box.y <= 0
-            && box.x + box.width >= metrics.outputBox.width
-            && box.y + box.height >= metrics.outputBox.height;
+        // Only a surface spanning the whole output takes the card's rounding; a smaller one keeps its own edges.
+        const bool spansOutput =
+            box.x <= 0 && box.y <= 0 && box.x + box.width >= outputBox.width && box.y + box.height >= outputBox.height;
         wlr_scene_buffer_set_corner_radii(mirror->buffer, corner_radii_all(spansOutput ? backgroundRadius : 0));
       }
     }
 
     const View* liveTarget = liveTargetView();
-    for (const auto& card : state.cards) {
-      layoutCard(*card, metrics, state.rowScroll.current(), liveTarget);
+    for (size_t k = 0; k < state.cards.size(); ++k) {
+      Card& card = *state.cards[k];
+      const ov::WindowPlace* place = k < state.placeOf.size() ? state.placeOf[k] : nullptr;
+      if (place == nullptr) {
+        card.opacity = 0.0F;
+        layoutCard(card, liveTarget);
+        continue;
+      }
+      const wlr_box& world = card.view->presentedBox();
+      const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
+      const ov::Rect rect = ov::lerpRect(desk, place->rect, p);
+      if (&card != m_dragCard) {
+        card.box = layoutBox(rect, outputBox);
+      }
+      card.scale = world.width > 0 ? rect.w / world.width : 1.0;
+      card.opacity = static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p));
+      card.clip = {};
+      if (place->clip.has_value()) {
+        const ov::Insets& cut = *place->clip;
+        const double z = card.scale;
+        card.clip = {
+            .x = static_cast<int>(std::lround(cut.left * z)),
+            .y = static_cast<int>(std::lround(cut.top * z)),
+            .width = static_cast<int>(std::lround((world.width - cut.left - cut.right) * z)),
+            .height = static_cast<int>(std::lround((world.height - cut.top - cut.bottom) * z)),
+        };
+      }
+      layoutCard(card, liveTarget);
     }
   }
 
@@ -680,7 +818,7 @@ namespace andromeda {
     };
     view->syncAnimationEffects(
         card.tree, card.border != nullptr ? &card.border->node : nullptr, &card.surfaceTree->node, &cardGate,
-        card.owner->output, static_cast<float>(zoom())
+        card.owner->output, static_cast<float>(card.scale)
     );
   }
 
@@ -1114,11 +1252,8 @@ namespace andromeda {
     // The source scene surface reconfigures on every commit. Refresh the
     // passive buffer mirrors, then re-derive their overview crop and scale.
     syncCardSurfaces(card);
-    PreviewMetrics metrics{};
-    if (previewMetrics(*card->owner, *self->m_server, self->zoom(), metrics)) {
-      self->layoutCard(*card, metrics, card->owner->rowScroll.current(), self->liveTargetView());
-      wlr_output_schedule_frame(card->owner->output->wlr());
-    }
+    self->layoutCard(*card, self->liveTargetView());
+    wlr_output_schedule_frame(card->owner->output->wlr());
   }
 
   void Overview::onCardSurfaceDestroy(CardSurface* entry, void* /*data*/) {
@@ -1482,52 +1617,58 @@ namespace andromeda {
       }
     }
 
-    const double z = std::clamp(config().overview.zoom, 0.1, 0.75);
+    // Badges follow the settled placement at the row the overview is heading to, read from layout targets, so a
+    // window still sliding into place already has its final order.
     std::vector<Card*> eligible;
     for (OutputState* state : orderedStates) {
-      PreviewMetrics metrics{};
-      if (state == nullptr || !previewMetrics(*state, *m_server, z, metrics)) {
+      if (state == nullptr || !refreshOutputBoxes(*state)) {
         continue;
       }
       WorkspaceGroup* group = state->output->workspaceGroup();
       if (group == nullptr) {
         continue;
       }
+      const double row = state->rowScroll.target();
+      const ov::Input input = placementInput(*state, true);
+      const ov::Placement settled = ov::placeAt(configuredStyle(), input, row);
+      const ov::Rect output{0.0, 0.0, input.width, input.height};
+      const auto onOutput = [&output](const ov::Rect& rect) {
+        return rect.x < output.w && rect.y < output.h && rect.x + rect.w > 0 && rect.y + rect.h > 0;
+      };
+      const size_t chosen = static_cast<size_t>(std::max(0L, std::lround(row)));
 
       std::vector<size_t> visible;
       visible.reserve(group->workspaceCount());
-      for (size_t index = 0; index < group->workspaceCount(); ++index) {
-        const wlr_box preview = previewBox(metrics, state->rowScroll.target(), index);
-        wlr_box shown{};
-        if (wlr_box_intersection(&shown, &preview, &metrics.outputBox)) {
-          visible.push_back(index);
+      for (const ov::Card& card : settled.cards) {
+        if (card.workspace < group->workspaceCount() && (onOutput(card.rect) || card.workspace == chosen)) {
+          visible.push_back(card.workspace);
         }
       }
-      std::ranges::stable_sort(visible, [state](size_t left, size_t right) {
-        const double leftDistance = std::abs(static_cast<double>(left) - state->rowScroll.target());
-        const double rightDistance = std::abs(static_cast<double>(right) - state->rowScroll.target());
+      std::ranges::stable_sort(visible, [row](size_t left, size_t right) {
+        const double leftDistance = std::abs(static_cast<double>(left) - row);
+        const double rightDistance = std::abs(static_cast<double>(right) - row);
         return leftDistance == rightDistance ? left < right : leftDistance < rightDistance;
       });
 
       struct PositionedCard {
         Card* card = nullptr;
-        int x = 0;
-        int y = 0;
+        double x = 0;
+        double y = 0;
       };
-      // Traverse along the scrolling axis first: it is the axis cards are laid out on.
-      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
+      // Reading order inside each workspace: rows of a horizontal workspace axis, columns otherwise.
+      const bool horizontalWorkspaces = input.horizontal;
       for (const size_t index : visible) {
-        const wlr_box preview = previewBox(metrics, state->rowScroll.target(), index);
         std::vector<PositionedCard> previewCards;
-        for (const auto& card : state->cards) {
+        for (size_t k = 0; k < state->cards.size(); ++k) {
+          Card* card = state->cards[k].get();
           if (card->workspaceIndex != index || card->view == nullptr || !card->view->mapped()) {
             continue;
           }
-          const int x =
-              preview.x + static_cast<int>(std::lround((card->view->layoutTargetX() - metrics.outputBox.x) * z));
-          const int y =
-              preview.y + static_cast<int>(std::lround((card->view->layoutTargetY() - metrics.outputBox.y) * z));
-          previewCards.push_back({.card = card.get(), .x = x, .y = y});
+          const ov::WindowPlace* place = ov::findWindow(settled, static_cast<uint32_t>(k));
+          if (place == nullptr || place->opacity <= 0.0) {
+            continue;
+          }
+          previewCards.push_back({.card = card, .x = std::round(place->rect.x), .y = std::round(place->rect.y)});
         }
         std::ranges::stable_sort(
             previewCards, [horizontalWorkspaces](const PositionedCard& left, const PositionedCard& right) {
@@ -1906,7 +2047,7 @@ namespace andromeda {
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
-      static_cast<void>(m_zoomAnim.finishSpringTail(zoomPixelsPerUnit()));
+      static_cast<void>(m_zoomAnim.finishSpringTail(motionPixelsPerUnit(false)));
     }
     if (zoomTicked) {
       const double value = m_zoomAnim.current();
@@ -1916,12 +2057,7 @@ namespace andromeda {
     for (const auto& state : m_outputs) {
       const bool ticked = state->rowScroll.tick(nowMsec);
       if (ticked && state->rowScroll.animating() && state->rowScroll.curve().easing == Easing::Spring) {
-        PreviewMetrics metrics;
-        if (previewMetrics(*state, *m_server, zoom(), metrics)) {
-          const double step =
-              (metrics.axis == WorkspaceAxis::Horizontal ? metrics.previewW : metrics.previewH) + metrics.gap;
-          static_cast<void>(state->rowScroll.finishSpringTail(step));
-        }
+        static_cast<void>(state->rowScroll.finishSpringTail(motionPixelsPerUnit(true)));
       }
       rowTicked = ticked || rowTicked;
       active = active || state->rowScroll.animating();
@@ -2473,16 +2609,12 @@ namespace andromeda {
     // Hit testing uses the same output clip as rendering. The dragged card is
     // reparented to the unclipped root and hits everywhere.
     for (const auto& state : std::views::reverse(m_outputs)) {
-      PreviewMetrics metrics{};
-      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
-        continue;
-      }
       for (const auto& card : std::views::reverse(state->cards)) {
         if (card->tree == nullptr || !card->tree->node.enabled) {
           continue;
         }
         wlr_box hit = card->box;
-        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &card->box, &metrics.outputBox)) {
+        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &card->box, &state->outputBox)) {
           continue;
         }
         if (boxContains(hit, lx, ly)) {
@@ -2496,41 +2628,37 @@ namespace andromeda {
   Workspace*
   Overview::workspaceAtPoint(double lx, double ly, OutputState** outState, size_t* outIndex, bool extendScrollingAxis) {
     for (const auto& state : m_outputs) {
-      PreviewMetrics metrics{};
-      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
-        continue;
-      }
       WorkspaceGroup* group = state->output->workspaceGroup();
-      if (group == nullptr) {
+      // A card can only own points on its own output, so one overhanging a neighbour never steals its targets.
+      if (group == nullptr || !boxContains(state->outputBox, lx, ly)) {
         continue;
       }
-      // A preview can only own points on its own output, so a preview overhanging
-      // a neighbour never steals its targets.
-      if (!boxContains(metrics.outputBox, lx, ly)) {
-        continue;
-      }
-      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
-      for (size_t index = 0; index < state->workspaceBackgrounds.size(); ++index) {
+      const bool strip = configuredStyle() == ov::Style::Strip;
+      const bool horizontalWorkspaces = group->workspaceAxis() == WorkspaceAxis::Horizontal;
+      for (size_t index = 0; index < state->workspaceViews.size(); ++index) {
         Workspace* workspace = group->workspaceAt(index);
         if (workspace == nullptr) {
           continue;
         }
-        // Cards intentionally form one output-wide strip even when they overhang
-        // the centered preview. Drag targeting must cover that same visible area
-        // along the scrolling axis or the extreme gaps become dead zones.
-        // Background clicks retain the narrower preview hitbox.
-        const bool extend = extendScrollingAxis && workspace->scrollingLayout() != nullptr;
-        wlr_box box = previewBox(metrics, state->rowScroll.current(), index);
-        if (extend) {
+        bool hit = workspaceViewContains(*state, index, lx, ly);
+        // A Strip row's scrolling columns overhang its frame across the whole output, so drag targeting covers that
+        // band too or the extreme gaps become dead zones. Background clicks keep the frame.
+        if (!hit
+            && extendScrollingAxis
+            && strip
+            && workspace->scrollingLayout() != nullptr
+            && state->workspaceViews[index].shown) {
+          wlr_box band = state->workspaceViews[index].box;
           if (horizontalWorkspaces) {
-            box.y = metrics.outputBox.y;
-            box.height = metrics.outputBox.height;
+            band.y = state->outputBox.y;
+            band.height = state->outputBox.height;
           } else {
-            box.x = metrics.outputBox.x;
-            box.width = metrics.outputBox.width;
+            band.x = state->outputBox.x;
+            band.width = state->outputBox.width;
           }
+          hit = boxContains(band, lx, ly);
         }
-        if (!boxContains(box, lx, ly)) {
+        if (!hit) {
           continue;
         }
         if (outState != nullptr) {
@@ -2547,26 +2675,33 @@ namespace andromeda {
 
   WorkspaceGroup*
   Overview::workspaceGapAt(double lx, double ly, OutputState** outState, size_t* outIndex, wlr_box* outHintBox) {
+    const bool strip = configuredStyle() == ov::Style::Strip;
     for (const auto& state : m_outputs) {
-      PreviewMetrics metrics{};
-      if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
-        continue;
-      }
       WorkspaceGroup* group = state->output->workspaceGroup();
       if (group == nullptr || !group->dynamic() || group->workspaceCount() >= kMaxWorkspaces) {
         continue;
       }
-      const bool horizontalWorkspaces = metrics.axis == WorkspaceAxis::Horizontal;
-      const size_t previewCount = std::min(group->workspaceCount(), state->workspaceBackgrounds.size());
+      // Gaps run between neighbouring cards along the way the cards step. A Grid's wrap has no gap.
+      const bool horizontalWorkspaces = state->cardsHorizontal;
+      const size_t previewCount = std::min(group->workspaceCount(), state->workspaceViews.size());
       for (size_t index = 0; index < previewCount; ++index) {
-        const wlr_box lower = previewBox(metrics, state->rowScroll.current(), index);
-        // Index zero has no preceding preview. Its insertion gap begins at the output edge, so dynamic workspaces can
-        // also be inserted before the first preview.
+        if (!state->workspaceViews[index].shown) {
+          continue;
+        }
+        const wlr_box lower = state->workspaceViews[index].box;
+        // Index zero has no preceding card. In the Strip its insertion gap begins at the output edge, so dynamic
+        // workspaces can also be inserted before the first row; the thumb rows keep their margins free.
         int before = 0;
         if (index == 0) {
-          before = horizontalWorkspaces ? metrics.outputBox.x : metrics.outputBox.y;
+          if (!strip) {
+            continue;
+          }
+          before = horizontalWorkspaces ? state->outputBox.x : state->outputBox.y;
         } else {
-          const wlr_box upper = previewBox(metrics, state->rowScroll.current(), index - 1);
+          if (!state->workspaceViews[index - 1].shown) {
+            continue;
+          }
+          const wlr_box upper = state->workspaceViews[index - 1].box;
           before = horizontalWorkspaces ? upper.x + upper.width : upper.y + upper.height;
         }
         const int after = horizontalWorkspaces ? lower.x : lower.y;
@@ -2576,7 +2711,7 @@ namespace andromeda {
         const wlr_box gap = horizontalWorkspaces ? wlr_box{before, lower.y, after - before, lower.height}
                                                  : wlr_box{lower.x, before, lower.width, after - before};
         wlr_box visible{};
-        if (!wlr_box_intersection(&visible, &gap, &metrics.outputBox) || !boxContains(visible, lx, ly)) {
+        if (!wlr_box_intersection(&visible, &gap, &state->outputBox) || !boxContains(visible, lx, ly)) {
           continue;
         }
         if (outState != nullptr) {
@@ -2858,9 +2993,7 @@ namespace andromeda {
     return nullptr;
   }
 
-  void Overview::onNavigationDeviceDestroyed(Overview* self, void* /*data*/) {
-    self->cancelNavigation();
-  }
+  void Overview::onNavigationDeviceDestroyed(Overview* self, void* /*data*/) { self->cancelNavigation(); }
 
   void Overview::cancelNavigation() { endNavigation(true, 0, m_navigationSource); }
 
@@ -2908,7 +3041,8 @@ namespace andromeda {
     if ((axis == OverviewNavigation::Axis::Horizontal) == m_navigationHorizontalWorkspaces) {
       if (!m_navigationStarted) {
         m_navigationStart = state->rowScroll.current();
-        m_navigationScale = OverviewNavigation::travelScale(1.0, settledZoom(), factor, travel.workspace);
+        m_navigationScale =
+            OverviewNavigation::travelScale(1.0, workspaceScale(group->active()), factor, travel.workspace);
         m_navigationStarted = true;
       }
       const auto last = static_cast<double>(group->workspaceCount() - 1);
@@ -2931,7 +3065,7 @@ namespace andromeda {
     if (!m_navigationStarted) {
       m_navigationStart = scrolling->scroll();
       m_navigationCentered = scrolling->centeredRest();
-      m_navigationScale = OverviewNavigation::travelScale(viewport, settledZoom(), factor, travel.viewport);
+      m_navigationScale = OverviewNavigation::travelScale(viewport, workspaceScale(workspace), factor, travel.viewport);
       m_navigationStarted = true;
     }
     const auto maximum = static_cast<double>(scrolling->maxScroll(workspace->scrollViewportExtent()));
@@ -3296,9 +3430,8 @@ namespace andromeda {
     }
     wlr_scene_node_reparent(&card->tree->node, m_tree);
     wlr_scene_node_raise_to_top(&card->tree->node);
-    PreviewMetrics metrics{};
-    if (card->owner != nullptr && previewMetrics(*card->owner, *m_server, zoom(), metrics)) {
-      layoutCard(*card, metrics, card->owner->rowScroll.current(), liveTargetView());
+    if (card->owner != nullptr) {
+      layoutCard(*card, liveTargetView());
     }
     m_server->cursor()->overrideCursor("grabbing");
   }
@@ -3331,15 +3464,10 @@ namespace andromeda {
       return;
     }
 
-    PreviewMetrics metrics{};
-    if (!previewMetrics(*state, *m_server, zoom(), metrics)) {
-      hideDropHint();
-      return;
-    }
-    // Map the pointer out of the thumbnail and back into workspace world space.
-    const wlr_box preview = previewBox(metrics, state->rowScroll.current(), workspacePosition);
-    const double worldX = metrics.outputBox.x + (lx - preview.x) / metrics.zoom;
-    const double worldY = metrics.outputBox.y + (ly - preview.y) / metrics.zoom;
+    // Map the pointer out of the card (or the main area) and back into workspace world space.
+    const ov::Fit fit = workspaceFit(*state, workspacePosition);
+    const double worldX = state->outputBox.x + (lx - fit.ox) / fit.s;
+    const double worldY = state->outputBox.y + (ly - fit.oy) / fit.s;
 
     if (card->view->tiled()) {
       // The overview applies its own projection after target selection. Keep
@@ -3362,7 +3490,7 @@ namespace andromeda {
       };
     }
     if (m_drop.hintBox.width > 0 && m_drop.hintBox.height > 0) {
-      showDropHint(m_drop.hintBox, metrics, state->rowScroll.current(), workspacePosition, state->output);
+      showDropHint(m_drop.hintBox, *state, workspacePosition);
     } else {
       hideDropHint();
     }
@@ -3423,11 +3551,10 @@ namespace andromeda {
       m_server->focusView(view, FocusReason::DragDrop);
     } else if (target != nullptr && dropState != nullptr) {
       // Floating: map the card origin back out of the thumbnail.
-      PreviewMetrics metrics{};
-      if (previewMetrics(*dropState, *m_server, zoom(), metrics)) {
-        const wlr_box preview = previewBox(metrics, dropState->rowScroll.current(), target->index());
-        const int x = metrics.outputBox.x + static_cast<int>(std::lround((cardBox.x - preview.x) / metrics.zoom));
-        const int y = metrics.outputBox.y + static_cast<int>(std::lround((cardBox.y - preview.y) / metrics.zoom));
+      {
+        const ov::Fit fit = workspaceFit(*dropState, target->index());
+        const int x = dropState->outputBox.x + static_cast<int>(std::lround((cardBox.x - fit.ox) / fit.s));
+        const int y = dropState->outputBox.y + static_cast<int>(std::lround((cardBox.y - fit.oy) / fit.s));
         if (view->workspace() != target) {
           view->moveToWorkspace(target);
           target->exitFullscreenForIncomingView(view);
@@ -3502,33 +3629,29 @@ namespace andromeda {
     }
   }
 
-  void Overview::showDropHint(
-      const wlr_box& worldBox, const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex,
-      Output* output
-  ) {
+  void Overview::showDropHint(const wlr_box& worldBox, const OutputState& state, size_t workspaceIndex) {
     if (worldBox.width <= 0 || worldBox.height <= 0) {
       hideDropHint();
       return;
     }
-    const double z = metrics.zoom;
-    const wlr_box preview = previewBox(metrics, workspaceScroll, workspaceIndex);
+    const ov::Fit fit = workspaceFit(state, workspaceIndex);
+    const double z = fit.s;
     const wlr_box mappedBox{
-        .x = preview.x + static_cast<int>(std::lround((worldBox.x - metrics.outputBox.x) * z)),
-        .y = preview.y + static_cast<int>(std::lround((worldBox.y - metrics.outputBox.y) * z)),
+        .x = static_cast<int>(std::lround(fit.ox + (worldBox.x - state.outputBox.x) * z)),
+        .y = static_cast<int>(std::lround(fit.oy + (worldBox.y - state.outputBox.y) * z)),
         .width = std::max(1, static_cast<int>(std::lround(worldBox.width * z))),
         .height = std::max(1, static_cast<int>(std::lround(worldBox.height * z))),
     };
+    Output* output = state.output;
     wlr_box visibleBox{};
-    if (!wlr_box_intersection(&visibleBox, &mappedBox, &metrics.outputBox)) {
+    if (!wlr_box_intersection(&visibleBox, &mappedBox, &state.outputBox)) {
       hideDropHint();
       return;
     }
     if (m_dropHint == nullptr) {
       m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
     }
-    m_dropHint->show(
-        output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * metrics.zoom))
-    );
+    m_dropHint->show(output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * z)));
     if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
       wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
     }

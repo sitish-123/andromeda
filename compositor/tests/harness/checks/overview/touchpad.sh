@@ -42,6 +42,7 @@ workspace_curve = "spring:1,120"
 default_extent_fraction = 0.5
 
 [overview]
+style = "strip"
 background_blur = false
 shortcuts = false
 scroll_factor_vertical = $2

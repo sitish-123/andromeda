@@ -253,6 +253,7 @@ focused = "#00FF00FF"
 background_tint = "#000000FF"
 workspace_background = "#000000FF"
 [overview]
+style = "strip"
 zoom = 0.5
 [effects]
 border = "ring"

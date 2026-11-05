@@ -43,6 +43,7 @@ backdrop = "#00FF00FF"
 background_tint = "#00000000"
 workspace_background = "#00FF00FF"
 [overview]
+style = "strip"
 zoom = 0.5
 background_blur = false
 workspace_wallpaper = false

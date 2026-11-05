@@ -12,6 +12,7 @@ outer_border_width = 0
 [appearance.title_bar]
 mode = "off"
 [overview]
+style = "strip"
 zoom = 0.5
 CONFIG
 "$ANDROMEDA" msg config-reload > /dev/null

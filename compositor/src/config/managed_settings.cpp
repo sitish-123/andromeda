@@ -1,11 +1,11 @@
 #include "config/managed_settings.h"
 
+#include "andromeda_data_dir.h"
+#include "config/config_registry.h"
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
-#include "config/config_registry.h"
 #include "config/store.h"
 #include "config/value_parse.h"
-#include "andromeda_data_dir.h"
 
 #include <algorithm>
 #include <array>
@@ -83,6 +83,8 @@ namespace andromeda {
     constexpr std::array<std::string_view, 4> kModKeys = {"Super", "Alt", "Ctrl", "Shift"};
 
     // Enumerators and choice arrays share their order.
+    constexpr std::array<std::string_view, 4> kOverviewStyles = {"spaces", "taskview", "strip", "grid"};
+    std::string text(OverviewStyle style) { return std::string(kOverviewStyles[static_cast<size_t>(style)]); }
     std::string text(LayoutMode mode) { return std::string(kLayoutModes[static_cast<size_t>(mode)]); }
     std::string text(CenterFocusedColumn center) { return std::string(kCenterFocused[static_cast<size_t>(center)]); }
     // Unset keeps the runtime default (Super on hardware, Alt nested), which has no fixed text.
@@ -409,6 +411,7 @@ namespace andromeda {
         Spec{"layout.master.new_becomes_master", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.layout.master.newBecomesMaster); }},
         Spec{"workspaces.back_and_forth", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.backAndForth); }},
         Spec{"workspaces.empty_above", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.emptyAbove); }},
+        Spec{"overview.style", Kind::Choice, 0, 0, kOverviewStyles, [](const Config& c) { return text(c.overview.style); }},
         Spec{"overview.zoom", Kind::Real, 0.1, 0.75, {}, [](const Config& c) { return text(c.overview.zoom); }},
         Spec{"overview.background_blur", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.backgroundBlur); }},
         Spec{"overview.workspace_wallpaper", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.workspaceWallpaper); }},
@@ -693,9 +696,15 @@ namespace andromeda {
     // The app id of a rule saveManagedAppQos wrote; nullopt for any other rule, which it never touches.
     std::optional<std::string> appQosRuleId(const toml::table& rule) {
       const toml::table* match = rule["match"].as_table();
-      const std::optional<std::string> pattern = match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
-      if (rule.size() != 2 || !rule.contains("qos") || match->size() != 1 || !pattern || pattern->size() < 2
-          || !pattern->starts_with('^') || !pattern->ends_with('$')) {
+      const std::optional<std::string> pattern =
+          match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
+      if (rule.size() != 2
+          || !rule.contains("qos")
+          || match->size() != 1
+          || !pattern
+          || pattern->size() < 2
+          || !pattern->starts_with('^')
+          || !pattern->ends_with('$')) {
         return std::nullopt;
       }
       std::string id;
@@ -720,7 +729,9 @@ namespace andromeda {
         it = rule != nullptr && appQosRuleId(*rule) == appId ? rules.erase(it) : it + 1;
       }
       if (qos != "normal") {
-        rules.push_back(toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}});
+        rules.push_back(
+            toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}}
+        );
       }
       if (rules.empty()) {
         root.erase("window_rule");

@@ -58,6 +58,9 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 [animation]
 enabled = false
 
+[overview]
+style = "strip"
+
 [[window_rule]]
 match.title = "^transient-parent$"
 default_floating = true

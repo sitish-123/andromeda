@@ -70,6 +70,7 @@ corner_radius = 0
 enabled = false
 
 [overview]
+style = "strip"
 zoom = 0.5
 
 # Opposite workspace axes: the source scrolls its columns horizontally, the destination stacks them vertically. The

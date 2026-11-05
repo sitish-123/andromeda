@@ -6,6 +6,7 @@ The overview displays every workspace and lets you navigate, focus, close, and m
 
 ```toml
 [overview]
+style = "spaces"
 zoom = 0.5
 scroll_factor_horizontal = 1.0
 scroll_factor_vertical = 1.0
@@ -17,7 +18,8 @@ shortcut_keys = "1234567890"
 
 | Key                        | Default        | Description                                                  |
 | -------------------------- | -------------- | ------------------------------------------------------------ |
-| `zoom`                     | `0.5`          | Workspace preview scale from 0.1 to 0.75.                    |
+| `style`                    | `"spaces"`     | Overview style; see [Styles](#styles).                       |
+| `zoom`                     | `0.5`          | Strip row scale from 0.1 to 0.75. Other styles ignore it.    |
 | `scroll_factor_horizontal` | `1.0`          | Horizontal gesture and wheel sensitivity.                    |
 | `scroll_factor_vertical`   | `1.0`          | Vertical gesture and wheel sensitivity.                      |
 | `background_blur`          | `true`         | Blur the desktop behind the overview.                        |
@@ -26,6 +28,15 @@ shortcut_keys = "1234567890"
 | `shortcut_keys`            | `"1234567890"` | Preferred keys for shortcut badges.                          |
 
 Background blur uses `[appearance.blur]`. Preview backgrounds use `colors.overview.workspace_background` when wallpaper mirroring is disabled or no background surface is available.
+
+### Styles
+
+- `"spaces"`: the current workspace fills the middle of the screen, with every workspace as a thumbnail along the top.
+- `"taskview"`: the current workspace's windows spread out side by side, with workspaces as thumbnails along the bottom.
+- `"strip"`: each workspace is a scaled-down row stacked along the output's [workspace axis](workspaces.md#workspace-axis). `zoom` sets the scale.
+- `"grid"`: every workspace as an equal tile in a grid.
+
+The style changes only how the overview looks. Each workspace keeps its own layout.
 
 ### Open and navigate
 

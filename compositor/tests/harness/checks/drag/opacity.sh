@@ -61,6 +61,9 @@ workspace_background = "#00FF00FF"
 
 [appearance]
 drag_opacity = 0.5
+
+[overview]
+style = "strip"
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 

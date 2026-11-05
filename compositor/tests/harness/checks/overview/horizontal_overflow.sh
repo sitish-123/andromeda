@@ -55,6 +55,7 @@ outer_border_width = 0
 corner_radius = 0
 
 [overview]
+style = "strip"
 zoom = 0.5
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null

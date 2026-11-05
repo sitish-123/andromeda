@@ -227,6 +227,13 @@ namespace andromeda {
       using registry::real;
       using O = Config::Overview;
       static const registry::Fields<O> fields{
+          registry::choice(
+              "style", &O::style,
+              {{"spaces", OverviewStyle::Spaces},
+               {"taskview", OverviewStyle::TaskView},
+               {"strip", OverviewStyle::Strip},
+               {"grid", OverviewStyle::Grid}}
+          ),
           real("zoom", 0.1, 0.75, &O::zoom),
           real("scroll_factor_horizontal", 0.1, 10.0, &O::scrollFactorHorizontal),
           real("scroll_factor_vertical", 0.1, 10.0, &O::scrollFactorVertical),

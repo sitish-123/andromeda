@@ -294,9 +294,9 @@ namespace andromeda {
       Workspace* workspace = overview->pointerScrollWorkspace(lx, ly);
       WorkspaceGroup* group = workspace != nullptr ? workspace->group() : nullptr;
       m_output = group != nullptr ? group->output() : nullptr;
-      // Previews are drawn at the settled zoom, so travel over one covers that much more of the content below it.
+      // The workspace shows scaled down, so travel over it covers that much more of the content below it.
       if (m_output == nullptr
-          || !beginScroll(workspace, 1.0 / Overview::settledZoom(), ScrollSource::OverviewPointer)) {
+          || !beginScroll(workspace, 1.0 / overview->workspaceScale(workspace), ScrollSource::OverviewPointer)) {
         m_output = nullptr;
         return false;
       }
@@ -382,7 +382,8 @@ namespace andromeda {
     }
     // Our clients' compositor-owned gestures win over compositor gestures inside their source region.
     if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
-        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        pointer.focused_surface != nullptr
+        && m_server->dskSurfaces() != nullptr
         && m_server->dskSurfaces()->beginSwipe(
             pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
         )) {
@@ -777,7 +778,8 @@ namespace andromeda {
       return;
     }
     if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
-        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        pointer.focused_surface != nullptr
+        && m_server->dskSurfaces() != nullptr
         && m_server->dskSurfaces()->beginPinch(
             pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
         )) {

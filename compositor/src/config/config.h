@@ -1,11 +1,11 @@
 #pragma once
-#include "design_tokens.h"
 #include "config/config_diag.h"
 #include "config/effects.h"
 #include "config/keybind_parse.h"
 #include "config/value_parse.h"
 #include "config/window_position.h"
 #include "core/animation.h"
+#include "design_tokens.h"
 #include "layout/layout.h"
 #include "qos/policy.h"
 #include "scene/ssd_frame_geometry.h"
@@ -661,6 +661,14 @@ namespace andromeda {
     }
   };
 
+  // `[overview] style`; same order as ov::Style.
+  enum class OverviewStyle : uint8_t {
+    Spaces,
+    TaskView,
+    Strip,
+    Grid,
+  };
+
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
@@ -797,7 +805,8 @@ namespace andromeda {
       ColorScheme scheme = ColorScheme::Dark;
       // Unset: the design-token accent.
       std::optional<std::array<float, 4>> accent;
-      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with solids.
+      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with
+      // solids.
       double glass = 0.5;
       bool reduceTransparency = false;
       bool increaseContrast = false;
@@ -970,7 +979,11 @@ namespace andromeda {
     Effects effects;
 
     struct Overview {
-      // Workspace scale when fully zoomed out.
+      // How the overview arranges workspaces (overview/style.h): Spaces (thumbs on top, current workspace below),
+      // TaskView (current workspace spread out, desktops along the bottom), Strip (a zoomed row per workspace) or Grid
+      // (every workspace as an equal tile).
+      OverviewStyle style = OverviewStyle::Spaces;
+      // Strip only: each workspace row's scale.
       double zoom = 0.5;
       // Touchpad travel and wheel accumulation in the overview, by the physical direction of the movement rather
       // than the output's workspace axis. Independent of an input device's own scroll_factor.

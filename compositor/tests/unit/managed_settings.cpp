@@ -22,10 +22,14 @@ namespace {
   bool accepts(std::string_view key, std::string_view text) { return parseManagedSetting(key, text).value.has_value(); }
 
   // Values chosen to differ from every default, so a round trip proves the write took effect.
-  constexpr std::array<std::string_view, 19> kSamples = {
-      "false",       "37",  "3",       "0.5",         "flat",  "pinned", "window",       "clickfinger",
-      "left_middle_right", "MouseMiddle", "dwindle", "on_overflow", "right", "zoom", "overview-toggle", "Alt",
-      "light",       "#4a80ffff", "sticky",
+  constexpr std::array<std::string_view, 20> kSamples = {
+      "false",       "37",          "3",
+      "0.5",         "flat",        "pinned",
+      "window",      "clickfinger", "left_middle_right",
+      "MouseMiddle", "dwindle",     "on_overflow",
+      "right",       "zoom",        "overview-toggle",
+      "Alt",         "light",       "#4a80ffff",
+      "sticky",      "strip",
   };
 
   // The config reader compiles the keymap, so XKB keys need names XKB knows.
@@ -175,7 +179,8 @@ ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
 // Settings > Battery app rules: one [[window_rule]] per app in the settings file; a new choice replaces it, "normal"
 // removes it, and a rule the user wrote by hand stays.
 ANDROMEDA_TEST(appQosRulesReplaceAndRemoveOnlyTheirOwn) {
-  const std::filesystem::path file = std::filesystem::temp_directory_path() / ("app-qos-" + std::to_string(getpid()) + ".toml");
+  const std::filesystem::path file =
+      std::filesystem::temp_directory_path() / ("app-qos-" + std::to_string(getpid()) + ".toml");
   {
     std::ofstream out(file);
     out << "[[window_rule]]\nmatch.app_id = \"^foot$\"\nqos = \"never_throttle\"\nopacity = 0.9\n";
@@ -188,7 +193,10 @@ ANDROMEDA_TEST(appQosRulesReplaceAndRemoveOnlyTheirOwn) {
     return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
   };
   using Rules = std::vector<std::pair<std::string, std::string>>;
-  CHECK(andromeda::documentAppQos(read()) == (Rules{{"org.mozilla.firefox", "freeze_when_hidden"}, {"Signal", "never_throttle"}}));
+  CHECK(
+      andromeda::documentAppQos(read())
+      == (Rules{{"org.mozilla.firefox", "freeze_when_hidden"}, {"Signal", "never_throttle"}})
+  );
   CHECK(andromeda::saveManagedAppQos(file, "org.mozilla.firefox", "normal"));
   CHECK(andromeda::documentAppQos(read()) == (Rules{{"Signal", "never_throttle"}}));
   CHECK(read().find("opacity = 0.9") != std::string::npos);
