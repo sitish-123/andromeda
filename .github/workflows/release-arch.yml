@@ -11,6 +11,7 @@ on:
     inputs:
       tag: { description: "Existing tag to build and publish", required: true }
       ref: { description: "Commit or branch to build instead of the tag, for a packaging fix", required: false }
+      prebuilt: { description: "Sign the packages already on the release instead of building them", type: boolean, default: false }
 
 permissions:
   contents: write
@@ -24,7 +25,7 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Tools
-        run: pacman -Syu --noconfirm --needed git ccache zstd
+        run: pacman -Syu --noconfirm --needed git ccache zstd github-cli
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -33,6 +34,7 @@ jobs:
           submodules: recursive
       # makepkg's ccache option compiles through ccache; LTO objects cache too, only the final link reruns.
       - uses: actions/cache/restore@v4
+        if: ${{ !inputs.prebuilt }}
         with:
           path: .ccache
           key: ccache-release-arch-${{ github.run_id }}
@@ -47,16 +49,23 @@ jobs:
           sed -i 's/^BUILDENV=(\(.*\)!ccache/BUILDENV=(\1ccache/' /etc/makepkg.conf
       # Under fakeroot cargo resolves its home from the faked root uid; meson install reruns the stale cargo targets.
       - name: Packages
+        if: ${{ !inputs.prebuilt }}
         working-directory: pkg
         run: >
           sudo -u builder env HOME=/home/builder CARGO_HOME=/home/builder/.cargo ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE"
           CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
           makepkg --syncdeps --noconfirm --force
       - uses: actions/cache/save@v4
-        if: always()
+        if: always() && !inputs.prebuilt
         with:
           path: .ccache
           key: ccache-release-arch-${{ github.run_id }}
+      # A local build uploads its packages to the release first (gh release upload); this only signs them.
+      - name: Prebuilt packages
+        if: ${{ inputs.prebuilt }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.pkg.tar.zst' -D pkg
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
