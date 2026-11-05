@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+# Ubuntu's mpv ships /etc/mpv/mpv.conf too; its copy moves aside so the Andromeda default takes the path.
+if [ "$1" = install ] || [ "$1" = upgrade ]; then
+  dpkg-divert --package andromeda --add --rename --divert /etc/mpv/mpv.conf.mpv-dist /etc/mpv/mpv.conf
+fi
+#DEBHELPER#
