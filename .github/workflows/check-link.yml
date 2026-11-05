@@ -1,0 +1,78 @@
+# Link's gate and its network E2E tests.
+# A newer push to main cancels the run before it. Other branches and pull requests are checked locally (CONTRIBUTING.md).
+name: check-link
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "link"
+      - "tests/e2e/quickshare*"
+      - ".github/workflows/check-link.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: check-link-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgl-dev libegl-dev libxkbcommon-dev dbus python3-dbus python3-gi
+          rustup component add clippy rustfmt
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: link }
+      - uses: taiki-e/install-action@cargo-deny
+      - name: Gate
+        working-directory: link
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          cargo deny check
+
+  link-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgl-dev libegl-dev libxkbcommon-dev dbus libglib2.0-bin python3-gi iproute2 nftables
+          # The tests put the phone and the desktop in their own user and network namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: link }
+      - name: Build
+        working-directory: link
+        run: cargo build
+      - name: Tests
+        run: |
+          for test in link/tests/e2e/{link_pair,link_share,link_status,link_files,link_firewall,link_bluetooth,link_hotspot,link_wifi_direct,link_tailnet} \
+            tests/e2e/quickshare_daemon; do
+            echo "::group::$test"
+            bash "$test.sh"
+            echo "::endgroup::"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: link-e2e-artifacts
+          path: artifacts/

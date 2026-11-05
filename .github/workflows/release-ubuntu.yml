@@ -1,0 +1,89 @@
+# A tag v* builds the Ubuntu 26.04 debs and signs their apt repository, with Link's deb from Link's release of the same tag.
+# Each release workflow runs on its own and adds its assets to the GitHub release of the tag, which the first one to
+# finish creates. Run it by hand with a tag to rebuild only that part. The assets also serve as a pacman and an apt
+# repository at releases/latest/download (see README.md).
+name: release-ubuntu
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag: { description: "Existing tag to build and publish", required: true }
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  # The same scripts as a local Ubuntu build: debs from debian/ in an ubuntu:26.04 container, checked by installing them.
+  # The release assets are also a flat apt repository: sources.list points at releases/latest/download (see README.md).
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      # The scripts default to 6 CPUs; docker refuses more than the runner has.
+      - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TAG }}
+      - name: xwayland-satellite
+        run: tools/deb-xwayland-satellite.sh 26.04
+      - name: Packages
+        run: tools/ubuntu-deb.sh --clean 26.04
+      - name: Link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Link's release of the same tag can still be building; wait up to 40 min for it.
+          for _ in $(seq 40); do
+            gh release download "$TAG" -R sitish-123/andromeda-link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
+            sleep 60
+          done
+          exit 1
+      - name: Repository
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+        run: |
+          sudo apt-get install -y -qq dpkg-dev apt-utils > /dev/null
+          out=$HOME/.cache/andromeda-ubuntu
+          mkdir apt
+          # GitHub rewrites ':' in asset names; Packages must list the names the assets really get.
+          for deb in "$out"/deb-26.04/*.deb "$out"/xwayland-satellite-26.04/*.deb "$RUNNER_TEMP"/link/*.deb; do
+            name=$(basename "$deb")
+            cp "$deb" "apt/${name//:/.}"
+          done
+          cd apt
+          dpkg-scanpackages --multiversion . /dev/null > Packages
+          gzip -k9 Packages
+          apt-ftparchive release . > Release
+          echo "$RELEASE_GPG_KEY" | gpg --batch --import
+          gpg --batch --yes --clearsign -o InRelease Release
+          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apt
+          path: apt/
+
+  publish:
+    needs: [ubuntu]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          sparse-checkout: |
+            install.sh
+            andromeda-release.asc
+          sparse-checkout-cone-mode: false
+          path: src
+      - uses: actions/download-artifact@v4
+        with: { name: apt, path: apt }
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber apt/* src/install.sh src/andromeda-release.asc
