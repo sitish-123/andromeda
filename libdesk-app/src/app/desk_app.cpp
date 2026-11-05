@@ -95,6 +95,11 @@ int DeskApp::run(int argc, char* argv[]) {
 
   try {
     m_bus = std::make_unique<SessionBus>();
+    // The bus ends with the session: quit through the loop so the state is flushed.
+    m_bus->setDisconnectedCallback([this] {
+      kLog.warn("session bus lost; quitting");
+      m_loop.quit(0);
+    });
   } catch (const std::exception& e) {
     kLog.warn("no session bus ({}); single instance is off", e.what());
   }
