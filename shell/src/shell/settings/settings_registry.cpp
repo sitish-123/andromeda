@@ -156,7 +156,7 @@ namespace settings {
     return names;
   }
 
-  std::string normalizedSettingQuery(std::string_view query) { return StringUtils::toLower(query); }
+  std::string normalizedSettingQuery(std::string_view query) { return StringUtils::foldForSearch(query); }
 
   bool matchesNormalizedSettingQuery(const SettingEntry& entry, std::string_view normalizedQuery) {
     if (normalizedQuery.empty()) {

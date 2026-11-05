@@ -290,7 +290,7 @@ namespace settings {
           .path = std::move(path),
           .control = std::move(control),
           .advanced = advanced,
-          .searchText = StringUtils::toLower(searchText),
+          .searchText = StringUtils::foldForSearch(searchText),
       };
     }
 
