@@ -55,6 +55,13 @@ effective() {
 run "$RUNTIME/default-apps-set" "$MIMEAPPS" inode/directory other-files.desktop > /dev/null
 [[ $(effective) == other-files.desktop ]] || { echo "FAIL: the user's default does not win: '$(effective)'" >&2; exit 1; }
 echo "PASS effective default: desktop list over plain, uninstalled skipped, then the user's choice"
+# A pick wins even over the user's own andromeda-mimeapps.list, which is read before ~/.config/mimeapps.list.
+printf '[Default Applications]\ninode/directory=generic-files.desktop\n' > "$(dirname "$MIMEAPPS")/andromeda-mimeapps.list"
+[[ $(effective) == generic-files.desktop ]] || { echo "FAIL: the user's desktop list is not read first: '$(effective)'" >&2; exit 1; }
+picked=$(run env XDG_CURRENT_DESKTOP=andromeda XDG_CONFIG_DIRS="$RUNTIME/no-config-dirs" XDG_DATA_HOME="$RUNTIME/no-data-home" \
+  XDG_DATA_DIRS="$RUNTIME/system" "$RUNTIME/default-apps-set" --pick inode/directory other-files.desktop)
+[[ $picked == other-files.desktop ]] || { echo "FAIL: a pick loses to the user's desktop list: '$picked'" >&2; exit 1; }
+echo "PASS a pick wins over the user's desktop-specific list"
 
 with_noctalia '
   "$NOCTALIA" msg settings-open default-apps > /dev/null

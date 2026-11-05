@@ -65,6 +65,35 @@ namespace default_apps {
 
   std::vector<std::string> defaultIds(const std::filesystem::path& path, Category category);
 
+  namespace {
+    std::vector<std::string> currentDesktopPrefixes() {
+      std::vector<std::string> prefixes;
+      const char* value = std::getenv("XDG_CURRENT_DESKTOP");
+      std::string_view list = value != nullptr ? value : "";
+      while (!list.empty()) {
+        const std::size_t sep = list.find(':');
+        std::string desktop(list.substr(0, sep));
+        list = sep == std::string_view::npos ? std::string_view() : list.substr(sep + 1);
+        if (!desktop.empty()) {
+          std::ranges::transform(desktop, desktop.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+          prefixes.push_back(desktop + "-");
+        }
+      }
+      return prefixes;
+    }
+  } // namespace
+
+  bool setUserDefault(Category category, const std::string& desktopId) {
+    bool ok = setDefault(mimeAppsListPath(), category, desktopId);
+    for (const std::string& prefix : currentDesktopPrefixes()) {
+      const std::filesystem::path list = configHome() / (prefix + "mimeapps.list");
+      if (!currentDefault(list, category).empty()) {
+        ok = setDefault(list, category, desktopId) && ok;
+      }
+    }
+    return ok;
+  }
+
   std::string effectiveDefault(Category category) {
     const auto env = [](const char* name, std::string_view fallback) {
       const char* value = std::getenv(name);
@@ -94,11 +123,7 @@ namespace default_apps {
     for (const std::string& dir : split(env("XDG_DATA_DIRS", "/usr/local/share:/usr/share"))) {
       dirs.push_back(std::filesystem::path(dir) / "applications");
     }
-    std::vector<std::string> prefixes;
-    for (std::string desktop : split(env("XDG_CURRENT_DESKTOP", ""))) {
-      std::ranges::transform(desktop, desktop.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-      prefixes.push_back(desktop + "-");
-    }
+    std::vector<std::string> prefixes = currentDesktopPrefixes();
     prefixes.emplace_back();
     std::vector<std::filesystem::path> appDirs{std::filesystem::path(env("XDG_DATA_HOME", homeDir + "/.local/share")) / "applications"};
     for (const std::string& dir : split(env("XDG_DATA_DIRS", "/usr/local/share:/usr/share"))) {

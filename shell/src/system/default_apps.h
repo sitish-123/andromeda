@@ -40,6 +40,9 @@ namespace default_apps {
   // The default the desktop uses: the first entry over every mimeapps.list in XDG order (user, desktop-specific
   // such as /usr/share/applications/andromeda-mimeapps.list, system), as xdg-mime and GIO resolve it.
   [[nodiscard]] std::string effectiveDefault(Category category);
+  // The user's pick: written to ~/.config/mimeapps.list and to each ~/.config/<desktop>-mimeapps.list that sets the
+  // type, since those are read first; so the pick is what effectiveDefault() returns.
+  bool setUserDefault(Category category, const std::string& desktopId);
 
   // Desktop entries that either declare the category's MimeType or, failing that, fall back to its
   // main Categories= group (many file managers and terminals declare neither MimeType).

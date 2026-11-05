@@ -29,7 +29,7 @@ void SettingsWindow::addDefaultAppsContent(float scale) {
                             ) { return default_apps::effectiveDefault(category); },
           .setDefault =
               [this](default_apps::Category category, std::string desktopId) {
-                default_apps::setDefault(default_apps::mimeAppsListPath(), category, desktopId);
+                default_apps::setUserDefault(category, desktopId);
                 requestContentRebuild();
               },
       }
