@@ -11,7 +11,7 @@
 Andromeda is a complete Wayland desktop. The compositor, shell, apps and phone link are designed together, so every
 surface follows one design and feels like one system.
 
-> **Status:** early preview. There are no published packages yet.
+> **Status:** early preview. Expect rough edges, and keep another desktop installed.
 
 ## Highlights
 
@@ -34,24 +34,70 @@ a config file.
 **Battery that lasts.** Hidden apps can freeze in power saver, the focused app gets priority, and a battery page shows
 which apps use energy.
 
-## Try it
+## Install
 
-Andromeda runs on Arch Linux today. Ubuntu 26.04 support is in progress.
+Andromeda supports Arch Linux and Ubuntu 26.04 (x86_64). Each release publishes packages for both. The packages are
+not signed yet.
+
+Run this one command. It detects your system, adds the Andromeda repository and installs the desktop:
 
 ```sh
-git clone https://github.com/sitish-123/andromeda.git
+curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/install.sh | bash
+```
+
+To set it up by hand instead, follow the steps for your system.
+
+### Arch Linux
+
+Add the repository to `/etc/pacman.conf`:
+
+```ini
+[andromeda]
+SigLevel = Optional TrustAll
+Server = https://github.com/sitish-123/andromeda/releases/latest/download
+```
+
+Then install:
+
+```sh
+sudo pacman -Sy andromeda
+```
+
+### Ubuntu 26.04
+
+Add the repository, then install:
+
+```sh
+echo "deb [trusted=yes] https://github.com/sitish-123/andromeda/releases/latest/download ./" \
+  | sudo tee /etc/apt/sources.list.d/andromeda.list
+sudo apt update
+sudo apt install andromeda
+```
+
+### After installing
+
+Log out, choose **Andromeda** on the login screen, and log in. The first-run setup opens.
+
+To update, run `sudo pacman -Syu` on Arch or `sudo apt update && sudo apt upgrade` on Ubuntu.
+
+Optional: `andromeda-power-git` (Arch) or `andromeda-power` (Ubuntu) turns on extra laptop power saving (PCIe ASPM, USB autosuspend). It changes kernel
+defaults and can upset some USB devices, so it is not installed by default.
+
+## Build from source
+
+```sh
+git clone --recursive https://github.com/sitish-123/andromeda.git
 cd andromeda
 just build
 just dev-nested   # opens a test desktop in a window
 ```
 
-To install it as your session, run `just package` and install the packages from `pkg/`. Then pick **Andromeda** on
-the login screen.
+`just package` builds the Arch packages into `pkg/`. `tools/ubuntu-deb.sh` builds the Ubuntu packages in a container.
 
 ## Phone app
 
-Build the Android app from `link/apps/android` (Android 10 or later). Open the control center, go to Devices, press
-Pair, and scan the code. The app is not on Google Play, because it needs clipboard, storage and accessibility access
+Download `andromeda-link.apk` from the [latest release](https://github.com/sitish-123/andromeda/releases/latest) and
+install it on your phone (Android 10 or later). Open the control center, go to Devices, press Pair, and scan the code. The app is not on Google Play, because it needs clipboard, storage and accessibility access
 that Play does not allow.
 
 ## Contributing

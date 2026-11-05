@@ -1,4 +1,4 @@
-# A tag v* builds the Arch packages and the signed Android app, and publishes them as a GitHub release. The release's
+# A tag v* builds the Arch packages, the Ubuntu packages and the signed Android app, and publishes them as a GitHub release. The release's
 # assets are also a pacman repository: pacman.conf points at releases/latest/download (see README.md).
 name: release
 
@@ -46,6 +46,45 @@ jobs:
           name: repo
           path: repo/
 
+  # The same scripts as a local Ubuntu build: debs from debian/ in an ubuntu:26.04 container, checked by installing them.
+  # The release assets are also a flat apt repository: sources.list points at releases/latest/download (see README.md).
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      # The scripts default to 6 CPUs; docker refuses more than the runner has.
+      - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: xwayland-satellite
+        run: tools/deb-xwayland-satellite.sh 26.04
+      - name: Packages
+        run: tools/ubuntu-deb.sh --clean 26.04
+      - name: Link
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list -R sitish-123/andromeda-link -L 1 --json tagName --jq '.[0].tagName')
+          gh release download "$tag" -R sitish-123/andromeda-link -p '*_amd64.deb' -D "$RUNNER_TEMP/link"
+      - name: Repository
+        run: |
+          sudo apt-get install -y -qq dpkg-dev apt-utils > /dev/null
+          out=$HOME/.cache/andromeda-ubuntu
+          mkdir apt
+          # GitHub rewrites ':' in asset names; Packages must list the names the assets really get.
+          for deb in "$out"/deb-26.04/*.deb "$out"/xwayland-satellite-26.04/*.deb "$RUNNER_TEMP"/link/*.deb; do
+            name=$(basename "$deb")
+            cp "$deb" "apt/${name//:/.}"
+          done
+          cd apt
+          dpkg-scanpackages --multiversion . /dev/null > Packages
+          gzip -k9 Packages
+          apt-ftparchive release . > Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apt
+          path: apt/
+
   android:
     runs-on: ubuntu-latest
     steps:
@@ -83,12 +122,17 @@ jobs:
           path: andromeda-link.apk
 
   release:
-    needs: [packages, android]
+    needs: [packages, ubuntu, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: install.sh
+          sparse-checkout-cone-mode: false
+          path: src
       - uses: actions/download-artifact@v4
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* android/andromeda-link.apk
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* apt/* android/andromeda-link.apk src/install.sh
