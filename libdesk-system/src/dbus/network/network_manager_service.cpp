@@ -2556,8 +2556,23 @@ void NetworkManagerService::rebindActiveAccessPoint(const std::string& apPath) {
           }
           if (changedProperties.contains("Ssid")) {
             refresh();
-          } else if (changedProperties.contains("Strength")) {
-            runRefresh(false);
+          } else if (auto it = changedProperties.find("Strength"); it != changedProperties.end() && m_hasStateSnapshot) {
+            // The signal carries the value: a full refresh here re-read every access point on each strength step.
+            std::uint8_t strength = 0;
+            try {
+              strength = it->second.get<std::uint8_t>();
+            } catch (const sdbus::Error&) {
+              return;
+            }
+            for (auto& ap : m_accessPoints) {
+              if (ap.path == m_activeApPath) {
+                ap.strength = strength;
+              }
+            }
+            m_state.signalStrength = strength;
+            if (m_changeCallback) {
+              m_changeCallback(m_state, NetworkChangeOrigin::External);
+            }
           }
         });
   } catch (const sdbus::Error& e) {
