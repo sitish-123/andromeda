@@ -123,6 +123,9 @@ namespace andromeda {
 
     // Overview state (vertical 4-finger): swipe up opens, swipe down closes.
     bool m_overviewWasOpen = false;
+    // A 4-finger pinch drives the overview: the scale it last reported, against the 1.0 it began at.
+    bool m_overviewPinch = false;
+    double m_pinchScale = 1.0;
     SwipeTracker m_overviewTracker;
 
     wl_listener m_swipeBegin{};

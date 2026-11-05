@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "input/cursor.h"
 #include "input/input_capture.h"
+#include "overview/overview.h"
 #include "layer/layer_surface.h"
 #include "output/identity.h"
 #include "output/output.h"
@@ -1267,6 +1268,40 @@ namespace andromeda {
   }
 
 #ifdef ANDROMEDA_TEST_IPC
+  nlohmann::json IpcCommands::pinchForTest(Server& server, std::string_view arg) {
+    std::istringstream input{std::string(arg)};
+    std::string phase;
+    uint32_t time = 0;
+    double value = 0;
+    input >> phase >> time >> value;
+    std::string extra;
+    if (input.fail() || (input >> extra) || !std::isfinite(value)
+        || (phase != "begin" && phase != "update" && phase != "end")) {
+      return nlohmann::json{{"err", "expected begin <ms> <fingers>, update <ms> <scale>, or end <ms> <cancelled:0|1>"}};
+    }
+    wlr_cursor* cursor = server.cursor()->wlr();
+    if (phase == "begin") {
+      wlr_pointer_pinch_begin_event event{
+          .pointer = nullptr, .time_msec = time, .fingers = static_cast<uint32_t>(value)
+      };
+      wl_signal_emit_mutable(&cursor->events.pinch_begin, &event);
+    } else if (phase == "update") {
+      wlr_pointer_pinch_update_event event{
+          .pointer = nullptr, .time_msec = time, .fingers = 4, .dx = 0, .dy = 0, .scale = value, .rotation = 0
+      };
+      wl_signal_emit_mutable(&cursor->events.pinch_update, &event);
+    } else {
+      wlr_pointer_pinch_end_event event{.pointer = nullptr, .time_msec = time, .cancelled = value != 0};
+      wl_signal_emit_mutable(&cursor->events.pinch_end, &event);
+    }
+    const Overview* overview = server.overview();
+    return nlohmann::json{
+        {"ok",
+         {{"active", overview != nullptr && overview->active()},
+          {"progress", overview != nullptr ? overview->progress() : 0.0}}}
+    };
+  }
+
   nlohmann::json IpcCommands::swipeForTest(Server& server, std::string_view arg) {
     std::istringstream input{std::string(arg)};
     std::string phase;
@@ -1469,6 +1504,8 @@ namespace andromeda {
        IpcCommandGroup::Harness, false, &IpcCommands::clockResume, nullptr},
       {"swipe-test", "<begin|update|end> <ms> [dx dy|cancelled]", "inject three-finger swipe events (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::swipeForTest, nullptr},
+      {"pinch-test", "<begin|update|end> <ms> <fingers|scale|cancelled>", "inject pinch events (harness only)",
+       IpcCommandGroup::Harness, true, &IpcCommands::pinchForTest, nullptr},
       {"animation-capture-fail", "<on|off>", "inject animation capture failure (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::animationCaptureFail, nullptr},
       {"blur-composite-split", "<on|off>",

@@ -60,6 +60,8 @@ namespace andromeda {
 
     // Open, opening, or zooming back in.
     [[nodiscard]] bool active() const { return m_active; }
+    // 0 closed .. 1 open, as drawn this frame (gesture-driven or animating).
+    [[nodiscard]] double progress() const { return m_progress; }
     // Open and not already zooming back in: pointer/keyboard edits still apply. The IPC `overview` event reports this
     // as `open`, so clients drop overview-scoped surfaces while the windows are still hidden.
     [[nodiscard]] bool interactive() const { return m_active && !m_closing; }
