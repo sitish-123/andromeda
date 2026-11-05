@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+# Ubuntu packages. Build and install steps live in pkg/deb-build.sh, which reuses the PKGBUILD's package_*() functions.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_configure override_dh_auto_test:
+
+override_dh_auto_build:
+	pkg/deb-build.sh build
+
+override_dh_auto_install:
+	pkg/deb-build.sh install

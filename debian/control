@@ -1,0 +1,55 @@
+Source: andromeda
+Section: x11
+Priority: optional
+Maintainer: sitish <sitish@akintechnologies.com>
+Build-Depends: debhelper-compat (= 13), git, ca-certificates, glslang-tools, libvulkan-dev, liblcms2-dev, g++, meson, ninja-build, pkgconf, cmake, python3, cargo, rustc, libwayland-dev, wayland-protocols, libxkbcommon-dev, libinput-dev, libeis-dev, libpixman-1-dev, libdrm-dev, libdisplay-info-dev, libgbm-dev, libegl-dev, libgles-dev, libepoxy-dev, libudev-dev, libsystemd-dev, libseat-dev, hwdata, libliftoff-dev, xwayland, libxcb1-dev, libxcb-ewmh-dev, libxcb-icccm4-dev, libxcb-render0-dev, libxcb-shape0-dev, libxcb-composite0-dev, libxcb-res0-dev, libxcb-xfixes0-dev, libxcb-dri3-dev, libxcb-present-dev, libxcb-shm0-dev, libxcb-xinput-dev, libxcb-errors-dev, libxcb-render-util0-dev, libjemalloc-dev, libcairo2-dev, libpango1.0-dev, libfreetype-dev, libfontconfig-dev, libharfbuzz-dev, librsvg2-dev, libglib2.0-dev, libgtk-4-dev, libsdbus-c++-dev, libpipewire-0.3-dev, libwireplumber-0.5-dev, libgstreamer1.0-dev, libgstreamer-plugins-base1.0-dev, libavformat-dev, libavutil-dev, libcurl4-gnutls-dev, libstb-dev, libical-dev, libjxl-dev, libqalculate-dev, libqrencode-dev, libsecret-1-dev, libsodium-dev, libwebp-dev, libxml2-dev, libzip-dev, libmd4c-dev, libmpv-dev, nlohmann-json3-dev, libpolkit-agent-1-dev, libpolkit-gobject-1-dev, libpoppler-glib-dev, libsndfile1-dev, libsqlite3-dev, libtag-dev, libtomlplusplus-dev, libexiv2-dev, libcrypt-dev, libglycin-2-dev, libpam0g-dev, libdbus-1-dev, libssl-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/sitish-123/andromeda
+Rules-Requires-Root: no
+
+Package: andromeda
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-compositor (= ${binary:Version}),
+ noctalia-desktop (= ${binary:Version}), xdg-desktop-portal-andromeda (= ${binary:Version}),
+ noctalia-greeter-desktop (= ${binary:Version}), andromeda-system (= ${binary:Version}), andromeda-link,
+ gnome-keyring, libpam-gnome-keyring, scrcpy, adb, gstreamer1.0-plugins-bad, gstreamer1.0-libav,
+ pipewire-pulse, mpv, ffmpeg, glycin-loaders
+Suggests: andromeda-power
+Conflicts: gnome-sushi
+Description: Andromeda desktop
+ The Andromeda compositor, Noctalia shell, portal, greeter, system services and apps.
+
+Package: andromeda-compositor
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, libcap2-bin, xwayland-satellite
+Description: Andromeda Wayland compositor
+
+Package: noctalia-desktop
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, hicolor-icon-theme, git, curl, gstreamer1.0-plugins-base,
+ gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-pipewire, andromeda-system (= ${binary:Version})
+Suggests: ddcutil
+Description: Noctalia desktop shell for Andromeda
+
+Package: xdg-desktop-portal-andromeda
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, xdg-desktop-portal
+Description: xdg-desktop-portal backend for Andromeda
+
+Package: andromeda-system
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, dbus, polkitd, upower, power-profiles-daemon
+Suggests: network-manager, flatpak, fwupd, snapper
+Description: Andromeda system services
+ org.andromeda.System1, Software Update (apt, snaps, Flatpak, firmware) and file operations.
+
+Package: andromeda-power
+Architecture: all
+Depends: ${misc:Depends}, systemd
+Description: Andromeda static kernel power policy
+ PCIe ASPM, runtime PM, USB autosuspend and HDA power save.
+
+Package: noctalia-greeter-desktop
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, greetd
+Description: Andromeda login greeter for greetd

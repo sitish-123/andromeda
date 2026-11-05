@@ -1,0 +1,8 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: andromeda
+Source: https://github.com/sitish-123/andromeda
+
+Files: *
+Copyright: sitish
+License: MIT
+ See LICENSE in the source.

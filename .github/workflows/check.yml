@@ -1,5 +1,5 @@
 # Every push to main: Link's gate and its network E2E tests, and the whole desktop built with the compositor's tests,
-# in an Arch container with the same dependencies the packages use. Other branches and pull requests are checked
+# in an Arch container with the same dependencies the packages use, and in Ubuntu 26.04 with its debs installed. Other branches and pull requests are checked
 # locally (CONTRIBUTING.md); a newer push to main cancels the run before it.
 name: check
 
@@ -74,3 +74,32 @@ jobs:
       - name: Compositor tests
         working-directory: compositor
         run: just test
+
+  # docs/ubuntu-port.md 4: the same build on Ubuntu 26.04, the apt update backend's tests, and the debs installed with
+  # apt. The tools/ scripts run their own containers, so the job runs on the host.
+  desktop-ubuntu:
+    runs-on: ubuntu-latest
+    env:
+      UBUNTU_BUILD_CPUS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: tools/ubuntu-build.sh 26.04
+      - name: Apt update backend
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/system:/src" -w /src \
+            andromeda-build:ubuntu-26.04 bash -c 'for crate in andromeda-update andromeda-update-helper; do
+              cargo clippy -p "$crate" --no-default-features --features apt --all-targets -- -D warnings &&
+              cargo test -p "$crate" --no-default-features --features apt || exit 1; done'
+      - name: Apt update backend against a local repo
+        run: tests/ubuntu/apt_update.sh 26.04
+      - name: Packages
+        run: |
+          tools/deb-xwayland-satellite.sh 26.04
+          tools/ubuntu-deb.sh 26.04
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ubuntu-26.04-logs
+          path: |
+            ~/.cache/andromeda-ubuntu/*/*.log

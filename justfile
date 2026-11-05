@@ -62,6 +62,10 @@ e2e-failed:
 e2e-one name:
     just e2e-run tests/e2e/{{name}}.sh
 
+# Unit suites and headless E2E in an Ubuntu container, on the working tree: `just e2e-ubuntu` or `just e2e-ubuntu 26.04 dock_basic`.
+e2e-ubuntu version="26.04" *names:
+    tools/ubuntu-e2e.sh {{version}} {{names}}
+
 [private]
 e2e-run +scripts:
     #!/usr/bin/env bash
