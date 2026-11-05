@@ -117,6 +117,9 @@ namespace settings {
       if (verb == "activity-open") {
         return "Activity";
       }
+      if (verb == "default-app-open") {
+        return rest == "files" ? "Files" : humanize(rest);
+      }
       std::string title = humanize(verb);
       if (!rest.empty() && verb == "media") {
         title += " " + std::string(rest);
@@ -125,6 +128,9 @@ namespace settings {
     }
 
     std::string_view shellCategory(std::string_view command, std::string_view chord) {
+      if (command.starts_with("default-app-open")) {
+        return "apps";
+      }
       if (command.starts_with("screenshot") || command.starts_with("screen-record") || command.starts_with("annotate")) {
         return "screenshots";
       }

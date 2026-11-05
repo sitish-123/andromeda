@@ -158,10 +158,10 @@ numlock_toggle = true
 [keybinds]
 
 # Applications and session
-# The first installed terminal: the package depends on none.
-"Mod+Return" = { action = "spawn:sh -c 'for t in foot kitty ghostty alacritty konsole gnome-terminal xterm; do command -v $t >/dev/null && exec $t; done'", repeat = false }
-"Ctrl+Alt+T" = { action = "spawn:sh -c 'for t in foot kitty ghostty alacritty konsole gnome-terminal xterm; do command -v $t >/dev/null && exec $t; done'", repeat = false }
-"Mod+E" = { action = "spawn:andromeda-files", repeat = false }
+# Terminal and Files open the apps set in Settings > Default Apps.
+"Mod+Return" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
+"Ctrl+Alt+T" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
+"Mod+E" = { action = "spawn:noctalia msg default-app-open files", repeat = false }
 "Mod" = "shell:panel-toggle launcher"
 "Mod+Space" = { action = "shell:panel-toggle launcher", repeat = false }
 "Mod+Period" = { action = "shell:panel-toggle launcher /emo", repeat = false }
