@@ -127,9 +127,9 @@ namespace andromeda {
     if (m_lockFileManaged) {
       const std::string path = lockFilePath();
       mkdir(path.substr(0, path.rfind('/')).c_str(), 0700);
-      if (const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
-        close(fd);
-      } else {
+      // Holds the logind session ID: only a restart inside the same login stays locked.
+      std::ofstream file(path, std::ios::trunc);
+      if (!(file << (std::getenv("XDG_SESSION_ID") ?: ""))) {
         kLog.error("cannot write the lock file {}: {}", path, std::strerror(errno));
       }
     }

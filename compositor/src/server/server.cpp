@@ -1466,8 +1466,15 @@ namespace andromeda {
         close(fd);
       }
     }
-    if (m_lockFileManaged && access(lockFilePath().c_str(), F_OK) == 0) {
-      enterRestartLock();
+    if (std::ifstream file(lockFilePath()); m_lockFileManaged && file) {
+      // A new login authenticated at the greeter; a lock file from an earlier login is stale.
+      std::string session;
+      std::getline(file, session);
+      if (session.empty() || session == (std::getenv("XDG_SESSION_ID") ?: "")) {
+        enterRestartLock();
+      } else {
+        unlink(lockFilePath().c_str());
+      }
     }
     if (const std::optional<std::string> name = adoptListenSocket(m_display)) {
       if (name->empty()) {

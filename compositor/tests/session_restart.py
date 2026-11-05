@@ -254,6 +254,14 @@ def main(binary, mode):
                     await_notify(notify, b"READY=1", 10)
                     assert processes[2].wait(timeout=6) == 0, "the restart lock did not end the session cleanly"
                     assert not lock_file.exists(), "the escape left the lock file"
+
+                    # A lock file from another login (a different XDG_SESSION_ID) does not lock a new login.
+                    lock_file.write_text("another-login")
+                    processes.append(start(log))
+                    await_notify(notify, b"READY=1", 10)
+                    time.sleep(1.5)
+                    assert processes[3].poll() is None, "a stale lock file from another login locked the new session"
+                    assert not lock_file.exists(), "the stale lock file stayed"
             except BaseException:
                 log.seek(0)
                 print(log.read()[-6000:], file=sys.stderr)
