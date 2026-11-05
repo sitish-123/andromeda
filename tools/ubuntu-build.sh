@@ -10,7 +10,7 @@ OUT=${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-ubuntu/build-$VERSION
 IMAGE=andromeda-build:ubuntu-$VERSION
 mkdir -p "$OUT"
 rm -rf "$OUT/src"
-mkdir -p "$OUT/src"
+mkdir -p "$OUT/src" "$OUT/ccache" "$OUT/cargo" "$OUT/target"
 git -C "$ROOT" archive HEAD | tar -x -C "$OUT/src"
 for f in "$@"; do
   mkdir -p "$OUT/src/$(dirname "$f")"
@@ -21,7 +21,7 @@ docker build -q -t "$IMAGE" - > /dev/null <<EOF
 FROM ubuntu:$VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-  build-essential g++ glslang-tools libvulkan-dev liblcms2-dev meson ninja-build pkgconf cmake git ca-certificates curl python3 just cargo rustc \
+  build-essential ccache g++ glslang-tools libvulkan-dev liblcms2-dev meson ninja-build pkgconf cmake git ca-certificates curl python3 just cargo rustc \
   libwayland-dev wayland-protocols libxkbcommon-dev libinput-dev libeis-dev libpixman-1-dev libdrm-dev \
   libdisplay-info-dev libgbm-dev libegl-dev libgles-dev libepoxy-dev libudev-dev libsystemd-dev libseat-dev \
   hwdata libliftoff-dev xwayland libxcb1-dev libxcb-ewmh-dev libxcb-icccm4-dev libxcb-render0-dev libxcb-shape0-dev \
@@ -39,7 +39,8 @@ failed=0
 run() {
   local name=$1
   shift
-  if docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT/src:/src" -w /src "$IMAGE" bash -c "$*" > "$OUT/$name.log" 2>&1; then
+  if docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT/src:/src" -w /src \
+    -v "$OUT/ccache:/ccache" -e CCACHE_DIR=/ccache -v "$OUT/cargo:/tmp/.cargo" -v "$OUT/target:/target" -e CARGO_TARGET_DIR=/target "$IMAGE" bash -c "$*" > "$OUT/$name.log" 2>&1; then
     echo "PASS $name"
   else
     failed=1
