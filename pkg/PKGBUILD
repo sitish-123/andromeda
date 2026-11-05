@@ -3,7 +3,7 @@ pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-por
   andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r15087.g21531bb50
+pkgver=r15092.g97b24da9d
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -177,6 +177,8 @@ package_andromeda-compositor-git() {
     "$pkgdir/usr/lib/systemd/user/app.slice.d/andromeda-qos.conf"
   install -Dm644 desktop/session/memory/user-service.conf \
     "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-ui-memory.conf"
+  install -Dm644 desktop/session/memory/user-delegate.conf \
+    "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-delegate.conf"
   for slice in user.slice user-.slice; do
     install -Dm644 desktop/session/memory/user-system.slice.conf \
       "$pkgdir/usr/lib/systemd/system/$slice.d/andromeda-ui-memory.conf"
