@@ -37,7 +37,11 @@ prepare() {
 build() {
   # The host makepkg.conf (CachyOS) sets -march=native; packages must run on any x86-64 CPU.
   CFLAGS="${CFLAGS//-march=native/-march=x86-64 -mtune=generic}" CXXFLAGS="${CXXFLAGS//-march=native/-march=x86-64 -mtune=generic}"
-  arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true
+  # The wlroots and libliftoff wraps carry our patches (compositor/subprojects/packagefiles); libliftoff links into
+  # the private libwlroots. --wrap-mode overrides arch-meson's nodownload.
+  arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
+    --wrap-mode=default --force-fallback-for=wlroots-0.20,libliftoff \
+    -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false
   arch-meson desktop/shell build-shell -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true -Dlibdesk-ui:dev_tokens=false
   arch-meson desktop/portal build-portal -Dcpp_std=c++23
   arch-meson desktop/greeter build-greeter -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
@@ -153,6 +157,11 @@ package_andromeda-compositor-git() {
   conflicts=(andromeda-compositor umbriel umbriel-desktop-git)
   replaces=(umbriel-desktop-git)
   meson install -C build-compositor --destdir "$pkgdir"
+  # Only the wrap's library ships, in the compositor's private RUNPATH (compositor/meson.build).
+  mkdir -p "$pkgdir/usr/lib/andromeda"
+  mv "$pkgdir"/usr/lib/libwlroots-0.20.so* "$pkgdir/usr/lib/andromeda/"
+  rm -r "$pkgdir/usr/include/wlroots-0.20" "$pkgdir/usr/lib/pkgconfig/wlroots-0.20.pc"
+  rm -f "$pkgdir/usr/include/libliftoff.h" "$pkgdir/usr/lib/libliftoff.a" "$pkgdir/usr/lib/pkgconfig/libliftoff.pc"
   install -Dm644 desktop/session/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf \
     "$pkgdir/usr/lib/systemd/user/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf"
   for unit in 'app-blueman@autostart.service' 'app-nm\x2dapplet@autostart.service'; do

@@ -1,0 +1,9 @@
+[wrap-git]
+url = https://gitlab.freedesktop.org/emersion/libliftoff.git
+revision = v0.5.0
+depth = 1
+# Leaves a plane out of a commit when its layer did not change since the last real commit (the cursor plane).
+diff_files = libliftoff-skip-unchanged-planes.patch
+
+[provide]
+dependency_names = libliftoff

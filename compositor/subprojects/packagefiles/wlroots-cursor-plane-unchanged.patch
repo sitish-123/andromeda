@@ -1,0 +1,72 @@
+diff --git a/backend/drm/atomic.c b/backend/drm/atomic.c
+index faa535d..d2a6a2a 100644
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -475,6 +475,14 @@ static void set_plane_props(struct atomic *atom, struct wlr_drm_backend *drm,
+ 	atomic_add(atom, id, props->crtc_h, dst_box->height);
+ }
+ 
++static bool cursor_plane_unchanged(const struct wlr_drm_connector *conn, bool modeset) {
++	return !modeset && conn->cursor_committed && conn->cursor_pending_fb == NULL &&
++		conn->cursor_x == conn->cursor_committed_x &&
++		conn->cursor_y == conn->cursor_committed_y &&
++		conn->cursor_hotspot_x == conn->cursor_committed_hotspot_x &&
++		conn->cursor_hotspot_y == conn->cursor_committed_hotspot_y;
++}
++
+ static bool supports_cursor_hotspots(const struct wlr_drm_plane *plane) {
+ 	return plane->props.hotspot_x && plane->props.hotspot_y;
+ }
+@@ -535,7 +543,10 @@ static void atomic_connector_add(struct atomic *atom,
+ 		if (state->primary_in_fence_fd >= 0) {
+ 			set_plane_in_fence_fd(atom, crtc->primary, state->primary_in_fence_fd);
+ 		}
+-		if (crtc->cursor) {
++		if (crtc->cursor && cursor_plane_unchanged(conn, modeset) &&
++				drm_connector_is_cursor_visible(conn)) {
++			// The plane already shows this cursor: leave it out of the commit.
++		} else if (crtc->cursor) {
+ 			if (drm_connector_is_cursor_visible(conn)) {
+ 				struct wlr_fbox cursor_src = {
+ 					.width = state->cursor_fb->wlr_buf->width,
+diff --git a/backend/drm/drm.c b/backend/drm/drm.c
+index bd29872..5844161 100644
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -582,6 +582,12 @@ static void drm_connector_apply_commit(const struct wlr_drm_connector_state *sta
+ 	if (crtc->cursor != NULL) {
+ 		drm_fb_copy(&crtc->cursor->queued_fb, state->cursor_fb);
+ 	}
++	conn->cursor_committed = state->active && crtc->cursor != NULL &&
++		drm_connector_is_cursor_visible(conn);
++	conn->cursor_committed_x = conn->cursor_x;
++	conn->cursor_committed_y = conn->cursor_y;
++	conn->cursor_committed_hotspot_x = conn->cursor_hotspot_x;
++	conn->cursor_committed_hotspot_y = conn->cursor_hotspot_y;
+ 	drm_fb_clear(&conn->cursor_pending_fb);
+ 
+ 	struct wlr_drm_layer *layer;
+@@ -601,6 +607,7 @@ static void drm_connector_apply_commit(const struct wlr_drm_connector_state *sta
+ 		drm_fb_clear(&conn->cursor_pending_fb);
+ 
+ 		conn->cursor_enabled = false;
++		conn->cursor_committed = false;
+ 		conn->crtc = NULL;
+ 
+ 		// Legacy uAPI doesn't support requesting page-flip events when
+diff --git a/include/backend/drm/drm.h b/include/backend/drm/drm.h
+index a8c5e07..5ebccbf 100644
+--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -212,6 +212,11 @@ struct wlr_drm_connector {
+ 	int cursor_hotspot_x, cursor_hotspot_y;
+ 	/* Buffer to be submitted to the kernel on the next page-flip */
+ 	struct wlr_drm_fb *cursor_pending_fb;
++	/* Cursor plane state of the last applied commit: an unchanged cursor stays
++	 * out of the next atomic commit, so the kernel does not re-arm its plane. */
++	bool cursor_committed;
++	int cursor_committed_x, cursor_committed_y;
++	int cursor_committed_hotspot_x, cursor_committed_hotspot_y;
+ 
+ 	struct wl_list link; // wlr_drm_backend.connectors
+ 
