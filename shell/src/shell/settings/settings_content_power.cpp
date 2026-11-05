@@ -670,7 +670,7 @@ namespace settings {
       std::ifstream in(screenActivityPath());
       std::stringstream text;
       text << in.rdbuf();
-      log.parse(text.str());
+      log.parseLive(text.str());
       return log;
     }
 

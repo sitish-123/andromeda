@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/main_loop_worker.h"
 #include "core/package_energy.h"
 #include "protocols/app_energy_log.h"
 #include "protocols/screen_activity_log.h"
@@ -35,6 +36,8 @@ namespace andromeda {
   private:
     static int onIdleCheck(void* data);
     void write(bool force);
+    void writeLog(std::int64_t now);
+    // Scans every user process's fds (~19 ms for 100 processes) on m_worker, then books and writes on the loop.
     void bookGpu(std::int64_t now);
     // Books a suspend that ended before `now`: CLOCK_BOOTTIME runs on in suspend, CLOCK_MONOTONIC does not.
     void checkSleep(std::int64_t now);
@@ -53,6 +56,9 @@ namespace andromeda {
     bool m_reportedIdle = false;
     std::function<void(bool)> m_idleListener;
     bool m_timerArmed = false;
+    bool m_gpuScanBusy = false;
+    bool m_closing = false; // the destructor books the GPU synchronously: no loop runs after it
+    MainLoopWorker m_worker; // last: joined before the logs its results book into go away
   };
 
 } // namespace andromeda
