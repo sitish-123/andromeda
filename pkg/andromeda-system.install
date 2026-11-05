@@ -1,0 +1,8 @@
+# Migrations already shipped describe changes a new install has; record them as done before the pacman hook runs.
+post_install() {
+  /usr/lib/andromeda/andromeda-update-helper --seed-migrations
+}
+
+post_upgrade() {
+  post_install
+}
