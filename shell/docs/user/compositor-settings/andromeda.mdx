@@ -110,18 +110,12 @@ Noctalia tracks Andromeda's minimise state in the [taskbar](/noctalia/bar/widget
 
 Use an Andromeda build that includes both boolean fields `minimized` and `minimizable` in its window IPC snapshots. If those fields are missing or invalid, or the IPC connection is unavailable, minimise state and controls remain unavailable. Missing or invalid fields are reported in Noctalia's logs; update Andromeda when using an older build.
 
-## Optional Type to Launch
+## Typing in the Overview
 
-Noctalia can open its launcher when you start typing in andromeda's overview.
+Typing in andromeda's overview filters its windows by title and app id. Press Enter to open the selected match. When
+nothing matches, Enter opens the launcher with your text already typed in.
 
-A launcher opened by typing closes automatically when you leave the overview. Launchers opened normally are unaffected.
-
-```toml
-[shell]
-andromeda_overview_type_to_launch_enabled = true
-```
-
-You can also enable this from **Settings → Windows → Windows → Overview**.
+`andromeda_overview_type_to_launch_enabled` no longer does anything and can be removed.
 
 ## Optional Close on Launch
 

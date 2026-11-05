@@ -3561,10 +3561,6 @@
           "description": "Chiudi la panoramica quando un'app viene avviata dal launcher mentre la panoramica di Andromeda è aperta.",
           "label": "Chiudi al lancio"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Apri il launcher mentre digiti in nella Overview di Andromeda; utilizza una piccola area di focus della tastiera mentre l'Overview è aperta",
-          "label": "Digita per avviare"
-        },
         "window-switcher-current-workspace-only": {
           "description": "Elenca solo le finestre dell'area di lavoro attiva; disattiva questa opzione per includere le finestre di tutte le aree di lavoro",
           "label": "Solo l'area di lavoro corrente"

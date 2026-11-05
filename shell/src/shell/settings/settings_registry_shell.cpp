@@ -584,13 +584,6 @@ namespace settings {
           {"shell", "andromeda_audio_provider_enabled"}, ToggleSetting{cfg.shell.andromedaAudioProviderEnabled},
           "andromeda audio spectrum shader effects provider"
       ));
-      entries.push_back(makeEntry(
-          SettingsSection::Overview, "overview", tr("settings.schema.shell.andromeda-overview-type-to-launch.label"),
-          tr("settings.schema.shell.andromeda-overview-type-to-launch.description"),
-          {"shell", "andromeda_overview_type_to_launch_enabled"},
-          ToggleSetting{cfg.shell.andromedaOverviewTypeToLaunchEnabled},
-          "andromeda overview type launch launcher search keyboard focus"
-      ));
     }
     if (env.andromedaOverviewCloseOnLaunchSupported) {
       entries.push_back(makeEntry(

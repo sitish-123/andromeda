@@ -158,10 +158,7 @@ namespace {
   constexpr Logger kLog("app");
 
   [[nodiscard]] bool overviewTypeToLaunchEnabled(const ConfigService& configService) {
-    if (compositors::isAndromeda()) {
-      return configService.config().shell.andromedaOverviewTypeToLaunchEnabled;
-    }
-
+    // Andromeda's overview filters its windows as you type and hands an unmatched query to the launcher itself.
     if (compositors::isNiri()) {
       return configService.config().shell.niriOverviewTypeToLaunchEnabled;
     }

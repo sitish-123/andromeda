@@ -3629,10 +3629,6 @@
           "description": "Închide prezentarea generală când o aplicație este lansată din lansator în timp ce prezentarea generală andromeda este deschisă",
           "label": "Închide la lansare"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Deschide lansatorul când tastezi în prezentarea generală andromeda; folosește o mică suprafață de focalizare a tastaturii cât timp prezentarea generală este deschisă",
-          "label": "Tastează pentru a lansa"
-        },
         "window-switcher-current-workspace-only": {
           "description": "Listează doar ferestrele din spațiul de lucru activ; dezactivează pentru a include ferestrele din toate spațiile de lucru",
           "label": "Doar spațiul de lucru curent"

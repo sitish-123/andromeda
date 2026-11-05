@@ -4676,10 +4676,6 @@
           "description": "Close the overview when an app launches from the launcher while the andromeda overview is open",
           "label": "Close on Launch"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Open the launcher when typing in andromeda overview; uses a tiny keyboard-focus surface while overview is open",
-          "label": "Type to Launch"
-        },
         "window-switcher-current-workspace-only": {
           "description": "List only windows on the active workspace; turn off to include windows from every workspace",
           "label": "Current Workspace Only"
