@@ -12,6 +12,10 @@ pub const OP_INFO: u32 = 1;
 /// a = page index, b = target width in pixels, c = max height in pixels.
 pub const OP_RENDER: u32 = 2;
 pub const OP_TEXT: u32 = 3;
+/// Next video frame. Reply `OP_FRAME` or `OP_END`.
+pub const OP_FRAME: u32 = 4;
+/// a = frame id: the window no longer shows that frame, so its buffer can be reused.
+pub const OP_RELEASE: u32 = 5;
 
 /// a = kind (KIND_*), b = page count, c/d = first page size in 1/100 pt.
 pub const OP_INFO_REPLY: u32 = 0x81;
@@ -19,20 +23,35 @@ pub const OP_INFO_REPLY: u32 = 0x81;
 pub const OP_PAGE: u32 = 0x82;
 /// a = byte length, b = 1 when cut at the size limit; fd = UTF-8 text.
 pub const OP_TEXT_REPLY: u32 = 0x83;
+/// a = width, b = height, c = DRM fourcc, d = plane count, e = frame id. Payload: u64 modifier, u64 pts in ns,
+/// then per plane u32 fd index, u32 offset, u32 stride. One fd per distinct buffer (dmabuf or sealed memfd).
+pub const OP_FRAME_REPLY: u32 = 0x84;
+/// End of stream.
+pub const OP_END: u32 = 0x85;
 /// a = ERR_*.
 pub const OP_ERROR: u32 = 0xff;
 
 pub const KIND_TEXT: u32 = 1;
 pub const KIND_PDF: u32 = 2;
+/// Info reply for media: b = width, c = height, d = duration in ms, e = FLAG_* bits.
+pub const KIND_MEDIA: u32 = 3;
+pub const FLAG_VIDEO: u32 = 1;
+pub const FLAG_AUDIO: u32 = 2;
+/// Set when frames come as dmabufs from a hardware decoder.
+pub const FLAG_HW_DECODE: u32 = 4;
 
 pub const ERR_BAD_REQUEST: u32 = 1;
 pub const ERR_DECODE: u32 = 2;
 pub const ERR_RANGE: u32 = 3;
 pub const ERR_TOO_LARGE: u32 = 4;
 pub const ERR_BINARY: u32 = 5;
+/// The window holds too many frames: release some first.
+pub const ERR_BUSY: u32 = 6;
 
 pub const WORDS: usize = 6;
 pub const SIZE: usize = WORDS * 4;
+pub const MAX_PAYLOAD: usize = 256;
+pub const MAX_FDS: usize = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Msg {
@@ -76,15 +95,22 @@ impl Msg {
 /// # Errors
 /// The socket error.
 pub fn send(sock: BorrowedFd<'_>, msg: &Msg, fd: Option<BorrowedFd<'_>>) -> std::io::Result<()> {
+    send_with(sock, msg, &[], fd.as_slice())
+}
+
+/// Sends one message with a payload after the header and up to `MAX_FDS` fds.
+///
+/// # Errors
+/// The socket error.
+pub fn send_with(sock: BorrowedFd<'_>, msg: &Msg, payload: &[u8], fds: &[BorrowedFd<'_>]) -> std::io::Result<()> {
+    debug_assert!(payload.len() <= MAX_PAYLOAD && fds.len() <= MAX_FDS);
     let bytes = msg.encode();
-    let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+    let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(MAX_FDS))];
     let mut control = SendAncillaryBuffer::new(&mut space);
-    let fds;
-    if let Some(fd) = fd {
-        fds = [fd];
-        control.push(SendAncillaryMessage::ScmRights(&fds));
+    if !fds.is_empty() {
+        control.push(SendAncillaryMessage::ScmRights(fds));
     }
-    rustix::net::sendmsg(sock, &[IoSlice::new(&bytes)], &mut control, SendFlags::NOSIGNAL)?;
+    rustix::net::sendmsg(sock, &[IoSlice::new(&bytes), IoSlice::new(payload)], &mut control, SendFlags::NOSIGNAL)?;
     Ok(())
 }
 

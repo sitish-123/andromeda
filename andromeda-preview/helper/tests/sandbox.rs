@@ -23,7 +23,7 @@ fn sandbox_confines_files_sockets_signals_and_namespaces() {
     let neighbour = std::process::Command::new("sleep").arg("5").spawn().unwrap();
     let neighbour_pid = libc::c_long::from(neighbour.id().cast_signed());
 
-    andromeda_preview_helper::sandbox::enter().unwrap();
+    andromeda_preview_helper::sandbox::enter(andromeda_preview_helper::sandbox::Profile::Document).unwrap();
 
     assert!(std::fs::read(secret.path()).is_err());
     assert!(std::fs::write("/tmp/andromeda-preview-helper-probe", b"x").is_err());

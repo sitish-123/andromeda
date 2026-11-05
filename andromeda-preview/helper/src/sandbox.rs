@@ -31,10 +31,18 @@ fn err(what: &str, e: impl std::fmt::Display) -> Error {
     Error(format!("{what}: {e}"))
 }
 
-/// Read-only paths the decoders need after start: shared data, fonts and the font cache, GPU nodes (S7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    /// PDF and text: CPU only.
+    Document,
+    /// Video: the calls GStreamer threads make and DRM ioctls on the VA display, which opens before the sandbox;
+    /// no /dev/dri path is reachable.
+    Media,
+}
+
+/// Read-only paths the decoders need after start: shared data, fonts and the font cache.
 fn readable_paths() -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> =
-        ["/usr", "/etc/fonts", "/var/cache/fontconfig", "/dev/dri"].iter().map(PathBuf::from).collect();
+    let mut paths: Vec<PathBuf> = ["/usr", "/etc/fonts", "/var/cache/fontconfig"].iter().map(PathBuf::from).collect();
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         paths.push(home.join(".local/share/fonts"));
         paths.push(home.join(".fonts"));
@@ -49,8 +57,10 @@ fn limit(resource: Resource, value: u64) -> Result<(), Error> {
     setrlimit(resource, Rlimit { current: Some(value), maximum: Some(value) }).map_err(|e| err("setrlimit", e))
 }
 
-fn landlock() -> Result<(), Error> {
+fn landlock(profile: Profile) -> Result<(), Error> {
     let abi = ABI::V6;
+    // The VA display is open before the sandbox (media::Media::prepare), so no udev or sysfs access is needed.
+    let devices: Vec<PathBuf> = if profile == Profile::Media { vec![PathBuf::from("/dev/urandom")] } else { vec![] };
     let status = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
         .handle_access(AccessFs::from_all(abi))
@@ -58,6 +68,8 @@ fn landlock() -> Result<(), Error> {
         .and_then(|r| r.scope(Scope::from_all(abi)))
         .and_then(Ruleset::create)
         .and_then(|r| r.add_rules(path_beneath_rules(readable_paths(), AccessFs::from_read(abi))))
+        .and_then(|r| r.add_rules(path_beneath_rules(devices, AccessFs::from_read(abi))))
+
         .and_then(landlock::RulesetCreated::restrict_self)
         .map_err(|e| err("landlock", e))?;
     if status.ruleset == RulesetStatus::NotEnforced {
@@ -116,11 +128,39 @@ const ALLOWED: &[libc::c_long] = &[
     libc::SYS_exit_group,
 ];
 
+/// Added for video: GStreamer's poll and wakeup fds, its threads' scheduling calls, and stat on plugin files
+/// before it loads them (a path-existence leak accepted for media only). ioctl and socketpair get argument
+/// rules in `seccomp`.
+const MEDIA_EXTRA: &[libc::c_long] = &[
+    libc::SYS_newfstatat,
+    libc::SYS_statx,
+    libc::SYS_poll,
+    libc::SYS_ppoll,
+    libc::SYS_eventfd2,
+    libc::SYS_pipe2,
+    libc::SYS_epoll_create1,
+    libc::SYS_epoll_ctl,
+    libc::SYS_epoll_wait,
+    libc::SYS_epoll_pwait,
+    libc::SYS_sched_get_priority_max,
+    libc::SYS_sched_get_priority_min,
+    libc::SYS_getrusage,
+    libc::SYS_sysinfo,
+    libc::SYS_uname,
+    libc::SYS_dup,
+    libc::SYS_dup3,
+];
+
 /// x32 syscall numbers have this bit set; they reach the same handlers, so they must not bypass the list.
 const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 
 fn cond(arg: u8, op: SeccompCmpOp, value: u64) -> Result<SeccompRule, Error> {
     let c = SeccompCondition::new(arg, SeccompCmpArgLen::Qword, op, value).map_err(|e| err("seccomp", e))?;
+    SeccompRule::new(vec![c]).map_err(|e| err("seccomp", e))
+}
+
+fn cond32(arg: u8, op: SeccompCmpOp, value: u64) -> Result<SeccompRule, Error> {
+    let c = SeccompCondition::new(arg, SeccompCmpArgLen::Dword, op, value).map_err(|e| err("seccomp", e))?;
     SeccompRule::new(vec![c]).map_err(|e| err("seccomp", e))
 }
 
@@ -154,9 +194,10 @@ fn x32_filter() -> BpfProgram {
     ]
 }
 
-fn seccomp() -> Result<(), Error> {
+fn seccomp(profile: Profile) -> Result<(), Error> {
     let own_pid = u64::from(std::process::id());
-    let mut allowed: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED.iter().map(|&nr| (nr, vec![])).collect();
+    let extra: &[libc::c_long] = if profile == Profile::Media { MEDIA_EXTRA } else { &[] };
+    let mut allowed: BTreeMap<i64, Vec<SeccompRule>> = ALLOWED.iter().chain(extra).map(|&nr| (nr, vec![])).collect();
     // Signals only to this process (abort() raises SIGABRT on itself).
     for nr in [libc::SYS_kill, libc::SYS_tgkill] {
         allowed.insert(nr, vec![cond(0, SeccompCmpOp::Eq, own_pid)?]);
@@ -169,6 +210,20 @@ fn seccomp() -> Result<(), Error> {
     // for the older filter's ENOSYS to win over its EPERM.
     allowed.insert(libc::SYS_clone3, vec![]);
     let clone3 = BTreeMap::from([(libc::SYS_clone3, vec![])]);
+    if profile == Profile::Media {
+        // ioctls of type 'd' (DRM, on the VA display opened before the sandbox) and 'b' (dma-buf) only; no
+        // terminal or socket ioctls (SIOCGIFCONF would list network interfaces).
+        allowed.insert(
+            libc::SYS_ioctl,
+            vec![cond32(1, SeccompCmpOp::MaskedEq(0xff00), 0x6400)?, cond32(1, SeccompCmpOp::MaskedEq(0xff00), 0x6200)?],
+        );
+        // Scheduling calls on this process only (pid 0): never another process of the user.
+        for nr in [libc::SYS_sched_setscheduler, libc::SYS_sched_getparam, libc::SYS_sched_getscheduler] {
+            allowed.insert(nr, vec![cond32(0, SeccompCmpOp::Eq, 0)?]);
+        }
+        // GstPoll wakeups: a connected pair reaches nothing outside the process.
+        allowed.insert(libc::SYS_socketpair, vec![cond32(0, SeccompCmpOp::Eq, u64::from(libc::AF_UNIX.cast_unsigned()))?]);
+    }
     // fcntl without F_SETOWN or F_SETSIG: those would let the socket signal another process.
     allowed.insert(
         libc::SYS_fcntl,
@@ -200,10 +255,10 @@ fn seccomp() -> Result<(), Error> {
 ///
 /// # Errors
 /// Any layer that cannot be applied: the helper must then exit and decode nothing.
-pub fn enter() -> Result<(), Error> {
+pub fn enter(profile: Profile) -> Result<(), Error> {
     limit(Resource::As, ADDRESS_SPACE)?;
     limit(Resource::Nofile, OPEN_FILES)?;
     limit(Resource::Core, 0)?;
-    landlock()?;
-    seccomp()
+    landlock(profile)?;
+    seccomp(profile)
 }

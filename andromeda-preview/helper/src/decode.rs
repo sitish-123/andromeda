@@ -13,7 +13,7 @@ const BINARY_PROBE: usize = 8192;
 pub const MAX_WIDTH: u32 = 8192;
 pub const MAX_HEIGHT: u32 = 16384;
 
-fn sealed(name: &str, bytes: &[u8]) -> Result<OwnedFd, u32> {
+pub(crate) fn sealed(name: &str, bytes: &[u8]) -> Result<OwnedFd, u32> {
     let fd = rustix::fs::memfd_create(name, MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING).map_err(|_| ERR_DECODE)?;
     let mut file = File::from(fd);
     file.write_all(bytes).map_err(|_| ERR_DECODE)?;

@@ -14,6 +14,10 @@ poppler-rs = { version = "0.26", features = ["v21_12"] }
 rustix = { version = "1", default-features = false, features = ["std", "fs", "net", "process"] }
 seccompiler = "0.5"
 libc = "0.2"
+gstreamer = "0.25"
+gstreamer-app = { version = "0.25", features = ["v1_24"] }
+gstreamer-video = { version = "0.25", features = ["v1_24"] }
+gstreamer-allocators = "0.25"
 
 [dev-dependencies]
 cairo-rs = { version = "0.22", features = ["pdf"] }

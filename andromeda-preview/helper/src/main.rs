@@ -1,4 +1,4 @@
-//! `andromeda-preview-helper <pdf|text> <path>`, started by `andromeda-preview` with a `SOCK_SEQPACKET` socket
+//! `andromeda-preview-helper <pdf|text|media> <path>`, started by `andromeda-preview` with a `SOCK_SEQPACKET` socket
 //! on fd 3, an empty environment apart from HOME and `XDG_CACHE_HOME`, and no other fds.
 
 use andromeda_preview_helper::{Source, decode, sandbox, serve};
@@ -16,7 +16,7 @@ fn socket() -> OwnedFd {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let [_, kind, path] = args.as_slice() else {
-        eprintln!("usage: andromeda-preview-helper <pdf|text> <path>");
+        eprintln!("usage: andromeda-preview-helper <pdf|text|media> <path>");
         return ExitCode::from(2);
     };
     let sock = socket();
@@ -33,7 +33,16 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    if let Err(e) = sandbox::enter() {
+    let profile = if kind == "media" { sandbox::Profile::Media } else { sandbox::Profile::Document };
+    let mut pipeline = None;
+    if profile == sandbox::Profile::Media {
+        if let Err(e) = andromeda_preview_helper::media::init() {
+            eprintln!("andromeda-preview-helper: gstreamer: {e}");
+            return ExitCode::from(1);
+        }
+        pipeline = Some(andromeda_preview_helper::media::Media::prepare());
+    }
+    if let Err(e) = sandbox::enter(profile) {
         eprintln!("andromeda-preview-helper: sandbox: {e}");
         return ExitCode::from(1);
     }
@@ -42,6 +51,13 @@ fn main() -> ExitCode {
         "pdf" => if let Ok(pdf) = decode::Pdf::open(file) { Source::Pdf(pdf) } else {
             eprintln!("andromeda-preview-helper: not a readable PDF");
             return ExitCode::from(1);
+        },
+        "media" => match pipeline.map(|p| andromeda_preview_helper::media::Media::open(p, file)).unwrap_or(Err(0)) {
+            Ok(media) => Source::Media(media),
+            Err(_) => {
+                eprintln!("andromeda-preview-helper: no decodable video");
+                return ExitCode::from(1);
+            }
         },
         _ => return ExitCode::from(2),
     };
