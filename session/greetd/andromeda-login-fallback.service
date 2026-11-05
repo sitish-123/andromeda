@@ -1,0 +1,13 @@
+[Unit]
+Description=Start another login screen after the Andromeda greeter failed
+# greetd.service (noctalia-greeter.conf) runs this through OnFailure= once systemd gives up restarting it.
+DefaultDependencies=no
+Conflicts=greetd.service
+# greetd restarts a few times before it gives up; each failure starts this again, which must not fail on a limit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# The first installed display manager takes over for this boot; display-manager.service still points at greetd, so
+# the next boot tries the Andromeda greeter again. Without one, a text login on tty1 stays reachable.
+ExecStart=/bin/sh -c 'for dm in gdm3 gdm sddm lightdm; do systemctl cat "$dm.service" > /dev/null 2>&1 && exec systemctl start --no-block "$dm.service"; done; exec systemctl start --no-block getty@tty1.service'

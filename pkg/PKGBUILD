@@ -3,7 +3,7 @@ pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-por
   andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r15092.g97b24da9d
+pkgver=r15118.g323ef68bf
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -287,6 +287,8 @@ package_noctalia-greeter-desktop-git() {
   install -Dm644 desktop/session/greetd/config.toml "$pkgdir/usr/share/noctalia-greeter/greetd.toml"
   install -Dm644 desktop/session/greetd/noctalia-greeter.conf \
     "$pkgdir/usr/lib/systemd/system/greetd.service.d/noctalia-greeter.conf"
+  install -Dm644 desktop/session/greetd/andromeda-login-fallback.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-login-fallback.service"
   install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
 }
