@@ -1169,6 +1169,17 @@ void Application::initAuxServicesAndHooks() {
   m_hookManager.setBlockingCommandRunner([this](const std::string& command) {
     return runShellCommandBlocking(command);
   });
+  m_hookManager.setUnitRunner(
+      [](std::vector<std::string> argv, std::function<void(bool)> done) {
+        process::RunOptions options;
+        options.maxOutputBytes = 4 * 1024;
+        process::RunCallbacks callbacks{.onExit = [done](process::RunResult result) { done(static_cast<bool>(result)); }};
+        if (!process::runAsync(std::move(argv), std::move(callbacks), std::move(options))) {
+          done(false);
+        }
+      },
+      FileUtils::expandXdgBaseDir("$XDG_CONFIG_HOME/andromeda/hooks")
+  );
   m_hookManager.setAsyncCommandRunner([](const std::string& command, std::function<void(bool)> done) {
     process::RunOptions options;
     options.maxOutputBytes = 8 * 1024;
