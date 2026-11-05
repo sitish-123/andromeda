@@ -80,6 +80,27 @@ helper_bin = custom_target('andromeda-preview-helper',
   install_dir: get_option('libexecdir') / 'andromeda',
 )
 
+thumbnailer_bin = custom_target('andromeda-thumbnailer',
+  output: 'andromeda-thumbnailer',
+  build_always_stale: true,
+  console: true,
+  command: [
+    'sh', '-c', '"$1" build --quiet --locked $2 --manifest-path "$3" --target-dir "$4" && cp "$4/$5/andromeda-thumbnailer" "$6"',
+    '_', cargo, _cargo_profile == 'release' ? '--release' : '--profile=dev',
+    meson.current_source_dir() / 'thumbnailer' / 'Cargo.toml', meson.current_build_dir() / 'cargo-target', _cargo_profile,
+    '@OUTPUT@',
+  ],
+  install: true,
+  install_dir: get_option('libexecdir') / 'andromeda',
+)
+
+configure_file(
+  input: 'data/org.freedesktop.thumbnails.Thumbnailer1.service.in',
+  output: 'org.freedesktop.thumbnails.Thumbnailer1.service',
+  configuration: {'libexecdir': get_option('prefix') / get_option('libexecdir')},
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
+
 test('file_kind', executable('file_kind_test', 'tests/file_kind_test.cpp', link_with: _core,
   dependencies: [desk_app_dep, gio_dep]))
 test('helper_client', executable('helper_client_test', 'tests/helper_client_test.cpp', link_with: _core,
