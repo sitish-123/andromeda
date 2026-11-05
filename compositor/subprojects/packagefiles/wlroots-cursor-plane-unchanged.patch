@@ -54,6 +54,18 @@ index bd29872..5844161 100644
  		conn->crtc = NULL;
  
  		// Legacy uAPI doesn't support requesting page-flip events when
+diff --git a/backend/drm/libliftoff.c b/backend/drm/libliftoff.c
+index 333beac..0838914 100644
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -481,6 +481,7 @@ out:
+ 	for (size_t i = 0; i < state->connectors_len; i++) {
+ 		struct wlr_drm_connector_state *conn_state = &state->connectors[i];
+ 		if (ok && !test_only) {
++			liftoff_output_mark_committed(conn_state->connector->crtc->liftoff);
+ 			drm_atomic_connector_apply_commit(conn_state);
+ 			connector_update_layers_feedback(conn_state);
+ 		} else {
 diff --git a/include/backend/drm/drm.h b/include/backend/drm/drm.h
 index a8c5e07..5ebccbf 100644
 --- a/include/backend/drm/drm.h

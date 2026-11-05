@@ -1,8 +1,8 @@
 diff --git a/alloc.c b/alloc.c
-index 4fe49ff..9bc73e4 100644
+index 4fe49ff..75a0c9c 100644
 --- a/alloc.c
 +++ b/alloc.c
-@@ -565,8 +565,55 @@ skip:
+@@ -565,8 +565,51 @@ skip:
  	return 0;
  }
  
@@ -26,23 +26,19 @@ index 4fe49ff..9bc73e4 100644
 +	return true;
 +}
 +
-+static void
-+mark_committed(struct liftoff_device *device, struct liftoff_output *output,
-+	       uint32_t flags)
++void
++liftoff_output_mark_committed(struct liftoff_output *output)
 +{
 +	struct liftoff_layer *layer;
 +	struct liftoff_plane *plane;
 +	size_t i;
 +
-+	if (flags & DRM_MODE_ATOMIC_TEST_ONLY) {
-+		return;
-+	}
 +	liftoff_list_for_each(layer, &output->layers, link) {
 +		layer->committed_plane = NULL;
 +	}
-+	liftoff_list_for_each(plane, &device->planes, link) {
++	liftoff_list_for_each(plane, &output->device->planes, link) {
 +		layer = plane->layer;
-+		if (layer == NULL) {
++		if (layer == NULL || layer->output != output) {
 +			continue;
 +		}
 +		layer->committed_plane = plane;
@@ -59,7 +55,7 @@ index 4fe49ff..9bc73e4 100644
  {
  	struct liftoff_plane *plane;
  	int cursor, ret;
-@@ -574,6 +621,9 @@ apply_current(struct liftoff_device *device, drmModeAtomicReq *req)
+@@ -574,6 +617,9 @@ apply_current(struct liftoff_device *device, drmModeAtomicReq *req)
  	cursor = drmModeAtomicGetCursor(req);
  
  	liftoff_list_for_each(plane, &device->planes, link) {
@@ -69,7 +65,7 @@ index 4fe49ff..9bc73e4 100644
  		ret = plane_apply(plane, plane->layer, req);
  		if (ret != 0) {
  			drmModeAtomicSetCursor(req, cursor);
-@@ -843,7 +893,7 @@ reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
+@@ -843,7 +889,7 @@ reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
  
  	cursor = drmModeAtomicGetCursor(req);
  
@@ -78,15 +74,7 @@ index 4fe49ff..9bc73e4 100644
  	if (ret != 0) {
  		return ret;
  	}
-@@ -975,6 +1025,7 @@ liftoff_output_apply(struct liftoff_output *output, drmModeAtomicReq *req,
- 	if (ret == 0) {
- 		log_reuse(output);
- 		mark_layers_clean(output);
-+		mark_committed(device, output, flags);
- 		return 0;
- 	}
- 	log_no_reuse(output);
-@@ -1085,7 +1136,7 @@ liftoff_output_apply(struct liftoff_output *output, drmModeAtomicReq *req,
+@@ -1085,7 +1131,7 @@ liftoff_output_apply(struct liftoff_output *output, drmModeAtomicReq *req,
  		liftoff_log(LIFTOFF_DEBUG, "  (No layer has a plane)");
  	}
  
@@ -95,14 +83,25 @@ index 4fe49ff..9bc73e4 100644
  	if (ret != 0) {
  		return ret;
  	}
-@@ -1094,6 +1145,7 @@ liftoff_output_apply(struct liftoff_output *output, drmModeAtomicReq *req,
- 	free(result.best);
+diff --git a/include/libliftoff.h b/include/libliftoff.h
+index bb13713..909ea9b 100644
+--- a/include/libliftoff.h
++++ b/include/libliftoff.h
+@@ -86,6 +86,14 @@ liftoff_output_apply(struct liftoff_output *output, drmModeAtomicReq *req,
+ 		     uint32_t flags,
+ 		     const struct liftoff_output_apply_options *options);
  
- 	mark_layers_clean(output);
-+	mark_committed(device, output, flags);
- 
- 	return 0;
- }
++/**
++ * Record the request built by the last liftoff_output_apply() as the state the
++ * kernel shows. Call it only after that request committed without
++ * DRM_MODE_ATOMIC_TEST_ONLY; a failed commit must leave the old state.
++ */
++void
++liftoff_output_mark_committed(struct liftoff_output *output);
++
+ /**
+  * Make the device manage a CRTC's planes.
+  *
 diff --git a/include/private.h b/include/private.h
 index 14839e9..34bbe7b 100644
 --- a/include/private.h
