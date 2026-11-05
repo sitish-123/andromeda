@@ -3,7 +3,7 @@
 #include "app/app_loop.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
-#include "foreign_parent.h"
+#include "app/foreign_parent.h"
 #include "preview_service.h"
 #include "render/core/texture_manager.h"
 #include "ui/builders.h"
@@ -53,7 +53,7 @@ namespace preview {
     }
   } // namespace
 
-  PreviewWindow::PreviewWindow(AppLoop& loop, ForeignParent& parent, Callbacks callbacks)
+  PreviewWindow::PreviewWindow(AppLoop& loop, desk::ForeignParent& parent, Callbacks callbacks)
       : m_loop(loop), m_parent(parent), m_callbacks(std::move(callbacks)) {
     m_loop.wayland().setKeyboardEventCallback([this](const KeyboardEvent& event) { onKeyboard(event); });
     m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { onPointer(event); });

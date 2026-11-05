@@ -23,9 +23,11 @@ struct KeyboardEvent;
 struct PointerEvent;
 struct WaylandOutput;
 
-namespace preview {
-
+namespace desk {
   class ForeignParent;
+}
+
+namespace preview {
 
   // The Quick Look window: one file at a time, decoded off the window process (helper) or by glycin.
   class PreviewWindow {
@@ -35,7 +37,7 @@ namespace preview {
       std::function<void(std::int32_t direction)> selection;
     };
 
-    PreviewWindow(AppLoop& loop, ForeignParent& parent, Callbacks callbacks);
+    PreviewWindow(AppLoop& loop, desk::ForeignParent& parent, Callbacks callbacks);
     ~PreviewWindow();
     PreviewWindow(const PreviewWindow&) = delete;
     PreviewWindow& operator=(const PreviewWindow&) = delete;
@@ -74,7 +76,7 @@ namespace preview {
     [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> windowSizeFor(const WaylandOutput* output) const;
 
     AppLoop& m_loop;
-    ForeignParent& m_parent;
+    desk::ForeignParent& m_parent;
     Callbacks m_callbacks;
     AnimationManager m_animations;
     InputDispatcher m_input;

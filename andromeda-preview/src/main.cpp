@@ -3,7 +3,7 @@
 #include "core/timer_manager.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
-#include "foreign_parent.h"
+#include "app/foreign_parent.h"
 #include "preview_service.h"
 #include "preview_window.h"
 
@@ -39,7 +39,7 @@ int main(int argc, char* argv[]) {
   Timer idleExit;
   auto armIdleExit = [&] { idleExit.start(kIdleExit, [&] { loop.quit(0); }); };
 
-  preview::ForeignParent parent(loop.wayland().display());
+  desk::ForeignParent parent(loop.wayland().display());
   preview::PreviewService* servicePtr = nullptr;
   preview::PreviewWindow window(
       loop, parent,
