@@ -23,6 +23,8 @@ Restart=on-failure
 # systemctl --wait see one unbroken run; only the start limit fails the unit.
 RestartMode=direct
 RestartSec=0
+# The running compositor exports these to the user manager; a restart that inherits them would start nested.
+UnsetEnvironment=WAYLAND_DISPLAY WAYLAND_SOCKET DISPLAY
 WatchdogSec=5
 # A clean exit (log out) stops the socket at once, so a client that reconnects in the gap cannot start a second
 # compositor. --no-block: the stop job must not wait for this unit, which is still stopping.
