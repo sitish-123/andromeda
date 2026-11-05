@@ -13,6 +13,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
+use crate::migrations;
 use crate::transaction::{self, Event};
 
 pub const PATH: &str = "/org/andromeda/UpdateHelper1";
@@ -108,7 +109,17 @@ impl Helper {
         }
         let _ = self.running_changed(&emitter).await;
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let work = tokio::task::spawn_blocking(move || transaction::upgrade(dry_run, &tx));
+        let state_dir = self.state_dir.clone();
+        let work = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+            let outcome = transaction::upgrade(dry_run, &tx);
+            // Also after a failed or empty transaction: scripts a partial commit or a plain pacman run brought in.
+            let migrated = if dry_run {
+                Ok(Vec::new())
+            } else {
+                migrations::run(std::path::Path::new(migrations::DIR), &state_dir, true)
+            };
+            Ok((outcome?, migrated))
+        });
         let this = self.clone();
         let emitter = emitter.to_owned();
         tokio::spawn(async move {
@@ -116,11 +127,12 @@ impl Helper {
                 let _ = Self::progress(&emitter, &stage, percent, &package).await;
             }
             let (ok, message, targets, questions) = match work.await {
-                Ok(Ok(outcome)) if outcome.questions.is_empty() => {
+                Ok(Ok((outcome, Err(e)))) => (false, format!("updated, but {e:#}"), outcome.targets, Vec::new()),
+                Ok(Ok((outcome, Ok(_)))) if outcome.questions.is_empty() => {
                     let message = if outcome.committed { "updated" } else { "nothing committed" };
                     (true, message.to_owned(), outcome.targets, Vec::new())
                 }
-                Ok(Ok(outcome)) => (false, "needs a choice".to_owned(), outcome.targets, outcome.questions),
+                Ok(Ok((outcome, Ok(_)))) => (false, "needs a choice".to_owned(), outcome.targets, outcome.questions),
                 Ok(Err(e)) => (false, format!("{e:#}"), Vec::new(), Vec::new()),
                 Err(e) => (false, e.to_string(), Vec::new(), Vec::new()),
             };

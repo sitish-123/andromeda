@@ -2,6 +2,7 @@
 //! `org.andromeda.UpdateHelper1`, D-Bus activated through systemd; exits after 5 idle minutes.
 
 mod helper;
+mod migrations;
 mod transaction;
 
 use std::sync::Arc;
@@ -17,7 +18,15 @@ const IDLE_EXIT: Duration = Duration::from_secs(300);
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     // systemd sets STATE_DIRECTORY from StateDirectory=.
-    let state_dir = std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-update".into(), Into::into);
+    let state_dir: std::path::PathBuf =
+        std::env::var_os("STATE_DIRECTORY").map_or_else(|| "/var/lib/andromeda-update".into(), Into::into);
+    // The package's install script and pacman hook.
+    let migrations_dir = std::path::Path::new(migrations::DIR);
+    match std::env::args().nth(1).as_deref() {
+        Some("--seed-migrations") => return migrations::seed(migrations_dir, &state_dir, true),
+        Some("--run-migrations") => return migrations::run(migrations_dir, &state_dir, true).map(|_| ()),
+        _ => {}
+    }
     let running = Arc::new(AtomicBool::new(false));
     let last_call = Arc::new(AtomicU64::new(0));
     let started = Instant::now();

@@ -15,9 +15,13 @@ anyhow.workspace = true
 env_logger.workspace = true
 log.workspace = true
 pacmanconf = "3"
+rustix = { workspace = true, features = ["fs", "process"] }
 tokio.workspace = true
 zbus.workspace = true
 zbus_polkit.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tempfile = "3"
