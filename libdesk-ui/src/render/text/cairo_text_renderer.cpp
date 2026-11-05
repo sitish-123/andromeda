@@ -376,6 +376,9 @@ void CairoTextRenderer::notifyFontConfigChanged() {
   if (m_fontMap != nullptr && PANGO_IS_FC_FONT_MAP(m_fontMap)) {
     // Pango loads its own FcConfig; FcConfigAppFontAddFile adds app fonts to the current one, so point the map at it.
     pango_fc_font_map_set_config(PANGO_FC_FONT_MAP(m_fontMap), FcConfigGetCurrent());
+    // The same FcConfig changed in place: set_config then drops only the font list, not the family cache, and Pango
+    // 1.57 (Ubuntu 26.04) crashes in ensure_faces on a font whose family the stale cache lacks.
+    pango_fc_font_map_config_changed(PANGO_FC_FONT_MAP(m_fontMap));
   }
   clearCaches();
 }
