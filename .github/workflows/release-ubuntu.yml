@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag: { description: "Existing tag to build and publish", required: true }
+      prebuilt: { description: "Sign the debs already on the release instead of building them", type: boolean, default: false }
 
 permissions:
   contents: write
@@ -30,9 +31,28 @@ jobs:
           fetch-depth: 0
           ref: ${{ env.TAG }}
       - name: xwayland-satellite
+        if: ${{ !inputs.prebuilt }}
         run: tools/deb-xwayland-satellite.sh 26.04
+      - uses: actions/cache/restore@v4
+        if: ${{ !inputs.prebuilt }}
+        with:
+          path: ~/.cache/andromeda-ubuntu/ccache-deb-26.04
+          key: ccache-deb-26.04-${{ github.run_id }}
+          restore-keys: ccache-deb-26.04-
       - name: Packages
+        if: ${{ !inputs.prebuilt }}
         run: tools/ubuntu-deb.sh --clean 26.04
+      - uses: actions/cache/save@v4
+        if: always() && !inputs.prebuilt
+        with:
+          path: ~/.cache/andromeda-ubuntu/ccache-deb-26.04
+          key: ccache-deb-26.04-${{ github.run_id }}
+      # A local build uploads its debs to the release first (gh release upload); this only signs the repository.
+      - name: Prebuilt debs
+        if: ${{ inputs.prebuilt }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.deb' -D "$HOME/.cache/andromeda-ubuntu/deb-26.04"
       - name: Link
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,6 +69,7 @@ jobs:
         run: |
           sudo apt-get install -y -qq dpkg-dev apt-utils > /dev/null
           out=$HOME/.cache/andromeda-ubuntu
+          shopt -s nullglob
           mkdir apt
           # GitHub rewrites ':' in asset names; Packages must list the names the assets really get.
           for deb in "$out"/deb-26.04/*.deb "$out"/xwayland-satellite-26.04/*.deb "$RUNNER_TEMP"/link/*.deb; do
