@@ -14,6 +14,7 @@
 #include <vector>
 
 class ClipboardService;
+class QuickLookClient;
 class SessionBus;
 namespace sdbus {
   class IProxy;
@@ -58,6 +59,8 @@ public:
   // Opens the folder of a result with the file selected.
   void reveal(const LauncherResult& result) const;
   void copyPath(const LauncherResult& result) const;
+  // Toggles Quick Look for a result; no-op without a session bus.
+  void quickLook(const LauncherResult& result) const;
 
   [[nodiscard]] int pollTimeoutMs() const override { return -1; }
   void dispatch(const std::vector<pollfd>& fds, std::size_t startIdx) override;
@@ -77,6 +80,7 @@ private:
 
   ClipboardService* m_clipboard = nullptr;
   SessionBus* m_bus = nullptr;
+  mutable std::unique_ptr<QuickLookClient> m_quickLook;
   std::function<void()> m_onResultsChanged;
   mutable int m_fd = -1;
   mutable std::string m_received;

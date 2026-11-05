@@ -393,6 +393,15 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
     return openAppActionsMenu(m_selectedIndex, anchorX, anchorY);
   }
 
+  // Ctrl+Y, not Space: Space types into the query.
+  if (sym == XKB_KEY_y && (modifiers & ~KeyMod::Shift) == KeyMod::Ctrl && m_selectedIndex < m_results.size()
+      && m_results[m_selectedIndex].providerId == "Files" && m_results[m_selectedIndex].id != FilesProvider::kShowAllId) {
+    if (auto* files = filesProvider(); files != nullptr) {
+      files->quickLook(m_results[m_selectedIndex]);
+    }
+    return true;
+  }
+
   if (KeybindMatcher::matches(KeybindAction::Validate, sym, modifiers)) {
     activateSelected();
     return true;

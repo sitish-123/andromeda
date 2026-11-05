@@ -1060,7 +1060,8 @@ namespace launcher_detail {
         m_emojiCells[slot]->setFrameSize(cellWidth, height);
         const float inset = Tokens::spaceP4 * m_style.scale;
         m_cellImages[slot]->setPosition(inset, inset);
-        m_cellImages[slot]->setSize(std::max(0.0F, cellWidth - 2.0F * inset), std::max(0.0F, height - 2.0F * inset));
+        const float insets = 2.0F * inset;
+        m_cellImages[slot]->setSize(std::max(0.0F, cellWidth - insets), std::max(0.0F, height - insets));
       }
     }
 

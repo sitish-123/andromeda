@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "dbus/session_bus.h"
 #include "i18n/i18n.h"
+#include "launcher/quick_look_client.h"
 #include "net/url_open.h"
 #include "util/string_utils.h"
 
@@ -341,6 +342,16 @@ void FilesProvider::reveal(const LauncherResult& result) const {
           kLog.warn("showing {} failed: {}", folder, error->what());
         }
       });
+}
+
+void FilesProvider::quickLook(const LauncherResult& result) const {
+  if (m_bus == nullptr) {
+    return;
+  }
+  if (!m_quickLook) {
+    m_quickLook = std::make_unique<QuickLookClient>(*m_bus);
+  }
+  m_quickLook->toggle(result.id);
 }
 
 void FilesProvider::copyPath(const LauncherResult& result) const {
