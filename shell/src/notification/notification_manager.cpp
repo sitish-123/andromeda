@@ -885,11 +885,12 @@ uint32_t NotificationManager::suppressExternal(std::string_view appName, Urgency
   return id;
 }
 
-void NotificationManager::setDoNotDisturb(bool enabled) {
-  if (m_doNotDisturb == enabled) {
+void NotificationManager::setDoNotDisturb(bool enabled, bool timed) {
+  if (m_doNotDisturb == enabled && m_doNotDisturbTimed == (enabled && timed)) {
     return;
   }
   m_doNotDisturb = enabled;
+  m_doNotDisturbTimed = enabled && timed;
   ++m_doNotDisturbRevision;
   if (m_stateCallback) {
     m_stateCallback();

@@ -1930,8 +1930,10 @@ void Application::applyRuleDoNotDisturb() {
   const bool hold = m_systemHealthService != nullptr
       && m_systemHealthService->knob("notifications.dnd").value_or(0.0) > 0.0;
   if (hold && !m_notificationManager.doNotDisturb()) {
-    m_notificationManager.setDoNotDisturb(true);
+    // Set before the change: its state callback must see a rule's DND (not saved) at the revision it makes.
     m_dndByRule = true;
+    m_dndRuleRevision = m_notificationManager.doNotDisturbRevision() + 1;
+    m_notificationManager.setDoNotDisturb(true);
   } else if (!hold && m_dndByRule) {
     m_dndByRule = false;
     if (m_notificationManager.doNotDisturb()) {

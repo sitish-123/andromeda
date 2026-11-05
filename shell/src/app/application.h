@@ -391,6 +391,7 @@ private:
   void applyAmbientLight(double lux);
   PluginIdleWatches m_pluginIdleWatches;
   bool m_dndByRule = false;
+  std::uint64_t m_dndRuleRevision = 0;
   void applyRuleDoNotDisturb();
   // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
   void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);

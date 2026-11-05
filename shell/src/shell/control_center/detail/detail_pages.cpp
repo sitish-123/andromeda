@@ -624,7 +624,7 @@ namespace control_center {
     }
     m_timer.stop();
     m_until = until;
-    m_notifications->setDoNotDisturb(true);
+    m_notifications->setDoNotDisturb(true, until == Until::OneHour || until == Until::Tomorrow);
     m_revision = m_notifications->doNotDisturbRevision();
     if (until == Until::OneHour || until == Until::Tomorrow) {
       auto end = std::chrono::system_clock::now() + std::chrono::hours(1);
