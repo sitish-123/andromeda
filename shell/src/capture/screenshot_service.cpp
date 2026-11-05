@@ -27,6 +27,8 @@
 #include "time/time_format.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
+
+#include <glib.h>
 #include "clipboard/clipboard_service.h"
 #include "compositors/shell_wayland_connection.h"
 #include "wayland/wayland_seat.h"
@@ -297,7 +299,12 @@ namespace {
         kLog.warn("screenshot pipe: command exited with code {}", result.exitCode);
       }
     }};
-    if (!process::runAsync({"/bin/sh", "-lc", command.c_str()}, std::move(callbacks), std::move(options))) {
+    const std::vector<std::string> argv = screenshotPipeArgv(command);
+    if (argv.empty()) {
+      kLog.warn("screenshot pipe: cannot parse pipe_command");
+      return;
+    }
+    if (!process::runAsync(argv, std::move(callbacks), std::move(options))) {
       kLog.warn("screenshot pipe: failed to start command");
     }
   }
@@ -2224,4 +2231,18 @@ void ScreenshotService::playCaptureSound() {
   if (m_soundPlayer != nullptr) {
     m_soundPlayer->play(SoundPlayer::kEventScreenCapture);
   }
+}
+
+std::vector<std::string> screenshotPipeArgv(std::string_view command) {
+  const std::string text(command);
+  gchar** parsed = nullptr;
+  if (!g_shell_parse_argv(text.c_str(), nullptr, &parsed, nullptr)) {
+    return {};
+  }
+  std::vector<std::string> argv;
+  for (gchar** arg = parsed; *arg != nullptr; ++arg) {
+    argv.emplace_back(*arg);
+  }
+  g_strfreev(parsed);
+  return argv;
 }

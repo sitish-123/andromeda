@@ -4,7 +4,9 @@
 
 #include <cstdlib>
 #include <optional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -99,9 +101,22 @@ namespace {
     TEST_CHECK(path->target == "~/My Pictures/x.png");
   }
 
+  // The command runs as argv: quotes group words, and nothing reaches a shell.
+  void checkPipeArgv() {
+    using V = std::vector<std::string>;
+    TEST_CHECK(screenshotPipeArgv("satty -f -") == (V{"satty", "-f", "-"}));
+    TEST_CHECK(
+        screenshotPipeArgv(R"(swappy -o "$HOME/a b.png"; rm -rf x)")
+        == (V{"swappy", "-o", "$HOME/a b.png;", "rm", "-rf", "x"})
+    );
+    TEST_CHECK(screenshotPipeArgv("").empty());
+    TEST_CHECK(screenshotPipeArgv("satty 'unbalanced").empty());
+  }
+
 } // namespace
 
 int main() {
+  checkPipeArgv();
   checkNoArgsKeepsConfig();
   checkBooleanOverrides();
   checkErrors();

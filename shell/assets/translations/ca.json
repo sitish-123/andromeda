@@ -2984,7 +2984,6 @@
           "label": "Congela la pantalla"
         },
         "screenshot-pipe-command": {
-          "description": "Ordre executada com a /bin/sh -lc amb el PNG a stdin; per a anotadors o carregadors (per exemple: swappy -f - o satty -f -)",
           "label": "Ordre de canonada",
           "placeholder": "swappy -f -"
         },

@@ -2996,7 +2996,6 @@
           "label": "Frys skjermen"
         },
         "screenshot-pipe-command": {
-          "description": "Køyre kommandoen som /bin/sh -lc med PNG-et på stdin; til oppmerkingsprogram eller opplastarar (til dømes: swappy -f eller satty -f -) ",
           "label": "Røyra kommando",
           "placeholder": "swappy -f -"
         },

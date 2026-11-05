@@ -11,6 +11,7 @@
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
 #include <string>
+#include <vector>
 
 class NotificationManager;
 class SessionBus;
@@ -60,10 +61,14 @@ private:
   );
   void selectSources();
   void startCast();
-  // source() returns a fresh gst-launch video source for each attempt.
-  void startPipeline(const std::function<std::string()>& source);
-  // Starts a pipeline from a gst-launch description; returns an error message, empty on success.
-  std::string launch(const std::string& description);
+  // Makes an element by factory name and adds it to the pipeline being built; nullptr when the factory is missing.
+  using Make = std::function<GstElement*(const char* factory)>;
+  // source(make) returns a fresh video source chain for each attempt.
+  using Source = std::function<std::vector<GstElement*>(const Make& make)>;
+  void startPipeline(const Source& source);
+  // Builds the pipeline from elements (no gst-launch text, so the file path is never parsed); returns an error
+  // message, empty on success.
+  std::string launch(const Source& source, bool withAudio);
   void finish(const std::string& error);
   void closePortalSession();
 

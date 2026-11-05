@@ -2851,7 +2851,6 @@
           "description": "範囲選択前にデスクトップを撮影し、動いている内容を静止させる"
         },
         "screenshot-pipe-command": {
-          "description": "PNGを標準入力で渡し、/bin/sh -lcとして実行するコマンド。注釈ツールやアップロードツールに使用します（例：swappy -f -、satty -f -）"
         },
         "screenshot-remember-last-region": {
           "description": "次回の範囲スクリーンショットで、前回の範囲をあらかじめ選択（キャンセルした場合も含む）",

@@ -3044,7 +3044,6 @@
           "label": "تجميد الشاشة"
         },
         "screenshot-pipe-command": {
-          "description": "أمر يتم تشغيله عبر /bin/sh -lc مع إرسال الصورة للدخل القياسي",
           "label": "أمر التمرير (Pipe)",
           "placeholder": "swappy -f -"
         },

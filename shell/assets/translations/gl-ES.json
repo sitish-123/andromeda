@@ -2630,7 +2630,6 @@
           "label": "Conxelar pantalla"
         },
         "screenshot-pipe-command": {
-          "description": "Comando executado como /bin/sh -lc co PNG en stdin; para anotadores ou ferramentas de subida (por exemplo: swappy -f - ou satty -f -)",
           "label": "Comando de canalización",
           "placeholder": "swappy -f -"
         },

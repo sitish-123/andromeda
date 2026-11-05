@@ -3013,7 +3013,6 @@
           "label": "Ekranı Dondur"
         },
         "screenshot-pipe-command": {
-          "description": "PNG'yi stdin üzerinde tutarak /bin/sh -lc ile çalıştırılan komut; düzenleyiciler veya yükleyiciler için (örneğin: swappy -f - veya satty -f -)",
           "label": "Aktarım Komutu",
           "placeholder": "swappy -f -"
         },

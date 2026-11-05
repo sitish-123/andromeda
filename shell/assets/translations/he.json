@@ -3012,7 +3012,6 @@
           "label": "הקפאת מסך"
         },
         "screenshot-pipe-command": {
-          "description": "הפקודה מורצת כ-/bin/sh -lc עם ה-PNG ב-stdin; עבור כלי הערה או העלאה (לדוגמה: swappy -f - או satty -f -)",
           "label": "פקודת צינור",
           "placeholder": "swappy -f -"
         },

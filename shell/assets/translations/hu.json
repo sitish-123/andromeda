@@ -2894,7 +2894,6 @@
           "label": "Képernyő befagyasztása"
         },
         "screenshot-pipe-command": {
-          "description": "A parancs /bin/sh -lc-ként fut le, a PNG a stdin-en érkezik; jegyzetelőkhöz vagy feltöltőkhöz (például: swappy -f - vagy satty -f -)",
           "label": "Pipe parancs",
           "placeholder": "swappy -f -"
         },

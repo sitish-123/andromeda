@@ -3549,7 +3549,6 @@
           "description": "Действия после захвата экрана или сохранения правок в редакторе."
         },
         "screenshot-pipe-command": {
-          "description": "Команда запускается как /bin/sh -lc с PNG на stdin; для аннотаторов или загрузчиков (например: swappy -f - или satty -f -)",
           "label": "Команда pipe",
           "placeholder": "swappy -f -"
         },

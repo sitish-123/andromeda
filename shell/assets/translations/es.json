@@ -3302,7 +3302,6 @@
           "description": "Acciones aplicadas tras la captura o al seleccionar «Listo» en el editor de anotaciones."
         },
         "screenshot-pipe-command": {
-          "description": "Comando ejecutado como /bin/sh -lc con el PNG en stdin; para anotadores o cargadores (por ejemplo: swappy -f - o satty -f -)",
           "label": "Comando de canalización",
           "placeholder": "swappy -f -"
         },
