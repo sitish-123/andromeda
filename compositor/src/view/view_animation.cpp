@@ -614,6 +614,8 @@ namespace andromeda {
       m_fade.snap(0.0);
       m_fade.retarget(1.0, open.durationMs, open.curve);
       setFadeAlpha(0.0F);
+      // Focus at map started a border transition; the fade-in covers it, so it ends now.
+      settleFocusChrome();
       if (!m_customFade && (open.style == "popin" || open.style == "zoom")) {
         m_openingScale = std::clamp(open.style == "zoom" ? 0.5 : open.scale, 0.0, 1.0);
       }

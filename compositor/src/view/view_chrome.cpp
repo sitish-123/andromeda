@@ -172,7 +172,9 @@ namespace andromeda {
 
     // A window without a drawn border has nothing to fade, and an invisible transition would still keep frames coming.
     const auto& border = animation.border;
-    const bool borderAnimates = m_mapped && animation.enabled && border.enabled && borderInset() > 0;
+    // A window that still fades in takes its focus color at once: a transition would outlast the fade by ~250 ms.
+    const bool opening = m_fade.animating() && m_fade.target() > m_fade.from();
+    const bool borderAnimates = m_mapped && animation.enabled && border.enabled && borderInset() > 0 && !opening;
     if (borderAnimates && focusChanged) {
       m_borderColorAnim.retarget(targetBase, border.durationMs, border.curve);
       scheduleFrame();

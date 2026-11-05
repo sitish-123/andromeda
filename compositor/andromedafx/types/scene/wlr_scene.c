@@ -2304,6 +2304,41 @@ void wlr_scene_border_set_geometry(
   scene_node_update(&border->node, NULL);
 }
 
+// A color change keeps geometry and visibility (a border is never opaque), so only the ring's visible pixels need
+// damage: the node box minus its hole, without the hole's rounded corner squares. The hole is the window content.
+static void scene_border_damage_ring(struct wlr_scene_border* border) {
+  struct wlr_scene_node* node = &border->node;
+  struct wlr_scene* scene = scene_node_get_root(node);
+  int x, y;
+  if (!wlr_scene_node_coords(node, &x, &y)) {
+    return;
+  }
+  // An effect margin draws past the ring into the hole; keep the full update for it.
+  if (scene_effects_get(scene, false) != NULL && scene_node_drawn_expand(node) > 0) {
+    scene_node_update(node, NULL);
+    return;
+  }
+  scene_node_note_update(node);
+  pixman_region32_t damage;
+  pixman_region32_init(&damage);
+  pixman_region32_copy(&damage, &node->visible);
+  const struct wlr_box* hole = &border->clipped_region.area;
+  const struct fx_corner_radii* c = &border->clipped_region.corners;
+  int r = c->top_left;
+  r = c->top_right > r ? c->top_right : r;
+  r = c->bottom_right > r ? c->bottom_right : r;
+  r = c->bottom_left > r ? c->bottom_left : r;
+  if (!wlr_box_empty(hole) && hole->width > 2 * r && hole->height > 2 * r) {
+    pixman_region32_t inner;
+    pixman_region32_init_rect(&inner, x + hole->x, y + hole->y + r, hole->width, hole->height - 2 * r);
+    pixman_region32_union_rect(&inner, &inner, x + hole->x + r, y + hole->y, hole->width - 2 * r, hole->height);
+    pixman_region32_subtract(&damage, &damage, &inner);
+    pixman_region32_fini(&inner);
+  }
+  scene_damage_outputs(scene, &damage);
+  pixman_region32_fini(&damage);
+}
+
 void wlr_scene_border_set_colors(
     struct wlr_scene_border* border, const float inner_color[static 4], const float outer_color[static 4]
 ) {
@@ -2314,7 +2349,7 @@ void wlr_scene_border_set_colors(
 
   memcpy(border->inner_color, inner_color, sizeof(border->inner_color));
   memcpy(border->outer_color, outer_color, sizeof(border->outer_color));
-  scene_node_update(&border->node, NULL);
+  scene_border_damage_ring(border);
 }
 
 static void scene_buffer_handle_buffer_release(struct wl_listener* listener, void* data) {
