@@ -53,7 +53,7 @@ public:
   // The update client changed (a check started or finished).
   void onSoftwareUpdateChanged();
 
-  static constexpr int kPageCount = 7;
+  static constexpr int kPageCount = 8;
 
 private:
   // A node drawn over `host` (selection ring, hit area), outset by `outset` on every side.
@@ -73,6 +73,8 @@ private:
   enum class PhoneState : std::uint8_t { NotRunning, Waiting, Paired, Failed };
   enum class SearchState : std::uint8_t { NotRunning, NoProgress };
   enum class UpdateState : std::uint8_t { Idle, Checking, UpToDate, Available, Failed };
+  // Hidden: no Andromeda greeter installed, or greetd is already the display manager.
+  enum class LoginState : std::uint8_t { Hidden, Offer, Switching, On, Failed };
   enum class Method : std::uint8_t { None, Face, Finger };
 
   // One unlock method row: hardware found, prints enrolled, last error.
@@ -91,6 +93,7 @@ private:
   std::unique_ptr<Flex> buildAppearance(float scale);
   std::unique_ptr<Flex> buildPhone(float scale);
   std::unique_ptr<Flex> buildUnlock(float scale);
+  std::unique_ptr<Flex> buildLogin(float scale);
   std::unique_ptr<Flex> buildSearch(float scale);
   std::unique_ptr<Flex> buildUpdate(float scale);
   std::unique_ptr<Flex> buildDone(float scale);
@@ -123,6 +126,8 @@ private:
   void finishEnrol(bool ok);
   void releaseFace();
   void releaseFinger();
+  void probeLogin();
+  void switchLogin();
   void probeSearch();
   void checkUpdates();
 
@@ -224,4 +229,13 @@ private:
   Label* m_updateTitleLabel = nullptr;
   Label* m_updateSubLabel = nullptr;
   Button* m_updateRetry = nullptr;
+  LoginState m_loginState = LoginState::Hidden;
+  // Display manager the user has now ("GDM"), empty without one; the reason when the switch failed.
+  std::string m_loginCurrent;
+  std::string m_loginError;
+  Label* m_loginSubLabel = nullptr;
+  Button* m_loginSwitch = nullptr;
+  Glyph* m_loginOn = nullptr;
+  // The polkit reply can arrive after the panel is gone.
+  std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };

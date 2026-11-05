@@ -30,6 +30,10 @@ with_noctalia '
   shot phone-paired phone:paired
   shot phone-failed phone:failed
   shot phone phone:norun
+  shot login-offer login:offer
+  shot login-none login:none
+  shot login-on login:on
+  shot login-failed login:failed
   shot search search:norun
   shot search-noprogress search:noprogress
   shot update-checking update:checking

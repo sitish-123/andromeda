@@ -9,6 +9,7 @@
 #include "dbus/link/link_service.h"
 #include "dbus/andromeda/software_update_service.h"
 #include "dbus/system_bus.h"
+#include "dbus/system_interactive_call.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/core/texture_manager.h"
@@ -26,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <glib.h>
 #include <iterator>
 #include <memory>
 #include <pwd.h>
@@ -48,8 +50,8 @@ namespace {
 
   constexpr Logger kLog("setup-wizard");
 
-  enum PageId : int { kWelcome, kAppearance, kPhone, kUnlock, kSearch, kUpdate, kDone };
-  constexpr const char* kPageNames[] = {"welcome", "appearance", "phone", "unlock", "search", "update", "done"};
+  enum PageId : int { kWelcome, kAppearance, kPhone, kUnlock, kLogin, kSearch, kUpdate, kDone };
+  constexpr const char* kPageNames[] = {"welcome", "appearance", "phone", "unlock", "login", "search", "update", "done"};
 
   // Thumbnail cell: 3 equal columns in the 640 sheet (592 content - 2 x 4 card - 2 x 8 thumbs - 2 x 8 gaps) / 3.
   constexpr float kThumbWidth = 184.0F;
@@ -69,6 +71,25 @@ namespace {
   constexpr float kKeycapSize = 20.0F;
   constexpr float kHeroTextWidth = 400.0F;
   constexpr float kPageDotSize = 6.0F;
+
+  // The greetd config the Andromeda greeter package installs, and the alias systemctl enable points at the active
+  // display manager.
+  constexpr auto kGreeterConfig = "/usr/share/noctalia-greeter/greetd.toml";
+  constexpr auto kDisplayManagerLink = "/etc/systemd/system/display-manager.service";
+  constexpr auto kGreetdUnit = "greetd.service";
+
+  std::string displayManagerName(const std::string& unit) {
+    if (unit == "gdm.service" || unit == "gdm3.service") {
+      return "GDM";
+    }
+    if (unit == "sddm.service") {
+      return "SDDM";
+    }
+    if (unit == "lightdm.service") {
+      return "LightDM";
+    }
+    return unit.substr(0, unit.rfind('.'));
+  }
 
   const sdbus::ServiceName kGazeBusName{"com.gundulabs.Gaze"};
   const sdbus::ObjectPath kGazePath{"/com/gundulabs/Gaze"};
@@ -313,6 +334,7 @@ void SetupWizardPanel::create() {
   m_preview = false;
   // Update1 lists pacman or apt updates; the client exists whenever there is a session bus.
   m_updateChecker = static_cast<bool>(m_updates);
+  probeLogin();
 
   auto root = ui::column({.out = &m_root, .align = FlexAlign::Stretch});
 
@@ -321,6 +343,7 @@ void SetupWizardPanel::create() {
   pages->addChild(buildAppearance(scale));
   pages->addChild(buildPhone(scale));
   pages->addChild(buildUnlock(scale));
+  pages->addChild(buildLogin(scale));
   pages->addChild(buildSearch(scale));
   pages->addChild(buildUpdate(scale));
   pages->addChild(buildDone(scale));
@@ -806,6 +829,33 @@ std::unique_ptr<Flex> SetupWizardPanel::buildUnlock(float scale) {
   return page;
 }
 
+std::unique_ptr<Flex> SetupWizardPanel::buildLogin(float scale) {
+  auto page = makePage(kLogin, scale, "setup-wizard.login-title", "setup-wizard.login-body");
+  auto card = makeCard(scale);
+  auto row = makeListRow(scale, Tokens::sizeRowTwo);
+  row->setGap(Tokens::spaceP12 * scale);
+  row->addChild(ui::glyph({.glyph = "lock", .glyphSize = Tokens::sizeSymbolL * scale, .color = colorSpecFromRole(ColorRole::Label2)}));
+  auto text = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
+  auto title = makeLabel(i18n::tr("setup-wizard.login-row"), Tokens::typeBody, scale, ColorRole::Label1, FontWeight::Medium);
+  title->setMaxLines(1);
+  text->addChild(std::move(title));
+  auto sub = makeLabel("", Tokens::typeFootnote, scale, ColorRole::Label2, FontWeight::Medium);
+  sub->setMaxLines(2);
+  sub->setMaxWidth(400.0F * scale);
+  m_loginSubLabel = sub.get();
+  text->addChild(std::move(sub));
+  row->addChild(std::move(text));
+  row->addChild(makeRowButton(i18n::tr("setup-wizard.login-switch"), ButtonVariant::Default, scale, [this] {
+    if (!m_preview) {
+      switchLogin();
+    }
+  }, &m_loginSwitch));
+  row->addChild(ui::glyph({.out = &m_loginOn, .glyph = "circle-check", .glyphSize = Tokens::sizeSymbolL * scale, .color = colorSpecFromRole(ColorRole::Success)}));
+  card->addChild(std::move(row));
+  page->addChild(std::move(card));
+  return page;
+}
+
 std::unique_ptr<Flex> SetupWizardPanel::buildSearch(float scale) {
   auto page = makePage(kSearch, scale, "setup-wizard.search-title", "setup-wizard.search-body");
 
@@ -947,6 +997,9 @@ bool SetupWizardPanel::pageShown(int page) const {
   if (page == kUpdate) {
     return m_updateChecker;
   }
+  if (page == kLogin) {
+    return m_loginState != LoginState::Hidden;
+  }
   return true;
 }
 
@@ -1048,7 +1101,8 @@ void SetupWizardPanel::syncPages() {
   m_leadButton->setText(i18n::tr(m_step == kWelcome ? "setup-wizard.skip" : "setup-wizard.back"));
   m_leadButton->setVariant(m_step == kWelcome ? ButtonVariant::Ghost : ButtonVariant::Default);
   show(m_laterButton,
-       (m_step == kPhone && m_phoneState != PhoneState::Paired) || (m_step == kUnlock && !unlockSet) || m_step == kUpdate);
+       (m_step == kPhone && m_phoneState != PhoneState::Paired) || (m_step == kUnlock && !unlockSet) || m_step == kUpdate
+           || (m_step == kLogin && m_loginState != LoginState::On));
   m_primaryButton->setText(i18n::tr(
       m_step == kWelcome ? "setup-wizard.get-started" : (m_step == kDone ? "setup-wizard.done" : "setup-wizard.continue")
   ));
@@ -1103,6 +1157,22 @@ void SetupWizardPanel::syncPages() {
   m_enrolRing->setProgress(m_enrolProgress);
   m_enrolHeadline->setText(i18n::tr(m_enrolling == Method::Finger ? "setup-wizard.finger-touch" : "setup-wizard.face-look"));
   m_enrolPromptLabel->setText(m_enrolPrompt);
+
+  const bool loginOn = m_loginState == LoginState::On;
+  show(m_loginSwitch, m_loginState == LoginState::Offer || m_loginState == LoginState::Failed);
+  show(m_loginOn, loginOn);
+  std::string loginSub;
+  if (m_loginState == LoginState::Failed) {
+    loginSub = m_loginError;
+  } else if (m_loginState == LoginState::Switching) {
+    loginSub = i18n::tr("setup-wizard.login-switching");
+  } else if (loginOn) {
+    loginSub = m_loginCurrent.empty() ? i18n::tr("setup-wizard.login-on") : i18n::tr("setup-wizard.login-on-keeps", "name", m_loginCurrent);
+  } else {
+    loginSub = m_loginCurrent.empty() ? i18n::tr("setup-wizard.login-now-none") : i18n::tr("setup-wizard.login-now", "name", m_loginCurrent);
+  }
+  m_loginSubLabel->setText(loginSub);
+  m_loginSubLabel->setColor(colorSpecFromRole(m_loginState == LoginState::Failed ? ColorRole::DangerText : ColorRole::Label2));
 
   show(m_searchAlert, m_searchState == SearchState::NotRunning);
   show(m_searchInfo, m_searchState == SearchState::NoProgress);
@@ -1513,6 +1583,48 @@ void SetupWizardPanel::finishEnrol(bool ok) {
   syncPages();
 }
 
+void SetupWizardPanel::probeLogin() {
+  m_loginState = LoginState::Hidden;
+  std::error_code ec;
+  if (!std::filesystem::exists(kGreeterConfig, ec)) {
+    return;
+  }
+  const std::string unit = std::filesystem::read_symlink(kDisplayManagerLink, ec).filename().string();
+  if (unit == kGreetdUnit) {
+    return;
+  }
+  m_loginCurrent = ec ? std::string{} : displayManagerName(unit);
+  m_loginState = LoginState::Offer;
+}
+
+// EnableUnitFiles with force moves the display-manager.service alias to greetd; polkit asks for the admin password
+// through the shell's agent. The old display manager stays installed, so `systemctl enable -f` takes it back.
+void SetupWizardPanel::switchLogin() {
+  m_loginState = LoginState::Switching;
+  syncPages();
+  const char* names[] = {kGreetdUnit, nullptr};
+  dbus::callInteractive(
+      "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "EnableUnitFiles",
+      g_variant_new("(^asbb)", names, FALSE, TRUE),
+      [this, alive = std::weak_ptr<bool>(m_alive)](GVariant* result, std::string error) {
+        if (alive.expired()) {
+          return;
+        }
+        if (result != nullptr) {
+          m_loginState = LoginState::On;
+          kLog.info("login screen: greetd enabled");
+        } else {
+          m_loginState = LoginState::Failed;
+          const bool denied = error.contains("AccessDenied") || error.contains("NotAuthorized") || error.contains("Dismissed")
+                              || error.contains("InteractiveAuthorizationRequired");
+          m_loginError = denied ? i18n::tr("setup-wizard.login-denied") : i18n::tr("setup-wizard.login-failed", "reason", error);
+          kLog.warn("login screen: enabling greetd failed: {}", error);
+        }
+        syncPages();
+      }
+  );
+}
+
 void SetupWizardPanel::probeSearch() {
   if (!m_preview) {
     m_searchState = indexerReachable() ? SearchState::NoProgress : SearchState::NotRunning;
@@ -1731,6 +1843,10 @@ void SetupWizardPanel::onOpen(std::string_view context) {
       m_enrolling = state == "face" ? Method::Face : (state == "finger" ? Method::Finger : Method::None);
       m_enrolProgress = 0.62F;
       m_enrolPrompt = i18n::tr(state == "finger" ? "setup-wizard.finger-again" : "setup-wizard.face-turn");
+    } else if (page == kLogin) {
+      m_loginState = state == "on" ? LoginState::On : (state == "failed" ? LoginState::Failed : LoginState::Offer);
+      m_loginCurrent = state == "none" ? std::string{} : "GDM";
+      m_loginError = i18n::tr("setup-wizard.login-denied");
     } else if (state == "noprogress") {
       m_searchState = SearchState::NoProgress;
     } else if (state == "checking") {
