@@ -77,9 +77,7 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
             "{name} uses more memory over time",
             "It grew {proc.growth_mb_h} MB an hour and uses {proc.anon_mb} MB now.",
         ),
-        "crashed" => {
-            ("{name} crashed", "Crashes in the last day: {crash.count}. The system saved a crash report.")
-        }
+        "crashed" => ("{name} crashed", "Crashes in the last day: {crash.count}. The system saved a crash report."),
         "unit_failed" => ("{name} failed", "This service stopped with an error. The system may not work as expected."),
         "slow_boot" => (
             "The computer starts slower",
