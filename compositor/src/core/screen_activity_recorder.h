@@ -5,6 +5,7 @@
 #include "protocols/screen_activity_log.h"
 
 #include <cstdint>
+#include <functional>
 
 struct wl_event_loop;
 struct wl_event_source;
@@ -25,6 +26,10 @@ namespace andromeda {
     void setScreenOn(bool on);
     // Every input event; costs one clock read unless the user was idle.
     void inputActivity();
+    // The user left the input alone past ScreenActivityLog::kIdleAfter, or every screen is off.
+    bool idle() const { return m_idle || !m_screenOn; }
+    // Runs when idle() changes.
+    void setIdleListener(std::function<void(bool)> listener) { m_idleListener = std::move(listener); }
 
   private:
     static int onIdleCheck(void* data);
@@ -32,6 +37,7 @@ namespace andromeda {
     void bookGpu(std::int64_t now);
     // Books a suspend that ended before `now`: CLOCK_BOOTTIME runs on in suspend, CLOCK_MONOTONIC does not.
     void checkSleep(std::int64_t now);
+    void reportIdle();
 
     ScreenActivityLog m_log;
     AppEnergyLog m_energy;
@@ -41,6 +47,9 @@ namespace andromeda {
     std::int64_t m_writtenAt = 0;
     std::int64_t m_sleptSeconds = 0; // BOOTTIME - MONOTONIC at the last check
     bool m_idle = false;
+    bool m_screenOn = true;
+    bool m_reportedIdle = false;
+    std::function<void(bool)> m_idleListener;
     bool m_timerArmed = false;
   };
 

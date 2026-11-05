@@ -3,6 +3,7 @@
 
 mod battery;
 mod bus;
+mod crashes;
 mod display;
 mod engine;
 mod explain;
@@ -17,12 +18,15 @@ mod nm;
 mod plugs;
 mod policy;
 mod polkit;
+mod procs;
 mod power;
 mod rules;
 mod session;
+mod startup;
 mod state;
 mod storage;
 mod thermal;
+mod units;
 mod wifi;
 
 use std::path::PathBuf;

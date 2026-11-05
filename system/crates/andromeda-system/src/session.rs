@@ -21,8 +21,8 @@ use crate::holds::{Knob, KnobValue, Merge};
 use crate::policy::now_ms;
 use crate::rules::RuleValues;
 use crate::rules::{self, Alert, Scope};
-use crate::state::{AppRow, AppValues, Fields, Snapshot};
-use crate::{NAME, knobs, memory, network, nm, power, storage, thermal};
+use crate::state::{AppRow, AppValues, Fields, InstanceRow, InstanceValues, Snapshot};
+use crate::{NAME, crashes, knobs, memory, network, nm, power, procs, startup, storage, thermal, units};
 
 const BATTERY: &str = "/org/andromeda/System1/Battery/DisplayDevice";
 const RULES: &str = "/org/andromeda/System1/Rules";
@@ -39,6 +39,14 @@ const APPS_PATH: &str = "/org/andromeda/Compositor1/Apps";
 const APPS: &str = "org.andromeda.Compositor1.Apps";
 /// `List()` keeps the compositor sampling for 2 min; asking every minute keeps it on while a per-app rule is on.
 const APPS_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+/// Process samples: each minute while the session is idle (wake rates), else each 5 min (memory growth).
+const PROCS_IDLE_EVERY: Duration = Duration::from_secs(60);
+const PROCS_EVERY_TICKS: u32 = 5;
+const UNITS_EVERY: Duration = Duration::from_secs(2 * 60);
+/// How often crash counts are read again, so a crash leaves `crash.count` 24 h after it.
+const CRASHES_EVERY: Duration = Duration::from_secs(10 * 60);
+/// The instance kinds the session part feeds besides `app`.
+const KINDS: [&str; 3] = ["process", "crash", "unit"];
 
 /// Alert strings until the i18n catalog reaches this process: key -> (summary, body).
 fn alert_text(key: &str) -> (&'static str, &'static str) {
@@ -63,6 +71,25 @@ fn alert_text(key: &str) -> (&'static str, &'static str) {
         "captive_portal" => ("Sign in to the network", "This network asks you to sign in before it lets you online."),
         "storage_low" => {
             ("Storage is almost full", "{free} GB free on {mount}. App caches use {cache} and the Trash uses {trash}.")
+        }
+        "wakeups" => ("{name} keeps the computer awake", "It woke the CPU {proc.wakeups_s} times a second while idle."),
+        "memory_leak" => (
+            "{name} uses more memory over time",
+            "It grew {proc.growth_mb_h} MB an hour and uses {proc.anon_mb} MB now.",
+        ),
+        "crashed" => {
+            ("{name} crashed", "It crashed {crash.count} times in the last day. The system saved a crash report.")
+        }
+        "unit_failed" => ("{name} failed", "This service stopped with an error. The system may not work as expected."),
+        "slow_boot" => (
+            "The computer starts slower",
+            "It took {startup.boot_s} s to start. It usually takes {startup.boot_median_s} s.",
+        ),
+        "slow_login" => {
+            ("Login is slower", "It took {startup.login_s} s to log in. It usually takes {startup.login_median_s} s.")
+        }
+        "battery_worn" => {
+            ("The battery is worn", "It holds {battery.health_pct} % of its design capacity. Consider a replacement.")
         }
         _ => ("The desktop changed a setting", "Open Settings > Battery and Power to see why."),
     }
@@ -115,6 +142,16 @@ async fn open_portal(system: &Connection) {
     }
 }
 
+/// A readable name from a `process`, `crash` or `unit` instance: `foot 812` -> `foot`, `/usr/bin/foot` -> `foot`,
+/// `user plocate-updatedb.service` -> `plocate-updatedb`.
+fn instance_name(instance: &str) -> String {
+    let name = instance.strip_prefix("user ").unwrap_or(instance);
+    let name =
+        name.rsplit_once(' ').filter(|(_, pid)| pid.chars().all(|c| c.is_ascii_digit())).map_or(name, |(n, _)| n);
+    let name = name.rsplit('/').next().unwrap_or(name);
+    name.strip_suffix(".service").unwrap_or(name).to_owned()
+}
+
 fn open_activity(unit: &str) {
     match tokio::process::Command::new("noctalia").args(["msg", "activity-open", unit]).spawn() {
         Ok(mut child) => {
@@ -158,6 +195,8 @@ struct Session {
     apps: Vec<AppRow>,
     /// Open per-app episodes: episode -> the compositor hold ids.
     app_held: HashMap<u64, Vec<String>>,
+    /// The last rows of each kind in `KINDS`.
+    instances: HashMap<&'static str, Vec<InstanceRow>>,
     /// Wakes the step loop when a new app sample lands.
     wake: Arc<Notify>,
 }
@@ -265,8 +304,16 @@ impl Session {
             _ => String::new(),
         };
         let fill = |text: &str| {
-            text.replace("{app}", &app_name(&entry.instance))
-                .replace("{cpu}", &cpu.map_or_else(String::new, |c| format!("{c:.0}")))
+            let mut text =
+                text.replace("{app}", &app_name(&entry.instance)).replace("{name}", &instance_name(&entry.instance));
+            for (name, value) in &entry.trigger {
+                let shown = value.parse::<f64>().map_or_else(|_| value.clone(), |n| format!("{n:.0}"));
+                text = text.replace(&format!("{{{name}}}"), &shown);
+            }
+            for name in ["startup.boot_s", "startup.boot_median_s", "startup.login_s", "startup.login_median_s"] {
+                text = text.replace(&format!("{{{name}}}"), &field(name));
+            }
+            text.replace("{cpu}", &cpu.map_or_else(String::new, |c| format!("{c:.0}")))
                 .replace("{free}", &field("storage.free_gb"))
                 .replace("{mount}", &field("storage.mount"))
                 .replace("{drive}", &field("storage.drive"))
@@ -378,7 +425,9 @@ impl Session {
             }
             if knob == "qos.freeze_hidden" {
                 let on = value == Some(KnobValue::Bool(true));
-                if let Err(e) = session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "SetFreezeHidden", &(on,)).await {
+                if let Err(e) =
+                    session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "SetFreezeHidden", &(on,)).await
+                {
                     log::warn!("session: {knob}: {e}");
                 }
             }
@@ -418,9 +467,20 @@ impl Session {
             let values: Vec<AppValues<'_>> = apps.iter().map(|app| AppValues { state: &state, app }).collect();
             let rows: Vec<(String, &dyn crate::expr::Values)> =
                 apps.iter().zip(&values).map(|(a, v)| (a.0.clone(), v as &dyn crate::expr::Values)).collect();
-            self.engine.step_instances(&rows, Instant::now(), now_ms())
+            self.engine.step_instances("app", &rows, Instant::now(), now_ms())
         };
         self.commit(system, session, changes).await;
+        for kind in KINDS {
+            let changes = {
+                let rows = self.instances.get(kind).map(Vec::as_slice).unwrap_or_default();
+                let values: Vec<InstanceValues<'_>> =
+                    rows.iter().map(|(_, fields)| InstanceValues { state: &state, fields }).collect();
+                let rows: Vec<(String, &dyn crate::expr::Values)> =
+                    rows.iter().zip(&values).map(|(r, v)| (r.0.clone(), v as &dyn crate::expr::Values)).collect();
+                self.engine.step_instances(kind, &rows, Instant::now(), now_ms())
+            };
+            self.commit(system, session, changes).await;
+        }
     }
 
     /// Sends an open episode's alert again once its `again` field is below the next whole unit.
@@ -464,8 +524,10 @@ impl Session {
                 self.undo(system, session, episode).await;
             }
             (Some(episode), "default") => {
-                if let Some((_, app)) = self.engine.instance_of(episode) {
-                    open_activity(app);
+                if let Some((rule, app)) = self.engine.instance_of(episode) {
+                    if rule.per.as_deref() == Some("app") {
+                        open_activity(app);
+                    }
                 } else if self.alert_action(self.held.get(&episode).map(|(rule, _)| rule.as_str())) == Some("portal") {
                     open_portal(system).await;
                 }
@@ -731,6 +793,7 @@ pub async fn run() -> Result<()> {
         state: Snapshot::default(),
         apps: Vec::new(),
         app_held: HashMap::new(),
+        instances: HashMap::new(),
         wake: Arc::new(Notify::new()),
     }));
     let session = zbus::connection::Builder::session()
@@ -742,6 +805,15 @@ pub async fn run() -> Result<()> {
         .await?;
     tokio::spawn(follow_apps(session.clone(), shared.clone()));
     tokio::spawn(follow_presenting(session.clone(), shared.clone()));
+    tokio::spawn(follow_procs(shared.clone()));
+    tokio::spawn(follow_units(system.clone(), session.clone(), shared.clone()));
+    tokio::spawn(follow_crashes(shared.clone()));
+    tokio::spawn(follow_startup(
+        system.clone(),
+        session.clone(),
+        shared.clone(),
+        state_dir.join("andromeda/system/startup.jsonl"),
+    ));
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     log::info!("serving {NAME} on the session bus");
     loop {
@@ -875,24 +947,26 @@ async fn follow(system: &Connection, session: &Connection, shared: &Shared) -> R
     }
 }
 
-/// Feeds `display.presenting` from `Compositor1.Apps` `Presenting`. Without a compositor it is false and it asks again
+/// Feeds `display.presenting` and `session.idle` from `Compositor1.Apps` `Presenting`. Without a compositor it is false and it asks again
 /// every 30 s, so a compositor that starts later is followed.
 async fn follow_presenting(session: Connection, shared: Shared) {
-    let set = async |on: bool| {
+    let set = async |presenting: bool, idle: bool| {
         let mut inner = shared.lock().await;
-        inner.state.set_flag("display.presenting", on);
+        inner.state.set_flag("display.presenting", presenting);
+        inner.state.set_flag("session.idle", idle);
         inner.wake.notify_one();
     };
     loop {
         if let Ok(mut remote) = Remote::new(&session, COMPOSITOR, APPS_PATH.to_owned(), APPS).await {
             loop {
-                set(bus::get::<bool>(&remote.props, "Presenting").unwrap_or(false)).await;
+                let get = |name| bus::get::<bool>(&remote.props, name).unwrap_or(false);
+                set(get("Presenting"), get("Idle")).await;
                 if !matches!(remote.next().await, Some(Ok(()))) {
                     break;
                 }
             }
         }
-        set(false).await;
+        set(false, false).await;
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
 }
@@ -922,7 +996,7 @@ async fn follow_apps(session: Connection, shared: Shared) {
     loop {
         let rows: Option<Vec<AppRow>> = tokio::select! {
             _ = tick.tick() => {
-                let wanted = shared.lock().await.engine.rules().any(|(r, on)| on && r.per.is_some());
+                let wanted = shared.lock().await.engine.rules().any(|(r, on)| on && r.per.as_deref() == Some("app"));
                 if !wanted {
                     continue;
                 }
@@ -943,4 +1017,128 @@ async fn follow_apps(session: Connection, shared: Shared) {
             inner.wake.notify_one();
         }
     }
+}
+
+/// Whether an enabled rule reads instances of `kind`.
+async fn wanted(shared: &Shared, kind: &str) -> bool {
+    shared.lock().await.engine.rules().any(|(r, on)| on && r.per.as_deref() == Some(kind))
+}
+
+async fn set_rows(shared: &Shared, kind: &'static str, rows: Vec<InstanceRow>) {
+    let mut inner = shared.lock().await;
+    inner.instances.insert(kind, rows);
+    inner.wake.notify_one();
+}
+
+/// Feeds `per = "process"` rules from `/proc`, off the event loop: each minute while the session is idle, else each
+/// 5 min. A wake rate needs two idle samples in a row, so it spans one idle minute.
+async fn follow_procs(shared: Shared) {
+    let mut sampler = Some(procs::Sampler::default());
+    let mut tick = tokio::time::interval(PROCS_IDLE_EVERY);
+    let mut ticks = PROCS_EVERY_TICKS;
+    loop {
+        tick.tick().await;
+        let idle = shared.lock().await.state.value_of("session.idle") == Some(Value::Bool(true));
+        ticks += 1;
+        let due = idle || ticks >= PROCS_EVERY_TICKS;
+        if !due || !wanted(&shared, "process").await {
+            continue;
+        }
+        let Some(mut s) = sampler.take() else { return };
+        let Ok((s, rows)) = tokio::task::spawn_blocking(move || {
+            let rows = s.sample(idle, Instant::now());
+            (s, rows)
+        })
+        .await
+        else {
+            return;
+        };
+        sampler = Some(s);
+        ticks = 0;
+        set_rows(&shared, "process", rows).await;
+    }
+}
+
+/// Feeds `per = "unit"` rules: failed units of the system and the user manager.
+async fn follow_units(system: Connection, session: Connection, shared: Shared) {
+    loop {
+        if wanted(&shared, "unit").await {
+            let mut names = units::failed(&system, false).await.unwrap_or_else(|e| {
+                log::warn!("session: system units: {e}");
+                Vec::new()
+            });
+            names.extend(units::failed(&session, true).await.unwrap_or_default());
+            let rows = names.into_iter().map(|n| (n, vec![("unit.failed", Value::Bool(true))])).collect();
+            set_rows(&shared, "unit", rows).await;
+        }
+        tokio::time::sleep(UNITS_EVERY).await;
+    }
+}
+
+/// Feeds `per = "crash"` rules from `journalctl -f`; a crash counts for 24 h.
+async fn follow_crashes(shared: Shared) {
+    use tokio::io::AsyncBufReadExt;
+    let child = tokio::process::Command::new("journalctl")
+        .args(["-f", "-n", "0", "-o", "json", "--output-fields=MESSAGE_ID,COREDUMP_EXE,COREDUMP_COMM"])
+        .arg(format!("MESSAGE_ID={}", crashes::COREDUMP_ID))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(e) => {
+            log::warn!("session: no crash source: {e}");
+            return;
+        }
+    };
+    let Some(stdout) = child.stdout.take() else { return };
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+    let mut recent = crashes::Recent::default();
+    let mut tick = tokio::time::interval(CRASHES_EVERY);
+    loop {
+        tokio::select! {
+            line = lines.next_line() => {
+                let Ok(Some(line)) = line else {
+                    log::warn!("session: journalctl ended; crashes are not followed");
+                    return;
+                };
+                let Some(exe) = crashes::exe_of(&line) else { continue };
+                recent.add(exe, Instant::now());
+            }
+            _ = tick.tick() => {}
+        }
+        #[allow(clippy::cast_precision_loss)] // a crash count
+        let rows = recent
+            .counts(Instant::now())
+            .into_iter()
+            .map(|(exe, n)| (exe, vec![("crash.count", Value::Num(n as f64))]))
+            .collect();
+        set_rows(&shared, "crash", rows).await;
+    }
+}
+
+/// Sets the `startup.*` fields once per login and adds the login to the history.
+async fn follow_startup(system: Connection, session: Connection, shared: Shared, path: PathBuf) {
+    let now = match startup::measure(&system, &session).await {
+        Ok(now) => now,
+        Err(e) => {
+            log::warn!("session: no startup times: {e}");
+            return;
+        }
+    };
+    let history = match startup::record(&path, &now) {
+        Ok(history) => history,
+        Err(e) => {
+            log::warn!("session: {}: {e}", path.display());
+            return;
+        }
+    };
+    let t = startup::times(&history, &now);
+    let mut inner = shared.lock().await;
+    inner.state.set_num("startup.boot_s", Some(t.boot_s));
+    inner.state.set_num("startup.login_s", t.login_s);
+    inner.state.set_num("startup.boot_median_s", t.boot_median_s);
+    inner.state.set_num("startup.login_median_s", t.login_median_s);
+    inner.wake.notify_one();
 }

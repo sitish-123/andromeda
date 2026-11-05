@@ -49,6 +49,25 @@ const FIELDS: &[(&str, Type)] = &[
     ("app.rss_mb", Type::Num),
     ("app.visible", Type::Bool),
     ("app.focused", Type::Bool),
+    // From Compositor1.Apps `Idle`: the user left the input alone, or every screen is off.
+    ("session.idle", Type::Bool),
+    // HealthPercent of the display battery: full capacity now / design capacity.
+    ("battery.health_pct", Type::Num),
+    // This boot and login, and the median of the earlier ones (absent below 5 of them); seconds.
+    ("startup.boot_s", Type::Num),
+    ("startup.boot_median_s", Type::Num),
+    ("startup.login_s", Type::Num),
+    ("startup.login_median_s", Type::Num),
+    // One process, for `per = "process"` rules (procs.rs). Wakeups = CPU timeslices per second, all threads.
+    ("proc.wakeups_s", Type::Num),
+    ("proc.anon_mb", Type::Num),
+    // Least-squares growth of anonymous memory over the last 2 h, and its fit; absent before 1 h of samples.
+    ("proc.growth_mb_h", Type::Num),
+    ("proc.growth_r2", Type::Num),
+    // One crashed executable, for `per = "crash"` rules: crashes in the last 24 h.
+    ("crash.count", Type::Num),
+    // One systemd unit, for `per = "unit"` rules: the unit is in the failed state.
+    ("unit.failed", Type::Bool),
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -113,6 +132,13 @@ impl Snapshot {
         #[allow(clippy::cast_precision_loss)] // seconds
         let tte = props.and_then(|p| bus::get::<i64>(p, "TimeToEmptyS")).filter(|s| *s > 0).map(|s| s as f64);
         self.put("battery.time_to_empty_s", tte.map(Value::Num));
+        let health = props.and_then(|p| bus::get::<f64>(p, "HealthPercent")).filter(|h| *h > 0.0);
+        self.put("battery.health_pct", health.map(Value::Num));
+    }
+
+    /// A number the session part computes itself; `None` clears it.
+    pub fn set_num(&mut self, name: &'static str, value: Option<f64>) {
+        self.put(name, value.map(Value::Num));
     }
 
     /// From `org.andromeda.System1.Memory`; `None` when the system part has no memory source.
@@ -189,6 +215,25 @@ impl Values for AppValues<'_> {
             "app.visible" => Some(Value::Bool(*visible)),
             "app.focused" => Some(Value::Bool(*focused)),
             _ => self.state.value_of(name),
+        }
+    }
+}
+
+/// One instance of a `per` kind other than `app`: its key and its own fields.
+pub type InstanceRow = (String, Vec<(&'static str, Value)>);
+
+/// The session state plus one instance's own fields (`proc.*`, `crash.*`, `unit.*`).
+pub struct InstanceValues<'a> {
+    pub state: &'a Snapshot,
+    pub fields: &'a [(&'static str, Value)],
+}
+
+impl Values for InstanceValues<'_> {
+    fn value_of(&self, name: &str) -> Option<Value> {
+        match self.fields.iter().find(|(n, _)| *n == name) {
+            Some((_, v)) => Some(v.clone()),
+            None if name.starts_with("proc.") || name.starts_with("crash.") || name.starts_with("unit.") => None,
+            None => self.state.value_of(name),
         }
     }
 }

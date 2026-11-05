@@ -93,13 +93,17 @@ pub struct Rule {
     /// Each hold's compiled `when`, in the order of `holds`.
     pub hold_when: Vec<Option<Expr>>,
     pub alert: Option<Alert>,
-    /// `app`: one episode per app, read from the `app.*` fields; its holds go to that app, not to the knobs.
+    /// One episode per instance of a `PER_KINDS` kind. `app` reads the `app.*` fields and holds on that app, not on
+    /// the knobs; the other kinds only alert.
     pub per: Option<String>,
     /// A numeric `app.*` field: per step, only the largest app that is due starts; the others wait `for` again.
     pub largest_first: Option<String>,
     /// A mode: these rules' holds join its own (`resolve_modes`).
     pub holds_of: Vec<String>,
 }
+
+/// The instance kinds of `per`: compositor apps, processes, crashed executables, failed systemd units.
+pub const PER_KINDS: [&str; 4] = ["app", "process", "crash", "unit"];
 
 /// What a per-app rule may hold on its app (the compositor's `HoldTier` and `HoldFreeze`).
 pub const APP_HOLDS: [&str; 2] = ["app.tier", "app.freeze"];
@@ -186,8 +190,11 @@ fn compile(spec: RuleSpec, state: &dyn expr::Schema) -> Loaded {
         if !spec.holds_of.is_empty() {
             return Err(fail("holds_of", &"a per-app rule is no mode"));
         }
-        if per != "app" {
-            return Err(fail("per", &"only \"app\""));
+        if !PER_KINDS.contains(&per) {
+            return Err(fail("per", &format!("one of {PER_KINDS:?}")));
+        }
+        if per != "app" && !spec.holds.is_empty() {
+            return Err(fail("holds", &format!("a per-{per} rule has no holds")));
         }
         if let Some(h) = spec.holds.iter().find(|h| !APP_HOLDS.contains(&h.knob.as_str())) {
             return Err(fail("holds", &format!("a per-app rule holds only {APP_HOLDS:?}, not {:?}", h.knob)));

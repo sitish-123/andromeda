@@ -112,6 +112,17 @@ namespace andromeda {
     checkSleep(now);
     m_log.setScreenOn(on, now);
     write(true);
+    m_screenOn = on;
+    reportIdle();
+  }
+
+  void ScreenActivityRecorder::reportIdle() {
+    if (idle() != m_reportedIdle) {
+      m_reportedIdle = idle();
+      if (m_idleListener) {
+        m_idleListener(m_reportedIdle);
+      }
+    }
   }
 
   void ScreenActivityRecorder::inputActivity() {
@@ -125,6 +136,7 @@ namespace andromeda {
       m_idle = false;
       m_log.setUserIdle(false, now);
       write(false);
+      reportIdle();
     }
     if (!m_timerArmed && m_timer != nullptr) {
       wl_event_source_timer_update(m_timer, kIdleCheckMs);
@@ -143,6 +155,7 @@ namespace andromeda {
       self->m_log.setUserIdle(true, self->m_lastInput);
       self->m_timerArmed = false;
       self->write(false);
+      self->reportIdle();
     } else {
       wl_event_source_timer_update(self->m_timer, static_cast<int>((ScreenActivityLog::kIdleAfter - quiet) * 1000));
     }

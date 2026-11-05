@@ -130,6 +130,7 @@ namespace andromeda {
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL("AppStats", "a(sbbsbdt)", 0),
         SD_BUS_PROPERTY("Presenting", "b", getPresenting, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
+        SD_BUS_PROPERTY("Idle", "b", getIdle, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_VTABLE_END,
     };
     if (loop == nullptr || openUserBus(&m_bus) < 0) {
@@ -251,6 +252,22 @@ namespace andromeda {
       (void)sd_bus_emit_properties_changed(m_bus, kPath, kInterface, "Presenting", nullptr);
       updateEvents();
     }
+  }
+
+  void AppsBus::setIdle(bool idle) {
+    if (idle == m_idle) {
+      return;
+    }
+    m_idle = idle;
+    if (m_bus != nullptr) {
+      (void)sd_bus_emit_properties_changed(m_bus, kPath, kInterface, "Idle", nullptr);
+      updateEvents();
+    }
+  }
+
+  int AppsBus::getIdle(sd_bus* /*bus*/, const char* /*path*/, const char* /*interface*/, const char* /*property*/,
+                       sd_bus_message* reply, void* data, sd_bus_error* /*error*/) {
+    return sd_bus_message_append(reply, "b", static_cast<int>(static_cast<AppsBus*>(data)->m_idle));
   }
 
   int AppsBus::getPresenting(sd_bus* /*bus*/, const char* /*path*/, const char* /*interface*/,

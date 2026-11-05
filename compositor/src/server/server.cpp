@@ -1600,6 +1600,14 @@ namespace andromeda {
             }
           }
       );
+      if (m_screenActivity != nullptr) {
+        m_appsBus->setIdle(m_screenActivity->idle());
+        m_screenActivity->setIdleListener([this](bool idle) {
+          if (m_appsBus != nullptr) {
+            m_appsBus->setIdle(idle);
+          }
+        });
+      }
       if (m_applicationScopesRequired) {
         // The reply comes after autostart spawns: their launch weight stays.
         m_qos->resetAppUnits([this](const std::string& unit) {

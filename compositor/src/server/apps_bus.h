@@ -27,6 +27,8 @@ namespace andromeda {
     AppsBus& operator=(const AppsBus&) = delete;
     // The `Presenting` property: an app other than the shell captures a screen or window, or a display mirrors one.
     void setPresenting(bool presenting);
+    // The `Idle` property: ScreenActivityRecorder::idle().
+    void setIdle(bool idle);
 
   private:
     struct Sample {
@@ -51,6 +53,8 @@ namespace andromeda {
     static int onOwnerChanged(sd_bus_message* message, void* data, sd_bus_error* error);
     static int getPresenting(sd_bus* bus, const char* path, const char* interface, const char* property,
                              sd_bus_message* reply, void* data, sd_bus_error* error);
+    static int getIdle(sd_bus* bus, const char* path, const char* interface, const char* property,
+                       sd_bus_message* reply, void* data, sd_bus_error* error);
 
     void dispatch();
     void updateEvents();
@@ -63,6 +67,7 @@ namespace andromeda {
     std::function<void()> m_reloadConfig;
     std::function<void()> m_refreshCapChanged;
     bool m_presenting = false;
+    bool m_idle = false;
     sd_bus* m_bus = nullptr;
     sd_bus_slot* m_object = nullptr;
     sd_bus_slot* m_ownerMatch = nullptr;

@@ -355,11 +355,17 @@ impl Engine {
         });
     }
 
-    /// Steps every per-app rule over the apps now present: `apps` gives each app's values (state plus `app.*`).
-    /// An app that left ends its running episode.
-    pub fn step_instances(&mut self, apps: &[(String, &dyn Values)], now: Instant, time_ms: u64) -> Changes {
+    /// Steps every rule of one `per` kind over the instances now present: `apps` gives each one's values (state
+    /// plus its own fields). An instance that left ends its running episode.
+    pub fn step_instances(
+        &mut self,
+        kind: &str,
+        apps: &[(String, &dyn Values)],
+        now: Instant,
+        time_ms: u64,
+    ) -> Changes {
         let mut changes = Changes::default();
-        for slot in self.slots.iter_mut().filter(|s| s.enabled && s.rule.per.is_some()) {
+        for slot in self.slots.iter_mut().filter(|s| s.enabled && s.rule.per.as_deref() == Some(kind)) {
             let mut order: Vec<&(String, &dyn Values)> = apps.iter().collect();
             let mut started = false;
             if let Some(field) = &slot.rule.largest_first {
@@ -397,7 +403,7 @@ impl Engine {
                         Event::Ended(End::Cleared),
                         &app,
                         Vec::new(),
-                        "app ended",
+                        &format!("{kind} ended"),
                         time_ms,
                     );
                     changes.entries.push(entry);
@@ -624,8 +630,8 @@ holds = [{ knob = "app.tier", value = "T3", when = "not app.focused" }]
         assert!(refused.is_empty());
         let t0 = Instant::now();
         let (busy, focused, calm) = (App(80.0, false), App(90.0, true), App(5.0, false));
-        assert!(engine.step_instances(&pair(&busy, &focused), t0, 0).entries.is_empty());
-        let started = engine.step_instances(&pair(&busy, &focused), t0 + Duration::from_secs(121), 1).entries;
+        assert!(engine.step_instances("app", &pair(&busy, &focused), t0, 0).entries.is_empty());
+        let started = engine.step_instances("app", &pair(&busy, &focused), t0 + Duration::from_secs(121), 1).entries;
         assert_eq!(started.len(), 1, "only the busy app that is not focused starts");
         assert_eq!((started[0].instance.as_str(), started[0].event.as_str()), ("a.scope", "started"));
         assert_eq!(engine.instance_of(started[0].episode).map(|(_, app)| app), Some("a.scope"));
@@ -634,15 +640,18 @@ holds = [{ knob = "app.tier", value = "T3", when = "not app.focused" }]
         assert_eq!((undone[0].event.as_str(), undone[0].instance.as_str()), ("undone", "a.scope"));
         let later = t0 + Duration::from_secs(400);
         assert!(
-            engine.step_instances(&pair(&busy, &focused), later, 3).entries.is_empty(),
+            engine.step_instances("app", &pair(&busy, &focused), later, 3).entries.is_empty(),
             "an undone episode stays muted"
         );
 
-        engine.step_instances(&pair(&calm, &focused), later, 4);
-        engine.step_instances(&pair(&busy, &focused), later, 5);
-        let again = engine.step_instances(&pair(&busy, &focused), later + Duration::from_secs(121), 6).entries;
+        engine.step_instances("app", &pair(&calm, &focused), later, 4);
+        engine.step_instances("app", &pair(&busy, &focused), later, 5);
+        let again = engine.step_instances("app", &pair(&busy, &focused), later + Duration::from_secs(121), 6).entries;
         assert_eq!(again.len(), 1, "after it cleared, the app can start a new episode");
-        let gone = engine.step_instances(&rows(&[("b.scope", &focused)]), later + Duration::from_secs(130), 7).entries;
+        let other = engine.step_instances("process", &[], later + Duration::from_secs(125), 7).entries;
+        assert!(other.is_empty(), "the rows of another kind never end an app episode");
+        let gone =
+            engine.step_instances("app", &rows(&[("b.scope", &focused)]), later + Duration::from_secs(130), 7).entries;
         assert_eq!((gone[0].event.as_str(), gone[0].note.as_str()), ("cleared", "app ended"));
     }
 
@@ -688,14 +697,14 @@ holds = [{ knob = "app.freeze", value = true }]
         let starts = |c: super::Changes| -> Vec<String> {
             c.entries.into_iter().filter(|e| e.event == "started").map(|e| e.instance).collect()
         };
-        assert!(starts(engine.step_instances(&apps(), t0, 0)).is_empty());
-        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(10), 1)), ["huge"]);
+        assert!(starts(engine.step_instances("app", &apps(), t0, 0)).is_empty());
+        assert_eq!(starts(engine.step_instances("app", &apps(), t0 + Duration::from_secs(10), 1)), ["huge"]);
         assert!(
-            starts(engine.step_instances(&apps(), t0 + Duration::from_secs(15), 2)).is_empty(),
+            starts(engine.step_instances("app", &apps(), t0 + Duration::from_secs(15), 2)).is_empty(),
             "the rest wait 10 s again"
         );
-        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(20), 3)), ["big"]);
-        assert_eq!(starts(engine.step_instances(&apps(), t0 + Duration::from_secs(30), 4)), ["small"]);
+        assert_eq!(starts(engine.step_instances("app", &apps(), t0 + Duration::from_secs(20), 3)), ["big"]);
+        assert_eq!(starts(engine.step_instances("app", &apps(), t0 + Duration::from_secs(30), 4)), ["small"]);
         assert!(load(&text.replace("per = \"app\"\n", ""), &Mem(0.0)).unwrap()[0].is_err(), "only per-app rules");
     }
 }

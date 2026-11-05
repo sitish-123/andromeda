@@ -102,6 +102,27 @@ namespace settings {
       if (id == "battery.optimized_charging") {
         return i18n::tr("settings.power.rule-optimized-charging");
       }
+      if (id == "power.wakeups") {
+        return i18n::tr("settings.power.rule-wakeups");
+      }
+      if (id == "memory.leak") {
+        return i18n::tr("settings.power.rule-memory-leak");
+      }
+      if (id == "apps.crashed") {
+        return i18n::tr("settings.power.rule-crashed");
+      }
+      if (id == "services.failed") {
+        return i18n::tr("settings.power.rule-services-failed");
+      }
+      if (id == "startup.slow_boot") {
+        return i18n::tr("settings.power.rule-slow-boot");
+      }
+      if (id == "startup.slow_login") {
+        return i18n::tr("settings.power.rule-slow-login");
+      }
+      if (id == "battery.worn") {
+        return i18n::tr("settings.power.rule-battery-worn");
+      }
       return i18n::tr("settings.power.rule-other");
     }
 
