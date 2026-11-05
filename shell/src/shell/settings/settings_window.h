@@ -563,6 +563,9 @@ private:
   std::string m_renameError;
   bool m_userDeleteBusy = false;
   std::string m_userDeleteError;
+  // Settings › Users › Login Screen: result of the last switch, shown under the select.
+  std::string m_loginScreenStatus;
+  bool m_loginScreenError = false;
   std::string m_expertQuery;
   // Config path (or "section/title" for pathless rows) of the row a search result opened; shown highlighted.
   std::string m_highlightKey;

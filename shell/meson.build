@@ -529,6 +529,7 @@ _noctalia_sources = files(
   'src/system/battery_warning_monitor.cpp',
   'src/system/xkb_layout_catalog.cpp',
   'src/system/default_apps.cpp',
+  'src/system/display_manager.cpp',
   'src/shell/bar/bar.cpp',
   'src/shell/bar/bar_instance_state.cpp',
   'src/shell/bar/bar_ipc.cpp',

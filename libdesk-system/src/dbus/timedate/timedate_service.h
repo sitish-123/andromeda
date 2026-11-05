@@ -32,6 +32,8 @@ public:
   [[nodiscard]] bool ntpSynchronized() const noexcept { return m_ntpSynchronized; }
   [[nodiscard]] std::int64_t timeUsec() const noexcept { return m_timeUsec; }
   [[nodiscard]] const std::vector<std::string>& timezones() const noexcept { return m_timezones; }
+  // ListTimezones failed (no timedated on this bus); timezones() stays empty.
+  [[nodiscard]] bool timezonesFailed() const noexcept { return m_timezonesFailed; }
   [[nodiscard]] const std::string& lastError() const noexcept { return m_lastError; }
 
   void setTimezone(const std::string& zone);
@@ -52,6 +54,7 @@ private:
   bool m_ntpSynchronized = false;
   std::int64_t m_timeUsec = 0;
   std::vector<std::string> m_timezones;
+  bool m_timezonesFailed = false;
   std::string m_lastError;
   bool m_ready = false;
 };

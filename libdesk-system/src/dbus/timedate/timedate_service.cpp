@@ -50,6 +50,10 @@ TimeDateService::TimeDateService(SystemBus& bus, ChangeCallback onChange)
         .uponReplyInvoke([this](std::optional<sdbus::Error> error, std::vector<std::string> zones) {
           if (error.has_value()) {
             kLog.warn("ListTimezones failed: {}", error->what());
+            m_timezonesFailed = true;
+            if (m_onChange) {
+              m_onChange();
+            }
             return;
           }
           m_timezones = std::move(zones);

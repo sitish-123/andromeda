@@ -26,6 +26,9 @@ with_noctalia '
   sleep 1.5
   shot welcome welcome
   shot appearance appearance
+  shot keyboard keyboard
+  shot timezone timezone
+  shot apps apps
   shot phone-waiting phone:waiting
   shot phone-paired phone:paired
   shot phone-failed phone:failed

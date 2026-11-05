@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Walks the first-login setup wizard with real pointer clicks: Welcome -> Appearance -> Phone (Link absent: Continue
-# stays off, Set Up Later skips) -> Search -> Back -> Phone -> Search -> Software update (the check fails) -> Done.
+# Walks the first-login setup wizard with real pointer clicks: Welcome -> Appearance -> Keyboard -> [Time Zone] -> [Phone,
+# Set Up Later] -> [Default Apps] -> Search -> Back to Keyboard -> Search -> Software update (the check fails) -> Done.
 # Checks the page after each click from the shell log and that Done writes the completion marker.
 # Needs NOCTALIA (absolute). UI_SCALE=1.25 runs it at that scale.
 set -euo pipefail
@@ -44,12 +44,31 @@ with_noctalia '
     ".[] | select(.namespace == \"noctalia-panel\") | (.x + (.w - 640 * \$s) / 2) as \$l | (.y + (.h + 560 * \$s) / 2) as \$b |
      \"\(\$l + 24 * \$s | floor) \(\$l + 640 * \$s - 24 * \$s | floor) \(\$b - 40 * \$s | floor)\"")
   [[ -n $footer ]] || fail "no noctalia-panel layer"
+  # last_page: the newest page line. reach CLICK TARGET: after the click, step over the pages that show only with
+  # their backend (Time Zone: timedated; Phone: the Link unit; Default Apps: two apps per role) until TARGET, 5 s each.
+  last_page() { grep -o "page [a-z]*" "$OUT/noctalia.log" | tail -n 1 | cut -d" " -f2; }
+  reach() {
+    local click=$1 target=$2 before page
+    before=$(grep -c "page " "$OUT/noctalia.log")
+    $click
+    for _ in $(seq 50); do
+      page=$(last_page)
+      if (( $(grep -c "page " "$OUT/noctalia.log") > before )); then
+        [[ $page == "$target" ]] && return 0
+        case $page in
+          timezone | apps) before=$(grep -c "page " "$OUT/noctalia.log"); $click ;;
+          phone) before=$(grep -c "page " "$OUT/noctalia.log"); [[ $click == lead ]] && lead || later ;;
+        esac
+      fi
+      sleep 0.1
+    done
+    fail "expected page $target, log has: page $page"
+  }
   primary; wait_page appearance
-  primary; wait_page phone
-  primary; sleep 0.5; wait_page phone
-  later; wait_page search
-  lead; wait_page phone
-  later; wait_page search
+  reach primary keyboard
+  reach primary search
+  reach lead keyboard
+  reach primary search
   primary; wait_page update
   sleep 1
   grim "$OUT/update.png"

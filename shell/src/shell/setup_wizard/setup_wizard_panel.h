@@ -21,6 +21,9 @@ class Label;
 class LinkService;
 class Node;
 class Select;
+class SettingsControl;
+class ShellWaylandConnection;
+class TimeDateService;
 class SoftwareUpdateService;
 class SystemBus;
 class Toggle;
@@ -34,7 +37,7 @@ namespace sdbus {
 class SetupWizardPanel : public Panel {
 public:
   // `updates` creates the shared update client on first use (nullptr without a session bus).
-  SetupWizardPanel(ConfigService* config, WaylandConnection* wayland, LinkService* link, SystemBus* systemBus,
+  SetupWizardPanel(ConfigService* config, ShellWaylandConnection* wayland, LinkService* link, SystemBus* systemBus,
                    std::function<SoftwareUpdateService*()> updates);
   ~SetupWizardPanel() override;
 
@@ -53,7 +56,7 @@ public:
   // The update client changed (a check started or finished).
   void onSoftwareUpdateChanged();
 
-  static constexpr int kPageCount = 8;
+  static constexpr int kPageCount = 11;
 
 private:
   // A node drawn over `host` (selection ring, hit area), outset by `outset` on every side.
@@ -91,6 +94,9 @@ private:
   void doLayout(Renderer& renderer, float width, float height) override;
   std::unique_ptr<Flex> buildWelcome(float scale);
   std::unique_ptr<Flex> buildAppearance(float scale);
+  std::unique_ptr<Flex> buildKeyboard(float scale);
+  std::unique_ptr<Flex> buildTimezone(float scale);
+  std::unique_ptr<Flex> buildApps(float scale);
   std::unique_ptr<Flex> buildPhone(float scale);
   std::unique_ptr<Flex> buildUnlock(float scale);
   std::unique_ptr<Flex> buildLogin(float scale);
@@ -126,6 +132,9 @@ private:
   void finishEnrol(bool ok);
   void releaseFace();
   void releaseFinger();
+  void probeKeyboard();
+  void syncKeyboard();
+  void syncTimezone();
   void probeLogin();
   void switchLogin();
   void probeSearch();
@@ -230,6 +239,25 @@ private:
   Label* m_updateSubLabel = nullptr;
   Button* m_updateRetry = nullptr;
   LoginState m_loginState = LoginState::Hidden;
+  bool m_awaitingAuth = false;
+  bool m_linkInstalled = true;
+  ShellWaylandConnection* m_wayland = nullptr;
+  // Compositor settings (input.keyboard.layout), bound while the wizard is built.
+  std::unique_ptr<SettingsControl> m_compositorSettings;
+  // xkb layout names in catalog order, and their descriptions for the Select.
+  std::vector<std::string> m_layoutNames;
+  std::string m_layout;
+  // The system keymap (localed X11Layout), which the compositor uses while input.keyboard.layout is unset.
+  std::string m_systemLayout;
+  Select* m_layoutSelect = nullptr;
+  std::unique_ptr<TimeDateService> m_timedate;
+  Select* m_zoneSelect = nullptr;
+  Toggle* m_ntpToggle = nullptr;
+  Label* m_zoneTimeLabel = nullptr;
+  Label* m_zoneError = nullptr;
+  std::size_t m_zoneCount = 0;
+  // Default-app rows that have a choice (two or more candidates).
+  int m_appRows = 0;
   // Display manager the user has now ("GDM"), empty without one; the reason when the switch failed.
   std::string m_loginCurrent;
   std::string m_loginError;

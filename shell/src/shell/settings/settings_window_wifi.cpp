@@ -21,6 +21,7 @@
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/settings/settings_window.h"
+#include "system/display_manager.h"
 #include "ui/controls/slider.h"
 
 #include <cstring>
@@ -165,6 +166,10 @@ void SettingsWindow::addUsersContent(float scale) {
       }
     });
   };
+  std::vector<std::pair<std::string, std::string>> loginScreens;
+  for (auto& dm : display_manager::installed()) {
+    loginScreens.emplace_back(std::move(dm.unit), std::move(dm.name));
+  }
   settings::addSettingsUsers(
       *m_contentContainer,
       settings::SettingsUsersContext{
@@ -212,6 +217,26 @@ void SettingsWindow::addUsersContent(float scale) {
             leaveDetail();
           },
           .rebuild = [this] { requestContentRebuild(); },
+          .loginScreens = loginScreens,
+          .activeLoginScreen = display_manager::activeUnit(),
+          .loginScreenStatus = m_loginScreenStatus,
+          .loginScreenError = m_loginScreenError,
+          .switchLoginScreen = [this](std::string unit) {
+            m_loginScreenStatus = i18n::tr("settings.users.login-screen-switching");
+            m_loginScreenError = false;
+            requestContentRebuild();
+            display_manager::switchTo(unit, [this, alive = std::weak_ptr<void>(m_aliveGuard)](bool ok, bool denied, std::string error) {
+              if (alive.expired()) {
+                return;
+              }
+              m_loginScreenError = !ok;
+              m_loginScreenStatus = ok ? i18n::tr("settings.users.login-screen-next-start")
+                                       : (denied ? i18n::tr("settings.users.login-screen-denied") : error);
+              if (isOpen()) {
+                requestContentRebuild();
+              }
+            });
+          },
       }
   );
 }

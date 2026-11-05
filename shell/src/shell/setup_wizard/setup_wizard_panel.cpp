@@ -1,5 +1,7 @@
 #include "shell/setup_wizard/setup_wizard_panel.h"
 
+#include "compositors/settings_control.h"
+#include "compositors/shell_wayland_connection.h"
 #include "config/config_service.h"
 #include "core/files/directory_scanner.h"
 #include "core/files/resource_paths.h"
@@ -10,11 +12,16 @@
 #include "dbus/andromeda/software_update_service.h"
 #include "dbus/system_bus.h"
 #include "dbus/system_interactive_call.h"
+#include "dbus/timedate/timedate_service.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/core/texture_manager.h"
 #include "render/scene/countdown_ring_node.h"
 #include "shell/panel/panel_manager.h"
+#include "system/default_apps.h"
+#include "system/display_manager.h"
+#include "system/desktop_entry.h"
+#include "system/xkb_layout_catalog.h"
 #include "theme/builtin_palettes.h"
 #include "ui/builders.h"
 #include "ui/dialogs/file_dialog.h"
@@ -50,8 +57,9 @@ namespace {
 
   constexpr Logger kLog("setup-wizard");
 
-  enum PageId : int { kWelcome, kAppearance, kPhone, kUnlock, kLogin, kSearch, kUpdate, kDone };
-  constexpr const char* kPageNames[] = {"welcome", "appearance", "phone", "unlock", "login", "search", "update", "done"};
+  enum PageId : int { kWelcome, kAppearance, kKeyboard, kTimezone, kPhone, kUnlock, kLogin, kApps, kSearch, kUpdate, kDone };
+  constexpr const char* kPageNames[] = {"welcome", "appearance", "keyboard", "timezone", "phone", "unlock",
+                                        "login", "apps", "search", "update", "done"};
 
   // Thumbnail cell: 3 equal columns in the 640 sheet (592 content - 2 x 4 card - 2 x 8 thumbs - 2 x 8 gaps) / 3.
   constexpr float kThumbWidth = 184.0F;
@@ -72,29 +80,30 @@ namespace {
   constexpr float kHeroTextWidth = 400.0F;
   constexpr float kPageDotSize = 6.0F;
 
-  // The greetd config the Andromeda greeter package installs, and the alias systemctl enable points at the active
-  // display manager.
-  constexpr auto kGreeterConfig = "/usr/share/noctalia-greeter/greetd.toml";
-  constexpr auto kDisplayManagerLink = "/etc/systemd/system/display-manager.service";
-  constexpr auto kGreetdUnit = "greetd.service";
-
-  std::string displayManagerName(const std::string& unit) {
-    if (unit == "gdm.service" || unit == "gdm3.service") {
-      return "GDM";
-    }
-    if (unit == "sddm.service") {
-      return "SDDM";
-    }
-    if (unit == "lightdm.service") {
-      return "LightDM";
-    }
-    return unit.substr(0, unit.rfind('.'));
-  }
+  // Installed with the andromeda-link package; without it the Phone page has nothing to offer.
+  constexpr auto kLinkUnit = "/usr/lib/systemd/user/andromeda-linkd.service";
 
   const sdbus::ServiceName kGazeBusName{"com.gundulabs.Gaze"};
   const sdbus::ObjectPath kGazePath{"/com/gundulabs/Gaze"};
   constexpr auto kGazeInterface = "com.gundulabs.Gaze";
   constexpr auto kFaceName = "Face";
+
+  constexpr auto kLayoutKey = "input.keyboard.layout";
+  constexpr float kChoiceWidth = 260.0F;
+  // The default apps a first login asks about; Settings › Default Apps has the rest.
+  constexpr default_apps::Category kWizardApps[] = {
+      default_apps::Category::WebBrowser, default_apps::Category::FileManager, default_apps::Category::Mail};
+
+  std::string_view appLabelKey(default_apps::Category category) {
+    switch (category) {
+    case default_apps::Category::WebBrowser:
+      return "settings.default-apps.web-browser";
+    case default_apps::Category::FileManager:
+      return "settings.default-apps.file-manager";
+    default:
+      return "settings.default-apps.mail";
+    }
+  }
 
   const sdbus::ServiceName kFprintBusName{"net.reactivated.Fprint"};
   const sdbus::ObjectPath kFprintManagerPath{"/net/reactivated/Fprint/Manager"};
@@ -310,10 +319,11 @@ namespace {
 } // namespace
 
 SetupWizardPanel::SetupWizardPanel(
-    ConfigService* config, WaylandConnection* /*wayland*/, LinkService* link, SystemBus* systemBus,
+    ConfigService* config, ShellWaylandConnection* wayland, LinkService* link, SystemBus* systemBus,
     std::function<SoftwareUpdateService*()> updates
 )
-    : m_config(config), m_link(link), m_systemBus(systemBus), m_updates(std::move(updates)), m_user(currentUser()) {}
+    : m_config(config), m_link(link), m_systemBus(systemBus), m_updates(std::move(updates)), m_user(currentUser()),
+      m_wayland(wayland) {}
 
 SetupWizardPanel::~SetupWizardPanel() { stopEnrol(); }
 
@@ -335,15 +345,24 @@ void SetupWizardPanel::create() {
   // Update1 lists pacman or apt updates; the client exists whenever there is a session bus.
   m_updateChecker = static_cast<bool>(m_updates);
   probeLogin();
+  probeKeyboard();
+  if (m_systemBus != nullptr && m_timedate == nullptr) {
+    m_timedate = std::make_unique<TimeDateService>(*m_systemBus, [this] { syncTimezone(); });
+  }
+  std::error_code linkEc;
+  m_linkInstalled = (m_link != nullptr && m_link->available()) || std::filesystem::exists(kLinkUnit, linkEc);
 
   auto root = ui::column({.out = &m_root, .align = FlexAlign::Stretch});
 
   auto pages = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
   pages->addChild(buildWelcome(scale));
   pages->addChild(buildAppearance(scale));
+  pages->addChild(buildKeyboard(scale));
+  pages->addChild(buildTimezone(scale));
   pages->addChild(buildPhone(scale));
   pages->addChild(buildUnlock(scale));
   pages->addChild(buildLogin(scale));
+  pages->addChild(buildApps(scale));
   pages->addChild(buildSearch(scale));
   pages->addChild(buildUpdate(scale));
   pages->addChild(buildDone(scale));
@@ -829,6 +848,156 @@ std::unique_ptr<Flex> SetupWizardPanel::buildUnlock(float scale) {
   return page;
 }
 
+std::unique_ptr<Flex> SetupWizardPanel::buildKeyboard(float scale) {
+  auto page = makePage(kKeyboard, scale, "setup-wizard.keyboard-title", "setup-wizard.keyboard-body");
+  auto card = makeCard(scale);
+  auto row = makeListRow(scale);
+  row->addChild(makeGrowLabel(i18n::tr("setup-wizard.keyboard-layout"), scale));
+  std::vector<std::string> labels;
+  const xkb::Catalog catalog = xkb::loadCatalog();
+  m_layoutNames.clear();
+  m_layout.clear();
+  for (const xkb::Layout& layout : catalog.layouts) {
+    if (layout.name == "custom") {
+      continue; // "A user-defined custom Layout": an empty file unless the user wrote one
+    }
+    m_layoutNames.push_back(layout.name);
+    labels.push_back(layout.description);
+  }
+  row->addChild(ui::select({
+      .out = &m_layoutSelect,
+      .options = std::move(labels),
+      .clearSelection = true,
+      .placeholder = i18n::tr("setup-wizard.keyboard-system"),
+      .fontSize = Style::fontSizeBody * scale,
+      .controlHeight = Style::controlHeightSm * scale,
+      .horizontalPadding = Tokens::spaceP8 * scale,
+      .width = kChoiceWidth * scale,
+      .onSelectionChanged =
+          [this](std::size_t index, std::string_view /*label*/) {
+            if (index >= m_layoutNames.size() || m_compositorSettings == nullptr) {
+              return;
+            }
+            // Replace only the default (first) input source; the others and their variants stay.
+            m_layout = m_layoutNames[index];
+            std::string layouts = m_compositorSettings->value(kLayoutKey);
+            std::string variants = m_compositorSettings->value("input.keyboard.variant");
+            const auto rest = [](const std::string& list) {
+              const auto comma = list.find(',');
+              return comma == std::string::npos ? std::string{} : list.substr(comma);
+            };
+            m_compositorSettings->set(kLayoutKey, m_layout + rest(layouts));
+            m_compositorSettings->set("input.keyboard.variant", rest(variants));
+          },
+  }));
+  card->addChild(std::move(row));
+  addSeparator(card.get(), 12.0F, scale);
+  auto test = makeListRow(scale);
+  test->addChild(ui::input({
+      .placeholder = i18n::tr("setup-wizard.keyboard-test"),
+      .fontSize = Style::fontSizeBody * scale,
+      .controlHeight = Style::controlHeightSm * scale,
+      .flexGrow = 1.0F,
+  }));
+  card->addChild(std::move(test));
+  page->addChild(std::move(card));
+  return page;
+}
+
+std::unique_ptr<Flex> SetupWizardPanel::buildTimezone(float scale) {
+  auto page = makePage(kTimezone, scale, "setup-wizard.timezone-title", "setup-wizard.timezone-body");
+  auto card = makeCard(scale);
+  auto zone = makeListRow(scale);
+  zone->addChild(makeGrowLabel(i18n::tr("setup-wizard.timezone-zone"), scale));
+  m_zoneCount = 0;
+  zone->addChild(ui::select({
+      .out = &m_zoneSelect,
+      .fontSize = Style::fontSizeBody * scale,
+      .controlHeight = Style::controlHeightSm * scale,
+      .horizontalPadding = Tokens::spaceP8 * scale,
+      .width = kChoiceWidth * scale,
+      .onSelectionChanged =
+          [this](std::size_t index, std::string_view /*label*/) {
+            if (m_timedate != nullptr && index < m_timedate->timezones().size()) {
+              m_timedate->setTimezone(m_timedate->timezones()[index]);
+            }
+          },
+  }));
+  card->addChild(std::move(zone));
+  addSeparator(card.get(), 12.0F, scale);
+  auto ntp = makeListRow(scale);
+  ntp->addChild(makeGrowLabel(i18n::tr("setup-wizard.timezone-auto"), scale));
+  ntp->addChild(ui::toggle({
+      .out = &m_ntpToggle,
+      .checked = m_timedate != nullptr && m_timedate->ntp(),
+      .scale = scale,
+      .onChange =
+          [this](bool on) {
+            if (m_timedate != nullptr) {
+              m_timedate->setNtp(on);
+            }
+          },
+  }));
+  card->addChild(std::move(ntp));
+  page->addChild(std::move(card));
+  auto error = makeLabel("", Tokens::typeFootnote, scale, ColorRole::DangerText, FontWeight::Medium);
+  error->setMaxLines(2);
+  m_zoneError = error.get();
+  page->addChild(ui::node({.height = Tokens::spaceP8 * scale}));
+  page->addChild(std::move(error));
+  return page;
+}
+
+std::unique_ptr<Flex> SetupWizardPanel::buildApps(float scale) {
+  auto page = makePage(kApps, scale, "setup-wizard.apps-title", "setup-wizard.apps-body");
+  auto card = makeCard(scale);
+  m_appRows = 0;
+  const auto entries = desktopEntriesSnapshot();
+  for (const default_apps::Category category : kWizardApps) {
+    const std::vector<const DesktopEntry*> candidates =
+        entries != nullptr ? default_apps::candidatesForCategory(*entries, category) : std::vector<const DesktopEntry*>{};
+    if (candidates.size() < 2) {
+      continue;
+    }
+    const std::string current = default_apps::effectiveDefault(category);
+    std::vector<std::string> labels;
+    std::vector<std::string> ids;
+    std::optional<std::size_t> selected;
+    for (const DesktopEntry* entry : candidates) {
+      if (entry->id + ".desktop" == current) {
+        selected = ids.size();
+      }
+      ids.push_back(entry->id + ".desktop");
+      labels.push_back(entry->name);
+    }
+    if (m_appRows > 0) {
+      addSeparator(card.get(), 12.0F, scale);
+    }
+    ++m_appRows;
+    auto row = makeListRow(scale);
+    row->addChild(makeGrowLabel(i18n::tr(appLabelKey(category)), scale));
+    row->addChild(ui::select({
+        .options = std::move(labels),
+        .selectedIndex = selected,
+        .clearSelection = !selected.has_value(),
+        .placeholder = i18n::tr("setup-wizard.apps-none"),
+        .fontSize = Style::fontSizeBody * scale,
+        .controlHeight = Style::controlHeightSm * scale,
+        .horizontalPadding = Tokens::spaceP8 * scale,
+        .width = kChoiceWidth * scale,
+        .onSelectionChanged =
+            [category, ids = std::move(ids)](std::size_t index, std::string_view /*label*/) {
+              if (index < ids.size()) {
+                (void)default_apps::setUserDefault(category, ids[index]);
+              }
+            },
+    }));
+    card->addChild(std::move(row));
+  }
+  page->addChild(std::move(card));
+  return page;
+}
+
 std::unique_ptr<Flex> SetupWizardPanel::buildLogin(float scale) {
   auto page = makePage(kLogin, scale, "setup-wizard.login-title", "setup-wizard.login-body");
   auto card = makeCard(scale);
@@ -961,8 +1130,8 @@ std::unique_ptr<Flex> SetupWizardPanel::buildDone(float scale) {
     row->addChild(ui::glyph({.glyph = "search", .glyphSize = Tokens::sizeSymbol * scale, .color = colorSpecFromRole(ColorRole::Label2)}));
     row->addChild(makeGrowLabel(i18n::tr("setup-wizard.tip-search"), scale));
     auto keys = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * scale});
+    // config.toml binds a Super tap to the launcher; Super+Space is the scratchpad.
     keys->addChild(makeKeycap("Super", scale));
-    keys->addChild(makeKeycap("Space", scale));
     row->addChild(std::move(keys));
     tips->addChild(std::move(row));
   }
@@ -999,6 +1168,19 @@ bool SetupWizardPanel::pageShown(int page) const {
   }
   if (page == kLogin) {
     return m_loginState != LoginState::Hidden;
+  }
+  if (page == kPhone) {
+    return m_linkInstalled;
+  }
+  if (page == kKeyboard) {
+    return m_compositorSettings != nullptr && !m_layoutNames.empty();
+  }
+  if (page == kTimezone) {
+    // Shown while ListTimezones is on its way; hidden once it failed (no timedated).
+    return m_timedate != nullptr && !m_timedate->timezonesFailed();
+  }
+  if (page == kApps) {
+    return m_appRows > 0;
   }
   return true;
 }
@@ -1040,6 +1222,10 @@ void SetupWizardPanel::enterPage(int page) {
       syncPhone();
       syncPages();
     });
+  } else if (page == kKeyboard) {
+    syncKeyboard();
+  } else if (page == kTimezone) {
+    syncTimezone();
   } else if (page == kUnlock) {
     probeUnlock();
   } else if (page == kSearch) {
@@ -1583,46 +1769,112 @@ void SetupWizardPanel::finishEnrol(bool ok) {
   syncPages();
 }
 
+void SetupWizardPanel::probeKeyboard() {
+  if (m_compositorSettings != nullptr || m_wayland == nullptr) {
+    return;
+  }
+  const auto [name, version] = m_wayland->desktopSettingsGlobal();
+  if (name == 0) {
+    return;
+  }
+  m_compositorSettings = std::make_unique<SettingsControl>(m_wayland->registry(), name, version, [this] { syncKeyboard(); });
+  if (m_systemBus == nullptr) {
+    return;
+  }
+  try {
+    auto locale = std::shared_ptr<sdbus::IProxy>(sdbus::createProxy(
+        m_systemBus->connection(), sdbus::ServiceName{"org.freedesktop.locale1"}, sdbus::ObjectPath{"/org/freedesktop/locale1"}
+    ));
+    locale->getPropertyAsync("X11Layout").onInterface("org.freedesktop.locale1").uponReplyInvoke(
+        [this, locale, alive = std::weak_ptr<bool>(m_alive)](std::optional<sdbus::Error> error, sdbus::Variant value) {
+          if (alive.expired() || error.has_value()) {
+            return;
+          }
+          const auto layouts = value.get<std::string>();
+          m_systemLayout = layouts.substr(0, layouts.find(','));
+          syncKeyboard();
+        }
+    );
+  } catch (const sdbus::Error& e) {
+    kLog.debug("no localed keymap: {}", e.what());
+  }
+}
+
+// The compositor's layout key holds the input sources comma separated; unset, the compositor uses the system
+// (localed) keymap, which the Select then leaves unselected until the user picks one.
+void SetupWizardPanel::syncKeyboard() {
+  if (m_root == nullptr || m_compositorSettings == nullptr || m_layoutSelect == nullptr) {
+    return;
+  }
+  const std::string value = m_compositorSettings->value(kLayoutKey);
+  const std::string first = value.empty() ? m_systemLayout : value.substr(0, value.find(','));
+  if (!first.empty() && first != m_layout) {
+    m_layout = first;
+    if (const auto it = std::ranges::find(m_layoutNames, first); it != m_layoutNames.end()) {
+      m_layoutSelect->setSelectedIndexSilently(static_cast<std::size_t>(it - m_layoutNames.begin()));
+    }
+  }
+  syncPages();
+}
+
+void SetupWizardPanel::syncTimezone() {
+  if (m_root == nullptr || m_timedate == nullptr || m_zoneSelect == nullptr) {
+    return;
+  }
+  const auto& zones = m_timedate->timezones();
+  if (zones.size() != m_zoneCount) {
+    m_zoneCount = zones.size();
+    m_zoneSelect->setOptions(zones);
+  }
+  if (const auto it = std::ranges::find(zones, m_timedate->timezone()); it != zones.end()) {
+    m_zoneSelect->setSelectedIndexSilently(static_cast<std::size_t>(it - zones.begin()));
+  } else {
+    m_zoneSelect->clearSelection();
+  }
+  m_ntpToggle->setChecked(m_timedate->ntp());
+  m_zoneError->setText(m_timedate->lastError().empty() ? std::string{} : i18n::tr("setup-wizard.timezone-failed"));
+  syncPages();
+}
+
 void SetupWizardPanel::probeLogin() {
+  // A refused switch keeps its message when the wizard opens again after the polkit panel.
+  if (m_loginState == LoginState::Failed && display_manager::activeUnit() != "greetd.service") {
+    return;
+  }
   m_loginState = LoginState::Hidden;
-  std::error_code ec;
-  if (!std::filesystem::exists(kGreeterConfig, ec)) {
+  const auto dms = display_manager::installed();
+  const std::string unit = display_manager::activeUnit();
+  if (dms.empty() || dms.front().unit != "greetd.service" || unit == "greetd.service") {
     return;
   }
-  const std::string unit = std::filesystem::read_symlink(kDisplayManagerLink, ec).filename().string();
-  if (unit == kGreetdUnit) {
-    return;
-  }
-  m_loginCurrent = ec ? std::string{} : displayManagerName(unit);
+  m_loginCurrent = unit.empty() ? std::string{} : display_manager::nameOf(unit);
   m_loginState = LoginState::Offer;
 }
 
-// EnableUnitFiles with force moves the display-manager.service alias to greetd; polkit asks for the admin password
-// through the shell's agent. The old display manager stays installed, so `systemctl enable -f` takes it back.
+// The old display manager stays installed; Settings › Users switches back.
 void SetupWizardPanel::switchLogin() {
   m_loginState = LoginState::Switching;
+  // The polkit password panel replaces this one; the reply opens the wizard again where it was.
+  m_awaitingAuth = true;
   syncPages();
-  const char* names[] = {kGreetdUnit, nullptr};
-  dbus::callInteractive(
-      "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "EnableUnitFiles",
-      g_variant_new("(^asbb)", names, FALSE, TRUE),
-      [this, alive = std::weak_ptr<bool>(m_alive)](GVariant* result, std::string error) {
-        if (alive.expired()) {
-          return;
-        }
-        if (result != nullptr) {
-          m_loginState = LoginState::On;
-          kLog.info("login screen: greetd enabled");
-        } else {
-          m_loginState = LoginState::Failed;
-          const bool denied = error.contains("AccessDenied") || error.contains("NotAuthorized") || error.contains("Dismissed")
-                              || error.contains("InteractiveAuthorizationRequired");
-          m_loginError = denied ? i18n::tr("setup-wizard.login-denied") : i18n::tr("setup-wizard.login-failed", "reason", error);
-          kLog.warn("login screen: enabling greetd failed: {}", error);
-        }
-        syncPages();
-      }
-  );
+  display_manager::switchTo("greetd.service", [this, alive = std::weak_ptr<bool>(m_alive)](bool ok, bool denied, std::string error) {
+    if (alive.expired()) {
+      return;
+    }
+    m_awaitingAuth = false;
+    m_loginState = ok ? LoginState::On : LoginState::Failed;
+    if (ok) {
+      kLog.info("login screen: greetd enabled");
+    } else {
+      m_loginError = denied ? i18n::tr("setup-wizard.login-denied") : i18n::tr("setup-wizard.login-failed", "reason", error);
+      kLog.warn("login screen: enabling greetd failed: {}", error);
+    }
+    if (m_root == nullptr) {
+      PanelManager::instance().openPanel("setup-wizard", PanelOpenRequest{.context = kPageNames[kLogin]});
+      return;
+    }
+    syncPages();
+  });
 }
 
 void SetupWizardPanel::probeSearch() {
@@ -1823,6 +2075,7 @@ void SetupWizardPanel::onOpen(std::string_view context) {
   // A state after the page name is a still for screenshots: it shows that state's look and calls no backend.
   if (!state.empty()) {
     m_preview = true;
+    m_linkInstalled = true;
     m_phoneTimer.stop();
     if (state == "norun") {
       m_phoneState = PhoneState::NotRunning;
@@ -1879,6 +2132,14 @@ void SetupWizardPanel::onClose() {
   }
   stopEnrol();
   m_root = nullptr;
+  if (m_awaitingAuth) {
+    return; // closed by the polkit panel, not by the user: not finished, and its services stay bound
+  }
+  // Both bind only while the wizard is open; their callbacks touch the page widgets freed with the scene.
+  m_compositorSettings.reset();
+  m_timedate.reset();
+  m_layoutSelect = nullptr;
+  m_zoneSelect = nullptr;
   if (m_config != nullptr) {
     (void)m_config->markSetupWizardCompleted();
   }
