@@ -45,7 +45,11 @@ namespace {
     return std::string(text.substr(begin, end - begin));
   }
 
-  bool shouldRefreshExchangeRateSource(std::string_view url) { return !url.contains("nbrb.by"); }
+  constexpr auto kExchangeRateMaxAge = std::chrono::hours(24);
+
+  bool shouldRefreshExchangeRateSource(std::string_view url, const std::filesystem::path& file) {
+    return !url.contains("nbrb.by") && !HttpClient::isFresh(file, kExchangeRateMaxAge);
+  }
 
   // libqalculate's getLocalDataDir(), without loading the library.
   std::filesystem::path qalculateDataDir() {
@@ -104,10 +108,7 @@ void MathProvider::initialize() {
   m_loadTimer.start(kCalculatorLoadDelay, [this] { loadCalculator(); });
 }
 
-void MathProvider::loadCalculator() {
-  rebuildCalculator();
-  refreshExchangeRates();
-}
+void MathProvider::loadCalculator() { rebuildCalculator(); }
 
 void MathProvider::onLauncherOpened() {
   if (!m_calc) {
@@ -159,10 +160,11 @@ bool MathProvider::watchDefinitionsDir() {
   return m_definitionsWatcher.has_value();
 }
 
-void MathProvider::refreshExchangeRates() {
-  if (m_httpClient == nullptr || m_config == nullptr || !m_calc) {
+void MathProvider::refreshExchangeRates() const {
+  if (m_exchangeRatesChecked || m_httpClient == nullptr || m_config == nullptr || !m_calc) {
     return;
   }
+  m_exchangeRatesChecked = true;
   if (m_config->config().shell.offlineMode
       || !m_config->config().shell.launcher.fetchExchangeRates
       || !m_calc->canFetchExchangeRates()) {
@@ -171,8 +173,9 @@ void MathProvider::refreshExchangeRates() {
 
   std::vector<std::pair<std::string, std::filesystem::path>> sources;
   for (auto& [url, file] : m_calc->exchangeRateSources()) {
-    if (shouldRefreshExchangeRateSource(url)) {
-      sources.emplace_back(std::move(url), std::filesystem::path(std::move(file)));
+    std::filesystem::path path(std::move(file));
+    if (shouldRefreshExchangeRateSource(url, path)) {
+      sources.emplace_back(std::move(url), std::move(path));
     }
   }
   if (sources.empty()) {
@@ -213,6 +216,8 @@ std::vector<LauncherResult> MathProvider::evaluate(std::string_view text) const 
   if (!output.has_value() || output->empty() || *output == input || *output == localized) {
     return {};
   }
+
+  refreshExchangeRates();
 
   LauncherResult r;
   r.id = "math";

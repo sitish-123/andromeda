@@ -65,6 +65,13 @@ public:
 
   void setOfflineMode(bool offline) { m_offlineMode = offline; }
 
+  // Whether path exists and was written less than maxAge ago.
+  [[nodiscard]] static bool isFresh(const std::filesystem::path& path, std::chrono::seconds maxAge) {
+    std::error_code ec;
+    const auto modified = std::filesystem::last_write_time(path, ec);
+    return !ec && std::filesystem::file_time_type::clock::now() - modified < maxAge;
+  }
+
   // Start an async download of url to destPath.
   // cb is always invoked on the main loop thread on a later iteration — never
   // synchronously from inside this call, even when offline mode or an early
