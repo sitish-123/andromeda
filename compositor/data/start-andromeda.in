@@ -86,6 +86,9 @@ if command -v dbus-update-activation-environment >/dev/null 2>&1; then
   session_environment_names | xargs -r dbus-update-activation-environment
 fi
 
+# A logind session end (logout, loginctl terminate-session) sends SIGTERM; go on to the shutdown target below so the
+# user-service compositor does not outlive its session and block the next login.
+trap : HUP INT TERM
 systemctl --user --wait start andromeda.service
 andromeda_status=$?
 
