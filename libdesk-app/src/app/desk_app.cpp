@@ -145,6 +145,7 @@ int DeskApp::run(int argc, char* argv[]) {
     return 1;
   }
   const int code = m_loop.run();
+  shutdown();
   m_state.flush();
   return code;
 }

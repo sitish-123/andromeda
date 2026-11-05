@@ -40,6 +40,8 @@ public:
     bool navigation = false; // back / forward buttons in the header (commands go.back, go.forward)
     float sidebarWidth = 0.0F; // logical px before ui scale; 0 = no sidebar
     std::string parentWindow;  // portal form "wayland:<xdg-foreign handle>": a dialog of another app's window
+    bool transparentContent = false; // the content area shows what lies below the window surface (a video subsurface)
+    bool headerWhenFullscreen = true;
   };
 
   // Builds the content under the header; called on open, on requestRebuild() and when the scale changes.
@@ -69,6 +71,18 @@ public:
   // Raises the window for a launch that carried an xdg-activation token.
   void activate(const std::string& token);
   void toggleMaximized();
+  void toggleFullscreen();
+  [[nodiscard]] bool fullscreen() const noexcept;
+  // The content area in surface coordinates (logical px), as of the last layout.
+  struct Rect {
+    float x = 0.0F;
+    float y = 0.0F;
+    float width = 0.0F;
+    float height = 0.0F;
+  };
+  [[nodiscard]] Rect contentRect() const noexcept { return m_contentRect; }
+  // After each layout (size, scale or fullscreen change).
+  void setLayoutCallback(std::function<void()> callback) { m_onLayout = std::move(callback); }
 
   [[nodiscard]] wl_surface* wlSurface() const noexcept;
   [[nodiscard]] float uiScale() const noexcept { return m_uiScale; }
@@ -97,6 +111,8 @@ private:
   SidebarBuilder m_sidebarBuilder;
   std::function<bool(const KeyboardEvent&)> m_keyHandler;
   std::function<void()> m_onClosed;
+  std::function<void()> m_onLayout;
+  Rect m_contentRect;
   float m_uiScale = 1.0F;
 
   std::unique_ptr<ToplevelSurface> m_surface;

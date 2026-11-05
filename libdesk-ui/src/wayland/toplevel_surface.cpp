@@ -130,6 +130,17 @@ void ToplevelSurface::setMaximized(bool maximized) {
   }
 }
 
+void ToplevelSurface::setFullscreen(bool fullscreen) {
+  if (m_toplevel == nullptr) {
+    return;
+  }
+  if (fullscreen) {
+    xdg_toplevel_set_fullscreen(m_toplevel, nullptr);
+  } else {
+    xdg_toplevel_unset_fullscreen(m_toplevel);
+  }
+}
+
 void ToplevelSurface::setMinimized() {
   if (m_toplevel != nullptr) {
     xdg_toplevel_set_minimized(m_toplevel);

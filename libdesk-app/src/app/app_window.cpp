@@ -124,10 +124,11 @@ bool AppWindow::open() {
       m_surface->requestLayout();
     }
   });
-  m_surface->setStateCallback([this, wasMaximized = maximized](const ToplevelState& st) mutable {
+  m_surface->setStateCallback([this, wasMaximized = maximized, wasFullscreen = false](const ToplevelState& st) mutable {
     saveGeometry();
-    if (st.maximized != wasMaximized) {
+    if (st.maximized != wasMaximized || st.fullscreen != wasFullscreen) {
       wasMaximized = st.maximized;
+      wasFullscreen = st.fullscreen;
       m_rebuild = true;
       m_surface->requestLayout();
     }
@@ -229,6 +230,14 @@ void AppWindow::invalidate() {
     m_surface->requestRedraw();
   }
 }
+
+void AppWindow::toggleFullscreen() {
+  if (m_surface != nullptr) {
+    m_surface->setFullscreen(!m_surface->state().fullscreen);
+  }
+}
+
+bool AppWindow::fullscreen() const noexcept { return m_surface != nullptr && m_surface->state().fullscreen; }
 
 void AppWindow::activate(const std::string& token) { m_loop.wayland().activateSurface(wlSurface(), token); }
 
@@ -336,9 +345,21 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   const float sidebarWidth = m_sidebarBuilder ? m_config.sidebarWidth * m_uiScale : 0.0F;
   const float mainWidth = std::max(0.0F, width - sidebarWidth);
   auto main = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
-  main->setFill(colorSpecFromRole(ColorRole::SolidRegular));
-  main->addChild(buildHeader());
-  const float contentHeight = std::max(0.0F, height - kHeaderHeight * m_uiScale);
+  const bool header = m_config.headerWhenFullscreen || !fullscreen();
+  if (header) {
+    auto bar = buildHeader();
+    if (m_config.transparentContent) {
+      bar->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    }
+    main->addChild(std::move(bar));
+  }
+  if (!m_config.transparentContent) {
+    main->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+  }
+  const float headerHeight = header ? kHeaderHeight * m_uiScale : 0.0F;
+  const float contentHeight = std::max(0.0F, height - headerHeight);
+  m_contentRect = {.x = margin + (sidebarWidth > 0.0F ? sidebarWidth + 1.0F : 0.0F), .y = margin + headerHeight,
+                   .width = mainWidth, .height = contentHeight};
   std::unique_ptr<Node> content = m_builder ? m_builder(renderer, mainWidth, contentHeight) : ui::node({});
   auto holder = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .flexGrow = 1.0F});
   holder->addChild(std::move(content));
@@ -360,6 +381,9 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
 
   m_input.setSceneRoot(m_root.get());
   m_surface->setSceneRoot(m_root.get());
+  if (m_onLayout) {
+    m_onLayout();
+  }
 }
 
 std::uint32_t AppWindow::resizeEdgesAt(float x, float y) const {

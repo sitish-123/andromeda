@@ -56,6 +56,8 @@ protected:
   virtual void action(const std::string& name, const std::vector<std::string>& parameter, const std::string& activationToken);
   // Called once before the first activate/open, with the loop and bus up.
   virtual void startup() {}
+  // After the loop ends (any quit), before the state is flushed.
+  virtual void shutdown() {}
   [[nodiscard]] virtual AppWindow& createWindow() = 0;
   // Before a closed window is destroyed: drop what refers to it.
   virtual void windowClosed(AppWindow& /*window*/) {}

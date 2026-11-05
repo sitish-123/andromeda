@@ -47,6 +47,8 @@ public:
   void beginMove(std::uint32_t serial);
   void beginResize(std::uint32_t serial, std::uint32_t edges);
   void setMaximized(bool maximized);
+  // On the output the compositor picks.
+  void setFullscreen(bool fullscreen);
   void setMinimized();
   void showWindowMenu(std::uint32_t serial, std::int32_t x, std::int32_t y);
   // Called after a configure whose states differ from the last one.
