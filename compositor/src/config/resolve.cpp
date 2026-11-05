@@ -250,6 +250,13 @@ namespace andromeda {
     if (appId && std::regex_match(appId->begin(), appId->end(), kZen)) {
       resolved.ignoreOpaqueRegion = true;
     }
+    // Built-in rule: the Player's picture-in-picture window floats pinned in the bottom-right corner.
+    if (appId == "dev.andromeda.Player.PiP") {
+      resolved.defaultFloating = true;
+      resolved.defaultPinned = true;
+      resolved.defaultPosition = WindowPosition{.x = 16, .y = 16, .anchor = WindowPositionAnchor::BottomRight};
+      resolved.titleBar = TitleBarMode::Off;
+    }
 
     for (const auto& rule : config.windowRules) {
       if (!patternMatches(rule.appIdPatterns, appId)
