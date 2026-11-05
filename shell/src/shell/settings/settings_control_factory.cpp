@@ -311,14 +311,35 @@ namespace settings {
       return thumb;
     }
 
-    // Window arrangement drawings (prototype .agent/mockups/overview-proto/index.html "Window arrangement"): the
-    // windows of each mode on a 64 x 40 grid, scaled into the mode thumbnail; off-screen columns are faint.
+    // Window arrangement and overview style drawings (prototype .agent/mockups/overview-proto/index.html): shapes on a
+    // 64 x 40 grid, scaled into the mode thumbnail; off-screen or neighbouring parts are faint.
     struct ArrangementRect {
       float x, y, w, h;
       bool faint = false;
     };
 
+    // Pickers drawn from arrangementRects rather than the Appearance mode thumbnails.
+    bool isDrawnPickerPath(const std::vector<std::string>& path) {
+      return path == std::vector<std::string>{"andromeda", "layout", "mode"}
+          || path == std::vector<std::string>{"andromeda", "overview", "style"};
+    }
+
     std::vector<ArrangementRect> arrangementRects(std::string_view value) {
+      // Overview styles: Spaces (thumbs over the current workspace), Task View (spread windows over a desktop row),
+      // Strip (the current row between faint neighbours), Grid (every workspace as a tile).
+      if (value == "spaces") {
+        return {{8, 4, 10, 7}, {21, 4, 10, 7}, {34, 4, 10, 7}, {47, 4, 9, 7, true}, {8, 15, 48, 21}};
+      }
+      if (value == "taskview") {
+        return {{10, 5, 20, 15}, {34, 5, 20, 15}, {8, 27, 14, 8}, {25, 27, 14, 8}, {42, 27, 14, 8, true}};
+      }
+      if (value == "strip") {
+        return {{6, 2, 52, 7, true}, {4, 13, 26, 14}, {34, 13, 26, 14}, {6, 31, 52, 7, true}};
+      }
+      if (value == "grid") {
+        return {{5, 6, 16, 11}, {24, 6, 16, 11}, {43, 6, 16, 11}, {5, 22, 16, 11}, {24, 22, 16, 11},
+                {43, 22, 16, 11, true}};
+      }
       if (value == "floating") {
         return {{6, 6, 30, 20}, {26, 14, 32, 20}};
       }
@@ -414,6 +435,14 @@ namespace settings {
     tagTabFocusKey(*control, joinSettingPath(entry.path));
     actions->addChild(std::move(control));
 
+    // A drawn picker spans the card, so its title sits above the tiles instead of beside them.
+    if (selectSetting != nullptr && selectSetting->tiles && isDrawnPickerPath(entry.path)) {
+      section.addChild(ui::column(
+          {.gap = Style::spaceSm * scale, .paddingV = Style::spaceSm * scale, .fillWidth = true},
+          std::move(titleRow), ui::row({.justify = FlexJustify::Center, .fillWidth = true}, std::move(actions))
+      ));
+      return;
+    }
     auto row = layoutRow(
         std::move(titleRow), settingEntryShowsCaption(entry) ? std::string_view{entry.subtitle} : std::string_view{},
         !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
@@ -582,7 +611,7 @@ namespace settings {
       // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
       auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = kModeThumbGap * scale,
                             .fillWidth = true});
-      const bool arrangement = path == std::vector<std::string>{"andromeda", "layout", "mode"};
+      const bool arrangement = isDrawnPickerPath(path);
       auto ordered = setting.options;
       if (!arrangement) {
         std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
