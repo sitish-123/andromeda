@@ -40,7 +40,7 @@ run() {
   local name=$1
   shift
   if docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT/src:/src" -w /src \
-    -v "$OUT/ccache:/ccache" -e CCACHE_DIR=/ccache -v "$OUT/cargo:/tmp/.cargo" -v "$OUT/target:/target" -e CARGO_TARGET_DIR=/target "$IMAGE" bash -c "$*" > "$OUT/$name.log" 2>&1; then
+    -v "$OUT/ccache:/ccache" -e CCACHE_DIR=/ccache -v "$OUT/cargo:/tmp/.cargo" -v "$OUT/target:/target" -e CARGO_TARGET_DIR=/target "$IMAGE" bash -c "$*" 2>&1 | tee "$OUT/$name.log"; then
     echo "PASS $name"
   else
     failed=1
