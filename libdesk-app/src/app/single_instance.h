@@ -25,7 +25,9 @@ public:
     // activationToken is the xdg-activation token of the launch, or empty.
     std::function<void(const std::string& activationToken)> activate;
     std::function<void(const std::vector<std::string>& uris, const std::string& activationToken)> open;
-    std::function<void(const std::string& action, const std::string& activationToken)> action;
+    // parameter: the string values of the action's parameter (s or as), else empty.
+    std::function<void(const std::string& action, const std::vector<std::string>& parameter, const std::string& activationToken)>
+        action;
   };
 
   SingleInstance(SessionBus* bus, std::string appId);

@@ -1,5 +1,7 @@
 #include "app/app_window.h"
 
+#include "app/foreign_parent.h"
+
 #include "app/app_loop.h"
 #include "app/command_table.h"
 #include "app/state_store.h"
@@ -148,6 +150,10 @@ bool AppWindow::open() {
     m_surface.reset();
     return false;
   }
+  if (!m_config.parentWindow.empty()) {
+    m_foreignParent = std::make_unique<desk::ForeignParent>(wayland.display());
+    m_foreignParent->setParent(m_surface->wlSurface(), m_config.parentWindow);
+  }
   m_input.setCursorShapeCallback([this](std::uint32_t serial, std::uint32_t shape) {
     m_loop.wayland().setCursorShape(serial, shape);
   });
@@ -162,6 +168,7 @@ void AppWindow::close() {
   m_state.flush();
   m_input.setSceneRoot(nullptr);
   m_surface->setSceneRoot(nullptr);
+  m_foreignParent.reset();
   m_surface.reset();
   m_root.reset();
   m_titleLabel = nullptr;
@@ -326,14 +333,26 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   width -= 2.0F * margin;
   height -= 2.0F * margin;
 
-  auto body = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height});
-  body->setFill(colorSpecFromRole(ColorRole::SolidRegular));
-  body->addChild(buildHeader());
+  const float sidebarWidth = m_sidebarBuilder ? m_config.sidebarWidth * m_uiScale : 0.0F;
+  const float mainWidth = std::max(0.0F, width - sidebarWidth);
+  auto main = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
+  main->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+  main->addChild(buildHeader());
   const float contentHeight = std::max(0.0F, height - kHeaderHeight * m_uiScale);
-  std::unique_ptr<Node> content = m_builder ? m_builder(renderer, width, contentHeight) : ui::node({});
+  std::unique_ptr<Node> content = m_builder ? m_builder(renderer, mainWidth, contentHeight) : ui::node({});
   auto holder = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .flexGrow = 1.0F});
   holder->addChild(std::move(content));
-  body->addChild(std::move(holder));
+  main->addChild(std::move(holder));
+
+  auto body = ui::row({.align = FlexAlign::Stretch, .width = width, .height = height});
+  if (sidebarWidth > 0.0F) {
+    auto sidebar = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .width = sidebarWidth});
+    sidebar->setFill(colorSpecFromRole(ColorRole::SolidThin));
+    sidebar->addChild(m_sidebarBuilder(renderer, sidebarWidth, height));
+    body->addChild(std::move(sidebar));
+    body->addChild(ui::separator({}));
+  }
+  body->addChild(std::move(main));
   body->setSize(width, height);
   body->setPosition(margin, margin);
   body->layout(renderer);
@@ -452,6 +471,10 @@ void AppWindow::onKeyboardEvent(const KeyboardEvent& event) {
   // A focused text field owns plain keys; commands with Ctrl or Alt still run (Ctrl+W closes while typing).
   const bool commandKey = (event.modifiers & (KeyMod::Ctrl | KeyMod::Alt)) != 0 || !typing;
   if (event.pressed && !event.preedit && commandKey && m_commands.handleKey(event.sym, event.modifiers)) {
+    return;
+  }
+  if (!typing && m_keyHandler && m_keyHandler(event)) {
+    invalidate();
     return;
   }
   m_input.keyEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);

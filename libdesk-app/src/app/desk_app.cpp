@@ -103,7 +103,8 @@ int DeskApp::run(int argc, char* argv[]) {
       uris, {
                 .activate = [this](const std::string& token) { activate(token); },
                 .open = [this](const std::vector<std::string>& u, const std::string& token) { open(u, token); },
-                .action = [this](const std::string& name, const std::string& token) { action(name, token); },
+                .action = [this](const std::string& name, const std::vector<std::string>& parameter,
+                                 const std::string& token) { action(name, parameter, token); },
             }
   );
   if (role == SingleInstance::Role::Forwarded) {
@@ -134,7 +135,7 @@ int DeskApp::run(int argc, char* argv[]) {
   } else {
     open(uris, launchToken);
   }
-  if (m_windows.empty()) {
+  if (m_windows.empty() && quitWithLastWindow()) {
     kLog.error("{} opened no window", m_info.id);
     return 1;
   }
@@ -155,9 +156,25 @@ AppWindow& DeskApp::addWindow(AppWindow::Config config) {
   return window;
 }
 
+void DeskApp::closeWindow(AppWindow& window) {
+  DeferredCall::callLater([this, w = &window] {
+    for (const auto& owned : m_windows) {
+      if (owned.get() == w) {
+        w->close();
+      }
+    }
+    reapClosed();
+  });
+}
+
 void DeskApp::reapClosed() {
+  for (const auto& w : m_windows) {
+    if (!w->isOpen()) {
+      windowClosed(*w);
+    }
+  }
   std::erase_if(m_windows, [](const auto& w) { return !w->isOpen(); });
-  if (m_windows.empty()) {
+  if (m_windows.empty() && quitWithLastWindow()) {
     m_loop.quit(0);
   }
 }
@@ -203,7 +220,9 @@ void DeskApp::open(const std::vector<std::string>& /*uris*/, const std::string& 
   activate(activationToken);
 }
 
-void DeskApp::action(const std::string& name, const std::string& activationToken) {
+void DeskApp::action(
+    const std::string& name, const std::vector<std::string>& /*parameter*/, const std::string& activationToken
+) {
   if (!m_commands.run(name)) {
     kLog.warn("unknown or disabled action {}", name);
   }
@@ -228,14 +247,7 @@ void DeskApp::addStandardCommands() {
       .shortcut = chord(XKB_KEY_w, KeyMod::Ctrl),
       .run = [this] {
         if (AppWindow* w = activeWindow()) {
-          DeferredCall::callLater([this, w] {
-            for (const auto& owned : m_windows) {
-              if (owned.get() == w) {
-                w->close();
-              }
-            }
-            reapClosed();
-          });
+          closeWindow(*w);
         }
       },
   });

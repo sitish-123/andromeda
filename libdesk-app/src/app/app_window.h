@@ -23,6 +23,10 @@ struct PointerEvent;
 // A first-party app window (docs/apps.md §2, rulebook §9.12): the 48 px app header with back / forward, title and
 // window buttons, over the app's content. Size and maximized state persist in the app's StateStore under
 // /window/<stateKey>/.
+namespace desk {
+  class ForeignParent;
+}
+
 class AppWindow {
 public:
   struct Config {
@@ -34,10 +38,14 @@ public:
     std::uint32_t minWidth = 480;
     std::uint32_t minHeight = 320;
     bool navigation = false; // back / forward buttons in the header (commands go.back, go.forward)
+    float sidebarWidth = 0.0F; // logical px before ui scale; 0 = no sidebar
+    std::string parentWindow;  // portal form "wayland:<xdg-foreign handle>": a dialog of another app's window
   };
 
   // Builds the content under the header; called on open, on requestRebuild() and when the scale changes.
   using ContentBuilder = std::function<std::unique_ptr<Node>(Renderer& renderer, float width, float height)>;
+  // The full-height sidebar left of the header and content (rulebook §9.12, Settings-style opaque sidebar).
+  using SidebarBuilder = std::function<std::unique_ptr<Node>(Renderer& renderer, float width, float height)>;
 
   AppWindow(AppLoop& loop, CommandTable& commands, StateStore& state, Config config);
   ~AppWindow();
@@ -50,6 +58,9 @@ public:
   [[nodiscard]] bool isOpen() const noexcept { return m_surface != nullptr && m_surface->isRunning(); }
 
   void setContentBuilder(ContentBuilder builder) { m_builder = std::move(builder); }
+  void setSidebarBuilder(SidebarBuilder builder) { m_sidebarBuilder = std::move(builder); }
+  // Keys no command took and no text field owns (type-ahead, arrows in a list). True = handled.
+  void setKeyHandler(std::function<bool(const KeyboardEvent&)> handler) { m_keyHandler = std::move(handler); }
   void setClosedCallback(std::function<void()> callback) { m_onClosed = std::move(callback); }
   void setTitle(std::string title);
   void requestRebuild();
@@ -83,10 +94,13 @@ private:
   StateStore& m_state;
   Config m_config;
   ContentBuilder m_builder;
+  SidebarBuilder m_sidebarBuilder;
+  std::function<bool(const KeyboardEvent&)> m_keyHandler;
   std::function<void()> m_onClosed;
   float m_uiScale = 1.0F;
 
   std::unique_ptr<ToplevelSurface> m_surface;
+  std::unique_ptr<desk::ForeignParent> m_foreignParent;
   std::unique_ptr<Node> m_root;
   Label* m_titleLabel = nullptr;
   Button* m_maximizeButton = nullptr;

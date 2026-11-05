@@ -114,11 +114,20 @@ void SingleInstance::serve() {
           sdbus::registerMethod("ActivateAction")
               .withInputParamNames("action_name", "parameter", "platform_data")
               .implementedAs([this](
-                                 const std::string& action, const std::vector<sdbus::Variant>& /*parameter*/,
+                                 const std::string& action, const std::vector<sdbus::Variant>& parameter,
                                  const PlatformData& data
                              ) {
+                std::vector<std::string> values;
+                for (const sdbus::Variant& v : parameter) {
+                  if (v.containsValueOfType<std::string>()) {
+                    values.push_back(v.get<std::string>());
+                  } else if (v.containsValueOfType<std::vector<std::string>>()) {
+                    const auto list = v.get<std::vector<std::string>>();
+                    values.insert(values.end(), list.begin(), list.end());
+                  }
+                }
                 if (m_handlers.action) {
-                  m_handlers.action(action, tokenFrom(data));
+                  m_handlers.action(action, values, tokenFrom(data));
                 }
               })
       )

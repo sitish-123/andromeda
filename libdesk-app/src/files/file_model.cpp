@@ -239,6 +239,11 @@ void FileModelView::setFilter(std::string text) {
   rebuild();
 }
 
+void FileModelView::setPredicate(std::function<bool(const FileInfo&)> predicate) {
+  m_predicate = std::move(predicate);
+  rebuild();
+}
+
 bool FileModelView::before(const FileInfo& a, const FileInfo& b, const FileSort& sort) {
   if (sort.foldersFirst && a.isDir != b.isDir) {
     return a.isDir;
@@ -274,6 +279,9 @@ void FileModelView::rebuild() {
       continue;
     }
     if (!m_filter.empty() && folded(entry->displayName).find(m_filter) == std::string::npos) {
+      continue;
+    }
+    if (m_predicate && !m_predicate(*entry)) {
       continue;
     }
     m_rows.push_back(entry);

@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
@@ -66,10 +67,13 @@ private:
   void start(const char* method, std::function<void(sdbus::AsyncMethodInvoker&)> args, Started done);
   void syncJobs(const std::vector<sdbus::ObjectPath>& paths);
   void track(const std::string& path);
-  void apply(Job& job, const std::map<std::string, sdbus::Variant>& props);
+  void apply(Job& job, const std::map<std::string, sdbus::Variant>& props, bool notifyChange);
+  void refresh(const std::string& path);
+  void notify(const Job& job);
 
   SessionBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_manager;
+  std::set<std::string> m_settling; // finished jobs whose GetAll is in flight
   std::map<std::string, std::unique_ptr<sdbus::IProxy>> m_jobProxies;
   std::map<std::string, Job> m_jobs;
   JobChanged m_onJobChanged;

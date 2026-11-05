@@ -45,15 +45,22 @@ public:
   [[nodiscard]] const std::vector<std::unique_ptr<AppWindow>>& windows() const noexcept { return m_windows; }
   // The window with keyboard focus, else the newest one; null when none is open.
   [[nodiscard]] AppWindow* activeWindow() const;
+  // Closes the window after the current dispatch (safe from its own input callbacks).
+  void closeWindow(AppWindow& window);
 
 protected:
   // A launch with no files (first start or a forwarded launch). Default: raise the active window, else open one.
   virtual void activate(const std::string& activationToken);
   virtual void open(const std::vector<std::string>& uris, const std::string& activationToken);
-  virtual void action(const std::string& name, const std::string& activationToken);
+  // org.freedesktop.Application.ActivateAction: runs the command with that id unless a subclass takes it first.
+  virtual void action(const std::string& name, const std::vector<std::string>& parameter, const std::string& activationToken);
   // Called once before the first activate/open, with the loop and bus up.
   virtual void startup() {}
   [[nodiscard]] virtual AppWindow& createWindow() = 0;
+  // Before a closed window is destroyed: drop what refers to it.
+  virtual void windowClosed(AppWindow& /*window*/) {}
+  // False for a service process that outlives its windows (the file picker); it then calls quit() itself.
+  [[nodiscard]] virtual bool quitWithLastWindow() const { return true; }
 
 private:
   void addStandardCommands();

@@ -170,6 +170,7 @@ void FileOpsClient::syncJobs(const std::vector<sdbus::ObjectPath>& paths) {
     }
     const std::string gone = it->first;
     m_jobProxies.erase(gone);
+    m_settling.erase(gone);
     it = m_jobs.erase(it);
     if (m_onJobRemoved) {
       m_onJobRemoved(gone);
@@ -191,29 +192,56 @@ void FileOpsClient::track(const std::string& path) {
                 const std::string& iface, const std::map<std::string, sdbus::Variant>& changed,
                 const std::vector<std::string>& /*invalidated*/
             ) {
-        if (iface == kJobInterface) {
-          apply(m_jobs[path], changed);
+        if (iface != kJobInterface) {
+          return;
+        }
+        Job& job = m_jobs[path];
+        const bool wasFinished = job.finished();
+        apply(job, changed, false);
+        if (!wasFinished && job.finished()) {
+          // The daemon signals State before Undoable, Error and the final counts, one signal each: hold every change
+          // until a GetAll has read them all.
+          m_settling.insert(path);
+          refresh(path);
+        } else if (!m_settling.contains(path)) {
+          notify(job);
         }
       });
+  m_jobs[path].path = path;
+  m_jobProxies.emplace(path, std::move(proxy));
+  refresh(path);
+}
+
+void FileOpsClient::refresh(const std::string& path) {
+  const auto it = m_jobProxies.find(path);
+  if (it == m_jobProxies.end()) {
+    return;
+  }
   std::weak_ptr<bool> alive = m_alive;
-  proxy->callMethodAsync("GetAll")
+  it->second->callMethodAsync("GetAll")
       .onInterface(kProperties)
       .withArguments(std::string(kJobInterface))
       .uponReplyInvoke([this, alive, path](std::optional<sdbus::Error> error, std::map<std::string, sdbus::Variant> all) {
         if (alive.expired() || !m_jobProxies.contains(path)) {
           return;
         }
+        m_settling.erase(path);
         if (error.has_value()) {
           kLog.warn("job {} properties: {}", path, error->getMessage());
+          notify(m_jobs[path]);
           return;
         }
-        apply(m_jobs[path], all);
+        apply(m_jobs[path], all, true);
       });
-  m_jobs[path].path = path;
-  m_jobProxies.emplace(path, std::move(proxy));
 }
 
-void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>& props) {
+void FileOpsClient::notify(const Job& job) {
+  if (m_onJobChanged) {
+    m_onJobChanged(job);
+  }
+}
+
+void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>& props, bool notifyChange) {
   const auto read = [&]<typename T>(const char* name, T& out) {
     if (const auto it = props.find(name); it != props.end()) {
       try {
@@ -239,7 +267,7 @@ void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>&
     job.conflict = source.empty() ? std::nullopt
                                   : std::optional{std::pair{pathFrom(source), pathFrom(target)}};
   }
-  if (m_onJobChanged) {
-    m_onJobChanged(job);
+  if (notifyChange) {
+    notify(job);
   }
 }

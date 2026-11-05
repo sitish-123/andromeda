@@ -85,6 +85,8 @@ public:
   void setShowHidden(bool show);
   // Case-insensitive substring on the display name; empty shows all.
   void setFilter(std::string text);
+  // Extra row test (picker file-type filters); null shows all.
+  void setPredicate(std::function<bool(const FileInfo&)> predicate);
   // Called after the rows changed (any model change or setting).
   void setChangedCallback(std::function<void()> callback) { m_onChanged = std::move(callback); }
 
@@ -103,6 +105,7 @@ private:
   FileSort m_sort;
   bool m_showHidden = false;
   std::string m_filter;
+  std::function<bool(const FileInfo&)> m_predicate;
   std::vector<std::shared_ptr<const FileInfo>> m_rows;
   std::function<void()> m_onChanged;
 };
