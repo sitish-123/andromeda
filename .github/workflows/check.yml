@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -34,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -65,6 +69,8 @@ jobs:
       - name: Dependencies
         run: pacman -Syu --noconfirm --needed git just
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Build dependencies
         run: |
           source pkg/PKGBUILD
@@ -83,6 +89,8 @@ jobs:
       UBUNTU_BUILD_CPUS: 4
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Build
         run: tools/ubuntu-build.sh 26.04
       - name: Apt update backend
