@@ -3,6 +3,7 @@
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
 #include "config/config_registry.h"
+#include "config/store.h"
 #include "config/value_parse.h"
 #include "andromeda_data_dir.h"
 
@@ -651,6 +652,10 @@ namespace andromeda {
     }
     if (std::ranges::find(systemDirs, configRoot.parent_path()) == systemDirs.end()) {
       return configRoot.parent_path() / "settings.toml";
+    }
+    // The user dir is fixed at the first load, like the config candidates; a later XDG_CONFIG_HOME does not move it.
+    if (const std::filesystem::path user = configStore().implicitUserConfig(); !user.empty()) {
+      return user.parent_path() / "settings.toml";
     }
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0') {
       return std::filesystem::path(xdg) / "andromeda/settings.toml";
