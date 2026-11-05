@@ -110,6 +110,8 @@ namespace andromeda {
 
     m_optimized = options.optimized.value_or(cfg.optimized);
     wlr_scene_blur_set_should_only_blur_bottom_layer(m_node, m_optimized && !m_live);
+    // Live glass samples the cached wallpaper blur in frames where only the wallpaper lies under it.
+    wlr_scene_blur_set_adaptive(m_node, !m_optimized && !m_live);
 
     wlr_scene_node_set_enabled(&m_node->node, true);
     wlr_scene_node_set_position(&m_node->node, drawBox.x, drawBox.y);
@@ -246,6 +248,7 @@ namespace andromeda {
     m_live = live;
     if (m_node != nullptr) {
       wlr_scene_blur_set_should_only_blur_bottom_layer(m_node, m_optimized && !m_live);
+      wlr_scene_blur_set_adaptive(m_node, !m_optimized && !m_live);
     }
   }
 

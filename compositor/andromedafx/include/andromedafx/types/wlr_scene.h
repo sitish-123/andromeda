@@ -254,6 +254,12 @@ struct wlr_scene_blur {
   int liquid_radius;
 
   bool should_only_blur_bottom_layer;
+  // Samples the cached bottom-layer blur in frames where nothing but the bottom layers lies under the node, and blurs
+  // the live content otherwise. use_cache is that choice for the frame being built; cached_outputs keeps the last
+  // choice per output index, so outputs with different content under the node do not repaint each other.
+  bool adaptive;
+  bool use_cache;
+  uint64_t cached_outputs;
 
   struct linked_node transparency_mask_source;
 
@@ -942,6 +948,9 @@ void wlr_scene_blur_set_corner_radii(struct wlr_scene_blur* blur, struct fx_corn
  * Make the blur node only blur the bottom layer of the scene
  */
 void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur* blur, bool should_only_blur_bottom_layer);
+
+/** Picks the cached or the live blur per frame from what lies under the node (see wlr_scene_blur.adaptive). */
+void wlr_scene_blur_set_adaptive(struct wlr_scene_blur* blur, bool adaptive);
 
 /**
  * Set the transparency mask source for the blur, only rendering blur where the

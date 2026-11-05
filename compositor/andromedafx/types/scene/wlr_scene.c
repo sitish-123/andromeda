@@ -1295,6 +1295,11 @@ static void restack_xwayland_surface(struct wlr_scene_node* node, struct wlr_box
 }
 #endif
 
+// The node samples the cached bottom-layer blur this frame instead of blurring the live content under it.
+static bool blur_samples_cache(const struct wlr_scene_blur* blur) {
+  return blur->should_only_blur_bottom_layer || (blur->adaptive && blur->use_cache);
+}
+
 // Adds the visible part of every enabled blur node that samples the optimized cache, grown by the blur reach. A node
 // hidden under an opaque window (a bar island under fullscreen video) needs no cache until it shows again.
 static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y, int reach, pixman_region32_t* out) {
@@ -1308,7 +1313,7 @@ static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y
     }
   } else if (node->type == WLR_SCENE_NODE_BLUR) {
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
-    if (blur->should_only_blur_bottom_layer && pixman_region32_not_empty(&node->visible)) {
+    if ((blur->should_only_blur_bottom_layer || blur->adaptive) && pixman_region32_not_empty(&node->visible)) {
       pixman_region32_t grown;
       pixman_region32_init(&grown);
       wlr_region_expand(&grown, &node->visible, reach);
@@ -2502,6 +2507,9 @@ struct wlr_scene_blur* wlr_scene_blur_create(struct wlr_scene_tree* parent, int 
   blur->clipped_region = (struct clipped_region){0};
   blur->corners = corner_radii_all(0);
   blur->should_only_blur_bottom_layer = false;
+  blur->adaptive = false;
+  blur->use_cache = false;
+  blur->cached_outputs = UINT64_MAX;
   blur->transparency_mask_source = linked_node_init();
   blur->width = width;
   blur->height = height;
@@ -2541,6 +2549,17 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur* blu
   }
 
   blur->should_only_blur_bottom_layer = should_only_blur_bottom_layer;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_adaptive(struct wlr_scene_blur* blur, bool adaptive) {
+  if (blur->adaptive == adaptive) {
+    return;
+  }
+
+  blur->adaptive = adaptive;
+  blur->use_cache = false;
+  blur->cached_outputs = UINT64_MAX;
   scene_node_update(&blur->node, NULL);
 }
 
@@ -4141,7 +4160,7 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
                 .corners = fx_corner_radii_scale(blur_corners, data->scale),
                 .discard_transparent = false,
             },
-        .use_optimized_blur = blur->should_only_blur_bottom_layer,
+        .use_optimized_blur = blur_samples_cache(blur),
         .blur_data = &scene->blur_data,
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
@@ -6306,6 +6325,15 @@ static bool overlay_reuse_enabled(void) {
   return enabled;
 }
 
+static bool overlay_reuse_debug(void) {
+  static int debug = -1;
+  if (debug < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_DEBUG");
+    debug = env != NULL && strcmp(env, "1") == 0;
+  }
+  return debug;
+}
+
 static bool scene_output_try_overlay(
     struct wlr_scene_output* scene_output, struct wlr_output_state* state, const struct render_data* data,
     struct render_list_entry* list, int len, pixman_region32_t* clip, int* index, int* primary, bool* opaque_whole
@@ -6476,6 +6504,24 @@ static bool scene_output_try_overlay(
       && pixman_region32_equal(clip, &scene_output->overlay_last_clip)
       && pixman_region32_empty(&scene_output->overlay_damage_ring.current)
       && pixman_region32_empty(&under_damage);
+  if (overlay_reuse_debug()) {
+    static unsigned counts[7];
+    counts[reuse ? 0
+           : shown == NULL || shown != scene_output->overlay_rendered            ? 1
+           : list[*index].node != scene_output->overlay_under_nodes[0]
+                   || list[*primary].node != scene_output->overlay_under_nodes[1] ? 2
+           : !pixman_region32_equal(clip, &scene_output->overlay_last_clip)        ? 3
+           : !pixman_region32_empty(&scene_output->overlay_damage_ring.current)    ? 4
+           : !pixman_region32_empty(&under_damage)                                 ? 5
+                                                                                   : 6]++;
+    if (counts[0] + counts[1] + counts[2] + counts[3] + counts[4] + counts[5] + counts[6] >= 300) {
+      const pixman_box32_t* d = pixman_region32_extents(&scene_output->overlay_damage_ring.current);
+      wlr_log(WLR_INFO, "overlay reuse: %u reused; rejected: buffer %u, nodes %u, clip %u, damage %u (%d,%d %dx%d), "
+              "under %u, other %u", counts[0], counts[1], counts[2], counts[3], counts[4], d->x1, d->y1,
+              d->x2 - d->x1, d->y2 - d->y1, counts[5], counts[6]);
+      memset(counts, 0, sizeof(counts));
+    }
+  }
   pixman_region32_fini(&under_damage);
   struct wlr_buffer* buffer = reuse ? wlr_buffer_lock(shown) : wlr_swapchain_acquire(swapchain);
   if (buffer == NULL) {
@@ -6580,7 +6626,7 @@ static bool should_blur_node_extend_damage(
     struct wlr_scene_blur* blur_node = wlr_scene_blur_from_node(node);
     // No artifact prevention needed when the whole blur is already
     // rendered
-    if (blur_node->should_only_blur_bottom_layer && blur_node->strength == 1.0) {
+    if (blur_samples_cache(blur_node) && blur_node->strength == 1.0) {
       fx_pass->has_blur = true;
       return false;
     }
@@ -6965,6 +7011,119 @@ static bool scene_output_wait_overlay_render(struct wlr_scene_output* scene_outp
   return imported;
 }
 
+// The layout region a render list entry draws into: its visible region grown by its effect margin, minus the hole a
+// shadow or border leaves inside its clipped box (the corner squares stay, as the hole corners are rounded).
+static void scene_entry_drawn_region(const struct render_list_entry* entry, pixman_region32_t* out) {
+  struct wlr_scene_node* node = entry->node;
+  wlr_region_expand(out, &node->visible, scene_node_effect_expand(node));
+  const struct clipped_region* clip = NULL;
+  if (node->type == WLR_SCENE_NODE_SHADOW) {
+    clip = &wlr_scene_shadow_from_node(node)->clipped_region;
+  } else if (node->type == WLR_SCENE_NODE_BORDER) {
+    clip = &wlr_scene_border_from_node(node)->clipped_region;
+  }
+  if (clip == NULL || wlr_box_empty(&clip->area)) {
+    return;
+  }
+  const struct fx_corner_radii c = clip->corners;
+  int r = c.top_left > c.top_right ? c.top_left : c.top_right;
+  r = c.bottom_left > r ? c.bottom_left : r;
+  r = c.bottom_right > r ? c.bottom_right : r;
+  const struct wlr_box* a = &clip->area;
+  const int x = entry->x + a->x;
+  const int y = entry->y + a->y;
+  pixman_region32_t hole;
+  pixman_region32_init(&hole);
+  if (a->width > 2 * r) {
+    pixman_region32_union_rect(&hole, &hole, x + r, y, a->width - 2 * r, a->height);
+  }
+  if (a->height > 2 * r) {
+    pixman_region32_union_rect(&hole, &hole, x, y + r, a->width, a->height - 2 * r);
+  }
+  pixman_region32_subtract(out, out, &hole);
+  pixman_region32_fini(&hole);
+}
+
+// A glass shape's own drop shadow: its hole is the glass box, so it adds only a faint halo inside the blur reach.
+static bool scene_entry_is_shadow_of(const struct render_list_entry* entry, const struct wlr_box* box) {
+  if (entry->node->type != WLR_SCENE_NODE_SHADOW) {
+    return false;
+  }
+  struct wlr_box hole = wlr_scene_shadow_from_node(entry->node)->clipped_region.area;
+  hole.x += entry->x;
+  hole.y += entry->y;
+  return wlr_box_equal(&hole, box);
+}
+
+// Each adaptive blur node samples the cached bottom-layer blur when no entry between it and the cache node (top to
+// bottom in `list`) reaches under it, else the live content. A changed choice repaints the node.
+static void scene_output_choose_blur_sources(
+    struct wlr_scene_output* scene_output, const struct render_list_entry* list, int len
+) {
+  int cache = -1;
+  for (int i = 0; i < len && cache < 0; i++) {
+    if (list[i].node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
+      cache = i;
+    }
+  }
+  static int debug = -1;
+  if (debug < 0) {
+    const char* env = getenv("ANDROMEDA_BLUR_DEBUG");
+    debug = env != NULL && strcmp(env, "1") == 0;
+  }
+  const int reach = scene_blur_reach(scene_output->scene);
+  for (int i = 0; i < len; i++) {
+    if (list[i].node->type != WLR_SCENE_NODE_BLUR) {
+      continue;
+    }
+    struct wlr_scene_blur* blur = wlr_scene_blur_from_node(list[i].node);
+    if (!blur->adaptive) {
+      continue;
+    }
+    bool cached = cache > i;
+    int blocker = -1;
+    if (cached) {
+      pixman_region32_t under;
+      pixman_region32_init(&under);
+      wlr_region_expand(&under, &blur->node.visible, reach);
+      pixman_region32_t hit;
+      pixman_region32_init(&hit);
+      const struct wlr_box own = {list[i].x, list[i].y, blur->width, blur->height};
+      for (int j = i + 1; j < cache && cached; j++) {
+        if (scene_entry_is_shadow_of(&list[j], &own)) {
+          continue;
+        }
+        scene_entry_drawn_region(&list[j], &hit);
+        pixman_region32_intersect(&hit, &hit, &under);
+        cached = pixman_region32_empty(&hit);
+        blocker = cached ? -1 : j;
+      }
+      pixman_region32_fini(&hit);
+      pixman_region32_fini(&under);
+    }
+    blur->use_cache = cached;
+    const uint64_t bit = 1ull << scene_output->index;
+    if (cached == ((blur->cached_outputs & bit) != 0)) {
+      continue;
+    }
+    blur->cached_outputs ^= bit;
+    if (debug) {
+      const pixman_box32_t* b = pixman_region32_extents(&list[blocker >= 0 ? blocker : i].node->visible);
+      wlr_log(WLR_INFO, "blur %dx%d at %d,%d: %s%s%d (%d,%d %dx%d)", blur->width, blur->height, list[i].x, list[i].y,
+              cached ? "cached" : "live", blocker >= 0 ? ", under it node type " : ", cache index ",
+              blocker >= 0 ? (int)list[blocker].node->type : cache, b->x1, b->y1, b->x2 - b->x1, b->y2 - b->y1);
+    }
+    pixman_region32_t damage;
+    pixman_region32_init(&damage);
+    pixman_region32_copy(&damage, &blur->node.visible);
+    pixman_region32_translate(&damage, -scene_output->x, -scene_output->y);
+    scale_region(&damage, scene_output->output->scale, true);
+    output_to_buffer_coords(&damage, scene_output->output);
+    scene_output_damage(scene_output, &damage);
+    pixman_region32_fini(&damage);
+  }
+}
+
 static bool scene_output_build_state(
     struct wlr_scene_output* scene_output, struct wlr_output_state* state,
     const struct wlr_scene_output_state_options* options
@@ -7102,6 +7261,7 @@ static bool scene_output_build_state(
   int list_len = list_con.render_list->size / sizeof(*list_data);
   render_data.entries = list_data;
   render_data.entry_count = list_len;
+  scene_output_choose_blur_sources(scene_output, list_data, list_len);
 
   // Looked up only with scene effects, output slots, or a pending capture; otherwise
   // there is nothing to draw, save, or release.
