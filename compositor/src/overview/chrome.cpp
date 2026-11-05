@@ -330,6 +330,17 @@ namespace andromeda::ov {
                                        : shown
     );
 
+    // The shown workspace's card carries an accent ring just outside it (prototype .card.cur: 3 px on thumbs, 2 px on
+    // full-size rows and tiles).
+    if (current != nullptr && current->shown && current->card.width > 0) {
+      const int width = current->kind == CardKind::Thumb ? 3 : 2;
+      const wlr_box& card = current->card;
+      const wlr_box box{card.x - width, card.y - width, card.width + 2 * width, card.height + 2 * width};
+      placeFrame(m_current, box, kPlusRadius + width, width, {}, colors.accentPrimary, shown);
+    } else {
+      placeFrame(m_current, {}, kPlusRadius, 2, {}, {}, 0.0F);
+    }
+
     if (placement.plus.has_value()) {
       const Rect& plus = *placement.plus;
       const wlr_box box{ox + px(plus.x), oy + px(plus.y), px(plus.w), px(plus.h)};

@@ -628,6 +628,7 @@ namespace andromeda {
 
   void Gestures::finishOverview(bool cancelled, uint32_t timeMsec) {
     m_state = State::Idle;
+    m_overviewPinch = false;
     Overview* overview = m_server->overview();
     if (overview == nullptr) {
       return;

@@ -87,7 +87,8 @@ namespace andromeda {
     void gestureEnd(int stop, double releaseVelocity = 0);
     // The second gesture stop shows every workspace as a Grid; it exists unless the style already is Grid.
     [[nodiscard]] bool canGridStop() const;
-    [[nodiscard]] bool gridStop() const { return m_gridStop; }
+    // The stop the overview is on or settling to: a fallback spring still running counts as already back.
+    [[nodiscard]] bool gridStop() const { return m_gridStop != m_gridRevertPending; }
     // The style on screen: the configured one, or Grid on the second stop.
     [[nodiscard]] ov::Style presentedStyle() const;
 
@@ -508,6 +509,7 @@ namespace andromeda {
     bool m_reflowHeld = false;
     double m_reflowHeldValue = 0.0;
     bool m_gridRevertPending = false;
+    bool m_reflowSkipOnce = false; // the fallback flip relayouts without starting a reflow
     void beginReflow();
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
     Ref<View> m_pendingFocus;

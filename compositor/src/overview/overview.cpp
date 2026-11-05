@@ -961,17 +961,25 @@ namespace andromeda {
       m_reflow.snap(1.0);
       return;
     }
+    // Fingers on the second stop drive the reflow themselves: no spring until they let go. The rects it started from
+    // stay, so a window that maps or closes mid-hold moves nothing else.
+    if (m_reflowHeld) {
+      m_reflow.snap(m_reflowHeldValue);
+      scheduleFrames();
+      return;
+    }
+    // The style flip after a fallback lands where everything already is: nothing to move, so no spring to run.
+    if (m_reflowSkipOnce) {
+      m_reflowSkipOnce = false;
+      m_reflowFrom.clear();
+      m_reflow.snap(1.0);
+      return;
+    }
     // A reflow over one still running restarts from where everything is drawn, so nothing snaps back.
     for (auto& [key, from] : m_reflowFrom) {
       if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
         from = shown->second;
       }
-    }
-    // Fingers on the second stop drive the reflow themselves: no spring until they let go.
-    if (m_reflowHeld) {
-      m_reflow.snap(m_reflowHeldValue);
-      scheduleFrames();
-      return;
     }
     m_reflow.snap(0.0);
     const auto& curve = animation.overview.workspaceCurve;
@@ -992,7 +1000,7 @@ namespace andromeda {
             {std::abs(last.x - target.x), std::abs(last.y - target.y), std::abs(last.w - target.w),
              std::abs(last.h - target.h)}
         );
-        if (moved > 0.5) {
+        if (moved > 0.5 && !(m_reflowHeld && m_reflowFrom.contains(key))) {
           m_reflowFrom[key] = last;
         }
       }
@@ -2303,7 +2311,9 @@ namespace andromeda {
       m_gridStop = !m_gridStop;
       m_reflow.snap(1.0);
       m_reflowFrom.clear();
+      m_reflowSkipOnce = true;
       applyProgress();
+      m_reflowSkipOnce = false;
     }
     if (!m_reflow.animating() && !m_reflowHeld) {
       m_reflowFrom.clear();
@@ -2404,6 +2414,7 @@ namespace andromeda {
     m_gridStop = false;
     m_reflowHeld = false;
     m_gridRevertPending = false;
+    m_reflowSkipOnce = false;
     m_reflow.snap(1.0);
     m_shownRects.clear();
     m_reflowFrom.clear();
@@ -2492,10 +2503,15 @@ namespace andromeda {
     const double second = canGridStop() ? std::clamp(progress - 1.0, 0.0, 1.0) : 0.0;
     if (canGridStop() && (second > 0.0 || m_reflowHeld)) {
       if (!m_reflowHeld) {
-        m_gridRevertPending = false;
-        m_gridFromGrid = m_gridStop;
         m_reflowHeld = true;
-        m_gridStop = !m_gridStop;
+        if (m_gridRevertPending) {
+          // A fallback spring is still running toward the old rects: take it over with the same target style.
+          m_gridRevertPending = false;
+          m_gridFromGrid = !m_gridStop;
+        } else {
+          m_gridFromGrid = m_gridStop;
+          m_gridStop = !m_gridStop;
+        }
       }
       m_reflowHeldValue = m_gridFromGrid ? 1.0 - second : second;
       m_reflow.snap(m_reflowHeldValue);
@@ -2524,7 +2540,11 @@ namespace andromeda {
         applyProgress();
       } else {
         m_gridRevertPending = !landsOnTarget;
-        m_reflow.settleSpring(landsOnTarget ? 1.0 : 0.0, animation.overview.workspaceCurve.spring);
+        // The release speed is in gesture steps; one step is the whole reflow, so it carries over as is.
+        m_reflow.settleSpring(
+            landsOnTarget ? 1.0 : 0.0, animation.overview.workspaceCurve.spring,
+            m_gridFromGrid ? -releaseVelocity : releaseVelocity
+        );
         scheduleFrames();
       }
     }
