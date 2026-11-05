@@ -339,7 +339,7 @@ if build_tests
     link_with: andromedafx_lib,
   )
 
-  if cc.get_define('WLR_HAS_GLES2_RENDERER', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) == '1'
+  if wlroots_dep.get_variable('have_gles2_renderer') == 'true'
     andromedafx_egl_abi_test = executable(
       'andromedafx-egl-abi-test',
       'tests/egl_abi.c',
