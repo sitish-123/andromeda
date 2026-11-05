@@ -9,6 +9,8 @@ on:
       - "**"
       - "!**.md"
       - "!docs/**"
+      - "!.github/workflows/**"
+      - ".github/workflows/check-arch.yml"
   workflow_dispatch:
 
 concurrency:
@@ -33,18 +35,24 @@ jobs:
           # The container runs as root on a checkout the runner user owns; git refuses it without this.
           git config --global --add safe.directory "$PWD"
       # Meson uses ccache when it is on PATH; each run saves a new key and restores the newest.
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .ccache
           key: ccache-arch-${{ github.run_id }}
           restore-keys: ccache-arch-
       - uses: Swatinem/rust-cache@v2
         with:
+          cache-on-failure: true
           workspaces: |
             link
             system
       - name: Build
         run: just build
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ccache
+          key: ccache-arch-${{ github.run_id }}
       - name: Compositor tests
         working-directory: compositor
         run: just test
