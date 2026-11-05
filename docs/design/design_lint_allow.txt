@@ -69,3 +69,6 @@ S1 | libdesk-ui/src/ui/auth/auth_column.cpp | kInitialFontSize = | avatar initia
 S1 | libdesk-ui/src/ui/auth/auth_layout.cpp | kClockWidthPerSize = | a ratio (clock width per font px), not a length
 S1 | libdesk-ui/src/ui/auth/flip_clock.cpp | kDigitFontSize = | flip clock digit 40 on its card (clock styles, Lock screen v2)
 S1 | libdesk-ui/src/ui/controls/button.cpp | kBadgeSize = | button count badge 20: a symbol_l-sized circle
+S1 | shell/src/shell/settings/settings_content_shortcuts.cpp | kRailWidth = | Shortcuts category rail width (direction B, .agent/DESIGN.md): fits "Media and Hardware" plus its count at body size
+S1 | shell/src/shell/settings/settings_content_shortcuts.cpp | kModeSwitchWidth = | Search | Press Keys segmented control width at body size; the search field takes the rest of the row
+S1 | shell/src/shell/bar/widgets/battery_widget.cpp | 15.0F * s * fraction | island battery fill width in the 26 x 24 reference symbol's units (body 21.8 less two 3.4 insets)

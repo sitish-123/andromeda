@@ -26,7 +26,6 @@ namespace settings {
   namespace {
 
     constexpr float kRailWidth = 168.0F;
-    constexpr float kAppIconSize = 20.0F;
     constexpr std::size_t kMaxPickerRows = 8;
     // The segmented Search | Press control; the search field takes the rest of the pane row.
     constexpr float kModeSwitchWidth = 184.0F;
@@ -355,7 +354,7 @@ namespace settings {
       const float scale = ctx.scale;
       auto line = page_rows::row(scale);
       if (row.entry != nullptr && ctx.appIcon) {
-        if (auto icon = ctx.appIcon(*row.entry, kAppIconSize * scale); icon != nullptr) {
+        if (auto icon = ctx.appIcon(*row.entry, Tokens::sizeSymbolL * scale); icon != nullptr) {
           line->addChild(std::move(icon));
         }
       }
@@ -530,7 +529,7 @@ namespace settings {
               },
           });
           if (choice.entry != nullptr && ctx.appIcon) {
-            if (auto icon = ctx.appIcon(*choice.entry, kAppIconSize * scale); icon != nullptr) {
+            if (auto icon = ctx.appIcon(*choice.entry, Tokens::sizeSymbolL * scale); icon != nullptr) {
               pick->addChild(std::move(icon));
             }
           }
@@ -601,7 +600,7 @@ namespace settings {
             },
         });
         item->addChild(ui::row(
-            {.align = FlexAlign::Center, .width = (kRailWidth - 2.0F * metrics::kSidebarRowPaddingH) * scale},
+            {.align = FlexAlign::Center, .width = (kRailWidth - metrics::kSidebarRowPaddingH - metrics::kSidebarRowPaddingH) * scale},
             makeLabel(i18n::tr("settings.shortcuts.groups." + std::string(category)), Style::fontSizeBody * scale,
                       colorSpecFromRole(ColorRole::Label1)),
             ui::spacer(),
