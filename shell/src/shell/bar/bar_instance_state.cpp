@@ -360,13 +360,15 @@ bool Bar::syncIslandShapes(BarInstance& instance, bool material) const {
       Node::absolutePosition(island, x, y);
       clip = {std::round(x), std::round(y), std::round(island->width()), std::round(island->height())};
     }
+    // A moved island resends only its own material: the others did not change.
+    bool shapeMaterial = material;
     if (clip != instance.islandShapeClips[i]) {
-      material = true;
+      shapeMaterial = true;
       shape.set(DskSurfaceClient::Property::Clip, clip);
       shape.set(DskSurfaceClient::Property::Radius, {std::min(clip[2], clip[3]) * 0.5, 0.0, 0.0, 0.0});
       instance.islandShapeClips[i] = clip;
     }
-    if (material) {
+    if (shapeMaterial) {
       // Level 1 = the float plane (tokens elevation.e2), the island shadow of the rulebook.
       shape.set(
           DskSurfaceClient::Property::Elevation,
