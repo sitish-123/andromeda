@@ -2034,6 +2034,10 @@ void Application::applyIdleDim(bool dim) {
   if (!dim) {
     m_idleDimmed.clear();
   }
+  // applyAmbientLight ignores readings while dimmed, so the sensor sleeps too.
+  if (m_ambientLight != nullptr) {
+    m_ambientLight->setPaused(dim);
+  }
 }
 
 void Application::initSessionBusServices() {

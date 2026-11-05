@@ -3,7 +3,9 @@
 #include "core/log.h"
 #include "dbus/system_bus.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <map>
 #include <optional>
 #include <sdbus-c++/IProxy.h>
@@ -19,6 +21,7 @@ namespace {
   constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
   using VariantMap = std::map<std::string, sdbus::Variant>;
   constexpr auto kSampleInterval = std::chrono::seconds(10);
+  constexpr auto kMaxSampleInterval = std::chrono::seconds(60);
   constexpr auto kReadingWait = std::chrono::seconds(3);
 } // namespace
 
@@ -35,7 +38,7 @@ AmbientLightService::AmbientLightService(SystemBus& bus, LuxCallback onLux) : m_
           m_luxSensor = unit->second.get<std::string>() == "lux";
         }
         if (const auto level = changed.find("LightLevel"); level != changed.end() && m_luxSensor) {
-          m_onLux(level->second.get<double>());
+          onReading(level->second.get<double>());
           release();
         }
       });
@@ -70,7 +73,7 @@ void AmbientLightService::sample() {
   });
 }
 
-void AmbientLightService::release() {
+void AmbientLightService::releaseClaim() {
   m_readingWait.stop();
   if (m_claimed) {
     m_claimed = false;
@@ -80,7 +83,35 @@ void AmbientLightService::release() {
       kLog.debug("release light: {}", e.what());
     }
   }
-  m_nextSample.start(kSampleInterval, [this] { sample(); });
+}
+
+void AmbientLightService::release() {
+  releaseClaim();
+  if (!m_paused) {
+    m_nextSample.start(m_interval, [this] { sample(); });
+  }
+}
+
+// A steady reading (within 15 % or 5 lux) doubles the interval up to 60 s; a change returns it to 10 s.
+void AmbientLightService::onReading(double lux) {
+  const bool steady = m_lastLux >= 0.0 && std::abs(lux - m_lastLux) <= std::max(5.0, 0.15 * m_lastLux);
+  m_interval = steady ? std::min(m_interval * 2, kMaxSampleInterval) : kSampleInterval;
+  m_lastLux = lux;
+  m_onLux(lux);
+}
+
+void AmbientLightService::setPaused(bool paused) {
+  if (paused == m_paused) {
+    return;
+  }
+  m_paused = paused;
+  m_nextSample.stop();
+  if (paused) {
+    releaseClaim();
+    return;
+  }
+  m_interval = kSampleInterval;
+  sample();
 }
 
 void AmbientLightService::refresh() {
@@ -98,7 +129,7 @@ void AmbientLightService::refresh() {
         m_luxSensor = !err.has_value() && has != properties.end() && has->second.get<bool>() && unit != properties.end()
             && unit->second.get<std::string>() == "lux" && level != properties.end();
         if (m_luxSensor) {
-          m_onLux(level->second.get<double>());
+          onReading(level->second.get<double>());
         }
         release();
       });
