@@ -8,13 +8,19 @@ extern "C" {
 
 #include <cstdint>
 
+struct wlr_scene_border;
 struct wlr_scene_rect;
+struct wlr_scene_shadow;
 struct wlr_scene_tree;
 
 namespace andromeda {
 
   class Output;
   class Server;
+
+  // How the hint draws, all in colors.insert_hint: Fill is the plain tint; Ring is a solid ring over a faint fill (the
+  // overview's "drops here" slot); Glow is a solid bar with a soft halo (the overview's gap between workspaces).
+  enum class HintLook : uint8_t { Fill, Ring, Glow };
 
   // Animated drop-target indicator: a rounded rect that fades in on appear and morphs between target boxes. Hiding is
   // immediate, so the hint never lingers over the window a released drag settles into. Alpha and geometry are written
@@ -27,7 +33,7 @@ namespace andromeda {
     HintRect& operator=(const HintRect&) = delete;
 
     // `box` in parent-tree coordinates. A zero-sized box hides the hint.
-    void show(Output* output, const wlr_box& box, int cornerRadius);
+    void show(Output* output, const wlr_box& box, int cornerRadius, HintLook look = HintLook::Fill);
     void hideImmediate();
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     bool tickAnimations(double nowMsec) override;
@@ -44,7 +50,13 @@ namespace andromeda {
     wlr_scene_tree* m_parent = nullptr;
     wlr_scene_tree* m_tree = nullptr;
     wlr_scene_rect* m_rect = nullptr;
+    wlr_scene_border* m_ring = nullptr; // Ring look only, made on first use
+    wlr_scene_shadow* m_glow = nullptr; // Glow look only, made on first use
     Output* m_output = nullptr;
+    HintLook m_look = HintLook::Fill;
+    int m_radius = 0;
+    int m_ringWidth = 0; // the size the ring geometry was built for
+    int m_ringHeight = 0;
     AnimatedValue m_alpha;
     AnimatedValue m_x;
     AnimatedValue m_y;

@@ -36,6 +36,7 @@ extern "C" {
 #include <format>
 #include <ranges>
 #include <tuple>
+#include <utility>
 #include <xkbcommon/xkbcommon.h>
 #include "wlr.h"
 // clang-format on
@@ -924,6 +925,8 @@ namespace andromeda {
         .windows = m_chromeWindows,
         .titlesAlways = config().overview.titles == OverviewTitles::Always,
         .filter = {},
+        .hovered = m_hoverView,
+        .closeHovered = m_closeHover,
     });
     // Cards rebuilt after the chrome was made land above it.
     state.chrome->raise();
@@ -2151,6 +2154,9 @@ namespace andromeda {
     hideDropHint();
     m_pressCard = nullptr;
     m_pressWorkspace = nullptr;
+    m_hoverView = nullptr;
+    m_closeHover = false;
+    m_closePress = nullptr;
     clearMiddlePress();
     m_pendingFocus = focus;
     for (const auto& state : m_outputs) {
@@ -2376,6 +2382,9 @@ namespace andromeda {
     m_server->notifyOverviewChanged();
     m_pressCard = nullptr;
     m_pressWorkspace = nullptr;
+    m_hoverView = nullptr;
+    m_closeHover = false;
+    m_closePress = nullptr;
     m_dragCard = nullptr;
     m_dragSourceWorkspace = nullptr;
     m_dragSourceWidth.reset();
@@ -2536,6 +2545,13 @@ namespace andromeda {
     }
     if (m_pressCard != nullptr && m_pressCard->view == view) {
       m_pressCard = nullptr;
+    }
+    if (m_hoverView == view) {
+      m_hoverView = nullptr;
+      m_closeHover = false;
+    }
+    if (m_closePress == view) {
+      m_closePress = nullptr;
     }
     if (m_middlePressCard != nullptr && m_middlePressCard->view == view) {
       m_middlePressCard = nullptr;
@@ -2991,6 +3007,16 @@ namespace andromeda {
       if (button != BTN_LEFT) {
         return true;
       }
+      if (m_closePress != nullptr) {
+        const View* pressed = std::exchange(m_closePress, nullptr);
+        // Sliding off the button before letting go cancels, like any button.
+        if (closeButtonAt(lx, ly) == pressed) {
+          if (Card* closing = findCard(pressed); closing != nullptr && closing->view != nullptr) {
+            closing->view->requestClose();
+          }
+        }
+        return true;
+      }
       if (m_dragCard != nullptr) {
         endDrag(true);
         return true;
@@ -3027,6 +3053,12 @@ namespace andromeda {
       return true;
     }
 
+    if (const View* close = closeButtonAt(lx, ly)) {
+      m_closePress = close;
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      return true;
+    }
     m_pressCard = card;
     m_pressWorkspace = nullptr;
     m_pressX = lx;
@@ -3097,6 +3129,7 @@ namespace andromeda {
       return;
     }
     if (m_pressCard == nullptr) {
+      updateHover(lx, ly);
       return;
     }
     const double dx = lx - m_pressX;
@@ -3130,6 +3163,38 @@ namespace andromeda {
     // workspace, so the caller does not have to arrange anything.
     group->select(group->workspaceAt(static_cast<size_t>(index)));
     return true;
+  }
+
+  const View* Overview::closeButtonAt(double lx, double ly) const {
+    for (const auto& state : m_outputs) {
+      if (state->chrome != nullptr) {
+        if (const void* key = state->chrome->closeAt(lx, ly)) {
+          return static_cast<const View*>(key);
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  void Overview::updateHover(double lx, double ly) {
+    const View* close = closeButtonAt(lx, ly);
+    const View* hover = close;
+    if (hover == nullptr) {
+      const Card* card = cardAt(lx, ly);
+      hover = card != nullptr ? card->view : nullptr;
+    }
+    const bool closeHover = close != nullptr;
+    if (hover == m_hoverView && closeHover == m_closeHover) {
+      return;
+    }
+    m_hoverView = hover;
+    m_closeHover = closeHover;
+    // Only the labels and the close button follow the pointer; the cards stay where they are.
+    const View* liveTarget = liveTargetView();
+    for (const auto& state : m_outputs) {
+      layoutChrome(*state, liveTarget);
+      wlr_output_schedule_frame(state->output->wlr());
+    }
   }
 
   bool Overview::handleAxisNotch(bool vertical, double direction, double lx, double ly) {
@@ -3844,7 +3909,9 @@ namespace andromeda {
     if (m_dropHint == nullptr) {
       m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
     }
-    m_dropHint->show(output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * z)));
+    m_dropHint->show(
+        output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * z)), HintLook::Ring
+    );
     if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
       wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
     }
@@ -3858,7 +3925,7 @@ namespace andromeda {
     if (m_dropHint == nullptr) {
       m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
     }
-    m_dropHint->show(output, box, box.height / 2);
+    m_dropHint->show(output, box, std::min(box.width, box.height) / 2, HintLook::Glow);
     if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
       wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
     }

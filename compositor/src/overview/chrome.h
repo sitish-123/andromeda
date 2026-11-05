@@ -53,6 +53,8 @@ namespace andromeda::ov {
     std::span<const ChromeWindow> windows;
     bool titlesAlways = true;
     std::string_view filter;
+    const void* hovered = nullptr; // the window card under the pointer; it shows its title and close button
+    bool closeHovered = false;     // the pointer is on that close button
   };
 
   // The overview's labels and targets on one output: workspace names, the title row (name + layout chip), the filter
@@ -68,6 +70,8 @@ namespace andromeda::ov {
     void update(const ChromeFrame& frame);
     // Keeps the chrome above cards created after it.
     void raise();
+    // The window whose close button holds the layout point, as drawn by the last update; null when none does.
+    [[nodiscard]] const void* closeAt(double lx, double ly) const;
 
   private:
     // Text over an optional rounded capsule.
@@ -119,6 +123,10 @@ namespace andromeda::ov {
     Frame m_viewport;
     Label m_viewportTag;
     std::unordered_map<const void*, Label> m_titles;
+    Label m_close;
+    Label m_closeHot; // the same button under the pointer: red, white mark
+    const void* m_closeKey = nullptr;
+    wlr_box m_closeBox{};
   };
 
 } // namespace andromeda::ov

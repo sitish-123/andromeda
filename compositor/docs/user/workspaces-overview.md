@@ -40,7 +40,9 @@ Background blur uses `[appearance.blur]`. Preview backgrounds use `colors.overvi
 
 The style changes only how the overview looks. Each workspace keeps its own layout.
 
-Every style labels each workspace with its name and layout, shows a search field and a hint line, and has a **+** target for a new workspace. Spaces and Task View also show the current workspace's name and layout above it. In Spaces, a Scrolling workspace marks the part that is on screen with an **On screen** frame. With `titles = "hover"`, only the selected window shows its title.
+Every style labels each workspace with its name and layout, shows a search field and a hint line, and has a **+** target for a new workspace. Spaces and Task View also show the current workspace's name and layout above it. In Spaces, a Scrolling workspace marks the part that is on screen with an **On screen** frame. With `titles = "hover"`, only the selected window and the one under the pointer show their titles.
+
+Pointing at a window card shows a close button at its top-right corner. Clicking it closes that window; moving off the button before releasing cancels. While you drag a window, the place it would land is outlined, and a gap between workspaces where dropping makes a new workspace lights up as a glowing bar. Both use the `insert_hint` colour from `[colors]`.
 
 ### Open and navigate
 

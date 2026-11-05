@@ -25,9 +25,13 @@ namespace andromeda::ov {
     constexpr int kCapsuleGap = 6;
     constexpr int kCapsuleMaxWidth = 260;
     constexpr int kCapsuleMinCard = 60; // a card narrower than this shows no title
+    constexpr int kCloseMinCard = 80;   // nor, narrower than this, a close button
     constexpr int kPlusRadius = 12;
     constexpr int kViewportRadius = 14;
     constexpr int kViewportTagHeight = 18;
+    constexpr int kCloseSize = 26;
+    constexpr int kCloseInset = 4; // the button centres this far inside the card's top-right corner
+    constexpr std::array<float, 4> kCloseRed{0.898F, 0.282F, 0.302F, 1.0F};
 
     std::array<float, 4> withAlpha(std::array<float, 4> color, float alpha) {
       color[3] = alpha;
@@ -73,6 +77,16 @@ namespace andromeda::ov {
     if (m_tree != nullptr) {
       wlr_scene_node_raise_to_top(&m_tree->node);
     }
+  }
+
+  const void* Chrome::closeAt(double lx, double ly) const {
+    if (m_closeKey == nullptr) {
+      return nullptr;
+    }
+    const double r = kCloseSize / 2.0;
+    const double dx = lx - (m_closeBox.x + r);
+    const double dy = ly - (m_closeBox.y + r);
+    return dx * dx + dy * dy <= r * r ? m_closeKey : nullptr;
   }
 
   void Chrome::setLabel(Label& label, const std::string& markup, const LabelStyle& style, double scale) {
@@ -361,7 +375,7 @@ namespace andromeda::ov {
           label, span(l1, "600", window.title.empty() ? std::string_view("Untitled") : window.title),
           {.font = "sans 9", .padX = 10, .height = kCapsuleHeight, .maxWidth = kCapsuleMaxWidth, .fill = thick}, scale
       );
-      const bool wanted = (frame.titlesAlways || window.selected)
+      const bool wanted = (frame.titlesAlways || window.selected || window.key == frame.hovered)
           && !window.dragged
           && window.box.width > kCapsuleMinCard
           && window.opacity > 0.45F;
@@ -380,6 +394,43 @@ namespace andromeda::ov {
         wlr_scene_node_raise_to_top(&label.tree->node);
       }
     }
+    // The hovered card's close button, centred just inside its top-right corner, above every capsule.
+    const ChromeWindow* closeFor = nullptr;
+    for (const ChromeWindow& window : frame.windows) {
+      if (window.key != nullptr && window.key == frame.hovered) {
+        closeFor = &window;
+      }
+    }
+    m_closeKey = nullptr;
+    if (closeFor != nullptr
+        && !closeFor->dragged
+        && closeFor->box.width > kCloseMinCard
+        && closeFor->opacity > 0.45F
+        && late > 0.5F) {
+      const LabelStyle style{.font = "sans 9.75", .height = kCloseSize, .maxWidth = kCloseSize, .fill = thick};
+      setLabel(m_close, span(l1, "bold", "✕"), style, scale);
+      LabelStyle hot = style;
+      hot.fill = kCloseRed;
+      setLabel(m_closeHot, span({1.0F, 1.0F, 1.0F, 1.0F}, "bold", "✕"), hot, scale);
+      m_closeBox = {
+          closeFor->box.x + closeFor->box.width - kCloseInset - kCloseSize / 2,
+          closeFor->box.y + kCloseInset - kCloseSize / 2,
+          kCloseSize,
+          kCloseSize,
+      };
+      m_closeKey = closeFor->key;
+      Label& on = frame.closeHovered ? m_closeHot : m_close;
+      Label& off = frame.closeHovered ? m_close : m_closeHot;
+      placeLabel(off, 0, 0, 0.0F);
+      placeLabel(on, m_closeBox.x, m_closeBox.y, late);
+      if (on.tree != nullptr) {
+        wlr_scene_node_raise_to_top(&on.tree->node);
+      }
+    } else {
+      placeLabel(m_close, 0, 0, 0.0F);
+      placeLabel(m_closeHot, 0, 0, 0.0F);
+    }
+
     for (auto it = m_titles.begin(); it != m_titles.end();) {
       if (it->second.used) {
         ++it;

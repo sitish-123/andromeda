@@ -360,6 +360,8 @@ namespace andromeda {
     [[nodiscard]] OutputState* stateFor(const Output* output);
     [[nodiscard]] OutputState* stateForWorkspace(const Workspace* workspace);
     [[nodiscard]] Card* findCard(const View* view);
+    void updateHover(double lx, double ly);
+    [[nodiscard]] const View* closeButtonAt(double lx, double ly) const;
     [[nodiscard]] WorkspaceBackground createWorkspaceBackground(OutputState& state) const;
     // Mapped background- and bottom-layer surfaces of `output`, in render order.
     void collectDesktopSurfaces(const Output& output, std::vector<DesktopEntry>& out) const;
@@ -459,6 +461,11 @@ namespace andromeda {
 
     Card* m_pressCard = nullptr;
     Ref<Workspace> m_pressWorkspace;
+    // The window card under the pointer and whether the pointer is on its close button. Compared, never dereferenced.
+    const View* m_hoverView = nullptr;
+    bool m_closeHover = false;
+    // The window whose close button a left press landed on; a release on the same button closes it.
+    const View* m_closePress = nullptr;
     double m_pressX = 0;
     double m_pressY = 0;
     Card* m_middlePressCard = nullptr;
