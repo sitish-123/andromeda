@@ -176,6 +176,9 @@ impl Helper {
 
     /// Unread news blocks an upgrade; so does a feed that cannot be read.
     async fn news_gate(&self) -> zbus::fdo::Result<()> {
+        if !news::GATES {
+            return Ok(());
+        }
         let items = tokio::task::spawn_blocking(news::fetch)
             .await
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?

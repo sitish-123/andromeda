@@ -22,7 +22,7 @@ namespace settings {
     namespace rows = page_rows;
     using RunState = SoftwareUpdateService::RunState;
 
-    constexpr std::array<std::string_view, 3> kGroups{"system", "apps", "firmware"};
+    constexpr std::array<std::string_view, 5> kGroups{"system", "apps", "snaps", "firmware", "held"};
 
     std::string sizeText(std::uint64_t bytes) {
       constexpr double kMb = 1000.0 * 1000.0;
@@ -204,10 +204,14 @@ namespace settings {
         if (card == nullptr) {
           card = rows::addCard(content, scale);
         }
-        const std::string trailing = group == "apps" && service.appsUpdating()
-            ? i18n::tr("settings.update.updating")
-            : i18n::tr("settings.update.group-count", "count", std::to_string(count), "size",
-                       sizeText(groupBytes(service, group)));
+        std::string trailing = i18n::tr("settings.update.group-count", "count", std::to_string(count), "size",
+                                        sizeText(groupBytes(service, group)));
+        if (group == "apps" && service.appsUpdating()) {
+          trailing = i18n::tr("settings.update.updating");
+        } else if (group == "held") {
+          // Held packages (kept back, phased, IgnorePkg) are not downloaded, so their row has no size.
+          trailing = std::to_string(count);
+        }
         card->addChild(makeSettingsLinkRow(i18n::tr("settings.update.group." + std::string(group)), trailing, scale,
                                            [open = actions.openGroup, g = std::string(group)] { open(g); }));
       }

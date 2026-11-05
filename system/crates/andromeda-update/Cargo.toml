@@ -16,5 +16,10 @@ tokio.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 zbus.workspace = true
 
+[features]
+default = ["arch"]
+arch = []
+apt = []
+
 [lints]
 workspace = true

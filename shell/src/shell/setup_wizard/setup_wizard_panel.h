@@ -21,6 +21,7 @@ class Label;
 class LinkService;
 class Node;
 class Select;
+class SoftwareUpdateService;
 class SystemBus;
 class Toggle;
 class WaylandConnection;
@@ -32,7 +33,9 @@ namespace sdbus {
 
 class SetupWizardPanel : public Panel {
 public:
-  SetupWizardPanel(ConfigService* config, WaylandConnection* wayland, LinkService* link, SystemBus* systemBus);
+  // `updates` creates the shared update client on first use (nullptr without a session bus).
+  SetupWizardPanel(ConfigService* config, WaylandConnection* wayland, LinkService* link, SystemBus* systemBus,
+                   std::function<SoftwareUpdateService*()> updates);
   ~SetupWizardPanel() override;
 
   void create() override;
@@ -47,6 +50,8 @@ public:
   [[nodiscard]] LayerShellKeyboard keyboardMode() const override { return LayerShellKeyboard::OnDemand; }
 
   static bool isFirstRun(const ConfigService& config);
+  // The update client changed (a check started or finished).
+  void onSoftwareUpdateChanged();
 
   static constexpr int kPageCount = 7;
 
@@ -124,6 +129,9 @@ private:
   ConfigService* m_config = nullptr;
   LinkService* m_link = nullptr;
   SystemBus* m_systemBus = nullptr;
+  std::function<SoftwareUpdateService*()> m_updates;
+  // Unix time the wizard's check started; an older result is ignored.
+  std::int64_t m_updateCheckStart = 0;
   std::string m_user;
   Flex* m_root = nullptr;
   Image* m_logo = nullptr;

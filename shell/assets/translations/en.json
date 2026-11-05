@@ -1388,26 +1388,6 @@
       "placeholder": "Type a reply…"
     },
     "internal": {
-      "drive": "Drives",
-      "drive-mounted": "{label} is ready",
-      "drive-open": "Open",
-      "drive-eject": "Eject",
-      "link": "Andromeda Link",
-      "link-copy": "Copy",
-      "link-open": "Open",
-      "link-received-link": "Link from {device}",
-      "link-received-text": "Text from {device}",
-      "link-offer": "{device} wants to send {count} files ({size})",
-      "link-offer-one": "{device} wants to send {name} ({size})",
-      "link-accept": "Accept",
-      "link-hotspot-allow": "Use hotspot",
-      "link-hotspot-ask": "Use {device}'s hotspot?",
-      "link-hotspot-ask-body": "This is too slow over Bluetooth. Your laptop leaves its Wi-Fi and has no internet until it's done, then joins your Wi-Fi again.",
-      "link-hotspot-decline": "Not now",
-      "link-hotspot-joined": "Joining {device}'s hotspot",
-      "link-hotspot-joined-body": "Bluetooth is too slow for this, so your laptop leaves its Wi-Fi for the phone's. Your Wi-Fi comes back when it's done.",
-      "link-hotspot-left": "Back from {device}'s hotspot",
-      "link-decline": "Decline",
       "activity": "Activity",
       "activity-background-body": "It has no window and uses {memory} of memory. Started {ago} ago.",
       "activity-background-body-login": "It has no window and uses {memory} of memory. Started {ago} ago at login.",
@@ -1433,6 +1413,26 @@
       "activity-show": "Show",
       "activity-stop": "Stop",
       "activity-stop-dont-start": "Stop and Don't Start at Login",
+      "drive": "Drives",
+      "drive-mounted": "{label} is ready",
+      "drive-open": "Open",
+      "drive-eject": "Eject",
+      "link": "Andromeda Link",
+      "link-copy": "Copy",
+      "link-open": "Open",
+      "link-received-link": "Link from {device}",
+      "link-received-text": "Text from {device}",
+      "link-offer": "{device} wants to send {count} files ({size})",
+      "link-offer-one": "{device} wants to send {name} ({size})",
+      "link-accept": "Accept",
+      "link-hotspot-allow": "Use hotspot",
+      "link-hotspot-ask": "Use {device}'s hotspot?",
+      "link-hotspot-ask-body": "This is too slow over Bluetooth. Your laptop leaves its Wi-Fi and has no internet until it's done, then joins your Wi-Fi again.",
+      "link-hotspot-decline": "Not now",
+      "link-hotspot-joined": "Joining {device}'s hotspot",
+      "link-hotspot-joined-body": "Bluetooth is too slow for this, so your laptop leaves its Wi-Fi for the phone's. Your Wi-Fi comes back when it's done.",
+      "link-hotspot-left": "Back from {device}'s hotspot",
+      "link-decline": "Decline",
       "link-cancel": "Cancel",
       "link-receiving": "Receiving from {device}",
       "link-sending": "Sending to {device}",
@@ -4158,6 +4158,10 @@
           "description": "Sync the brightness of all monitors",
           "label": "Sync Monitor Brightness"
         },
+        "background-warning": {
+          "description": "Notify when an app with no window keeps using memory or duplicates a shell feature",
+          "label": "Background Service Warnings"
+        },
         "system-monitor": {
           "cpu-poll": {
             "description": "Seconds between CPU usage, CPU temperature, and load average samples (0 disables)",
@@ -4214,10 +4218,6 @@
         },
         "weather": {
           "description": "Enable the weather service via open-meteo.com",
-        "background-warning": {
-          "description": "Notify when an app with no window keeps using memory or duplicates a shell feature",
-          "label": "Background Service Warnings"
-        },
           "label": "Weather"
         },
         "weather-effects": {
@@ -4583,7 +4583,7 @@
           "description": "Actions applied after capture, or when you choose Done in the annotation editor."
         },
         "screenshot-pipe-command": {
-          "description": "Command run as /bin/sh -lc with the PNG on stdin; for annotators or uploaders (for example: swappy -f - or satty -f -)",
+          "description": "Program and arguments (quotes allowed, no shell) with the PNG on stdin; the saved file path is in NOCTALIA_SCREENSHOT_PATH. For annotators or uploaders (for example: swappy -f - or satty -f -)",
           "label": "Pipe Command",
           "placeholder": "swappy -f -"
         },
@@ -4707,7 +4707,6 @@
           "description": "Off: the {scheduler} scheduler ignores app CPU priority. To turn it on, stop it (for CachyOS: sudo systemctl disable --now scx_loader).",
           "label": "App Priority"
         },
-        "battery-warning-threshold": {
         "background-activity": {
           "button": "Open Activity",
           "description": "{count} background services without a window use memory or CPU.",
@@ -4716,6 +4715,7 @@
           "description-unchecked": "See which apps and background services use memory, CPU and energy.",
           "label": "Background Activity"
         },
+        "battery-warning-threshold": {
           "description": "System battery percentage at or below which the shell sends a low-battery notification and battery widgets use their warning color (0 disables)",
           "label": "Battery Warning Threshold"
         },
@@ -6731,7 +6731,9 @@
       "group": {
         "system": "System",
         "apps": "Apps",
-        "firmware": "Firmware"
+        "snaps": "Snaps",
+        "firmware": "Firmware",
+        "held": "Held back"
       },
       "hooks": "Hooks that failed",
       "hook-failed": "on {event}"

@@ -140,10 +140,11 @@ class BrightnessService;
 class KeyboardBacklightService;
 class DebugService;
 class AndromedaShellService;
-class EasyEffectsService;
-class AmbientLightService;
 class SystemHealthService;
 class SoftwareUpdateService;
+class SetupWizardPanel;
+class AmbientLightService;
+class EasyEffectsService;
 class INetworkService;
 class IwdSecretAgent;
 class LogindService;
@@ -379,8 +380,13 @@ private:
   ActivityWindow m_activityWindow;
   std::unique_ptr<DebugService> m_debugService;
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
-  IdleInhibitor m_idleInhibitor;
-  IdleManager m_idleManager;
+  std::unique_ptr<SystemHealthService> m_systemHealthService;
+  std::unique_ptr<SoftwareUpdateService> m_softwareUpdateService;
+  // Owned by m_panelManager; told when m_softwareUpdateService changes.
+  SetupWizardPanel* m_setupWizard = nullptr;
+  SoftwareUpdateService* softwareUpdateService();
+  // display.brightness_step: the brightness each display had before a rule dimmed it one step.
+  std::map<std::string, float> m_dimmedFrom;
   // Automatic brightness: the sensor client, the learned curve, the level it last left on each built-in panel
   // (before the low-power step) and the lux of that level. A level that differs later is the user's choice.
   std::unique_ptr<AmbientLightService> m_ambientLight;
@@ -389,20 +395,12 @@ private:
   double m_ambientLux = -1.0;
   void syncAmbientLight();
   void applyAmbientLight(double lux);
-  PluginIdleWatches m_pluginIdleWatches;
+  void applyBrightnessStep();
   bool m_dndByRule = false;
   std::uint64_t m_dndRuleRevision = 0;
   void applyRuleDoNotDisturb();
   // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
   void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);
-  IdleGraceOverlay m_idleGraceOverlay;
-  std::uint64_t m_idleGraceOverlayGeneration = 0;
-  std::unique_ptr<SystemHealthService> m_systemHealthService;
-  std::unique_ptr<SoftwareUpdateService> m_softwareUpdateService;
-  SoftwareUpdateService* softwareUpdateService();
-  // display.brightness_step: the brightness each display had before a rule dimmed it one step.
-  std::map<std::string, float> m_dimmedFrom;
-  void applyBrightnessStep();
   // The idle "dim" action: per display the brightness before the dim and the dimmed level.
   struct IdleDim {
     float from = 0.0F;
@@ -410,6 +408,11 @@ private:
   };
   std::map<std::string, IdleDim> m_idleDimmed;
   void applyIdleDim(bool dim);
+  IdleInhibitor m_idleInhibitor;
+  IdleManager m_idleManager;
+  PluginIdleWatches m_pluginIdleWatches;
+  IdleGraceOverlay m_idleGraceOverlay;
+  std::uint64_t m_idleGraceOverlayGeneration = 0;
   HookManager m_hookManager;
   DependencyService m_dependencyService;
   GammaService m_gammaService;

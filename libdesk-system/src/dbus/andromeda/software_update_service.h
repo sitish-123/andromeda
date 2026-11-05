@@ -80,7 +80,7 @@ public:
   // Tonight's 02:00 run (on AC, all sessions locked): the user authenticates now; false cancels.
   void scheduleTonight(bool enable);
   [[nodiscard]] bool tonight() const noexcept { return m_tonight; }
-  // What snapshots the system before an update: "snap-pac", "snapper" or empty.
+  // What snapshots the system before an update: "snap-pac", "snapper-apt", "snapper" or empty.
   [[nodiscard]] const std::string& snapshots() const noexcept { return m_snapshots; }
 
 private:

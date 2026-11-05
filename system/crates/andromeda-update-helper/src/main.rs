@@ -4,6 +4,10 @@
 mod helper;
 mod migrations;
 mod snapshot;
+#[cfg(feature = "apt")]
+#[path = "transaction_apt.rs"]
+mod transaction;
+#[cfg(feature = "arch")]
 mod transaction;
 
 use std::sync::Arc;

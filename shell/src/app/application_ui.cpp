@@ -955,9 +955,10 @@ void Application::initPanelManagerAndPanels() {
   m_panelManager.registerPanel("polkit", std::make_unique<PolkitPanel>(&m_configService, [this] {
                                  return m_polkitAgent.get();
                                }));
-  m_panelManager.registerPanel("setup-wizard", std::make_unique<SetupWizardPanel>(
-                                                     &m_configService, &m_wayland, m_linkService.get(), m_systemBus.get()
-                                                 ));
+  auto setupWizard = std::make_unique<SetupWizardPanel>(&m_configService, &m_wayland, m_linkService.get(),
+                                                        m_systemBus.get(), [this] { return softwareUpdateService(); });
+  m_setupWizard = setupWizard.get();
+  m_panelManager.registerPanel("setup-wizard", std::move(setupWizard));
 
   if (SetupWizardPanel::isFirstRun(m_configService)) {
     DeferredCall::callLater([] { PanelManager::instance().togglePanel("setup-wizard"); });
@@ -1517,7 +1518,12 @@ SoftwareUpdateService* Application::softwareUpdateService() {
   if (m_softwareUpdateService == nullptr && m_bus != nullptr) {
     try {
       m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
-      m_softwareUpdateService->setChangeCallback([this] { m_settingsWindow.onSoftwareUpdateChanged(); });
+      m_softwareUpdateService->setChangeCallback([this] {
+        m_settingsWindow.onSoftwareUpdateChanged();
+        if (m_setupWizard != nullptr) {
+          m_setupWizard->onSoftwareUpdateChanged();
+        }
+      });
     } catch (const std::exception& e) {
       kLog.warn("software update client disabled: {}", e.what());
     }

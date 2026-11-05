@@ -5,9 +5,9 @@
 #include "core/files/resource_paths.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
-#include "core/process/process.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/link/link_service.h"
+#include "dbus/andromeda/software_update_service.h"
 #include "dbus/system_bus.h"
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
@@ -59,11 +59,16 @@ namespace {
   constexpr float kSlotWidth = 208.0F;
   constexpr float kQrSize = 160.0F;
   constexpr float kQrPadding = 12.0F;
+  constexpr float kQrCode = kQrSize - 2.0F * kQrPadding;
   // Module colour of the mockup QR on its white box.
   constexpr std::uint8_t kQrInk[3] = {0x14, 0x14, 0x18};
   // Text column beside the QR box: 592 content - 8 card - 32 padding - 160 QR - 24 gap.
   constexpr float kQrTextWidth = 368.0F;
   constexpr float kEnrolCircle = 128.0F;
+  constexpr float kLogoSize = 96.0F;
+  constexpr float kKeycapSize = 20.0F;
+  constexpr float kHeroTextWidth = 400.0F;
+  constexpr float kPageDotSize = 6.0F;
 
   const sdbus::ServiceName kGazeBusName{"com.gundulabs.Gaze"};
   const sdbus::ObjectPath kGazePath{"/com/gundulabs/Gaze"};
@@ -81,7 +86,6 @@ namespace {
   };
 
   constexpr auto kPairingPoll = std::chrono::seconds(1);
-  constexpr auto kUpdateTimeout = std::chrono::seconds(120);
 
   using FaceEntry = sdbus::Struct<std::string, std::uint32_t, bool, bool>;
 
@@ -173,8 +177,8 @@ namespace {
         .radius = Style::scaledRadius(Tokens::radiusR4, scale),
         .border = colorSpecFromRole(ColorRole::Separator),
         .borderWidth = 1.0F * scale,
-        .minWidth = 20.0F * scale,
-        .height = 20.0F * scale,
+        .minWidth = kKeycapSize * scale,
+        .height = kKeycapSize * scale,
     });
     cap->addChild(makeLabel(text, Tokens::typeCaption, scale, ColorRole::Label2, FontWeight::Medium));
     return cap;
@@ -186,7 +190,7 @@ namespace {
         .paddingH = Tokens::spaceP8 * scale,
         .fill = colorSpecFromRole(ColorRole::Fill2),
         .radius = Style::scaledRadius(Tokens::radiusR12, scale),
-        .height = 24.0F * scale,
+        .height = Tokens::sizeControlS * scale,
     });
     chip->addChild(makeLabel(text, Tokens::typeFootnote, scale, ColorRole::Label2, FontWeight::Medium));
     return chip;
@@ -285,9 +289,10 @@ namespace {
 } // namespace
 
 SetupWizardPanel::SetupWizardPanel(
-    ConfigService* config, WaylandConnection* /*wayland*/, LinkService* link, SystemBus* systemBus
+    ConfigService* config, WaylandConnection* /*wayland*/, LinkService* link, SystemBus* systemBus,
+    std::function<SoftwareUpdateService*()> updates
 )
-    : m_config(config), m_link(link), m_systemBus(systemBus), m_user(currentUser()) {}
+    : m_config(config), m_link(link), m_systemBus(systemBus), m_updates(std::move(updates)), m_user(currentUser()) {}
 
 SetupWizardPanel::~SetupWizardPanel() { stopEnrol(); }
 
@@ -306,7 +311,8 @@ void SetupWizardPanel::create() {
   m_swatchNames.clear();
   m_pickedLoaded = false;
   m_preview = false;
-  m_updateChecker = process::commandExists("checkupdates");
+  // Update1 lists pacman or apt updates; the client exists whenever there is a session bus.
+  m_updateChecker = static_cast<bool>(m_updates);
 
   auto root = ui::column({.out = &m_root, .align = FlexAlign::Stretch});
 
@@ -337,16 +343,16 @@ void SetupWizardPanel::create() {
   auto dots = ui::row({
       .align = FlexAlign::Center,
       .justify = FlexJustify::Center,
-      .gap = 6.0F * scale,
-      .height = 16.0F * scale,
+      .gap = kPageDotSize * scale,
+      .height = Style::spaceLg * scale,
       .flexGrow = 1.0F,
   });
   for (int i = 0; i < kPageCount; ++i) {
     dots->addChild(ui::row({
         .out = &m_dots[static_cast<std::size_t>(i)],
-        .radius = 3.0F * scale,
-        .width = 6.0F * scale,
-        .height = 6.0F * scale,
+        .radius = kPageDotSize * 0.5F * scale,
+        .width = kPageDotSize * scale,
+        .height = kPageDotSize * scale,
     }));
   }
   footer->addChild(std::move(dots));
@@ -421,7 +427,7 @@ std::unique_ptr<Flex> SetupWizardPanel::buildWelcome(float scale) {
       .paddingH = Tokens::spaceP24 * scale,
       .flexGrow = 1.0F,
   });
-  page->addChild(ui::image({.out = &m_logo, .width = 96.0F * scale, .height = 96.0F * scale}));
+  page->addChild(ui::image({.out = &m_logo, .width = kLogoSize * scale, .height = kLogoSize * scale}));
   auto title = makeLabel(i18n::tr("setup-wizard.title"), Tokens::typeLarge, scale, ColorRole::Label1, FontWeight::SemiBold);
   title->setTextAlign(TextAlign::Center);
   title->setMaxWidth(480.0F * scale);
@@ -672,8 +678,8 @@ std::unique_ptr<Flex> SetupWizardPanel::buildPhone(float scale) {
   m_qrGlyph = qr->addChild(ui::glyph({.glyph = "qrcode", .glyphSize = 48.0F * scale, .color = colorSpecFromRole(ColorRole::Label3)}));
   m_qrImage = static_cast<Image*>(qr->addChild(ui::image({
       .fit = ImageFit::Contain,
-      .width = (kQrSize - 2.0F * kQrPadding) * scale,
-      .height = (kQrSize - 2.0F * kQrPadding) * scale,
+      .width = kQrCode * scale,
+      .height = kQrCode * scale,
   })));
   m_pairedGlyph = qr->addChild(ui::glyph({.glyph = "circle-check", .glyphSize = 48.0F * scale, .color = colorSpecFromRole(ColorRole::Success)}));
   wrap->addChild(std::move(qr));
@@ -776,7 +782,7 @@ std::unique_ptr<Flex> SetupWizardPanel::buildUnlock(float scale) {
       .height = kEnrolCircle * scale,
   });
   auto ring = std::make_unique<CountdownRingNode>();
-  ring->setThickness(4.0F * scale);
+  ring->setThickness(Style::spaceXs * scale);
   ring->setParticipatesInLayout(false);
   m_enrolRing = static_cast<CountdownRingNode*>(circle->addChild(std::move(ring)));
   m_enrolFaceGlyph = circle->addChild(ui::glyph({.glyph = "face-id", .glyphSize = 48.0F * scale, .color = colorSpecFromRole(ColorRole::Label2)}));
@@ -898,7 +904,7 @@ std::unique_ptr<Flex> SetupWizardPanel::buildDone(float scale) {
   page->addChild(makeLabel(i18n::tr("setup-wizard.done-body"), Tokens::typeBody, scale, ColorRole::Label2, FontWeight::Medium));
   page->addChild(ui::node({.height = Tokens::spaceP24 * scale}));
 
-  auto column = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * scale, .width = 400.0F * scale});
+  auto column = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * scale, .width = kHeroTextWidth * scale});
   auto tips = makeCard(scale);
   {
     auto row = makeListRow(scale);
@@ -1034,7 +1040,7 @@ void SetupWizardPanel::syncPages() {
   for (int i = 0; i < kPageCount; ++i) {
     Flex* dot = m_dots[static_cast<std::size_t>(i)];
     show(dot, i < shown);
-    dot->setSize((i == current ? 16.0F : 6.0F) * scale, 6.0F * scale);
+    dot->setSize((i == current ? Style::spaceLg : kPageDotSize) * scale, kPageDotSize * scale);
     dot->setFill(colorSpecFromRole(i == current ? ColorRole::Label1 : ColorRole::Label3));
   }
 
@@ -1226,7 +1232,7 @@ void SetupWizardPanel::renderQr(Renderer& renderer) {
     return;
   }
   // Whole texels per module at twice the drawn size, so scaling keeps the module edges sharp.
-  const float drawn = (kQrSize - 2.0F * kQrPadding) * contentScale();
+  const float drawn = kQrCode * contentScale();
   const int texels = std::max(1, static_cast<int>(std::ceil(2.0F * drawn / static_cast<float>(qr->width))));
   const int side = qr->width * texels;
   std::vector<std::uint8_t> rgba(static_cast<std::size_t>(side) * side * 4, 0xFF);
@@ -1514,64 +1520,64 @@ void SetupWizardPanel::probeSearch() {
 }
 
 void SetupWizardPanel::checkUpdates() {
-  m_updateState = UpdateState::Checking;
-  syncPages();
-  const bool started = process::runAsync(
-      std::vector<std::string>{"checkupdates"},
-      {.onExit =
-           [this](process::RunResult result) {
-             if (m_preview) {
-               return;
-             }
-             // checkupdates: 0 = updates listed, 2 = none, anything else = the check failed.
-             if (result.exitCode == 0 && !result.timedOut) {
-               std::istringstream lines(result.out);
-               std::vector<std::string> packages;
-               std::string line;
-               while (std::getline(lines, line)) {
-                 if (!line.empty()) {
-                   packages.push_back(line);
-                 }
-               }
-               const auto count = static_cast<long>(packages.size());
-               const auto lead = std::ranges::find_if(packages, [](const std::string& p) { return p.starts_with("andromeda"); });
-               std::istringstream fields(lead != packages.end() ? *lead : packages.front());
-               std::string name;
-               std::string oldVersion;
-               std::string arrow;
-               std::string version;
-               fields >> name >> oldVersion >> arrow >> version;
-               m_updateState = UpdateState::Available;
-               m_updateTitle = i18n::trp("setup-wizard.update-available", count);
-               m_updateSub = count == 1 ? i18n::tr("setup-wizard.update-one", "name", name, "version", version)
-                                        : i18n::trp("setup-wizard.update-summary", count - 1, "name", name, "version", version);
-             } else if (result.exitCode == 2 && !result.timedOut) {
-               m_updateState = UpdateState::UpToDate;
-               m_updateTitle = i18n::tr("setup-wizard.update-current");
-               m_updateSub = i18n::tr("setup-wizard.update-checked");
-             } else {
-               std::string reason = result.err;
-               while (!reason.empty() && (reason.back() == '\n' || reason.back() == ' ')) {
-                 reason.pop_back();
-               }
-               reason = reason.substr(reason.find_last_of('\n') + 1);
-               if (const auto colon = reason.find("ERROR: "); colon != std::string::npos) {
-                 reason = reason.substr(colon + 7);
-               }
-               m_updateState = UpdateState::Failed;
-               m_updateTitle = i18n::tr("setup-wizard.update-failed");
-               m_updateSub = reason;
-             }
-             syncPages();
-           }},
-      {.timeout = kUpdateTimeout}
-  );
-  if (!started) {
+  SoftwareUpdateService* updates = m_updates ? m_updates() : nullptr;
+  if (updates == nullptr) {
     m_updateState = UpdateState::Failed;
     m_updateTitle = i18n::tr("setup-wizard.update-failed");
     m_updateSub.clear();
     syncPages();
+    return;
   }
+  m_updateState = UpdateState::Checking;
+  m_updateCheckStart =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  syncPages();
+  updates->check();
+}
+
+void SetupWizardPanel::onSoftwareUpdateChanged() {
+  SoftwareUpdateService* updates = m_updates ? m_updates() : nullptr;
+  if (m_preview || m_updateState != UpdateState::Checking || updates == nullptr) {
+    return;
+  }
+  if (!updates->available()) {
+    m_updateState = UpdateState::Failed;
+    m_updateTitle = i18n::tr("setup-wizard.update-failed");
+    m_updateSub.clear();
+    syncPages();
+    return;
+  }
+  if (updates->checking() || updates->lastCheck() < m_updateCheckStart) {
+    return;
+  }
+  // The wizard reports the System group (pacman or apt), as the Software Update hero does.
+  std::vector<const SoftwareUpdate*> system;
+  for (const auto& update : updates->updates()) {
+    if (update.group == "system") {
+      system.push_back(&update);
+    }
+  }
+  const auto& errors = updates->errors();
+  const auto failed = std::ranges::find_if(errors, [](const std::string& e) { return e.starts_with("system: "); });
+  if (failed != errors.end()) {
+    m_updateState = UpdateState::Failed;
+    m_updateTitle = i18n::tr("setup-wizard.update-failed");
+    m_updateSub = failed->substr(std::string_view("system: ").size());
+  } else if (system.empty()) {
+    m_updateState = UpdateState::UpToDate;
+    m_updateTitle = i18n::tr("setup-wizard.update-current");
+    m_updateSub = i18n::tr("setup-wizard.update-checked");
+  } else {
+    const auto count = static_cast<long>(system.size());
+    const auto lead = std::ranges::find_if(system, [](const SoftwareUpdate* u) { return u->name.starts_with("andromeda"); });
+    const SoftwareUpdate& shown = lead != system.end() ? **lead : *system.front();
+    m_updateState = UpdateState::Available;
+    m_updateTitle = i18n::trp("setup-wizard.update-available", count);
+    m_updateSub = count == 1
+        ? i18n::tr("setup-wizard.update-one", "name", shown.name, "version", shown.newVersion)
+        : i18n::trp("setup-wizard.update-summary", count - 1, "name", shown.name, "version", shown.newVersion);
+  }
+  syncPages();
 }
 
 void SetupWizardPanel::layoutModeArt(const ModeArt& art) {
@@ -1649,7 +1655,8 @@ void SetupWizardPanel::doLayout(Renderer& renderer, float width, float height) {
     const float hx = overlay.host->parent() == overlay.node->parent() ? overlay.host->x() : 0.0F;
     const float hy = overlay.host->parent() == overlay.node->parent() ? overlay.host->y() : 0.0F;
     overlay.node->setPosition(hx - overlay.outset, hy - overlay.outset);
-    overlay.node->setSize(overlay.host->width() + 2.0F * overlay.outset, overlay.host->height() + 2.0F * overlay.outset);
+    const float grow = 2.0F * overlay.outset;
+    overlay.node->setSize(overlay.host->width() + grow, overlay.host->height() + grow);
   }
 }
 

@@ -8,17 +8,22 @@ publish.workspace = true
 
 [dependencies]
 # libalpm and these bindings are GPL; the helper binary is GPL as a whole. No code of theirs is copied here.
-alpm = "5"
-alpm-utils = "5"
-andromeda-update = { path = "../andromeda-update" }
+alpm = { version = "5", optional = true }
+alpm-utils = { version = "5", optional = true }
+andromeda-update = { path = "../andromeda-update", default-features = false }
 anyhow.workspace = true
 env_logger.workspace = true
 log.workspace = true
-pacmanconf = "3"
+pacmanconf = { version = "3", optional = true }
 rustix = { workspace = true, features = ["fs", "process"] }
 tokio.workspace = true
 zbus.workspace = true
 zbus_polkit.workspace = true
+
+[features]
+default = ["arch"]
+arch = ["dep:alpm", "dep:alpm-utils", "dep:pacmanconf", "andromeda-update/arch"]
+apt = ["andromeda-update/apt"]
 
 [lints]
 workspace = true

@@ -3,8 +3,14 @@
 
 mod flatpak;
 mod fwupd;
-mod pacman;
+#[cfg(feature = "apt")]
+#[path = "apt.rs"]
+mod packages;
+#[cfg(feature = "arch")]
+#[path = "pacman.rs"]
+mod packages;
 mod service;
+mod snap;
 
 use std::path::PathBuf;
 

@@ -7,7 +7,11 @@ use std::path::Path;
 
 use zbus::Connection;
 
+#[cfg(feature = "arch")]
 const SNAP_PAC_HOOK: &str = "/usr/share/libalpm/hooks/05-snap-pac-pre.hook";
+/// Debian's snapper package: `DPkg::Pre-Invoke`/`Post-Invoke` take the pair for every dpkg run, ours included.
+#[cfg(feature = "apt")]
+const APT_HOOK: &str = "/etc/apt/apt.conf.d/80snapper";
 const CONFIG: &str = "root";
 const DESCRIPTION: &str = "Andromeda system update";
 
@@ -37,10 +41,27 @@ trait Snapper {
 
 pub struct Pre(u32);
 
-/// What takes the snapshot before an update: "snap-pac", "snapper" (us), or "" (none).
+/// The package manager's own snapshot hook, when it takes the `root` pair: "snap-pac" or "snapper-apt".
+#[cfg(feature = "arch")]
+fn hook() -> Option<&'static str> {
+    (Path::new(SNAP_PAC_HOOK).exists() && snap_pac_takes_root()).then_some("snap-pac")
+}
+
+/// The hook runs only with a `root` config and without `DISABLE_APT_SNAPSHOT=yes` in /etc/default/snapper.
+#[cfg(feature = "apt")]
+fn hook() -> Option<&'static str> {
+    let disabled = std::fs::read_to_string("/etc/default/snapper").unwrap_or_default().lines().any(|line| {
+        line.split_once('=')
+            .is_some_and(|(k, v)| k.trim() == "DISABLE_APT_SNAPSHOT" && v.trim().trim_matches(['"', '\'']) == "yes")
+    });
+    (Path::new(APT_HOOK).exists() && Path::new("/etc/snapper/configs/root").exists() && !disabled)
+        .then_some("snapper-apt")
+}
+
+/// What takes the snapshot before an update: "snap-pac" or "snapper-apt", "snapper" (us), or "" (none).
 pub async fn mode(conn: &Connection) -> &'static str {
-    if Path::new(SNAP_PAC_HOOK).exists() && snap_pac_takes_root() {
-        return "snap-pac";
+    if let Some(hook) = hook() {
+        return hook;
     }
     let Ok(snapper) = SnapperProxy::new(conn).await else { return "" };
     match snapper.list_configs().await {
@@ -51,6 +72,7 @@ pub async fn mode(conn: &Connection) -> &'static str {
 
 /// snap-pac snapshots the `root` config unless /etc/snap-pac.ini says `snapshot = no` in its `[root]` section, or
 /// `SNAP_PAC_SKIP` is set (snap-pac reads it from the environment of the pacman run, which here is ours).
+#[cfg(feature = "arch")]
 fn snap_pac_takes_root() -> bool {
     if std::env::var_os("SNAP_PAC_SKIP").is_some() {
         return false;
@@ -69,10 +91,10 @@ fn snap_pac_takes_root() -> bool {
     true
 }
 
-/// `Ok(None)`: no snapper `root` config, or snap-pac takes the snapshots. An error means snapper is set up but the
+/// `Ok(None)`: no snapper `root` config, or the package manager's hook takes the snapshots. An error means snapper is set up but the
 /// snapshot failed; the upgrade must not run then.
 pub async fn pre(conn: &Connection) -> zbus::Result<Option<Pre>> {
-    if Path::new(SNAP_PAC_HOOK).exists() && snap_pac_takes_root() {
+    if hook().is_some() {
         return Ok(None);
     }
     let snapper = SnapperProxy::new(conn).await?;

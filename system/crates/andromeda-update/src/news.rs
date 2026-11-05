@@ -5,7 +5,13 @@ use anyhow::{Context, Result};
 use quick_xml::Reader;
 use quick_xml::events::Event;
 
+#[cfg(all(feature = "arch", not(feature = "apt")))]
 pub const FEED: &str = "https://archlinux.org/feeds/news/";
+/// Ubuntu Security Notices: same RSS 2.0 shape. They announce fixes, never manual steps, so they do not gate.
+#[cfg(feature = "apt")]
+pub const FEED: &str = "https://ubuntu.com/security/notices/rss.xml";
+/// Whether unread items block System updates.
+pub const GATES: bool = cfg!(feature = "arch");
 const MAX_FEED_BYTES: u64 = 2 * 1024 * 1024;
 const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const MAX_ITEMS: usize = 50;

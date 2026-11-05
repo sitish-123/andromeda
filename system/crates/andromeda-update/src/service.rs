@@ -11,13 +11,13 @@ use zbus::{Connection, interface};
 
 use andromeda_update::news;
 
-use crate::{flatpak, fwupd, pacman};
+use crate::{flatpak, fwupd, packages, snap};
 
 pub const PATH: &str = "/org/andromeda/Update1";
 /// checkupdates downloads every sync database; firmware and Flatpak answer faster.
 const SOURCE_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// (group: system | apps | firmware, name, current version, new version, download bytes)
+/// (group: system | apps | snaps | firmware | held, name, current version, new version, download bytes)
 pub type Row = (String, String, String, String, u64);
 
 #[derive(Default)]
@@ -94,9 +94,11 @@ impl Update {
 
     async fn run_check(&self, conn: Connection) {
         let db = self.cache.join("checkup-db");
-        let (repo, apps, firmware, feed) = tokio::join!(
-            bounded("system", pacman::check(&db)),
+        let (repo, apps, snaps, firmware, feed) = tokio::join!(
+            bounded("system", packages::check(&db)),
             bounded("apps", flatpak::check()),
+            // The apt helper refreshes snaps with the system upgrade; the Arch helper does not.
+            bounded("snaps", async { if cfg!(feature = "apt") { snap::check().await } else { Ok(Vec::new()) } }),
             bounded("firmware", async {
                 let system = Connection::system().await?;
                 fwupd::check(&system).await
@@ -106,12 +108,21 @@ impl Update {
         let mut rows = Vec::new();
         let mut errors = Vec::new();
         match repo {
-            Ok(list) => rows.extend(list.into_iter().map(|u| ("system".into(), u.name, u.old, u.new, u.size))),
+            Ok((list, held)) => {
+                rows.extend(list.into_iter().map(|u| ("system".into(), u.name, u.old, u.new, u.size)));
+                rows.extend(held.into_iter().map(|u| ("held".into(), u.name, u.old, u.new, 0)));
+            }
             Err(e) => errors.push(format!("system: {e:#}")),
         }
         match apps {
             Ok(list) => rows.extend(list.into_iter().map(|u| ("apps".into(), u.id, String::new(), u.version, u.size))),
             Err(e) => errors.push(format!("apps: {e:#}")),
+        }
+        match snaps {
+            Ok(list) => {
+                rows.extend(list.into_iter().map(|u| ("snaps".into(), u.name, String::new(), u.version, u.size)));
+            }
+            Err(e) => errors.push(format!("snaps: {e:#}")),
         }
         match firmware {
             Ok(list) => {
@@ -142,7 +153,7 @@ impl Update {
         }
         let (scheduled, count) = {
             let mut state = self.lock();
-            (std::mem::take(&mut state.scheduled), state.updates.len())
+            (std::mem::take(&mut state.scheduled), state.updates.iter().filter(|row| row.0 != "held").count())
         };
         if scheduled && count > 0 {
             self.notify(&conn, count).await;
@@ -207,7 +218,7 @@ impl Update {
     #[zbus(property)]
     fn news_blocks_system(&self) -> bool {
         let state = self.lock();
-        !state.news_known || !state.unread.is_empty()
+        news::GATES && (!state.news_known || !state.unread.is_empty())
     }
 
     #[zbus(property)]

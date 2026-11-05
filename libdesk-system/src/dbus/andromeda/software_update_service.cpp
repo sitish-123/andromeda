@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <chrono>
 #include <map>
 #include <string_view>
@@ -94,7 +95,9 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
           m_resultMessage = message;
           m_questions = questions;
           m_runState = ok ? RunState::Done : (questions.empty() ? RunState::Failed : RunState::NeedsChoice);
-          if (ok && std::ranges::any_of(targets, needsRestart)) {
+          // Debian packages write /run/reboot-required from their maintainer scripts; Arch has no such file.
+          if (ok &&
+              (std::ranges::any_of(targets, needsRestart) || std::filesystem::exists("/run/reboot-required"))) {
             m_restartNeeded = true;
           }
           notify();
@@ -116,7 +119,7 @@ void SoftwareUpdateService::refresh() {
   try {
     // An upgrade another client (or tonight's timer) started is shown as running; its signals follow.
     m_helper->callMethodAsync("GetAll").onInterface(kPropertiesInterface).withArguments(std::string{kHelperName}).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error, const VariantMap& props) {
+        [this, alive](std::optional<sdbus::Error> error, const VariantMap& props) {
           if (alive.expired() || error.has_value()) {
             return;
           }
@@ -150,7 +153,7 @@ void SoftwareUpdateService::load() {
     m_update->callMethodAsync("GetAll")
         .onInterface(kPropertiesInterface)
         .withArguments(std::string{kUpdateName})
-        .uponReplyInvoke([this, alive](const std::optional<sdbus::Error>& error, const VariantMap& props) {
+        .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error, const VariantMap& props) {
           if (alive.expired()) {
             return;
           }
@@ -189,7 +192,7 @@ void SoftwareUpdateService::check() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     m_update->callMethodAsync("Check").onInterface(kUpdateName).uponReplyInvoke(
-        [this, alive](const std::optional<sdbus::Error>& error) {
+        [this, alive](std::optional<sdbus::Error> error) {
           if (alive.expired()) {
             return;
           }
@@ -220,7 +223,7 @@ void SoftwareUpdateService::markNewsRead() {
         .onInterface(kHelperName)
         .withArguments(until)
         .withTimeout(std::chrono::minutes(5))
-        .uponReplyInvoke([this, alive, until](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([this, alive, until](std::optional<sdbus::Error> error) {
           if (alive.expired()) {
             return;
           }
@@ -232,7 +235,7 @@ void SoftwareUpdateService::markNewsRead() {
             m_update->callMethodAsync("MarkNewsRead")
                 .onInterface(kUpdateName)
                 .withArguments(until)
-                .uponReplyInvoke([this, alive](const std::optional<sdbus::Error>& sessionError) {
+                .uponReplyInvoke([this, alive](std::optional<sdbus::Error> sessionError) {
                   if (alive.expired()) {
                     return;
                   }
@@ -314,7 +317,7 @@ void SoftwareUpdateService::upgrade() {
         .onInterface(kHelperName)
         .withArguments(false)
         .withTimeout(std::chrono::minutes(5))
-        .uponReplyInvoke([this, alive](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error) {
           if (alive.expired() || !error.has_value()) {
             return;
           }
@@ -340,7 +343,7 @@ void SoftwareUpdateService::scheduleTonight(bool enable) {
         .onInterface(kHelperName)
         .withArguments(enable)
         .withTimeout(std::chrono::minutes(5))
-        .uponReplyInvoke([this, alive, enable](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([this, alive, enable](std::optional<sdbus::Error> error) {
           if (alive.expired()) {
             return;
           }
@@ -365,7 +368,7 @@ void SoftwareUpdateService::afterSystemUpdate(std::function<void(bool waited)> t
   try {
     m_helper->getPropertyAsync("Running").onInterface(kHelperName).uponReplyInvoke(
         [this, alive, then = std::move(then), waiting = std::move(waiting)](
-            const std::optional<sdbus::Error>& error, const sdbus::Variant& value
+            std::optional<sdbus::Error> error, const sdbus::Variant& value
         ) {
           if (alive.expired()) {
             return;
