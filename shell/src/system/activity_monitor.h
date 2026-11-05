@@ -5,11 +5,16 @@
 #include "core/timer_manager.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 class SessionBus;
+
+namespace sdbus {
+  class IProxy;
+}
 
 // Feeds ActivityService from the systemd user manager, compositor window PIDs and cgroup files. Samples every
 // second only while a reference or a touch() lease is held; with none, it holds no timer and no D-Bus subscription.
@@ -45,11 +50,14 @@ private:
   void windowsChanged();
   void updateSampling();
   void sampleNow();
+  // Asks the compositor for each app unit's QoS tier; the reply updates the rows.
+  void requestTiers();
 
   WindowPids m_windowPids;
   ChangeCallback m_onChange;
   SystemdUnitsService m_userUnits;
   ActivityService m_activity;
+  std::unique_ptr<sdbus::IProxy> m_compositorApps;
   Timer m_sampleTimer;
   Timer m_leaseTimer;
   int m_refs = 0;

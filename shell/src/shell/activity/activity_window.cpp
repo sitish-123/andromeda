@@ -1314,6 +1314,10 @@ std::unique_ptr<Flex> ActivityWindow::buildInspector(Renderer& renderer, float s
   if (row->units.size() > 1) {
     chips->addChild(chip(i18n::tr("activity.caption-units", "count", std::to_string(row->units.size())), scale));
   }
+  // The QoS tier the compositor gives the app now (docs/qos.md §3).
+  if (const std::string_view tier = qosTierName(row->qosTier); !tier.empty()) {
+    chips->addChild(chip(i18n::tr(std::format("activity.tier-{}", tier)), scale));
+  }
   const bool frozen = isFrozen(*row);
   if (frozen) {
     chips->addChild(chip(i18n::tr("activity.chip-paused"), scale));

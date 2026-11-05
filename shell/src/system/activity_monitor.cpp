@@ -4,8 +4,10 @@
 #include "system/cgroup_stats.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <sdbus-c++/sdbus-c++.h>
 
 namespace {
 
@@ -28,6 +30,14 @@ namespace {
 
 } // namespace
 
+namespace {
+  // ANDROMEDA_COMPOSITOR_BUS_NAME: a nested or headless compositor next to the session's one owns another name.
+  std::string compositorBusName() {
+    const char* name = std::getenv("ANDROMEDA_COMPOSITOR_BUS_NAME");
+    return name != nullptr && name[0] != '\0' ? name : "org.andromeda.Compositor1";
+  }
+} // namespace
+
 ActivityMonitor::ActivityMonitor(SessionBus& bus, WindowPids windowPids, std::string cgroupRoot, ChangeCallback onChange)
     : m_windowPids(std::move(windowPids)), m_onChange(std::move(onChange)),
       m_userUnits(bus.connection(), SystemdUnitsService::Manager::User, [this]() {
@@ -45,7 +55,9 @@ ActivityMonitor::ActivityMonitor(SessionBus& bus, WindowPids windowPids, std::st
           m_onChange();
         }
       }),
-      m_activity(std::move(cgroupRoot)) {}
+      m_activity(std::move(cgroupRoot)),
+      m_compositorApps(sdbus::createProxy(bus.connection(), sdbus::ServiceName{compositorBusName()},
+                                          sdbus::ObjectPath{"/org/andromeda/Compositor1/Apps"})) {}
 
 ActivityMonitor::~ActivityMonitor() = default;
 
@@ -93,7 +105,26 @@ void ActivityMonitor::updateSampling() {
   m_sampleTimer.startRepeating(std::chrono::duration_cast<std::chrono::milliseconds>(kSampleInterval), [this]() { sampleNow(); });
 }
 
+void ActivityMonitor::requestTiers() {
+  using Row = sdbus::Struct<std::string, bool, bool, std::string, bool, double, std::uint64_t>;
+  // Another compositor has no such name: the call fails and the rows keep no tier.
+  m_compositorApps->callMethodAsync("List").onInterface("org.andromeda.Compositor1.Apps").uponReplyInvoke(
+      [this](std::optional<sdbus::Error> error, std::vector<Row> rows) {
+        std::map<std::string, std::string> tiers;
+        if (!error.has_value()) {
+          for (const auto& row : rows) {
+            tiers.emplace(row.get<0>(), row.get<3>());
+          }
+        }
+        m_activity.setUnitTiers(std::move(tiers));
+        if (m_onChange) {
+          m_onChange();
+        }
+      });
+}
+
 void ActivityMonitor::sampleNow() {
+  requestTiers();
   windowsChanged();
   m_activity.sample(std::chrono::steady_clock::now());
   if (m_onChange) {
@@ -130,6 +161,7 @@ std::string ActivityMonitor::dumpJson() const {
         {"io_read_bps", row.ioReadBytesPerSec},
         {"io_write_bps", row.ioWriteBytesPerSec},
         {"memory_pressure", row.memoryPressure},
+        {"tier", std::string(qosTierName(row.qosTier))},
     });
   }
   return nlohmann::json{{"available", m_userUnits.available()}, {"sampling", m_sampling}, {"rows", rows}}.dump();

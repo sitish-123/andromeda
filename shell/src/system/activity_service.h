@@ -27,7 +27,13 @@ struct ActivityRow {
   double ioReadBytesPerSec = 0.0;
   double ioWriteBytesPerSec = 0.0;
   double memoryPressure = 0.0; // highest avg10 over the row's units, percent
+  // The compositor's QoS tier of the row's most active unit (docs/qos.md §3): "T0" focus .. "T3" hidden long;
+  // empty when the compositor does not manage the units.
+  std::string qosTier;
 };
+
+// "focused", "visible", "hidden", "hidden-long", or empty.
+[[nodiscard]] std::string_view qosTierName(std::string_view tier);
 
 class ActivityService {
 public:
@@ -39,6 +45,8 @@ public:
   void setUnits(std::vector<SystemdUnit> units);
   // Unit name -> app_id of a window whose PID is in that unit (see unitForPid()).
   void setWindowUnits(std::map<std::string, std::string> windowAppIdByUnit);
+  // Unit name -> QoS tier ("T0".."T3") from org.andromeda.Compositor1.Apps.List.
+  void setUnitTiers(std::map<std::string, std::string> tierByUnit);
   // Reads every unit's cgroup once and rebuilds rows().
   void sample(std::chrono::steady_clock::time_point now);
 
@@ -59,6 +67,7 @@ private:
   int m_cpuCount;
   std::vector<SystemdUnit> m_units;
   std::map<std::string, std::string> m_windowAppIdByUnit;
+  std::map<std::string, std::string> m_tierByUnit;
   std::map<std::string, std::deque<Timed>> m_history; // by unit name, oldest first
   std::vector<ActivityRow> m_rows;
 };
