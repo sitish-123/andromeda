@@ -28,9 +28,9 @@ jobs:
           sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libgl-dev libegl-dev libxkbcommon-dev dbus python3-dbus python3-gi
           rustup component add clippy rustfmt
-      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs. The system python3 keeps python3-dbus and python3-gi for the tests.
       - uses: jurplel/install-qt-action@v4
-        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true, setup-python: false }
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: link }
       - uses: taiki-e/install-action@cargo-deny
@@ -55,9 +55,9 @@ jobs:
             libgl-dev libegl-dev libxkbcommon-dev dbus libglib2.0-bin python3-gi iproute2 nftables
           # The tests put the phone and the desktop in their own user and network namespaces.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs. The system python3 keeps python3-dbus and python3-gi for the tests.
       - uses: jurplel/install-qt-action@v4
-        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true, setup-python: false }
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: link }
       - name: Build
