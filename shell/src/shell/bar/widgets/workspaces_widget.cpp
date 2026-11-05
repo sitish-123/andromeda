@@ -1036,7 +1036,7 @@ void WorkspacesWidget::startAnimation() {
   requestFrameTick();
   requestRedraw();
   m_animId = mgr->animateSpring(
-      0.0F, 1.0F, Style::spring(Tokens::springMove),
+      0.0F, 1.0F, Style::spring(Tokens::springFollow),
       [this](float t) {
         for (auto& item : m_items) {
           item.currentWidth = std::lerp(item.fromWidth, item.targetWidth, t);

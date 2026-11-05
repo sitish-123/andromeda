@@ -248,7 +248,7 @@ void ActiveWindowWidget::morphWidth(float fromExtent, float toExtent) {
   setGapExcluded(true);
   m_targetWidth = toExtent;
   m_widthAnimId = m_animations->drive(
-      m_widthAnimId, fromExtent, toExtent, Style::spring(Tokens::springMove),
+      m_widthAnimId, fromExtent, toExtent, Style::spring(Tokens::springFollow),
       [this](float w) {
         m_shownWidth = std::max(0.0F, w);
         if (Node* bounds = layoutBoundsNode(); bounds != nullptr) {
@@ -391,7 +391,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
     m_animations->cancelForOwner(&m_contentFade);
     m_contentFade = 0.0F;
     m_animations->animateSpring(
-        0.0F, 1.0F, Style::spring(Tokens::springFade),
+        0.0F, 1.0F, Style::spring(Tokens::springFollow),
         [this](float v) {
           m_contentFade = v;
           m_title->setOpacity(v);
