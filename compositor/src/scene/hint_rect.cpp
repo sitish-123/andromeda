@@ -22,7 +22,7 @@ namespace andromeda {
     constexpr float kRingFill = 0.18F;
     constexpr int kGlowSigma = 8;
     constexpr float kGlowAlpha = 0.7F;
-    // Steps of the Edge gradient: 3 px each on a 72 px band, below one 8-bit level apart in the accent.
+    // Steps of the Edge gradient: 3 px each on a 72 px band, about 4 8-bit levels apart at 35 % accent.
     constexpr int kEdgeBands = 24;
     constexpr float kEdgeAlpha = 0.35F;
 

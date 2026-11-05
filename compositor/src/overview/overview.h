@@ -446,6 +446,13 @@ namespace andromeda {
     // The tiled window whose middle is under the pointer, which a drop swaps with the dragged one.
     [[nodiscard]] View* swapTargetAt(double lx, double ly);
     void swapDragged(View& view, View& other);
+    [[nodiscard]] bool cardInThumb(const Card& card) const;
+    // The workspace whose thumb or Grid tile is under the point (not a Frame or the main area), and its box.
+    [[nodiscard]] Workspace* thumbAt(double lx, double ly, wlr_box* outBox = nullptr);
+    // A thumb the pressed one can be reordered onto: another workspace of the same output.
+    [[nodiscard]] Workspace* thumbDropAt(double lx, double ly, wlr_box* outBox);
+    void updateThumbDrag(double lx, double ly);
+    void endThumbDrag(bool drop, double lx, double ly);
     void syncWorkspaceRows(OutputState& state, WorkspaceGroup& group);
     // The desk->overview map of workspace `index` on `state`: the main area for the chosen workspace when it has one.
     [[nodiscard]] static ov::Fit workspaceFit(const OutputState& state, size_t index);
@@ -462,6 +469,7 @@ namespace andromeda {
     Output* m_edgeOutput = nullptr;
     int m_edgeStep = 0;
     int m_edgePan = 0;
+    Ref<Workspace> m_edgeWorkspace; // the scrolling workspace an armed pan moves
     double m_dragX = 0;
     double m_dragY = 0;
     std::vector<std::unique_ptr<OutputState>> m_outputs;
@@ -496,6 +504,8 @@ namespace andromeda {
 
     Card* m_pressCard = nullptr;
     Ref<Workspace> m_pressWorkspace;
+    bool m_pressThumb = false;    // the press landed on a thumb, so travel reorders workspaces
+    bool m_thumbDragging = false; // that press has moved past kDragThreshold
     // The window card under the pointer and whether the pointer is on its close button. Compared, never dereferenced.
     const View* m_hoverView = nullptr;
     bool m_closeHover = false;
@@ -522,6 +532,7 @@ namespace andromeda {
     int m_dragSourceColumn = -1;
     int m_dragSourceRow = -1;
     std::optional<DropColumnWidth> m_dragSourceWidth;
+    bool m_dragSourcePromotes = false; // lifting the dragged window promoted a stack window into the master area
     DropTarget m_drop{};
     WorkspaceGroup* m_dropWorkspaceGroup = nullptr;
     size_t m_dropWorkspaceIndex = 0;

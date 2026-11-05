@@ -420,6 +420,8 @@ namespace andromeda {
     // groups cannot be extended this way and return null.
     Workspace* insertDynamicWorkspace(size_t index);
     bool moveActiveWorkspace(int direction);
+    // Moves `workspace` to position `target`, shifting the ones between; the same empty-end rules as above apply.
+    bool moveWorkspace(Workspace* workspace, size_t target);
     void reconcileInventory();
     void refreshLayouts();
     // Re-resolve the output's workspace axis, settling any live slide on the old

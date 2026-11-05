@@ -15,6 +15,7 @@ extern "C" {
 #include "layer/layer_surface.h"
 #include "layout/drop_target.h"
 #include "layout/layout.h"
+#include "layout/master.h"
 #include "layout/scrolling.h"
 #include "output/output.h"
 #include "overview/interact.h"
@@ -119,12 +120,13 @@ namespace andromeda {
     }
     // Pointer travel that promotes a press on a card into a relocate drag.
     constexpr double kDragThreshold = 10.0;
-    // Edge auto-scroll while dragging: the band along an output edge, the hold before the first step, the step period
-    // after it, and the share of the viewport one pan step moves a scrolling row.
+    // Edge auto-scroll while dragging: the band along an output edge, the hold before the first row step, the step
+    // period after it, and the continuous pan of a scrolling workspace (prototype: 22 px every 40 ms, no hold).
     constexpr double kEdgeZone = 72.0;
     constexpr int kEdgeDelayMs = 380;
     constexpr int kEdgeRepeatMs = 650;
-    constexpr double kEdgePanShare = 0.5;
+    constexpr int kEdgePanMs = 40;
+    constexpr double kEdgePanPx = 22.0;
     // Corner radius of the ring over the new-workspace target.
     constexpr int kPlusHintRadius = 14;
     // A drop on the middle of a tiled window swaps the two; the outer 28 % on each side inserts beside it (prototype).
@@ -2172,6 +2174,7 @@ namespace andromeda {
     if (m_dragCard != nullptr) {
       endDrag(false);
     }
+    endThumbDrag(false, 0, 0);
     hideDropHint();
     m_pressCard = nullptr;
     m_pressWorkspace = nullptr;
@@ -2406,6 +2409,7 @@ namespace andromeda {
     m_targetProgress = 0.0;
     m_pointerOutput = nullptr;
     m_server->notifyOverviewChanged();
+    endThumbDrag(false, 0, 0);
     m_pressCard = nullptr;
     m_pressWorkspace = nullptr;
     m_hoverView = nullptr;
@@ -2529,6 +2533,7 @@ namespace andromeda {
       }
       if (m_dragCard == card) {
         hideDropHint();
+        stopEdgeScroll();
         m_dragCard = nullptr;
         m_dragSourceWorkspace = nullptr;
         m_dragSourceWidth.reset();
@@ -2590,6 +2595,7 @@ namespace andromeda {
     }
     if (m_dragCard != nullptr && m_dragCard->view == view) {
       hideDropHint();
+      stopEdgeScroll();
       m_dragCard = nullptr;
       m_dragSourceWorkspace = nullptr;
       m_drop = {};
@@ -2810,6 +2816,7 @@ namespace andromeda {
     }
     if (m_dragCard != nullptr && m_dragCard->owner == it->get()) {
       hideDropHint();
+      stopEdgeScroll();
       m_dragCard = nullptr;
       m_dragSourceWorkspace = nullptr;
       m_drop = {};
@@ -3048,6 +3055,10 @@ namespace andromeda {
         endDrag(true);
         return true;
       }
+      if (m_thumbDragging) {
+        endThumbDrag(true, lx, ly);
+        return true;
+      }
       Card* card = m_pressCard;
       Workspace* workspace = m_pressWorkspace.get();
       m_pressCard = nullptr;
@@ -3086,12 +3097,18 @@ namespace andromeda {
       m_pressWorkspace = nullptr;
       return true;
     }
+    // A thumb's miniature windows are part of the thumb: pressing one picks up the workspace, as in the prototype.
+    if (card != nullptr && cardInThumb(*card)) {
+      card = nullptr;
+    }
     m_pressCard = card;
     m_pressWorkspace = nullptr;
     m_pressX = lx;
     m_pressY = ly;
+    m_pressThumb = false;
     if (card == nullptr) {
       m_pressWorkspace = workspaceAtPoint(lx, ly, nullptr, nullptr, false);
+      m_pressThumb = m_pressWorkspace != nullptr && thumbAt(lx, ly) == m_pressWorkspace.get();
     }
     return true;
   }
@@ -3153,6 +3170,19 @@ namespace andromeda {
     }
     if (m_dragCard != nullptr) {
       updateDrag(lx, ly);
+      return;
+    }
+    if (m_pressThumb && m_pressWorkspace != nullptr) {
+      if (!m_thumbDragging) {
+        const double dx = lx - m_pressX;
+        const double dy = ly - m_pressY;
+        if (dx * dx + dy * dy < kDragThreshold * kDragThreshold) {
+          return;
+        }
+        m_thumbDragging = true;
+        m_server->cursor()->overrideCursor("grabbing");
+      }
+      updateThumbDrag(lx, ly);
       return;
     }
     if (m_pressCard == nullptr) {
@@ -3922,6 +3952,7 @@ namespace andromeda {
     m_dragSourceColumn = -1;
     m_dragSourceRow = -1;
     m_dragSourceWidth.reset();
+    m_dragSourcePromotes = false;
     m_drop = {};
     m_dropWorkspaceGroup = nullptr;
 
@@ -3929,6 +3960,8 @@ namespace andromeda {
       m_dragSourceColumn = m_dragSourceWorkspace->layout().columnOf(view);
       m_dragSourceRow = m_dragSourceWorkspace->layout().rowOf(view);
       m_dragSourceWidth = captureDropColumnWidth(*m_dragSourceWorkspace, view);
+      const MasterStackLayout* master = m_dragSourceWorkspace->masterLayout();
+      m_dragSourcePromotes = master != nullptr && master->isSoleMaster(view) && master->columns().size() > 1;
       if (m_dragSourceColumn >= 0) {
         // Detach so the source row closes the gap live, exactly like a normal
         // tile drag; arrange() re-lays that output's cards through the hook.
@@ -4148,6 +4181,10 @@ namespace andromeda {
       if (ColumnOps* ops = source.layout().columnOps()) {
         ops->insertViewIntoColumn(&view, m_dragSourceColumn, m_dragSourceRow);
       }
+      // Lifting the only master window promoted the first stack window; send it back to the stack top.
+      if (MasterStackLayout* master = source.masterLayout(); master != nullptr && m_dragSourcePromotes) {
+        master->demoteToStack();
+      }
     } else {
       source.layout().insertView(&view, m_dragSourceColumn);
     }
@@ -4167,10 +4204,7 @@ namespace andromeda {
       return nullptr;
     }
     // A thumb is one target, "move here", as in the prototype: its miniature windows take no window drops.
-    const OutputState& state = *card->owner;
-    const bool inMain = state.mainBox.has_value() && card->workspaceIndex == state.mainWorkspace;
-    if (!inMain && card->workspaceIndex < state.workspaceViews.size()
-        && state.workspaceViews[card->workspaceIndex].kind == ov::CardKind::Thumb) {
+    if (cardInThumb(*card)) {
       return nullptr;
     }
     const double share = (lx - card->box.x) / card->box.width;
@@ -4198,9 +4232,88 @@ namespace andromeda {
     }
     restoreDragSlot(other);
     other.setSceneParent(m_dragSourceWorkspace->viewLayer(true));
+    // Each window takes the full-width state of the column it now sits in.
+    const auto fullWidth = [](Workspace& workspace, const View& member) {
+      ColumnOps* ops = workspace.layout().columnOps();
+      const int column = workspace.layout().columnOf(&member);
+      return ops != nullptr && column >= 0 && ops->isFullWidth(column);
+    };
+    view.setMaximizedState(fullWidth(target, view));
+    other.setMaximizedState(fullWidth(*m_dragSourceWorkspace, other));
     target.arrange(false);
     m_dragSourceWorkspace->arrange(false);
     m_server->focusView(&view, FocusReason::DragDrop);
+  }
+
+  bool Overview::cardInThumb(const Card& card) const {
+    if (card.owner == nullptr) {
+      return false;
+    }
+    const OutputState& state = *card.owner;
+    const bool inMain = state.mainBox.has_value() && card.workspaceIndex == state.mainWorkspace;
+    return !inMain && card.workspaceIndex < state.workspaceViews.size()
+        && state.workspaceViews[card.workspaceIndex].kind == ov::CardKind::Thumb;
+  }
+
+  Workspace* Overview::thumbAt(double lx, double ly, wlr_box* outBox) {
+    for (const auto& state : m_outputs) {
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      if (group == nullptr || !boxContains(state->outputBox, lx, ly)) {
+        continue;
+      }
+      for (size_t index = 0; index < state->workspaceViews.size(); ++index) {
+        const WorkspaceView& view = state->workspaceViews[index];
+        if (view.shown && view.kind != ov::CardKind::Frame && boxContains(view.box, lx, ly)) {
+          if (outBox != nullptr) {
+            *outBox = view.box;
+          }
+          return group->workspaceAt(index);
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  Workspace* Overview::thumbDropAt(double lx, double ly, wlr_box* outBox) {
+    Workspace* target = thumbAt(lx, ly, outBox);
+    const Workspace* source = m_pressWorkspace.get();
+    return target != nullptr && source != nullptr && target != source && target->group() == source->group() ? target
+                                                                                                            : nullptr;
+  }
+
+  void Overview::updateThumbDrag(double lx, double ly) {
+    m_dragX = lx;
+    m_dragY = ly;
+    updateEdgeScroll(lx, ly);
+    wlr_box box{};
+    Workspace* target = thumbDropAt(lx, ly, &box);
+    if (target == nullptr || target->group() == nullptr) {
+      hideDropHint();
+      return;
+    }
+    if (m_dropHint == nullptr) {
+      m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
+    }
+    m_dropHint->show(target->group()->output(), box, kPlusHintRadius, HintLook::Ring);
+    scheduleFrames();
+  }
+
+  void Overview::endThumbDrag(bool drop, double lx, double ly) {
+    if (!m_thumbDragging) {
+      m_pressThumb = false;
+      return;
+    }
+    Workspace* target = drop ? thumbDropAt(lx, ly, nullptr) : nullptr;
+    Workspace* source = m_pressWorkspace.get();
+    m_thumbDragging = false;
+    m_pressThumb = false;
+    m_pressWorkspace = nullptr;
+    hideDropHint();
+    stopEdgeScroll();
+    m_server->cursor()->overrideCursor(nullptr);
+    if (target != nullptr && source != nullptr) {
+      source->group()->moveWorkspace(source, target->index());
+    }
   }
 
   void Overview::syncWorkspaceRows(OutputState& state, WorkspaceGroup& group) {
@@ -4316,30 +4429,45 @@ namespace andromeda {
         break;
       }
     }
-    if (state != nullptr && configuredStyle() == ov::Style::Strip && state->output->workspaceGroup() != nullptr) {
+    Workspace* panned = nullptr;
+    const ov::Style style = configuredStyle();
+    WorkspaceGroup* group = state != nullptr ? state->output->workspaceGroup() : nullptr;
+    if (group != nullptr && (style == ov::Style::Strip || style == ov::Style::Spaces)) {
       const wlr_box& box = state->outputBox;
       const bool horizontal = state->cardsHorizontal;
-      const double along = horizontal ? lx - box.x : ly - box.y;
-      const double alongExtent = horizontal ? box.width : box.height;
-      const double across = horizontal ? ly - box.y : lx - box.x;
-      const double acrossExtent = horizontal ? box.height : box.width;
       const int bar = static_cast<int>(kEdgeZone);
-      if (along < kEdgeZone) {
-        step = -1;
-        edge = horizontal ? wlr_box{box.x, box.y, bar, box.height} : wlr_box{box.x, box.y, box.width, bar};
-        strong = horizontal ? WLR_EDGE_LEFT : WLR_EDGE_TOP;
-      } else if (along > alongExtent - kEdgeZone) {
-        step = 1;
-        edge = horizontal ? wlr_box{box.x + box.width - bar, box.y, bar, box.height}
-                          : wlr_box{box.x, box.y + box.height - bar, box.width, bar};
-        strong = horizontal ? WLR_EDGE_RIGHT : WLR_EDGE_BOTTOM;
-      } else if (!horizontal && (across < kEdgeZone || across > acrossExtent - kEdgeZone)) {
-        // Rows run down the screen, so a scrolling row pans across it.
-        size_t position = 0;
-        OutputState* rowState = nullptr;
-        const Workspace* workspace = workspaceAtPoint(lx, ly, &rowState, &position, true);
-        if (workspace != nullptr && workspace->scrollingLayout() != nullptr) {
-          pan = across < kEdgeZone ? -1 : 1;
+      const double x = lx - box.x;
+      const double y = ly - box.y;
+      // Strip rows step along the workspace axis; the prototype has no row steps in the other styles.
+      if (style == ov::Style::Strip) {
+        const double along = horizontal ? x : y;
+        const double alongExtent = horizontal ? box.width : box.height;
+        if (along < kEdgeZone) {
+          step = -1;
+          edge = horizontal ? wlr_box{box.x, box.y, bar, box.height} : wlr_box{box.x, box.y, box.width, bar};
+          strong = horizontal ? WLR_EDGE_LEFT : WLR_EDGE_TOP;
+        } else if (along > alongExtent - kEdgeZone) {
+          step = 1;
+          edge = horizontal ? wlr_box{box.x + box.width - bar, box.y, bar, box.height}
+                            : wlr_box{box.x, box.y + box.height - bar, box.width, bar};
+          strong = horizontal ? WLR_EDGE_RIGHT : WLR_EDGE_BOTTOM;
+        }
+      }
+      // The left and right edges pan a horizontal scrolling workspace: the Strip row under the pointer, or the
+      // Spaces main area.
+      const bool panAxisFree = style == ov::Style::Spaces || !horizontal;
+      if (step == 0 && panAxisFree && (x < kEdgeZone || x > box.width - kEdgeZone)) {
+        Workspace* workspace = nullptr;
+        if (style == ov::Style::Spaces) {
+          workspace = state->mainBox.has_value() ? group->workspaceAt(state->mainWorkspace) : nullptr;
+        } else {
+          size_t position = 0;
+          OutputState* rowState = nullptr;
+          workspace = workspaceAtPoint(lx, ly, &rowState, &position, true);
+        }
+        if (workspace != nullptr && workspace->scrollingLayout() != nullptr && !workspace->scrollingVertical()) {
+          pan = x < kEdgeZone ? -1 : 1;
+          panned = workspace;
           edge = pan < 0 ? wlr_box{box.x, box.y, bar, box.height}
                          : wlr_box{box.x + box.width - bar, box.y, bar, box.height};
           strong = pan < 0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT;
@@ -4349,6 +4477,7 @@ namespace andromeda {
         output = state->output;
       }
     }
+    m_edgeWorkspace = panned;
     if (output == m_edgeOutput && step == m_edgeStep && pan == m_edgePan) {
       return;
     }
@@ -4368,7 +4497,7 @@ namespace andromeda {
       if (m_edgeTimer == nullptr) {
         m_edgeTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onEdgeTimer, this);
       }
-      wl_event_source_timer_update(m_edgeTimer, kEdgeDelayMs);
+      wl_event_source_timer_update(m_edgeTimer, step != 0 ? kEdgeDelayMs : kEdgePanMs);
       if (m_edgeHint == nullptr) {
         m_edgeHint = std::make_unique<HintRect>(*m_server, m_tree);
       }
@@ -4400,6 +4529,7 @@ namespace andromeda {
     const bool wasArmed = m_edgeOutput != nullptr;
     Output* previous = m_edgeOutput;
     m_edgeOutput = nullptr;
+    m_edgeWorkspace = nullptr;
     m_edgeStep = 0;
     m_edgePan = 0;
     if (wasArmed) {
@@ -4412,26 +4542,29 @@ namespace andromeda {
   int Overview::onEdgeTimer(void* data) {
     auto* self = static_cast<Overview*>(data);
     OutputState* state = self->m_edgeOutput != nullptr ? self->stateFor(self->m_edgeOutput) : nullptr;
-    if (self->m_dragCard == nullptr || state == nullptr || !self->interactive()) {
+    if ((self->m_dragCard == nullptr && !self->m_thumbDragging) || state == nullptr || !self->interactive()) {
       self->stopEdgeScroll();
       return 0;
     }
     if (self->m_edgeStep != 0) {
       self->selectRelativeWorkspace(self->m_edgeStep, state->output);
-    } else if (self->m_edgePan != 0) {
-      size_t position = 0;
-      OutputState* rowState = nullptr;
-      Workspace* workspace = self->workspaceAtPoint(self->m_dragX, self->m_dragY, &rowState, &position, true);
-      ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
-      if (scrolling != nullptr) {
-        const int viewport = workspace->scrollViewportExtent();
-        const double next = scrolling->scroll() + self->m_edgePan * viewport * kEdgePanShare;
-        scrolling->setScroll(std::clamp(next, 0.0, static_cast<double>(scrolling->maxScroll(viewport))));
-        workspace->markArrange(true);
-        self->retargetDrop(self->m_dragX, self->m_dragY);
-      }
+      wl_event_source_timer_update(self->m_edgeTimer, kEdgeRepeatMs);
+      return 0;
     }
-    wl_event_source_timer_update(self->m_edgeTimer, kEdgeRepeatMs);
+    Workspace* workspace = self->m_edgeWorkspace.get();
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr) {
+      self->stopEdgeScroll();
+      return 0;
+    }
+    const int viewport = workspace->scrollViewportExtent();
+    const double next = scrolling->scroll() + self->m_edgePan * kEdgePanPx;
+    scrolling->setScroll(std::clamp(next, 0.0, static_cast<double>(scrolling->maxScroll(viewport))));
+    workspace->markArrange(false);
+    if (self->m_dragCard != nullptr) {
+      self->retargetDrop(self->m_dragX, self->m_dragY);
+    }
+    wl_event_source_timer_update(self->m_edgeTimer, kEdgePanMs);
     return 0;
   }
 
