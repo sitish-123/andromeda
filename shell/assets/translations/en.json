@@ -5002,12 +5002,31 @@
           "description": "How dark unfocused windows get"
         },
         "layout-mode": {
-          "label": "Layout",
-          "description": "How windows are arranged on a new workspace",
+          "label": "Window Arrangement",
+          "description": "How windows are arranged on every workspace; the overview chip changes one workspace",
           "options": {
+            "floating": "Free",
             "scrolling": "Scrolling",
-            "dwindle": "Dwindle",
-            "master": "Master"
+            "dwindle": "Split",
+            "master": "Main + Stack"
+          }
+        },
+        "overview-style": {
+          "label": "Overview Style",
+          "description": "How the overview shows your workspaces",
+          "options": {
+            "spaces": "Spaces",
+            "taskview": "Task View",
+            "strip": "Strip",
+            "grid": "Grid"
+          }
+        },
+        "overview-titles": {
+          "label": "Window Titles",
+          "description": "When window titles show in the overview",
+          "options": {
+            "hover": "Hover",
+            "always": "Always"
           }
         },
         "layout-gap": {
@@ -6669,13 +6688,27 @@
       "unavailable": "Loading shortcuts from the compositor…",
       "groups": {
         "apps": "Apps",
+        "shell": "Desktop",
         "windows": "Windows",
-        "workspaces": "Workspaces and Displays",
-        "overview": "Overview and Scratchpads",
-        "system": "System",
-        "other": "Other",
-        "disabled": "Removed Shortcuts"
-      }
+        "workspaces": "Workspaces",
+        "screenshots": "Screenshots",
+        "media": "Media and Hardware",
+        "custom": "Custom"
+      },
+      "search": "Search",
+      "press": "Press Keys",
+      "search-placeholder": "Search shortcuts",
+      "press-hint": "Press a shortcut to see what uses it",
+      "no-results": "No shortcuts match",
+      "no-press-match": "Nothing uses {keys}",
+      "add-row": "Add…",
+      "kind-app": "Open an App",
+      "kind-command": "Run a Command",
+      "app-search": "Search apps",
+      "command-placeholder": "Command or script path",
+      "cancel": "Cancel",
+      "replaces": "Also used by {name}; adding replaces it",
+      "pick-action": "Search actions"
     },
     "devices": {
       "phones": "Phones",
