@@ -1008,6 +1008,7 @@ core_sources = files(
   'src/scene/tab_bar_style.cpp',
   'src/scene/tab_label_cache.cpp',
   'src/lock/session_lock.cpp',
+  'src/overview/chrome.cpp',
   'src/overview/overview.cpp',
   'src/workspace/workspace.cpp',
   'src/workspace/tab_presenter.cpp',

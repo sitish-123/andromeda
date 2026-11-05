@@ -669,6 +669,12 @@ namespace andromeda {
     Grid,
   };
 
+  // `[overview] titles`: when a window card shows its title capsule.
+  enum class OverviewTitles : uint8_t {
+    Hover,
+    Always,
+  };
+
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
@@ -983,6 +989,8 @@ namespace andromeda {
       // TaskView (current workspace spread out, desktops along the bottom), Strip (a zoomed row per workspace) or Grid
       // (every workspace as an equal tile).
       OverviewStyle style = OverviewStyle::Spaces;
+      // Title capsule under each window card: always, or only on the hovered or selected card.
+      OverviewTitles titles = OverviewTitles::Always;
       // Strip only: each workspace row's scale.
       double zoom = 0.5;
       // Touchpad travel and wheel accumulation in the overview, by the physical direction of the movement rather

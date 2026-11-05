@@ -85,6 +85,8 @@ namespace andromeda {
     // Enumerators and choice arrays share their order.
     constexpr std::array<std::string_view, 4> kOverviewStyles = {"spaces", "taskview", "strip", "grid"};
     std::string text(OverviewStyle style) { return std::string(kOverviewStyles[static_cast<size_t>(style)]); }
+    constexpr std::array<std::string_view, 2> kOverviewTitles = {"hover", "always"};
+    std::string text(OverviewTitles titles) { return std::string(kOverviewTitles[static_cast<size_t>(titles)]); }
     std::string text(LayoutMode mode) { return std::string(kLayoutModes[static_cast<size_t>(mode)]); }
     std::string text(CenterFocusedColumn center) { return std::string(kCenterFocused[static_cast<size_t>(center)]); }
     // Unset keeps the runtime default (Super on hardware, Alt nested), which has no fixed text.
@@ -412,6 +414,7 @@ namespace andromeda {
         Spec{"workspaces.back_and_forth", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.backAndForth); }},
         Spec{"workspaces.empty_above", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.emptyAbove); }},
         Spec{"overview.style", Kind::Choice, 0, 0, kOverviewStyles, [](const Config& c) { return text(c.overview.style); }},
+        Spec{"overview.titles", Kind::Choice, 0, 0, kOverviewTitles, [](const Config& c) { return text(c.overview.titles); }},
         Spec{"overview.zoom", Kind::Real, 0.1, 0.75, {}, [](const Config& c) { return text(c.overview.zoom); }},
         Spec{"overview.background_blur", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.backgroundBlur); }},
         Spec{"overview.workspace_wallpaper", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.workspaceWallpaper); }},

@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "layout/drop_target.h"
+#include "overview/chrome.h"
 #include "overview/navigation.h"
 #include "overview/style.h"
 #include "scene/hint_rect.h"
@@ -301,6 +302,8 @@ namespace andromeda {
       std::vector<WorkspaceBackground> workspaceBackgrounds;
       std::vector<std::unique_ptr<Card>> cards;
       std::vector<std::unique_ptr<DesktopSurface>> desktop;
+      // Names, title row, filter field, hint, + target, On screen frame and title capsules, above every card.
+      std::unique_ptr<ov::Chrome> chrome;
       // The chosen workspace, fractional while it moves: 1.5 sits halfway between workspaces 1 and 2. Strip scrolls
       // its rows by it, Spaces and Task View morph between neighbours. Wheel steps, keyboard moves and touchpad
       // releases all animate this one value; a gesture in flight snaps it to follow the fingers.
@@ -372,6 +375,7 @@ namespace andromeda {
     // Applies `alpha` to every pinned window and full opacity to every other.
     void applyPinnedOpacity(float alpha) const;
     void layoutOutput(OutputState& state);
+    void layoutChrome(OutputState& state, const View* liveTarget);
     // Lays the card out at its stored box, scale, opacity and clip.
     void layoutCard(Card& card, const View* liveTarget);
     // The workspace whose card or main area holds the point, on its output only.
@@ -435,6 +439,9 @@ namespace andromeda {
     // Reflow: one shared spring from 0 to 1 carries every card and workspace card whose placed rect jumped in a
     // structural change from where it was drawn to its new place. Keys are View and Workspace pointers, rects are
     // layout coordinates before the open progress, so a card rebuilt or dropped on another output still glides.
+    // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
+    std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
+    std::vector<ov::ChromeWindow> m_chromeWindows;
     AnimatedValue m_reflow{1.0};
     std::unordered_map<const void*, ov::Rect> m_shownRects;
     std::unordered_map<const void*, ov::Rect> m_reflowFrom;

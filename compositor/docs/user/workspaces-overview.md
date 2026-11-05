@@ -7,6 +7,7 @@ The overview displays every workspace and lets you navigate, focus, close, and m
 ```toml
 [overview]
 style = "spaces"
+titles = "always"
 zoom = 0.5
 scroll_factor_horizontal = 1.0
 scroll_factor_vertical = 1.0
@@ -19,6 +20,7 @@ shortcut_keys = "1234567890"
 | Key                        | Default        | Description                                                  |
 | -------------------------- | -------------- | ------------------------------------------------------------ |
 | `style`                    | `"spaces"`     | Overview style; see [Styles](#styles).                       |
+| `titles`                   | `"always"`     | Window title under each card: `"always"` or `"hover"`.       |
 | `zoom`                     | `0.5`          | Strip row scale from 0.1 to 0.75. Other styles ignore it.    |
 | `scroll_factor_horizontal` | `1.0`          | Horizontal gesture and wheel sensitivity.                    |
 | `scroll_factor_vertical`   | `1.0`          | Vertical gesture and wheel sensitivity.                      |
@@ -37,6 +39,8 @@ Background blur uses `[appearance.blur]`. Preview backgrounds use `colors.overvi
 - `"grid"`: every workspace as an equal tile in a grid.
 
 The style changes only how the overview looks. Each workspace keeps its own layout.
+
+Every style labels each workspace with its name and layout, shows a search field and a hint line, and has a **+** target for a new workspace. Spaces and Task View also show the current workspace's name and layout above it. In Spaces, a Scrolling workspace marks the part that is on screen with an **On screen** frame. With `titles = "hover"`, only the selected window shows its title.
 
 ### Open and navigate
 

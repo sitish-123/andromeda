@@ -57,6 +57,20 @@ namespace andromeda {
     static_assert(static_cast<int>(OverviewStyle::Grid) == static_cast<int>(ov::Style::Grid));
     ov::Style configuredStyle() { return static_cast<ov::Style>(config().overview.style); }
 
+    std::string_view arrangementLabel(LayoutMode mode) {
+      switch (mode) {
+      case LayoutMode::Floating:
+        return "Free";
+      case LayoutMode::Scrolling:
+        return "Scrolling";
+      case LayoutMode::Dwindle:
+        return "Split";
+      case LayoutMode::Master:
+        return "Main + Stack";
+      }
+      return "";
+    }
+
     ov::Arrangement arrangementOf(LayoutMode mode) {
       switch (mode) {
       case LayoutMode::Floating:
@@ -830,6 +844,89 @@ namespace andromeda {
       }
       layoutCard(card, liveTarget);
     }
+    layoutChrome(state, liveTarget);
+  }
+
+  void Overview::layoutChrome(OutputState& state, const View* liveTarget) {
+    if (state.chrome == nullptr) {
+      return;
+    }
+    const WorkspaceGroup* group = state.output->workspaceGroup();
+    m_chromeWorkspaces.clear();
+    for (size_t index = 0; index < state.workspaceViews.size(); ++index) {
+      const WorkspaceView& view = state.workspaceViews[index];
+      const Workspace* workspace = group != nullptr ? group->workspaceAt(index) : nullptr;
+      m_chromeWorkspaces.push_back({
+          .name = workspace != nullptr ? std::string_view(workspace->name()) : std::string_view(),
+          .arrangement = workspace != nullptr ? arrangementLabel(workspace->layoutMode()) : std::string_view(),
+          .card = view.box,
+          .kind = view.kind,
+          .shown = view.shown && workspace != nullptr,
+      });
+    }
+    m_chromeWindows.clear();
+    const auto addWindow = [&](const Card& card) {
+      if (card.opacity <= 0.0F || card.view == nullptr) {
+        return;
+      }
+      const char* title = card.view->title();
+      wlr_box visible = card.box;
+      if (card.clip.width > 0 && card.clip.height > 0) {
+        visible = {card.box.x + card.clip.x, card.box.y + card.clip.y, card.clip.width, card.clip.height};
+      }
+      std::optional<wlr_box> within;
+      const bool inMain = state.mainBox.has_value() && card.workspaceIndex == state.mainWorkspace;
+      if (!inMain && card.workspaceIndex < state.workspaceViews.size()) {
+        const WorkspaceView& holder = state.workspaceViews[card.workspaceIndex];
+        // A thumb is a glance at the workspace; only full-size workspaces label their windows.
+        if (holder.kind == ov::CardKind::Thumb) {
+          return;
+        }
+        within = holder.box;
+      }
+      m_chromeWindows.push_back({
+          .key = card.view,
+          .title = title != nullptr ? std::string_view(title) : std::string_view(),
+          .box = visible,
+          .within = within,
+          .opacity = card.opacity,
+          .selected = card.view == liveTarget,
+          .dragged = &card == m_dragCard,
+      });
+    };
+    // Capsules stack the way their cards do: walk the output tree bottom to top. A dragged card lives outside it.
+    wlr_scene_node* node = nullptr;
+    wl_list_for_each(node, &state.tree->children, link) {
+      for (const auto& card : state.cards) {
+        if (card->tree != nullptr && &card->tree->node == node) {
+          addWindow(*card);
+          break;
+        }
+      }
+    }
+    if (m_dragCard != nullptr && m_dragCard->owner == &state) {
+      addWindow(*m_dragCard);
+    }
+    const size_t current = m_chromeWorkspaces.empty()
+        ? 0
+        : static_cast<size_t>(
+              std::clamp(std::lround(state.rowScroll.current()), 0L, static_cast<long>(m_chromeWorkspaces.size() - 1))
+          );
+    state.chrome->update({
+        .style = state.placedStyle,
+        .progress = m_progress,
+        .output = state.outputBox,
+        .usable = state.usableBox,
+        .scale = std::max(1.0, std::ceil(static_cast<double>(state.output->wlr()->scale))),
+        .placement = &state.placement,
+        .current = current,
+        .workspaces = m_chromeWorkspaces,
+        .windows = m_chromeWindows,
+        .titlesAlways = config().overview.titles == OverviewTitles::Always,
+        .filter = {},
+    });
+    // Cards rebuilt after the chrome was made land above it.
+    state.chrome->raise();
   }
 
   void Overview::beginReflow() {
@@ -1888,6 +1985,7 @@ namespace andromeda {
       OutputState* raw = state.get();
       m_outputs.push_back(std::move(state));
       populateCards(*raw);
+      raw->chrome = std::make_unique<ov::Chrome>(raw->tree);
     }
   }
 

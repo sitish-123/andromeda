@@ -67,7 +67,7 @@ assert_close() {
 }
 
 assert_close right 1264 352
-assert_close bottom 632 704
+assert_close bottom 200 704
 assert_close corner 1264 704
 
 echo "overview blur preserves a uniform background through the right and bottom edges"

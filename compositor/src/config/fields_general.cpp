@@ -234,6 +234,9 @@ namespace andromeda {
                {"strip", OverviewStyle::Strip},
                {"grid", OverviewStyle::Grid}}
           ),
+          registry::choice(
+              "titles", &O::titles, {{"hover", OverviewTitles::Hover}, {"always", OverviewTitles::Always}}
+          ),
           real("zoom", 0.1, 0.75, &O::zoom),
           real("scroll_factor_horizontal", 0.1, 10.0, &O::scrollFactorHorizontal),
           real("scroll_factor_vertical", 0.1, 10.0, &O::scrollFactorVertical),
