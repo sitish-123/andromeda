@@ -6,6 +6,7 @@
 #include "idle-inhibit-unstable-v1-client-protocol.h"
 #include "mpris_server.h"
 #include "music_library.h"
+#include "render/backend/render_backend.h"
 #include "ui/controls/scroll_view.h"
 #include "render/scene/input_area.h"
 #include "ui/builders.h"
