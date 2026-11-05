@@ -194,10 +194,15 @@ impl Media {
         let found_in = Arc::clone(&found);
         decode.connect_pad_added(move |_, pad| {
             let Some(pipeline) = pipeline_weak.upgrade() else { return };
+            // decodebin3 can add a pad before its caps are set (query_caps is then ANY): its GstStream says what
+            // it carries. A pad left unlinked fails the preroll with not-linked.
             let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
-            let Some(s) = caps.structure(0) else { return };
+            let name = caps.structure(0).map(|s| s.name().to_string()).unwrap_or_default();
+            let stream_type = pad.stream().map(|s| s.stream_type());
+            let is_audio = stream_type.map_or(name.starts_with("audio/"), |t| t.contains(gst::StreamType::AUDIO));
+            let is_video = stream_type.map_or(name.starts_with("video/"), |t| t.contains(gst::StreamType::VIDEO));
             let mut state = found_in.lock().unwrap();
-            if s.name().starts_with("audio/")
+            if is_audio
                 && state.2.is_none()
                 && let Ok((branch, sink)) = audio_branch()
             {
@@ -212,7 +217,7 @@ impl Media {
                 }
                 let _ = pipeline.remove(&branch);
             }
-            if !s.name().starts_with("video/") || state.0.is_some() {
+            if !is_video || state.0.is_some() {
                 let sink = gst::ElementFactory::make("fakesink").property("sync", false).build().unwrap();
                 let _ = pipeline.add(&sink);
                 let _ = pad.link(&sink.static_pad("sink").unwrap());
@@ -244,9 +249,20 @@ impl Media {
         let bus = pipeline.bus().ok_or(ERR_DECODE)?;
         let types = [gst::MessageType::Error, gst::MessageType::Eos, gst::MessageType::AsyncDone];
         // AsyncDone: every sink, the video one included if the file has video, holds a buffer.
-        if bus.timed_pop_filtered(PREROLL, &types).map(|m| m.type_()) != Some(gst::MessageType::AsyncDone) {
-            return Err(fail(&pipeline));
+        match bus.timed_pop_filtered(PREROLL, &types) {
+            Some(m) if m.type_() == gst::MessageType::AsyncDone => {}
+            other => {
+                let reason = match other.as_ref().map(|m| m.view()) {
+                    Some(gst::MessageView::Error(e)) => format!("{} ({:?})", e.error(), e.debug()),
+                    Some(_) => "end of stream before preroll".to_owned(),
+                    None => "preroll timed out".to_owned(),
+                };
+                eprintln!("andromeda-preview-helper: media open failed: {reason}");
+                return Err(fail(&pipeline));
+            }
         }
+        // With two streams, AsyncDone can come while the later branch still prerolls: wait for the pending state change.
+        let _ = pipeline.state(PREROLL);
         let (sink, flags, audio) = {
             let state = found.lock().unwrap();
             (state.0.clone(), state.1, state.2.clone())
@@ -256,7 +272,17 @@ impl Media {
         }
         let (mut width, mut height) = (0, 0);
         if let Some(sink) = &sink {
-            let caps = sink.static_pad("sink").and_then(|p| p.current_caps()).ok_or(ERR_DECODE)?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_nanos(PREROLL.nseconds());
+            let caps = loop {
+                if let Some(caps) = sink.static_pad("sink").and_then(|p| p.current_caps()) {
+                    break caps;
+                }
+                if std::time::Instant::now() > deadline {
+                    eprintln!("andromeda-preview-helper: media open failed: the video sink got no caps");
+                    return Err(fail(&pipeline));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            };
             let s = caps.structure(0).ok_or(ERR_DECODE)?;
             width = s.get::<i32>("width").ok().and_then(|w| u32::try_from(w).ok()).ok_or(ERR_DECODE)?;
             height = s.get::<i32>("height").ok().and_then(|h| u32::try_from(h).ok()).ok_or(ERR_DECODE)?;

@@ -133,6 +133,28 @@ fn software_decode_gives_bgrx_memfd_frames() {
     assert_eq!(fourcc, u32::from_le_bytes(*b"XR24"));
 }
 
+#[test]
+fn video_with_audio_opens_with_both_streams() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("av.mp4");
+    let made = Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=330", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"])
+        .arg(&path)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !made {
+        return eprintln!("skipped: no ffmpeg/libx264");
+    }
+    // Pads come in either order and with or without caps: open several times.
+    for _ in 0..5 {
+        let helper = Helper::start(&path, &[]);
+        let (info, _, _) = helper.ask(Msg::new(OP_INFO, 0, 0, 0, 0));
+        assert_eq!(info.a, KIND_MEDIA, "open failed (see the helper's stderr)");
+        assert_eq!(info.e & (proto::FLAG_AUDIO | FLAG_VIDEO), proto::FLAG_AUDIO | FLAG_VIDEO);
+    }
+}
+
 /// A 1 s 440 Hz FLAC with a title tag, or None without ffmpeg.
 fn tagged_flac(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     let path = dir.join("tone.flac");
