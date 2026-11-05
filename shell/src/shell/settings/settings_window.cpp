@@ -27,6 +27,7 @@
 #include "shell/settings/settings_dialog_presenter.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "system/dependency_service.h"
+#include "ui/dialogs/file_dialog.h"
 #include "ui/controls/box.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
@@ -471,6 +472,13 @@ void SettingsWindow::open(std::string context) {
       DeferredCall::callLater([this, kind = std::string(modal)] {
         if (kind == "export") {
           openConfigExportDialog();
+        } else if (kind == "file") {
+          // Grid view of NOCTALIA_SETTINGS_TEST_DIR: the tiles that load thumbnails.
+          const char* dir = std::getenv("NOCTALIA_SETTINGS_TEST_DIR");
+          (void)FileDialog::open(
+              {.defaultViewMode = FileDialogViewMode::Grid, .startDirectory = dir != nullptr ? dir : ""},
+              [](const std::optional<std::filesystem::path>&) {}
+          );
         } else if (kind == "alert") {
           settings::showSettingsAlert(
               m_modalHost,
