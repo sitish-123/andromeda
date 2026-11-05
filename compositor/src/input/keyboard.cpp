@@ -520,8 +520,12 @@ namespace andromeda {
       if (!modifierOnly && nsyms > 0) {
         m_server->cursor()->noteTyping();
       }
-      // IME echoes must not cancel the original key's pending tap.
-      if (!m_server->inputMethodRelay()->ownsKeyboard(m_keyboard)) {
+      // IME echoes must not cancel the original key's pending tap. While Settings records a chord, a lone modifier
+      // is part of that chord and must not arm its own bind.
+      const DesktopSettingsManager* recorder = m_server->desktopSettingsManager();
+      if (recorder != nullptr && recorder->capturingChord()) {
+        m_server->cancelModifierTap();
+      } else if (!m_server->inputMethodRelay()->ownsKeyboard(m_keyboard)) {
         m_server->armModifierTap(
             this, event->keycode, std::span<const uint32_t>(syms, nsyms > 0 ? static_cast<size_t>(nsyms) : 0), modifiers
         );
