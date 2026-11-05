@@ -150,8 +150,12 @@ pub fn restore(entry: &Trashed) -> io::Result<PathBuf> {
 /// Reads the original path from an info file, for items trashed by another program.
 pub fn read_info(trash_dir: &Path, name: &str) -> io::Result<Trashed> {
     let text = fs::read_to_string(trash_dir.join("info").join(format!("{name}.trashinfo")))?;
+    // Only the [Trash Info] group counts (spec 1.0); a Path= in another group is not the original location.
     let stored = text
         .lines()
+        .skip_while(|line| line.trim() != "[Trash Info]")
+        .skip(1)
+        .take_while(|line| !line.trim_start().starts_with('['))
         .find_map(|line| line.strip_prefix("Path="))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no Path="))?;
     let stored = PathBuf::from(OsString::from_vec(percent_decode_str(stored).collect()));
@@ -174,4 +178,24 @@ pub fn read_info(trash_dir: &Path, name: &str) -> io::Result<Trashed> {
 
 fn absolute(path: &Path) -> io::Result<PathBuf> {
     if path.is_absolute() { Ok(path.to_path_buf()) } else { Ok(std::env::current_dir()?.join(path)) }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_comes_only_from_the_trash_info_group() {
+        let dir = tempfile::tempdir().expect("tmp");
+        fs::create_dir_all(dir.path().join("info")).expect("mkdir");
+        fs::write(
+            dir.path().join("info/a.trashinfo"),
+            "[Other]\nPath=/etc/passwd\n[Trash Info]\nPath=/home/u/a%20b\nDeletionDate=2026-11-05T07:00:00\n",
+        )
+        .expect("write");
+        assert_eq!(read_info(dir.path(), "a").expect("info").original, PathBuf::from("/home/u/a b"));
+        fs::write(dir.path().join("info/b.trashinfo"), "[Other]\nPath=/etc/passwd\n").expect("write");
+        assert!(read_info(dir.path(), "b").is_err());
+    }
 }
