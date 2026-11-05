@@ -764,24 +764,6 @@ location = "https://example.invalid/bad"
         fail("shell.clipboard_history_max_entries clamp: expected 10000");
       }
     }
-    {
-      auto t = toml::parse("width = 100");
-      NotificationConfig n{};
-      Diagnostics d;
-      readInto(t, n, notificationSchema(), "notification", d);
-      if (n.width != static_cast<std::int32_t>(*kNotificationWidthRange.min)) {
-        fail("notification.width clamp: expected 240");
-      }
-    }
-    {
-      auto t = toml::parse("width = 2000");
-      NotificationConfig n{};
-      Diagnostics d;
-      readInto(t, n, notificationSchema(), "notification", d);
-      if (n.width != static_cast<std::int32_t>(*kNotificationWidthRange.max)) {
-        fail("notification.width clamp: expected 500");
-      }
-    }
   }
 
   void checkMonitorOverrideChangeSet() {

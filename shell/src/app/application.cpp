@@ -301,7 +301,7 @@ Application::Application()
   }
   m_notificationManager.setStateCallback([this] {
     if (m_notificationManager.doNotDisturb()) {
-      m_notificationToast.hideDndSuppressed();
+      m_liveActivity.hideDndSuppressed();
     }
     // A change the rule did not make (a later revision) makes the DND the user's.
     if (m_dndByRule && m_notificationManager.doNotDisturbRevision() != m_dndRuleRevision) {

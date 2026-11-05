@@ -22,7 +22,6 @@ namespace noctalia::config::schema {
   inline constexpr Range<float> kCornerRadiusScaleRange{0.0F, 2.0F, 0.05F};
   inline constexpr Range<std::int64_t> kControlCenterWidthRange{600, 1200, 10};
   inline constexpr Range<std::int64_t> kLauncherWidthRange{560, 1100, 10};
-  inline constexpr Range<std::int64_t> kNotificationWidthRange{240, 500, 10};
   inline constexpr Range<std::int64_t> kScreenCornersSizeRange{1, 100, 1};
   inline constexpr Range<std::int64_t> kHotCornersDelayMsRange{0, 2000, 50};
   inline constexpr Range<std::int64_t> kClipboardHistoryMaxEntriesRange{
@@ -59,7 +58,6 @@ namespace noctalia::config::schema {
   inline constexpr Range<float> kDockBorderWidthRange{0.0F, 20.0F, 0.5F};
   inline constexpr Range<float> kPanelBorderWidthRange{0.0F, 20.0F, 0.5F};
   inline constexpr Range<float> kOsdBorderWidthRange{0.0F, 6.0F, 0.5F};
-  inline constexpr Range<float> kNotificationToastBorderWidthRange{0.0F, 6.0F, 0.5F};
   inline constexpr Range<float> kDockActiveScaleRange{0.1F, 1.75F, 0.05F};
   inline constexpr Range<float> kDockInactiveScaleRange{0.1F, 1.0F, 0.05F};
   inline constexpr Range<float> kDockMagnificationScaleRange{1.0F, 2.0F, 0.05F};

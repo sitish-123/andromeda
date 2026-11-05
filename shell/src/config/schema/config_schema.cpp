@@ -398,78 +398,63 @@ namespace noctalia::config::schema {
             &NotificationConfig::showActions, "show_actions",
             RowSpec{.section = "notifications", .group = "general", .tags = "action buttons"}
         ),
-        field(&NotificationConfig::position, "position"),
-        field(&NotificationConfig::layer, "layer"),
-        field(
-            &NotificationConfig::scale, "scale", kScaleRange,
-            RowSpec{
-                .kind = RowSpec::Kind::Slider, .section = "notifications", .group = "toasts", .tags = "toast size scale"
-            }
+        // Retired toast keys (the island shows every notification): read and dropped so old configs load without a
+        // warning.
+        custom<NotificationConfig>(
+            "position", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::width, "width", kNotificationWidthRange,
-            RowSpec{
-                .kind = RowSpec::Kind::Slider,
-                .section = "notifications",
-                .group = "toasts",
-                .tags = "toast size dimension wide narrow",
-                .suffix = "px",
-            }
+        custom<NotificationConfig>(
+            "layer", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::backgroundOpacity, "background_opacity", kUnitRange,
-            RowSpec{
-                .kind = RowSpec::Kind::Slider,
-                .section = "notifications",
-                .group = "toasts",
-                .label = "notifications.toast-opacity",
-                .tags = "popup alpha transparency translucent opacity",
-            }
+        custom<NotificationConfig>(
+            "scale", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::border, "border",
-            RowSpec{.section = "notifications", .group = "toasts", .tags = "outline border"}
+        custom<NotificationConfig>(
+            "width", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        colorField(&NotificationConfig::borderColor, "border_color"),
-        field(
-            &NotificationConfig::borderWidth, "border_width", kNotificationToastBorderWidthRange,
-            RowSpec{
-                .kind = RowSpec::Kind::Slider,
-                .section = "notifications",
-                .group = "toasts",
-                .tags = "outline border width thickness",
-            }
+        custom<NotificationConfig>(
+            "background_opacity", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::followFocusedOutput, "follow_focused_output",
-            RowSpec{.section = "notifications", .group = "toasts", .tags = "monitor output display focused active"}
+        custom<NotificationConfig>(
+            "border", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::offsetX, "offset_x", std::nullopt,
-            RowSpec{
-                .kind = RowSpec::Kind::Stepper,
-                .section = "notifications",
-                .group = "toasts",
-                .tags = "offset margin horizontal",
-                .suffix = "px",
-                .range = {0, 200, 1},
-            }
+        custom<NotificationConfig>(
+            "border_color", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(
-            &NotificationConfig::offsetY, "offset_y", std::nullopt,
-            RowSpec{
-                .kind = RowSpec::Kind::Stepper,
-                .section = "notifications",
-                .group = "toasts",
-                .tags = "offset margin vertical",
-                .suffix = "px",
-                .range = {0, 200, 1},
-            }
+        custom<NotificationConfig>(
+            "border_width", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
-        field(&NotificationConfig::monitors, "monitors"),
-        field(
-            &NotificationConfig::collapseOnDismiss, "collapse_on_dismiss",
-            RowSpec{.section = "notifications", .group = "general", .tags = "reorder stack slide"}
+        custom<NotificationConfig>(
+            "follow_focused_output", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
+        ),
+        custom<NotificationConfig>(
+            "offset_x", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
+        ),
+        custom<NotificationConfig>(
+            "offset_y", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
+        ),
+        custom<NotificationConfig>(
+            "monitors", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
+        ),
+        custom<NotificationConfig>(
+            "collapse_on_dismiss", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
+        ),
+        custom<NotificationConfig>(
+            "max_visible", [](const toml::table&, NotificationConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const NotificationConfig&) {}
         ),
         field(
             &NotificationConfig::keepDismissedInHistory, "keep_dismissed_in_history",
@@ -483,15 +468,6 @@ namespace noctalia::config::schema {
                 .group = "history",
                 .tags = "history retention hours clear",
                 .suffix = "h",
-            }
-        ),
-        field(
-            &NotificationConfig::maxVisible, "max_visible", Range<std::int64_t>{0, 20},
-            RowSpec{
-                .kind = RowSpec::Kind::Stepper,
-                .section = "notifications",
-                .group = "toasts",
-                .tags = "maximum on-screen toasts count limit",
             }
         ),
         custom<NotificationConfig>(

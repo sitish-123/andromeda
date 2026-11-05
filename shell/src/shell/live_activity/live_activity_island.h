@@ -94,6 +94,8 @@ public:
   [[nodiscard]] bool showOsd(const OsdContent& content);
   [[nodiscard]] bool osdVisible() const;
   [[nodiscard]] bool showBanner(const Notification& notification, NotificationEvent event);
+  // Do Not Disturb turned on: drops the banners that respect it.
+  void hideDndSuppressed();
   void setActivity(std::optional<LiveActivity> activity);
   // A fullscreen window: the rest pill hides under it; other faces and an active call still show over it.
   void setFullscreen(bool fullscreen);
@@ -260,6 +262,7 @@ private:
     std::vector<std::pair<std::string, std::string>> actions;
     // Critical or never expiring: no timeout; it stays until acted on or swiped away.
     bool sticky = false;
+    bool respectsDnd = true;
   };
 
   void refreshNow();
@@ -338,6 +341,7 @@ private:
   Timer m_callTimer;
   IconResolver m_iconResolver;
   std::optional<BannerItem> m_banner;
+  int m_notificationToken = -1;
   std::vector<BannerItem> m_bannerQueue;
   // Ids the island showed as a banner: their later updates never raise a toast.
   std::unordered_set<std::uint32_t> m_consumed;

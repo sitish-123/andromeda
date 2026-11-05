@@ -855,27 +855,11 @@ struct OsdConfig {
 };
 
 struct NotificationConfig {
-  static constexpr std::int32_t kDefaultWidth = 360;
-
   bool enableDaemon = true;
   bool showAppName = true;
   bool showActions = true;
-  std::string position = "top_right";
-  std::string layer = "top"; // top | overlay
-  float scale = 1.0F;
-  std::int32_t width = kDefaultWidth;
-  float backgroundOpacity = 0.70F; // tint_regular token alpha; toast card background alpha (0.0–1.0)
-  bool border = true;              // outline around toast cards
-  ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
-  float borderWidth = Style::borderWidth;
-  bool followFocusedOutput = false;
-  int offsetX = 20; // absolute horizontal margin from the screen edge
-  int offsetY = 8;  // absolute vertical margin from the screen edge
-  std::vector<std::string> monitors;
-  bool collapseOnDismiss = true;
   bool keepDismissedInHistory = true;
   int historyRetentionHours = 0;
-  int maxVisible = 0; // 0 = unlimited (space-based only)
 
   std::vector<NotificationFilterConfig> filters;
 

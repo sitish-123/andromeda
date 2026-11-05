@@ -110,7 +110,7 @@ namespace settings {
         "wallpaper.automation.enabled", "wallpaper.automation.interval_seconds",
         "brightness.sync_all_monitors", "brightness.automatic",
         "audio.enable_sounds", "audio.sound_volume", "audio.auto_switch_hdmi", "bluetooth.connect_when_enabled",
-        "notification.enable_daemon", "notification.position", "notification.show_app_name",
+        "notification.enable_daemon", "notification.show_app_name",
         "notification.keep_dismissed_in_history", "osd.enabled", "osd.position",
         "dock.enabled", "dock.icon_size", "dock.magnification", "dock.position", "dock.auto_hide", "dock.show_running",
         "desktop_widgets.enabled", "shell.screen_corners.enabled",

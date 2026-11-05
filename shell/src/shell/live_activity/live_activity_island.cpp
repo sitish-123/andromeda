@@ -211,6 +211,9 @@ namespace {
 LiveActivityIsland::LiveActivityIsland() = default;
 
 LiveActivityIsland::~LiveActivityIsland() {
+  if (m_notifications != nullptr && m_notificationToken >= 0) {
+    m_notifications->removeEventCallback(m_notificationToken);
+  }
   m_alive.reset();
   destroySurfaces();
 }
@@ -235,6 +238,23 @@ void LiveActivityIsland::setRestSources(
   m_mpris = std::move(mpris);
   m_notifications = notifications;
   m_open = std::move(open);
+  if (m_notifications != nullptr && m_notificationToken < 0) {
+    // The island is the only notification surface; with no island the notification stays in the history.
+    m_notificationToken = m_notifications->addEventCallback([this](const Notification& n, NotificationEvent event) {
+      if (event == NotificationEvent::Added && m_notifications->doNotDisturb()
+          && n.dndPolicy == NotificationDndPolicy::Respect) {
+        return;
+      }
+      (void)showBanner(n, event);
+    });
+  }
+}
+
+void LiveActivityIsland::hideDndSuppressed() {
+  std::erase_if(m_bannerQueue, [](const BannerItem& b) { return b.respectsDnd; });
+  if (m_banner.has_value() && m_banner->respectsDnd) {
+    endBanner();
+  }
 }
 
 void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
@@ -348,6 +368,7 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
         .imageData = n.imageData,
         .actions = bannerActions(n.actions),
         .sticky = n.urgency == Urgency::Critical || n.timeout == 0,
+        .respectsDnd = n.dndPolicy == NotificationDndPolicy::Respect,
     };
   };
   if (event == NotificationEvent::Closed) {
@@ -1699,8 +1720,12 @@ void LiveActivityIsland::applyContent(Instance& inst) {
             img->channels == 3 ? PixmapFormat::RGB : PixmapFormat::RGBA, true
         );
       }
+      // A shell glyph (`noctalia-glyph:<name>`, as Link sends) is the symbol in the accent circle; else the bell.
+      constexpr std::string_view kGlyphPrefix = "noctalia-glyph:";
+      const bool glyph = b.icon.starts_with(kGlyphPrefix);
+      inst.bannerGlyph->setGlyph(glyph ? b.icon.substr(kGlyphPrefix.size()) : std::string("bell"));
       for (const std::string* name : {&b.icon, &b.desktopEntry}) {
-        if (ok || name->empty()) {
+        if (ok || name->empty() || (glyph && name == &b.icon)) {
           continue;
         }
         std::string path;

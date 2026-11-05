@@ -710,7 +710,6 @@ void Application::initStyleThemeAndWayland() {
     Style::setCloseButtonsEnabled(m_configService.config().shell.showCloseButtons);
     lastCornerRadiusScale = corner;
     if (cornerChanged) {
-      m_notificationToast.requestLayout();
       m_panelManager.requestLayout();
     }
   };
@@ -1055,7 +1054,6 @@ void Application::reconcileOutputSurfaces() {
   m_idleInhibitor.onOutputChange();
   m_overviewLauncherCapture.onOutputChange();
   m_screenshotService.onOutputChange();
-  m_notificationToast.onOutputChange();
   m_osdOverlay.onOutputChange();
   m_liveActivity.onOutputChange();
   m_windowSwitcher.onOutputChange();

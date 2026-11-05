@@ -586,9 +586,7 @@ void Application::initInputDispatch() {
       return;
     if (m_panelManager.onPointerEvent(event))
       return;
-    if (m_hotCorners.onPointerEvent(event))
-      return;
-    m_notificationToast.onPointerEvent(event);
+    (void)m_hotCorners.onPointerEvent(event);
   });
 
   // The lock client died, or the compositor restarted into the lock (docs/resilience.md §4): lock again at once.
@@ -703,9 +701,6 @@ void Application::initInputDispatch() {
       return;
     }
     if (m_overviewLauncherCapture.handleKeyboardEvent(event)) {
-      return;
-    }
-    if (m_notificationToast.onKeyboardEvent(event)) {
       return;
     }
     if (m_windowSwitcher.onKeyboardEvent(event)) {
@@ -966,10 +961,6 @@ void Application::initPanelManagerAndPanels() {
 }
 
 void Application::initNotificationAndOsd() {
-  m_notificationToast.initialize(
-      m_wayland, m_compositorPlatform, &m_configService, &m_notificationManager, &m_renderContext, &m_httpClient
-  );
-  m_configService.addReloadCallback([this] { m_notificationToast.onConfigReload(); });
   auto applyNotificationFilterConfig = [this] {
     m_notificationManager.setFilters(m_configService.config().notification.filters);
   };
@@ -1013,9 +1004,6 @@ void Application::initNotificationAndOsd() {
       [this](const OsdContent& content) { return m_liveActivity.showOsd(content); },
       [this] { return m_liveActivity.osdVisible(); }
   );
-  m_notificationToast.setIslandHook([this](const Notification& n, NotificationEvent event) {
-    return m_liveActivity.showBanner(n, event);
-  });
   m_bar.setCenterIslandSpaceCallback(m_liveActivity.refresher());
   m_configService.addReloadCallback(m_liveActivity.refresher());
   m_islandUnreadToken = m_notificationManager.addUnreadCountCallback(m_liveActivity.refresher());
@@ -1333,7 +1321,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_desktopWidgetsController.requestLayout();
         m_lockscreenWidgetsController.requestLayout();
         m_panelManager.requestLayout();
-        m_notificationToast.requestLayout();
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
@@ -1364,7 +1351,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_desktopWidgetsController.requestLayout();
         m_lockscreenWidgetsController.requestLayout();
         m_panelManager.requestLayout();
-        m_notificationToast.requestLayout();
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
@@ -1471,7 +1457,6 @@ void Application::initWidgetControllersAndCallbacks() {
     // Bar and dock re-apply their material fills on this signal; the other glass surfaces re-read them on reload.
     paletteChanged().emit();
     m_panelManager.onConfigReloaded();
-    m_notificationToast.onConfigReload();
     m_osdOverlay.onConfigReload();
     requestAllSurfacesRedraw();
   });

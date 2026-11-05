@@ -56,7 +56,6 @@
 #include "shell/hot_corners/hot_corners.h"
 #include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lockscreen_widgets_controller.h"
-#include "shell/notification/notification_toast.h"
 #include "shell/osd/audio_osd.h"
 #include "shell/osd/brightness_osd.h"
 #include "shell/osd/keyboard_backlight_osd.h"
@@ -510,7 +509,6 @@ private:
   };
   WindowSwitcher m_windowSwitcher;
   OverviewLauncherCapture m_overviewLauncherCapture;
-  NotificationToast m_notificationToast;
   AudioOsd m_audioOsd;
   HdmiAudioSwitch m_hdmiAudioSwitch;
   BrightnessOsd m_brightnessOsd;

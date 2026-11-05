@@ -800,55 +800,12 @@ namespace settings {
   void registry_detail::add_notifications_settings(RegistryContext& ctx) {
     using i18n::tr;
     const auto& cfg = ctx.cfg;
-    const auto& env = ctx.env;
     auto& entries = ctx.entries;
 
     // Notifications
     auto notificationRows =
         generateSchemaEntries(noctalia::config::schema::notificationSchema(), cfg.notification, {"notification"});
     appendGroup(entries, notificationRows, "general");
-    entries.push_back(makeEntry(
-        SettingsSection::Notifications, "toasts", tr("settings.schema.notifications.layer.label"),
-        tr("settings.schema.notifications.layer.description"), {"notification", "layer"},
-        asSegmented(plainSelect(
-            {{"top", "settings.options.layer.top"}, {"overlay", "settings.options.layer.overlay"}},
-            cfg.notification.layer
-        )),
-        "toast layer shell z-order"
-    ));
-    entries.push_back(makeEntry(
-        SettingsSection::Notifications, "toasts", tr("settings.schema.notifications.position.label"),
-        tr("settings.schema.notifications.position.description"), {"notification", "position"},
-        plainSelect(
-            {{"top_right", "settings.options.screen-position.top-right"},
-             {"top_left", "settings.options.screen-position.top-left"},
-             {"top_center", "settings.options.screen-position.top-center"},
-             {"bottom_right", "settings.options.screen-position.bottom-right"},
-             {"bottom_left", "settings.options.screen-position.bottom-left"},
-             {"bottom_center", "settings.options.screen-position.bottom-center"}},
-            cfg.notification.position
-        ),
-        "toast popup placement anchor"
-    ));
-    for (const auto* key : {"scale", "width", "offset_x", "offset_y", "max_visible", "background_opacity", "border"}) {
-      appendRow(entries, notificationRows, key);
-    }
-    entries.push_back(makeEntry(
-        SettingsSection::Notifications, "toasts", tr("settings.schema.notifications.border-color.label"),
-        tr("settings.schema.notifications.border-color.description"), {"notification", "border_color"},
-        colorSpecPicker(cfg.notification.borderColor), "outline border color theme accent"
-    ));
-    appendGroup(entries, notificationRows, "toasts");
-    {
-      auto e = makeEntry(
-          SettingsSection::Notifications, "toasts", tr("settings.schema.notifications.monitors.label"),
-          tr("settings.schema.notifications.monitors.description"), {"notification", "monitors"},
-          ListSetting{.items = cfg.notification.monitors, .suggestedOptions = env.availableOutputs},
-          "monitor output display screen"
-      );
-      e.visibleWhen = [](const Config& c) { return !c.notification.followFocusedOutput; };
-      entries.push_back(std::move(e));
-    }
     appendGroup(entries, notificationRows, "history");
     entries.push_back(makeEntry(
         SettingsSection::Notifications, "filtering", tr("settings.schema.notifications.filters.label"),
