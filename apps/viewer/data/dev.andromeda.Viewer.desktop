@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Viewer
+Comment=View documents and images
+Exec=andromeda-viewer %U
+Icon=dev.andromeda.Viewer
+Terminal=false
+DBusActivatable=true
+Categories=Graphics;Viewer;Office;
+MimeType=application/pdf;image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/jxl;image/tiff;image/bmp;image/svg+xml;

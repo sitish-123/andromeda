@@ -32,6 +32,22 @@ namespace preview {
     inline constexpr std::uint32_t Frame = 4;
     // a = frame id. No reply.
     inline constexpr std::uint32_t Release = 5;
+    // a = page; payload = UTF-8 query (<= 256 bytes).
+    inline constexpr std::uint32_t Find = 6;
+    // a = page, b = kSelect*; payload = 4 f32 area in points, origin top left.
+    inline constexpr std::uint32_t Select = 7;
+    // a = page, b = kAnnot*, c = 0xRRGGBB; fd = body memfd (see helper/src/annotate.rs).
+    inline constexpr std::uint32_t AnnotAdd = 8;
+    // b = annotation id.
+    inline constexpr std::uint32_t AnnotRemove = 9;
+    // fd = a file open for writing.
+    inline constexpr std::uint32_t Save = 10;
+    // fd = the write end of a pipe; the helper writes F32LE 48 kHz stereo PCM until the pipe closes.
+    inline constexpr std::uint32_t Audio = 11;
+    // -> TextReply, data = "title\nartist\nalbum" (a = bytes).
+    inline constexpr std::uint32_t Tags = 12;
+    // -> CoverReply, data = the embedded image as stored (a = bytes).
+    inline constexpr std::uint32_t Cover = 13;
     inline constexpr std::uint32_t InfoReply = 0x81;
     inline constexpr std::uint32_t Page = 0x82;
     inline constexpr std::uint32_t TextReply = 0x83;
@@ -39,8 +55,26 @@ namespace preview {
     // plane u32 fd index, offset, stride; fds = the plane buffers.
     inline constexpr std::uint32_t FrameReply = 0x84;
     inline constexpr std::uint32_t End = 0x85;
+    // a = page, b = hits; data (b > 0) = b rects of 4 f32 in points.
+    inline constexpr std::uint32_t FindReply = 0x86;
+    // a = text bytes, b = rects; data (a or b > 0) = b rects of 4 f32, then the text.
+    inline constexpr std::uint32_t SelectReply = 0x87;
+    // a = page, b = annotation id.
+    inline constexpr std::uint32_t AnnotReply = 0x88;
+    inline constexpr std::uint32_t Saved = 0x89;
+    // a = sample rate, b = channels.
+    inline constexpr std::uint32_t AudioReply = 0x8a;
+    inline constexpr std::uint32_t CoverReply = 0x8b;
     inline constexpr std::uint32_t Error = 0xff;
   } // namespace op
+
+  inline constexpr std::uint32_t kSelectGlyph = 0;
+  inline constexpr std::uint32_t kSelectWord = 1;
+  inline constexpr std::uint32_t kSelectLine = 2;
+  inline constexpr std::uint32_t kAnnotHighlight = 1;
+  inline constexpr std::uint32_t kAnnotNote = 2;
+  inline constexpr std::uint32_t kAnnotInk = 3;
+  inline constexpr std::uint32_t kAnnotStamp = 4;
 
   enum class HelperKind : std::uint8_t { Text, Pdf, Media, MediaSoftware };
 
@@ -97,6 +131,10 @@ namespace preview {
     static std::unique_ptr<HelperClient> start(HelperKind kind, const std::string& path);
 
     void request(const HelperMsg& msg, ReplyCallback callback);
+    // With a payload after the header (at most 256 bytes; longer ends the helper).
+    void request(const HelperMsg& msg, const std::vector<std::uint8_t>& payload, ReplyCallback callback);
+    // With one fd for the helper (a body memfd, or a file to write); the caller keeps its own copy.
+    void request(const HelperMsg& msg, int fd, ReplyCallback callback);
     // A message the helper answers with nothing (Release).
     void notify(const HelperMsg& msg);
     [[nodiscard]] bool alive() const noexcept { return m_fd >= 0; }

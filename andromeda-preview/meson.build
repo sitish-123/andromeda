@@ -44,14 +44,22 @@ _core = static_library('preview_core',
   cpp_args: ['-DANDROMEDA_PREVIEW_HELPER_PATH="' + helper_path + '"'],
 )
 
+_images = static_library('preview_images', 'src/image_loader.cpp', dependencies: [desk_app_dep, glycin_dep])
+
+# The Viewer (apps/viewer) links the helper client and the glycin loader as a subproject.
+preview_client_dep = declare_dependency(
+  link_with: [_core, _images],
+  include_directories: include_directories('src'),
+  dependencies: [glycin_dep, gio_dep],
+)
+
 executable('andromeda-preview',
-  'src/image_loader.cpp',
   'src/main.cpp',
   'src/preview_service.cpp',
   'src/preview_window.cpp',
   'src/video_view.cpp',
   _dmabuf_c, _dmabuf_h,
-  link_with: _core,
+  link_with: [_core, _images],
   dependencies: [desk_app_dep, glycin_dep, gio_dep, wayland_client_dep],
   install: true,
 )

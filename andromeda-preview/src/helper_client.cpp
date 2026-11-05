@@ -139,13 +139,46 @@ namespace preview {
     }
   }
 
-  void HelperClient::request(const HelperMsg& msg, ReplyCallback callback) {
-    if (m_fd < 0) {
+  void HelperClient::request(const HelperMsg& msg, ReplyCallback callback) { request(msg, {}, std::move(callback)); }
+
+  void HelperClient::request(const HelperMsg& msg, const std::vector<std::uint8_t>& payload, ReplyCallback callback) {
+    if (m_fd < 0 || payload.size() > kMaxPayload) {
       callback(HelperReply{});
       return;
     }
-    const auto bytes = encode(msg);
+    const auto head = encode(msg);
+    std::vector<std::uint8_t> bytes(head.begin(), head.end());
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
     if (send(m_fd, bytes.data(), bytes.size(), MSG_NOSIGNAL | MSG_DONTWAIT) != static_cast<ssize_t>(bytes.size())) {
+      callback(HelperReply{});
+      fail();
+      return;
+    }
+    if (m_pending.empty()) {
+      m_deadline = std::chrono::steady_clock::now() + kRequestTimeout;
+    }
+    m_pending.push_back(std::move(callback));
+  }
+
+  void HelperClient::request(const HelperMsg& msg, int fd, ReplyCallback callback) {
+    if (m_fd < 0 || fd < 0) {
+      callback(HelperReply{});
+      return;
+    }
+    auto bytes = encode(msg);
+    iovec iov{.iov_base = bytes.data(), .iov_len = bytes.size()};
+    alignas(cmsghdr) std::array<char, CMSG_SPACE(sizeof(int))> control{};
+    msghdr hdr{};
+    hdr.msg_iov = &iov;
+    hdr.msg_iovlen = 1;
+    hdr.msg_control = control.data();
+    hdr.msg_controllen = control.size();
+    cmsghdr* c = CMSG_FIRSTHDR(&hdr);
+    c->cmsg_level = SOL_SOCKET;
+    c->cmsg_type = SCM_RIGHTS;
+    c->cmsg_len = CMSG_LEN(sizeof(int));
+    std::memcpy(CMSG_DATA(c), &fd, sizeof(int));
+    if (sendmsg(m_fd, &hdr, MSG_NOSIGNAL | MSG_DONTWAIT) != static_cast<ssize_t>(bytes.size())) {
       callback(HelperReply{});
       fail();
       return;
