@@ -40,3 +40,10 @@ executable('andromeda-viewer',
 )
 
 install_data('data/dev.andromeda.Viewer.desktop', install_dir: get_option('datadir') / 'applications')
+# DBusActivatable=true in the .desktop file: the bus starts the app by its id, then calls Activate or Open.
+configure_file(
+  input: 'data/dev.andromeda.Viewer.service.in',
+  output: 'dev.andromeda.Viewer.service',
+  configuration: {'bindir': get_option('prefix') / get_option('bindir')},
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
