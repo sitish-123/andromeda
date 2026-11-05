@@ -117,7 +117,12 @@ pub fn fetch() -> Result<Vec<Item>> {
         .limit(MAX_FEED_BYTES)
         .read_to_string()
         .with_context(|| url.clone())?;
-    parse(&body)
+    let items = parse(&body)?;
+    // A 200 answer with no items (a captive portal page, a format change) is not a read feed.
+    if items.is_empty() {
+        anyhow::bail!("{url}: no news items in the answer");
+    }
+    Ok(items)
 }
 
 #[cfg(test)]

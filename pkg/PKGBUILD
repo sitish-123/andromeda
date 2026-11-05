@@ -75,6 +75,16 @@ package_andromeda-system-git() {
   install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"
   install -Dm644 desktop/system/data/org.andromeda.Update1.service \
     "$pkgdir/usr/share/dbus-1/services/org.andromeda.Update1.service"
+  install -Dm755 desktop/system/target/release/andromeda-update-helper \
+    "$pkgdir/usr/lib/andromeda/andromeda-update-helper"
+  install -Dm644 desktop/system/data/andromeda-update-helper.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-helper.service"
+  install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.conf \
+    "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.UpdateHelper1.conf"
+  install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.service \
+    "$pkgdir/usr/share/dbus-1/system-services/org.andromeda.UpdateHelper1.service"
+  install -Dm644 desktop/system/data/org.andromeda.update.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.update.policy"
   install -Dm644 desktop/system/data/andromeda-system-session.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-system-session.service"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"

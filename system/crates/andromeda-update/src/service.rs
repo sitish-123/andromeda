@@ -8,7 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zbus::object_server::{InterfaceRef, SignalEmitter};
 use zbus::{Connection, interface};
 
-use crate::{flatpak, fwupd, news, pacman};
+use andromeda_update::news;
+
+use crate::{flatpak, fwupd, pacman};
 
 pub const PATH: &str = "/org/andromeda/Update1";
 /// checkupdates downloads every sync database; firmware and Flatpak answer faster.

@@ -3,7 +3,6 @@
 
 mod flatpak;
 mod fwupd;
-mod news;
 mod pacman;
 mod service;
 

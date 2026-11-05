@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.andromeda.UpdateHelper1
+Exec=/bin/false
+User=root
+SystemdService=andromeda-update-helper.service

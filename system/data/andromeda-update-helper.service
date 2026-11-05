@@ -1,0 +1,8 @@
+[Unit]
+Description=Andromeda software update helper
+
+[Service]
+Type=dbus
+BusName=org.andromeda.UpdateHelper1
+ExecStart=/usr/lib/andromeda/andromeda-update-helper
+StateDirectory=andromeda-update
