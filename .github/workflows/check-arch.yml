@@ -53,6 +53,9 @@ jobs:
         with:
           path: .ccache
           key: ccache-arch-${{ github.run_id }}
+      # As root, files with mode 000 stay readable, so the unreadable-config tests need a normal user.
       - name: Compositor tests
-        working-directory: compositor
-        run: just test
+        run: |
+          useradd -m tester
+          chown -R tester: .
+          su tester -c 'cd compositor && just test'
