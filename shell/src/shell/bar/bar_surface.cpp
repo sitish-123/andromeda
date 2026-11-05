@@ -1000,6 +1000,11 @@ namespace {
       }
     }
     layoutBarIslands(instance, isVertical);
+    // Layout put the side islands back in place: keep them aside from their new rest.
+    if (instance.overviewAsideProgress > 0.0F) {
+      captureIslandAsideRest(instance);
+      applyIslandAside(instance);
+    }
   }
 
 
@@ -1138,6 +1143,11 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     if (instance.barConfig.smartAutoHide && m_platform != nullptr) {
       instance.smartAutoHidePinnedVisible = smartAutoHideWantsPinnedVisible(*m_platform, instance.output);
     }
+    // A new scene starts with its islands in place; an open overview sends them aside again at once.
+    instance.overviewAsideAnimId = 0;
+    instance.overviewAside =
+        instance.barConfig.islands && m_platform != nullptr && m_platform->overviewStepsChromeAside();
+    instance.overviewAsideProgress = instance.overviewAside ? 1.0F : 0.0F;
     // A new surface starts with no compositor translate: the shell places the content again.
     instance.compositorSlide = false;
     instance.compositorSliding = false;
@@ -1271,9 +1281,11 @@ void Bar::updateWidgets(BarInstance& instance) {
   layoutBarSections(instance, renderer, barAreaW, barAreaH, padding, isVertical);
   notifyCenterIslandSpace(instance);
   applyBarCompositorBlur(instance);
-  if (instance.barConfig.deadZone.clickThrough) {
+  // The center island alone takes input while the side islands are aside, and it may resize.
+  if (instance.barConfig.deadZone.clickThrough || instance.overviewAside) {
     syncBarAutoHideInputRegion(instance);
-  }  syncSheetTracker(instance);
+  }
+  syncSheetTracker(instance);
 }
 
 void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout) {
@@ -1320,7 +1332,8 @@ void Bar::prepareFrame(BarInstance& instance, bool needsUpdate, bool needsLayout
   }
   applyBarCompositorBlur(instance);
   // Click-through input follows the widgets, which move whenever a widget resizes.
-  if (instance.barConfig.deadZone.clickThrough) {
+  // The center island alone takes input while the side islands are aside, and it may resize.
+  if (instance.barConfig.deadZone.clickThrough || instance.overviewAside) {
     syncBarAutoHideInputRegion(instance);
   }
   syncSheetTracker(instance);

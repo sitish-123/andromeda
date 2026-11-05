@@ -100,6 +100,19 @@ struct BarInstance {
   Timer autoHideDelayTimer;
   // smart_auto_hide: active workspace empty (or overview open) — keep the bar visible.
   bool smartAutoHidePinnedVisible = false;
+  // Islands bar while the Andromeda overview is open: the start and end islands step aside, the center island stays.
+  // Progress 0 = in place, 1 = aside; the rest geometry is the laid-out place the start [0] and end [1] islands
+  // return to.
+  struct IslandAsideRest {
+    std::array<float, 4> island{};
+    std::array<float, 4> shadow{};
+    float slotX = 0.0F;
+    float slotY = 0.0F;
+  };
+  bool overviewAside = false;
+  float overviewAsideProgress = 0.0F;
+  AnimationManager::Id overviewAsideAnimId = 0;
+  std::array<IslandAsideRest, 2> overviewAsideRest{};
   bool pointerInside = false;
   float lastPointerSx = 0.0F;
   float lastPointerSy = 0.0F;

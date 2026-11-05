@@ -212,6 +212,8 @@ public:
   [[nodiscard]] bool tracksOverviewState() const noexcept;
   [[nodiscard]] bool hasOverviewState() const noexcept;
   [[nodiscard]] bool isOverviewOpen() const noexcept;
+  // The Andromeda overview is open: the dock and the side bar islands step aside, the center island stays.
+  [[nodiscard]] bool overviewStepsChromeAside() const noexcept;
 
   [[nodiscard]] bool closeOverview() const;
   // Opens or closes the compositor overview; false when the compositor has no overview action.

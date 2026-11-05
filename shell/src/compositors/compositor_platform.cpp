@@ -1860,6 +1860,10 @@ bool CompositorPlatform::isOverviewOpen() const noexcept {
   return m_workspaceMetadataBackend->isOverviewOpen();
 }
 
+bool CompositorPlatform::overviewStepsChromeAside() const noexcept {
+  return compositors::isAndromeda() && hasOverviewState() && isOverviewOpen();
+}
+
 bool CompositorPlatform::toggleOverview() const {
   if (compositors::isAndromeda()) {
     return andromedaRuntime().requestAction("overview-toggle");

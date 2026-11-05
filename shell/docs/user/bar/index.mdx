@@ -193,6 +193,8 @@ Windows reported as minimised by Andromeda, KDE Plasma, or labwc do not hide the
 - On compositors that report overview state (Niri, Andromeda), the bar is kept visible while overview is open.
 - Re-evaluates on workspace changes, window open/close, and overview toggles.
 
+In the Andromeda overview an islands bar keeps only its center island: the start and end islands slide toward their ends of the bar and fade out, take no clicks while the overview is open, and come back when it closes. A bar without islands stays as it is.
+
 `margin_opposite_edge` adds extra reserved space on the inward side of the bar (below a top bar, above a bottom bar, and so on for vertical bars). The bar itself does not move; the compositor exclusive zone grows so tiled and maximized windows stop further away. Use it when a compositor ignores or under-reserves struts - for example Labwc with a maximized window that still touches the bar. Requires `reserve_space = true`. The default is `0`.
 
 `layer = "overlay"` shows the bar above fullscreen apps. Attached panels (for example Control Center when it attaches to the bar) follow the bar's layer. Floating panels keep their own layer (typically overlay), including when their screen position is `center`.

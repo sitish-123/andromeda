@@ -78,7 +78,8 @@ namespace shell::dock {
     }
 
     [[nodiscard]] bool smartAutoHideWantsPinnedVisible(const CompositorPlatform& platform, wl_output* output) {
-      if (platform.hasOverviewState() && platform.isOverviewOpen()) {
+      // The Andromeda overview sends the dock away instead (setOverviewSteppedAside).
+      if (platform.hasOverviewState() && platform.isOverviewOpen() && !platform.overviewStepsChromeAside()) {
         return true;
       }
       return !activeWorkspaceHasWindows(platform, output);
@@ -162,6 +163,11 @@ namespace shell::dock {
       return;
     }
 
+    if (instance.overviewSteppedAside) {
+      instance.surface->setInputRegion({});
+      return;
+    }
+
     if (!dockUsesAnyAutoHide(cfg)) {
       instance.surface->setInputRegion(
           shell::dock::computeInputRegion(cfg, panelGeometry, surfW, surfH, false, instance.fractionalScale)
@@ -230,7 +236,7 @@ namespace shell::dock {
     // Compositor blur is independent of scene opacity — clear it while auto-hide
     // has faded the dock out so a transparent buffer does not leave a blur halo.
     constexpr float kBlurVisibleOpacity = 0.02F;
-    const bool hidden = !cfg.compositorBlur || (dockUsesAnyAutoHide(cfg) && instance.hideOpacity < kBlurVisibleOpacity);
+    const bool hidden = !cfg.compositorBlur || instance.hideOpacity < kBlurVisibleOpacity;
     if (hidden) {
       if (instance.shape != nullptr) {
         setDockShapeClip(instance, cfg, {});
@@ -382,11 +388,12 @@ namespace shell::dock {
         instance.smartAutoHidePinnedVisible =
             cfg.smartAutoHide && smartAutoHideWantsPinnedVisible(deps.platform, instance.output);
         instance.slideRoot->setOpacity(1.0F);
-        const bool startHidden = cfg.smartAutoHide ? !instance.smartAutoHidePinnedVisible : cfg.autoHide;
+        const bool startHidden =
+            instance.overviewSteppedAside || (cfg.smartAutoHide ? !instance.smartAutoHidePinnedVisible : cfg.autoHide);
         instance.hideOpacity = startHidden ? 0.0F : 1.0F;
       } else {
         instance.slideRoot->setOpacity(0.0F);
-        instance.hideOpacity = 1.0F;
+        instance.hideOpacity = instance.overviewSteppedAside ? 0.0F : 1.0F;
         instance.animations.animateSpatial(
             0.0F, 1.0F, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
             [slide = instance.slideRoot](float v) { slide->setOpacity(v); }, {}, instance.slideRoot
@@ -463,14 +470,10 @@ namespace shell::dock {
     instance.row->layout(renderer);
     shell::dock::syncDockItemRestPositions(instance, cfg);
 
-    if (dockUsesAnyAutoHide(cfg)) {
-      const auto hiddenDelta = shell::dock::computeHiddenSlideDelta(cfg, shadowConfig, w, h, panelGeometry);
-      instance.slideHiddenDx = hiddenDelta.first;
-      instance.slideHiddenDy = hiddenDelta.second;
-    } else {
-      instance.slideHiddenDx = 0.0F;
-      instance.slideHiddenDy = 0.0F;
-    }
+    // Every dock can slide away: the overview sends it off even with auto-hide off.
+    const auto hiddenDelta = shell::dock::computeHiddenSlideDelta(cfg, shadowConfig, w, h, panelGeometry);
+    instance.slideHiddenDx = hiddenDelta.first;
+    instance.slideHiddenDy = hiddenDelta.second;
     syncDockSlideLayerTransform(instance, cfg);
     syncDockAutoHideInputRegion(instance, cfg, panelGeometry);
 
@@ -580,6 +583,25 @@ namespace shell::dock {
     TooltipManager::instance().forceDestroy();
     animateDockHide(inst, 0.0F);
     syncDockAutoHideInputRegion(inst, inst.config, DockPanelGeometry{});
+    if (inst.surface) {
+      inst.surface->requestRedraw();
+    }
+  }
+
+  void setOverviewSteppedAside(DockInstance& inst, bool aside) {
+    if (inst.overviewSteppedAside == aside) {
+      return;
+    }
+    inst.overviewSteppedAside = aside;
+    if (aside) {
+      startHideFadeOut(inst);
+      return;
+    }
+    // Back to the auto-hide state: an auto-hide dock stays away until hovered or smart auto-hide pins it.
+    syncDockAutoHideInputRegion(inst, inst.config, DockPanelGeometry{});
+    if (!dockUsesAnyAutoHide(inst.config)) {
+      animateDockHide(inst, 1.0F);
+    }
     if (inst.surface) {
       inst.surface->requestRedraw();
     }

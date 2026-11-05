@@ -81,6 +81,10 @@ namespace bar_detail {
   float barMainPadding(const BarConfig& config);
   float barMainPaddingEnd(const BarConfig& config);
   void layoutBarIslands(BarInstance& instance, bool isVertical);
+  // Records the laid-out start and end islands as the place they step aside from and return to.
+  void captureIslandAsideRest(BarInstance& instance);
+  // Places the start and end islands at instance.overviewAsideProgress from their rest geometry.
+  void applyIslandAside(BarInstance& instance);
   InputArea* tooltipAreaForHover(BarInstance& instance, InputArea* hoveredArea);
 
 } // namespace bar_detail

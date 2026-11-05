@@ -94,8 +94,10 @@ namespace shell::dock {
     float hideOpacity = 1.0F;
     std::optional<std::vector<InputRect>> sentBlur; // last blur region sent; empty vector = cleared
     AnimationManager::Id hideAnimId = 0;
-    // smart_auto_hide: active workspace empty (or overview open) — keep the dock visible.
+    // smart_auto_hide: active workspace empty (or a Niri overview open) — keep the dock visible.
     bool smartAutoHidePinnedVisible = false;
+    // The Andromeda overview is open: the dock slides away on the auto-hide path and takes no input.
+    bool overviewSteppedAside = false;
     Signal<>::ScopedConnection paletteConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
     Node* clickedItem = nullptr;    // the item cell during its click handler: a launch starts from it
@@ -138,5 +140,7 @@ namespace shell::dock {
   void animateDockHide(DockInstance& instance, float target);
   void startHideFadeOut(DockInstance& instance);
   void revealAutoHideDock(DockInstance& instance);
+  // Slides the dock away while the overview is open, whatever its auto-hide mode, and back when it closes.
+  void setOverviewSteppedAside(DockInstance& instance, bool aside);
 
 } // namespace shell::dock

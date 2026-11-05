@@ -477,8 +477,12 @@ void Bar::reevaluateSmartAutoHide() {
     return;
   }
 
+  const bool overviewAside = m_platform->overviewStepsChromeAside();
   for (const auto& instanceUp : m_instances) {
     BarInstance* instance = instanceUp.get();
+    if (instance != nullptr && instance->barConfig.enabled) {
+      setIslandsOverviewAside(*instance, overviewAside);
+    }
     if (instance == nullptr
         || !instance->barConfig.enabled
         || !instance->barConfig.smartAutoHide
@@ -1221,6 +1225,8 @@ void Bar::unsuppressDisplay() {
   if (m_wasVisibleBeforeOverlaySuppress) {
     show();
   }
+  // The overview may have opened or closed while suppressed.
+  scheduleSmartAutoHideReevaluation();
 }
 
 void Bar::toggle() {
