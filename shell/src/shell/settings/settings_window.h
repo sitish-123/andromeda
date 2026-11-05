@@ -76,6 +76,7 @@ class SystemBus;
 class ThumbnailService;
 class UPowerService;
 class ShellWaylandConnection;
+struct zwp_keyboard_shortcuts_inhibitor_v1;
 struct KeyboardEvent;
 struct PointerEvent;
 struct wl_output;
@@ -374,6 +375,7 @@ private:
   void dismissOpenSelectDropdown();
 
   ShellWaylandConnection* m_wayland = nullptr;
+  zwp_keyboard_shortcuts_inhibitor_v1* m_shortcutsInhibitor = nullptr;
   CompositorPlatform* m_platform = nullptr;
   IdleManager* m_idleManager = nullptr;
   ConfigService* m_config = nullptr;

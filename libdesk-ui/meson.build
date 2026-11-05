@@ -102,6 +102,7 @@ foreach _p : [
   ['fractional-scale-v1', wayland_protos_dir / 'staging/fractional-scale/fractional-scale-v1.xml'],
   ['viewporter', wayland_protos_dir / 'stable/viewporter/viewporter.xml'],
   ['idle-inhibit-unstable-v1', wayland_protos_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'],
+  ['keyboard-shortcuts-inhibit-unstable-v1', wayland_protos_dir / 'unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml'],
   ['text-input-unstable-v3', 'protocols/text-input-unstable-v3.xml'],
   ['cursor-shape-v1', 'protocols/cursor-shape-v1.xml'],
   ['hyprland-focus-grab-v1', 'protocols/hyprland-focus-grab-v1.xml'],

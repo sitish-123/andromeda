@@ -1523,9 +1523,6 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
         })
     );
   }
-  if (m_glassSidebar) {
-    row->setFill(colorSpecFromRole(ColorRole::SolidRegular));
-  }
   return row;
 }
 
@@ -1663,15 +1660,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   rebuildSettingsContent();
 
   contentColumn->addChild(std::move(scroll));
-  if (m_glassSidebar) {
-    auto solid = ui::column(
-        {.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::SolidRegular), .flexGrow = 1.0F}
-    );
-    solid->addChild(std::move(contentColumn));
-    body->addChild(std::move(solid));
-  } else {
-    body->addChild(std::move(contentColumn));
-  }
+  body->addChild(std::move(contentColumn));
   outer->addChild(std::move(body));
   return outer;
 }
@@ -2399,6 +2388,7 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
   }
 
   m_glassSidebar = cfg.shell.settingsWindowTranslucent && !Style::reduceTransparency();
+  settings::g_glassWindow = m_glassSidebar;
 
   auto bg = ui::box({
       .width = w,

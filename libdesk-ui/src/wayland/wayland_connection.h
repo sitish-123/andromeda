@@ -33,6 +33,8 @@ struct wp_cursor_shape_manager_v1;
 struct ext_idle_notifier_v1;
 struct ext_idle_notification_v1;
 struct zwp_idle_inhibit_manager_v1;
+struct zwp_keyboard_shortcuts_inhibit_manager_v1;
+struct zwp_keyboard_shortcuts_inhibitor_v1;
 struct ext_background_effect_manager_v1;
 struct dsk_surface_manager_v1;
 struct xdg_activation_v1;
@@ -197,6 +199,9 @@ public:
   /// Returns null when the compositor's notifier is older than v2.
   [[nodiscard]] ext_idle_notification_v1* createInputIdleNotification(std::uint32_t timeoutMs) const;
   [[nodiscard]] zwp_idle_inhibit_manager_v1* idleInhibitManager() const noexcept;
+  /// Compositor keybinds stop reaching `surface` while it has keyboard focus; null when unsupported.
+  /// The caller destroys the inhibitor before the surface.
+  [[nodiscard]] zwp_keyboard_shortcuts_inhibitor_v1* inhibitShortcuts(wl_surface* surface) const;
   [[nodiscard]] const std::vector<WaylandOutput>& outputs() const noexcept;
   [[nodiscard]] WaylandOutput* findOutputByWl(wl_output* wlOutput);
   [[nodiscard]] const WaylandOutput* findOutputByWl(wl_output* wlOutput) const;
@@ -299,6 +304,7 @@ private:
   xdg_activation_v1* m_xdgActivation = nullptr;
   ext_idle_notifier_v1* m_idleNotifier = nullptr;
   zwp_idle_inhibit_manager_v1* m_idleInhibitManager = nullptr;
+  zwp_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
   ext_background_effect_manager_v1* m_backgroundEffectManager = nullptr;
   dsk_surface_manager_v1* m_dskSurfaceManager = nullptr;
   wp_fractional_scale_manager_v1* m_fractionalScaleManager = nullptr;

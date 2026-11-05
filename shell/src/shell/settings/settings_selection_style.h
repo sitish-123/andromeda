@@ -74,7 +74,20 @@ namespace settings {
     ColorSpec avatarInitial;
   };
 
+  // True while the Settings window draws as glass; grouped cards then become glass panes.
+  inline bool g_glassWindow = false;
+
   [[nodiscard]] inline FrameColors frameColors() {
+    if (g_glassWindow) {
+      return FrameColors{
+          .tileFill = clearColorSpec(),
+          .tileGlyph = colorSpecFromRole(ColorRole::Label2),
+          .cardFill = colorSpecFromRole(ColorRole::SolidThin, 0.5F),
+          .cardBorder = colorSpecFromRole(ColorRole::LensEdge),
+          .avatarFill = colorSpecFromRole(ColorRole::Accent),
+          .avatarInitial = colorSpecFromRole(ColorRole::OnAccent),
+      };
+    }
     return FrameColors{
         .tileFill = clearColorSpec(),
         .tileGlyph = colorSpecFromRole(ColorRole::Label2),

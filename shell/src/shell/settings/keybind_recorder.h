@@ -37,6 +37,9 @@ public:
   void setTabFocusKey(std::string key);
 
   [[nodiscard]] bool isRecording() const noexcept { return m_recording; }
+  // Called with true when any recorder starts capturing and false when it stops: the window holds a compositor
+  // shortcuts inhibitor meanwhile, so the chord being typed does not run its bind.
+  static void setRecordingObserver(std::function<void(bool)> observer);
 
 private:
   enum class VisualState : std::uint8_t {
