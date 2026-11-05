@@ -1285,6 +1285,7 @@ void Surface::render() {
     return;
   }
 
+  const bool callbackInFlight = m_frameCallback != nullptr;
   requestFrame();
   traceSurfaceEvent(*this, "render-begin");
   bool presented = false;
@@ -1293,8 +1294,17 @@ void Surface::render() {
         m_renderContext->renderScene(m_renderTarget, m_sceneRoot, m_wallpaperMask ? &*m_wallpaperMask : nullptr);
   });
   if (!presented && m_frameCallback != nullptr) {
-    // Nothing changed: commit only the frame callback and keep the current buffer.
-    wl_surface_commit(m_surface);
+    // Nothing changed: keep the current buffer. Commit the callback only when a tick needs it; otherwise the
+    // compositor would run an output frame for nothing.
+    const bool needsTick = m_frameCallbackShouldTick
+        || m_frameTickPending
+        || (m_animationManager != nullptr && m_animationManager->hasActive());
+    if (needsTick || callbackInFlight) {
+      wl_surface_commit(m_surface);
+    } else {
+      wl_callback_destroy(m_frameCallback);
+      m_frameCallback = nullptr;
+    }
   }
   if (presented && m_nextPresentCallback) {
     std::exchange(m_nextPresentCallback, {})();
