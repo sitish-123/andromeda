@@ -9,7 +9,7 @@ arch=(x86_64)
 license=(MIT)
 # Arch's default makepkg.conf adds a debug package of every binary's symbols, several times the desktop's size.
 options=(!debug)
-makedepends=(git meson ninja wayland-protocols nlohmann-json stb
+makedepends=(git meson ninja wayland-protocols xorg-xwayland nlohmann-json stb
   wlroots0.20 wayland libinput libei libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf

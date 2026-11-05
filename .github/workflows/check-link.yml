@@ -28,11 +28,13 @@ jobs:
           sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libgl-dev libegl-dev libxkbcommon-dev dbus python3-dbus python3-gi
           rustup component add clippy rustfmt
+          # The socket test runs the daemon in its own user and network namespace.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # Ubuntu's Qt is older than the 6.7 that link-desk needs. The system python3 keeps python3-dbus and python3-gi for the tests.
       - uses: jurplel/install-qt-action@v4
         with: { version: "6.12.0", modules: qtmultimedia, cache: true, setup-python: false }
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: link }
+        with: { workspaces: link, cache-on-failure: true }
       - uses: taiki-e/install-action@cargo-deny
       - name: Gate
         working-directory: link
@@ -59,7 +61,7 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with: { version: "6.12.0", modules: qtmultimedia, cache: true, setup-python: false }
       - uses: Swatinem/rust-cache@v2
-        with: { workspaces: link }
+        with: { workspaces: link, cache-on-failure: true }
       - name: Build
         working-directory: link
         run: cargo build
