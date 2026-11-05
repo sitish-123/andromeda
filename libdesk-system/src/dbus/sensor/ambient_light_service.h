@@ -42,6 +42,7 @@ private:
   Timer m_readingWait;
   Timer m_nextSample;
   bool m_paused = false;
+  bool m_claimFailed = false;
   double m_lastLux = -1.0;
   std::chrono::seconds m_interval{10};
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);

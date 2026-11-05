@@ -64,10 +64,18 @@ void AmbientLightService::sample() {
     if (alive.expired()) {
       return;
     }
+    // iio-sensor-proxy may be restarting or not yet started: try again at the slow interval.
     if (err.has_value()) {
-      kLog.info("no ambient light sensor: {}", err->what());
+      if (!m_claimFailed) {
+        kLog.info("no ambient light sensor: {}", err->what());
+      }
+      m_claimFailed = true;
+      if (!m_paused) {
+        m_nextSample.start(kMaxSampleInterval, [this] { sample(); });
+      }
       return;
     }
+    m_claimFailed = false;
     m_claimed = true;
     m_readingWait.start(kReadingWait, [this] { refresh(); });
   });
