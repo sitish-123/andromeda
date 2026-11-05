@@ -17,6 +17,7 @@
 #include <memory>
 
 namespace {
+  constexpr float kHandleStrokeWidth = 1.5F;
 
   // Lock materials (rulebook 9.15): widgets on regular glass, editor chrome on thick; editor rings in accent text.
   constexpr Color kLabel1 = rgba(1.0F, 1.0F, 1.0F, 0.96F);
@@ -181,7 +182,7 @@ void LockEditorFree::layout(
           RoundedRectStyle{
               .fill = kNoFill,
               .border = kZoneEdge,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = 1.0F * s,
               .borderDash = auth ? 0.0F : 6.0F * s,
               .borderGap = 4.0F * s,
@@ -233,19 +234,19 @@ void LockEditorFree::layout(
     box.rect = item.box;
     const Hit hit{Target::Item, static_cast<int>(i)};
     const bool ring = static_cast<int>(i) == state.selected || state.focus == hit;
-    place(box.bg, box.rect, RoundedRectStyle{.fill = kRegular, .radius = 16.0F * s});
+    place(box.bg, box.rect, RoundedRectStyle{.fill = kRegular, .radius = Tokens::radiusR16 * s});
     place(box.ring, box.rect,
           RoundedRectStyle{
               .fill = kNoFill,
               .border = ring ? kAccentText : kStroke,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = (ring ? 2.0F : 0.5F) * s,
           });
     if (static_cast<int>(i) == state.selected) {
       // Mock section 2: the resize handle is a white dot with an accent ring, centred on the bottom right corner.
       const float d = kHandle * s;
       place(box.handle, {box.rect.right() - d * 0.5F, box.rect.bottom() - d * 0.5F, d, d},
-            RoundedRectStyle{.fill = kLabel1, .border = kAccentText, .radius = d * 0.5F, .borderWidth = 1.5F * s});
+            RoundedRectStyle{.fill = kLabel1, .border = kAccentText, .radius = d * 0.5F, .borderWidth = kHandleStrokeWidth * s});
     }
     if (Live* live = liveFor(item, s); live != nullptr) {
       // The widget fits its box as on the lock (setBox), centred in it.
@@ -286,7 +287,7 @@ void LockEditorFree::layout(
   const float x = std::round((sw - w) * 0.5F);
   const float y = std::round(sh - 24.0F * s - h);
   m_toolbarRect = {x, y, w, h};
-  place(m_toolbarBg, {x, y, w, h}, RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+  place(m_toolbarBg, {x, y, w, h}, RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 0.5F * s});
   float cx = x + pad;
   for (std::size_t i = 0; i < m_add.size(); ++i) {
     const Hit hit{Target::Add, static_cast<int>(i)};

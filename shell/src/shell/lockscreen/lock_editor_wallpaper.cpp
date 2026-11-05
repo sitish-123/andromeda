@@ -9,6 +9,7 @@
 #include "render/scene/rect_node.h"
 #include "ui/controls/image.h"
 #include "ui/controls/label.h"
+#include "ui/style.h"
 
 #include <algorithm>
 #include <cmath>
@@ -35,10 +36,10 @@ namespace {
   // Mock section 3: panel 880, tiles 80 high r 12 in 6 columns, gap 8, tab and chip height 24.
   constexpr float kPanelWidth = 880.0F;
   constexpr float kPad = 16.0F;
-  constexpr float kGap = 8.0F;
+  constexpr const float& kGap = Tokens::spaceP8;
   constexpr float kTileHeight = 80.0F;
-  constexpr float kTileRadius = 12.0F;
-  constexpr float kTabHeight = 24.0F;
+  constexpr const float& kTileRadius = Tokens::radiusR12;
+  constexpr const float& kTabHeight = Tokens::sizeControlS;
   constexpr float kSliderRow = 28.0F;
   constexpr float kTrackHeight = 6.0F;
   constexpr int kThumbPx = 256;
@@ -67,7 +68,7 @@ namespace {
   // A capsule chip of height h: white when on, an accent ring when focused; an unfilled chip shows a fill on hover.
   void layoutChip(Renderer& renderer, RectNode* bg, Label* label, float x, float y, float h, float s, bool on,
                   bool focused, bool hover, bool filled, float& width) {
-    label->setFontSize(12.0F * s);
+    label->setFontSize(Tokens::typeFootnote.size * s);
     label->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
     label->setColor(on ? kOnText : kLabel2);
     label->measure(renderer);
@@ -228,7 +229,7 @@ void LockEditorWallpaper::layoutTile(
   tile.name->setVisible(named);
   if (named) {
     tile.name->setText(item->name);
-    tile.name->setFontSize(12.0F * s);
+    tile.name->setFontSize(Tokens::typeFootnote.size * s);
     tile.name->setColor(kLabel1);
     tile.name->setMaxWidth(w - 16.0F * s);
     tile.name->measure(renderer);
@@ -242,7 +243,7 @@ void LockEditorWallpaper::layoutTile(
         item->kind == Item::Kind::Video ? "▶ " + i18n::tr("lockscreen.editor.wallpaper-live")
                                         : "✦ " + i18n::tr("lockscreen.editor.wallpaper-shader")
     );
-    tile.badgeText->setFontSize(11.0F * s);
+    tile.badgeText->setFontSize(Tokens::typeCaption.size * s);
     tile.badgeText->setColor(kLabel1);
     tile.badgeText->measure(renderer);
     const float bh = 20.0F * s;
@@ -258,7 +259,7 @@ void LockEditorWallpaper::layoutTile(
   if (ringed) {
     place(tile.ring, x, y, w, h,
           RoundedRectStyle{
-              .fill = kClear, .border = focused ? kAccentText : kAccent, .radius = radius, .borderWidth = 2.0F * s
+              .fill = kClear, .border = focused ? kAccentText : kAccent, .radius = radius, .borderWidth = Style::focusRingWidth * s
           });
   }
 }
@@ -270,12 +271,12 @@ void LockEditorWallpaper::layoutSlider(
   const float rowH = kSliderRow * s;
   slider.rect = {x, y, w, rowH};
   slider.label->setText(i18n::tr(label));
-  slider.label->setFontSize(13.0F * s);
+  slider.label->setFontSize(Tokens::typeBody.size * s);
   slider.label->setColor(kLabel2);
   slider.label->measure(renderer);
   slider.label->setPosition(x, std::round(y + (rowH - slider.label->height()) * 0.5F));
   slider.value->setText(value);
-  slider.value->setFontSize(12.0F * s);
+  slider.value->setFontSize(Tokens::typeFootnote.size * s);
   slider.value->setColor(kLabel2);
   slider.value->measure(renderer);
   const float valueW = 40.0F * s;
@@ -320,7 +321,7 @@ void LockEditorWallpaper::layout(
   const float y = std::round(sh - height - 24.0F * s);
   m_panelRect = {x, y, width, height};
   place(m_panelBg, x, y, width, height,
-        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 1.0F});
+        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 1.0F});
 
   float cx = x + pad;
   for (int i = 0; i < kTabs; ++i) {
@@ -343,7 +344,7 @@ void LockEditorWallpaper::layout(
              state.focus.target == Target::Scope, state.hover.target == Target::Scope, true, scopeW);
   m_scope.rect = {scopeX, y + pad, scopeW, tabH};
   m_scopeKey->setText(i18n::tr("lockscreen.editor.wallpaper-applies-to"));
-  m_scopeKey->setFontSize(12.0F * s);
+  m_scopeKey->setFontSize(Tokens::typeFootnote.size * s);
   m_scopeKey->setColor(kLabel2);
   m_scopeKey->measure(renderer);
   m_scopeKey->setPosition(
@@ -364,7 +365,7 @@ void LockEditorWallpaper::layout(
   m_empty->setVisible(items.empty());
   if (items.empty()) {
     m_empty->setText(state.emptyText);
-    m_empty->setFontSize(13.0F * s);
+    m_empty->setFontSize(Tokens::typeBody.size * s);
     m_empty->setColor(kLabel2);
     m_empty->setMaxWidth(width - 2.0F * pad);
     m_empty->measure(renderer);
@@ -382,7 +383,7 @@ void LockEditorWallpaper::layout(
                sliderY, sliderW, s, state.focus.target == Target::Dim);
 
   m_foot->setText(i18n::tr("lockscreen.editor.wallpaper-foot"));
-  m_foot->setFontSize(12.0F * s);
+  m_foot->setFontSize(Tokens::typeFootnote.size * s);
   m_foot->setColor(kLabel2);
   m_foot->setMaxWidth(width - 2.0F * pad);
   m_foot->setEllipsize(TextEllipsize::End);

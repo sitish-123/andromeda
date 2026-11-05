@@ -11,6 +11,7 @@
 #include <memory>
 
 namespace {
+  constexpr float kDigitFontSize = 40.0F;
 
   // At a 64 px clock: cards 60 x 72 (the mockup's 52 is narrower than Inter "18" at 44), radius 10, gap 6, digits 40 SemiBold, card white 12 %, lower half
   // black 18 %.
@@ -67,7 +68,7 @@ void FlipClock::layout(
     card.shade->setStyle(RoundedRectStyle{
         .fill = rgba(0.0F, 0.0F, 0.0F, 0.18F), .radius = Radii(0.0F, 0.0F, radius, radius)
     });
-    card.text->setFontSize(40.0F * k);
+    card.text->setFontSize(kDigitFontSize * k);
     card.text->setColor(ink);
     const std::string& next = *texts[i];
     if (card.shown.empty() || card.shown == next || m_animations == nullptr) {

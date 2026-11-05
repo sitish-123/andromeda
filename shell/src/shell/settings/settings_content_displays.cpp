@@ -57,6 +57,7 @@ namespace {
 namespace settings {
 
   namespace {
+    constexpr float kRingInset = Style::focusRingWidth + Style::focusRingGap;
 
     constexpr float kSelectWidth = 190.0F;
 
@@ -208,11 +209,11 @@ namespace settings {
             .gap = Style::spaceXs * scale,
             .fill = colorSpecFromRole(ColorRole::Fill1),
             .radius = (metrics::kPickerRadius - (Style::focusRingWidth + Style::focusRingGap)) * scale,
-            .height = (metrics::kThumbHeight - 2.0F * (Style::focusRingWidth + Style::focusRingGap)) * scale,
+            .height = (metrics::kThumbHeight - kRingInset - kRingInset) * scale,
             .flexGrow = 1.0F,
             // The end inset keeps the text lines clear of the selection badge (20 at inset 8).
             .configure = [scale](Flex& flex) {
-              flex.setPadding(Style::spaceSm * scale, (Style::spaceSm + 20.0F + Style::spaceXs) * scale,
+              flex.setPadding(Style::spaceSm * scale, (Style::spaceSm + metrics::kSelectionBadgeSize + Style::spaceXs) * scale,
                               Style::spaceSm * scale, Style::spaceSm * scale);
             },
         });

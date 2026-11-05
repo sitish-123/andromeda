@@ -22,6 +22,7 @@
 
 namespace settings {
   namespace {
+    constexpr float kUserRowHeight = 64.0F;
 
     using namespace page_rows;
 
@@ -181,7 +182,7 @@ namespace settings {
       }
       Flex* card = addCard(content, scale);
       auto r = row(scale);
-      r->setMinHeight(64.0F * scale);
+      r->setMinHeight(kUserRowHeight * scale);
       r->setGap(Style::spaceMd * scale);
       r->addChild(avatar(*user, 48.0F, scale));
       auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
@@ -247,7 +248,7 @@ namespace settings {
     if (self != users.end()) {
       Flex* card = addCard(content, scale);
       auto r = row(scale);
-      r->setMinHeight(64.0F * scale);
+      r->setMinHeight(kUserRowHeight * scale);
       r->setGap(Style::spaceMd * scale);
       r->addChild(avatar(*self, 48.0F, scale));
       auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});

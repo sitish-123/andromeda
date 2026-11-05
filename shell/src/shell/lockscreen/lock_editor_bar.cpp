@@ -32,15 +32,15 @@ namespace {
   constexpr Color kClear = rgba(0.0F, 0.0F, 0.0F, 0.0F);
 
   constexpr float kTop = 16.0F;
-  constexpr float kBarHeight = 40.0F;
+  constexpr const float& kBarHeight = Tokens::sizeControlL;
   constexpr float kBarPad = 4.0F;
-  constexpr float kChipHeight = 32.0F;
+  constexpr const float& kChipHeight = Tokens::sizeControlM;
   constexpr float kChipPad = 16.0F;
   constexpr float kPanelTop = 96.0F;
   constexpr float kPanelWidth = 880.0F;
   constexpr float kPanelPad = 16.0F;
   constexpr float kCardHeight = 132.0F;
-  constexpr float kGap = 12.0F;
+  constexpr const float& kGap = Tokens::spaceP12;
 
   constexpr std::array<const char*, LockEditorBar::kSegments> kSegmentKeys{
       "lockscreen.editor.slots", "lockscreen.editor.free", "lockscreen.editor.wallpaper", "lockscreen.editor.layout",
@@ -129,7 +129,7 @@ bool LockEditorBar::focused(Target target, int index) const noexcept {
 void LockEditorBar::layoutChip(
     Renderer& renderer, Chip& chip, float x, float y, float s, bool on, bool enabled, bool focusedChip
 ) {
-  chip.label->setFontSize(13.0F * s);
+  chip.label->setFontSize(Tokens::typeBody.size * s);
   chip.label->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
   chip.label->setColor(on ? kOnText : enabled ? kLabel2 : kLabel3);
   chip.label->measure(renderer);
@@ -170,7 +170,7 @@ void LockEditorBar::layout(Renderer& renderer, float sw, float scale) {
   // Snap to zones: a toggle chip, fill_1 and label_1 while on.
   const auto layoutSnap = [&](float x, float y) {
     const bool focusedSnap = focused(Target::Snap, -1);
-    m_snap.label->setFontSize(13.0F * s);
+    m_snap.label->setFontSize(Tokens::typeBody.size * s);
     m_snap.label->setColor(m_state.snapZones ? kLabel1 : kLabel2);
     m_snap.label->measure(renderer);
     const float h = kChipHeight * s;
@@ -198,7 +198,7 @@ void LockEditorBar::layout(Renderer& renderer, float sw, float scale) {
       width += m_snap.rect.w + kBarPad * s;
     }
   }
-  m_done.label->setFontSize(13.0F * s);
+  m_done.label->setFontSize(Tokens::typeBody.size * s);
   m_done.label->measure(renderer);
   const float doneW = std::round(m_done.label->width() + kChipPad * 2.0F * s);
   width += 8.0F * s - kBarPad * s + doneW + kBarPad * s;
@@ -232,7 +232,7 @@ void LockEditorBar::layout(Renderer& renderer, float sw, float scale) {
   if (doneFocus) {
     const float g = 3.0F * s;
     place(m_doneFocus, x - g, chipY - g, doneW + g * 2.0F, chipH + g * 2.0F,
-          RoundedRectStyle{.fill = kClear, .border = kAccentText, .radius = chipH * 0.5F + g, .borderWidth = 2.0F * s});
+          RoundedRectStyle{.fill = kClear, .border = kAccentText, .radius = chipH * 0.5F + g, .borderWidth = Style::focusRingWidth * s});
   }
 
   layoutPanel(renderer, sw, s);
@@ -285,7 +285,7 @@ void LockEditorBar::layoutPanel(Renderer& renderer, float sw, float s) {
           RoundedRectStyle{
               .fill = hover ? kFill2 : kFill1,
               .border = ring ? kAccentText : kClear,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = ring ? (focused(Target::LayoutCard, i) && !selected ? 1.5F : 2.0F) * s : 0.0F,
           });
     // Thumbnail: where the clock and the date sit in this layout (mock section 2 Layout panel).
@@ -310,12 +310,13 @@ void LockEditorBar::layoutPanel(Renderer& renderer, float sw, float s) {
       clockY = cy + 40.0F * s;
     }
     place(card.clock, std::round(clockX), std::round(clockY), clockW, clockH,
-          RoundedRectStyle{.fill = kLabel2, .radius = 4.0F * s});
+          RoundedRectStyle{.fill = kLabel2, .radius = Tokens::radiusR4 * s});
     const float lineW = i == 3 ? 0.0F : 96.0F * s;
     card.line->setVisible(lineW > 0.0F);
     const float lineX = i == 0 ? cx + (cardW - lineW) * 0.5F : clockX;
-    place(card.line, std::round(lineX), std::round(clockY + clockH + 8.0F * s), lineW, 10.0F * s,
-          RoundedRectStyle{.fill = kFill2, .radius = 5.0F * s});
+    const float lineH = 10.0F * s;
+    place(card.line, std::round(lineX), std::round(clockY + clockH + 8.0F * s), lineW, lineH,
+          RoundedRectStyle{.fill = kFill2, .radius = lineH * 0.5F});
     card.label->setText(i18n::tr(std::string("lockscreen.editor.layouts.") + kLayoutNames[static_cast<std::size_t>(i)]));
     card.label->setFontSize(Tokens::typeFootnote.size * s);
     card.label->setColor(kLabel2);
@@ -360,7 +361,7 @@ void LockEditorBar::layoutPanel(Renderer& renderer, float sw, float s) {
 
   m_panelRect = {x, y, w, cy - y};
   place(m_panelBg, x, y, w, cy - y,
-        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 0.5F * s});
 }
 
 LockEditorBar::Hit LockEditorBar::hitTest(float x, float y) const {

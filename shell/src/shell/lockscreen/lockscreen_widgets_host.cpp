@@ -16,6 +16,7 @@
 #include "time/time_format.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
+#include "ui/style.h"
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
@@ -30,7 +31,7 @@ namespace {
   constexpr int kMaxHelperRestarts = 3;
   // Size of a plugin slot whose box is auto (0): the helper needs a fixed frame size.
   constexpr float kDefaultStreamSize = 160.0F;
-  constexpr float kPlaceholderRadius = 16.0F;
+  constexpr const float& kPlaceholderRadius = Tokens::radiusR16;
 
   DesktopWidgetState* findStateById(LockscreenWidgetsSnapshot& snapshot, const std::string& id) {
     for (auto& widget : snapshot.widgets) {

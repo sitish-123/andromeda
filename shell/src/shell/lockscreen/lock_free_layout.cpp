@@ -1,5 +1,7 @@
 #include "shell/lockscreen/lock_free_layout.h"
 
+#include "ui/style.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -9,7 +11,7 @@ namespace lock_free {
 
     // Status island: top 8, h 32, plus 16.
     constexpr float kTopEdge = 56.0F;
-    constexpr float kGap = 24.0F;
+    constexpr const float& kGap = Tokens::spaceP24;
     // Account column: avatar 64, g 12, name 20, g 16, capsule 40, g 12, hint 16.
     constexpr float kAccountHead = 64.0F + 12.0F + 20.0F + 16.0F;
     constexpr float kAccountFoot = 40.0F + 12.0F + 16.0F;

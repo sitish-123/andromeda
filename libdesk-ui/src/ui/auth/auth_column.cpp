@@ -18,6 +18,7 @@
 #include <utility>
 
 namespace {
+  constexpr float kInitialFontSize = 26.0F;
 
   // The lock screen is always the dark scheme over the wallpaper (rulebook 9.15): white text, dark glass.
   constexpr Color kLabel1 = rgba(1.0F, 1.0F, 1.0F, 0.96F);
@@ -165,7 +166,7 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
   );
 
   const bool typing = m_state.passwordLength > 0;
-  m_field->setFontSize((typing ? 15.0F : Tokens::typeBody.size) * s);
+  m_field->setFontSize((typing ? Tokens::typeTitle3.size : Tokens::typeBody.size) * s);
   m_field->setColor(typing ? kLabel1 : kLabel3);
   m_field->setText(typing ? dots(m_state.passwordLength) : m_state.placeholder);
   const float trailingW = m_state.trailing == Trailing::None ? 0.0F : 24.0F * s + 8.0F * s;
@@ -235,7 +236,7 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
           .radius = avatar * 0.5F,
       }
   );
-  m_initial->setFontSize(26.0F * s);
+  m_initial->setFontSize(kInitialFontSize * s);
   m_initial->setColor(rgba(1.0F, 1.0F, 1.0F, 1.0F));
   m_initial->setText(initialOf(m_state.user));
   m_initial->measure(renderer);
@@ -289,7 +290,7 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     const float cardY = snap(avatarY - 32.0F * s - cardH);
     m_card->setPosition(cardX, cardY);
     m_card->setSize(cardW, cardH);
-    m_card->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 24.0F * s, .borderWidth = 0.5F * s});
+    m_card->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR24 * s, .borderWidth = 0.5F * s});
     m_cardGlyph->setGlyph("device-mobile");
     m_cardGlyph->setGlyphSize(24.0F * s);
     m_cardGlyph->setColor(kLabel1);
@@ -552,7 +553,7 @@ void AuthColumn::applySheet() {
   m_sheet->setPosition(std::round(sheet.x + (sheet.w - w) * 0.5F), std::round(sheet.y + (sheet.h - h) * 0.5F));
   m_sheet->setSize(std::round(w), std::round(h));
   const float s = sheet.w / 360.0F;
-  m_sheet->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+  m_sheet->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 0.5F * s});
   m_columnGroup->setOpacity(t);
   m_columnGroup->setVisible(t > 0.0F);
   m_glanceGroup->setOpacity(1.0F - 0.6F * t);

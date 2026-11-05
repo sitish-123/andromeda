@@ -3686,7 +3686,8 @@ void PanelManager::placePanelChrome() {
     const auto extendY = m_morphExtend ? static_cast<float>(m_morphMarginY) : 0.0F;
     const auto extendUp = m_morphExtend ? static_cast<float>(m_morphMarginUp) : 0.0F;
     m_bgNode->setPosition(bgX - extendX, bgY - extendUp);
-    m_bgNode->setSize(bgW + 2.0F * extendX, bgH + extendY + extendUp);
+    const float extendBothX = 2.0F * extendX;
+    m_bgNode->setSize(bgW + extendBothX, bgH + extendY + extendUp);
   }
   // A content-fitted card changes height while the open spring runs: the clip follows it.
   if (m_morphClipRunning && m_dsk != nullptr && !m_closing && m_morphClipTarget != detachedSheetRect()) {

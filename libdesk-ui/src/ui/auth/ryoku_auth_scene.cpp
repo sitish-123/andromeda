@@ -6,6 +6,7 @@
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/label.h"
+#include "ui/style.h"
 
 #include <algorithm>
 #include <chrono>
@@ -190,7 +191,7 @@ void RyokuAuthScene::layout(Renderer& renderer, float sw, float sh) {
   m_hour->setText(m_hourText);
   m_hour->measure(renderer);
   m_hour->setPosition(pillX - 40.0F * s - m_hour->width(), cy - m_hour->height() * 0.5F);
-  m_date->setFontSize(13.0F * s);
+  m_date->setFontSize(Tokens::typeBody.size * s);
   m_weekday->setFontSize(18.0F * s);
   m_date->measure(renderer);
   m_weekday->measure(renderer);
@@ -203,7 +204,7 @@ void RyokuAuthScene::layout(Renderer& renderer, float sw, float sh) {
   const float right = sw - 80.0F * s;
   float hudX = right;
   for (auto it = m_actionLabels.rbegin(); it != m_actionLabels.rend(); ++it) {
-    (*it)->setFontSize(12.0F * s);
+    (*it)->setFontSize(Tokens::typeFootnote.size * s);
     (*it)->measure(renderer);
     hudX -= (*it)->width();
     (*it)->setPosition(hudX, 50.0F * s);

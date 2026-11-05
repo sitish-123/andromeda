@@ -39,6 +39,11 @@
 namespace settings {
   namespace {
 
+    constexpr float kAppRuleSelectWidth = 176.0F;
+    constexpr float kThresholdSelectWidth = 96.0F;
+    constexpr float kBatteryStrokeWidth = 1.5F;
+    constexpr float kBatteryBodyRadius = 6.0F;
+
     using namespace page_rows;
 
     std::string batteryStatus(const UPowerState& state) {
@@ -187,7 +192,7 @@ namespace settings {
             .fontSize = Style::fontSizeBody * scale,
             .controlHeight = Style::controlHeight * scale,
             .glyphSize = Style::fontSizeBody * scale,
-            .width = 176.0F * scale,
+            .width = kAppRuleSelectWidth * scale,
             .onSelectionChanged =
                 [&health, appId, current](std::size_t index, std::string_view /*label*/) {
                   if (index != current && index < kRules.size()) {
@@ -258,7 +263,7 @@ namespace settings {
           .fontSize = Style::fontSizeBody * scale,
           .controlHeight = Style::controlHeight * scale,
           .glyphSize = Style::fontSizeBody * scale,
-          .width = 96.0F * scale,
+          .width = kThresholdSelectWidth * scale,
           .onSelectionChanged =
               [health, current](std::size_t index, std::string_view /*label*/) {
                 if (index == current) {
@@ -387,8 +392,7 @@ namespace settings {
           .controlHeight = Style::controlHeight * scale,
           .glyphSize = Style::fontSizeBody * scale,
           .enabled = config.state().helperInstalled,
-          // The width of every Settings select (settings_control_factory.cpp).
-          .width = 190.0F * scale,
+          .width = metrics::kSelectWidth * scale,
           .onSelectionChanged =
               [&config, key, values, current](std::size_t index, std::string_view /*label*/) {
                 if (index < values.size() && values[index] != current) {
@@ -714,22 +718,25 @@ namespace settings {
       auto body = ui::node({});
       body->setSize(w, h);
       body->addChild(ui::box({
-          .border = colorSpecFromRole(ColorRole::Label3), .borderWidth = 1.5F * scale, .radius = 6.0F * scale,
+          .border = colorSpecFromRole(ColorRole::Label3), .borderWidth = kBatteryStrokeWidth * scale, .radius = kBatteryBodyRadius * scale,
           .width = w, .height = h, .participatesInLayout = false,
       }));
       const float level = static_cast<float>(std::clamp(state.percentage, 0.0, 100.0) / 100.0);
       if (level > 0.0F) {
+        const float innerWidth = w - 2.0F * inset;
+        const float innerHeight = h - 2.0F * inset;
         auto fill = ui::box({
-            .fill = colorSpecFromRole(role), .radius = 3.0F * scale, .width = std::max(2.0F * scale, (w - 2.0F * inset) * level),
-            .height = h - 2.0F * inset, .participatesInLayout = false,
+            .fill = colorSpecFromRole(role), .radius = kBatteryBodyRadius * scale - inset,
+            .width = std::max(Tokens::spaceP2 * scale, innerWidth * level), .height = innerHeight,
+            .participatesInLayout = false,
         });
         fill->setPosition(inset, inset);
         body->addChild(std::move(fill));
       }
-      auto shape = ui::row({.align = FlexAlign::Center, .gap = 2.0F * scale});
+      auto shape = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP2 * scale});
       shape->addChild(std::move(body));
       shape->addChild(ui::box({
-          .fill = colorSpecFromRole(ColorRole::Label3), .radius = scale, .width = 2.0F * scale, .height = 8.0F * scale,
+          .fill = colorSpecFromRole(ColorRole::Label3), .radius = scale, .width = Tokens::spaceP2 * scale, .height = Style::spaceSm * scale,
       }));
       return shape;
     }
@@ -816,7 +823,7 @@ namespace settings {
       const float labelBox = 32.0F * scale;
       const float lineHeight = 16.0F * scale;
       const auto caption = [scale](std::string text, FlexJustify justify, float width) {
-        auto box = ui::row({.align = FlexAlign::Center, .justify = justify, .width = width, .height = 16.0F * scale});
+        auto box = ui::row({.align = FlexAlign::Center, .justify = justify, .width = width, .height = Style::spaceLg * scale});
         box->addChild(ui::label({
             .text = std::move(text), .fontSize = Style::fontSizeCaption * scale,
             .color = colorSpecFromRole(ColorRole::Label3),
@@ -927,9 +934,10 @@ namespace settings {
           band->setPosition(from * width, 0.0F);
           band->setClipChildren(true);
           band->setParticipatesInLayout(false);
+          const float stripeHeight = 3.0F * levelHeight;
           for (float x = -2.0F * levelHeight; x < bandWidth + 2.0F * levelHeight; x += pitch) {
             auto line = ui::box({
-                .fill = colorSpecFromRole(ColorRole::Success), .width = stripe, .height = 3.0F * levelHeight,
+                .fill = colorSpecFromRole(ColorRole::Success), .width = stripe, .height = stripeHeight,
                 .opacity = 0.14F, .participatesInLayout = false,
             });
             line->setPosition(x, -levelHeight);
@@ -1011,7 +1019,7 @@ namespace settings {
             std::min(barsHeight - onHeight, barsHeight * static_cast<float>(idle) / bucketSeconds);
         if (idleHeight >= 1.0F) {
           auto box = ui::box({
-              .fill = colorSpecFromRole(ColorRole::Accent), .radius = 2.0F * scale, .width = barWidth,
+              .fill = colorSpecFromRole(ColorRole::Accent), .radius = Tokens::spaceP2 * scale, .width = barWidth,
               .height = idleHeight, .opacity = 0.25F, .participatesInLayout = false,
           });
           box->setPosition(0.0F, barsHeight - onHeight - idleHeight);
@@ -1019,7 +1027,7 @@ namespace settings {
         }
         if (onHeight >= 1.0F) {
           auto box = ui::box({
-              .out = &onBar, .fill = colorSpecFromRole(ColorRole::Accent), .radius = 2.0F * scale, .width = barWidth,
+              .out = &onBar, .fill = colorSpecFromRole(ColorRole::Accent), .radius = Tokens::spaceP2 * scale, .width = barWidth,
               .height = onHeight, .opacity = 0.55F, .participatesInLayout = false,
           });
           box->setPosition(0.0F, barsHeight - onHeight);
@@ -1040,7 +1048,7 @@ namespace settings {
       const auto key = [scale](ColorRole role, float opacity, std::string text) {
         auto item = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * scale});
         item->addChild(ui::box({
-            .fill = colorSpecFromRole(role), .radius = 2.0F * scale, .width = 8.0F * scale, .height = 8.0F * scale,
+            .fill = colorSpecFromRole(role), .radius = Tokens::spaceP2 * scale, .width = Style::spaceSm * scale, .height = Style::spaceSm * scale,
             .opacity = opacity,
         }));
         item->addChild(ui::label({
@@ -1216,8 +1224,8 @@ namespace settings {
                                                                                 {State::Sleep, "settings.power.sot-sleep"}}}) {
         const auto [role, opacity] = stateStyle(s);
         auto item = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * scale});
-        item->addChild(ui::box({.fill = colorSpecFromRole(role), .radius = 2.0F * scale, .width = 8.0F * scale,
-                                .height = 8.0F * scale, .opacity = std::max(opacity, 0.25F)}));
+        item->addChild(ui::box({.fill = colorSpecFromRole(role), .radius = Tokens::spaceP2 * scale, .width = Style::spaceSm * scale,
+                                .height = Style::spaceSm * scale, .opacity = std::max(opacity, 0.25F)}));
         item->addChild(ui::label({.text = i18n::tr(key), .fontSize = Style::fontSizeCaption * scale,
                                   .color = colorSpecFromRole(ColorRole::Label2)}));
         legend->addChild(std::move(item));
@@ -1355,14 +1363,15 @@ namespace settings {
         }));
         r->addChild(std::move(tile));
         r->addChild(twoLines(id.name, std::move(sub), scale));
+        constexpr double kMinMeterShare = 0.02; // a near-0 % app still shows a sliver
         const float meterWidth = 108.0F * scale;
         auto meter = ui::node({});
-        meter->setSize(meterWidth, 4.0F * scale);
-        auto track = ui::box({.fill = colorSpecFromRole(ColorRole::Label3), .radius = 2.0F * scale, .width = meterWidth,
-                              .height = 4.0F * scale, .opacity = 0.25F, .participatesInLayout = false});
-        auto fill = ui::box({.fill = colorSpecFromRole(ColorRole::Accent), .radius = 2.0F * scale,
-                             .width = meterWidth * static_cast<float>(std::clamp(share / 100.0, 0.02, 1.0)),
-                             .height = 4.0F * scale, .participatesInLayout = false});
+        meter->setSize(meterWidth, Style::spaceXs * scale);
+        auto track = ui::box({.fill = colorSpecFromRole(ColorRole::Label3), .radius = Tokens::spaceP2 * scale, .width = meterWidth,
+                              .height = Style::spaceXs * scale, .opacity = 0.25F, .participatesInLayout = false});
+        auto fill = ui::box({.fill = colorSpecFromRole(ColorRole::Accent), .radius = Tokens::spaceP2 * scale,
+                             .width = meterWidth * static_cast<float>(std::clamp(share / 100.0, kMinMeterShare, 1.0)),
+                             .height = Style::spaceXs * scale, .participatesInLayout = false});
         meter->addChild(std::move(track));
         meter->addChild(std::move(fill));
         r->addChild(std::move(meter));

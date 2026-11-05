@@ -1659,7 +1659,8 @@ void LockScreen::tryAuthenticate() {
   updatePromptOnSurfaces();
 
   const PamAuthenticator authenticator = m_authenticator;
-  // The "login" stack. stopFingerprint() above has released the reader, so a pam_fprintd in that stack can claim it.
+  // The "login" stack checks the password only: the lock screen runs fingerprint itself over fprintd D-Bus. A distro
+  // stack that lists pam_fprintd makes PAM wait for a finger first; stopFingerprint() above has freed the reader.
   const std::string pamService = "login";
   const std::string pamLanguage(i18n::Service::instance().language());
   const std::string pamStartFailure = i18n::tr("auth.pam.start-failed");

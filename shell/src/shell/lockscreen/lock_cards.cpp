@@ -35,7 +35,7 @@ namespace {
   constexpr Color kTextShadow = rgba(0.0F, 0.0F, 0.0F, 0.30F);
   constexpr std::string_view kPhonePlayerPrefix = "org.mpris.MediaPlayer2.andromeda_link_";
   constexpr float kCardH = 64.0F;
-  constexpr float kCardGap = 8.0F;
+  constexpr const float& kCardGap = Tokens::spaceP8;
 
   float snap(float v) { return std::round(v); }
 
@@ -71,7 +71,7 @@ namespace {
     bg->setVisible(true);
     bg->setPosition(rect.x, rect.y);
     bg->setSize(rect.w, rect.h);
-    bg->setStyle(RoundedRectStyle{.fill = kRegular, .border = kStroke, .radius = 16.0F * s, .borderWidth = 0.5F * s});
+    bg->setStyle(RoundedRectStyle{.fill = kRegular, .border = kStroke, .radius = Tokens::radiusR16 * s, .borderWidth = 0.5F * s});
   }
 
   // "now" within a minute, else the local hour and minute.
@@ -378,11 +378,11 @@ void LockCards::layoutMediaCard(Renderer& renderer, Card& card, const AuthRect& 
   if (showArt) {
     card.image->setPosition(rect.x + pad, artY);
     card.image->setSize(art, art);
-    card.image->setRadius(8.0F * s);
+    card.image->setRadius(Tokens::radiusR8 * s);
   } else {
     card.tile->setPosition(rect.x + pad, artY);
     card.tile->setSize(art, art);
-    card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = 8.0F * s});
+    card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = Tokens::radiusR8 * s});
     card.glyph->setGlyph("music");
     card.glyph->setGlyphSize(20.0F * s);
     card.glyph->setColor(kLabel2);
@@ -447,11 +447,11 @@ void LockCards::layoutNoticeCard(
   if (showIcon) {
     card.image->setPosition(rect.x + pad, iconY);
     card.image->setSize(icon, icon);
-    card.image->setRadius(6.0F * s);
+    card.image->setRadius(icon * 0.25F);
   } else {
     card.tile->setPosition(rect.x + pad, iconY);
     card.tile->setSize(icon, icon);
-    card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = 6.0F * s});
+    card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = icon * 0.25F});
     card.glyph->setGlyph("bell");
     card.glyph->setGlyphSize(14.0F * s);
     card.glyph->setColor(kLabel1);
@@ -490,7 +490,7 @@ void LockCards::layoutPhoneCard(Renderer& renderer, Card& card, const AuthRect& 
   card.tile->setVisible(true);
   card.tile->setPosition(rect.x + pad, iconY);
   card.tile->setSize(icon, icon);
-  card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = 6.0F * s});
+  card.tile->setStyle(RoundedRectStyle{.fill = kFill2, .radius = icon * 0.25F});
   card.glyph->setVisible(true);
   card.glyph->setGlyph(phone.glyph.empty() ? "device-mobile" : phone.glyph);
   card.glyph->setGlyphSize(14.0F * s);

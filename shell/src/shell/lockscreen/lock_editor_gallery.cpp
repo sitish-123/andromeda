@@ -18,6 +18,8 @@
 #include <string>
 
 namespace {
+  constexpr float kSampleFontSize = 18.0F;
+  constexpr float kSampleMinFontSize = 10.0F;
 
   constexpr Color kLabel1 = rgba(1.0F, 1.0F, 1.0F, 0.96F);
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
@@ -37,7 +39,7 @@ namespace {
   constexpr float kPad = 16.0F;
   constexpr float kColumns = 8.0F;
   constexpr float kTileHeight = 72.0F;
-  constexpr float kGap = 8.0F;
+  constexpr const float& kGap = Tokens::spaceP8;
   constexpr float kChipHeight = 28.0F;
   constexpr std::array<const char*, LockEditorGallery::kSizes> kSizeLabels{"", "S", "M", "L", "XL"};
 
@@ -120,7 +122,7 @@ void LockEditorGallery::build(Node& root) {
 void LockEditorGallery::layoutChip(
     Renderer& renderer, Chip& chip, float x, float y, float s, bool on, bool focused, bool hover
 ) {
-  chip.label->setFontSize(12.0F * s);
+  chip.label->setFontSize(Tokens::typeFootnote.size * s);
   chip.label->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
   chip.label->setColor(on ? kOnText : kLabel2);
   chip.label->measure(renderer);
@@ -149,7 +151,7 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
           RoundedRectStyle{
               .fill = state.hover == Hit{Target::ClockSlot, -1} ? kFill1 : kClear,
               .border = slotOn ? kAccentText : kSlotEdge,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = (slotOn ? 2.0F : 1.5F) * s,
               .borderDash = slotOn ? 0.0F : 6.0F * s,
               .borderGap = 4.0F * s,
@@ -184,7 +186,7 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
   const float y = std::round(sh - 24.0F * s - h);
   m_panelRect = {x, y, w, h};
   place(m_panelBg, x, y, w, h,
-        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+        RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 0.5F * s});
 
   m_title->setText(i18n::tr("lockscreen.editor.clock-style"));
   m_title->setFontSize(Tokens::typeTitle3.size * s);
@@ -232,7 +234,7 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
           RoundedRectStyle{
               .fill = on || state.hover == hit ? kFill2 : kFill1,
               .border = ring ? kAccentText : kClear,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = ring ? 1.5F * s : 0.0F,
           });
     tile.sample->setText(sampleText(style));
@@ -240,12 +242,12 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
     tile.sample->setFontWeight(static_cast<FontWeight>(std::clamp(style.weight, 100, 900)));
     // One line that fits the tile: long samples (Words) shrink instead of wrapping.
     tile.sample->setMaxLines(1);
-    tile.sample->setFontSize(18.0F * s);
+    tile.sample->setFontSize(kSampleFontSize * s);
     tile.sample->setColor(kLabel1);
     tile.sample->measure(renderer);
     const float room = tileW - 12.0F * s;
     if (tile.sample->width() > room) {
-      tile.sample->setFontSize(std::max(10.0F * s, std::floor(18.0F * s * room / tile.sample->width())));
+      tile.sample->setFontSize(std::max(kSampleMinFontSize * s, std::floor(kSampleFontSize * s * room / tile.sample->width())));
       tile.sample->measure(renderer);
     }
     tile.name->setText(i18n::tr("settings.schema.lockscreen.clock-style." + std::string(style.id)));
