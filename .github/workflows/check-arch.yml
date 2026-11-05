@@ -30,6 +30,8 @@ jobs:
           source pkg/PKGBUILD
           pacman -S --noconfirm --needed "${makedepends[@]}"
           echo "CCACHE_DIR=$PWD/.ccache" >> "$GITHUB_ENV"
+          # The container runs as root on a checkout the runner user owns; git refuses it without this.
+          git config --global --add safe.directory "$PWD"
       # Meson uses ccache when it is on PATH; each run saves a new key and restores the newest.
       - uses: actions/cache@v4
         with:

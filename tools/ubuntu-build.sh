@@ -21,7 +21,7 @@ docker build -q -t "$IMAGE" - > /dev/null <<EOF
 FROM ubuntu:$VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-  build-essential ccache g++ glslang-tools libvulkan-dev liblcms2-dev meson ninja-build pkgconf cmake git ca-certificates curl python3 just cargo rustc \
+  build-essential ccache g++ glslang-tools rust-clippy libvulkan-dev liblcms2-dev meson ninja-build pkgconf cmake git ca-certificates curl python3 just cargo rustc \
   libwayland-dev wayland-protocols libxkbcommon-dev libinput-dev libeis-dev libpixman-1-dev libdrm-dev \
   libdisplay-info-dev libgbm-dev libegl-dev libgles-dev libepoxy-dev libudev-dev libsystemd-dev libseat-dev \
   hwdata libliftoff-dev xwayland libxcb1-dev libxcb-ewmh-dev libxcb-icccm4-dev libxcb-render0-dev libxcb-shape0-dev \
