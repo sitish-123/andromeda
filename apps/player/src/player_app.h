@@ -3,13 +3,16 @@
 #include "app/desk_app.h"
 #include "core/timer_manager.h"
 #include "mpv_player.h"
+#include "render/core/async_texture_cache.h"
 #include "ui/controls/scroll_view.h"
 
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
 
 class Button;
+class Renderer;
 class Label;
 class MprisServer;
 class MusicLibrary;
@@ -43,9 +46,11 @@ private:
   bool libraryBack();
   void playAlbumAt(std::size_t album, std::size_t index);
   void playSongsAt(std::size_t index);
+  void playAlbumShuffled(std::size_t album);
   void playQueue(const std::vector<std::string>& paths, bool albumGain, std::size_t start);
-  [[nodiscard]] std::unique_ptr<Node> buildLibrary(float scale);
-  [[nodiscard]] std::unique_ptr<Node> buildNowPlaying(float scale);
+  [[nodiscard]] std::unique_ptr<Node> buildLibrary(Renderer& renderer, float scale, float width);
+  [[nodiscard]] std::unique_ptr<Node> buildNowPlaying(Renderer& renderer, float scale);
+  [[nodiscard]] std::unique_ptr<Node> buildArt(Renderer& renderer, const std::filesystem::path& path, float size, float scale);
   [[nodiscard]] AppWindow* videoHost() const;
   void releaseInhibitor();
   [[nodiscard]] std::unique_ptr<Node> buildPipContent(float width, float height);
@@ -55,12 +60,15 @@ private:
   void placeVideo();
   void showControls();
   void updateTransport();
-  [[nodiscard]] std::unique_ptr<Node> buildContent(float width, float height);
+  [[nodiscard]] std::unique_ptr<Node> buildContent(Renderer& renderer, float width, float height);
   [[nodiscard]] static std::string resumeKey(const std::string& path);
 
   MpvPlayer m_mpv;
   std::unique_ptr<MprisServer> m_mpris;
   std::unique_ptr<VideoSurface> m_video;
+  AsyncTextureCache m_artCache;
+  std::string m_looseArtPath;
+  std::filesystem::path m_looseArt;
   AppWindow* m_window = nullptr;
   std::unique_ptr<MusicLibrary> m_library;
   ScrollViewState m_libraryScroll;

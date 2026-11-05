@@ -11,6 +11,7 @@
 #include "ui/builders.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
+#include "ui/controls/image.h"
 #include "ui/controls/label.h"
 #include "ui/controls/slider.h"
 #include "ui/palette.h"
@@ -20,6 +21,8 @@
 #include "wayland/wayland_connection.h"
 
 #include <cmath>
+#include <algorithm>
+#include <random>
 #include <format>
 #include <glib.h>
 #include <linux/input-event-codes.h>
@@ -28,6 +31,7 @@
 namespace {
   constexpr Logger kLog("player");
   constexpr float kBarHeight = 56.0F;
+  constexpr float kAlbumTile = 160.0F;
   constexpr auto kControlsTimeout = std::chrono::milliseconds(2500);
   constexpr std::uint32_t kDoubleClickMs = 400;
   constexpr double kResumeMinimum = 10.0; // seconds in before a position is worth keeping
@@ -59,10 +63,17 @@ PlayerApp::~PlayerApp() {
   if (m_inhibitor != nullptr) {
     zwp_idle_inhibitor_v1_destroy(m_inhibitor);
   }
+  // The album images hold textures of m_artCache: the windows go before it, the video before its windows.
+  m_video.reset();
+  destroyWindows();
+  loop().removeSource(&m_artCache);
 }
 
 void PlayerApp::startup() {
   loop().addSource(&m_mpv);
+  m_artCache.initialize(&loop().gl());
+  m_artCache.setMakeCurrentCallback([this] { (void)loop().renderContext().backend().makeCurrentNoSurface(); });
+  loop().addSource(&m_artCache);
   m_mpv.setChangedCallback([this](bool seeked) { onPlayerChanged(seeked); });
   if (bus() != nullptr) {
     m_mpris = std::make_unique<MprisServer>(
@@ -138,7 +149,7 @@ AppWindow& PlayerApp::createWindow() {
   });
   m_window = &window;
   updateSidebar();
-  window.setContentBuilder([this](Renderer& /*renderer*/, float width, float height) { return buildContent(width, height); });
+  window.setContentBuilder([this](Renderer& renderer, float width, float height) { return buildContent(renderer, width, height); });
   window.setLayoutCallback([this] { placeVideo(); });
   return window;
 }
@@ -265,6 +276,13 @@ void PlayerApp::action(const std::string& name, const std::vector<std::string>& 
   }
   if (name == "library.play-album" && !parameter.empty()) {
     playAlbum(parameter.front(), parameter.size() > 1 ? parameter[1] : std::string());
+    return;
+  }
+  if (name == "library.show-album" && !parameter.empty() && m_library != nullptr) {
+    if (const MusicAlbum* album = m_library->findAlbum(parameter.front())) {
+      showView(LibraryView::Albums);
+      m_openAlbum = static_cast<std::size_t>(album - m_library->albums().data());
+    }
     return;
   }
   if (name == "library.play-playlist" && !parameter.empty()) {
@@ -571,7 +589,24 @@ void PlayerApp::playQueue(const std::vector<std::string>& paths, bool albumGain,
   }
 }
 
-std::unique_ptr<Node> PlayerApp::buildLibrary(float s) {
+std::unique_ptr<Node> PlayerApp::buildArt(Renderer& renderer, const std::filesystem::path& path, float size, float s) {
+  // fill_1 shows while a cover decodes; an album with no cover shows the disc symbol on it.
+  auto box = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .width = size, .height = size});
+  box->setFill(colorSpecFromRole(ColorRole::Fill1));
+  box->setRadius(Style::scaledRadiusSm(s));
+  if (path.empty()) {
+    box->addChild(ui::glyph({.glyph = std::string("disc"), .glyphSize = std::round(size * 0.3F),
+                             .color = colorSpecFromRole(ColorRole::Label3)}));
+    return box;
+  }
+  auto image = ui::image({.fit = ImageFit::Cover, .radius = Style::scaledRadiusSm(s), .width = size, .height = size});
+  // Decoded off the loop thread once; later rebuilds take the resident texture.
+  (void)image->setSourceFileAsync(renderer, m_artCache, path.string(), static_cast<int>(size), true);
+  box->addChild(std::move(image));
+  return box;
+}
+
+std::unique_ptr<Node> PlayerApp::buildLibrary(Renderer& renderer, float s, float width) {
   auto scroll = ui::scrollView({.state = &m_libraryScroll, .contentScale = s, .viewportPaddingH = Style::spaceMd * s,
                                 .viewportPaddingV = Style::spaceMd * s,
                                 .fill = colorSpecFromRole(ColorRole::SolidRegular)});
@@ -601,29 +636,80 @@ std::unique_ptr<Node> PlayerApp::buildLibrary(float s) {
   const auto trackRow = [&](const MusicTrack& t, std::size_t number, std::function<void()> onClick) {
     row(std::format("{:>2}   {}   {}", number, t.title, clock(t.duration)), std::move(onClick));
   };
+  // Albums as a grid of square covers, title and artist under each (direction A, .agent/DESIGN.md).
   const auto albumRows = [&](const std::string& artist) {
+    const float tile = kAlbumTile * s;
+    const float gap = Style::spaceMd * s;
+    const float inner = std::max(tile, width - 2.0F * Style::spaceMd * s);
+    const auto columns = std::max<std::size_t>(1, static_cast<std::size_t>((inner + gap) / (tile + gap)));
+    std::unique_ptr<Flex> line;
+    std::size_t inLine = 0;
+    const auto flush = [&] {
+      if (line != nullptr) {
+        list->addChild(std::move(line));
+      }
+      inLine = 0;
+    };
     for (std::size_t a = 0; a < albums.size(); ++a) {
       const MusicAlbum& album = albums[a];
       if (!artist.empty() && album.artist != artist) {
         continue;
       }
-      row(std::format("{}  ·  {}{}{} · {}", album.title, album.artist, album.year.empty() ? "" : " · ", album.year,
-                      songs(album.tracks.size())),
-          [this, a] {
-            m_openAlbum = a;
-            m_libraryScroll = {};
-            m_window->requestRebuild();
-          });
+      if (line == nullptr || inLine == columns) {
+        flush();
+        line = ui::row({.align = FlexAlign::Start, .gap = gap});
+      }
+      auto cell = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * s, .width = tile});
+      cell->addChild(buildArt(renderer, album.art, tile, s));
+      auto title = ui::label({.text = album.title, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::SemiBold,
+                              .color = colorSpecFromRole(ColorRole::Label1), .width = tile, .maxLines = 1,
+                              .ellipsize = TextEllipsize::End});
+      auto artistLabel = ui::label({.text = album.artist, .fontSize = Style::fontSizeCaption * s,
+                                    .color = colorSpecFromRole(ColorRole::Label2), .width = tile, .maxLines = 1,
+                                    .ellipsize = TextEllipsize::End});
+      title->measure(renderer);
+      artistLabel->measure(renderer);
+      const float cellHeight = tile + 2.0F * Style::spaceXs * s + title->height() + artistLabel->height();
+      cell->addChild(std::move(title));
+      cell->addChild(std::move(artistLabel));
+      // An InputArea takes no size from its child: the row lays it out by this size.
+      auto press = ui::inputArea({});
+      press->setSize(tile, cellHeight);
+      press->setOnPress([this, a](const InputArea::PointerData& data) {
+        if (data.pressed && data.button == BTN_LEFT) {
+          m_openAlbum = a;
+          m_libraryScroll = {};
+          m_window->requestRebuild();
+        }
+      });
+      press->addChild(std::move(cell));
+      line->addChild(std::move(press));
+      ++inLine;
     }
+    flush();
+    list->setGap(Style::spaceMd * s);
   };
 
   if (m_openAlbum.has_value() && *m_openAlbum < albums.size()) {
     const MusicAlbum& album = albums[*m_openAlbum];
-    heading(album.title, std::format("{}{}{} · {}", album.artist, album.year.empty() ? "" : " · ", album.year,
-                                     songs(album.tracks.size())));
-    list->addChild(ui::button({.text = std::string("Play"), .glyph = std::string("player-play"),
-                               .variant = ButtonVariant::Primary,
-                               .onClick = [this, a = *m_openAlbum] { playAlbumAt(a, 0); }}));
+    auto header = ui::row({.align = FlexAlign::End, .gap = Style::spaceLg * s});
+    header->addChild(buildArt(renderer, album.art, 200.0F * s, s));
+    auto info = ui::column({.align = FlexAlign::Start, .gap = Style::spaceXs * s, .flexGrow = 1.0F});
+    info->addChild(ui::label({.text = album.title, .fontSize = Tokens::typeTitle2.size * s, .fontWeight = FontWeight::SemiBold,
+                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 2, .ellipsize = TextEllipsize::End}));
+    info->addChild(ui::label({.text = std::format("{}{}{} · {}", album.artist, album.year.empty() ? "" : " · ", album.year,
+                                                  songs(album.tracks.size())),
+                              .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label2)}));
+    auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * s});
+    actions->addChild(ui::button({.text = std::string("Play"), .glyph = std::string("player-play"),
+                                  .variant = ButtonVariant::Primary,
+                                  .onClick = [this, a = *m_openAlbum] { playAlbumAt(a, 0); }}));
+    actions->addChild(ui::button({.text = std::string("Shuffle"), .glyph = std::string("arrows-shuffle"),
+                                  .onClick = [this, a = *m_openAlbum] { playAlbumShuffled(a); }}));
+    info->addChild(std::move(actions));
+    header->addChild(std::move(info));
+    list->addChild(std::move(header));
+    list->addChild(ui::node({.height = Style::spaceMd * s}));
     for (std::size_t i = 0; i < album.tracks.size(); ++i) {
       const MusicTrack& t = tracks[album.tracks[i]];
       trackRow(t, t.track > 0 ? static_cast<std::size_t>(t.track) : i + 1, [this, a = *m_openAlbum, i] { playAlbumAt(a, i); });
@@ -698,6 +784,19 @@ std::unique_ptr<Node> PlayerApp::buildLibrary(float s) {
   return scroll;
 }
 
+void PlayerApp::playAlbumShuffled(std::size_t album) {
+  const auto& albums = m_library->albums();
+  if (album >= albums.size()) {
+    return;
+  }
+  std::vector<std::string> paths;
+  for (const std::size_t i : albums[album].tracks) {
+    paths.push_back(m_library->tracks()[i].path.string());
+  }
+  std::shuffle(paths.begin(), paths.end(), std::mt19937{std::random_device{}()});
+  playQueue(paths, true, 0);
+}
+
 void PlayerApp::playSongsAt(std::size_t index) {
   std::vector<std::string> paths;
   for (const MusicAlbum& album : m_library->albums()) {
@@ -708,24 +807,52 @@ void PlayerApp::playSongsAt(std::size_t index) {
   playQueue(paths, false, index);
 }
 
-std::unique_ptr<Node> PlayerApp::buildNowPlaying(float s) {
+std::unique_ptr<Node> PlayerApp::buildNowPlaying(Renderer& renderer, float s) {
   const MpvPlayer::State& st = m_mpv.state();
+  std::string title = st.title;
   std::string artist;
   std::string album;
+  std::filesystem::path art;
   if (m_library != nullptr) {
-    for (const MusicTrack& t : m_library->tracks()) {
-      if (t.path == st.path) {
-        artist = t.artist;
-        album = t.album;
-        break;
+    const auto& tracks = m_library->tracks();
+    const auto it = std::ranges::find_if(tracks, [&](const MusicTrack& t) { return t.path == st.path; });
+    if (it != tracks.end()) {
+      // mpv's media-title arrives after the path: the tag title is known already.
+      title = !it->title.empty() ? it->title : title;
+      artist = it->artist;
+      album = it->album;
+      // By track index: a compilation's album artist is "Various Artists", not the track's artist.
+      const auto index = static_cast<std::size_t>(it - tracks.begin());
+      for (const MusicAlbum& a : m_library->albums()) {
+        if (std::ranges::contains(a.tracks, index)) {
+          art = a.art;
+          break;
+        }
       }
     }
+  }
+  std::error_code localError;
+  // A local file outside the library: its cover is looked up once per file (headers only). A URL never is: an
+  // http read has no timeout and this runs on the loop thread.
+  if (art.empty() && st.path.starts_with('/') && std::filesystem::is_regular_file(st.path, localError)) {
+    if (m_looseArtPath != st.path) {
+      m_looseArtPath = st.path;
+      m_looseArt.clear();
+      MusicTrack track;
+      if (MusicLibrary::readTags(st.path, track)) {
+        MusicAlbum single{.title = track.album, .artist = track.artist, .tracks = {0}};
+        const std::vector<MusicTrack> one{track};
+        MusicLibrary::findArt(single, one, std::filesystem::path(g_get_user_cache_dir()) / "andromeda/player/art");
+        m_looseArt = single.art;
+      }
+    }
+    art = m_looseArt;
   }
   auto panel = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Style::spaceSm * s,
                            .flexGrow = 1.0F});
   panel->setFill(colorSpecFromRole(ColorRole::SolidRegular));
-  panel->addChild(ui::glyph({.glyph = std::string("music"), .glyphSize = 64.0F * s, .color = colorSpecFromRole(ColorRole::Label3)}));
-  panel->addChild(ui::label({.text = st.title, .fontSize = Tokens::typeTitle2.size * s, .fontWeight = FontWeight::SemiBold,
+  panel->addChild(buildArt(renderer, art, 280.0F * s, s));
+  panel->addChild(ui::label({.text = title, .fontSize = Tokens::typeTitle2.size * s, .fontWeight = FontWeight::SemiBold,
                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1, .ellipsize = TextEllipsize::End}));
   if (!artist.empty() || !album.empty()) {
     panel->addChild(ui::label({.text = artist + (artist.empty() || album.empty() ? "" : " — ") + album,
@@ -735,7 +862,7 @@ std::unique_ptr<Node> PlayerApp::buildNowPlaying(float s) {
   return panel;
 }
 
-std::unique_ptr<Node> PlayerApp::buildContent(float width, float height) {
+std::unique_ptr<Node> PlayerApp::buildContent(Renderer& renderer, float width, float height) {
   const float s = m_window->uiScale();
   const MpvPlayer::State& st = m_mpv.state();
   m_time = m_remaining = nullptr;
@@ -762,6 +889,9 @@ std::unique_ptr<Node> PlayerApp::buildContent(float width, float height) {
     m_mpv.togglePause();
   });
   area->setOnMotion([this](const InputArea::PointerData&) { showControls(); });
+  // An InputArea does not stretch its child: the pane takes the area's size, and its child grows into it.
+  const bool barShown = !st.idle && m_controlsVisible;
+  auto pane = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height - (barShown ? kBarHeight * s : 0.0F)});
   if (m_pip != nullptr) {
     auto away = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Style::spaceSm * s,
                             .flexGrow = 1.0F});
@@ -770,11 +900,11 @@ std::unique_ptr<Node> PlayerApp::buildContent(float width, float height) {
                               .color = colorSpecFromRole(ColorRole::Label3)}));
     away->addChild(ui::label({.text = std::string("Playing in Picture in Picture"), .fontSize = Style::fontSizeBody * s,
                               .color = colorSpecFromRole(ColorRole::Label2)}));
-    area->addChild(std::move(away));
+    pane->addChild(std::move(away));
   } else if (libraryShown() && !(m_view == LibraryView::NowPlaying && !st.idle)) {
-    area->addChild(buildLibrary(s));
+    pane->addChild(buildLibrary(renderer, s, width));
   } else if (!st.idle && !st.hasVideo) {
-    area->addChild(buildNowPlaying(s));
+    pane->addChild(buildNowPlaying(renderer, s));
   } else if (st.idle) {
     auto empty = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Style::spaceSm * s,
                              .flexGrow = 1.0F});
@@ -785,8 +915,9 @@ std::unique_ptr<Node> PlayerApp::buildContent(float width, float height) {
                                .fontSize = Tokens::typeTitle3.size * s, .color = colorSpecFromRole(ColorRole::Label1)}));
     empty->addChild(ui::label({.text = std::string("Open a video from Files"), .fontSize = Style::fontSizeBody * s,
                                .color = colorSpecFromRole(ColorRole::Label2)}));
-    area->addChild(std::move(empty));
+    pane->addChild(std::move(empty));
   }
+  area->addChild(std::move(pane));
   content->addChild(std::move(area));
   if (st.idle || !m_controlsVisible) {
     return content;

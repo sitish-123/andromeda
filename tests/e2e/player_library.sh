@@ -5,7 +5,8 @@
 #   - the library does not show 1 album with 3 tracks and 1 playlist,
 #   - album playback leaves a gap of 5 ms or more at a track join (gapless) or changes the length,
 #   - the album ReplayGain (-6.02 dB) does not halve the level,
-#   - the playlist does not play its entries in file order.
+#   - the playlist does not play its entries in file order,
+#   - MPRIS Next does not move to the next track, or Previous (in the first 3 s) does not move back.
 # Writes the app logs, the wavs and the analysis to $OUT (default ./artifacts/player-library).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/player-library}
@@ -20,10 +21,10 @@ boot_headless 1
 fail() { echo "FAIL: $*"; exit 1; }
 mkdir -p "$MUSIC/Album" "$MUSIC/Playlists" "$HOME_DIR/.config"
 printf 'XDG_MUSIC_DIR="%s"\n' "$MUSIC" > "$HOME_DIR/.config/user-dirs.dirs"
-ffmpeg -loglevel error -f lavfi -i "sine=frequency=440:sample_rate=$RATE:duration=9" -ac 1 -c:a pcm_s16le "$OUT/source.wav"
+ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=440:sample_rate=$RATE:duration=9" -ac 1 -c:a pcm_s16le "$OUT/source.wav"
 for n in 1 2 3; do
   start=$(( (n - 1) * 3 * RATE ))
-  ffmpeg -loglevel error -i "$OUT/source.wav" -af "atrim=start_sample=$start:end_sample=$(( start + 3 * RATE ))" \
+  ffmpeg -y -loglevel error -i "$OUT/source.wav" -af "atrim=start_sample=$start:end_sample=$(( start + 3 * RATE ))" \
     -c:a flac -metadata title="Track $n" -metadata artist=Andromeda -metadata album="Test Album" -metadata track=$n \
     -metadata REPLAYGAIN_ALBUM_GAIN="-6.02 dB" -metadata REPLAYGAIN_TRACK_GAIN="-6.02 dB" "$MUSIC/Album/0$n.flac"
 done
@@ -57,10 +58,10 @@ action() {
   DBUS_SESSION_BUS_ADDRESS=$BUS gdbus call --session -d "$APP" -o /dev/andromeda/Player \
     -m org.freedesktop.Application.ActivateAction "$1" "${2:-[]}" '{}' > /dev/null
 }
-start_player() { # name
+start_player() { # name [mpv options]; ao=pcm writes faster than real time, so a timed run passes ao=null
   run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" \
     XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CACHE_HOME="$HOME_DIR/.cache" NOCTALIA_LOG_LEVEL=debug \
-    ANDROMEDA_PLAYER_MPV_OPTIONS="ao=pcm,ao-pcm-file=$OUT/$1.wav,audio-format=s16,audio-samplerate=$RATE,audio-channels=mono" \
+    ANDROMEDA_PLAYER_MPV_OPTIONS="${2:-ao=pcm,ao-pcm-file=$OUT/$1.wav,audio-format=s16,audio-samplerate=$RATE,audio-channels=mono}" \
     "$PLAYER" > "$OUT/$1.log" 2>&1 &
   wait_for "the player window did not map ($1)" mapped
   wait_for "the library did not list 1 album, 3 tracks, 1 playlist ($1)" \
@@ -110,3 +111,14 @@ order=$(clean_log playlist | grep -o "now playing Track [0-9]" | tr '\n' ' ')
 [[ $order == "now playing Track 3 now playing Track 1 " ]] || fail "playlist order: $order"
 stop_player
 echo "PASS playlist order"
+
+start_player nav ao=null
+action library.play-album "[<'Test Album'>]"
+wait_for "the album did not start" logged nav "now playing Track 1"
+mpris org.mpris.MediaPlayer2.Player.Next
+wait_for "MPRIS Next did not reach Track 2" logged nav "now playing Track 2"
+mpris org.mpris.MediaPlayer2.Player.Previous
+back() { order=$(clean_log nav | grep -o "now playing Track [0-9]" | tr '\n' ' '); [[ $order == "now playing Track 1 now playing Track 2 now playing Track 1 "* ]]; }
+wait_for "MPRIS Previous did not return to Track 1" back
+stop_player
+echo "PASS MPRIS Next and Previous"

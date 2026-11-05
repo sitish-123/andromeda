@@ -21,6 +21,7 @@ struct MusicTrack {
   std::string year;
   double duration = 0.0; // seconds
   std::int64_t mtimeNs = 0;
+  bool hasArt = false; // an embedded cover picture
 };
 
 struct MusicAlbum {
@@ -28,6 +29,7 @@ struct MusicAlbum {
   std::string artist; // album artist, else the first track's artist
   std::string year;
   std::vector<std::size_t> tracks; // indices into MusicLibrary::tracks(), in disc/track order
+  std::filesystem::path art;        // cover image file; empty when the album has none
 };
 
 struct MusicPlaylist {
@@ -62,6 +64,9 @@ public:
                                      const std::stop_token* stop = nullptr);
   [[nodiscard]] static std::vector<MusicAlbum> groupAlbums(const std::vector<MusicTrack>& tracks);
   [[nodiscard]] static MusicPlaylist readPlaylist(const std::filesystem::path& file);
+  // A cover.jpg/folder.jpg next to the tracks, else the first embedded picture written to `artDir`. `stop` interrupts it.
+  static void findArt(MusicAlbum& album, const std::vector<MusicTrack>& tracks, const std::filesystem::path& artDir,
+                      const std::stop_token* stop = nullptr);
 
 private:
   struct Result;

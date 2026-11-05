@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <fstream>
+#include <unistd.h>
+#include <thread>
+#include <format>
 #include <glib.h>
 #include <map>
 #include <nlohmann/json.hpp>
@@ -20,7 +23,7 @@ namespace fs = std::filesystem;
 
 namespace {
   constexpr Logger kLog("library");
-  constexpr int kCacheVersion = 1;
+  constexpr int kCacheVersion = 2; // 2: hasArt
 
   bool audioExtension(const fs::path& path) {
     std::string ext = path.extension().string();
@@ -40,7 +43,7 @@ namespace {
   nlohmann::json toJson(const MusicTrack& t) {
     return {{"path", t.path.string()}, {"title", t.title}, {"artist", t.artist}, {"albumArtist", t.albumArtist},
             {"album", t.album}, {"track", t.track}, {"disc", t.disc}, {"year", t.year}, {"duration", t.duration},
-            {"mtime", t.mtimeNs}};
+            {"mtime", t.mtimeNs}, {"art", t.hasArt}};
   }
 
   MusicTrack fromJson(const nlohmann::json& j) {
@@ -55,6 +58,7 @@ namespace {
     t.year = j.value("year", "");
     t.duration = j.value("duration", 0.0);
     t.mtimeNs = j.value("mtime", std::int64_t{0});
+    t.hasArt = j.value("art", false);
     return t;
   }
 } // namespace
@@ -125,6 +129,9 @@ bool MusicLibrary::readTags(const fs::path& path, MusicTrack& out, const std::st
   out.track = leadingNumber(get("track"));
   out.disc = leadingNumber(get("disc"));
   out.year = text("date").substr(0, 4);
+  for (unsigned i = 0; i < ctx->nb_streams; ++i) {
+    out.hasArt = out.hasArt || (ctx->streams[i]->disposition & AV_DISPOSITION_ATTACHED_PIC) != 0;
+  }
   const AVStream* stream = ctx->streams[audio];
   out.duration = ctx->duration > 0                         ? static_cast<double>(ctx->duration) / AV_TIME_BASE
       : stream->duration > 0 && stream->time_base.den > 0 ? static_cast<double>(stream->duration) * av_q2d(stream->time_base)
@@ -212,6 +219,78 @@ MusicPlaylist MusicLibrary::readPlaylist(const fs::path& file) {
   return out;
 }
 
+void MusicLibrary::findArt(MusicAlbum& album, const std::vector<MusicTrack>& tracks, const fs::path& artDir,
+                           const std::stop_token* stop) {
+  if (album.tracks.empty()) {
+    return;
+  }
+  std::error_code ec;
+  const fs::path folder = tracks[album.tracks.front()].path.parent_path();
+  for (const char* name : {"cover.jpg", "cover.png", "folder.jpg", "folder.png", "front.jpg", "Cover.jpg", "Folder.jpg"}) {
+    if (fs::is_regular_file(folder / name, ec)) {
+      album.art = folder / name;
+      return;
+    }
+  }
+  const auto withArt = std::ranges::find_if(album.tracks, [&](std::size_t i) { return tracks[i].hasArt; });
+  if (withArt == album.tracks.end()) {
+    return;
+  }
+  const MusicTrack& source = tracks[*withArt];
+  // Keyed by the source file, so albums that share a title never share a cover; a retagged file is newer than it.
+  gchar* sum = g_compute_checksum_for_string(G_CHECKSUM_SHA1, source.path.c_str(), -1);
+  const fs::path cached = artDir / (std::string(sum) + ".img");
+  g_free(sum);
+  struct stat cachedStat{};
+  if (::stat(cached.c_str(), &cachedStat) == 0
+      && cachedStat.st_mtim.tv_sec * 1'000'000'000LL + cachedStat.st_mtim.tv_nsec >= source.mtimeNs) {
+    album.art = cached;
+    return;
+  }
+  AVFormatContext* ctx = avformat_alloc_context();
+  if (ctx == nullptr) {
+    return;
+  }
+  if (stop != nullptr) {
+    ctx->interrupt_callback = {
+        .callback = [](void* data) { return static_cast<const std::stop_token*>(data)->stop_requested() ? 1 : 0; },
+        .opaque = const_cast<std::stop_token*>(stop)};
+  }
+  AVDictionary* options = nullptr;
+  // The cover is a header block (FLAC PICTURE, ID3 APIC, MP4 covr): nothing past the headers is needed.
+  av_dict_set(&options, "probesize", "65536", 0);
+  av_dict_set(&options, "analyzeduration", "0", 0);
+  const int opened = avformat_open_input(&ctx, source.path.c_str(), nullptr, &options);
+  av_dict_free(&options);
+  if (opened != 0) {
+    return;
+  }
+  // The cover packet is read with the headers; the bytes are a complete JPEG or PNG file.
+  for (unsigned i = 0; i < ctx->nb_streams; ++i) {
+    const AVStream* st = ctx->streams[i];
+    if ((st->disposition & AV_DISPOSITION_ATTACHED_PIC) != 0 && st->attached_pic.size > 0) {
+      fs::create_directories(artDir, ec);
+      // Per thread: the scan and the player's lookup for a file outside the library can write the same cover.
+      const fs::path tmp = std::format("{}.{}.{}.tmp", cached.string(), ::getpid(),
+                                       std::hash<std::thread::id>{}(std::this_thread::get_id()));
+      std::ofstream out(tmp, std::ios::binary);
+      out.write(reinterpret_cast<const char*>(st->attached_pic.data), st->attached_pic.size);
+      out.close();
+      // A short write (disk full) must not become the cached cover.
+      if (out && (fs::rename(tmp, cached, ec), !ec)) {
+        album.art = cached;
+      } else {
+        fs::remove(tmp, ec);
+      }
+      if (album.art.empty() && fs::is_regular_file(cached, ec)) {
+        album.art = cached; // the other writer won the rename
+      }
+      break;
+    }
+  }
+  avformat_close_input(&ctx);
+}
+
 const MusicAlbum* MusicLibrary::findAlbum(std::string_view title, std::string_view artist) const {
   const auto it = std::ranges::find_if(m_albums, [&](const MusicAlbum& a) {
     return a.title == title && (artist.empty() || a.artist == artist);
@@ -296,6 +375,12 @@ void MusicLibrary::scan(std::function<void()> done) {
     }
     std::ranges::sort(result->tracks, {}, &MusicTrack::path);
     result->albums = groupAlbums(result->tracks);
+    for (MusicAlbum& album : result->albums) {
+      if (stop.stop_requested()) {
+        return;
+      }
+      findArt(album, result->tracks, m_cacheFile.parent_path() / "art", &stop);
+    }
     for (const auto& entry : fs::directory_iterator(m_root / "Playlists", ec)) {
       if (entry.path().extension() == ".m3u8" || entry.path().extension() == ".m3u") {
         result->playlists.push_back(readPlaylist(entry.path()));

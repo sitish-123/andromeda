@@ -63,6 +63,8 @@ protected:
   virtual void windowClosed(AppWindow& /*window*/) {}
   // False for a service process that outlives its windows (the file picker); it then calls quit() itself.
   [[nodiscard]] virtual bool quitWithLastWindow() const { return true; }
+  // For a subclass destructor whose members the windows' content uses: destroys them first, with no windowClosed.
+  void destroyWindows() { m_windows.clear(); }
 
 private:
   void addStandardCommands();

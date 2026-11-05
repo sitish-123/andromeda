@@ -45,6 +45,7 @@ bool MpvPlayer::initialize() {
       {"keep-open", "yes"}, // the last frame stays at the end; eof-reached reports it
       {"sub-auto", "fuzzy"}, // external subtitles next to the file whose name starts like it
       {"gapless-audio", "yes"},
+      {"audio-display", "no"}, // the Now Playing panel draws the cover; mpv would show it as video over the panel
       {"prefetch-playlist", "yes"}, // opens the next file before the current one ends: gapless albums
       {"replaygain", "album"},
       {"input-default-bindings", "no"},
