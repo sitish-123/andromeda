@@ -244,6 +244,7 @@ namespace preview {
       return;
     }
     const auto now = std::chrono::steady_clock::now();
+    syncBase(now);
     if (!m_hasBase) {
       m_base = now - m_queue.front().pts;
       m_hasBase = true;
@@ -256,6 +257,15 @@ namespace preview {
     m_timer.start(std::chrono::ceil<std::chrono::milliseconds>(due - now), [this] { presentDue(); });
   }
 
+  void VideoView::syncBase(std::chrono::steady_clock::time_point now) {
+    if (m_clock) {
+      if (const auto position = m_clock()) {
+        m_base = now - *position;
+        m_hasBase = true;
+      }
+    }
+  }
+
   void VideoView::presentDue() {
     // Inside its own callback the timer still counts as active: stop it so schedule() can start it again.
     m_timer.stop();
@@ -263,6 +273,7 @@ namespace preview {
       return;
     }
     const auto now = std::chrono::steady_clock::now();
+    syncBase(now);
     // Behind the clock: drop each frame whose successor is also due.
     while (m_queue.size() > 1 && m_base + m_queue[1].pts <= now) {
       if (m_queue.front().buffer != nullptr) {
@@ -319,8 +330,13 @@ namespace preview {
   wl_buffer* VideoView::createBuffer(const HelperReply& reply) {
     const auto& m = reply.msg;
     const std::uint64_t modifier = u64At(reply.payload, 0);
-    // A software frame is a sealed memfd (F_GET_SEALS fails on a dmabuf); it goes through wl_shm.
-    if (const int fd = reply.fds.front()->get(); fcntl(fd, F_GET_SEALS) >= 0) {
+    // A software frame is a sealed memfd (F_GET_SEALS fails on a dmabuf); it goes through wl_shm. Without the shrink
+    // seal the helper could cut the file under the compositor's mapping.
+    const int fd = reply.fds.front()->get();
+    if (const int seals = fcntl(fd, F_GET_SEALS); seals >= 0) {
+      if ((seals & F_SEAL_SHRINK) == 0) {
+        return nullptr;
+      }
       const std::uint32_t offset = u32At(reply.payload, 20);
       const std::uint32_t stride = u32At(reply.payload, 24);
       struct stat st{};

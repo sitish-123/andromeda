@@ -8,6 +8,7 @@
 #include "render/core/texture_manager.h"
 #include "ui/builders.h"
 #include "ui/controls/image.h"
+#include "ui/controls/progress_bar.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/palette.h"
 #include "ui/style.h"
@@ -16,9 +17,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <fcntl.h>
 #include <format>
 #include <gio/gio.h>
 #include <linux/input-event-codes.h>
+#include <string_view>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace preview {
@@ -28,6 +34,9 @@ namespace preview {
     constexpr float kHeaderHeight = 40.0F;
     constexpr float kDocumentWidth = 720.0F;
     constexpr float kPageGap = 12.0F;
+    constexpr float kCoverSize = 160.0F;
+    // Decoded at 2x for HiDPI outputs.
+    constexpr std::uint32_t kCoverBox = 320;
     constexpr std::uint32_t kImageBox = 4096;
     constexpr std::uint32_t kMaxPageHeight = 16384;
     constexpr const char* kMonospace = "monospace";
@@ -135,10 +144,13 @@ namespace preview {
       });
       break;
     case FileKind::Video:
-      loadVideo(HelperKind::Media);
+    case FileKind::Audio: {
+      // ANDROMEDA_PREVIEW_MEDIA=sw starts on the software path the window falls back to when dmabuf import fails.
+      const char* media = std::getenv("ANDROMEDA_PREVIEW_MEDIA");
+      loadMedia(media != nullptr && std::string_view(media) == "sw" ? HelperKind::MediaSoftware : HelperKind::Media);
       break;
+    }
     default:
-      // Audio arrives in S7d; everything else shows the file card.
       m_loading = false;
       break;
     }
@@ -174,13 +186,26 @@ namespace preview {
   void PreviewWindow::dropHelper() {
     m_video.reset();
     m_videoBox = nullptr;
+    m_audio.reset();
+    m_progressTimer.stop();
+    m_progress = nullptr;
+    m_audioOnly = false;
+    m_paused = false;
+    m_durationMs = 0;
+    m_title.clear();
+    m_artist.clear();
+    m_cover = {};
+    if (m_coverFd >= 0) {
+      ::close(m_coverFd);
+      m_coverFd = -1;
+    }
     if (m_helper) {
       m_loop.removeSource(m_helper.get());
       m_helper.reset();
     }
   }
 
-  void PreviewWindow::loadVideo(HelperKind kind) {
+  void PreviewWindow::loadMedia(HelperKind kind) {
     m_helper = HelperClient::start(kind, m_path);
     if (!m_helper) {
       m_loading = false;
@@ -194,14 +219,26 @@ namespace preview {
         return;
       }
       constexpr std::uint32_t kFlagVideo = 1;
-      if (reply.msg.op != op::InfoReply || (reply.msg.e & kFlagVideo) == 0 || !m_surface) {
+      constexpr std::uint32_t kFlagAudio = 2;
+      const bool video = (reply.msg.e & kFlagVideo) != 0;
+      const bool audio = (reply.msg.e & kFlagAudio) != 0;
+      if (reply.msg.op != op::InfoReply || !(video || audio) || !m_surface) {
         helperFailed();
+        return;
+      }
+      m_durationMs = reply.msg.d;
+      if (!video) {
+        m_audioOnly = true;
+        startAudio(false);
         return;
       }
       m_video = std::make_unique<VideoView>(
           m_loop.wayland(), *m_helper,
           VideoView::Callbacks{
-              .firstFrame = [](std::uint32_t w, std::uint32_t h) { kLog.info("shown video {}x{}", w, h); },
+              .firstFrame =
+                  [kind](std::uint32_t w, std::uint32_t h) {
+                    kLog.info("shown video {}x{}{}", w, h, kind == HelperKind::MediaSoftware ? " (software)" : "");
+                  },
               .failed =
                   [this, kind](bool unsupported) {
                     if (!unsupported || kind != HelperKind::Media) {
@@ -212,7 +249,7 @@ namespace preview {
                     DeferredCall::callLater([this, generation = m_generation] {
                       if (generation == m_generation) {
                         dropHelper();
-                        loadVideo(HelperKind::MediaSoftware);
+                        loadMedia(HelperKind::MediaSoftware);
                       }
                     });
                   },
@@ -225,6 +262,13 @@ namespace preview {
           }
       );
       m_video->setVideoSize(reply.msg.b, reply.msg.c);
+      // Audio first: the helper starts playing on the first request, and audio decoded before OP_AUDIO is dropped.
+      if (audio) {
+        startAudio(true);
+        m_video->setClock([this]() -> std::optional<std::chrono::nanoseconds> {
+          return m_audio ? m_audio->position() : std::nullopt;
+        });
+      }
       if (!m_video->attach(m_surface->wlSurface())) {
         helperFailed();
         return;
@@ -232,6 +276,118 @@ namespace preview {
       m_loading = false;
       invalidate();
     });
+  }
+
+  void PreviewWindow::startAudio(bool withVideo) {
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) != 0) {
+      kLog.warn("audio: no pipe");
+    } else {
+      // About 1.4 s of PCM in flight: the helper blocks on a full pipe, which is the backpressure.
+      fcntl(fds[1], F_SETPIPE_SZ, 1 << 20);
+      m_audio = AudioOut::start(fds[0]);
+      if (m_audio) {
+        m_helper->request({.op = op::Audio}, fds[1], [](const HelperReply& reply) {
+          if (reply.msg.op != op::AudioReply) {
+            kLog.warn("audio: the helper cannot stream ({})", reply.msg.a);
+          }
+        });
+      }
+      ::close(fds[1]);
+    }
+    if (withVideo) {
+      return;
+    }
+    const auto generation = m_generation;
+    m_helper->request({.op = op::Tags}, [this, generation](const HelperReply& reply) {
+      if (generation != m_generation) {
+        return;
+      }
+      if (reply.msg.op == op::TextReply && reply.data != nullptr) {
+        const auto bytes = reply.data->bytes();
+        const std::string text(reinterpret_cast<const char*>(bytes.data()), std::min<std::size_t>(reply.msg.a, bytes.size()));
+        const auto first = text.find('\n');
+        m_title = text.substr(0, first);
+        if (first != std::string::npos) {
+          const auto second = text.find('\n', first + 1);
+          m_artist = text.substr(first + 1, second == std::string::npos ? std::string::npos : second - first - 1);
+        }
+      }
+      m_loading = false;
+      m_shownNote = std::format("shown audio {}", m_title.empty() ? baseName(m_path) : m_title);
+      m_progressTimer.startRepeating(std::chrono::milliseconds(250), [this] {
+        if (m_progress != nullptr && m_audio && m_durationMs > 0) {
+          const auto position = m_audio->position().value_or(std::chrono::nanoseconds(0));
+          const float done = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(position).count())
+              / static_cast<float>(m_durationMs);
+          m_progress->setProgress(std::clamp(done, 0.0F, 1.0F));
+          m_surface->requestRedraw();
+        }
+      });
+      invalidate();
+    });
+    m_helper->request({.op = op::Cover}, [this, generation](const HelperReply& reply) {
+      if (generation != m_generation || reply.msg.op != op::CoverReply || reply.data == nullptr) {
+        return;
+      }
+      const auto bytes = reply.data->bytes();
+      const int fd = memfd_create("preview-cover", MFD_CLOEXEC);
+      const std::size_t size = std::min<std::size_t>(reply.msg.a, bytes.size());
+      if (fd < 0 || write(fd, bytes.data(), size) != static_cast<ssize_t>(size)) {
+        if (fd >= 0) {
+          ::close(fd);
+        }
+        return;
+      }
+      m_coverFd = fd;
+      m_decoder.request(std::format("/proc/self/fd/{}", fd), kCoverBox, kCoverBox, [this, generation](Pixels pixels) {
+        if (generation != m_generation) {
+          return;
+        }
+        if (m_coverFd >= 0) {
+          ::close(m_coverFd);
+          m_coverFd = -1;
+        }
+        m_cover = std::move(pixels);
+        invalidate();
+      });
+    });
+  }
+
+  void PreviewWindow::togglePlayback() {
+    m_paused = !m_paused;
+    kLog.info("playback {}", m_paused ? "paused" : "playing");
+    if (m_video) {
+      m_video->togglePlaying();
+    }
+    if (m_audio) {
+      m_audio->setPlaying(!m_paused);
+    }
+  }
+
+  std::unique_ptr<Node> PreviewWindow::buildAudio(Renderer& renderer, float width) {
+    auto box = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Style::spaceSm,
+                           .flexGrow = 1.0F});
+    if (!m_cover.bytes.empty()) {
+      auto cover = ui::image({.fit = ImageFit::Contain, .width = kCoverSize, .height = kCoverSize});
+      cover->setSourceRaw(renderer, m_cover.bytes.data(), m_cover.bytes.size(), static_cast<int>(m_cover.width),
+                          static_cast<int>(m_cover.height), static_cast<int>(m_cover.stride), PixmapFormat::RGBA);
+      box->addChild(std::move(cover));
+    } else {
+      box->addChild(ui::glyph({.glyph = "music", .glyphSize = kCoverSize / 2.0F,
+                               .color = colorSpecFromRole(ColorRole::Label3), .width = kCoverSize,
+                               .height = kCoverSize}));
+    }
+    box->addChild(ui::label({.text = m_title.empty() ? baseName(m_path) : m_title, .fontSize = Style::fontSizeTitle,
+                             .color = colorSpecFromRole(ColorRole::Label1), .maxWidth = width - 2 * Style::spaceLg,
+                             .maxLines = 2, .textAlign = TextAlign::Center}));
+    if (!m_artist.empty()) {
+      box->addChild(ui::label({.text = m_artist, .fontSize = Style::fontSizeCaption,
+                               .color = colorSpecFromRole(ColorRole::Label2), .maxWidth = width - 2 * Style::spaceLg,
+                               .maxLines = 1}));
+    }
+    box->addChild(ui::progressBar({.out = &m_progress, .progress = 0.0F, .width = kCoverSize, .height = 4.0F}));
+    return box;
   }
 
   void PreviewWindow::requestPage(std::size_t index) {
@@ -473,6 +629,7 @@ namespace preview {
     m_input.setSceneRoot(nullptr);
     m_scroll = nullptr;
     m_videoBox = nullptr;
+    m_progress = nullptr;
     m_pageImages.clear();
     m_pendingUploads.clear();
     auto root = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height});
@@ -565,6 +722,10 @@ namespace preview {
       return scroll;
     }
     case FileKind::Video:
+    case FileKind::Audio:
+      if (m_audioOnly) {
+        return buildAudio(renderer, width);
+      }
       if (m_video) {
         // The video subsurface covers this box; the window draws only the letterbox.
         auto box = ui::column({.flexGrow = 1.0F});
@@ -600,8 +761,8 @@ namespace preview {
       DeferredCall::callLater([this] { close(); });
       break;
     case XKB_KEY_k:
-      if (m_video) {
-        m_video->togglePlaying();
+      if (m_video || m_audio) {
+        togglePlayback();
       }
       break;
     case XKB_KEY_Return:
@@ -654,7 +815,7 @@ namespace preview {
       if (m_pointerInside) {
         m_input.pointerMotion(x, y, event.serial);
         if (event.pressed && event.button == BTN_LEFT && m_video && m_video->contains(x, y)) {
-          m_video->togglePlaying();
+          togglePlayback();
         } else if (event.pressed && event.button == BTN_LEFT && y < kHeaderHeight && m_input.hoveredArea() == nullptr) {
           m_surface->beginMove(event.serial);
         } else {

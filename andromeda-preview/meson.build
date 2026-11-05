@@ -58,9 +58,10 @@ executable('andromeda-preview',
   'src/preview_service.cpp',
   'src/preview_window.cpp',
   'src/video_view.cpp',
+  'src/audio_out.cpp',
   _dmabuf_c, _dmabuf_h,
   link_with: [_core, _images],
-  dependencies: [desk_app_dep, glycin_dep, gio_dep, wayland_client_dep],
+  dependencies: [desk_app_dep, glycin_dep, gio_dep, wayland_client_dep, dependency('gstreamer-1.0')],
   install: true,
 )
 

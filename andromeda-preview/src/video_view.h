@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <optional>
 #include <memory>
 #include <set>
 #include <utility>
@@ -46,6 +47,8 @@ namespace preview {
     void place(float x, float y, float width, float height);
     void setVideoSize(std::uint32_t width, std::uint32_t height);
     void togglePlaying();
+    // Paces frames on this clock (stream time) while it has a value, else on steady_clock.
+    void setClock(std::function<std::optional<std::chrono::nanoseconds>()> clock) { m_clock = std::move(clock); }
     [[nodiscard]] bool contains(float x, float y) const;
 
   private:
@@ -111,6 +114,8 @@ namespace preview {
     bool m_shown = false;
     std::chrono::steady_clock::time_point m_base{};
     bool m_hasBase = false;
+    std::function<std::optional<std::chrono::nanoseconds>()> m_clock;
+    void syncBase(std::chrono::steady_clock::time_point now);
     Timer m_timer;
 
     std::uint32_t m_videoWidth = 0;

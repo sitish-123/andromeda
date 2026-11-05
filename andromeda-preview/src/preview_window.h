@@ -2,10 +2,12 @@
 
 #include "file_kind.h"
 #include "helper_client.h"
+#include "audio_out.h"
 #include "image_loader.h"
 #include "video_view.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/animation/animation_manager.h"
+#include "core/timer_manager.h"
 
 #include <functional>
 #include <memory>
@@ -16,6 +18,7 @@ class AppLoop;
 class Flex;
 class Image;
 class Node;
+class ProgressBar;
 class Renderer;
 class ScrollView;
 class ToplevelSurface;
@@ -58,7 +61,10 @@ namespace preview {
 
     void load(const std::string& path);
     void loadPdf();
-    void loadVideo(HelperKind kind);
+    void loadMedia(HelperKind kind);
+    void startAudio(bool withVideo);
+    void togglePlayback();
+    [[nodiscard]] std::unique_ptr<Node> buildAudio(Renderer& renderer, float width);
     void dropHelper();
     void requestVisiblePages();
     void onPage(std::size_t index, const HelperReply& reply);
@@ -96,6 +102,17 @@ namespace preview {
     // Declared after m_helper: it uses the helper, so it goes first.
     std::unique_ptr<VideoView> m_video;
     Node* m_videoBox = nullptr;
+    std::unique_ptr<AudioOut> m_audio;
+    bool m_audioOnly = false;
+    bool m_paused = false;
+    std::uint32_t m_durationMs = 0;
+    std::string m_title;
+    std::string m_artist;
+    Pixels m_cover;
+    // The memfd glycin reads the cover from (as /proc/self/fd/N); -1 when none.
+    int m_coverFd = -1;
+    ProgressBar* m_progress = nullptr;
+    Timer m_progressTimer;
     ImageDecoder m_decoder;
     Pixels m_image;
     std::vector<Page> m_pages;
