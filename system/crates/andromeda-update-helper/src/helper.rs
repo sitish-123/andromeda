@@ -232,6 +232,12 @@ impl Helper {
         Ok(())
     }
 
+    /// What snapshots the system before an update: "snap-pac", "snapper" or "" (none).
+    #[zbus(property)]
+    async fn snapshots(&self, #[zbus(connection)] conn: &Connection) -> String {
+        snapshot::mode(conn).await.to_owned()
+    }
+
     #[zbus(property)]
     fn tonight(&self) -> bool {
         self.tonight_token().is_some_and(|t| now_secs() - t <= TONIGHT_MAX_AGE)

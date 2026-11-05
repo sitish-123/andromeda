@@ -37,6 +37,18 @@ trait Snapper {
 
 pub struct Pre(u32);
 
+/// What takes the snapshot before an update: "snap-pac", "snapper" (us), or "" (none).
+pub async fn mode(conn: &Connection) -> &'static str {
+    if Path::new(SNAP_PAC_HOOK).exists() && snap_pac_takes_root() {
+        return "snap-pac";
+    }
+    let Ok(snapper) = SnapperProxy::new(conn).await else { return "" };
+    match snapper.list_configs().await {
+        Ok(configs) if configs.iter().any(|(name, ..)| name == CONFIG) => "snapper",
+        _ => "",
+    }
+}
+
 /// snap-pac snapshots the `root` config unless /etc/snap-pac.ini says `snapshot = no` in its `[root]` section, or
 /// `SNAP_PAC_SKIP` is set (snap-pac reads it from the environment of the pacman run, which here is ours).
 fn snap_pac_takes_root() -> bool {

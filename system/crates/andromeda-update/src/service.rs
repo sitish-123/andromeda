@@ -1,6 +1,7 @@
 //! `org.andromeda.Update1` on the session bus at `/org/andromeda/Update1`: one check of every source, its result as
 //! properties, and the Arch news read token. Scheduling (daily, on AC, unmetered) belongs to the shell's client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -28,6 +29,8 @@ struct State {
     last_check: i64,
     checking: bool,
     errors: Vec<String>,
+    /// The running check came from the daily timer: it may notify.
+    scheduled: bool,
 }
 
 #[derive(Clone)]
@@ -137,6 +140,52 @@ impl Update {
         if let Ok(iface) = conn.object_server().interface::<_, Self>(PATH).await {
             Self::emit_all(&iface).await;
         }
+        let (scheduled, count) = {
+            let mut state = self.lock();
+            (std::mem::take(&mut state.scheduled), state.updates.len())
+        };
+        if scheduled && count > 0 {
+            self.notify(&conn, count).await;
+        }
+    }
+
+    /// One notification a day at most; a click opens Settings › Software Update (x-andromeda-settings-page).
+    async fn notify(&self, conn: &Connection, count: usize) {
+        // At most one a day: 20 h apart, so the daily timer's random delay never skips a day.
+        let file = self.state_dir.join("notified-at");
+        let last = std::fs::read_to_string(&file).ok().and_then(|t| t.trim().parse::<i64>().ok()).unwrap_or(0);
+        if now() - last < 20 * 3600 {
+            return;
+        }
+        let body =
+            if count == 1 { "1 update is available".to_owned() } else { format!("{count} updates are available") };
+        let hints: HashMap<&str, zbus::Variant<'_>> =
+            HashMap::from([("x-andromeda-settings-page", "software-update".into()), ("category", "system".into())]);
+        let reply = conn
+            .call_method(
+                Some("org.freedesktop.Notifications"),
+                "/org/freedesktop/Notifications",
+                Some("org.freedesktop.Notifications"),
+                "Notify",
+                &(
+                    "Software Update",
+                    0u32,
+                    "system-software-update",
+                    "Software Update",
+                    body.as_str(),
+                    vec!["default", "Open"],
+                    hints,
+                    -1i32,
+                ),
+            )
+            .await;
+        match reply {
+            Ok(_) => {
+                let _ = std::fs::create_dir_all(&self.state_dir);
+                let _ = std::fs::write(&file, now().to_string());
+            }
+            Err(e) => log::warn!("notify: {e}"),
+        }
     }
 }
 
@@ -209,7 +258,20 @@ impl Update {
             log::info!("scheduled check skipped: metered network");
             return Ok(());
         }
-        self.check(emitter, conn).await
+        {
+            // Set together with `checking`, so a manual Check() racing in cannot inherit the flag.
+            let mut state = self.lock();
+            if state.checking {
+                return Ok(());
+            }
+            state.checking = true;
+            state.scheduled = true;
+        }
+        let _ = self.checking_changed(&emitter).await;
+        let this = self.clone();
+        let conn = conn.clone();
+        tokio::spawn(async move { this.run_check(conn).await });
+        Ok(())
     }
 
     /// "I have read this": news published up to `until` (unix seconds) no longer blocks. `until` is capped at the

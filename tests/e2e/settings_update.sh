@@ -10,7 +10,12 @@ boot_headless 1
 : > "$OUT/calls.txt"
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_update.py"
 export MOCK_NEWS=1
+# A stub flatpak: Update Now must update Apps as the user, and the test must never touch real installations.
+mkdir -p "$OUT/bin"
+printf '#!/bin/sh\necho "flatpak $*" >> "%s"\n' "$OUT/calls.txt" > "$OUT/bin/flatpak"
+chmod +x "$OUT/bin/flatpak"
 BEFORE_NOCTALIA='
+  export PATH="$OUT/bin:$PATH"
   python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done
   grep -q ready "$OUT/mock.log" || { echo "FAIL: mock update did not start"; exit 1; }
@@ -36,6 +41,7 @@ BEFORE_NOCTALIA='
   grim "$OUT/update-available-dark.png"
   "$POINTER" 1280 720 move 1010 173 click 272 > /dev/null   # Update Now
   wait_calls "^Upgrade False" 1
+  wait_calls "^flatpak update --noninteractive -y" 1
   wait_calls "^Check" 1
   sleep 0.5
   grim "$OUT/update-clicked-dark.png"

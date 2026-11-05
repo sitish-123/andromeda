@@ -215,19 +215,9 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
   m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });
   m_settingsWindow.setSystemHealthProvider([this] { return m_systemHealthService.get(); });
+  m_notificationManager.setSettingsPageCallback([this](const std::string& page) { m_panelManager.openSettingsWindow(page); });
   m_settingsWindow.setSoftwareUpdateSources(
-      [this]() -> SoftwareUpdateService* {
-        // Created when the page first opens, so Update1 is not D-Bus activated at login.
-        if (m_softwareUpdateService == nullptr && m_bus != nullptr) {
-          try {
-            m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
-            m_softwareUpdateService->setChangeCallback([this] { m_settingsWindow.onSoftwareUpdateChanged(); });
-          } catch (const std::exception& e) {
-            kLog.warn("software update client disabled: {}", e.what());
-          }
-        }
-        return m_softwareUpdateService.get();
-      },
+      [this] { return softwareUpdateService(); },
       [this] {
         std::vector<std::pair<std::string, std::string>> failures;
         for (const auto& failure : m_hookManager.dirHookFailures()) {
@@ -504,14 +494,29 @@ void Application::initLockScreenAndSession() {
   }
 
   SessionActionHooks sessionActionHooks;
-  sessionActionHooks.onLogout = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::LoggingOut, std::move(done));
+  // Update lock: logout, restart and power-off wait for a running system update, and say so.
+  auto afterUpdate = [this](HookKind kind, std::string_view waitKey, std::function<void(bool)> done) {
+    SoftwareUpdateService* update = softwareUpdateService();
+    auto run = [this, kind, done = std::move(done)](bool /*waited*/) mutable {
+      m_hookManager.fireAsync(kind, std::move(done));
+    };
+    if (update == nullptr) {
+      run(false);
+      return;
+    }
+    update->afterSystemUpdate(std::move(run), [this, waitKey = std::string(waitKey)] {
+      m_notificationManager.addInternal("Andromeda", i18n::tr("settings.update.lock-title"), i18n::tr(waitKey),
+                                        Urgency::Normal);
+    });
   };
-  sessionActionHooks.onReboot = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::Rebooting, std::move(done));
+  sessionActionHooks.onLogout = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::LoggingOut, "settings.update.lock-logout", std::move(done));
   };
-  sessionActionHooks.onShutdown = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::ShuttingDown, std::move(done));
+  sessionActionHooks.onReboot = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::Rebooting, "settings.update.lock-restart", std::move(done));
+  };
+  sessionActionHooks.onShutdown = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::ShuttingDown, "settings.update.lock-shutdown", std::move(done));
   };
   sessionActionHooks.onBeforePlainSuspend = [this] { m_skipLockOnNextSleep = true; };
   sessionActionHooks.onPlainSuspendAborted = [this] { m_skipLockOnNextSleep = false; };
@@ -1505,4 +1510,17 @@ void Application::syncAppActivity() {
     m_wayland.sendAppActivity(pid, DSK_SHELL_V1_APP_ACTIVITY_FLAG_AUDIO);
   }
   m_sentAudioPids = audio;
+}
+
+SoftwareUpdateService* Application::softwareUpdateService() {
+  // Created on first use (Settings page, session action), so Update1 is not D-Bus activated at login.
+  if (m_softwareUpdateService == nullptr && m_bus != nullptr) {
+    try {
+      m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
+      m_softwareUpdateService->setChangeCallback([this] { m_settingsWindow.onSoftwareUpdateChanged(); });
+    } catch (const std::exception& e) {
+      kLog.warn("software update client disabled: {}", e.what());
+    }
+  }
+  return m_softwareUpdateService.get();
 }

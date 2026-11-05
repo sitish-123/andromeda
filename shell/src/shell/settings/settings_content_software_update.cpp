@@ -178,6 +178,10 @@ namespace settings {
         }
         addSettingsRowSeparators(*card, scale);
       }
+      if (!service.appsError().empty()) {
+        Flex* card = rows::addCard(content, scale);
+        card->addChild(caption(i18n::tr("settings.update.apps-failed", "error", service.appsError()), scale));
+      }
       if (!service.errors().empty() && service.runState() != RunState::Running) {
         Flex* card = rows::addCard(content, scale);
         for (const auto& error : service.errors()) {
@@ -200,8 +204,10 @@ namespace settings {
         if (card == nullptr) {
           card = rows::addCard(content, scale);
         }
-        const std::string trailing = i18n::tr("settings.update.group-count", "count", std::to_string(count), "size",
-                                              sizeText(groupBytes(service, group)));
+        const std::string trailing = group == "apps" && service.appsUpdating()
+            ? i18n::tr("settings.update.updating")
+            : i18n::tr("settings.update.group-count", "count", std::to_string(count), "size",
+                       sizeText(groupBytes(service, group)));
         card->addChild(makeSettingsLinkRow(i18n::tr("settings.update.group." + std::string(group)), trailing, scale,
                                            [open = actions.openGroup, g = std::string(group)] { open(g); }));
       }
@@ -228,7 +234,8 @@ namespace settings {
 
   void addSoftwareUpdate(
       Flex& content, float scale, const SoftwareUpdateService* service, std::string_view group,
-      const std::vector<std::pair<std::string, std::string>>& hookFailures, const SoftwareUpdateActions& actions
+      const std::vector<std::pair<std::string, std::string>>& hookFailures, bool checkDaily,
+      const SoftwareUpdateActions& actions
   ) {
     if (service == nullptr) {
       rows::addEmptyState(content, "download", i18n::tr("settings.update.unavailable"), scale);
@@ -241,6 +248,17 @@ namespace settings {
     addNews(content, scale, *service, actions);
     addHero(content, scale, *service, actions);
     addGroups(content, scale, *service, actions);
+    Flex* options = rows::addCard(content, scale);
+    auto daily = rows::row(scale);
+    daily->addChild(makeLabel(i18n::tr("settings.update.check-daily"), Style::fontSizeBody * scale,
+                              colorSpecFromRole(ColorRole::Label1)));
+    daily->addChild(ui::spacer());
+    daily->addChild(ui::toggle({.checked = checkDaily, .scale = scale, .onChange = actions.setCheckDaily}));
+    options->addChild(std::move(daily));
+    const std::string& snapshots = service->snapshots();
+    rows::addValueRow(*options, i18n::tr("settings.update.snapshots"),
+                      snapshots.empty() ? i18n::tr("settings.update.snapshots-off") : snapshots, scale);
+    addSettingsRowSeparators(*options, scale);
     if (!hookFailures.empty()) {
       Flex* card = addSettingsGroupCard(content, i18n::tr("settings.update.hooks"), scale);
       for (const auto& [event, script] : hookFailures) {

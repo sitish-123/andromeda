@@ -398,6 +398,7 @@ private:
   std::uint64_t m_idleGraceOverlayGeneration = 0;
   std::unique_ptr<SystemHealthService> m_systemHealthService;
   std::unique_ptr<SoftwareUpdateService> m_softwareUpdateService;
+  SoftwareUpdateService* softwareUpdateService();
   // display.brightness_step: the brightness each display had before a rule dimmed it one step.
   std::map<std::string, float> m_dimmedFrom;
   void applyBrightnessStep();

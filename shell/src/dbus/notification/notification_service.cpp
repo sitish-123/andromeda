@@ -6,6 +6,7 @@
 #include "i18n/i18n.h"
 #include "net/uri.h"
 #include "notification/notification_manager.h"
+#include "shell/settings/settings_pages.h"
 #include "render/core/image_decoder.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -311,6 +312,20 @@ namespace notification_dbus {
     return std::nullopt;
   }
 
+  // Only a known Settings page id is kept; anything else is dropped.
+  std::optional<std::string> notifySettingsPageFromHints(const std::map<std::string, sdbus::Variant>& hints) {
+    if (auto it = hints.find("x-andromeda-settings-page"); it != hints.end()) {
+      try {
+        std::string page = it->second.get<std::string>();
+        if (settings::settingsPageFromId(page) != nullptr) {
+          return page;
+        }
+      } catch (...) {
+      }
+    }
+    return std::nullopt;
+  }
+
   std::optional<std::string> notifyDesktopEntryFromHints(const std::map<std::string, sdbus::Variant>& hints) {
     if (auto it = hints.find("desktop-entry"); it != hints.end()) {
       try {
@@ -460,6 +475,7 @@ namespace notification_dbus {
             .category = notifyCategoryFromHints(hints),
             .desktopEntry = notifyDesktopEntryFromHints(hints),
             .group = notifyGroupFromHints(hints),
+            .settingsPage = notifySettingsPageFromHints(hints),
         }
     );
   }

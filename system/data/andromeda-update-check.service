@@ -4,4 +4,6 @@ ConditionACPower=true
 
 [Service]
 Type=oneshot
+# Settings › Software Update › Check daily off creates this file.
+ExecCondition=/bin/sh -c '! test -e "${XDG_CONFIG_HOME:-$HOME/.config}/andromeda/update-check-off"'
 ExecStart=/usr/bin/busctl --user call org.andromeda.Update1 /org/andromeda/Update1 org.andromeda.Update1 CheckScheduled

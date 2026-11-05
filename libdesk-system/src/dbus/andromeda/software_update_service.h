@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/timer_manager.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -67,10 +69,19 @@ public:
   [[nodiscard]] bool canInstall() const noexcept { return m_helper != nullptr; }
   // Marks news up to the newest unread item as read, in the session service and in the helper (polkit).
   void markNewsRead();
+  // System (helper, root) and Apps (flatpak, as the user) together.
   void upgrade();
+  // Update lock: `then(waited)` runs at once when no system update runs, else after it finishes (at most 60 min).
+  // `waiting` runs when the wait starts. One pending action: a later call replaces it. Does not start the helper.
+  void afterSystemUpdate(std::function<void(bool waited)> then, std::function<void()> waiting);
+  [[nodiscard]] bool appsUpdating() const noexcept { return m_appsUpdating; }
+  // The last line flatpak printed when its update failed; empty after a success.
+  [[nodiscard]] const std::string& appsError() const noexcept { return m_appsError; }
   // Tonight's 02:00 run (on AC, all sessions locked): the user authenticates now; false cancels.
   void scheduleTonight(bool enable);
   [[nodiscard]] bool tonight() const noexcept { return m_tonight; }
+  // What snapshots the system before an update: "snap-pac", "snapper" or empty.
+  [[nodiscard]] const std::string& snapshots() const noexcept { return m_snapshots; }
 
 private:
   void load();
@@ -100,4 +111,12 @@ private:
   std::vector<std::string> m_questions;
   bool m_restartNeeded = false;
   bool m_tonight = false;
+  std::string m_snapshots;
+  std::function<void(bool)> m_updateWaiter;
+  Timer m_updateWaitCap;
+  void releaseWaiters();
+  bool m_appsUpdating = false;
+  std::string m_appsError;
+
+  void upgradeApps();
 };

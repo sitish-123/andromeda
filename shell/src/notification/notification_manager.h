@@ -68,6 +68,7 @@ struct NotificationRequest {
   std::optional<std::string> desktopEntry = std::nullopt;
   std::optional<std::string> group = std::nullopt;
   std::optional<uint32_t> forcedId = std::nullopt;
+  std::optional<std::string> settingsPage = std::nullopt;
 };
 
 class NotificationManager {
@@ -109,6 +110,10 @@ public:
   bool updateBody(uint32_t id, std::string body);
 
   void setActionInvokeCallback(ActionInvokeCallback callback);
+  // Opens a Settings page for a notification's x-andromeda-settings-page hint.
+  void setSettingsPageCallback(std::function<void(const std::string& page)> callback) {
+    m_settingsPageCallback = std::move(callback);
+  }
   // Actions on internally generated notifications are handled in-process: there is no D-Bus client
   // to receive ActionInvoked, so routing them to the external callback would signal into the void.
   // Each handler ignores ids it did not create.
@@ -239,6 +244,7 @@ private:
   std::unordered_map<uint32_t, size_t> m_historyIndex;
   std::vector<std::pair<int, EventCallback>> m_eventCallbacks;
   ActionInvokeCallback m_actionInvokeCallback;
+  std::function<void(const std::string&)> m_settingsPageCallback;
   std::vector<ActionInvokeCallback> m_internalActionCallbacks;
   CloseCallback m_closeCallback;
   std::vector<CloseCallback> m_closeObservers;

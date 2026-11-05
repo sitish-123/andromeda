@@ -1,6 +1,8 @@
 #include "dbus/andromeda/software_update_service.h"
 
+#include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/process/process.h"
 #include "dbus/session_bus.h"
 #include "dbus/system_bus.h"
 
@@ -9,6 +11,7 @@
 #include <chrono>
 #include <map>
 #include <string_view>
+#include <utility>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
 
@@ -65,6 +68,9 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
             m_resultMessage = "the update service stopped";
             notify();
           }
+          if (name == kHelperName && owner.empty()) {
+            releaseWaiters();
+          }
         });
     m_helper->uponSignal("Progress")
         .onInterface(kHelperName)
@@ -84,6 +90,7 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
             return;
           }
           m_tonight = false;
+          releaseWaiters();
           m_resultMessage = message;
           m_questions = questions;
           m_runState = ok ? RunState::Done : (questions.empty() ? RunState::Failed : RunState::NeedsChoice);
@@ -118,6 +125,9 @@ void SoftwareUpdateService::refresh() {
             return it != props.end() && it->second.get<bool>();
           };
           const bool running = prop("Running");
+          if (const auto it = props.find("Snapshots"); it != props.end()) {
+            m_snapshots = it->second.get<std::string>();
+          }
           if (prop("Tonight") != m_tonight) {
             m_tonight = !m_tonight;
             notify();
@@ -240,7 +250,53 @@ void SoftwareUpdateService::markNewsRead() {
   }
 }
 
+void SoftwareUpdateService::upgradeApps() {
+  const bool apps = std::ranges::any_of(m_updates, [](const SoftwareUpdate& u) { return u.group == "apps"; });
+  if (!apps || m_appsUpdating) {
+    return;
+  }
+  m_appsUpdating = true;
+  m_appsError.clear();
+  const std::weak_ptr<int> alive = m_lifetimeToken;
+  const bool started = process::runAsync(
+      std::vector<std::string>{"flatpak", "update", "--noninteractive", "-y"},
+      process::RunCallbacks{
+          .onExit =
+              [this, alive](process::RunResult result) {
+                // Runs on the process worker thread; state changes on the main loop.
+                std::string error;
+                if (!result) {
+                  error = "flatpak failed";
+                  std::string_view text = result.err.empty() ? result.out : result.err;
+                  while (!text.empty() && text.back() == '\n') {
+                    text.remove_suffix(1);
+                  }
+                  if (!text.empty()) {
+                    error = std::string(text.substr(text.rfind('\n') + 1));
+                  }
+                }
+                DeferredCall::callLater([this, alive, error = std::move(error)] {
+                  if (alive.expired()) {
+                    return;
+                  }
+                  m_appsUpdating = false;
+                  m_appsError = error;
+                  check();
+                  notify();
+                });
+              },
+      },
+      process::RunOptions{.timeout = std::chrono::minutes(30), .maxOutputBytes = 16 * 1024}
+  );
+  if (!started) {
+    m_appsUpdating = false;
+    m_appsError = "flatpak could not start";
+  }
+  notify();
+}
+
 void SoftwareUpdateService::upgrade() {
+  upgradeApps();
   if (m_helper == nullptr || m_runState == RunState::Running) {
     return;
   }
@@ -297,6 +353,47 @@ void SoftwareUpdateService::scheduleTonight(bool enable) {
         });
   } catch (const sdbus::Error& e) {
     kLog.warn("schedule tonight: {}", e.what());
+  }
+}
+
+void SoftwareUpdateService::afterSystemUpdate(std::function<void(bool waited)> then, std::function<void()> waiting) {
+  if (m_helper == nullptr || m_system == nullptr || !m_system->nameHasOwner(kHelperName)) {
+    then(false);
+    return;
+  }
+  const std::weak_ptr<int> alive = m_lifetimeToken;
+  try {
+    m_helper->getPropertyAsync("Running").onInterface(kHelperName).uponReplyInvoke(
+        [this, alive, then = std::move(then), waiting = std::move(waiting)](
+            const std::optional<sdbus::Error>& error, const sdbus::Variant& value
+        ) {
+          if (alive.expired()) {
+            return;
+          }
+          if (error.has_value() || !value.get<bool>()) {
+            then(false);
+            return;
+          }
+          m_runState = RunState::Running;
+          m_updateWaiter = then;
+          // A hung transaction must not keep the session from ending forever.
+          m_updateWaitCap.start(std::chrono::minutes(60), [this] { releaseWaiters(); });
+          if (waiting) {
+            waiting();
+          }
+          notify();
+        }
+    );
+  } catch (const sdbus::Error& e) {
+    kLog.warn("update lock: {}", e.what());
+    then(false);
+  }
+}
+
+void SoftwareUpdateService::releaseWaiters() {
+  m_updateWaitCap.stop();
+  if (auto waiter = std::exchange(m_updateWaiter, nullptr)) {
+    waiter(true);
   }
 }
 
