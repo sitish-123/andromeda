@@ -325,7 +325,9 @@ namespace andromeda::ov {
     const int usableBottom = frame.usable.y + frame.usable.height;
     placeLabel(
         m_hint, frame.output.x + (frame.output.width - m_hint.width) / 2, usableBottom - kHintBottom - m_hint.height,
-        frame.style == Style::Spaces ? late : shown
+        frame.hintHidden ? 0.0F
+        : frame.style == Style::Spaces ? late
+                                       : shown
     );
 
     if (placement.plus.has_value()) {

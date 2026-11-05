@@ -55,6 +55,7 @@ namespace andromeda::ov {
     std::string_view filter;
     const void* hovered = nullptr; // the window card under the pointer; it shows its title and close button
     bool closeHovered = false;     // the pointer is on that close button
+    bool hintHidden = false;       // a drag is held at an edge: the edge glows instead
   };
 
   // The overview's labels and targets on one output: workspace names, the title row (name + layout chip), the filter

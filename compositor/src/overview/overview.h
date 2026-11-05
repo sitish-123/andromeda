@@ -421,7 +421,7 @@ namespace andromeda {
     void restoreFocus(View* focus);
     void scheduleFrames() const;
 
-    [[nodiscard]] Card* cardAt(double lx, double ly);
+    [[nodiscard]] Card* cardAt(double lx, double ly, const Card* skip = nullptr);
     [[nodiscard]] Workspace*
     workspaceAtPoint(double lx, double ly, OutputState** outState, size_t* outIndex, bool extendScrollingAxis);
     [[nodiscard]] WorkspaceGroup*
@@ -431,7 +431,21 @@ namespace andromeda {
 
     void beginDrag();
     void updateDrag(double lx, double ly);
+    // Recomputes the drop target under the pointer without moving the dragged card: rows can slide under a still one.
+    void retargetDrop(double lx, double ly);
+    // Edge auto-scroll: holding a dragged card within kEdgeZone of an output edge steps the rows along the workspace
+    // axis (Strip) or pans a scrolling workspace across it, after kEdgeDelayMs and then every kEdgeRepeatMs.
+    void updateEdgeScroll(double lx, double ly);
+    void stopEdgeScroll();
+    static int onEdgeTimer(void* data);
+    // The new-workspace target under the pointer, as an insertion at the end of its output's workspaces.
+    [[nodiscard]] WorkspaceGroup* plusTargetAt(double lx, double ly, OutputState** outState, wlr_box* outBox);
     void endDrag(bool drop);
+    // Inserts `view` back into the slot beginDrag detached the dragged window from.
+    void restoreDragSlot(View& view);
+    // The tiled window whose middle is under the pointer, which a drop swaps with the dragged one.
+    [[nodiscard]] View* swapTargetAt(double lx, double ly);
+    void swapDragged(View& view, View& other);
     void syncWorkspaceRows(OutputState& state, WorkspaceGroup& group);
     // The desk->overview map of workspace `index` on `state`: the main area for the chosen workspace when it has one.
     [[nodiscard]] static ov::Fit workspaceFit(const OutputState& state, size_t index);
@@ -442,6 +456,14 @@ namespace andromeda {
     Server* m_server = nullptr;
     wlr_scene_tree* m_tree = nullptr; // Server::overviewTree()
     std::unique_ptr<HintRect> m_dropHint;
+    std::unique_ptr<HintRect> m_edgeHint;
+    wl_event_source* m_edgeTimer = nullptr;
+    // The edge a drag is held at: the output it is on, and +-1 along (step rows) or across (pan) the workspace axis.
+    Output* m_edgeOutput = nullptr;
+    int m_edgeStep = 0;
+    int m_edgePan = 0;
+    double m_dragX = 0;
+    double m_dragY = 0;
     std::vector<std::unique_ptr<OutputState>> m_outputs;
 
     bool m_active = false;

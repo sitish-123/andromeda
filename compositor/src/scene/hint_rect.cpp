@@ -22,6 +22,9 @@ namespace andromeda {
     constexpr float kRingFill = 0.18F;
     constexpr int kGlowSigma = 8;
     constexpr float kGlowAlpha = 0.7F;
+    // Steps of the Edge gradient: 3 px each on a 72 px band, below one 8-bit level apart in the accent.
+    constexpr int kEdgeBands = 24;
+    constexpr float kEdgeAlpha = 0.35F;
 
     bool sameBox(const wlr_box& left, const wlr_box& right) {
       return left.x == right.x && left.y == right.y && left.width == right.width && left.height == right.height;
@@ -41,6 +44,7 @@ namespace andromeda {
       m_rect = nullptr;
       m_ring = nullptr;
       m_glow = nullptr;
+      m_bands.clear();
     }
   }
 
@@ -56,7 +60,7 @@ namespace andromeda {
     wlr_scene_node_set_enabled(&m_tree->node, false);
   }
 
-  void HintRect::show(Output* output, const wlr_box& box, int cornerRadius, HintLook look) {
+  void HintRect::show(Output* output, const wlr_box& box, int cornerRadius, HintLook look, wlr_edges strong) {
     if (box.width <= 0 || box.height <= 0) {
       hideImmediate();
       return;
@@ -93,7 +97,19 @@ namespace andromeda {
       if (m_glow != nullptr) {
         wlr_scene_node_set_enabled(&m_glow->node, look == HintLook::Glow);
       }
+      if (look == HintLook::Edge && m_bands.empty()) {
+        const float clear[4]{};
+        for (int i = 0; i < kEdgeBands; ++i) {
+          wlr_scene_rect* band = wlr_scene_rect_create(m_tree, 1, 1, clear);
+          band->accepts_input = false;
+          m_bands.push_back(band);
+        }
+      }
+      for (wlr_scene_rect* band : m_bands) {
+        wlr_scene_node_set_enabled(&band->node, look == HintLook::Edge);
+      }
     }
+    m_strong = strong;
 
     if (!m_visible) {
       wlr_scene_node_set_enabled(&m_tree->node, true);
@@ -176,6 +192,8 @@ namespace andromeda {
     case HintLook::Glow:
       premultiplied(color, solid, alpha);
       break;
+    case HintLook::Edge:
+      break;
     }
     wlr_scene_rect_set_color(m_rect, color);
 
@@ -202,6 +220,21 @@ namespace andromeda {
       float glow[4]{};
       premultiplied(glow, solid, alpha * kGlowAlpha);
       wlr_scene_shadow_set_color(m_glow, glow);
+    } else if (m_look == HintLook::Edge) {
+      const bool vertical = (m_strong & (WLR_EDGE_TOP | WLR_EDGE_BOTTOM)) != 0;
+      const bool fromEnd = (m_strong & (WLR_EDGE_BOTTOM | WLR_EDGE_RIGHT)) != 0;
+      const int depth = vertical ? height : width;
+      for (int i = 0; i < kEdgeBands; ++i) {
+        const int start = depth * i / kEdgeBands;
+        const int size = std::max(1, depth * (i + 1) / kEdgeBands - start);
+        const int offset = fromEnd ? depth - start - size : start;
+        wlr_scene_rect* band = m_bands[static_cast<size_t>(i)];
+        wlr_scene_node_set_position(&band->node, vertical ? 0 : offset, vertical ? offset : 0);
+        wlr_scene_rect_set_size(band, vertical ? width : size, vertical ? size : height);
+        float step[4]{};
+        premultiplied(step, solid, alpha * kEdgeAlpha * (1.0F - (static_cast<float>(i) + 0.5F) / kEdgeBands));
+        wlr_scene_rect_set_color(band, step);
+      }
     }
   }
 
