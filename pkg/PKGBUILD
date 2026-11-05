@@ -79,6 +79,12 @@ package_andromeda-system-git() {
   install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"
   install -Dm644 desktop/system/data/org.andromeda.Update1.service \
     "$pkgdir/usr/share/dbus-1/services/org.andromeda.Update1.service"
+  install -Dm644 desktop/system/data/andromeda-update-check.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-update-check.service"
+  install -Dm644 desktop/system/data/andromeda-update-check.timer \
+    "$pkgdir/usr/lib/systemd/user/andromeda-update-check.timer"
+  install -d "$pkgdir/usr/lib/systemd/user/timers.target.wants"
+  ln -s ../andromeda-update-check.timer "$pkgdir/usr/lib/systemd/user/timers.target.wants/andromeda-update-check.timer"
   install -Dm755 desktop/system/target/release/andromeda-update-helper \
     "$pkgdir/usr/lib/andromeda/andromeda-update-helper"
   install -dm755 "$pkgdir/usr/share/andromeda/migrations"

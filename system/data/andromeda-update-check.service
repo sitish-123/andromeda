@@ -1,0 +1,7 @@
+[Unit]
+Description=Andromeda daily software update check
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/busctl --user call org.andromeda.Update1 /org/andromeda/Update1 org.andromeda.Update1 CheckScheduled

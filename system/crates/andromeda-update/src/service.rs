@@ -37,6 +37,22 @@ pub struct Update {
     state: Arc<Mutex<State>>,
 }
 
+/// NetworkManager's Metered: 1 yes, 3 guessed yes. No NetworkManager: not metered.
+async fn metered() -> bool {
+    let Ok(system) = zbus::Connection::system().await else { return false };
+    let Ok(proxy) = zbus::Proxy::new(
+        &system,
+        "org.freedesktop.NetworkManager",
+        "/org/freedesktop/NetworkManager",
+        "org.freedesktop.NetworkManager",
+    )
+    .await
+    else {
+        return false;
+    };
+    matches!(proxy.get_property::<u32>("Metered").await, Ok(1 | 3))
+}
+
 fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
@@ -180,6 +196,20 @@ impl Update {
         let conn = conn.clone();
         tokio::spawn(async move { this.run_check(conn).await });
         Ok(())
+    }
+
+    /// The daily timer's check (andromeda-update-check.timer, on AC only): skipped on a metered network, where a
+    /// sync of the package databases and the Flatpak and firmware metadata costs the user data.
+    async fn check_scheduled(
+        &self,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        if metered().await {
+            log::info!("scheduled check skipped: metered network");
+            return Ok(());
+        }
+        self.check(emitter, conn).await
     }
 
     /// "I have read this": news published up to `until` (unix seconds) no longer blocks. `until` is capped at the
