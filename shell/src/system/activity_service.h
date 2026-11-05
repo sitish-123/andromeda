@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,9 @@ public:
   void setUnitTiers(std::map<std::string, std::string> tierByUnit);
   // Reads every unit's cgroup once and rebuilds rows().
   void sample(std::chrono::steady_clock::time_point now);
+  // sample() with the reads on the SharedWorker (~3.6 ms for 33 units); `done` runs on the main loop after
+  // rows() changed. A call while one is in flight does nothing.
+  void sampleAsync(std::chrono::steady_clock::time_point now, std::function<void()> done);
 
   [[nodiscard]] const std::string& cgroupRoot() const noexcept { return m_cgroupRoot; }
   [[nodiscard]] int cpuCount() const noexcept { return m_cpuCount; }
@@ -61,6 +66,9 @@ private:
     CgroupSample sample;
   };
 
+  using Readings = std::vector<std::pair<std::string, CgroupSample>>;
+  [[nodiscard]] static Readings read(const std::string& cgroupRoot, const std::vector<SystemdUnit>& units);
+  void apply(std::chrono::steady_clock::time_point now, Readings readings);
   void rebuild();
 
   std::string m_cgroupRoot;
@@ -70,4 +78,6 @@ private:
   std::map<std::string, std::string> m_tierByUnit;
   std::map<std::string, std::deque<Timed>> m_history; // by unit name, oldest first
   std::vector<ActivityRow> m_rows;
+  bool m_reading = false;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 };

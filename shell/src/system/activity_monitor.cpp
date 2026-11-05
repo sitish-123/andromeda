@@ -126,10 +126,11 @@ void ActivityMonitor::requestTiers() {
 void ActivityMonitor::sampleNow() {
   requestTiers();
   windowsChanged();
-  m_activity.sample(std::chrono::steady_clock::now());
-  if (m_onChange) {
-    m_onChange();
-  }
+  m_activity.sampleAsync(std::chrono::steady_clock::now(), [this]() {
+    if (m_onChange) {
+      m_onChange();
+    }
+  });
 }
 
 void ActivityMonitor::windowsChanged() {
