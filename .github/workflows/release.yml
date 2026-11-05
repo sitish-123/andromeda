@@ -30,6 +30,8 @@ jobs:
         working-directory: pkg
         run: sudo -u builder env ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE" makepkg --syncdeps --noconfirm --force
       - name: Repository
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
         run: |
           mkdir repo
           # GitHub rewrites ':' in asset names, which would break the epoch's filenames; pacman reads the version
@@ -38,9 +40,12 @@ jobs:
             name=$(basename "$package")
             cp "$package" "repo/${name//:/.}"
           done
-          repo-add repo/andromeda.db.tar.gz repo/*.pkg.tar.zst
+          echo "$RELEASE_GPG_KEY" | gpg --batch --import
+          key=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
+          for package in repo/*.pkg.tar.zst; do gpg --batch --detach-sign --no-armor -u "$key" "$package"; done
+          repo-add --sign --key "$key" repo/andromeda.db.tar.gz repo/*.pkg.tar.zst
           # Release assets cannot be symlinks.
-          for link in andromeda.db andromeda.files; do cp --remove-destination "$(readlink -f "repo/$link")" "repo/$link"; done
+          for link in andromeda.db andromeda.db.sig andromeda.files andromeda.files.sig; do cp --remove-destination "$(readlink -f "repo/$link")" "repo/$link"; done
       - uses: actions/upload-artifact@v4
         with:
           name: repo
@@ -67,6 +72,8 @@ jobs:
           tag=$(gh release list -R sitish-123/andromeda-link -L 1 --json tagName --jq '.[0].tagName')
           gh release download "$tag" -R sitish-123/andromeda-link -p '*_amd64.deb' -D "$RUNNER_TEMP/link"
       - name: Repository
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
         run: |
           sudo apt-get install -y -qq dpkg-dev apt-utils > /dev/null
           out=$HOME/.cache/andromeda-ubuntu
@@ -80,6 +87,9 @@ jobs:
           dpkg-scanpackages --multiversion . /dev/null > Packages
           gzip -k9 Packages
           apt-ftparchive release . > Release
+          echo "$RELEASE_GPG_KEY" | gpg --batch --import
+          gpg --batch --yes --clearsign -o InRelease Release
+          gpg --batch --yes --armor --detach-sign -o Release.gpg Release
       - uses: actions/upload-artifact@v4
         with:
           name: apt
@@ -92,7 +102,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: install.sh
+          sparse-checkout: |
+            install.sh
+            andromeda-release.asc
           sparse-checkout-cone-mode: false
           path: src
       - uses: actions/download-artifact@v4
@@ -106,4 +118,4 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* apt/* andromeda-link.apk src/install.sh
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* apt/* andromeda-link.apk src/install.sh src/andromeda-release.asc

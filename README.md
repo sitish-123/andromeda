@@ -36,8 +36,7 @@ which apps use energy.
 
 ## Install
 
-Andromeda supports Arch Linux and Ubuntu 26.04 (x86_64). Each release publishes packages for both. The packages are
-not signed yet.
+Andromeda supports Arch Linux and Ubuntu 26.04 (x86_64). Each release publishes signed packages for both.
 
 Run this one command. It detects your system, adds the Andromeda repository and installs the desktop:
 
@@ -49,11 +48,16 @@ To set it up by hand instead, follow the steps for your system.
 
 ### Arch Linux
 
-Add the repository to `/etc/pacman.conf`:
+Trust the release key, then add the repository to `/etc/pacman.conf`:
+
+```sh
+curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc -o andromeda.asc
+sudo pacman-key --add andromeda.asc
+sudo pacman-key --lsign-key 97DD7B3B28BE58AC8787E32D11437B48C42663B5
+```
 
 ```ini
 [andromeda]
-SigLevel = Optional TrustAll
 Server = https://github.com/sitish-123/andromeda/releases/latest/download
 ```
 
@@ -65,14 +69,17 @@ sudo pacman -Sy andromeda
 
 ### Ubuntu 26.04
 
-Add the repository, then install:
-
 ```sh
-echo "deb [trusted=yes] https://github.com/sitish-123/andromeda/releases/latest/download ./" \
+sudo install -d -m 755 /etc/apt/keyrings
+curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc \
+  | sudo tee /etc/apt/keyrings/andromeda.asc > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/andromeda.asc] https://github.com/sitish-123/andromeda/releases/latest/download ./" \
   | sudo tee /etc/apt/sources.list.d/andromeda.list
 sudo apt update
 sudo apt install andromeda
 ```
+
+The release key fingerprint is `97DD 7B3B 28BE 58AC 8787  E32D 1143 7B48 C426 63B5`.
 
 ### After installing
 
