@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/timer_manager.h"
+
 #include <functional>
 #include <memory>
 
@@ -8,7 +10,7 @@ namespace sdbus {
 }
 class SystemBus;
 
-// Ambient light in lux from iio-sensor-proxy (net.hadess.SensorProxy). It claims the light sensor while alive.
+// Ambient light in lux from iio-sensor-proxy (net.hadess.SensorProxy), sampled every 10 s.
 // A sensor that reports only "vendor" units gives no readings: their scale differs per device.
 class AmbientLightService {
 public:
@@ -21,12 +23,16 @@ public:
   AmbientLightService& operator=(const AmbientLightService&) = delete;
 
 private:
+  void sample();
   void refresh();
+  void release();
 
   std::unique_ptr<sdbus::IProxy> m_proxy;
   LuxCallback m_onLux;
   bool m_claimed = false;
   // The sensor reports lux, so a LightLevel change carries the reading itself.
   bool m_luxSensor = false;
+  Timer m_readingWait;
+  Timer m_nextSample;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
 };

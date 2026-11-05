@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "dbus/system_bus.h"
 
+#include <chrono>
 #include <map>
 #include <optional>
 #include <sdbus-c++/IProxy.h>
@@ -17,6 +18,8 @@ namespace {
   constexpr auto kInterface = "net.hadess.SensorProxy";
   constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
   using VariantMap = std::map<std::string, sdbus::Variant>;
+  constexpr auto kSampleInterval = std::chrono::seconds(10);
+  constexpr auto kReadingWait = std::chrono::seconds(3);
 } // namespace
 
 AmbientLightService::AmbientLightService(SystemBus& bus, LuxCallback onLux) : m_onLux(std::move(onLux)) {
@@ -24,11 +27,7 @@ AmbientLightService::AmbientLightService(SystemBus& bus, LuxCallback onLux) : m_
   m_proxy->uponSignal("PropertiesChanged")
       .onInterface(kPropertiesInterface)
       .call([this](const std::string& interfaceName, const VariantMap& changed, const std::vector<std::string>&) {
-        if (interfaceName != kInterface) {
-          return;
-        }
-        if (changed.contains("HasAmbientLight")) {
-          refresh();
+        if (interfaceName != kInterface || !m_claimed) {
           return;
         }
         // iio-sensor-proxy sends the unit with every reading.
@@ -37,20 +36,10 @@ AmbientLightService::AmbientLightService(SystemBus& bus, LuxCallback onLux) : m_
         }
         if (const auto level = changed.find("LightLevel"); level != changed.end() && m_luxSensor) {
           m_onLux(level->second.get<double>());
+          release();
         }
       });
-  const std::weak_ptr<int> alive = m_lifetimeToken;
-  m_proxy->callMethodAsync("ClaimLight").onInterface(kInterface).uponReplyInvoke([this, alive](std::optional<sdbus::Error> err) {
-    if (alive.expired()) {
-      return;
-    }
-    if (err.has_value()) {
-      kLog.info("no ambient light sensor: {}", err->what());
-      return;
-    }
-    m_claimed = true;
-    refresh();
-  });
+  sample();
 }
 
 AmbientLightService::~AmbientLightService() {
@@ -64,24 +53,53 @@ AmbientLightService::~AmbientLightService() {
   }
 }
 
+// The proxy polls the sensor only while a client holds the claim, so each sample claims it, takes the first fresh
+// reading (or the current value if none comes), and releases it until the next sample.
+void AmbientLightService::sample() {
+  const std::weak_ptr<int> alive = m_lifetimeToken;
+  m_proxy->callMethodAsync("ClaimLight").onInterface(kInterface).uponReplyInvoke([this, alive](std::optional<sdbus::Error> err) {
+    if (alive.expired()) {
+      return;
+    }
+    if (err.has_value()) {
+      kLog.info("no ambient light sensor: {}", err->what());
+      return;
+    }
+    m_claimed = true;
+    m_readingWait.start(kReadingWait, [this] { refresh(); });
+  });
+}
+
+void AmbientLightService::release() {
+  m_readingWait.stop();
+  if (m_claimed) {
+    m_claimed = false;
+    try {
+      m_proxy->callMethod("ReleaseLight").onInterface(kInterface).dontExpectReply();
+    } catch (const sdbus::Error& e) {
+      kLog.debug("release light: {}", e.what());
+    }
+  }
+  m_nextSample.start(kSampleInterval, [this] { sample(); });
+}
+
 void AmbientLightService::refresh() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   m_proxy->callMethodAsync("GetAll")
       .onInterface(kPropertiesInterface)
       .withArguments(std::string{kInterface})
       .uponReplyInvoke([this, alive](std::optional<sdbus::Error> err, const VariantMap& properties) {
-        if (alive.expired() || err.has_value()) {
+        if (alive.expired()) {
           return;
         }
-        m_luxSensor = false;
         const auto has = properties.find("HasAmbientLight");
         const auto unit = properties.find("LightLevelUnit");
         const auto level = properties.find("LightLevel");
-        if (has == properties.end() || !has->second.get<bool>() || unit == properties.end()
-            || unit->second.get<std::string>() != "lux" || level == properties.end()) {
-          return;
+        m_luxSensor = !err.has_value() && has != properties.end() && has->second.get<bool>() && unit != properties.end()
+            && unit->second.get<std::string>() == "lux" && level != properties.end();
+        if (m_luxSensor) {
+          m_onLux(level->second.get<double>());
         }
-        m_luxSensor = true;
-        m_onLux(level->second.get<double>());
+        release();
       });
 }
