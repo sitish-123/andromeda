@@ -97,9 +97,12 @@ PipeWireSpectrum::ListenerId PipeWireSpectrum::addChangeListener(int bandCount, 
   state.bandCount = clampBandCount(bandCount);
   state.callback = std::move(callback);
   m_listeners.emplace(id, std::move(state));
-  reconfigureAnalysisLayout();
+  const bool notifiedAll = reconfigureAnalysisLayout();
   if (wasEmpty) {
     rebuildStream();
+  } else if (!notifiedAll) {
+    // Existing listeners keep their state; the new one still needs its initial values.
+    emitChanged(id);
   }
   return id;
 }
@@ -565,7 +568,7 @@ void PipeWireSpectrum::initProcessing() {
   reconfigureAnalysisLayout();
 }
 
-void PipeWireSpectrum::reconfigureAnalysisLayout() {
+bool PipeWireSpectrum::reconfigureAnalysisLayout() {
   int maxBandCount = kDefaultViewBandCount;
   for (const auto& [id, state] : m_listeners) {
     (void)id;
@@ -588,6 +591,7 @@ void PipeWireSpectrum::reconfigureAnalysisLayout() {
       emitChanged(id);
     }
   }
+  return analysisChanged;
 }
 
 void PipeWireSpectrum::configureListenerState(ListenerState& state, bool resetState) {
