@@ -41,13 +41,14 @@ jobs:
           restore-keys: ccache-deb-26.04-
       - name: Packages
         if: ${{ !inputs.prebuilt }}
-        run: tools/ubuntu-deb.sh --clean 26.04
+        run: DEB_VERSION=${TAG#v} tools/ubuntu-deb.sh --clean 26.04
       - uses: actions/cache/save@v4
         if: always() && !inputs.prebuilt
         with:
           path: ~/.cache/andromeda-ubuntu/ccache-deb-26.04
           key: ccache-deb-26.04-${{ github.run_id }}
-      # A local build uploads its debs to the release first (gh release upload); this only signs the repository.
+      # A local build (DEB_VERSION=<tag without v> tools/ubuntu-deb.sh) uploads its debs to the release first; this
+      # only signs the repository.
       - name: Prebuilt debs
         if: ${{ inputs.prebuilt }}
         env:

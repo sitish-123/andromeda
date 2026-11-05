@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: tools/ubuntu-deb.sh [--clean] [ubuntu-version]
+# Usage: [DEB_VERSION=x.y.z] tools/ubuntu-deb.sh [--clean] [ubuntu-version]
 # Builds the Ubuntu .deb packages (debian/) from the working tree in a container, then installs them with apt to
 # prove their dependencies resolve. Incremental: the copied tree, the meson build dirs and the cargo target dir stay
 # in the output dir, so a rerun compiles only what changed. --clean builds from nothing (CI, releases).
@@ -29,6 +29,11 @@ mkdir -p "$OUT/src/pkg"
 git -C "$ROOT" ls-files -co --exclude-standard -z | grep -zv -e '^link/' -e '^pkg/' |
   rsync -a --from0 --files-from=- "$ROOT/" "$OUT/src/"
 rsync -a "$ROOT/pkg/PKGBUILD" "$ROOT/pkg/deb-build.sh" "$OUT/src/pkg/"
+# A release sets DEB_VERSION from its tag, so apt upgrades between releases; other builds keep 0~git0, which sorts
+# below every release.
+if [[ -n ${DEB_VERSION:-} ]]; then
+  sed -i "1s/([^)]*)/($DEB_VERSION)/" "$OUT/src/debian/changelog"
+fi
 
 # The build dependencies from debian/control live in an image layer: docker reuses it until control changes.
 CTX=$OUT/image
