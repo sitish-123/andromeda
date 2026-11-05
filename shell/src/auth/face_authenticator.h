@@ -64,4 +64,6 @@ private:
   bool m_verifying = false;
   bool m_sleeping = false;
   int m_misses = 0;
+  // No gazed or no enrolled face: asked once per start(), not again on every key.
+  bool m_unavailable = false;
 };
