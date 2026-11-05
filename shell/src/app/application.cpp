@@ -17,6 +17,7 @@
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/andromeda/shell_service.h"
 #include "dbus/andromeda/system_health_service.h"
+#include "dbus/andromeda/software_update_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/logind/power_config_service.h"
 #include "dbus/bluetooth/bluetooth_service.h"

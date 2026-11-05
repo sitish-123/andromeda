@@ -51,6 +51,7 @@ class AccountsService;
 class PowerProfilesService;
 class PowerConfigService;
 class SystemHealthService;
+class SoftwareUpdateService;
 class ActivityMonitor;
 class ActivityDetails;
 class ScreenTimeService;
@@ -174,6 +175,16 @@ public:
     m_openActivityApp = std::move(openActivity);
   }
   void setSystemHealthProvider(std::function<SystemHealthService*()> health) { m_systemHealthProvider = std::move(health); }
+  // Software Update page: the update client, failed user hooks (event, script), and the session restart.
+  void setSoftwareUpdateSources(std::function<SoftwareUpdateService*()> service,
+                                std::function<std::vector<std::pair<std::string, std::string>>()> hookFailures,
+                                std::function<void()> restart) {
+    m_softwareUpdateProvider = std::move(service);
+    m_hookFailuresProvider = std::move(hookFailures);
+    m_restartSession = std::move(restart);
+  }
+  // The update client changed: an open Software Update page rebuilds.
+  void onSoftwareUpdateChanged();
   // Battery level, charge limit or power mode changed: the Battery and Power page shows them.
   void onPowerChanged();
   // Rebuilds an open Sound page when devices, defaults or mute change; volume steps do not rebuild.
@@ -282,6 +293,7 @@ private:
   void addDefaultAppsContent(float scale);
   void addDevicesContent(float scale);
   void addProblemsContent(float scale);
+  void addSoftwareUpdateContent(float scale);
   void addWifiContent(float scale);
   void addBluetoothContent(float scale);
   void addNetworkContent(float scale);
@@ -289,7 +301,6 @@ private:
   void addUsersContent(float scale);
   void addPowerContent(float scale);
   void addAboutContent(float scale);
-  void checkUpdates();
   void openDetail(std::string detail);
   void leaveDetail();
   void createNewUser();
@@ -526,6 +537,9 @@ private:
   std::function<PowerProfilesService*()> m_powerProfilesProvider;
   std::function<PowerConfigService*()> m_powerConfigProvider;
   std::function<SystemHealthService*()> m_systemHealthProvider;
+  std::function<SoftwareUpdateService*()> m_softwareUpdateProvider;
+  std::function<std::vector<std::pair<std::string, std::string>>()> m_hookFailuresProvider;
+  std::function<void()> m_restartSession;
   std::function<ActivityMonitor*()> m_activityProvider;
   const ActivityDetails* m_activityDetails = nullptr;
   ScreenTimeService* m_screenTime = nullptr;
@@ -540,11 +554,11 @@ private:
   std::string m_wifiJoinError;
   settings::NewUserDraft m_newUser;
   bool m_renaming = false;
-  int m_updateCount = -1;
   // Problems page: nullopt until coredumpctl answers; reloaded each time the page opens.
   std::optional<std::vector<settings::CrashRecord>> m_crashRecords;
   bool m_crashRecordsLoading = false;
   bool m_crashRecordsAvailable = true;
+  bool m_softwareUpdateRead = false;
   std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
   std::string m_renameError;
   bool m_userDeleteBusy = false;

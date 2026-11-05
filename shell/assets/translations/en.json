@@ -2006,17 +2006,7 @@
       "processor": "Processor",
       "storage": "Storage",
       "storage-free": "{free} GB free of {total} GB",
-      "system": "Operating System",
-      "updates": "Software Updates",
-      "updates-check": "Check Now",
-      "updates-checking": "Checking for updates…",
-      "updates-count": "{count} update available",
-      "updates-count-plural": "{count} updates available",
-      "updates-failed": "Could not check for updates",
-      "updates-install": "Update…",
-      "updates-no-terminal": "No terminal found to run the update",
-      "updates-none": "Your system is up to date",
-      "updates-unchecked": "Not checked yet"
+      "system": "Operating System"
     },
     "power": {
       "action": {
@@ -2230,6 +2220,7 @@
       "mouse": "Mouse and Touchpad",
       "devices": "Devices",
       "problems": "Problems",
+      "software-update": "Software Update",
       "power": "Battery and Power",
       "privacy": "Privacy and Security",
       "date-time": "Date and Time",
@@ -6685,6 +6676,48 @@
       "open-folder": "Open reports folder",
       "empty": "No crashes in the last 30 days.",
       "unavailable": "Crash records are not available on this system."
+    },
+    "update": {
+      "news-title": "Read the Arch news before updating",
+      "news-open": "Open",
+      "news-unknown": "Arch news could not be checked yet",
+      "news-read": "I Have Read This",
+      "running": "Updating",
+      "preparing": "Preparing…",
+      "stage": {
+        "install": "Installing",
+        "remove": "Removing",
+        "conflicts": "Checking conflicts",
+        "disk space": "Checking disk space",
+        "integrity": "Checking packages",
+        "load": "Loading packages",
+        "keyring": "Checking keys"
+      },
+      "needs-choice": "The update needs a choice",
+      "needs-choice-detail": "Nothing was changed. These questions need an answer first.",
+      "failed": "The update failed",
+      "try-again": "Try Again",
+      "restart-needed": "Restart to finish the update",
+      "restart": "Restart",
+      "checking": "Checking for updates…",
+      "unavailable": "Software updates are not available",
+      "up-to-date": "Andromeda is up to date",
+      "check": "Check Now",
+      "last-check": "Last checked {time}",
+      "available": "{count} updates · {size}",
+      "restart-after": "Restart after the update to use the new kernel",
+      "update-now": "Update Now",
+      "tonight": "Tonight",
+      "tonight-scheduled": "Updates tonight at 02:00 if plugged in and locked",
+      "tonight-cancel": "Cancel",
+      "group-count": "{count} · {size}",
+      "group": {
+        "system": "System",
+        "apps": "Apps",
+        "firmware": "Firmware"
+      },
+      "hooks": "Hooks that failed",
+      "hook-failed": "on {event}"
     }
   },
   "setup-wizard": {

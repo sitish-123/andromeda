@@ -41,6 +41,7 @@ _deps = [
 
 _sources = files(
   'src/dbus/andromeda/system_health_service.cpp',
+  'src/dbus/andromeda/software_update_service.cpp',
   'src/dbus/mpris/mpris_service.cpp',
   'src/dbus/network/iwd_diagnostics.cpp',
   'src/dbus/network/iwd_secret_agent.cpp',

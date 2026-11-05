@@ -628,6 +628,8 @@ void SettingsWindow::dismissOpenSelectDropdown() {
 }
 
 void SettingsWindow::destroyWindow() {
+  // The next open reads the update service again.
+  m_softwareUpdateRead = false;
   // A pending display confirmation keeps its binding so the revert timer still fires after the window closes.
   if (m_displayConfirmSecondsLeft == 0) {
     m_outputManagement.reset();

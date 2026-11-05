@@ -37,6 +37,7 @@ namespace settings::page_rows {
     // No toggle when empty.
     std::function<void(bool)> onToggle;
   };
-  void addHero(Flex& content, Hero hero, float scale);
+  // Returns the hero's card, for rows that belong with it (a progress bar).
+  Flex* addHero(Flex& content, Hero hero, float scale);
 
 } // namespace settings::page_rows

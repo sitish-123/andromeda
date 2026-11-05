@@ -1,3 +1,4 @@
+#include "dbus/andromeda/software_update_service.h"
 #include "app/main_loop.h"
 #include "application.h"
 #include "application_internal.h"
@@ -214,6 +215,28 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
   m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });
   m_settingsWindow.setSystemHealthProvider([this] { return m_systemHealthService.get(); });
+  m_settingsWindow.setSoftwareUpdateSources(
+      [this]() -> SoftwareUpdateService* {
+        // Created when the page first opens, so Update1 is not D-Bus activated at login.
+        if (m_softwareUpdateService == nullptr && m_bus != nullptr) {
+          try {
+            m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
+            m_softwareUpdateService->setChangeCallback([this] { m_settingsWindow.onSoftwareUpdateChanged(); });
+          } catch (const std::exception& e) {
+            kLog.warn("software update client disabled: {}", e.what());
+          }
+        }
+        return m_softwareUpdateService.get();
+      },
+      [this] {
+        std::vector<std::pair<std::string, std::string>> failures;
+        for (const auto& failure : m_hookManager.dirHookFailures()) {
+          failures.emplace_back(failure.event, failure.script);
+        }
+        return failures;
+      },
+      [this] { (void)m_sessionActionRunner.requestRebootDetached(); }
+  );
   m_settingsWindow.setBatteryAppsSources(
       [this] { return ensureActivityMonitor(); }, &m_activityDetails, &m_screenTimeService,
       [this](const std::string& key) { m_activityWindow.open(key); }
