@@ -101,7 +101,11 @@ namespace {
   constexpr float kFaceScale = 0.92F;
   constexpr float kMinCardWidth = 240.0F;
   constexpr float kMinCardHeight = 56.0F;
-  constexpr float kMaxCardHeight = 96.0F; // surface bound: banner with caption, title and two body lines is 88
+  // Surface bound: a banner with caption, title, two body lines (88) and its action row (12 + 32).
+  constexpr float kMaxCardHeight = 132.0F;
+  constexpr float kActionHeight = 32.0F;
+  constexpr float kActionGap = 8.0F;
+  constexpr float kActionTop = 12.0F;
   constexpr float kCaptionGap = 8.0F;
   float ceil4(float v) { return std::ceil(v / 4.0F) * 4.0F; }
   // The island lays out in tokens px; the surface, clip, blur and input regions are that times the bar's content scale.
@@ -163,6 +167,16 @@ namespace {
     std::array<char, 64> buffer{};
     const std::size_t n = std::strftime(buffer.data(), buffer.size(), "%A, %-d %B", &local);
     return {buffer.data(), n};
+  }
+
+  std::vector<std::pair<std::string, std::string>> bannerActions(const std::vector<std::string>& actions) {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (std::size_t i = 0; i + 1 < actions.size() && out.size() < 3; i += 2) {
+      if (actions[i] != "default" && !actions[i + 1].empty()) {
+        out.emplace_back(actions[i], actions[i + 1]);
+      }
+    }
+    return out;
   }
 
   bool hasDefaultAction(const std::vector<std::string>& actions) {
@@ -240,7 +254,7 @@ void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
     m_shown = *m_activity;
     // The banner waits behind the call, recording or transfer.
     m_bannerTimer.stop();
-  } else if (had && m_banner.has_value() && !m_osd.has_value()) {
+  } else if (had && m_banner.has_value() && !m_banner->sticky && !m_osd.has_value()) {
     m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
       if (!alive.expired()) {
         endBanner();
@@ -332,6 +346,8 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
         .icon = n.icon.value_or(std::string{}),
         .desktopEntry = n.desktopEntry.value_or(std::string{}),
         .imageData = n.imageData,
+        .actions = bannerActions(n.actions),
+        .sticky = n.urgency == Urgency::Critical || n.timeout == 0,
     };
   };
   if (event == NotificationEvent::Closed) {
@@ -357,7 +373,8 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
     // The banner already ended: the update must not raise a toast for a notification the island showed.
     return m_consumed.contains(n.id);
   }
-  if (!coversAllOutputs() || m_activity.has_value() || n.urgency == Urgency::Critical || n.timeout == 0) {
+  // A banner waits behind a call, recording or transfer (setActivity); only an island-less desktop refuses it.
+  if (m_instances.empty()) {
     return false;
   }
   m_consumed.insert(n.id);
@@ -375,6 +392,13 @@ void LiveActivityIsland::startNextBanner() {
   }
   m_banner = std::move(m_bannerQueue.front());
   m_bannerQueue.erase(m_bannerQueue.begin());
+  if (m_banner->sticky) {
+    updateAllFaces();
+    for (auto& inst : m_instances) {
+      inst->surface->requestLayout();
+    }
+    return;
+  }
   m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
     if (!alive.expired()) {
       endBanner();
@@ -418,12 +442,15 @@ std::function<void()> LiveActivityIsland::refresher() {
 
 void LiveActivityIsland::refreshNow() {
   ensureSurfaces();
-  if (!coversAllOutputs() && (m_osd.has_value() || m_banner.has_value() || !m_bannerQueue.empty())) {
-    // An output without an island cannot show them; they stay in the notification history.
+  if (!coversAllOutputs() && m_osd.has_value()) {
+    // An output without an island cannot show the OSD; the OSD overlay shows the next one.
     m_osd.reset();
+    m_osdTimer.stop();
+  }
+  if (m_instances.empty() && (m_banner.has_value() || !m_bannerQueue.empty())) {
+    // With no island at all the banners stay in the notification history.
     m_banner.reset();
     m_bannerQueue.clear();
-    m_osdTimer.stop();
     m_bannerTimer.stop();
   }
   updateAllFaces();
@@ -1284,8 +1311,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       .height = kBannerGlyph,
       .visible = false,
   }));
-  auto banner = ui::row(
-      {.align = FlexAlign::Center, .gap = 12.0F, .paddingH = kBannerPad, .width = inst.width, .height = kBannerHeight},
+  auto bannerText = ui::row(
+      {.align = FlexAlign::Center, .gap = 12.0F},
       std::move(bannerIcon),
       ui::column(
           {.align = FlexAlign::Stretch, .flexGrow = 1.0F},
@@ -1321,6 +1348,16 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               .maxLines = 2,
           })
       )
+  );
+  // Icon and text, then the action pills across the whole card (12 above).
+  auto banner = ui::column(
+      {.align = FlexAlign::Stretch,
+       .justify = FlexJustify::Center,
+       .padding = kBannerPad,
+       .width = inst.width,
+       .height = kBannerHeight},
+      std::move(bannerText),
+      bannerActionRow(inst)
   );
   inst.bannerGlyph->setGlyph("bell");
   inst.bannerApp->setLineHeight(Tokens::typeCaption.line);
@@ -1633,6 +1670,15 @@ void LiveActivityIsland::applyContent(Instance& inst) {
 
   // Banner face.
   if (m_banner.has_value()) {
+    for (std::size_t i = 0; i < inst.bannerActions.size(); ++i) {
+      Button* button = inst.bannerActions[i];
+      const bool on = i < m_banner->actions.size();
+      button->setVisible(on);
+      if (on) {
+        button->setText(m_banner->actions[i].second);
+      }
+    }
+    inst.bannerActionRow->setVisible(!m_banner->actions.empty());
     inst.bannerTitle->setText(m_banner->title);
     inst.bannerBody->setText(m_banner->body);
     inst.bannerBody->setVisible(!m_banner->body.empty());
@@ -1716,8 +1762,9 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.bannerBody->setMaxWidth(w - fixed);
     inst.bannerApp->setMaxWidth(w - fixed - inst.bannerTime->width() - kCaptionGap);
     const float body = inst.bannerBody->visible() ? std::min(2.0F * Tokens::typeFootnote.line, inst.bannerBody->height()) : 0.0F;
+    const float actions = m_banner.has_value() && !m_banner->actions.empty() ? kActionTop + kActionHeight : 0.0F;
     inst.faceHeight[static_cast<std::size_t>(Face::Banner)] =
-        ceil4(2.0F * kBannerPad + Tokens::typeCaption.line + Tokens::typeHeadline.line + body);
+        ceil4(2.0F * kBannerPad + Tokens::typeCaption.line + Tokens::typeHeadline.line + body + actions);
   }
 
   for (std::size_t i = 1; i < kFaceCount; ++i) {
@@ -1902,6 +1949,44 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
 
 // Banner swipe: the island follows the pointer upward 1:1 and downward at 0.3; a release past 40 % of the card or a fast
 // upward flick dismisses it on the collapse spring with the release velocity, anything else springs back.
+std::unique_ptr<Node> LiveActivityIsland::bannerActionRow(Instance& inst) {
+  auto row = ui::row({.align = FlexAlign::Center, .gap = kActionGap});
+  for (std::size_t i = 0; i < inst.bannerActions.size(); ++i) {
+    // Equal pills; the first is the accent action, the others the island's fill_2 buttons.
+    row->addChild(ui::button({
+        .out = &inst.bannerActions[i],
+        .text = std::string{},
+        .fontSize = Tokens::typeFootnote.size,
+        .variant = i == 0 ? ButtonVariant::Primary : ButtonVariant::Default,
+        .radius = kActionHeight * 0.5F,
+        .height = kActionHeight,
+        .flexGrow = 1.0F,
+        .visible = false,
+        .onClick = [this, instPtr = &inst, i] { bannerAction(*instPtr, i); },
+    }));
+    if (i > 0) {
+      inst.bannerActions[i]->setCustomPalette(livePalette(false));
+    }
+  }
+  auto block = ui::column({.align = FlexAlign::Stretch, .visible = false});
+  block->addChild(ui::node({.height = kActionTop}));
+  block->addChild(std::move(row));
+  inst.bannerActionRow = block.get();
+  return block;
+}
+
+void LiveActivityIsland::bannerAction(Instance& inst, std::size_t index) {
+  if (!m_banner.has_value() || index >= m_banner->actions.size()) {
+    return;
+  }
+  const BannerItem banner = *m_banner;
+  endBanner();
+  if (m_notifications != nullptr) {
+    const std::string token = m_wayland->requestActivationToken(inst.surface->wlSurface());
+    (void)m_notifications->invokeAction(banner.id, banner.actions[index].first, token, true);
+  }
+}
+
 void LiveActivityIsland::bannerDragStart(Instance& inst, float y) {
   if (inst.face != Face::Banner || inst.dsk == nullptr || !MotionService::instance().enabled()) {
     return;

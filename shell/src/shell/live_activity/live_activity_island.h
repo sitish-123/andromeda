@@ -193,6 +193,8 @@ private:
     Label* bannerTime = nullptr;
     Label* bannerTitle = nullptr;
     Label* bannerBody = nullptr;
+    Node* bannerActionRow = nullptr;
+    std::array<Button*, 3> bannerActions{};
     std::string artUrl;
     std::string hoverArtUrl;
     Face face = Face::Rest;
@@ -254,6 +256,10 @@ private:
     std::string icon;
     std::string desktopEntry;
     std::optional<NotificationImageData> imageData;
+    // (key, label) of the notification's actions besides "default", at most 3: §9.2 action buttons.
+    std::vector<std::pair<std::string, std::string>> actions;
+    // Critical or never expiring: no timeout; it stays until acted on or swiped away.
+    bool sticky = false;
   };
 
   void refreshNow();
@@ -261,6 +267,9 @@ private:
   void destroySurfaces();
   void prepareFrame(Instance& inst, bool needsUpdate, bool needsLayout);
   void buildScene(Instance& inst, float width, float height);
+  // The banner's §9.2 action buttons (hidden until a banner has actions); the first is the primary capsule.
+  std::unique_ptr<Node> bannerActionRow(Instance& inst);
+  void bannerAction(Instance& inst, std::size_t index);
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
   void animateReveal(Instance& inst, float velocity);
