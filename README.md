@@ -6,9 +6,9 @@ window, and its apps in their own windows).
 
 | Directory | Component | From |
 |---|---|---|
-| `compositor/` | Andromeda: windows, layouts, effects, input, outputs, motion | fork of [noctalia-dev/andromeda](https://github.com/noctalia-dev/andromeda) |
-| `shell/` | Noctalia: bar, launcher, lock, notifications, settings, system services | fork of [noctalia-dev/noctalia](https://github.com/noctalia-dev/noctalia) |
-| `portal/` | xdg-desktop-portal backend: screen cast, screenshots, settings, shortcuts | fork of xdg-desktop-portal-andromeda |
+| `compositor/` | Andromeda: windows, layouts, effects, input, outputs, motion | fork of [noctalia-dev/umbriel](https://github.com/noctalia-dev/umbriel) (MIT) |
+| `shell/` | Shell: bar, launcher, lock, notifications, settings, system services | fork of [noctalia-dev/noctalia](https://github.com/noctalia-dev/noctalia) (MIT) |
+| `portal/` | xdg-desktop-portal backend: screen cast, screenshots, settings, shortcuts | fork of [noctalia-dev/xdg-desktop-portal-umbriel](https://github.com/noctalia-dev/xdg-desktop-portal-umbriel) (MIT) |
 | `link/` | Link: the desktop daemon, the mirror and apps viewers, and the Android app | this repository |
 | `protocol/` | The private compositor/shell protocol and Link's wire format | this repository |
 | `session/`, `pkg/` | systemd user units, firewall profile, packaging | this repository |
