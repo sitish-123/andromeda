@@ -6,7 +6,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
-cairo-rs = { version = "0.22", default-features = false }
+cairo-rs = { version = "0.22", default-features = false, features = ["png"] }
 glib = "0.22"
 landlock = "0.4"
 log = "0.4"

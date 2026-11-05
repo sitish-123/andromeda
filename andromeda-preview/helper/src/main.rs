@@ -1,5 +1,7 @@
 //! `andromeda-preview-helper <pdf|text|media|media-sw> <path>`, started by `andromeda-preview` with a `SOCK_SEQPACKET` socket
 //! on fd 3, an empty environment apart from HOME and `XDG_CACHE_HOME`, and no other fds.
+//! `andromeda-preview-helper thumbnail <size> <input.pdf> <output.png>`: a freedesktop thumbnailer for PDFs
+//! (data/andromeda-pdf.thumbnailer), sandboxed the same way once both files are open.
 
 use andromeda_preview_helper::{Source, decode, sandbox, serve};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -13,8 +15,44 @@ fn socket() -> OwnedFd {
     unsafe { OwnedFd::from_raw_fd(SOCKET_FD) }
 }
 
+fn thumbnail(size: &str, input: &str, output: &str) -> ExitCode {
+    let Ok(size) = size.parse::<u32>() else { return ExitCode::from(2) };
+    let file = match std::fs::File::open(input) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("andromeda-preview-helper: open: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    // create_new: never write through a file or link already at the output path.
+    let mut out = match std::fs::OpenOptions::new().write(true).create_new(true).open(output) {
+        Ok(out) => std::io::BufWriter::new(out),
+        Err(e) => {
+            eprintln!("andromeda-preview-helper: output: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(e) = sandbox::enter(sandbox::Profile::Document) {
+        eprintln!("andromeda-preview-helper: sandbox: {e}");
+        return ExitCode::from(1);
+    }
+    let made = decode::Pdf::open(file).and_then(|pdf| pdf.thumbnail_png(size, &mut out));
+    match made.and_then(|()| std::io::Write::flush(&mut out).map_err(|_| 0)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(code) => {
+            eprintln!("andromeda-preview-helper: no thumbnail (error {code})");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if let [_, mode, size, input, output] = args.as_slice()
+        && mode == "thumbnail"
+    {
+        return thumbnail(size, input, output);
+    }
     let [_, kind, path] = args.as_slice() else {
         eprintln!("usage: andromeda-preview-helper <pdf|text|media|media-sw> <path>");
         return ExitCode::from(2);

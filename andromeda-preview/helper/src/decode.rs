@@ -17,6 +17,8 @@ pub const MAX_WIDTH: u32 = 8192;
 pub const MAX_HEIGHT: u32 = 16384;
 /// Hits per page and selection rects per reply; a page with more is cut there.
 pub const MAX_RECTS: usize = 4096;
+/// The largest thumbnail side (freedesktop x-large is 512, xx-large 1024).
+pub const MAX_THUMBNAIL: u32 = 1024;
 
 pub(crate) fn sealed(name: &str, bytes: &[u8]) -> Result<OwnedFd, u32> {
     sealed_with(name, bytes, SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL)
@@ -229,5 +231,29 @@ impl Pdf {
         let data = surface.data().map_err(|_| ERR_DECODE)?;
         let fd = sealed("preview-page", &data)?;
         Ok((Msg::new(OP_PAGE, index, width, height, stride), fd))
+    }
+
+    /// The first page fitted in a `size` x `size` box on white, as PNG (the freedesktop thumbnailer contract).
+    ///
+    /// # Errors
+    /// `ERR_RANGE` without pages, `ERR_TOO_LARGE` for a size over `MAX_THUMBNAIL`, `ERR_DECODE` when writing fails.
+    pub fn thumbnail_png(&self, size: u32, out: &mut impl std::io::Write) -> Result<(), u32> {
+        let page = self.page(0)?;
+        let (pw, ph) = page.size();
+        if size == 0 || size > MAX_THUMBNAIL || pw <= 0.0 || ph <= 0.0 {
+            return Err(ERR_TOO_LARGE);
+        }
+        let scale = f64::from(size) / pw.max(ph);
+        #[allow(clippy::cast_possible_truncation)]
+        let (w, h) = (((pw * scale).round() as i32).max(1), ((ph * scale).round() as i32).max(1));
+        let surface = cairo::ImageSurface::create(cairo::Format::Rgb24, w, h).map_err(|_| ERR_DECODE)?;
+        {
+            let cr = cairo::Context::new(&surface).map_err(|_| ERR_DECODE)?;
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            cr.paint().map_err(|_| ERR_DECODE)?;
+            cr.scale(scale, scale);
+            page.render(&cr);
+        }
+        surface.write_to_png(out).map_err(|_| ERR_DECODE)
     }
 }
