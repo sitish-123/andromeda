@@ -328,6 +328,10 @@ impl Session {
             Some("portal") => vec!["default", "Sign In"],
             _ => Vec::new(),
         };
+        // Power alerts keep the battery symbol; health alerts (crashes, services, memory, startup) a warning sign.
+        let power = ["low_power_plan", "battery_critical", "drainer", "leaving_home", "battery_worn", "wakeups"];
+        let icon =
+            if power.contains(&alert.text.as_str()) { "battery-caution-symbolic" } else { "dialog-warning-symbolic" };
         let urgency: u8 = match alert.urgency.as_str() {
             "critical" => 2,
             "low" => 0,
@@ -345,16 +349,7 @@ impl Session {
                 NOTIFICATIONS_PATH,
                 Some(NOTIFICATIONS),
                 "Notify",
-                &(
-                    "Andromeda",
-                    replaces,
-                    "battery-caution-symbolic",
-                    summary.as_str(),
-                    body.as_str(),
-                    actions,
-                    hints,
-                    -1i32,
-                ),
+                &("Andromeda", replaces, icon, summary.as_str(), body.as_str(), actions, hints, -1i32),
             )
             .await;
         match reply.and_then(|r| r.body().deserialize::<u32>()) {
