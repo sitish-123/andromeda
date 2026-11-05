@@ -1,16 +1,20 @@
 // Maps an xdg toplevel that redraws on every wl_surface.frame callback, the way a game or a browser does, and prints
 // "frame" for each callback plus "suspended" / "resumed" when the xdg_toplevel suspended state changes. With
-// CONTENT_TYPE=game it declares the game content type before its first commit. Usage: background-client [title].
+// CONTENT_TYPE=game it declares the game content type before its first commit. With FORK_CHILD=1 it first forks an
+// idle child, prints "child <pid>" and stops itself (SIGSTOP) until the test moves it to another scope and sends
+// SIGCONT, as a browser forks its zygote before it moves into its own scope. Usage: background-client [title].
 
 #include "content-type-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <print>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -129,6 +133,18 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
+  if (const char* fork = std::getenv("FORK_CHILD"); fork != nullptr && std::strcmp(fork, "1") == 0) {
+    const pid_t child = ::fork();
+    if (child == 0) {
+      prctl(PR_SET_PDEATHSIG, SIGTERM);
+      for (;;) {
+        pause();
+      }
+    }
+    std::println("child {}", child);
+    std::fflush(stdout);
+    raise(SIGSTOP);
+  }
   State state;
   state.display = wl_display_connect(nullptr);
   if (state.display == nullptr) {

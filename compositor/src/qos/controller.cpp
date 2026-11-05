@@ -14,9 +14,11 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <utility>
 
 namespace andromeda::qos {
@@ -71,6 +73,19 @@ namespace andromeda::qos {
     std::string readFile(const std::string& path) {
       std::ifstream stream(path);
       return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    }
+
+    // The direct children of `pid`, from every thread (a child belongs to the thread that forked it).
+    std::vector<pid_t> childrenOf(pid_t pid) {
+      std::vector<pid_t> children;
+      std::error_code error;
+      for (const auto& task : std::filesystem::directory_iterator(std::format("/proc/{}/task", pid), error)) {
+        std::istringstream list(readFile((task.path() / "children").string()));
+        for (pid_t child = 0; list >> child;) {
+          children.push_back(child);
+        }
+      }
+      return children;
     }
 
     // cgroup v2 line: 0::/user.slice/.../<unit>[/<sub-cgroup>]
@@ -238,6 +253,8 @@ namespace andromeda::qos {
       int windows = 0;
       bool neverThrottle = false;
       bool freezeWhenHidden = false;
+      // The window units this scope follows (the launch scope of an app that moved into its own scope).
+      std::vector<std::string> follows;
     };
     std::unordered_map<std::string, Gathered> gathered;
     std::unordered_map<pid_t, Cgroup> seen;
@@ -249,13 +266,24 @@ namespace andromeda::qos {
         }
         continue;
       }
-      m_scopes.try_emplace(cgroup.unit, m_delays).first->second.dir = cgroup.dir;
-      Gathered& app = gathered[cgroup.unit];
-      ++app.windows;
-      app.inputs.visible = app.inputs.visible || !window.hidden;
-      app.inputs.screenCast = app.inputs.screenCast || window.screenCast;
-      app.neverThrottle = app.neverThrottle || window.rule == Rule::NeverThrottle;
-      app.freezeWhenHidden = app.freezeWhenHidden || window.rule == Rule::FreezeWhenHidden;
+      const auto addWindow = [&](const Cgroup& scope) -> Gathered& {
+        m_scopes.try_emplace(scope.unit, m_delays).first->second.dir = scope.dir;
+        Gathered& app = gathered[scope.unit];
+        ++app.windows;
+        app.inputs.visible = app.inputs.visible || !window.hidden;
+        app.inputs.screenCast = app.inputs.screenCast || window.screenCast;
+        app.neverThrottle = app.neverThrottle || window.rule == Rule::NeverThrottle;
+        app.freezeWhenHidden = app.freezeWhenHidden || window.rule == Rule::FreezeWhenHidden;
+        return app;
+      };
+      addWindow(cgroup);
+      // An app that moves itself into its own scope (Chromium) leaves the children it forked before in the launch
+      // scope: they follow the window, or a hidden app freezes only its browser process.
+      for (const pid_t child : childrenOf(window.pid)) {
+        if (const Cgroup& scope = cgroupOf(child, seen); !scope.unit.empty() && scope.unit != cgroup.unit) {
+          addWindow(scope).follows.push_back(cgroup.unit);
+        }
+      }
     }
     // Audio and inhibitors often come from a child process (a browser's content process): matched by unit, not pid.
     for (const pid_t pid : snapshot.idleInhibitorPids) {
@@ -300,7 +328,7 @@ namespace andromeda::qos {
                                        : Rule::Normal;
       }
       AppInputs inputs = app.inputs;
-      inputs.focused = unit == m_focused && inputs.visible;
+      inputs.focused = (unit == m_focused || std::ranges::contains(app.follows, m_focused)) && inputs.visible;
       inputs.thawIntent = m_thawHolds > 0;
       inputs.freezeHidden = snapshot.freezeHiddenApps && registry().freezeHidden;
       inputs.rule = scope.rule;
