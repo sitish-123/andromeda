@@ -297,6 +297,7 @@ void CairoTextRenderer::cleanup() {
 }
 
 void CairoTextRenderer::clearCaches() {
+  releaseTransient();
   for (auto& [key, entry] : m_cache) {
     for (auto& tile : entry.tiles) {
       if (m_textureManager != nullptr) {
@@ -324,7 +325,24 @@ void CairoTextRenderer::invalidateGlyphTextures() {
   m_cacheBytes = 0;
 }
 
+bool CairoTextRenderer::holdsText(std::string_view text) const {
+  return std::ranges::any_of(m_cache, [&](const auto& entry) { return entry.first.text == text; })
+      || std::ranges::any_of(m_metricsCache, [&](const auto& entry) { return entry.first.text == text; });
+}
+
+void CairoTextRenderer::releaseTransient() {
+  for (auto& entry : m_transient) {
+    for (auto& tile : entry.tiles) {
+      if (m_textureManager != nullptr) {
+        m_textureManager->unload(tile.texture);
+      }
+    }
+  }
+  m_transient.clear();
+}
+
 void CairoTextRenderer::abandonGlyphTextures() noexcept {
+  m_transient.clear();
   m_cache.clear();
   m_lru.clear();
   m_cacheBytes = 0;
@@ -520,6 +538,13 @@ CairoTextRenderer::TextMetrics CairoTextRenderer::measure(
     return {};
   }
 
+  if (!m_caching) {
+    PangoLayout* layout =
+        buildLayout(contentScale, text, fontSize, font, maxWidth * contentScale, maxLines, align, ellipsize, useMarkup);
+    const auto metrics = metricsFromLayout(contentScale, layout);
+    g_object_unref(layout);
+    return metrics;
+  }
   MetricsKey key;
   key.text.assign(text);
   key.font = font;
@@ -964,6 +989,7 @@ void CairoTextRenderer::rasterizeLayout(
 void CairoTextRenderer::touch(CacheMap::iterator it) {
   // Splice the LRU node to the front (most-recently-used).
   m_lru.splice(m_lru.begin(), m_lru, it->second.lruIt);
+  it->second.lastUsed = std::chrono::steady_clock::now();
 }
 
 void CairoTextRenderer::evict(CacheMap::iterator it) {
@@ -1004,6 +1030,19 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
   // surface, so rgb must be part of the key. Alpha is normalized to 1.0 in
   // the key AND in the rasterized source so opacity animations on mixed
   // strings still reuse one entry.
+  if (!m_caching) {
+    PangoLayout* layout =
+        buildLayout(contentScale, text, fontSize, font, maxWidth * contentScale, maxLines, align, ellipsize, useMarkup);
+    const bool tinted = font.gradientFrom == 0 && font.gradientTo == 0 && !containsColorGlyph(layout);
+    Color rasterColor = color;
+    if (!tinted) {
+      rasterColor.a = 1.0F;
+    }
+    CacheEntry& entry = m_transient.emplace_back();
+    rasterizeLayout(contentScale, layout, rasterColor, tinted, font.stroke * fontSize * contentScale, font, entry);
+    g_object_unref(layout);
+    return &entry;
+  }
   CacheKey key;
   key.text.assign(text);
   key.font = font;
@@ -1059,10 +1098,21 @@ CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
   auto [ins, inserted] = m_cache.emplace(std::move(key), std::move(entry));
   m_lru.push_front(&ins->first);
   ins->second.lruIt = m_lru.begin();
+  ins->second.lastUsed = std::chrono::steady_clock::now();
   m_cacheBytes += ins->second.bytes;
 
   evictIfNeeded();
   return &ins->second;
+}
+
+void CairoTextRenderer::evictUnusedBefore(std::chrono::steady_clock::time_point cutoff) {
+  while (m_lru.size() > 1) {
+    const auto mapIt = m_cache.find(*m_lru.back());
+    if (mapIt == m_cache.end() || mapIt->second.lastUsed >= cutoff) {
+      return;
+    }
+    evict(mapIt);
+  }
 }
 
 // ── draw ────────────────────────────────────────────────────────────────────

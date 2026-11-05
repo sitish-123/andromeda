@@ -136,6 +136,7 @@ std::vector<PollSource*> Application::buildPollSources() {
   }
   if (m_memoryPressurePollSource == nullptr) {
     m_memoryPressurePollSource = std::make_unique<MemoryPressurePollSource>([this] {
+      m_renderContext.releaseUnusedCaches();
       trimAllocator();
     });
   }

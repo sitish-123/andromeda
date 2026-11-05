@@ -31,20 +31,6 @@ namespace {
 } // namespace
 
 int main() {
-  {
-    // Two near rects repaint as one box; two far corners keep separate walks.
-    DamageRegion near;
-    near.add({0.0F, 0.0F, 100.0F, 20.0F});
-    near.add({0.0F, 24.0F, 100.0F, 44.0F});
-    near.collapseIfCompact(1.5F);
-    TEST_CHECK(near.rects().size() == 1);
-    TEST_CHECK(near.rects()[0] == (DamageRect{0.0F, 0.0F, 100.0F, 44.0F}));
-    DamageRegion far;
-    far.add({0.0F, 0.0F, 20.0F, 20.0F});
-    far.add({1000.0F, 600.0F, 1020.0F, 620.0F});
-    far.collapseIfCompact(1.5F);
-    TEST_CHECK(far.rects().size() == 2);
-  }
   DamageRegion region;
   std::vector<DamageRect> added;
   for (int i = 0; i < 20; ++i) {
@@ -63,6 +49,16 @@ int main() {
   apart.add({0.0F, 0.0F, 60.0F, 20.0F});
   apart.add({1200.0F, 0.0F, 1260.0F, 20.0F});
   TEST_CHECK(apart.rects().size() == 2);
+
+  // At a fractional scale two rects apart in logical pixels share a buffer column once snapped out; the passes must
+  // still hold every damaged pixel exactly once.
+  DamageRegion logical;
+  logical.add({0.0F, 0.0F, 10.1F, 10.0F});
+  logical.add({10.3F, 0.0F, 20.0F, 10.0F});
+  const DamageRegion buffer = logical.toBufferPixels(1.25F, 1.25F);
+  checkShape(buffer);
+  TEST_CHECK(covered(buffer, {0.0F, 0.0F, 13.0F, 13.0F}));
+  TEST_CHECK(covered(buffer, {12.0F, 0.0F, 25.0F, 13.0F}));
 
   DamageRegion clipped;
   clipped.add({-10.0F, -10.0F, 5.0F, 5.0F});

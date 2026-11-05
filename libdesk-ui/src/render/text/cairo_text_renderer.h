@@ -4,6 +4,7 @@
 #include "render/core/texture_handle.h"
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <list>
 #include <string>
@@ -66,7 +67,15 @@ public:
   // suspend/resume on drivers that do not preserve VRAM. Requires the render
   // context to be current.
   void invalidateGlyphTextures();
+  // Frees entries last drawn before `cutoff`; keeps the most recent one. Requires the render context to be current.
+  void evictUnusedBefore(std::chrono::steady_clock::time_point cutoff);
   void abandonGlyphTextures() noexcept;
+  // Off while sensitive text (a revealed password) is measured or drawn: no cache keeps it. Its rasters live until
+  // releaseTransient(), which the owner calls once the GPU is done with the last frame.
+  void setCaching(bool enabled) noexcept { m_caching = enabled; }
+  void releaseTransient();
+  // True when a cache keeps `text` (raster or metrics).
+  [[nodiscard]] bool holdsText(std::string_view text) const;
 
   [[nodiscard]] TextMetrics measure(
       float contentScale, std::string_view text, float fontSize, const TextFont& font = {}, float maxWidth = 0.0F,
@@ -177,6 +186,7 @@ private:
     std::size_t bytes = 0;
     bool tinted = false; // true: alpha coverage, tint in shader; false: premul RGBA
     LruList::iterator lruIt;
+    std::chrono::steady_clock::time_point lastUsed;
   };
 
   using CacheMap = std::unordered_map<CacheKey, CacheEntry, CacheKeyHash>;
@@ -232,6 +242,8 @@ private:
 
   MetricsMap m_metricsCache;
   mutable FontMetricsMap m_fontMetricsCache;
+  bool m_caching = true;
+  std::list<CacheEntry> m_transient;
 
   static constexpr std::size_t kMaxCacheEntries = 512;
   static constexpr std::size_t kMaxCacheBytes = 32 * 1024 * 1024;

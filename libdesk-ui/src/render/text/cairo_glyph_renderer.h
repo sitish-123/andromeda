@@ -2,6 +2,7 @@
 
 #include "render/core/texture_handle.h"
 
+#include <chrono>
 #include <cstdint>
 #include <list>
 #include <string>
@@ -46,6 +47,8 @@ public:
   // draw. Recovers from GPU memory loss across suspend/resume. Requires the
   // render context to be current.
   void invalidateGlyphTextures();
+  // Frees entries last drawn before `cutoff`; keeps the most recent one. Requires the render context to be current.
+  void evictUnusedBefore(std::chrono::steady_clock::time_point cutoff);
   void abandonGlyphTextures() noexcept;
 
   [[nodiscard]] TextMetrics measureGlyph(float contentScale, char32_t codepoint, float fontSize);
@@ -80,6 +83,7 @@ private:
     TextMetrics metrics;
     std::size_t bytes = 0;
     LruList::iterator lruIt;
+    std::chrono::steady_clock::time_point lastUsed;
   };
 
   using CacheMap = std::unordered_map<CacheKey, CacheEntry, CacheKeyHash>;

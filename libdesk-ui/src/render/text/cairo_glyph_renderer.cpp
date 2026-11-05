@@ -158,7 +158,10 @@ void CairoGlyphRenderer::cleanup() {
   m_textureManager = nullptr;
 }
 
-void CairoGlyphRenderer::touch(CacheMap::iterator it) { m_lru.splice(m_lru.begin(), m_lru, it->second.lruIt); }
+void CairoGlyphRenderer::touch(CacheMap::iterator it) {
+  m_lru.splice(m_lru.begin(), m_lru, it->second.lruIt);
+  it->second.lastUsed = std::chrono::steady_clock::now();
+}
 
 void CairoGlyphRenderer::evict(CacheMap::iterator it) {
   if (m_textureManager != nullptr) {
@@ -319,10 +322,21 @@ CairoGlyphRenderer::lookupOrRasterize(float contentScale, char32_t codepoint, fl
   auto [ins, inserted] = m_cache.emplace(key, entry);
   m_lru.push_front(ins->first);
   ins->second.lruIt = m_lru.begin();
+  ins->second.lastUsed = std::chrono::steady_clock::now();
   m_cacheBytes += ins->second.bytes;
 
   evictIfNeeded();
   return &ins->second;
+}
+
+void CairoGlyphRenderer::evictUnusedBefore(std::chrono::steady_clock::time_point cutoff) {
+  while (m_lru.size() > 1) {
+    const auto mapIt = m_cache.find(m_lru.back());
+    if (mapIt == m_cache.end() || mapIt->second.lastUsed >= cutoff) {
+      return;
+    }
+    evict(mapIt);
+  }
 }
 
 void CairoGlyphRenderer::drawGlyph(

@@ -38,8 +38,11 @@ enum class LabelBaselineMode : std::uint8_t {
 class Label : public InputArea {
 public:
   Label();
+  ~Label() override;
 
   bool setText(std::string_view text);
+  // Sensitive text (a revealed password): no accessible name, no text cache, wiped on change and destroy.
+  void setSensitive(bool sensitive);
   void setFontSize(float size);
   void setFontFamily(std::string family);
   void setFontFeatures(std::string features);
@@ -126,6 +129,7 @@ private:
 
   // User-visible text (wire text may duplicate for seamless marquee).
   std::string m_plainText;
+  bool m_sensitive = false;
 
   // Memoized measure() inputs — lets repeated layout passes with identical
   // text skip the Pango/fontconfig path entirely.

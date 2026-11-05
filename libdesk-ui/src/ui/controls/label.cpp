@@ -1,4 +1,5 @@
 #include "ui/controls/label.h"
+#include "util/secure_wipe.h"
 
 #include "core/deferred_call.h"
 #include "core/log.h"
@@ -59,10 +60,32 @@ Label::Label() {
   setHitTestVisible(false);
 }
 
+Label::~Label() {
+  if (m_sensitive) {
+    util::secureWipe(m_plainText);
+    util::secureWipe(m_cachedText);
+  }
+}
+
+void Label::setSensitive(bool sensitive) {
+  m_sensitive = sensitive;
+  m_textNode->setSensitive(sensitive);
+  if (sensitive) {
+    accessibleState().name.clear();
+    util::secureWipe(m_cachedText);
+  }
+}
+
 bool Label::setText(std::string_view text) {
-  accessibleState().name = std::string(text);
+  if (!m_sensitive) {
+    accessibleState().name = std::string(text);
+  }
   if (m_plainText == text) {
     return false;
+  }
+  if (m_sensitive) {
+    util::secureWipe(m_plainText);
+    util::secureWipe(m_cachedText);
   }
   m_plainText = std::string(text);
   m_textNode->setText(m_plainText);
@@ -585,10 +608,16 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
     }
   }
 
+  if (m_sensitive) {
+    renderer.setTextCaching(false);
+  }
   auto metrics = renderer.measureText(
       m_plainText, m_textNode->fontSize(), font, measureMaxWidth, effectiveMaxLines, align, m_textNode->ellipsize(),
       m_textNode->useMarkup()
   );
+  if (m_sensitive) {
+    renderer.setTextCaching(true);
+  }
   // Line breaking is decided once, on the measure pass. A divergent line count
   // on arrange means the wrap budget drifted between phases — the baseline mode
   // would flip between measure and paint (renders as ±1px vertical jitter), so
@@ -597,7 +626,8 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
     m_measuredLineCount = metrics.lineCount;
   } else if (m_measuredLineCount > 0 && metrics.lineCount != m_measuredLineCount) {
     kLog.warn(
-        "label '{}': line count changed between measure ({}) and arrange ({}); wrap budgets diverged", m_plainText,
+        "label '{}': line count changed between measure ({}) and arrange ({}); wrap budgets diverged",
+        m_sensitive ? std::string_view("(sensitive)") : std::string_view(m_plainText),
         m_measuredLineCount, metrics.lineCount
     );
   }
@@ -729,7 +759,8 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
     m_scrollOffset = 0.0F;
   }
 
-  if (overflow && m_autoScroll) {
+  // No marquee for sensitive text: it would double the text into a cached measure.
+  if (overflow && m_autoScroll && !m_sensitive) {
     auto gapMetrics =
         renderer.measureText(std::string(1, kMarqueeGapChar), m_textNode->fontSize(), font, 0.0F, 1, align);
     const auto numChars = gapMetrics.width > 0.0F
@@ -752,7 +783,9 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
 
   applyScrollPosition();
 
-  m_cachedText = m_plainText;
+  if (!m_sensitive) {
+    m_cachedText = m_plainText;
+  }
   m_cachedFontSize = m_textNode->fontSize();
   m_cachedFont = font;
   m_cachedMaxWidth = m_userMaxWidth;

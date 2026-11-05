@@ -126,6 +126,12 @@ public:
   // `damage`: changed rects in buffer pixels, top-left origin; empty presents the whole buffer.
   virtual void endFrame(RenderTarget& target, std::span<const DamageRect> damage = {}) = 0;
   [[nodiscard]] virtual RenderGraphicsResetStatus graphicsResetStatus() = 0;
+  // NOCTALIA_PROFILE: rects drawn through merged draws and the merged draw calls since the last call.
+  struct BatchStats {
+    std::uint32_t rects = 0;
+    std::uint32_t draws = 0;
+  };
+  [[nodiscard]] virtual BatchStats takeBatchStats() { return {}; }
   virtual void invalidateGpuResources() = 0;
   // Tear down a lost context without attempting to preserve its invalid GL objects.
   virtual void abandonAfterGraphicsReset() noexcept = 0;

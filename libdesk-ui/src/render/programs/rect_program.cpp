@@ -3,8 +3,12 @@
 
 #include "render/core/render_styles.h"
 
+#include <algorithm>
 #include <array>
+#include <cstring>
 #include <stdexcept>
+#include <string>
+#include <utility>
 
 namespace {
 
@@ -423,7 +427,160 @@ void main() {
 }
 )";
 
+  // Batched draws: the per-rect uniforms of simple rects come from vertex attributes, and the same fragment shader
+  // reads them through varyings. Positions are in NDC, computed on the CPU.
+  constexpr char kBatchVertexShaderSource[] = R"(
+precision highp float;
+
+attribute vec4 a_position_pixel; // ndc.xy, rect-local pixel.xy
+attribute vec4 a_size_border;    // rect size.xy, border width
+attribute vec4 a_color;
+attribute vec4 a_border_color;
+attribute vec4 a_radii;
+attribute vec4 a_logical_inset;
+varying vec2 v_pixel;
+varying vec2 v_rect_size;
+varying float v_border_width;
+varying vec4 v_color;
+varying vec4 v_border_color;
+varying vec4 v_radii;
+varying vec4 v_logical_inset;
+
+void main() {
+    v_pixel = a_position_pixel.zw;
+    v_rect_size = a_size_border.xy;
+    v_border_width = a_size_border.z;
+    v_color = a_color;
+    v_border_color = a_border_color;
+    v_radii = a_radii;
+    v_logical_inset = a_logical_inset;
+    gl_Position = vec4(a_position_pixel.xy, 0.0, 1.0);
+}
+)";
+
+  std::string batchFragmentSource() {
+    std::string source = kFragmentShaderSource;
+    const std::pair<const char*, const char*> varyings[] = {
+        {"uniform vec2 u_rect_size;", "varying vec2 v_rect_size;\n#define u_rect_size v_rect_size"},
+        {"uniform vec4 u_color;", "varying vec4 v_color;\n#define u_color v_color"},
+        {"uniform vec4 u_border_color;", "varying vec4 v_border_color;\n#define u_border_color v_border_color"},
+        {"uniform vec4 u_logical_inset;", "varying vec4 v_logical_inset;\n#define u_logical_inset v_logical_inset"},
+        {"uniform vec4 u_radii;", "varying vec4 v_radii;\n#define u_radii v_radii"},
+        {"uniform float u_border_width;", "varying float v_border_width;\n#define u_border_width v_border_width"},
+    };
+    for (const auto& [from, to] : varyings) {
+      const std::size_t at = source.find(from);
+      if (at == std::string::npos) {
+        throw std::runtime_error("rect batch shader: uniform not found");
+      }
+      source.replace(at, std::strlen(from), to);
+    }
+    return smooth_corner::fragment(source.c_str());
+  }
+
+  constexpr std::size_t kBatchFloatsPerVertex = 24;
+
 } // namespace
+
+bool RectProgram::batchable(const RoundedRectStyle& style) noexcept {
+  const auto convex = [](const CornerShapes& c) {
+    return c.tl == CornerShape::Convex && c.tr == CornerShape::Convex && c.br == CornerShape::Convex
+        && c.bl == CornerShape::Convex;
+  };
+  return style.fillMode == FillMode::Solid && convex(style.corners) && !style.noAa && !style.invertFill
+      && style.borderDash <= 0.0F && !style.outerShadow && !style.shadowExclusion;
+}
+
+void RectProgram::appendBatched(
+    std::vector<float>& out, float surfaceWidth, float surfaceHeight, float width, float height,
+    const RoundedRectStyle& style, const Mat3& transform
+) {
+  if (width <= 0.0F || height <= 0.0F) {
+    return;
+  }
+  const float padding = std::max(style.borderWidth + style.softness + 2.0F, 2.0F);
+  const float quadWidth = width + padding * 2.0F;
+  const float quadHeight = height + padding * 2.0F;
+  const Mat3 quadTransform = transform * Mat3::translation(-padding, -padding);
+  const std::array<float, 12> corners = {
+      0.0F, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 0.0F, 1.0F, 1.0F,
+  };
+  const auto& m = quadTransform.m;
+  for (std::size_t i = 0; i < corners.size(); i += 2) {
+    const float lx = corners[i] * quadWidth;
+    const float ly = corners[i + 1] * quadHeight;
+    const float px = m[0] * lx + m[3] * ly + m[6];
+    const float py = m[1] * lx + m[4] * ly + m[7];
+    out.insert(
+        out.end(),
+        {
+            (px / surfaceWidth) * 2.0F - 1.0F,
+            1.0F - (py / surfaceHeight) * 2.0F,
+            lx - padding,
+            ly - padding,
+            width,
+            height,
+            style.borderWidth,
+            0.0F,
+            style.fill.r,
+            style.fill.g,
+            style.fill.b,
+            style.fill.a,
+            style.border.r,
+            style.border.g,
+            style.border.b,
+            style.border.a,
+            style.radius.tl,
+            style.radius.tr,
+            style.radius.br,
+            style.radius.bl,
+            style.logicalInset.left,
+            style.logicalInset.top,
+            style.logicalInset.right,
+            style.logicalInset.bottom,
+        }
+    );
+  }
+}
+
+void RectProgram::drawBatched(const std::vector<float>& vertices) const {
+  if (!m_batchProgram.isValid() || vertices.empty()) {
+    return;
+  }
+  glUseProgram(m_batchProgram.id());
+  constexpr auto stride = static_cast<GLsizei>(kBatchFloatsPerVertex * sizeof(float));
+  for (std::size_t i = 0; i < m_batchAttributes.size(); ++i) {
+    const auto attr = static_cast<GLuint>(m_batchAttributes[i]);
+    glVertexAttribPointer(attr, 4, GL_FLOAT, GL_FALSE, stride, vertices.data() + i * 4);
+    glEnableVertexAttribArray(attr);
+  }
+  glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertices.size() / kBatchFloatsPerVertex));
+  for (const GLint attr : m_batchAttributes) {
+    glDisableVertexAttribArray(static_cast<GLuint>(attr));
+  }
+}
+
+void RectProgram::ensureBatchInitialized() {
+  const std::string fragment = batchFragmentSource();
+  m_batchProgram.create(kBatchVertexShaderSource, fragment.c_str());
+  const GLuint id = m_batchProgram.id();
+  const char* names[] = {"a_position_pixel", "a_size_border", "a_color", "a_border_color", "a_radii", "a_logical_inset"};
+  for (std::size_t i = 0; i < m_batchAttributes.size(); ++i) {
+    m_batchAttributes[i] = glGetAttribLocation(id, names[i]);
+    if (m_batchAttributes[i] < 0) {
+      throw std::runtime_error("failed to query rect batch shader attributes");
+    }
+  }
+  // Uniforms keep their values in the program object: set the ones batchable() fixes once.
+  glUseProgram(id);
+  glUniform1i(glGetUniformLocation(id, "u_fill_mode"), 1);
+  glUniform4f(glGetUniformLocation(id, "u_corner_shapes"), 0.0F, 0.0F, 0.0F, 0.0F);
+  glUniform1i(glGetUniformLocation(id, "u_no_aa"), 0);
+  glUniform1i(glGetUniformLocation(id, "u_invert_fill"), 0);
+  glUniform2f(glGetUniformLocation(id, "u_border_dash"), 0.0F, 0.0F);
+  glUniform1i(glGetUniformLocation(id, "u_outer_shadow"), 0);
+  glUniform1i(glGetUniformLocation(id, "u_shadow_exclusion"), 0);
+}
 
 void RectProgram::ensureInitialized() {
   if (m_program.isValid()) {
@@ -496,10 +653,12 @@ void RectProgram::ensureInitialized() {
       || m_transformLocation < 0) {
     throw std::runtime_error("failed to query rounded-rect shader locations");
   }
+  ensureBatchInitialized();
 }
 
 void RectProgram::destroy() {
   m_program.destroy();
+  m_batchProgram.destroy();
   m_positionLocation = -1;
   m_surfaceSizeLocation = -1;
   m_quadSizeLocation = -1;
@@ -533,7 +692,10 @@ void RectProgram::destroy() {
   m_transformLocation = -1;
 }
 
-void RectProgram::abandon() noexcept { m_program.abandon(); }
+void RectProgram::abandon() noexcept {
+  m_program.abandon();
+  m_batchProgram.abandon();
+}
 
 void RectProgram::draw(
     float surfaceWidth, float surfaceHeight, float width, float height, const RoundedRectStyle& style,

@@ -4,13 +4,22 @@
 #include "render/core/damage_region.h"
 #include "render/core/renderer.h"
 #include "render/scene/node.h"
+#include "util/secure_wipe.h"
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 class TextNode : public Node {
 public:
   TextNode() : Node(NodeType::Text) {}
+  ~TextNode() override {
+    if (m_sensitive) {
+      util::secureWipe(m_text);
+    }
+  }
+  TextNode(const TextNode&) = delete;
+  TextNode& operator=(const TextNode&) = delete;
 
   [[nodiscard]] const std::string& text() const noexcept { return m_text; }
   [[nodiscard]] float fontSize() const noexcept { return m_fontSize; }
@@ -26,13 +35,21 @@ public:
   [[nodiscard]] const DamageRect& paintExtent() const noexcept { return m_paintExtent; }
   void setPaintExtent(const DamageRect& extent) noexcept { m_paintExtent = extent; }
 
-  void setText(std::string text) {
+  // By view: an equal text (every relayout) makes no copy that would need a wipe.
+  void setText(std::string_view text) {
     if (m_text == text) {
       return;
     }
-    m_text = std::move(text);
+    if (m_sensitive) {
+      util::secureWipe(m_text);
+    }
+    m_text.assign(text);
     markContentDirty();
   }
+
+  // Sensitive text (a revealed password) skips the text caches and is wiped when it changes or the node goes.
+  [[nodiscard]] bool sensitive() const noexcept { return m_sensitive; }
+  void setSensitive(bool sensitive) noexcept { m_sensitive = sensitive; }
 
   void setFontSize(float size) {
     if (m_fontSize == size) {
@@ -188,6 +205,7 @@ private:
   }
 
   std::string m_text;
+  bool m_sensitive = false;
   TextFont m_font;
   float m_fontSize = 14.0F;
   std::optional<float> m_trackingOverride;

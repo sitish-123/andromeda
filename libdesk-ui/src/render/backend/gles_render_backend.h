@@ -22,6 +22,8 @@
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <optional>
+#include <utility>
+#include <vector>
 
 class GlesRenderBackend final : public RenderBackend {
 public:
@@ -103,6 +105,9 @@ public:
   [[nodiscard]] TextureManager& textureManager() override { return m_textureManager; }
 
 private:
+  // Draws the queued batchable rects; every call that draws, changes GL state or ends the frame runs it first.
+  void flushRectBatch();
+  [[nodiscard]] BatchStats takeBatchStats() override { return std::exchange(m_batchStats, {}); }
   void drawFullscreenQuad(const ShaderProgram& program);
   void ensureFullscreenTextureProgram();
   void ensureFullscreenTintProgram();
@@ -124,6 +129,9 @@ private:
   RenderScissor m_scissor;
   GlesTextureManager m_textureManager;
   RectProgram m_rectProgram;
+  // Vertices of queued batchable rects (RectProgram::appendBatched).
+  std::vector<float> m_rectBatch;
+  BatchStats m_batchStats;
   ImageProgram m_imageProgram;
   GlyphProgram m_glyphProgram;
   SpinnerProgram m_spinnerProgram;

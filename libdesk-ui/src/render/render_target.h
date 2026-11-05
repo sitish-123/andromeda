@@ -45,6 +45,7 @@ public:
       TextAlign align = TextAlign::Start, TextEllipsize ellipsize = TextEllipsize::End, bool useMarkup = false
   ) override;
   [[nodiscard]] TextMetrics measureFont(float fontSize, const TextFont& font = {}) override;
+  void setTextCaching(bool enabled) override;
   void measureTextCursorStops(
       std::string_view text, float fontSize, const std::vector<std::size_t>& byteOffsets, std::vector<float>& outStops,
       const TextFont& font = {}

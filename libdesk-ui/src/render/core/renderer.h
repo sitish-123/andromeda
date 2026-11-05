@@ -100,6 +100,8 @@ public:
   ) = 0;
   // Metrics of `font` at the given size.
   [[nodiscard]] virtual TextMetrics measureFont(float fontSize, const TextFont& font = {}) = 0;
+  // False while measuring sensitive text (a revealed password), so no text cache keeps a copy.
+  virtual void setTextCaching(bool /*enabled*/) {}
 
   // Canonical "as tall as a line of text" row height: the rounded vertical
   // extent of the given font. Bar capsule heights and content widgets that must
