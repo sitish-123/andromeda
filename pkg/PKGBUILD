@@ -3,7 +3,7 @@ pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-por
   andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r0
+pkgver=r15087.g21531bb50
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -41,7 +41,7 @@ build() {
   # the private libwlroots. --wrap-mode overrides arch-meson's nodownload.
   arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
     --wrap-mode=default --force-fallback-for=wlroots-0.20,libliftoff \
-    -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false
+    -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false -Dwlroots:renderers=gles2
   arch-meson desktop/shell build-shell -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true -Dlibdesk-ui:dev_tokens=false
   arch-meson desktop/portal build-portal -Dcpp_std=c++23
   arch-meson desktop/greeter build-greeter -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
