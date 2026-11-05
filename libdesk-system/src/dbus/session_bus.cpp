@@ -30,6 +30,22 @@ sdbus::IConnection::PollData SessionBus::getPollData() const { return m_connecti
 
 void SessionBus::processPendingEvents() {
   m_hasPendingEvents = false;
+  if (!m_connected) {
+    return;
+  }
+  try {
+    dispatchBatch();
+  } catch (const sdbus::Error& e) {
+    // sd-bus reports a lost connection as an error from processing; it does not come back.
+    kLog.warn("session bus gone: {}", e.what());
+    m_connected = false;
+    if (m_onDisconnected) {
+      m_onDisconnected();
+    }
+  }
+}
+
+void SessionBus::dispatchBatch() {
 
   const auto batchStart = std::chrono::steady_clock::now();
   for (int processed = 0; processed < kMaxEventsPerDispatch; ++processed) {

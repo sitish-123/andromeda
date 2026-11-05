@@ -8,6 +8,9 @@ public:
   explicit SessionBusPollSource(SessionBus& bus) : m_bus(bus) {}
 
   [[nodiscard]] int pollTimeoutMs() const override {
+    if (!m_bus.connected()) {
+      return -1;
+    }
     if (m_bus.hasPendingEvents()) {
       return 0;
     }
@@ -19,6 +22,9 @@ public:
 
 protected:
   void doAddPollFds(std::vector<pollfd>& fds) override {
+    if (!m_bus.connected()) {
+      return;
+    }
     auto pd = m_bus.getPollData();
     fds.push_back({.fd = pd.fd, .events = pd.events, .revents = 0});
     fds.push_back({.fd = pd.eventFd, .events = POLLIN, .revents = 0});
