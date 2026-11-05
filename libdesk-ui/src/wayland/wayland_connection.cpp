@@ -960,6 +960,12 @@ bool WaylandConnection::hasFractionalScale() const noexcept {
 }
 bool WaylandConnection::hasOutputManagement() const noexcept { return m_outputManager != nullptr; }
 
+void WaylandConnection::activateSurface(wl_surface* surface, const std::string& token) const {
+  if (m_xdgActivation != nullptr && surface != nullptr && !token.empty()) {
+    xdg_activation_v1_activate(m_xdgActivation, token.c_str(), surface);
+  }
+}
+
 std::string WaylandConnection::requestActivationToken(wl_surface* surface, const std::string& appId) const {
   if (m_xdgActivation == nullptr || m_display == nullptr) {
     return {};

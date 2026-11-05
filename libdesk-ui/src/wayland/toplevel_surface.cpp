@@ -52,6 +52,8 @@ bool ToplevelSurface::initialize(wl_output* output, const ToplevelSurfaceConfig&
 
   m_pendingWidth = std::max<std::uint32_t>(1, config.width);
   m_pendingHeight = std::max<std::uint32_t>(1, config.height);
+  m_floatingWidth = m_pendingWidth;
+  m_floatingHeight = m_pendingHeight;
   m_lastToplevelWidth = 0;
   m_lastToplevelHeight = 0;
 
@@ -77,6 +79,10 @@ bool ToplevelSurface::initialize(wl_output* output, const ToplevelSurfaceConfig&
     xdg_toplevel_set_min_size(
         m_toplevel, static_cast<std::int32_t>(config.minWidth), static_cast<std::int32_t>(config.minHeight)
     );
+  }
+
+  if (config.maximized) {
+    xdg_toplevel_set_maximized(m_toplevel);
   }
 
   wl_surface_commit(m_surface);
@@ -106,12 +112,51 @@ void ToplevelSurface::beginMove(std::uint32_t serial) {
   }
 }
 
+void ToplevelSurface::beginResize(std::uint32_t serial, std::uint32_t edges) {
+  if (m_toplevel != nullptr) {
+    xdg_toplevel_resize(m_toplevel, m_connection.seat(), serial, edges);
+  }
+}
+
+void ToplevelSurface::setMaximized(bool maximized) {
+  if (m_toplevel == nullptr) {
+    return;
+  }
+  if (maximized) {
+    xdg_toplevel_set_maximized(m_toplevel);
+  } else {
+    xdg_toplevel_unset_maximized(m_toplevel);
+  }
+}
+
+void ToplevelSurface::setMinimized() {
+  if (m_toplevel != nullptr) {
+    xdg_toplevel_set_minimized(m_toplevel);
+  }
+}
+
+void ToplevelSurface::showWindowMenu(std::uint32_t serial, std::int32_t x, std::int32_t y) {
+  if (m_toplevel != nullptr) {
+    xdg_toplevel_show_window_menu(m_toplevel, m_connection.seat(), serial, x, y);
+  }
+}
+
 void ToplevelSurface::handleXdgSurfaceConfigure(void* data, xdg_surface* surface, std::uint32_t serial) {
   auto* self = static_cast<ToplevelSurface*>(data);
   xdg_surface_ack_configure(surface, serial);
+  const ToplevelState& next = self->m_pendingState;
+  // Tiled edges alone do not mean a layout-tiled window: some compositors send them to floating windows.
+  const bool floating = !next.maximized && !next.fullscreen;
 
   std::uint32_t width = self->m_pendingWidth;
   std::uint32_t height = self->m_pendingHeight;
+  // 0 x 0 = the client picks. After an unmaximize that is the last floating size, not the maximized one.
+  if (floating && self->m_lastToplevelWidth <= 0 && self->m_floatingWidth > 0) {
+    width = self->m_floatingWidth;
+  }
+  if (floating && self->m_lastToplevelHeight <= 0 && self->m_floatingHeight > 0) {
+    height = self->m_floatingHeight;
+  }
   if (self->m_lastToplevelWidth > 0) {
     width = static_cast<std::uint32_t>(self->m_lastToplevelWidth);
   }
@@ -120,13 +165,49 @@ void ToplevelSurface::handleXdgSurfaceConfigure(void* data, xdg_surface* surface
   }
   width = std::max<std::uint32_t>(1, width);
   height = std::max<std::uint32_t>(1, height);
+  if (floating) {
+    self->m_floatingWidth = width;
+    self->m_floatingHeight = height;
+  }
+  const bool stateChanged = next != self->m_state;
+  self->m_state = next;
   self->Surface::onConfigure(width, height);
+  // After onConfigure, so the callback reads the size of this configure.
+  if (stateChanged && self->m_stateCallback) {
+    self->m_stateCallback(self->m_state);
+  }
 }
 
 void ToplevelSurface::handleToplevelConfigure(
-    void* data, xdg_toplevel* /*toplevel*/, std::int32_t width, std::int32_t height, wl_array* /*states*/
+    void* data, xdg_toplevel* /*toplevel*/, std::int32_t width, std::int32_t height, wl_array* states
 ) {
   auto* self = static_cast<ToplevelSurface*>(data);
+  ToplevelState next;
+  if (states != nullptr) {
+    const auto* begin = static_cast<const std::uint32_t*>(states->data);
+    for (std::size_t i = 0; i < states->size / sizeof(std::uint32_t); ++i) {
+      switch (begin[i]) {
+      case XDG_TOPLEVEL_STATE_MAXIMIZED:
+        next.maximized = true;
+        break;
+      case XDG_TOPLEVEL_STATE_FULLSCREEN:
+        next.fullscreen = true;
+        break;
+      case XDG_TOPLEVEL_STATE_ACTIVATED:
+        next.activated = true;
+        break;
+      case XDG_TOPLEVEL_STATE_TILED_LEFT:
+      case XDG_TOPLEVEL_STATE_TILED_RIGHT:
+      case XDG_TOPLEVEL_STATE_TILED_TOP:
+      case XDG_TOPLEVEL_STATE_TILED_BOTTOM:
+        next.tiled = true;
+        break;
+      default:
+        break;
+      }
+    }
+  }
+  self->m_pendingState = next;
   self->m_lastToplevelWidth = width;
   self->m_lastToplevelHeight = height;
   if (width > 0) {

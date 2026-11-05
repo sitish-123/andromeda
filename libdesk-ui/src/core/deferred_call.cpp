@@ -9,9 +9,10 @@
 
 namespace {
 
+  // Never destroyed: worker threads may post while static destructors run at exit.
   std::mutex& deferredMutex() {
-    static std::mutex mutex;
-    return mutex;
+    static auto* mutex = new std::mutex;
+    return *mutex;
   }
 
   std::array<int, 2>& wakePipe() {
@@ -54,8 +55,8 @@ namespace {
 } // namespace
 
 std::vector<std::function<void()>>& DeferredCall::queue() {
-  static std::vector<std::function<void()>> q;
-  return q;
+  static auto* q = new std::vector<std::function<void()>>;
+  return *q;
 }
 
 void DeferredCall::callLater(std::function<void()> fn) {
