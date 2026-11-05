@@ -23,6 +23,7 @@ mod session;
 mod state;
 mod storage;
 mod thermal;
+mod wifi;
 
 use std::path::PathBuf;
 

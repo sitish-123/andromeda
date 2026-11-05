@@ -13,17 +13,20 @@ use zbus::object_server::SignalEmitter;
 use crate::engine::{Changes, Engine};
 use crate::explain::{self, Log};
 use crate::holds::{Knob, KnobValue, Merge, Source};
-use crate::{battery, power};
+use crate::{battery, power, wifi};
 
 pub const PROFILE: &str = "power.profile";
 /// On: each battery that has a charge limit stops at its end value.
 pub const CHARGE_LIMIT: &str = "battery.charge_limit";
+pub const WIFI_POWER_SAVE: &str = "network.wifi_power_save";
 
 pub struct Policy {
     pub engine: Engine,
     pub log: Log,
     /// Our power-profiles-daemon hold: cookie and profile.
     ppd_hold: Option<(u32, String)>,
+    /// Wi-Fi power save before the first hold turned it on; restored when the last hold ends.
+    wifi_before: Option<bool>,
 }
 
 pub type Shared = Arc<Mutex<Policy>>;
@@ -33,9 +36,13 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn new(log: PathBuf) -> Shared {
-    let knobs = vec![Knob::new(PROFILE, Merge::LowestPower), Knob::new(CHARGE_LIMIT, Merge::AnyTrue)];
+    let knobs = vec![
+        Knob::new(PROFILE, Merge::LowestPower),
+        Knob::new(CHARGE_LIMIT, Merge::AnyTrue),
+        Knob::new(WIFI_POWER_SAVE, Merge::AnyTrue),
+    ];
     let (engine, _) = Engine::new(knobs, Vec::new(), now_ms());
-    Arc::new(Mutex::new(Policy { engine, log: Log::new(log), ppd_hold: None }))
+    Arc::new(Mutex::new(Policy { engine, log: Log::new(log), ppd_hold: None, wifi_before: None }))
 }
 
 impl Policy {
@@ -59,7 +66,23 @@ impl Policy {
         if let Some((_, Some(KnobValue::Bool(on)))) = changes.apply.iter().find(|(k, _)| *k == CHARGE_LIMIT) {
             battery::set_charge_limit(conn, *on).await?;
         }
+        if let Some((_, value)) = changes.apply.iter().find(|(k, _)| *k == WIFI_POWER_SAVE) {
+            self.apply_wifi_power_save(value.as_ref())?;
+        }
         Ok(())
+    }
+
+    fn apply_wifi_power_save(&mut self, value: Option<&KnobValue>) -> Result<()> {
+        if value == Some(&KnobValue::Bool(true)) {
+            if self.wifi_before.is_none() {
+                self.wifi_before = wifi::power_save()?;
+            }
+            return wifi::set_power_save(true);
+        }
+        match self.wifi_before.take() {
+            Some(before) => wifi::set_power_save(before),
+            None => Ok(()),
+        }
     }
 
     async fn apply_profile(&mut self, conn: &Connection) -> Result<()> {

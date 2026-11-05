@@ -9,7 +9,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::{Connection, OwnedVariant, Variant, interface};
 
 use crate::holds::{KnobValue, Merge};
-use crate::policy::{self, CHARGE_LIMIT, PROFILE, Shared};
+use crate::policy::{self, CHARGE_LIMIT, PROFILE, Shared, WIFI_POWER_SAVE};
 use crate::{battery, polkit};
 
 pub const PATH: &str = "/org/andromeda/System1/Knobs";
@@ -26,6 +26,7 @@ fn action(knob: &str) -> Result<&'static str> {
     match knob {
         PROFILE => Ok("org.andromeda.system.power-profile"),
         CHARGE_LIMIT => Ok("org.andromeda.system.charge-limit"),
+        WIFI_POWER_SAVE => Ok("org.andromeda.system.wifi-power-save"),
         _ => Err(Error::InvalidArgs(format!("unknown knob {knob:?}"))),
     }
 }
@@ -67,6 +68,9 @@ impl Knobs {
         #[zbus(header)] header: Header<'_>,
         #[zbus(connection)] conn: &Connection,
     ) -> Result<()> {
+        if knob == WIFI_POWER_SAVE {
+            return Err(Error::InvalidArgs(format!("{knob} takes rule holds only")));
+        }
         polkit::check(conn, &header, action(knob)?).await?;
         let choice = if knob == CHARGE_LIMIT {
             KnobValue::Bool(bool::try_from(&value).map_err(|_| Error::InvalidArgs(format!("{knob} takes a bool")))?)

@@ -29,7 +29,7 @@ const RULES: &str = "/org/andromeda/System1/Rules";
 /// Knobs the system part owns; the session part holds them with `Knobs.Hold`. The others it applies itself.
 /// How often the clock fields (`battery.unplug_in_min`) are read again while one matters (on AC only).
 const CLOCK_STEP: Duration = Duration::from_secs(5 * 60);
-const SYSTEM_KNOBS: [&str; 2] = ["power.profile", "battery.charge_limit"];
+const SYSTEM_KNOBS: [&str; 3] = ["power.profile", "battery.charge_limit", "network.wifi_power_save"];
 /// A synthetic state field: a session rule holds the profile, so the profile shown is not the user's pick.
 const PROFILE_BY_RULE: &str = "power.profile_by_rule";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
@@ -375,12 +375,6 @@ impl Session {
         for (knob, value) in apply {
             if SYSTEM_KNOBS.contains(&knob) {
                 continue;
-            }
-            if knob == "network.wifi_power_save" {
-                let on = value == Some(KnobValue::Bool(true));
-                if let Err(e) = nm::set_wifi_power_save(system, on).await {
-                    log::warn!("session: Wi-Fi power save: {e:#}");
-                }
             }
             if knob == "qos.freeze_hidden" {
                 let on = value == Some(KnobValue::Bool(true));

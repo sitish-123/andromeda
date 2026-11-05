@@ -99,7 +99,7 @@ fn read_zones() -> Vec<Zone> {
 
 const GENL_ID_CTRL: u16 = 0x10;
 const NLM_F_REQUEST: u16 = 1;
-const NLMSG_ERROR: u16 = 2;
+pub const NLMSG_ERROR: u16 = 2;
 const CTRL_CMD_GETFAMILY: u8 = 3;
 const CTRL_ATTR_FAMILY_NAME: u16 = 2;
 const CTRL_ATTR_MCAST_GROUPS: u16 = 7;
@@ -107,7 +107,7 @@ const CTRL_ATTR_MCAST_GRP_NAME: u16 = 1;
 const CTRL_ATTR_MCAST_GRP_ID: u16 = 2;
 const NLA_TYPE_MASK: u16 = 0x3fff;
 
-fn getfamily_request(family: &str) -> Vec<u8> {
+pub fn getfamily_request(family: &str) -> Vec<u8> {
     let name_len = family.len() + 1;
     let attr_len = 4 + name_len;
     let total = 16 + 4 + attr_len.next_multiple_of(4);
@@ -126,7 +126,7 @@ fn getfamily_request(family: &str) -> Vec<u8> {
 }
 
 /// Netlink attributes in `buf`: (type without flags, payload). Stops at the first malformed one.
-fn attrs(buf: &[u8]) -> Vec<(u16, &[u8])> {
+pub fn attrs(buf: &[u8]) -> Vec<(u16, &[u8])> {
     let mut out = Vec::new();
     let mut rest = buf;
     while rest.len() >= 4 {
