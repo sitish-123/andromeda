@@ -68,6 +68,7 @@ _system_deps = [
   dependency('xkbcommon'),
   dependency('glib-2.0'),
   dependency('gobject-2.0'),
+  dependency('gio-2.0'),
   dependency('md4c'),
   dependency('nlohmann_json'),
   dependency('sdbus-c++'),
@@ -159,6 +160,7 @@ _desk_ui_sources = files(
   'src/core/log.cpp',
   'src/core/process/process_fds.cpp',
   'src/core/timer_manager.cpp',
+  'src/core/freedesktop_thumbnails.cpp',
   'src/core/ui_phase.cpp',
   'src/i18n/i18n.cpp',
   'src/i18n/i18n_service.cpp',
@@ -332,3 +334,8 @@ desk_ui_dep = declare_dependency(
   sources: _protocol_headers,
   compile_args: _tokens_runtime,
 )
+
+if not meson.is_subproject()
+  test('freedesktop_thumbnails', executable('freedesktop_thumbnails_test', 'tests/freedesktop_thumbnails_test.cpp',
+    dependencies: desk_ui_dep))
+endif
