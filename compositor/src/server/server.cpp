@@ -1543,9 +1543,7 @@ namespace andromeda {
     // See kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer.
     m_backgroundFrameTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
-    if (m_backgroundFrameTimer != nullptr) {
-      wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
-    }
+    armBackgroundFrameTimer();
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
     m_systemdUnits = std::make_unique<SystemdUnits>(wl_display_get_event_loop(m_display));
     // ANDROMEDA_QOS_DISABLE=1: no QoS tiers, for the with/without measurement (tests/qos-contention.sh).

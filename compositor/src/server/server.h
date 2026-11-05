@@ -637,6 +637,7 @@ namespace andromeda {
     // Arms the background-render tick for the fastest refresh among hidden `background_render` windows, or disarms it
     // when there are none.
     void armBackgroundRenderTimer();
+    void armBackgroundFrameTimer();
     static int onStartupRulesTimer(void* data);
     static int onTerminateSignal(int signal, void* data);
     static void onIpcWindowsIdle(void* data);

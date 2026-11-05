@@ -343,10 +343,19 @@ namespace andromeda {
       );
     }
 
-    if (self->m_backgroundFrameTimer != nullptr) {
-      wl_event_source_timer_update(self->m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
-    }
+    self->armBackgroundFrameTimer();
     return 0;
+  }
+
+  void Server::armBackgroundFrameTimer() {
+    if (m_backgroundFrameTimer == nullptr) {
+      return;
+    }
+    // Off while no mapped window is hidden, so an idle desktop gets no 10 Hz wakeup.
+    const bool hidden = std::ranges::any_of(m_registry.all(), [](const auto& view) {
+      return view->mapped() && !view->seen() && !view->backgroundRender();
+    });
+    wl_event_source_timer_update(m_backgroundFrameTimer, hidden ? kBackgroundFrameIntervalMs : 0);
   }
 
   void Server::syncSuspendedViews() {
@@ -392,6 +401,7 @@ namespace andromeda {
   }
 
   void Server::armBackgroundRenderTimer() {
+    armBackgroundFrameTimer();
     if (m_backgroundRenderTimer == nullptr) {
       return;
     }
