@@ -21,8 +21,12 @@ jobs:
       - name: Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgl-dev libegl-dev libxkbcommon-dev
           rustup component add clippy rustfmt
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - uses: taiki-e/install-action@cargo-deny
       - name: Gate
         working-directory: link
@@ -42,9 +46,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            dbus libglib2.0-bin python3-gi iproute2 nftables
+            libgl-dev libegl-dev libxkbcommon-dev dbus libglib2.0-bin python3-gi iproute2 nftables
           # The tests put the phone and the desktop in their own user and network namespaces.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # Ubuntu's Qt is older than the 6.7 that link-desk needs.
+      - uses: jurplel/install-qt-action@v4
+        with: { version: "6.12.0", modules: qtmultimedia, cache: true }
       - name: Build
         working-directory: link
         run: cargo build

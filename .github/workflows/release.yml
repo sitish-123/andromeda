@@ -113,8 +113,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag=$(gh release list -R sitish-123/andromeda-link -L 1 --json tagName --jq '.[0].tagName')
-          gh release download "$tag" -R sitish-123/andromeda-link -p '*.apk' -O andromeda-link.apk
+          # A Link release with the same tag can still be building; wait up to 40 min for it.
+          for _ in $(seq 40); do
+            gh release download "$GITHUB_REF_NAME" -R sitish-123/andromeda-link -p '*.apk' -O andromeda-link.apk && exit 0
+            sleep 60
+          done
+          exit 1
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
