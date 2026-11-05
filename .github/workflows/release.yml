@@ -1,5 +1,5 @@
-# A tag v* builds the Arch packages, the Ubuntu packages and the signed Android app, and publishes them as a GitHub release. The release's
-# assets are also a pacman repository: pacman.conf points at releases/latest/download (see README.md).
+# A tag v* builds the Arch and Ubuntu packages, adds the signed Android app from Link's release, and publishes them
+# as a GitHub release. The assets are also a pacman and an apt repository at releases/latest/download (see README.md).
 name: release
 
 on:
@@ -85,44 +85,8 @@ jobs:
           name: apt
           path: apt/
 
-  android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-      # The runner image ships the SDK; only the NDK and platform the app pins are added.
-      - name: NDK
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;28.2.13676358" "platforms;android-36"
-      - name: Rust
-        run: |
-          rustup target add aarch64-linux-android x86_64-linux-android
-          cargo install --locked cargo-ndk
-      - name: Signing key
-        env:
-          KEYSTORE: ${{ secrets.LINK_KEYSTORE_BASE64 }}
-        run: echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/link-release.jks"
-      - name: App
-        working-directory: link/apps/android
-        env:
-          LINK_KEYSTORE: ${{ runner.temp }}/link-release.jks
-          LINK_KEYSTORE_PASSWORD: ${{ secrets.LINK_KEYSTORE_PASSWORD }}
-          LINK_VERSION_CODE: ${{ github.run_number }}
-          LINK_VERSION_NAME: ${{ github.ref_name }}
-        run: |
-          ./gradlew --no-daemon :app:assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/andromeda-link.apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: andromeda-link.apk
-
   release:
-    needs: [packages, ubuntu, android]
+    needs: [packages, ubuntu]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -132,7 +96,14 @@ jobs:
           sparse-checkout-cone-mode: false
           path: src
       - uses: actions/download-artifact@v4
+      # Link's own release signs the app (its repo holds the keystore secrets); this release reuses that APK.
+      - name: Link app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list -R sitish-123/andromeda-link -L 1 --json tagName --jq '.[0].tagName')
+          gh release download "$tag" -R sitish-123/andromeda-link -p '*.apk' -O andromeda-link.apk
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* apt/* android/andromeda-link.apk src/install.sh
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes repo/* apt/* andromeda-link.apk src/install.sh
