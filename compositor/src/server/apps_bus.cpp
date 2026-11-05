@@ -25,7 +25,11 @@ namespace andromeda {
 
   namespace {
     constexpr Logger kLog("apps-bus");
-    constexpr const char* kName = "org.andromeda.Compositor1";
+    // A headless E2E compositor owns another name while the live session holds the real one.
+    const char* busName() {
+      const char* name = std::getenv("ANDROMEDA_COMPOSITOR_BUS_NAME");
+      return name != nullptr && name[0] != '\0' ? name : "org.andromeda.Compositor1";
+    }
     constexpr const char* kPath = "/org/andromeda/Compositor1/Apps";
     constexpr const char* kInterface = "org.andromeda.Compositor1.Apps";
     constexpr const char* kAppRow = "(sbbsbdt)";
@@ -134,7 +138,7 @@ namespace andromeda {
     }
     const auto named = [](sd_bus_message* reply, void* /*data*/, sd_bus_error* /*error*/) -> int {
       if (sd_bus_message_is_method_error(reply, nullptr) != 0) {
-        kLog.info("{} is taken: Compositor1.Apps is off in this compositor", kName);
+        kLog.info("{} is taken: Compositor1.Apps is off in this compositor", busName());
       }
       return 0;
     };
@@ -142,7 +146,7 @@ namespace andromeda {
         || sd_bus_match_signal_async(m_bus, &m_ownerMatch, "org.freedesktop.DBus", "/org/freedesktop/DBus",
                                      "org.freedesktop.DBus", "NameOwnerChanged", onOwnerChanged, nullptr, this)
             < 0
-        || sd_bus_request_name_async(m_bus, nullptr, kName, 0, named, nullptr) < 0) {
+        || sd_bus_request_name_async(m_bus, nullptr, busName(), 0, named, nullptr) < 0) {
       kLog.warn("Compositor1.Apps: could not set up the bus object");
       disconnect();
       return;
