@@ -83,7 +83,13 @@ namespace andromeda {
     // `releaseVelocity` is the speed the fingers were still moving at when they left, in overview progress per second,
     // and is zero for callers that are not a gesture.
     void gestureUpdate(double progress);
-    void gestureEnd(bool commitOpen, double releaseVelocity = 0);
+    // `stop`: 0 closed, 1 open, 2 the Grid second stop (only when canGridStop()).
+    void gestureEnd(int stop, double releaseVelocity = 0);
+    // The second gesture stop shows every workspace as a Grid; it exists unless the style already is Grid.
+    [[nodiscard]] bool canGridStop() const;
+    [[nodiscard]] bool gridStop() const { return m_gridStop; }
+    // The style on screen: the configured one, or Grid on the second stop.
+    [[nodiscard]] ov::Style presentedStyle() const;
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     // Advances the zoom and workspace-row animations; returns true while either is still running.
@@ -494,6 +500,14 @@ namespace andromeda {
     AnimatedValue m_reflow{1.0};
     std::unordered_map<const void*, ov::Rect> m_shownRects;
     std::unordered_map<const void*, ov::Rect> m_reflowFrom;
+    // Second gesture stop: the overview shows the Grid instead of the configured style. While fingers are on it the
+    // reflow between the two styles is held at m_reflowHeldValue; a release that falls back flips the style once the
+    // spring is back on the old rects.
+    bool m_gridStop = false;
+    bool m_gridFromGrid = false;
+    bool m_reflowHeld = false;
+    double m_reflowHeldValue = 0.0;
+    bool m_gridRevertPending = false;
     void beginReflow();
     ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
     Ref<View> m_pendingFocus;

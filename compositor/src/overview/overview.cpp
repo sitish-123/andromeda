@@ -708,7 +708,7 @@ namespace andromeda {
     refreshDesktop(state);
 
     // Placement is pure and settled; only its input changing re-runs it. An open or close in flight interpolates.
-    const ov::Style style = configuredStyle();
+    const ov::Style style = presentedStyle();
     const double row = state.rowScroll.current();
     ov::Input input = placementInput(state, false);
     std::vector<uintptr_t> structure{static_cast<uintptr_t>(style), input.workspaces.size()};
@@ -967,6 +967,12 @@ namespace andromeda {
         from = shown->second;
       }
     }
+    // Fingers on the second stop drive the reflow themselves: no spring until they let go.
+    if (m_reflowHeld) {
+      m_reflow.snap(m_reflowHeldValue);
+      scheduleFrames();
+      return;
+    }
     m_reflow.snap(0.0);
     const auto& curve = animation.overview.workspaceCurve;
     if (curve.easing == Easing::Spring) {
@@ -992,7 +998,7 @@ namespace andromeda {
       }
     }
     ov::Rect shown = target;
-    if (m_reflow.animating()) {
+    if (m_reflow.animating() || m_reflowHeld) {
       if (const auto from = m_reflowFrom.find(key); from != m_reflowFrom.end()) {
         shown = ov::lerpRect(from->second, target, m_reflow.current());
       }
@@ -1836,7 +1842,7 @@ namespace andromeda {
       }
       const double row = state->rowScroll.target();
       const ov::Input input = placementInput(*state, true);
-      const ov::Placement settled = ov::placeAt(configuredStyle(), input, row);
+      const ov::Placement settled = ov::placeAt(presentedStyle(), input, row);
       const ov::Rect output{0.0, 0.0, input.width, input.height};
       const auto onOutput = [&output](const ov::Rect& rect) {
         return rect.x < output.w && rect.y < output.h && rect.x + rect.w > 0 && rect.y + rect.h > 0;
@@ -2290,7 +2296,16 @@ namespace andromeda {
     if (rowTicked && m_reflow.animating() && m_reflow.curve().easing == Easing::Spring) {
       static_cast<void>(m_reflow.finishSpringTail(motionPixelsPerUnit(true)));
     }
-    if (!m_reflow.animating()) {
+    if (!m_reflow.animating() && m_gridRevertPending) {
+      // The release fell back to the stop the gesture left: the reflow sits on the old style's rects, so switching
+      // the style back now moves nothing.
+      m_gridRevertPending = false;
+      m_gridStop = !m_gridStop;
+      m_reflow.snap(1.0);
+      m_reflowFrom.clear();
+      applyProgress();
+    }
+    if (!m_reflow.animating() && !m_reflowHeld) {
       m_reflowFrom.clear();
     }
     active = active || m_reflow.animating();
@@ -2386,6 +2401,9 @@ namespace andromeda {
 
   void Overview::teardown() {
     m_server->cursor()->resetWheelAccumulation();
+    m_gridStop = false;
+    m_reflowHeld = false;
+    m_gridRevertPending = false;
     m_reflow.snap(1.0);
     m_shownRects.clear();
     m_reflowFrom.clear();
@@ -2453,6 +2471,10 @@ namespace andromeda {
 
   // -: gesture
 
+  ov::Style Overview::presentedStyle() const { return m_gridStop ? ov::Style::Grid : configuredStyle(); }
+
+  bool Overview::canGridStop() const { return configuredStyle() != ov::Style::Grid; }
+
   void Overview::gestureUpdate(double progress) {
     if (!m_active) {
       if (progress <= 0.0 || !beginPresentation()) {
@@ -2466,17 +2488,47 @@ namespace andromeda {
     }
     m_closing = false;
     m_server->notifyOverviewChanged();
-    m_progress = progress;
-    m_targetProgress = progress;
+    // Past the first stop the fingers move every workspace into the Grid (and back down out of it).
+    const double second = canGridStop() ? std::clamp(progress - 1.0, 0.0, 1.0) : 0.0;
+    if (canGridStop() && (second > 0.0 || m_reflowHeld)) {
+      if (!m_reflowHeld) {
+        m_gridRevertPending = false;
+        m_gridFromGrid = m_gridStop;
+        m_reflowHeld = true;
+        m_gridStop = !m_gridStop;
+      }
+      m_reflowHeldValue = m_gridFromGrid ? 1.0 - second : second;
+      m_reflow.snap(m_reflowHeldValue);
+    }
+    m_progress = std::min(progress, 1.0);
+    m_targetProgress = m_progress;
     applyProgress();
   }
 
-  void Overview::gestureEnd(bool commitOpen, double releaseVelocity) {
+  void Overview::gestureEnd(int stop, double releaseVelocity) {
     if (!m_active) {
       return;
     }
     m_gestureOpenedHere = false;
-    if (commitOpen) {
+    if (m_reflowHeld) {
+      m_reflowHeld = false;
+      const bool landsOnTarget = m_gridStop == (stop == 2);
+      const auto& animation = config().animation;
+      if (stop == 0 || !animation.enabled || !animation.overview.enabled) {
+        // Closing, or no motion: land on the chosen style at once; a close then animates from there.
+        if (!landsOnTarget) {
+          m_gridStop = !m_gridStop;
+        }
+        m_reflow.snap(1.0);
+        m_reflowFrom.clear();
+        applyProgress();
+      } else {
+        m_gridRevertPending = !landsOnTarget;
+        m_reflow.settleSpring(landsOnTarget ? 1.0 : 0.0, animation.overview.workspaceCurve.spring);
+        scheduleFrames();
+      }
+    }
+    if (stop > 0) {
       startAnimation(1.0, false, releaseVelocity);
       return;
     }
@@ -2897,7 +2949,7 @@ namespace andromeda {
       if (group == nullptr || !boxContains(state->outputBox, lx, ly)) {
         continue;
       }
-      const bool strip = configuredStyle() == ov::Style::Strip;
+      const bool strip = presentedStyle() == ov::Style::Strip;
       const bool horizontalWorkspaces = group->workspaceAxis() == WorkspaceAxis::Horizontal;
       for (size_t index = 0; index < state->workspaceViews.size(); ++index) {
         Workspace* workspace = group->workspaceAt(index);
@@ -2939,7 +2991,7 @@ namespace andromeda {
 
   WorkspaceGroup*
   Overview::workspaceGapAt(double lx, double ly, OutputState** outState, size_t* outIndex, wlr_box* outHintBox) {
-    const bool strip = configuredStyle() == ov::Style::Strip;
+    const bool strip = presentedStyle() == ov::Style::Strip;
     for (const auto& state : m_outputs) {
       WorkspaceGroup* group = state->output->workspaceGroup();
       if (group == nullptr || !group->dynamic() || group->workspaceCount() >= kMaxWorkspaces) {
@@ -4451,7 +4503,7 @@ namespace andromeda {
       }
     }
     Workspace* panned = nullptr;
-    const ov::Style style = configuredStyle();
+    const ov::Style style = presentedStyle();
     WorkspaceGroup* group = state != nullptr ? state->output->workspaceGroup() : nullptr;
     if (group != nullptr && (style == ov::Style::Strip || style == ov::Style::Spaces)) {
       const wlr_box& box = state->outputBox;

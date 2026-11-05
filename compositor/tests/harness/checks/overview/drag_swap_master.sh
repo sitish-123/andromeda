@@ -31,7 +31,10 @@ x_main=$(field "$main" x)
 "$ANDROMEDA" settle > /dev/null
 # The main area spans x 212..1067, y 203..684. Lifting the master promotes the top window, so the bottom one fills
 # the right half.
-pointer_hold 1280 720 move 426 443 press 272 move 426 483 move 820 443 move 853 443 -- release 272
+# The lift reflows the cards on the next frame; settle before moving onto the target so the drop resolves against
+# the reflowed layout, not the stack the lift just left.
+pointer_hold 1280 720 move 426 443 press 272 move 426 483 -- move 820 443 move 853 443 release 272
+"$ANDROMEDA" settle > /dev/null
 pointer_release
 "$ANDROMEDA" settle > /dev/null
 "$ANDROMEDA" msg overview-close > /dev/null

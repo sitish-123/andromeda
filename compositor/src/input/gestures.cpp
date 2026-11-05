@@ -400,6 +400,7 @@ namespace andromeda {
       m_accumX = 0;
       m_accumY = 0;
       m_overviewWasOpen = overview->active();
+      m_overviewBase = !m_overviewWasOpen ? 0.0 : overview->gridStop() ? 2.0 : 1.0;
       m_overviewTracker.reset();
       return;
     }
@@ -553,13 +554,9 @@ namespace andromeda {
         m_state = State::Idle;
         return;
       }
-      // Swipe up opens, swipe down closes; base is where the gesture started.
-      const double base = m_overviewWasOpen ? 1.0 : 0.0;
+      // Swipe up opens and goes on to the Grid stop, swipe down steps back; base is where the gesture started.
       m_overviewTracker.push(-event->dy, event->time_msec);
-      const double p = GesturePhysics::rubberBand(
-          base + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, 1.0, GesturePhysics::kOverscrollLimit
-      );
-      overview->gestureUpdate(p);
+      overview->gestureUpdate(overviewGestureProgress(*overview));
       return;
     }
 
@@ -622,23 +619,30 @@ namespace andromeda {
 
   // ===== Overview finish (4-finger) =====
 
+  double Gestures::overviewGestureProgress(const Overview& overview) const {
+    return GesturePhysics::rubberBand(
+        m_overviewBase + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, overview.canGridStop() ? 2.0 : 1.0,
+        GesturePhysics::kOverscrollLimit
+    );
+  }
+
   void Gestures::finishOverview(bool cancelled, uint32_t timeMsec) {
     m_state = State::Idle;
     Overview* overview = m_server->overview();
     if (overview == nullptr) {
       return;
     }
-    const double base = m_overviewWasOpen ? 1.0 : 0.0;
-    bool commitOpen = m_overviewWasOpen;
+    int stop = static_cast<int>(m_overviewBase);
     double velocity = 0.0;
     if (!cancelled) {
       m_overviewTracker.push(0.0, timeMsec);
-      const GesturePhysics::StepRelease release =
-          GesturePhysics::release(m_overviewTracker, kOverviewDistancePx, base, 0.0, 1.0);
-      commitOpen = release.target == 1;
+      const GesturePhysics::StepRelease release = GesturePhysics::release(
+          m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, overview->canGridStop() ? 2.0 : 1.0
+      );
+      stop = release.target;
       velocity = release.velocity;
     }
-    overview->gestureEnd(commitOpen, velocity);
+    overview->gestureEnd(stop, velocity);
   }
 
   // ===== Scroll finish (Step 5) =====
@@ -796,6 +800,7 @@ namespace andromeda {
       m_overviewPinch = true;
       m_pinchScale = 1.0;
       m_overviewWasOpen = overview->active();
+      m_overviewBase = !m_overviewWasOpen ? 0.0 : overview->gridStop() ? 2.0 : 1.0;
       m_overviewTracker.reset();
       return;
     }
@@ -824,10 +829,7 @@ namespace andromeda {
       }
       m_overviewTracker.push((m_pinchScale - event->scale) * kPinchDistancePx, event->time_msec);
       m_pinchScale = event->scale;
-      const double base = m_overviewWasOpen ? 1.0 : 0.0;
-      overview->gestureUpdate(GesturePhysics::rubberBand(
-          base + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, 1.0, GesturePhysics::kOverscrollLimit
-      ));
+      overview->gestureUpdate(overviewGestureProgress(*overview));
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_update(
