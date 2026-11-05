@@ -489,8 +489,8 @@ void BatteryWidget::syncState(Renderer& renderer) {
   if (m_displayMode == BatteryDisplayMode::Graphic) {
     syncPalette();
 
-    // Animate fill percentage
-    const auto newPct = static_cast<float>(s.percentage);
+    // Whole percent: UPower's fractional percentage changes on every poll and would redraw a sub-pixel change.
+    const auto newPct = static_cast<float>(pct);
     if (m_animations != nullptr && std::abs(m_animatedPct - newPct) > 0.5F) {
       m_animations->cancel(m_fillAnim);
       m_fillAnim = m_animations->animateSpring(
