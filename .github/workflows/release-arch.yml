@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag: { description: "Existing tag to build and publish", required: true }
+      ref: { description: "Commit or branch to build instead of the tag, for a packaging fix", required: false }
 
 permissions:
   contents: write
@@ -27,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ env.TAG }}
+          ref: ${{ inputs.ref || env.TAG }}
           # pkg/andromeda-link.install links into the Link submodule.
           submodules: recursive
       - name: Build user
