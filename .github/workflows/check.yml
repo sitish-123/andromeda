@@ -96,7 +96,7 @@ jobs:
       - name: Packages
         run: |
           tools/deb-xwayland-satellite.sh 26.04
-          tools/ubuntu-deb.sh 26.04
+          tools/ubuntu-deb.sh --clean 26.04
       - uses: actions/upload-artifact@v4
         if: always()
         with:
