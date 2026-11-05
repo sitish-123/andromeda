@@ -1111,9 +1111,12 @@ namespace andromeda {
   void Server::remapTouches() {
     const Config::Input::Touch& cfg = config().input.touch;
     for (const auto& touch : m_touchDevices) {
-      Output* panel = !cfg.mapToOutput.empty()
-          ? outputFromName(cfg.mapToOutput)
-          : defaultTouchOutput(outputs(), wlr_touch_from_input_device(touch->device)->output_name);
+      // wlroots leaves output_name unset for libinput devices; fall back to libinput's WL_OUTPUT udev property.
+      const char* reported = wlr_touch_from_input_device(touch->device)->output_name;
+      if (reported == nullptr && wlr_input_device_is_libinput(touch->device)) {
+        reported = libinput_device_get_output_name(wlr_libinput_get_device_handle(touch->device));
+      }
+      Output* panel = !cfg.mapToOutput.empty() ? outputFromName(cfg.mapToOutput) : defaultTouchOutput(outputs(), reported);
       wlr_box region{};
       wlr_output* output = nullptr;
       if (const Output* source = panel != nullptr ? panel->mirrorSource() : nullptr) {

@@ -504,6 +504,9 @@ namespace andromeda {
   }
 
   void View::handleSetParent() {
+    if (m_xsurface != nullptr) {
+      m_server->xwaylandHintsChanged(this);
+    }
     if (m_mapped) {
       reconcileAttachment();
       // `match.is_dialog` follows the parent.

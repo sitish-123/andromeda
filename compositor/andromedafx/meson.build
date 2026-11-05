@@ -209,6 +209,17 @@ andromedafx_dep = declare_dependency(
 )
 
 if build_tests
+  andromedafx_hdr_capture_test = executable(
+    'andromedafx-hdr-capture-test',
+    'tests/hdr_capture.c',
+    c_args: andromedafx_c_args,
+    dependencies: andromedafx_deps,
+    include_directories: [andromedafx_inc, andromedafx_internal_inc],
+    link_with: andromedafx_lib,
+    build_by_default: false,
+  )
+  test('hdr-sdr-capture', andromedafx_hdr_capture_test, suite: 'andromedafx')
+
   andromedafx_color_test = executable(
     'andromedafx-color-test',
     'tests/color.c',
