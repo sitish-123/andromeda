@@ -1,4 +1,5 @@
 #include "system/telemetry_service.h"
+#include "util/parse_number.h"
 
 #include "config/config_service.h"
 #include "core/log.h"
@@ -74,12 +75,8 @@ namespace {
         return 0;
       }
       const std::size_t end = line.find_first_not_of("0123456789", start);
-      try {
-        const auto kb = std::stoull(line.substr(start, end - start));
-        return static_cast<int>((kb + 524288) / 1048576);
-      } catch (...) {
-        return 0;
-      }
+      const auto kb = parseNumber<std::uint64_t>(std::string_view(line).substr(start, end - start));
+      return kb.has_value() ? static_cast<int>((*kb + 524288) / 1048576) : 0;
     }
     return 0;
   }

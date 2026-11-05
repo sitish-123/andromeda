@@ -31,13 +31,8 @@ namespace noctalia::theme::firefox_theme::settings {
       if (!in) {
         return nlohmann::json::object();
       }
-      try {
-        nlohmann::json root;
-        in >> root;
-        return root.is_object() ? root : nlohmann::json::object();
-      } catch (...) {
-        return nlohmann::json::object();
-      }
+      auto root = nlohmann::json::parse(in, nullptr, false);
+      return !root.is_discarded() && root.is_object() ? root : nlohmann::json::object();
     }
 
   } // namespace

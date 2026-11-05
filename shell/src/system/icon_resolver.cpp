@@ -1,4 +1,5 @@
 #include "system/icon_resolver.h"
+#include "util/parse_number.h"
 
 #include "core/log.h"
 #include "system/freedesktop_key_file.h"
@@ -380,33 +381,21 @@ namespace {
       }
       auto& entry = dirMap[name];
       if (const auto it = section->find("Size"); it != section->end()) {
-        try {
-          entry.size = std::stoi(it->second);
-        } catch (...) {
-        }
+        entry.size = parseNumber<int>(it->second).value_or(entry.size);
       }
       if (const auto it = section->find("Type"); it != section->end()) {
         entry.type = it->second;
         entry.scalable = (entry.type == "Scalable" || entry.type == "Threshold");
       }
       if (const auto it = section->find("MaxSize"); it != section->end()) {
-        try {
-          entry.maxSize = std::stoi(it->second);
-        } catch (...) {
-        }
+        entry.maxSize = parseNumber<int>(it->second).value_or(entry.maxSize);
       }
       entry.minSize = entry.size;
       if (const auto it = section->find("MinSize"); it != section->end()) {
-        try {
-          entry.minSize = std::stoi(it->second);
-        } catch (...) {
-        }
+        entry.minSize = parseNumber<int>(it->second).value_or(entry.minSize);
       }
       if (const auto it = section->find("Threshold"); it != section->end()) {
-        try {
-          entry.threshold = std::max(0, std::stoi(it->second));
-        } catch (...) {
-        }
+        entry.threshold = std::max(0, parseNumber<int>(it->second).value_or(entry.threshold));
       }
     }
 

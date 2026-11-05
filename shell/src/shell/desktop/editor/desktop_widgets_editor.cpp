@@ -1,4 +1,5 @@
 #include "shell/desktop/editor/desktop_widgets_editor.h"
+#include "util/parse_number.h"
 
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -1285,10 +1286,9 @@ void DesktopWidgetsEditor::rebuildScene(OverlaySurface& surface) {
                           .onSelectionChanged =
                               [this](std::size_t /*index*/, std::string_view text) {
                                 deferEditorMutation([this, value = std::string(text)] {
-                                  try {
-                                    m_snapshot.grid.cellSize = std::stoi(value);
+                                  if (const auto size = parseNumber<int>(value); size.has_value()) {
+                                    m_snapshot.grid.cellSize = *size;
                                     requestLayout();
-                                  } catch (...) {
                                   }
                                 });
                               },

@@ -102,11 +102,8 @@ namespace noctalia::theme::firefox_theme::native_messaging {
       m_buf.erase(m_buf.begin(), m_buf.begin() + static_cast<std::ptrdiff_t>(m_expected));
       m_state = State::Length;
       m_expected = 0;
-      try {
-        return nlohmann::json::parse(body);
-      } catch (...) {
-        return nlohmann::json{{"action", "action:invalid"}};
-      }
+      auto message = nlohmann::json::parse(body, nullptr, false);
+      return message.is_discarded() ? nlohmann::json{{"action", "action:invalid"}} : message;
     }
   }
 

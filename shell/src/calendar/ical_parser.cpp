@@ -5,6 +5,7 @@
 #include "core/log.h"
 #include "render/core/color.h"
 
+#include <stdexcept>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -73,9 +74,10 @@ namespace calendar {
         return {};
       }
 
+      // choose::earliest settles a DST gap or overlap; only a missing tz database throws (std::runtime_error).
       try {
-        return toSystem(time_point_cast<seconds>(current_zone()->to_sys(local_days{ymd})));
-      } catch (...) {
+        return toSystem(time_point_cast<seconds>(current_zone()->to_sys(local_days{ymd}, choose::earliest)));
+      } catch (const std::runtime_error&) {
         return toSystem(sys_days{ymd});
       }
     }
@@ -88,9 +90,12 @@ namespace calendar {
       }
 
       const local_seconds local = local_days{ymd} + hours{h} + minutes{mi} + seconds{s};
+      // RFC 5545 §3.3.5: a local time takes the UTC offset in force before any change, so a time in a DST gap
+      // moves later by the gap and a repeated time is its first occurrence.
       try {
-        return toSystem(time_point_cast<seconds>(current_zone()->to_sys(local)));
-      } catch (...) {
+        const sys_seconds utc{local.time_since_epoch() - current_zone()->get_info(local).first.offset};
+        return toSystem(utc);
+      } catch (const std::runtime_error&) {
         return toSystem(sys_days{ymd} + hours{h} + minutes{mi} + seconds{s});
       }
     }
@@ -152,7 +157,7 @@ namespace calendar {
       try {
         const local_seconds local = floor<seconds>(current_zone()->to_local(t));
         wallTime = sys_seconds{local.time_since_epoch()};
-      } catch (...) {
+      } catch (const std::runtime_error&) {
         // Keep UTC wall fields when the system timezone database is unavailable.
       }
 

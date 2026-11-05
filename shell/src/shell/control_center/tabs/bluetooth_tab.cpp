@@ -1,4 +1,6 @@
 #include "shell/control_center/tabs/bluetooth_tab.h"
+#include "util/parse_number.h"
+#include "util/string_utils.h"
 
 #include "core/ui_phase.h"
 #include "dbus/bluetooth/bluetooth_uuid_names.h"
@@ -18,6 +20,15 @@
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+
+namespace {
+  // A Bluetooth passkey is six decimal digits (0-999999); anything else cancels the pairing.
+  std::optional<std::uint32_t> bluetoothPasskey(std::string_view text) {
+    const auto value = parseNumber<std::uint32_t>(StringUtils::trim(text));
+    return value.has_value() && *value <= 999999 ? value : std::nullopt;
+  }
+} // namespace
+
 
 using namespace control_center;
 
@@ -412,9 +423,9 @@ std::unique_ptr<Flex> BluetoothTab::create() {
             if (req.kind == BluetoothPairingKind::PinCode) {
               m_agent->submitPin(value);
             } else if (req.kind == BluetoothPairingKind::Passkey) {
-              try {
-                m_agent->submitPasskey(static_cast<std::uint32_t>(std::stoul(value)));
-              } catch (...) {
+              if (const auto passkey = bluetoothPasskey(value); passkey.has_value()) {
+                m_agent->submitPasskey(*passkey);
+              } else {
                 m_agent->cancelPending();
               }
             }
@@ -450,9 +461,9 @@ std::unique_ptr<Flex> BluetoothTab::create() {
                   break;
                 case BluetoothPairingKind::Passkey:
                   if (m_pairingInput != nullptr) {
-                    try {
-                      m_agent->submitPasskey(static_cast<std::uint32_t>(std::stoul(m_pairingInput->value())));
-                    } catch (...) {
+                    if (const auto passkey = bluetoothPasskey(m_pairingInput->value()); passkey.has_value()) {
+                      m_agent->submitPasskey(*passkey);
+                    } else {
                       m_agent->cancelPending();
                     }
                   }

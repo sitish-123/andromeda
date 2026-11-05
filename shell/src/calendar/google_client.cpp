@@ -8,6 +8,7 @@
 #include "net/uri.h"
 #include "time/time_format.h"
 
+#include <stdexcept>
 #include <charconv>
 #include <cstdint>
 #include <memory>
@@ -44,9 +45,10 @@ namespace calendar {
       if (!ymd.ok()) {
         return std::nullopt;
       }
+      // choose::earliest settles a DST gap or overlap; only a missing tz database throws (std::runtime_error).
       try {
-        return toSystem(time_point_cast<seconds>(current_zone()->to_sys(local_days{ymd})));
-      } catch (...) {
+        return toSystem(time_point_cast<seconds>(current_zone()->to_sys(local_days{ymd}, choose::earliest)));
+      } catch (const std::runtime_error&) {
         return toSystem(sys_days{ymd});
       }
     }

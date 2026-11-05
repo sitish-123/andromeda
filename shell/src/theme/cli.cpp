@@ -17,6 +17,7 @@
 #include "theme/template_engine.h"
 #include "util/file_utils.h"
 
+#include <stdexcept>
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -230,8 +231,8 @@ namespace noctalia::theme {
         return std::nullopt;
       try {
         return Color::fromHex(src[key].get<std::string>());
-      } catch (...) {
-        return std::nullopt;
+      } catch (const std::invalid_argument&) {
+        return std::nullopt; // not #rrggbb
       }
     }
 
@@ -338,7 +339,8 @@ namespace noctalia::theme {
             continue;
           try {
             dst[it.key()] = Color::fromHex(it.value().get<std::string>()).toArgb();
-          } catch (...) {
+          } catch (const std::invalid_argument& e) {
+            std::println(stderr, "warning: color {} skipped: {}", it.key(), e.what());
           }
         }
       };

@@ -1,4 +1,5 @@
 #include "system/hardware_info.h"
+#include "util/parse_number.h"
 
 #include "compositors/compositor_detect.h"
 #include "core/deferred_call.h"
@@ -345,13 +346,11 @@ namespace {
       }
       const std::size_t valueEnd = line.find_first_not_of("0123456789", valueStart);
       const std::string kbText = line.substr(valueStart, valueEnd - valueStart);
-      std::uint64_t totalKb = 0;
-      try {
-        totalKb = static_cast<std::uint64_t>(std::stoull(kbText));
-      } catch (...) {
+      const auto totalKb = parseNumber<std::uint64_t>(kbText);
+      if (!totalKb.has_value()) {
         return i18n::tr("system.hardware.unknown");
       }
-      return FormatUnits::formatBinaryBytesAsGib(totalKb * 1024ULL);
+      return FormatUnits::formatBinaryBytesAsGib(*totalKb * 1024ULL);
     }
     return i18n::tr("system.hardware.unknown");
   }

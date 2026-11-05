@@ -9,6 +9,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 
+#include <stdexcept>
 #include <chrono>
 #include <cmath>
 #include <ctime>
@@ -92,7 +93,8 @@ namespace {
     const time_zone* tz = nullptr;
     try {
       tz = locate_zone(tzName);
-    } catch (...) {
+    } catch (const std::runtime_error&) {
+      // An unknown zone name in the widget config: the clock shows local time.
     }
 
     if (tz == nullptr) {
