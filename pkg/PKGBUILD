@@ -54,9 +54,9 @@ build() {
 
 package_andromeda-system-git() {
   pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
-  depends=(dbus polkit upower power-profiles-daemon)
+  depends=(dbus polkit upower power-profiles-daemon pacman-contrib fakeroot)
   backup=(etc/UPower/UPower.conf.d/50-andromeda.conf)
-  optdepends=('networkmanager: network state')
+  optdepends=('networkmanager: network state' 'flatpak: Flatpak updates' 'fwupd: firmware updates')
   install -Dm755 desktop/system/target/release/andromeda-system "$pkgdir/usr/lib/andromeda/andromeda-system"
   # Started on demand by D-Bus activation from the shell or the greeter.
   install -Dm644 desktop/system/data/andromeda-system.service "$pkgdir/usr/lib/systemd/system/andromeda-system.service"
@@ -72,6 +72,9 @@ package_andromeda-system-git() {
     "$pkgdir/usr/share/dbus-1/services/org.andromeda.FileOps1.service"
   install -Dm644 desktop/system/data/org.andromeda.FileOps1.xml \
     "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.FileOps1.xml"
+  install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"
+  install -Dm644 desktop/system/data/org.andromeda.Update1.service \
+    "$pkgdir/usr/share/dbus-1/services/org.andromeda.Update1.service"
   install -Dm644 desktop/system/data/andromeda-system-session.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-system-session.service"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
