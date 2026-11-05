@@ -51,6 +51,7 @@ executable('andromeda-files',
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
 
+install_data('data/dev.andromeda.Files.desktop', install_dir: get_option('datadir') / 'applications')
 install_data('data/andromeda-files.portal', install_dir: get_option('datadir') / 'xdg-desktop-portal' / 'portals')
 configure_file(
   input: 'data/org.freedesktop.impl.portal.desktop.andromeda.Files.service.in',

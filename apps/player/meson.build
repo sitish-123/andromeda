@@ -53,3 +53,5 @@ executable('andromeda-player',
   cpp_args: _warnings,
   install: true,
 )
+
+install_data('data/dev.andromeda.Player.desktop', install_dir: get_option('datadir') / 'applications')

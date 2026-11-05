@@ -138,6 +138,7 @@ package_andromeda() {
   meson install -C build-preview --destdir "$pkgdir"
   # --skip-subprojects: the shared libdesk-* and preview subprojects are already installed from build-preview.
   for app in files viewer player; do meson install -C build-$app --destdir "$pkgdir" --skip-subprojects; done
+  install -Dm644 desktop/session/applications/andromeda-mimeapps.list "$pkgdir/usr/share/applications/andromeda-mimeapps.list"
   for unit in andromeda-index.socket andromeda-index.service; do
     ln -s ../$unit "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/$unit"
   done
