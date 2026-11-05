@@ -3,8 +3,10 @@
 #include "core/deferred_call.h"
 #include "core/log.h"
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -15,6 +17,8 @@ namespace {
   constexpr float kSlowCurlOperationDebugMs = 50.0F;
   constexpr float kSlowCurlOperationWarnMs = 1000.0F;
   constexpr float kCurlServiceGapWarnMs = 5000.0F;
+  // Long enough for chained requests (catalog, then its files) to reuse one connection.
+  constexpr auto kIdleConnectionLinger = std::chrono::seconds(10);
   constexpr const char* kUserAgent = "noctalia/" NOCTALIA_VERSION;
 
   float elapsedSince(std::chrono::steady_clock::time_point start) {
@@ -555,7 +559,11 @@ void HttpClient::addPollFds(std::vector<pollfd>& fds) {
 
 int HttpClient::timeoutMs() const {
   if (!hasActiveTransfers()) {
-    return -1;
+    if (m_idleSince == std::chrono::steady_clock::time_point{}) {
+      return -1;
+    }
+    const auto left = kIdleConnectionLinger - (std::chrono::steady_clock::now() - m_idleSince);
+    return static_cast<int>(std::max<std::int64_t>(0, std::chrono::ceil<std::chrono::milliseconds>(left).count()));
   }
   long timeout = -1;
   curl_multi_timeout(m_multi, &timeout);
@@ -570,6 +578,14 @@ int HttpClient::timeoutMs() const {
 
 void HttpClient::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*startIdx*/) {
   if (!hasActiveTransfers()) {
+    // Idle cached connections are never polled, so a server's close leaves them in CLOSE-WAIT and keep-alives
+    // keep the radio busy: a fresh multi handle closes them all.
+    if (m_idleSince != std::chrono::steady_clock::time_point{}
+        && std::chrono::steady_clock::now() - m_idleSince >= kIdleConnectionLinger) {
+      m_idleSince = {};
+      curl_multi_cleanup(m_multi);
+      m_multi = curl_multi_init();
+    }
     return;
   }
 
@@ -594,6 +610,7 @@ void HttpClient::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*star
 
   if (!hasActiveTransfers()) {
     m_lastServiceAt = {};
+    m_idleSince = std::chrono::steady_clock::now();
   }
 }
 

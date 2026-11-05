@@ -180,6 +180,8 @@ private:
   std::filesystem::path m_caBundlePath;
   int m_running = 0;
   std::chrono::steady_clock::time_point m_lastServiceAt;
+  // When the last transfer finished; cached connections close after a short linger.
+  std::chrono::steady_clock::time_point m_idleSince;
   bool m_offlineMode = false;
   std::unordered_map<CURL*, Transfer> m_transfers;
   std::unordered_map<CURL*, PostTransfer> m_postTransfers;
