@@ -491,6 +491,10 @@ struct wlr_scene_output {
     const void* overlay_under_nodes[2];
     pixman_region32_t overlay_last_clip;
     bool overlay_last_opaque;
+    // This frame shows overlay_shown_buffer again: nothing the overlay draws changed, so it renders nothing.
+    bool overlay_reused;
+    // Identity only: the buffer the overlay last rendered into. Only that one holds every change the ring consumed.
+    const void* overlay_rendered;
   } WLR_PRIVATE;
 };
 

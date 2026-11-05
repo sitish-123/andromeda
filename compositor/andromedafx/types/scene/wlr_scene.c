@@ -6286,6 +6286,26 @@ static bool overlay_video_layer_state(
   return true;
 }
 
+// ANDROMEDA_OVERLAY_DAMAGE=0 redraws the whole overlay buffer every frame, for A/B runs.
+static bool overlay_damage_enabled(void) {
+  static int enabled = -1;
+  if (enabled < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_DAMAGE");
+    enabled = env == NULL || strcmp(env, "0") != 0;
+  }
+  return enabled;
+}
+
+// ANDROMEDA_OVERLAY_REUSE=0 renders a new overlay buffer every frame even when nothing it draws changed, for A/B runs.
+static bool overlay_reuse_enabled(void) {
+  static int enabled = -1;
+  if (enabled < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_REUSE");
+    enabled = env == NULL || strcmp(env, "0") != 0;
+  }
+  return enabled;
+}
+
 static bool scene_output_try_overlay(
     struct wlr_scene_output* scene_output, struct wlr_output_state* state, const struct render_data* data,
     struct render_list_entry* list, int len, pixman_region32_t* clip, int* index, int* primary, bool* opaque_whole
@@ -6438,11 +6458,31 @@ static bool scene_output_try_overlay(
       return false;
     }
   }
-  struct wlr_buffer* buffer = wlr_swapchain_acquire(swapchain);
+  // Only the entries under the overlay changed (a video frame) and only outside its clip: the buffer on screen still
+  // holds every pixel the overlay draws.
+  struct wlr_buffer* shown = scene_output->overlay_shown_buffer;
+  pixman_region32_t under_damage;
+  pixman_region32_init(&under_damage);
+  pixman_region32_intersect(&under_damage, &scene_output->overlay_under_damage_ring.current, clip);
+  const bool reuse = shown != NULL
+      && shown == scene_output->overlay_rendered
+      && overlay_reuse_enabled()
+      && overlay_damage_enabled()
+      && shown->width == output->width
+      && shown->height == output->height
+      && list[*index].node == scene_output->overlay_under_nodes[0]
+      && list[*primary].node == scene_output->overlay_under_nodes[1]
+      && *opaque_whole == scene_output->overlay_last_opaque
+      && pixman_region32_equal(clip, &scene_output->overlay_last_clip)
+      && pixman_region32_empty(&scene_output->overlay_damage_ring.current)
+      && pixman_region32_empty(&under_damage);
+  pixman_region32_fini(&under_damage);
+  struct wlr_buffer* buffer = reuse ? wlr_buffer_lock(shown) : wlr_swapchain_acquire(swapchain);
   if (buffer == NULL) {
     overlay_refusal = "swapchain acquire";
     return false;
   }
+  scene_output->overlay_reused = reuse;
   scene_output->overlay_layer_states[1] = (struct wlr_output_layer_state){
       .layer = scene_output->overlay_layer,
       .buffer = buffer,
@@ -7261,7 +7301,7 @@ static bool scene_output_build_state(
     wlr_log(WLR_DEBUG, "Direct scan-out %s", scanout ? "enabled" : "disabled");
   }
 
-  if (scanout) {
+  if (scanout || (overlay && scene_output->overlay_reused)) {
     if (wlr_renderer_is_fx(output->renderer)) {
       // The shared blend target did not receive the scanned-out frame.
       fx_offscreen_buffers_invalidate_blend(output);
@@ -7275,6 +7315,7 @@ static bool scene_output_build_state(
       timer->pre_render_duration = timespec_to_nsec(&duration);
     }
 
+    pixman_region32_fini(&overlay_clip);
     TRACY_MARK_FRAME;
     return true;
   }
@@ -7350,14 +7391,8 @@ static bool scene_output_build_state(
 
   pixman_region32_init(&render_data.damage);
   if (overlay) {
-    // ANDROMEDA_OVERLAY_DAMAGE=0 redraws the whole overlay buffer every frame, for A/B runs.
-    static int overlay_damage = -1;
-    if (overlay_damage < 0) {
-      const char* env = getenv("ANDROMEDA_OVERLAY_DAMAGE");
-      overlay_damage = env == NULL || strcmp(env, "0") != 0;
-    }
     const void* under[2] = {render_data.overlay_entry->node, render_data.overlay_primary->node};
-    if (!overlay_damage || under[0] != scene_output->overlay_under_nodes[0]
+    if (!overlay_damage_enabled() || under[0] != scene_output->overlay_under_nodes[0]
         || under[1] != scene_output->overlay_under_nodes[1] || overlay_opaque != scene_output->overlay_last_opaque) {
       // Another layout draws other entries: no buffer of the swapchain holds it.
       wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
@@ -7374,6 +7409,7 @@ static bool scene_output_build_state(
     scene_output->overlay_last_opaque = overlay_opaque;
     pixman_region32_copy(&scene_output->overlay_last_clip, &overlay_clip);
     wlr_damage_ring_rotate_buffer(&scene_output->overlay_damage_ring, buffer, &render_data.damage);
+    scene_output->overlay_rendered = buffer;
     pixman_region32_t under_damage;
     pixman_region32_init(&under_damage);
     wlr_damage_ring_rotate_buffer(&scene_output->overlay_under_damage_ring, buffer, &under_damage);
