@@ -675,7 +675,27 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
     };
     return instance->centerSpace;
   }
-  return std::nullopt;
+  // No island bar on this output: the island stays hidden at the top edge and shows only for a banner or a live
+  // activity, so notifications still appear.
+  if (m_platform == nullptr) {
+    return std::nullopt;
+  }
+  const auto& outputs = m_platform->wayland().outputs();
+  const auto it = std::ranges::find_if(outputs, [output](const auto& o) { return o.output == output; });
+  if (it == outputs.end() || it->logicalWidth <= 0) {
+    return std::nullopt;
+  }
+  const BarConfig defaults{};
+  return CenterIslandSpace{
+      .edgeMargin = static_cast<std::int32_t>(Tokens::spaceChromeGap),
+      .height = Tokens::spaceP32,
+      .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - kGap - kGap),
+      .restless = true,
+      .scale = defaults.scale * (m_config != nullptr ? std::max(0.1F, m_config->config().accessibility.uiScale) : 1.0F),
+      .backgroundOpacity = defaults.backgroundOpacity,
+      .border = defaults.border,
+      .borderWidth = defaults.borderWidth,
+  };
 }
 
 void Bar::notifyCenterIslandSpace(BarInstance& instance) {

@@ -102,10 +102,10 @@ namespace {
   constexpr float kMinCardWidth = 240.0F;
   constexpr float kMinCardHeight = 56.0F;
   // Surface bound: a banner with caption, title, two body lines (88) and its action row (12 + 32).
-  constexpr float kMaxCardHeight = 132.0F;
-  constexpr float kActionHeight = 32.0F;
-  constexpr float kActionGap = 8.0F;
-  constexpr float kActionTop = 12.0F;
+  constexpr const float& kActionHeight = Tokens::spaceP32;
+  constexpr const float& kActionGap = Tokens::spaceP8;
+  constexpr const float& kActionTop = Tokens::spaceP12;
+  float maxCardHeight() { return Tokens::spaceP48 * 2.0F + kActionTop + kActionHeight; }
   constexpr float kCaptionGap = 8.0F;
   float ceil4(float v) { return std::ceil(v / 4.0F) * 4.0F; }
   // The island lays out in tokens px; the surface, clip, blur and input regions are that times the bar's content scale.
@@ -599,7 +599,7 @@ void LiveActivityIsland::destroySurfaces() {
 
 
 float LiveActivityIsland::surfaceHeight(float scale) const {
-  return kMaxCardHeight + static_cast<float>(kShadowPad) / scale;
+  return maxCardHeight() + static_cast<float>(kShadowPad) / scale;
 }
 
 // The layer margin leaves room for the shadow bleed inside the surface, so the island keeps its screen position.
@@ -1333,7 +1333,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       .visible = false,
   }));
   auto bannerText = ui::row(
-      {.align = FlexAlign::Center, .gap = 12.0F},
+      {.align = FlexAlign::Center, .gap = Tokens::spaceP12},
       std::move(bannerIcon),
       ui::column(
           {.align = FlexAlign::Stretch, .flexGrow = 1.0F},
