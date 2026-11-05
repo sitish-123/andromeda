@@ -58,7 +58,9 @@ build() {
   meson compile -C build-preview
   for app in files viewer player; do meson compile -C build-$app; done
   # makepkg's -flto=auto turns ring's C and cxx-qt's C++ objects into GCC LTO bitcode, which the Rust linker cannot read.
-  # Thin LTO: fat LTO with one codegen unit links 5 binaries silently for over 15 min, and the build watchdog stops it.
+  # The Link target dir lives outside srcdir, so makepkg -C keeps it: a full Link build compiles silently for over 15 min.
+  local linkcache="${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-pkg/link-target"
+  mkdir -p "$linkcache" && ln -sfn "$linkcache" desktop/link/target
   CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror -p link-desk -p link-session
