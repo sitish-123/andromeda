@@ -3,7 +3,7 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
 %:
-	dh $@
+	dh $@ --with installsysusers
 
 override_dh_auto_configure override_dh_auto_test:
 
