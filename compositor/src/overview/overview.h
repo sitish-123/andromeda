@@ -437,6 +437,8 @@ namespace andromeda {
     // axis (Strip) or pans a scrolling workspace across it, after kEdgeDelayMs and then every kEdgeRepeatMs.
     void updateEdgeScroll(double lx, double ly);
     void stopEdgeScroll();
+    // Moves an armed pan by the frame's elapsed time; true while it can still move.
+    bool tickEdgePan(double nowMsec);
     static int onEdgeTimer(void* data);
     // The new-workspace target under the pointer, as an insertion at the end of its output's workspaces.
     [[nodiscard]] WorkspaceGroup* plusTargetAt(double lx, double ly, OutputState** outState, wlr_box* outBox);
@@ -470,6 +472,7 @@ namespace andromeda {
     int m_edgeStep = 0;
     int m_edgePan = 0;
     Ref<Workspace> m_edgeWorkspace; // the scrolling workspace an armed pan moves
+    double m_edgePanLastMsec = -1.0; // frame time of the last pan step; < 0 before the first frame
     double m_dragX = 0;
     double m_dragY = 0;
     std::vector<std::unique_ptr<OutputState>> m_outputs;

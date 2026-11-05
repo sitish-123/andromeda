@@ -77,7 +77,7 @@ namespace andromeda {
 
     constexpr std::array<std::string_view, 5> kWindowsInStyles = {"popin", "zoom", "slide", "fade", "none"};
     constexpr std::array<std::string_view, 4> kWindowsOutStyles = {"fade", "slide", "popin", "zoom"};
-    constexpr std::array<std::string_view, 3> kLayoutModes = {"scrolling", "dwindle", "master"};
+    constexpr std::array<std::string_view, 4> kLayoutModes = {"scrolling", "dwindle", "master", "floating"};
     constexpr std::array<std::string_view, 3> kCenterFocused = {"never", "always", "on_overflow"};
     constexpr std::array<std::string_view, 3> kMasterPositions = {"left", "right", "center"};
     constexpr std::array<std::string_view, 4> kModKeys = {"Super", "Alt", "Ctrl", "Shift"};

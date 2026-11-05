@@ -121,12 +121,11 @@ namespace andromeda {
     // Pointer travel that promotes a press on a card into a relocate drag.
     constexpr double kDragThreshold = 10.0;
     // Edge auto-scroll while dragging: the band along an output edge, the hold before the first row step, the step
-    // period after it, and the continuous pan of a scrolling workspace (prototype: 22 px every 40 ms, no hold).
+    // period after it, and the pan speed of a scrolling workspace (no hold; it runs on the frame clock).
     constexpr double kEdgeZone = 72.0;
     constexpr int kEdgeDelayMs = 380;
     constexpr int kEdgeRepeatMs = 650;
-    constexpr int kEdgePanMs = 40;
-    constexpr double kEdgePanPx = 22.0;
+    constexpr double kEdgePanPxPerMs = 0.55; // 22 px every 40 ms in the prototype, spread over every frame
     // Corner radius of the ring over the new-workspace target.
     constexpr int kPlusHintRadius = 14;
     // A drop on the middle of a tiled window swaps the two; the outer 28 % on each side inserts beside it (prototype).
@@ -2255,8 +2254,30 @@ namespace andromeda {
     scheduleFrames();
   }
 
+  bool Overview::tickEdgePan(double nowMsec) {
+    Workspace* workspace = m_edgePan != 0 ? m_edgeWorkspace.get() : nullptr;
+    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
+    if (scrolling == nullptr || (m_dragCard == nullptr && !m_thumbDragging)) {
+      return false;
+    }
+    const double elapsed = m_edgePanLastMsec < 0 ? 0.0 : nowMsec - m_edgePanLastMsec;
+    m_edgePanLastMsec = nowMsec;
+    const double max = scrolling->maxScroll(workspace->scrollViewportExtent());
+    const double next = std::clamp(scrolling->scroll() + m_edgePan * kEdgePanPxPerMs * elapsed, 0.0, max);
+    if (next != scrolling->scroll()) {
+      scrolling->setScroll(next);
+      workspace->markArrange(false);
+      if (m_dragCard != nullptr) {
+        retargetDrop(m_dragX, m_dragY);
+      }
+    }
+    // Keep frames coming only while there is room to pan.
+    return m_edgePan < 0 ? next > 0.0 : next < max;
+  }
+
   bool Overview::tickAnimations(double nowMsec) {
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
+    active = tickEdgePan(nowMsec) || active;
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
       static_cast<void>(m_zoomAnim.finishSpringTail(motionPixelsPerUnit(false)));
@@ -4497,7 +4518,11 @@ namespace andromeda {
       if (m_edgeTimer == nullptr) {
         m_edgeTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onEdgeTimer, this);
       }
-      wl_event_source_timer_update(m_edgeTimer, step != 0 ? kEdgeDelayMs : kEdgePanMs);
+      wl_event_source_timer_update(m_edgeTimer, step != 0 ? kEdgeDelayMs : 0);
+      m_edgePanLastMsec = -1.0;
+      if (pan != 0) {
+        scheduleFrames();
+      }
       if (m_edgeHint == nullptr) {
         m_edgeHint = std::make_unique<HintRect>(*m_server, m_tree);
       }
@@ -4551,20 +4576,7 @@ namespace andromeda {
       wl_event_source_timer_update(self->m_edgeTimer, kEdgeRepeatMs);
       return 0;
     }
-    Workspace* workspace = self->m_edgeWorkspace.get();
-    ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
-    if (scrolling == nullptr) {
-      self->stopEdgeScroll();
-      return 0;
-    }
-    const int viewport = workspace->scrollViewportExtent();
-    const double next = scrolling->scroll() + self->m_edgePan * kEdgePanPx;
-    scrolling->setScroll(std::clamp(next, 0.0, static_cast<double>(scrolling->maxScroll(viewport))));
-    workspace->markArrange(false);
-    if (self->m_dragCard != nullptr) {
-      self->retargetDrop(self->m_dragX, self->m_dragY);
-    }
-    wl_event_source_timer_update(self->m_edgeTimer, kEdgePanMs);
+    self->stopEdgeScroll();
     return 0;
   }
 
