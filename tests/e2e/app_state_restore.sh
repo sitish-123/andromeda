@@ -4,7 +4,7 @@
 #   - a corner drag in the app's resize band does not resize the window or does not reach its state.json,
 #   - after `kill -9` and a relaunch the window does not come back at the dragged size,
 #   - the header maximize button does not maximize, or the relaunch after a kill is not maximized
-#     (with general.honor_restored_maximize on; the compositor ignores a restored maximize by default).
+#     (the compositor honors a restored maximize for dev.andromeda.* app ids).
 # Writes windows-*.json, state.json and the app logs to $OUT (default ./artifacts/app-state-restore).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/app-state-restore}
@@ -15,9 +15,6 @@ APP=dev.andromeda.AppSample
 STATE=$RUNTIME/home/.local/state/andromeda/$APP/state.json
 boot_headless 1
 printf '\n[layout]\nmode = "floating"\n' >> "$RUNTIME/andromeda.toml"
-# Restored maximize is the compositor's policy (general.honor_restored_maximize, off by default): the test turns it
-# on to check that the app asks for it.
-sed -i 's/^\[general\]$/[general]\nhonor_restored_maximize = true/' "$RUNTIME/andromeda.toml"
 run "$ANDROMEDA" msg config-reload > /dev/null
 
 fail() { echo "FAIL: $*"; exit 1; }
