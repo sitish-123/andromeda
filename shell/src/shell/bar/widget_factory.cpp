@@ -179,7 +179,11 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 context.config, context.settingContext,
                 BatteryWidgetDefinitionContext{.batteryConfig = &f.m_config.battery, .upower = f.m_upower}
             );
-            options.displayMode = BatteryDisplayMode::Graphic;
+            // The island shows the percent as text unless display_mode asks for the battery symbol.
+            if (options.displayMode != BatteryDisplayMode::Graphic) {
+              options.displayMode = BatteryDisplayMode::None;
+              options.showLabel = true;
+            }
             options.islandStyle = true;
             return createWidget<BatteryWidget>(context.contentScale, f.m_upower, options);
           }},
