@@ -4,6 +4,8 @@
 #include "ipc/ipc_invocation_context.h"
 
 #include <functional>
+#include <memory>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -108,6 +110,19 @@ public:
   // True when `command` was registered with bindCycle().
   [[nodiscard]] bool handlerCycles(std::string_view command) const noexcept;
 
+  // Structured reply of the running handler, sent as "data" to `msg --json` callers; text callers still get the
+  // handler's string. Only valid during execute().
+  void setReplyData(nlohmann::json data) const;
+
+  // Sends one event line {"topic", "data"} to every `msg subscribe` connection that asked for `topic` (a name from
+  // cli::msg::kSubscribeTopics). A subscriber that cannot take the line at once is dropped.
+  void publish(std::string_view topic, const nlohmann::json& data);
+
+  // Open `msg subscribe` connections, for the poll source.
+  [[nodiscard]] std::vector<int> subscriberFds() const;
+  // The poll source saw POLLHUP or POLLERR on a subscriber fd: drops it, if it is still one.
+  void subscriberClosed(int fd);
+
 private:
   struct HandlerEntry {
     Handler fn;
@@ -117,7 +132,15 @@ private:
     bool cycles = false;
   };
 
-  void handleConnection(int connFd);
+  struct Subscriber {
+    int fd = -1;
+    std::vector<std::string> topics; // empty = all
+  };
+
+  // Returns true when it kept `connFd` as a subscriber.
+  bool handleConnection(int connFd);
+  bool subscribe(int connFd, const std::string& args, bool json);
+  void dropSubscriber(int fd);
   std::string buildHelp() const;
   [[nodiscard]] std::string executeParsed(const std::string& command, const std::string& args) const;
   [[nodiscard]] static std::string resolveSocketPath();
@@ -126,6 +149,8 @@ private:
   std::string m_socketPath;
   mutable std::optional<std::string> m_callerCwd;
   mutable std::optional<IpcInvocationContext> m_invocationContext;
+  mutable std::unique_ptr<nlohmann::json> m_replyData;
+  std::vector<Subscriber> m_subscribers;
   // Registration order is retained; --help output is sorted for display.
   std::vector<std::pair<std::string_view, HandlerEntry>> m_handlers;
 };

@@ -451,6 +451,7 @@ _noctalia_sources = files(
   'src/idle/idle_manager.cpp',
   'src/idle/plugin_idle_watches.cpp',
   'src/ipc/ipc_client.cpp',
+  'src/ipc/ipc_events.cpp',
   'src/ipc/ipc_service.cpp',
   'src/ipc/service_ipc.cpp',
   'src/ipc/pixel_stream_client.cpp',

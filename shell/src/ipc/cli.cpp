@@ -19,6 +19,17 @@ namespace noctalia::ipc {
       return 1;
     }
 
+    std::string prefix;
+    if (std::string_view(argv[2]) == "--json") {
+      if (argc < 4) {
+        std::fputs("error: msg --json requires a command\n", stderr);
+        return 1;
+      }
+      prefix = "--json ";
+      ++argv;
+      --argc;
+    }
+
     const std::string_view command = argv[2];
     if (command == "--help" || command == "-h") {
       std::print("{}", cli::renderHelp(cli::kMsgCmd, "noctalia msg"));
@@ -46,7 +57,7 @@ namespace noctalia::ipc {
         }
         payload["body"] = std::move(body);
       }
-      return IpcClient::send(std::string(argv[2]) + " " + payload.dump());
+      return IpcClient::send(prefix + std::string(argv[2]) + " " + payload.dump());
     }
 
     // Commands with flags are re-split by the shell-word parser, so arguments that would not
@@ -63,7 +74,7 @@ namespace noctalia::ipc {
         cmd += arg;
       }
     }
-    return IpcClient::send(cmd);
+    return IpcClient::send(prefix + cmd, command == "subscribe");
   }
 
 } // namespace noctalia::ipc

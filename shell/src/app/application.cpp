@@ -56,6 +56,7 @@
 #include "i18n/i18n.h"
 #include "i18n/i18n_service.h"
 #include "ipc/ipc_arg_parse.h"
+#include "ipc/ipc_events.h"
 #include "launcher/app_provider.h"
 #include "launcher/dmenu_provider.h"
 #include "launcher/emoji_provider.h"
@@ -280,6 +281,7 @@ Application::Application()
 }
 
 Application::~Application() {
+  ipc_events::setSink(nullptr);
   AtspiBridge::instance().stop();
   m_bar.setCenterIslandSpaceCallback({});
   m_notificationManager.removeUnreadCountCallback(m_islandUnreadToken);

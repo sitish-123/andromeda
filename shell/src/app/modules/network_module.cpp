@@ -1,6 +1,7 @@
 #include "app/modules/network_module.h"
 
 #include "core/log.h"
+#include "ipc/ipc_events.h"
 #include "dbus/network/iwd_service.h"
 #include "dbus/network/network_manager_service.h"
 #include "dbus/network/wpa_supplicant_service.h"
@@ -42,7 +43,12 @@ void NetworkModule::start(const Config& /*config*/) {
   }
 
   if (m_service != nullptr) {
-    m_service->setChangeCallback(m_hooks.changed);
+    m_service->setChangeCallback([changed = m_hooks.changed](const NetworkState& state, NetworkChangeOrigin origin) {
+      ipc_events::network(state);
+      if (changed) {
+        changed(state, origin);
+      }
+    });
     m_hooks.started(*m_service);
   }
 

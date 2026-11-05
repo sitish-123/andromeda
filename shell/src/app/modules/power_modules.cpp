@@ -2,6 +2,7 @@
 
 #include "config/config_types.h"
 #include "core/log.h"
+#include "ipc/ipc_events.h"
 
 #include <exception>
 
@@ -16,7 +17,14 @@ PowerProfilesModule::PowerProfilesModule(SystemBus& bus, Hooks hooks) : m_bus(bu
 void PowerProfilesModule::start(const Config& /*config*/) {
   try {
     m_service = std::make_unique<PowerProfilesService>(m_bus);
-    m_service->setChangeCallback(m_hooks.changed);
+    m_service->setChangeCallback(
+        [changed = m_hooks.changed](const PowerProfilesState& state, PowerProfilesChangeOrigin origin) {
+          ipc_events::powerProfile(state);
+          if (changed) {
+            changed(state, origin);
+          }
+        }
+    );
     m_hooks.started(*m_service);
     if (m_service->hasStateSnapshot() && !m_service->activeProfile().empty()) {
       kLog.info("power profiles active profile: {}", m_service->activeProfile());

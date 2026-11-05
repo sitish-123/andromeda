@@ -5,10 +5,12 @@
 #include "dbus/network/inetwork_service.h"
 #include "dbus/power/power_profiles_service.h"
 #include "ipc/ipc_arg_parse.h"
+#include "ipc/ipc_events.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 
@@ -125,13 +127,14 @@ void registerBluetoothIpc(IpcService& ipc, BluetoothService& service, const std:
 
   ipc.bind(
       noctalia::cli::msg::bluetoothStatus,
-      [&service](const std::string& args) -> std::string {
+      [&ipc, &service](const std::string& args) -> std::string {
         if (auto err = rejectArgs("bluetooth-status", args); err.has_value()) {
           return *err;
         }
         if (!service.hasStateSnapshot()) {
           return "error: bluetooth state unavailable\n";
         }
+        ipc.setReplyData(ipc_events::toJson(service.state()));
         return service.state().powered ? "on\n" : "off\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
@@ -179,13 +182,14 @@ void registerNetworkIpc(IpcService& ipc, INetworkService& service, const std::fu
 
   ipc.bind(
       noctalia::cli::msg::wifiStatus,
-      [&service](const std::string& args) -> std::string {
+      [&ipc, &service](const std::string& args) -> std::string {
         if (auto err = rejectArgs("wifi-status", args); err.has_value()) {
           return *err;
         }
         if (!service.hasStateSnapshot()) {
           return "error: network state unavailable\n";
         }
+        ipc.setReplyData(ipc_events::toJson(service.state()));
         return service.state().wirelessEnabled ? "on\n" : "off\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}

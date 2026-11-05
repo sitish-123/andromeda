@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include "application.h"
+#include "ipc/ipc_events.h"
 #include "ipc/service_ipc.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
@@ -129,6 +130,7 @@ namespace {
 void Application::initIpc() {
   if (m_ipcService.start()) {
     kLog.info("IPC socket at {}", m_ipcService.socketPath());
+    ipc_events::setSink(&m_ipcService);
   } else {
     kLog.warn("IPC disabled: could not bind socket");
   }

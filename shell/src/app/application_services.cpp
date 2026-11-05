@@ -56,6 +56,7 @@
 #include "i18n/i18n.h"
 #include "i18n/i18n_service.h"
 #include "ipc/ipc_arg_parse.h"
+#include "ipc/ipc_events.h"
 #include "launcher/app_provider.h"
 #include "launcher/dmenu_provider.h"
 #include "launcher/emoji_provider.h"
@@ -2118,6 +2119,7 @@ void Application::initSessionBusServices() {
     }
     if (mpris() != nullptr) {
       mpris()->setChangeCallback([this, shouldRefreshControlCenter] {
+        ipc_events::media(*mpris());
         m_bar.refresh();
         m_liveActivity.refresh();
         m_desktopWidgetsController.requestUpdate();
