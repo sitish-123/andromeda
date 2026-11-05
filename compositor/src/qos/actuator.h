@@ -2,9 +2,15 @@
 
 #include "qos/actuation.h"
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 namespace andromeda {
@@ -49,13 +55,22 @@ namespace andromeda::qos {
     };
     void syncFreezer(const std::string& unit);
 
-    // Writes the slack of every thread in the cgroup; needs CAP_SYS_NICE (the package's file capability).
+    // Queues the slack of every thread in the cgroup for the slack thread; needs CAP_SYS_NICE (the package's file
+    // capability). One write per thread costs ~4 ms for a 170-thread browser, too long for the main thread.
     void writeTimerSlack(const std::string& cgroupDir, std::uint64_t ns);
+    void slackLoop(const std::stop_token& stop);
+    void writeTimerSlackNow(const std::string& cgroupDir, std::uint64_t ns);
 
     SystemdUnits& m_units;
-    bool m_timerSlackDenied = false;
+    std::atomic<bool> m_timerSlackDenied = false;
     std::unordered_map<std::string, Applied> m_applied;
     std::uint64_t m_nextId = 0;
+    // Latest slack per cgroup directory: a newer request for a directory replaces one not yet written.
+    std::map<std::string, std::uint64_t> m_slackQueue;
+    std::mutex m_slackMutex;
+    std::condition_variable_any m_slackWake;
+    // Last member: destroyed first, it writes what ~Actuator queued and then joins.
+    std::jthread m_slackThread{[this](const std::stop_token& stop) { slackLoop(stop); }};
   };
 
 } // namespace andromeda::qos
