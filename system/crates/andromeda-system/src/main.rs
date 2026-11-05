@@ -3,6 +3,7 @@
 
 mod battery;
 mod bus;
+mod display;
 mod engine;
 mod explain;
 mod expr;
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
         .serve_at(network::PATH, network::Network::default())
         .serve_at(storage::PATH, storage::Storage::default())
         .serve_at(thermal::PATH, thermal::Thermal::default())
+        .serve_at(display::PATH, display::Display::default())
         .serve_at(knobs::PATH, knobs::Knobs { policy: policy.clone() })
         .serve_at(explain::PATH, explain::Explain { policy: policy.clone() })
         .name(NAME)

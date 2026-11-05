@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "config/resolve.h"
 #include "core/log.h"
+#include "core/scanout_keeper.h"
 #include "core/tracy.h"
 #include "input/cursor.h"
 #include "input/seat.h"
@@ -196,6 +197,10 @@ namespace andromeda {
       std::abort();
     }
     m_foreignPlanes = foreignPlanes(m_output);
+    if (wlr_output_is_drm(m_output)) {
+      m_awaitingFirstFrame = true;
+      scanout_keeper::expectFirstFrame();
+    }
     // Before the first commit: the greeter's frame is still on the CRTC and stays on screen through the modeset.
     if (HeldFrame::loginHandoff()) {
       m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
@@ -660,6 +665,16 @@ namespace andromeda {
   }
 
   bool Output::applyConfiguredState(bool stageGeometry) {
+    const bool committed = commitConfiguredState(stageGeometry);
+    // A disabled output never presents; the next compositor's release must not wait for it.
+    if (m_awaitingFirstFrame && !m_output->enabled) {
+      m_awaitingFirstFrame = false;
+      scanout_keeper::firstFrameShown();
+    }
+    return committed;
+  }
+
+  bool Output::commitConfiguredState(bool stageGeometry) {
     if (m_workspaceGroup != nullptr) {
       m_workspaceGroup->abandonReveal();
     }
@@ -1555,6 +1570,9 @@ namespace andromeda {
   };
 
   Output::~Output() {
+    if (m_awaitingFirstFrame) {
+      scanout_keeper::firstFrameShown();
+    }
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
     }
@@ -2535,6 +2553,10 @@ namespace andromeda {
         kLog.info("output '{}': turned off {} planes left by the previous master", m_output->name, count);
       }
       m_foreignPlanes.clear();
+    }
+    if (event->presented && m_awaitingFirstFrame) {
+      m_awaitingFirstFrame = false;
+      scanout_keeper::firstFrameShown();
     }
 #ifdef TRACY_ENABLE
     if (event->presented) {

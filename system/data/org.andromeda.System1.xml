@@ -33,6 +33,13 @@
     <property name="Vendor" type="s" access="read" />
     <property name="Warning" type="s" access="read" />
   </interface>
+  <interface name="org.andromeda.System1.Display">
+    <method name="HoldScanout">
+      <arg name="fd" type="h" direction="in" />
+    </method>
+    <method name="ReleaseScanout">
+      </method>
+  </interface>
   <interface name="org.andromeda.System1.Explain">
     <method name="List">
       <arg name="since_usec" type="t" direction="in" />

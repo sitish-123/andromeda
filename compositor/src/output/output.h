@@ -250,6 +250,7 @@ namespace andromeda {
     // Full configuration stages geometry. Frame-bound HDR transitions reuse
     // the live geometry and carry a freshly rendered scene buffer.
     [[nodiscard]] bool applyConfiguredState(bool stageGeometry = true);
+    [[nodiscard]] bool commitConfiguredState(bool stageGeometry);
     [[nodiscard]] bool autoHdrEligible(const View* view) const;
     [[nodiscard]] View* findAutoHdrCandidate() const;
     [[nodiscard]] bool configuredVrrEnabled() const;
@@ -350,6 +351,7 @@ namespace andromeda {
     // or 3 s pass.
     std::unique_ptr<HeldFrame> m_heldFrame;
     std::vector<ForeignPlane> m_foreignPlanes; // until the first present
+    bool m_awaitingFirstFrame = false;
     wl_event_source* m_heldFrameTimer = nullptr;
     bool m_heldFrameGated = false;
     std::chrono::steady_clock::time_point m_heldFrameLastStep{};
