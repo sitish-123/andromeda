@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: tools/vm.sh [--distro arch|ubuntu] reset|start [--headless|--gl-headless]|install|ssh [CMD...]
+# Usage: tools/vm.sh [--distro arch|ubuntu] reset|start [--headless|--gl-headless]|install|ssh [CMD...]|screenshot FILE
 # --gl-headless: a virgl GPU with no window, so a session runs (screenshots over ssh with grim).
 # A clean VM for the out-of-box checks (docs/gaps.md Tier A, docs/ubuntu-port.md 4). The official cloud image is the
 # read-only base; `reset` throws away every change by making a new overlay on it.
@@ -86,7 +86,7 @@ case ${1:-} in
     exec qemu-system-x86_64 -enable-kvm -cpu host -smp 4 -m 4G -machine q35 \
       -drive file="$DIR/run.qcow2",if=virtio "${extra[@]}" \
       -nic user,model=virtio-net-pci,hostfwd=tcp::"$PORT"-:22 \
-      -device virtio-tablet-pci "${display[@]}"
+      -device virtio-tablet-pci -monitor unix:"$DIR/monitor.sock",server,nowait "${display[@]}"
     ;;
   install)
     if [[ $DISTRO == ubuntu ]]; then
@@ -109,5 +109,15 @@ case ${1:-} in
     "${SSH[@]}" "sudo pacman -Syu --noconfirm && sudo pacman -U --noconfirm /tmp/*.pkg.tar.zst"
     ;;
   ssh) shift; exec "${SSH[@]}" "$@" ;;
+  # screenshot FILE.png: the VM display from outside (works for the greeter, which refuses screencopy).
+  screenshot)
+    # The monitor drops input sent before its "(qemu)" prompt.
+    python3 -c 'import socket, sys, time; s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.settimeout(5)
+buf = b""
+while b"(qemu)" not in buf: buf += s.recv(4096)
+s.sendall(("screendump " + sys.argv[2] + "\n").encode()); time.sleep(2)' "$DIR/monitor.sock" "$DIR/shot.ppm"
+    for _ in $(seq 50); do [[ -s $DIR/shot.ppm ]] && break; sleep 0.1; done
+    magick "$DIR/shot.ppm" "${2:?screenshot needs a .png path}" && rm -f "$DIR/shot.ppm"
+    ;;
   *) sed -n 2p "$0" >&2; exit 2 ;;
 esac
