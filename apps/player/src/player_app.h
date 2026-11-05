@@ -3,13 +3,16 @@
 #include "app/desk_app.h"
 #include "core/timer_manager.h"
 #include "mpv_player.h"
+#include "ui/controls/scroll_view.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 
 class Button;
 class Label;
 class MprisServer;
+class MusicLibrary;
 class Slider;
 class VideoSurface;
 struct zwp_idle_inhibitor_v1;
@@ -30,6 +33,22 @@ protected:
 
 private:
   void play(const std::string& path);
+  void togglePip();
+  void playAlbum(const std::string& title, const std::string& artist);
+  void playPlaylist(const std::string& name, std::size_t start);
+  enum class LibraryView : std::uint8_t { NowPlaying, Albums, Artists, Songs, Playlists };
+  [[nodiscard]] bool libraryShown() const;
+  void updateSidebar();
+  void showView(LibraryView view);
+  bool libraryBack();
+  void playAlbumAt(std::size_t album, std::size_t index);
+  void playSongsAt(std::size_t index);
+  void playQueue(const std::vector<std::string>& paths, bool albumGain, std::size_t start);
+  [[nodiscard]] std::unique_ptr<Node> buildLibrary(float scale);
+  [[nodiscard]] std::unique_ptr<Node> buildNowPlaying(float scale);
+  [[nodiscard]] AppWindow* videoHost() const;
+  void releaseInhibitor();
+  [[nodiscard]] std::unique_ptr<Node> buildPipContent(float width, float height);
   void onPlayerChanged(bool seeked);
   void saveResume();
   void updateInhibit();
@@ -43,6 +62,15 @@ private:
   std::unique_ptr<MprisServer> m_mpris;
   std::unique_ptr<VideoSurface> m_video;
   AppWindow* m_window = nullptr;
+  std::unique_ptr<MusicLibrary> m_library;
+  ScrollViewState m_libraryScroll;
+  LibraryView m_view = LibraryView::Albums;
+  std::optional<std::size_t> m_openAlbum;
+  std::optional<std::size_t> m_openPlaylist;
+  std::string m_openArtist;
+  bool m_lastHasVideo = false;
+  std::string m_nowPlayingPath;
+  AppWindow* m_pip = nullptr; // the picture-in-picture window while the video is in it
   zwp_idle_inhibitor_v1* m_inhibitor = nullptr;
   std::string m_pending;           // a file opened before the window exists
   bool m_controlsVisible = true;

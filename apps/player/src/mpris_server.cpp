@@ -66,8 +66,8 @@ MprisServer::MprisServer(SessionBus& bus, MpvPlayer& player, Actions actions)
           sdbus::registerMethod("Pause").implementedAs([this] { m_player.setPaused(true); }),
           sdbus::registerMethod("PlayPause").implementedAs([this] { m_player.togglePause(); }),
           sdbus::registerMethod("Stop").implementedAs([this] { m_player.stop(); }),
-          sdbus::registerMethod("Next").implementedAs([] {}),
-          sdbus::registerMethod("Previous").implementedAs([] {}),
+          sdbus::registerMethod("Next").implementedAs([this] { m_player.next(); }),
+          sdbus::registerMethod("Previous").implementedAs([this] { m_player.previous(); }),
           sdbus::registerMethod("Seek").withInputParamNames("Offset").implementedAs([this](std::int64_t offset) {
             m_player.seekBy(static_cast<double>(offset) / 1e6);
           }),
@@ -105,8 +105,11 @@ MprisServer::MprisServer(SessionBus& bus, MpvPlayer& player, Actions actions)
               .withGetter([this] { return m_player.state().volume / 100.0; })
               .withSetter([this](double volume) { m_player.setVolume(std::clamp(volume, 0.0, 1.3) * 100.0); }), // mpv volume-max 130
           sdbus::registerProperty("Position").withGetter([this] { return micros(m_player.state().position); }),
-          sdbus::registerProperty("CanGoNext").withGetter([] { return false; }),
-          sdbus::registerProperty("CanGoPrevious").withGetter([] { return false; }),
+          sdbus::registerProperty("CanGoNext").withGetter([this] {
+            const MpvPlayer::State& st = m_player.state();
+            return st.queuePos >= 0 && st.queuePos + 1 < st.queueCount;
+          }),
+          sdbus::registerProperty("CanGoPrevious").withGetter([this] { return !m_player.state().idle; }),
           sdbus::registerProperty("CanPlay").withGetter(loaded),
           sdbus::registerProperty("CanPause").withGetter(loaded),
           sdbus::registerProperty("CanSeek").withGetter([this] { return m_player.state().duration > 0.0; }),
@@ -148,6 +151,12 @@ void MprisServer::update(bool seeked) {
     m_lastDuration = s.duration;
     changed.emplace_back("Metadata");
     changed.emplace_back("CanSeek");
+  }
+  if (s.queuePos != m_lastQueuePos || s.queueCount != m_lastQueueCount) {
+    m_lastQueuePos = s.queuePos;
+    m_lastQueueCount = s.queueCount;
+    changed.emplace_back("CanGoNext");
+    changed.emplace_back("CanGoPrevious");
   }
   if (s.volume != m_lastVolume) {
     m_lastVolume = s.volume;

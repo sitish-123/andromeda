@@ -28,8 +28,13 @@ public:
   bool initialize(wl_surface* parent);
   // Rectangle in parent surface coordinates (logical px) and the buffer scale.
   void setGeometry(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, std::int32_t scale);
+  // Moves the video below another window surface (picture in picture) without restarting playback.
+  bool reparent(wl_surface* parent);
 
 private:
+  void attach(wl_surface* parent);
+  bool createEglSurface();
+  void detach();
   static void onMpvUpdate(void* data);
   static void onFrameDone(void* data, wl_callback* callback, std::uint32_t time);
   void scheduleRender();
@@ -42,6 +47,7 @@ private:
   wl_subsurface* m_subsurface = nullptr;
   wl_egl_window* m_window = nullptr;
   EGLSurface m_eglSurface = EGL_NO_SURFACE;
+  EGLConfig m_config = nullptr;
   EGLContext m_context = EGL_NO_CONTEXT;
   mpv_render_context* m_render = nullptr;
   wl_callback* m_frame = nullptr;

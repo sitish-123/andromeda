@@ -45,4 +45,6 @@ private:
   double m_lastDuration = 0.0;
   double m_lastVolume = -1.0;
   std::uint64_t m_track = 0;
+  std::int64_t m_lastQueuePos = -2;
+  std::int64_t m_lastQueueCount = -1;
 };

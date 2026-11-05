@@ -46,24 +46,10 @@ VideoSurface::~VideoSurface() {
     m_player.lib()->renderFree(m_render);
   }
   m_token.reset();
-  if (m_eglSurface != EGL_NO_SURFACE) {
-    eglDestroySurface(display, m_eglSurface);
-  }
   if (m_context != EGL_NO_CONTEXT) {
     eglDestroyContext(display, m_context);
   }
-  if (m_frame != nullptr) {
-    wl_callback_destroy(m_frame);
-  }
-  if (m_window != nullptr) {
-    wl_egl_window_destroy(m_window);
-  }
-  if (m_subsurface != nullptr) {
-    wl_subsurface_destroy(m_subsurface);
-  }
-  if (m_surface != nullptr) {
-    wl_surface_destroy(m_surface);
-  }
+  detach();
 }
 
 bool VideoSurface::initialize(wl_surface* parent) {
@@ -73,16 +59,7 @@ bool VideoSurface::initialize(wl_surface* parent) {
   if (!m_player.ready() || m_wayland.compositor() == nullptr || m_wayland.subcompositor() == nullptr) {
     return false;
   }
-  m_surface = wl_compositor_create_surface(m_wayland.compositor());
-  m_subsurface = wl_subcompositor_get_subsurface(m_wayland.subcompositor(), m_surface, parent);
-  wl_subsurface_place_below(m_subsurface, parent);
-  wl_subsurface_set_desync(m_subsurface);
-  // Input goes to the window surface above: an empty input region lets it through.
-  wl_region* empty = wl_compositor_create_region(m_wayland.compositor());
-  wl_surface_set_input_region(m_surface, empty);
-  wl_region_destroy(empty);
-
-  m_window = wl_egl_window_create(m_surface, 16, 16);
+  attach(parent);
   const EGLDisplay display = m_gl.display();
   const CurrentContextScope restore(display);
   // Exactly R8G8B8 with no alpha: an XRGB8888 buffer, which the compositor can scan out or put on an overlay plane.
@@ -106,9 +83,8 @@ bool VideoSurface::initialize(wl_surface* parent) {
     kLog.warn("no XRGB8888 EGL config; the video uses the window config");
     config = m_gl.config();
   }
-  m_eglSurface = eglCreateWindowSurface(display, config, reinterpret_cast<EGLNativeWindowType>(m_window), nullptr);
-  if (m_eglSurface == EGL_NO_SURFACE) {
-    kLog.warn("video eglCreateWindowSurface failed (0x{:04x})", eglGetError());
+  m_config = config;
+  if (!createEglSurface()) {
     return false;
   }
   // mpv draws only in this context: no sharing with the UI contexts.
@@ -144,6 +120,69 @@ bool VideoSurface::initialize(wl_surface* parent) {
   }
   m_token = std::make_unique<UpdateToken>(UpdateToken{.alive = m_alive, .self = this});
   m_player.lib()->renderSetUpdateCallback(m_render, onMpvUpdate, m_token.get());
+  return true;
+}
+
+void VideoSurface::attach(wl_surface* parent) {
+  m_surface = wl_compositor_create_surface(m_wayland.compositor());
+  m_subsurface = wl_subcompositor_get_subsurface(m_wayland.subcompositor(), m_surface, parent);
+  wl_subsurface_place_below(m_subsurface, parent);
+  wl_subsurface_set_desync(m_subsurface);
+  // Input goes to the window surface above: an empty input region lets it through.
+  wl_region* empty = wl_compositor_create_region(m_wayland.compositor());
+  wl_surface_set_input_region(m_surface, empty);
+  wl_region_destroy(empty);
+
+  m_window = wl_egl_window_create(m_surface, 16, 16);
+}
+
+bool VideoSurface::createEglSurface() {
+  m_eglSurface = eglCreateWindowSurface(m_gl.display(), m_config, reinterpret_cast<EGLNativeWindowType>(m_window), nullptr);
+  if (m_eglSurface == EGL_NO_SURFACE) {
+    kLog.warn("video eglCreateWindowSurface failed (0x{:04x})", eglGetError());
+    return false;
+  }
+  return true;
+}
+
+void VideoSurface::detach() {
+  if (m_frame != nullptr) {
+    wl_callback_destroy(m_frame);
+    m_frame = nullptr;
+  }
+  if (m_eglSurface != EGL_NO_SURFACE) {
+    eglDestroySurface(m_gl.display(), m_eglSurface);
+    m_eglSurface = EGL_NO_SURFACE;
+  }
+  if (m_window != nullptr) {
+    wl_egl_window_destroy(m_window);
+    m_window = nullptr;
+  }
+  if (m_subsurface != nullptr) {
+    wl_subsurface_destroy(m_subsurface);
+    m_subsurface = nullptr;
+  }
+  if (m_surface != nullptr) {
+    wl_surface_destroy(m_surface);
+    m_surface = nullptr;
+  }
+  m_width = m_height = 0;
+}
+
+bool VideoSurface::reparent(wl_surface* parent) {
+  if (m_render == nullptr) {
+    return false;
+  }
+  // The GL context and mpv's render context stay: only the Wayland and EGL surfaces move, so playback goes on.
+  const CurrentContextScope restore(m_gl.display());
+  eglMakeCurrent(m_gl.display(), EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+  detach();
+  attach(parent);
+  if (!createEglSurface()) {
+    return false;
+  }
+  m_dirty = true;
+  kLog.debug("video moved to a new window");
   return true;
 }
 

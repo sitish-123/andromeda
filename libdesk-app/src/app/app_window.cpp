@@ -345,7 +345,7 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   const float sidebarWidth = m_sidebarBuilder ? m_config.sidebarWidth * m_uiScale : 0.0F;
   const float mainWidth = std::max(0.0F, width - sidebarWidth);
   auto main = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
-  const bool header = m_config.headerWhenFullscreen || !fullscreen();
+  const bool header = m_config.header && (m_config.headerWhenFullscreen || !fullscreen());
   if (header) {
     auto bar = buildHeader();
     if (m_config.transparentContent) {

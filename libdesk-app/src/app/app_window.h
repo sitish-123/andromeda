@@ -42,6 +42,7 @@ public:
     std::string parentWindow;  // portal form "wayland:<xdg-foreign handle>": a dialog of another app's window
     bool transparentContent = false; // the content area shows what lies below the window surface (a video subsurface)
     bool headerWhenFullscreen = true;
+    bool header = true; // false: a chromeless window (picture in picture); the content is the whole window
   };
 
   // Builds the content under the header; called on open, on requestRebuild() and when the scale changes.

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 struct MpvLib;
 struct mpv_handle;
@@ -27,6 +28,10 @@ public:
     double volume = 100.0;
     bool muted = false;
     bool eof = false;
+    std::int64_t queuePos = -1; // index in mpv's playlist
+    std::int64_t queueCount = 0;
+    int subtitleTracks = 0;
+    std::string subtitle; // the shown track's language or title; empty when off
   };
 
   MpvPlayer();
@@ -42,12 +47,18 @@ public:
   [[nodiscard]] const MpvLib* lib() const noexcept { return m_lib; }
 
   void load(const std::string& path, double startSeconds);
+  // A queue (album, playlist) as mpv's playlist: gapless joins, ReplayGain per album or per track.
+  void loadList(const std::vector<std::string>& paths, bool albumGain, std::size_t start = 0);
+  void next();
+  void previous();
   void setPaused(bool paused);
   void togglePause() { setPaused(!m_state.paused); }
   void seekTo(double seconds);
   void seekBy(double seconds);
   void setVolume(double volume);
   void stop();
+  // Off -> each subtitle track -> off.
+  void cycleSubtitles();
 
   [[nodiscard]] const State& state() const noexcept { return m_state; }
   // After any property change; `seeked` is true for a seek the user or MPRIS made (MPRIS Seeked).
@@ -68,6 +79,10 @@ private:
   bool m_voConfigured = false;
   bool m_albumArt = false;
   bool m_seekPending = false;
+  std::string m_subId;
+  std::string m_subLang;
+  std::string m_subTitle;
+  void countSubtitles();
   State m_state;
   std::function<void(bool)> m_onChanged;
 };

@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "mpv_lib.h"
 
+#include <cstdlib>
 #include <format>
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -11,7 +12,7 @@
 namespace {
   constexpr Logger kLog("mpv");
 
-  enum Observed : std::uint64_t { kPath = 1, kTitle, kDuration, kPosition, kPause, kIdle, kVoConfigured, kAlbumArt, kWidth, kHeight, kVolume, kMute, kEof };
+  enum Observed : std::uint64_t { kPath = 1, kTitle, kDuration, kPosition, kPause, kIdle, kVoConfigured, kAlbumArt, kSubId, kSubLang, kSubTitle, kTracks, kQueuePos, kQueueCount, kWidth, kHeight, kVolume, kMute, kEof };
 } // namespace
 
 MpvPlayer::MpvPlayer() = default;
@@ -42,6 +43,10 @@ bool MpvPlayer::initialize() {
       {"vo", "libmpv"},
       {"hwdec", "auto-safe"},
       {"keep-open", "yes"}, // the last frame stays at the end; eof-reached reports it
+      {"sub-auto", "fuzzy"}, // external subtitles next to the file whose name starts like it
+      {"gapless-audio", "yes"},
+      {"prefetch-playlist", "yes"}, // opens the next file before the current one ends: gapless albums
+      {"replaygain", "album"},
       {"input-default-bindings", "no"},
       {"input-vo-keyboard", "no"},
       {"osc", "no"},
@@ -52,6 +57,41 @@ bool MpvPlayer::initialize() {
   for (const auto& [name, value] : options) {
     if (const int err = m_lib->setOptionString(m_mpv, name, value); err < 0) {
       kLog.warn("mpv option {}={}: {}", name, value, m_lib->errorString(err));
+    }
+  }
+  // Extra mpv options for power users and tests, "name=value,name=value" (e.g. ao=pcm,ao-pcm-file=/tmp/out.wav).
+  if (const char* extra = std::getenv("ANDROMEDA_PLAYER_MPV_OPTIONS"); extra != nullptr) {
+    // A comma starts a new option only before "name="; otherwise it belongs to the value (ao=pipewire,alsa).
+    std::vector<std::string> items;
+    std::string_view rest = extra;
+    while (!rest.empty()) {
+      const auto comma = rest.find(',');
+      std::string_view item = rest.substr(0, comma);
+      rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+      while (!item.empty() && item.front() == ' ') {
+        item.remove_prefix(1);
+      }
+      const auto eq = item.find('=');
+      const bool startsOption = eq != std::string_view::npos && eq > 0
+          && item.substr(0, eq).find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") == std::string_view::npos;
+      if (startsOption || items.empty()) {
+        items.emplace_back(item);
+      } else {
+        items.back() += ',';
+        items.back() += item;
+      }
+    }
+    for (const std::string& item : items) {
+      const auto eq = item.find('=');
+      if (eq == std::string::npos) {
+        kLog.warn("ANDROMEDA_PLAYER_MPV_OPTIONS: {} has no value", item);
+        continue;
+      }
+      const std::string name = item.substr(0, eq);
+      const std::string value = item.substr(eq + 1);
+      if (const int err = m_lib->setOptionString(m_mpv, name.c_str(), value.c_str()); err < 0) {
+        kLog.warn("mpv option {}={}: {}", name, value, m_lib->errorString(err));
+      }
     }
   }
   if (const int err = m_lib->initialize(m_mpv); err < 0) {
@@ -66,6 +106,9 @@ bool MpvPlayer::initialize() {
       {kPause, {"pause", MPV_FORMAT_FLAG}},          {kIdle, {"idle-active", MPV_FORMAT_FLAG}},
       {kWidth, {"width", MPV_FORMAT_INT64}},           {kVoConfigured, {"vo-configured", MPV_FORMAT_FLAG}},
       {kAlbumArt, {"current-tracks/video/albumart", MPV_FORMAT_FLAG}},
+      {kSubId, {"sid", MPV_FORMAT_STRING}},           {kSubLang, {"current-tracks/sub/lang", MPV_FORMAT_STRING}},
+      {kSubTitle, {"current-tracks/sub/title", MPV_FORMAT_STRING}}, {kTracks, {"track-list/count", MPV_FORMAT_INT64}},
+      {kQueuePos, {"playlist-pos", MPV_FORMAT_INT64}},  {kQueueCount, {"playlist-count", MPV_FORMAT_INT64}},
       {kHeight, {"height", MPV_FORMAT_INT64}},       {kVolume, {"volume", MPV_FORMAT_DOUBLE}},
       {kMute, {"mute", MPV_FORMAT_FLAG}},            {kEof, {"eof-reached", MPV_FORMAT_FLAG}},
   };
@@ -121,6 +164,11 @@ void MpvPlayer::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*start
       }
       changed = true;
       break;
+    case MPV_EVENT_FILE_LOADED:
+      // track-list/count may not change between files; the track types can.
+      countSubtitles();
+      changed = true;
+      break;
     case MPV_EVENT_END_FILE:
       if (const auto* end = static_cast<const mpv_event_end_file*>(event->data); end->reason == MPV_END_FILE_REASON_ERROR) {
         kLog.warn("playback failed: {}", m_lib->errorString(end->error));
@@ -158,6 +206,12 @@ void MpvPlayer::onProperty(std::uint64_t id, const mpv_event_property& p) {
   case kAlbumArt:
     m_albumArt = flag();
     break;
+  case kSubId: m_subId = str(); break;
+  case kSubLang: m_subLang = str(); break;
+  case kSubTitle: m_subTitle = str(); break;
+  case kTracks: countSubtitles(); break;
+  case kQueuePos: m_state.queuePos = has ? i64() : -1; break;
+  case kQueueCount: m_state.queueCount = i64(); break;
   case kHeight: m_state.height = i64(); break;
   case kVolume: m_state.volume = dbl(); break;
   case kMute: m_state.muted = flag(); break;
@@ -166,6 +220,35 @@ void MpvPlayer::onProperty(std::uint64_t id, const mpv_event_property& p) {
   }
   // A configured output that is not a cover picture: a video track plays.
   m_state.hasVideo = m_voConfigured && !m_albumArt;
+  const bool subOn = !m_subId.empty() && m_subId != "no";
+  const std::string label = !subOn ? std::string() : !m_subLang.empty() ? m_subLang : !m_subTitle.empty() ? m_subTitle : m_subId;
+  if (id == kSubId || id == kSubLang || id == kSubTitle) {
+    if (label != m_state.subtitle) {
+      kLog.debug("subtitles {}", label.empty() ? "off" : label);
+    }
+  }
+  m_state.subtitle = label;
+}
+
+void MpvPlayer::countSubtitles() {
+  std::int64_t count = 0;
+  m_lib->getProperty(m_mpv, "track-list/count", MPV_FORMAT_INT64, &count);
+  int subs = 0;
+  for (std::int64_t i = 0; i < count; ++i) {
+    char* type = nullptr;
+    const std::string name = std::format("track-list/{}/type", i);
+    if (m_lib->getProperty(m_mpv, name.c_str(), MPV_FORMAT_STRING, &type) >= 0 && type != nullptr) {
+      subs += std::string_view(type) == "sub" ? 1 : 0;
+      m_lib->free(type);
+    }
+  }
+  m_state.subtitleTracks = subs;
+}
+
+void MpvPlayer::cycleSubtitles() {
+  if (m_mpv != nullptr && m_state.subtitleTracks > 0) {
+    command({"cycle", "sid"});
+  }
 }
 
 void MpvPlayer::command(std::initializer_list<const char*> args) {
@@ -189,6 +272,41 @@ void MpvPlayer::load(const std::string& path, double startSeconds) {
     command({"loadfile", path.c_str(), "replace", options.c_str()});
   }
   setPaused(false);
+}
+
+void MpvPlayer::loadList(const std::vector<std::string>& paths, bool albumGain, std::size_t start) {
+  if (paths.empty() || !initialize()) {
+    return;
+  }
+  m_state.eof = false;
+  m_lib->setPropertyString(m_mpv, "replaygain", albumGain ? "album" : "track");
+  // The whole list goes in, so Previous reaches the tracks before `start`; then playback jumps to `start`.
+  command({"loadfile", paths.front().c_str(), "replace"});
+  for (std::size_t i = 1; i < paths.size(); ++i) {
+    command({"loadfile", paths[i].c_str(), "append"});
+  }
+  if (start > 0 && start < paths.size()) {
+    const std::string index = std::to_string(start);
+    command({"playlist-play-index", index.c_str()});
+  }
+  setPaused(false);
+}
+
+void MpvPlayer::next() {
+  if (m_mpv != nullptr) {
+    command({"playlist-next"});
+  }
+}
+
+void MpvPlayer::previous() {
+  if (m_mpv != nullptr) {
+    // Like every player: past the first seconds, Previous restarts the track.
+    if (m_state.position > 3.0 || m_state.queuePos <= 0) {
+      seekTo(0.0);
+    } else {
+      command({"playlist-prev"});
+    }
+  }
 }
 
 void MpvPlayer::setPaused(bool paused) {
