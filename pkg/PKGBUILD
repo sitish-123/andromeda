@@ -136,6 +136,9 @@ package_andromeda-compositor-git() {
   meson install -C build-compositor --destdir "$pkgdir"
   install -Dm644 desktop/session/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf \
     "$pkgdir/usr/lib/systemd/user/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf"
+  for unit in 'app-blueman@autostart.service' 'app-nm\x2dapplet@autostart.service'; do
+    install -Dm644 desktop/session/autostart/skip-in-andromeda.conf "$pkgdir/usr/lib/systemd/user/$unit.d/andromeda.conf"
+  done
   install -Dm644 desktop/session/memory/user-session.slice.conf \
     "$pkgdir/usr/lib/systemd/user/session.slice.d/andromeda-ui-memory.conf"
   install -Dm644 desktop/session/memory/user-app.slice.conf \
