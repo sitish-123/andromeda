@@ -53,9 +53,9 @@ start_app first
 rm -f "$OUT/state.json"
 w=$(win); echo "$w" > "$OUT/windows-first.json"
 read -r x y width height < <(jq -r '"\(.x) \(.y) \(.w) \(.h)"' <<< "$w")
-# Drag the bottom-right corner 120 x 80 outward from inside its 16 px corner zone (the app's resize band).
-run "$POINTER" 1280 720 move $((x + width - 4)) $((y + height - 4)) press 272 \
-  move $((x + width + 56)) $((y + height + 36)) move $((x + width + 116)) $((y + height + 76)) release 272 > /dev/null
+# Drag the bottom-right corner 120 x 80 outward from 4 px outside it (the app's 8 px resize band, rulebook §9.12).
+run "$POINTER" 1280 720 move $((x + width + 4)) $((y + height + 4)) press 272 \
+  move $((x + width + 64)) $((y + height + 44)) move $((x + width + 124)) $((y + height + 84)) release 272 > /dev/null
 # The drag has ended when the pointer client returns; wait until the window and state.json agree on one size.
 saved=false
 for _ in $(seq 60); do

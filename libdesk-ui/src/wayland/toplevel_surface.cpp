@@ -53,6 +53,7 @@ bool ToplevelSurface::initialize(wl_output* output, const ToplevelSurfaceConfig&
   m_pendingWidth = std::max<std::uint32_t>(1, config.width);
   m_pendingHeight = std::max<std::uint32_t>(1, config.height);
   m_floatingWidth = m_pendingWidth;
+  m_resizeMargin = config.resizeMargin;
   m_floatingHeight = m_pendingHeight;
   m_lastToplevelWidth = 0;
   m_lastToplevelHeight = 0;
@@ -171,7 +172,16 @@ void ToplevelSurface::handleXdgSurfaceConfigure(void* data, xdg_surface* surface
   }
   const bool stateChanged = next != self->m_state;
   self->m_state = next;
-  self->Surface::onConfigure(width, height);
+  self->m_margin = floating ? self->m_resizeMargin : 0;
+  self->m_windowWidth = width;
+  self->m_windowHeight = height;
+  if (self->m_resizeMargin > 0) {
+    const auto m = static_cast<std::int32_t>(self->m_margin);
+    xdg_surface_set_window_geometry(
+        surface, m, m, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height)
+    );
+  }
+  self->Surface::onConfigure(width + 2 * self->m_margin, height + 2 * self->m_margin);
   // After onConfigure, so the callback reads the size of this configure.
   if (stateChanged && self->m_stateCallback) {
     self->m_stateCallback(self->m_state);

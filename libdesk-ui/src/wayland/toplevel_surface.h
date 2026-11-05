@@ -19,6 +19,9 @@ struct ToplevelSurfaceConfig {
   std::string title = "Noctalia";
   const char* appId = "dev.noctalia.Noctalia";
   bool maximized = false; // asked before the first commit, so the first configure is already maximized
+  // Transparent band around the window, outside its xdg window geometry, for client-side resize (the GTK way).
+  // Only while the window is free: maximized and fullscreen windows have none.
+  std::uint32_t resizeMargin = 0;
 };
 
 // xdg_toplevel states from the last configure.
@@ -49,6 +52,10 @@ public:
   // Called after a configure whose states differ from the last one.
   void setStateCallback(std::function<void(const ToplevelState&)> callback) { m_stateCallback = std::move(callback); }
   [[nodiscard]] const ToplevelState& state() const noexcept { return m_state; }
+  // The window inside the surface: the surface is the window plus margin() on every side.
+  [[nodiscard]] std::uint32_t margin() const noexcept { return m_margin; }
+  [[nodiscard]] std::uint32_t windowWidth() const noexcept { return m_windowWidth; }
+  [[nodiscard]] std::uint32_t windowHeight() const noexcept { return m_windowHeight; }
 
   [[nodiscard]] xdg_surface* xdgSurface() const noexcept { return m_xdgSurface; }
 
@@ -72,6 +79,10 @@ private:
   ToplevelState m_pendingState;
   std::uint32_t m_floatingWidth = 0; // last size with no maximized or fullscreen state
   std::uint32_t m_floatingHeight = 0;
+  std::uint32_t m_resizeMargin = 0;
+  std::uint32_t m_margin = 0;
+  std::uint32_t m_windowWidth = 0;
+  std::uint32_t m_windowHeight = 0;
   std::uint32_t m_pendingWidth = 0;
   std::uint32_t m_pendingHeight = 0;
   std::int32_t m_lastToplevelWidth = 0;

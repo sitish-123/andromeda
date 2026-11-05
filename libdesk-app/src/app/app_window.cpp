@@ -35,7 +35,8 @@ namespace {
   constexpr float kWindowButtonInset = 12.0F;
   constexpr float kWindowButtonGap = 8.0F;
   constexpr float kWindowButtonSymbol = 12.0F;
-  // Inside the window edge: the compositor starts an edge resize only with Mod held (cursor.cpp).
+  // Rulebook §9.12: an 8 px band outside the window, 16 x 16 corners. The compositor starts an edge resize only with
+  // Mod held (cursor.cpp), so the band is a transparent surface margin outside the xdg window geometry.
   constexpr float kResizeBand = 8.0F;
   constexpr float kResizeCorner = 16.0F;
 
@@ -140,6 +141,7 @@ bool AppWindow::open() {
       .title = m_config.title,
       .appId = m_config.appId.c_str(),
       .maximized = maximized,
+      .resizeMargin = static_cast<std::uint32_t>(std::lround(kResizeBand * m_uiScale)),
   };
   if (!m_surface->initialize(output, cfg)) {
     kLog.warn("failed to create the {} toplevel", m_config.appId);
@@ -190,9 +192,9 @@ void AppWindow::saveGeometry() {
   m_state.set(key("maximized"), st.maximized);
   // A maximized or fullscreen size is the compositor's, not the user's: keep the last free size. Tiled edges do not
   // tell: Andromeda with prefer_no_csd marks floating windows tiled on all four edges (view_lifecycle.cpp).
-  if (!st.maximized && !st.fullscreen && m_surface->width() > 0 && m_surface->height() > 0) {
-    m_state.set(key("width"), m_surface->width());
-    m_state.set(key("height"), m_surface->height());
+  if (!st.maximized && !st.fullscreen && m_surface->windowWidth() > 0 && m_surface->windowHeight() > 0) {
+    m_state.set(key("width"), m_surface->windowWidth());
+    m_state.set(key("height"), m_surface->windowHeight());
   }
 }
 
@@ -247,9 +249,11 @@ void AppWindow::prepareFrame(bool needsLayout) {
     return;
   }
   if (needsLayout || m_root->width() != width || m_root->height() != height) {
+    const auto margin = static_cast<float>(m_surface->margin());
     m_root->setSize(width, height);
     for (const auto& child : m_root->children()) {
-      child->setSize(width, height);
+      child->setPosition(margin, margin);
+      child->setSize(width - 2.0F * margin, height - 2.0F * margin);
     }
     m_root->layout(renderer);
   }
@@ -317,6 +321,10 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   m_root = ui::node({});
   m_root->setSize(width, height);
   m_root->setAnimationManager(&m_animations);
+  // The scene covers the surface; the window body sits inside the transparent resize margin.
+  const auto margin = static_cast<float>(m_surface->margin());
+  width -= 2.0F * margin;
+  height -= 2.0F * margin;
 
   auto body = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height});
   body->setFill(colorSpecFromRole(ColorRole::SolidRegular));
@@ -327,6 +335,7 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   holder->addChild(std::move(content));
   body->addChild(std::move(holder));
   body->setSize(width, height);
+  body->setPosition(margin, margin);
   body->layout(renderer);
   m_root->addChild(std::move(body));
 
@@ -335,13 +344,13 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
 }
 
 std::uint32_t AppWindow::resizeEdgesAt(float x, float y) const {
-  const ToplevelState& st = m_surface->state();
-  if (st.maximized || st.fullscreen) {
+  // The margin is the band; maximized and fullscreen windows have none.
+  const auto band = static_cast<float>(m_surface->margin());
+  if (band <= 0.0F) {
     return 0;
   }
   const auto w = static_cast<float>(m_surface->width());
   const auto h = static_cast<float>(m_surface->height());
-  const float band = kResizeBand * m_uiScale;
   const float corner = kResizeCorner * m_uiScale;
   const bool left = x < band;
   const bool right = x >= w - band;
@@ -375,7 +384,7 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
   const std::uint32_t edges = resizeEdgesAt(x, y);
   if (event.type == PointerEvent::Type::Button || event.type == PointerEvent::Type::Enter) {
     kLog.debug("pointer {} at {:.0f},{:.0f} of {}x{}, edges {}", event.type == PointerEvent::Type::Enter ? "enter" : "button",
-               x, y, m_surface->width(), m_surface->height(), edges);
+               x, y, m_surface->windowWidth(), m_surface->windowHeight(), edges);
   }
   if (edges != 0 && (event.type == PointerEvent::Type::Enter || event.type == PointerEvent::Type::Motion)) {
     m_input.pointerLeave();
@@ -410,7 +419,8 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
       m_surface->requestLayout();
     }
     m_input.pointerMotion(x, y, event.serial);
-    const bool inHeader = y < kHeaderHeight * m_uiScale && m_input.hoveredArea() == nullptr;
+    const float windowY = y - static_cast<float>(m_surface->margin());
+    const bool inHeader = windowY >= 0.0F && windowY < kHeaderHeight * m_uiScale && m_input.hoveredArea() == nullptr;
     if (event.pressed && inHeader && event.button == BTN_LEFT) {
       m_buttonDown = false;
       m_surface->beginMove(event.serial);
