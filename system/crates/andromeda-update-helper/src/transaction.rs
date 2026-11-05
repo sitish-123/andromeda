@@ -76,7 +76,12 @@ fn record_questions(alpm: &Alpm, asked: &Rc<RefCell<Vec<String>>>) {
 
 /// `dry_run`: prepares against the databases as they are (no sync: a sync without the upgrade would leave a partial
 /// upgrade state) and lists the targets. Otherwise syncs, prepares and commits.
-pub fn upgrade(dry_run: bool, events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<Outcome> {
+/// `before_commit` runs once the commit is certain (the snapshot); its error stops the upgrade.
+pub fn upgrade(
+    dry_run: bool,
+    events: &tokio::sync::mpsc::UnboundedSender<Event>,
+    before_commit: &mut dyn FnMut() -> Result<()>,
+) -> Result<Outcome> {
     let conf = pacmanconf::Config::new().context("pacman-conf")?;
     let mut alpm = alpm_utils::alpm_with_conf(&conf).context("libalpm")?;
     // alpm_with_conf sets IgnorePkg but not IgnoreGroup.
@@ -98,6 +103,7 @@ pub fn upgrade(dry_run: bool, events: &tokio::sync::mpsc::UnboundedSender<Event>
         if dry_run || !questions.is_empty() || targets.is_empty() {
             return Ok(Outcome { targets, questions, committed: false });
         }
+        before_commit()?;
         alpm.set_progress_cb(events.clone(), |p: Progress, pkg: &str, percent: i32, _: usize, _: usize, tx| {
             let _ = tx.send(Event::Progress(stage(p).to_owned(), percent, pkg.to_owned()));
         });

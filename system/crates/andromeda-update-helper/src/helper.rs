@@ -14,6 +14,7 @@ use zbus::{Connection, interface};
 use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
 use crate::migrations;
+use crate::snapshot;
 use crate::transaction::{self, Event};
 
 pub const PATH: &str = "/org/andromeda/UpdateHelper1";
@@ -110,8 +111,20 @@ impl Helper {
         let _ = self.running_changed(&emitter).await;
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let state_dir = self.state_dir.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let snapper_conn = conn.clone();
         let work = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let outcome = transaction::upgrade(dry_run, &tx);
+            // The pre snapshot is taken only once the transaction is sure to commit.
+            let mut pre = None;
+            let outcome = transaction::upgrade(dry_run, &tx, &mut || {
+                pre = runtime
+                    .block_on(snapshot::pre(&snapper_conn))
+                    .map_err(|e| anyhow::anyhow!("the snapshot before the update failed: {e}"))?;
+                Ok(())
+            });
+            if let Some(pre) = pre {
+                runtime.block_on(snapshot::post(&snapper_conn, pre));
+            }
             // Also after a failed or empty transaction: scripts a partial commit or a plain pacman run brought in.
             let migrated = if dry_run {
                 Ok(Vec::new())

@@ -3,6 +3,7 @@
 
 mod helper;
 mod migrations;
+mod snapshot;
 mod transaction;
 
 use std::sync::Arc;
