@@ -1,6 +1,7 @@
 #include "pipewire/pipewire.h"
 
 #include "loop/loop.h"
+#include "wayland/capture_transform.h"
 
 #include <algorithm>
 #include <array>
@@ -163,21 +164,75 @@ namespace xdpu {
       return true;
     }
 
+    // Disconnecting a core frees every pw_stream created on it, so each stream
+    // keeps its own core alive until the stream is destroyed.
+    struct CoreConnection {
+      explicit CoreConnection(pw_core* core);
+      ~CoreConnection() {
+        spa_hook_remove(&listener);
+        pw_core_disconnect(core);
+      }
+
+      CoreConnection(const CoreConnection&) = delete;
+      CoreConnection& operator=(const CoreConnection&) = delete;
+
+      pw_core* core = nullptr;
+      spa_hook listener = {};
+      bool lost = false;
+    };
+
+    void onCoreError(void* data, uint32_t id, int seq, int res, const char* message) {
+      (void)seq;
+      if (id != PW_ID_CORE || res != -EPIPE) {
+        return;
+      }
+      // The core is still emitting this event; reconnect from the next createStream().
+      static_cast<CoreConnection*>(data)->lost = true;
+      fprintf(stderr, "pipewire: connection lost: %s\n", message == nullptr ? spa_strerror(res) : message);
+    }
+
+    constexpr pw_core_events kCoreEvents = {
+        .version = PW_VERSION_CORE_EVENTS,
+        .info = nullptr,
+        .done = nullptr,
+        .ping = nullptr,
+        .error = onCoreError,
+        .remove_id = nullptr,
+        .bound_id = nullptr,
+        .add_mem = nullptr,
+        .remove_mem = nullptr,
+        .bound_props = nullptr,
+    };
+
+    CoreConnection::CoreConnection(pw_core* core) : core(core) {
+      pw_core_add_listener(core, &listener, &kCoreEvents, this);
+    }
+
   } // namespace
 
   struct PipeWireStream::Impl {
     struct StreamBuffer {
       CaptureBuffer capture;
+      CaptureBuffer delivery;
       gbm_bo* bo = nullptr;
       std::vector<int> planeFds;
       std::vector<DmabufPlane> planes;
       int fd = -1;
       void* map = nullptr;
       size_t mapSize = 0;
+      int captureFd = -1;
+      void* captureMap = nullptr;
+      size_t captureMapSize = 0;
 
       ~StreamBuffer() {
         if (capture.wlBuffer != nullptr) {
           wl_buffer_destroy(capture.wlBuffer);
+        }
+        if (captureMap != nullptr) {
+          munmap(captureMap, captureMapSize);
+        }
+        if (captureFd >= 0) {
+          close(captureFd);
         }
         if (map != nullptr && map != MAP_FAILED) {
           munmap(map, mapSize);
@@ -197,13 +252,15 @@ namespace xdpu {
     };
 
     Impl(uint32_t width, uint32_t height, CaptureConstraints constraints, uint32_t maxFps, bool cursorMetadata)
-        : width(width), height(height), constraints(std::move(constraints)), maxFps(maxFps),
-          cursorMetadata(cursorMetadata) {}
+        : width(displaySize(width, height, constraints.transform).width),
+          height(displaySize(width, height, constraints.transform).height), constraints(std::move(constraints)),
+          maxFps(maxFps), cursorMetadata(cursorMetadata) {}
     uint32_t width = 0;
     uint32_t height = 0;
     CaptureConstraints constraints;
     uint32_t maxFps = 0;
     bool cursorMetadata = false;
+    std::shared_ptr<CoreConnection> core;
     pw_stream* stream = nullptr;
     spa_hook streamListener = {};
     FormatChoice negotiated;
@@ -244,6 +301,27 @@ namespace xdpu {
       return bo;
     }
 
+    int dmabufPlaneCount(const FormatChoice& choice) {
+      if (!ensureGbmDevice()) {
+        return -1;
+      }
+      // An implicit layout has no modifier to query. Some drivers also cannot
+      // query explicit layouts which they can nevertheless allocate.
+      if (choice.modifier != DRM_FORMAT_MOD_INVALID) {
+        const int planes = gbm_device_get_format_modifier_plane_count(gbm, choice.drm, choice.modifier);
+        if (planes > 0) {
+          return planes;
+        }
+      }
+      gbm_bo* bo = createDmabufBo(choice.drm, choice.modifier);
+      if (bo == nullptr) {
+        return -1;
+      }
+      const int planes = gbm_bo_get_modifier(bo) == choice.modifier ? gbm_bo_get_plane_count(bo) : -1;
+      gbm_bo_destroy(bo);
+      return planes;
+    }
+
     bool supportsDmabuf(uint32_t format, uint64_t modifier) {
       if (!ensureGbmDevice()) {
         return false;
@@ -262,6 +340,76 @@ namespace xdpu {
         return negotiated;
       }
       return firstSupportedChoice(constraints);
+    }
+
+    bool configureCaptureBuffer(StreamBuffer& allocation, const CaptureConstraints& target) {
+      const BufferSize size = displaySize(target.bufferWidth, target.bufferHeight, target.transform);
+      if (target.transform > 7
+          || size.width != allocation.delivery.width
+          || size.height != allocation.delivery.height) {
+        return false;
+      }
+      CaptureBuffer capture = allocation.delivery;
+      capture.wlBuffer = nullptr;
+      capture.transform = target.transform;
+      capture.width = target.bufferWidth;
+      capture.height = target.bufferHeight;
+      int fd = -1;
+      void* map = nullptr;
+      size_t mapSize = 0;
+      if (target.transform != 0) {
+        if (allocation.bo != nullptr || capture.width > UINT32_MAX / 4U) {
+          return false;
+        }
+        capture.stride = capture.width * 4U;
+        mapSize = static_cast<size_t>(capture.stride) * capture.height;
+        fd = createMemfd("andromeda-capture-shm", mapSize);
+        if (fd < 0) {
+          return false;
+        }
+        map = mmap(nullptr, mapSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (map == MAP_FAILED) {
+          close(fd);
+          return false;
+        }
+        capture.data = map;
+        capture.size = mapSize;
+      }
+
+      if (WaylandContext* wayland = WaylandContext::defaultContext()) {
+        capture.wlBuffer = allocation.bo != nullptr
+            ? wayland->createDmabufBuffer(
+                  capture.width, capture.height, capture.format, gbm_bo_get_modifier(allocation.bo), allocation.planes
+              )
+            : wayland->createShmBuffer(
+                  capture.width, capture.height, capture.format, capture.stride, fd >= 0 ? fd : allocation.fd,
+                  capture.size
+              );
+        if (capture.wlBuffer == nullptr) {
+          if (map != nullptr) {
+            munmap(map, mapSize);
+          }
+          if (fd >= 0) {
+            close(fd);
+          }
+          return false;
+        }
+      }
+
+      if (allocation.capture.wlBuffer != nullptr) {
+        wl_buffer_destroy(allocation.capture.wlBuffer);
+      }
+      if (allocation.captureMap != nullptr) {
+        munmap(allocation.captureMap, allocation.captureMapSize);
+      }
+      if (allocation.captureFd >= 0) {
+        close(allocation.captureFd);
+      }
+      allocation.capture = capture;
+      allocation.captureFd = fd;
+      allocation.captureMap = map;
+      allocation.captureMapSize = mapSize;
+      return true;
     }
 
     std::unique_ptr<StreamBuffer> allocateDmabuf(const FormatChoice& choice) {
@@ -302,13 +450,9 @@ namespace xdpu {
       }
       allocation->capture.stride = allocation->planes.front().stride;
       allocation->capture.size = static_cast<size_t>(allocation->capture.stride) * height;
-
-      if (WaylandContext* wayland = WaylandContext::defaultContext()) {
-        allocation->capture.wlBuffer =
-            wayland->createDmabufBuffer(width, height, choice.drm, choice.modifier, allocation->planes);
-        if (allocation->capture.wlBuffer == nullptr) {
-          return nullptr;
-        }
+      allocation->delivery = allocation->capture;
+      if (!configureCaptureBuffer(*allocation, constraints)) {
+        return nullptr;
       }
       return allocation;
     }
@@ -339,12 +483,9 @@ namespace xdpu {
       allocation->capture.stride = stride;
       allocation->capture.data = map;
       allocation->capture.size = size;
-
-      if (WaylandContext* wayland = WaylandContext::defaultContext()) {
-        allocation->capture.wlBuffer = wayland->createShmBuffer(width, height, choice.drm, stride, fd, size);
-        if (allocation->capture.wlBuffer == nullptr) {
-          return nullptr;
-        }
+      allocation->delivery = allocation->capture;
+      if (!configureCaptureBuffer(*allocation, constraints)) {
+        return nullptr;
       }
       return allocation;
     }
@@ -382,12 +523,12 @@ namespace xdpu {
         data.flags = SPA_DATA_FLAG_READABLE | SPA_DATA_FLAG_MAPPABLE;
         data.fd = allocation.fd;
         data.mapoffset = 0;
-        data.maxsize = static_cast<uint32_t>(allocation.capture.size);
+        data.maxsize = static_cast<uint32_t>(allocation.delivery.size);
         data.data = allocation.map;
         if (data.chunk != nullptr) {
           data.chunk->offset = 0;
-          data.chunk->size = static_cast<uint32_t>(allocation.capture.size);
-          data.chunk->stride = static_cast<int32_t>(allocation.capture.stride);
+          data.chunk->size = static_cast<uint32_t>(allocation.delivery.size);
+          data.chunk->stride = static_cast<int32_t>(allocation.delivery.stride);
           data.chunk->flags = SPA_CHUNK_FLAG_NONE;
         }
       }
@@ -403,7 +544,7 @@ namespace xdpu {
       }
     }
 
-    void updateBufferParams(const FormatChoice& choice) {
+    bool updateBufferParams(const FormatChoice& choice) {
       std::array<uint8_t, 512> buffersStorage{};
       std::array<uint8_t, 256> headerMetaStorage{};
       std::array<uint8_t, 256> cursorMetaStorage{};
@@ -414,11 +555,13 @@ namespace xdpu {
       const uint32_t stride = choice.dmabuf ? 0 : width * bytesPerPixel(choice.drm);
       const uint32_t size = stride * height;
       const int dataTypes = choice.dmabuf ? (1 << SPA_DATA_DmaBuf) : (1 << SPA_DATA_MemFd);
-      const int blocks =
-          choice.dmabuf ? gbm_device_get_format_modifier_plane_count(gbm, choice.drm, choice.modifier) : 1;
+      const int blocks = choice.dmabuf ? dmabufPlaneCount(choice) : 1;
       if (blocks <= 0) {
-        fprintf(stderr, "pipewire: invalid plane count for negotiated DMA-BUF format\n");
-        return;
+        fprintf(
+            stderr, "pipewire: cannot determine plane count for DMA-BUF format 0x%08x modifier 0x%016llx\n", choice.drm,
+            static_cast<unsigned long long>(choice.modifier)
+        );
+        return false;
       }
 
       spa_pod_frame buffersFrame;
@@ -451,7 +594,7 @@ namespace xdpu {
             SPA_POD_Id(SPA_META_Cursor), SPA_PARAM_META_size, SPA_POD_Int(static_cast<int32_t>(kCursorMetaSize))
         ));
       }
-      pw_stream_update_params(stream, params.data(), paramCount);
+      return pw_stream_update_params(stream, params.data(), paramCount) >= 0;
     }
   };
 
@@ -461,17 +604,14 @@ namespace xdpu {
     Loop& loop;
     pw_loop* pwLoop = nullptr;
     pw_context* context = nullptr;
-    pw_core* core = nullptr;
+    std::shared_ptr<CoreConnection> core;
     int fdId = 0;
 
     ~Impl() {
       if (fdId != 0) {
         loop.removeFd(fdId);
       }
-      if (core != nullptr) {
-        pw_core_disconnect(core);
-        core = nullptr;
-      }
+      core.reset();
       if (context != nullptr) {
         pw_context_destroy(context);
         context = nullptr;
@@ -482,6 +622,19 @@ namespace xdpu {
         pwLoop = nullptr;
       }
       pw_deinit();
+    }
+
+    bool connect() {
+      if (context == nullptr) {
+        return false;
+      }
+      pw_core* connected = pw_context_connect(context, nullptr, 0);
+      if (connected == nullptr) {
+        fprintf(stderr, "pipewire: unable to connect to core: %s\n", std::strerror(errno));
+        return false;
+      }
+      core = std::make_shared<CoreConnection>(connected);
+      return true;
     }
   };
 
@@ -525,9 +678,11 @@ namespace xdpu {
 
     PodList buildFormatParams(PipeWireStream::Impl& impl) {
       PodList list;
-      for (const CaptureConstraints::DmabufFormat& format : impl.constraints.dmabufFormats) {
-        if (auto spa = drmToSpa(format.format); spa && impl.supportsDmabuf(format.format, format.modifier)) {
-          list.addVideoFormat(impl.width, impl.height, *spa, format.modifier, impl.maxFps);
+      if (impl.constraints.transform == 0) {
+        for (const CaptureConstraints::DmabufFormat& format : impl.constraints.dmabufFormats) {
+          if (auto spa = drmToSpa(format.format); spa && impl.supportsDmabuf(format.format, format.modifier)) {
+            list.addVideoFormat(impl.width, impl.height, *spa, format.modifier, impl.maxFps);
+          }
         }
       }
       for (uint32_t shmFormat : impl.constraints.shmFormats) {
@@ -571,6 +726,11 @@ namespace xdpu {
       }
 
       PipeWireStream::Impl& impl = *stream->implForCallbacks();
+      if (info.size.width != impl.width
+          || info.size.height != impl.height
+          || (impl.constraints.transform != 0 && (info.flags & SPA_VIDEO_FLAG_MODIFIER) != 0)) {
+        return;
+      }
       impl.negotiated.drm = *drm;
       impl.negotiated.spa = info.format;
       impl.negotiated.dmabuf = (info.flags & SPA_VIDEO_FLAG_MODIFIER) != 0;
@@ -580,7 +740,10 @@ namespace xdpu {
         impl.width = info.size.width;
         impl.height = info.size.height;
       }
-      impl.updateBufferParams(impl.negotiated);
+      if (!impl.updateBufferParams(impl.negotiated)) {
+        impl.negotiated.valid = false;
+        pw_stream_set_error(impl.stream, -EIO, "Unable to configure capture buffers");
+      }
     }
 
     void onStreamAddBuffer(void* data, pw_buffer* buffer) {
@@ -598,11 +761,12 @@ namespace xdpu {
 
       auto allocation = choice.dmabuf ? impl.allocateDmabuf(choice) : impl.allocateShm(choice);
       if (allocation == nullptr) {
+        pw_stream_set_error(impl.stream, -EIO, "Unable to allocate capture buffers");
         return;
       }
 
       impl.configureSpaData(buffer, *allocation);
-      buffer->size = allocation->capture.size;
+      buffer->size = allocation->delivery.size;
       buffer->user_data = allocation.release();
       impl.buffers.insert(buffer);
 
@@ -667,18 +831,14 @@ namespace xdpu {
       return;
     }
 
-    m_impl->core = pw_context_connect(m_impl->context, nullptr, 0);
-    if (m_impl->core == nullptr) {
-      fprintf(stderr, "pipewire: unable to connect to core\n");
-      return;
-    }
-
     const int fd = pw_loop_get_fd(m_impl->pwLoop);
     m_impl->fdId = loop.addFd(fd, EPOLLIN | EPOLLERR | EPOLLHUP, [impl = m_impl.get()](uint32_t events) {
       if ((events & (EPOLLIN | EPOLLERR | EPOLLHUP)) != 0) {
         pw_loop_iterate(impl->pwLoop, 0);
       }
     });
+
+    m_impl->connect();
   }
 
   PipeWireContext::~PipeWireContext() = default;
@@ -699,19 +859,23 @@ namespace xdpu {
   std::unique_ptr<PipeWireStream> PipeWireContext::createStream(
       uint32_t width, uint32_t height, const CaptureConstraints& constraints, uint32_t maxFps, bool cursorMetadata
   ) {
-    if (m_impl->core == nullptr || width == 0 || height == 0) {
+    if (width == 0 || height == 0 || constraints.transform > 7) {
+      return nullptr;
+    }
+    if ((m_impl->core == nullptr || m_impl->core->lost) && !m_impl->connect()) {
       return nullptr;
     }
 
     auto streamImpl = std::make_unique<PipeWireStream::Impl>(width, height, constraints, maxFps, cursorMetadata);
     auto stream = std::unique_ptr<PipeWireStream>(new PipeWireStream(std::move(streamImpl)));
+    stream->m_impl->core = m_impl->core;
 
     pw_properties* props = pw_properties_new(
         PW_KEY_MEDIA_TYPE, "Video", PW_KEY_MEDIA_CATEGORY, "Capture", PW_KEY_MEDIA_ROLE, "Screen", PW_KEY_MEDIA_CLASS,
         "Video/Source", PW_KEY_MEDIA_NAME, "andromeda-screen-capture", PW_KEY_NODE_NAME, "andromeda-screen-capture",
         PW_KEY_NODE_DESCRIPTION, "Andromeda Screen Capture", nullptr
     );
-    stream->m_impl->stream = pw_stream_new(m_impl->core, "andromeda-screen-capture", props);
+    stream->m_impl->stream = pw_stream_new(m_impl->core->core, "andromeda-screen-capture", props);
     if (stream->m_impl->stream == nullptr) {
       fprintf(stderr, "pipewire: unable to create stream\n");
       return nullptr;
@@ -764,7 +928,8 @@ namespace xdpu {
       return;
     }
     if (buf->buffer != nullptr && buf->buffer->datas != nullptr) {
-      const CaptureBuffer* capture = captureBuffer(buf);
+      const auto* allocation = static_cast<const Impl::StreamBuffer*>(buf->user_data);
+      const CaptureBuffer& delivery = allocation->delivery;
       for (uint32_t index = 0; index < buf->buffer->n_datas; ++index) {
         spa_data& data = buf->buffer->datas[index];
         if (data.chunk == nullptr) {
@@ -774,14 +939,52 @@ namespace xdpu {
           data.chunk->size = 9;
         } else {
           data.chunk->offset = 0;
-          data.chunk->size =
-              capture != nullptr ? static_cast<uint32_t>(capture->stride * capture->height) : data.maxsize;
-          data.chunk->stride = capture != nullptr ? static_cast<int32_t>(capture->stride) : 0;
+          data.chunk->size = static_cast<uint32_t>(delivery.size);
+          data.chunk->stride = static_cast<int32_t>(delivery.stride);
         }
         data.chunk->flags = SPA_CHUNK_FLAG_NONE;
       }
     }
     pw_stream_queue_buffer(m_impl->stream, buf);
+  }
+
+  void PipeWireStream::discardBuffer(pw_buffer* buffer) {
+    if (m_impl->stream == nullptr || !connected() || !ownsBuffer(buffer)) {
+      return;
+    }
+    if (buffer->buffer != nullptr) {
+      if (auto* header = static_cast<spa_meta_header*>(
+              spa_buffer_find_meta_data(buffer->buffer, SPA_META_Header, sizeof(spa_meta_header))
+          )) {
+        header->flags = SPA_META_HEADER_FLAG_CORRUPTED;
+      }
+      for (uint32_t index = 0; index < buffer->buffer->n_datas; ++index) {
+        spa_chunk* chunk = buffer->buffer->datas[index].chunk;
+        if (chunk != nullptr) {
+          chunk->size = 0;
+          chunk->flags = SPA_CHUNK_FLAG_CORRUPTED;
+        }
+      }
+    }
+    pw_stream_queue_buffer(m_impl->stream, buffer);
+  }
+
+  bool PipeWireStream::prepareFrame(pw_buffer* buffer, uint32_t transform) {
+    if (!ownsBuffer(buffer) || transform > 7) {
+      return false;
+    }
+    auto& allocation = *static_cast<Impl::StreamBuffer*>(buffer->user_data);
+    const CaptureBuffer& capture = allocation.capture;
+    if (transform != capture.transform) {
+      return false;
+    }
+    if (transform == 0) {
+      return true;
+    }
+    return transformPacked32(
+        capture.data, capture.size, capture.width, capture.height, capture.stride, transform, allocation.delivery.data,
+        allocation.delivery.size, allocation.delivery.stride
+    );
   }
 
   void PipeWireStream::setCursorMetadata(pw_buffer* buffer, const CursorMetadata* metadata) {
@@ -841,7 +1044,10 @@ namespace xdpu {
   }
 
   bool PipeWireStream::reconfigure(const CaptureConstraints& constraints) {
-    if (m_impl->stream == nullptr || constraints.bufferWidth == 0 || constraints.bufferHeight == 0) {
+    if (m_impl->stream == nullptr
+        || constraints.bufferWidth == 0
+        || constraints.bufferHeight == 0
+        || constraints.transform > 7) {
       return false;
     }
 
@@ -850,10 +1056,16 @@ namespace xdpu {
     CaptureConstraints previousConstraints = m_impl->constraints;
     const FormatChoice previousNegotiated = m_impl->negotiated;
 
-    m_impl->width = constraints.bufferWidth;
-    m_impl->height = constraints.bufferHeight;
+    const BufferSize size = displaySize(constraints.bufferWidth, constraints.bufferHeight, constraints.transform);
+    const bool reuse = previousNegotiated.valid
+        && !previousNegotiated.dmabuf
+        && size.width == previousWidth
+        && size.height == previousHeight
+        && std::ranges::find(constraints.shmFormats, previousNegotiated.drm) != constraints.shmFormats.end();
+    m_impl->width = size.width;
+    m_impl->height = size.height;
     m_impl->constraints = constraints;
-    m_impl->negotiated = {};
+    m_impl->negotiated = reuse ? previousNegotiated : FormatChoice{};
 
     PodList params = buildFormatParams(*m_impl);
     if (params.pods.empty()) {
@@ -872,6 +1084,19 @@ namespace xdpu {
       m_impl->constraints = std::move(previousConstraints);
       m_impl->negotiated = previousNegotiated;
       return false;
+    }
+    if (reuse) {
+      // PipeWire can keep the negotiated format and all buffers for a 180-degree
+      // rotation. Rebuild only the capture side instead of waiting for add_buffer.
+      for (pw_buffer* buffer : m_impl->buffers) {
+        auto* allocation = static_cast<Impl::StreamBuffer*>(buffer->user_data);
+        if (allocation == nullptr || !m_impl->configureCaptureBuffer(*allocation, constraints)) {
+          return false;
+        }
+      }
+      if (!m_impl->buffers.empty() && onAddBuffer) {
+        onAddBuffer(*m_impl->buffers.begin());
+      }
     }
     return true;
   }
@@ -919,11 +1144,29 @@ namespace xdpu {
   }
 
   CaptureBuffer* PipeWireStream::captureBuffer(pw_buffer* buffer) const {
-    if (buffer == nullptr || buffer->user_data == nullptr) {
+    if (!ownsBuffer(buffer) || buffer->user_data == nullptr) {
       return nullptr;
     }
     auto* streamBuffer = static_cast<Impl::StreamBuffer*>(buffer->user_data);
     return &streamBuffer->capture;
+  }
+
+  bool PipeWireStream::bufferMatches(pw_buffer* buffer, const CaptureConstraints& constraints) const {
+    const CaptureBuffer* capture = captureBuffer(buffer);
+    if (capture == nullptr
+        || capture->width != constraints.bufferWidth
+        || capture->height != constraints.bufferHeight
+        || capture->transform != constraints.transform) {
+      return false;
+    }
+    const auto* allocation = static_cast<const Impl::StreamBuffer*>(buffer->user_data);
+    if (allocation->bo == nullptr) {
+      return std::ranges::find(constraints.shmFormats, capture->format) != constraints.shmFormats.end();
+    }
+    return constraints.transform == 0
+        && std::ranges::any_of(constraints.dmabufFormats, [&](const CaptureConstraints::DmabufFormat& format) {
+             return format.format == capture->format && format.modifier == gbm_bo_get_modifier(allocation->bo);
+           });
   }
 
   bool PipeWireStream::ownsBuffer(pw_buffer* buffer) const {

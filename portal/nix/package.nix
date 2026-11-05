@@ -49,6 +49,7 @@ stdenv.mkDerivation {
   ];
 
   mesonBuildType = "release";
+  doCheck = true;
 
   meta = with lib; {
     description = "xdg-desktop-portal backend for the Andromeda compositor";

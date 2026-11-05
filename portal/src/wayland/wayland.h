@@ -1,5 +1,7 @@
 #pragma once
 
+#include "wayland/capture_transform.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -11,6 +13,7 @@
 
 struct wl_buffer;
 struct wl_display;
+struct wl_output;
 struct ext_image_capture_source_v1;
 struct ext_image_copy_capture_session_v1;
 struct ext_image_copy_capture_frame_v1;
@@ -23,10 +26,18 @@ namespace xdpu {
   struct OutputInfo {
     std::string name;
     std::string description;
+    // Current mode size in buffer pixels, and the wl_output.geometry position
+    // (wlroots compositors always report 0,0).
     int32_t width = 0;
     int32_t height = 0;
     int32_t x = 0;
     int32_t y = 0;
+    // Layout position and size in logical coordinates, from xdg-output; zero
+    // until the compositor reports them.
+    int32_t logicalX = 0;
+    int32_t logicalY = 0;
+    int32_t logicalWidth = 0;
+    int32_t logicalHeight = 0;
   };
 
   struct ToplevelInfo {
@@ -45,6 +56,7 @@ namespace xdpu {
     void* data = nullptr;
     size_t size = 0;
   };
+
   struct DmabufPlane {
     int fd = -1;
     uint32_t stride = 0;
@@ -54,6 +66,7 @@ namespace xdpu {
   struct CaptureConstraints {
     uint32_t bufferWidth = 0;
     uint32_t bufferHeight = 0;
+    uint32_t transform = 0;           // wl_output.transform of the raw capture buffer
     std::vector<uint32_t> shmFormats; // DRM fourcc, converted from wl_shm.format on receipt
     dev_t dmabufDevice = 0;
 
@@ -112,6 +125,8 @@ namespace xdpu {
     bool connected() const;
     const std::vector<OutputInfo>& outputs() const;
     const std::vector<ToplevelInfo>& toplevels() const;
+    // Compositor-reported focused output, marked `"focused": true` in the chooser request.
+    void setFocusedOutput(std::optional<std::string> name);
 
     std::string buildChooserJson(uint32_t sourceTypes, bool multiple) const;
 
@@ -128,7 +143,10 @@ namespace xdpu {
       [[nodiscard]] const CursorMetadata* cursorMetadata() const;
 
       Impl& impl;
+      std::shared_ptr<char> frameLifetime = std::make_shared<char>();
+      uint64_t transformRevision = 0;
       ext_image_capture_source_v1* source = nullptr;
+      struct wl_output* output = nullptr; // observed only while registered with impl
       ext_image_copy_capture_session_v1* session = nullptr;
       std::unique_ptr<CursorCapture> cursor;
       CaptureConstraints constraints;
@@ -145,6 +163,9 @@ namespace xdpu {
     struct CaptureFrame {
       ext_image_copy_capture_frame_v1* frame = nullptr;
       CaptureBuffer buffer;
+      CaptureSession* owner = nullptr;
+      std::weak_ptr<char> ownerLifetime;
+      uint64_t transformRevision = 0;
       FrameReadyCallback onReady;
       FrameFailedCallback onFailed;
       uint64_t presentationSec = 0;
@@ -171,6 +192,7 @@ namespace xdpu {
       uint32_t height = 0;
       uint32_t stride = 0;
       uint32_t format = 0;
+      uint32_t transform = 0; // wl_output.transform of the captured content
     };
 
     struct wl_buffer* createDmabufBuffer(

@@ -57,27 +57,7 @@ namespace xdpu {
       for (int y = 0; y < h; ++y) {
         auto* row = target + static_cast<size_t>(y) * stride;
         for (int x = 0; x < w; ++x) {
-          // Invert the horizontal flip first, then the rotation, mirroring how
-          // wl_output.transform composes them.
-          const int fx = (transform & 4U) != 0 ? w - 1 - x : x;
-          int u = fx;
-          int v = y;
-          switch (transform & 3U) {
-          case 1:
-            u = y;
-            v = sh - 1 - fx;
-            break;
-          case 2:
-            u = sw - 1 - fx;
-            v = sh - 1 - y;
-            break;
-          case 3:
-            u = sw - 1 - y;
-            v = fx;
-            break;
-          default:
-            break;
-          }
+          const auto [u, v] = displayToBuffer(x, y, sw, sh, transform);
           const uint32_t pixel =
               pixels[(static_cast<size_t>(v) * height / sh) * width + static_cast<size_t>(u) * width / sw];
           auto* rgb = row + static_cast<size_t>(x) * 3;
