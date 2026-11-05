@@ -293,9 +293,9 @@ namespace andromeda {
       }
     }
     // Blocking: it runs in the present handler, after the page flip completed, so no flip is pending; the output misses
-    // one frame once. Without atomic modesetting (WLR_DRM_NO_ATOMIC) the commit fails with EINVAL and is skipped.
+    // one frame once. Without atomic modesetting (WLR_DRM_NO_ATOMIC) the commit fails with EINVAL.
     if (count > 0 && drmModeAtomicCommit(fd, request, 0, nullptr) != 0) {
-      if (errno != EINVAL && errno != EOPNOTSUPP) {
+      if (errno != EOPNOTSUPP) {
         kLog.warn("output '{}': could not turn off {} planes left by the previous master: {}", output->name, count,
                   std::strerror(errno));
       }

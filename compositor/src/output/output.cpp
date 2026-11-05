@@ -198,6 +198,7 @@ namespace andromeda {
     }
     m_foreignPlanes = foreignPlanes(m_output);
     if (wlr_output_is_drm(m_output)) {
+      kLog.info("output '{}': {} planes left by the previous master", m_output->name, m_foreignPlanes.size());
       m_awaitingFirstFrame = true;
       scanout_keeper::expectFirstFrame();
     }
