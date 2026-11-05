@@ -180,7 +180,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 BatteryWidgetDefinitionContext{.batteryConfig = &f.m_config.battery, .upower = f.m_upower}
             );
             options.displayMode = BatteryDisplayMode::Graphic;
-            options.showLabel = false;
             options.islandStyle = true;
             return createWidget<BatteryWidget>(context.contentScale, f.m_upower, options);
           }},
