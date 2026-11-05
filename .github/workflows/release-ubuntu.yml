@@ -10,6 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag: { description: "Existing tag to build and publish", required: true }
+      ref: { description: "Commit or branch to build instead of the tag, for a packaging fix", required: false }
       prebuilt: { description: "Sign the debs already on the release instead of building them", type: boolean, default: false }
 
 permissions:
@@ -29,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ env.TAG }}
+          ref: ${{ inputs.ref || env.TAG }}
       - name: xwayland-satellite
         if: ${{ !inputs.prebuilt }}
         run: tools/deb-xwayland-satellite.sh 26.04
