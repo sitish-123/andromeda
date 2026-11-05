@@ -17,6 +17,7 @@ extern "C" {
 #include "layout/layout.h"
 #include "layout/scrolling.h"
 #include "output/output.h"
+#include "overview/interact.h"
 #include "overview/shortcut_labels.h"
 #include "scene/border_rect.h"
 #include "scene/color.h"
@@ -26,6 +27,7 @@ extern "C" {
 #include "scene/surface_shape.h"
 #include "scene/text_buffer.h"
 #include "server/color_manager.h"
+#include "server/desktop_shell.h"
 #include "server/server.h"
 #include "view/view.h"
 // clang-format off
@@ -54,6 +56,8 @@ namespace andromeda {
     constexpr double kDesktopChromeFade = 0.1;
     // Below this a card is neither drawn nor hit.
     constexpr float kHiddenOpacity = 0.004F;
+    // A card the filter misses keeps this share of its opacity.
+    constexpr float kFilterMissOpacity = 0.25F;
 
     static_assert(static_cast<int>(OverviewStyle::Grid) == static_cast<int>(ov::Style::Grid));
     ov::Style configuredStyle() { return static_cast<ov::Style>(config().overview.style); }
@@ -832,6 +836,9 @@ namespace andromeda {
       }
       card.scale = world.width > 0 ? rect.w / world.width : 1.0;
       card.opacity = static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p));
+      if (!m_filter.empty() && !cardMatches(card)) {
+        card.opacity *= kFilterMissOpacity;
+      }
       card.clip = {};
       if (place->clip.has_value()) {
         const ov::Insets& cut = *place->clip;
@@ -924,7 +931,7 @@ namespace andromeda {
         .workspaces = m_chromeWorkspaces,
         .windows = m_chromeWindows,
         .titlesAlways = config().overview.titles == OverviewTitles::Always,
-        .filter = {},
+        .filter = m_filter,
         .hovered = m_hoverView,
         .closeHovered = m_closeHover,
     });
@@ -2393,6 +2400,7 @@ namespace andromeda {
     m_cardPresentationDirty = false;
     m_gestureOpenedHere = false;
     m_shortcutInput.clear();
+    m_filter.clear();
     m_shortcutAssignments.clear();
     m_shortcutLabelCapacity = 0;
     m_server->reconcileDynamicWorkspaces();
@@ -3603,11 +3611,233 @@ namespace andromeda {
     return false;
   }
 
+  bool Overview::cardMatches(const Card& card) const {
+    if (card.view == nullptr) {
+      return false;
+    }
+    const char* title = card.view->title();
+    const char* appId = card.view->appId();
+    return ov::filterMatches(m_filter, title != nullptr ? title : "", appId != nullptr ? appId : "");
+  }
+
+  std::vector<Overview::Card*> Overview::selectableCards() {
+    Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
+    struct Entry {
+      Card* card;
+      std::tuple<bool, size_t, bool, size_t, int, int> key;
+    };
+    std::vector<Entry> entries;
+    for (size_t outputIndex = 0; outputIndex < m_outputs.size(); ++outputIndex) {
+      const OutputState& state = *m_outputs[outputIndex];
+      const WorkspaceGroup* group = state.output->workspaceGroup();
+      const Workspace* active = group != nullptr ? group->active() : nullptr;
+      for (size_t k = 0; k < state.cards.size(); ++k) {
+        Card& card = *state.cards[k];
+        const bool placed = k < state.placeOf.size() && state.placeOf[k] != nullptr;
+        if (!placed || card.view == nullptr || !card.view->mapped() || card.opacity <= 0.0F || !cardMatches(card)) {
+          continue;
+        }
+        const bool onActive = active != nullptr && card.view->workspace() == active;
+        entries.push_back({
+            .card = &card,
+            .key = {
+                state.output != preferred, outputIndex, !onActive, card.workspaceIndex,
+                card.box.y + card.box.height / 2, card.box.x + card.box.width / 2
+            },
+        });
+      }
+    }
+    std::ranges::stable_sort(entries, {}, &Entry::key);
+    std::vector<Card*> cards;
+    cards.reserve(entries.size());
+    for (const Entry& entry : entries) {
+      cards.push_back(entry.card);
+    }
+    return cards;
+  }
+
+  Overview::Card* Overview::cardOf(const View* view) {
+    if (view == nullptr) {
+      return nullptr;
+    }
+    for (const auto& state : m_outputs) {
+      for (const auto& card : state->cards) {
+        if (card->view == view) {
+          return card.get();
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  Overview::Card* Overview::selectedCard() {
+    Card* card = cardOf(liveTargetView());
+    return card != nullptr && cardMatches(*card) ? card : nullptr;
+  }
+
+  void Overview::selectCard(Card& card) {
+    View* view = card.view;
+    Workspace* workspace = view != nullptr ? view->workspace() : nullptr;
+    if (workspace == nullptr || workspace->group() == nullptr) {
+      return;
+    }
+    clearShortcutInput();
+    if (workspace->group()->active() != workspace) {
+      workspace->group()->select(workspace);
+    }
+    if (workspace->active()) {
+      m_server->focusView(view, FocusReason::Gesture);
+    } else {
+      workspace->setFocusedView(view);
+    }
+    if (ScrollingLayout* scrolling = workspace->scrollingLayout()) {
+      workspace->activateFocusedColumn();
+      scrolling->snapVisible(scrolling->columnOf(view), workspace->scrollViewportExtent());
+      workspace->markArrange(true);
+    }
+    applyProgress();
+    scheduleFrames();
+  }
+
+  void Overview::setFilter(std::string filter) {
+    if (filter == m_filter) {
+      return;
+    }
+    m_filter = std::move(filter);
+    if (!m_filter.empty() && selectedCard() == nullptr) {
+      const std::vector<Card*> matches = selectableCards();
+      if (!matches.empty()) {
+        selectCard(*matches.front());
+        return;
+      }
+    }
+    applyProgress();
+    scheduleFrames();
+  }
+
+  bool Overview::moveSelection(int dx, int dy) {
+    const std::vector<Card*> cards = selectableCards();
+    if (cards.empty()) {
+      return true;
+    }
+    const Card* from = selectedCard();
+    if (from == nullptr) {
+      selectCard(*cards.front());
+      return true;
+    }
+    const auto centre = [](const Card& card) {
+      return ov::Point{card.box.x + card.box.width / 2.0, card.box.y + card.box.height / 2.0};
+    };
+    std::vector<ov::Point> centres;
+    centres.reserve(cards.size());
+    for (const Card* card : cards) {
+      centres.push_back(card == from ? ov::Point{1e9, 1e9} : centre(*card));
+    }
+    const ov::Direction direction = dx < 0 ? ov::Direction::Left
+        : dx > 0                           ? ov::Direction::Right
+        : dy < 0                           ? ov::Direction::Up
+                                           : ov::Direction::Down;
+    const int pick = ov::pickInDirection(centres, centre(*from), direction);
+    if (pick >= 0) {
+      selectCard(*cards[static_cast<size_t>(pick)]);
+    }
+    return true;
+  }
+
+  bool Overview::cycleSelection(int step) {
+    const std::vector<Card*> cards = selectableCards();
+    if (cards.empty()) {
+      return true;
+    }
+    const Card* current = selectedCard();
+    int index = -1;
+    for (size_t k = 0; k < cards.size(); ++k) {
+      if (cards[k] == current) {
+        index = static_cast<int>(k);
+      }
+    }
+    selectCard(*cards[ov::cycleIndex(cards.size(), index, step)]);
+    return true;
+  }
+
+  bool Overview::activateFilter() {
+    Card* card = selectedCard();
+    if (card == nullptr) {
+      const std::vector<Card*> matches = selectableCards();
+      card = matches.empty() ? nullptr : matches.front();
+    }
+    if (card != nullptr) {
+      closeToWorkspace(card->view->workspace(), card->view);
+      return true;
+    }
+    // Nothing open matches: hand the query to the launcher, which opens over the overview with it typed in.
+    if (DesktopShell* shell = m_server->desktopShell()) {
+      (void)shell->sendAction(std::format("panel-open launcher {}", m_filter));
+    }
+    return true;
+  }
+
   bool Overview::handleFallbackKey(uint32_t keysym) {
     if (!interactive()) {
       return false;
     }
-    if (handleShortcutKey(keysym)) {
+    if (m_filter.empty() && handleShortcutKey(keysym)) {
+      return true;
+    }
+    if (!m_filter.empty()) {
+      switch (keysym) {
+      case XKB_KEY_Escape:
+        setFilter({});
+        return true;
+      case XKB_KEY_Return:
+      case XKB_KEY_KP_Enter:
+        return activateFilter();
+      case XKB_KEY_Left:
+        return moveSelection(-1, 0);
+      case XKB_KEY_Right:
+        return moveSelection(1, 0);
+      case XKB_KEY_Up:
+        return moveSelection(0, -1);
+      case XKB_KEY_Down:
+        return moveSelection(0, 1);
+      default:
+        break;
+      }
+    }
+    switch (keysym) {
+    case XKB_KEY_BackSpace: {
+      std::string filter = m_filter;
+      ov::popFilterCharacter(filter);
+      setFilter(std::move(filter));
+      return true;
+    }
+    case XKB_KEY_Tab:
+      return cycleSelection(1);
+    case XKB_KEY_ISO_Left_Tab:
+      return cycleSelection(-1);
+    case XKB_KEY_Delete:
+    case XKB_KEY_KP_Delete:
+      if (Card* card = selectedCard()) {
+        card->view->requestClose();
+      }
+      return true;
+    default:
+      break;
+    }
+    if (m_filter.empty()) {
+      if (const int digit = ov::workspaceDigit(keysym); digit >= 0) {
+        Output* output = m_server->outputFromWlr(m_server->preferredOutput());
+        WorkspaceGroup* group = output != nullptr ? output->workspaceGroup() : nullptr;
+        if (group != nullptr && static_cast<size_t>(digit) < group->workspaceCount()) {
+          clearShortcutInput();
+          group->select(group->workspaceAt(static_cast<size_t>(digit)));
+        }
+        return true;
+      }
+    }
+    if (std::string text = ov::filterText(keysym, m_filter.empty()); !text.empty()) {
+      clearShortcutInput();
+      setFilter(m_filter + text);
       return true;
     }
     auto dispatch = [this](KeybindAction action) {

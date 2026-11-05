@@ -617,7 +617,8 @@ namespace andromeda {
       // panel) holds the keyboard: its Escape/arrows belong to it, not to the filmstrip.
       if (!handled && seat->keyboard_state.focused_surface == nullptr) {
         Overview* overview = m_server->overview();
-        const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
+        // Shift stays plain: it types capitals into the filter and turns Tab into a step back.
+        const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2 | WLR_MODIFIER_SHIFT);
         if (overview != nullptr && overview->interactive() && plain == 0) {
           for (int i = 0; i < nsyms && !handled; ++i) {
             handled = overview->handleFallbackKey(syms[i]);

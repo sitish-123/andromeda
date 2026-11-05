@@ -6,6 +6,7 @@ unit_tests = [
   ['qos-holds', ['unit/qos_holds.cpp'], []],
   ['overview-arrange', ['unit/overview_arrange.cpp'], []],
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
+  ['overview-interact', ['unit/overview_interact.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],

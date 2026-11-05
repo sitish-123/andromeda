@@ -395,6 +395,18 @@ namespace andromeda {
     void refreshShortcutMatches();
     void clearShortcutInput();
     void updateShortcutAssignments();
+    // Type-to-filter: `m_filter` dims the cards whose title and app id miss it and moves the selection onto a match.
+    [[nodiscard]] bool cardMatches(const Card& card) const;
+    // Live window cards in reading order, the active workspace on the pointer's output first; matches only.
+    [[nodiscard]] std::vector<Card*> selectableCards();
+    [[nodiscard]] Card* cardOf(const View* view);
+    // The window Enter, Delete and Tab act on: the live target while it matches the filter.
+    [[nodiscard]] Card* selectedCard();
+    void selectCard(Card& card);
+    void setFilter(std::string filter);
+    bool moveSelection(int dx, int dy);
+    bool cycleSelection(int step);
+    bool activateFilter();
 
     // `releaseVelocity` is the speed a gesture left behind, in overview progress per second, and is zero for every
     // other caller: it starts the zoom spring from the speed the fingers had instead of from rest.
@@ -454,6 +466,7 @@ namespace andromeda {
     bool m_gestureOpenedHere = false;
     bool m_shortcutsDirty = true;
     std::string m_shortcutInput;
+    std::string m_filter;
     std::vector<ShortcutAssignment> m_shortcutAssignments;
     size_t m_shortcutLabelCapacity = 0;
     // Output under the pointer, which is the output the live target resolves against.

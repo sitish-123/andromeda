@@ -72,6 +72,21 @@ Shortcut badges provide direct, unmodified key sequences for visible window card
 
 Set `shortcuts = false` to disable badges. A normal keybind takes precedence over a badge. `shortcut_keys` must contain at least two unique printable ASCII characters.
 
+#### Keys without a keybind
+
+| Key                 | Action                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| Arrows              | Select the neighboring card. While filtering, move to the nearest matching card.        |
+| Tab / Shift+Tab     | Select the next or previous card, in reading order.                                     |
+| Enter               | Open the selected window.                                                               |
+| 1–9                 | Show that workspace. A badge key wins when `shortcut_keys` uses digits (the default).   |
+| Delete              | Close the selected window.                                                              |
+| Typing              | Filter windows by title and app id. Cards that do not match fade.                       |
+| Backspace           | Remove the last character from the filter.                                              |
+| Escape              | Clear the filter, or close the overview when there is none.                             |
+
+While filtering, Enter opens the selected match. If no window matches and the Noctalia shell is running, Enter opens the launcher with the same text.
+
 ### Move windows
 
 Drag a window onto another workspace preview to move it. In a dynamic workspace list, dropping into a gap creates a workspace at that position. Static workspace inventories accept drops only onto existing previews.
