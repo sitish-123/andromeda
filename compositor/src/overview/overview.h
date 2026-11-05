@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <wayland-server-core.h>
 
@@ -288,6 +289,10 @@ namespace andromeda {
       ov::Style placedStyle = ov::Style::Spaces;
       double placedRow = 0;
       bool placed = false;
+      // What the placement is made of: the style, each workspace's arrangement and its windows. Only a change here (a
+      // window opening, closing or minimizing, a workspace added or removed, a style reload) reflows the overview;
+      // rows scrolling and windows moving under their own layout springs do not.
+      std::vector<uintptr_t> structure;
       wlr_scene_tree* tree = nullptr;
       wlr_scene_blur* backgroundBlur = nullptr;
       wlr_scene_rect* backgroundTint = nullptr;
@@ -427,6 +432,14 @@ namespace andromeda {
     double m_targetProgress = 0;
     double m_progressFrom = 0;
     AnimatedValue m_zoomAnim;
+    // Reflow: one shared spring from 0 to 1 carries every card and workspace card whose placed rect jumped in a
+    // structural change from where it was drawn to its new place. Keys are View and Workspace pointers, rects are
+    // layout coordinates before the open progress, so a card rebuilt or dropped on another output still glides.
+    AnimatedValue m_reflow{1.0};
+    std::unordered_map<const void*, ov::Rect> m_shownRects;
+    std::unordered_map<const void*, ov::Rect> m_reflowFrom;
+    void beginReflow();
+    ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     bool m_gestureOpenedHere = false;

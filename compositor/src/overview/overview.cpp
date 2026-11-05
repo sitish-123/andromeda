@@ -678,6 +678,25 @@ namespace andromeda {
     const ov::Style style = configuredStyle();
     const double row = state.rowScroll.current();
     ov::Input input = placementInput(state, false);
+    std::vector<uintptr_t> structure{static_cast<uintptr_t>(style), input.workspaces.size()};
+    for (const ov::Workspace& workspace : input.workspaces) {
+      structure.push_back(static_cast<uintptr_t>(workspace.arrangement));
+      structure.push_back(workspace.members.size());
+      for (const ov::Member& member : workspace.members) {
+        structure.push_back(reinterpret_cast<uintptr_t>(state.cards[member.id]->view));
+        structure.push_back(member.minimized ? 1U : 0U);
+      }
+    }
+    if (const WorkspaceGroup* group = state.output->workspaceGroup()) {
+      for (size_t index = 0; index < group->workspaceCount(); ++index) {
+        structure.push_back(reinterpret_cast<uintptr_t>(group->workspaceAt(index)));
+      }
+    }
+    const bool reflowed = state.placed && structure != state.structure;
+    state.structure = std::move(structure);
+    if (reflowed) {
+      beginReflow();
+    }
     if (!state.placed || style != state.placedStyle || row != state.placedRow || input != state.placedInput) {
       state.placement = ov::placeAt(style, input, row);
       state.placedInput = std::move(input);
@@ -695,6 +714,17 @@ namespace andromeda {
     const ov::Placement& placement = state.placement;
     const double p = m_progress;
     const ov::Rect output{0.0, 0.0, in.width, in.height};
+    const auto toLayout = [&outputBox](ov::Rect rect) {
+      rect.x += outputBox.x;
+      rect.y += outputBox.y;
+      return rect;
+    };
+    const auto toLocal = [&outputBox](ov::Rect rect) {
+      rect.x -= outputBox.x;
+      rect.y -= outputBox.y;
+      return rect;
+    };
+    const WorkspaceGroup* group = state.output->workspaceGroup();
 
     state.cardsHorizontal = style != ov::Style::Strip || in.horizontal;
     state.workspaceViews.assign(state.workspaceBackgrounds.size(), WorkspaceView{});
@@ -702,7 +732,10 @@ namespace andromeda {
       if (card.workspace >= state.workspaceViews.size()) {
         continue;
       }
-      const wlr_box box = layoutBox(ov::lerpRect(ov::cardDeskRect(style, in, card, row), card.rect, p), outputBox);
+      const Workspace* workspace = group != nullptr ? group->workspaceAt(card.workspace) : nullptr;
+      const ov::Rect placed =
+          workspace != nullptr ? toLocal(reflowRect(workspace, toLayout(card.rect), reflowed)) : card.rect;
+      const wlr_box box = layoutBox(ov::lerpRect(ov::cardDeskRect(style, in, card, row), placed, p), outputBox);
       state.workspaceViews[card.workspace] = {
           .box = box,
           .fit =
@@ -774,9 +807,13 @@ namespace andromeda {
       }
       const wlr_box& world = card.view->presentedBox();
       const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
-      const ov::Rect rect = ov::lerpRect(desk, place->rect, p);
+      const ov::Rect placed = toLocal(reflowRect(card.view, toLayout(place->rect), reflowed));
+      const ov::Rect rect = ov::lerpRect(desk, placed, p);
       if (&card != m_dragCard) {
         card.box = layoutBox(rect, outputBox);
+      } else {
+        // The pointer owns a dragged card: a drop reflows it from where it was let go.
+        m_shownRects[card.view] = {static_cast<double>(card.box.x), static_cast<double>(card.box.y), rect.w, rect.h};
       }
       card.scale = world.width > 0 ? rect.w / world.width : 1.0;
       card.opacity = static_cast<float>(ov::windowOpacity(*place, card.view->minimized(), p));
@@ -793,6 +830,53 @@ namespace andromeda {
       }
       layoutCard(card, liveTarget);
     }
+  }
+
+  void Overview::beginReflow() {
+    const auto& animation = config().animation;
+    if (!animation.enabled || !animation.overview.enabled || !m_active) {
+      m_reflowFrom.clear();
+      m_reflow.snap(1.0);
+      return;
+    }
+    // A reflow over one still running restarts from where everything is drawn, so nothing snaps back.
+    for (auto& [key, from] : m_reflowFrom) {
+      if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
+        from = shown->second;
+      }
+    }
+    m_reflow.snap(0.0);
+    const auto& curve = animation.overview.workspaceCurve;
+    if (curve.easing == Easing::Spring) {
+      m_reflow.settleSpring(1.0, curve.spring);
+    } else {
+      m_reflow.retarget(1.0, animation.overview.durationMs, curve);
+    }
+    scheduleFrames();
+  }
+
+  ov::Rect Overview::reflowRect(const void* key, const ov::Rect& target, bool began) {
+    if (began) {
+      // Only a rect that jumped glides; one following its window's own layout spring is already smooth.
+      if (const auto shown = m_shownRects.find(key); shown != m_shownRects.end()) {
+        const ov::Rect& last = shown->second;
+        const double moved = std::max(
+            {std::abs(last.x - target.x), std::abs(last.y - target.y), std::abs(last.w - target.w),
+             std::abs(last.h - target.h)}
+        );
+        if (moved > 0.5) {
+          m_reflowFrom[key] = last;
+        }
+      }
+    }
+    ov::Rect shown = target;
+    if (m_reflow.animating()) {
+      if (const auto from = m_reflowFrom.find(key); from != m_reflowFrom.end()) {
+        shown = ov::lerpRect(from->second, target, m_reflow.current());
+      }
+    }
+    m_shownRects[key] = shown;
+    return shown;
   }
 
   void Overview::applyPinnedOpacity(float alpha) const {
@@ -2053,7 +2137,14 @@ namespace andromeda {
       const double value = m_zoomAnim.current();
       m_progress = m_progressFrom + (m_targetProgress - m_progressFrom) * value;
     }
-    bool rowTicked = false;
+    bool rowTicked = m_reflow.tick(nowMsec);
+    if (rowTicked && m_reflow.animating() && m_reflow.curve().easing == Easing::Spring) {
+      static_cast<void>(m_reflow.finishSpringTail(motionPixelsPerUnit(true)));
+    }
+    if (!m_reflow.animating()) {
+      m_reflowFrom.clear();
+    }
+    active = active || m_reflow.animating();
     for (const auto& state : m_outputs) {
       const bool ticked = state->rowScroll.tick(nowMsec);
       if (ticked && state->rowScroll.animating() && state->rowScroll.curve().easing == Easing::Spring) {
@@ -2085,6 +2176,7 @@ namespace andromeda {
 
   bool Overview::hasActiveAnimations() const {
     return m_zoomAnim.animating()
+        || m_reflow.animating()
         || std::ranges::any_of(m_outputs, [](const auto& state) { return state->rowScroll.animating(); })
         || (m_dropHint != nullptr && m_dropHint->hasActiveAnimations());
   }
@@ -2141,6 +2233,9 @@ namespace andromeda {
 
   void Overview::teardown() {
     m_server->cursor()->resetWheelAccumulation();
+    m_reflow.snap(1.0);
+    m_shownRects.clear();
+    m_reflowFrom.clear();
     cancelNavigation();
     clearMiddlePress();
     hideDropHint();
