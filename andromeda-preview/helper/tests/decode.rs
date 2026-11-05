@@ -1,6 +1,6 @@
 use andromeda_preview_helper::proto::{
-    self, ERR_BINARY, ERR_RANGE, KIND_PDF, KIND_TEXT, Msg, OP_INFO, OP_INFO_REPLY, OP_PAGE, OP_RENDER, OP_TEXT,
-    OP_TEXT_REPLY,
+    self, ERR_BINARY, ERR_RANGE, KIND_PDF, KIND_TEXT, Msg, OP_FIND, OP_FIND_REPLY, OP_INFO, OP_INFO_REPLY, OP_PAGE,
+    OP_RENDER, OP_SELECT, OP_SELECT_REPLY, OP_TEXT, OP_TEXT_REPLY, SELECT_WORD,
 };
 use command_fds::{CommandFdExt, FdMapping};
 use rustix::fd::{AsFd, OwnedFd};
@@ -25,6 +25,11 @@ impl Helper {
 
     fn ask(&self, msg: Msg) -> (Msg, Option<OwnedFd>) {
         proto::send(self.sock.as_fd(), &msg, None).unwrap();
+        proto::recv(self.sock.as_fd()).unwrap().expect("helper closed the socket")
+    }
+
+    fn ask_with(&self, msg: Msg, payload: &[u8]) -> (Msg, Option<OwnedFd>) {
+        proto::send_with(self.sock.as_fd(), &msg, payload, &[]).unwrap();
         proto::recv(self.sock.as_fd()).unwrap().expect("helper closed the socket")
     }
 }
@@ -147,3 +152,57 @@ fn broken_pdf_makes_the_helper_exit() {
     let status = helper.child.wait().unwrap();
     assert!(!status.success());
 }
+
+/// One 300 x 100 pt page with "Hello Quick Look" on a baseline 50 pt from the top.
+fn text_pdf() -> tempfile::NamedTempFile {
+    let file = tempfile::Builder::new().suffix(".pdf").tempfile().unwrap();
+    let surface = cairo::PdfSurface::new(300.0, 100.0, file.path()).unwrap();
+    let cr = cairo::Context::new(&surface).unwrap();
+    cr.set_font_size(20.0);
+    cr.move_to(20.0, 50.0);
+    cr.show_text("Hello Quick Look").unwrap();
+    drop(cr);
+    surface.finish();
+    file
+}
+
+fn rects(bytes: &[u8], count: usize) -> Vec<[f32; 4]> {
+    bytes[..count * 16]
+        .as_chunks::<16>()
+        .0
+        .iter()
+        .map(|r| std::array::from_fn(|i| f32::from_le_bytes(r[i * 4..i * 4 + 4].try_into().unwrap())))
+        .collect()
+}
+
+#[test]
+fn find_returns_the_word_on_its_line_with_a_top_left_origin() {
+    let file = text_pdf();
+    let helper = Helper::start("pdf", file.path());
+    let (reply, fd) = helper.ask_with(Msg::new(OP_FIND, 0, 0, 0, 0), b"quick");
+    assert_eq!((reply.op, reply.a, reply.b), (OP_FIND_REPLY, 0, 1));
+    let [x0, y0, x1, y1] = rects(&read_fd(fd.unwrap()), 1)[0];
+    // The word sits right of "Hello " and its box spans the baseline at y = 50.
+    assert!(x0 > 60.0 && x1 > x0 && x1 < 200.0, "x {x0}..{x1}");
+    assert!(y0 > 25.0 && y0 < 50.0 && y1 > 45.0 && y1 < 60.0, "y {y0}..{y1}");
+
+    let (none, fd) = helper.ask_with(Msg::new(OP_FIND, 0, 0, 0, 0), b"absent");
+    assert_eq!((none.op, none.b), (OP_FIND_REPLY, 0));
+    assert!(fd.is_none());
+}
+
+#[test]
+fn select_over_the_line_returns_its_text_and_rects() {
+    let file = text_pdf();
+    let helper = Helper::start("pdf", file.path());
+    let area: Vec<u8> = [0.0f32, 0.0, 300.0, 100.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let (reply, fd) = helper.ask_with(Msg::new(OP_SELECT, 0, SELECT_WORD, 0, 0), &area);
+    assert_eq!(reply.op, OP_SELECT_REPLY);
+    let bytes = read_fd(fd.unwrap());
+    let count = reply.b as usize;
+    assert!(count >= 1);
+    let text = std::str::from_utf8(&bytes[count * 16..][..reply.a as usize]).unwrap();
+    assert_eq!(text.trim(), "Hello Quick Look");
+    assert!(rects(&bytes, count).iter().all(|[x0, y0, x1, y1]| x1 > x0 && y1 > y0 && *y0 < 50.0));
+}
+

@@ -16,6 +16,14 @@ pub const OP_TEXT: u32 = 3;
 pub const OP_FRAME: u32 = 4;
 /// a = frame id: the window no longer shows that frame, so its buffer can be reused.
 pub const OP_RELEASE: u32 = 5;
+/// a = page index; payload = the UTF-8 query (case and diacritics ignored, may span lines). Reply `OP_FIND_REPLY`.
+pub const OP_FIND: u32 = 6;
+/// a = page index, b = `SELECT_*` unit; payload = 4 f32 (x0, y0, x1, y1) in points, origin top left.
+/// Reply `OP_SELECT_REPLY`.
+pub const OP_SELECT: u32 = 7;
+pub const SELECT_GLYPH: u32 = 0;
+pub const SELECT_WORD: u32 = 1;
+pub const SELECT_LINE: u32 = 2;
 
 /// a = kind (KIND_*), b = page count, c/d = first page size in 1/100 pt.
 pub const OP_INFO_REPLY: u32 = 0x81;
@@ -28,6 +36,10 @@ pub const OP_TEXT_REPLY: u32 = 0x83;
 pub const OP_FRAME_REPLY: u32 = 0x84;
 /// End of stream.
 pub const OP_END: u32 = 0x85;
+/// a = page, b = hit count; fd (when b > 0) = b rects of 4 f32 (x0, y0, x1, y1) in points, origin top left.
+pub const OP_FIND_REPLY: u32 = 0x86;
+/// a = text length in bytes, b = rect count; fd (when a or b > 0) = b rects of 4 f32 in points (origin top left), then the UTF-8 text.
+pub const OP_SELECT_REPLY: u32 = 0x87;
 /// a = ERR_*.
 pub const OP_ERROR: u32 = 0xff;
 
@@ -114,12 +126,27 @@ pub fn send_with(sock: BorrowedFd<'_>, msg: &Msg, payload: &[u8], fds: &[Borrowe
     Ok(())
 }
 
-/// Receives one message; `None` when the peer closed the socket.
+/// Receives one message without a payload; `None` when the peer closed the socket.
 ///
 /// # Errors
 /// The socket error, or `InvalidData` for a message of the wrong size.
 pub fn recv(sock: BorrowedFd<'_>) -> std::io::Result<Option<(Msg, Option<OwnedFd>)>> {
-    let mut bytes = [0u8; SIZE];
+    match recv_with(sock)? {
+        Some((msg, payload, fd)) if payload.is_empty() => Ok(Some((msg, fd))),
+        Some(_) => Err(std::io::Error::from(std::io::ErrorKind::InvalidData)),
+        None => Ok(None),
+    }
+}
+
+/// A message, its payload and its fd.
+pub type Received = (Msg, Vec<u8>, Option<OwnedFd>);
+
+/// Receives one message with up to `MAX_PAYLOAD` bytes after the header; `None` when the peer closed the socket.
+///
+/// # Errors
+/// The socket error, or `InvalidData` for a short or truncated message.
+pub fn recv_with(sock: BorrowedFd<'_>) -> std::io::Result<Option<Received>> {
+    let mut bytes = [0u8; SIZE + MAX_PAYLOAD];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
     let got = rustix::net::recvmsg(
@@ -139,8 +166,9 @@ pub fn recv(sock: BorrowedFd<'_>) -> std::io::Result<Option<(Msg, Option<OwnedFd
     if got.bytes == 0 {
         return Ok(None);
     }
-    if got.bytes != SIZE || got.flags.intersects(rustix::net::ReturnFlags::TRUNC | rustix::net::ReturnFlags::CTRUNC) {
+    if got.bytes < SIZE || got.flags.intersects(rustix::net::ReturnFlags::TRUNC | rustix::net::ReturnFlags::CTRUNC) {
         return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
     }
-    Ok(Some((Msg::decode(&bytes), fd)))
+    let header: &[u8; SIZE] = bytes[..SIZE].try_into().map_err(|_| std::io::ErrorKind::InvalidData)?;
+    Ok(Some((Msg::decode(header), bytes[SIZE..got.bytes].to_vec(), fd)))
 }

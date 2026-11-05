@@ -6,7 +6,9 @@ pub mod media;
 pub mod proto;
 pub mod sandbox;
 
-use proto::{ERR_BAD_REQUEST, KIND_TEXT, Msg, OP_FRAME, OP_INFO, OP_INFO_REPLY, OP_RELEASE, OP_RENDER, OP_TEXT};
+use proto::{
+    ERR_BAD_REQUEST, KIND_TEXT, Msg, OP_FIND, OP_FRAME, OP_INFO, OP_INFO_REPLY, OP_RELEASE, OP_RENDER, OP_SELECT, OP_TEXT,
+};
 use rustix::fd::{AsFd, BorrowedFd};
 use std::fs::File;
 
@@ -21,7 +23,7 @@ pub enum Source {
 /// # Errors
 /// A socket error.
 pub fn serve(sock: BorrowedFd<'_>, mut source: Source) -> std::io::Result<()> {
-    while let Some((req, _)) = proto::recv(sock)? {
+    while let Some((req, payload, _)) = proto::recv_with(sock)? {
         if let Source::Media(m) = &mut source {
             match req.op {
                 // Releases get no reply: the window sends them as it drops frames.
@@ -43,6 +45,8 @@ pub fn serve(sock: BorrowedFd<'_>, mut source: Source) -> std::io::Result<()> {
             (Source::Text(file), OP_TEXT) => decode::text_reply(file).map(|(m, fd)| (m, Some(fd))),
             (Source::Pdf(pdf), OP_INFO) => Ok((pdf.info(), None)),
             (Source::Pdf(pdf), OP_RENDER) => pdf.render(req.a, req.b, req.c).map(|(m, fd)| (m, Some(fd))),
+            (Source::Pdf(pdf), OP_FIND) => pdf.find(req.a, &payload),
+            (Source::Pdf(pdf), OP_SELECT) => pdf.select(req.a, req.b, &payload),
             _ => Err(ERR_BAD_REQUEST),
         };
         match reply {
