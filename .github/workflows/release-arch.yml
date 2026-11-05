@@ -24,22 +24,39 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Tools
-        run: pacman -Syu --noconfirm --needed git
+        run: pacman -Syu --noconfirm --needed git ccache zstd
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || env.TAG }}
           # pkg/andromeda-link.install links into the Link submodule.
           submodules: recursive
+      # makepkg's ccache option compiles through ccache; LTO objects cache too, only the final link reruns.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-release-arch-${{ github.run_id }}
+          restore-keys: ccache-release-arch-
       - name: Build user
         run: |
           useradd -m builder
           echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
           git config --system --add safe.directory '*'
+          mkdir -p .ccache
           chown -R builder: "$GITHUB_WORKSPACE"
+          sed -i 's/^BUILDENV=(\(.*\)!ccache/BUILDENV=(\1ccache/' /etc/makepkg.conf
+      # Under fakeroot cargo resolves its home from the faked root uid; meson install reruns the stale cargo targets.
       - name: Packages
         working-directory: pkg
-        run: sudo -u builder env ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE" makepkg --syncdeps --noconfirm --force
+        run: >
+          sudo -u builder env HOME=/home/builder CARGO_HOME=/home/builder/.cargo ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE"
+          CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+          makepkg --syncdeps --noconfirm --force
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .ccache
+          key: ccache-release-arch-${{ github.run_id }}
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
