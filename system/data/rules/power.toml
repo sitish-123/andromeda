@@ -26,3 +26,13 @@ when = "power.profile == 'power-saver' and not power.profile_by_rule"
 for = "5s"
 clear = "power.profile != 'power-saver'"
 holds = [{ knob = "network.wifi_power_save", value = true }, { knob = "display.refresh_cap_hz", value = 60 }]
+
+# Power saver on battery: apps hidden for 3 min are frozen until the user reaches for them (docs/qos.md §3, T3).
+# The compositor's general.freeze_hidden_apps setting turns this off.
+[[rule]]
+id = "power.saver_freeze"
+scope = "session"
+priority = "automatic"
+when = "power.on_battery and power.profile == 'power-saver'"
+clear = "not power.on_battery or power.profile != 'power-saver'"
+holds = [{ knob = "qos.freeze_hidden", value = true }]

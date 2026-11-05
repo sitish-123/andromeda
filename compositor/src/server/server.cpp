@@ -1588,6 +1588,7 @@ namespace andromeda {
           }
         }
         snapshot.freezeBackgroundApps = config().general.freezeBackgroundApps;
+        snapshot.freezeHiddenApps = config().general.freezeHiddenApps;
         snapshot.optimizeBackgroundApps = config().general.optimizeBackgroundApps;
         return snapshot;
       });

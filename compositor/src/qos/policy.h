@@ -20,6 +20,7 @@ namespace andromeda::qos {
     bool idleInhibitor = false;
     bool screenCast = false;
     bool thawIntent = false; // the user starts to reach the app (switcher, dock hover, workspace swipe)
+    bool freezeHidden = false; // power saver on battery with general.freeze_hidden_apps: T3 freezes every app
     Rule rule = Rule::Normal;
   };
 
@@ -31,7 +32,7 @@ namespace andromeda::qos {
   };
 
   inline constexpr std::uint64_t kHiddenDelayMs = 5'000;
-  inline constexpr std::uint64_t kHiddenLongDelayMs = 10ULL * 60 * 1000; // in T2 before T3
+  inline constexpr std::uint64_t kHiddenLongDelayMs = 3ULL * 60 * 1000; // in T2 before T3
 
   struct Delays {
     std::uint64_t hiddenMs = kHiddenDelayMs;

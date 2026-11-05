@@ -226,6 +226,7 @@ namespace settings {
       toggle(Windows, "focus", "general.focus_on_activate", "focus activation request urgent");
       toggle(Power, "background-apps", "general.optimize_background_apps", "optimize background apps priority efficiency cores battery");
       toggle(Power, "background-apps", "general.freeze_background_apps", "freeze background services battery energy");
+      toggle(Power, "background-apps", "general.freeze_hidden_apps", "freeze hidden apps power saver battery energy");
       toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");

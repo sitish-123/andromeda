@@ -42,6 +42,7 @@ namespace andromeda::qos {
     std::vector<pid_t> idleInhibitorPids;
     std::vector<Activity> activity; // dsk_shell_v1 app_activity
     bool freezeBackgroundApps = false;
+    bool freezeHiddenApps = true;
     bool optimizeBackgroundApps = true;
   };
 

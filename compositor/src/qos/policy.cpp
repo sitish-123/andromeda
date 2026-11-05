@@ -29,7 +29,7 @@ namespace andromeda::qos {
     }
     return {
         .tier = Tier::HiddenLong,
-        .frozen = inputs.rule == Rule::FreezeWhenHidden && !inputs.thawIntent,
+        .frozen = (inputs.rule == Rule::FreezeWhenHidden || inputs.freezeHidden) && !inputs.thawIntent,
     };
   }
 

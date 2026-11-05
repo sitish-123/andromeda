@@ -125,6 +125,7 @@ namespace andromeda {
         SD_BUS_METHOD("AppRules", "", "a(ss)", onAppRules, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("SetHiddenFpsCap", "u", "", onSetHiddenFpsCap, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("SetRefreshCap", "u", "", onSetRefreshCap, SD_BUS_VTABLE_UNPRIVILEGED),
+        SD_BUS_METHOD("SetFreezeHidden", "b", "", onSetFreezeHidden, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("Release", "s", "", onRelease, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_METHOD("List", "", "a(sbbsbdt)", onList, SD_BUS_VTABLE_UNPRIVILEGED),
         SD_BUS_SIGNAL("AppStats", "a(sbbsbdt)", 0),
@@ -419,6 +420,19 @@ namespace andromeda {
     return sd_bus_reply_method_return(message, "");
   }
 
+  int AppsBus::onSetFreezeHidden(sd_bus_message* message, void* data, sd_bus_error* /*error*/) {
+    auto* self = static_cast<AppsBus*>(data);
+    int on = 0;
+    if (const int r = sd_bus_message_read(message, "b", &on); r < 0) {
+      return r;
+    }
+    qos::Registry& registry = qos::registry();
+    registry.freezeHidden = on != 0;
+    registry.freezeHiddenOwner = on != 0 ? sd_bus_message_get_sender(message) : "";
+    self->changed();
+    return sd_bus_reply_method_return(message, "");
+  }
+
   int AppsBus::onRelease(sd_bus_message* message, void* data, sd_bus_error* error) {
     auto* self = static_cast<AppsBus*>(data);
     const char* id = nullptr;
@@ -464,6 +478,11 @@ namespace andromeda {
       if (self->m_refreshCapChanged) {
         self->m_refreshCapChanged();
       }
+    }
+    if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().freezeHiddenOwner == name) {
+      qos::registry().freezeHidden = false;
+      qos::registry().freezeHiddenOwner.clear();
+      self->changed();
     }
     if (name[0] == ':' && newOwner[0] == '\0' && qos::registry().fpsCapOwner == name) {
       qos::registry().hiddenFpsCap = 0;

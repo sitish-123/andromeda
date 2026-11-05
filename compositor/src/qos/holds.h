@@ -72,6 +72,10 @@ namespace andromeda::qos {
     // it; 0 = no cap. Ends when `refreshCapOwner` leaves the bus.
     unsigned refreshCap = 0;
     std::string refreshCapOwner;
+    // qos.freeze_hidden from SetFreezeHidden (power saver on battery): T3 freezes every non-exempt app while the
+    // general.freeze_hidden_apps setting is on. Ends when `freezeHiddenOwner` leaves the bus.
+    bool freezeHidden = false;
+    std::string freezeHiddenOwner;
     std::function<void()> changed;
   };
   Registry& registry();

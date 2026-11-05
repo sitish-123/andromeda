@@ -61,18 +61,24 @@ ANDROMEDA_TEST(exemptScopesNeverDropBelowVisible) {
   }
 }
 
-ANDROMEDA_TEST(onlyFreezeWhenHiddenFreezesAndIntentThaws) {
+ANDROMEDA_TEST(hiddenLongFreezesOnlyWithRuleOrPowerSaverAndIntentThaws) {
   ScopePolicy normal;
   normal.update(kHidden, true, kStart);
   CHECK(!normal.update(kHidden, true, kLongAt).frozen);
 
-  ScopePolicy freezing;
-  const AppInputs rule{.rule = Rule::FreezeWhenHidden};
-  freezing.update(rule, true, kStart);
-  CHECK(!freezing.update(rule, true, kStart + kHiddenDelayMs).frozen);
-  CHECK(freezing.update(rule, true, kLongAt).frozen);
-  const auto reached = freezing.update({.thawIntent = true, .rule = Rule::FreezeWhenHidden}, true, kLongAt + 1);
-  CHECK(!reached.frozen);
+  for (const AppInputs inputs : {AppInputs{.rule = Rule::FreezeWhenHidden}, AppInputs{.freezeHidden = true}}) {
+    ScopePolicy plugged;
+    plugged.update(inputs, false, kStart);
+    CHECK(!plugged.update(inputs, false, kLongAt).frozen);
+
+    ScopePolicy freezing;
+    freezing.update(inputs, true, kStart);
+    CHECK(!freezing.update(inputs, true, kStart + kHiddenDelayMs).frozen);
+    CHECK(freezing.update(inputs, true, kLongAt).frozen);
+    AppInputs reached = inputs;
+    reached.thawIntent = true;
+    CHECK(!freezing.update(reached, true, kLongAt + 1).frozen);
+  }
 }
 
 ANDROMEDA_TEST(promotionIsImmediateAndRestartsTheHiddenClock) {

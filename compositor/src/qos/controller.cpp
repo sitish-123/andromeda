@@ -302,6 +302,7 @@ namespace andromeda::qos {
       AppInputs inputs = app.inputs;
       inputs.focused = unit == m_focused && inputs.visible;
       inputs.thawIntent = m_thawHolds > 0;
+      inputs.freezeHidden = snapshot.freezeHiddenApps && registry().freezeHidden;
       inputs.rule = scope.rule;
       // A background service: an app unit with no mapped window.
       if (app.windows == 0 && inputs.rule == Rule::Normal && snapshot.freezeBackgroundApps) {

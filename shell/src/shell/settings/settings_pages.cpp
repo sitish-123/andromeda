@@ -126,7 +126,7 @@ namespace settings {
         "andromeda.workspaces.back_and_forth", "hot_corners.enabled", "shell.window_switcher.style",
         "andromeda.overview.zoom",
         "shell.session.actions", "idle.behavior", "andromeda.general.optimize_background_apps",
-        "andromeda.general.freeze_background_apps",
+        "andromeda.general.freeze_background_apps", "andromeda.general.freeze_hidden_apps",
         "lockscreen.enabled", "lockscreen.lock_before_suspend", "lockscreen.grace_period_seconds",
         "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",
         "weather.enabled",

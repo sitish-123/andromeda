@@ -382,6 +382,12 @@ impl Session {
                     log::warn!("session: Wi-Fi power save: {e:#}");
                 }
             }
+            if knob == "qos.freeze_hidden" {
+                let on = value == Some(KnobValue::Bool(true));
+                if let Err(e) = session.call_method(Some(COMPOSITOR), APPS_PATH, Some(APPS), "SetFreezeHidden", &(on,)).await {
+                    log::warn!("session: {knob}: {e}");
+                }
+            }
             let method = match knob {
                 "display.fps_cap_hidden" => Some("SetHiddenFpsCap"),
                 "display.refresh_cap_hz" => Some("SetRefreshCap"),
@@ -609,6 +615,7 @@ fn load_rules() -> (Engine, HashMap<String, Spec>, Vec<(String, String)>) {
         Knob::new("display.brightness_step", Merge::Min),
         Knob::new("display.fps_cap_hidden", Merge::Min),
         Knob::new("display.refresh_cap_hz", Merge::Min),
+        Knob::new("qos.freeze_hidden", Merge::AnyTrue),
         Knob::new("notifications.dnd", Merge::AnyTrue),
         Knob::new("battery.charge_limit", Merge::AnyTrue),
     ];

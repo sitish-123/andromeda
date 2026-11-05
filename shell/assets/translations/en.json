@@ -5088,6 +5088,10 @@
           "label": "Freeze Idle Background Services",
           "description": "On battery, pause apps with no open window after they stay hidden for a long time"
         },
+        "general-freeze-hidden-apps": {
+          "label": "Freeze Hidden Apps in Power Saver",
+          "description": "On battery in Power Saver, pause apps hidden for 3 minutes; they resume when you reach for them"
+        },
         "hot-corners-top-left-enabled": {
           "label": "Top Left Corner",
           "description": "Run an action when the pointer rests in the top left corner"
