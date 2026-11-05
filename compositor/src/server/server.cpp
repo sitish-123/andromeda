@@ -898,7 +898,11 @@ namespace andromeda {
     m_tabletManager = wlr_tablet_v2_create(m_display);
 
     m_idleNotifier = wlr_idle_notifier_v1_create(m_display);
-    m_screenActivity = std::make_unique<ScreenActivityRecorder>(wl_display_get_event_loop(m_display));
+    // Nested and headless (test) compositors keep their screen time in memory: they would overwrite the session's.
+    const char* backends = std::getenv("WLR_BACKENDS");
+    const bool sessionCompositor = !m_nested && (backends == nullptr || std::string_view(backends).contains("drm"));
+    m_screenActivity =
+        std::make_unique<ScreenActivityRecorder>(wl_display_get_event_loop(m_display), sessionCompositor);
     m_idleInhibitManager = wlr_idle_inhibit_v1_create(m_display);
     m_newIdleInhibitor.notify = onNewIdleInhibitor;
     wl_signal_add(&m_idleInhibitManager->events.new_inhibitor, &m_newIdleInhibitor);

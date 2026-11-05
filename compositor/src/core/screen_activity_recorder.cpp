@@ -77,9 +77,12 @@ namespace andromeda {
 
   } // namespace
 
-  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop) : m_packageEnergy(loop) {
-    m_log.parse(readFile(screenActivityPath()));
-    m_energy.parse(readFile(appEnergyPath()));
+  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop, bool persist)
+      : m_packageEnergy(loop), m_persist(persist) {
+    if (m_persist) {
+      m_log.parse(readFile(screenActivityPath()));
+      m_energy.parse(readFile(appEnergyPath()));
+    }
     const std::int64_t now = unixNow();
     m_lastInput = now;
     m_sleptSeconds = sleptSeconds();
@@ -188,7 +191,7 @@ namespace andromeda {
 
   void ScreenActivityRecorder::write(bool force) {
     const std::int64_t now = unixNow();
-    if (!force && now - m_writtenAt < kWriteEverySeconds) {
+    if (!m_persist || (!force && now - m_writtenAt < kWriteEverySeconds)) {
       return;
     }
     m_writtenAt = now;

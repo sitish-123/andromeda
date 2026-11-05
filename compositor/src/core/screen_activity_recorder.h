@@ -17,7 +17,8 @@ namespace andromeda {
   // Each write also books the app units' and the machine's CPU time, and the CPU package energy, to appEnergyPath().
   class ScreenActivityRecorder {
   public:
-    explicit ScreenActivityRecorder(wl_event_loop* loop);
+    // `persist` = the session compositor: only it reads and writes the user's screen-time and app-energy files.
+    ScreenActivityRecorder(wl_event_loop* loop, bool persist);
     ~ScreenActivityRecorder();
 
     ScreenActivityRecorder(const ScreenActivityRecorder&) = delete;
@@ -45,6 +46,7 @@ namespace andromeda {
     wl_event_source* m_timer = nullptr;
     std::int64_t m_lastInput = 0;
     std::int64_t m_writtenAt = 0;
+    bool m_persist = false;
     std::int64_t m_sleptSeconds = 0; // BOOTTIME - MONOTONIC at the last check
     bool m_idle = false;
     bool m_screenOn = true;
