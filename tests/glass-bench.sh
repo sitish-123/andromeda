@@ -154,6 +154,10 @@ run_mode() {
     for _ in $(seq 20); do msg panel-open control-center quick; sleep 0.25; msg panel-close; sleep 0.25; done
     for _ in $(seq 10); do msg panel-open launcher; sleep 0.25; msg panel-close; sleep 0.25; done
   }
+  # The laptop compare's open-close row: a terminal opens for 1.5 s, then 1.5 s with no window.
+  s_window_open_close() {
+    for _ in $(seq 4); do XDG_RUNTIME_DIR="$R" WAYLAND_DISPLAY=wayland-0 foot -e sleep 1.5 > /dev/null 2>&1; sleep 1.5; done
+  }
   s_launcher_typing() {
     msg panel-open launcher; sleep 0.8
     for _ in $(seq 6); do XDG_RUNTIME_DIR="$R" WAYLAND_DISPLAY=wayland-0 wtype "s"; sleep 0.4
@@ -169,6 +173,7 @@ run_mode() {
   scenario idle s_idle
   scenario cc_over_motion s_cc_over_motion
   scenario open_close s_open_close
+  scenario window_open_close s_window_open_close
   scenario launcher_typing s_launcher_typing
   scenario worst s_worst
   sleep 1
@@ -190,7 +195,7 @@ done
 # Report: per scenario and mode. Budget: 25 % of a 60 Hz frame on the target GPU, scaled to this GPU.
 budget=$(awk -v s="$BUDGET_SCALE" 'BEGIN {printf "%.3f", 16.667 * 0.25 / s}')
 printf '%-16s %-8s %7s %8s %8s %8s %7s %6s %8s\n' scenario mode frames p50ms p99ms maxms watts cpu% rssMB
-for name in idle cc_over_motion open_close launcher_typing worst; do
+for name in idle cc_over_motion open_close window_open_close launcher_typing worst; do
   for mode in "${MODES[@]}"; do
     line=$(awk -v n="$name" '$1 == n' "$OUT/$mode/scenarios.txt")
     read -r _ t0 t1 _ watts cpu rss <<< "$line"
