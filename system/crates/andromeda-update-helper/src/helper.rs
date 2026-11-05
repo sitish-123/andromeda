@@ -35,6 +35,44 @@ pub struct Helper {
 )]
 trait Login {
     fn inhibit(&self, what: &str, who: &str, why: &str, mode: &str) -> zbus::Result<zbus::OwnedFd>;
+    fn list_sessions(&self) -> zbus::Result<Vec<(String, u32, String, String, zbus::OwnedObjectPath)>>;
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+const TONIGHT_MAX_AGE: i64 = 24 * 3600;
+
+#[zbus::proxy(interface = "org.freedesktop.login1.Session", default_service = "org.freedesktop.login1")]
+trait Session {
+    #[zbus(property)]
+    fn locked_hint(&self) -> zbus::Result<bool>;
+    #[zbus(property, name = "Type")]
+    fn kind(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn class(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn state(&self) -> zbus::Result<String>;
+}
+
+/// True when every open graphical user session is locked (the greeter, closing sessions and none at all count as
+/// locked: nobody's work is open there).
+async fn all_sessions_locked(conn: &Connection) -> bool {
+    let Ok(login) = LoginProxy::new(conn).await else { return false };
+    let Ok(sessions) = login.list_sessions().await else { return false };
+    for (_, _, _, _, path) in sessions {
+        let Ok(session) = SessionProxy::builder(conn).path(path).build().await else { return false };
+        let graphical = matches!(session.kind().await.as_deref(), Ok("wayland" | "x11"));
+        let user = session.class().await.is_ok_and(|c| c == "user");
+        let closing = session.state().await.is_ok_and(|st| st == "closing");
+        if graphical && user && !closing && !session.locked_hint().await.unwrap_or(false) {
+            return false;
+        }
+    }
+    true
 }
 
 async fn authorize(conn: &Connection, header: &Header<'_>, action: &str) -> zbus::fdo::Result<()> {
@@ -47,51 +85,8 @@ async fn authorize(conn: &Connection, header: &Header<'_>, action: &str) -> zbus
 }
 
 impl Helper {
-    fn touch(&self) {
-        self.last_call.store(self.started.elapsed().as_secs(), Ordering::Relaxed);
-    }
-
-    fn token_file(&self) -> PathBuf {
-        self.state_dir.join("news-read")
-    }
-
-    fn read_token(&self) -> i64 {
-        std::fs::read_to_string(self.token_file()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0)
-    }
-
-    /// Unread news blocks an upgrade; so does a feed that cannot be read.
-    async fn news_gate(&self) -> zbus::fdo::Result<()> {
-        let items = tokio::task::spawn_blocking(news::fetch)
-            .await
-            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
-            .map_err(|e| zbus::fdo::Error::Failed(format!("Arch news could not be read: {e:#}")))?;
-        let unread = news::unread(&items, self.read_token());
-        if let Some(item) = unread.first() {
-            return Err(zbus::fdo::Error::Failed(format!("unread Arch news: {}", item.title)));
-        }
-        Ok(())
-    }
-}
-
-#[interface(name = "org.andromeda.UpdateHelper1")]
-impl Helper {
-    #[zbus(property)]
-    fn running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
-    }
-
-    /// Starts a full system upgrade (`dry_run`: list what it would do, from the current databases, change nothing).
-    /// Returns at once; `Progress` signals follow, then one `Finished`. Refused while unread Arch news exists.
-    async fn upgrade(
-        &self,
-        dry_run: bool,
-        #[zbus(header)] header: Header<'_>,
-        #[zbus(connection)] conn: &Connection,
-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
-    ) -> zbus::fdo::Result<()> {
-        self.touch();
-        authorize(conn, &header, if dry_run { "org.andromeda.update.preview" } else { "org.andromeda.update.upgrade" })
-            .await?;
+    /// After authorization: the news gate, the inhibitor, then the transaction on its own thread.
+    async fn start(&self, dry_run: bool, conn: &Connection, emitter: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
         if !dry_run {
             self.news_gate().await?;
         }
@@ -155,6 +150,125 @@ impl Helper {
             let _ = this.running_changed(&emitter).await;
             let _ = Self::finished(&emitter, ok, &message, targets, questions).await;
         });
+        Ok(())
+    }
+
+    fn tonight_file(&self) -> PathBuf {
+        self.state_dir.join("tonight")
+    }
+
+    /// When the user scheduled tonight's run (unix seconds), if they did.
+    fn tonight_token(&self) -> Option<i64> {
+        std::fs::read_to_string(self.tonight_file()).ok().and_then(|t| t.trim().parse().ok())
+    }
+
+    fn touch(&self) {
+        self.last_call.store(self.started.elapsed().as_secs(), Ordering::Relaxed);
+    }
+
+    fn token_file(&self) -> PathBuf {
+        self.state_dir.join("news-read")
+    }
+
+    fn read_token(&self) -> i64 {
+        std::fs::read_to_string(self.token_file()).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0)
+    }
+
+    /// Unread news blocks an upgrade; so does a feed that cannot be read.
+    async fn news_gate(&self) -> zbus::fdo::Result<()> {
+        let items = tokio::task::spawn_blocking(news::fetch)
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+            .map_err(|e| zbus::fdo::Error::Failed(format!("Arch news could not be read: {e:#}")))?;
+        let unread = news::unread(&items, self.read_token());
+        if let Some(item) = unread.first() {
+            return Err(zbus::fdo::Error::Failed(format!("unread Arch news: {}", item.title)));
+        }
+        Ok(())
+    }
+}
+
+#[interface(name = "org.andromeda.UpdateHelper1")]
+impl Helper {
+    #[zbus(property)]
+    fn running(&self) -> bool {
+        self.running.load(Ordering::Relaxed)
+    }
+
+    /// Starts a full system upgrade (`dry_run`: list what it would do, from the current databases, change nothing).
+    /// Returns at once; `Progress` signals follow, then one `Finished`. Refused while unread Arch news exists.
+    async fn upgrade(
+        &self,
+        dry_run: bool,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.touch();
+        authorize(conn, &header, if dry_run { "org.andromeda.update.preview" } else { "org.andromeda.update.upgrade" })
+            .await?;
+        self.start(dry_run, conn, emitter).await
+    }
+
+    /// The user authenticates now for tonight's 02:00 run (`andromeda-update-tonight.timer`); `false` cancels.
+    async fn schedule_tonight(
+        &self,
+        enable: bool,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.touch();
+        // Cancelling someone's scheduled update needs the same right as scheduling it.
+        authorize(conn, &header, "org.andromeda.update.upgrade").await?;
+        if enable {
+            std::fs::create_dir_all(&self.state_dir).map_err(|e| zbus::fdo::Error::IOError(e.to_string()))?;
+            std::fs::write(self.tonight_file(), now_secs().to_string())
+                .map_err(|e| zbus::fdo::Error::IOError(e.to_string()))?;
+        } else {
+            let _ = std::fs::remove_file(self.tonight_file());
+        }
+        let _ = self.tonight_changed(&emitter).await;
+        Ok(())
+    }
+
+    #[zbus(property)]
+    fn tonight(&self) -> bool {
+        self.tonight_token().is_some_and(|t| now_secs() - t <= TONIGHT_MAX_AGE)
+    }
+
+    /// Called by andromeda-update-tonight.service (root, on AC). Consumes the token; runs only while every graphical
+    /// session is locked, so nobody's open work is interrupted.
+    async fn run_tonight(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.touch();
+        let sender = header.sender().ok_or_else(|| zbus::fdo::Error::AccessDenied("no sender".into()))?;
+        let uid = zbus::fdo::DBusProxy::new(conn).await?.get_connection_unix_user(sender.clone().into()).await?;
+        if uid != 0 {
+            return Err(zbus::fdo::Error::AccessDenied("RunTonight is for the timer".into()));
+        }
+        let Some(scheduled) = self.tonight_token() else { return Ok(()) };
+        let _ = std::fs::remove_file(self.tonight_file());
+        let _ = self.tonight_changed(&emitter).await;
+        // A token older than a day was for a night that passed (machine off or on battery then).
+        if now_secs() - scheduled > TONIGHT_MAX_AGE {
+            return Ok(());
+        }
+        // The token is gone now: every refusal is reported, or the page would only see "Tonight" switch off.
+        let refused = if all_sessions_locked(conn).await {
+            self.start(false, conn, emitter.clone()).await.err().map(|e| e.to_string())
+        } else {
+            Some("a session was unlocked at 02:00".to_owned())
+        };
+        if let Some(reason) = refused {
+            log::info!("tonight: not updating: {reason}");
+            let _ = Self::finished(&emitter, false, &format!("tonight's update did not run: {reason}"), vec![], vec![])
+                .await;
+        }
         Ok(())
     }
 

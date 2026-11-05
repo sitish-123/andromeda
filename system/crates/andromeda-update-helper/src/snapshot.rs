@@ -38,7 +38,7 @@ trait Snapper {
 pub struct Pre(u32);
 
 /// snap-pac snapshots the `root` config unless /etc/snap-pac.ini says `snapshot = no` in its `[root]` section, or
-/// SNAP_PAC_SKIP is set (snap-pac reads it from the environment of the pacman run, which here is ours).
+/// `SNAP_PAC_SKIP` is set (snap-pac reads it from the environment of the pacman run, which here is ours).
 fn snap_pac_takes_root() -> bool {
     if std::env::var_os("SNAP_PAC_SKIP").is_some() {
         return false;

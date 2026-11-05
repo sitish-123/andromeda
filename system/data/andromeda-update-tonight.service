@@ -1,0 +1,8 @@
+[Unit]
+Description=Andromeda scheduled system update
+ConditionACPower=true
+ConditionPathExists=/var/lib/andromeda-update/tonight
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/busctl --timeout=60 call org.andromeda.UpdateHelper1 /org/andromeda/UpdateHelper1 org.andromeda.UpdateHelper1 RunTonight

@@ -92,6 +92,12 @@ package_andromeda-system-git() {
     "$pkgdir/usr/share/libalpm/hooks/andromeda-migrations.hook"
   install -Dm644 desktop/system/data/andromeda-update-helper.service \
     "$pkgdir/usr/lib/systemd/system/andromeda-update-helper.service"
+  install -Dm644 desktop/system/data/andromeda-update-tonight.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-tonight.service"
+  install -Dm644 desktop/system/data/andromeda-update-tonight.timer \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-tonight.timer"
+  install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
+  ln -s ../andromeda-update-tonight.timer "$pkgdir/usr/lib/systemd/system/timers.target.wants/andromeda-update-tonight.timer"
   install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.conf \
     "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.UpdateHelper1.conf"
   install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.service \
