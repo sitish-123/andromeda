@@ -297,7 +297,7 @@ namespace andromeda {
         std::println("  Enabled: {}", output.value("enabled", false) ? "yes" : "no");
         std::println("  Power: {}", output.value("powered", false) ? "on" : "off");
         std::println("  Focused: {}", output.value("focused", false) ? "yes" : "no");
-        const std::string workspace = output.value("active_workspace", "");
+        const std::string workspace = output.value("active_workspace_name", "");
         std::println("  Active workspace: {}", workspace.empty() ? "-" : workspace);
         if (output.at("config_name").is_string()) {
           std::println("  Config name: \"{}\"", output.at("config_name").get<std::string>());
@@ -994,6 +994,7 @@ namespace andromeda {
           {"powered", desktopEnabled && !output->dpmsOff()},
           {"focused", output.get() == preferred},
           {"active_workspace", activeWorkspace != nullptr ? activeWorkspace->id() : ""},
+          {"active_workspace_name", activeWorkspace != nullptr ? activeWorkspace->name() : ""},
           {"position", {{"x", layoutBox.x}, {"y", layoutBox.y}}},
           {"logical_size",
            {{"width", desktopEnabled ? layoutBox.width : 0}, {"height", desktopEnabled ? layoutBox.height : 0}}},
