@@ -22,6 +22,7 @@ extern "C" {
 #include "wlr.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 #include <optional>
@@ -727,6 +728,24 @@ namespace andromeda {
     return m_layerSurface != nullptr && fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface) == this;
   }
 
+  bool LayerSurface::statusSurface() const {
+    static constexpr std::array<std::string_view, 3> kStatus = {
+        "noctalia-live-activity", "noctalia-osd", "noctalia-notification"};
+    const char* ns = m_layerSurface != nullptr ? m_layerSurface->namespace_ : nullptr;
+    if (ns == nullptr) {
+      return false;
+    }
+    const std::string_view name(ns);
+    return name.starts_with("noctalia-bar-") || std::ranges::find(kStatus, name) != kStatus.end();
+  }
+
+  void LayerSurface::raise() {
+    if (m_scene != nullptr) {
+      wlr_scene_node_raise_to_top(&m_scene->tree->node);
+      wlr_scene_node_raise_to_top(&m_popupTree->node);
+    }
+  }
+
   void LayerSurface::reparentToLayer(uint32_t layer) {
     Output* out = output();
     if (out == nullptr || m_scene == nullptr) {
@@ -736,6 +755,7 @@ namespace andromeda {
     out->markBlurBackgroundDirty();
     wlr_scene_node_reparent(&m_popupTree->node, out->layerPopupTree(layer));
     wlr_scene_node_reparent(&m_scene->tree->node, out->layerTree(layer));
+    m_server->raiseStatusSurfaces();
   }
 
   void LayerSurface::syncPopupTree() {

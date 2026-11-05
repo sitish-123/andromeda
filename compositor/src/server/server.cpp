@@ -1124,6 +1124,14 @@ namespace andromeda {
 
   void Server::clearLayerSurfaces() { m_layerSurfaces.clear(); }
 
+  void Server::raiseStatusSurfaces() {
+    for (const auto& layer : m_layerSurfaces) {
+      if (layer->statusSurface()) {
+        layer->raise();
+      }
+    }
+  }
+
   void Server::clearCloseSnapshots() {
     m_closeSnapshots.clear();
     m_launchFeedback.clear();

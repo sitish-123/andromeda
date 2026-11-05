@@ -44,6 +44,11 @@ namespace andromeda {
     [[nodiscard]] bool exclusiveKeyboard() const;
     [[nodiscard]] bool acceptsKeyboard() const;
     [[nodiscard]] bool hasKeyboardFocus() const;
+    // The shell's status surfaces (bars, island, OSD, notification toasts) stay above the other surfaces of their layer,
+    // so a panel that opens later never covers a banner.
+    [[nodiscard]] bool statusSurface() const;
+    // Raises this surface to the top of its layer.
+    void raise();
     [[nodiscard]] SurfaceBlurOptions blurOptions() const;
     [[nodiscard]] bool blurActive() const { return m_blur.active(); }
     // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns

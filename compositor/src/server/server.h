@@ -347,6 +347,8 @@ namespace andromeda {
     [[nodiscard]] std::span<const std::unique_ptr<View>> views() const { return m_registry.all(); }
     [[nodiscard]] ViewRegistry& registry() { return m_registry; }
     [[nodiscard]] std::span<const std::unique_ptr<LayerSurface>> layerSurfaces() const { return m_layerSurfaces; }
+    // Puts every LayerSurface::statusSurface() back on top of its layer.
+    void raiseStatusSurfaces();
     // Registers a view created for a new toplevel of either shell role.
     View& adoptView(std::unique_ptr<View> view);
 

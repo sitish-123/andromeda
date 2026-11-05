@@ -90,6 +90,7 @@ namespace andromeda {
       self->holdQosThawIntent(true);
     }
     self->m_layerSurfaces.push_back(std::move(surface));
+    self->raiseStatusSurfaces();
     self->scheduleIpcLayersEvent();
   }
 
