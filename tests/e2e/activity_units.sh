@@ -10,9 +10,9 @@ mkdir -p "$OUT"
 : > "$OUT/calls.txt"
 SRC=$ROOT/shell
 BIN=$OUT/activity-units
-g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -o "$BIN" \
-  "$(dirname "$0")/activity_units.cpp" "$SRC/src/dbus/systemd/systemd_units_service.cpp" \
-  "$SRC/src/dbus/systemd/systemd_unit_name.cpp" "$SRC/src/dbus/session_bus.cpp" \
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-system/src" -I"$ROOT/libdesk-ui/src" -o "$BIN" \
+  "$(dirname "$0")/activity_units.cpp" "$ROOT/libdesk-system/src/dbus/systemd/systemd_units_service.cpp" \
+  "$ROOT/libdesk-system/src/dbus/systemd/systemd_unit_name.cpp" "$ROOT/libdesk-system/src/dbus/session_bus.cpp" \
   "$ROOT/libdesk-ui/src/core/log.cpp" -lsdbus-c++
 
 MOCK="$ROOT/tests/e2e/mock_systemd1.py"

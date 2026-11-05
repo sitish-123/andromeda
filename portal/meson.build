@@ -37,6 +37,7 @@ protocols = {
   'ext-image-copy-capture-v1':   wp_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
   'ext-foreign-toplevel-list-v1': wp_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
   'linux-dmabuf-v1':              wp_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml',
+  'xdg-output-unstable-v1':       wp_dir / 'unstable/xdg-output/xdg-output-unstable-v1.xml',
 }
 
 protocol_sources = []
@@ -99,6 +100,45 @@ executable(
   install: true,
   install_dir: get_option('libexecdir'),
 )
+
+# --- tests -------------------------------------------------------------------
+
+if get_option('tests')
+  capture_transform_test = executable(
+    'capture-transform-test',
+    'tests/capture_transform.cpp',
+    include_directories: include_directories('src'),
+  )
+  test('capture-transform', capture_transform_test)
+
+  executable(
+    'screencast-test-client',
+    'tests/screencast_test_client.cpp',
+    dependencies: [sdbus_dep, pipewire_dep],
+  )
+
+  buffer_params_test = executable(
+    'pipewire-buffer-params-test',
+    'tests/pipewire_buffer_params.cpp',
+    include_directories: include_directories('src'),
+    dependencies: [pipewire_dep, wayland_client_dep, libdrm_dep, gbm_dep],
+    # The test includes pipewire.cpp, so GCC treats its anonymous-namespace types as header types.
+    cpp_args: ['-ffunction-sections', '-fdata-sections', '-Wno-subobject-linkage'],
+    link_args: [
+      '-Wl,--gc-sections',
+      '-Wl,--wrap=gbm_device_get_format_modifier_plane_count',
+      '-Wl,--wrap=gbm_bo_create_with_modifiers2',
+      '-Wl,--wrap=gbm_bo_create_with_modifiers',
+      '-Wl,--wrap=gbm_bo_create',
+      '-Wl,--wrap=gbm_bo_get_modifier',
+      '-Wl,--wrap=gbm_bo_get_plane_count',
+      '-Wl,--wrap=gbm_bo_destroy',
+      '-Wl,--wrap=gbm_device_destroy',
+      '-Wl,--wrap=pw_stream_update_params',
+    ],
+  )
+  test('pipewire-buffer-params', buffer_params_test)
+endif
 
 # --- picker ------------------------------------------------------------------
 

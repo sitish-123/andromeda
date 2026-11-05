@@ -88,7 +88,9 @@ namespace andromeda {
     return true;
   }
 
-  bool notifyServiceReady(std::string_view socketPath) {
+  bool notifyServiceReady(std::string_view socketPath) { return notifyService(socketPath, "READY=1"); }
+
+  bool notifyService(std::string_view socketPath, std::string_view state) {
     if (socketPath.empty()) {
       return true;
     }
@@ -108,15 +110,14 @@ namespace andromeda {
     if (fd < 0) {
       return false;
     }
-    constexpr std::string_view ready = "READY=1";
     ssize_t sent;
     do {
-      sent = sendto(fd, ready.data(), ready.size(), MSG_NOSIGNAL, reinterpret_cast<sockaddr*>(&address), length);
+      sent = sendto(fd, state.data(), state.size(), MSG_NOSIGNAL, reinterpret_cast<sockaddr*>(&address), length);
     } while (sent < 0 && errno == EINTR);
     const int sendError = errno;
     close(fd);
     errno = sendError;
-    return sent == static_cast<ssize_t>(ready.size());
+    return sent == static_cast<ssize_t>(state.size());
   }
 
   bool closeChildFileDescriptors() {

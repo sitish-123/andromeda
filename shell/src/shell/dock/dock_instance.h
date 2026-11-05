@@ -9,15 +9,18 @@
 #include "shell/dock/dock_items.h"
 #include "shell/dock/dock_model.h"
 #include "ui/signal.h"
+#include "wayland/surface.h"
 
 #include <cstdint>
 #include <functional>
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
 
 class Box;
 class DskSurfaceClient;
+class DskShapeClient;
 class CompositorPlatform;
 class ConfigService;
 class Flex;
@@ -57,7 +60,9 @@ namespace shell::dock {
     std::unique_ptr<LayerSurface> surface;
     // Liquid glass on the dock (dsk_surface_v1 v5); declared after `surface`: destroyed first.
     std::unique_ptr<DskSurfaceClient> dsk;
-    std::optional<bool> backdropDark;
+    // The dock glass as one dsk shape (v10): the compositor draws its blur, tint, concave join and shadow.
+    std::unique_ptr<DskShapeClient> shape;
+    std::array<double, 4> shapeClip{};
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
@@ -87,11 +92,13 @@ namespace shell::dock {
     AnimationManager::Id launcherScaleAnimId = 0;
     // Auto-hide: tracks visibility [0,1] driven by hover.
     float hideOpacity = 1.0F;
+    std::optional<std::vector<InputRect>> sentBlur; // last blur region sent; empty vector = cleared
     AnimationManager::Id hideAnimId = 0;
     // smart_auto_hide: active workspace empty (or overview open) — keep the dock visible.
     bool smartAutoHidePinnedVisible = false;
     Signal<>::ScopedConnection paletteConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
+    Node* clickedItem = nullptr;    // the item cell during its click handler: a launch starts from it
 
     // Drag-to-reorder state.
     struct DragState {

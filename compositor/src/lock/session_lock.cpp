@@ -145,6 +145,8 @@ namespace andromeda {
     const wlr_box box{0, 0, surface->current.width, surface->current.height};
     const pixman_box32_t* extents = pixman_region32_extents(region);
     const wlr_box clip{extents->x1, extents->y1, extents->x2 - extents->x1, extents->y2 - extents->y1};
+    // A full-screen backdrop follows the slider's blur strength only (fade scales the blur size): no rim or lens.
+    m_blur.setFade(configGlass(glass::Kind::Sheet).blurStrength);
     // Optimized: samples the cached wallpaper blur, never the windows under the lock.
     m_blur.update(
         m_sceneTree, surface, box, box, corner_radii_none(), &clip, SurfaceBlurOptions{.enabled = true, .optimized = true}

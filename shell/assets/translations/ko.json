@@ -3063,7 +3063,6 @@
           "label": "화면 고정"
         },
         "screenshot-pipe-command": {
-          "description": "PNG를 stdin으로 /bin/sh -lc로 실행되는 명령어. 주석 달기 또는 업로더용 (예: swappy -f - 또는 satty -f -)",
           "label": "파이프 명령어",
           "placeholder": "swappy -f -"
         },

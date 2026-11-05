@@ -59,6 +59,10 @@ struct AudioState {
   std::vector<AudioNode> programOutputs; // "Stream/Output/Audio" (application playback streams)
   std::uint32_t defaultSinkId = 0;
   std::uint32_t defaultSourceId = 0;
+  // Processes with a running audio stream (playback or capture), sorted: QoS keeps them out of the hidden tiers.
+  std::vector<std::uint32_t> audioPids;
+  // Some app's playback stream is running; the spectrum captures the sink monitor only then.
+  bool playing = false;
 
   bool operator==(const AudioState&) const = default;
 };
@@ -96,6 +100,8 @@ public:
 
   void setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
   void setVolumePreviewCallback(VolumePreviewCallback callback) { m_volumePreviewCallback = std::move(callback); }
+  // Runs when headphones leave a card's jack (headphonesUnplugged in audio_route_selection.h).
+  void setHeadphonesUnpluggedCallback(ChangeCallback callback) { m_headphonesUnplugged = std::move(callback); }
 
   // WirePlumber mixer used for device volume/mute (keeps pavucontrol/pulse in sync). Writes made
   // before it finishes connecting are queued and flushed on activation.
@@ -166,6 +172,8 @@ public:
     std::string mediaClass;
     std::string linkGroup;
     std::string targetObject;
+    std::uint32_t processId = 0; // application.process.id; 0 when unknown or in another pid namespace (Flatpak)
+    bool running = false;
     bool nodePassive = false;
     bool streamCaptureSink = false;
     bool streamClassificationReady = false;
@@ -203,6 +211,8 @@ public:
     std::string appId;
     std::string binary;
     std::string iconName;
+    // application.process.id, else the socket peer pid (pipewire.sec.pid); a PulseAudio client's peer is pipewire-pulse.
+    std::uint32_t processId = 0;
     struct pw_client* proxy = nullptr;
     spa_hook* listener = nullptr;
   };
@@ -316,6 +326,7 @@ private:
   PrivacyState m_privacyState;
   ChangeCallback m_changeCallback;
   VolumePreviewCallback m_volumePreviewCallback;
+  ChangeCallback m_headphonesUnplugged;
   WirePlumberMixer* m_wpMixer = nullptr;
   std::uint64_t m_changeSerial = 0;
 

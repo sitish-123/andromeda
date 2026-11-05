@@ -838,6 +838,8 @@ namespace andromeda {
     // Always clear other views first: the previous seat surface may be a layer, so
     // deactivating only that surface can leave another window's focus border on.
     m_server->deactivateViews(this);
+    static std::uint64_t lastFocusSerial = 0;
+    m_focusSerial = ++lastFocusSerial;
 
     if (raise) {
       raiseToTop();

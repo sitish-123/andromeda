@@ -3012,7 +3012,6 @@
           "label": "Bildschirm einfrieren"
         },
         "screenshot-pipe-command": {
-          "description": "Befehl, ausgeführt als /bin/sh -lc mit dem PNG auf stdin; für Annotations- oder Upload-Tools (z. B. swappy -f - oder satty -f -)",
           "label": "Pipe-Befehl",
           "placeholder": "swappy -f -"
         },

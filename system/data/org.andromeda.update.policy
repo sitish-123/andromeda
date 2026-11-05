@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- andromeda-update-helper (docs/system.md §1): auth_admin each time for changes, never auth_admin_keep. -->
+<policyconfig>
+  <vendor>Andromeda</vendor>
+  <action id="org.andromeda.update.upgrade">
+    <description>Update the system</description>
+    <message>Authentication is required to update the system</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+  <action id="org.andromeda.update.preview">
+    <description>Preview a system update</description>
+    <message>Authentication is required to preview a system update</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+  <action id="org.andromeda.update.news">
+    <description>Confirm that you read the Arch news</description>
+    <message>Authentication is required to confirm the Arch news</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

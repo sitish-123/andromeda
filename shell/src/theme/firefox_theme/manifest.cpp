@@ -25,10 +25,12 @@ namespace noctalia::theme::firefox_theme::manifest {
       return {.ownership = Ownership::Foreign};
     }
 
-    try {
-      nlohmann::json root;
-      in >> root;
-
+    // Not JSON or not an object: someone else's file, never ours to replace.
+    const auto root = nlohmann::json::parse(in, nullptr, false);
+    if (root.is_discarded() || !root.is_object()) {
+      return {.ownership = Ownership::Foreign};
+    }
+    {
       Inspection result{.ownership = Ownership::Foreign};
       if (const auto path = root.find("path"); path != root.end() && path->is_string()) {
         result.hostPath = path->get<std::string>();
@@ -39,8 +41,6 @@ namespace noctalia::theme::firefox_theme::manifest {
         result.ownership = Ownership::Noctalia;
       }
       return result;
-    } catch (...) {
-      return {.ownership = Ownership::Foreign};
     }
   }
 

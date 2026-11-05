@@ -26,6 +26,11 @@ TextMetrics ScaledRenderer::measureText(
   );
 }
 
+void ScaledRenderer::setTextCaching(bool enabled) {
+  assert(m_context != nullptr && "ScaledRenderer setTextCaching without a bound RenderContext");
+  m_context->setTextCaching(enabled);
+}
+
 TextMetrics ScaledRenderer::measureFont(float fontSize, const TextFont& font) {
   assert(m_context != nullptr && "ScaledRenderer measureFont without a bound RenderContext");
   return m_context->measureFontScaled(currentScale(), fontSize, font);

@@ -67,6 +67,8 @@ private:
     // Held until the mask's source dimensions have been checked against the wallpaper's.
     SharedTextureCache::Lease wallpaper;
     bool validated = false;
+    // Counts texture changes; it goes into WallpaperMaskDrawParams::revision.
+    std::uint32_t revision = 0;
   };
 
   void syncInstances();

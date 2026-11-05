@@ -27,7 +27,7 @@ namespace {
 
   constexpr float kEdge = 24.0F;
   constexpr float kControl = 40.0F;
-  constexpr float kGap = 8.0F;
+  constexpr const float& kGap = Tokens::spaceP8;
   constexpr float kMenuWidth = 256.0F;
   constexpr float kMenuPad = 4.0F;
   constexpr float kRowHeight = 36.0F;
@@ -165,7 +165,7 @@ void AuthChrome::layoutMenu(Renderer& renderer, float /*sw*/, float /*sh*/, floa
   m_menuRect = {x, y, w, h};
   m_menuBg->setPosition(x, y);
   m_menuBg->setSize(w, h);
-  m_menuBg->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 20.0F * s, .borderWidth = 0.5F * s});
+  m_menuBg->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR20 * s, .borderWidth = 0.5F * s});
 
   for (std::size_t i = 0; i < m_state.items.size(); ++i) {
     const Item& item = m_state.items[i];
@@ -179,7 +179,7 @@ void AuthChrome::layoutMenu(Renderer& renderer, float /*sw*/, float /*sh*/, floa
     row.bg->setVisible(lit);
     row.bg->setPosition(rx, ry);
     row.bg->setSize(rw, rh);
-    row.bg->setStyle(RoundedRectStyle{.fill = kFill2, .radius = 16.0F * s});
+    row.bg->setStyle(RoundedRectStyle{.fill = kFill2, .radius = Tokens::radiusR16 * s});
 
     float textX = rx + 12.0F * s;
     const bool avatar = !item.initial.empty();
@@ -200,7 +200,7 @@ void AuthChrome::layoutMenu(Renderer& renderer, float /*sw*/, float /*sh*/, floa
           .radius = a * 0.5F,
       });
       row.initial->setText(item.initial);
-      row.initial->setFontSize(12.0F * s);
+      row.initial->setFontSize(Tokens::typeFootnote.size * s);
       row.initial->setColor(kLabel1);
       row.initial->measure(renderer);
       row.initial->setPosition(

@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -96,6 +97,9 @@ public:
   void layout(Renderer& renderer, const AuthPlacement& place, float sw, float scale);
   // Wrong password: the capsule shakes 3 x 8 px on the snap spring.
   void playRejected();
+  // Login accepted: the column (and `alongside`, the chrome) Return on the close spring (scale 0.92, fade); reduced
+  // motion fades only. `done` runs once it settled.
+  void playAccepted(Node* alongside, std::function<void()> done);
   // Glance layout: the auth sheet Grows from the centre (open spring) or Returns (close spring); instant = no motion.
   void setSheetOpen(bool open, bool instant = false);
   [[nodiscard]] bool sheetOpen() const noexcept { return m_sheetOpen; }
@@ -113,6 +117,7 @@ private:
   State m_state;
   AuthPlacement m_place;
   bool m_sheetOpen = false;
+  bool m_accepted = false;
   // 0 = sheet closed, 1 = open.
   float m_sheetT = 0.0F;
   AnimationManager::Id m_sheetAnim = 0;

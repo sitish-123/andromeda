@@ -16,12 +16,14 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <optional>
 #include <array>
 #include <string>
 #include <vector>
 
 namespace settings {
   namespace {
+    constexpr float kUserRowHeight = 64.0F;
 
     using namespace page_rows;
 
@@ -181,7 +183,7 @@ namespace settings {
       }
       Flex* card = addCard(content, scale);
       auto r = row(scale);
-      r->setMinHeight(64.0F * scale);
+      r->setMinHeight(kUserRowHeight * scale);
       r->setGap(Style::spaceMd * scale);
       r->addChild(avatar(*user, 48.0F, scale));
       auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
@@ -247,7 +249,7 @@ namespace settings {
     if (self != users.end()) {
       Flex* card = addCard(content, scale);
       auto r = row(scale);
-      r->setMinHeight(64.0F * scale);
+      r->setMinHeight(kUserRowHeight * scale);
       r->setGap(Style::spaceMd * scale);
       r->addChild(avatar(*self, 48.0F, scale));
       auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
@@ -288,6 +290,46 @@ namespace settings {
       actions->addChild(plainButton(i18n::tr("settings.users.add"), ButtonVariant::Default, scale,
                                     [open = ctx.openDetail] { open("users:" + i18n::tr("settings.users.new-user")); }));
       content.addChild(std::move(actions));
+    }
+
+    if (ctx.loginScreens.size() >= 2 && ctx.switchLoginScreen) {
+      addHeader(content, i18n::tr("settings.users.login-screen"), nullptr, scale);
+      Flex* login = addCard(content, scale);
+      std::vector<std::string> labels;
+      std::vector<std::string> units;
+      std::optional<std::size_t> selected;
+      for (const auto& [unit, name] : ctx.loginScreens) {
+        if (unit == ctx.activeLoginScreen) {
+          selected = units.size();
+        }
+        units.push_back(unit);
+        labels.push_back(name);
+      }
+      addFormRow(*login, i18n::tr("settings.users.login-screen-use"),
+                 ui::select({
+                     .options = std::move(labels),
+                     .selectedIndex = selected,
+                     .clearSelection = !selected.has_value(),
+                     .fontSize = Style::fontSizeBody * scale,
+                     .controlHeight = Style::controlHeight * scale,
+                     .glyphSize = Style::fontSizeBody * scale,
+                     .width = 220.0F * scale,
+                     .height = Style::controlHeight * scale,
+                     .onSelectionChanged = [set = ctx.switchLoginScreen, units = std::move(units)](
+                                               std::size_t index, std::string_view
+                                           ) {
+                       if (index < units.size()) {
+                         set(units[index]);
+                       }
+                     },
+                 }),
+                 scale);
+      if (!ctx.loginScreenStatus.empty()) {
+        auto r = row(scale);
+        r->addChild(ui::label({.text = ctx.loginScreenStatus, .fontSize = Style::fontSizeCaption * scale,
+                               .color = colorSpecFromRole(ctx.loginScreenError ? ColorRole::DangerText : ColorRole::Label2)}));
+        login->addChild(std::move(r));
+      }
     }
   }
 

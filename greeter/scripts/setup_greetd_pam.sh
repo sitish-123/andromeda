@@ -7,7 +7,7 @@ find_pam_runtime_module() {
   local module
   local dir
   for module in pam_systemd.so pam_elogind.so; do
-    for dir in /usr/lib/security /usr/lib64/security /lib/security /lib64/security; do
+    for dir in /usr/lib/security /usr/lib64/security /lib/security /lib64/security /usr/lib/*-linux-gnu/security; do
       if [[ -f "${dir}/${module}" ]]; then
         printf '%s\n' "${module}"
         return 0

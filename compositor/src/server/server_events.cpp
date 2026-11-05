@@ -21,6 +21,8 @@
 #include "output/mirror.h"
 #include "output/output.h"
 #include "overview/overview.h"
+#include "qos/controller.h"
+#include "qos/holds.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
 #include "scene/quit_confirm.h"
@@ -30,7 +32,11 @@
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/ipc.h"
+#include "server/ipc_commands.h"
+
+#include <nlohmann/json.hpp>
 #include "server/server.h"
+#include "core/screen_activity_recorder.h"
 #include "server/server_events_internal.h"
 #include "view/popup.h"
 #include "view/view.h"
@@ -41,6 +47,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -63,6 +70,7 @@ namespace andromeda {
     if (!effects.any()) {
       return;
     }
+    scheduleQos();
     // Settle every interaction whose meaning depends on the workspace axis or the
     // layout objects about to be replaced, while those still exist.
     if (effects.workspaceLayout || effects.workspaceInventory || effects.outputState) {
@@ -180,6 +188,10 @@ namespace andromeda {
       for (View* view : sortedEffectViews()) {
         view->refreshConfigChrome();
       }
+      Popup::applyGlassToAll();
+      if (m_scratchpadManager != nullptr) {
+        m_scratchpadManager->refreshBackdrops();
+      }
       // Screen and cursor presets take their palette from [colors] too.
       m_effects.applyOutputEffects();
       markDirty(Dirty::Backdrop);
@@ -259,8 +271,13 @@ namespace andromeda {
 
   void Server::handleConfigReload(const ConfigReloadResult& result) {
     cancelModifierTap();
-    if (result.success) {
-      const bool systemKeymapChanged = refreshSystemKeymap();
+    // A reload that changed nothing (the watcher seeing the compositor's own settings write) wakes no client.
+    if (result.success && !result.change.any() && !result.effects.any()) {
+      kLog.info("config reloaded (sections: none; effects: none)");
+    } else if (result.success) {
+      // The localed query is a blocking D-Bus round trip plus a keymap compile (~10 ms on an HD 520 laptop): only an
+      // input edit asks for it, not every appearance change.
+      const bool systemKeymapChanged = result.change.input && refreshSystemKeymap();
       if (result.change.drm) {
         kLog.warn("DRM configuration changed; restart Andromeda to apply it");
       }
@@ -326,10 +343,19 @@ namespace andromeda {
       );
     }
 
-    if (self->m_backgroundFrameTimer != nullptr) {
-      wl_event_source_timer_update(self->m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
-    }
+    self->armBackgroundFrameTimer();
     return 0;
+  }
+
+  void Server::armBackgroundFrameTimer() {
+    if (m_backgroundFrameTimer == nullptr) {
+      return;
+    }
+    // Off while no mapped window is hidden, so an idle desktop gets no 10 Hz wakeup.
+    const bool hidden = std::ranges::any_of(m_registry.all(), [](const auto& view) {
+      return view->mapped() && !view->seen() && !view->backgroundRender();
+    });
+    wl_event_source_timer_update(m_backgroundFrameTimer, hidden ? kBackgroundFrameIntervalMs : 0);
   }
 
   void Server::syncSuspendedViews() {
@@ -341,14 +367,13 @@ namespace andromeda {
 
   namespace {
     // A hidden background_render window's callback interval: its output's refresh period, or 60 Hz when the output
-    // reports none (headless and nested outputs).
+    // reports none (headless and nested outputs); never faster than the display.fps_cap_hidden hold.
     int backgroundRenderIntervalMs(const View& view) {
       const Output* output = view.currentOutput();
       const int refreshMhz = output != nullptr ? output->wlr()->refresh : 0;
-      if (refreshMhz <= 0) {
-        return 16;
-      }
-      return std::max(1, (1'000'000 + refreshMhz / 2) / refreshMhz);
+      const int interval = refreshMhz <= 0 ? 16 : std::max(1, (1'000'000 + refreshMhz / 2) / refreshMhz);
+      const unsigned cap = qos::registry().hiddenFpsCap;
+      return cap == 0 ? interval : std::max(interval, static_cast<int>((1000 + cap / 2) / cap));
     }
 
     bool needsBackgroundRender(const View& view) {
@@ -376,6 +401,7 @@ namespace andromeda {
   }
 
   void Server::armBackgroundRenderTimer() {
+    armBackgroundFrameTimer();
     if (m_backgroundRenderTimer == nullptr) {
       return;
     }
@@ -585,6 +611,7 @@ namespace andromeda {
     watch->destroy.notify = onImageCopySessionDestroy;
     wl_signal_add(&session->events.destroy, &watch->destroy);
     self->m_imageCopySessions.push_back(std::move(watch));
+    self->updatePresenting();
     self->scheduleSuspensionSync();
     self->refreshCaptureRuleEffects(session->source);
   }
@@ -602,6 +629,7 @@ namespace andromeda {
     for (const auto& output : server->m_outputs) {
       output->scheduleEffectCaptureRelease();
     }
+    server->updatePresenting();
     server->scheduleSuspensionSync();
     server->refreshCaptureRuleEffects(source);
   }
@@ -749,9 +777,28 @@ namespace andromeda {
       kLog.debug("idle {}", inhibited ? "inhibited" : "no longer inhibited");
     }
     wlr_idle_notifier_v1_set_inhibited(m_idleNotifier, inhibited);
+    // Every map, unmap and inhibitor change passes here.
+    scheduleQos();
   }
 
-  void Server::notifyIdleActivity() { wlr_idle_notifier_v1_notify_activity(m_idleNotifier, m_seat->wlr()); }
+  void Server::scheduleQos() {
+    if (m_qos != nullptr) {
+      m_qos->schedule();
+    }
+  }
+
+  void Server::holdQosThawIntent(bool held) {
+    if (m_qos != nullptr) {
+      m_qos->holdThawIntent(held);
+    }
+  }
+
+  void Server::notifyIdleActivity() {
+    wlr_idle_notifier_v1_notify_activity(m_idleNotifier, m_seat->wlr());
+    if (m_screenActivity != nullptr) {
+      m_screenActivity->inputActivity();
+    }
+  }
 
   void Server::notifyInputActivity() {
     wakeDpmsOutputs();
@@ -785,6 +832,7 @@ namespace andromeda {
   }
 
   void Server::scheduleIpcWindowsEvent() {
+    scheduleSessionSave();
     if (m_ipc == nullptr || m_ipcWindowsIdle != nullptr) {
       return;
     }
@@ -792,6 +840,57 @@ namespace andromeda {
     if (m_ipcWindowsIdle == nullptr) {
       kLog.error("failed to register IPC windows idle source");
     }
+  }
+
+  // docs/resilience.md §5: the window list is current at a crash, at most one write per second.
+  void Server::scheduleSessionSave() {
+    if (!m_lockFileManaged || m_stopping) {
+      return;
+    }
+    if (m_sessionSaveTimer == nullptr) {
+      m_sessionSaveTimer = wl_event_loop_add_timer(
+          wl_display_get_event_loop(m_display),
+          [](void* data) {
+            static_cast<Server*>(data)->saveSession();
+            return 0;
+          },
+          this
+      );
+      if (m_sessionSaveTimer == nullptr) {
+        return;
+      }
+    }
+    if (!m_sessionSavePending) {
+      m_sessionSavePending = true;
+      wl_event_source_timer_update(m_sessionSaveTimer, 1000);
+    }
+  }
+
+  void Server::saveSession() {
+    m_sessionSavePending = false;
+    const char* state = std::getenv("XDG_STATE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path dir = state != nullptr && *state != '\0' ? std::filesystem::path(state) / "andromeda"
+        : home != nullptr ? std::filesystem::path(home) / ".local/state/andromeda"
+                          : std::filesystem::path();
+    if (dir.empty()) {
+      return;
+    }
+    std::error_code error;
+    std::filesystem::create_directories(dir, error);
+    const nlohmann::json windows = IpcCommands::windows(*this, "")["ok"];
+    const std::filesystem::path path = dir / "session.json";
+    const std::filesystem::path temporary = dir / "session.json.tmp";
+    {
+      std::ofstream out(temporary, std::ios::trunc);
+      out << nlohmann::json{{"version", 1}, {"windows", windows}}.dump();
+      if (!out) {
+        kLog.warn("cannot write {}", temporary.string());
+        return;
+      }
+    }
+    // rename is atomic: a crash mid-write keeps the previous list.
+    std::filesystem::rename(temporary, path, error);
   }
 
   void Server::onIpcWindowsIdle(void* data) {

@@ -21,6 +21,29 @@ void ActivityService::setWindowUnits(std::map<std::string, std::string> windowAp
   rebuild();
 }
 
+void ActivityService::setUnitTiers(std::map<std::string, std::string> tierByUnit) {
+  if (tierByUnit != m_tierByUnit) {
+    m_tierByUnit = std::move(tierByUnit);
+    rebuild();
+  }
+}
+
+std::string_view qosTierName(std::string_view tier) {
+  if (tier == "T0") {
+    return "focused";
+  }
+  if (tier == "T1") {
+    return "visible";
+  }
+  if (tier == "T2") {
+    return "hidden";
+  }
+  if (tier == "T3") {
+    return "hidden-long";
+  }
+  return {};
+}
+
 void ActivityService::sample(std::chrono::steady_clock::time_point now) {
   for (const auto& unit : m_units) {
     auto& history = m_history[unit.name];
@@ -51,6 +74,10 @@ void ActivityService::rebuild() {
     }
     row.units.push_back(unit.name);
     row.hasWindow = row.hasWindow || window != m_windowAppIdByUnit.end();
+    if (const auto tier = m_tierByUnit.find(unit.name);
+        tier != m_tierByUnit.end() && (row.qosTier.empty() || tier->second < row.qosTier)) {
+      row.qosTier = tier->second;
+    }
 
     const auto history = m_history.find(unit.name);
     if (history == m_history.end() || history->second.empty() || !history->second.back().sample.valid) {

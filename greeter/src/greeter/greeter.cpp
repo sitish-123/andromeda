@@ -10,6 +10,7 @@
 #include "greeter/logind_resume.h"
 #include "render/render_context.h"
 #include "render/text/glyph_registry.h"
+#include "core/input/key_symbols.h"
 #include "ui/controls/input.h"
 #include "wayland/output_span_layout.h"
 #include "wayland/wayland_client.h"
@@ -77,6 +78,8 @@ bool Greeter::initialize(WaylandClient& client) {
 
   m_greetdClient.setRequestTimeout(std::chrono::seconds(prefs.authRequestTimeoutSec));
 
+  // libdesk-ui Input submits only on keys this matcher accepts; the shell wires it to its keybinds.
+  Input::setValidateKeyMatcher([](std::uint32_t sym, std::uint32_t /*modifiers*/) { return KeySymbol::isEnter(sym); });
   Input::setPasswordMaskStyle(
       prefs.passwordMaskStyle == greeter::PasswordMaskStyle::RandomIcons ? Input::PasswordMaskStyle::RandomIcons
                                                                          : Input::PasswordMaskStyle::CircleFilled

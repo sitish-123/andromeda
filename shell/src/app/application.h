@@ -56,7 +56,6 @@
 #include "shell/hot_corners/hot_corners.h"
 #include "shell/lockscreen/lock_screen.h"
 #include "shell/lockscreen/lockscreen_widgets_controller.h"
-#include "shell/notification/notification_toast.h"
 #include "shell/osd/audio_osd.h"
 #include "shell/osd/brightness_osd.h"
 #include "shell/osd/keyboard_backlight_osd.h"
@@ -77,7 +76,9 @@
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
 #include "shell/wallpaper/wallpaper.h"
 #include "shell/activity/activity_window.h"
+#include "system/container_service.h"
 #include "system/activity_actions.h"
+#include "system/ambient_brightness.h"
 #include "system/activity_monitor.h"
 #include "system/background_activity_monitor.h"
 #include "system/background_warning_state.h"
@@ -119,6 +120,7 @@
 #include <cstdint>
 #include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -132,10 +134,15 @@ class AccountsService;
 class BluetoothAgent;
 class BluetoothService;
 class BrightnessPollSource;
+class MemoryPressurePollSource;
 class BrightnessService;
 class KeyboardBacklightService;
 class DebugService;
 class AndromedaShellService;
+class SystemHealthService;
+class SoftwareUpdateService;
+class SetupWizardPanel;
+class AmbientLightService;
 class EasyEffectsService;
 class INetworkService;
 class IwdSecretAgent;
@@ -193,6 +200,9 @@ public:
 
   // Public for signal handler
   static std::atomic<bool> s_shutdownRequested;
+  // The compositor closed the display (a crash or a log out): the process exits with kDisplayLostExitCode.
+  static std::atomic<bool> s_displayLost;
+  static constexpr int kDisplayLostExitCode = 75;
 
   bool runShellCommand(const std::string& command);
   void triggerShellAction(const std::string& action, wl_output* output = nullptr);
@@ -201,6 +211,8 @@ public:
   [[nodiscard]] LayerShellLayer hotCornerLayerForOutput(wl_output* output) const noexcept;
 
 private:
+  // Reports processes that start or stop audio to the compositor's QoS.
+  void syncAppActivity();
   void initServices();
   // Sub-phases of initServices(), called in order.
   void initStyleThemeAndWayland();
@@ -210,9 +222,9 @@ private:
   void initBrightnessAndPipewire();
   void initEarlySessionBusAndTray();
   void initSessionBusServices();
-  void initUi();
   ActivityMonitor* ensureActivityMonitor();
   void initActivity();
+  void initUi();
   // Sub-phases of initUi(), called in order.
   void initUiRenderSurfacesAndSettings();
   void initLockScreenAndSession();
@@ -226,6 +238,8 @@ private:
   // and on every output change so first-run stacking matches hot reload.
   void reconcileOutputSurfaces();
   void initIpc();
+  void writeShellHandoff() const;
+  void restoreShellHandoff();
   // (Re)register plugin-backed launcher providers from the enabled plugin set.
   void reloadPluginLauncherProviders();
   // (Re)register config-driven dmenu launcher providers ([shell.launcher.dmenu.entry.*]).
@@ -311,6 +325,8 @@ private:
   [[nodiscard]] std::vector<PollSource*> buildPollSources();
 
   ShellWaylandConnection m_wayland;
+  // Pids last reported to the compositor with dsk_shell_v1 app_activity audio (docs/qos.md §2).
+  std::vector<std::uint32_t> m_sentAudioPids;
   WorkspaceAlertService m_workspaceAlertService;
   CompositorPlatform m_compositorPlatform{m_wayland};
   security::SecretStore m_secretStore;
@@ -351,21 +367,47 @@ private:
   std::unique_ptr<AccountsService> m_accountsService;
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
   std::unique_ptr<SystemMonitorService> m_systemMonitor;
-  std::unique_ptr<DebugService> m_debugService;
-  std::unique_ptr<AndromedaShellService> m_andromedaShellService;
-  IdleInhibitor m_idleInhibitor;
   // Created on the first Activity request; samples only under a lease.
   std::unique_ptr<ActivityMonitor> m_activityMonitor;
   std::unique_ptr<ActivityActions> m_activityActions;
+  std::unique_ptr<ContainerService> m_containerService;
+  std::unique_ptr<BackgroundWarningState> m_backgroundWarningState;
+  std::unique_ptr<BackgroundActivityMonitor> m_backgroundActivityMonitor;
   // Outlives the window: 24 h memory history fills from the background check.
   ActivityDetails m_activityDetails;
   // Declared after the monitor: it releases its monitor reference when it closes.
   ActivityWindow m_activityWindow;
   std::unique_ptr<DebugService> m_debugService;
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
+  std::unique_ptr<SystemHealthService> m_systemHealthService;
+  std::unique_ptr<SoftwareUpdateService> m_softwareUpdateService;
+  // Owned by m_panelManager; told when m_softwareUpdateService changes.
+  SetupWizardPanel* m_setupWizard = nullptr;
+  SoftwareUpdateService* softwareUpdateService();
+  // display.brightness_step: the brightness each display had before a rule dimmed it one step.
+  std::map<std::string, float> m_dimmedFrom;
+  // Automatic brightness: the sensor client, the learned curve, the level it last left on each built-in panel
+  // (before the low-power step) and the lux of that level. A level that differs later is the user's choice.
+  std::unique_ptr<AmbientLightService> m_ambientLight;
+  AmbientBrightnessModel m_ambientModel;
+  std::map<std::string, float> m_ambientSet;
+  double m_ambientLux = -1.0;
+  void syncAmbientLight();
+  void applyAmbientLight(double lux);
+  void applyBrightnessStep();
+  bool m_dndByRule = false;
+  std::uint64_t m_dndRuleRevision = 0;
+  void applyRuleDoNotDisturb();
+  // After an unlock: the wrong passwords typed while locked, with their times (docs/system-health.md §12.4).
+  void notifyFailedUnlocks(const std::vector<std::int64_t>& rejectedAtMs);
+  // The idle "dim" action: per display the brightness before the dim and the dimmed level.
+  struct IdleDim {
+    float from = 0.0F;
+    float to = 0.0F;
+  };
+  std::map<std::string, IdleDim> m_idleDimmed;
+  void applyIdleDim(bool dim);
   IdleInhibitor m_idleInhibitor;
-  std::unique_ptr<BackgroundWarningState> m_backgroundWarningState;
-  std::unique_ptr<BackgroundActivityMonitor> m_backgroundActivityMonitor;
   IdleManager m_idleManager;
   PluginIdleWatches m_pluginIdleWatches;
   IdleGraceOverlay m_idleGraceOverlay;
@@ -389,10 +431,10 @@ private:
   ScreenSaverModule* m_screenSaverModule = nullptr;
   std::optional<bool> m_profileAppliedOnBattery;
   ExternalIpService m_externalIpService{&m_httpClient, &m_configService};
-  std::unique_ptr<BackgroundPortal> m_backgroundPortal;
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
+  std::unique_ptr<BackgroundPortal> m_backgroundPortal;
   std::unique_ptr<GlobalShortcutsPortal> m_globalShortcutsPortal;
   std::unique_ptr<NmHotspot> m_hotspot;
   std::unique_ptr<LinkService> m_linkService;
@@ -467,7 +509,6 @@ private:
   };
   WindowSwitcher m_windowSwitcher;
   OverviewLauncherCapture m_overviewLauncherCapture;
-  NotificationToast m_notificationToast;
   AudioOsd m_audioOsd;
   HdmiAudioSwitch m_hdmiAudioSwitch;
   BrightnessOsd m_brightnessOsd;
@@ -508,6 +549,7 @@ private:
   KeyboardLayoutPollSource m_keyboardLayoutPollSource{m_compositorPlatform};
   LockKeysPollSource m_lockKeysPollSource{m_lockKeysService};
   std::unique_ptr<BrightnessPollSource> m_brightnessPollSource;
+  std::unique_ptr<MemoryPressurePollSource> m_memoryPressurePollSource;
   std::unique_ptr<PipeWirePollSource> m_pipewirePollSource;
   std::unique_ptr<PipeWireSpectrumPollSource> m_pipewireSpectrumPollSource;
   std::unique_ptr<PolkitPollSource> m_polkitPollSource;
@@ -523,6 +565,7 @@ private:
   CalendarPollSource m_calendarPollSource{m_calendarService};
   CalendarReminderPollSource m_calendarReminderPollSource{m_calendarReminderMonitor};
   Timer m_polkitInitTimer;
+  Timer m_handoffTimer;
   Timer m_polkitIdleCloseTimer;
   Timer m_greeterSyncTimeoutTimer;
   Timer m_greeterAutoSyncTimer;

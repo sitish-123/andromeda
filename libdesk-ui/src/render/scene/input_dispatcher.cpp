@@ -64,7 +64,31 @@ namespace {
 
 } // namespace
 
+namespace {
+  std::vector<InputDispatcher*>& liveDispatchers() {
+    static std::vector<InputDispatcher*> dispatchers;
+    return dispatchers;
+  }
+} // namespace
+
+InputDispatcher::~InputDispatcher() { std::erase(liveDispatchers(), this); }
+
+InputDispatcher* InputDispatcher::owning(const Node* node) {
+  for (; node != nullptr; node = node->parent()) {
+    for (InputDispatcher* dispatcher : liveDispatchers()) {
+      if (dispatcher->m_sceneRoot == node) {
+        return dispatcher;
+      }
+    }
+  }
+  return nullptr;
+}
+
 void InputDispatcher::setSceneRoot(Node* root) {
+  std::erase(liveDispatchers(), this);
+  if (root != nullptr) {
+    liveDispatchers().push_back(this);
+  }
   if (root != m_sceneRoot) {
     cancelPointerCapture();
     if (m_hoveredArea != nullptr) {

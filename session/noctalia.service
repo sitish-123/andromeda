@@ -9,6 +9,10 @@ ExecStart=/usr/bin/noctalia
 # The shell's working set (RSS about 220 MB) stays in RAM under build load; see session/memory.
 MemoryMin=512M
 Restart=on-failure
+# 75: the compositor closed the display. Not a shell failure (no crash marker), but restart so the shell returns
+# after a compositor restart; a log out stops this unit through andromeda-session.target first.
+SuccessExitStatus=75
+RestartForceExitStatus=75
 RestartSec=1
 RestartSteps=5
 RestartMaxDelaySec=30

@@ -459,6 +459,7 @@ namespace andromeda {
       roundToCardBox(entry->buffer);
       const wlr_box blurBox{0, 0, contentW, contentH};
       card.blur.setAlpha(1.0F);
+      card.blur.setMaterial(configGlass(glass::Kind::Sheet));
       card.blur.update(
           card.tree, surface, blurBox, geometry, contentCorners, nullptr, view->blurOptions(), entry->buffer->opacity,
           entry->buffer
@@ -535,9 +536,8 @@ namespace andromeda {
     wlr_scene_node_set_enabled(&card.shadowTree->node, true);
 
     const auto scaled = [zoom](int value) { return static_cast<int>(std::lround(value * zoom)); };
-    const auto scaledCorner = [zoom](uint16_t value) {
-      return static_cast<uint16_t>(std::lround(static_cast<double>(value) * zoom));
-    };
+    // Signed: a negative radius is a concave flare (fx_corner_radii).
+    const auto scaledCorner = [zoom](int16_t value) { return static_cast<int16_t>(std::lround(value * zoom)); };
     wlr_scene_node_set_position(&card.shadow->node, scaled(source->node.x), scaled(source->node.y));
     wlr_scene_shadow_set_size(card.shadow, std::max(0, scaled(source->width)), std::max(0, scaled(source->height)));
     wlr_scene_shadow_set_blur_sigma(card.shadow, static_cast<float>(source->blur_sigma * zoom));
@@ -596,8 +596,10 @@ namespace andromeda {
       if (blur->alpha != level) {
         wlr_scene_blur_set_alpha(blur, level);
       }
-      if (blur->strength != level) {
-        wlr_scene_blur_set_strength(blur, level);
+      // A full-screen backdrop follows the slider's blur strength only: no rim or lens on the screen edge.
+      const float strength = level * configGlass(glass::Kind::Sheet).blurStrength;
+      if (blur->strength != strength) {
+        wlr_scene_blur_set_strength(blur, strength);
       }
     }
 
@@ -987,6 +989,14 @@ namespace andromeda {
     viewSurfaceSize(entry.sourceBuffer, surface, &width, &height);
     wlr_scene_buffer_set_dest_size(entry.buffer, width, height);
     wlr_scene_buffer_set_transform(entry.buffer, surface->current.transform);
+    // A window whose rule ignores the opaque region shows none on its own buffer; the card follows it.
+    pixman_region32_t none;
+    pixman_region32_init(&none);
+    const bool ignored = entry.sourceBuffer != nullptr
+        && pixman_region32_empty(&entry.sourceBuffer->opaque_region)
+        && pixman_region32_not_empty(&surface->opaque_region);
+    wlr_scene_buffer_set_opaque_region(entry.buffer, ignored ? &none : &surface->opaque_region);
+    pixman_region32_fini(&none);
 
     // Protocol-derived display properties (alpha-modifier, color management)
     // are clip-independent, so the view's scene buffer is a safe source.

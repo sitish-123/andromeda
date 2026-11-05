@@ -349,26 +349,28 @@ std::string Bar::setBarAutoHideIpc(std::string_view args) {
     if (instance.barConfig.autoHide && instance.hideOpacity < 0.999F) {
       const float current = instance.hideOpacity;
       instance.autoHideDisablePending = true;
-      instance.slideAnimId = instance.animations.drive(
-          instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
-          [this, inst = &instance](float v) {
-            inst->hideOpacity = v;
-            syncBarSlideLayerTransform(*inst);
-            syncBarSurfaceChrome(*inst);
-          },
-          [this, inst = &instance, applySurfaceSpec] {
-            inst->autoHideDisablePending = false;
-            inst->barConfig.autoHide = false;
-            applySurfaceSpec(*inst);
-            syncBarSlideLayerTransform(*inst);
-            syncBarAutoHideInputRegion(*inst);
-            syncBarSurfaceChrome(*inst);
-            if (inst->surface != nullptr) {
-              inst->surface->requestRedraw();
-            }
-          },
-          instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
-      );
+      const auto settled = [this, inst = &instance, applySurfaceSpec] {
+        inst->autoHideDisablePending = false;
+        inst->barConfig.autoHide = false;
+        applySurfaceSpec(*inst);
+        syncBarSlideLayerTransform(*inst);
+        syncBarAutoHideInputRegion(*inst);
+        syncBarSurfaceChrome(*inst);
+        if (inst->surface != nullptr) {
+          inst->surface->requestRedraw();
+        }
+      };
+      if (!slideOnCompositor(instance, true, settled)) {
+        instance.slideAnimId = instance.animations.drive(
+            instance.slideAnimId, current, 1.0F, Style::spring(Tokens::springMove),
+            [this, inst = &instance](float v) {
+              inst->hideOpacity = v;
+              syncBarSlideLayerTransform(*inst);
+              syncBarSurfaceChrome(*inst);
+            },
+            settled, instance.slideRoot, 0.0F, Threshold::px(static_cast<float>(instance.barConfig.thickness))
+        );
+      }
       if (instance.surface != nullptr) {
         instance.surface->requestRedraw();
       }

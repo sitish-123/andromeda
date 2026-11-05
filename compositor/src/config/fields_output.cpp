@@ -86,6 +86,7 @@ namespace andromeda {
           boolean("focus_at_startup", &O::focusAtStartup),
           boolean("tearing", &O::allowTearing),
           boolean("direct_scanout", &O::directScanout),
+          boolean("overlay_planes", &O::overlayPlanes),
           optionalEffectField("screen_effect", &O::screenEffect),
           registry::table("layout", &O::layout, layout),
           registry::integer("min_workspaces", 1, static_cast<int>(kMaxWorkspaces), &O::minWorkspaces),

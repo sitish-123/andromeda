@@ -32,9 +32,12 @@ Named `set` and successful `cycle` create a runtime override and clear suppressi
 
 ## Apps
 
-| Action        | Effect                                       |
-| ------------- | -------------------------------------------- |
+| Action | Effect |
+| ------ | ------ |
 | `spawn:<cmd>` | Run a command with a launch activation token |
+| `focus-or-spawn:<cmd>` | Focus the app's latest window, or run the command |
+
+`focus-or-spawn:<cmd>` takes an app id, a space, then the command: `focus-or-spawn:zen zen-browser`. It matches the app id case-insensitively. When the matched window already has focus, the app's next most recently focused window takes it. With no mapped window of the app, the command runs as `spawn` runs it.
 
 ## Screencasting
 

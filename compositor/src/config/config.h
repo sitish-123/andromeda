@@ -7,6 +7,7 @@
 #include "config/window_position.h"
 #include "core/animation.h"
 #include "layout/layout.h"
+#include "qos/policy.h"
 #include "scene/ssd_frame_geometry.h"
 
 #include <algorithm>
@@ -326,6 +327,8 @@ namespace andromeda {
     bool allowTearing = false;
     // Allow eligible fullscreen buffers to bypass composition on this output.
     bool directScanout = true;
+    // Put a covering, updating buffer (video) on the primary plane and the UI above it on one overlay plane.
+    bool overlayPlanes = true;
     HdrMode hdr = HdrMode::Off;
     float sdrWhite = 203.0F;
     SdrTransfer sdrTransfer = SdrTransfer::Gamma22;
@@ -461,12 +464,16 @@ namespace andromeda {
     // Keep a hidden window unsuspended and pace its frame callbacks at its output's refresh rate, for clients whose
     // non-rendering work stalls without them.
     std::optional<bool> backgroundRender;
+    // App quality of service while hidden (docs/qos.md §2).
+    std::optional<qos::Rule> qos;
     std::optional<VrrMode> vrr;
     // Overrides the client's tearing-control hint. Omitted follows the hint,
     // true forces async preference, and false vetoes it.
     std::optional<bool> allowTearing;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity; // 0.0-1.0
+    // Blend the window everywhere and cull nothing below it, for a client that declares translucent pixels opaque.
+    std::optional<bool> ignoreOpaqueRegion;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
@@ -528,10 +535,12 @@ namespace andromeda {
           && confinePointer == other.confinePointer
           && allowShortcutsInhibit == other.allowShortcutsInhibit
           && backgroundRender == other.backgroundRender
+          && qos == other.qos
           && vrr == other.vrr
           && allowTearing == other.allowTearing
           && hdr == other.hdr
           && opacity == other.opacity
+          && ignoreOpaqueRegion == other.ignoreOpaqueRegion
           && blur == other.blur
           && blurPopups == other.blurPopups
           && blurIgnoreAlpha == other.blurIgnoreAlpha
@@ -576,10 +585,12 @@ namespace andromeda {
     std::optional<bool> confinePointer;
     std::optional<bool> allowShortcutsInhibit;
     std::optional<bool> backgroundRender;
+    std::optional<qos::Rule> qos;
     std::optional<VrrMode> vrr;
     std::optional<bool> allowTearing;
     std::optional<HdrMode> hdr;
     std::optional<double> opacity;
+    std::optional<bool> ignoreOpaqueRegion;
     std::optional<bool> blur;
     std::optional<bool> blurPopups;
     std::optional<double> blurIgnoreAlpha;
@@ -807,8 +818,8 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         // Springs derive their own length; duration_ms stays at the shared value for a duration-based curve.
-        int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 900.0}};
+        int durationMs = 150;
+        AnimationCurve curve{.easing = Easing::EaseOutCubic};
         std::string style = "popin";
         double scale = 0.5;
         bool operator==(const WindowsIn&) const = default;
@@ -817,8 +828,8 @@ namespace andromeda {
       struct WindowsOut {
         std::string effect;
         bool enabled = true;
-        int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 1400.0}};
+        int durationMs = 150;
+        AnimationCurve curve{.easing = Easing::EaseOutCubic};
         std::string style = "popin";
         double scale = 0.8;
         bool operator==(const WindowsOut&) const = default;
@@ -1068,6 +1079,13 @@ namespace andromeda {
       bool attachModalDialogs = true;
       // Honor maximized state restored by a client while its window opens.
       bool honorRestoredMaximize = false;
+      // Let app units with no mapped window freeze when hidden long on battery (docs/qos.md §3, T3).
+      bool freezeBackgroundApps = false;
+      // In power saver on battery, freeze every app hidden long (T3), not only windowless ones (docs/qos.md §3).
+      bool freezeHiddenApps = true;
+      // Hidden apps drop to lower CPU tiers (docs/qos.md §3); off keeps every app at the visible tier unless its own
+      // qos rule or a system-health hold says otherwise.
+      bool optimizeBackgroundApps = true;
       bool operator==(const General&) const = default;
     } general;
 

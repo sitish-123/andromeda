@@ -2516,7 +2516,6 @@
           "label": "Zmrazit obrazovku"
         },
         "screenshot-pipe-command": {
-          "description": "Příkaz spuštěný jako /bin/sh -lc s PNG na stdin; pro anotátory nebo nahrávače (například: swappy -f - nebo satty -f -)",
           "label": "Příkaz roury",
           "placeholder": "swappy -f -"
         },

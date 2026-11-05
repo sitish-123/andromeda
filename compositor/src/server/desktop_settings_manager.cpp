@@ -43,6 +43,9 @@ namespace andromeda {
     if (m_applyIdle != nullptr) {
       wl_event_source_remove(m_applyIdle);
     }
+    if (m_saveIdle != nullptr) {
+      wl_event_source_remove(m_saveIdle);
+    }
     for (wl_resource* resource : m_resources) {
       wl_resource_set_user_data(resource, nullptr);
     }
@@ -140,6 +143,11 @@ namespace andromeda {
     if (DesktopSettingsManager* self = managerFrom(resource)) {
       std::erase(self->m_resources, resource);
       self->dropLayers(resource, nullptr);
+      for (PendingSet& pending : self->m_pendingSets) {
+        if (pending.owner == resource) {
+          pending.owner = nullptr;
+        }
+      }
       if (self->m_captureResource == resource) {
         self->m_captureResource = nullptr;
       }
@@ -165,9 +173,32 @@ namespace andromeda {
       settingsChanged();
       return;
     }
+    m_pendingSets.push_back({.owner = resource, .key = keyText, .value = *parsed.value});
+    if (m_saveIdle == nullptr) {
+      m_saveIdle = wl_event_loop_add_idle(
+          wl_display_get_event_loop(m_server.display()),
+          [](void* data) { static_cast<DesktopSettingsManager*>(data)->savePendingSets(); }, this
+      );
+    }
+  }
+
+  void DesktopSettingsManager::savePendingSets() {
+    m_saveIdle = nullptr;
+    std::vector<PendingSet> pending = std::move(m_pendingSets);
+    m_pendingSets.clear();
+    std::vector<std::pair<std::string, ManagedSettingValue>> values;
+    values.reserve(pending.size());
+    for (const PendingSet& set : pending) {
+      values.emplace_back(set.key, set.value);
+    }
     const std::filesystem::path file = managedSettingsFile(configRootPath());
-    if (!saveManagedSetting(file, key, *parsed.value)) {
-      reject("cannot write " + file.string());
+    if (!saveManagedSettings(file, values)) {
+      const std::string reason = "cannot write " + file.string();
+      for (const PendingSet& set : pending) {
+        if (set.owner != nullptr) {
+          dsk_settings_manager_v1_send_failed(set.owner, set.key.c_str(), reason.c_str());
+        }
+      }
       return;
     }
     // Apply now rather than when the watcher notices the write; its later reload finds nothing changed.
@@ -330,11 +361,13 @@ namespace andromeda {
   }
 
   void DesktopSettingsManager::sendSettings(wl_resource* resource) const {
-    const std::string saved = readFile(managedSettingsFile(configRootPath()));
-    for (const std::string_view key : managedSettingKeys()) {
+    const std::span<const std::string_view> keys = managedSettingKeys();
+    const std::vector<bool> customizedKeys = documentSetsKeys(readFile(managedSettingsFile(configRootPath())), keys);
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+      const std::string_view key = keys[i];
       const std::string keyText(key);
       const std::string value = managedSettingValue(config(), key);
-      const uint32_t customized = documentSetsKey(saved, key) ? 1U : 0U;
+      const uint32_t customized = customizedKeys[i] ? 1U : 0U;
       dsk_settings_manager_v1_send_setting(resource, keyText.c_str(), value.c_str(), customized);
     }
     if (wl_resource_get_version(resource) >= 2) {

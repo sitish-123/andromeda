@@ -1,0 +1,11 @@
+# Network rules (docs/system-health.md §12.1). Users change only `enabled` and the params.
+
+# A captive portal (NetworkManager connectivity "portal"): the sign-in page opens once, and the alert reopens it.
+[[rule]]
+id = "network.captive_portal"
+scope = "session"
+priority = "automatic"
+when = "network.connectivity == 'portal'"
+for = "3s"
+clear = "network.connectivity != 'portal'"
+alert = { urgency = "normal", action = "portal", text = "captive_portal" }

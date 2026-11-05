@@ -1,9 +1,15 @@
 #pragma once
 
+#include "core/timer_manager.h"
+#include "render/backend/render_backend.h"
+#include "render/core/damage_region.h"
 #include "render/core/renderer.h"
 #include "render/text/cairo_glyph_renderer.h"
 #include "render/text/cairo_text_renderer.h"
 
+#include <array>
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -58,11 +64,15 @@ public:
   [[nodiscard]] TextureManager& textureManager();
   [[nodiscard]] std::uint64_t textMetricsGeneration() const noexcept { return m_textMetricsGeneration; }
 
+  // Frees every cached text and glyph texture; the next frame draws them again (memory pressure, docs/qos.md §5).
+  void releaseUnusedCaches();
+
 private:
   friend class ScaledRenderer;
 
   // Scale-parameterized measurement/text ops. ScaledRenderer forwards here with
   // an explicit scale; no call mutates any shared render scale.
+  void setTextCaching(bool enabled) noexcept { m_textRenderer.setCaching(enabled); }
   [[nodiscard]] TextMetrics measureTextScaled(
       float scale, std::string_view text, float fontSize, const TextFont& font, float maxWidth, int maxLines,
       TextAlign align, TextEllipsize ellipsize, bool useMarkup
@@ -89,6 +99,10 @@ private:
       float bw, float bh, float clipLeft, float clipTop, float clipRight, float clipBottom, bool hasClip,
       bool ignoreNodeOpacity, bool parentPaintContained
   );
+  void drawNodeSelf(
+      float renderScale, const Node* node, const Mat3& worldTransform, float effectiveOpacity, float sw, float sh,
+      float bw, float bh
+  );
 
   std::unique_ptr<RenderBackend> m_backend;
   CairoTextRenderer m_textRenderer;
@@ -98,6 +112,21 @@ private:
   std::uint64_t m_textMetricsGeneration = 1;
   std::uint64_t m_gpuResourceGeneration = 0;
   bool m_glyphTexturesDirty = false;
+  // NOCTALIA_PROFILE frame stats: nodes drawn and culled in the current renderScene.
+  std::uint32_t m_statDrawn = 0;
+  std::uint32_t m_statCulled = 0;
+  // Frees text and icon textures of a shell that stopped drawing (step 5 runs only inside frames).
+  void expireIdleCaches();
+  Timer m_cacheExpiryTimer;
+  std::chrono::steady_clock::time_point m_lastSceneDraw;
+  // Repaint rects of a damage frame, drawn in one scene walk. They do not overlap in buffer pixels, so a node drawn
+  // once per rect blends each pixel once. Empty in a full repaint.
+  struct RepaintPass {
+    RenderScissor scissor;
+    DamageRect logical;
+  };
+  std::array<RepaintPass, DamageRegion::kMaxRects> m_passes{};
+  std::size_t m_passCount = 0;
   bool m_graphicsResetPending = false;
   GlSharedContext* m_shared = nullptr;
 };

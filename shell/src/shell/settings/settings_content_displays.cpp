@@ -30,10 +30,20 @@ namespace {
 
   // The arrangement canvas places each output by hand (participatesInLayout false). Flex skips such children, so their
   // own content (the wallpaper and the name) would never lay out; lay them out at the size they were given.
+  // A parent Flex reaches this node through arrange(), which skips doLayout, so both entry points do it.
   class PositionedLayout final : public Flex {
   protected:
     void doLayout(Renderer& renderer) override {
       Flex::doLayout(renderer);
+      layoutPositioned(renderer);
+    }
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      Flex::doArrange(renderer, rect);
+      layoutPositioned(renderer);
+    }
+
+  private:
+    void layoutPositioned(Renderer& renderer) {
       for (const auto& child : children()) {
         if (child->visible() && !child->participatesInLayout()) {
           child->layout(renderer);
@@ -47,6 +57,7 @@ namespace {
 namespace settings {
 
   namespace {
+    constexpr float kRingInset = Style::focusRingWidth + Style::focusRingGap;
 
     constexpr float kSelectWidth = 190.0F;
 
@@ -198,11 +209,11 @@ namespace settings {
             .gap = Style::spaceXs * scale,
             .fill = colorSpecFromRole(ColorRole::Fill1),
             .radius = (metrics::kPickerRadius - (Style::focusRingWidth + Style::focusRingGap)) * scale,
-            .height = (metrics::kThumbHeight - 2.0F * (Style::focusRingWidth + Style::focusRingGap)) * scale,
+            .height = (metrics::kThumbHeight - kRingInset - kRingInset) * scale,
             .flexGrow = 1.0F,
             // The end inset keeps the text lines clear of the selection badge (20 at inset 8).
             .configure = [scale](Flex& flex) {
-              flex.setPadding(Style::spaceSm * scale, (Style::spaceSm + 20.0F + Style::spaceXs) * scale,
+              flex.setPadding(Style::spaceSm * scale, (Style::spaceSm + metrics::kSelectionBadgeSize + Style::spaceXs) * scale,
                               Style::spaceSm * scale, Style::spaceSm * scale);
             },
         });

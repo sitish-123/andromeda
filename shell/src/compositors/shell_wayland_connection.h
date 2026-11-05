@@ -62,12 +62,14 @@ public:
   void setTextInputStateCallback(std::function<void(const TextInputState& state)> callback);
   void setRelockCallback(std::function<void()> callback);
   void setRecoveredCallback(std::function<void()> callback);
+  void setRestartedCallback(std::function<void()> callback);
   bool sendAppActivity(std::uint32_t pid, std::uint32_t flags);
   bool insertText(const std::string& text);
   bool sendKey(std::uint32_t keysym, bool pressed);
   void onShellTextInputState(const TextInputState& state);
   void onShellRelock();
   void onShellRecovered();
+  void onShellRestarted();
   [[nodiscard]] bool hasCompositorLockKeys() const noexcept { return m_hasCompositorLockKeys; }
   [[nodiscard]] WaylandSeat::LockKeysState compositorLockKeys() const noexcept { return m_compositorLockKeys; }
   void onShellAction(const std::string& command);
@@ -160,6 +162,9 @@ private:
   std::function<void(const TextInputState&)> m_textInputStateCallback;
   std::function<void()> m_relockCallback;
   std::function<void()> m_recoveredCallback;
+  std::function<void()> m_restartedCallback;
+  bool m_relockPending = false;
+  bool m_restartedPending = false;
   ChangeCallback m_compositorLockKeysCallback;
   WaylandSeat::LockKeysState m_compositorLockKeys;
   bool m_hasCompositorLockKeys = false;

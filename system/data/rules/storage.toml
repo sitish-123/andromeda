@@ -1,0 +1,27 @@
+# Low disk space (docs/system-health.md §4.3): read every 10 min from `/` and a separate `/home`.
+[[rule]]
+id = "storage.low"
+scope = "session"
+priority = "automatic"
+params = { low_pct = 5, low_gb = 5, ok_pct = 8 }
+when = "storage.free_pct < low_pct and storage.free_gb < low_gb"
+clear = "storage.free_pct > ok_pct"
+alert = { urgency = "normal", text = "storage_low", again = "storage.free_pct" }
+
+# A drive's SMART data fails (docs/system-health.md §12.3): a critical alert that stays until the drive is healthy.
+[[rule]]
+id = "storage.drive_failing"
+scope = "session"
+priority = "safety"
+when = "storage.drive_failing"
+clear = "not storage.drive_failing"
+alert = { urgency = "critical", text = "drive_failing" }
+
+# The `/` or `/home` file system counted errors (ext4 errors_count, btrfs error_stats).
+[[rule]]
+id = "storage.fs_errors"
+scope = "session"
+priority = "safety"
+when = "storage.fs_errors > 0"
+clear = "storage.fs_errors == 0"
+alert = { urgency = "normal", text = "fs_errors" }

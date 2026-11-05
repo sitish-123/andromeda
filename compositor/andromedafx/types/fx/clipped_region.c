@@ -4,10 +4,10 @@
 
 struct fx_corner_radii fx_corner_radii_extend(struct fx_corner_radii corners, int extend) {
   return (struct fx_corner_radii){
-      .top_left = corners.top_left == 0 ? 0 : (corners.top_left + extend),
-      .top_right = corners.top_right == 0 ? 0 : (corners.top_right + extend),
-      .bottom_left = corners.bottom_left == 0 ? 0 : (corners.bottom_left + extend),
-      .bottom_right = corners.bottom_right == 0 ? 0 : (corners.bottom_right + extend),
+      .top_left = corners.top_left <= 0 ? corners.top_left : (corners.top_left + extend),
+      .top_right = corners.top_right <= 0 ? corners.top_right : (corners.top_right + extend),
+      .bottom_left = corners.bottom_left <= 0 ? corners.bottom_left : (corners.bottom_left + extend),
+      .bottom_right = corners.bottom_right <= 0 ? corners.bottom_right : (corners.bottom_right + extend),
   };
 }
 
@@ -19,7 +19,7 @@ void fx_corner_radii_transform(enum wl_output_transform transform, struct fx_cor
 
   unsigned int turns = transform & (WL_OUTPUT_TRANSFORM_90 | WL_OUTPUT_TRANSFORM_180 | WL_OUTPUT_TRANSFORM_270);
   if (turns > 0) {
-    uint16_t points[4] = {corners->top_left, corners->top_right, corners->bottom_right, corners->bottom_left};
+    int16_t points[4] = {corners->top_left, corners->top_right, corners->bottom_right, corners->bottom_left};
     *corners = (struct fx_corner_radii){
         points[turns % 4],
         points[(turns + 1) % 4],

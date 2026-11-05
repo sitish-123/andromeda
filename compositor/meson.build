@@ -56,7 +56,23 @@ wayland_protocols_dep = dependency('wayland-protocols', version: '>=1.47')
 # andromedafx compiles against wlroots' private struct layouts, so it is pinned to
 # one minor series rather than tracking whatever is installed. The floor is
 # 0.20.1: its scene surface code reads `wlr_surface_output.suspended`.
-wlroots_dep = dependency('wlroots-0.20', version: ['>=0.20.1', '<0.21.0'])
+# A distro without wlroots 0.20 (Ubuntu 26.04 ships 0.19) builds it from subprojects/wlroots.wrap as a shared library:
+# andromedafx overrides wlroots symbols by ELF interposition, so a static wlroots would define them twice. Meson
+# ignores a subproject libdir, so the package moves the library to wlroots_private_libdir (pkg/PKGBUILD).
+# No -Werror: our NDEBUG leaves its assert-only variables unused.
+wlroots_private_libdir = 'lib' / 'andromeda'
+wlroots_dep = dependency(
+  'wlroots-0.20',
+  version: ['>=0.20.1', '<0.21.0'],
+  default_options: [
+    'default_library=shared',
+    'werror=false',
+    'examples=false',
+    'session=enabled',
+    'xwayland=enabled',
+    'backends=drm,libinput,x11',
+  ],
+)
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
 
@@ -78,22 +94,19 @@ if test_ipc_opt.enabled() or (test_ipc_opt.auto() and get_option('buildtype') ==
   add_project_arguments('-DANDROMEDA_TEST_IPC', language: 'cpp')
 endif
 
-if cpp.get_define('WLR_HAS_SESSION', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
+# get_variable works for the system wlroots (pkg-config) and the wrap (internal dependency); get_define does not.
+if wlroots_dep.get_variable('have_session') != 'true'
   error('Andromeda requires wlroots built with session support')
 endif
-wlr_has_drm_backend = cpp.get_define(
-  'WLR_HAS_DRM_BACKEND',
-  prefix: '#include <wlr/config.h>',
-  dependencies: wlroots_dep,
-) == '1'
+wlr_has_drm_backend = wlroots_dep.get_variable('have_drm_backend') == 'true'
 add_project_arguments(
   '-DANDROMEDA_HAS_DRM_BACKEND=' + wlr_has_drm_backend.to_int().to_string(),
   language: 'cpp',
 )
-if cpp.get_define('WLR_HAS_LIBINPUT_BACKEND', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
+if wlroots_dep.get_variable('have_libinput_backend') != 'true'
   error('Andromeda requires wlroots built with the libinput backend')
 endif
-if cpp.get_define('WLR_HAS_XWAYLAND', prefix: '#include <wlr/config.h>', dependencies: wlroots_dep) != '1'
+if wlroots_dep.get_variable('have_xwayland') != 'true'
   error('Andromeda requires wlroots built with Xwayland support')
 endif
 
@@ -794,6 +807,10 @@ ext_workspace_client_c = custom_target(
 # compositor and the tests, so a test never recompiles a translation unit. Keep this list free of anything needing
 # andromedafx, pango, or a running server.
 pure_sources = files(
+  'src/qos/actuation.cpp',
+  'src/qos/cpu_topology.cpp',
+  'src/qos/policy.cpp',
+  'src/qos/holds.cpp',
   'src/config/change.cpp',
   'src/config/resolve.cpp',
   'src/config/generated_file.cpp',
@@ -872,6 +889,14 @@ core_sources = files(
   'src/motion/desk_motion.cpp',
   'src/core/application_scope.cpp',
   'src/core/cpu_boost.cpp',
+  'src/core/package_energy.cpp',
+  'src/core/scanout_keeper.cpp',
+  'src/core/drm_clients.cpp',
+  'src/core/screen_activity_recorder.cpp',
+  'src/core/systemd_units.cpp',
+  'src/qos/actuator.cpp',
+  'src/qos/controller.cpp',
+  'src/server/apps_bus.cpp',
   'src/scene/effect_registry.cpp',
   'src/core/fdlimit.cpp',
   'src/core/log.cpp',
@@ -922,6 +947,7 @@ core_sources = files(
   'src/output/zoom.cpp',
   'src/server/effects.cpp',
   'src/output/output.cpp',
+  'src/output/held_frame.cpp',
   'src/output/hdr_metadata.cpp',
   'src/input/seat.cpp',
   'src/input/toplevel_drag.cpp',
@@ -968,6 +994,7 @@ core_sources = files(
   'src/scene/surface_blur.cpp',
   'src/scene/surface_shape.cpp',
   'src/scene/hint_rect.cpp',
+  'src/scene/launch_feedback.cpp',
   'src/scene/border_rect.cpp',
   'src/scene/surface_shadow.cpp',
   'src/scene/config_banner.cpp',
@@ -1049,10 +1076,11 @@ andromeda_core_dep = declare_dependency(
 # every test links.
 andromeda = executable(
   'andromeda',
-  ['src/main.cpp', 'src/core/build_info.cpp', andromeda_git_revision_h],
+  ['src/main.cpp', 'src/core/build_info.cpp', 'src/server/liftoff_deadline.cpp', andromeda_git_revision_h],
   cpp_args: jemalloc_cpp_args + ['-DANDROMEDA_VERSION="' + meson.project_version() + '"'],
   dependencies: [andromeda_core_dep] + jemalloc_deps,
   install: true,
+  install_rpath: wlroots_dep.type_name() == 'internal' ? get_option('prefix') / wlroots_private_libdir : '',
 )
 
 # Unit tests and the harness clients check.sh drives.
@@ -1103,6 +1131,7 @@ configure_file(
 )
 
 install_data(
+  'data/andromeda.socket',
   'data/andromeda-session.target',
   'data/andromeda-shutdown.target',
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',

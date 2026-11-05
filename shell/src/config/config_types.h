@@ -292,7 +292,7 @@ struct IdleBehaviorConfig {
   std::string name;
   bool enabled = true;
   double timeoutSeconds = 0.0;
-  /// lock | screen_off | suspend | lock_and_suspend | hibernate | command (custom shell strings)
+  /// lock | dim | screen_off | suspend | lock_and_suspend | hibernate | command (custom shell strings)
   std::string action;
   std::string command;
   std::string resumeCommand;
@@ -300,6 +300,8 @@ struct IdleBehaviorConfig {
   bool lockBeforeSuspend = true;
   /// Shorter timeout (seconds) applied only while the session is locked; 0 = always use timeoutSeconds.
   double lockedTimeoutSeconds = 0.0;
+  /// any | battery | ac: the behavior runs only while the machine is on that power source.
+  std::string power = "any";
 
   bool operator==(const IdleBehaviorConfig&) const = default;
 };
@@ -343,6 +345,8 @@ enum class IdleActionKind : std::uint8_t {
   Lock,
   ScreenOff,
   ScreenOn,
+  Dim,
+  Undim,
   Suspend,
   LockAndSuspend,
   Hibernate,
@@ -851,27 +855,11 @@ struct OsdConfig {
 };
 
 struct NotificationConfig {
-  static constexpr std::int32_t kDefaultWidth = 360;
-
   bool enableDaemon = true;
   bool showAppName = true;
   bool showActions = true;
-  std::string position = "top_right";
-  std::string layer = "top"; // top | overlay
-  float scale = 1.0F;
-  std::int32_t width = kDefaultWidth;
-  float backgroundOpacity = 0.70F; // tint_regular token alpha; toast card background alpha (0.0–1.0)
-  bool border = true;              // outline around toast cards
-  ColorSpec borderColor = colorSpecFromRole(ColorRole::Stroke);
-  float borderWidth = Style::borderWidth;
-  bool followFocusedOutput = false;
-  int offsetX = 20; // absolute horizontal margin from the screen edge
-  int offsetY = 8;  // absolute vertical margin from the screen edge
-  std::vector<std::string> monitors;
-  bool collapseOnDismiss = true;
   bool keepDismissedInHistory = true;
   int historyRetentionHours = 0;
-  int maxVisible = 0; // 0 = unlimited (space-based only)
 
   std::vector<NotificationFilterConfig> filters;
 
@@ -961,8 +949,6 @@ constexpr EnumOption<PanelTransparencyMode> kPanelTransparencyModes[] = {
     {PanelTransparencyMode::Glass, "glass", "settings.options.shell.panel-transparency.glass"},
 };
 
-[[nodiscard]] float
-panelCardOpacityForTransparencyMode(PanelTransparencyMode mode, float panelBackgroundOpacity) noexcept;
 [[nodiscard]] float detachedPanelBackgroundOpacityForTransparencyMode(PanelTransparencyMode mode) noexcept;
 
 enum class PanelPlacement : std::uint8_t {
@@ -1569,6 +1555,7 @@ struct BrightnessConfig {
   std::vector<std::string> ddcutilIgnoreMmids;
   std::vector<BrightnessMonitorOverride> monitorOverrides;
   float minimumBrightness = 0.0F;
+  bool automatic = true; // built-in panels follow the ambient light sensor
 
   bool operator==(const BrightnessConfig&) const = default;
 };

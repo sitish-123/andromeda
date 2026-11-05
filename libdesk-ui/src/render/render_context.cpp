@@ -43,6 +43,8 @@ namespace {
   constexpr float kSlowRenderOperationDebugMs = 50.0F;
   constexpr float kSlowRenderOperationWarnMs = 1000.0F;
   constexpr float kPaintCullSlack = 16.0F;
+  constexpr auto kGpuCacheIdleExpiry = std::chrono::seconds(15);
+  constexpr auto kCacheExpirySlack = std::chrono::seconds(1);
 
 } // namespace
 
@@ -85,6 +87,39 @@ namespace {
     };
   }
 
+  RenderScissor intersectScissors(const RenderScissor& a, const RenderScissor& b) {
+    const std::int32_t x0 = std::max(a.x, b.x);
+    const std::int32_t y0 = std::max(a.y, b.y);
+    return RenderScissor{
+        .x = x0,
+        .y = y0,
+        .width = std::max(std::int32_t{0}, std::min(a.x + a.width, b.x + b.width) - x0),
+        .height = std::max(std::int32_t{0}, std::min(a.y + a.height, b.y + b.height) - y0),
+    };
+  }
+
+  // Calls fn for each child in paint order (zIndex, stable).
+  template <typename Fn> void forEachChildInPaintOrder(const Node* node, Fn&& fn) {
+    const auto& children = node->children();
+    if (std::ranges::is_sorted(children, {}, [](const auto& child) { return child->zIndex(); })) {
+      for (const auto& child : children) {
+        fn(child.get());
+      }
+      return;
+    }
+    std::vector<const Node*> ordered;
+    ordered.reserve(children.size());
+    for (const auto& child : children) {
+      ordered.push_back(child.get());
+    }
+    std::ranges::stable_sort(ordered, {}, [](const Node* child) { return child->zIndex(); });
+    for (const Node* child : ordered) {
+      fn(child);
+    }
+  }
+
+  // The area a node fills with fully opaque pixels, or nothing. Only solid, axis-aligned rects at full opacity count;
+  // the cover stays inside the corners, the border and the anti-aliased edge.
   Mat3 nodeLocalTransform(const Node* node) {
     const float cx = node->transformOriginX();
     const float cy = node->transformOriginY();
@@ -118,7 +153,19 @@ namespace {
         bottom = std::max(bottom, corner.y);
       }
       pad += std::max(std::abs(text->shadowOffsetX()), std::abs(text->shadowOffsetY()));
+    } else if (node->type() == NodeType::Rect) {
+      // Same overhang as the rect quad (RectProgram::draw: border + softness + 2 px).
+      const auto& style = static_cast<const RectNode*>(node)->style();
+      pad = std::max(pad, style.borderWidth + style.softness + 2.0F);
+    } else if (node->type() == NodeType::Glyph) {
+      const auto* glyph = static_cast<const GlyphNode*>(node);
+      pad += std::max(std::abs(glyph->shadowOffsetX()), std::abs(glyph->shadowOffsetY()));
     }
+    // The pads above are local units; a scaled or rotated node moves its overhang up to its largest axis scale.
+    const Vec2 o = world.transformPoint(0.0F, 0.0F);
+    const Vec2 ax = world.transformPoint(1.0F, 0.0F);
+    const Vec2 ay = world.transformPoint(0.0F, 1.0F);
+    pad *= std::max(1.0F, std::max(std::hypot(ax.x - o.x, ax.y - o.y), std::hypot(ay.x - o.x, ay.y - o.y)));
     return DamageRect{left - pad, top - pad, right + pad, bottom + pad};
   }
 
@@ -199,6 +246,20 @@ void RenderContext::prepareForGraphicsReset() {
   m_backend->abandonAfterGraphicsReset();
 }
 
+void RenderContext::expireIdleCaches() {
+  const auto now = std::chrono::steady_clock::now();
+  if (!makeCurrentNoSurface()) {
+    return;
+  }
+  m_textRenderer.evictUnusedBefore(now - kGpuCacheIdleExpiry);
+  m_glyphRenderer.evictUnusedBefore(now - kGpuCacheIdleExpiry);
+  // Entries the last frame used expire later: one more wake-up, then the timer stays off until the next frame.
+  const auto next = m_lastSceneDraw + kGpuCacheIdleExpiry + kCacheExpirySlack;
+  if (next > now) {
+    m_cacheExpiryTimer.start(std::chrono::ceil<std::chrono::milliseconds>(next - now), [this] { expireIdleCaches(); });
+  }
+}
+
 bool RenderContext::makeCurrentNoSurface() {
   if (m_backend == nullptr || m_graphicsResetPending) {
     return false;
@@ -247,6 +308,8 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
     return false;
   }
   const auto totalStart = std::chrono::steady_clock::now();
+  // Sensitive text rasters from the previous frame: that frame is submitted, so their textures can go.
+  m_textRenderer.releaseTransient();
   const auto sw = static_cast<float>(target.logicalWidth());
   const auto sh = static_cast<float>(target.logicalHeight());
   const auto bw = static_cast<float>(target.bufferWidth());
@@ -254,19 +317,27 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   const DamageRect surfaceRect{0.0F, 0.0F, sw, sh};
 
   // A full repaint is needed when the buffer changed, GPU resources or glyphs were rebuilt, or the wallpaper mask
-  // (drawn over everything) is in use.
+  // changed; an unchanged mask is redrawn inside each repainted rect.
   // NOCTALIA_FULL_REDRAW turns damage tracking off, to rule it out when a surface shows stale pixels.
   static const bool forceFull = std::getenv("NOCTALIA_FULL_REDRAW") != nullptr;
-  bool full = forceFull
-      || target.takeDamageReset(sceneRoot)
-      || sceneRoot == nullptr
-      || wallpaperMask != nullptr
-      || m_glyphTexturesDirty
-      || (m_gpuResourceGeneration != 0 && sceneRoot->gpuResourceGeneration() != m_gpuResourceGeneration);
+  const bool damageReset = target.takeDamageReset(sceneRoot);
+  const bool maskChanged = target.takeWallpaperMaskChange(wallpaperMask);
+  // Why this frame repaints everything (NOCTALIA_PROFILE frame stats); the first reason found wins.
+  const char* fullReason = forceFull ? "env"
+      : damageReset                  ? "reset"
+      : sceneRoot == nullptr         ? "no-root"
+      : maskChanged                  ? "wallpaper-mask"
+      : m_glyphTexturesDirty         ? "glyphs"
+      : (m_gpuResourceGeneration != 0 && sceneRoot->gpuResourceGeneration() != m_gpuResourceGeneration) ? "gpu-reset"
+                                     : nullptr;
+  bool full = fullReason != nullptr;
   DamageRegion damage;
   if (sceneRoot != nullptr) {
     damage = sceneRoot->takePendingDamage();
-    full = !collectDamage(sceneRoot, Mat3::identity(), false, damage) || full;
+    if (!collectDamage(sceneRoot, Mat3::identity(), false, damage) && !full) {
+      full = true;
+      fullReason = "render-proxy";
+    }
   }
   damage.clipTo(surfaceRect);
   if (!full && damage.empty()) {
@@ -280,8 +351,12 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   }
   const float renderScale = target.contentScale();
   std::optional<DamageRegion> repaint;
+  const int bufferAge = full ? -1 : m_backend->bufferAge(target);
   if (!full) {
-    repaint = target.damageHistory().regionFor(m_backend->bufferAge(target), damage);
+    repaint = target.damageHistory().regionFor(bufferAge, damage);
+    if (!repaint) {
+      fullReason = "buffer-age";
+    }
   }
   if (full) {
     damage.clear();
@@ -302,6 +377,8 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
   }
 
   const auto drawStart = std::chrono::steady_clock::now();
+  m_statDrawn = 0;
+  m_statCulled = 0;
   std::vector<DamageRect> bufferDamage;
   {
     UiPhaseScope renderPhase(UiPhase::Render);
@@ -315,21 +392,41 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
     } else {
       const float sx = sw > 0.0F ? bw / sw : 1.0F;
       const float sy = sh > 0.0F ? bh / sh : 1.0F;
-      for (const DamageRect& rect : repaint->rects()) {
-        const DamageRect buffer{
-            std::floor(rect.x0 * sx), std::floor(rect.y0 * sy), std::ceil(rect.x1 * sx), std::ceil(rect.y1 * sy)
-        };
+      const DamageRegion pixels = repaint->toBufferPixels(sx, sy);
+      DamageRect bounds;
+      m_passCount = 0;
+      m_backend->setBlendMode(RenderBlendMode::PremultipliedAlpha);
+      for (const DamageRect& buffer : pixels.rects()) {
         bufferDamage.push_back(buffer);
-        m_backend->setScissor(scissorForClip(sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1));
-        m_backend->setBlendMode(RenderBlendMode::PremultipliedAlpha);
-        m_backend->clear(rgba(0.0F, 0.0F, 0.0F, 0.0F));
-        renderNode(
-            renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, rect.x0, rect.y0, rect.x1, rect.y1, true,
-            false, false
-        );
+        const RenderScissor scissor{
+            .x = static_cast<std::int32_t>(buffer.x0),
+            .y = static_cast<std::int32_t>(bh - buffer.y1),
+            .width = static_cast<std::int32_t>(buffer.x1 - buffer.x0),
+            .height = static_cast<std::int32_t>(buffer.y1 - buffer.y0),
+        };
+        const DamageRect logical{buffer.x0 / sx, buffer.y0 / sy, buffer.x1 / sx, buffer.y1 / sy};
+        m_passes[m_passCount++] = {.scissor = scissor, .logical = logical};
+        bounds = uniteRects(bounds, logical);
       }
+      for (std::size_t i = 0; i < m_passCount; ++i) {
+        m_backend->setScissor(m_passes[i].scissor);
+        m_backend->clear(rgba(0.0F, 0.0F, 0.0F, 0.0F));
+      }
+      renderNode(
+          renderScale, sceneRoot, Mat3::identity(), 1.0F, sw, sh, bw, bh, bounds.x0, bounds.y0, bounds.x1, bounds.y1,
+          true, false, false
+      );
+      // The mask cuts the repainted pixels only; pixels outside the passes keep their earlier cut.
+      if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
+        m_backend->setBlendMode(RenderBlendMode::DestinationOut);
+        for (std::size_t i = 0; i < m_passCount; ++i) {
+          m_backend->setScissor(m_passes[i].scissor);
+          m_backend->drawWallpaperMask(*wallpaperMask);
+        }
+      }
+      m_passCount = 0;
     }
-    if (wallpaperMask != nullptr && wallpaperMask->texture != 0) {
+    if (!repaint && wallpaperMask != nullptr && wallpaperMask->texture != 0) {
       m_backend->disableScissor();
       m_backend->setBlendMode(RenderBlendMode::DestinationOut);
       m_backend->drawWallpaperMask(*wallpaperMask);
@@ -341,6 +438,30 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
       target.bufferWidth(), target.bufferHeight()
   );
 
+  // Drained every frame so a profiled frame shows only its own merged draws.
+  const RenderBackend::BatchStats batch = m_backend->takeBatchStats();
+  if (noctalia::profiling::enabled()) {
+    float area = 0.0F;
+    for (const DamageRect& r : repaint ? repaint->rects() : damage.rects()) {
+      area += r.area();
+    }
+    kLog.info(
+        "frame-stats {}x{} age={} rects={} full={} area={:.0F}% drawn={} culled={} batched={}/{} draw_ms={:.3F}",
+        target.logicalWidth(), target.logicalHeight(), bufferAge, repaint ? repaint->rects().size() : std::size_t{0},
+        fullReason != nullptr ? fullReason : "-", sw * sh > 0.0F ? area * 100.0F / (sw * sh) : 0.0F, m_statDrawn,
+        m_statCulled, batch.rects, batch.draws, ms
+    );
+  }
+  // GPU caches drop what no frame drew for this long, not only what the LRU caps push out (GTK GSK).
+  m_lastSceneDraw = std::chrono::steady_clock::now();
+  m_textRenderer.evictUnusedBefore(m_lastSceneDraw - kGpuCacheIdleExpiry);
+  m_glyphRenderer.evictUnusedBefore(m_lastSceneDraw - kGpuCacheIdleExpiry);
+  if (!m_cacheExpiryTimer.active()) {
+    m_cacheExpiryTimer.start(
+        std::chrono::duration_cast<std::chrono::milliseconds>(kGpuCacheIdleExpiry + kCacheExpirySlack),
+        [this] { expireIdleCaches(); }
+    );
+  }
   m_backend->endFrame(target, bufferDamage);
   const RenderGraphicsResetStatus resetStatus = m_backend->graphicsResetStatus();
   ms = elapsedSince(totalStart);
@@ -423,6 +544,15 @@ TextMetrics RenderContext::measureGlyphScaled(float scale, char32_t codepoint, f
   };
 }
 
+void RenderContext::releaseUnusedCaches() {
+  if (!makeCurrentNoSurface()) {
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  m_textRenderer.evictUnusedBefore(now);
+  m_glyphRenderer.evictUnusedBefore(now);
+}
+
 TextureManager& RenderContext::textureManager() {
   makeCurrentNoSurface();
   return m_backend->textureManager();
@@ -459,24 +589,109 @@ void RenderContext::renderNode(
   Node::transformedBounds(node, worldTransform, boundsLeft, boundsTop, boundsRight, boundsBottom);
 
   const bool paintContained = parentPaintContained || node->paintContained();
+  const auto boundsMiss = [&](const DamageRect& r) {
+    return boundsRight + kPaintCullSlack <= r.x0
+        || boundsLeft - kPaintCullSlack >= r.x1
+        || boundsBottom + kPaintCullSlack <= r.y0
+        || boundsTop - kPaintCullSlack >= r.y1;
+  };
+  const DamageRect clip{clipLeft, clipTop, clipRight, clipBottom};
+  const std::span<const RepaintPass> passes{m_passes.data(), m_passCount};
   if (paintContained
       && hasClip
       && node->type() != NodeType::RenderProxy
       && node->width() > 0.0F
       && node->height() > 0.0F
-      && (boundsRight + kPaintCullSlack <= clipLeft
-          || boundsLeft - kPaintCullSlack >= clipRight
-          || boundsBottom + kPaintCullSlack <= clipTop
-          || boundsTop - kPaintCullSlack >= clipBottom)) {
+      && (boundsMiss(clip) || (m_passCount > 0 && std::ranges::all_of(passes, boundsMiss, &RepaintPass::logical)))) {
+    ++m_statCulled;
     return;
   }
 
-  if (hasClip) {
-    m_backend->setScissor(scissorForClip(sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom));
-  } else {
-    m_backend->disableScissor();
+  if (node->type() == NodeType::RenderProxy) {
+    ++m_statDrawn;
+    const auto* proxy = static_cast<const RenderProxyNode*>(node);
+    const Node* source = proxy->source();
+    bool sourceContainsProxy = false;
+    for (const Node* current = node; current != nullptr; current = current->parent()) {
+      if (current == source) {
+        sourceContainsProxy = true;
+        break;
+      }
+    }
+    if (source != nullptr && !sourceContainsProxy) {
+      const Mat3 sourceParent = worldTransform * Mat3::translation(-source->x(), -source->y());
+      renderNode(
+          renderScale, source, sourceParent, effectiveOpacity, sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom,
+          hasClip, true, false
+      );
+    }
+    return;
   }
 
+  // The node's own draw is skipped where it misses the clip; its children may still reach it. Same bounds as damage.
+  // Glyph nodes have no size (ink sits above and right of the baseline origin), so they are never culled.
+  if (node->type() != NodeType::Base) {
+    const std::optional<DamageRect> paint =
+        hasClip && node->type() != NodeType::Glyph ? paintBounds(node, worldTransform) : std::nullopt;
+    const auto reaches = [&](const DamageRect& r) {
+      return node->type() == NodeType::Glyph || (paint && paint->overlaps(r));
+    };
+    bool drawn = false;
+    if (!hasClip) {
+      m_backend->disableScissor();
+      drawNodeSelf(renderScale, node, worldTransform, effectiveOpacity, sw, sh, bw, bh);
+      drawn = true;
+    } else if (reaches(clip)) {
+      const RenderScissor clipScissor = scissorForClip(sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom);
+      if (m_passCount == 0) {
+        m_backend->setScissor(clipScissor);
+        drawNodeSelf(renderScale, node, worldTransform, effectiveOpacity, sw, sh, bw, bh);
+        drawn = true;
+      }
+      for (std::size_t i = 0; i < m_passCount; ++i) {
+        const RepaintPass& pass = m_passes[i];
+        const RenderScissor scissor = intersectScissors(clipScissor, pass.scissor);
+        if (!reaches(pass.logical) || scissor.width <= 0 || scissor.height <= 0) {
+          continue;
+        }
+        m_backend->setScissor(scissor);
+        drawNodeSelf(renderScale, node, worldTransform, effectiveOpacity, sw, sh, bw, bh);
+        drawn = true;
+      }
+    }
+    ++(drawn ? m_statDrawn : m_statCulled);
+  }
+
+  float childClipLeft = clipLeft;
+  float childClipTop = clipTop;
+  float childClipRight = clipRight;
+  float childClipBottom = clipBottom;
+  bool childHasClip = hasClip;
+
+  if (node->clipChildren()) {
+    childClipLeft = hasClip ? std::max(childClipLeft, boundsLeft) : boundsLeft;
+    childClipTop = hasClip ? std::max(childClipTop, boundsTop) : boundsTop;
+    childClipRight = hasClip ? std::min(childClipRight, boundsRight) : boundsRight;
+    childClipBottom = hasClip ? std::min(childClipBottom, boundsBottom) : boundsBottom;
+    childHasClip = true;
+  }
+
+  if (childHasClip && (childClipRight <= childClipLeft || childClipBottom <= childClipTop)) {
+    return;
+  }
+
+  forEachChildInPaintOrder(node, [&](const Node* child) {
+    renderNode(
+        renderScale, child, worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop, childClipRight,
+        childClipBottom, childHasClip, false, paintContained
+    );
+  });
+}
+
+void RenderContext::drawNodeSelf(
+    float renderScale, const Node* node, const Mat3& worldTransform, float effectiveOpacity, float sw, float sh, float bw,
+    float bh
+) {
   switch (node->type()) {
   case NodeType::Rect: {
     const auto* rect = static_cast<const RectNode*>(node);
@@ -492,6 +707,7 @@ void RenderContext::renderNode(
   case NodeType::Text: {
     const auto* text = static_cast<const TextNode*>(node);
     if (!text->text().empty()) {
+      m_textRenderer.setCaching(!text->sensitive());
       const TextFont& font = text->font();
       if (text->hasShadow()) {
         auto shadowColor = text->shadowColor();
@@ -508,6 +724,7 @@ void RenderContext::renderNode(
           renderScale, sw, sh, 0.0F, 0.0F, text->text(), text->fontSize(), color, worldTransform, font,
           text->maxWidth(), text->maxLines(), text->textAlign(), text->ellipsize(), text->useMarkup()
       );
+      m_textRenderer.setCaching(true);
     }
     break;
   }
@@ -685,84 +902,9 @@ void RenderContext::renderNode(
     }
     break;
   }
-  case NodeType::RenderProxy: {
-    const auto* proxy = static_cast<const RenderProxyNode*>(node);
-    const Node* source = proxy->source();
-    bool sourceContainsProxy = false;
-    for (const Node* current = node; current != nullptr; current = current->parent()) {
-      if (current == source) {
-        sourceContainsProxy = true;
-        break;
-      }
-    }
-    if (source != nullptr && !sourceContainsProxy) {
-      const Mat3 sourceParent = worldTransform * Mat3::translation(-source->x(), -source->y());
-      renderNode(
-          renderScale, source, sourceParent, effectiveOpacity, sw, sh, bw, bh, clipLeft, clipTop, clipRight, clipBottom,
-          hasClip, true, false
-      );
-    }
-    return;
-  }
+  case NodeType::RenderProxy:
   case NodeType::Base:
     break;
-  }
-
-  // Fast path: children are already in zIndex order (the common case — most
-  // callers never touch zIndex, or set it identically across siblings). Skip
-  // allocating/sorting a side vector and iterate the child list directly.
-  // Only fall back to the sorted copy when there's an actual out-of-order
-  // pair, which removes a per-node heap allocation from every rendered frame.
-  const auto& children = node->children();
-  bool childrenSorted = true;
-  for (std::size_t i = 1; i < children.size(); ++i) {
-    if (children[i]->zIndex() < children[i - 1]->zIndex()) {
-      childrenSorted = false;
-      break;
-    }
-  }
-
-  std::vector<const Node*> orderedChildren;
-  if (!childrenSorted) {
-    orderedChildren.reserve(children.size());
-    for (const auto& child : children) {
-      orderedChildren.push_back(child.get());
-    }
-    std::ranges::stable_sort(orderedChildren, [](const Node* a, const Node* b) { return a->zIndex() < b->zIndex(); });
-  }
-
-  float childClipLeft = clipLeft;
-  float childClipTop = clipTop;
-  float childClipRight = clipRight;
-  float childClipBottom = clipBottom;
-  bool childHasClip = hasClip;
-
-  if (node->clipChildren()) {
-    childClipLeft = hasClip ? std::max(childClipLeft, boundsLeft) : boundsLeft;
-    childClipTop = hasClip ? std::max(childClipTop, boundsTop) : boundsTop;
-    childClipRight = hasClip ? std::min(childClipRight, boundsRight) : boundsRight;
-    childClipBottom = hasClip ? std::min(childClipBottom, boundsBottom) : boundsBottom;
-    childHasClip = true;
-  }
-
-  if (childHasClip && (childClipRight <= childClipLeft || childClipBottom <= childClipTop)) {
-    return;
-  }
-
-  if (childrenSorted) {
-    for (const auto& child : children) {
-      renderNode(
-          renderScale, child.get(), worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained
-      );
-    }
-  } else {
-    for (const auto* child : orderedChildren) {
-      renderNode(
-          renderScale, child, worldTransform, effectiveOpacity, sw, sh, bw, bh, childClipLeft, childClipTop,
-          childClipRight, childClipBottom, childHasClip, false, paintContained
-      );
-    }
   }
 }
 

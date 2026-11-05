@@ -241,6 +241,9 @@ namespace {
       noctalia::theme::dev_tokens::applyFromEnv();
       Application app;
       app.run([] { completeDaemonStartup(0); });
+      if (Application::s_displayLost) {
+        return Application::kDisplayLostExitCode;
+      }
     } catch (const std::exception& e) {
       logError("fatal: {}", e.what());
       completeDaemonStartup(1);

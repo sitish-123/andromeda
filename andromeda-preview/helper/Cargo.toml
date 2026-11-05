@@ -1,0 +1,35 @@
+[package]
+name = "andromeda-preview-helper"
+version = "0.1.0"
+edition = "2024"
+# As system/Cargo.toml: the resolver then keeps dependencies buildable with Ubuntu 26.04 rustc 1.93.
+rust-version = "1.89"
+license = "MIT"
+publish = false
+
+[dependencies]
+cairo-rs = { version = "0.22", default-features = false, features = ["png"] }
+glib = "0.22"
+landlock = "0.4"
+log = "0.4"
+poppler-rs = { version = "0.26", features = ["v25_6"] }
+rustix = { version = "1", default-features = false, features = ["std", "fs", "net", "process"] }
+seccompiler = "0.5"
+libc = "0.2"
+gstreamer = "0.25"
+gstreamer-app = { version = "0.25", features = ["v1_24"] }
+gstreamer-video = { version = "0.25", features = ["v1_24"] }
+gstreamer-allocators = "0.25"
+
+[dev-dependencies]
+cairo-rs = { version = "0.22", features = ["pdf"] }
+command-fds = "0.3.3"
+libc = "0.2"
+tempfile = "3.27.0"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[profile.release]
+lto = "thin"
+panic = "abort"

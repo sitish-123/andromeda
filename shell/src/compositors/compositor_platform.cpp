@@ -709,6 +709,12 @@ std::string CompositorPlatform::requestActivationToken(wl_surface* surface, cons
   return m_wayland.requestActivationToken(surface, appId);
 }
 
+void CompositorPlatform::requestActivationTokenAsync(
+    wl_surface* surface, const std::string& appId, std::function<void(std::string token)> done
+) const {
+  m_wayland.requestActivationTokenAsync(surface, appId, std::move(done));
+}
+
 bool CompositorPlatform::hasGammaControl() const noexcept { return m_wayland.hasGammaControl(); }
 
 const std::vector<WaylandOutput>& CompositorPlatform::outputs() const noexcept { return m_wayland.outputs(); }
@@ -1852,6 +1858,16 @@ bool CompositorPlatform::isOverviewOpen() const noexcept {
     return true;
   }
   return m_workspaceMetadataBackend->isOverviewOpen();
+}
+
+bool CompositorPlatform::toggleOverview() const {
+  if (compositors::isAndromeda()) {
+    return andromedaRuntime().requestAction("overview-toggle");
+  }
+  if (compositors::isNiri()) {
+    return niriRuntime().requestAction(nlohmann::json{{"ToggleOverview", nlohmann::json::object()}});
+  }
+  return false;
 }
 
 bool CompositorPlatform::closeOverview() const {

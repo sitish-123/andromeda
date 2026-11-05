@@ -58,6 +58,7 @@ public:
 
   void create() override;
   void onOpen(std::string_view context) override;
+  [[nodiscard]] std::string handoffContext() const override;
   void onClose() override;
   void onIconThemeChanged() override;
 
@@ -66,7 +67,7 @@ public:
 
   // Invoked after a terminal close when the activation copied text and the provider
   // supports auto-paste. The host schedules virtual-keyboard paste (clipboard path).
-  void setCopiedActivationCallback(std::function<void()> callback) { m_onCopiedActivation = std::move(callback); }
+  void setCopiedActivationCallback(std::function<void(bool isImage)> callback) { m_onCopiedActivation = std::move(callback); }
 
   void setOnAppLaunchCallback(std::function<void()> callback) { m_onAppLaunch = std::move(callback); }
 
@@ -300,6 +301,6 @@ private:
   std::string m_launcherAvatarPath;
   std::unique_ptr<ContextMenuPopup> m_actionsMenu;
   Signal<>::ScopedConnection m_appIconColorizeConn;
-  std::function<void()> m_onCopiedActivation;
+  std::function<void(bool isImage)> m_onCopiedActivation;
   std::function<void()> m_onAppLaunch;
 };

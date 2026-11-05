@@ -84,7 +84,7 @@ void LockAlert::layout(Renderer& renderer, float sw, float sh, float scale) {
   m_title->setMaxWidth(inner);
   m_title->setMaxLines(2);
   m_title->measure(renderer);
-  m_body->setFontSize(13.0F * s);
+  m_body->setFontSize(Tokens::typeBody.size * s);
   m_body->setLineHeight(20.0F * s);
   m_body->setColor(kLabel2);
   (void)m_body->setText(m_state.body);
@@ -96,7 +96,7 @@ void LockAlert::layout(Renderer& renderer, float sw, float sh, float scale) {
   m_panelRect = {snap((sw - w) * 0.5F), snap((sh - h) * 0.5F), w, snap(h)};
   m_panel->setPosition(m_panelRect.x, m_panelRect.y);
   m_panel->setSize(m_panelRect.w, m_panelRect.h);
-  m_panel->setStyle(RoundedRectStyle{.fill = kPopover, .border = kStroke, .radius = 24.0F * s, .borderWidth = 0.5F * s});
+  m_panel->setStyle(RoundedRectStyle{.fill = kPopover, .border = kStroke, .radius = Tokens::radiusR24 * s, .borderWidth = 0.5F * s});
   const float x = m_panelRect.x + pad;
   float y = m_panelRect.y + pad;
   m_title->setPosition(x, y);
@@ -111,7 +111,7 @@ void LockAlert::layout(Renderer& renderer, float sw, float sh, float scale) {
   m_cancel->setSize(bw, button);
   const float ring = 2.0F * s;
   m_cancel->setStyle(RoundedRectStyle{
-      .fill = kFill2, .border = kFocusRing, .radius = 8.0F * s, .borderWidth = m_state.confirmFocused ? 0.0F : ring
+      .fill = kFill2, .border = kFocusRing, .radius = Tokens::radiusR8 * s, .borderWidth = m_state.confirmFocused ? 0.0F : ring
   });
   m_confirm->setPosition(m_confirmRect.x, y);
   m_confirm->setSize(bw, button);

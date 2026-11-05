@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "config/resolve.h"
 #include "core/log.h"
+#include "core/scanout_keeper.h"
 #include "core/tracy.h"
 #include "input/cursor.h"
 #include "input/seat.h"
@@ -18,6 +19,7 @@
 #include "output/mirror.h"
 #include "output/zoom.h"
 #include "output/mode_selection.h"
+#include "qos/holds.h"
 #include "output/rendered_state_commit.h"
 #include "output/sdr_format.h"
 #include "overview/overview.h"
@@ -43,6 +45,8 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cassert>
 #include <cmath>
@@ -50,6 +54,7 @@ extern "C" {
 #include <ctime>
 #include <drm_fourcc.h>
 #include <format>
+#include <thread>
 
 #ifdef TRACY_ENABLE
 #include <set>
@@ -60,6 +65,11 @@ namespace andromeda {
   namespace {
     constexpr Logger kLog("output");
     constexpr int kFrameRetryDelayMs = 16;
+    // A nonblocking flip can fail with EBUSY while the kernel still finishes the previous commit on a plane
+    // ("busy with a previous commit"); it clears within about a millisecond. Committing the built state again beats
+    // re-rendering on the 16 ms retry.
+    constexpr int kBusyCommitRetries = 3;
+    constexpr auto kBusyCommitRetryDelay = std::chrono::microseconds(1000);
     // wlroots paces frame callbacks and picks buffer scale from every output a surface overlaps, so an off-layout
     // output that keeps drawing (a mirror) must sit where no surface can reach it.
     constexpr int kOffLayoutOrigin = -(1 << 24);
@@ -94,6 +104,8 @@ namespace andromeda {
         return "rejected";
       case WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE:
         return "debug_damage";
+      case WLR_SCENE_DIRECT_SCANOUT_OVERLAY:
+        return "overlay";
       }
       return "unknown";
     }
@@ -184,7 +196,21 @@ namespace andromeda {
       kLog.error("output '{}': failed to create scene output", m_output->name);
       std::abort();
     }
-    wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
+    m_foreignPlanes = foreignPlanes(m_output);
+    if (wlr_output_is_drm(m_output)) {
+      kLog.info("output '{}': {} planes left by the previous master", m_output->name, m_foreignPlanes.size());
+      m_awaitingFirstFrame = true;
+      scanout_keeper::expectFirstFrame();
+    }
+    // Before the first commit: the greeter's frame is still on the CRTC and stays on screen through the modeset.
+    if (HeldFrame::loginHandoff()) {
+      m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
+    }
+    if (m_heldFrame != nullptr) {
+      m_heldFrameTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onHeldFrameTimer, this);
+      wl_event_source_timer_update(m_heldFrameTimer, 3000);
+    }
+    applyDirectScanoutConfig();
 
     m_frame.connect(&m_output->events.frame, this, onFrame);
 
@@ -196,6 +222,7 @@ namespace andromeda {
 
     m_frameRetryTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onFrameRetryTimer, this);
+        wl_display_get_event_loop(m_server->display()),
     m_backdropTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onBackdropTimer, this);
     m_directScanoutTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onDirectScanoutTimer, this);
@@ -211,6 +238,17 @@ namespace andromeda {
     if (desktopEnabled()) {
       wlr_output_layout_output* layoutOutput = addToLayout();
       wlr_scene_output_layout_add_output(m_server->sceneLayout(), layoutOutput, m_sceneOutput);
+    }
+    if (m_heldFrame != nullptr) {
+      wlr_box box{};
+      wlr_output_layout_get_box(m_server->outputLayout(), m_output, &box);
+      // The CRTC frame is in panel pixels: it maps 1:1 only onto an enabled, unrotated output of the same mode.
+      if (!desktopEnabled() || wlr_box_empty(&box) || m_output->transform != WL_OUTPUT_TRANSFORM_NORMAL
+          || m_heldFrame->bufferWidth() != m_output->width || m_heldFrame->bufferHeight() != m_output->height) {
+        dropHeldFrame();
+      } else {
+        m_heldFrame->setBox(box.x, box.y, box.width, box.height);
+      }
     }
     m_server->resolveOutputEffect(*this);
     applyOutputEffects();
@@ -566,6 +604,8 @@ namespace andromeda {
 
   void Output::applyDirectScanoutConfig() {
     wlr_scene_output_set_direct_scanout_enabled(m_sceneOutput, configuredDirectScanoutEnabled());
+    const OutputRule* rule = findOutputRule(config(), identity());
+    wlr_scene_output_set_overlay_planes_enabled(m_sceneOutput, rule == nullptr || rule->overlayPlanes);
   }
 
   void Output::setHdrFallbackReason(std::string_view reason) {
@@ -626,6 +666,16 @@ namespace andromeda {
   }
 
   bool Output::applyConfiguredState(bool stageGeometry) {
+    const bool committed = commitConfiguredState(stageGeometry);
+    // A disabled output never presents; the next compositor's release must not wait for it.
+    if (m_awaitingFirstFrame && !m_output->enabled) {
+      m_awaitingFirstFrame = false;
+      scanout_keeper::firstFrameShown();
+    }
+    return committed;
+  }
+
+  bool Output::commitConfiguredState(bool stageGeometry) {
     if (m_workspaceGroup != nullptr) {
       m_workspaceGroup->abandonReveal();
     }
@@ -666,7 +716,7 @@ namespace andromeda {
           }
         }
       } else if (!wlr_output_is_wl(m_output)) {
-        stagedMode = fastestPreferredMode(m_output);
+        stagedMode = fastestPreferredMode(m_output, static_cast<int>(qos::registry().refreshCap * 1000));
         if (stagedMode != nullptr) {
           keptLiveMode = keepLiveModeOrStage(state, *m_output, stagedMode);
         }
@@ -1220,6 +1270,8 @@ namespace andromeda {
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
       wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
+      // A held frame lives in layout space: off the layout it would cover another output.
+      dropHeldFrame();
     }
     applyOutputEffects();
     markDirty(Dirty::LayerArrange | Dirty::Banner);
@@ -1250,6 +1302,8 @@ namespace andromeda {
     } else {
       wlr_output_layout_remove(m_server->outputLayout(), m_output);
       wlr_scene_output_set_position(m_sceneOutput, kOffLayoutOrigin, kOffLayoutOrigin);
+      // A held frame lives in layout space: off the layout it would cover another output.
+      dropHeldFrame();
     }
     applyOutputEffects();
     handleExternalConfigChange();
@@ -1452,13 +1506,16 @@ namespace andromeda {
   }
 
   // One line per rendered frame: monotonic ns at build, output name, CPU build ns, GPU render ns, then effect work
-  // (fx_frame_stats): blurs blur_px lens lens_px backdrop_rebuilds backdrop_px fp16_passes.
+  // (fx_frame_stats): blurs blur_px lens lens_px backdrop_rebuilds backdrop_px fp16_passes, cpu and GPU-exec ns, rects
+  // rect_px, then the damage: pixel count, x y width height of its extents.
   struct Output::FrameTimers {
     static constexpr std::size_t kDepth = 3;
     std::array<wlr_scene_timer, kDepth> timers{};
     std::array<bool, kDepth> used{};
     std::array<int64_t, kDepth> startNs{};
     std::array<fx_frame_stats, kDepth> stats{};
+    // Damaged buffer area of the built frame: pixel count, then the extents box.
+    std::array<std::array<int64_t, 5>, kDepth> damage{};
     std::size_t next = 0;
     std::size_t built = kDepth;
 
@@ -1489,21 +1546,40 @@ namespace andromeda {
           int64_t cpuNs = -1;
           int64_t gpuExecNs = -1;
           (void)fx_render_timer_split(timer->render_timer, &cpuNs, &gpuExecNs);
-          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld\n", static_cast<long long>(startNs[next]),
+          const auto& dmg = damage[next];
+          std::fprintf(log(), "%lld %s %lld %lld %u %llu %u %llu %u %llu %u %lld %lld %u %llu %lld %lld %lld %lld %lld\n", static_cast<long long>(startNs[next]),
                        output, static_cast<long long>(timer->pre_render_duration),
                        static_cast<long long>(total - timer->pre_render_duration), st.blurs,
                        static_cast<unsigned long long>(st.blur_px), st.lens, static_cast<unsigned long long>(st.lens_px),
                        st.backdrop_rebuilds, static_cast<unsigned long long>(st.backdrop_px), st.fp16_passes,
-                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs));
+                       static_cast<long long>(cpuNs), static_cast<long long>(gpuExecNs), st.rects,
+                       static_cast<unsigned long long>(st.rect_px), static_cast<long long>(dmg[0]),
+                       static_cast<long long>(dmg[1]), static_cast<long long>(dmg[2]), static_cast<long long>(dmg[3]),
+                       static_cast<long long>(dmg[4]));
         }
       }
       built = next;
+      damage[next] = {};
       timespec now{};
       clock_gettime(CLOCK_MONOTONIC, &now);
       startNs[next] = static_cast<int64_t>(now.tv_sec) * 1000000000LL + now.tv_nsec;
       used[next] = true;
       next = (next + 1) % kDepth;
       return timer;
+    }
+
+    void recordDamage(const wlr_output_state& state) {
+      if (built >= kDepth || (state.committed & WLR_OUTPUT_STATE_DAMAGE) == 0) {
+        return;
+      }
+      int64_t px = 0;
+      int n = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(&state.damage, &n);
+      for (int i = 0; i < n; ++i) {
+        px += static_cast<int64_t>(rects[i].x2 - rects[i].x1) * (rects[i].y2 - rects[i].y1);
+      }
+      const pixman_box32_t* e = pixman_region32_extents(&state.damage);
+      damage[built] = {px, e->x1, e->y1, e->x2 - e->x1, e->y2 - e->y1};
     }
 
     ~FrameTimers() {
@@ -1516,6 +1592,9 @@ namespace andromeda {
   };
 
   Output::~Output() {
+    if (m_awaitingFirstFrame) {
+      scanout_keeper::firstFrameShown();
+    }
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
     }
@@ -1539,6 +1618,7 @@ namespace andromeda {
       wl_event_source_remove(m_effectFrameTimer);
       m_effectFrameTimer = nullptr;
     }
+    dropHeldFrame();
     if (m_directScanoutTimer != nullptr) {
       wl_event_source_remove(m_directScanoutTimer);
       m_directScanoutTimer = nullptr;
@@ -1805,6 +1885,47 @@ namespace andromeda {
 
   void Output::onBackgroundUpdate(Output* self, void* data) {
     self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
+    // The shell's wallpaper is up: give the bar 300 ms to join, then cross.
+    if (self->m_heldFrame != nullptr && !self->m_heldFrameGated) {
+      self->m_heldFrameGated = true;
+      wl_event_source_timer_update(self->m_heldFrameTimer, 300);
+    }
+  }
+
+  int Output::onHeldFrameTimer(void* data) {
+    static_cast<Output*>(data)->releaseHeldFrame();
+    return 0;
+  }
+
+  void Output::releaseHeldFrame() {
+    if (m_heldFrame == nullptr || m_heldFrame->released()) {
+      return;
+    }
+    m_heldFrame->release(config().appearance.reduceMotion);
+    m_heldFrameLastStep = std::chrono::steady_clock::now();
+    wlr_output_schedule_frame(m_output);
+  }
+
+  void Output::dropHeldFrame() {
+    if (m_heldFrameTimer != nullptr) {
+      wl_event_source_remove(m_heldFrameTimer);
+      m_heldFrameTimer = nullptr;
+    }
+    m_heldFrame.reset();
+  }
+
+  void Output::stepHeldFrame() {
+    if (m_heldFrame == nullptr || !m_heldFrame->released()) {
+      return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    const double seconds = std::chrono::duration<double>(now - m_heldFrameLastStep).count();
+    m_heldFrameLastStep = now;
+    if (m_heldFrame->step(seconds)) {
+      wlr_output_schedule_frame(m_output);
+    } else {
+      m_heldFrame.reset();
+    }
   }
 
   void Output::onBackgroundPopupUpdate(Output* self, void* data) {
@@ -2048,6 +2169,7 @@ namespace andromeda {
       return;
     }
     const OutputFrameScope frameScope(*m_server);
+    stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
     if (m_frameRetryArmed) {
       wl_event_source_timer_update(m_frameRetryTimer, 0);
@@ -2233,6 +2355,7 @@ namespace andromeda {
       sceneOptions.effect_capture_pending = effectCapturePending(captureLocks);
       m_effectCaptureBuilt = sceneOptions.effect_capture_pending;
       sceneOptions.require_animation_success = m_workspaceGroup != nullptr && m_workspaceGroup->revealActive();
+      sceneOptions.animation_render_locks = m_animationRenderLocked ? 1 : 0;
       if (sceneOptions.require_animation_success) {
         sceneOptions.workspace_from = m_workspaceGroup->revealRoot(false);
         sceneOptions.workspace_to = m_workspaceGroup->revealRoot(true);
@@ -2250,6 +2373,9 @@ namespace andromeda {
       {
         ANDROMEDA_ZONE("Output::buildState");
         built = wlr_scene_output_build_state(m_sceneOutput, &state, &sceneOptions);
+      }
+      if (built && m_frameTimers != nullptr) {
+        m_frameTimers->recordDamage(state);
       }
       if (!built && sceneOptions.require_animation_success) {
         // Reject the incomplete frame and resume native slide at the same progress.
@@ -2299,7 +2425,25 @@ namespace andromeda {
         {
           ANDROMEDA_ZONE("Output::commitState");
           SceneCommit observation(*this, state);
+          errno = 0;
           commitOk = wlr_output_commit_state(m_output, &state);
+          if (!commitOk && hasBuffer && errno == EBUSY) {
+            ++m_busyStats.busy;
+            for (int retry = 1; !commitOk && errno == EBUSY && retry <= kBusyCommitRetries; ++retry) {
+              std::this_thread::sleep_for(kBusyCommitRetryDelay);
+              errno = 0;
+              commitOk = wlr_output_commit_state(m_output, &state);
+            }
+            ++(commitOk ? m_busyStats.retriedOk : m_busyStats.gaveUp);
+          }
+          const auto now = std::chrono::steady_clock::now();
+          if (m_busyStats.busy > 0 && now - m_busyStats.since >= std::chrono::seconds(1)) {
+            kLog.info(
+                "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
+                m_busyStats.retriedOk, m_busyStats.gaveUp
+            );
+            m_busyStats = {.since = now};
+          }
         }
         if (hasBuffer) {
           m_tearingRecovery.recordCommit(commitTearing, commitOk);
@@ -2391,6 +2535,9 @@ namespace andromeda {
 
     // Unconditional: see comment above. Never gate this on commit success.
     wlr_scene_output_send_frame_done(m_sceneOutput, &now);
+    if (m_workspaceGroup != nullptr) {
+      m_workspaceGroup->sendSlideFrameDone(&now);
+    }
   }
 
   void Output::handleRequestState(void* data) {
@@ -2426,6 +2573,16 @@ namespace andromeda {
 
   void Output::handlePresent(void* data) {
     const auto* event = static_cast<const wlr_output_event_present*>(data);
+    if (event->presented && !m_foreignPlanes.empty()) {
+      if (const int count = disableForeignPlanes(m_output, m_foreignPlanes); count > 0) {
+        kLog.info("output '{}': turned off {} planes left by the previous master", m_output->name, count);
+      }
+      m_foreignPlanes.clear();
+    }
+    if (event->presented && m_awaitingFirstFrame) {
+      m_awaitingFirstFrame = false;
+      scanout_keeper::firstFrameShown();
+    }
 #ifdef TRACY_ENABLE
     if (event->presented) {
       if (m_tracyIntervalPlot == nullptr) {
@@ -2504,6 +2661,7 @@ namespace andromeda {
     }
     m_mirrorSource = source;
     m_mirrorDirty = true;
+    m_server->updatePresenting();
     if (source != nullptr) {
       source->attachMirrorTarget();
       kLog.info("output '{}': mirroring '{}'", m_output->name, source->m_output->name);

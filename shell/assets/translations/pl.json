@@ -2211,7 +2211,6 @@
           "label": "Zatrzymaj ekran"
         },
         "screenshot-pipe-command": {
-          "description": "Polecenie uruchamiane jako /bin/sh -lc z PNG na stdin; do edytorów adnotacji lub przesyłania (na przykład: swappy -f - lub satty -f -)",
           "label": "Polecenie potoku",
           "placeholder": "swappy -f -"
         },

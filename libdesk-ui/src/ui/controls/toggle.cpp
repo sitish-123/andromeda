@@ -8,11 +8,13 @@
 #include "render/scene/rect_node.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <memory>
 
 Toggle::Toggle() {
+  setAccessible({.role = AccessibleRole::ToggleButton, .checked = false, .actionName = "toggle"});
   setAlign(FlexAlign::Center);
   setDirection(FlexDirection::Horizontal);
   setMirrorInRtl(false);
@@ -59,6 +61,7 @@ Toggle::Toggle() {
 }
 
 void Toggle::setChecked(bool checked) {
+  accessibleState().checked = checked;
   if (m_checked == checked) {
     return;
   }
@@ -86,6 +89,7 @@ void Toggle::setChecked(bool checked) {
 }
 
 void Toggle::setCheckedImmediate(bool checked) {
+  accessibleState().checked = checked;
   if (m_checked == checked) {
     return;
   }
@@ -102,6 +106,7 @@ void Toggle::setCheckedImmediate(bool checked) {
 }
 
 void Toggle::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }

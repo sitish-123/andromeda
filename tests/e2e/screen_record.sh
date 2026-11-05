@@ -10,6 +10,9 @@ OUT=${OUT:-$(pwd)/artifacts/screen-record}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 export NOCTALIA_RECORD_TEST_SOURCE=1
+# A Videos dir whose name has quotes and spaces: the file path must reach filesink as a value, never parsed text.
+mkdir -p "$RUNTIME/home/.config"
+printf 'XDG_VIDEOS_DIR="$HOME/My \\"Clips\\""\n' > "$RUNTIME/home/.config/user-dirs.dirs"
 rm -f "$OUT"/*.mp4 "$OUT"/*.txt
 
 with_noctalia '

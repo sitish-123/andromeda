@@ -301,6 +301,56 @@ bool wlr_scene_node_set_surface_opacity(struct wlr_scene_node* node, float multi
   return true;
 }
 
+static const struct wlr_addon_interface surface_opaque_ignored_impl = {
+    .name = "scene_surface_opaque_ignored",
+    .destroy = surface_opacity_destroy,
+};
+
+// A surface under a node marked with this addon draws as if its client declared no opaque region.
+static bool surface_opaque_region_ignored(struct wlr_scene_surface* surface) {
+  for (struct wlr_scene_node* node = &surface->buffer->node; node != NULL;
+       node = node->parent != NULL ? &node->parent->node : NULL) {
+    if (wlr_addon_find(&node->addons, &surface_opaque_ignored_impl, &surface_opaque_ignored_impl) != NULL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void surface_reconfigure(struct wlr_scene_surface* scene_surface);
+
+static void scene_node_reconfigure_surfaces(struct wlr_scene_node* node) {
+  if (node->type == WLR_SCENE_NODE_BUFFER) {
+    struct wlr_scene_surface* surface = wlr_scene_surface_try_from_buffer(wlr_scene_buffer_from_node(node));
+    if (surface != NULL) {
+      surface_reconfigure(surface);
+    }
+  } else if (node->type == WLR_SCENE_NODE_TREE) {
+    struct wlr_scene_node* child;
+    wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+      scene_node_reconfigure_surfaces(child);
+    }
+  }
+}
+
+bool wlr_scene_node_set_surface_opaque_region_ignored(struct wlr_scene_node* node, bool ignored) {
+  struct wlr_addon* addon = wlr_addon_find(&node->addons, &surface_opaque_ignored_impl, &surface_opaque_ignored_impl);
+  if ((addon != NULL) == ignored) {
+    return true;
+  }
+  if (ignored) {
+    struct surface_opacity* marker = calloc(1, sizeof(*marker));
+    if (marker == NULL) {
+      return false;
+    }
+    wlr_addon_init(&marker->addon, &node->addons, &surface_opaque_ignored_impl, &surface_opaque_ignored_impl);
+  } else {
+    surface_opacity_destroy(addon);
+  }
+  scene_node_reconfigure_surfaces(node);
+  return true;
+}
+
 struct surface_color_resolver {
   struct wlr_addon addon;
   wlr_scene_surface_color_resolver_func_t resolve;
@@ -385,6 +435,12 @@ static void surface_reconfigure(struct wlr_scene_surface* scene_surface) {
   struct wlr_fbox src_box;
   wlr_surface_get_buffer_source_box(surface, &src_box);
 
+  pixman_region32_t opaque;
+  pixman_region32_init(&opaque);
+  if (!surface_opaque_region_ignored(scene_surface)) {
+    pixman_region32_copy(&opaque, &surface->opaque_region);
+  }
+
   int width = state->width;
   int height = state->height;
   double scale = scene_surface->scale;
@@ -412,10 +468,18 @@ static void surface_reconfigure(struct wlr_scene_surface* scene_surface) {
     src_box.height *= (double)height / state->height;
 
     wlr_fbox_transform(&src_box, &src_box, wlr_output_transform_invert(state->transform), buffer_width, buffer_height);
+
+    pixman_region32_translate(&opaque, -clip.x, -clip.y);
+    // A shrunk subsurface can push width or height negative; the empty
+    // check below drops the buffer, so keep pixman off the invalid rect.
+    if (width > 0 && height > 0) {
+      pixman_region32_intersect_rect(&opaque, &opaque, 0, 0, width, height);
+    }
   }
 
   if (width <= 0 || height <= 0) {
     wlr_scene_buffer_set_buffer(scene_buffer, NULL);
+    pixman_region32_fini(&opaque);
     return;
   }
 
@@ -437,10 +501,14 @@ static void surface_reconfigure(struct wlr_scene_surface* scene_surface) {
   if (scale != 1.0) {
     dest_width = max(1, (int)round(width / scale));
     dest_height = max(1, (int)round(height / scale));
+    pixman_region32_t scaled;
+    pixman_region32_init(&scaled);
+    wlr_region_scale(&scaled, &opaque, (float)(1.0 / scale));
+    pixman_region32_fini(&opaque);
+    opaque = scaled;
   }
 
-  // The client's opaque region is not applied: a client that declares a translucent ARGB buffer opaque (Zen Browser)
-  // would be drawn without blending, so premultiplied pixels show dark. Only a buffer format without alpha is opaque.
+  wlr_scene_buffer_set_opaque_region(scene_buffer, &opaque);
   wlr_scene_buffer_set_source_box(scene_buffer, &src_box);
   wlr_scene_buffer_set_dest_size(scene_buffer, dest_width, dest_height);
   wlr_scene_buffer_set_transform(scene_buffer, state->transform);
@@ -481,6 +549,8 @@ static void surface_reconfigure(struct wlr_scene_surface* scene_surface) {
   } else {
     wlr_scene_buffer_set_buffer(scene_buffer, NULL);
   }
+
+  pixman_region32_fini(&opaque);
 }
 
 static void handle_scene_surface_surface_commit(struct wl_listener* listener, void* data) {

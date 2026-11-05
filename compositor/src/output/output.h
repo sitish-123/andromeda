@@ -1,5 +1,9 @@
 #pragma once
 
+#include "output/held_frame.h"
+
+#include <chrono>
+
 #include "core/dirty.h"
 #include "output/cursor_plane_pace.h"
 #include "output/direct_scanout.h"
@@ -246,6 +250,7 @@ namespace andromeda {
     // Full configuration stages geometry. Frame-bound HDR transitions reuse
     // the live geometry and carry a freshly rendered scene buffer.
     [[nodiscard]] bool applyConfiguredState(bool stageGeometry = true);
+    [[nodiscard]] bool commitConfiguredState(bool stageGeometry);
     [[nodiscard]] bool autoHdrEligible(const View* view) const;
     [[nodiscard]] View* findAutoHdrCandidate() const;
     [[nodiscard]] bool configuredVrrEnabled() const;
@@ -301,6 +306,13 @@ namespace andromeda {
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
     bool m_animationRenderLocked = false;
+    // EBUSY page flips per one-second log window.
+    struct {
+      std::chrono::steady_clock::time_point since;
+      int busy = 0;
+      int retriedOk = 0;
+      int gaveUp = 0;
+    } m_busyStats;
     CursorPlaneState m_lastCursorPlane{};
 #ifdef ANDROMEDA_TEST_IPC
     std::optional<CursorPlaneState> m_syntheticPlaneCursor;
@@ -335,6 +347,18 @@ namespace andromeda {
     wlr_buffer* m_lastFrame = nullptr;
     wl_event_source* m_effectFrameTimer = nullptr;
     wl_event_source* m_directScanoutTimer = nullptr;
+    // Login cross (output/held_frame.h): the greeter's frame until the shell's wallpaper commits (+300 ms for the bar)
+    // or 3 s pass.
+    std::unique_ptr<HeldFrame> m_heldFrame;
+    std::vector<ForeignPlane> m_foreignPlanes; // until the first present
+    bool m_awaitingFirstFrame = false;
+    wl_event_source* m_heldFrameTimer = nullptr;
+    bool m_heldFrameGated = false;
+    std::chrono::steady_clock::time_point m_heldFrameLastStep{};
+    void releaseHeldFrame();
+    void dropHeldFrame();
+    void stepHeldFrame();
+    static int onHeldFrameTimer(void* data);
     DirectScanoutTracker m_directScanout;
     uint64_t m_lastEffectFrameMsec = 0;
     bool m_effectFrameDue = false;

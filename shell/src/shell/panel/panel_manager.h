@@ -1,5 +1,6 @@
 #pragma once
 #include "config/config_types.h"
+#include "design_tokens.h"
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
@@ -70,6 +71,8 @@ public:
   PanelManager& operator=(const PanelManager&) = delete;
 
   static PanelManager& instance();
+  // An app launch from the open panel starts from `node` (dsk_surface_v1.launch_from); call it just before launching.
+  void launchFrom(const Node& node) const;
   static PanelManager* current() noexcept;
 
   void initialize(CompositorPlatform& platform, ConfigService* config, RenderContext* renderContext);
@@ -137,7 +140,7 @@ public:
 
   [[nodiscard]] bool isOpen() const noexcept;
   // Time the open spring needs to travel 35 % of its way: the content fades in from then on.
-  [[nodiscard]] static std::chrono::milliseconds openContentGate();
+  [[nodiscard]] static std::chrono::milliseconds openContentGate(const Tokens::Spring& spring = Tokens::springOpen);
   [[nodiscard]] bool isOpenPanel(std::string_view panelId) const noexcept;
   [[nodiscard]] bool isPanelTransitionActive() const noexcept;
   [[nodiscard]] bool isAttachedOpen() const noexcept;
@@ -242,6 +245,8 @@ private:
   [[nodiscard]] static DskSurfaceClient::Curve opacityCurve(bool fast);
   void fadeSceneRoot(float to, std::function<void()> onDone);
   [[nodiscard]] DskSurfaceClient::Value detachedSheetRect() const;
+  [[nodiscard]] DskSurfaceClient::Curve openCurve() const;
+  [[nodiscard]] const Tokens::Spring& openSpringToken() const;
   // Floating panel material: the island's glass for a panel grown from one, else shell.panel transparency.
   [[nodiscard]] float detachedBackgroundOpacity() const;
   // The detached panel fill alpha (tint_thick), eased toward the liquid tint while setPanelLiquid is on.
@@ -254,11 +259,23 @@ private:
   void bindBackdrop();
   // Low-contrast backdrop (light glass on dark, dark glass on bright): m_glassDark -> 1; instant skips the cross-fade.
   void updateGlassTone(bool instant = false);
-  void releaseHeldOpen();
+  // True when the compositor draws this sheet's tint (dsk v9); the sheet then paints no material fill.
+  [[nodiscard]] bool compositorTint() const;
+  // The sheet tint alpha `liquid` (0 to 1) of the way to the launcher pill's shape tint.
+  [[nodiscard]] float sheetTintAlpha(float liquid) const;
+  // Sends the sheet tint to the compositor; `animate` runs it on the open spring with the liquid value.
+  void sendSheetTint(bool animate = false);
   [[nodiscard]] float densityCardOpacity(float opacity) const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
   void startAttachedOpenAnimation();
+  // The attached reveal on compositor springs: the surface slides by `travel` px under a clip that stays put at the
+  // bar edge. False without dsk or with reduced motion; the shell reveal runs then.
+  [[nodiscard]] bool attachedRevealOnCompositor() const;
+  [[nodiscard]] double attachedRevealMaxTravel() const;
+  [[nodiscard]] DskSurfaceClient::Value attachedRevealShift(double travel) const;
+  [[nodiscard]] DskSurfaceClient::Value attachedRevealClip(double travel) const;
+  bool startAttachedCompositorClose(std::uint64_t gen);
   void publishAttachedPanelGeometry(float revealProgress);
   // Restyle the attached-panel decoration nodes (bg fill, drop shadow, contact shadow)
   // using the cached attached background opacity and bar position. Geometry/positions are not touched.
@@ -401,8 +418,6 @@ private:
   Timer m_keyboardRelaxTimer;
   Timer m_contentGateTimer;
   // The scale-open motion, held until the first backdrop measurement (light glass) or 50 ms.
-  Timer m_openHoldTimer;
-  std::function<void()> m_pendingOpen;
   // Content opacity from the 35 % gate (rulebook 7.4 / P5): 0 until the open spring has travelled 35 %, then fades in.
   float m_contentGate = 1.0F;
   // Grow / Return (rulebook 7.4): the client mirrors the compositor's clip spring as a 0..1 progress and fits the

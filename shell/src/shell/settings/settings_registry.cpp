@@ -106,12 +106,19 @@ namespace settings {
         {"andromeda", "overview"},
     }};
 
-    const SettingsSectionDescriptor& descriptorFor(SettingsSection section) {
-      const auto* it = std::ranges::find(kSettingsSections, section, &SettingsSectionDescriptor::section);
-      if (it == kSettingsSections.end()) {
-        std::abort();
+    // Row i describes section i, so every SettingsSection has a row and descriptorFor() is an index.
+    constexpr bool sectionsInEnumOrder() {
+      for (std::size_t i = 0; i < kSettingsSections.size(); ++i) {
+        if (std::to_underlying(kSettingsSections[i].section) != i) {
+          return false;
+        }
       }
-      return *it;
+      return std::to_underlying(SettingsSection::Plugins) + 1 == kSettingsSections.size();
+    }
+    static_assert(sectionsInEnumOrder(), "kSettingsSections needs one row per SettingsSection, in enum order");
+
+    const SettingsSectionDescriptor& descriptorFor(SettingsSection section) {
+      return kSettingsSections[std::to_underlying(section)];
     }
 
 
@@ -149,7 +156,7 @@ namespace settings {
     return names;
   }
 
-  std::string normalizedSettingQuery(std::string_view query) { return StringUtils::toLower(query); }
+  std::string normalizedSettingQuery(std::string_view query) { return StringUtils::foldForSearch(query); }
 
   bool matchesNormalizedSettingQuery(const SettingEntry& entry, std::string_view normalizedQuery) {
     if (normalizedQuery.empty()) {

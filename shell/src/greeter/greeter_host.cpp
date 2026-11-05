@@ -23,6 +23,7 @@
 #include <malloc.h>
 #include <cerrno>
 #include <chrono>
+#include <ctime>
 #include <csignal>
 #include <print>
 #include <cstdlib>
@@ -305,14 +306,20 @@ namespace {
   AuthColumn::Status readStatus() {
     AuthColumn::Status status;
     if (GVariant* dict = properties(
-            "org.freedesktop.UPower", "/org/freedesktop/UPower/devices/DisplayDevice", "org.freedesktop.UPower.Device"
+            "org.andromeda.System1", "/org/andromeda/System1/Battery/DisplayDevice", "org.andromeda.System1.Battery"
         )) {
       gboolean present = FALSE;
       gdouble percentage = 0.0;
-      guint32 state = 0;
-      g_variant_lookup(dict, "IsPresent", "b", &present);
-      g_variant_lookup(dict, "Percentage", "d", &percentage);
-      g_variant_lookup(dict, "State", "u", &state);
+      const gchar* stateName = nullptr;
+      g_variant_lookup(dict, "Present", "b", &present);
+      g_variant_lookup(dict, "Percent", "d", &percentage);
+      g_variant_lookup(dict, "State", "&s", &stateName);
+      const std::string_view stateText = stateName != nullptr ? stateName : "";
+      // Back to UPower's state numbers, which batteryGlyph takes: 1 charging, 4 fully charged, 5 pending charge.
+      const guint32 state = stateText == "charging" ? 1U
+          : stateText == "fully-charged"            ? 4U
+          : stateText == "pending-charge"           ? 5U
+                                                    : 0U;
       if (present != FALSE) {
         status.batteryGlyph = batteryGlyph(percentage, state);
         status.batteryText = std::format("{}%", static_cast<int>(std::lround(percentage)));
@@ -468,6 +475,19 @@ namespace {
         if (Surface::hasPendingFrameWork() || Surface::hasPendingRenders()) {
           timeoutMs = 0;
         }
+        if (m_exiting) {
+          const auto untilExit =
+              std::chrono::ceil<std::chrono::milliseconds>(m_exitDeadline - std::chrono::steady_clock::now());
+          const int exitMs = static_cast<int>(std::max<std::int64_t>(0, untilExit.count()));
+          timeoutMs = timeoutMs < 0 ? exitMs : std::min(timeoutMs, exitMs);
+        }
+        if (m_sessionRetryAt.has_value()) {
+          const auto untilRetry = std::chrono::ceil<std::chrono::milliseconds>(
+              *m_sessionRetryAt - std::chrono::steady_clock::now()
+          );
+          const int retryMs = static_cast<int>(std::max<std::int64_t>(0, untilRetry.count()));
+          timeoutMs = timeoutMs < 0 ? retryMs : std::min(timeoutMs, retryMs);
+        }
         const int greetdTimeout = m_greetd.requestPollTimeoutMs();
         if (greetdTimeout >= 0 && (timeoutMs < 0 || greetdTimeout < timeoutMs)) {
           timeoutMs = greetdTimeout;
@@ -504,6 +524,19 @@ namespace {
         }
         if (m_greetdLost) {
           return 1;
+        }
+        if (m_failedSessions > kMaxFailedSessions) {
+          kLog.error("greetd refused {} sessions in a row; the greeter exits for a fresh greeter session", m_failedSessions);
+          return 1;
+        }
+        if (m_sessionRetryAt.has_value() && std::chrono::steady_clock::now() >= *m_sessionRetryAt) {
+          m_sessionRetryAt.reset();
+          if (m_phase == Phase::Idle && m_greetd.isConnected()) {
+            createSession();
+          }
+        }
+        if (m_exiting && (m_exitsDone >= m_views.size() || std::chrono::steady_clock::now() >= m_exitDeadline)) {
+          m_sessionStarted = true;
         }
         if (m_sessionStarted) {
           kLog.info("session started; greeter exits");
@@ -897,6 +930,7 @@ namespace {
         if (response.authMessage.type == GreetdAuthMessageType::Secret
             || response.authMessage.type == GreetdAuthMessageType::Visible) {
           m_phase = Phase::Waiting;
+          m_failedSessions = 0;
           if (m_submitQueued) {
             postPassword();
           }
@@ -912,11 +946,14 @@ namespace {
         if (m_phase == Phase::Cancelling) {
           createSession();
         } else if (m_phase == Phase::Starting) {
-          m_sessionStarted = true;
+          beginExit();
         } else if (m_sessionIndex < m_sessions.size()) {
           writeState("last-user", m_user);
           writeState("last-session", m_sessions[m_sessionIndex].id);
-          m_phase = m_greetd.requestStartSession(m_sessions[m_sessionIndex].command) ? Phase::Starting : Phase::Idle;
+          GreetdSessionCommand command = m_sessions[m_sessionIndex].command;
+          // The session compositor holds this greeter's last frame only for a fresh login (output/held_frame.h).
+          command.environment.push_back({"ANDROMEDA_LOGIN_HANDOFF", std::to_string(std::time(nullptr))});
+          m_phase = m_greetd.requestStartSession(command) ? Phase::Starting : Phase::Idle;
           relayout();
         } else {
           kLog.error("no wayland session is installed");
@@ -934,10 +971,13 @@ namespace {
         } else {
           setHint(response.error.description, true);
         }
-        // A failed create_session (unknown user) is not retried: that would loop as fast as greetd answers.
+        // A failed create_session or cancel leaves no session, so no password could ever be posted: open a new one
+        // after a pause (greetd's worker can die with the user session, "unable to send msg: os error").
         if (m_phase == Phase::Creating || m_phase == Phase::Cancelling) {
           kLog.error("greetd refused a session for '{}': {}", m_user, response.error.description);
           m_phase = Phase::Idle;
+          ++m_failedSessions;
+          m_sessionRetryAt = std::chrono::steady_clock::now() + kSessionRetryDelay;
         } else {
           m_phase = m_greetd.requestCancelSession() ? Phase::Cancelling : Phase::Idle;
         }
@@ -965,6 +1005,26 @@ namespace {
     bool m_hintError = false;
     bool m_submitQueued = false;
     bool m_sessionStarted = false;
+    static constexpr std::chrono::milliseconds kSessionRetryDelay{1000};
+    static constexpr int kMaxFailedSessions = 3;
+    int m_failedSessions = 0;
+    std::optional<std::chrono::steady_clock::time_point> m_sessionRetryAt;
+    // Login accepted: the auth column Returns, then the greeter exits and leaves its last frame on screen for the
+    // session compositor's held frame (.agent/DESIGN.md "Login transition design").
+    bool m_exiting = false;
+    std::size_t m_exitsDone = 0;
+    std::chrono::steady_clock::time_point m_exitDeadline{};
+    void beginExit() {
+      if (m_exiting) {
+        return;
+      }
+      m_exiting = true;
+      m_exitDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(600);
+      for (auto& view : m_views) {
+        view->auth.playAccepted(&view->chrome.layer(), [this] { ++m_exitsDone; });
+        view->surface->requestRedraw();
+      }
+    }
     bool m_trimmed = false;
     bool m_greetdLost = false;
     WaylandConnection m_wayland;

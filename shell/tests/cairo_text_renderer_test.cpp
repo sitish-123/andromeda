@@ -108,6 +108,22 @@ namespace {
     std::println(stderr, "cairo_text_renderer_test: FAIL: tracking widths {} {} {}", w2, w0, w1);
     return 1;
   }
+  // A revealed password is measured with caching off: no cache may keep it.
+  int sensitiveCase(CairoTextRenderer& renderer) {
+    (void)renderer.measure(1.0F, "ordinary label", 13.0F);
+    if (!renderer.holdsText("ordinary label")) {
+      std::println(stderr, "cairo_text_renderer_test: FAIL: holdsText misses a cached text");
+      return 1;
+    }
+    renderer.setCaching(false);
+    (void)renderer.measure(1.0F, "hunter2-secret", 13.0F);
+    renderer.setCaching(true);
+    if (renderer.holdsText("hunter2-secret")) {
+      std::println(stderr, "cairo_text_renderer_test: FAIL: the metrics cache kept sensitive text");
+      return 1;
+    }
+    return 0;
+  }
 }  // namespace
 
 int main() {
@@ -118,6 +134,9 @@ int main() {
     return rc;
   }
   if (const int rc = trackingCase(renderer); rc != 0) {
+    return rc;
+  }
+  if (const int rc = sensitiveCase(renderer); rc != 0) {
     return rc;
   }
   return wrappingBoundaryCase(renderer);

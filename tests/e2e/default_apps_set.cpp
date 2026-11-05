@@ -8,8 +8,29 @@
 #include <string>
 
 int main(int argc, char** argv) {
+  // --effective <category>: prints the default the Default Apps page shows (every mimeapps.list in XDG order).
+  if (argc == 3 && std::strcmp(argv[1], "--effective") == 0) {
+    for (const auto& spec : default_apps::categories()) {
+      if (argv[2] == spec.mimeType) {
+        std::puts(default_apps::effectiveDefault(spec.category).c_str());
+        return 0;
+      }
+    }
+    return 1;
+  }
+  // --pick <category> <desktop-id>: the Default Apps page's pick (setUserDefault), then prints effectiveDefault.
+  if (argc == 4 && std::strcmp(argv[1], "--pick") == 0) {
+    for (const auto& spec : default_apps::categories()) {
+      if (argv[2] == spec.mimeType) {
+        (void)default_apps::setUserDefault(spec.category, argv[3]);
+        std::puts(default_apps::effectiveDefault(spec.category).c_str());
+        return 0;
+      }
+    }
+    return 1;
+  }
   if (argc != 4) {
-    std::puts("usage: default_apps_set <mimeapps.list path> <category> <desktop-id>");
+    std::puts("usage: default_apps_set <mimeapps.list path> <category> <desktop-id> | --effective <category>");
     return 1;
   }
   const std::filesystem::path path = argv[1];

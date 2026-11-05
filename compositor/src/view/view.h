@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <climits>
+#include <cstdint>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -76,6 +77,8 @@ namespace andromeda {
     // Null when the client has not set one. X11 windows report their WM_CLASS class as the app id.
     [[nodiscard]] const char* title() const;
     [[nodiscard]] const char* appId() const;
+    // general.honor_restored_maximize, always on for our own apps (dev.andromeda.*): they restore their state.
+    [[nodiscard]] bool honorsRestoredMaximize() const;
     // Role state. For xdg toplevels `scheduled` is what the next configure carries and `current` what the client
     // acknowledged; an X11 window has no acknowledgement, so both read the state last sent to it.
     [[nodiscard]] bool scheduledFullscreen() const;
@@ -84,6 +87,9 @@ namespace andromeda {
     [[nodiscard]] bool currentMaximized() const;
     [[nodiscard]] bool scheduledActivated() const;
     [[nodiscard]] bool acceptsKeyboardFocus() const;
+    // An X11 utility window transient for another window whose WM_HINTS refuse keyboard input, such as a completion
+    // list. It never takes the keyboard from its parent and opens where its client placed it.
+    [[nodiscard]] bool passiveXwaylandUtility() const;
     void setActivatedState(bool activated);
     // Take X input focus back for an X11 window that stayed activated while one of its menus held it; a no-op for xdg
     // toplevels.
@@ -103,6 +109,9 @@ namespace andromeda {
     // Suspends a mapped window that is neither presented nor drawn off the scene, and resumes it otherwise. Callers
     // schedule it through Server::scheduleSuspensionSync.
     void syncSuspendedState();
+    // The hidden state syncSuspendedState last found, for X11 windows too; it tells QoS when it changes.
+    [[nodiscard]] bool hiddenFromUser() const { return m_mapped && m_hiddenFromUser; }
+    [[nodiscard]] qos::Rule qosRule() const { return m_qosRule; }
     void setFullscreenState(bool fullscreen);
     void setMaximizedState(bool maximized);
     void requestClose();
@@ -203,6 +212,8 @@ namespace andromeda {
     // Seat-global activation, tracked independently of the per-workspace focus
     // state the IPC `focused` field reports.
     [[nodiscard]] bool activated() const { return m_activated; }
+    // Grows each time the view takes seat focus; the largest value is the most recently focused view.
+    [[nodiscard]] std::uint64_t focusSerial() const { return m_focusSerial; }
     // Window-geometry box the client has pixels for: its committed geometry, widened towards the size this view was
     // configured to when the surface already holds those pixels. A tiled client that acks a configure and redraws
     // without updating set_window_geometry would otherwise be presented, and cropped, at its old size.
@@ -647,6 +658,8 @@ namespace andromeda {
     void updateBlur(int contentWidth, int contentHeight);
     [[nodiscard]] SurfaceBlurOptions blurOptions() const { return m_decoration.blurOptions(); }
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const { return m_decoration.popupBlurOptions(); }
+    // The ext-background-effect blur region a client set on `surface` (one of its popups), or null.
+    [[nodiscard]] const pixman_region32_t* clientBlurRegion(wlr_surface* surface) const;
     void updateShadow();
     void updateShadow(int contentWidth, int contentHeight);
     // Show the borders and refresh everything derived from them. The four steps are always wanted together: a ring that
@@ -699,6 +712,7 @@ namespace andromeda {
     // The same for a window that opens fullscreen: the layout owns the output box it rests in, windows_in owns the
     // scaled box it is presented at until the fade ends.
     [[nodiscard]] bool fullscreenOpeningActive() const;
+    [[nodiscard]] bool scaleOnlyOpening() const;
     // A built-in popin, zoom, or slide open offsets the presented box inside the box the layout assigned it, until
     // the fade that drives it reaches rest.
     [[nodiscard]] bool openingInsetPending() const { return m_openingScale < 1.0 || m_openingSlide != 0; }
@@ -1057,6 +1071,7 @@ namespace andromeda {
     bool m_inScratchpad = false;
     bool m_urgent = false;
     bool m_activated = false;
+    std::uint64_t m_focusSerial = 0;
     // nullopt means no pre-map request, false means untrusted, true means trusted. A trusted request wins if both
     // arrive before map. Window-rule policy is deliberately resolved only after the window maps.
     std::optional<bool> m_deferredActivationTrusted;
@@ -1075,6 +1090,8 @@ namespace andromeda {
     bool m_initialContentTypeRulesSettled = false;
     float m_ruleOpacity = 1.0F;
     bool m_backgroundRender = false;
+    bool m_hiddenFromUser = false;
+    qos::Rule m_qosRule = qos::Rule::Normal;
     bool m_allowShortcutsInhibit = true;
     float m_dragOpacity = 1.0F;
     float m_overviewOpacity = 1.0F;

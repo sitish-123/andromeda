@@ -41,6 +41,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -55,6 +60,8 @@ namespace andromeda {
 
   namespace {
     constexpr Logger kLog("server");
+    // shell/src/shell/switcher/window_switcher.cpp creates it on open and destroys it on close.
+    constexpr std::string_view kWindowSwitcherNamespace = "noctalia-window-switcher";
   } // namespace
 
   void Server::onNewLayerSurface(wl_listener* listener, void* data) {
@@ -64,7 +71,26 @@ namespace andromeda {
     if (surface->layerSurface() == nullptr) {
       return;
     }
+    auto* wlrLayer = static_cast<wlr_layer_surface_v1*>(data);
+    if (wlrLayer->namespace_ != nullptr && std::string_view(wlrLayer->namespace_) == kWindowSwitcherNamespace) {
+      // The shell's app switcher lives exactly as long as this surface: frozen apps thaw while it is open.
+      struct ThawWatch {
+        Server* server = nullptr;
+        wl_listener destroy{};
+      };
+      auto* watch = new ThawWatch{.server = self, .destroy = {}};
+      watch->destroy.notify = [](wl_listener* listener, void* /*data*/) {
+        ThawWatch* owner;
+        owner = wl_container_of(listener, owner, destroy);
+        wl_list_remove(&owner->destroy.link);
+        owner->server->holdQosThawIntent(false);
+        delete owner;
+      };
+      wl_signal_add(&wlrLayer->events.destroy, &watch->destroy);
+      self->holdQosThawIntent(true);
+    }
     self->m_layerSurfaces.push_back(std::move(surface));
+    self->raiseStatusSurfaces();
     self->scheduleIpcLayersEvent();
   }
 
@@ -94,6 +120,19 @@ namespace andromeda {
   void Server::activateSessionLock(SessionLock* lock) {
     if (m_sessionLock.get() != lock) {
       return;
+    }
+    if (m_restartLockEscape != nullptr) {
+      wl_event_source_remove(m_restartLockEscape);
+      m_restartLockEscape = nullptr;
+    }
+    if (m_lockFileManaged) {
+      const std::string path = lockFilePath();
+      mkdir(path.substr(0, path.rfind('/')).c_str(), 0700);
+      // Holds the logind session ID: only a restart inside the same login stays locked.
+      std::ofstream file(path, std::ios::trunc);
+      if (!(file << (std::getenv("XDG_SESSION_ID") ?: ""))) {
+        kLog.error("cannot write the lock file {}: {}", path, std::strerror(errno));
+      }
     }
 
     if (!m_sessionLocked) {
@@ -141,6 +180,9 @@ namespace andromeda {
 
   void Server::unlockSession() {
     m_sessionLocked = false;
+    if (m_lockFileManaged) {
+      unlink(lockFilePath().c_str());
+    }
     if (m_eisInput != nullptr) {
       m_eisInput->setSessionLocked(false);
     }

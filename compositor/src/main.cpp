@@ -6,6 +6,7 @@
 #include "core/fdlimit.h"
 #include "core/log.h"
 #include "core/process.h"
+#include "core/scanout_keeper.h"
 #include "config/action_groups.h"
 #include "server/ipc.h"
 #include "server/ipc_commands.h"
@@ -478,6 +479,7 @@ int main(int argc, char** argv) {
 #endif
 
     server.run();
+    andromeda::scanout_keeper::holdForNextCompositor(server.backend());
     kLog.info("shutting down");
     return EXIT_SUCCESS;
   } catch (const std::exception& ex) {

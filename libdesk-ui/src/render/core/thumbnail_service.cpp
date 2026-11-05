@@ -1,5 +1,7 @@
 #include "render/core/thumbnail_service.h"
 
+#include "core/files/directory_scanner.h"
+#include "core/freedesktop_thumbnails.h"
 #include "core/log.h"
 #include "render/core/image_decoder.h"
 #include "render/core/texture_manager.h"
@@ -521,7 +523,16 @@ void ThumbnailService::workerLoop(std::size_t slot) {
     DecodedJob result;
     result.key = key;
 
-    if (const auto cachePath = cachePathForSource(path, key.targetPx); cachePath.has_value()) {
+    // The freedesktop cache first: other apps and andromeda-thumbnailer fill it. An image takes only a large enough
+    // entry; a smaller one would look worse than its own decode.
+    std::vector<std::uint8_t> bytes;
+    const bool isImage = DirectoryScanner::isImagePath(path);
+    if (const auto shared = freedesktop_thumbnails::lookup(path, key.targetPx, !isImage)) {
+      bytes = FileUtils::readBinaryFile(shared->string());
+    }
+    const bool fromShared = !bytes.empty();
+
+    if (const auto cachePath = cachePathForSource(path, key.targetPx); !fromShared && cachePath.has_value()) {
       auto cachedBytes = FileUtils::readBinaryFile(cachePath->string());
       if (!cachedBytes.empty()) {
         if (auto cached = decodeRasterImage(cachedBytes.data(), cachedBytes.size())) {
@@ -537,7 +548,18 @@ void ThumbnailService::workerLoop(std::size_t slot) {
       }
     }
 
-    auto bytes = FileUtils::readBinaryFile(path);
+    // Other files (PDF, video, fonts) go to the thumbnailer, unless it failed on this version of the file before.
+    bool shared = fromShared;
+    if (!shared && !isImage) {
+      if (!freedesktop_thumbnails::knownFailure(path) && freedesktop_thumbnails::generate(path, key.targetPx)) {
+        if (const auto made = freedesktop_thumbnails::lookup(path, key.targetPx)) {
+          bytes = FileUtils::readBinaryFile(made->string());
+          shared = !bytes.empty();
+        }
+      }
+    } else if (!shared) {
+      bytes = FileUtils::readBinaryFile(path);
+    }
     if (bytes.empty()) {
       result.failed = true;
       pushResult(std::move(result));
@@ -561,7 +583,7 @@ void ThumbnailService::workerLoop(std::size_t slot) {
       continue;
     }
 
-    if (const auto cachePath = cachePathForSource(path, key.targetPx); cachePath.has_value()) {
+    if (const auto cachePath = cachePathForSource(path, key.targetPx); !shared && cachePath.has_value()) {
       std::uint8_t* encoded = nullptr;
       const std::size_t encodedSize = WebPEncodeRGB(pixels.data(), w, h, w * 3, kThumbnailWebPQuality, &encoded);
       if (encoded != nullptr && encodedSize > 0) {

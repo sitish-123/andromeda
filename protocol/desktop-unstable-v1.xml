@@ -245,7 +245,7 @@
     </event>
   </interface>
 
-  <interface name="dsk_shell_v1" version="3">
+  <interface name="dsk_shell_v1" version="4">
     <description summary="compositor-to-shell events">
       Bound by the desktop shell. Keybinds that drive the shell arrive as
       action events on the connection the shell already holds, so no process
@@ -259,10 +259,17 @@
       <entry name="invalid_key_state" value="0" summary="key state is not a wl_keyboard key_state value"/>
     </enum>
 
+    <enum name="app_activity_flag" bitfield="true" since="3">
+      <entry name="audio" value="1" summary="plays or records audio"/>
+      <entry name="call" value="2" summary="is in a call"/>
+    </enum>
+
     <request name="app_activity" since="3">
       <description summary="report what an app process is doing">
         The shell reports the activity of the app process pid. flags is a bit
-        set the compositor stores per pid; a pid with flags 0 is forgotten.
+        set of app_activity_flag the compositor stores per pid; a pid with
+        flags 0 is forgotten. An app unit with audio or call activity is not
+        throttled while hidden.
         The compositor stores only pids that exist, at most 256 at once, and
         forgets the pids a shell reported when that shell's object goes away.
       </description>
@@ -357,6 +364,13 @@
     <event name="recovered" since="3">
       <description summary="a new lock client took over">
         A new lock client confirmed the lock after a relock.
+      </description>
+    </event>
+
+    <event name="restarted" since="4">
+      <description summary="the compositor restarted after a crash">
+        The previous compositor of this session stopped without a clean exit. Sent once, to the first shell that
+        binds after the restart.
       </description>
     </event>
   </interface>

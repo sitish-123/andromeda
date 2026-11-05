@@ -245,6 +245,18 @@ namespace andromeda {
       std::optional<std::string_view> xdgTag, ContentType contentType, const WindowRuleState& state, uint64_t uptimeMs
   ) {
     ResolvedWindowRule resolved;
+    // Built-in rule, before the user's: Zen Browser declares its translucent sidebar opaque.
+    static const std::regex kZen(R"(^(zen|zen-.*|app\.zen_browser\.zen)$)");
+    if (appId && std::regex_match(appId->begin(), appId->end(), kZen)) {
+      resolved.ignoreOpaqueRegion = true;
+    }
+    // Built-in rule: the Player's picture-in-picture window floats pinned in the bottom-right corner.
+    if (appId == "dev.andromeda.Player.PiP") {
+      resolved.defaultFloating = true;
+      resolved.defaultPinned = true;
+      resolved.defaultPosition = WindowPosition{.x = 16, .y = 16, .anchor = WindowPositionAnchor::BottomRight};
+      resolved.titleBar = TitleBarMode::Off;
+    }
 
     for (const auto& rule : config.windowRules) {
       if (!patternMatches(rule.appIdPatterns, appId)
@@ -346,6 +358,9 @@ namespace andromeda {
       if (rule.backgroundRender) {
         resolved.backgroundRender = rule.backgroundRender;
       }
+      if (rule.qos) {
+        resolved.qos = rule.qos;
+      }
       if (rule.focusOnActivate) {
         resolved.focusOnActivate = rule.focusOnActivate;
       }
@@ -360,6 +375,9 @@ namespace andromeda {
       }
       if (rule.hdr) {
         resolved.hdr = rule.hdr;
+      }
+      if (rule.ignoreOpaqueRegion) {
+        resolved.ignoreOpaqueRegion = rule.ignoreOpaqueRegion;
       }
       if (rule.opacity) {
         resolved.opacity = rule.opacity;

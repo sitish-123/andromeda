@@ -1,0 +1,10 @@
+[Unit]
+Description=Andromeda scheduled system update at 02:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+# A laptop asleep at 02:00 wakes for it; the unit runs only on AC and with every session locked.
+WakeSystem=true
+
+[Install]
+WantedBy=timers.target

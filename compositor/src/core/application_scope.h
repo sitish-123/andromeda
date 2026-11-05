@@ -37,6 +37,13 @@ namespace andromeda {
   [[nodiscard]] ApplicationScopeEnvironmentArguments
   applicationScopeEnvironmentArguments(std::span<const std::pair<std::string, std::string>> configuredEnvironment);
 
+  // In a forked child: waits for the parent's StartTransientUnit result on `gateFd` ('1' = started), then until
+  // /proc/self/cgroup names `unit`, so the command and its children start inside the scope. Both waits share a
+  // 100 ms cap; past it the child runs unscoped. Async-signal-safe. False when the scope did not start.
+  [[nodiscard]] bool awaitApplicationScope(int gateFd, const char* unit);
+  // In a forked child: applies the configured values of `arguments` (each "--setenv=NAME=VALUE") to the environment.
+  void applyApplicationScopeEnvironment(const ApplicationScopeEnvironmentArguments& arguments);
+
   // Replace the current child with systemd-run. The caller must pass an
   // absolute executable, preformatted lifecycle properties, and any explicit
   // command environment arguments. Environment expansion is disabled so the
@@ -44,7 +51,7 @@ namespace andromeda {
   // Failure is closed: this function exits without executing the application.
   // cpuWeightProperty: an optional preformatted --property=CPUWeight=<n> (the launch boost, core/cpu_boost.h).
   [[noreturn]] void execApplicationInScope(
-      const char* systemdRun, const char* unitArgument, const char* partOfProperty, const char* bindsToProperty,
+      const char* systemdRun, const char* unitArgument, const char* partOfProperty,
       const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command,
       const char* cpuWeightProperty = nullptr
   );

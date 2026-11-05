@@ -23,6 +23,7 @@
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace {
 
@@ -34,7 +35,7 @@ namespace {
   constexpr std::uint32_t kHyprlandToplevelMappingManagerVersion = 1;
   constexpr std::uint32_t kVirtualKeyboardManagerVersion = 1;
   constexpr std::uint32_t kGammaControlManagerVersion = 1;
-  constexpr std::uint32_t kDesktopShellVersion = 3;
+  constexpr std::uint32_t kDesktopShellVersion = 4;
   constexpr std::uint32_t kScreencopyManagerVersion = 3;
   constexpr std::uint32_t kImageCopyCaptureManagerVersion = 1;
   constexpr std::uint32_t kOutputImageCaptureSourceManagerVersion = 1;
@@ -73,6 +74,10 @@ namespace {
     static_cast<ShellWaylandConnection*>(data)->onShellRecovered();
   }
 
+  void shellRestarted(void* data, dsk_shell_v1* /*shell*/) {
+    static_cast<ShellWaylandConnection*>(data)->onShellRestarted();
+  }
+
   constexpr dsk_shell_v1_listener kShellListener = {
       .action = shellAction,
       .lock_keys = shellLockKeys,
@@ -80,6 +85,7 @@ namespace {
       .text_input_state = shellTextInputState,
       .relock = shellRelock,
       .recovered = shellRecovered,
+      .restarted = shellRestarted,
   };
 
   template <typename T> T* bindAs(wl_registry* registry, std::uint32_t name, const wl_interface& iface, std::uint32_t version) {
@@ -133,7 +139,12 @@ void ShellWaylandConnection::setTextInputStateCallback(std::function<void(const 
   m_textInputStateCallback = std::move(callback);
 }
 
-void ShellWaylandConnection::setRelockCallback(std::function<void()> callback) { m_relockCallback = std::move(callback); }
+void ShellWaylandConnection::setRelockCallback(std::function<void()> callback) {
+  m_relockCallback = std::move(callback);
+  if (m_relockCallback && std::exchange(m_relockPending, false)) {
+    m_relockCallback();
+  }
+}
 
 void ShellWaylandConnection::setRecoveredCallback(std::function<void()> callback) {
   m_recoveredCallback = std::move(callback);
@@ -169,9 +180,27 @@ void ShellWaylandConnection::onShellTextInputState(const TextInputState& state) 
   }
 }
 
+// Both can arrive in the bind roundtrip, before the application sets its callbacks: they wait until then.
 void ShellWaylandConnection::onShellRelock() {
   if (m_relockCallback) {
     m_relockCallback();
+  } else {
+    m_relockPending = true;
+  }
+}
+
+void ShellWaylandConnection::onShellRestarted() {
+  if (m_restartedCallback) {
+    m_restartedCallback();
+  } else {
+    m_restartedPending = true;
+  }
+}
+
+void ShellWaylandConnection::setRestartedCallback(std::function<void()> callback) {
+  m_restartedCallback = std::move(callback);
+  if (m_restartedCallback && std::exchange(m_restartedPending, false)) {
+    m_restartedCallback();
   }
 }
 

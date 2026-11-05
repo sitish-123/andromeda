@@ -152,12 +152,7 @@ void ContextMenuPopup::open(ContextMenuPopupRequest request) {
     }
     (void)popup_chrome::addCardBackground(*self->m_sceneRoot, chrome, contentScale);
     if (self->m_surface != nullptr) {
-      // The compositor blurs behind the card only; the glass tint alone lets the window text read through.
-      self->m_surface->setBlurRegion(Surface::tessellateRoundedRect(
-          static_cast<int>(std::lround(chrome.contentX())), static_cast<int>(std::lround(chrome.contentY())),
-          static_cast<int>(std::lround(chrome.contentWidth)), static_cast<int>(std::lround(chrome.contentHeight)),
-          Style::scaledRadiusLg(contentScale)
-      ));
+      popup_chrome::setCardBlurRegion(*self->m_surface, chrome, contentScale);
     }
 
     auto scrollView = std::make_unique<ScrollView>();

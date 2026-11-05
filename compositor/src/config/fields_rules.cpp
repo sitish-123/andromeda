@@ -207,6 +207,7 @@ namespace andromeda {
           boolean("blur_popups", &W::blurPopups),
           boolean("blur_optimized", &W::blurOptimized),
           real("opacity", 0.0, 1.0, &W::opacity),
+          boolean("ignore_opaque_region", &W::ignoreOpaqueRegion),
           real("blur_ignore_alpha", 0.0, 1.0, &W::blurIgnoreAlpha),
           color("border_color_focused", &W::borderColorFocused),
           color("border_color_unfocused", &W::borderColorUnfocused),
@@ -236,6 +237,12 @@ namespace andromeda {
           registry::table<W>("default_floating_size_px", self, floatingSizePx),
           registry::choice("vrr", &W::vrr, vrrModes()),
           registry::choice("hdr", &W::hdr, hdrModes()),
+          registry::choice(
+              "qos", &W::qos,
+              {{"normal", qos::Rule::Normal},
+               {"never_throttle", qos::Rule::NeverThrottle},
+               {"freeze_when_hidden", qos::Rule::FreezeWhenHidden}}
+          ),
           registry::text("default_output", &W::defaultOutput),
           custom<W>(
               "default_position", KeyDescription("table"),

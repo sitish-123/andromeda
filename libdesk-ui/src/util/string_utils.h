@@ -95,6 +95,10 @@ namespace StringUtils {
     return std::string(buffer.data(), ptr);
   }
 
+  // Unicode case folding for case-insensitive search in translated text; toLower() only maps ASCII.
+  // Turkish İ/ı fold to "i". Invalid UTF-8 falls back to toLower().
+  [[nodiscard]] std::string foldForSearch(std::string_view s);
+
   [[nodiscard]] inline std::string toLower(std::string_view s) {
     std::string out(s);
     std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });

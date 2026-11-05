@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace sdbus {
@@ -47,6 +48,8 @@ public:
   // Runtime CPUQuotaPerSecUSec and MemoryHigh (soft cap) until the unit restarts; kNoLimit removes a limit.
   static constexpr std::uint64_t kNoLimit = UINT64_MAX;
   void setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaPerSecUsec, std::uint64_t memoryHighBytes, Reply reply);
+  // State, unit file state and cgroup of one unit by name; nullopt when its manager has not loaded it.
+  void describeUnit(const std::string& name, bool systemManager, std::function<void(std::optional<SystemdUnit>)> reply);
   // An autostart unit (app-*@autostart.service) gets the XDG override in autostartUserDir; any other unit gets
   // DisableUnitFiles, which keeps the unit file and removes only its [Install] links.
   void disableAtLogin(const SystemdUnit& unit, const std::vector<AutostartEntry>& autostart, const std::string& autostartUserDir, Reply reply);

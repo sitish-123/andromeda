@@ -230,10 +230,10 @@ namespace andromeda {
     m_effects.resetSlots();
     m_tiledOpeningDeferred = false;
     m_presentedTiledBox = {};
-    m_acceptClientMaximizeRequests = config().general.honorRestoredMaximize;
+    m_acceptClientMaximizeRequests = honorsRestoredMaximize();
     // Firefox often re-assert session maximize after map. With honor off, consume that one request so
     // it cannot override alone/default opening policy; later maximize requests stay valid.
-    if (config().general.honorRestoredMaximize) {
+    if (honorsRestoredMaximize()) {
       m_consumeRestoredMaximizeRequest = false;
     } else if (requestedMaximized()) {
       m_consumeRestoredMaximizeRequest = true;
@@ -257,10 +257,11 @@ namespace andromeda {
     m_initialRuleState = ruleState();
     m_initialRuleState.focused = false;
     m_initialRuleState.alone = false;
-    const ResolvedWindowRule rule = resolveWindowRules(
+    ResolvedWindowRule rule = resolveWindowRules(
         config(), ruleText(appId()), ruleText(title()), m_xdgTag, m_contentType, m_initialRuleState,
         m_server->uptimeMs()
     );
+    m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, true);
     m_initialRules = rule;
     m_initialRuleHistory.clear();
     m_initialRuleHistory.push_back(rule);
@@ -278,7 +279,8 @@ namespace andromeda {
     }
     const bool restoreTiled = m_tiled;
     const bool draggedToplevel = m_server->seat()->toplevelDrags().attached(m_toplevel);
-    if (draggedToplevel) {
+    // A passive utility belongs at its client's position over its parent, whatever app-wide rule tiles the client.
+    if (draggedToplevel || passiveXwaylandUtility()) {
       m_tiled = false;
     }
     // Unsettled when any rule uses a title pattern: the first handleSetTitle after map re-applies disruptive effects
@@ -437,7 +439,7 @@ namespace andromeda {
     // restore overrides the layout's initial size. A tiled restore under the
     // workspace's client_maximize = "edges" lands in the edges, above any rule column.
     const bool ruleMaximized = !openingParented() && rule.defaultMaximize && *rule.defaultMaximize;
-    const bool restoredMaximized = config().general.honorRestoredMaximize && requestedMaximized();
+    const bool restoredMaximized = honorsRestoredMaximize() && requestedMaximized();
     const bool restoreToEdges = restoredMaximized
         && m_tiled
         && m_workspace != nullptr
@@ -710,6 +712,7 @@ namespace andromeda {
       wl_event_source_remove(m_acceptClientMaximizeIdle);
       m_acceptClientMaximizeIdle = nullptr;
     }
+    m_hiddenFromUser = false;
     m_server->updateIdleInhibit();
     if (m_workspace != nullptr && m_workspace->group() != nullptr) {
       Output* output = m_workspace->group()->output();
@@ -847,6 +850,7 @@ namespace andromeda {
       ResolvedWindowRule rule = resolveWindowRules(
           config(), ruleText(appId()), ruleText(title()), m_xdgTag, m_contentType, openingState, m_server->uptimeMs()
       );
+      m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, false);
       ScratchpadManager* scratchpadManager = m_server->scratchpadManager();
       const bool launchRuleOverride = m_launchPlacementPending
           && (rule.defaultOutput.has_value()
@@ -860,10 +864,17 @@ namespace andromeda {
       const bool openingInScratchpad = !openingScratchpad.empty()
           && scratchpadManager != nullptr
           && scratchpadManager->hasScratchpad(openingScratchpad);
+      const bool passiveUtility = passiveXwaylandUtility();
       bool wantTiled = !m_server->seat()->toplevelDrags().attached(m_toplevel)
+          && !passiveUtility
           && !openingInScratchpad
           && !rule.defaultPinned.value_or(false)
           && (rule.defaultFloating ? !*rule.defaultFloating : looksTiled());
+      if (passiveUtility) {
+        // The opening configure carries the frame's position, so start it where the client put the window.
+        const XwaylandRegion region = m_server->xwayland()->outputs().regionAtX(m_xsurface->x, m_xsurface->y);
+        setPosition(region.toLayoutX(m_xsurface->x), region.toLayoutY(m_xsurface->y));
+      }
 
       // Resolve the workspace this view will attach to, so the output and layout that will actually arrange it are the
       // ones that size the first configure.
@@ -895,7 +906,7 @@ namespace andromeda {
             || (alone.defaultMaximizeToEdges.value_or(false) && !rule.defaultMaximizeToEdges.value_or(false));
         // A client's restored maximize flag only blocks alone ownership when we honor it. Otherwise alone seeds as
         // usual and the restore is ignored (and consumed after map if the client re-asserts it).
-        const bool clientOwnsRestoredMaximize = config().general.honorRestoredMaximize && requestedMaximized();
+        const bool clientOwnsRestoredMaximize = honorsRestoredMaximize() && requestedMaximized();
         if (seedFullscreen && !requestedFullscreen()) {
           m_aloneOpeningSeed = AloneSeed::Fullscreen;
         } else if (seedMaximized && !requestedFullscreen() && !clientOwnsRestoredMaximize) {
@@ -916,12 +927,12 @@ namespace andromeda {
       const bool wantMaximizeToEdges = openingInScratchpad
           ? !wantFullscreen && rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges
           : (rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges)
-              || (config().general.honorRestoredMaximize && requestedMaximized() && layoutMaximizeToEdges);
+              || (honorsRestoredMaximize() && requestedMaximized() && layoutMaximizeToEdges);
       const bool wantMaximized = openingInScratchpad
           ? wantMaximizeToEdges
           : (!openingParented() && rule.defaultMaximize && *rule.defaultMaximize)
               || wantMaximizeToEdges
-              || (config().general.honorRestoredMaximize && requestedMaximized());
+              || (honorsRestoredMaximize() && requestedMaximized());
 
       Output* targetOutput = targetGroup != nullptr ? targetGroup->output() : preferred;
       if (openingInScratchpad) {

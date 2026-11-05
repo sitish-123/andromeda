@@ -3549,7 +3549,6 @@
           "description": "Ações aplicadas após a captura ou quando você escolher Feito no editor de anotações."
         },
         "screenshot-pipe-command": {
-          "description": "Comando executado como /bin/sh -lc com o PNG na stdin; para anotadores ou uploaders (exemplo: swappy -f - ou satty -f -)",
           "label": "Comando Pipe",
           "placeholder": "swappy -f -"
         },

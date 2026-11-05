@@ -40,6 +40,11 @@ namespace andromeda {
   // Sets or removes `key` in the generated settings `file`. Returns false on I/O error.
   bool saveManagedSetting(const std::filesystem::path& file, std::string_view key, const ManagedSettingValue& value);
 
+  // Sets or removes every key, in order, in one rewrite of `file`. Returns false on I/O error.
+  bool saveManagedSettings(
+      const std::filesystem::path& file, const std::vector<std::pair<std::string, ManagedSettingValue>>& values
+  );
+
   // Same edit on a TOML document, for tests.
   [[nodiscard]] std::string
   editManagedSetting(std::string_view existing, std::string_view key, const ManagedSettingValue& value);
@@ -51,6 +56,12 @@ namespace andromeda {
   // The [keybinds] entries of a settings document as written, chord text to action text; table-form entries report
   // their `action`.
   [[nodiscard]] std::vector<std::pair<std::string, std::string>> documentKeybinds(std::string_view document);
+
+  // Per-app CPU rules from Settings: a [[window_rule]] in the settings `file` with only match.app_id = "^<id>$" and
+  // `qos`. `qos` "normal" removes the app's rule. Returns false on I/O error.
+  bool saveManagedAppQos(const std::filesystem::path& file, std::string_view appId, std::string_view qos);
+  // The app rules saveManagedAppQos wrote in a settings document: app id to qos text.
+  [[nodiscard]] std::vector<std::pair<std::string, std::string>> documentAppQos(std::string_view document);
 
   // Volatile keys ("power.on_battery"): settable like any managed setting, kept in memory only, absent from
   // managedSettingKeys() and the settings file. An empty value (monostate) restores the default.
@@ -64,5 +75,7 @@ namespace andromeda {
 
   // True when the TOML document `root` sets `key`.
   [[nodiscard]] bool documentSetsKey(std::string_view root, std::string_view key);
+  // documentSetsKey for many keys with one parse.
+  [[nodiscard]] std::vector<bool> documentSetsKeys(std::string_view root, std::span<const std::string_view> keys);
 
 } // namespace andromeda

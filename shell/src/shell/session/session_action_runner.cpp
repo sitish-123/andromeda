@@ -157,9 +157,9 @@ namespace {
       if (guard.expired()) {
         return;
       }
+      // A failing hook (e.g. killing an app that isn't running) must not block the action.
       if (!ok) {
-        kLog.warn("{} cancelled because a configured hook failed", actionName);
-        return;
+        kLog.warn("{}: a configured hook failed, continuing", actionName);
       }
       runAction();
     });
@@ -182,9 +182,9 @@ namespace {
       if (guard.expired()) {
         return;
       }
+      // A failing hook (e.g. killing an app that isn't running) must not block the action.
       if (!ok) {
-        kLog.warn("{} cancelled because a configured hook failed", actionName);
-        return;
+        kLog.warn("{}: a configured hook failed, continuing", actionName);
       }
       launch();
     });

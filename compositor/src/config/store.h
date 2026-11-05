@@ -34,6 +34,10 @@ namespace andromeda {
     // candidates, the attempted root, and its includes.
     [[nodiscard]] const std::vector<std::filesystem::path>& watchPaths() const { return m_watchPaths; }
     [[nodiscard]] const std::filesystem::path& rootPath() const { return m_rootPath; }
+    // The user's config.toml as resolved at the first implicit load; empty for an explicit path.
+    [[nodiscard]] std::filesystem::path implicitUserConfig() const {
+      return m_implicitCandidates.empty() ? std::filesystem::path{} : m_implicitCandidates.front();
+    }
     // True when the session is running on built-in defaults because no file was
     // found.
     [[nodiscard]] bool fileMissing() const { return m_fileMissing; }

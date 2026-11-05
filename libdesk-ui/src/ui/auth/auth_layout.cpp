@@ -1,5 +1,7 @@
 #include "ui/auth/auth_layout.h"
 
+#include "ui/style.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -16,9 +18,9 @@ namespace {
   // Capsule, g 12, hint line: the hint keeps its line when empty, so the column never moves.
   constexpr float kAccountFoot = kCapsuleH + 12.0F + kFootLine;
   constexpr float kDateLine = 20.0F;
-  constexpr float kDateGap = 8.0F;
+  constexpr const float& kDateGap = Tokens::spaceP8;
   constexpr float kCardH = 64.0F;
-  constexpr float kCardGap = 8.0F;
+  constexpr const float& kCardGap = Tokens::spaceP8;
   constexpr float kChipH = 24.0F;
   constexpr float kWidgetW = 112.0F;
   constexpr float kWidgetH = 56.0F;
@@ -26,7 +28,7 @@ namespace {
   // Reason card (lock from phone): 32 above the avatar, p 16, title-3 line + footnote line.
   constexpr float kReasonCard = 32.0F + 16.0F * 2.0F + kNameLine + kFootLine;
   // Smallest gap between the content above and the account column (Centered).
-  constexpr float kMinGap = 24.0F;
+  constexpr const float& kMinGap = Tokens::spaceP24;
   // Top of the clock block may not go above the status island (top 8, h 32) plus 16.
   constexpr float kMinTop = 8.0F + 32.0F + 16.0F;
   // Split: estimated "00:00" width per font pixel (tabular figures, light weight).

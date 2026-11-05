@@ -27,6 +27,7 @@
 #include "shell/settings/settings_dialog_presenter.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "system/dependency_service.h"
+#include "ui/dialogs/file_dialog.h"
 #include "ui/controls/box.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/input.h"
@@ -471,6 +472,13 @@ void SettingsWindow::open(std::string context) {
       DeferredCall::callLater([this, kind = std::string(modal)] {
         if (kind == "export") {
           openConfigExportDialog();
+        } else if (kind == "file") {
+          // Grid view of NOCTALIA_SETTINGS_TEST_DIR: the tiles that load thumbnails.
+          const char* dir = std::getenv("NOCTALIA_SETTINGS_TEST_DIR");
+          (void)FileDialog::open(
+              {.defaultViewMode = FileDialogViewMode::Grid, .startDirectory = dir != nullptr ? dir : ""},
+              [](const std::optional<std::filesystem::path>&) {}
+          );
         } else if (kind == "alert") {
           settings::showSettingsAlert(
               m_modalHost,
@@ -628,6 +636,8 @@ void SettingsWindow::dismissOpenSelectDropdown() {
 }
 
 void SettingsWindow::destroyWindow() {
+  // The next open reads the update service again.
+  m_softwareUpdateRead = false;
   // A pending display confirmation keeps its binding so the revert timer still fires after the window closes.
   if (m_displayConfirmSecondsLeft == 0) {
     m_outputManagement.reset();
@@ -840,6 +850,7 @@ void SettingsWindow::prepareFrame(bool needsUpdate, bool needsLayout) {
     logSettingsProfile("prepareFrame rebuildContent", phaseProfileWatch);
     phaseProfileWatch.reset();
     m_sceneRoot->layout(renderer);
+    syncSidebarBlur();
     logSettingsProfile("prepareFrame layout", phaseProfileWatch);
     phaseProfileWatch.reset();
     applyPendingContentScrollTarget(Style::spaceMd * uiScale());
@@ -1339,4 +1350,32 @@ void SettingsWindow::onSecondTick() { onIdleLiveStatusChanged(); }
 
 bool SettingsWindow::wantsSecondTicks() const noexcept {
   return m_idleLiveStatusLabel != nullptr && m_surface != nullptr;
+}
+
+void SettingsWindow::syncSidebarBlur() {
+  if (m_surface == nullptr) {
+    return;
+  }
+  if (!m_glassSidebar || m_sidebarNode == nullptr) {
+    if (m_sidebarBlurSent.has_value()) {
+      m_surface->clearBlurRegion();
+      m_sidebarBlurSent.reset();
+    }
+    return;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(m_sidebarNode, x, y);
+  const InputRect rect{
+      .x = static_cast<int>(std::floor(x)),
+      .y = static_cast<int>(std::floor(y)),
+      .width = static_cast<int>(std::ceil(m_sidebarNode->width())),
+      .height = static_cast<int>(std::ceil(m_sidebarNode->height())),
+  };
+  if (m_sidebarBlurSent.has_value() && m_sidebarBlurSent->x == rect.x && m_sidebarBlurSent->y == rect.y
+      && m_sidebarBlurSent->width == rect.width && m_sidebarBlurSent->height == rect.height) {
+    return;
+  }
+  m_sidebarBlurSent = rect;
+  m_surface->setBlurRegion({rect});
 }

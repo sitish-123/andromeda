@@ -10,21 +10,25 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 7;
-    constexpr uint32_t kPropertyCount = 8;
+    constexpr int kVersion = 12;
+    constexpr uint32_t kPropertyCount = 12;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
 
     constexpr int kElevationPropertySince = 4;
     constexpr int kLiquidPropertySince = 5;
     constexpr int kStrokePropertySince = 7;
+    constexpr int kTintPropertySince = 9;
+    constexpr int kShapePropertiesSince = 10;
 
     bool validProperty(wl_resource* resource, uint32_t property) {
       const int version = wl_resource_get_version(resource);
       return property < kPropertyCount
           && (property != static_cast<uint32_t>(SurfaceMotion::Property::Elevation) || version >= kElevationPropertySince)
           && (property != static_cast<uint32_t>(SurfaceMotion::Property::Liquid) || version >= kLiquidPropertySince)
-          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Stroke) || version >= kStrokePropertySince);
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Stroke) || version >= kStrokePropertySince)
+          && (property != static_cast<uint32_t>(SurfaceMotion::Property::Tint) || version >= kTintPropertySince)
+          && (property < static_cast<uint32_t>(SurfaceMotion::Property::Join) || version >= kShapePropertiesSince);
     }
 
     SurfaceMotion::Value toValue(int32_t a, int32_t b, int32_t c, int32_t d) {
@@ -44,6 +48,16 @@ namespace andromeda {
       .set = handleSet,
       .animate = handleAnimate,
       .set_clip_from = handleSetClipFrom,
+      .set_visible_region = handleSetVisibleRegion,
+      .get_shape = handleGetShape,
+      .launch_from = handleLaunchFrom,
+  };
+
+  const struct dsk_shape_v1_interface DskSurfaceManager::kShapeImplementation = {
+      .destroy = handleShapeDestroy,
+      .set = handleShapeSet,
+      .animate = handleShapeAnimate,
+      .loop = handleShapeLoop,
   };
 
   const wlr_addon_interface DskSurfaceManager::kAddonInterface = {
@@ -108,6 +122,10 @@ namespace andromeda {
     Surface* state = wl_container_of(addon, state, addon);
     changed = state->current.motion.tick(nowMs) || changed;
     sendEvents(*state, nowMs);
+    for (Shape* shape : state->shapes) {
+      changed = shape->motion.tick(nowMs) || changed;
+      sendShapeEvents(*shape, nowMs);
+    }
     return changed;
   }
 
@@ -123,6 +141,16 @@ namespace andromeda {
         dsk_surface_v1_send_started(state.resource, event.serial, timeMs);
       } else {
         dsk_surface_v1_send_done(state.resource, event.serial, static_cast<uint32_t>(event.reason));
+      }
+    }
+  }
+
+  void DskSurfaceManager::sendShapeEvents(Shape& shape, uint32_t timeMs) {
+    for (const SurfaceMotion::Event& event : shape.motion.takeEvents()) {
+      if (event.kind == SurfaceMotion::Event::Kind::Started) {
+        dsk_shape_v1_send_started(shape.resource, event.serial, timeMs);
+      } else {
+        dsk_shape_v1_send_done(shape.resource, event.serial, static_cast<uint32_t>(event.reason));
       }
     }
   }
@@ -166,6 +194,7 @@ namespace andromeda {
       return;
     }
     auto* state = new Surface{.manager = self, .resource = object, .surface = surface};
+    state->current.version = wl_resource_get_version(object);
     wlr_addon_init(&state->addon, &surface->addons, self, &kAddonInterface);
     state->clientCommit.notify = handleClientCommit;
     wl_signal_add(&surface->events.client_commit, &state->clientCommit);
@@ -208,7 +237,8 @@ namespace andromeda {
          .serial = 0,
          .property = SurfaceMotion::Property::Elevation,
          .curve = SurfaceMotion::Curve::None,
-         .value = {static_cast<double>(level), 0.0, 0.0, 0.0}}
+         .value = {static_cast<double>(level), 0.0, 0.0, 0.0},
+         .loop = {}}
     );
   }
 
@@ -228,7 +258,8 @@ namespace andromeda {
          .serial = 0,
          .property = static_cast<SurfaceMotion::Property>(property),
          .curve = SurfaceMotion::Curve::None,
-         .value = toValue(a, b, c, d)}
+         .value = toValue(a, b, c, d),
+         .loop = {}}
     );
   }
 
@@ -252,7 +283,8 @@ namespace andromeda {
          .property = SurfaceMotion::Property::Clip,
          .curve = SurfaceMotion::Curve::None,
          .value = {wl_fixed_to_double(x) + from->first, wl_fixed_to_double(y) + from->second,
-                   wl_fixed_to_double(width), wl_fixed_to_double(height)}}
+                   wl_fixed_to_double(width), wl_fixed_to_double(height)},
+         .loop = {}}
     );
   }
 
@@ -275,8 +307,148 @@ namespace andromeda {
          .serial = serial,
          .property = static_cast<SurfaceMotion::Property>(property),
          .curve = static_cast<SurfaceMotion::Curve>(curve),
-         .value = toValue(a, b, c, d)}
+         .value = toValue(a, b, c, d),
+         .loop = {}}
     );
+  }
+
+  void DskSurfaceManager::handleSetVisibleRegion(wl_client* /*client*/, wl_resource* resource, wl_resource* region) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr) {
+      return;
+    }
+    if (region == nullptr) {
+      state->pendingVisibleRegion.emplace();
+      return;
+    }
+    int count = 0;
+    const pixman_box32_t* boxes = pixman_region32_rectangles(wlr_region_from_resource(region), &count);
+    state->pendingVisibleRegion = std::vector<pixman_box32_t>(boxes, boxes + count);
+  }
+
+  void DskSurfaceManager::handleLaunchFrom(
+      wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height
+  ) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr || state->surface == nullptr || width <= 0 || height <= 0
+        || !state->manager->m_launchFromHandler) {
+      return;
+    }
+    state->manager->m_launchFromHandler(client, state->surface, wlr_box{x, y, width, height});
+  }
+
+  void DskSurfaceManager::handleGetShape(wl_client* client, wl_resource* resource, uint32_t id) {
+    Surface* state = fromResource(resource);
+    wl_resource* shapeResource = wl_resource_create(client, &dsk_shape_v1_interface, wl_resource_get_version(resource), id);
+    if (shapeResource == nullptr) {
+      wl_client_post_no_memory(client);
+      return;
+    }
+    auto* shape = new Shape{.manager = state != nullptr ? state->manager : nullptr, .resource = shapeResource, .parent = state};
+    wl_resource_set_implementation(shapeResource, &kShapeImplementation, shape, handleShapeResourceDestroyed);
+    if (state != nullptr) {
+      state->shapes.push_back(shape);
+      state->current.shapes.push_back(&shape->motion);
+    }
+  }
+
+  DskSurfaceManager::Shape* DskSurfaceManager::shapeFromResource(wl_resource* resource) {
+    auto* shape = static_cast<Shape*>(wl_resource_get_user_data(resource));
+    return shape != nullptr && shape->parent != nullptr ? shape : nullptr;
+  }
+
+  void DskSurfaceManager::handleShapeDestroy(wl_client* /*client*/, wl_resource* resource) {
+    wl_resource_destroy(resource);
+  }
+
+  void DskSurfaceManager::handleShapeSet(
+      wl_client* /*client*/, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d
+  ) {
+    if (!validProperty(resource, property)) {
+      wl_resource_post_error(resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u", property);
+      return;
+    }
+    if (Shape* shape = shapeFromResource(resource)) {
+      shape->pending.push_back(
+          {.kind = Op::Kind::Set,
+           .serial = 0,
+           .property = static_cast<SurfaceMotion::Property>(property),
+           .curve = SurfaceMotion::Curve::None,
+           .value = toValue(a, b, c, d),
+           .loop = {}}
+      );
+    }
+  }
+
+  void DskSurfaceManager::handleShapeAnimate(
+      wl_client* /*client*/, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t curve, int32_t a,
+      int32_t b, int32_t c, int32_t d
+  ) {
+    if (!validProperty(resource, property) || curve >= kCurveCount) {
+      wl_resource_post_error(
+          resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u or curve %u", property, curve
+      );
+      return;
+    }
+    if (Shape* shape = shapeFromResource(resource)) {
+      shape->pending.push_back(
+          {.kind = Op::Kind::Animate,
+           .serial = serial,
+           .property = static_cast<SurfaceMotion::Property>(property),
+           .curve = static_cast<SurfaceMotion::Curve>(curve),
+           .value = toValue(a, b, c, d),
+           .loop = {}}
+      );
+    }
+  }
+
+  void DskSurfaceManager::handleShapeLoop(
+      wl_client* /*client*/, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t wave,
+      uint32_t periodMs, uint32_t seed, int32_t a, int32_t b, int32_t c, int32_t d
+  ) {
+    if (!validProperty(resource, property) || wave > DSK_SHAPE_V1_WAVE_NOISE) {
+      wl_resource_post_error(
+          resource, DSK_SURFACE_V1_ERROR_INVALID_VALUE, "invalid property %u or wave %u", property, wave
+      );
+      return;
+    }
+    if (Shape* shape = shapeFromResource(resource)) {
+      shape->pending.push_back(
+          {.kind = Op::Kind::Loop,
+           .serial = serial,
+           .property = static_cast<SurfaceMotion::Property>(property),
+           .curve = SurfaceMotion::Curve::None,
+           .value = toValue(a, b, c, d),
+           .loop = {.wave = static_cast<SurfaceMotion::Wave>(wave), .periodMs = periodMs, .seed = seed}}
+      );
+    }
+  }
+
+  void DskSurfaceManager::handleShapeResourceDestroyed(wl_resource* resource) {
+    auto* shape = static_cast<Shape*>(wl_resource_get_user_data(resource));
+    if (shape == nullptr) {
+      return;
+    }
+    if (Surface* parent = shape->parent) {
+      std::erase(parent->shapes, shape);
+      std::erase(parent->current.shapes, &shape->motion);
+    }
+    delete shape;
+  }
+
+  void DskSurfaceManager::applyOps(const std::vector<Op>& ops, SurfaceMotion& motion) {
+    for (const Op& op : ops) {
+      if (op.kind == Op::Kind::Set) {
+        motion.set(op.property, op.value);
+      } else if (op.kind == Op::Kind::Animate) {
+        // Reduce motion: spatial properties jump; opacity keeps its fade.
+        const bool still = config().appearance.reduceMotion && op.property != SurfaceMotion::Property::Opacity;
+        motion.animate(op.serial, op.property, still ? SurfaceMotion::Curve::None : op.curve, op.value);
+      } else if (op.kind == Op::Kind::Loop && !config().appearance.reduceMotion) {
+        // Reduce motion: the property stays at its low value.
+        motion.loop(op.serial, op.property, op.loop.wave, op.loop.periodMs, op.loop.seed, op.value);
+      }
+    }
   }
 
   void DskSurfaceManager::handleSurfaceResourceDestroyed(wl_resource* resource) {
@@ -294,6 +466,9 @@ namespace andromeda {
       for (TrackerConfig* config : {&tracker->pending, &tracker->current}) {
         std::erase_if(config->bindings, [state](const Binding& binding) { return binding.target == state; });
       }
+    }
+    for (Shape* shape : state->shapes) {
+      shape->parent = nullptr;
     }
     wl_list_remove(&state->clientCommit.link);
     delete state;
@@ -322,9 +497,21 @@ namespace andromeda {
       }
     }
     state->pending.clear();
+    for (Shape* shape : state->shapes) {
+      applyOps(shape->pending, shape->motion);
+      shape->pending.clear();
+    }
+    if (state->pendingVisibleRegion) {
+      state->current.visibleRegion = std::move(*state->pendingVisibleRegion);
+      state->pendingVisibleRegion.reset();
+    }
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
-    sendEvents(*state, static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000));
+    const auto nowMs = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
+    sendEvents(*state, nowMs);
+    for (Shape* shape : state->shapes) {
+      sendShapeEvents(*shape, nowMs);
+    }
   }
 
   void DskSurfaceManager::handleAddonDestroy(wlr_addon* addon) {

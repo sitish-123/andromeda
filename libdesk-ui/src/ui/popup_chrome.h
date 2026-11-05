@@ -55,6 +55,8 @@ namespace popup_chrome {
 
   void applyToConfig(PopupSurfaceConfig& config, const Geometry& geometry, Attachment attachment) noexcept;
   void setContentInputRegion(PopupSurface& surface, const Geometry& geometry);
+  // The compositor blurs behind the card only (its rounded shape), so the glass tint lets the window text read through.
+  void setCardBlurRegion(PopupSurface& surface, const Geometry& geometry, float contentScale);
   [[nodiscard]] RectNode* addShadow(
       Node& parent, const Geometry& geometry, const ShadowStyle& shadow, float radius,
       float backgroundOpacity = 1.0F

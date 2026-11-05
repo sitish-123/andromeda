@@ -1,3 +1,4 @@
+#include "dbus/andromeda/software_update_service.h"
 #include "app/main_loop.h"
 #include "application.h"
 #include "application_internal.h"
@@ -9,6 +10,7 @@
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/process/process.h"
+#include "system/crash_report.h"
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
@@ -87,8 +89,11 @@
 #include "shell/tray/tray_drawer_panel.h"
 #include "shell/wallpaper/panel/wallpaper_panel.h"
 #include "shell/wallpaper/wallpaper_paths.h"
+#include "system/app_identity.h"
 #include "system/brightness_poll_source.h"
 #include "system/brightness_service.h"
+#include "system/desktop_entry.h"
+#include "system/desktop_entry_launch.h"
 #include "system/distro_info.h"
 #include "system/easyeffects_service.h"
 #include "system/system_monitor_service.h"
@@ -104,21 +109,52 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
+#include "desktop-unstable-v1-client-protocol.h"
+
 #include <algorithm>
+#include <iterator>
 #include <chrono>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <memory>
 #include <malloc.h>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
+#include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace {
+
+  // App ids of the windows open before the last compositor crash (written by the compositor, docs/resilience.md §5).
+  std::vector<std::string> crashSessionAppIds() {
+    const char* state = std::getenv("XDG_STATE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path path = state != nullptr && *state != '\0'
+        ? std::filesystem::path(state) / "andromeda/session-crash.json"
+        : std::filesystem::path(home != nullptr ? home : "") / ".local/state/andromeda/session-crash.json";
+    std::ifstream in(path);
+    const nlohmann::json session = nlohmann::json::parse(in, nullptr, false);
+    std::vector<std::string> ids;
+    if (session.is_discarded() || !session.contains("windows") || !session["windows"].is_array()) {
+      return ids;
+    }
+    for (const auto& window : session["windows"]) {
+      const std::string id = window.value("app_id", "");
+      if (!id.empty() && std::ranges::find(ids, id) == ids.end()) {
+        ids.push_back(id);
+      }
+    }
+    return ids;
+  }
+
   constexpr Logger kLog("app");
 
   [[nodiscard]] bool overviewTypeToLaunchEnabled(const ConfigService& configService) {
@@ -178,6 +214,23 @@ void Application::initUiRenderSurfacesAndSettings() {
   m_settingsWindow.setAudioProvider([this] { return pipewire(); });
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
   m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });
+  m_settingsWindow.setSystemHealthProvider([this] { return m_systemHealthService.get(); });
+  m_notificationManager.setSettingsPageCallback([this](const std::string& page) { m_panelManager.openSettingsWindow(page); });
+  m_settingsWindow.setSoftwareUpdateSources(
+      [this] { return softwareUpdateService(); },
+      [this] {
+        std::vector<std::pair<std::string, std::string>> failures;
+        for (const auto& failure : m_hookManager.dirHookFailures()) {
+          failures.emplace_back(failure.event, failure.script);
+        }
+        return failures;
+      },
+      [this] { (void)m_sessionActionRunner.requestRebootDetached(); }
+  );
+  m_settingsWindow.setBatteryAppsSources(
+      [this] { return ensureActivityMonitor(); }, &m_activityDetails, &m_screenTimeService,
+      [this](const std::string& key) { m_activityWindow.open(key); }
+  );
   m_settingsWindow.setFileWatcher(&m_fileWatcher);
   m_settingsWindow.setPluginManager(&m_pluginManager);
   m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);
@@ -397,6 +450,7 @@ void Application::initLockScreenAndSession() {
         m_idleManager.setSessionLocked(false);
         m_screenTimeService.setSessionLocked(false);
         m_hookManager.fire(HookKind::SessionUnlocked);
+        notifyFailedUnlocks(m_lockScreen.takeRejectedWhileLocked());
         releaseSleepDelayInhibitIfPending();
         requestAllSurfacesRedraw();
         // The bar skipped ticks while locked; refresh it now rather than at the next minute.
@@ -440,14 +494,29 @@ void Application::initLockScreenAndSession() {
   }
 
   SessionActionHooks sessionActionHooks;
-  sessionActionHooks.onLogout = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::LoggingOut, std::move(done));
+  // Update lock: logout, restart and power-off wait for a running system update, and say so.
+  auto afterUpdate = [this](HookKind kind, std::string_view waitKey, std::function<void(bool)> done) {
+    SoftwareUpdateService* update = softwareUpdateService();
+    auto run = [this, kind, done = std::move(done)](bool /*waited*/) mutable {
+      m_hookManager.fireAsync(kind, std::move(done));
+    };
+    if (update == nullptr) {
+      run(false);
+      return;
+    }
+    update->afterSystemUpdate(std::move(run), [this, waitKey = std::string(waitKey)] {
+      m_notificationManager.addInternal("Andromeda", i18n::tr("settings.update.lock-title"), i18n::tr(waitKey),
+                                        Urgency::Normal);
+    });
   };
-  sessionActionHooks.onReboot = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::Rebooting, std::move(done));
+  sessionActionHooks.onLogout = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::LoggingOut, "settings.update.lock-logout", std::move(done));
   };
-  sessionActionHooks.onShutdown = [this](std::function<void(bool)> done) {
-    m_hookManager.fireAsync(HookKind::ShuttingDown, std::move(done));
+  sessionActionHooks.onReboot = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::Rebooting, "settings.update.lock-restart", std::move(done));
+  };
+  sessionActionHooks.onShutdown = [afterUpdate](std::function<void(bool)> done) {
+    afterUpdate(HookKind::ShuttingDown, "settings.update.lock-shutdown", std::move(done));
   };
   sessionActionHooks.onBeforePlainSuspend = [this] { m_skipLockOnNextSleep = true; };
   sessionActionHooks.onPlainSuspendAborted = [this] { m_skipLockOnNextSleep = false; };
@@ -517,11 +586,60 @@ void Application::initInputDispatch() {
       return;
     if (m_panelManager.onPointerEvent(event))
       return;
-    if (m_hotCorners.onPointerEvent(event))
-      return;
-    m_notificationToast.onPointerEvent(event);
+    (void)m_hotCorners.onPointerEvent(event);
   });
 
+  // The lock client died, or the compositor restarted into the lock (docs/resilience.md §4): lock again at once.
+  m_wayland.setRelockCallback([this] {
+    if (!m_lockScreen.isActive()) {
+      m_lockScreen.lock();
+    }
+  });
+  // One notification per restart; "restore" relaunches every saved app that has no window when it is clicked, so
+  // apps that reconnected meanwhile (Qt) are not started twice.
+  auto restoreId = std::make_shared<std::uint32_t>(0);
+  m_notificationManager.addInternalActionCallback(
+      [this, restoreId](std::uint32_t id, const std::string& action, const std::string& token, const std::string&) {
+        if (id != *restoreId) {
+          return;
+        }
+        if (action == "report") {
+          crash_report::save(0);
+          return;
+        }
+        if (action != "restore") {
+          return;
+        }
+        const std::vector<std::string> running = m_wayland.runningAppIds();
+        for (const std::string& appId : crashSessionAppIds()) {
+          if (std::ranges::find(running, appId) != running.end()) {
+            continue;
+          }
+          if (const auto entry = app_identity::findDesktopEntry(appId, desktopEntries()); entry.has_value()) {
+            (void)desktop_entry_launch::launchEntry(*entry, {.activationToken = token});
+          }
+        }
+      }
+  );
+  m_wayland.setRestartedCallback([this, restoreId] {
+    const std::vector<std::string> saved = crashSessionAppIds();
+    kLog.info("the compositor restarted after a crash; {} apps were open", saved.size());
+    NotificationRequest request;
+    request.appName = i18n::tr("notifications.internal.desktop");
+    request.summary = i18n::tr("notifications.internal.desktop-restarted");
+    request.body = saved.empty() ? i18n::tr("notifications.internal.desktop-restarted-none")
+                                 : i18n::tr("notifications.internal.desktop-restarted-body", "count",
+                                            std::to_string(saved.size()));
+    request.origin = NotificationOrigin::Internal;
+    request.timeout = 0; // stays until dismissed: the user may come back to it after the restart
+    request.persistInHistory = true;
+    if (!saved.empty()) {
+      request.actions = {"restore", i18n::tr("notifications.internal.desktop-restore")};
+    }
+    request.actions.push_back("report");
+    request.actions.push_back(i18n::tr("notifications.internal.desktop-report"));
+    *restoreId = m_notificationManager.addOrReplace(std::move(request));
+  });
   m_wayland.setLockKeysChangeCallback([this] {
     if (m_lockScreen.isActive()) {
       m_lockScreen.onLockKeysChanged();
@@ -583,9 +701,6 @@ void Application::initInputDispatch() {
       return;
     }
     if (m_overviewLauncherCapture.handleKeyboardEvent(event)) {
-      return;
-    }
-    if (m_notificationToast.onKeyboardEvent(event)) {
       return;
     }
     if (m_windowSwitcher.onKeyboardEvent(event)) {
@@ -738,16 +853,16 @@ void Application::initPanelManagerAndPanels() {
     auto files = std::make_unique<FilesProvider>(&m_clipboardService, m_bus.get());
     m_filesProvider = files.get();
     launcherPanel->addProvider(std::move(files));
-    launcherPanel->setCopiedActivationCallback([this] {
+    launcherPanel->setCopiedActivationCallback([this](bool isImage) {
       const ClipboardAutoPasteMode mode = m_configService.config().shell.launcher.autoPaste;
       if (mode == ClipboardAutoPasteMode::Off) {
         return;
       }
       m_launcherAutoPasteTimer.stop();
-      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(150), [this] {
-        DeferredCall::callLater([this] {
+      m_launcherAutoPasteTimer.start(std::chrono::milliseconds(150), [this, isImage] {
+        DeferredCall::callLater([this, isImage] {
           const ClipboardAutoPasteMode activeMode = m_configService.config().shell.launcher.autoPaste;
-          (void)clipboard_paste::pasteEntry(false, activeMode, m_virtualKeyboardService);
+          (void)clipboard_paste::pasteEntry(isImage, activeMode, m_virtualKeyboardService);
         });
       });
     });
@@ -835,7 +950,10 @@ void Application::initPanelManagerAndPanels() {
   m_panelManager.registerPanel("polkit", std::make_unique<PolkitPanel>(&m_configService, [this] {
                                  return m_polkitAgent.get();
                                }));
-  m_panelManager.registerPanel("setup-wizard", std::make_unique<SetupWizardPanel>(&m_configService, &m_wayland));
+  auto setupWizard = std::make_unique<SetupWizardPanel>(&m_configService, &m_wayland, m_linkService.get(),
+                                                        m_systemBus.get(), [this] { return softwareUpdateService(); });
+  m_setupWizard = setupWizard.get();
+  m_panelManager.registerPanel("setup-wizard", std::move(setupWizard));
 
   if (SetupWizardPanel::isFirstRun(m_configService)) {
     DeferredCall::callLater([] { PanelManager::instance().togglePanel("setup-wizard"); });
@@ -843,10 +961,6 @@ void Application::initPanelManagerAndPanels() {
 }
 
 void Application::initNotificationAndOsd() {
-  m_notificationToast.initialize(
-      m_wayland, m_compositorPlatform, &m_configService, &m_notificationManager, &m_renderContext, &m_httpClient
-  );
-  m_configService.addReloadCallback([this] { m_notificationToast.onConfigReload(); });
   auto applyNotificationFilterConfig = [this] {
     m_notificationManager.setFilters(m_configService.config().notification.filters);
   };
@@ -890,9 +1004,6 @@ void Application::initNotificationAndOsd() {
       [this](const OsdContent& content) { return m_liveActivity.showOsd(content); },
       [this] { return m_liveActivity.osdVisible(); }
   );
-  m_notificationToast.setIslandHook([this](const Notification& n, NotificationEvent event) {
-    return m_liveActivity.showBanner(n, event);
-  });
   m_bar.setCenterIslandSpaceCallback(m_liveActivity.refresher());
   m_configService.addReloadCallback(m_liveActivity.refresher());
   m_islandUnreadToken = m_notificationManager.addUnreadCountCallback(m_liveActivity.refresher());
@@ -1210,7 +1321,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_desktopWidgetsController.requestLayout();
         m_lockscreenWidgetsController.requestLayout();
         m_panelManager.requestLayout();
-        m_notificationToast.requestLayout();
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
@@ -1241,7 +1351,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_desktopWidgetsController.requestLayout();
         m_lockscreenWidgetsController.requestLayout();
         m_panelManager.requestLayout();
-        m_notificationToast.requestLayout();
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
@@ -1284,10 +1393,17 @@ void Application::initWidgetControllersAndCallbacks() {
       if (shouldRefreshControlCenter()) {
         m_panelManager.refresh();
       }
+      syncAppActivity();
       if (pipewire() != nullptr) {
         m_hdmiAudioSwitch.onAudioStateChanged(*pipewire(), m_configService.config().audio.autoSwitchHdmi);
         m_audioOsd.onAudioStateChanged(*pipewire());
         m_privacyOsd.onPrivacyStateChanged(*pipewire());
+      }
+    });
+    // Headphones out of the jack: the music stops instead of moving to the speakers (docs/system-health.md §12.2).
+    pipewire()->setHeadphonesUnpluggedCallback([this] {
+      if (mpris() != nullptr) {
+        (void)mpris()->pauseActive();
       }
     });
     pipewire()->setVolumePreviewCallback([this](bool isInput, std::uint32_t id, float volume, bool muted) {
@@ -1322,7 +1438,7 @@ void Application::initWidgetControllersAndCallbacks() {
         appearance.glass, appearance.reduceTransparency, appearance.increaseContrast, appearance.reduceMotion,
         appearance.accent
     );
-    Style::setGlass(appearance.glass, appearance.reduceTransparency);
+    Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
     MotionService::instance().setEnabled(m_configService.config().shell.animation.enabled);
     MotionService::instance().setReduced(appearance.reduceMotion);
     m_themeService.setLiveAppearance(appearance.accent, appearance.increaseContrast);
@@ -1341,7 +1457,6 @@ void Application::initWidgetControllersAndCallbacks() {
     // Bar and dock re-apply their material fills on this signal; the other glass surfaces re-read them on reload.
     paletteChanged().emit();
     m_panelManager.onConfigReloaded();
-    m_notificationToast.onConfigReload();
     m_osdOverlay.onConfigReload();
     requestAllSurfacesRedraw();
   });
@@ -1366,4 +1481,37 @@ void Application::syncLockStreamPause() {
   m_lockscreenWidgetsController.setStreamsPaused(
       profiles != nullptr && profiles->activeProfile() == "power-saver", m_compositorPlatform.outputPowerStates()
   );
+}
+
+void Application::syncAppActivity() {
+  const std::vector<std::uint32_t> audio = pipewire() != nullptr ? pipewire()->state().audioPids : std::vector<std::uint32_t>{};
+  std::vector<std::uint32_t> stopped;
+  std::ranges::set_difference(m_sentAudioPids, audio, std::back_inserter(stopped));
+  std::vector<std::uint32_t> started;
+  std::ranges::set_difference(audio, m_sentAudioPids, std::back_inserter(started));
+  for (const std::uint32_t pid : stopped) {
+    m_wayland.sendAppActivity(pid, 0);
+  }
+  for (const std::uint32_t pid : started) {
+    m_wayland.sendAppActivity(pid, DSK_SHELL_V1_APP_ACTIVITY_FLAG_AUDIO);
+  }
+  m_sentAudioPids = audio;
+}
+
+SoftwareUpdateService* Application::softwareUpdateService() {
+  // Created on first use (Settings page, session action), so Update1 is not D-Bus activated at login.
+  if (m_softwareUpdateService == nullptr && m_bus != nullptr) {
+    try {
+      m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
+      m_softwareUpdateService->setChangeCallback([this] {
+        m_settingsWindow.onSoftwareUpdateChanged();
+        if (m_setupWizard != nullptr) {
+          m_setupWizard->onSoftwareUpdateChanged();
+        }
+      });
+    } catch (const std::exception& e) {
+      kLog.warn("software update client disabled: {}", e.what());
+    }
+  }
+  return m_softwareUpdateService.get();
 }

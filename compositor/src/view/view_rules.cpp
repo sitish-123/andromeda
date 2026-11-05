@@ -247,7 +247,7 @@ namespace andromeda {
     // state like any other window, and the client's session flag is ignored.
     const bool clientRequested = m_aloneOpeningSeed == AloneSeed::Fullscreen
         ? requestedFullscreen()
-        : m_aloneOpeningSeed == AloneSeed::Maximize && requestedMaximized() && config().general.honorRestoredMaximize;
+        : m_aloneOpeningSeed == AloneSeed::Maximize && requestedMaximized() && honorsRestoredMaximize();
     if (clientRequested) {
       // The client has asked for the state itself since the opening configure, so it owns it.
       m_aloneOpeningSeed = AloneSeed::None;
@@ -713,6 +713,10 @@ namespace andromeda {
       m_borderColorAnim.snap(targetBorder);
       m_decoration.setBorderColor(m_borderFocusedState, effectiveOpacity());
     }
+    if (m_contentTree != nullptr
+        && !wlr_scene_node_set_surface_opaque_region_ignored(&m_contentTree->node, rule.ignoreOpaqueRegion.value_or(false))) {
+      kLog.error("failed to store the opaque-region rule");
+    }
     const float newOpacity = rule.opacity ? static_cast<float>(*rule.opacity) : 1.0F;
     if (newOpacity != m_ruleOpacity) {
       m_ruleOpacity = newOpacity;
@@ -721,6 +725,10 @@ namespace andromeda {
     if (const bool backgroundRender = rule.backgroundRender.value_or(false); backgroundRender != m_backgroundRender) {
       m_backgroundRender = backgroundRender;
       m_server->scheduleSuspensionSync();
+    }
+    if (const qos::Rule qosRule = rule.qos.value_or(qos::Rule::Normal); qosRule != m_qosRule) {
+      m_qosRule = qosRule;
+      m_server->scheduleQos();
     }
     m_presentation.setFullscreenOpaque(fullscreenOpaque());
     updateBlur();

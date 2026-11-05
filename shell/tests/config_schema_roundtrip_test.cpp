@@ -405,17 +405,6 @@ location = "https://example.invalid/bad"
         .enableDaemon = false,
         .showAppName = false,
         .showActions = false,
-        .position = "bottom_left",
-        .layer = "overlay",
-        .scale = 1.3F,
-        .width = 420,
-        .backgroundOpacity = 0.5F,
-        .border = false,
-        .followFocusedOutput = true,
-        .offsetX = 12,
-        .offsetY = 6,
-        .monitors = {"DP-2"},
-        .collapseOnDismiss = false,
         .historyRetentionHours = 48,
         .filters = {NotificationFilterConfig{
             .name = "discord",
@@ -762,24 +751,6 @@ location = "https://example.invalid/bad"
       readInto(t, s, shellSchema(), "shell", d);
       if (s.clipboardHistoryMaxEntries != 10000) {
         fail("shell.clipboard_history_max_entries clamp: expected 10000");
-      }
-    }
-    {
-      auto t = toml::parse("width = 100");
-      NotificationConfig n{};
-      Diagnostics d;
-      readInto(t, n, notificationSchema(), "notification", d);
-      if (n.width != static_cast<std::int32_t>(*kNotificationWidthRange.min)) {
-        fail("notification.width clamp: expected 240");
-      }
-    }
-    {
-      auto t = toml::parse("width = 2000");
-      NotificationConfig n{};
-      Diagnostics d;
-      readInto(t, n, notificationSchema(), "notification", d);
-      if (n.width != static_cast<std::int32_t>(*kNotificationWidthRange.max)) {
-        fail("notification.width clamp: expected 500");
       }
     }
   }

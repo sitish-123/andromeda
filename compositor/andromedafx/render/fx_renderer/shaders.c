@@ -118,7 +118,7 @@ void uniform_corner_radii_set(const struct shader_corner_radii* uniform, const s
 
 bool link_quad_program(struct quad_shader* shader, bool clip) {
   GLchar quad_src_part[2048];
-  GLchar quad_src[8192];
+  GLchar quad_src[sizeof(quad_src_part) + sizeof(corner_alpha_frag_src) + 2];
   snprintf(quad_src_part, sizeof(quad_src_part), quad_frag_src, clip);
   snprintf(quad_src, sizeof(quad_src), "%s\n%s\n", quad_src_part, clip ? corner_alpha_frag_src : "");
 
@@ -174,7 +174,7 @@ bool link_quad_grad_program(struct quad_grad_shader* shader, int max_len) {
 }
 
 bool link_quad_round_program(struct quad_round_shader* shader) {
-  GLchar quad_src[8192];
+  GLchar quad_src[sizeof(quad_round_frag_src) + sizeof(corner_alpha_frag_src) + 1];
   snprintf(quad_src, sizeof(quad_src), "%s\n%s", quad_round_frag_src, corner_alpha_frag_src);
 
   GLuint prog;
@@ -239,7 +239,7 @@ bool link_border_program(struct border_shader* shader) {
 
 bool link_quad_grad_round_program(struct quad_grad_round_shader* shader, int max_len) {
   GLchar quad_src_part[2048];
-  GLchar quad_src[8192];
+  GLchar quad_src[sizeof(quad_src_part) + sizeof(gradient_frag_src) + sizeof(corner_alpha_frag_src) + 2];
   snprintf(quad_src_part, sizeof(quad_src_part), quad_grad_round_frag_src, max_len);
   snprintf(quad_src, sizeof(quad_src), "%s\n%s\n%s", quad_src_part, gradient_frag_src, corner_alpha_frag_src);
 
@@ -273,11 +273,18 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader* shader, int max
   return true;
 }
 
-bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source source, bool effects, bool sample_clamp) {
+static const char kFlaresDefine[] = "#define CORNER_FLARES\n";
+
+bool link_tex_program(
+    struct tex_shader* shader, enum fx_tex_shader_source source, bool effects, bool sample_clamp, bool flares
+) {
   GLchar frag_src_part[12288];
-  GLchar frag_src[16384];
+  GLchar frag_src[sizeof(frag_src_part) + sizeof(kFlaresDefine) + sizeof(corner_alpha_frag_src) + 3];
   snprintf(frag_src_part, sizeof(frag_src_part), tex_frag_src, source, effects, sample_clamp);
-  snprintf(frag_src, sizeof(frag_src), "%s\n%s\n", frag_src_part, effects ? corner_alpha_frag_src : "");
+  snprintf(
+      frag_src, sizeof(frag_src), "%s\n%s%s\n", frag_src_part, effects && flares ? kFlaresDefine : "",
+      effects ? corner_alpha_frag_src : ""
+  );
 
   GLuint prog;
   shader->program = prog = link_program(frag_src);
@@ -319,6 +326,7 @@ bool link_tex_program(struct tex_shader* shader, enum fx_tex_shader_source sourc
   shader->effects.liquid = glGetUniformLocation(prog, "liquid");
   shader->effects.rim = glGetUniformLocation(prog, "rim");
   shader->effects.lens = glGetUniformLocation(prog, "lens");
+  shader->effects.tint_mix = glGetUniformLocation(prog, "tint_mix");
   shader->effects.lens_tex = glGetUniformLocation(prog, "lens_tex");
   shader->effects.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
   shader->effects.liquid_size = glGetUniformLocation(prog, "liquid_size");
@@ -348,7 +356,7 @@ bool link_output_program(struct output_shader* shader) {
 }
 
 bool link_box_shadow_program(struct box_shadow_shader* shader) {
-  GLchar shadow_src[8192];
+  GLchar shadow_src[sizeof(box_shadow_frag_src) + sizeof(corner_alpha_frag_src) + 1];
   snprintf(shadow_src, sizeof(shadow_src), "%s\n%s", box_shadow_frag_src, corner_alpha_frag_src);
 
   GLuint prog;
@@ -391,11 +399,16 @@ bool link_blur1_program(struct blur_shader* shader) {
 }
 
 // Links one variant of blur2.frag and loads the uniforms every variant shares.
-static bool link_blur2_variant(struct blur2_with_effects_shader* shader, bool effects, bool composite, bool corners) {
+static bool link_blur2_variant(
+    struct blur2_with_effects_shader* shader, bool effects, bool composite, bool corners, bool flares, bool glass
+) {
   GLchar frag_src_part[12288];
-  GLchar frag_src[16384];
-  snprintf(frag_src_part, sizeof(frag_src_part), blur2_frag_src, effects, composite, corners);
-  snprintf(frag_src, sizeof(frag_src), "%s\n%s\n", frag_src_part, corners ? corner_alpha_frag_src : "");
+  GLchar frag_src[sizeof(frag_src_part) + sizeof(kFlaresDefine) + sizeof(corner_alpha_frag_src) + 3];
+  snprintf(frag_src_part, sizeof(frag_src_part), blur2_frag_src, effects, composite, corners, glass);
+  snprintf(
+      frag_src, sizeof(frag_src), "%s\n%s%s\n", frag_src_part, corners && flares ? kFlaresDefine : "",
+      corners ? corner_alpha_frag_src : ""
+  );
 
   GLuint prog;
   shader->base.program = prog = link_program(frag_src);
@@ -422,7 +435,7 @@ static bool link_blur2_variant(struct blur2_with_effects_shader* shader, bool ef
 
 bool link_blur2_program(struct blur_shader* shader) {
   struct blur2_with_effects_shader variant;
-  if (!link_blur2_variant(&variant, false, false, false)) {
+  if (!link_blur2_variant(&variant, false, false, false, false, false)) {
     return false;
   }
   *shader = variant.base;
@@ -430,11 +443,13 @@ bool link_blur2_program(struct blur_shader* shader) {
 }
 
 bool link_blur2_with_effects_program(struct blur2_with_effects_shader* shader) {
-  return link_blur2_variant(shader, true, false, false);
+  return link_blur2_variant(shader, true, false, false, false, false);
 }
 
-bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool effects, bool corners) {
-  if (!link_blur2_variant(&shader->blur, effects, true, corners)) {
+bool link_blur2_composite_program(
+    struct blur2_composite_shader* shader, bool effects, bool corners, bool flares, bool glass
+) {
+  if (!link_blur2_variant(&shader->blur, effects, true, corners, flares, glass)) {
     return false;
   }
   GLuint prog = shader->blur.base.program;
@@ -454,6 +469,16 @@ bool link_blur2_composite_program(struct blur2_composite_shader* shader, bool ef
   shader->corners.clip_radius.top_right = glGetUniformLocation(prog, "clip_radius_top_right");
   shader->corners.clip_radius.bottom_left = glGetUniformLocation(prog, "clip_radius_bottom_left");
   shader->corners.clip_radius.bottom_right = glGetUniformLocation(prog, "clip_radius_bottom_right");
+
+  shader->glass.liquid = glGetUniformLocation(prog, "liquid");
+  shader->glass.rim = glGetUniformLocation(prog, "rim");
+  shader->glass.lens = glGetUniformLocation(prog, "lens");
+  shader->glass.lens_tex = glGetUniformLocation(prog, "lens_tex");
+  shader->glass.tint_mix = glGetUniformLocation(prog, "tint_mix");
+  shader->glass.liquid_texel = glGetUniformLocation(prog, "liquid_texel");
+  shader->glass.liquid_size = glGetUniformLocation(prog, "liquid_size");
+  shader->glass.liquid_position = glGetUniformLocation(prog, "liquid_position");
+  shader->glass.liquid_radius = glGetUniformLocation(prog, "liquid_radius");
 
   return true;
 }

@@ -1,0 +1,67 @@
+# Per-app rules (docs/system-health.md §4.3): one episode per app, from org.andromeda.Compositor1.Apps samples
+# (every 30 s). Users change only `enabled` and the params.
+[[rule]]
+id = "apps.drainer"
+scope = "session"
+priority = "automatic"
+per = "app"
+params = { busy_pct = 50, calm_pct = 20 }
+when = "app.cpu_pct >= busy_pct and not app.focused"
+for = "2m"
+# The doc clears after 1 min below calm_pct. The engine has no clear delay: the episode lasts at least 1 min
+# (dwell) and ends at the first calm sample after that.
+clear = "app.cpu_pct < calm_pct"
+dwell = "1m"
+holds = [{ knob = "app.tier", value = "T3", when = "not app.visible" }]
+alert = { urgency = "normal", action = "open", text = "drainer" }
+
+# Frees memory under critical pressure: hidden apps over big_mb freeze, largest first, one each 10 s while the
+# level stays critical, until it is back to normal. Apps hear it first: the system part sends LowMemoryWarning
+# (org.freedesktop.LowMemoryMonitor) when the level rises, 10 s before the first freeze.
+[[rule]]
+id = "memory.relief"
+scope = "session"
+priority = "automatic"
+per = "app"
+largest_first = "app.rss_mb"
+params = { big_mb = 500 }
+when = "memory.level == 'critical' and not app.visible and app.rss_mb >= big_mb"
+for = "10s"
+clear = "memory.level == 'normal'"
+dwell = "1m"
+holds = [{ knob = "app.freeze", value = true }]
+
+# Cools the machine: while a zone is past a trip point, hidden apps run at T3 (efficiency CPUs, low weight).
+# The fps cap is thermal.fps_cap and the alert thermal.hot, below.
+[[rule]]
+id = "thermal.relief"
+scope = "session"
+priority = "safety"
+per = "app"
+when = "thermal.throttled and not app.visible"
+for = "1m"
+clear = "not thermal.throttled"
+dwell = "2m"
+holds = [{ knob = "app.tier", value = "T3" }]
+
+# thermal.relief's frame cap: hidden content that still draws (background_render windows) gets 15 frames/s.
+[[rule]]
+id = "thermal.fps_cap"
+scope = "session"
+priority = "safety"
+when = "thermal.throttled"
+for = "1m"
+clear = "not thermal.throttled"
+dwell = "2m"
+holds = [{ knob = "display.fps_cap_hidden", value = 15 }]
+
+# thermal.relief's alert: one per episode, only when throttling lasts 5 min.
+[[rule]]
+id = "thermal.hot"
+scope = "session"
+priority = "safety"
+when = "thermal.throttled"
+for = "5m"
+clear = "not thermal.throttled"
+dwell = "2m"
+alert = { urgency = "normal", text = "thermal_hot" }

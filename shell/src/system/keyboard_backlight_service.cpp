@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
@@ -22,11 +24,13 @@ namespace {
 
   constexpr Logger kLog("keyboard-backlight");
 
-  const sdbus::ServiceName kUpowerBusName{"org.freedesktop.UPower"};
-  const sdbus::ObjectPath kUpowerPath{"/org/freedesktop/UPower"};
-  constexpr auto kUpowerInterface = "org.freedesktop.UPower";
-  constexpr auto kKbdBacklightInterface = "org.freedesktop.UPower.KbdBacklight";
-  constexpr std::string_view kKbdBacklightPathPrefix = "/org/freedesktop/UPower/KbdBacklight/";
+  // andromeda-system (docs/system-health.md) wraps UPower's keyboard backlights; the shell reads only its API.
+  const sdbus::ServiceName kUpowerBusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kUpowerPath{"/org/andromeda/System1"};
+  constexpr auto kObjectManagerInterface = "org.freedesktop.DBus.ObjectManager";
+  constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
+  constexpr auto kKbdBacklightInterface = "org.andromeda.System1.KbdBacklight";
+  constexpr std::string_view kKbdBacklightPathPrefix = "/org/andromeda/System1/KbdBacklight/";
 
   bool isKbdBacklightPath(const sdbus::ObjectPath& path) {
     return std::string_view{path}.starts_with(kKbdBacklightPathPrefix);
@@ -59,16 +63,20 @@ struct KeyboardBacklightService::Device {
 
 KeyboardBacklightService::KeyboardBacklightService(SystemBus& bus) : m_bus(bus) {
   m_upowerProxy = sdbus::createProxy(m_bus.connection(), kUpowerBusName, kUpowerPath);
-  m_upowerProxy->uponSignal("DeviceAdded").onInterface(kUpowerInterface).call([this](const sdbus::ObjectPath& path) {
-    if (isKbdBacklightPath(path)) {
-      rescanDevices();
-    }
-  });
-  m_upowerProxy->uponSignal("DeviceRemoved").onInterface(kUpowerInterface).call([this](const sdbus::ObjectPath& path) {
-    if (isKbdBacklightPath(path)) {
-      rescanDevices();
-    }
-  });
+  m_upowerProxy->uponSignal("InterfacesAdded")
+      .onInterface(kObjectManagerInterface)
+      .call([this](const sdbus::ObjectPath& path, const std::map<std::string, std::map<std::string, sdbus::Variant>>&) {
+        if (isKbdBacklightPath(path)) {
+          rescanDevices();
+        }
+      });
+  m_upowerProxy->uponSignal("InterfacesRemoved")
+      .onInterface(kObjectManagerInterface)
+      .call([this](const sdbus::ObjectPath& path, const std::vector<std::string>&) {
+        if (isKbdBacklightPath(path)) {
+          rescanDevices();
+        }
+      });
   rescanDevices();
 }
 
@@ -83,15 +91,22 @@ struct KeyboardBacklightService::Batch {
 void KeyboardBacklightService::rescanDevices() {
   m_batch.reset();
   const std::weak_ptr<int> aliveToken = m_aliveToken;
-  m_upowerProxy->callMethodAsync("EnumerateKbdBacklights")
-      .onInterface(kUpowerInterface)
-      .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, std::vector<sdbus::ObjectPath> paths) {
+  using ManagedObjects = std::map<sdbus::ObjectPath, std::map<std::string, std::map<std::string, sdbus::Variant>>>;
+  m_upowerProxy->callMethodAsync("GetManagedObjects")
+      .onInterface(kObjectManagerInterface)
+      .uponReplyInvoke([this, aliveToken](std::optional<sdbus::Error> e, const ManagedObjects& objects) {
         if (aliveToken.expired()) {
           return;
         }
         if (e.has_value()) {
           kLog.warn("failed to enumerate keyboard backlights: {}", e->what());
           return;
+        }
+        std::vector<sdbus::ObjectPath> paths;
+        for (const auto& [path, interfaces] : objects) {
+          if (interfaces.contains(kKbdBacklightInterface)) {
+            paths.push_back(path);
+          }
         }
         probeDevices(paths);
       });
@@ -131,19 +146,19 @@ void KeyboardBacklightService::probeDevices(const std::vector<sdbus::ObjectPath>
   }
   for (std::size_t i = 0; i < paths.size(); ++i) {
     auto& device = *batch->devices[i];
-    device.proxy->callMethodAsync("GetMaxBrightness")
+    device.proxy->getPropertyAsync("MaxBrightness")
         .onInterface(kKbdBacklightInterface)
-        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, int value) {
+        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, sdbus::Variant value) {
           if (const auto live = weakBatch.lock(); live != nullptr && !e.has_value()) {
-            live->devices[i]->maxBrightness = value;
+            live->devices[i]->maxBrightness = value.get<std::int32_t>();
           }
           settle(i, std::move(e));
         });
-    device.proxy->callMethodAsync("GetBrightness")
+    device.proxy->getPropertyAsync("Brightness")
         .onInterface(kKbdBacklightInterface)
-        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, int value) {
+        .uponReplyInvoke([settle, weakBatch, i](std::optional<sdbus::Error> e, sdbus::Variant value) {
           if (const auto live = weakBatch.lock(); live != nullptr && !e.has_value()) {
-            live->devices[i]->brightness = value;
+            live->devices[i]->brightness = value.get<std::int32_t>();
           }
           settle(i, std::move(e));
         });
@@ -165,9 +180,17 @@ void KeyboardBacklightService::commitDevices(Batch& batch) {
     device->brightness = util::clampOrdered(device->brightness, 0, device->maxBrightness);
 
     const std::string devicePath = device->path;
-    device->proxy->uponSignal("BrightnessChanged")
-        .onInterface(kKbdBacklightInterface)
-        .call([this, devicePath](int32_t value) {
+    device->proxy->uponSignal("PropertiesChanged")
+        .onInterface(kPropertiesInterface)
+        .call([this, devicePath](
+                  const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changedProperties,
+                  const std::vector<std::string>& /*invalidated*/
+              ) {
+          const auto property = changedProperties.find("Brightness");
+          if (interfaceName != kKbdBacklightInterface || property == changedProperties.end()) {
+            return;
+          }
+          const auto value = property->second.get<std::int32_t>();
           const auto it = std::ranges::find_if(m_devices, [&devicePath](const auto& candidate) {
             return candidate->path == devicePath;
           });

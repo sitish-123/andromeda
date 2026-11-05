@@ -1,9 +1,13 @@
 #define EFFECTS % d
 #define COMPOSITE % d
 #define CORNERS % d
+#define GLASS % d
 
-#if !defined(EFFECTS) || !defined(COMPOSITE) || !defined(CORNERS)
+#if !defined(EFFECTS) || !defined(COMPOSITE) || !defined(CORNERS) || !defined(GLASS)
 #error "Missing shader preamble"
+#endif
+#if GLASS && !(COMPOSITE && CORNERS)
+#error "GLASS needs COMPOSITE and CORNERS"
 #endif
 
 precision highp float;
@@ -108,13 +112,72 @@ uniform float clip_radius_bottom_right;
 float corner_alpha(
     vec2 size, vec2 position, bool is_cutout, float radius_tl, float radius_tr, float radius_bl, float radius_br
 );
+
+#if GLASS
+// The glass block of tex.frag, applied to the composite in place of a second full-resolution draw. See tex.frag for
+// the meaning of each uniform; v_texcoord addresses the full-size texture, as the tex draw's would.
+uniform float liquid;
+uniform float rim;
+uniform float lens;
+uniform sampler2D lens_tex;
+uniform vec4 tint_mix;
+uniform vec2 liquid_texel;
+uniform vec2 liquid_size;
+uniform vec2 liquid_position;
+uniform float liquid_radius;
+
+float rounded_rect_distance_at(
+    vec2 point, vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
+);
+float body_distance_at(vec2 point, vec2 size, vec2 position, float tl, float tr, float bl, float br);
+
+float liquid_distance(vec2 point) {
+  if (liquid_radius >= 0.0) {
+    return rounded_rect_distance_at(
+        point, liquid_size, liquid_position, liquid_radius, liquid_radius, liquid_radius, liquid_radius
+    );
+  }
+  return body_distance_at(
+      point, size, position, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right
+  );
+}
+#endif
 #endif
 #endif
 
 vec4 sample_texel(vec2 uv) { return texture2D(tex, clamp(uv, sample_bounds.xy, sample_bounds.zw)); }
 
 void main() {
-  vec2 uv = v_texcoord / 2.0;
+  vec2 texcoord = v_texcoord;
+#if COMPOSITE && GLASS
+  float specular = 0.0;
+  float lens_weight = 0.0;
+  vec2 lens_uv = texcoord;
+  float shine = max(liquid, rim);
+  if (shine > 0.0) {
+    float band = min(min(liquid_size.x, liquid_size.y) * 0.25, 16.0);
+    vec2 p = gl_FragCoord.xy;
+    float d = liquid_distance(p);
+    if (d > -band) {
+      vec2 normal = vec2(liquid_distance(p + vec2(1.0, 0.0)) - liquid_distance(p - vec2(1.0, 0.0)),
+                         liquid_distance(p + vec2(0.0, 1.0)) - liquid_distance(p - vec2(0.0, 1.0)));
+      normal = length(normal) > 0.0 ? normalize(normal) : vec2(0.0);
+      float t = clamp(1.0 + d / band, 0.0, 1.0);
+      texcoord -= normal * (t * t * band * 0.8 * liquid) * liquid_texel;
+      lens_uv = texcoord - normal * (t * t * band * 0.6 * lens) * liquid_texel;
+      lens_weight = lens * t * t * 0.85;
+      float inner = clamp(1.0 + (d + 0.5) / 2.5, 0.0, 1.0);
+      float edge = inner * inner;
+      float l = dot(normal, normalize(vec2(-1.0, -1.0)));
+      float key = pow(max(l, 0.0), 8.0);
+      float back = 0.4 * pow(max(-l, 0.0), 8.0);
+      float facing = 0.1 + key + back;
+      float glow = clamp(1.0 + 2.0 * d / band, 0.0, 1.0);
+      specular = shine * (0.08 * glow * glow + 0.45 * edge) * facing;
+    }
+  }
+#endif
+  vec2 uv = texcoord / 2.0;
 
   vec4 sum = sample_texel(uv + vec2(-halfpixel.x * 2.0, 0.0) * radius);
 
@@ -139,7 +202,7 @@ void main() {
   }
   // Do *not* transpose the combined matrix when multiplying
   color = brightnessMatrix() * contrastMatrix() * saturationMatrix() * color;
-  color.xyz += noiseAmount(v_texcoord);
+  color.xyz += noiseAmount(texcoord);
   if (linear == TRANSFER_FUNCTION_GAMMA22 && color_alpha != 0.0) {
     color.rgb = pow(max(color.rgb / color_alpha, vec3(0.0)), vec3(2.2)) * color_alpha;
   } else if (linear == TRANSFER_FUNCTION_SRGB && color_alpha != 0.0) {
@@ -151,6 +214,13 @@ void main() {
   if (clamp_level != 0) {
     color = clamp(color, 0.0, 1.0);
   }
+#if GLASS
+  if (lens_weight > 0.0) {
+    color = mix(color, texture2D(lens_tex, clamp(lens_uv, 0.0, 1.0)), lens_weight);
+  }
+  color.rgb = mix(color.rgb, tint_mix.rgb * color.a, tint_mix.a);
+  color.rgb += specular * color.a;
+#endif
 #if CORNERS
   float quad_corner_alpha = corner_alpha(
       size - 0.5, position + 0.25, false, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right

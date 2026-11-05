@@ -1,6 +1,7 @@
 // Rows built from the config schema must equal the hand-written rows they replaced.
 // tests/settings_rows_generated/hand_written_rows.tsv holds those rows, captured from the
 // registry before any of them moved to the schema (`--write-fixture <file>` rewrites it).
+#include "shell/wallpaper/wallpaper_paths.h"
 #include "config/config_types.h"
 #include "shell/settings/settings_registry.h"
 
@@ -101,7 +102,10 @@ namespace {
           std::format(
               "value={} placeholder={} width={} browse={} exts={} fallback={}", c->value, keyOf(c->placeholder),
               c->width, static_cast<int>(c->browseMode), joined(c->browseFileExtensions, ','),
-              c->browseFallbackDirectory
+              // The wallpaper dir depends on the machine (andromeda-wallpapers installed or not): one fixture value.
+              c->browseFallbackDirectory == wallpaper::resolveGlobalWallpaperDirectory({}, ThemeMode::Dark)
+                  ? std::string("<wallpaper-dir>")
+                  : c->browseFallbackDirectory
           )
       };
     }

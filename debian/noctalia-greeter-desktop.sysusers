@@ -1,0 +1,4 @@
+# The greeter user that session/greetd/config.toml runs as. Arch's greetd package creates it; Ubuntu's creates
+# _greetd instead.
+u greeter - "greetd greeter user" - /bin/bash
+m greeter video

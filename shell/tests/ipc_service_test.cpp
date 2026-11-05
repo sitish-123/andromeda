@@ -1,11 +1,15 @@
+#include "ipc/ipc_poll_source.h"
 #include "ipc/ipc_service.h"
 #include "tests/test_check.h"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <optional>
+#include <poll.h>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -44,6 +48,25 @@ namespace {
       response.append(buf, static_cast<std::size_t>(n));
     }
     return response;
+  }
+
+  std::string readLine(int fd) {
+    std::string line;
+    char c = 0;
+    while (::read(fd, &c, 1) == 1 && c != '\n') {
+      line += c;
+    }
+    return line;
+  }
+
+  int connectTo(const std::filesystem::path& socketPath) {
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    const std::string path = socketPath.string();
+    std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+    TEST_CHECK(::connect(fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr)) == 0);
+    return fd;
   }
 
   std::string sendRaw(IpcService& ipc, const std::filesystem::path& socketPath, std::string_view command) {
@@ -190,6 +213,50 @@ int main() {
   TEST_CHECK(::stat(socketPath.c_str(), &socketStat) == 0);
   TEST_CHECK((socketStat.st_mode & 0777) == 0600);
   TEST_CHECK(sendRaw(ipc, socketPath, "status line1\nline2\nline3") == "status:line1\nline2\nline3\n");
+
+  // --json wraps every reply; a handler may add structured data.
+  {
+    ipc.bind(noctalia::cli::msg::wifiStatus, [&ipc](const std::string&) {
+      ipc.setReplyData({{"enabled", true}});
+      return std::string("on\n");
+    });
+    const auto reply = nlohmann::json::parse(ipc.execute("--json wifi-status"));
+    TEST_CHECK(reply["ok"] == true && reply["text"] == "on" && reply["data"]["enabled"] == true);
+    const auto plain = nlohmann::json::parse(ipc.execute("--json status x"));
+    TEST_CHECK(plain["ok"] == true && plain["text"] == "status:x" && plain["data"].is_null());
+    TEST_CHECK(nlohmann::json::parse(ipc.execute("--json no-such-command"))["ok"] == false);
+    TEST_CHECK(ipc.execute("wifi-status") == "on\n");
+  }
+
+  // subscribe keeps the connection (the client half-closed it after the request, as the real client does) and gets
+  // only its topics; a peer that closes is dropped on the next poll.
+  {
+    IpcPollSource source(ipc);
+    const auto pollOnce = [&source] {
+      std::vector<pollfd> fds;
+      const std::size_t start = source.addPollFds(fds);
+      TEST_CHECK(::poll(fds.data(), fds.size(), 50) >= 0);
+      source.dispatch(fds, start);
+    };
+    TEST_CHECK(sendRaw(ipc, socketPath, "subscribe bogus").starts_with("error: unknown topic 'bogus'"));
+    TEST_CHECK(nlohmann::json::parse(sendRaw(ipc, socketPath, "--json subscribe bogus"))["ok"] == false);
+    const int fd = connectTo(socketPath);
+    writeAll(fd, "subscribe media");
+    TEST_CHECK(::shutdown(fd, SHUT_WR) == 0);
+    pollOnce();
+    TEST_CHECK(nlohmann::json::parse(readLine(fd))["subscribed"] == nlohmann::json({"media"}));
+    pollOnce();
+    TEST_CHECK(ipc.subscriberFds().size() == 1);
+    ipc.publish("network", {{"wifi", false}});
+    ipc.publish("media", {{"title", "x\xff"}});
+    const auto event = nlohmann::json::parse(readLine(fd));
+    TEST_CHECK(event["topic"] == "media" && event["data"]["title"].get<std::string>().starts_with("x"));
+    char extra = 0;
+    TEST_CHECK(::recv(fd, &extra, 1, MSG_DONTWAIT) < 0);
+    ::close(fd);
+    pollOnce();
+    TEST_CHECK(ipc.subscriberFds().empty());
+  }
 
   TEST_CHECK(::unsetenv("XDG_RUNTIME_DIR") == 0);
   IpcService noRuntime;

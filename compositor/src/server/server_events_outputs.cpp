@@ -31,6 +31,7 @@
 #include "server/desktop_shell.h"
 #include "server/ipc.h"
 #include "server/server.h"
+#include "core/screen_activity_recorder.h"
 #include "server/server_events_internal.h"
 #include "view/popup.h"
 #include "view/view.h"
@@ -167,6 +168,7 @@ namespace andromeda {
       m_sessionLock->forgetOutput(output->wlr());
     }
     std::erase_if(m_outputs, [output](const std::unique_ptr<Output>& entry) { return entry.get() == output; });
+    updatePresenting();
     if (hadRuntimeEffect && !m_stopping) {
       m_effects.prepare(m_renderer);
     }
@@ -944,6 +946,11 @@ namespace andromeda {
     for (const auto& output : self->m_outputs) {
       if (output->wlr() == event->output) {
         (void)output->setPowered(event->mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
+        if (self->m_screenActivity != nullptr) {
+          const bool anyOn =
+              std::ranges::any_of(self->m_outputs, [](const auto& o) { return o->desktopEnabled() && !o->dpmsOff(); });
+          self->m_screenActivity->setScreenOn(anyOn);
+        }
         return;
       }
     }

@@ -1,19 +1,19 @@
 pkgbase=desktop-git
 pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-  andromeda-power-git noctalia-greeter-desktop-git)
+  andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r0
+pkgver=r15118.g323ef68bf
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
 # Arch's default makepkg.conf adds a debug package of every binary's symbols, several times the desktop's size.
 options=(!debug)
 makedepends=(git meson ninja wayland-protocols nlohmann-json stb
-  wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
+  wlroots0.20 wayland libinput libei libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
   curl fontconfig freetype2 glib2 harfbuzz libglvnd libical libjxl libpipewire libqalculate librsvg libsecret
   libsndfile libsodium libwebp libwireplumber libxml2 md4c pam polkit qrencode sdbus-cpp xdg-desktop-portal gtk4 cargo protobuf
-  gstreamer gst-plugins-base-libs qt6-base qt6-declarative qt6-multimedia sqlite)
+  gstreamer gst-plugins-base-libs qt6-base qt6-declarative qt6-multimedia sqlite mpv ffmpeg)
 url=https://github.com/sitish-123/andromeda
 # `just package` and the release workflow build a local checkout; anyone else builds the published repository.
 source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}")
@@ -25,26 +25,104 @@ pkgver() {
 }
 
 prepare() {
-  git -C desktop submodule update --init link
+  git -C desktop submodule init link
+  # A local build takes link from the local checkout, so an unpushed link commit still resolves.
+  [[ -z $ANDROMEDA_LINK_SOURCE ]] || git -C desktop config submodule.link.url "$ANDROMEDA_LINK_SOURCE"
+  git -C desktop -c protocol.file.allow=always submodule update link
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
+  cargo fetch --locked --manifest-path desktop/system/Cargo.toml
+  cargo fetch --locked --manifest-path desktop/andromeda-preview/helper/Cargo.toml
 }
 
 build() {
   # The host makepkg.conf (CachyOS) sets -march=native; packages must run on any x86-64 CPU.
   CFLAGS="${CFLAGS//-march=native/-march=x86-64 -mtune=generic}" CXXFLAGS="${CXXFLAGS//-march=native/-march=x86-64 -mtune=generic}"
-  arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true
+  # The wlroots and libliftoff wraps carry our patches (compositor/subprojects/packagefiles); libliftoff links into
+  # the private libwlroots. --wrap-mode overrides arch-meson's nodownload.
+  arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
+    --wrap-mode=default --force-fallback-for=wlroots-0.20,libliftoff \
+    -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false -Dwlroots:renderers=gles2
   arch-meson desktop/shell build-shell -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true -Dlibdesk-ui:dev_tokens=false
   arch-meson desktop/portal build-portal -Dcpp_std=c++23
   arch-meson desktop/greeter build-greeter -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
   arch-meson desktop/indexer build-indexer -Db_lto=true
+  arch-meson desktop/andromeda-preview build-preview -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+  for app in files viewer player; do
+    arch-meson desktop/apps/$app build-$app -Dcpp_std=c++23 -Db_lto=true -Dlibdesk-ui:dev_tokens=false
+  done
   meson compile -C build-compositor
   meson compile -C build-shell
   meson compile -C build-portal
   meson compile -C build-greeter
   meson compile -C build-indexer
+  meson compile -C build-preview
+  for app in files viewer player; do meson compile -C build-$app; done
   # makepkg's -flto=auto turns ring's C and cxx-qt's C++ objects into GCC LTO bitcode, which the Rust linker cannot read.
+  # The Link target dir lives outside srcdir, so makepkg -C keeps it: a full Link build compiles silently for over 15 min.
+  local linkcache="${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-pkg/link-target"
+  mkdir -p "$linkcache" && ln -sfn "$linkcache" desktop/link/target
+  CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror -p link-desk -p link-session
+  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
+}
+
+package_andromeda-system-git() {
+  pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
+  depends=(dbus polkit upower power-profiles-daemon pacman-contrib fakeroot)
+  backup=(etc/UPower/UPower.conf.d/50-andromeda.conf)
+  optdepends=('networkmanager: network state' 'flatpak: Flatpak updates' 'fwupd: firmware updates')
+  install=andromeda-system.install
+  install -Dm755 desktop/system/target/release/andromeda-system "$pkgdir/usr/lib/andromeda/andromeda-system"
+  # Started on demand by D-Bus activation from the shell or the greeter.
+  install -Dm644 desktop/system/data/andromeda-system.service "$pkgdir/usr/lib/systemd/system/andromeda-system.service"
+  install -Dm644 desktop/system/data/org.andromeda.System1.conf "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.System1.conf"
+  install -Dm644 desktop/system/data/org.andromeda.System1.service \
+    "$pkgdir/usr/share/dbus-1/system-services/org.andromeda.System1.service"
+  install -Dm644 desktop/system/data/org.andromeda.system.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.system.policy"
+  install -Dm644 desktop/system/data/org.andromeda.System1.xml \
+    "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.System1.xml"
+  install -Dm755 desktop/system/target/release/andromeda-fileops "$pkgdir/usr/lib/andromeda/andromeda-fileops"
+  install -Dm644 desktop/system/data/org.andromeda.FileOps1.service \
+    "$pkgdir/usr/share/dbus-1/services/org.andromeda.FileOps1.service"
+  install -Dm644 desktop/system/data/org.andromeda.FileOps1.xml \
+    "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.FileOps1.xml"
+  install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"
+  install -Dm644 desktop/system/data/org.andromeda.Update1.service \
+    "$pkgdir/usr/share/dbus-1/services/org.andromeda.Update1.service"
+  install -Dm644 desktop/system/data/andromeda-update-check.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-update-check.service"
+  install -Dm644 desktop/system/data/andromeda-update-check.timer \
+    "$pkgdir/usr/lib/systemd/user/andromeda-update-check.timer"
+  install -d "$pkgdir/usr/lib/systemd/user/timers.target.wants"
+  ln -s ../andromeda-update-check.timer "$pkgdir/usr/lib/systemd/user/timers.target.wants/andromeda-update-check.timer"
+  install -Dm755 desktop/system/target/release/andromeda-update-helper \
+    "$pkgdir/usr/lib/andromeda/andromeda-update-helper"
+  install -dm755 "$pkgdir/usr/share/andromeda/migrations"
+  install -Dm644 desktop/system/data/andromeda-migrations.hook \
+    "$pkgdir/usr/share/libalpm/hooks/andromeda-migrations.hook"
+  install -Dm644 desktop/system/data/andromeda-update-helper.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-helper.service"
+  install -Dm644 desktop/system/data/andromeda-update-tonight.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-tonight.service"
+  install -Dm644 desktop/system/data/andromeda-update-tonight.timer \
+    "$pkgdir/usr/lib/systemd/system/andromeda-update-tonight.timer"
+  install -d "$pkgdir/usr/lib/systemd/system/timers.target.wants"
+  ln -s ../andromeda-update-tonight.timer "$pkgdir/usr/lib/systemd/system/timers.target.wants/andromeda-update-tonight.timer"
+  install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.conf \
+    "$pkgdir/usr/share/dbus-1/system.d/org.andromeda.UpdateHelper1.conf"
+  install -Dm644 desktop/system/data/org.andromeda.UpdateHelper1.service \
+    "$pkgdir/usr/share/dbus-1/system-services/org.andromeda.UpdateHelper1.service"
+  install -Dm644 desktop/system/data/org.andromeda.update.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.update.policy"
+  install -Dm644 desktop/system/data/andromeda-system-session.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-system-session.service"
+  install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
+  ln -s ../andromeda-system-session.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-system-session.service"
+  install -Dm644 -t "$pkgdir/usr/share/andromeda/system/rules" desktop/system/data/rules/*.toml
+  install -Dm644 desktop/system/data/upower-50-andromeda.conf "$pkgdir/etc/UPower/UPower.conf.d/50-andromeda.conf"
 }
 
 package_andromeda() {
@@ -52,8 +130,12 @@ package_andromeda() {
   # Everything the desktop offers works out of the box; the power policy changes kernel defaults, so it stays opt-in.
   depends=(andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
     noctalia-greeter-desktop-git gnome-keyring scrcpy android-tools gst-plugin-va gst-libav libpulse pipewire-pulse sqlite
-    poppler-glib libzip exiv2 taglib)
+    poppler-glib libzip exiv2 taglib glycin sdbus-cpp mpv ffmpeg)
+  # Quick Look serves org.gnome.NautilusPreviewer, the bus name sushi owns.
+  conflicts=(sushi)
   optdepends=('andromeda-power-git: laptop power saving (PCIe ASPM, runtime PM, USB autosuspend); can upset some devices')
+  backup=(etc/mpv/mpv.conf)
+  install -Dm644 desktop/session/mpv/mpv.conf "$pkgdir/etc/mpv/mpv.conf"
   install -Dm755 desktop/session/audio-park/andromeda-audio-park "$pkgdir/usr/bin/andromeda-audio-park"
   install -Dm644 desktop/session/audio-park/andromeda-audio-park.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-audio-park.service"
@@ -61,6 +143,10 @@ package_andromeda() {
   ln -s ../andromeda-audio-park.service \
     "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-audio-park.service"
   meson install -C build-indexer --destdir "$pkgdir"
+  meson install -C build-preview --destdir "$pkgdir"
+  # --skip-subprojects: the shared libdesk-* and preview subprojects are already installed from build-preview.
+  for app in files viewer player; do meson install -C build-$app --destdir "$pkgdir" --skip-subprojects; done
+  install -Dm644 desktop/session/applications/andromeda-mimeapps.list "$pkgdir/usr/share/applications/andromeda-mimeapps.list"
   for unit in andromeda-index.socket andromeda-index.service; do
     ln -s ../$unit "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/$unit"
   done
@@ -69,18 +155,30 @@ package_andromeda() {
 package_andromeda-compositor-git() {
   pkgdesc='Andromeda Wayland compositor'
   install=andromeda-compositor.install
-  depends=(libcap wlroots0.20 wayland libinput libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
+  depends=(libcap wlroots0.20 wayland libinput libei libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
     xwayland-satellite)
   provides=(andromeda-compositor)
   conflicts=(andromeda-compositor umbriel umbriel-desktop-git)
   replaces=(umbriel-desktop-git)
   meson install -C build-compositor --destdir "$pkgdir"
-  install -Dm644 desktop/session/background.slice.d/andromeda-lp-e-cores.conf \
-    "$pkgdir/usr/lib/systemd/user/background.slice.d/andromeda-lp-e-cores.conf"
+  # Only the wrap's library ships, in the compositor's private RUNPATH (compositor/meson.build).
+  mkdir -p "$pkgdir/usr/lib/andromeda"
+  mv "$pkgdir"/usr/lib/libwlroots-0.20.so* "$pkgdir/usr/lib/andromeda/"
+  rm -r "$pkgdir/usr/include/wlroots-0.20" "$pkgdir/usr/lib/pkgconfig/wlroots-0.20.pc"
+  rm -f "$pkgdir/usr/include/libliftoff.h" "$pkgdir/usr/lib/libliftoff.a" "$pkgdir/usr/lib/pkgconfig/libliftoff.pc"
+  install -Dm644 desktop/session/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf \
+    "$pkgdir/usr/lib/systemd/user/at-spi-dbus-bus.service.d/andromeda-stop-registry.conf"
+  for unit in 'app-blueman@autostart.service' 'app-nm\x2dapplet@autostart.service'; do
+    install -Dm644 desktop/session/autostart/skip-in-andromeda.conf "$pkgdir/usr/lib/systemd/user/$unit.d/andromeda.conf"
+  done
   install -Dm644 desktop/session/memory/user-session.slice.conf \
     "$pkgdir/usr/lib/systemd/user/session.slice.d/andromeda-ui-memory.conf"
+  install -Dm644 desktop/session/memory/user-app.slice.conf \
+    "$pkgdir/usr/lib/systemd/user/app.slice.d/andromeda-qos.conf"
   install -Dm644 desktop/session/memory/user-service.conf \
     "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-ui-memory.conf"
+  install -Dm644 desktop/session/memory/user-delegate.conf \
+    "$pkgdir/usr/lib/systemd/system/user@.service.d/andromeda-delegate.conf"
   for slice in user.slice user-.slice; do
     install -Dm644 desktop/session/memory/user-system.slice.conf \
       "$pkgdir/usr/lib/systemd/system/$slice.d/andromeda-ui-memory.conf"
@@ -93,7 +191,7 @@ package_noctalia-desktop-git() {
   depends=(bash cairo curl fontconfig freetype2 git glib2 glibc harfbuzz hicolor-icon-theme jemalloc libgcc libglvnd
     libical libjxl libpipewire libqalculate librsvg libsecret libsndfile libsodium libstdc++ libwebp libwireplumber
     libxkbcommon libxml2 md4c pam polkit pango qrencode sdbus-cpp tomlplusplus wayland
-    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va)
+    gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va andromeda-system-git)
   optdepends=('ddcutil: monitor brightness control')
   provides=(noctalia)
   conflicts=(noctalia)
@@ -189,6 +287,8 @@ package_noctalia-greeter-desktop-git() {
   install -Dm644 desktop/session/greetd/config.toml "$pkgdir/usr/share/noctalia-greeter/greetd.toml"
   install -Dm644 desktop/session/greetd/noctalia-greeter.conf \
     "$pkgdir/usr/lib/systemd/system/greetd.service.d/noctalia-greeter.conf"
+  install -Dm644 desktop/session/greetd/andromeda-login-fallback.service \
+    "$pkgdir/usr/lib/systemd/system/andromeda-login-fallback.service"
   install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
 }

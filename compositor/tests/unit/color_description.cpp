@@ -1,6 +1,7 @@
 #include "server/color_description.h"
 
 #include "check.h"
+#include "color-management-v1-server-protocol.h"
 
 #include <array>
 
@@ -62,7 +63,13 @@ ANDROMEDA_TEST(sdrFeedbackKeepsNominalWhiteAcrossConfiguredWhiteChanges) {
   const andromeda::ColorDescription changed = andromeda::outputColorDescription(nullptr, 500.0F);
 
   CHECK(andromeda::colorDescriptionsEqual(original, changed));
-  CHECK_EQ(changed.data.tf_named, WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22);
+  CHECK_EQ(changed.data.tf_named, WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4);
+  CHECK_EQ(
+      wlr_color_manager_v1_transfer_function_to_wlr(
+          static_cast<wp_color_manager_v1_transfer_function>(changed.data.tf_named)
+      ),
+      WLR_COLOR_TRANSFER_FUNCTION_SRGB
+  );
   CHECK_EQ(changed.data.primaries_named, WP_COLOR_MANAGER_V1_PRIMARIES_SRGB);
   CHECK_EQ(changed.luminances.min, 0.2F);
   CHECK_EQ(changed.luminances.max, 80.0F);
@@ -71,6 +78,53 @@ ANDROMEDA_TEST(sdrFeedbackKeepsNominalWhiteAcrossConfiguredWhiteChanges) {
   CHECK(!changed.data.has_mastering_display_primaries);
   CHECK_EQ(changed.data.max_cll, 0U);
   CHECK_EQ(changed.data.max_fall, 0U);
+}
+
+ANDROMEDA_TEST(protocolSrgbEncodingPreservesRendererSemanticsAcrossVersions) {
+  const andromeda::ColorDescription description = andromeda::outputColorDescription(nullptr, 203.0F);
+  struct Version {
+    uint32_t number;
+    uint32_t wireTransfer;
+  };
+  constexpr std::array versions{
+      Version{1, WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB},
+      Version{2, WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_COMPOUND_POWER_2_4},
+  };
+
+  for (const auto& version : versions) {
+    const uint32_t wireTransfer = andromeda::colorTransferFunctionToWire(description.data.tf_named, version.number);
+    CHECK_EQ(wireTransfer, version.wireTransfer);
+    CHECK(wp_color_manager_v1_transfer_function_is_valid(wireTransfer, version.number));
+    const uint32_t canonicalTransfer = andromeda::colorTransferFunctionFromWire(wireTransfer, version.number);
+    CHECK_EQ(canonicalTransfer, description.data.tf_named);
+    CHECK_EQ(
+        wlr_color_manager_v1_transfer_function_to_wlr(
+            static_cast<wp_color_manager_v1_transfer_function>(canonicalTransfer)
+        ),
+        WLR_COLOR_TRANSFER_FUNCTION_SRGB
+    );
+  }
+
+  CHECK_EQ(
+      andromeda::colorTransferFunctionFromWire(WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB, 2),
+      WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_SRGB
+  );
+}
+
+ANDROMEDA_TEST(protocolVersionDoesNotChangeOtherTransferFunctions) {
+  constexpr std::array transfers{
+      WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22,
+      WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_ST2084_PQ,
+      WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_EXT_LINEAR,
+      WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_BT1886,
+  };
+
+  for (const uint32_t version : {1U, 2U}) {
+    for (const uint32_t transfer : transfers) {
+      CHECK_EQ(andromeda::colorTransferFunctionToWire(transfer, version), transfer);
+      CHECK_EQ(andromeda::colorTransferFunctionFromWire(transfer, version), transfer);
+    }
+  }
 }
 
 ANDROMEDA_TEST(automaticHdrFeedbackKeepsClientHeadroomAcrossScanoutTransitions) {

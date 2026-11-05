@@ -158,6 +158,8 @@ private:
   void updateWidgets(BarInstance& instance);
   void applyBarCompositorBlur(BarInstance& instance) const;
   void syncBarSlideLayerTransform(BarInstance& instance) const;
+  // Slides the bar to shown or hidden on a compositor spring; false when the compositor cannot (the shell slides).
+  bool slideOnCompositor(BarInstance& instance, bool visible, std::function<void()> onSettled);
   void syncBarAutoHideInputRegion(BarInstance& instance) const;
   void syncSheetTracker(BarInstance& instance);
   void openSheetFromTracker(BarInstance& instance);
@@ -176,6 +178,9 @@ private:
   void applyBackgroundPalette(BarInstance& instance);
   // Turns liquid glass on for an islands bar; true when the compositor runs it.
   bool syncIslandLiquid(BarInstance& instance);
+  // Islands as dsk shapes (v10): clip and radius from the island boxes, material from the glass slider. False when
+  // the compositor has no shapes; the blur region path runs then.
+  bool syncIslandShapes(BarInstance& instance, bool material) const;
   [[nodiscard]] std::string showBarIpc(std::string_view args);
   [[nodiscard]] std::string hideBarIpc(std::string_view args);
   [[nodiscard]] std::string toggleBarIpc(std::string_view args);

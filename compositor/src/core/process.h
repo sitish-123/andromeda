@@ -21,6 +21,8 @@ namespace andromeda {
 
   // Send READY=1 from the compositor process. An empty socket path is a no-op.
   [[nodiscard]] bool notifyServiceReady(std::string_view socketPath);
+  // Send one sd_notify state line (for example WATCHDOG=1). An empty socket path is a no-op.
+  [[nodiscard]] bool notifyService(std::string_view socketPath, std::string_view state);
 
   // Close every non-standard descriptor before a managed application child
   // hands control to systemd-run. Returns false when a complete close cannot

@@ -28,3 +28,8 @@ activeAudioDeviceRoute(AudioDeviceRoutes routes, std::uint32_t wantDirection, st
     AudioDeviceRoutes nodeRoutes, AudioDeviceRoutes deviceRoutes, std::uint32_t wantDirection,
     std::int32_t profileDevice
 );
+
+// Headphones came out of the jack: the card's active output route for `now.device` was a headphones or headset port
+// and is now another port, or that route became unavailable (jack sense). `before` is the card's routes until now.
+// WirePlumber pauses media when a Bluetooth, USB or HDMI sink goes away, never for a jack (docs/system-health.md §12.2).
+[[nodiscard]] bool headphonesUnplugged(AudioDeviceRoutes before, const PipeWireService::DeviceRouteData& now);

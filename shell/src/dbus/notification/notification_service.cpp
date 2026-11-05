@@ -6,10 +6,12 @@
 #include "i18n/i18n.h"
 #include "net/uri.h"
 #include "notification/notification_manager.h"
+#include "shell/settings/settings_pages.h"
 #include "render/core/image_decoder.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
+#include <filesystem>
 #include <cstdint>
 #include <sdbus-c++/Error.h>
 #include <sdbus-c++/Types.h>
@@ -211,47 +213,37 @@ bool NotificationService::isHealthy() const {
 static constexpr size_t kMaxStringLen = 1024;
 
 namespace notification_dbus {
+  // A hint of the wrong D-Bus type (a client bug) reads as absent, as the spec's hints are all optional.
+  template <typename T>
+  std::optional<T> hintValue(const std::map<std::string, sdbus::Variant>& hints, std::string_view key) {
+    const auto it = hints.find(std::string(key));
+    if (it == hints.end() || !it->second.containsValueOfType<T>()) {
+      return std::nullopt;
+    }
+    return it->second.get<T>();
+  }
+
 
   Urgency notifyUrgencyFromHints(const std::map<std::string, sdbus::Variant>& hints) {
     Urgency urgency = Urgency::Normal;
-    if (auto it = hints.find("urgency"); it != hints.end()) {
-      try {
-        const auto raw = it->second.get<uint8_t>();
-        if (raw <= static_cast<uint8_t>(Urgency::Critical)) {
-          urgency = static_cast<Urgency>(raw);
-        }
-      } catch (...) {
-      }
+    if (const auto raw = hintValue<uint8_t>(hints, "urgency"); raw.has_value()
+        && *raw <= static_cast<uint8_t>(Urgency::Critical)) {
+      urgency = static_cast<Urgency>(*raw);
     }
     return urgency;
   }
 
   bool notifyTransientFromHints(const std::map<std::string, sdbus::Variant>& hints) {
-    if (auto it = hints.find("transient"); it != hints.end()) {
-      try {
-        return it->second.get<bool>();
-      } catch (...) {
-      }
-    }
-    return false;
+    return hintValue<bool>(hints, "transient").value_or(false);
   }
 
   static bool notifyBoolHint(const std::map<std::string, sdbus::Variant>& hints, const std::string& key) {
-    if (auto it = hints.find(key); it != hints.end()) {
-      try {
-        return it->second.get<bool>();
-      } catch (...) {
-      }
-    }
-    return false;
+    return hintValue<bool>(hints, key).value_or(false);
   }
 
   static std::optional<std::string> notifyGroupFromHints(const std::map<std::string, sdbus::Variant>& hints) {
-    if (auto it = hints.find("x-andromeda-group"); it != hints.end()) {
-      try {
-        return StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
-      } catch (...) {
-      }
+    if (const auto group = hintValue<std::string>(hints, "x-andromeda-group"); group.has_value()) {
+      return StringUtils::truncateUtf8(*group, kMaxStringLen);
     }
     return std::nullopt;
   }
@@ -286,37 +278,33 @@ namespace notification_dbus {
     if (!appIcon.empty()) {
       icon = StringUtils::truncateUtf8(appIcon, kMaxStringLen);
     }
-    if (auto it = hints.find("image-path"); it != hints.end()) {
-      try {
-        icon = StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
-      } catch (...) {
-      }
-    }
-    if (auto it = hints.find("image_path"); it != hints.end()) {
-      try {
-        icon = StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
-      } catch (...) {
+    for (const char* key : {"image-path", "image_path"}) {
+      if (const auto path = hintValue<std::string>(hints, key); path.has_value()) {
+        icon = StringUtils::truncateUtf8(*path, kMaxStringLen);
       }
     }
     return icon;
   }
 
   std::optional<std::string> notifyCategoryFromHints(const std::map<std::string, sdbus::Variant>& hints) {
-    if (auto it = hints.find("category"); it != hints.end()) {
-      try {
-        return StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
-      } catch (...) {
-      }
+    if (const auto category = hintValue<std::string>(hints, "category"); category.has_value()) {
+      return StringUtils::truncateUtf8(*category, kMaxStringLen);
+    }
+    return std::nullopt;
+  }
+
+  // Only a known Settings page id is kept; anything else is dropped.
+  std::optional<std::string> notifySettingsPageFromHints(const std::map<std::string, sdbus::Variant>& hints) {
+    if (auto page = hintValue<std::string>(hints, "x-andromeda-settings-page");
+        page.has_value() && settings::settingsPageFromId(*page) != nullptr) {
+      return page;
     }
     return std::nullopt;
   }
 
   std::optional<std::string> notifyDesktopEntryFromHints(const std::map<std::string, sdbus::Variant>& hints) {
-    if (auto it = hints.find("desktop-entry"); it != hints.end()) {
-      try {
-        return StringUtils::truncateUtf8(it->second.get<std::string>(), kMaxStringLen);
-      } catch (...) {
-      }
+    if (const auto entry = hintValue<std::string>(hints, "desktop-entry"); entry.has_value()) {
+      return StringUtils::truncateUtf8(*entry, kMaxStringLen);
     }
     return std::nullopt;
   }
@@ -370,6 +358,12 @@ namespace notification_dbus {
       if (access(normalizedPath.c_str(), R_OK) != 0) {
         return std::nullopt;
       }
+      // A notification image is a thumbnail: a larger file is not read into memory in the Notify call.
+      constexpr std::uintmax_t kMaxImagePathBytes = 16ULL * 1024ULL * 1024ULL;
+      std::error_code sizeError;
+      if (const auto size = std::filesystem::file_size(normalizedPath, sizeError); sizeError || size > kMaxImagePathBytes) {
+        return std::nullopt;
+      }
 
       const auto bytes = FileUtils::readBinaryFile(normalizedPath);
       if (bytes.empty()) {
@@ -410,24 +404,17 @@ namespace notification_dbus {
     // Fallback: some notifiers only provide a path to a changing screenshot file (e.g. HyprCap).
     // If we can decode it immediately, persist pixels via `imageData`.
     for (const char* key : {"image-path", "image_path"}) {
-      const auto it = hints.find(key);
-      if (it == hints.end()) {
+      const auto path = hintValue<std::string>(hints, key);
+      if (!path.has_value() || path->empty()) {
         continue;
       }
-      try {
-        const auto path = it->second.get<std::string>();
-        if (path.empty()) {
-          continue;
-        }
-        const std::string truncated = StringUtils::truncateUtf8(path, kMaxStringLen);
-        if (truncated.empty()) {
-          continue;
-        }
-        if (std::optional<NotificationImageData> decoded = decodeImageDataFromImagePath(truncated);
-            decoded.has_value()) {
-          return decoded;
-        }
-      } catch (...) {
+      const std::string truncated = StringUtils::truncateUtf8(*path, kMaxStringLen);
+      if (truncated.empty()) {
+        continue;
+      }
+      if (std::optional<NotificationImageData> decoded = decodeImageDataFromImagePath(truncated);
+          decoded.has_value()) {
+        return decoded;
       }
     }
 
@@ -460,6 +447,7 @@ namespace notification_dbus {
             .category = notifyCategoryFromHints(hints),
             .desktopEntry = notifyDesktopEntryFromHints(hints),
             .group = notifyGroupFromHints(hints),
+            .settingsPage = notifySettingsPageFromHints(hints),
         }
     );
   }

@@ -61,6 +61,8 @@ uniform float rim;
 // Lens (0 = off): the sharp backdrop, displaced by the glass thickness, shows through the rim band over the blur.
 uniform float lens;
 uniform sampler2D lens_tex;
+// Density: the backdrop mixed toward the tint colour (rgb) by a, so the client's tint reads denser.
+uniform vec4 tint_mix;
 // UV step of one framebuffer pixel; the y sign follows the texture orientation.
 uniform vec2 liquid_texel;
 // The shape whose edge gets the rim; liquid_radius < 0 = the quad's own corners.
@@ -189,6 +191,7 @@ float corner_alpha(
 float rounded_rect_distance_at(
     vec2 point, vec2 size, vec2 position, float radius_tl, float radius_tr, float radius_bl, float radius_br
 );
+float body_distance_at(vec2 point, vec2 size, vec2 position, float tl, float tr, float bl, float br);
 
 float liquid_distance(vec2 point) {
   if (liquid_radius >= 0.0) {
@@ -196,7 +199,7 @@ float liquid_distance(vec2 point) {
         point, liquid_size, liquid_position, liquid_radius, liquid_radius, liquid_radius, liquid_radius
     );
   }
-  return rounded_rect_distance_at(
+  return body_distance_at(
       point, size, position, radius_top_left, radius_top_right, radius_bottom_left, radius_bottom_right
   );
 }
@@ -243,6 +246,7 @@ void main() {
     base = mix(base, texture2D(lens_tex, clamp(lens_uv, 0.0, 1.0)), lens_weight);
   }
   vec4 color = convert_color(base);
+  color.rgb = mix(color.rgb, tint_mix.rgb * color.a, tint_mix.a);
   color.rgb += specular * color.a;
 #else
   vec4 color = convert_color(sample_texture(uv));

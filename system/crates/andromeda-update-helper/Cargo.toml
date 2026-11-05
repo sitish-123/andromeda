@@ -1,0 +1,32 @@
+[package]
+name = "andromeda-update-helper"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# libalpm and these bindings are GPL; the helper binary is GPL as a whole. No code of theirs is copied here.
+alpm = { version = "5", optional = true }
+alpm-utils = { version = "5", optional = true }
+andromeda-update = { path = "../andromeda-update", default-features = false }
+anyhow.workspace = true
+env_logger.workspace = true
+log.workspace = true
+pacmanconf = { version = "3", optional = true }
+rustix = { workspace = true, features = ["fs", "process"] }
+tokio.workspace = true
+zbus.workspace = true
+zbus_polkit.workspace = true
+
+[features]
+default = ["arch"]
+arch = ["dep:alpm", "dep:alpm-utils", "dep:pacmanconf", "andromeda-update/arch"]
+apt = ["andromeda-update/apt"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3"

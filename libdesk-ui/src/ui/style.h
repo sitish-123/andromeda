@@ -2,6 +2,7 @@
 
 #include "design_tokens.h"
 #include "motion/desk_motion.h"
+#include "protocols/glass_material.h"
 #include "ui/signal.h"
 
 #include <optional>
@@ -122,23 +123,17 @@ namespace Style {
   [[nodiscard]] bool popupShadowsEnabled() noexcept;
   void setPopupShadowsEnabled(bool enabled);
 
-  // Live appearance for glass materials: `opacity` (0..1) multiplies their alpha; reduce transparency makes them solid.
-  // glass: the Clear (0) to Frosted (1) slider, 0.5 = Tinted, the design values (appearance.glass).
-  void setGlass(float glass, bool reduceTransparency) noexcept;
+  // The glass slider (appearance.glass): 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduce transparency
+  // makes every glass surface solid.
+  // compositorBlur: the compositor blurs and draws glass tints (Andromeda appearance.blur.enabled).
+  void setGlass(float glass, bool reduceTransparency, bool compositorBlur = false) noexcept;
+  // True when the compositor draws the glass tint a surface sends (dsk v9): the client then paints no material fill.
+  [[nodiscard]] bool compositorDrawsTint() noexcept;
   [[nodiscard]] float glass() noexcept;
-  // Alpha a glass material fill uses in place of its configured `alpha`.
-  [[nodiscard]] float glassAlpha(float alpha) noexcept;
-  // glassAlpha without the light scheme's thinner tint, so panel sheets stay dense over dark content.
-  [[nodiscard]] float panelGlassAlpha(float alpha) noexcept;
-  // Tint of liquid glass shapes (islands, dock, launcher pill) at the glass level; Tinted: light 0.34, dark 0.40.
-  [[nodiscard]] float liquidTintAlpha(bool light) noexcept;
-  // liquidTintAlpha for the current scheme, denser (up to 0.84) over a same-tone backdrop (light on dark, dark on
-  // bright); backdropDark = dsk_surface_v1.backdrop, unset before the first measurement.
-  [[nodiscard]] float liquidTintFor(std::optional<bool> backdropDark) noexcept;
-  // dsk_surface_v1 liquid value [0] for a liquid shape: 1 at Clear, 0 at Frosted, 0 with Reduce Transparency.
-  [[nodiscard]] float liquidLevel() noexcept;
-  // The liquid value for sheets: half the shapes' clarity, so their blur is a step denser, not a different material.
-  [[nodiscard]] float sheetLevel() noexcept;
+  // The one glass mapping (protocols/glass_material.h) for the current slider, scheme and reduce transparency.
+  [[nodiscard]] glass::Material glassMaterial(glass::Kind kind) noexcept;
+  // Tint alpha for a configured `opacity` relative to glass::referenceOpacity (1 = solid).
+  [[nodiscard]] float glassTint(glass::Kind kind, float opacity) noexcept;
   [[nodiscard]] bool reduceTransparency() noexcept;
 
   [[nodiscard]] bool closeButtonsEnabled() noexcept;

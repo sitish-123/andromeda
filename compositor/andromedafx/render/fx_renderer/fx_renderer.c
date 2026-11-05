@@ -43,10 +43,6 @@ struct fx_renderer* fx_get_renderer(struct wlr_renderer* wlr_renderer) {
   return renderer;
 }
 
-void fx_renderer_set_event_loop(struct wlr_renderer* wlr_renderer, struct wl_event_loop* loop) {
-  fx_get_renderer(wlr_renderer)->event_loop = loop;
-}
-
 void fx_renderer_set_allocator(struct wlr_renderer* wlr_renderer, struct wlr_allocator* allocator) {
   struct fx_renderer* renderer = fx_get_renderer(wlr_renderer);
   renderer->allocator = allocator;
@@ -116,6 +112,13 @@ static inline void free_shaders(struct fx_renderer* renderer) {
   glDeleteProgram(renderer->shaders.blur2_composite_corners.blur.base.program);
   glDeleteProgram(renderer->shaders.blur2_with_effects_composite.blur.base.program);
   glDeleteProgram(renderer->shaders.blur2_with_effects_composite_corners.blur.base.program);
+  glDeleteProgram(renderer->shaders.tex_effects_flares_rgba.program);
+  glDeleteProgram(renderer->shaders.blur2_composite_flares.blur.base.program);
+  glDeleteProgram(renderer->shaders.blur2_with_effects_composite_flares.blur.base.program);
+  glDeleteProgram(renderer->shaders.blur2_glass_composite.blur.base.program);
+  glDeleteProgram(renderer->shaders.blur2_glass_composite_flares.blur.base.program);
+  glDeleteProgram(renderer->shaders.blur2_with_effects_glass_composite.blur.base.program);
+  glDeleteProgram(renderer->shaders.blur2_with_effects_glass_composite_flares.blur.base.program);
   glDeleteProgram(renderer->effect_light_program);
   pop_fx_debug(renderer);
 }
@@ -492,55 +495,55 @@ static bool link_shaders(struct fx_renderer* renderer) {
   }
 
   // Basic fragment shaders
-  if (!link_tex_program(&renderer->shaders.tex_rgba, SHADER_SOURCE_TEXTURE_RGBA, false, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_rgba, SHADER_SOURCE_TEXTURE_RGBA, false, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_RGBA shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_rgbx, SHADER_SOURCE_TEXTURE_RGBX, false, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_rgbx, SHADER_SOURCE_TEXTURE_RGBX, false, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_RGBX shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, false, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, false, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_EXTERNAL shader");
     goto error;
   }
 
   // Effects fragment shaders
-  if (!link_tex_program(&renderer->shaders.tex_effects_rgba, SHADER_SOURCE_TEXTURE_RGBA, true, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_effects_rgba, SHADER_SOURCE_TEXTURE_RGBA, true, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_effects_RGBA shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_effects_rgbx, SHADER_SOURCE_TEXTURE_RGBX, true, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_effects_rgbx, SHADER_SOURCE_TEXTURE_RGBX, true, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_effects_RGBX shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_effects_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, true, false)) {
+  if (!link_tex_program(&renderer->shaders.tex_effects_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, true, false, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_effects_EXTERNAL shader");
     goto error;
   }
 
   // Sample-clamp fragment shaders for fractionally cropped surfaces
-  if (!link_tex_program(&renderer->shaders.tex_clamp_rgba, SHADER_SOURCE_TEXTURE_RGBA, false, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_rgba, SHADER_SOURCE_TEXTURE_RGBA, false, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_RGBA shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_clamp_rgbx, SHADER_SOURCE_TEXTURE_RGBX, false, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_rgbx, SHADER_SOURCE_TEXTURE_RGBX, false, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_RGBX shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_clamp_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, false, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, false, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_EXTERNAL shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_rgba, SHADER_SOURCE_TEXTURE_RGBA, true, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_rgba, SHADER_SOURCE_TEXTURE_RGBA, true, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_effects_RGBA shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_rgbx, SHADER_SOURCE_TEXTURE_RGBX, true, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_rgbx, SHADER_SOURCE_TEXTURE_RGBX, true, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_effects_RGBX shader");
     goto error;
   }
-  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, true, true)) {
+  if (!link_tex_program(&renderer->shaders.tex_clamp_effects_ext, SHADER_SOURCE_TEXTURE_EXTERNAL, true, true, false)) {
     wlr_log(WLR_ERROR, "Could not link tex_clamp_effects_EXTERNAL shader");
     goto error;
   }
@@ -568,20 +571,50 @@ static bool link_shaders(struct fx_renderer* renderer) {
     wlr_log(WLR_ERROR, "Could not link blur2_with_effects shader");
     goto error;
   }
-  if (!link_blur2_composite_program(&renderer->shaders.blur2_composite, false, false)) {
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_composite, false, false, false, false)) {
     wlr_log(WLR_ERROR, "Could not link blur2_composite shader");
     goto error;
   }
-  if (!link_blur2_composite_program(&renderer->shaders.blur2_composite_corners, false, true)) {
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_composite_corners, false, true, false, false)) {
     wlr_log(WLR_ERROR, "Could not link blur2_composite_corners shader");
     goto error;
   }
-  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_composite, true, false)) {
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_composite, true, false, false, false)) {
     wlr_log(WLR_ERROR, "Could not link blur2_with_effects_composite shader");
     goto error;
   }
-  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_composite_corners, true, true)) {
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_composite_corners, true, true, false, false)) {
     wlr_log(WLR_ERROR, "Could not link blur2_with_effects_composite_corners shader");
+    goto error;
+  }
+  // Joined glass shapes (negative corner radii) only: the flare code slows every other glass draw.
+  if (!link_tex_program(&renderer->shaders.tex_effects_flares_rgba, SHADER_SOURCE_TEXTURE_RGBA, true, false, true)) {
+    wlr_log(WLR_ERROR, "Could not link tex_effects_flares_RGBA shader");
+    goto error;
+  }
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_composite_flares, false, true, true, false)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_composite_flares shader");
+    goto error;
+  }
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_composite_flares, true, true, true, false)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_with_effects_composite_flares shader");
+    goto error;
+  }
+  // Glass nodes: the composite applies the glass block, in place of a full-resolution level plus a tex draw.
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_glass_composite, false, true, false, true)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_glass_composite shader");
+    goto error;
+  }
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_glass_composite_flares, false, true, true, true)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_glass_composite_flares shader");
+    goto error;
+  }
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_glass_composite, true, true, false, true)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_with_effects_glass_composite shader");
+    goto error;
+  }
+  if (!link_blur2_composite_program(&renderer->shaders.blur2_with_effects_glass_composite_flares, true, true, true, true)) {
+    wlr_log(WLR_ERROR, "Could not link blur2_with_effects_glass_composite_flares shader");
     goto error;
   }
 

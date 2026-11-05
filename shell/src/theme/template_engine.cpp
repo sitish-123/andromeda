@@ -1,4 +1,5 @@
 #include "theme/template_engine.h"
+#include "util/parse_number.h"
 
 #include "core/log.h"
 #include "core/process/process.h"
@@ -553,7 +554,8 @@ namespace noctalia::theme {
             closestDist = dist;
             closestName = entry.name;
           }
-        } catch (...) {
+        } catch (const std::invalid_argument&) {
+          // A palette entry that is not #rrggbb is skipped.
         }
       }
       return closestName;
@@ -866,7 +868,13 @@ namespace noctalia::theme {
         if (colorIt == modeIt->second.end())
           return {};
 
-        material_color_utilities::TonalPalette palette(Color::fromHex(colorIt->second).toArgb());
+        std::uint32_t paletteArgb = 0;
+        try {
+          paletteArgb = Color::fromHex(colorIt->second).toArgb();
+        } catch (const std::invalid_argument&) {
+          return {}; // a palette color that is not #rrggbb
+        }
+        material_color_utilities::TonalPalette palette(paletteArgb);
         ScopeArray entries;
         entries.reserve(kPaletteTones.size());
         for (int tone : kPaletteTones) {
@@ -899,17 +907,18 @@ namespace noctalia::theme {
               return {};
             value = ScopeValue(it->second);
           } else if (auto* arr = std::get_if<ScopeArray>(&value.value)) {
-            try {
-              size_t idx = std::stoul(parts[i]);
-              if (idx >= arr->size())
-                return {};
-              value = ScopeValue((*arr)[idx]);
-            } catch (...) {
+            const auto idx = ::parseNumber<std::size_t>(parts[i]);
+            if (!idx.has_value() || *idx >= arr->size())
               return {};
-            }
+            value = ScopeValue((*arr)[*idx]);
           } else if (auto* str = std::get_if<std::string>(&value.value)) {
-            if (str->size() >= 7 && (*str)[0] == '#' && kKnownFormats.contains(parts[i]))
-              return ScopeValue(formatColor({Color::fromHex(*str), 1.0}, parts[i]));
+            if (str->size() >= 7 && (*str)[0] == '#' && kKnownFormats.contains(parts[i])) {
+              try {
+                return ScopeValue(formatColor({Color::fromHex(*str), 1.0}, parts[i]));
+              } catch (const std::invalid_argument&) {
+                return {}; // a user string that only looks like a color ("#aabbccdd", "#zzzzzz")
+              }
+            }
             return {};
           } else {
             return {};
@@ -974,14 +983,14 @@ namespace noctalia::theme {
             try {
               RichColor color = asRichColor(resolved);
               resolved = ScopeValue(applyColorArgFilter(color, name, arg));
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
             }
           } else if (kSupportedFilters.contains(name)) {
             try {
               RichColor color = asRichColor(resolved);
               resolved = ScopeValue(applyColorFilter(color, name, arg));
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
             }
           }
@@ -1055,14 +1064,14 @@ namespace noctalia::theme {
           if (kColorArgFilters.contains(name)) {
             try {
               color = applyColorArgFilter(color, name, arg);
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
               return "{{" + base + "}}";
             }
           } else if (kSupportedFilters.contains(name)) {
             try {
               color = applyColorFilter(color, name, arg);
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
               return "{{" + base + "}}";
             }
@@ -1108,15 +1117,21 @@ namespace noctalia::theme {
           return "{{UNKNOWN:" + family + "}}";
         }
 
-        int tone = 0;
-        try {
-          tone = std::stoi(toneStr);
-        } catch (...) {
+        const auto parsedTone = ::parseNumber<int>(toneStr);
+        if (!parsedTone.has_value()) {
           logError();
           return "{{" + base + "}}";
         }
+        const int tone = *parsedTone;
 
-        material_color_utilities::TonalPalette palette(Color::fromHex(colorIt->second).toArgb());
+        std::uint32_t argb = 0;
+        try {
+          argb = Color::fromHex(colorIt->second).toArgb();
+        } catch (const std::invalid_argument&) {
+          logError();
+          return "{{" + base + "}}";
+        }
+        material_color_utilities::TonalPalette palette(argb);
         RichColor color{Color::fromArgb(palette.get(static_cast<double>(tone))), 1.0};
 
         for (const auto& filterStr : filters) {
@@ -1140,14 +1155,14 @@ namespace noctalia::theme {
           if (kColorArgFilters.contains(name)) {
             try {
               color = applyColorArgFilter(color, name, arg);
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
               return "{{" + base + "}}";
             }
           } else if (kSupportedFilters.contains(name)) {
             try {
               color = applyColorFilter(color, name, arg);
-            } catch (...) {
+            } catch (const std::invalid_argument&) {
               logError();
               return "{{" + base + "}}";
             }
@@ -1175,9 +1190,11 @@ namespace noctalia::theme {
         std::smatch match;
         if (std::regex_match(expr, match, std::regex(R"(^(-?\d+)\.\.(-?\d+)$)"))) {
           ScopeArray out;
-          const int start = std::stoi(match[1].str());
-          const int end = std::stoi(match[2].str());
-          for (int i = start; i < end; ++i)
+          const auto start = ::parseNumber<int>(match[1].str());
+          const auto end = ::parseNumber<int>(match[2].str());
+          if (!start.has_value() || !end.has_value())
+            return out; // a bound past int range: nothing to iterate
+          for (int i = *start; i < *end; ++i)
             out.emplace_back(i);
           return out;
         }

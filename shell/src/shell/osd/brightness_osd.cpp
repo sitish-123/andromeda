@@ -30,6 +30,10 @@ namespace {
 
 void BrightnessOsd::bindOverlay(OsdOverlay& overlay) { m_overlay = &overlay; }
 
+void BrightnessOsd::suppressFor(std::chrono::milliseconds duration) {
+  m_suppressUntil = std::chrono::steady_clock::now() + duration;
+}
+
 void BrightnessOsd::primeFromService(const BrightnessService& service) {
   m_snapshots.clear();
   for (const auto& display : service.displays()) {
@@ -94,7 +98,7 @@ void BrightnessOsd::onBrightnessChanged(const BrightnessService& service) {
     }
   }
 
-  if (changed == nullptr) {
+  if (changed == nullptr || std::chrono::steady_clock::now() < m_suppressUntil) {
     return;
   }
 

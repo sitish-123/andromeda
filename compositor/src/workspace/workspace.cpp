@@ -2364,6 +2364,19 @@ namespace andromeda {
     }
   }
 
+  void Workspace::sendSwitchFrameDone(timespec* now) const {
+    for (View* view : m_switchViews) {
+      if (!view->suspended()) {
+        view->forEachSurface(
+            [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* userData) {
+              wlr_surface_send_frame_done(surface, static_cast<timespec*>(userData));
+            },
+            now
+        );
+      }
+    }
+  }
+
   void Workspace::setSlideOffset(double x, double y) {
     m_slideOffsetX = static_cast<int>(std::lround(x));
     m_slideOffsetY = static_cast<int>(std::lround(y));
@@ -3222,11 +3235,20 @@ namespace andromeda {
     }
   }
 
+  void WorkspaceGroup::sendSlideFrameDone(timespec* now) const {
+    for (const Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+      if (workspace != nullptr && workspace->switchTransitionActive()) {
+        workspace->sendSwitchFrameDone(now);
+      }
+    }
+  }
+
   void WorkspaceGroup::slideFinish() {
     abandonReveal();
     m_slideAnim.snap(0.0);
     if (m_slide.base != nullptr) {
       m_slide.base->endSwitchTransition();
+      m_server->holdQosThawIntent(false);
     }
     if (m_slide.previous != nullptr) {
       m_slide.previous->endSwitchTransition();
@@ -3259,6 +3281,8 @@ namespace andromeda {
     const double start = carry ? m_slideAnim.current() - m_slideAnim.target() : 0.0;
     slideFinish();
     m_slide.base = m_active;
+    // A workspace swipe or slide shows the neighbours' windows: they thaw before they come into view.
+    m_server->holdQosThawIntent(true);
     beginReveal();
     m_slide.extent = extent;
     m_slide.progress = start;
@@ -3427,6 +3451,7 @@ namespace andromeda {
     }
     const int sign = workspace->index() > m_active->index() ? 1 : -1;
     m_slide.base = m_active;
+    m_server->holdQosThawIntent(true);
     beginReveal();
     m_slide.extent = extent;
     m_slide.progress = 0;

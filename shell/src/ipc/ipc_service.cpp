@@ -1,13 +1,18 @@
 #include "ipc/ipc_service.h"
 
 #include "cli/help.h"
+#include "cli/schema_msg.h"
 #include "core/log.h"
 
 #include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <filesystem>
+#include <format>
+#include <memory>
+#include <nlohmann/json.hpp>
 #include <string_view>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -23,6 +28,19 @@ namespace {
   constexpr std::size_t kMaxCommandBytes = 64 * 1024;
   constexpr int kRecvTimeoutMs = 100;
   constexpr char kCallerCwdSeparator = '\x1e';
+  constexpr std::size_t kMaxSubscribers = 32;
+  constexpr std::string_view kJsonFlag = "--json ";
+
+  void sendAll(int fd, std::string_view text) {
+    std::size_t sent = 0;
+    while (sent < text.size()) {
+      const auto n = ::send(fd, text.data() + sent, text.size() - sent, MSG_NOSIGNAL);
+      if (n <= 0) {
+        break;
+      }
+      sent += static_cast<std::size_t>(n);
+    }
+  }
 
   [[nodiscard]] std::optional<std::string> parseCallerCwdPrefix(std::string& line) {
     const auto separator = line.find(kCallerCwdSeparator);
@@ -54,6 +72,9 @@ IpcService::InvocationScope::InvocationScope(const IpcService& ipc, std::optiona
 IpcService::InvocationScope::~InvocationScope() { m_ipc.m_invocationContext = std::move(m_previous); }
 
 IpcService::~IpcService() {
+  for (const Subscriber& subscriber : m_subscribers) {
+    ::close(subscriber.fd);
+  }
   if (m_listenFd >= 0) {
     ::close(m_listenFd);
     m_listenFd = -1;
@@ -180,8 +201,9 @@ void IpcService::dispatch() {
       ::close(connFd);
       continue;
     }
-    handleConnection(connFd);
-    ::close(connFd);
+    if (!handleConnection(connFd)) {
+      ::close(connFd);
+    }
   }
 }
 
@@ -192,6 +214,11 @@ std::string IpcService::execute(const std::string& line) const {
   std::string commandLine = line;
   if (auto cwd = parseCallerCwdPrefix(commandLine); cwd.has_value()) {
     self->m_callerCwd = std::move(*cwd);
+  }
+
+  const bool json = commandLine.starts_with(kJsonFlag);
+  if (json) {
+    commandLine.erase(0, kJsonFlag.size());
   }
 
   std::string command;
@@ -207,11 +234,112 @@ std::string IpcService::execute(const std::string& line) const {
   if (command == "--help" || command == "-h") {
     return buildHelp();
   }
-
-  return executeParsed(command, args);
+  // A handler may re-enter execute(); each level keeps its own reply data.
+  std::unique_ptr<nlohmann::json> outer = std::move(m_replyData);
+  std::string text = executeParsed(command, args);
+  std::unique_ptr<nlohmann::json> data = std::exchange(m_replyData, std::move(outer));
+  if (!json) {
+    return text;
+  }
+  nlohmann::json reply = {{"ok", !text.starts_with("error:")}};
+  if (text.ends_with('\n')) {
+    text.pop_back();
+  }
+  reply["text"] = std::move(text);
+  reply["data"] = data != nullptr ? std::move(*data) : nlohmann::json(nullptr);
+  return reply.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace) + "\n";
 }
 
-void IpcService::handleConnection(int connFd) {
+void IpcService::setReplyData(nlohmann::json data) const {
+  m_replyData = std::make_unique<nlohmann::json>(std::move(data));
+}
+
+bool IpcService::subscribe(int connFd, const std::string& args, bool json) {
+  const auto refuse = [connFd, json](const std::string& error) {
+    if (json) {
+      sendAll(connFd, nlohmann::json{{"ok", false}, {"text", error}, {"data", nullptr}}.dump() + "\n");
+    } else {
+      sendAll(connFd, error + "\n");
+    }
+    return false;
+  };
+  std::vector<std::string> topics;
+  std::string_view rest = args;
+  while (!rest.empty()) {
+    const auto start = rest.find_first_not_of(" \t\n");
+    if (start == std::string_view::npos) {
+      break;
+    }
+    rest.remove_prefix(start);
+    const auto end = std::min(rest.find_first_of(" \t\n"), rest.size());
+    const std::string_view topic = rest.substr(0, end);
+    if (std::ranges::find(noctalia::cli::msg::kSubscribeTopics, topic) == noctalia::cli::msg::kSubscribeTopics.end()) {
+      std::string error = std::format("error: unknown topic '{}' (topics:", topic);
+      for (const std::string_view known : noctalia::cli::msg::kSubscribeTopics) {
+        error += ' ';
+        error += known;
+      }
+      return refuse(error + ")");
+    }
+    topics.emplace_back(topic);
+    rest.remove_prefix(end);
+  }
+  if (m_subscribers.size() >= kMaxSubscribers) {
+    return refuse("error: too many subscribers");
+  }
+  const int flags = ::fcntl(connFd, F_GETFL);
+  if (flags < 0 || ::fcntl(connFd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    return refuse("error: subscribe failed");
+  }
+  nlohmann::json ack = {{"subscribed", topics.empty() ? nlohmann::json(noctalia::cli::msg::kSubscribeTopics) : nlohmann::json(topics)}};
+  sendAll(connFd, ack.dump() + "\n");
+  m_subscribers.push_back({.fd = connFd, .topics = std::move(topics)});
+  return true;
+}
+
+void IpcService::publish(std::string_view topic, const nlohmann::json& data) {
+  if (m_subscribers.empty()) {
+    return;
+  }
+  const std::string line =
+      nlohmann::json{{"topic", topic}, {"data", data}}.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace) + "\n";
+  std::vector<int> slow;
+  for (const Subscriber& subscriber : m_subscribers) {
+    if (!subscriber.topics.empty() && std::ranges::find(subscriber.topics, topic) == subscriber.topics.end()) {
+      continue;
+    }
+    // Non-blocking: a partial line would corrupt the stream, so a subscriber that cannot take it whole is dropped.
+    const auto n = ::send(subscriber.fd, line.data(), line.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
+    if (n != static_cast<ssize_t>(line.size())) {
+      slow.push_back(subscriber.fd);
+    }
+  }
+  for (const int fd : slow) {
+    kLog.warn("IPC: dropped a subscriber that fell behind");
+    dropSubscriber(fd);
+  }
+}
+
+std::vector<int> IpcService::subscriberFds() const {
+  std::vector<int> fds;
+  fds.reserve(m_subscribers.size());
+  for (const Subscriber& subscriber : m_subscribers) {
+    fds.push_back(subscriber.fd);
+  }
+  return fds;
+}
+
+void IpcService::subscriberClosed(int fd) { dropSubscriber(fd); }
+
+void IpcService::dropSubscriber(int fd) {
+  const auto it = std::ranges::find(m_subscribers, fd, &Subscriber::fd);
+  if (it != m_subscribers.end()) {
+    ::close(fd);
+    m_subscribers.erase(it);
+  }
+}
+
+bool IpcService::handleConnection(int connFd) {
   // Set receive timeout so a slow client doesn't stall the main loop
   timeval tv{};
   tv.tv_sec = 0;
@@ -245,16 +373,8 @@ void IpcService::handleConnection(int connFd) {
   }
 
   if (command.size() >= kMaxCommandBytes && !reachedEof) {
-    const std::string response = "error: IPC command too large\n";
-    std::size_t sent = 0;
-    while (sent < response.size()) {
-      const auto n = ::send(connFd, response.data() + sent, response.size() - sent, MSG_NOSIGNAL);
-      if (n <= 0) {
-        break;
-      }
-      sent += static_cast<std::size_t>(n);
-    }
-    return;
+    sendAll(connFd, "error: IPC command too large\n");
+    return false;
   }
 
   // Legacy external clients may still send one newline-terminated command and
@@ -270,21 +390,24 @@ void IpcService::handleConnection(int connFd) {
 
   if (command.empty()) {
     // Client closed the connection without sending anything (e.g. a liveness probe).
-    return;
+    return false;
+  }
+
+  std::string line = command;
+  parseCallerCwdPrefix(line);
+  const bool json = line.starts_with(kJsonFlag);
+  if (json) {
+    line.erase(0, kJsonFlag.size());
+  }
+  if (line == "subscribe" || line.starts_with("subscribe ")) {
+    return subscribe(connFd, line.size() > 9 ? line.substr(10) : std::string(), json);
   }
 
   // A socket command has no in-process origin, even when the dispatch re-enters from a handler
   // that pumped the event loop.
   const InvocationScope socketScope(*this, std::nullopt);
-  const std::string response = execute(command);
-  std::size_t sent = 0;
-  while (sent < response.size()) {
-    const auto n = ::send(connFd, response.data() + sent, response.size() - sent, MSG_NOSIGNAL);
-    if (n <= 0) {
-      break;
-    }
-    sent += static_cast<std::size_t>(n);
-  }
+  sendAll(connFd, execute(command));
+  return false;
 }
 
 std::string IpcService::HandlerInfo::signature() const {

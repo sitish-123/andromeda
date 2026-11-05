@@ -11,8 +11,10 @@
 #include "ui/controls/separator.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <chrono>
 #include <memory>
@@ -55,6 +57,8 @@ namespace {
 } // namespace
 
 Stepper::Stepper() {
+  setAccessible({.role = AccessibleRole::SpinButton});
+  accessibleState().setValue = [this](double value) { setValue(static_cast<int>(std::lround(value))); };
   setDirection(FlexDirection::Horizontal);
   setAlign(FlexAlign::Stretch);
   setJustify(FlexJustify::Start);
@@ -194,6 +198,7 @@ void Stepper::setSurfaceOpacity(float opacity) {
 }
 
 void Stepper::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }
@@ -342,6 +347,12 @@ void Stepper::stepBy(int directionSign) {
 }
 
 void Stepper::syncValueField() {
+  accessibleState().value = AccessibleValue{
+      .current = static_cast<double>(m_value),
+      .minimum = static_cast<double>(m_min),
+      .maximum = static_cast<double>(m_max),
+      .step = static_cast<double>(m_step),
+  };
   if (m_valueInput != nullptr) {
     m_valueInput->setValue(std::to_string(m_value) + m_valueSuffix);
   }

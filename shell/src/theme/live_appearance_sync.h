@@ -17,6 +17,8 @@ struct LiveAppearance {
   bool reduceTransparency = false;
   bool increaseContrast = false;
   bool reduceMotion = false;
+  // appearance.blur.enabled: with it the compositor draws the glass tints the shell sends (dsk_surface_v1 v9 tint).
+  bool blurEnabled = false;
 
   bool operator==(const LiveAppearance&) const = default;
 };

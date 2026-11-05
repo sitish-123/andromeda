@@ -2,6 +2,7 @@
 
 #include "config/config_types.h"
 #include "core/log.h"
+#include "ipc/ipc_events.h"
 
 #include <exception>
 
@@ -21,7 +22,14 @@ void BluetoothModule::start(const Config& config) {
     m_service = std::make_unique<BluetoothService>(m_bus, m_upower.service());
     m_service->setConnectWhenEnabled(config.bluetooth.connectWhenEnabled);
     m_service->setConnectionNotifications(config.bluetooth.connectionNotifications);
-    m_service->setStateCallback(m_hooks.stateChanged);
+    m_service->setStateCallback(
+        [changed = m_hooks.stateChanged](const BluetoothState& state, BluetoothStateChangeOrigin origin) {
+          ipc_events::bluetooth(state);
+          if (changed) {
+            changed(state, origin);
+          }
+        }
+    );
     m_service->setDevicesCallback(m_hooks.devicesChanged);
     m_hooks.started(*m_service);
     kLog.info("bluetooth service active");

@@ -1,10 +1,16 @@
 #include "core/application_scope.h"
 
+#include <algorithm>
 #include <array>
+#include <cerrno>
 #include <charconv>
+#include <cstring>
+#include <ctime>
+#include <fcntl.h>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <poll.h>
 #include <string>
 #include <unistd.h>
 
@@ -104,7 +110,7 @@ namespace andromeda {
   }
 
   void execApplicationInScope(
-      const char* systemdRun, const char* unitArgument, const char* partOfProperty, const char* bindsToProperty,
+      const char* systemdRun, const char* unitArgument, const char* partOfProperty,
       const char* afterProperty, const ApplicationScopeEnvironmentArguments& environmentArguments, const char* command,
       const char* cpuWeightProperty
   ) {
@@ -124,7 +130,6 @@ namespace andromeda {
     append("--description=Andromeda application");
     append(unitArgument);
     append(partOfProperty);
-    append(bindsToProperty);
     append(afterProperty);
     if (cpuWeightProperty != nullptr) {
       append(cpuWeightProperty);
@@ -140,6 +145,62 @@ namespace andromeda {
     append(command);
     execv(systemdRun, arguments.data());
     _exit(1);
+  }
+
+  bool awaitApplicationScope(int gateFd, const char* unit) {
+    constexpr long kCapMs = 100;
+    timespec start{};
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    const auto remainingMs = [&start] {
+      timespec now{};
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      return kCapMs - ((now.tv_sec - start.tv_sec) * 1000 + (now.tv_nsec - start.tv_nsec) / 1'000'000);
+    };
+    pollfd gate{.fd = gateFd, .events = POLLIN, .revents = 0};
+    int ready = 0;
+    do {
+      ready = poll(&gate, 1, static_cast<int>(std::max(0L, remainingMs())));
+    } while (ready < 0 && errno == EINTR);
+    if (ready <= 0) {
+      return true;
+    }
+    char result = 0;
+    ssize_t size = 0;
+    do {
+      size = read(gateFd, &result, 1);
+    } while (size < 0 && errno == EINTR);
+    if (size != 1 || result != '1') {
+      return false;
+    }
+    // The reply means the job is queued; a busy user manager moves the PID later.
+    constexpr timespec kStep{0, 1'000'000};
+    while (remainingMs() > 0) {
+      const int fd = open("/proc/self/cgroup", O_RDONLY | O_CLOEXEC);
+      if (fd < 0) {
+        return true;
+      }
+      char cgroup[1024];
+      const ssize_t length = read(fd, cgroup, sizeof(cgroup) - 1);
+      close(fd);
+      if (length <= 0) {
+        return true;
+      }
+      cgroup[length] = '\0';
+      if (std::strstr(cgroup, unit) != nullptr) {
+        return true;
+      }
+      nanosleep(&kStep, nullptr);
+    }
+    return true;
+  }
+
+  void applyApplicationScopeEnvironment(const ApplicationScopeEnvironmentArguments& arguments) {
+    constexpr std::string_view kPrefix = "--setenv=";
+    for (const std::string& argument : arguments) {
+      if (argument.size() > kPrefix.size()) {
+        putenv(const_cast<char*>(argument.c_str() + kPrefix.size()));
+      }
+    }
   }
 
 } // namespace andromeda

@@ -2268,7 +2268,6 @@
           "label": "Scherm bevriezen"
         },
         "screenshot-pipe-command": {
-          "description": "Opdracht uitgevoerd als /bin/sh -lc met de PNG op stdin; voor annotators of uploaders",
           "label": "Pipe-opdracht",
           "placeholder": "swappy -f -"
         },

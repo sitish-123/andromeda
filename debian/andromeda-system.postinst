@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+case "$1" in
+  configure)
+    /usr/lib/andromeda/andromeda-update-helper --seed-migrations
+    systemctl start andromeda-update-tonight.timer 2> /dev/null || true
+    ;;
+  triggered)
+    /usr/lib/andromeda/andromeda-update-helper --run-migrations
+    ;;
+esac
+#DEBHELPER#

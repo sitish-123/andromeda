@@ -31,6 +31,7 @@ namespace andromeda {
     using A = KeybindAction;
     switch (action) {
     case A::Spawn:
+    case A::FocusOrSpawn:
       return Group::Apps;
     case A::ScreenCastClear:
     case A::ScreenCastSetOutput:

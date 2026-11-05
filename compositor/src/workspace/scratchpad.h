@@ -90,6 +90,8 @@ namespace andromeda {
     // layout or usable area changes.
     void refreshOutputGeometry(Output* output);
     void applyConfig();
+    // Redraws the dim and blur backdrops from the current config (glass slider).
+    void refreshBackdrops();
     // Refit the maximized windows of visible scratchpads to the margin their settings give them now.
     void refitMaximized();
     // Reconcile runtime scratchpads after a successful [[scratchpad]] reload.

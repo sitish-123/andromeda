@@ -25,6 +25,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
+#include <vector>
 #include <wayland-client.h>
 
 namespace xdpu {
@@ -126,6 +127,32 @@ namespace xdpu {
         }
       }
 
+      // The capture is in the output's untransformed buffer orientation; write
+      // the PNG as the output displays it.
+      if (shot.transform != 0) {
+        const auto width = static_cast<int32_t>(shot.width);
+        const auto height = static_cast<int32_t>(shot.height);
+        const bool swapAxes = (shot.transform & 1U) != 0;
+        const int32_t displayWidth = swapAxes ? height : width;
+        const int32_t displayHeight = swapAxes ? width : height;
+        const size_t displayStride = static_cast<size_t>(displayWidth) * 4;
+        std::vector<uint8_t> display(displayStride * static_cast<size_t>(displayHeight));
+        for (int32_t y = 0; y < displayHeight; ++y) {
+          for (int32_t x = 0; x < displayWidth; ++x) {
+            const auto [bx, by] = displayToBuffer(x, y, width, height, shot.transform);
+            std::memcpy(
+                &display[static_cast<size_t>(y) * displayStride + static_cast<size_t>(x) * 4],
+                &shot.pixels[static_cast<size_t>(by) * shot.stride + static_cast<size_t>(bx) * 4], 4
+            );
+          }
+        }
+        shot.pixels = std::move(display);
+        shot.width = static_cast<uint32_t>(displayWidth);
+        shot.height = static_cast<uint32_t>(displayHeight);
+        shot.stride = static_cast<uint32_t>(displayStride);
+        shot.transform = 0;
+      }
+
       auto dir = runtimeDir();
       if (!dir) {
         return std::nullopt;
@@ -200,50 +227,60 @@ namespace xdpu {
       return point;
     }
 
-    const OutputInfo* findOutput(const WaylandContext& wayland, const std::string& name) {
-      const auto& outputs = wayland.outputs();
-      if (!name.empty()) {
-        const auto it = std::ranges::find_if(outputs, [&](const OutputInfo& output) { return output.name == name; });
-        if (it != outputs.end()) {
-          return &*it;
-        }
-      }
-      return outputs.empty() ? nullptr : &outputs.front();
-    }
-
     std::optional<Color> sampleColor(
         const WaylandContext::ScreenshotResult& shot, const OutputInfo& output, int32_t globalX, int32_t globalY
     ) {
-      if (shot.format != DRM_FORMAT_XRGB8888 && shot.format != DRM_FORMAT_ARGB8888) {
+      // Little-endian DRM formats: XRGB/ARGB store B,G,R in memory, XBGR/ABGR R,G,B.
+      bool bgr = false;
+      switch (shot.format) {
+      case DRM_FORMAT_XRGB8888:
+      case DRM_FORMAT_ARGB8888:
+        break;
+      case DRM_FORMAT_XBGR8888:
+      case DRM_FORMAT_ABGR8888:
+        bgr = true;
+        break;
+      default:
         return std::nullopt;
       }
       if (shot.width == 0 || shot.height == 0 || shot.stride < shot.width * 4 || shot.pixels.empty()) {
         return std::nullopt;
       }
 
-      double localX = static_cast<double>(globalX - output.x);
-      double localY = static_cast<double>(globalY - output.y);
-      if (output.width > 0) {
-        localX *= static_cast<double>(shot.width) / static_cast<double>(output.width);
-      }
-      if (output.height > 0) {
-        localY *= static_cast<double>(shot.height) / static_cast<double>(output.height);
-      }
+      // The capture is in the output's untransformed buffer orientation; a
+      // rotated output displays it with width and height swapped.
+      const bool swapAxes = (shot.transform & 1U) != 0;
+      const auto displayWidth = static_cast<int32_t>(swapAxes ? shot.height : shot.width);
+      const auto displayHeight = static_cast<int32_t>(swapAxes ? shot.width : shot.height);
 
-      const int32_t px =
-          std::clamp(static_cast<int32_t>(std::floor(localX)), int32_t{0}, static_cast<int32_t>(shot.width - 1));
-      const int32_t py =
-          std::clamp(static_cast<int32_t>(std::floor(localY)), int32_t{0}, static_cast<int32_t>(shot.height - 1));
+      // The point is in global logical coordinates, which differ from buffer
+      // pixels under fractional scale.  Without xdg-output, assume scale 1 at
+      // the wl_output position.
+      const bool logical = output.logicalWidth > 0 && output.logicalHeight > 0;
+      const int32_t originX = logical ? output.logicalX : output.x;
+      const int32_t originY = logical ? output.logicalY : output.y;
+      const int32_t width = logical ? output.logicalWidth : displayWidth;
+      const int32_t height = logical ? output.logicalHeight : displayHeight;
+
+      const double localX =
+          static_cast<double>(globalX - originX) * static_cast<double>(displayWidth) / static_cast<double>(width);
+      const double localY =
+          static_cast<double>(globalY - originY) * static_cast<double>(displayHeight) / static_cast<double>(height);
+      const int32_t dx = std::clamp(static_cast<int32_t>(std::floor(localX)), int32_t{0}, displayWidth - 1);
+      const int32_t dy = std::clamp(static_cast<int32_t>(std::floor(localY)), int32_t{0}, displayHeight - 1);
+
+      const auto [px, py] =
+          displayToBuffer(dx, dy, static_cast<int32_t>(shot.width), static_cast<int32_t>(shot.height), shot.transform);
       const size_t offset = static_cast<size_t>(py) * shot.stride + static_cast<size_t>(px) * 4;
       if (offset + 2 >= shot.pixels.size()) {
         return std::nullopt;
       }
 
       constexpr double scale = 1.0 / 255.0;
-      const double b = static_cast<double>(shot.pixels[offset + 0]) * scale;
+      const double first = static_cast<double>(shot.pixels[offset + 0]) * scale;
       const double g = static_cast<double>(shot.pixels[offset + 1]) * scale;
-      const double r = static_cast<double>(shot.pixels[offset + 2]) * scale;
-      return Color{r, g, b};
+      const double third = static_cast<double>(shot.pixels[offset + 2]) * scale;
+      return bgr ? Color{first, g, third} : Color{third, g, first};
     }
 
   } // namespace
@@ -397,13 +434,15 @@ namespace xdpu {
       // finish(failureResponse) is called on any failure or timeout.
       // All protocol callbacks capture weak_ptr<Operation> to avoid cycles.
       template <typename Callback>
-      void startCapture(const std::string& outputName, uint32_t failureResponse, Callback onComplete) {
+      void startCapture(
+          const std::string& outputName, CaptureCursorMode cursorMode, uint32_t failureResponse, Callback onComplete
+      ) {
         capture = std::make_shared<CaptureState>(portal.wayland);
 
         std::weak_ptr<Operation> weakSelf = shared_from_this();
 
         capture->session = portal.wayland.createOutputCapture(
-            outputName, CaptureCursorMode::Embedded,
+            outputName, cursorMode,
             [weakSelf, failureResponse,
              onComplete = std::move(onComplete)](const CaptureConstraints& constraints) mutable {
               auto self = weakSelf.lock();
@@ -482,7 +521,7 @@ namespace xdpu {
             *cap.session, cap.buffer, /*damageBuffer=*/true,
             /*onReady=*/
             [weakSelf, format, stride,
-             onComplete = std::move(onComplete)](CaptureBuffer& /*buf*/, uint64_t /*ptsSec*/, uint32_t /*ptsNsec*/) {
+             onComplete = std::move(onComplete)](CaptureBuffer& buf, uint64_t /*ptsSec*/, uint32_t /*ptsNsec*/) {
               auto self = weakSelf.lock();
               if (!self || self->done || !self->capture) {
                 return;
@@ -493,6 +532,7 @@ namespace xdpu {
               shot.height = c.constraints.bufferHeight;
               shot.stride = stride;
               shot.format = format;
+              shot.transform = buf.transform;
               shot.pixels.resize(c.mappingSize);
               std::memcpy(shot.pixels.data(), c.mapping, c.mappingSize);
               onComplete(self, std::move(shot));
@@ -519,7 +559,7 @@ namespace xdpu {
           return;
         }
         startCapture(
-            outputName, failureResponse,
+            outputName, CaptureCursorMode::Embedded, failureResponse,
             [failureResponse](std::shared_ptr<Operation> self, WaylandContext::ScreenshotResult shot) {
               const auto path = savePng(shot);
               if (!path) {
@@ -626,13 +666,30 @@ namespace xdpu {
     struct PickColorOperation : public Operation {
       using Operation::Operation;
 
+      struct Frame {
+        OutputInfo output;
+        WaylandContext::ScreenshotResult shot;
+      };
+      std::vector<OutputInfo> outputs;
+      std::vector<Frame> frames;
+
       void start(const std::string& handle) {
         attachRequest(handle);
         if (!portal.config.screenshot.colorPickCmd.empty()) {
           runExternal();
           return;
         }
-        runSlurp();
+        // Capture before the point picker starts: once it exits, its overlay
+        // can still be on screen (the compositor fades closing layer surfaces),
+        // and a later capture would sample that overlay instead of the content.
+        outputs = portal.wayland.outputs();
+        if (outputs.empty()) {
+          std::fprintf(stderr, "screenshot: no outputs to pick a color from\n");
+          finish(1, {});
+          return;
+        }
+        frames.reserve(outputs.size());
+        captureNextOutput();
       }
 
       void finishWithColor(const Color& color) {
@@ -657,6 +714,29 @@ namespace xdpu {
             });
       }
 
+      void captureNextOutput() {
+        if (done) {
+          return;
+        }
+        if (frames.size() == outputs.size()) {
+          capture.reset();
+          runSlurp();
+          return;
+        }
+        auto self = std::static_pointer_cast<PickColorOperation>(shared_from_this());
+        // The pointer rests on the picked pixel, so an embedded cursor would be
+        // sampled instead of the content beneath it.
+        startCapture(
+            outputs[frames.size()].name, CaptureCursorMode::Hidden, 1,
+            [self](std::shared_ptr<Operation> /*base*/, WaylandContext::ScreenshotResult shot) {
+              self->cancelTimeout();
+              self->frames.push_back({self->outputs[self->frames.size()], std::move(shot)});
+              // Replace the capture state outside its own frame callback.
+              self->portal.loop.addTimer(0, [self]() { self->captureNextOutput(); });
+            }
+        );
+      }
+
       void runSlurp() {
         auto self = std::static_pointer_cast<PickColorOperation>(shared_from_this());
         process = AsyncProcess::start(portal.loop, "slurp -p -f \"%x %y %o\"", {}, [self](ProcessResult child) {
@@ -672,30 +752,39 @@ namespace xdpu {
             self->finish(1, {});
             return;
           }
-          self->captureAndSample(*point);
+          self->sample(*point);
         });
       }
 
-      void captureAndSample(const PickPoint& point) {
-        const OutputInfo* output = findOutput(portal.wayland, point.output);
-        if (output == nullptr) {
+      const Frame* frameAt(const PickPoint& point) const {
+        const auto named = std::ranges::find_if(frames, [&](const Frame& f) { return f.output.name == point.output; });
+        if (named != frames.end()) {
+          return &*named;
+        }
+        const auto containing = std::ranges::find_if(frames, [&](const Frame& f) {
+          const OutputInfo& o = f.output;
+          return point.x >= o.logicalX
+              && point.x < o.logicalX + o.logicalWidth
+              && point.y >= o.logicalY
+              && point.y < o.logicalY + o.logicalHeight;
+        });
+        return containing != frames.end() ? &*containing : nullptr;
+      }
+
+      void sample(const PickPoint& point) {
+        const Frame* frame = frameAt(point);
+        if (frame == nullptr) {
+          std::fprintf(stderr, "screenshot: no captured output contains %d,%d\n", point.x, point.y);
           finish(1, {});
           return;
         }
-        const OutputInfo outputCopy = *output; // copy — wayland state may change during async capture
-        auto self = std::static_pointer_cast<PickColorOperation>(shared_from_this());
-        startCapture(
-            outputCopy.name, 1,
-            [self, outputCopy, px = point.x,
-             py = point.y](std::shared_ptr<Operation> /*base*/, WaylandContext::ScreenshotResult shot) {
-              const auto color = sampleColor(shot, outputCopy, px, py);
-              if (!color) {
-                self->finish(1, {});
-                return;
-              }
-              self->finishWithColor(*color);
-            }
-        );
+        const auto color = sampleColor(frame->shot, frame->output, point.x, point.y);
+        if (!color) {
+          std::fprintf(stderr, "screenshot: unsupported capture format for color picking\n");
+          finish(1, {});
+          return;
+        }
+        finishWithColor(*color);
       }
     };
 

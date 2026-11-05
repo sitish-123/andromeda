@@ -2,6 +2,8 @@
 
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 class Flex;
 
@@ -34,6 +36,13 @@ namespace settings {
     std::function<void()> create;
     std::function<void()> back;
     std::function<void()> rebuild;
+    // Login Screen card: installed display managers (unit, name), the active unit, and the switch. Shown with two or
+    // more installed. The status line says the change applies at the next start, or why it failed.
+    std::vector<std::pair<std::string, std::string>> loginScreens;
+    std::string activeLoginScreen;
+    std::string loginScreenStatus;
+    bool loginScreenError = false;
+    std::function<void(std::string unit)> switchLoginScreen;
   };
 
   // Users page (direction A, .agent/DESIGN.md): the current user as the hero card, then the other login users;

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- andromeda-fileops on the session bus. Paths are absolute, as bytes (ay). Every call returns a job object at
+     /org/andromeda/FileOps1/Job/<n>; all apps see the same jobs. -->
+<node>
+  <interface name="org.andromeda.FileOps1">
+    <method name="Copy">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <method name="Delete">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <method name="Move">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- items: (trash folder, name in its files/) -->
+    <method name="Restore">
+      <arg name="items" type="a(ays)" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <method name="Trash">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- A finished job undoes once; the undo job can be undone (redo). -->
+    <method name="Undo">
+      <arg name="job" type="o" direction="in" />
+      <arg name="undo_job" type="o" direction="out" />
+    </method>
+    <property name="Jobs" type="ao" access="read" />
+  </interface>
+  <interface name="org.andromeda.FileOps1.Job">
+    <method name="Cancel" />
+    <!-- resolution: replace (files: old one to the trash; folders: merge), skip, keep_both -->
+    <method name="ResolveConflict">
+      <arg name="resolution" type="s" direction="in" />
+      <arg name="apply_to_all" type="b" direction="in" />
+    </method>
+    <!-- (source, existing target) while State = conflict -->
+    <property name="Conflict" type="(ayay)" access="read" />
+    <property name="Current" type="ay" access="read" />
+    <property name="DoneBytes" type="t" access="read" />
+    <property name="DoneFiles" type="t" access="read" />
+    <property name="Error" type="s" access="read" />
+    <!-- copy, move, trash, delete, restore, undo -->
+    <property name="Kind" type="s" access="read" />
+    <!-- running, conflict, done, failed, cancelled -->
+    <property name="State" type="s" access="read" />
+    <property name="TotalBytes" type="t" access="read" />
+    <property name="TotalFiles" type="t" access="read" />
+    <property name="Undoable" type="b" access="read" />
+  </interface>
+</node>

@@ -3072,7 +3072,6 @@
           "label": "Đóng băng màn hình"
         },
         "screenshot-pipe-command": {
-          "description": "Lệnh chạy dưới dạng /bin/sh -lc với PNG trên stdin; dành cho người chú thích hoặc người tải lên (ví dụ: swappy -f - hoặc satty -f -)",
           "label": "Lệnh đường ống",
           "placeholder": "swappy -f -"
         },

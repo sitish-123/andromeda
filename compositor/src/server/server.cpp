@@ -1,5 +1,10 @@
 #include "core/cpu_boost.h"
+#include "core/systemd_units.h"
+#include "qos/controller.h"
 #include "server/server.h"
+#include "server/apps_bus.h"
+
+#include "core/screen_activity_recorder.h"
 
 #include "config/config.h"
 #include "config/config_diag.h"
@@ -27,6 +32,7 @@
 #include "scene/fps_overlay.h"
 #include "scene/effect_registry.h"
 #include "scene/hint_rect.h"
+#include "scene/launch_feedback.h"
 #include "scene/quit_confirm.h"
 #include "server/allocator.h"
 #include "server/backend_manager.h"
@@ -56,19 +62,28 @@ extern "C" {
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
+#include <charconv>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <filesystem>
+#include <memory>
+#include <fstream>
 #include <optional>
 #include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace andromeda {
 
@@ -237,7 +252,7 @@ namespace andromeda {
           configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
       std::string command =
           "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
-          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET'; systemd_ready=false; "
+          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET QT_WAYLAND_RECONNECT'; systemd_ready=false; "
           "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
           "if systemctl --user import-environment $variables";
       command += publishConfigured;
@@ -714,6 +729,9 @@ namespace andromeda {
       wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
       return std::pair{x, y};
     });
+    m_dskSurfaces->setLaunchFromHandler([this](wl_client* /*client*/, wlr_surface* surface, const wlr_box& box) {
+      setLaunchFrom(surface, box);
+    });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
@@ -787,6 +805,7 @@ namespace andromeda {
     wlr_scene_rect_set_corner_radius(m_lockBlank, 0);
     wlr_scene_node_set_enabled(&m_lockBlank->node, false);
     wlr_scene_node_set_enabled(&m_lockTree->node, false);
+    m_heldFrameTree = wlr_scene_tree_create(&m_scene->tree);
     wlr_scene_node_lower_to_bottom(&m_backdrop->node);
     m_effects.syncLightLayer();
 
@@ -879,6 +898,7 @@ namespace andromeda {
     m_tabletManager = wlr_tablet_v2_create(m_display);
 
     m_idleNotifier = wlr_idle_notifier_v1_create(m_display);
+    m_screenActivity = std::make_unique<ScreenActivityRecorder>(wl_display_get_event_loop(m_display));
     m_idleInhibitManager = wlr_idle_inhibit_v1_create(m_display);
     m_newIdleInhibitor.notify = onNewIdleInhibitor;
     wl_signal_add(&m_idleInhibitManager->events.new_inhibitor, &m_newIdleInhibitor);
@@ -1002,13 +1022,30 @@ namespace andromeda {
     return false;
   }
 
+  void Server::updatePresenting() {
+    if (m_appsBus == nullptr) {
+      return;
+    }
+    const bool capture = std::ranges::any_of(m_imageCopySessions, [this](const std::unique_ptr<ImageCopySessionWatch>& w) {
+      return w->session != nullptr
+          && (m_desktopShell == nullptr || !m_desktopShell->boundBy(wl_resource_get_client(w->session->resource)));
+    });
+    const bool mirror = std::ranges::any_of(m_outputs, [](const auto& o) { return o->mirrorSource() != nullptr; });
+    m_appsBus->setPresenting(capture || mirror);
+  }
+
   Server::~Server() {
     m_stopping = true;
+    if (m_lockFileManaged) {
+      unlink((std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/running").c_str());
+    }
     m_inputCapture.reset();
     if (m_sessionActive.link.next != nullptr) {
       wl_list_remove(&m_sessionActive.link);
     }
     m_keyboardLeds.reset();
+    // Its timer belongs to the display's event loop, which is destroyed below.
+    m_screenActivity.reset();
     if (m_cursor != nullptr) {
       m_cursor->finishToplevelDrag(false);
     }
@@ -1087,7 +1124,19 @@ namespace andromeda {
 
   void Server::clearLayerSurfaces() { m_layerSurfaces.clear(); }
 
-  void Server::clearCloseSnapshots() { m_closeSnapshots.clear(); }
+  void Server::raiseStatusSurfaces() {
+    for (const auto& layer : m_layerSurfaces) {
+      if (layer->statusSurface()) {
+        layer->raise();
+      }
+    }
+  }
+
+  void Server::clearCloseSnapshots() {
+    m_closeSnapshots.clear();
+    m_launchFeedback.clear();
+    dropLaunchFrom();
+  }
 
   void Server::dropMirrorSources() {
     for (const auto& output : m_outputs) {
@@ -1138,7 +1187,10 @@ namespace andromeda {
   // Event sources hold a Server pointer; they go once nothing that fires them is left.
   void Server::removeEventSources() {
     // Its bus fd and launch timer live on the display's event loop, which destroyDisplay frees.
+    m_appsBus.reset();
+    m_qos.reset();
     m_cpuBoost.reset();
+    m_systemdUnits.reset();
     if (m_launchBusyTimer != nullptr) {
       wl_event_source_remove(m_launchBusyTimer);
       m_launchBusyTimer = nullptr;
@@ -1154,6 +1206,18 @@ namespace andromeda {
     if (m_startupRulesTimer != nullptr) {
       wl_event_source_remove(m_startupRulesTimer);
       m_startupRulesTimer = nullptr;
+    }
+    if (m_watchdogTimer != nullptr) {
+      wl_event_source_remove(m_watchdogTimer);
+      m_watchdogTimer = nullptr;
+    }
+    if (m_restartLockEscape != nullptr) {
+      wl_event_source_remove(m_restartLockEscape);
+      m_restartLockEscape = nullptr;
+    }
+    if (m_sessionSaveTimer != nullptr) {
+      wl_event_source_remove(m_sessionSaveTimer);
+      m_sessionSaveTimer = nullptr;
     }
     for (wl_event_source*& source : m_signalSources) {
       if (source != nullptr) {
@@ -1235,13 +1299,204 @@ namespace andromeda {
     }
   }
 
-  bool Server::start(const char* startupCmd) {
-    const char* socket = wl_display_add_socket_auto(m_display);
-    if (socket == nullptr) {
-      wlr_log(WLR_ERROR, "failed to add Wayland socket");
-      return false;
+  namespace {
+    // Socket activation (andromeda.socket): the listening socket is fd 3 and outlives a compositor restart, so
+    // clients keep the same WAYLAND_DISPLAY. Returns the socket name, nullopt when not socket-activated, or an
+    // empty name when fd 3 cannot be used: then systemd owns a name no compositor serves, so the start must fail.
+    std::optional<std::string> adoptListenSocket(wl_display* display) {
+      const char* pid = std::getenv("LISTEN_PID");
+      const char* fds = std::getenv("LISTEN_FDS");
+      const bool ours = pid != nullptr && fds != nullptr && std::strtol(pid, nullptr, 10) == getpid()
+                        && std::strtol(fds, nullptr, 10) >= 1;
+      unsetenv("LISTEN_PID");
+      unsetenv("LISTEN_FDS");
+      unsetenv("LISTEN_FDNAMES");
+      if (!ours) {
+        return std::nullopt;
+      }
+      constexpr int kListenFd = 3;
+      sockaddr_un address{};
+      socklen_t length = sizeof(address);
+      // systemd does not set FD_CLOEXEC, and spawned apps must not inherit the listening socket.
+      if (fcntl(kListenFd, F_SETFD, FD_CLOEXEC) != 0
+          || getsockname(kListenFd, reinterpret_cast<sockaddr*>(&address), &length) != 0
+          || address.sun_family != AF_UNIX || address.sun_path[0] == '\0') {
+        kLog.error("socket activation: fd 3 is not a Unix path socket: {}", std::strerror(errno));
+        return std::string();
+      }
+      if (wl_display_add_socket_fd(display, kListenFd) != 0) {
+        kLog.error("socket activation: wl_display_add_socket_fd failed");
+        return std::string();
+      }
+      const std::string_view path(address.sun_path);
+      return std::string(path.substr(path.rfind('/') + 1));
     }
-    m_socketName = socket;
+  } // namespace
+
+  // WatchdogSec= in andromeda.service: a ping from the event loop, so a hung loop counts as a crash and restarts.
+  void Server::startWatchdog(const std::string& notifySocket) {
+    const char* usec = std::getenv("WATCHDOG_USEC");
+    const char* pid = std::getenv("WATCHDOG_PID");
+    const long long interval = usec != nullptr ? std::strtoll(usec, nullptr, 10) : 0;
+    const bool ours = pid == nullptr || std::strtol(pid, nullptr, 10) == getpid();
+    unsetenv("WATCHDOG_USEC");
+    unsetenv("WATCHDOG_PID");
+    if (notifySocket.empty() || interval <= 0 || !ours) {
+      return;
+    }
+    m_notifySocket = notifySocket;
+    m_watchdogIntervalMs = static_cast<int>(std::max(1LL, interval / 2000));
+    m_watchdogTimer = wl_event_loop_add_timer(
+        wl_display_get_event_loop(m_display),
+        [](void* data) {
+          auto* server = static_cast<Server*>(data);
+          (void)notifyService(server->m_notifySocket, "WATCHDOG=1");
+          wl_event_source_timer_update(server->m_watchdogTimer, server->m_watchdogIntervalMs);
+          return 0;
+        },
+        this
+    );
+    wl_event_source_timer_update(m_watchdogTimer, m_watchdogIntervalMs);
+  }
+
+  void Server::loadRestorePlacements(const std::filesystem::path& crashList) {
+    std::ifstream in(crashList);
+    const nlohmann::json session = nlohmann::json::parse(in, nullptr, false);
+    if (session.is_discarded() || !session.contains("windows") || !session["windows"].is_array()) {
+      return;
+    }
+    for (const auto& window : session["windows"]) {
+      RestorePlacement placement{
+          .appId = window.value("app_id", ""),
+          .output = window.value("output", ""),
+          .workspace = window.value("workspace", ""),
+          .floating = window.value("floating", false),
+          .fullscreen = window.value("fullscreen", false),
+          .width = window.value("w", 0),
+          .height = window.value("h", 0),
+      };
+      if (!placement.appId.empty()) {
+        m_restorePlacements.push_back(std::move(placement));
+      }
+    }
+    m_restorePlacementDeadlineMs = uptimeMs() + 120000;
+  }
+
+  void Server::applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume) {
+    if (m_restorePlacements.empty() || uptimeMs() > m_restorePlacementDeadlineMs) {
+      m_restorePlacements.clear();
+      return;
+    }
+    const auto it = std::ranges::find(m_restorePlacements, appId, &RestorePlacement::appId);
+    if (it == m_restorePlacements.end()) {
+      return;
+    }
+    if (!it->output.empty()) {
+      rule.defaultOutput = it->output;
+    }
+    // Workspace ids are "OUTPUT:NAME"; a numeric name is a position.
+    const std::string name = it->workspace.substr(it->workspace.rfind(':') + 1);
+    if (!name.empty()) {
+      size_t position = 0;
+      const auto [end, error] = std::from_chars(name.data(), name.data() + name.size(), position);
+      if (error == std::errc{} && end == name.data() + name.size() && position > 0) {
+        rule.defaultWorkspace = WorkspaceIndex{position};
+      } else {
+        rule.defaultWorkspace = WorkspaceName{name};
+      }
+    }
+    rule.defaultFloating = it->floating;
+    rule.defaultFullscreen = it->fullscreen;
+    if (it->floating && it->width > 0 && it->height > 0) {
+      rule.defaultFloatingWidthPx = it->width;
+      rule.defaultFloatingHeightPx = it->height;
+    }
+    if (consume) {
+      m_restorePlacements.erase(it);
+    }
+  }
+
+  std::string Server::lockFilePath() {
+    return std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/locked";
+  }
+
+  // The previous compositor stopped while the session was locked: the lock blank covers every output from its first
+  // frame and only a lock client's unlock ends it. Without a lock client in 10 s the session ends. Any other exit
+  // (a failed start, SIGTERM, a lost DRM backend) keeps the lock file, so the next start is locked too.
+  void Server::enterRestartLock() {
+    kLog.warn("the session was locked when the compositor stopped; it stays locked until a lock client unlocks");
+    m_sessionLocked = true;
+    m_effects.setSuspended(true);
+    // No layout exists yet; until updateLockBlank sizes the blank to it, cover any position an output can take.
+    constexpr int kCover = 1 << 25;
+    wlr_scene_rect_set_size(m_lockBlank, kCover, kCover);
+    wlr_scene_node_set_position(&m_lockBlank->node, -kCover / 2, -kCover / 2);
+    setLockBlankEnabled(true);
+    m_desktopShell->sendRelock();
+    m_restartLockEscape = wl_event_loop_add_timer(
+        wl_display_get_event_loop(m_display),
+        [](void* data) {
+          auto* server = static_cast<Server*>(data);
+          kLog.error("no lock client in time after a restart; ending the session");
+          // The session ends here, so the next login starts unlocked at the greeter.
+          unlink(lockFilePath().c_str());
+          server->requestSessionExit();
+          return 0;
+        },
+        this
+    );
+    // ANDROMEDA_LOCK_ESCAPE_MS shortens the 10 s for the harness check.
+    const char* escape = std::getenv("ANDROMEDA_LOCK_ESCAPE_MS");
+    wl_event_source_timer_update(m_restartLockEscape, escape != nullptr ? std::atoi(escape) : 10000);
+  }
+
+  bool Server::start(const char* startupCmd) {
+    m_lockFileManaged = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
+    if (m_lockFileManaged) {
+      // Present from start to clean exit: finding it means the previous compositor crashed.
+      const std::string running = std::string(std::getenv("XDG_RUNTIME_DIR") ?: "") + "/andromeda/running";
+      if (access(running.c_str(), F_OK) == 0) {
+        m_desktopShell->setRestarted();
+        // The first save after start overwrites session.json; restore reads the list from before the crash.
+        const char* stateHome = std::getenv("XDG_STATE_HOME");
+        const char* home = std::getenv("HOME");
+        const std::filesystem::path dir = stateHome != nullptr && *stateHome != '\0'
+            ? std::filesystem::path(stateHome) / "andromeda"
+            : std::filesystem::path(home != nullptr ? home : "") / ".local/state/andromeda";
+        std::error_code error;
+        std::filesystem::copy_file(
+            dir / "session.json", dir / "session-crash.json", std::filesystem::copy_options::overwrite_existing, error
+        );
+        loadRestorePlacements(dir / "session-crash.json");
+      }
+      mkdir(running.substr(0, running.rfind('/')).c_str(), 0700);
+      if (const int fd = open(running.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC, 0600); fd >= 0) {
+        close(fd);
+      }
+    }
+    if (std::ifstream file(lockFilePath()); m_lockFileManaged && file) {
+      // A new login authenticated at the greeter; a lock file from an earlier login is stale.
+      std::string session;
+      std::getline(file, session);
+      if (session.empty() || session == (std::getenv("XDG_SESSION_ID") ?: "")) {
+        enterRestartLock();
+      } else {
+        unlink(lockFilePath().c_str());
+      }
+    }
+    if (const std::optional<std::string> name = adoptListenSocket(m_display)) {
+      if (name->empty()) {
+        return false;
+      }
+      m_socketName = *name;
+    } else {
+      const char* socket = wl_display_add_socket_auto(m_display);
+      if (socket == nullptr) {
+        wlr_log(WLR_ERROR, "failed to add Wayland socket");
+        return false;
+      }
+      m_socketName = socket;
+    }
 
     refreshSystemKeymap();
     if (!wlr_backend_start(m_backend)) {
@@ -1288,7 +1543,6 @@ namespace andromeda {
         kLog.warn("application scope isolation unavailable: cannot identify the compositor unit");
       } else {
         m_applicationScopePartOfProperty = "--property=PartOf=andromeda-session.target";
-        m_applicationScopeBindsToProperty = "--property=BindsTo=" + ownerUnit;
         m_applicationScopeAfterProperty = "--property=After=" + ownerUnit;
         m_applicationScopeEnvironmentArguments = applicationScopeEnvironmentArguments(config().environment.variables);
         kLog.info("application processes will use transient scopes under app.slice");
@@ -1304,11 +1558,75 @@ namespace andromeda {
     // See kBackgroundFrameIntervalMs and Server::onBackgroundFrameTimer.
     m_backgroundFrameTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundFrameTimer, this);
-    if (m_backgroundFrameTimer != nullptr) {
-      wl_event_source_timer_update(m_backgroundFrameTimer, kBackgroundFrameIntervalMs);
-    }
+    armBackgroundFrameTimer();
     m_launchBusyTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLaunchBusyTimer, this);
-    m_cpuBoost = std::make_unique<CpuBoost>(wl_display_get_event_loop(m_display));
+    m_systemdUnits = std::make_unique<SystemdUnits>(wl_display_get_event_loop(m_display));
+    // ANDROMEDA_QOS_DISABLE=1: no QoS tiers, for the with/without measurement (tests/qos-contention.sh).
+    const char* qosDisable = std::getenv("ANDROMEDA_QOS_DISABLE");
+    if (m_systemdUnits->active() && (qosDisable == nullptr || std::string_view(qosDisable) != "1")) {
+      m_qos = std::make_unique<qos::Controller>(wl_display_get_event_loop(m_display), *m_systemdUnits, m_applicationScopesRequired, [this] {
+        qos::Snapshot snapshot;
+        for (const auto& view : views()) {
+          if (view->mapped()) {
+            snapshot.windows.push_back(
+                {.pid = view->pid(),
+                 .hidden = view->hiddenFromUser(),
+                 .screenCast = viewCaptured(*view),
+                 .rule = view->qosRule(),
+                 .adoptable = !view->xwayland() && view->rootSurface() != nullptr
+                     && (m_desktopShell == nullptr
+                         || !m_desktopShell->boundBy(wl_resource_get_client(view->rootSurface()->resource)))}
+            );
+          }
+        }
+        if (m_idleInhibitManager != nullptr) {
+          wlr_idle_inhibitor_v1* inhibitor;
+          wl_list_for_each(inhibitor, &m_idleInhibitManager->inhibitors, link) {
+            View* view = View::fromSurface(wlr_surface_get_root_surface(inhibitor->surface));
+            snapshot.idleInhibitorPids.push_back(view != nullptr ? view->pid() : surfaceClientPid(inhibitor->surface));
+          }
+        }
+        if (m_desktopShell != nullptr) {
+          for (const auto& [pid, flags] : m_desktopShell->appActivities()) {
+            snapshot.activity.push_back(
+                {.pid = static_cast<pid_t>(pid),
+                 .audio = (flags & DesktopShell::kActivityAudio) != 0,
+                 .call = (flags & DesktopShell::kActivityCall) != 0}
+            );
+          }
+        }
+        snapshot.freezeBackgroundApps = config().general.freezeBackgroundApps;
+        snapshot.freezeHiddenApps = config().general.freezeHiddenApps;
+        snapshot.optimizeBackgroundApps = config().general.optimizeBackgroundApps;
+        return snapshot;
+      });
+      m_appsBus = std::make_unique<AppsBus>(
+          wl_display_get_event_loop(m_display), [this] { handleConfigReload(reloadConfig()); },
+          [this] {
+            for (const auto& output : m_outputs) {
+              (void)output->applyOutputState();
+            }
+          }
+      );
+      if (m_screenActivity != nullptr) {
+        m_appsBus->setIdle(m_screenActivity->idle());
+        m_screenActivity->setIdleListener([this](bool idle) {
+          if (m_appsBus != nullptr) {
+            m_appsBus->setIdle(idle);
+          }
+        });
+      }
+      if (m_applicationScopesRequired) {
+        // The reply comes after autostart spawns: their launch weight stays.
+        m_qos->resetAppUnits([this](const std::string& unit) {
+          return m_cpuBoost != nullptr && m_cpuBoost->launching(unit);
+        });
+      }
+    }
+    m_cpuBoost = std::make_unique<CpuBoost>(
+        wl_display_get_event_loop(m_display), *m_systemdUnits,
+        [this](const std::string& unit) { return m_qos != nullptr && m_qos->launchEnded(unit); }
+    );
     // Armed only while a hidden window has a background_render rule (see Server::armBackgroundRenderTimer).
     m_backgroundRenderTimer =
         wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onBackgroundRenderTimer, this);
@@ -1323,6 +1641,8 @@ namespace andromeda {
     setenv("XDG_CURRENT_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_DESKTOP", "andromeda", 1);
     setenv("XDG_SESSION_TYPE", "wayland", 1);
+    // Qt 6.6+ apps reconnect to a restarted compositor and keep their windows (docs/resilience.md §2).
+    setenv("QT_WAYLAND_RECONNECT", "1", 0);
 
     // Export cursor settings so X11 clients and toolkit clients pick up the
     // compositor's configured cursor.
@@ -1354,6 +1674,9 @@ namespace andromeda {
     // now, and Xwayland itself spawns when the first X client connects.
     if (config().general.xwayland) {
       m_eisInput = std::make_unique<EisInput>(*this);
+      if (m_sessionLocked) {
+        m_eisInput->setSessionLocked(true);
+      }
       m_eisInput->setAuthenticate([this](pid_t peer) {
         return m_xwayland != nullptr && m_xwayland->authenticateInputPeer(peer);
       });
@@ -1371,7 +1694,8 @@ namespace andromeda {
     // Wait before applying configured values locally, so the importer keeps
     // the inherited PATH and bus addresses. Readiness and autostart must not
     // release session services until these imports have completed.
-    if (!m_nested) {
+    // A compositor in another user unit (a headless test or bench) must not overwrite the session's environment.
+    if (!m_nested && (!m_applicationScopesRequired || currentSystemdUnit() == "andromeda.service")) {
       const std::string command = sessionEnvironmentCommand(!notifySocket.empty());
       if (!runShellCommand(command)) {
         kLog.error("session environment synchronization failed: {}", std::strerror(errno));
@@ -1407,6 +1731,7 @@ namespace andromeda {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
       return false;
     }
+    startWatchdog(notifySocket);
     if (greeterMode()) {
       // The greeter session runs the greeter alone and ends with it; config autostart does not apply.
       m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this] {
@@ -1618,7 +1943,6 @@ namespace andromeda {
     if (scopeRequired
         && (m_systemdRunExecutable.empty()
             || m_applicationScopePartOfProperty.empty()
-            || m_applicationScopeBindsToProperty.empty()
             || m_applicationScopeAfterProperty.empty())) {
       kLog.error("cannot launch application because systemd scope isolation is unavailable");
       return;
@@ -1642,8 +1966,18 @@ namespace andromeda {
 
     const char* launchWeight =
         !launchTokenName.empty() && m_cpuBoost != nullptr && m_cpuBoost->active() ? kLaunchWeightProperty : nullptr;
+    const std::string scopeUnit = scopeRequired ? scopeUnitArgument.substr(std::string_view("--unit=").size()) : "";
+    // The scope starts over the compositor's own bus connection; systemd-run is the fallback without one.
+    std::array<int, 2> gate{-1, -1};
+    const bool scopeOverBus = scopeRequired && m_systemdUnits != nullptr && m_systemdUnits->active()
+        && pipe2(gate.data(), O_CLOEXEC) == 0;
+    const auto requested = std::chrono::steady_clock::now();
     pid_t pid = fork();
     if (pid < 0) {
+      if (scopeOverBus) {
+        close(gate[0]);
+        close(gate[1]);
+      }
       if (launchToken != nullptr) {
         wlr_xdg_activation_token_v1_destroy(launchToken);
       }
@@ -1653,6 +1987,12 @@ namespace andromeda {
     if (pid == 0) {
       resetChildSignalState();
       restoreFileDescriptorLimit();
+      if (scopeOverBus) {
+        close(gate[1]);
+        if (!awaitApplicationScope(gate[0], scopeUnit.c_str())) {
+          _exit(1);
+        }
+      }
       if (scopeRequired) {
         if (!closeChildFileDescriptors() || !restoreSystemdControlEnvironment(m_systemdControlEnvironment)) {
           _exit(1);
@@ -1676,17 +2016,58 @@ namespace andromeda {
         unsetenv("DESKTOP_STARTUP_ID");
         unsetenv(kLaunchTokenEnvironment.data());
       }
-      if (scopeRequired) {
+      if (scopeOverBus) {
+        applyApplicationScopeEnvironment(m_applicationScopeEnvironmentArguments);
+      } else if (scopeRequired) {
         execApplicationInScope(
             m_systemdRunExecutable.c_str(), scopeUnitArgument.c_str(), m_applicationScopePartOfProperty.c_str(),
-            m_applicationScopeBindsToProperty.c_str(), m_applicationScopeAfterProperty.c_str(),
+            m_applicationScopeAfterProperty.c_str(),
             m_applicationScopeEnvironmentArguments, command, launchWeight
         );
       }
       execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
       _exit(1);
     }
+    if (launchToken != nullptr) {
+      static_cast<ActivationTokenWatch*>(launchToken->data)->launchPid = pid;
+    }
 
+    if (scopeOverBus) {
+      close(gate[0]);
+      // Closing the write end without a result byte makes the child exit: no scope, no launch.
+      const auto release = std::shared_ptr<int>(new int(gate[1]), [](const int* fd) {
+        close(*fd);
+        delete fd;
+      });
+      SystemdUnits::ScopeOptions options{
+          .description = "Andromeda application",
+          .partOf = {"andromeda-session.target"},
+          .after = {m_applicationScopeAfterProperty.substr(std::string_view("--property=After=").size())},
+          .cpuWeight = std::nullopt,
+      };
+      if (launchWeight != nullptr) {
+        options.cpuWeight = kLaunchWeight;
+      }
+      const bool sent = m_systemdUnits->startScope(
+          scopeUnit, pid,
+          [release, scopeUnit, requested](bool ok) {
+            const char result = ok ? '1' : '0';
+            if (write(*release, &result, 1) != 1 || !ok) {
+              kLog.error("cannot start application scope {}", scopeUnit);
+              return;
+            }
+            const auto elapsed = std::chrono::steady_clock::now() - requested;
+            kLog.info(
+                "application scope {} started in {} us", scopeUnit,
+                std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()
+            );
+          },
+          options
+      );
+      if (!sent) {
+        kLog.error("cannot request application scope {}", scopeUnit);
+      }
+    }
     if (scopeRequired && launchWeight != nullptr) {
       m_cpuBoost->beginLaunch(launchTokenName, scopeUnitArgument.substr(std::string_view("--unit=").size()));
     }
@@ -1795,6 +2176,26 @@ namespace andromeda {
       }
     };
     captureNodes(captureNodes, m_tree);
+    // The capture only matters where snapshot nodes overlap: with one buffer whose opaque region hides every rect
+    // (a fullscreen backdrop), fading the buffer alone gives the same pixels for one pass instead of two.
+    m_perBufferFade = m_buffers.size() == 1
+        && !requirements.persistent
+        && !requirements.in_place
+        && !requirements.light
+        && effectRegistry().animationEffect(event) == nullptr
+        && std::ranges::all_of(m_rects, [&](const Rect& rect) {
+             int bx = 0, by = 0, rx = 0, ry = 0;
+             wlr_scene_node_coords(&m_buffers.front().node->node, &bx, &by);
+             wlr_scene_node_coords(&rect.node->node, &rx, &ry);
+             const pixman_box32_t covered{rx - bx, ry - by, rx - bx + rect.box.width, ry - by + rect.box.height};
+             return pixman_region32_contains_rectangle(&m_buffers.front().node->opaque_region, &covered)
+                 == PIXMAN_REGION_IN;
+           });
+    if (m_perBufferFade) {
+      for (const Rect& rect : m_rects) {
+        wlr_scene_node_set_enabled(&rect.node->node, false);
+      }
+    }
     m_alpha.snap(1.0);
     m_alpha.retarget(0.0, durationMs, curve);
 
@@ -1971,7 +2372,11 @@ namespace andromeda {
   bool Server::CloseSnapshot::tickAnimations(double nowMsec) {
     const bool movedAlpha = m_alpha.tick(nowMsec);
     const bool movedSlide = m_slide.tick(nowMsec);
-    bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
+    if (m_perBufferFade) {
+      wlr_scene_node_set_animation(&m_tree->node, static_cast<unsigned>(m_event), nullptr, nullptr);
+    } else {
+      bindAnimationEffect(&m_tree->node, m_event, m_alpha, -1.0F);
+    }
 
     if (!movedAlpha && !movedSlide) {
       return false;
@@ -1979,7 +2384,7 @@ namespace andromeda {
     // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
     const float rawAlpha = std::clamp(static_cast<float>(m_alpha.current()), 0.0F, 1.0F);
     // A lifecycle shader fades the whole snapshot at once, so its buffers and borders stay opaque under it.
-    const bool composited = effectRegistry().lifecycleEffect(m_event) != nullptr;
+    const bool composited = !m_perBufferFade && effectRegistry().lifecycleEffect(m_event) != nullptr;
     const bool builtInSlide = !composited && m_slide.target() != m_slide.from();
     // Keep the moving snapshot visible long enough for slide to read as motion. Fade keeps the configured timeline.
     const float alpha = composited ? 1.0F : (builtInSlide ? std::sqrt(rawAlpha) : rawAlpha);
@@ -2049,6 +2454,7 @@ namespace andromeda {
       active = owner->tickAnimations(nowMsec) || active;
     }
 
+    std::erase_if(m_launchFeedback, [](const auto& entry) { return entry.second->finished(); });
     // A snapshot only exists while fading out, so a settled one is finished.
     // Erasing destroys its scene tree and unregisters it.
     std::erase_if(m_closeSnapshots, [this](const std::unique_ptr<CloseSnapshot>& snap) {

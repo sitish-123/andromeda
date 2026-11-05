@@ -12,8 +12,8 @@ namespace {
 
   constexpr float kLabelCellWidth = 200.0F;
   constexpr float kFreeformInputWidth = 190.0F;
-  constexpr float kItemRowHeight = 40.0F; // one-line row (rulebook 9.7)
-  constexpr float kSuggestedAddHeight = 32.0F;
+  constexpr const float& kItemRowHeight = Tokens::sizeRow;
+  constexpr const float& kSuggestedAddHeight = Tokens::sizeControlM;
   constexpr float kVerticalGap = 2.0F;
 
   std::unique_ptr<Label> makeListLabel(std::string_view text, float scale) {

@@ -397,6 +397,9 @@ namespace shell::dock {
         );
       }
       (void)popup_chrome::addCardBackground(*menuPtr->sceneRoot, menuPtr->chrome, 1.0F);
+      if (menuPtr->surface != nullptr) {
+        popup_chrome::setCardBlurRegion(*menuPtr->surface, menuPtr->chrome, 1.0F);
+      }
 
       auto ctrl = std::make_unique<ContextMenuControl>();
       ctrl->setMenuWidth(menuPtr->chrome.contentWidth);

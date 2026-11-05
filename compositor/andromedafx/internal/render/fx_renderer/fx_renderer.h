@@ -122,6 +122,8 @@ bool fx_framebuffer_copy(
 /// fx_texture
 ///
 
+#define FX_SHM_SLOTS 3
+
 struct fx_texture {
   struct wlr_texture wlr_texture;
   struct fx_renderer* fx_renderer;
@@ -140,11 +142,24 @@ struct fx_texture {
   uint32_t drm_format;           // for mutable textures only, used to interpret upload data
   struct fx_framebuffer* buffer; // for DMA-BUF imports only
   struct wlr_buffer* locked_buffer;
+
+  // Large shm buffers rotate through up to FX_SHM_SLOTS linear staging buffers
+  // the GPU samples in place (fx_texture.c struct shm_staging). A slot the
+  // display still scans out holds a lock and is never written.
+  struct wlr_buffer* slots[FX_SHM_SLOTS];
+  GLuint slot_tex[FX_SHM_SLOTS];
+  pixman_region32_t slot_stale[FX_SHM_SLOTS]; // damage each slot has not received yet
+  int slot;
+  bool slot_failed; // a slot could not be created; stop adding slots
 };
 
 struct fx_texture* fx_get_texture(struct wlr_texture* wlr_texture);
 
 void fx_texture_destroy(struct fx_texture* texture);
+
+// The staging slot that holds the texture's current pixels, as a linear
+// dmabuf for direct scanout; NULL when the texture has no staging slots.
+struct wlr_buffer* fx_texture_get_scanout_buffer(struct wlr_texture* wlr_texture);
 
 bool wlr_texture_is_fx(struct wlr_texture* wlr_texture);
 
@@ -204,8 +219,6 @@ struct fx_renderer {
 
   struct wlr_egl* egl;
   int drm_fd;
-  // Set by the compositor; NULL disables zero-copy shm import.
-  struct wl_event_loop* event_loop;
   struct wlr_allocator* allocator;
 
   // GL timestamp minus CLOCK_MONOTONIC (ns), resynced once per second: a GL_TIMESTAMP read is a register read that
@@ -279,6 +292,14 @@ struct fx_renderer {
     struct blur2_composite_shader blur2_composite_corners;
     struct blur2_composite_shader blur2_with_effects_composite;
     struct blur2_composite_shader blur2_with_effects_composite_corners;
+    // CORNER_FLARES variants, for glass with negative corner radii (joined shapes).
+    struct tex_shader tex_effects_flares_rgba;
+    struct blur2_composite_shader blur2_composite_flares;
+    struct blur2_composite_shader blur2_with_effects_composite_flares;
+    struct blur2_composite_shader blur2_glass_composite;
+    struct blur2_composite_shader blur2_glass_composite_flares;
+    struct blur2_composite_shader blur2_with_effects_glass_composite;
+    struct blur2_composite_shader blur2_with_effects_glass_composite_flares;
   } shaders;
 
   bool animation_shadow_attempted;

@@ -1,5 +1,6 @@
 #include "application.h"
 #include "application_internal.h"
+#include "a11y/atspi_poll_source.h"
 #include "capture/screen_recorder.h"
 #include "compositors/andromeda/andromeda_audio_provider.h"
 #include "dbus/idle/screensaver_poll_source.h"
@@ -12,6 +13,7 @@
 #include "pipewire/pipewire_spectrum_poll_source.h"
 #include "pipewire/wireplumber_mixer.h"
 #include "system/brightness_poll_source.h"
+#include "system/memory_pressure_poll_source.h"
 
 std::vector<PollSource*> Application::currentPollSources() {
   std::vector<PollSource*> sources;
@@ -68,6 +70,9 @@ std::vector<PollSource*> Application::currentPollSources() {
   if (m_brightnessPollSource != nullptr) {
     sources.push_back(m_brightnessPollSource.get());
   }
+  if (m_memoryPressurePollSource != nullptr) {
+    sources.push_back(m_memoryPressurePollSource.get());
+  }
   sources.push_back(&m_fileWatchPollSource);
   sources.push_back(&m_ipcPollSource);
   sources.push_back(&m_dmenuIpc);
@@ -81,6 +86,8 @@ std::vector<PollSource*> Application::currentPollSources() {
   sources.push_back(&m_asyncTextureCache);
   sources.push_back(&m_sharedTextureCache);
   sources.push_back(&m_pixelStreamService);
+  static AtspiPollSource atspiPollSource;
+  sources.push_back(&atspiPollSource);
   return sources;
 }
 
@@ -126,6 +133,12 @@ std::vector<PollSource*> Application::buildPollSources() {
     }
   } else {
     m_brightnessPollSource.reset();
+  }
+  if (m_memoryPressurePollSource == nullptr) {
+    m_memoryPressurePollSource = std::make_unique<MemoryPressurePollSource>([this] {
+      m_renderContext.releaseUnusedCaches();
+      trimAllocator();
+    });
   }
   return currentPollSources();
 }

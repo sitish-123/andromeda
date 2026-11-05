@@ -16,6 +16,9 @@
 #include <string_view>
 #include <vector>
 
+// Returns freed heap pages to the kernel (jemalloc purge when preloaded, else malloc_trim).
+void trimAllocator();
+
 constexpr bool kLockKeysEnabled = true;
 
 inline bool widgetIsLockKeys(std::string_view widgetName, const Config& config) {

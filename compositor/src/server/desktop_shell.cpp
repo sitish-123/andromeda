@@ -19,7 +19,7 @@ namespace andromeda {
   namespace {
 
     constexpr Logger kLog("desktop-shell");
-    constexpr uint32_t kVersion = 3;
+    constexpr uint32_t kVersion = 4;
     constexpr size_t kMaxAppActivity = 256;
 
     DesktopShell* shellFrom(wl_resource* resource) {
@@ -52,6 +52,14 @@ namespace andromeda {
     self->m_resources.push_back(resource);
     self->sendLockKeys(resource);
     self->sendTextInputState(resource);
+    // A shell that binds after a restart into the lock (Server::enterRestartLock) still must start its lock screen.
+    if (self->m_relocked && version >= DSK_SHELL_V1_RELOCK_SINCE_VERSION) {
+      dsk_shell_v1_send_relock(resource);
+    }
+    if (self->m_restartPending && version >= DSK_SHELL_V1_RESTARTED_SINCE_VERSION) {
+      self->m_restartPending = false;
+      dsk_shell_v1_send_restarted(resource);
+    }
   }
 
   void DesktopShell::handleDestroy(wl_client*, wl_resource* resource) { wl_resource_destroy(resource); }
@@ -59,7 +67,10 @@ namespace andromeda {
   void DesktopShell::handleResourceDestroyed(wl_resource* resource) {
     if (DesktopShell* self = shellFrom(resource)) {
       std::erase(self->m_resources, resource);
-      std::erase_if(self->m_appActivity, [resource](const auto& entry) { return entry.second.owner == resource; });
+      if (std::erase_if(self->m_appActivity, [resource](const auto& entry) { return entry.second.owner == resource; })
+          != 0) {
+        self->m_server.scheduleQos();
+      }
       self->releaseKeys();
     }
   }
@@ -152,13 +163,28 @@ namespace andromeda {
     return it == m_appActivity.end() ? std::nullopt : std::optional<uint32_t>(it->second.flags);
   }
 
+  static_assert(DesktopShell::kActivityAudio == DSK_SHELL_V1_APP_ACTIVITY_FLAG_AUDIO);
+  static_assert(DesktopShell::kActivityCall == DSK_SHELL_V1_APP_ACTIVITY_FLAG_CALL);
+
+  std::vector<std::pair<uint32_t, uint32_t>> DesktopShell::appActivities() const {
+    std::vector<std::pair<uint32_t, uint32_t>> out;
+    out.reserve(m_appActivity.size());
+    for (const auto& [pid, activity] : m_appActivity) {
+      out.emplace_back(pid, activity.flags);
+    }
+    return out;
+  }
+
   void DesktopShell::handleAppActivity(wl_client*, wl_resource* resource, uint32_t pid, uint32_t flags) {
     DesktopShell* self = shellFrom(resource);
     if (self == nullptr) {
       return;
     }
     if (flags == 0) {
-      self->m_appActivity.erase(pid);
+      if (self->m_appActivity.erase(pid) != 0) {
+        kLog.debug("app activity pid={} cleared", pid);
+        self->m_server.scheduleQos();
+      }
       return;
     }
     std::error_code ec;
@@ -172,6 +198,7 @@ namespace andromeda {
     }
     self->m_appActivity[pid] = {flags, resource};
     kLog.debug("app activity pid={} flags={}", pid, flags);
+    self->m_server.scheduleQos();
   }
 
   void DesktopShell::handleKey(wl_client*, wl_resource* resource, uint32_t keysym, uint32_t state) {
@@ -276,5 +303,11 @@ namespace andromeda {
       .insert_text = DesktopShell::handleInsertText,
       .key = DesktopShell::handleKey,
   };
+
+  bool DesktopShell::boundBy(const wl_client* client) const {
+    return std::ranges::any_of(m_resources, [client](wl_resource* resource) {
+      return wl_resource_get_client(resource) == client;
+    });
+  }
 
 } // namespace andromeda

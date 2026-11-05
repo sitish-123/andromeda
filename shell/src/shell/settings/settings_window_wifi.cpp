@@ -21,6 +21,7 @@
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/settings/settings_window.h"
+#include "system/display_manager.h"
 #include "ui/controls/slider.h"
 
 #include <cstring>
@@ -165,6 +166,10 @@ void SettingsWindow::addUsersContent(float scale) {
       }
     });
   };
+  std::vector<std::pair<std::string, std::string>> loginScreens;
+  for (auto& dm : display_manager::installed()) {
+    loginScreens.emplace_back(std::move(dm.unit), std::move(dm.name));
+  }
   settings::addSettingsUsers(
       *m_contentContainer,
       settings::SettingsUsersContext{
@@ -212,6 +217,26 @@ void SettingsWindow::addUsersContent(float scale) {
             leaveDetail();
           },
           .rebuild = [this] { requestContentRebuild(); },
+          .loginScreens = loginScreens,
+          .activeLoginScreen = display_manager::activeUnit(),
+          .loginScreenStatus = m_loginScreenStatus,
+          .loginScreenError = m_loginScreenError,
+          .switchLoginScreen = [this](std::string unit) {
+            m_loginScreenStatus = i18n::tr("settings.users.login-screen-switching");
+            m_loginScreenError = false;
+            requestContentRebuild();
+            display_manager::switchTo(unit, [this, alive = std::weak_ptr<void>(m_aliveGuard)](bool ok, bool denied, std::string error) {
+              if (alive.expired()) {
+                return;
+              }
+              m_loginScreenError = !ok;
+              m_loginScreenStatus = ok ? i18n::tr("settings.users.login-screen-next-start")
+                                       : (denied ? i18n::tr("settings.users.login-screen-denied") : error);
+              if (isOpen()) {
+                requestContentRebuild();
+              }
+            });
+          },
       }
   );
 }
@@ -263,7 +288,7 @@ void SettingsWindow::leaveDetail() {
 }
 
 void SettingsWindow::addPowerContent(float scale) {
-  if (m_selectedSection != "power" || !m_detail.empty()) {
+  if (m_selectedSection != "power" || (!m_detail.empty() && !m_detail.starts_with("app-rules:"))) {
     return;
   }
   settings::addSettingsPower(
@@ -273,6 +298,14 @@ void SettingsWindow::addPowerContent(float scale) {
           .upower = m_upower,
           .profiles = m_powerProfilesProvider ? m_powerProfilesProvider() : nullptr,
           .powerConfig = m_powerConfigProvider ? m_powerConfigProvider() : nullptr,
+          .health = m_systemHealthProvider ? m_systemHealthProvider() : nullptr,
+          .activity = m_activityProvider ? m_activityProvider() : nullptr,
+          .activityDetails = m_activityDetails,
+          .screenTime = m_screenTime,
+          .openActivity = m_openActivityApp,
+          .rebuild = [this] { onPowerChanged(); },
+          .detail = m_detail,
+          .openDetail = [this](std::string detail) { openDetail(std::move(detail)); },
       }
   );
 }
@@ -293,29 +326,7 @@ void SettingsWindow::addAboutContent(float scale) {
           .scale = scale,
           .renaming = m_renaming,
           .renameError = m_renameError,
-          .updates = m_updateCount,
-          .checkUpdates = !process::commandExists("checkupdates") ? std::function<void()>{} : [this] { checkUpdates(); },
-          .installUpdates = [this] {
-            // The package manager asks for the password in the terminal; the window stays open to show the result.
-            const std::string update = process::commandExists("yay") ? "yay -Syu" : "sudo pacman -Syu";
-            const std::string script = update + "; printf '\\nPress Enter to close. '; read -r _";
-            for (const auto& [terminal, flag] : std::initializer_list<std::pair<const char*, const char*>>{
-                     {"xdg-terminal-exec", ""}, {"foot", ""}, {"kitty", ""}, {"alacritty", "-e"}}) {
-              if (process::commandExists(terminal)) {
-                std::vector<std::string> args{terminal};
-                if (flag[0] != '\0') {
-                  args.emplace_back(flag);
-                }
-                args.insert(args.end(), {"sh", "-c", script});
-                // The count is stale once the update runs; the user checks again.
-                m_updateCount = process::runAsync(args) ? -1 : -4;
-                requestContentRebuild();
-                return;
-              }
-            }
-            m_updateCount = -4;
-            requestContentRebuild();
-          },
+          .openSoftwareUpdate = [this] { navigateTo("software-update"); },
           .rename =
               [this](std::string name) {
                 const std::string hostname = settings::hostnameFromName(name);
@@ -348,39 +359,4 @@ void SettingsWindow::addAboutContent(float scale) {
               },
       }
   );
-}
-
-void SettingsWindow::checkUpdates() {
-  if (m_updateCount == -2) {
-    return;
-  }
-  m_updateCount = -2;
-  requestContentRebuild();
-  // checkupdates: exit 0 with one line per update, 2 when there are none, 1 on failure.
-  const bool started = process::runAsync(
-      std::vector<std::string>{"checkupdates"},
-      process::RunCallbacks{
-          .onExit =
-              [this, alive = std::weak_ptr<void>(m_aliveGuard)](process::RunResult result) {
-                // Runs on the process worker thread: count here, apply on the main loop.
-                const int count = result.exitCode == 2 ? 0
-                    : result.exitCode == 0
-                    ? static_cast<int>(std::ranges::count(result.out, '\n')) + (result.out.empty() ? 0 : 1)
-                    : -3;
-                DeferredCall::callLater([this, alive, count] {
-                  if (alive.expired()) {
-                    return;
-                  }
-                  m_updateCount = count;
-                  if (isOpen()) {
-                    requestContentRebuild();
-                  }
-                });
-              },
-      },
-      process::RunOptions{.timeout = std::chrono::minutes(2)}
-  );
-  if (!started) {
-    m_updateCount = -3;
-  }
 }

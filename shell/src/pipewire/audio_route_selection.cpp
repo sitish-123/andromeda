@@ -79,3 +79,19 @@ const PipeWireService::DeviceRouteData* audioNodeRoute(
   const PipeWireService::DeviceRouteData* nodeRoute = best(nodeRoutes, kAnyProfileDevice);
   return nodeRoute != nullptr ? nodeRoute : best(deviceRoutes, profileDevice);
 }
+
+namespace {
+  bool headphonesRoute(const PipeWireService::DeviceRouteData& route) {
+    return (route.portType == "headphones" || route.portType == "headset") && route.available != SPA_PARAM_AVAILABILITY_no;
+  }
+} // namespace
+
+bool headphonesUnplugged(AudioDeviceRoutes before, const PipeWireService::DeviceRouteData& now) {
+  if (now.direction != SPA_DIRECTION_OUTPUT) {
+    return false;
+  }
+  const auto was = std::ranges::find_if(before, [&now](const PipeWireService::DeviceRouteData& r) {
+    return r.direction == SPA_DIRECTION_OUTPUT && r.device == now.device;
+  });
+  return was != before.end() && headphonesRoute(*was) && !headphonesRoute(now);
+}

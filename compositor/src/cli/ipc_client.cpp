@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace andromeda {
@@ -72,6 +73,13 @@ namespace andromeda {
       }
       return true;
     }
+
+    std::string requestPayload(nlohmann::json request) {
+      if (const char* token = std::getenv("ANDROMEDA_LAUNCH_TOKEN"); token != nullptr && token[0] != '\0') {
+        request["launch_token"] = token;
+      }
+      return request.dump() + "\n";
+    }
   } // namespace
 
   int runIpcCommand(const IpcCommandSpec& spec, std::string_view arg, bool json) {
@@ -91,7 +99,7 @@ namespace andromeda {
     if (spec.takesArg) {
       req["arg"] = std::string(arg);
     }
-    std::string payload = req.dump() + "\n";
+    std::string payload = requestPayload(std::move(req));
 
     if (!sendAll(fd, payload)) {
       close(fd);
@@ -159,7 +167,7 @@ namespace andromeda {
     nlohmann::json req;
     req["cmd"] = "subscribe";
     req["events"] = events;
-    if (!sendAll(fd, req.dump() + "\n")) {
+    if (!sendAll(fd, requestPayload(std::move(req)))) {
       close(fd);
       return EXIT_FAILURE;
     }

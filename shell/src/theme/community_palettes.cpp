@@ -115,6 +115,8 @@ namespace noctalia::theme {
       }
     }
 
+    constexpr auto kCatalogMaxAge = std::chrono::hours(24);
+
   } // namespace
 
   CommunityPaletteService::CommunityPaletteService(HttpClient& httpClient) : m_httpClient(httpClient) {}
@@ -124,6 +126,9 @@ namespace noctalia::theme {
   void CommunityPaletteService::sync() {
     const std::uint64_t generation = ++m_generation;
     const std::filesystem::path path = catalogCachePath();
+    if (HttpClient::isFresh(path, kCatalogMaxAge)) {
+      return;
+    }
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
 

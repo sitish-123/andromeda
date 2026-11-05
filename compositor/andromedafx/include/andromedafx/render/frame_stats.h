@@ -17,6 +17,8 @@ struct fx_frame_stats {
   uint32_t backdrop_rebuilds; // animation_backdrop rebuilds inside captured groups
   uint64_t backdrop_px;
   uint32_t fp16_passes;       // passes through the FP16 blend buffer (colour transform)
+  uint32_t rects;             // solid-fill boxes drawn as quads (not glClear)
+  uint64_t rect_px;
 };
 
 struct fx_frame_stats fx_frame_stats_take(void);

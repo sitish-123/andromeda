@@ -42,7 +42,6 @@ void Application::onIconThemeChanged() {
   m_bar.reload();
   m_dock.reload();
   m_panelManager.onIconThemeChanged();
-  m_notificationToast.requestLayout();
 }
 
 void Application::onGraphicsReset(RenderGraphicsResetStatus status) {
@@ -111,7 +110,6 @@ void Application::requestAllSurfacesRedraw() {
     m_dock.requestRedraw();
     m_desktopWidgetsController.requestRedraw();
     m_panelManager.requestRedraw();
-    m_notificationToast.requestRedraw();
     m_osdOverlay.requestRedraw();
     m_lockScreen.requestLayout();
     m_colorPickerDialogPopup.requestRedraw();

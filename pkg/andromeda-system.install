@@ -1,0 +1,12 @@
+# Migrations already shipped describe changes a new install has; record them as done before the pacman hook runs.
+# The tonight timer is enabled by its wants link; start it now so a run scheduled before the next boot happens.
+post_install() {
+  /usr/lib/andromeda/andromeda-update-helper --seed-migrations
+  systemctl start andromeda-update-tonight.timer 2> /dev/null || true
+}
+
+# The running daemon keeps the old binary until a restart: new D-Bus objects (Display) and rules stay absent.
+post_upgrade() {
+  post_install
+  systemctl try-restart andromeda-system.service 2> /dev/null || true
+}

@@ -91,7 +91,7 @@ void LockCallCard::layout(Renderer& renderer, float cx, float bottom, float scal
   const float y = snap(bottom - h);
   m_bg->setPosition(x, y);
   m_bg->setSize(w, h);
-  m_bg->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 24.0F * s, .borderWidth = 0.5F * s});
+  m_bg->setStyle(RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR24 * s, .borderWidth = 0.5F * s});
 
   m_avatar->setPosition(x + pad, y + pad);
   m_avatar->setSize(avatar, avatar);

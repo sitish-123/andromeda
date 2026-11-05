@@ -3,6 +3,7 @@
 #include "config/atomic_file.h"
 #include "config/config_limits.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "ext-data-control-v1-client-protocol.h"
 #include "security/encrypted_file_store.h"
 #include "util/file_utils.h"
@@ -12,11 +13,13 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <poll.h>
 #include <sodium.h>
@@ -465,12 +468,12 @@ void ClipboardService::setHistoryRetentionEnabled(bool enabled) {
   m_historyRetention = enabled;
 
   if (enabled) {
-    if (m_dataKey.has_value()) {
+    if ((m_dataKey != nullptr)) {
       (void)loadPersistedHistory();
     }
   } else {
-    // Keep only the live selection (most recent unpinned entry) in memory so
-    // paste keeps working; drop pins and older/persisted history.
+    // Keep only the most recent unpinned entry in memory; drop pins and
+    // older/persisted history.
     std::deque<ClipboardEntry> live;
     for (auto& entry : m_history) {
       if (!entry.pinned) {
@@ -553,6 +556,7 @@ bool ClipboardService::bind(void* manager, const DataControlOps* ops, wl_seat* s
 }
 
 void ClipboardService::cleanup() {
+  drainPendingWrites();
   m_pendingOrphanAdopt = false;
   cancelActiveRead();
   cancelActiveWrites();
@@ -573,6 +577,7 @@ void ClipboardService::cleanup() {
 
   m_device = nullptr;
   m_selectionOffer = nullptr;
+  setSelectionText(std::nullopt);
   m_seat = nullptr;
   m_ops = nullptr;
   m_manager = nullptr;
@@ -631,6 +636,7 @@ void ClipboardService::retryPersistence() { m_storageKeyProvider.retry(); }
 bool ClipboardService::clearEncryptedPersistenceForRecovery() {
   namespace fs = std::filesystem;
 
+  cancelPendingWrites();
   m_dataKey.reset();
   std::error_code ec;
   fs::remove(manifestPath(), ec);
@@ -672,7 +678,8 @@ bool ClipboardService::hasEncryptedPersistence() const {
 }
 
 void ClipboardService::activatePersistenceKey(security::SecureKey key) {
-  m_dataKey = std::move(key);
+  cancelPendingWrites();
+  m_dataKey = std::make_shared<const security::SecureKey>(std::move(key));
   if (!loadPersistedHistory()) {
     if (m_persistenceState == ClipboardPersistenceState::Opening) {
       setPersistenceState(ClipboardPersistenceState::BackendError, m_persistenceMigrationPending);
@@ -799,7 +806,7 @@ void ClipboardService::evictEntryPayload(std::size_t index) {
     return;
   }
   const ClipboardEntry& entry = m_history[index];
-  if (!m_dataKey.has_value() || !isValidStorageId(entry.storageId)) {
+  if (!(m_dataKey != nullptr) || !isValidStorageId(entry.storageId)) {
     return;
   }
   std::error_code ec;
@@ -815,19 +822,14 @@ void ClipboardService::evictAllPayloads() {
   }
 }
 
-std::optional<std::string> ClipboardService::clipboardText() {
-  for (auto& entry : m_history) {
-    // Pinned entries sit at the front but are not the newest capture; paste
-    // must reflect the most recent real clipboard content.
-    if (entry.pinned || entry.isImage()) {
-      continue;
-    }
-    if (!loadEntryPayload(entry) || entry.data.empty()) {
-      continue;
-    }
-    return std::string(entry.data.begin(), entry.data.end());
+std::optional<std::string> ClipboardService::clipboardText() { return m_selectionText; }
+
+void ClipboardService::setSelectionText(std::optional<std::string> text) {
+  if (m_selectionText.has_value()) {
+    // May hold a password-hinted secret; do not leave it in freed memory.
+    sodium_memzero(m_selectionText->data(), m_selectionText->size());
   }
-  return std::nullopt;
+  m_selectionText = std::move(text);
 }
 
 void ClipboardService::setClipboardText(std::string text) { (void)copyText(std::move(text)); }
@@ -837,9 +839,9 @@ bool ClipboardService::copyText(std::string text) {
   return copyData({"text/plain;charset=utf-8", "text/plain"}, std::move(data));
 }
 
-bool ClipboardService::copyText(std::string text, std::string mimeType) {
+bool ClipboardService::copyText(std::string text, const std::string& mimeType) {
   std::vector<std::uint8_t> data(text.begin(), text.end());
-  return copyData({std::move(mimeType)}, std::move(data));
+  return copyData(mimeTypesForPayload(mimeType), std::move(data));
 }
 
 bool ClipboardService::copyImagePng(std::vector<std::uint8_t> png) {
@@ -1144,13 +1146,23 @@ void ClipboardService::handleSelection(void* offer) {
     // until the next poll tick so a replacement offer in the same dispatch batch
     // can arrive first; only adopt if the selection is still empty then.
     m_pendingOrphanAdopt = true;
+    if (m_selectionText.has_value()) {
+      setSelectionText(std::nullopt);
+      notifyChanged();
+    }
     return;
   }
 
   m_pendingOrphanAdopt = false;
   m_selectionBackup.reset();
+  // Cleared without notifying: the read that follows reports the new content.
+  const bool hadText = m_selectionText.has_value();
+  setSelectionText(std::nullopt);
   if (!startReceive(offer)) {
     kLog.debug("selection offer has no supported MIME types");
+    if (hadText) {
+      notifyChanged();
+    }
   }
 }
 
@@ -1291,10 +1303,14 @@ void ClipboardService::clearOffers() {
 
 void ClipboardService::cancelActiveRead() {
   closeFd(m_activeRead.fd);
+  if (m_activeRead.sensitive) {
+    sodium_memzero(m_activeRead.buffer.data(), m_activeRead.buffer.size());
+  }
   m_activeRead.buffer.clear();
   m_activeRead.mimeType.clear();
   m_activeRead.offeredMimeTypes.clear();
   m_activeRead.offer = nullptr;
+  m_activeRead.sensitive = false;
 }
 
 void ClipboardService::cancelActiveWrites() {
@@ -1314,12 +1330,12 @@ bool ClipboardService::startReceive(void* offer) {
     return false;
   }
 
-  if (selectionAdvertisesPasswordHint(state->mimeTypes)) {
-    kLog.debug("ignoring clipboard selection: password-hint MIME advertised");
-    return false;
-  }
+  // A password-hinted selection is still read so it can be pasted into shell
+  // text fields; finishRead keeps it out of history and adoption. Only its text
+  // flavour is useful for that.
+  const bool sensitive = selectionAdvertisesPasswordHint(state->mimeTypes);
   const std::string mimeType = chooseMimeType(*state);
-  if (mimeType.empty()) {
+  if (mimeType.empty() || (sensitive && !isTextMimeType(mimeType))) {
     return false;
   }
 
@@ -1336,11 +1352,13 @@ bool ClipboardService::startReceive(void* offer) {
   m_activeRead.mimeType = mimeType;
   m_activeRead.buffer.clear();
   m_activeRead.offeredMimeTypes = state->mimeTypes;
+  m_activeRead.sensitive = sensitive;
   return true;
 }
 
 void ClipboardService::finishRead(bool discard) {
   const bool shouldStore = !discard && !m_activeRead.buffer.empty();
+  const bool sensitive = m_activeRead.sensitive;
   const std::string mimeType = m_activeRead.mimeType;
   auto mimeTypes = std::move(m_activeRead.offeredMimeTypes);
   auto data = std::move(m_activeRead.buffer);
@@ -1354,8 +1372,30 @@ void ClipboardService::finishRead(bool discard) {
   }
 
   if (!shouldStore) {
+    if (sensitive) {
+      sodium_memzero(data.data(), data.size());
+    }
+    // handleSelection cleared the live text without notifying, expecting this
+    // read to report the new content.
+    notifyChanged();
     return;
   }
+
+  // Paste follows the live selection whatever history makes of it below.
+  if (isTextMimeType(mimeType)) {
+    setSelectionText(std::string(data.begin(), data.end()));
+  }
+
+  if (sensitive) {
+    kLog.debug("keeping clipboard selection out of history: password-hint MIME advertised");
+    sodium_memzero(data.data(), data.size());
+    notifyChanged();
+    return;
+  }
+  // Paste and scripts follow the live text, so a selection history declines to
+  // keep still has to be reported.
+  const std::uint64_t serialBefore = m_changeSerial;
+
   // A selection too large to hold is simply not backed up; the reset in
   // handleSelection already dropped the previous one, so nothing stale can be
   // adopted in its place.
@@ -1377,6 +1417,7 @@ void ClipboardService::finishRead(bool discard) {
 
     if (payload->size() > maxEntryBytesFor(mimeType)) {
       // History would drop it; do not copy bytes that are not going to be kept.
+      notifyChanged();
       return;
     }
     entry.data = *payload;
@@ -1400,6 +1441,9 @@ void ClipboardService::finishRead(bool discard) {
   }
 
   addToHistory(std::move(entry));
+  if (m_changeSerial == serialBefore) {
+    notifyChanged();
+  }
 }
 
 void ClipboardService::addToHistory(ClipboardEntry entry) {
@@ -1427,9 +1471,9 @@ void ClipboardService::addToHistory(ClipboardEntry entry) {
   }
 
   if (!m_historyRetention) {
-    // History is disabled: retain only the live selection in memory (so paste
-    // still works) and never persist. Ignore the self-copy echo of unchanged
-    // content to avoid needless churn.
+    // History is disabled: retain only the latest capture in memory and never
+    // persist. Ignore the self-copy echo of unchanged content to avoid
+    // needless churn.
     if (!m_history.empty()
         && !entry.data.empty()
         && m_history.front().byteSize == entry.byteSize
@@ -1495,7 +1539,7 @@ void ClipboardService::addToHistory(ClipboardEntry entry) {
   const bool entryKept = insertAt < m_history.size();
   const bool persisted = persistHistory();
   if (persisted && entryKept) {
-    evictPayloadData(m_history[insertAt]);
+    m_evictAfterWrite.insert(m_history[insertAt].storageId);
   }
   const std::string latestMime =
       !entryKept || m_history[insertAt].mimeTypes.empty() ? "" : m_history[insertAt].mimeTypes.front();
@@ -1506,7 +1550,7 @@ void ClipboardService::addToHistory(ClipboardEntry entry) {
 bool ClipboardService::loadPersistedHistory() {
   namespace fs = std::filesystem;
 
-  if (!m_dataKey.has_value()) {
+  if (!(m_dataKey != nullptr)) {
     return false;
   }
 
@@ -1617,7 +1661,7 @@ bool ClipboardService::migrateLegacyHistory() {
     }
   }
 
-  if (!persistHistory(true)) {
+  if (!persistHistory(true, true)) {
     if (!m_historyRetention) {
       m_history = std::move(sessionEntries);
       m_historyBytes = 0;
@@ -1678,6 +1722,8 @@ bool ClipboardService::parseManifest(
       entry.byteSize = item.at("byte_size").get<std::size_t>();
       entry.pinned = item.value("pinned", false);
       entry.payloadLoaded = false;
+      // A legacy entry's payload is plaintext: migration still has to write the encrypted file.
+      entry.payloadOnDisk = !legacy;
 
       const auto capturedAtMs = item.value("captured_at_ms", std::int64_t{0});
       entry.capturedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(capturedAtMs));
@@ -1744,21 +1790,28 @@ bool ClipboardService::removeLegacyStorage() {
   return !ec;
 }
 
-bool ClipboardService::persistHistory(bool force) {
-  if ((!m_historyRetention && !force) || !m_dataKey.has_value()) {
+bool ClipboardService::persistHistory(bool force, bool sync) {
+  if ((!m_historyRetention && !force) || m_dataKey == nullptr) {
     return false;
+  }
+  if (sync) {
+    // Queued payloads become unwritten again, so this write includes them.
+    cancelPendingWrites();
   }
 
   namespace fs = std::filesystem;
 
+  struct PayloadWrite {
+    std::string storageId;
+    std::string path;
+    std::vector<std::uint8_t> data;
+  };
+  std::vector<PayloadWrite> payloads;
+  std::unordered_set<std::string> activeStorageIds;
+  std::string manifestContent;
   try {
-    ensurePrivateDirectory(stateDirectory());
-    ensurePrivateDirectory(entriesDirectory());
-
     nlohmann::json entries = nlohmann::json::array();
-    std::unordered_set<std::string> activeStorageIds;
     activeStorageIds.reserve(m_history.size());
-
     for (auto& entry : m_history) {
       if (entry.storageId.empty()) {
         entry.storageId = generateStorageId();
@@ -1767,18 +1820,10 @@ bool ClipboardService::persistHistory(bool force) {
         throw std::runtime_error("invalid clipboard storage id");
       }
       entry.payloadPath = payloadPathForId(entry.storageId);
-
       activeStorageIds.insert(entry.storageId);
-      if (entry.payloadLoaded
-          && !entry.data.empty()
-          && !security::writeEncryptedFile(
-              entry.payloadPath, entry.data, *m_dataKey,
-              security::EncryptionContext{
-                  .purpose = std::string(kPayloadPurpose),
-                  .objectId = entry.storageId,
-              }
-          )) {
-        throw std::runtime_error("failed to write clipboard payload");
+      // A payload never changes after capture: write it once.
+      if (entry.payloadLoaded && !entry.data.empty() && !entry.payloadOnDisk) {
+        payloads.push_back({.storageId = entry.storageId, .path = entry.payloadPath, .data = entry.data});
       }
 
       const auto capturedAtMs =
@@ -1793,33 +1838,186 @@ bool ClipboardService::persistHistory(bool force) {
           {"pinned", entry.pinned},
       });
     }
-
-    const fs::path manifest(manifestPath());
-    const std::string manifestContent = nlohmann::json{{"entries", entries}}.dump(2);
-    const auto manifestBytes =
-        std::span(reinterpret_cast<const std::uint8_t*>(manifestContent.data()), manifestContent.size());
-    if (!security::writeEncryptedFile(
-            manifest, manifestBytes, *m_dataKey,
-            security::EncryptionContext{.purpose = std::string(kManifestPurpose), .objectId = "index"}
-        )) {
-      throw std::runtime_error("failed to write clipboard manifest");
-    }
-    m_storageKeyProvider.noteEncryptedDataExists();
-
-    const fs::path entriesDir(entriesDirectory());
-    if (fs::exists(entriesDir)) {
-      for (const auto& dirEntry : fs::directory_iterator(entriesDir)) {
-        if (dirEntry.is_regular_file()
-            && dirEntry.path().extension() == ".enc"
-            && !activeStorageIds.contains(dirEntry.path().stem().string())) {
-          fs::remove(dirEntry.path());
-        }
-      }
-    }
-    return true;
+    manifestContent = nlohmann::json{{"entries", entries}}.dump(2);
   } catch (const std::exception& e) {
     kLog.warn("failed to persist clipboard history: {}", e.what());
     return false;
+  }
+  for (auto& entry : m_history) {
+    if (std::ranges::any_of(payloads, [&entry](const PayloadWrite& p) { return p.storageId == entry.storageId; })) {
+      entry.payloadOnDisk = true;
+      m_queuedPayloads.insert(entry.storageId);
+    }
+  }
+
+  // Runs on SharedWorker (or inline when sync): touches only its own copies.
+  const auto pending = m_pendingWrites;
+  std::uint64_t generation = 0;
+  {
+    const std::lock_guard lock(pending->mutex);
+    generation = pending->generation;
+    if (!sync) {
+      ++pending->count;
+    }
+  }
+  auto write = [pending, generation, key = m_dataKey, payloads = std::move(payloads), activeStorageIds = std::move(activeStorageIds),
+                manifestContent = std::move(manifestContent), stateDir = stateDirectory(),
+                entriesDir = fs::path(entriesDirectory()), manifest = fs::path(manifestPath())]() -> PersistResult {
+    PersistResult result;
+    result.generation = generation;
+    for (const auto& payload : payloads) {
+      result.payloadIds.push_back(payload.storageId);
+    }
+    const auto skip = [&pending, generation] {
+      const std::lock_guard lock(pending->mutex);
+      return pending->generation != generation || pending->failed;
+    };
+    const auto startedAt = std::chrono::steady_clock::now();
+    try {
+      if (skip()) {
+        throw std::runtime_error("cancelled, or an earlier clipboard write failed");
+      }
+      ensurePrivateDirectory(stateDir);
+      ensurePrivateDirectory(entriesDir);
+      for (const auto& payload : payloads) {
+        if (skip()) {
+          throw std::runtime_error("cancelled");
+        }
+        if (!security::writeEncryptedFile(
+                payload.path, payload.data, *key,
+                security::EncryptionContext{.purpose = std::string(kPayloadPurpose), .objectId = payload.storageId}
+            )) {
+          throw std::runtime_error("failed to write clipboard payload");
+        }
+        result.payloadBytes += payload.data.size();
+      }
+      const auto manifestBytes =
+          std::span(reinterpret_cast<const std::uint8_t*>(manifestContent.data()), manifestContent.size());
+      if (skip()) {
+        throw std::runtime_error("cancelled");
+      }
+      if (!security::writeEncryptedFile(
+              manifest, manifestBytes, *key,
+              security::EncryptionContext{.purpose = std::string(kManifestPurpose), .objectId = "index"}
+          )) {
+        throw std::runtime_error("failed to write clipboard manifest");
+      }
+      if (fs::exists(entriesDir)) {
+        for (const auto& dirEntry : fs::directory_iterator(entriesDir)) {
+          if (dirEntry.is_regular_file()
+              && dirEntry.path().extension() == ".enc"
+              && !activeStorageIds.contains(dirEntry.path().stem().string())) {
+            fs::remove(dirEntry.path());
+          }
+        }
+      }
+      result.ok = true;
+    } catch (const std::exception& e) {
+      result.error = e.what();
+      const std::lock_guard lock(pending->mutex);
+      if (pending->generation == generation) {
+        pending->failed = true;
+      }
+    }
+    result.elapsedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+    return result;
+  };
+
+  if (sync) {
+    const PersistResult result = write();
+    finishPersist(result);
+    return result.ok;
+  }
+
+  ++m_outstandingCompletions;
+  SharedWorker::instance().post<PersistResult>(
+      m_alive,
+      [pending, write = std::move(write)]() mutable {
+        PersistResult result = write();
+        {
+          const std::lock_guard lock(pending->mutex);
+          --pending->count;
+        }
+        pending->finished.notify_all();
+        return result;
+      },
+      [this](PersistResult result) {
+        result.async = true;
+        finishPersist(result);
+      }
+  );
+  return true;
+}
+
+void ClipboardService::finishPersist(const PersistResult& result) {
+  kLog.debug(
+      "clipboard history write: {} payloads, {} KiB, {} ms off the main thread", result.payloadIds.size(),
+      result.payloadBytes / 1024, result.elapsedMs
+  );
+  {
+    const std::lock_guard lock(m_pendingWrites->mutex);
+    if (result.generation != m_pendingWrites->generation) {
+      // cancelPendingWrites() already returned these payloads to "unwritten".
+      return;
+    }
+  }
+  if (result.async) {
+    --m_outstandingCompletions;
+  }
+  const auto inJob = [&result](const std::string& id) {
+    return std::ranges::find(result.payloadIds, id) != result.payloadIds.end();
+  };
+  for (const auto& id : result.payloadIds) {
+    m_queuedPayloads.erase(id);
+  }
+  if (!result.ok) {
+    kLog.warn("failed to persist clipboard history: {}", result.error);
+    for (auto& entry : m_history) {
+      if (inJob(entry.storageId)) {
+        entry.payloadOnDisk = false;
+      }
+    }
+    if (m_outstandingCompletions == 0) {
+      // Every job queued with the failure has returned its payloads: the next persist writes them again.
+      const std::lock_guard lock(m_pendingWrites->mutex);
+      m_pendingWrites->failed = false;
+    }
+    return;
+  }
+  m_storageKeyProvider.noteEncryptedDataExists();
+  for (auto& entry : m_history) {
+    if (inJob(entry.storageId) && m_evictAfterWrite.erase(entry.storageId) > 0) {
+      evictPayloadData(entry);
+    }
+  }
+  std::erase_if(m_evictAfterWrite, [this](const std::string& id) {
+    return std::ranges::none_of(m_history, [&id](const ClipboardEntry& entry) { return entry.storageId == id; });
+  });
+}
+
+void ClipboardService::cancelPendingWrites() {
+  {
+    const std::lock_guard lock(m_pendingWrites->mutex);
+    ++m_pendingWrites->generation;
+    m_pendingWrites->failed = false;
+  }
+  for (auto& entry : m_history) {
+    if (m_queuedPayloads.contains(entry.storageId)) {
+      entry.payloadOnDisk = false;
+    }
+  }
+  m_queuedPayloads.clear();
+  m_outstandingCompletions = 0;
+  drainPendingWrites();
+}
+
+void ClipboardService::drainPendingWrites() {
+  std::unique_lock lock(m_pendingWrites->mutex);
+  if (!m_pendingWrites->finished.wait_for(lock, std::chrono::seconds(10), [this] {
+        return m_pendingWrites->count == 0;
+      })) {
+    kLog.warn("clipboard history writes still pending after 10 s");
   }
 }
 
@@ -1880,7 +2078,7 @@ bool ClipboardService::loadEntryPayload(ClipboardEntry& entry) {
   if (entry.payloadLoaded) {
     return !entry.data.empty();
   }
-  if (!m_dataKey.has_value() || !isValidStorageId(entry.storageId)) {
+  if (!(m_dataKey != nullptr) || !isValidStorageId(entry.storageId)) {
     return false;
   }
   entry.payloadPath = payloadPathForId(entry.storageId);

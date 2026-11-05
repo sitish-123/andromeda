@@ -77,6 +77,8 @@ struct WallpaperMaskDrawParams {
   float imageHeight = 0.0F;
   float fillMode = 0.0F;
   WallpaperSpanParams span{};
+  // Bumped by the owner on every mask texture change: GL can reuse a freed texture name for a new image.
+  std::uint32_t revision = 0;
 
   bool operator==(const WallpaperMaskDrawParams&) const = default;
 };

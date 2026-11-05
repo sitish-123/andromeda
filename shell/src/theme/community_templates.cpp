@@ -664,6 +664,8 @@ namespace noctalia::theme {
       }
     }
 
+    constexpr auto kCatalogMaxAge = std::chrono::hours(24);
+
   } // namespace
 
   CommunityTemplateService::CommunityTemplateService(HttpClient& httpClient) : m_httpClient(httpClient) {}
@@ -679,8 +681,12 @@ namespace noctalia::theme {
     std::error_code ec;
     const std::filesystem::path cacheDir = communityTemplatesCacheDir();
     std::filesystem::create_directories(cacheDir, ec);
+    const bool catalogFresh = HttpClient::isFresh(catalogCachePath(), kCatalogMaxAge);
     if (!templates.communityIds.empty()) {
-      syncSelectedFromCatalog(templates.communityIds, generation, false);
+      syncSelectedFromCatalog(templates.communityIds, generation, catalogFresh);
+    }
+    if (catalogFresh) {
+      return;
     }
 
     m_httpClient.download(

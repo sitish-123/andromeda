@@ -371,29 +371,31 @@ bool AppProvider::activate(const LauncherResult& result) {
       }
     }
 
-    std::string token;
-    if (m_platform != nullptr && m_platform->hasXdgActivation()) {
-      token = m_platform->requestActivationToken(launchSurface, desktopEntryAppId(entry.id));
-    }
     desktop_entry_launch::LaunchOptions launchOptions{
-        .activationToken = std::move(token),
         .runAsSystemdService = m_config->config().shell.launchAppsAsSystemdServices,
         .customCommand = m_config->config().shell.launchAppsCustomCommand,
         .dbusActivatable = entry.dbusActivatable,
         .dbusAppId = entry.id,
     };
-
     if (m_platform != nullptr) {
       m_platform->prepareAppLaunchOnOutput(launchOutput);
     }
-
-    const bool launched = chosen != nullptr
-        ? desktop_entry_launch::launchAction(*chosen, entry.id, entry.workingDir, entry.terminal, launchOptions)
-        : desktop_entry_launch::launchEntry(entry, launchOptions);
-    if (!launched) {
-      kLog.warn("launcher activate: failed to launch '{}'", entry.id.empty() ? entry.path : entry.id);
+    auto launch = [entry, action = chosen != nullptr ? std::optional<DesktopAction>(*chosen) : std::nullopt,
+                   launchOptions](std::string token) mutable {
+      launchOptions.activationToken = std::move(token);
+      const bool launched = action.has_value()
+          ? desktop_entry_launch::launchAction(*action, entry.id, entry.workingDir, entry.terminal, launchOptions)
+          : desktop_entry_launch::launchEntry(entry, launchOptions);
+      if (!launched) {
+        kLog.warn("launcher activate: failed to launch '{}'", entry.id.empty() ? entry.path : entry.id);
+      }
+    };
+    if (m_platform != nullptr && m_platform->hasXdgActivation()) {
+      m_platform->requestActivationTokenAsync(launchSurface, desktopEntryAppId(entry.id), std::move(launch));
+    } else {
+      launch({});
     }
-    return launched;
+    return true;
   }
   kLog.warn("launcher activate: no desktop entry for '{}'", result.id);
   return false;

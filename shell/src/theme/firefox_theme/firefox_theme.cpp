@@ -1,4 +1,6 @@
 #include "theme/firefox_theme/firefox_theme.h"
+#include "util/parse_number.h"
+#include "util/string_utils.h"
 
 #include "cli/help.h"
 #include "cli/parse.h"
@@ -447,12 +449,12 @@ namespace noctalia::theme {
           if (message["size"].is_number_integer()) {
             size = message["size"].get<int>();
           } else if (message["size"].is_string()) {
-            try {
-              size = std::stoi(message["size"].get<std::string>());
-            } catch (...) {
+            const auto parsed = parseNumber<int>(StringUtils::trim(message["size"].get<std::string>()));
+            if (!parsed.has_value()) {
               sendInvalid();
               return;
             }
+            size = *parsed;
           } else {
             sendInvalid();
             return;

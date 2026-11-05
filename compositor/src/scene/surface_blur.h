@@ -1,6 +1,9 @@
 #pragma once
 
+#include "protocols/glass_material.h"
+
 #include <pixman.h>
+#include <array>
 #include <optional>
 
 struct fx_corner_radii;
@@ -17,6 +20,10 @@ namespace andromeda {
     std::optional<bool> enabled;
     std::optional<bool> optimized;
   };
+
+  // The glass material of compositor-drawn glass from appearance.glass and appearance.reduce_transparency. The tint
+  // is the dark scheme's: the compositor draws no tint of its own.
+  [[nodiscard]] glass::Material configGlass(glass::Kind kind);
 
   // True when the surface's opaque region does not cover surfaceBox, given in surface-local coordinates.
   [[nodiscard]] bool surfaceTransparent(wlr_surface* surface, const wlr_box& surfaceBox);
@@ -44,6 +51,12 @@ namespace andromeda {
     void setLiquid(float liquid);
     // Specular rim alone (frosted sheets): no refraction, no lighter blur.
     void setRim(float rim);
+    // Liquid, rim and lens of a glass material.
+    void setMaterial(const glass::Material& material);
+    // Lens strength, 0 to 1 (dsk_surface_v1 liquid [2] since v9).
+    void setLens(float lens);
+    // Mixes the backdrop toward rgb by amount, 0 to 1 (glass density).
+    void setTintMix(const std::array<float, 3>& rgb, float amount);
     // Fade of a surface, 0 to 1: it scales the blur size, so a fading surface defocuses its backdrop instead of
     // blending a blurred copy over the sharp one.
     void setFade(float fade);
@@ -68,6 +81,9 @@ namespace andromeda {
     float m_alpha = 1.0F;
     float m_liquid = 0.0F;
     float m_rim = 0.0F;
+    float m_lens = 0.0F;
+    std::array<float, 3> m_tintRgb{};
+    float m_tintAmount = 0.0F;
     float m_fade = 1.0F;
     bool m_backdropSampling = false;
   };

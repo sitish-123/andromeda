@@ -54,7 +54,7 @@ namespace {
     return RoundedRectStyle{
         .fill = hover ? kFill1 : kClear,
         .border = on ? kAccentText : kSlotEdge,
-        .radius = 16.0F * s,
+        .radius = Tokens::radiusR16 * s,
         .borderWidth = (on ? 2.0F : 1.5F) * s,
         .borderDash = on ? 0.0F : 6.0F * s,
         .borderGap = 4.0F * s,
@@ -223,7 +223,7 @@ void LockEditorSlots::layout(
   const float x = std::round((sw - w) * 0.5F);
   const float y = std::round(sh - 24.0F * s - h);
   m_panelRect = {x, y, w, h};
-  place(m_panelBg, m_panelRect, RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = 28.0F * s, .borderWidth = 0.5F * s});
+  place(m_panelBg, m_panelRect, RoundedRectStyle{.fill = kThick, .border = kStroke, .radius = Tokens::radiusR28 * s, .borderWidth = 0.5F * s});
   m_title->setPosition(x + pad, std::round(y + pad + (kChipHeight * s - m_title->height()) * 0.5F));
   float cx = x + w - pad - chipsW;
   for (const Item& item : items) {
@@ -248,7 +248,7 @@ void LockEditorSlots::layout(
           RoundedRectStyle{
               .fill = on || state.hover == hit ? kFill2 : kFill1,
               .border = ring ? kAccentText : kClear,
-              .radius = 16.0F * s,
+              .radius = Tokens::radiusR16 * s,
               .borderWidth = ring ? 1.5F * s : 0.0F,
           });
     const bool sample = static_cast<std::size_t>(i) < state.samples.size();

@@ -300,6 +300,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   auto& category = request.category;
   auto& desktopEntry = request.desktopEntry;
   auto& group = request.group;
+  auto& settingsPage = request.settingsPage;
   const auto& forcedId = request.forcedId;
 
   if (actions.size() > kMaxNotificationActions * 2) {
@@ -385,6 +386,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
       n.category = std::move(category);
       n.desktopEntry = std::move(desktopEntry);
       n.group = std::move(group);
+      n.settingsPage = std::move(settingsPage);
       n.receivedTime = now;
       n.expiryTime = scheduleExpiry(now, timeout);
       n.receivedWallClock = wallNow;
@@ -444,6 +446,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           .imageData = std::move(imageData),
           .category = std::move(category),
           .desktopEntry = std::move(desktopEntry),
+          .settingsPage = std::move(settingsPage),
           .group = std::move(group),
           .receivedTime = now,
           .expiryTime = scheduleExpiry(now, timeout),
@@ -580,6 +583,9 @@ bool NotificationManager::invokeAction(
   }
   if (!notificationHasAction(*notification, actionKey)) {
     return false;
+  }
+  if (actionKey == "default" && notification->settingsPage.has_value() && m_settingsPageCallback) {
+    m_settingsPageCallback(*notification->settingsPage);
   }
 
   // Internal notifications have no D-Bus owner, so their actions are dispatched in-process instead.
@@ -879,11 +885,12 @@ uint32_t NotificationManager::suppressExternal(std::string_view appName, Urgency
   return id;
 }
 
-void NotificationManager::setDoNotDisturb(bool enabled) {
-  if (m_doNotDisturb == enabled) {
+void NotificationManager::setDoNotDisturb(bool enabled, bool timed) {
+  if (m_doNotDisturb == enabled && m_doNotDisturbTimed == (enabled && timed)) {
     return;
   }
   m_doNotDisturb = enabled;
+  m_doNotDisturbTimed = enabled && timed;
   ++m_doNotDisturbRevision;
   if (m_stateCallback) {
     m_stateCallback();

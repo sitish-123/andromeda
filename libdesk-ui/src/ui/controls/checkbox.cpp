@@ -6,12 +6,14 @@
 #include "ui/controls/glyph.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <cmath>
 #include <memory>
 
 Checkbox::Checkbox() {
+  setAccessible({.role = AccessibleRole::CheckBox, .checked = false, .actionName = "toggle"});
   auto box = std::make_unique<Box>();
   m_box = static_cast<Box*>(addChild(std::move(box)));
 
@@ -57,6 +59,7 @@ Checkbox::Checkbox() {
 }
 
 void Checkbox::setChecked(bool checked) {
+  accessibleState().checked = checked;
   if (m_checked == checked) {
     return;
   }
@@ -65,6 +68,7 @@ void Checkbox::setChecked(bool checked) {
 }
 
 void Checkbox::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }

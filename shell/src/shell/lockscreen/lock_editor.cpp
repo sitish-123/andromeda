@@ -22,6 +22,7 @@
 #include "ui/controls/label.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
+#include "ui/style.h"
 
 #include <algorithm>
 #include <array>
@@ -364,7 +365,7 @@ void LockEditor::layoutScene(float width, float height) {
   m_themeNotice->setVisible(ryoku);
   if (ryoku) {
     m_themeNotice->setText(i18n::tr("lockscreen.editor.ryoku-preview"));
-    m_themeNotice->setFontSize(15.0F * scale);
+    m_themeNotice->setFontSize(Tokens::typeTitle3.size * scale);
     m_themeNotice->setColor(rgba(1.0F, 1.0F, 1.0F, 0.96F));
     m_themeNotice->setMaxWidth(width - 64.0F * scale);
     m_themeNotice->measure(renderer);

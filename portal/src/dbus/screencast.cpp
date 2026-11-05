@@ -98,10 +98,13 @@ namespace xdpu {
       selection.kind = Session::SourceKind::Monitor;
       selection.output = output.name;
       selection.title = output.description;
-      selection.x = output.x;
-      selection.y = output.y;
-      selection.width = output.width;
-      selection.height = output.height;
+      // The portal reports stream position and size in compositor (logical)
+      // coordinates.  Without xdg-output, fall back to the wl_output geometry.
+      const bool logical = output.logicalWidth > 0 && output.logicalHeight > 0;
+      selection.x = logical ? output.logicalX : output.x;
+      selection.y = logical ? output.logicalY : output.y;
+      selection.width = logical ? output.logicalWidth : output.width;
+      selection.height = logical ? output.logicalHeight : output.height;
       return selection;
     }
 
@@ -795,14 +798,8 @@ namespace xdpu {
         }
 
         for (PendingCapture& item : pending) {
-          uint32_t width = item.constraints.bufferWidth;
-          uint32_t height = item.constraints.bufferHeight;
-          if (width == 0 && item.selection.width > 0) {
-            width = static_cast<uint32_t>(item.selection.width);
-          }
-          if (height == 0 && item.selection.height > 0) {
-            height = static_cast<uint32_t>(item.selection.height);
-          }
+          const uint32_t width = item.constraints.bufferWidth;
+          const uint32_t height = item.constraints.bufferHeight;
           if (width == 0 || height == 0) {
             std::fprintf(stderr, "screencast: capture reported empty buffer size\n");
             finish(2, {});

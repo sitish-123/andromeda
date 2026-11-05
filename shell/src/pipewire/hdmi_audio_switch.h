@@ -7,7 +7,8 @@
 class PipeWireService;
 
 // Makes a newly plugged HDMI or DisplayPort sink the default output while sound plays on the same card's speaker or
-// headphones. It acts on plug transitions only, so choosing the speaker again while the display stays connected
+// headphones, and a newly connected Bluetooth sink while sound plays on any card's speaker or headphones. WirePlumber
+// moves back to the previous choice on disconnect, and to a Bluetooth sink the user chose before on reconnect. It acts on plug transitions only, so choosing the speaker again while the display stays connected
 // sticks until the next plug. Unplugging needs nothing here: WirePlumber drops sinks without an available route from
 // its default candidates and falls back on its own.
 class HdmiAudioSwitch {

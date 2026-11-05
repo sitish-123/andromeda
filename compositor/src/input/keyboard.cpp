@@ -306,7 +306,8 @@ namespace andromeda {
     }
     m_server->cursor()->refreshInteractiveCursor();
     notifyLayoutIfChanged();
-    if (DesktopShell* shell = m_server->desktopShell()) {
+    // Virtual keyboards (paste, input methods, remote input) hold no lock state of their own.
+    if (DesktopShell* shell = m_server->desktopShell(); shell != nullptr && !m_virtual) {
       shell->setLockKeys(
           xkb_state_led_name_is_active(m_keyboard->xkb_state, XKB_LED_NAME_CAPS) > 0,
           xkb_state_led_name_is_active(m_keyboard->xkb_state, XKB_LED_NAME_NUM) > 0,

@@ -3,6 +3,7 @@
 #include "config/config_types.h"
 #include "core/timer_manager.h"
 #include "notification.h"
+#include "notification/focus.h"
 #include "security/storage_key_provider.h"
 
 #include <cstddef>
@@ -68,6 +69,7 @@ struct NotificationRequest {
   std::optional<std::string> desktopEntry = std::nullopt;
   std::optional<std::string> group = std::nullopt;
   std::optional<uint32_t> forcedId = std::nullopt;
+  std::optional<std::string> settingsPage = std::nullopt;
 };
 
 class NotificationManager {
@@ -109,6 +111,10 @@ public:
   bool updateBody(uint32_t id, std::string body);
 
   void setActionInvokeCallback(ActionInvokeCallback callback);
+  // Opens a Settings page for a notification's x-andromeda-settings-page hint.
+  void setSettingsPageCallback(std::function<void(const std::string& page)> callback) {
+    m_settingsPageCallback = std::move(callback);
+  }
   // Actions on internally generated notifications are handled in-process: there is no D-Bus client
   // to receive ActionInvoked, so routing them to the external callback would signal into the void.
   // Each handler ignores ids it did not create.
@@ -160,11 +166,16 @@ public:
   [[nodiscard]] const std::vector<NotificationFilterConfig>& filters() const noexcept;
   void setKeepDismissedInHistory(bool keep);
   void setHistoryRetentionHours(int hours);
-  void setDoNotDisturb(bool enabled);
+  // `timed`: an end time runs elsewhere (the control center's "for 1 hour"); a timed DND is not restored.
+  void setDoNotDisturb(bool enabled, bool timed = false);
+  [[nodiscard]] bool doNotDisturbTimed() const noexcept { return m_doNotDisturbTimed; }
   [[nodiscard]] bool doNotDisturb() const noexcept;
   // Counts every change of the Do Not Disturb state, so a holder of a timed choice can tell it was overridden.
   [[nodiscard]] std::uint64_t doNotDisturbRevision() const noexcept { return m_doNotDisturbRevision; }
   [[nodiscard]] bool toggleDoNotDisturb();
+  // Focus modes (docs/focus.md); the application saves focus().active() on each change.
+  [[nodiscard]] focus::FocusService& focus() noexcept { return m_focus; }
+  [[nodiscard]] const focus::FocusService& focus() const noexcept { return m_focus; }
   void setStateCallback(StateCallback callback);
   // Runs whenever the unread count changes, not only when the any-unread flag flips.
   int addUnreadCountCallback(std::function<void()> callback);
@@ -239,6 +250,7 @@ private:
   std::unordered_map<uint32_t, size_t> m_historyIndex;
   std::vector<std::pair<int, EventCallback>> m_eventCallbacks;
   ActionInvokeCallback m_actionInvokeCallback;
+  std::function<void(const std::string&)> m_settingsPageCallback;
   std::vector<ActionInvokeCallback> m_internalActionCallbacks;
   CloseCallback m_closeCallback;
   std::vector<CloseCallback> m_closeObservers;
@@ -250,6 +262,8 @@ private:
   uint32_t m_nextId{1};
   std::uint64_t m_changeSerial{0};
   bool m_doNotDisturb = false;
+  bool m_doNotDisturbTimed = false;
+  focus::FocusService m_focus;
   std::uint64_t m_doNotDisturbRevision = 0;
   class SoundPlayer* m_soundPlayer = nullptr;
 };

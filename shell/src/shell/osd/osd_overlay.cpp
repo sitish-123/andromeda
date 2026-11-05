@@ -88,7 +88,7 @@ namespace {
     if (config == nullptr) {
       return 0.97F;
     }
-    return Style::glassAlpha(std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F));
+    return Style::glassTint(glass::Kind::Sheet, std::clamp(config->config().osd.backgroundOpacity, 0.0F, 1.0F));
   }
 
   [[nodiscard]] ColorSpec osdBorderColor(const ConfigService* config) {

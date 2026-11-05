@@ -4,6 +4,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct dsk_shell_v1_interface;
@@ -33,11 +34,19 @@ namespace andromeda {
     void setTextInputState(bool enabled, uint32_t purpose, uint32_t hint, int x, int y, int width, int height);
     // Both reach only shells that bound version 3. sendRecovered does nothing unless sendRelock came before it.
     void sendRelock();
+    // The previous compositor crashed: the next shell to bind gets `restarted` once.
+    void setRestarted() { m_restartPending = true; }
     void sendRecovered();
     // Releases the keys the shell pressed with dsk_shell_v1 key and has not released.
     void releaseKeys();
     // The flags the shell last reported for the app process, from dsk_shell_v1 app_activity.
     [[nodiscard]] std::optional<uint32_t> appActivity(uint32_t pid) const;
+    // dsk_shell_v1 app_activity_flag bits.
+    static constexpr uint32_t kActivityAudio = 1;
+    static constexpr uint32_t kActivityCall = 2;
+    // Every pid with flags, as (pid, app_activity_flag bits).
+    [[nodiscard]] std::vector<std::pair<uint32_t, uint32_t>> appActivities() const;
+    [[nodiscard]] bool boundBy(const wl_client* client) const;
 
   private:
     // The scanner also declares a wl_interface variable of this name, so the struct needs its elaborated form.
@@ -60,6 +69,7 @@ namespace andromeda {
     bool m_numLock = false;
     bool m_scrollLock = false;
     bool m_relocked = false;
+    bool m_restartPending = false;
     struct TextInputState {
       bool enabled = false;
       uint32_t purpose = 0;

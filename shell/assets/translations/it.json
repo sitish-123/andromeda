@@ -3485,7 +3485,6 @@
           "description": "Azioni applicate dopo la cattura, o quando scegli \"Fine\" nell'editor annotazioni."
         },
         "screenshot-pipe-command": {
-          "description": "Comando eseguito come /bin/sh -lc con il PNG su stdin; per annotatori o uploader (per esempio: swappy -f - o satty -f -)",
           "label": "Comando pipe",
           "placeholder": "swappy -f -"
         },

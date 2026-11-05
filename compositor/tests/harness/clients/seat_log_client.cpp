@@ -182,9 +182,11 @@ namespace {
       .commit_string = textInputCommitString,
       .delete_surrounding_text = textInputDeleteSurroundingText,
       .done = textInputDone,
+#ifdef ZWP_TEXT_INPUT_V3_ACTION_SINCE_VERSION
       .action = nullptr,
       .language = nullptr,
       .preedit_hint = nullptr,
+#endif
   };
 
   void shortcutsInhibitorActive(void*, zwp_keyboard_shortcuts_inhibitor_v1*) {

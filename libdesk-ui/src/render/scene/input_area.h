@@ -91,6 +91,9 @@ public:
   void setOnMotion(PointerCallback callback);
   void setOnPress(PointerCallback callback);
   void setOnClick(PointerCallback callback);
+  // A primary-button click at the centre for assistive-technology actions: the click callback, else press + release.
+  bool activate();
+  [[nodiscard]] bool clickable() const noexcept { return m_onClick || m_onPress; }
   void setOnCancel(VoidCallback callback);
   void setOnAxis(PointerCallback callback);
   void setOnAxisHandler(AxisCallback callback);

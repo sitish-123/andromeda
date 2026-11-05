@@ -17,6 +17,7 @@
 #include "server/focus.h"
 #include "view/registry.h"
 
+#include <filesystem>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -94,7 +95,15 @@ struct wlr_virtual_pointer_manager_v1;
 struct wlr_virtual_pointer_v1;
 
 namespace andromeda {
+
+  class ScreenActivityRecorder;
   class CpuBoost;
+  class LaunchFeedback;
+  class SystemdUnits;
+  class AppsBus;
+  namespace qos {
+    class Controller;
+  }
   enum class ContentType;
   struct ConfigEffects;
 
@@ -205,6 +214,8 @@ namespace andromeda {
     [[nodiscard]] wlr_export_dmabuf_manager_v1* exportDmabufManager() const { return m_exportDmabufManager; }
     // True while a live cursor session is attached to a capture source of this output.
     [[nodiscard]] bool hasCopyCaptureFor(const wlr_output* output) const;
+    // Sends AppsBus `Presenting` when it changes: a non-shell capture session or a mirrored output exists.
+    void updatePresenting();
     [[nodiscard]] wlr_tearing_control_manager_v1* tearingControlManager() const { return m_tearingControlManager; }
     [[nodiscard]] ColorManager* colorManager() const { return m_colorManager.get(); }
     [[nodiscard]] const wlr_image_description_v1_data* surfaceImageDescription(wlr_surface* surface) const;
@@ -236,6 +247,7 @@ namespace andromeda {
     [[nodiscard]] wlr_scene_tree* xwaylandUnmanagedTree() const { return m_xwaylandUnmanagedTree; }
     [[nodiscard]] wlr_scene_tree* imPopupTree() const { return m_imPopupTree; }
     [[nodiscard]] wlr_scene_tree* lockTree() const { return m_lockTree; }
+    [[nodiscard]] wlr_scene_tree* heldFrameTree() const { return m_heldFrameTree; }
     [[nodiscard]] wlr_scene_tree* shellLayerTree(uint32_t layer) const;
     [[nodiscard]] wlr_output_layout* outputLayout() const { return m_outputLayout; }
     [[nodiscard]] wlr_scene_output_layout* sceneLayout() const { return m_sceneLayout; }
@@ -335,6 +347,8 @@ namespace andromeda {
     [[nodiscard]] std::span<const std::unique_ptr<View>> views() const { return m_registry.all(); }
     [[nodiscard]] ViewRegistry& registry() { return m_registry; }
     [[nodiscard]] std::span<const std::unique_ptr<LayerSurface>> layerSurfaces() const { return m_layerSurfaces; }
+    // Puts every LayerSurface::statusSurface() back on top of its layer.
+    void raiseStatusSurfaces();
     // Registers a view created for a new toplevel of either shell role.
     View& adoptView(std::unique_ptr<View> view);
 
@@ -355,6 +369,7 @@ namespace andromeda {
     void relayoutBanner();
     void relayoutQuitConfirm();
     void spawn(const char* command, const char* description = nullptr, bool withActivationToken = false);
+    void completeIpcLaunch(std::string_view tokenName, pid_t pid);
     void handleConfigReload(const ConfigReloadResult& result);
     // Re-evaluate application idle inhibitors after a surface's presentation
     // visibility changes.
@@ -362,6 +377,10 @@ namespace andromeda {
     // Re-derive every toplevel's suspended state once the current dispatch settles, so a transition that hides and
     // shows a window within one dispatch never reaches the client.
     void scheduleSuspensionSync();
+    // An input of the app QoS tiers changed (docs/qos.md §2).
+    void scheduleQos();
+    // The user starts to reach hidden apps: frozen apps thaw until every hold ends (docs/qos.md §3).
+    void holdQosThawIntent(bool held);
     // True while `view`'s client must keep drawing although its frame is hidden: an overview card or a toplevel capture
     // draws its content off the shared scene, or a `background_render` rule asks for it.
     [[nodiscard]] bool viewRenderedOffscreen(const View& view) const;
@@ -621,6 +640,7 @@ namespace andromeda {
     // Arms the background-render tick for the fastest refresh among hidden `background_render` windows, or disarms it
     // when there are none.
     void armBackgroundRenderTimer();
+    void armBackgroundFrameTimer();
     static int onStartupRulesTimer(void* data);
     static int onTerminateSignal(int signal, void* data);
     static void onIpcWindowsIdle(void* data);
@@ -752,6 +772,7 @@ namespace andromeda {
       bool inputBacked = false;
       bool pointerBacked = false;
       bool launchClaimed = false;
+      pid_t launchPid = 0;
       std::shared_ptr<WorkspaceLaunchAnchor> launchWorkspace;
       std::string launchScratchpad;
       std::string tokenName;
@@ -798,6 +819,7 @@ namespace andromeda {
     wlr_idle_inhibit_manager_v1* m_idleInhibitManager = nullptr;
     wlr_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
     wlr_idle_notifier_v1* m_idleNotifier = nullptr;
+    std::unique_ptr<ScreenActivityRecorder> m_screenActivity;
     bool m_idleInhibited = false;
     wlr_xdg_activation_v1* m_xdgActivation = nullptr;
     wlr_gamma_control_manager_v1* m_gammaManager = nullptr;
@@ -818,6 +840,8 @@ namespace andromeda {
     wlr_scene_tree* m_xwaylandUnmanagedTree = nullptr;
     wlr_scene_tree* m_imPopupTree = nullptr;
     wlr_scene_tree* m_lockTree = nullptr;
+    // The greeter's last frame during the login cross (output/held_frame.h), above everything.
+    wlr_scene_tree* m_heldFrameTree = nullptr;
     wlr_scene_rect* m_lockBlank = nullptr;
     wlr_scene_rect* m_backdrop = nullptr;
     bool m_sessionLocked = false;
@@ -912,6 +936,8 @@ namespace andromeda {
       bool m_retainedPersistent = false;
       bool m_retainedInPlace = false;
       bool m_retainedLight = false;
+      // One buffer and nothing it does not cover: the built-in fade runs per buffer, without an offscreen capture.
+      bool m_perBufferFade = false;
       int m_shadowWidth = 0;
       int m_shadowHeight = 0;
       wlr_box m_shadowHole{};
@@ -944,7 +970,6 @@ namespace andromeda {
     std::string m_systemdRunExecutable;
     std::string m_systemctlExecutable;
     std::string m_applicationScopePartOfProperty;
-    std::string m_applicationScopeBindsToProperty;
     std::string m_applicationScopeAfterProperty;
     SystemdControlEnvironment m_systemdControlEnvironment;
     ApplicationScopeEnvironmentArguments m_applicationScopeEnvironmentArguments;
@@ -965,7 +990,24 @@ namespace andromeda {
     };
     std::vector<LaunchBusy> m_launchBusy;
     wl_event_source* m_launchBusyTimer = nullptr;
+    // dsk_surface_v1.launch_from: the icon the next app launch token takes (the shell sends it just before).
+    struct LaunchFrom {
+      wlr_buffer* buffer = nullptr; // locked
+      wlr_fbox source{};            // buffer pixels
+      wlr_box from{};               // layout
+      Output* output = nullptr;
+      std::chrono::steady_clock::time_point at;
+    };
+    std::optional<LaunchFrom> m_launchFrom;
+    std::vector<std::pair<std::string, std::unique_ptr<LaunchFeedback>>> m_launchFeedback; // by launch token
+    void setLaunchFrom(wlr_surface* surface, const wlr_box& box);
+    void dropLaunchFrom();
+    void beginLaunchFeedback(const std::string& token);
+    void finishLaunchFeedback(const std::optional<std::string>& token);
+    std::unique_ptr<SystemdUnits> m_systemdUnits;
     std::unique_ptr<CpuBoost> m_cpuBoost;
+    std::unique_ptr<qos::Controller> m_qos;
+    std::unique_ptr<AppsBus> m_appsBus; // after m_qos: its holds go through the controller
     void beginLaunchBusy(std::string token, std::string appId);
     void syncLaunchBusy();
     static int onLaunchBusyTimer(void* data);
@@ -973,6 +1015,38 @@ namespace andromeda {
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;
+    void startWatchdog(const std::string& notifySocket);
+    void scheduleSessionSave();
+    // A window from the pre-crash list: the next window of that app id within 2 min maps where this one was.
+    struct RestorePlacement {
+      std::string appId;
+      std::string output;
+      std::string workspace;
+      bool floating = false;
+      bool fullscreen = false;
+      int width = 0;
+      int height = 0;
+    };
+    std::vector<RestorePlacement> m_restorePlacements;
+    uint64_t m_restorePlacementDeadlineMs = 0;
+    void loadRestorePlacements(const std::filesystem::path& crashList);
+
+  public:
+    // Applies a pending pre-crash placement for `appId`; `consume` drops it once the view maps (docs/resilience.md §5).
+    void applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume);
+
+  private:
+    void saveSession();
+    wl_event_source* m_sessionSaveTimer = nullptr;
+    bool m_sessionSavePending = false;
+    // docs/resilience.md §4: a crash must never show a locked desktop unlocked.
+    [[nodiscard]] static std::string lockFilePath();
+    void enterRestartLock();
+    wl_event_source* m_restartLockEscape = nullptr;
+    bool m_lockFileManaged = false;
+    wl_event_source* m_watchdogTimer = nullptr;
+    int m_watchdogIntervalMs = 0;
+    std::string m_notifySocket;
     // Non-null while a windows-event idle callback is pending. The idle source
     // removes itself when it runs, so a non-null pointer means "already queued".
     wl_event_source* m_ipcWindowsIdle = nullptr;

@@ -34,17 +34,8 @@ namespace {
   // EOS drains the encoder; a pipeline that has not finished by then is torn down and its file may be unplayable.
   constexpr auto kStopTimeout = std::chrono::seconds(5);
 
-  constexpr auto kEncode =
-      " ! queue ! vapostproc ! video/x-raw(memory:VAMemory),format=NV12 ! vah264enc ! h264parse ! queue ! mux."
-      " mp4mux name=mux ! filesink location=\"{}\"";
-  // A region is cut out of a system-memory copy: vapostproc ignores crop metadata on VA surfaces.
-  constexpr auto kCrop = " ! queue ! vapostproc ! video/x-raw,format=NV12 ! videocrop name=crop";
   constexpr int kTestSourceWidth = 1280;
   constexpr int kTestSourceHeight = 720;
-  // The default output's monitor: what the user hears.
-  constexpr auto kDesktopAudio =
-      " pipewiresrc stream-properties=\"props,stream.capture.sink=true,node.name=noctalia-recorder\" do-timestamp=true"
-      " ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! fdkaacenc ! queue ! mux.";
 
   // Sets the crop in buffer pixels once the stream's size is known; data is the recorder's CropGeometry.
   GstPadProbeReturn onCropCaps(GstPad* pad, GstPadProbeInfo* info, gpointer data) {
@@ -132,11 +123,20 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
   m_region = region;
   if (std::getenv("NOCTALIA_RECORD_TEST_SOURCE") != nullptr) {
     m_crop.stream = {.x = 0, .y = 0, .width = kTestSourceWidth, .height = kTestSourceHeight};
-    startPipeline([]() {
-      return std::format(
-          "videotestsrc is-live=true pattern=smpte ! video/x-raw,width={},height={},framerate=30/1", kTestSourceWidth,
-          kTestSourceHeight
-      );
+    startPipeline([](const Make& make) {
+      GstElement* src = make("videotestsrc");
+      GstElement* caps = make("capsfilter");
+      if (src != nullptr && caps != nullptr) {
+        gst_util_set_object_arg(G_OBJECT(src), "pattern", "smpte");
+        g_object_set(src, "is-live", TRUE, nullptr);
+        GstCaps* raw = gst_caps_new_simple(
+            "video/x-raw", "width", G_TYPE_INT, kTestSourceWidth, "height", G_TYPE_INT, kTestSourceHeight, "framerate",
+            GST_TYPE_FRACTION, 30, 1, nullptr
+        );
+        g_object_set(caps, "caps", raw, nullptr);
+        gst_caps_unref(raw);
+      }
+      return std::vector<GstElement*>{src, caps};
     });
     return m_state == State::Recording ? std::string{} : std::string("the recording pipeline did not start");
   }
@@ -264,10 +264,16 @@ void ScreenRecorder::startCast() {
               .withArguments(sdbus::ObjectPath{m_sessionHandle}, Results{})
               .storeResultsTo(fd);
           // Each attempt's pipewiresrc owns and closes its own duplicate; the portal's fd closes when this returns.
-          startPipeline([&fd, node = std::get<0>(list.front())]() {
-            return std::format(
-                "pipewiresrc fd={} path={} do-timestamp=true keepalive-time=1000", ::dup(fd.get()), node
-            );
+          startPipeline([&fd, node = std::get<0>(list.front())](const Make& make) {
+            GstElement* src = make("pipewiresrc");
+            if (src != nullptr) {
+              const std::string path = std::to_string(node);
+              g_object_set(
+                  src, "fd", ::dup(fd.get()), "path", path.c_str(), "do-timestamp", TRUE, "keepalive-time", 1000,
+                  nullptr
+              );
+            }
+            return std::vector<GstElement*>{src};
           });
         } catch (const sdbus::Error& e) {
           finish(e.what());
@@ -286,7 +292,7 @@ void ScreenRecorder::startCast() {
   );
 }
 
-void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
+void ScreenRecorder::startPipeline(const Source& source) {
   if (m_region.has_value()) {
     const int left = std::max(m_region->x, m_crop.stream.x);
     const int top = std::max(m_region->y, m_crop.stream.y);
@@ -301,12 +307,11 @@ void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
     };
   }
   m_path = recordingPath();
-  const auto video = [&]() { return source() + (m_region.has_value() ? kCrop : "") + std::format(kEncode, m_path); };
-  std::string error = launch(video() + kDesktopAudio);
+  std::string error = launch(source, true);
   const bool withAudio = error.empty();
   if (!withAudio) {
     kLog.warn("recording without audio: {}", error);
-    error = launch(video());
+    error = launch(source, false);
   }
   if (!error.empty()) {
     finish(error);
@@ -320,15 +325,89 @@ void ScreenRecorder::startPipeline(const std::function<std::string()>& source) {
   );
 }
 
-std::string ScreenRecorder::launch(const std::string& description) {
-  GError* error = nullptr;
-  GstElement* pipeline = gst_parse_launch(description.c_str(), &error);
-  if (pipeline == nullptr) {
-    std::string text = error != nullptr ? error->message : "invalid pipeline";
-    g_clear_error(&error);
-    return text;
+std::string ScreenRecorder::launch(const Source& source, bool withAudio) {
+  GstElement* pipeline = gst_pipeline_new("recorder");
+  std::string missing;
+  const Make make = [&](const char* factory) -> GstElement* {
+    GstElement* element = gst_element_factory_make(factory, nullptr);
+    if (element == nullptr) {
+      if (missing.empty()) {
+        missing = factory;
+      }
+      return nullptr;
+    }
+    gst_bin_add(GST_BIN(pipeline), element);
+    return element;
+  };
+  const auto capsFilter = [&](GstCaps* caps) {
+    GstElement* filter = make("capsfilter");
+    if (filter != nullptr) {
+      g_object_set(filter, "caps", caps, nullptr);
+    }
+    gst_caps_unref(caps);
+    return filter;
+  };
+  const auto nv12 = [](const char* feature) {
+    GstCaps* caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "NV12", nullptr);
+    if (feature != nullptr) {
+      gst_caps_set_features(caps, 0, gst_caps_features_new_single_static_str(feature));
+    }
+    return caps;
+  };
+  const auto link = [](const std::vector<GstElement*>& chain) {
+    for (std::size_t i = 1; i < chain.size(); ++i) {
+      if (chain[i - 1] == nullptr || chain[i] == nullptr || !gst_element_link(chain[i - 1], chain[i])) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  std::vector<GstElement*> video = source(make);
+  if (m_region.has_value()) {
+    // A region is cut out of a system-memory copy: vapostproc ignores crop metadata on VA surfaces.
+    // Named at creation: a bin refuses to rename a child, and the caps probe finds the crop by this name.
+    GstElement* crop = gst_element_factory_make("videocrop", "crop");
+    if (crop != nullptr) {
+      gst_bin_add(GST_BIN(pipeline), crop);
+    } else if (missing.empty()) {
+      missing = "videocrop";
+    }
+    video.insert(video.end(), {make("queue"), make("vapostproc"), capsFilter(nv12(nullptr)), crop});
   }
-  g_clear_error(&error);
+  GstElement* mux = make("mp4mux");
+  GstElement* sink = make("filesink");
+  if (sink != nullptr) {
+    g_object_set(sink, "location", m_path.c_str(), nullptr);
+  }
+  video.insert(
+      video.end(),
+      {make("queue"), make("vapostproc"), capsFilter(nv12("memory:VAMemory")), make("vah264enc"), make("h264parse"),
+       make("queue"), mux, sink}
+  );
+  bool linked = link(video);
+  if (withAudio && linked) {
+    // The default output's monitor: what the user hears.
+    GstElement* src = make("pipewiresrc");
+    if (src != nullptr) {
+      GstStructure* props = gst_structure_new(
+          "props", "stream.capture.sink", G_TYPE_STRING, "true", "node.name", G_TYPE_STRING, "noctalia-recorder",
+          nullptr
+      );
+      g_object_set(src, "stream-properties", props, "do-timestamp", TRUE, nullptr);
+      gst_structure_free(props);
+    }
+    GstCaps* audioCaps =
+        gst_caps_new_simple("audio/x-raw", "rate", G_TYPE_INT, 48000, "channels", G_TYPE_INT, 2, nullptr);
+    linked = link(
+        {src, make("queue"), make("audioconvert"), make("audioresample"), capsFilter(audioCaps), make("fdkaacenc"),
+         make("queue"), mux}
+    );
+  }
+  if (!linked) {
+    gst_object_unref(pipeline);
+    return missing.empty() ? std::string("the recording pipeline cannot link") : "missing GStreamer element " + missing;
+  }
   if (gst_element_set_state(pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);

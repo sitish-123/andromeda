@@ -364,6 +364,10 @@ namespace andromeda {
     }
     if (position) {
       m_floating.rememberPositionFraction(*origin, usable);
+    } else if (passiveXwaylandUtility()) {
+      const XwaylandRegion region = m_server->xwayland()->outputs().regionAtX(m_xsurface->x, m_xsurface->y);
+      setPosition(region.toLayoutX(m_xsurface->x), region.toLayoutY(m_xsurface->y));
+      return;
     } else if (const View* parent = transientParent()) {
       // Where the parent is headed, not where its node is mid-animation right after it mapped. A fullscreen parent
       // shows over any panel, so the whole output counts as visible for it.

@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# org.andromeda.Compositor1.Apps holds (docs/system-health.md §5) on the real systemd user manager: List shows an app
+# scope; a freeze hold does not touch the focused app, freezes it once hidden, and ends on Release and when its owner
+# leaves the bus; a hold on an unknown unit fails; Presenting follows a screen recorder. Writes result.txt to $OUT (default ./artifacts/qos-holds).
+set -euo pipefail
+OUT=${OUT:-$(pwd)/artifacts/qos-holds}
+source "$(dirname "$0")/lib.sh"
+CLIENT=${CLIENT:-$ROOT/compositor/build-debug/tests/background-client}
+USER_BUS=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus
+[[ -S $USER_BUS ]] || { echo "no systemd user bus at $USER_BUS" >&2; exit 1; }
+UNIT=app-qos-holds-$$.scope
+APPS=(org.andromeda.Compositor1 /org/andromeda/Compositor1/Apps org.andromeda.Compositor1.Apps)
+
+# The compositor's private runtime dir reaches the real user bus through this link.
+ln -s "$USER_BUS" "$RUNTIME/bus"
+trap 'systemctl --user thaw "$UNIT" 2>/dev/null; systemctl --user stop "$UNIT" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+boot_headless 1
+
+fail() {
+  echo "FAIL: $*" >&2
+  tail -n 20 "$OUT/andromeda.log" >&2
+  exit 1
+}
+ms() { echo $(($(date +%s%N) / 1000000)); }
+freeze() { awk '$1 == "frozen" {print $2}' "$CGROUP/cgroup.events"; }
+# await LABEL WANT LIMIT_MS CMD...: no event reports a cgroup change to a script, so this reads CMD every 20 ms.
+await() {
+  local label=$1 want=$2 limit=$3 start got
+  shift 3
+  start=$(ms)
+  while got=$("$@"); [[ $got != "$want" ]]; do
+    (($(ms) - start > limit)) && fail "$label: '$got', want '$want'"
+    sleep 0.02
+  done
+  echo "$label in $(($(ms) - start)) ms" | tee -a "$OUT/result.txt"
+}
+: > "$OUT/result.txt"
+
+for _ in $(seq 100); do busctl --user status "${APPS[0]}" > /dev/null 2>&1 && break; sleep 0.05; done
+busctl --user status "${APPS[0]}" > /dev/null 2>&1 || fail "the compositor did not take ${APPS[0]}"
+
+systemd-run --user --scope --quiet --unit="$UNIT" \
+  env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" "$CLIENT" qos-holds > "$OUT/client.log" 2>&1 &
+for _ in $(seq 100); do grep -q '^mapped$' "$OUT/client.log" 2>/dev/null && break; sleep 0.05; done
+grep -q '^mapped$' "$OUT/client.log" || fail "client never mapped: $(cat "$OUT/client.log")"
+CGROUP=/sys/fs/cgroup$(systemctl --user show -P ControlGroup "$UNIT")
+listed() { busctl --user call "${APPS[@]}" List | grep -c "\"$UNIT\"" || true; }
+await "List shows the app" 1 2000 listed
+
+# A holder that keeps its bus connection: a hold ends when its owner leaves the bus.
+coproc HOLDER {
+  python3 -u -c '
+import sys, dbus
+apps = dbus.Interface(dbus.SessionBus().get_object(sys.argv[1], sys.argv[2]), sys.argv[3])
+for line in sys.stdin:
+    cmd, arg = line.split()
+    try:
+        print(apps.HoldFreeze(arg, "e2e") if cmd == "freeze" else (apps.Release(arg), "released")[1], flush=True)
+    except dbus.DBusException as e:
+        print("error " + e.get_dbus_name(), flush=True)
+' "${APPS[@]}"
+}
+ask() {
+  echo "$1 $2" >&"${HOLDER[1]}"
+  read -r -t 5 reply <&"${HOLDER[0]}" || fail "holder: no reply to $1"
+  echo "$reply"
+}
+
+id=$(ask freeze "$UNIT")
+[[ $id == apps-* ]] || fail "HoldFreeze: $id"
+sleep 0.5
+[[ $(freeze) == 0 ]] || fail "a freeze hold froze the focused app"
+echo "focused app ignores the freeze hold" | tee -a "$OUT/result.txt"
+run "$ANDROMEDA" msg workspace-switch:2 > /dev/null
+await "hidden: frozen by the hold" 1 2000 freeze
+[[ $(ask release "$id") == released ]] || fail "Release failed"
+await "Release: thawed" 0 1000 freeze
+
+id=$(ask freeze "$UNIT")
+await "hold again: frozen" 1 1000 freeze
+kill "$HOLDER_PID" 2> /dev/null || true
+await "owner left the bus: thawed" 0 2000 freeze
+
+unknown=$(busctl --user call "${APPS[@]}" HoldFreeze ss app-none-$$.scope e2e 2>&1 || true)
+[[ $unknown == *"not an app scope"* ]] || fail "hold on an unknown unit: $unknown"
+echo "unknown unit: refused" | tee -a "$OUT/result.txt"
+# display.fps_cap_hidden: SetHiddenFpsCap slows a hidden background_render window's frame callbacks, and the cap ends
+# when its owner leaves the bus.
+printf '\n[[window_rule]]\nmatch.title = "^paced$"\nbackground_render = true\n' >> "$RUNTIME/andromeda.toml"
+run "$ANDROMEDA" msg config-reload > /dev/null
+mkfifo "$RUNTIME/paced.fifo"
+REPAINT_ON_STDIN=1 env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" \
+  "$ROOT/compositor/build-debug/tests/unmap-client" paced 400 300 < "$RUNTIME/paced.fifo" > "$OUT/paced.log" 2>&1 &
+exec 4> "$RUNTIME/paced.fifo"
+for _ in $(seq 100); do run "$ANDROMEDA" windows --json 2> /dev/null | grep -q '"paced"' && break; sleep 0.05; done
+run "$ANDROMEDA" msg workspace-switch:3 > /dev/null
+sleep 0.3
+# Milliseconds for ten frame callbacks one after another.
+ten_frames() {
+  local start=$(ms) before
+  for _ in $(seq 10); do
+    before=$(grep -c '^repainted ' "$OUT/paced.log" || true)
+    printf R >&4
+    until (($(grep -c '^repainted ' "$OUT/paced.log" || true) > before)); do
+      (($(ms) - start > 5000)) && fail "the hidden background_render window stopped getting frame callbacks"
+      sleep 0.005
+    done
+  done
+  echo $(($(ms) - start))
+}
+coproc CAPPER {
+  python3 -u -c '
+import sys, dbus
+apps = dbus.Interface(dbus.SessionBus().get_object(sys.argv[1], sys.argv[2]), sys.argv[3])
+apps.SetHiddenFpsCap(dbus.UInt32(5)); print("capped", flush=True); sys.stdin.readline()
+' "${APPS[@]}"
+}
+read -r -t 5 reply <&"${CAPPER[0]}" || fail "SetHiddenFpsCap: no reply"
+capped=$(ten_frames)
+((capped >= 1600)) || fail "ten hidden frames at a 5 Hz cap took ${capped} ms, want >= 1600"
+kill "$CAPPER_PID" 2> /dev/null || true
+sleep 0.5
+free=$(ten_frames)
+((free < 800)) || fail "after the capper left, ten hidden frames took ${free} ms, want < 800"
+echo "fps cap: ten hidden frames ${capped} ms at 5 Hz, ${free} ms after the owner left" | tee -a "$OUT/result.txt"
+# Settings > Battery app rules: SetAppRule writes a window rule to the settings file, AppRules lists it, normal removes it.
+busctl --user call "${APPS[@]}" SetAppRule ss org.example.Tool never_throttle > /dev/null
+[[ $(busctl --user call "${APPS[@]}" AppRules) == *'"org.example.Tool" "never_throttle"'* ]] || fail "AppRules: $(busctl --user call "${APPS[@]}" AppRules)"
+grep -q 'never_throttle' "$RUNTIME/settings.toml" || fail "settings.toml has no app rule: $(cat "$RUNTIME/settings.toml" 2>&1)"
+busctl --user call "${APPS[@]}" SetAppRule ss org.example.Tool normal > /dev/null
+[[ $(busctl --user call "${APPS[@]}" AppRules) == "a(ss) 0" ]] || fail "normal did not remove the rule"
+echo "app rules: set, listed, removed" | tee -a "$OUT/result.txt"
+# Presenting (the mode.presenting rule): true while a capture session is open, false after its client quits.
+presenting() { busctl --user get-property "${APPS[@]}" Presenting; }
+[[ $(presenting) == "b false" ]] || fail "Presenting before a capture: $(presenting)"
+# The recorder holds an ext-image-copy-capture session, as the portal's screen share does.
+env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" "$ROOT/compositor/build-debug/tests/capture-client" \
+  > "$OUT/recorder.log" 2>&1 &
+RECORDER_PID=$!
+await "Presenting on capture" "b true" 5000 presenting
+kill "$RECORDER_PID" 2> /dev/null || true
+wait "$RECORDER_PID" 2> /dev/null || true
+await "Presenting after capture" "b false" 5000 presenting
+echo "PASS: $OUT/result.txt"

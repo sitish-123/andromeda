@@ -5,16 +5,19 @@
 #include "security/storage_key_provider.h"
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <poll.h>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 struct wl_registry;
@@ -39,6 +42,8 @@ struct ClipboardEntry {
   std::vector<std::uint8_t> data;
   std::size_t byteSize = 0;
   bool payloadLoaded = true;
+  // The encrypted payload file holds `data` (written or queued); data never changes after capture.
+  bool payloadOnDisk = false;
   std::string textPreview;
   std::chrono::system_clock::time_point capturedAt;
   std::chrono::steady_clock::time_point timestamp;
@@ -105,7 +110,9 @@ public:
   [[nodiscard]] std::optional<std::string> exportEntryForExternalTool(std::size_t index);
   void evictEntryPayload(std::size_t index);
   void evictAllPayloads();
-  // TextClipboard implementation (used by UI controls for copy/paste).
+  // TextClipboard implementation (used by UI controls for copy/paste). Reflects
+  // the live selection, not history: a copy history declines to keep (password
+  // hint, duplicate of a pin, blank or oversized text) is still what pastes.
   [[nodiscard]] std::optional<std::string> clipboardText() override;
   void setClipboardText(std::string text) override;
 
@@ -126,7 +133,7 @@ public:
   void setMaxHistoryBytesForTesting(std::size_t maxBytes);
 
   bool copyText(std::string text);
-  bool copyText(std::string text, std::string mimeType);
+  bool copyText(std::string text, const std::string& mimeType);
   bool copyImagePng(std::vector<std::uint8_t> png);
   bool copyEntry(const ClipboardEntry& entry);
   bool promoteEntry(std::size_t index);
@@ -160,6 +167,9 @@ private:
     std::string mimeType;
     std::vector<std::uint8_t> buffer;
     std::vector<std::string> offeredMimeTypes;
+    // Set for selections advertising a password-manager hint: the text is kept
+    // for paste only, never in history or the backup used for adoption.
+    bool sensitive = false;
   };
 
   struct OutgoingSource {
@@ -192,6 +202,7 @@ private:
   void cancelActiveWrites();
   bool startReceive(void* offer);
   void finishRead(bool discard);
+  void setSelectionText(std::optional<std::string> text);
   void adoptOrphanedSelection();
   void flushPendingOrphanAdopt();
   [[nodiscard]] static bool payloadLooksComplete(std::string_view mimeType, std::span<const std::uint8_t> data);
@@ -206,7 +217,23 @@ private:
   parseManifest(std::span<const std::uint8_t> contents, bool legacy, std::deque<ClipboardEntry>& entries) const;
   void mergePersistedHistory(std::deque<ClipboardEntry> entries);
   [[nodiscard]] bool removeLegacyStorage();
-  bool persistHistory(bool force = false);
+  // Writes payloads and the manifest on SharedWorker in FIFO order; `sync` writes before returning (migration,
+  // shutdown). Async returns true once queued.
+  bool persistHistory(bool force = false, bool sync = false);
+  // Blocks until queued history writes finish, before sync storage reads, deletes and shutdown.
+  void drainPendingWrites();
+  struct PersistResult {
+    bool ok = false;
+    std::string error;
+    std::vector<std::string> payloadIds;
+    std::size_t payloadBytes = 0;
+    std::int64_t elapsedMs = 0;
+    std::uint64_t generation = 0;
+    bool async = false;
+  };
+  // Cancels queued writes (key change, recovery): they skip their files, and their payloads count as unwritten.
+  void cancelPendingWrites();
+  void finishPersist(const PersistResult& result);
   void trimHistoryToBudget();
   [[nodiscard]] bool loadEntryPayload(ClipboardEntry& entry);
   [[nodiscard]] static bool loadLegacyEntryPayload(ClipboardEntry& entry);
@@ -252,9 +279,29 @@ private:
   bool m_pendingOrphanAdopt = false;
   std::size_t m_maxHistoryBytes;
   std::optional<SelectionBackup> m_selectionBackup;
+  // Text of the live selection, or nullopt when it is empty or not text.
+  std::optional<std::string> m_selectionText;
   std::size_t m_maxHistoryEntries = static_cast<std::size_t>(noctalia::config::kClipboardHistoryDefaultEntries);
   security::StorageKeyProvider& m_storageKeyProvider;
-  std::optional<security::SecureKey> m_dataKey;
+  std::shared_ptr<const security::SecureKey> m_dataKey;
+  struct PendingWrites {
+    std::mutex mutex;
+    std::condition_variable finished;
+    int count = 0;
+    // Jobs from an older generation write nothing.
+    std::uint64_t generation = 0;
+    // Set by a failed job; later jobs write nothing (their manifest would list the missing payload) until the main
+    // thread has seen every failure.
+    bool failed = false;
+  };
+  std::shared_ptr<PendingWrites> m_pendingWrites = std::make_shared<PendingWrites>();
+  // Payloads freed from memory once their write lands (the entry just captured).
+  std::unordered_set<std::string> m_evictAfterWrite;
+  // Payloads queued but not yet confirmed written.
+  std::unordered_set<std::string> m_queuedPayloads;
+  // Async completions of the current generation not yet run on the main thread.
+  int m_outstandingCompletions = 0;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   ClipboardPersistenceState m_persistenceState = ClipboardPersistenceState::Opening;
   bool m_persistenceMigrationPending = false;
   ChangeCallback m_changeCallback;

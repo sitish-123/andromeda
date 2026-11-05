@@ -29,6 +29,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/dsk_surface_client.h"
+#include "wayland/glass_surface.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
@@ -100,7 +101,11 @@ namespace {
   constexpr float kFaceScale = 0.92F;
   constexpr float kMinCardWidth = 240.0F;
   constexpr float kMinCardHeight = 56.0F;
-  constexpr float kMaxCardHeight = 96.0F; // surface bound: banner with caption, title and two body lines is 88
+  // Surface bound: a banner with caption, title, two body lines (88) and its action row (12 + 32).
+  constexpr const float& kActionHeight = Tokens::spaceP32;
+  constexpr const float& kActionGap = Tokens::spaceP8;
+  constexpr const float& kActionTop = Tokens::spaceP12;
+  float maxCardHeight() { return Tokens::spaceP48 * 2.0F + kActionTop + kActionHeight; }
   constexpr float kCaptionGap = 8.0F;
   float ceil4(float v) { return std::ceil(v / 4.0F) * 4.0F; }
   // The island lays out in tokens px; the surface, clip, blur and input regions are that times the bar's content scale.
@@ -164,6 +169,16 @@ namespace {
     return {buffer.data(), n};
   }
 
+  std::vector<std::pair<std::string, std::string>> bannerActions(const std::vector<std::string>& actions) {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (std::size_t i = 0; i + 1 < actions.size() && out.size() < 3; i += 2) {
+      if (actions[i] != "default" && !actions[i + 1].empty()) {
+        out.emplace_back(actions[i], actions[i + 1]);
+      }
+    }
+    return out;
+  }
+
   bool hasDefaultAction(const std::vector<std::string>& actions) {
     for (std::size_t i = 0; i < actions.size(); i += 2) {
       if (actions[i] == "default") {
@@ -196,6 +211,9 @@ namespace {
 LiveActivityIsland::LiveActivityIsland() = default;
 
 LiveActivityIsland::~LiveActivityIsland() {
+  if (m_notifications != nullptr && m_notificationToken >= 0) {
+    m_notifications->removeEventCallback(m_notificationToken);
+  }
   m_alive.reset();
   destroySurfaces();
 }
@@ -220,6 +238,23 @@ void LiveActivityIsland::setRestSources(
   m_mpris = std::move(mpris);
   m_notifications = notifications;
   m_open = std::move(open);
+  if (m_notifications != nullptr && m_notificationToken < 0) {
+    // The island is the only notification surface; with no island the notification stays in the history.
+    m_notificationToken = m_notifications->addEventCallback([this](const Notification& n, NotificationEvent event) {
+      if (event == NotificationEvent::Added && m_notifications->doNotDisturb()
+          && n.dndPolicy == NotificationDndPolicy::Respect) {
+        return;
+      }
+      (void)showBanner(n, event);
+    });
+  }
+}
+
+void LiveActivityIsland::hideDndSuppressed() {
+  std::erase_if(m_bannerQueue, [](const BannerItem& b) { return b.respectsDnd; });
+  if (m_banner.has_value() && m_banner->respectsDnd) {
+    endBanner();
+  }
 }
 
 void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
@@ -239,7 +274,7 @@ void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
     m_shown = *m_activity;
     // The banner waits behind the call, recording or transfer.
     m_bannerTimer.stop();
-  } else if (had && m_banner.has_value() && !m_osd.has_value()) {
+  } else if (had && m_banner.has_value() && !m_banner->sticky && !m_osd.has_value()) {
     m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
       if (!alive.expired()) {
         endBanner();
@@ -331,6 +366,9 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
         .icon = n.icon.value_or(std::string{}),
         .desktopEntry = n.desktopEntry.value_or(std::string{}),
         .imageData = n.imageData,
+        .actions = bannerActions(n.actions),
+        .sticky = n.urgency == Urgency::Critical || n.timeout == 0,
+        .respectsDnd = n.dndPolicy == NotificationDndPolicy::Respect,
     };
   };
   if (event == NotificationEvent::Closed) {
@@ -356,7 +394,8 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
     // The banner already ended: the update must not raise a toast for a notification the island showed.
     return m_consumed.contains(n.id);
   }
-  if (!coversAllOutputs() || m_activity.has_value() || n.urgency == Urgency::Critical || n.timeout == 0) {
+  // A banner waits behind a call, recording or transfer (setActivity); only an island-less desktop refuses it.
+  if (m_instances.empty()) {
     return false;
   }
   m_consumed.insert(n.id);
@@ -374,6 +413,13 @@ void LiveActivityIsland::startNextBanner() {
   }
   m_banner = std::move(m_bannerQueue.front());
   m_bannerQueue.erase(m_bannerQueue.begin());
+  if (m_banner->sticky) {
+    updateAllFaces();
+    for (auto& inst : m_instances) {
+      inst->surface->requestLayout();
+    }
+    return;
+  }
   m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
     if (!alive.expired()) {
       endBanner();
@@ -417,12 +463,15 @@ std::function<void()> LiveActivityIsland::refresher() {
 
 void LiveActivityIsland::refreshNow() {
   ensureSurfaces();
-  if (!coversAllOutputs() && (m_osd.has_value() || m_banner.has_value() || !m_bannerQueue.empty())) {
-    // An output without an island cannot show them; they stay in the notification history.
+  if (!coversAllOutputs() && m_osd.has_value()) {
+    // An output without an island cannot show the OSD; the OSD overlay shows the next one.
     m_osd.reset();
+    m_osdTimer.stop();
+  }
+  if (m_instances.empty() && (m_banner.has_value() || !m_bannerQueue.empty())) {
+    // With no island at all the banners stay in the notification history.
     m_banner.reset();
     m_bannerQueue.clear();
-    m_osdTimer.stop();
     m_bannerTimer.stop();
   }
   updateAllFaces();
@@ -520,11 +569,6 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->surface->setInputRegion({});
     if (auto* manager = m_wayland->dskSurfaceManager(); manager != nullptr) {
       inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
-      inst->dsk->setOnBackdrop([this, instPtr = inst.get()](bool dark) {
-        instPtr->backdropDark = dark;
-        applyContent(*instPtr);
-        instPtr->surface->requestRedraw();
-      });
     }
     inst->liveWidth = std::min(inst->width, static_cast<float>(kExpandedWidth));
     inst->restWidth = std::min(space->width / inst->scale, static_cast<float>(kRestWidth));
@@ -555,7 +599,7 @@ void LiveActivityIsland::destroySurfaces() {
 
 
 float LiveActivityIsland::surfaceHeight(float scale) const {
-  return kMaxCardHeight + static_cast<float>(kShadowPad) / scale;
+  return maxCardHeight() + static_cast<float>(kShadowPad) / scale;
 }
 
 // The layer margin leaves room for the shadow bleed inside the surface, so the island keeps its screen position.
@@ -577,7 +621,8 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
     w = std::max(inst.restWidth, std::min(inst.faceWidth[static_cast<std::size_t>(face)], inst.liveWidth));
     break;
   case Face::Osd:
-    if (!inst.osdBar->visible()) {
+    // From the model: an OSD can arrive before the first configure builds osdBar.
+    if (m_osd.has_value() && !m_osd->showProgress) {
       w = std::clamp(inst.faceWidth[static_cast<std::size_t>(face)], inst.restWidth, inst.liveWidth);
       h = std::max(kMinCardHeight, inst.faceHeight[static_cast<std::size_t>(face)]);
       radius = h * 0.5F;
@@ -609,14 +654,19 @@ void LiveActivityIsland::setFullscreen(bool fullscreen) {
   m_fullscreen = fullscreen;
   for (auto& inst : m_instances) {
     applyLayer(*inst);
+    // The waveform loop stops under a fullscreen window, so the compositor can scan the window out directly.
+    inst->surface->requestRedraw();
   }
 }
 
 // The plain rest pill goes under a fullscreen window (Top layer), so fullscreen video gets direct scanout. A call at rest
 // stays over it; a collapse to rest moves down only when its morph ends.
+bool LiveActivityIsland::restUnderFullscreen(const Instance& inst) const {
+  return inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
+}
+
 void LiveActivityIsland::applyLayer(Instance& inst) {
-  const bool under = inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
-  inst.surface->setLayer(under ? LayerShellLayer::Top : LayerShellLayer::Overlay);
+  inst.surface->setLayer(restUnderFullscreen(inst) ? LayerShellLayer::Top : LayerShellLayer::Overlay);
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
@@ -704,6 +754,14 @@ void LiveActivityIsland::hoverLeave(Instance& inst) {
   });
 }
 
+DskSurfaceClient::Value LiveActivityIsland::islandTint(const Instance& inst, Face face) {
+  if (!inst.compositorTint) {
+    return glassTintValue(materialRole(), 0.0F);
+  }
+  return face == Face::Rest ? glassTintValue(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint)
+                            : glassTintValue(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint);
+}
+
 void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
   if (inst.dsk == nullptr) {
     return;
@@ -725,6 +783,9 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
   if (jump) {
     inst.dsk->set(DskSurfaceClient::Property::Clip, clip);
     inst.dsk->set(DskSurfaceClient::Property::Radius, radius);
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.face));
+    }
     inst.mirror.active = false;
     if (inst.revealAnimId != 0) {
       inst.animations.cancel(inst.revealAnimId);
@@ -760,6 +821,9 @@ void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
       instPtr->surface->requestRedraw();
     });
     inst.dsk->animate(DskSurfaceClient::Property::Radius, curve, radius);
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->animate(DskSurfaceClient::Property::Tint, curve, islandTint(inst, inst.face));
+    }
     if (level) {
       inst.dsk->animate(DskSurfaceClient::Property::Elevation, curve, {elevation, 0.0, 0.0, 0.0});
     }
@@ -911,11 +975,16 @@ void LiveActivityIsland::prepareFrame(Instance& inst, bool needsUpdate, bool nee
     applyContent(inst);
     applyReveal(inst, inst.reveal);
   }
+  syncBarShapes(inst);
+  if (!m_barsTimer.active() && barsNeedTimer()) {
+    syncBars();
+  }
 }
 
 void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
   inst.sceneRoot = ui::node({});
   inst.bannerIconKey.clear();
+  inst.barShapeKey.reset(); // the new bar boxes show until syncBarShapes hides them
   inst.sceneRoot->setSize(width, height);
   inst.sceneRoot->setTransformOrigin(0.0F, 0.0F);
   inst.sceneRoot->setScale(inst.scale);
@@ -924,13 +993,13 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
 
   auto shadowBox = ui::box({.out = &inst.shadow});
   shadowBox->setStyle(ui::surface_shadow::style(
-      m_config->config().shell.shadow, Style::glassAlpha(inst.space.backgroundOpacity), ui::surface_shadow::Shape{}
+      m_config->config().shell.shadow, Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity), ui::surface_shadow::Shape{}
   ));
   auto material = ui::box({.out = &inst.material});
   material->setClipChildren(true);
   auto tint = ui::box({
       .out = &inst.tint,
-      .fill = colorSpecFromRole(panelMaterialRole(), Style::glassAlpha(kTintThickAlpha)),
+      .fill = colorSpecFromRole(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint),
   });
   tint->setClipChildren(true);
 
@@ -1263,8 +1332,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       .height = kBannerGlyph,
       .visible = false,
   }));
-  auto banner = ui::row(
-      {.align = FlexAlign::Center, .gap = 12.0F, .paddingH = kBannerPad, .width = inst.width, .height = kBannerHeight},
+  auto bannerText = ui::row(
+      {.align = FlexAlign::Center, .gap = Tokens::spaceP12},
       std::move(bannerIcon),
       ui::column(
           {.align = FlexAlign::Stretch, .flexGrow = 1.0F},
@@ -1300,6 +1369,16 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               .maxLines = 2,
           })
       )
+  );
+  // Icon and text, then the action pills across the whole card (12 above).
+  auto banner = ui::column(
+      {.align = FlexAlign::Stretch,
+       .justify = FlexJustify::Center,
+       .padding = kBannerPad,
+       .width = inst.width,
+       .height = kBannerHeight},
+      std::move(bannerText),
+      bannerActionRow(inst)
   );
   inst.bannerGlyph->setGlyph("bell");
   inst.bannerApp->setLineHeight(Tokens::typeCaption.line);
@@ -1403,10 +1482,22 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   // A small shape: liquid glass with the launcher pill's clear tint.
   const bool liquid = inst.dsk != nullptr && inst.dsk->hasLiquidProperty() && !Style::reduceTransparency();
   if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
-    inst.dsk->set(DskSurfaceClient::Property::Liquid, {liquid ? Style::liquidLevel() : 0.0, liquid ? 1.0 : 0.0, 0.0, 0.0});
+    const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
+    inst.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
+    inst.compositorTint = liquid && inst.dsk->hasTintProperty() && Style::compositorDrawsTint();
+    if (inst.dsk->hasTintProperty()) {
+      inst.dsk->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.face));
+    }
   }
-  inst.material->setFill(colorSpecFromRole(
-      materialRole(), liquid ? Style::liquidTintFor(inst.backdropDark) : Style::glassAlpha(inst.space.backgroundOpacity)
+  inst.material->setFill(
+      inst.compositorTint ? colorSpecFromRole(materialRole(), 0.0F)
+                          : colorSpecFromRole(
+                                materialRole(), liquid ? Style::glassMaterial(glass::Kind::Shape).tint
+                                                       : Style::glassTint(glass::Kind::Shape, inst.space.backgroundOpacity)
+                            )
+  );
+  inst.tint->setFill(colorSpecFromRole(
+      panelMaterialRole(), inst.compositorTint ? 0.0F : Style::glassMaterial(glass::Kind::Sheet).tint
   ));
   inst.ring->setBorder(inst.space.border, islandStrokeWidth(inst.space.borderWidth));
 
@@ -1600,6 +1691,15 @@ void LiveActivityIsland::applyContent(Instance& inst) {
 
   // Banner face.
   if (m_banner.has_value()) {
+    for (std::size_t i = 0; i < inst.bannerActions.size(); ++i) {
+      Button* button = inst.bannerActions[i];
+      const bool on = i < m_banner->actions.size();
+      button->setVisible(on);
+      if (on) {
+        button->setText(m_banner->actions[i].second);
+      }
+    }
+    inst.bannerActionRow->setVisible(!m_banner->actions.empty());
     inst.bannerTitle->setText(m_banner->title);
     inst.bannerBody->setText(m_banner->body);
     inst.bannerBody->setVisible(!m_banner->body.empty());
@@ -1620,8 +1720,12 @@ void LiveActivityIsland::applyContent(Instance& inst) {
             img->channels == 3 ? PixmapFormat::RGB : PixmapFormat::RGBA, true
         );
       }
+      // A shell glyph (`noctalia-glyph:<name>`, as Link sends) is the symbol in the accent circle; else the bell.
+      constexpr std::string_view kGlyphPrefix = "noctalia-glyph:";
+      const bool glyph = b.icon.starts_with(kGlyphPrefix);
+      inst.bannerGlyph->setGlyph(glyph ? b.icon.substr(kGlyphPrefix.size()) : std::string("bell"));
       for (const std::string* name : {&b.icon, &b.desktopEntry}) {
-        if (ok || name->empty()) {
+        if (ok || name->empty() || (glyph && name == &b.icon)) {
           continue;
         }
         std::string path;
@@ -1683,8 +1787,9 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     inst.bannerBody->setMaxWidth(w - fixed);
     inst.bannerApp->setMaxWidth(w - fixed - inst.bannerTime->width() - kCaptionGap);
     const float body = inst.bannerBody->visible() ? std::min(2.0F * Tokens::typeFootnote.line, inst.bannerBody->height()) : 0.0F;
+    const float actions = m_banner.has_value() && !m_banner->actions.empty() ? kActionTop + kActionHeight : 0.0F;
     inst.faceHeight[static_cast<std::size_t>(Face::Banner)] =
-        ceil4(2.0F * kBannerPad + Tokens::typeCaption.line + Tokens::typeHeadline.line + body);
+        ceil4(2.0F * kBannerPad + Tokens::typeCaption.line + Tokens::typeHeadline.line + body + actions);
   }
 
   for (std::size_t i = 1; i < kFaceCount; ++i) {
@@ -1800,12 +1905,29 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const auto iy = static_cast<int>(cur.y * k);
   const auto iw = std::max(1, static_cast<int>(cur.w * k));
   const auto ih = std::max(1, static_cast<int>(cur.h * k));
-  if (shown > 0.01F) {
-    inst.surface->setBlurRegion(Surface::tessellateRoundedRect(ix, iy, iw, ih, cur.radius * k));
-  } else {
-    inst.surface->clearBlurRegion();
+  // With the compositor its clip and radius are the blur shape, so the region stays the whole surface during a morph.
+  std::vector<InputRect> blur = shown <= 0.01F ? std::vector<InputRect>{}
+      : inst.dsk != nullptr
+          ? std::vector<InputRect>{InputRect{0, 0, static_cast<int>(maxW * k), static_cast<int>(maxH * k)}}
+          : Surface::tessellateRoundedRect(ix, iy, iw, ih, cur.radius * k);
+  if (blur != inst.sentBlur) {
+    if (blur.empty()) {
+      inst.surface->clearBlurRegion();
+    } else {
+      inst.surface->setBlurRegion(blur);
+    }
+    inst.sentBlur = std::move(blur);
   }
-  inst.surface->setInputRegion(shown >= 0.5F ? std::vector<InputRect>{InputRect{ix, iy, iw, ih}} : std::vector<InputRect>{});
+  // A morph on the compositor clip takes input at its target box, so the region changes once per morph.
+  const Rect hit = mirrored(inst) ? inst.to : cur;
+  std::vector<InputRect> input = shown >= 0.5F
+      ? std::vector<InputRect>{InputRect{static_cast<int>(hit.x * k), static_cast<int>(hit.y * k),
+                                         std::max(1, static_cast<int>(hit.w * k)), std::max(1, static_cast<int>(hit.h * k))}}
+      : std::vector<InputRect>{};
+  if (input != inst.sentInput) {
+    inst.surface->setInputRegion(input);
+    inst.sentInput = std::move(input);
+  }
   inst.surface->requestRedraw();
 }
 
@@ -1852,6 +1974,44 @@ void LiveActivityIsland::animateReveal(Instance& inst, float velocity) {
 
 // Banner swipe: the island follows the pointer upward 1:1 and downward at 0.3; a release past 40 % of the card or a fast
 // upward flick dismisses it on the collapse spring with the release velocity, anything else springs back.
+std::unique_ptr<Node> LiveActivityIsland::bannerActionRow(Instance& inst) {
+  auto row = ui::row({.align = FlexAlign::Center, .gap = kActionGap});
+  for (std::size_t i = 0; i < inst.bannerActions.size(); ++i) {
+    // Equal pills; the first is the accent action, the others the island's fill_2 buttons.
+    row->addChild(ui::button({
+        .out = &inst.bannerActions[i],
+        .text = std::string{},
+        .fontSize = Tokens::typeFootnote.size,
+        .variant = i == 0 ? ButtonVariant::Primary : ButtonVariant::Default,
+        .radius = kActionHeight * 0.5F,
+        .height = kActionHeight,
+        .flexGrow = 1.0F,
+        .visible = false,
+        .onClick = [this, instPtr = &inst, i] { bannerAction(*instPtr, i); },
+    }));
+    if (i > 0) {
+      inst.bannerActions[i]->setCustomPalette(livePalette(false));
+    }
+  }
+  auto block = ui::column({.align = FlexAlign::Stretch, .visible = false});
+  block->addChild(ui::node({.height = kActionTop}));
+  block->addChild(std::move(row));
+  inst.bannerActionRow = block.get();
+  return block;
+}
+
+void LiveActivityIsland::bannerAction(Instance& inst, std::size_t index) {
+  if (!m_banner.has_value() || index >= m_banner->actions.size()) {
+    return;
+  }
+  const BannerItem banner = *m_banner;
+  endBanner();
+  if (m_notifications != nullptr) {
+    const std::string token = m_wayland->requestActivationToken(inst.surface->wlSurface());
+    (void)m_notifications->invokeAction(banner.id, banner.actions[index].first, token, true);
+  }
+}
+
 void LiveActivityIsland::bannerDragStart(Instance& inst, float y) {
   if (inst.face != Face::Banner || inst.dsk == nullptr || !MotionService::instance().enabled()) {
     return;
@@ -2037,9 +2197,13 @@ void LiveActivityIsland::syncBars() {
     return;
   }
   if (spectrum != nullptr && m_spectrumListener == 0) {
-    m_spectrumListener = spectrum->addChangeListener(static_cast<int>(std::tuple_size_v<decltype(Instance::barBox)>), [] {});
+    m_spectrumListener = spectrum->addChangeListener(static_cast<int>(std::tuple_size_v<decltype(Instance::barBox)>), [this] {
+      if (!m_barsTimer.active() && realSpectrum()) {
+        syncBars();
+      }
+    });
   }
-  if (!m_barsTimer.active()) {
+  if (!m_barsTimer.active() && barsNeedTimer()) {
     m_barsTimer.startRepeating(std::chrono::milliseconds(33), [this] { tickBars(); });
   }
 }
@@ -2084,6 +2248,75 @@ void LiveActivityIsland::tickBars() {
     if (inst->face == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible()) {
       inst->surface->requestRedraw();
     }
+  }
+  if (!barsNeedTimer()) {
+    m_barsTimer.stop();
+  }
+}
+
+bool LiveActivityIsland::realSpectrum() const {
+  PipeWireSpectrum* spectrum = m_spectrum ? m_spectrum() : nullptr;
+  return spectrum != nullptr && m_spectrumListener != 0 && !spectrum->idle();
+}
+
+// The shell wakes every 33 ms only for a real spectrum, the hover progress, or client-drawn bars; the looping
+// compositor shapes need no wake-up.
+bool LiveActivityIsland::barsNeedTimer() const {
+  if (realSpectrum()) {
+    return true;
+  }
+  return std::ranges::any_of(m_instances, [this](const auto& inst) {
+    return inst->face == Face::HoverMedia
+        || (inst->face == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible() && !inst->barShapeKey
+            && !restUnderFullscreen(*inst));
+  });
+}
+
+void LiveActivityIsland::syncBarShapes(Instance& inst) {
+  std::optional<std::array<float, 6>> key;
+  if (inst.dsk != nullptr && inst.dsk->hasShapes() && inst.bars != nullptr && inst.face == Face::Rest && inst.revealAnimId == 0
+      && !inst.mirror.active && inst.mediaGroup->visible() && !realSpectrum() && !restUnderFullscreen(inst)
+      && MotionService::instance().enabled() && !MotionService::instance().reduced()) {
+    float x = 0.0F;
+    float y = 0.0F;
+    Node::absolutePosition(inst.bars, x, y);
+    const Color c = colorForRole(ColorRole::Accent, 1.0F);
+    key = std::array<float, 6>{x, y, c.r, c.g, c.b, c.a};
+  }
+  if (key == inst.barShapeKey) {
+    return;
+  }
+  if (key) {
+    const double k = inst.scale;
+    for (std::size_t i = 0; i < inst.barShape.size() && key; ++i) {
+      if (inst.barShape[i] == nullptr) {
+        inst.barShape[i] = std::make_unique<DskShapeClient>(*inst.dsk);
+      }
+      DskShapeClient& shape = *inst.barShape[i];
+      const double x = ((*key)[0] + static_cast<float>(i) * (kBarWidth + kBarGap)) * k;
+      const double y = (*key)[1] * k;
+      shape.set(DskShapeClient::Property::Fill, {(*key)[2], (*key)[3], (*key)[4], (*key)[5]});
+      shape.set(DskShapeClient::Property::Radius, {1.5 * k, 0.0, 0.0, 0.0});
+      shape.set(DskShapeClient::Property::Clip, {x, y + (kArt - 4.0F) * 0.5F * k, kBarWidth * k, 4.0 * k});
+      if (!shape.loop(DskShapeClient::Property::Clip, DskShapeClient::Wave::Noise, 1100, static_cast<std::uint32_t>(i + 1),
+                      {x, y, kBarWidth * k, kArt * k})) {
+        kLog.debug("media bars: the compositor cannot loop");
+        key.reset();
+      }
+    }
+  }
+  if (!key) {
+    for (auto& shape : inst.barShape) {
+      shape.reset();
+    }
+  }
+  kLog.debug(
+      "media bars: {} (face {}, reveal anim {}, mirror {}, media {}, real spectrum {})", key ? "compositor loop" : "client",
+      static_cast<int>(inst.face), inst.revealAnimId, inst.mirror.active, inst.mediaGroup->visible(), realSpectrum()
+  );
+  inst.barShapeKey = key;
+  for (Box* box : inst.barBox) {
+    box->setVisible(!key);
   }
 }
 

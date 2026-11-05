@@ -895,6 +895,13 @@ namespace noctalia::cli {
         false
     };
     inline constexpr Command status{"status", "Print current state as JSON", {}, {}, {}, {}, {}, false};
+    inline constexpr std::array<std::string_view, 4> kSubscribeTopics{"bluetooth", "media", "network", "power-profile"};
+    inline constexpr std::array kSubscribePositionals{
+        Positional{"topic", "Event topics; none = all", kSubscribeTopics, false, true, false},
+    };
+    inline constexpr Command subscribe{
+        "subscribe", "Print events as JSON lines until interrupted", {}, {}, {}, kSubscribePositionals, {}, false
+    };
     inline constexpr Command taskbarCycle{
         "taskbar-cycle",
         "Step to the adjacent task or workspace group in the invoking taskbar",
@@ -1277,6 +1284,7 @@ namespace noctalia::cli {
       msg::settingsOpenWidget,
       msg::settingsToggle,
       msg::status,
+      msg::subscribe,
       msg::taskbarCycle,
       msg::templatesApply,
       msg::themeModeGet,
@@ -1305,8 +1313,12 @@ namespace noctalia::cli {
       msg::workspaceSwitch,
   };
 
+  inline constexpr std::array kMsgFlags{
+      Flag{"--json", {}, {}, "Reply as JSON: {\"ok\", \"text\", \"data\"}", {}, {}, false, false},
+  };
+
   inline constexpr Command kMsgCmd{
-      "msg", "Send a command to the running instance", {}, {}, {}, {}, kMsgSubcommands, false,
+      "msg", "Send a command to the running instance", {}, {}, kMsgFlags, {}, kMsgSubcommands, false,
   };
 
   [[nodiscard]] constexpr const Command* findMsgCommand(std::string_view name) {

@@ -5,6 +5,8 @@
 #include <string>
 #include <fstream>
 #include "application.h"
+#include "ipc/ipc_events.h"
+#include "ipc/service_ipc.h"
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
 #include "cli/schema_msg.h"
@@ -128,6 +130,7 @@ namespace {
 void Application::initIpc() {
   if (m_ipcService.start()) {
     kLog.info("IPC socket at {}", m_ipcService.socketPath());
+    ipc_events::setSink(&m_ipcService);
   } else {
     kLog.warn("IPC disabled: could not bind socket");
   }
@@ -749,6 +752,14 @@ void Application::initIpc() {
             row["gpu_percent"] = m_activityDetails.gpuPercent(key);
           }
         }
+        if (m_containerService != nullptr) {
+          auto containers = nlohmann::json::parse(m_containerService->dumpJson());
+          dump["engines"] = std::move(containers["engines"]);
+          dump["containers"] = std::move(containers["containers"]);
+        }
+        if (m_activityWindow.isOpen()) {
+          dump["buttons"] = nlohmann::json::parse(m_activityWindow.buttonsJson());
+        }
         return dump.dump() + "\n";
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
@@ -781,12 +792,12 @@ void Application::initIpc() {
   registerSessionIpc(m_ipcService, m_sessionActionRunner, m_lockScreen, m_configService);
 
   if (powerProfiles() != nullptr) {
-    powerProfiles()->registerIpc(m_ipcService, [this](std::string_view profile) {
+    registerPowerProfilesIpc(m_ipcService, *powerProfiles(), [this](std::string_view profile) {
       m_osdOverlay.show(powerProfileOsdContent(profile));
     });
   }
   if (network() != nullptr) {
-    network()->registerIpc(m_ipcService, [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
+    registerNetworkIpc(m_ipcService, *network(), [this](bool enabled) { m_osdOverlay.show(wifiOsdContent(enabled)); });
   }
   if (m_linkService != nullptr) {
     m_linkService->registerIpc(m_ipcService);
@@ -796,7 +807,7 @@ void Application::initIpc() {
   }
   m_locationService.registerIpc(m_ipcService);
   if (bluetooth() != nullptr) {
-    bluetooth()->registerIpc(m_ipcService, [this](bool enabled) {
+    registerBluetoothIpc(m_ipcService, *bluetooth(), [this](bool enabled) {
       m_osdOverlay.show(bluetoothOsdContent(enabled));
     });
   }
@@ -1001,7 +1012,7 @@ void Application::initIpc() {
       [this] { return m_logindService != nullptr; }
   );
   if (mpris() != nullptr) {
-    mpris()->registerIpc(m_ipcService);
+    registerMprisIpc(m_ipcService, *mpris());
   }
   if (pipewire() != nullptr) {
     pipewire()->registerIpc(m_ipcService, m_configService);
@@ -1076,6 +1087,12 @@ bool Application::runIdleAction(const IdleActionRequest& action) {
     return setOutputPower(false);
   case IdleActionKind::ScreenOn:
     return setOutputPower(true);
+  case IdleActionKind::Dim:
+    applyIdleDim(true);
+    return true;
+  case IdleActionKind::Undim:
+    applyIdleDim(false);
+    return true;
   case IdleActionKind::Suspend:
     return m_sessionActionRunner.requestSuspendDetached();
   case IdleActionKind::LockAndSuspend:

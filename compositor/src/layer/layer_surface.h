@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <memory>
 #include <vector>
 
 #include "config/config.h"
@@ -13,6 +15,7 @@
 struct wlr_layer_surface_v1;
 struct wlr_scene_layer_surface_v1;
 struct wlr_scene_tree;
+struct wlr_scene_rect;
 struct wlr_scene_border;
 struct wlr_box;
 struct wlr_surface;
@@ -41,12 +44,23 @@ namespace andromeda {
     [[nodiscard]] bool exclusiveKeyboard() const;
     [[nodiscard]] bool acceptsKeyboard() const;
     [[nodiscard]] bool hasKeyboardFocus() const;
+    // The shell's status surfaces (bars, island, OSD, notification toasts) stay above the other surfaces of their layer,
+    // so a panel that opens later never covers a banner.
+    [[nodiscard]] bool statusSurface() const;
+    // Raises this surface to the top of its layer.
+    void raise();
     [[nodiscard]] SurfaceBlurOptions blurOptions() const;
     [[nodiscard]] bool blurActive() const { return m_blur.active(); }
     // Reads a finished backdrop sample of the liquid blur and sends dsk_surface_v1.backdrop on a tone change. Returns
     // true while a sample still waits for the GPU.
     bool pollBackdrop();
+    // Moves the density toward the tone of the last backdrop sample.
+    void updateDensity();
+    // Sends the density to the blur nodes as a backdrop pre-mix toward the tint.
+    void applyDensity();
     [[nodiscard]] SurfaceBlurOptions popupBlurOptions() const;
+    // The ext-background-effect blur region a client set on `surface` (one of its popups), or null.
+    [[nodiscard]] const pixman_region32_t* clientBlurRegion(wlr_surface* surface) const;
 
     void focus();
     // A grabbing xdg_popup of this layer mapped. wlroots routes the grab's keys to the seat's focused surface and
@@ -84,6 +98,7 @@ namespace andromeda {
     // Tell an open overview to re-resolve this output's mirrored background stack.
     void notifyDesktopStack();
     void applyBackgroundOpaqueRegion();
+    void applyVisibleRegion();
     void updateBlur();
     void applyConfig();
     void refreshStartupRuleEffects();
@@ -103,11 +118,31 @@ namespace andromeda {
     std::vector<SurfaceBlur> m_shapeBlurs;
     float m_liquid = 0.0F;
     float m_rim = 0.0F;
+    float m_lens = 0.0F;
     bool m_backdropDark = false;
+    // dsk_surface_v1 tint (v9): the client's tint over the blur, rgba; the compositor adds the density to it.
+    std::array<float, 4> m_tint{};
+    // Per blur node (m_blur, then m_shapeBlurs) material from dsk_shape_v1 (v10); empty = the surface material.
+    struct ShapeMaterial {
+      float liquid = 0.0F;
+      float rim = 0.0F;
+      float lens = 0.0F;
+      std::array<float, 4> tint{};
+    };
+    std::vector<ShapeMaterial> m_shapeMaterials;
+    bool m_tintLight = false;
+    // Glass density, 0 to 1: how far the tint is raised over a same-tone backdrop. Rises only while mapped.
+    AnimatedValue m_density{0.0};
+    float m_densityTarget = 0.0F;
+    bool m_densityMeasured = false;
+    // Surface opacity (layer fade x dsk opacity): the compositor-drawn tint fades with the surface it belongs to.
+    float m_tintFade = 1.0F;
     float m_blurFade = 1.0F;
     SurfaceShadow m_shadow; // dsk_surface_v1 elevation
+    std::vector<std::unique_ptr<SurfaceShadow>> m_shapeShadows; // dsk_shape_v1 elevation, one per shape
     // dsk_surface_v1 stroke: the hairline the client border cannot draw while the clip cuts the client's sheet edge.
     wlr_scene_border* m_stroke = nullptr;
+    std::vector<wlr_scene_rect*> m_shapeFills; // dsk_shape_v1 flat shapes (fill alpha > 0), reused per frame
     float m_surfaceAlpha = 1.0F;
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};

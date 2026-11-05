@@ -6,11 +6,13 @@
 #include "ipc/ipc_service.h"
 #include "pipewire/audio_media_class.h"
 #include "pipewire/audio_route_selection.h"
+#include "pipewire/pipewire_context.h"
 #include "pipewire/pipewire_error.h"
 #include "pipewire/privacy_capture_classification.h"
 #include "pipewire/wireplumber_mixer.h"
 #include "util/string_utils.h"
 
+#include <unistd.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -395,6 +397,15 @@ namespace {
     assignIfBetter(client.appId, std::move(appId));
 
     assignIfBetter(client.binary, dictGet(props, "application.process.binary"));
+
+    std::uint32_t processId = parseUint32Or(dictGet(props, "application.process.id"));
+    if (processId == 0) {
+      processId = parseUint32Or(dictGet(props, "pipewire.sec.pid"));
+    }
+    if (processId != 0 && processId != client.processId) {
+      client.processId = processId;
+      changed = true;
+    }
 
     std::string iconName = dictGet(props, "application.icon-name");
     if (iconName.empty()) {
@@ -788,7 +799,11 @@ PipeWireService::PipeWireService() {
     throw std::runtime_error("pipewire: failed to create loop");
   }
 
-  m_context = pw_context_new(m_loop, nullptr, 0);
+  m_context = pw_context_new(
+      m_loop,
+      pw_properties_new(noctalia::pipewire::kContextRtModuleKey, noctalia::pipewire::kContextRtModuleDisabled, nullptr),
+      0
+  );
   if (m_context == nullptr) {
     pw_loop_destroy(m_loop);
     throw std::runtime_error("pipewire: failed to create context");
@@ -1252,6 +1267,7 @@ void PipeWireService::onRegistryGlobal(std::uint32_t id, const char* type, std::
       nd->applicationId.erase(nd->applicationId.size() - std::string_view(".desktop").size());
     }
     nd->applicationBinary = dictGet(props, "application.process.binary");
+    nd->processId = parseUint32Or(dictGet(props, "application.process.id"));
     if (nd->applicationName.empty()) {
       nd->applicationName = nd->applicationBinary;
     }
@@ -1438,6 +1454,9 @@ void PipeWireService::onNodeInfo(std::uint32_t id, const pw_node_info* info) {
     if (!appName.empty()) {
       nd.applicationName = appName;
     }
+    if (const std::uint32_t processId = parseUint32Or(dictGet(info->props, "application.process.id")); processId != 0) {
+      nd.processId = processId;
+    }
     std::string appId = dictGet(info->props, "application.id");
     if (appId.ends_with(".desktop")) {
       appId.erase(appId.size() - std::string_view(".desktop").size());
@@ -1499,7 +1518,13 @@ void PipeWireService::onNodeInfo(std::uint32_t id, const pw_node_info* info) {
   if (profileDeviceChanged) {
     recomputeEffectiveMute(nd);
   }
+  bool runningChanged = false;
+  if ((info->change_mask & PW_NODE_CHANGE_MASK_STATE) != 0) {
+    const bool running = info->state == PW_NODE_STATE_RUNNING;
+    runningChanged = running != std::exchange(nd.running, running);
+  }
   if (profileDeviceChanged
+      || (runningChanged && nd.mediaClass.starts_with("Stream/"))
       || (isStream && (!wasStreamReady || filterPropsChanged))
       || wasProgramStream != isStream
       || wasPrivacyCandidate
@@ -1738,7 +1763,11 @@ void PipeWireService::onDeviceParam(
   route.available = routeAvailable;
   route.muted = muted;
   route.portType = routePortType(param);
+  const bool unplugged = headphonesUnplugged(it->second.routes, route);
   upsertRoute(it->second.routes, std::move(route));
+  if (unplugged && m_headphonesUnplugged) {
+    m_headphonesUnplugged();
+  }
 
   // Device volume is authoritative through mixer-api; only route mute feeds effective mute here.
   for (auto& [nid, node] : m_nodes) {
@@ -1832,6 +1861,10 @@ void PipeWireService::refreshNodeIdentity(NodeData& nd) {
   }
   if (nd.iconName.empty() && !client.iconName.empty()) {
     nd.iconName = client.iconName;
+  }
+  // Native PipeWire streams carry no application.process.id on the node, only on their client.
+  if (nd.processId == 0) {
+    nd.processId = client.processId;
   }
 
   // QEMU sets target.object (the libvirt VM name) but never application.name. Surface that name as
@@ -1988,6 +2021,17 @@ void PipeWireService::rebuildState() {
 
     addCapture(*kind, consumer->id, privacyAppName(*consumer));
   }
+
+  for (const auto& [nodeId, node] : m_nodes) {
+    // The shell's own streams (the spectrum capture) are not app activity.
+    if (node != nullptr && node->running && node->processId != 0 && node->processId != static_cast<std::uint32_t>(getpid())
+        && node->mediaClass.starts_with("Stream/") && node->mediaClass.ends_with("/Audio")) {
+      next.audioPids.push_back(node->processId);
+      next.playing = next.playing || node->mediaClass == "Stream/Output/Audio";
+    }
+  }
+  std::ranges::sort(next.audioPids);
+  next.audioPids.erase(std::ranges::unique(next.audioPids).begin(), next.audioPids.end());
 
   // Sort by id for stable ordering
   std::ranges::sort(next.sinks, {}, &AudioNode::id);

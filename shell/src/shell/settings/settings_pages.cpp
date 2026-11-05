@@ -39,7 +39,7 @@ namespace settings {
     constexpr PageGroup kSys = PageGroup::System;
 
     // IA order (DESIGN.md "Settings information architecture").
-    const std::array<SettingsPage, 27> kPages{{
+    const std::array<SettingsPage, 29> kPages{{
         {"wifi", kConn, "wifi", {}},
         {"bluetooth", kConn, "bluetooth", {}},
         {"network", kConn, "world", {}},
@@ -65,6 +65,8 @@ namespace settings {
         {"services", kSys, "adjustments-horizontal", kServices},
         {"plugins", kSys, "puzzle", kPlugins},
         {"automation", kSys, "link", kAutomation},
+        {"problems", kSys, "alert-triangle", {}},
+        {"software-update", kSys, "download", {}},
         {"about", kSys, "info-circle", kAbout},
         {"users", kSys, "user", {}, false},
     }};
@@ -106,9 +108,9 @@ namespace settings {
         "shell.font_family",
         "wallpaper.enabled", "wallpaper.fill_mode", "wallpaper.directory", "wallpaper.transition",
         "wallpaper.automation.enabled", "wallpaper.automation.interval_seconds",
-        "brightness.sync_all_monitors",
+        "brightness.sync_all_monitors", "brightness.automatic",
         "audio.enable_sounds", "audio.sound_volume", "audio.auto_switch_hdmi", "bluetooth.connect_when_enabled",
-        "notification.enable_daemon", "notification.position", "notification.show_app_name",
+        "notification.enable_daemon", "notification.show_app_name",
         "notification.keep_dismissed_in_history", "osd.enabled", "osd.position",
         "dock.enabled", "dock.icon_size", "dock.magnification", "dock.position", "dock.auto_hide", "dock.show_running",
         "desktop_widgets.enabled", "shell.screen_corners.enabled",
@@ -123,8 +125,8 @@ namespace settings {
         "andromeda.layout.mode", "andromeda.layout.gap", "andromeda.input.focus.follows_mouse",
         "andromeda.workspaces.back_and_forth", "hot_corners.enabled", "shell.window_switcher.style",
         "andromeda.overview.zoom",
-        "andromeda.general.mod_key", "shell.keyboard_layout.custom_labels",
-        "shell.session.actions", "idle.behavior",
+        "shell.session.actions", "idle.behavior", "andromeda.general.optimize_background_apps",
+        "andromeda.general.freeze_background_apps", "andromeda.general.freeze_hidden_apps",
         "lockscreen.enabled", "lockscreen.lock_before_suspend", "lockscreen.grace_period_seconds",
         "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",
         "weather.enabled",
@@ -210,7 +212,7 @@ namespace settings {
 
   std::span<const SettingsPage> settingsPages() { return kPages; }
 
-  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users"; }
+  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users" || pageId == "problems" || pageId == "software-update"; }
 
   const SettingsPage* settingsPageFromId(std::string_view id) {
     if (const auto* it = std::ranges::find(kPages, id, &SettingsPage::id); it != kPages.end()) {

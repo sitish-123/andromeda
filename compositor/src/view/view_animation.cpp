@@ -41,7 +41,7 @@ namespace andromeda {
   }
 
   bool View::fadeComposited() const {
-    if (!m_fade.animating()) {
+    if (!m_fade.animating() || scaleOnlyOpening()) {
       return false;
     }
     return m_customFade || (!m_inScratchpad && effectRegistry().lifecycleEffect(AnimationEvent::WindowsIn) != nullptr);
@@ -82,7 +82,7 @@ namespace andromeda {
 
   void View::setFadeAlpha(float alpha) {
     // Overshooting curves can push this out of range; wlr_scene_buffer_set_opacity asserts opacity is in [0, 1].
-    m_fadeAlpha = std::clamp(alpha, 0.0F, 1.0F);
+    m_fadeAlpha = scaleOnlyOpening() ? 1.0F : std::clamp(alpha, 0.0F, 1.0F);
     applyEffectiveOpacity();
     const float effective = effectiveOpacity();
     m_decoration.setBorderRawColor(m_borderColorAnim.current(), effective);
@@ -136,6 +136,10 @@ namespace andromeda {
   bool View::fullscreenOpeningActive() const {
     return m_mapped && !m_inScratchpad && layoutFullscreen() && m_fade.animating() && m_fade.target() > m_fade.from();
   }
+
+  // A fullscreen window covers what a fade would reveal, so it opens with the scale alone: no offscreen capture,
+  // which costs two full-screen passes per frame on a low-end GPU. A custom open effect still runs.
+  bool View::scaleOnlyOpening() const { return !m_customFade && fullscreenOpeningActive(); }
 
   wlr_box View::openingInsetBox(const wlr_box& box) const {
     wlr_box presented = box;
@@ -610,6 +614,8 @@ namespace andromeda {
       m_fade.snap(0.0);
       m_fade.retarget(1.0, open.durationMs, open.curve);
       setFadeAlpha(0.0F);
+      // Focus at map started a border transition; the fade-in covers it, so it ends now.
+      settleFocusChrome();
       if (!m_customFade && (open.style == "popin" || open.style == "zoom")) {
         m_openingScale = std::clamp(open.style == "zoom" ? 0.5 : open.scale, 0.0, 1.0);
       }
@@ -811,7 +817,11 @@ namespace andromeda {
       m_dragSlotBound = false;
     }
     bindAnimationEffect(&target->node, AnimationEvent::DimUnfocused, m_focusDim);
-    bindAnimationEffect(&target->node, m_inScratchpad ? AnimationEvent::Scratchpad : AnimationEvent::WindowsIn, m_fade);
+    if (!m_inScratchpad && scaleOnlyOpening()) {
+      wlr_scene_node_set_animation(&target->node, static_cast<unsigned>(AnimationEvent::WindowsIn), nullptr, nullptr);
+    } else {
+      bindAnimationEffect(&target->node, m_inScratchpad ? AnimationEvent::Scratchpad : AnimationEvent::WindowsIn, m_fade);
+    }
     wlr_scene_node_set_animation(
         &target->node, static_cast<unsigned>(m_inScratchpad ? AnimationEvent::WindowsIn : AnimationEvent::Scratchpad),
         nullptr, nullptr

@@ -29,6 +29,7 @@
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_damage_ring.h>
 #include <wlr/types/wlr_linux_dmabuf_v1.h>
+#include <wlr/types/wlr_output_layer.h>
 #include <wlr/util/addon.h>
 #include <wlr/util/box.h>
 
@@ -120,6 +121,8 @@ enum wlr_scene_direct_scanout_status {
   // The backend test rejected the buffer, for instance its format or modifier.
   WLR_SCENE_DIRECT_SCANOUT_REJECTED,
   WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE,
+  // The buffer is on the primary plane and the nodes above it are composited into one overlay plane.
+  WLR_SCENE_DIRECT_SCANOUT_OVERLAY,
 };
 
 /**
@@ -204,6 +207,8 @@ struct wlr_scene_rect {
   struct fx_corner_radii corners;
   bool accepts_input;
   struct clipped_region clipped_region;
+  // Skip the draw while opaque content in the siblings above covers the rect.
+  bool skip_when_covered;
 };
 
 /** A scene-graph node displaying a two-color rounded border in one pass */
@@ -243,10 +248,18 @@ struct wlr_scene_blur {
   float ignore_alpha;
   float liquid; // liquid glass strength, 0 to 1
   float rim; // specular rim only, 0 to 1: no refraction and no lighter blur (frosted sheets)
+  float lens; // sharp backdrop through the rim band, 0 to 1
+  float tint_mix[4]; // backdrop pre-mix toward rgb by a (glass density)
   struct wlr_box liquid_box; // node-local; empty = the node box and corners
   int liquid_radius;
 
   bool should_only_blur_bottom_layer;
+  // Samples the cached bottom-layer blur in frames where nothing but the bottom layers lies under the node, and blurs
+  // the live content otherwise. use_cache is that choice for the frame being built; cached_outputs keeps the last
+  // choice per output index, so outputs with different content under the node do not repaint each other.
+  bool adaptive;
+  bool use_cache;
+  uint64_t cached_outputs;
 
   struct linked_node transparency_mask_source;
 
@@ -345,6 +358,8 @@ struct wlr_scene_buffer {
     // If is_single_pixel_buffer is set, contains the color of the buffer
     // as {R, G, B, A} where the max value of each component is UINT32_MAX
     uint32_t single_pixel_buffer_color[4];
+    // Counts buffer commits with damage; tells new content apart from a reused buffer or staging slot.
+    uint32_t content_seq;
   } WLR_PRIVATE;
 
   struct fx_corner_radii corners;
@@ -440,6 +455,52 @@ struct wlr_scene_output {
     bool hdr_white_point_active;
     bool hdr_white_point_cursor_locked;
     struct wl_listener output_destroy;
+    bool overlay_planes_enabled;
+    struct wlr_output_layer* overlay_layer;
+    // Holds a covering client buffer with alpha (a maximized video) between the primary and the overlay plane.
+    struct wlr_output_layer* overlay_video_layer;
+    struct wlr_swapchain* overlay_swapchain;
+    // Points into the committed state, bottom to top: [0] the video layer, [1] the overlay layer. The overlay buffer
+    // stays locked until the next frame is built.
+    struct wlr_output_layer_state overlay_layer_states[2];
+    // The overlay buffer the last committed layer state shows: locked, so the swapchain never renders into it on screen.
+    struct wlr_buffer* overlay_shown_buffer;
+    // The one overlay attempt that may modeset (to settle the display clock) is spent.
+    bool overlay_modeset_tried;
+    // A commit left the layer to composition before that modeset: the next attempt may modeset.
+    bool overlay_modeset_next;
+    // The plane layout of the last overlay test that passed and of a commit that kept the layer on its plane since;
+    // identity only. A matching frame skips the atomic test (1-2 ms on i915), re-testing every 120 frames.
+    const void* overlay_tested_candidate;
+    const void* overlay_tested_video;
+    uint32_t overlay_tested_video_format;
+    uint64_t overlay_tested_video_modifier;
+    // The video buffer format and modifier of the last rejected video layer layout, and the overlay attempts left
+    // before such a video gets the video layer again.
+    uint32_t overlay_video_rejected_format;
+    uint64_t overlay_video_rejected_modifier;
+    uint16_t overlay_video_block;
+    uint32_t overlay_tested_format;
+    uint64_t overlay_tested_modifier;
+    uint8_t overlay_untested_frames;
+    // Frames left before the next overlay attempt after a rejected one.
+    uint8_t overlay_backoff;
+    // Identity only, never dereferenced: the last bottom candidate, its content_seq, and frames built without new content.
+    const void* overlay_candidate;
+    uint32_t overlay_candidate_seq;
+    uint8_t overlay_candidate_still;
+    // Damage history of the overlay swapchain. The overlay draws the entries under it only inside its clip, so the
+    // buffer content damage of those entries goes to under_damage_ring and counts only inside the clip.
+    struct wlr_damage_ring overlay_damage_ring;
+    struct wlr_damage_ring overlay_under_damage_ring;
+    // Identity only: the overlay entry and primary entry nodes of the last overlay frame, and that frame's clip.
+    const void* overlay_under_nodes[2];
+    pixman_region32_t overlay_last_clip;
+    bool overlay_last_opaque;
+    // This frame shows overlay_shown_buffer again: nothing the overlay draws changed, so it renders nothing.
+    bool overlay_reused;
+    // Identity only: the buffer the overlay last rendered into. Only that one holds every change the ring consumed.
+    const void* overlay_rendered;
   } WLR_PRIVATE;
 };
 
@@ -677,6 +738,11 @@ struct wlr_scene_surface* wlr_scene_surface_create(struct wlr_scene_tree* parent
  * scenes displaying the same wlr_surface. Returns false on allocation failure.
  */
 bool wlr_scene_node_set_surface_opacity(struct wlr_scene_node* node, float opacity);
+/**
+ * Makes the surfaces under node ignore their clients' opaque regions, so they blend everywhere and cull nothing below
+ * (for a client that declares translucent pixels opaque). Returns false on allocation failure.
+ */
+bool wlr_scene_node_set_surface_opaque_region_ignored(struct wlr_scene_node* node, bool ignored);
 
 struct wlr_scene_surface_color_state {
   // Zero leaves the transfer function unspecified and follows output SDR policy.
@@ -770,6 +836,12 @@ void wlr_scene_rect_set_size(struct wlr_scene_rect* rect, int width, int height)
  * Change the corner radius of all corners of an existing rectangle node.
  */
 void wlr_scene_rect_set_corner_radius(struct wlr_scene_rect* rect, int corner_radius);
+
+/**
+ * Skip drawing the rectangle while opaque content in the sibling nodes above it covers it. The check runs at draw
+ * time, so it also holds inside an effect capture of a common ancestor, which transforms both alike.
+ */
+void wlr_scene_rect_set_skip_when_covered(struct wlr_scene_rect* rect, bool skip);
 
 /**
  * Change the rounded corners of an existing rectangle node.
@@ -877,6 +949,9 @@ void wlr_scene_blur_set_corner_radii(struct wlr_scene_blur* blur, struct fx_corn
  */
 void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur* blur, bool should_only_blur_bottom_layer);
 
+/** Picks the cached or the live blur per frame from what lies under the node (see wlr_scene_blur.adaptive). */
+void wlr_scene_blur_set_adaptive(struct wlr_scene_blur* blur, bool adaptive);
+
 /**
  * Set the transparency mask source for the blur, only rendering blur where the
  * Mask source is actually rendering (e.g. skip transparent spaces)
@@ -908,6 +983,16 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid);
  * Sets the specular rim alone, 0 to 1, for shapes that stay frosted. The drawn rim is the larger of rim and liquid.
  */
 void wlr_scene_blur_set_rim(struct wlr_scene_blur* blur, float rim);
+
+/**
+ * Sets the lens strength, 0 to 1: the sharp backdrop, displaced, shows through the rim band. Costs a backdrop copy.
+ */
+void wlr_scene_blur_set_lens(struct wlr_scene_blur* blur, float lens);
+
+/**
+ * Mixes the blurred backdrop toward the colour rgb by amount (0 to 1), so a tint over it reads denser.
+ */
+void wlr_scene_blur_set_tint_mix(struct wlr_scene_blur* blur, const float rgb[3], float amount);
 
 /**
  * Turns backdrop luminance sampling on or off. While on, each render of this node samples its blurred region; the
@@ -1154,6 +1239,12 @@ void wlr_scene_output_set_position(struct wlr_scene_output* scene_output, int lx
 void wlr_scene_output_set_direct_scanout_enabled(struct wlr_scene_output* scene_output, bool enabled);
 
 /**
+ * Allow a covering client buffer on the primary plane with the nodes above it in one overlay plane. Needs direct
+ * scanout enabled and a backend with output layers (DRM with WLR_DRM_FORCE_LIBLIFTOFF=1).
+ */
+void wlr_scene_output_set_overlay_planes_enabled(struct wlr_scene_output* scene_output, bool enabled);
+
+/**
  * The outcome of the latest frame's direct scanout attempt. Frames that change nothing keep the previous outcome.
  */
 enum wlr_scene_direct_scanout_status
@@ -1227,6 +1318,9 @@ struct wlr_scene_output_state_options {
   // Participating roots supply the workspace isolation identities and transition slot.
   // Render each complete output scene, then composite the pair once.
   struct wlr_scene_node *workspace_from, *workspace_to;
+  // Render locks taken only to keep animated outputs off direct scanout. An overlay frame still renders every node
+  // above the plane buffer, so these locks do not block it.
+  int animation_render_locks;
 };
 
 /**

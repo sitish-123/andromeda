@@ -283,6 +283,9 @@ damping = 0.75
 [spring.fade]      # response 0.16 s, bounce 0: opacity, colour, blur in
 stiffness = 1542.1
 damping = 1.00
+[spring.follow]    # response 0.12 s, bounce 0: shell motion a window open or close causes (ends with the window)
+stiffness = 2741.6
+damping = 1.00
 [spring.fade_out]  # response 0.10 s, bounce 0: opacity, colour, blur out
 stiffness = 3947.8
 damping = 1.00

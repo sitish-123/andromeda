@@ -1,0 +1,76 @@
+# Health watch (docs/system-health.md §4.3): alerts only, one per episode.
+
+# Names the process that keeps the CPU waking while the session is idle (wakeups = timeslices per second, all
+# threads). Samples come each minute while idle; a rate shows only when two idle samples in a row frame it.
+[[rule]]
+id = "power.wakeups"
+scope = "session"
+priority = "automatic"
+per = "process"
+params = { busy_hz = 50, calm_hz = 20 }
+when = "session.idle and proc.wakeups_s >= busy_hz"
+for = "5m"
+clear = "proc.wakeups_s < calm_hz"
+dwell = "10m"
+alert = { urgency = "low", text = "wakeups" }
+
+# Steady anonymous memory growth over 1 to 2 h (least squares, R² >= 0.9); samples each 5 min.
+[[rule]]
+id = "memory.leak"
+scope = "session"
+priority = "automatic"
+per = "process"
+params = { growth_mb_h = 50, calm_mb_h = 10, min_mb = 200 }
+when = "proc.growth_mb_h >= growth_mb_h and proc.growth_r2 >= 0.9 and proc.anon_mb >= min_mb"
+clear = "proc.growth_mb_h < calm_mb_h"
+dwell = "1h"
+alert = { urgency = "normal", text = "memory_leak" }
+
+# One alert per crashed executable per day (systemd-coredump).
+[[rule]]
+id = "apps.crashed"
+scope = "session"
+priority = "automatic"
+per = "crash"
+when = "crash.count >= 1"
+clear = "crash.count < 1"
+alert = { urgency = "normal", text = "crashed" }
+
+# A failed system or user service (apps started as units are left out).
+[[rule]]
+id = "services.failed"
+scope = "session"
+priority = "automatic"
+per = "unit"
+when = "unit.failed"
+clear = "not unit.failed"
+alert = { urgency = "normal", text = "unit_failed" }
+
+# This boot or login took extra_s longer than the median of the earlier ones (5 or more needed).
+[[rule]]
+id = "startup.slow_boot"
+scope = "session"
+priority = "automatic"
+params = { extra_s = 5 }
+when = "startup.boot_s >= startup.boot_median_s + extra_s"
+clear = "startup.boot_s < startup.boot_median_s"
+alert = { urgency = "low", text = "slow_boot" }
+
+[[rule]]
+id = "startup.slow_login"
+scope = "session"
+priority = "automatic"
+params = { extra_s = 2 }
+when = "startup.login_s >= startup.login_median_s + extra_s"
+clear = "startup.login_s < startup.login_median_s"
+alert = { urgency = "low", text = "slow_login" }
+
+# The battery holds 80 % or less of its design capacity.
+[[rule]]
+id = "battery.worn"
+scope = "session"
+priority = "automatic"
+params = { worn_pct = 80, margin_pct = 2 }
+when = "battery.health_pct <= worn_pct"
+clear = "battery.health_pct > worn_pct + margin_pct"
+alert = { urgency = "low", text = "battery_worn" }

@@ -13,6 +13,7 @@ namespace {
   constexpr auto kEnumerationGrace = std::chrono::seconds(5);
 
   bool isDisplayPort(const AudioNode& sink) { return sink.portType == "hdmi" || sink.portType == "displayport"; }
+  bool isBluetooth(const AudioNode& sink) { return sink.name.starts_with("bluez_output."); }
 
 } // namespace
 
@@ -32,7 +33,7 @@ void HdmiAudioSwitch::onAudioStateChanged(PipeWireService& pipewire, bool enable
   std::uint32_t plugged = 0;
   std::unordered_map<std::uint32_t, bool> connected;
   for (const AudioNode& sink : state.sinks) {
-    const bool isConnected = isDisplayPort(sink) && sink.portConnected;
+    const bool isConnected = isBluetooth(sink) || (isDisplayPort(sink) && sink.portConnected);
     connected[sink.id] = isConnected;
     const auto previous = m_connected.find(sink.id);
     const bool wasConnected = previous != m_connected.end() && previous->second;
@@ -49,7 +50,7 @@ void HdmiAudioSwitch::onAudioStateChanged(PipeWireService& pipewire, bool enable
   const auto target = std::ranges::find(state.sinks, plugged, &AudioNode::id);
   if (current == nullptr
       || current->deviceId == 0
-      || current->deviceId != target->deviceId
+      || (!isBluetooth(*target) && current->deviceId != target->deviceId)
       || (current->portType != "speaker" && current->portType != "headphones")) {
     return;
   }

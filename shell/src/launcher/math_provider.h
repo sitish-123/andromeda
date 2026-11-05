@@ -44,9 +44,9 @@ private:
   // Start watching the user definitions directory if it exists. Returns whether a watch was added.
   bool watchDefinitionsDir();
 
-  // Download fresh exchange rates over the async HTTP client, gated on
+  // Download exchange rate files older than a day, once per process on the first evaluation, gated on
   // shell.launcher.fetch_exchange_rates and shell.offline_mode.
-  void refreshExchangeRates();
+  void refreshExchangeRates() const;
 
   ClipboardService* m_clipboard = nullptr;
   ConfigService* m_config = nullptr;
@@ -56,4 +56,5 @@ private:
   std::filesystem::path m_definitionsDir;
   Inotify m_inotify;
   std::optional<int> m_definitionsWatcher;
+  mutable bool m_exchangeRatesChecked = false;
 };

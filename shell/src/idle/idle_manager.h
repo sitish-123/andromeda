@@ -45,6 +45,8 @@ public:
   void setScreenSaverInhibitLocks(std::int64_t locks);
   /// Apply locked timeouts without resuming completed actions or resetting unchanged timers.
   void setSessionLocked(bool locked);
+  /// Behaviors with `power = battery` or `ac` run only on that source.
+  void setOnBattery(bool onBattery);
   /// Seconds the compositor has reported session-idle (1s heartbeat notification); 0 when active or inhibited.
   /// Derived from elapsed monotonic time, so it stays accurate however rarely it is read.
   [[nodiscard]] std::int64_t liveIdleSeconds() const noexcept;
@@ -109,4 +111,5 @@ private:
   std::int64_t m_screenSaverInhibitLocks = 0;
   bool m_inhibitReleasePending = false;
   bool m_sessionLocked = false;
+  bool m_onBattery = false;
 };

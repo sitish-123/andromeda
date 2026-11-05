@@ -34,6 +34,25 @@ namespace andromeda {
 
     constexpr Logger kLog("drm");
 
+    // The overlay plane needs wlroots' libliftoff path, taken only with WLR_DRM_FORCE_LIBLIFTOFF. It is set only
+    // around backend creation so clients never inherit it, never over a user value or WLR_DRM_NO_ATOMIC, and creation
+    // retries without it: forced liftoff fails on drivers without atomic modesetting or builds without libliftoff.
+    template <typename Create> auto createWithLiftoff(Create&& create) {
+      const bool force = std::getenv("WLR_DRM_FORCE_LIBLIFTOFF") == nullptr && std::getenv("WLR_DRM_NO_ATOMIC") == nullptr;
+      if (force) {
+        setenv("WLR_DRM_FORCE_LIBLIFTOFF", "1", 1);
+      }
+      auto backend = create();
+      if (force) {
+        unsetenv("WLR_DRM_FORCE_LIBLIFTOFF");
+        if (backend == nullptr) {
+          kLog.warn("backend creation with libliftoff failed; retrying without overlay planes");
+          backend = create();
+        }
+      }
+      return backend;
+    }
+
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
     constexpr auto kDeviceWaitTimeout = std::chrono::seconds(10);
     // Linux reserves this character-device major for DRM, including removed nodes.
@@ -243,7 +262,7 @@ namespace andromeda {
       }
 
       if (!m_policyActive) {
-        m_backend = wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session);
+        m_backend = createWithLiftoff([&] { return wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session); });
         return m_backend != nullptr;
       }
 
@@ -293,7 +312,6 @@ namespace andromeda {
 
     [[nodiscard]] wlr_backend* backend() const { return m_backend; }
     [[nodiscard]] wlr_session* session() const { return m_session; }
-    [[nodiscard]] wl_event_loop* eventLoop() const { return wl_display_get_event_loop(m_display); }
 
     [[nodiscard]] wlr_renderer* createRenderer() {
 #if ANDROMEDA_HAS_NATIVE_DRM_POLICY
@@ -574,6 +592,24 @@ namespace andromeda {
       return true;
     }
 
+    // Connectors are cardN-<name> entries in the card's sysfs directory; when it cannot be read, assume a display.
+    [[nodiscard]] bool hasDrmConnectors(dev_t device) const {
+      UdevDevice card(udev_device_new_from_devnum(m_session->udev, 'c', device));
+      const char* syspath = card ? udev_device_get_syspath(card.get()) : nullptr;
+      const char* sysname = card ? udev_device_get_sysname(card.get()) : nullptr;
+      if (syspath == nullptr || sysname == nullptr) {
+        return true;
+      }
+      const std::string prefix = std::string(sysname) + "-";
+      std::error_code error;
+      for (const auto& entry : std::filesystem::directory_iterator(syspath, error)) {
+        if (entry.path().filename().string().starts_with(prefix)) {
+          return true;
+        }
+      }
+      return error.value() != 0;
+    }
+
     void openCandidate(const DrmDeviceIdentity& candidate) {
       struct stat preOpenStat{};
       if (stat(candidate.node.c_str(), &preOpenStat) != 0 || !S_ISCHR(preOpenStat.st_mode)) {
@@ -598,6 +634,11 @@ namespace andromeda {
         return;
       }
 
+      // A render-only GPU (a laptop's discrete GPU) has no connectors; opening it would wake it from runtime suspend.
+      if (!hasDrmConnectors(identity->device)) {
+        kLog.info("skipping {}: no display connectors", identity->node);
+        return;
+      }
       wlr_device* device = wlr_session_open_file(m_session, identity->node.c_str());
       if (device == nullptr) {
         kLog.warn("failed to open allowed DRM card {}", identity->node);
@@ -626,7 +667,7 @@ namespace andromeda {
       // A parent makes wlroots create an internal multi-GPU renderer through
       // EGL device enumeration. Independent backends keep exclusions strict;
       // secondary outputs import the compositor's DMA-BUFs directly instead.
-      wlr_backend* drm = wlr_drm_backend_create(m_session, device, nullptr);
+      wlr_backend* drm = createWithLiftoff([&] { return wlr_drm_backend_create(m_session, device, nullptr); });
       if (drm == nullptr) {
         closeDeviceIfOwned(device);
         kLog.warn("failed to create a DRM backend for {}", identity->node);
@@ -902,7 +943,6 @@ namespace andromeda {
   wlr_renderer* BackendManager::createRenderer() {
     wlr_renderer* renderer = m_impl->createRenderer();
     if (renderer != nullptr) {
-      fx_renderer_set_event_loop(renderer, m_impl->eventLoop());
       kLog.info("{} GPU driver thread(s) share the main thread's real-time policy", shareSchedulingWithDriverThreads());
     }
     return renderer;

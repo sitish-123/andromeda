@@ -2967,7 +2967,6 @@
           "description": "Actions appliquées après la capture, ou quand « Terminé » est choisi dans l'éditeur d'annotations"
         },
         "screenshot-pipe-command": {
-          "description": "Commande exécutée via /bin/sh -lc avec l’image PNG sur l’entrée standard. Utile pour les outils d’annotation ou d’envoi (par exemple : swappy -f - ou satty -f -)",
           "label": "Commande de traitement",
           "placeholder": "swappy -f -"
         },

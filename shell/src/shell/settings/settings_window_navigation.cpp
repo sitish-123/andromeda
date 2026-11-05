@@ -1,3 +1,4 @@
+#include "dbus/andromeda/system_health_service.h"
 #include "dbus/logind/power_config_service.h"
 #include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_window.h"
@@ -25,6 +26,11 @@ void SettingsWindow::applyNavEntry(const NavEntry& entry) {
   if (m_selectedSection == "power" && m_powerConfigProvider) {
     if (PowerConfigService* config = m_powerConfigProvider(); config != nullptr) {
       config->refresh();
+    }
+  }
+  if (m_selectedSection == "power" && m_systemHealthProvider) {
+    if (SystemHealthService* health = m_systemHealthProvider(); health != nullptr) {
+      health->refresh();
     }
   }
 }

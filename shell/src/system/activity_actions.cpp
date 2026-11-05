@@ -140,7 +140,7 @@ void ActivityActions::stop(const SystemdUnit& unit, Reply reply) {
   }
   try {
     proxyFor(unit, kManagerPath).callMethodAsync("StopUnit").onInterface(kManager).withArguments(unit.name, std::string("replace")).uponReplyInvoke(
-        [reply = std::move(reply)](const std::optional<sdbus::Error>& error, const sdbus::ObjectPath& /*job*/) {
+        [reply = std::move(reply)](std::optional<sdbus::Error> error, const sdbus::ObjectPath& /*job*/) {
           reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
         }
     );
@@ -160,7 +160,7 @@ void ActivityActions::forceQuit(const SystemdUnit& unit, Reply reply) {
         .callMethodAsync("KillUnit")
         .onInterface(kManager)
         .withArguments(unit.name, std::string("all"), kSigKill)
-        .uponReplyInvoke([reply = std::move(reply)](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([reply = std::move(reply)](std::optional<sdbus::Error> error) {
           reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
         });
   } catch (const sdbus::Error& e) {
@@ -179,7 +179,7 @@ void ActivityActions::setFrozen(const SystemdUnit& unit, bool frozen, Reply repl
         .callMethodAsync(method)
         .onInterface(kManager)
         .withArguments(unit.name)
-        .uponReplyInvoke([reply = std::move(reply)](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([reply = std::move(reply)](std::optional<sdbus::Error> error) {
           reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
         });
   } catch (const sdbus::Error& e) {
@@ -205,11 +205,65 @@ void ActivityActions::setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaP
         .callMethodAsync("SetUnitProperties")
         .onInterface(kManager)
         .withArguments(unit.name, true, props)
-        .uponReplyInvoke([reply = std::move(reply)](const std::optional<sdbus::Error>& error) {
+        .uponReplyInvoke([reply = std::move(reply)](std::optional<sdbus::Error> error) {
           reply(error.has_value() ? fromError(error->getName() + ": " + error->getMessage()) : ActivityActionResult{.ok = true});
         });
   } catch (const sdbus::Error& e) {
     reply(fromError(e.what()));
+  }
+}
+
+void ActivityActions::describeUnit(
+    const std::string& name, bool systemManager, std::function<void(std::optional<SystemdUnit>)> reply
+) {
+  SystemdUnit unit{.name = name, .systemManager = systemManager};
+  if (systemManager && m_systemBus == nullptr) {
+    reply(std::nullopt);
+    return;
+  }
+  using Properties = std::map<sdbus::PropertyName, sdbus::Variant>;
+  const auto text = [](const Properties& props, const char* key) {
+    const auto it = props.find(sdbus::PropertyName{key});
+    return it != props.end() ? it->second.get<std::string>() : std::string();
+  };
+  try {
+    proxyFor(unit, kManagerPath).callMethodAsync("GetUnit").onInterface(kManager).withArguments(name).uponReplyInvoke(
+        [this, unit, reply, text](std::optional<sdbus::Error> error, const sdbus::ObjectPath& path) {
+          if (error.has_value()) {
+            reply(std::nullopt);
+            return;
+          }
+          SystemdUnit found = unit;
+          found.objectPath = path;
+          auto& proxy = proxyFor(found, path);
+          proxy.getAllPropertiesAsync().onInterface("org.freedesktop.systemd1.Unit").uponReplyInvoke(
+              [found, reply, text, &proxy](std::optional<sdbus::Error> unitError, const Properties& props) {
+                if (unitError.has_value()) {
+                  reply(std::nullopt);
+                  return;
+                }
+                SystemdUnit unit = found;
+                unit.activeState = text(props, "ActiveState");
+                unit.subState = text(props, "SubState");
+                unit.unitFileState = text(props, "UnitFileState");
+                unit.fragmentPath = text(props, "FragmentPath");
+                const char* typed = unit.name.ends_with(".socket") ? "org.freedesktop.systemd1.Socket"
+                                                                   : "org.freedesktop.systemd1.Service";
+                proxy.getAllPropertiesAsync().onInterface(typed).uponReplyInvoke(
+                    [unit, reply, text](std::optional<sdbus::Error> typedError, const Properties& typedProps) {
+                      SystemdUnit described = unit;
+                      if (!typedError.has_value()) {
+                        described.controlGroup = text(typedProps, "ControlGroup");
+                      }
+                      reply(std::move(described));
+                    }
+                );
+              }
+          );
+        }
+    );
+  } catch (const sdbus::Error&) {
+    reply(std::nullopt);
   }
 }
 
@@ -241,13 +295,13 @@ void ActivityActions::disableAtLogin(
   try {
     auto& manager = proxyFor(unit, kManagerPath);
     manager.callMethodAsync("DisableUnitFiles").onInterface(kManager).withArguments(std::vector<std::string>{unit.name}, false).uponReplyInvoke(
-        [this, unit, reply, &manager](const std::optional<sdbus::Error>& error, const std::vector<Change>& /*changes*/) {
+        [this, unit, reply, &manager](std::optional<sdbus::Error> error, const std::vector<Change>& /*changes*/) {
           if (error.has_value()) {
             reply(fromError(error->getName() + ": " + error->getMessage()));
             return;
           }
           // Reload so UnitFileState shows "disabled" at once; a user manager reload needs no authorization.
-          manager.callMethodAsync("Reload").onInterface(kManager).uponReplyInvoke([this, unit, reply](const std::optional<sdbus::Error>&) {
+          manager.callMethodAsync("Reload").onInterface(kManager).uponReplyInvoke([this, unit, reply](std::optional<sdbus::Error>) {
             checkOnDemand(unit, ActivityActionResult{.ok = true}, reply);
           });
         }
@@ -279,12 +333,12 @@ void ActivityActions::enableAtLogin(
   try {
     auto& manager = proxyFor(unit, kManagerPath);
     manager.callMethodAsync("EnableUnitFiles").onInterface(kManager).withArguments(std::vector<std::string>{unit.name}, false, false).uponReplyInvoke(
-        [reply, &manager](const std::optional<sdbus::Error>& error, bool /*carriesInstallInfo*/, const std::vector<Change>& /*changes*/) {
+        [reply, &manager](std::optional<sdbus::Error> error, bool /*carriesInstallInfo*/, const std::vector<Change>& /*changes*/) {
           if (error.has_value()) {
             reply(fromError(error->getName() + ": " + error->getMessage()));
             return;
           }
-          manager.callMethodAsync("Reload").onInterface(kManager).uponReplyInvoke([reply](const std::optional<sdbus::Error>&) {
+          manager.callMethodAsync("Reload").onInterface(kManager).uponReplyInvoke([reply](std::optional<sdbus::Error>) {
             reply(ActivityActionResult{.ok = true});
           });
         }
@@ -303,7 +357,7 @@ void ActivityActions::checkOnDemand(const SystemdUnit& unit, ActivityActionResul
   using Properties = std::map<sdbus::PropertyName, sdbus::Variant>;
   auto& proxy = proxyFor(unit, unit.objectPath);
   proxy.getAllPropertiesAsync().onInterface("org.freedesktop.systemd1.Unit").uponReplyInvoke(
-      [unit, result, reply, &proxy](const std::optional<sdbus::Error>& error, const Properties& props) {
+      [unit, result, reply, &proxy](std::optional<sdbus::Error> error, const Properties& props) {
         ActivityActionResult checked = result;
         if (!error.has_value()) {
           if (const auto it = props.find(sdbus::PropertyName{"TriggeredBy"}); it != props.end()) {
@@ -315,7 +369,7 @@ void ActivityActions::checkOnDemand(const SystemdUnit& unit, ActivityActionResul
           return;
         }
         proxy.getAllPropertiesAsync().onInterface("org.freedesktop.systemd1.Service").uponReplyInvoke(
-            [checked, reply](const std::optional<sdbus::Error>& serviceError, const Properties& serviceProps) {
+            [checked, reply](std::optional<sdbus::Error> serviceError, const Properties& serviceProps) {
               ActivityActionResult final = checked;
               if (!serviceError.has_value()) {
                 if (const auto it = serviceProps.find(sdbus::PropertyName{"BusName"}); it != serviceProps.end()) {

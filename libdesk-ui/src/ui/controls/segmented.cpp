@@ -8,12 +8,14 @@
 #include "ui/controls/separator.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <memory>
 #include <utility>
 
 Segmented::Segmented() {
+  setAccessible({.role = AccessibleRole::TabList});
   setDirection(FlexDirection::Horizontal);
   setAlign(FlexAlign::Stretch);
   setGap(0.0F);
@@ -237,6 +239,13 @@ void Segmented::setEqualSegmentWidths(bool equalWidths) {
 }
 
 void Segmented::refreshVariants() {
+  for (std::size_t i = 0; i < m_buttons.size(); ++i) {
+    if (m_buttons[i] != nullptr) {
+      Accessible& tab = m_buttons[i]->accessibleState();
+      tab.role = AccessibleRole::Tab;
+      tab.selected = i == m_selected;
+    }
+  }
   const std::size_t n = m_buttons.size();
   const float r = (Style::controlHeight * 0.5F - 2.0F) * m_scale;
   for (std::size_t i = 0; i < n; ++i) {

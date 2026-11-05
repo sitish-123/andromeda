@@ -2443,9 +2443,11 @@ bool LuauHost::startAsyncProcessMatch(std::vector<std::string> needles, int call
     std::thread([hostId = m_hostId, callbackRef, needles = std::move(needles), handler = std::move(handler)] mutable {
       nameThisThread("dsk-procmatch");
       bool matched = false;
+      // A thread entry: nothing may escape it. A failed /proc read counts as no match.
       try {
         matched = process::commandLineMatchesAll(needles);
-      } catch (...) {
+      } catch (const std::exception& e) {
+        kLog.warn("process match failed: {}", e.what());
       }
       inFlightAsyncProcessMatches().fetch_sub(1, std::memory_order_relaxed);
       handler(hostId, callbackRef, matched);

@@ -98,7 +98,8 @@ void FileEntryTile::bind(
   setSize(width, height);
   m_background->setSize(width, height);
 
-  m_thumbnailEligible = !entry.isDir && DirectoryScanner::isImagePath(entry.absPath);
+  // Any file: ThumbnailService decodes images and asks Thumbnailer1 for the rest (PDF, video, fonts).
+  m_thumbnailEligible = !entry.isDir;
   const std::string nextThumbnailPath = m_thumbnailEligible ? entry.absPath.string() : std::string();
   if (m_thumbnailPath != nextThumbnailPath) {
     releaseThumbnail();
@@ -108,7 +109,7 @@ void FileEntryTile::bind(
     }
   }
 
-  m_glyph->setGlyph(entry.isDir ? "folder" : (m_thumbnailEligible ? "image" : "file"));
+  m_glyph->setGlyph(entry.isDir ? "folder" : (DirectoryScanner::isImagePath(entry.absPath) ? "image" : "file"));
   m_label->setText(entry.name);
   m_label->setMaxWidth(std::max(0.0F, width - Style::spaceSm * m_scale * 2.0F));
 

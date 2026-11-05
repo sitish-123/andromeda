@@ -244,6 +244,7 @@ namespace settings {
     // colours; auto splits all three down the middle. 116 x 74 at r 10 (R7 inside the 12 tile with its 2 + 2 ring).
     constexpr float kModeThumbWidth = 116.0F;
     constexpr float kModeThumbHeight = 74.0F;
+    constexpr float kModeThumbGap = 22.0F;
 
     std::unique_ptr<RectNode> modeLayer(float x, float y, float w, float h, float radius, std::array<Color, 3> stops,
                                         bool split) {
@@ -530,7 +531,7 @@ namespace settings {
         return strip;
       }
       // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
-      auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = 22.0F * scale,
+      auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = kModeThumbGap * scale,
                             .fillWidth = true});
       auto ordered = setting.options;
       std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {

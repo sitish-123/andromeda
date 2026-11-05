@@ -125,6 +125,7 @@ private:
   void applyVisualState();
   void updateDisplayText();
   void requestCaretUpdate();
+  void syncAccessibleText();
   void updateInteractiveGeometry();
   void clearFromButton();
   void updateCursorVisibility();

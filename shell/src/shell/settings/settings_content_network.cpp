@@ -11,6 +11,7 @@
 
 namespace settings {
   namespace {
+    constexpr float kStatusDotSize = 6.0F;
 
     using namespace page_rows;
 
@@ -33,9 +34,9 @@ namespace settings {
       auto line = ui::row({.align = FlexAlign::Center, .gap = Style::spaceXs * scale});
       line->addChild(ui::box({
           .fill = colorSpecFromRole(on ? ColorRole::Success : ColorRole::Label3),
-          .radius = 3.0F * scale,
-          .width = 6.0F * scale,
-          .height = 6.0F * scale,
+          .radius = kStatusDotSize * 0.5F * scale,
+          .width = kStatusDotSize * scale,
+          .height = kStatusDotSize * scale,
       }));
       line->addChild(makeLabel(status, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
       copy->addChild(std::move(line));

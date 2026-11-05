@@ -89,7 +89,7 @@ namespace settings::page_rows {
     content.addChild(std::move(empty));
   }
 
-  void addHero(Flex& content, Hero hero, float scale) {
+  Flex* addHero(Flex& content, Hero hero, float scale) {
     constexpr float kIcon = 32.0F;
     Flex* card = addCard(content, scale);
     auto r = row(scale);
@@ -117,6 +117,7 @@ namespace settings::page_rows {
       r->addChild(ui::toggle({.checked = hero.on, .scale = scale, .onChange = std::move(hero.onToggle)}));
     }
     card->addChild(std::move(r));
+    return card;
   }
 
 } // namespace settings::page_rows

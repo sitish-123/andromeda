@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <print>
 #include <string>
 #include <sys/socket.h>
@@ -30,7 +31,7 @@ namespace {
 
 } // namespace
 
-int IpcClient::send(const std::string& command) {
+int IpcClient::send(const std::string& command, bool stream) {
   const std::string path = resolveSocketPath();
   if (path.empty()) {
     std::println(stderr, "error: XDG_RUNTIME_DIR is not set");
@@ -91,6 +92,11 @@ int IpcClient::send(const std::string& command) {
     return 1;
   }
 
+  if (stream) {
+    timeval none{};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &none, sizeof(none));
+  }
+
   // Read response until EOF (server closes connection after writing)
   std::string response;
   char buf[4096];
@@ -107,13 +113,30 @@ int IpcClient::send(const std::string& command) {
     if (n == 0) {
       break;
     }
+    if (stream) {
+      std::fwrite(buf, 1, static_cast<std::size_t>(n), stdout);
+      std::fflush(stdout);
+      if (response.empty()) {
+        response.assign(buf, static_cast<std::size_t>(std::min<ssize_t>(n, 6)));
+      }
+      continue;
+    }
     response.append(buf, static_cast<std::size_t>(n));
   }
 
   ::close(fd);
 
+  if (stream) {
+    // A stream ends only when the shell exits or drops this subscriber.
+    std::fputs("error: the event stream ended\n", stderr);
+    return 1;
+  }
   std::fputs(response.c_str(), stdout);
-
-  // Return 1 if the response indicates an error
+  if (response.starts_with('{')) {
+    const auto reply = nlohmann::json::parse(response, nullptr, false);
+    if (reply.is_object() && reply.contains("ok") && reply["ok"].is_boolean()) {
+      return reply["ok"].get<bool>() ? 0 : 1;
+    }
+  }
   return response.starts_with("error:") ? 1 : 0;
 }

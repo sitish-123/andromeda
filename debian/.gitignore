@@ -1,0 +1,8 @@
+/build/
+/*/
+!/source/
+/.debhelper/
+/debhelper-build-stamp
+/files
+/*.substvars
+/*.debhelper*

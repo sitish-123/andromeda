@@ -10,10 +10,6 @@
 namespace andromeda {
 
   namespace {
-    // Liquid is the glass slider's clarity (1 Clear, 0.5 Tinted, 0 Frosted): Clear blurs at 30 %, Tinted at 65 %, so
-    // the rim refraction bends shapes, not a smear, yet the backdrop stays calm behind text.
-    float liquidBlurStrength(float liquid) { return 1.0F - 0.7F * liquid; }
-
     wlr_scene_buffer* findSurfaceBuffer(wlr_scene_node& root, wlr_surface* surface) {
       struct Lookup {
         wlr_surface* surface;
@@ -38,6 +34,11 @@ namespace andromeda {
     }
 
   } // namespace
+
+  glass::Material configGlass(glass::Kind kind) {
+    const Config::Appearance& a = config().appearance;
+    return glass::material(kind, static_cast<float>(a.glass), a.reduceTransparency, false);
+  }
 
   bool surfaceTransparent(wlr_surface* surface, const wlr_box& surfaceBox) {
     const pixman_box32_t box = {
@@ -95,7 +96,9 @@ namespace andromeda {
       if (currentMask != maskSource) {
         wlr_scene_blur_set_transparency_mask_source(m_node, maskSource);
       }
-    } else if (currentMask == nullptr) {
+    } else if (currentMask == nullptr && options.ignoreAlpha > 0.0F) {
+      // Only the alpha test reads the mask (fx_pass.c), and a buffer masks one blur node at a time: two nodes of one
+      // surface (bar islands) would take it from each other on every update, each take a repaint.
       if (wlr_scene_buffer* mask = findSurfaceBuffer(parent->node, surface)) {
         wlr_scene_blur_set_transparency_mask_source(m_node, mask);
       }
@@ -107,6 +110,8 @@ namespace andromeda {
 
     m_optimized = options.optimized.value_or(cfg.optimized);
     wlr_scene_blur_set_should_only_blur_bottom_layer(m_node, m_optimized && !m_live);
+    // Live glass samples the cached wallpaper blur in frames where only the wallpaper lies under it.
+    wlr_scene_blur_set_adaptive(m_node, !m_optimized && !m_live);
 
     wlr_scene_node_set_enabled(&m_node->node, true);
     wlr_scene_node_set_position(&m_node->node, drawBox.x, drawBox.y);
@@ -121,14 +126,27 @@ namespace andromeda {
     }
     wlr_scene_blur_set_liquid(m_node, m_liquid);
     wlr_scene_blur_set_rim(m_node, m_rim);
+    wlr_scene_blur_set_lens(m_node, m_lens);
+    wlr_scene_blur_set_tint_mix(m_node, m_tintRgb.data(), m_tintAmount);
     wlr_scene_blur_set_backdrop_sampling(m_node, m_backdropSampling);
-    wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * m_fade);
+    wlr_scene_blur_set_strength(m_node, glass::blurStrength(m_liquid) * m_fade);
     // The rim follows the client's blur region (the drawn shape), not the node box: a panel surface is larger than
-    // its sheet. Liquid surfaces are capsules (the launcher pill), so the radius is half the short side.
+    // its sheet. The radius is where the staircase first reaches the full width (a rectangle, e.g. a settings
+    // sidebar: 0; the launcher pill: half its height).
     if (clipRegion != nullptr && pixman_region32_not_empty(clipRegion)) {
       const pixman_box32_t* e = pixman_region32_extents(clipRegion);
       const wlr_box shape{e->x1 + nodeBox.x - drawBox.x, e->y1 + nodeBox.y - drawBox.y, e->x2 - e->x1, e->y2 - e->y1};
-      wlr_scene_blur_set_liquid_shape(m_node, &shape, std::min(shape.width, shape.height) / 2);
+      int count = 0;
+      const pixman_box32_t* rects = pixman_region32_rectangles(clipRegion, &count);
+      int radius = std::min(shape.width, shape.height) / 2;
+      for (int i = 0; i < count; ++i) {
+        if (rects[i].x1 == e->x1 && rects[i].x2 == e->x2) {
+          const int offset = rects[i].y1 - e->y1;
+          radius = std::min(radius, offset > 0 ? offset + 1 : 0);
+          break;
+        }
+      }
+      wlr_scene_blur_set_liquid_shape(m_node, &shape, radius);
     } else {
       wlr_scene_blur_set_liquid_shape(m_node, nullptr, 0);
     }
@@ -187,7 +205,7 @@ namespace andromeda {
     m_liquid = liquid;
     if (m_node != nullptr) {
       wlr_scene_blur_set_liquid(m_node, liquid);
-      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(liquid) * m_fade);
+      wlr_scene_blur_set_strength(m_node, glass::blurStrength(liquid) * m_fade);
     }
   }
 
@@ -198,10 +216,31 @@ namespace andromeda {
     }
   }
 
+  void SurfaceBlur::setMaterial(const glass::Material& material) {
+    setLiquid(material.level);
+    setRim(material.rim);
+    setLens(material.lens);
+  }
+
+  void SurfaceBlur::setLens(float lens) {
+    m_lens = lens;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_lens(m_node, lens);
+    }
+  }
+
+  void SurfaceBlur::setTintMix(const std::array<float, 3>& rgb, float amount) {
+    m_tintRgb = rgb;
+    m_tintAmount = amount;
+    if (m_node != nullptr) {
+      wlr_scene_blur_set_tint_mix(m_node, rgb.data(), amount);
+    }
+  }
+
   void SurfaceBlur::setFade(float fade) {
     m_fade = fade;
     if (m_node != nullptr) {
-      wlr_scene_blur_set_strength(m_node, liquidBlurStrength(m_liquid) * fade);
+      wlr_scene_blur_set_strength(m_node, glass::blurStrength(m_liquid) * fade);
     }
   }
 
@@ -209,6 +248,7 @@ namespace andromeda {
     m_live = live;
     if (m_node != nullptr) {
       wlr_scene_blur_set_should_only_blur_bottom_layer(m_node, m_optimized && !m_live);
+      wlr_scene_blur_set_adaptive(m_node, !m_optimized && !m_live);
     }
   }
 

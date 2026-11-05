@@ -7,6 +7,7 @@ build:
     cd greeter && just build
     git submodule update --init link
     cd link && cargo build
+    cd system && cargo build
 
 # Link's gate: format, pedantic clippy, the proto tests, and the supply-chain policy.
 link:
@@ -14,6 +15,14 @@ link:
     cd link && cargo clippy --all-targets -- -D warnings
     cd link && cargo test
     cd link && cargo deny check
+
+# andromeda-system's gate: format, pedantic clippy, unit tests, and the daemon against the power mock on a test bus.
+system:
+    cd system && cargo fmt --check
+    cd system && cargo clippy --all-targets -- -D warnings
+    cd system && cargo test
+    cd system && cargo build
+    system/tests/mock_bus.sh
 
 test: build
     cd compositor && just test
@@ -53,6 +62,10 @@ e2e-failed:
 e2e-one name:
     just e2e-run tests/e2e/{{name}}.sh
 
+# Unit suites and headless E2E in an Ubuntu container, on the working tree: `just e2e-ubuntu` or `just e2e-ubuntu 26.04 dock_basic`.
+e2e-ubuntu version="26.04" *names:
+    tools/ubuntu-e2e.sh {{version}} {{names}}
+
 [private]
 e2e-run +scripts:
     #!/usr/bin/env bash
@@ -66,13 +79,13 @@ e2e-run +scripts:
     if [ -s "$d/failed.txt" ]; then echo "still failing: $(tr '\n' ' ' < "$d/failed.txt")"; fi
     exit $bad
 
-check: test link
+check: test link system
     cd compositor && just check
     just e2e
 
 package:
     # -C: a reused build dir keeps old subproject options (default_options apply only on the first configure).
-    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" makepkg -fC
+    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" makepkg -fC
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
 

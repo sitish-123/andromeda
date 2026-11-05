@@ -1,6 +1,9 @@
 # Unit tests. Each entry is [name, test sources, extra dependencies]. Every test gets andromeda_pure_dep; add andromeda_core_dep to the third field for a test that
 # needs compositor code. Either way a test never lists or recompiles a source.
 unit_tests = [
+  ['qos-policy', ['unit/qos_policy.cpp'], []],
+  ['qos-cpu-topology', ['unit/qos_cpu_topology.cpp'], []],
+  ['qos-holds', ['unit/qos_holds.cpp'], []],
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['overview-preview-geometry', ['unit/overview_preview_geometry.cpp'], [andromeda_core_dep]],

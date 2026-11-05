@@ -15,6 +15,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -257,13 +258,26 @@ void NetworkWidget::syncState(Renderer& renderer) {
   const bool cellularEnabled = cellularPresent && modem->enabled();
   const std::uint8_t cellularSignal = cellularPresent ? modem->signalQuality : 0;
   const std::string cellularOperator = cellularPresent ? modem->operatorName : std::string{};
+  // Wi-Fi strength jitters by 1-2 % every few seconds; the bar shows it only as the glyph level, and the tooltip
+  // reads it live, so a change that keeps the glyph needs no bar redraw.
+  const auto withoutStrength = [](NetworkState state) {
+    state.signalStrength = 0;
+    return state;
+  };
   if (m_haveLastState
-      && s == m_lastState
+      && withoutStrength(s) == withoutStrength(m_lastState)
+      && std::string_view(network_display::glyphForState(s)) == network_display::glyphForState(m_lastState)
       && m_isVertical == m_lastVertical
       && cellularPresent == m_lastCellularPresent
       && cellularEnabled == m_lastCellularEnabled
       && cellularSignal == m_lastCellularSignal
       && cellularOperator == m_lastCellularOperator) {
+    if (s.signalStrength != m_lastState.signalStrength) {
+      m_lastState = s;
+      if (auto* rootNode = root(); rootNode != nullptr) {
+        static_cast<InputArea*>(rootNode)->requestTooltipRefresh();
+      }
+    }
     return;
   }
   m_lastState = s;

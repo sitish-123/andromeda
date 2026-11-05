@@ -1,4 +1,5 @@
 #include "application.h"
+#include "a11y/atspi_bridge.h"
 
 #include "app/main_loop.h"
 #include "theme/dev_tokens.h"
@@ -15,6 +16,8 @@
 #include "cursor-shape-v1-client-protocol.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/andromeda/shell_service.h"
+#include "dbus/andromeda/system_health_service.h"
+#include "dbus/andromeda/software_update_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/logind/power_config_service.h"
 #include "dbus/bluetooth/bluetooth_service.h"
@@ -42,6 +45,7 @@
 #include "dbus/portal/inhibit_portal.h"
 #include "dbus/portal/settings_portal.h"
 #include "dbus/power/power_profiles_service.h"
+#include "dbus/sensor/ambient_light_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
 #include "dbus/system_bus.h"
@@ -53,6 +57,7 @@
 #include "i18n/i18n.h"
 #include "i18n/i18n_service.h"
 #include "ipc/ipc_arg_parse.h"
+#include "ipc/ipc_events.h"
 #include "launcher/app_provider.h"
 #include "launcher/dmenu_provider.h"
 #include "launcher/emoji_provider.h"
@@ -97,6 +102,7 @@
 #include "system/distro_info.h"
 #include "system/easyeffects_service.h"
 #include "system/keyboard_backlight_service.h"
+#include "system/memory_pressure_poll_source.h"
 #include "system/system_monitor_service.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/controls/input.h"
@@ -108,6 +114,8 @@
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
+#include <charconv>
+#include <ctime>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -116,6 +124,7 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <malloc.h>
 #ifdef NOCTALIA_USE_JEMALLOC
@@ -126,12 +135,15 @@
 #include <string_view>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 #ifdef NOCTALIA_USE_JEMALLOC
 #define NOCTALIA_STRINGIFY_HELPER(x) #x
 #define NOCTALIA_STRINGIFY(x) NOCTALIA_STRINGIFY_HELPER(x)
 #endif
 
 std::atomic<bool> Application::s_shutdownRequested{false};
+std::atomic<bool> Application::s_displayLost{false};
 
 namespace {
   constexpr Logger kLog("app");
@@ -159,7 +171,77 @@ namespace {
       kLog.debug("startup phase {} took {:.1F}ms", label, ms);
     }
   }
+
+  // The open panel at a compositor crash, for the next shell process (docs/resilience.md §7).
+  std::filesystem::path runtimePath(std::string_view name) {
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    return runtime != nullptr && *runtime != '\0' ? std::filesystem::path(runtime) / name : std::filesystem::path{};
+  }
+
+  // A handoff older than this belongs to a log-out, not a crash.
+  constexpr auto kHandoffMaxAge = std::chrono::seconds(30);
 } // namespace
+
+void Application::writeShellHandoff() const {
+  const std::filesystem::path path = runtimePath("noctalia/handoff.json");
+  const std::string& panel = m_panelManager.activePanelId();
+  if (path.empty() || panel.empty() || m_panelManager.activePanel() == nullptr) {
+    return;
+  }
+  const nlohmann::json handoff{
+      {"version", 1}, {"panel", panel}, {"context", m_panelManager.activePanel()->handoffContext()}
+  };
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  const std::filesystem::path tmp = path.string() + ".tmp";
+  std::ofstream(tmp) << handoff.dump();
+  std::filesystem::rename(tmp, path, ec);
+  kLog.info("saved the open panel '{}' for the next shell", panel);
+}
+
+void Application::restoreShellHandoff() {
+  const std::filesystem::path path = runtimePath("noctalia/handoff.json");
+  std::error_code ec;
+  if (path.empty() || !std::filesystem::exists(path, ec)) {
+    return;
+  }
+  const auto age = std::filesystem::file_time_type::clock::now() - std::filesystem::last_write_time(path, ec);
+  const nlohmann::json handoff = nlohmann::json::parse(std::ifstream(path), nullptr, false);
+  std::filesystem::remove(path, ec);
+  if (ec || age > kHandoffMaxAge || handoff.is_discarded() || !handoff.contains("panel")) {
+    return;
+  }
+  // The compositor's relock event brings the lock screen back; a panel must not open under it.
+  if (std::filesystem::exists(runtimePath("andromeda/locked"), ec)) {
+    return;
+  }
+  const std::string panel = handoff.value("panel", "");
+  const std::string context = handoff.value("context", "");
+  kLog.info("reopening the panel '{}' open before the compositor restart", panel);
+  m_panelManager.openPanel(panel, PanelOpenRequest{.context = context});
+}
+
+
+void trimAllocator() {
+#ifdef __GLIBC__
+#ifdef NOCTALIA_USE_JEMALLOC
+  // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
+  // looked up; without it the shell runs on glibc malloc.
+  using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
+  if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
+    Mallctl mallctlFn = nullptr;
+    std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
+    const int purgeResult =
+        mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+    if (purgeResult != 0) {
+      kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
+    }
+    return;
+  }
+#endif
+  malloc_trim(0);
+#endif
+}
 
 Application::Application()
     : m_lockKeysService(m_wayland),
@@ -190,9 +272,44 @@ Application::Application()
     }
   });
 
+  // The active Focus survives a shell restart (docs/focus.md §3); one whose end time passed meanwhile is dropped.
+  if (const auto id = m_configService.stateString("focus", "active"); id.has_value() && !id->empty()) {
+    const std::string until = m_configService.stateString("focus", "until").value_or("");
+    std::int64_t untilSec = 0;
+    const auto parsed = std::from_chars(until.data(), until.data() + until.size(), untilSec);
+    // A damaged end time drops the Focus: kept, it would never end.
+    if (until.empty() || (parsed.ec == std::errc{} && parsed.ptr == until.data() + until.size())) {
+      m_notificationManager.focus().restore({
+          .focusId = *id,
+          .untilEpochSec = until.empty() ? std::nullopt : std::optional(untilSec),
+          .startedBy = m_configService.stateString("focus", "started_by").value_or("user"),
+      });
+    }
+  }
+  m_notificationManager.focus().setChangedCallback([this] {
+    const auto& active = m_notificationManager.focus().active();
+    (void)m_configService.setStateString("focus", "active", active.has_value() ? active->focusId : "");
+    (void)m_configService.setStateString(
+        "focus", "until", active.has_value() && active->untilEpochSec.has_value() ? std::to_string(*active->untilEpochSec) : ""
+    );
+    (void)m_configService.setStateString("focus", "started_by", active.has_value() ? active->startedBy : "");
+  });
+  (void)m_notificationManager.focus().expire(std::time(nullptr));
+  // The user's Do Not Disturb survives a shell restart; a rule's (Presenting) does not.
+  if (m_configService.stateBool("notifications", "do_not_disturb").value_or(false)) {
+    m_notificationManager.setDoNotDisturb(true);
+  }
   m_notificationManager.setStateCallback([this] {
     if (m_notificationManager.doNotDisturb()) {
-      m_notificationToast.hideDndSuppressed();
+      m_liveActivity.hideDndSuppressed();
+    }
+    // A change the rule did not make (a later revision) makes the DND the user's.
+    if (m_dndByRule && m_notificationManager.doNotDisturbRevision() != m_dndRuleRevision) {
+      m_dndByRule = false;
+    }
+    if (const bool userDnd = m_notificationManager.doNotDisturb() && !m_dndByRule && !m_notificationManager.doNotDisturbTimed();
+        m_configService.stateBool("notifications", "do_not_disturb").value_or(false) != userDnd) {
+      (void)m_configService.setStateBool("notifications", "do_not_disturb", userDnd);
     }
     if (m_andromedaShellService != nullptr) {
       m_andromedaShellService->notificationStateChanged();
@@ -202,6 +319,8 @@ Application::Application()
 }
 
 Application::~Application() {
+  ipc_events::setSink(nullptr);
+  AtspiBridge::instance().stop();
   m_bar.setCenterIslandSpaceCallback({});
   m_notificationManager.removeUnreadCountCallback(m_islandUnreadToken);
   m_compositorPlatform.setOutputPowerChangeCallback({});
@@ -297,26 +416,7 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
     m_telemetryService.maybeSend(m_configService, m_httpClient, m_wayland);
   });
 
-#ifdef __GLIBC__
-  runStartupPhase("allocator_trim", [] {
-#ifdef NOCTALIA_USE_JEMALLOC
-    // jemalloc is preloaded by the launcher, never linked (its static TLS cannot load through dlopen), so mallctl is
-    // looked up; without it the shell runs on glibc malloc.
-    using Mallctl = int (*)(const char*, void*, std::size_t*, void*, std::size_t);
-    if (void* symbol = dlsym(RTLD_DEFAULT, "mallctl"); symbol != nullptr) {
-      Mallctl mallctlFn = nullptr;
-      std::memcpy(&mallctlFn, &symbol, sizeof(mallctlFn));
-      const int purgeResult =
-          mallctlFn("arena." NOCTALIA_STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
-      if (purgeResult != 0) {
-        kLog.warn("failed to purge jemalloc arenas: {}", std::strerror(purgeResult));
-      }
-      return;
-    }
-#endif
-    malloc_trim(0);
-  });
-#endif
+  runStartupPhase("allocator_trim", [] { trimAllocator(); });
 
   m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this] { syncPolkitAgent(); });
 
@@ -324,6 +424,10 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
   if (startupReadyCallback) {
     startupReadyCallback();
   }
+  m_handoffTimer.start(std::chrono::milliseconds(0), [this] { restoreShellHandoff(); });
   m_mainLoop->run();
+  if (s_displayLost) {
+    writeShellHandoff();
+  }
   kLog.info("shutdown");
 }

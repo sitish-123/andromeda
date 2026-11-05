@@ -147,18 +147,13 @@ extern Palette palette;
 [[nodiscard]] std::string_view colorRoleToken(ColorRole role) noexcept;
 [[nodiscard]] ColorSpec colorSpecFromRole(ColorRole role, float alpha = 1.0F) noexcept;
 // Glass material fill: the tint over the compositor blur, or the opaque solid when transparency is reduced.
-// The tint_regular token's alpha; the palette color is opaque so a caller's opacity replaces it, never multiplies it.
-inline constexpr float kTintRegularAlpha = 0.70F;
+// The palette color is opaque, so a caller's opacity (Style::glassTint) replaces its alpha, never multiplies it.
 [[nodiscard]] inline ColorRole materialRole() noexcept {
   return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintRegular;
 }
-// Panel and sheet material: tint_thick. A caller opacity is relative to tint_regular (0.70 = the token alpha) and is rescaled to thick.
-inline constexpr float kTintThickAlpha = 0.92F;
+// Panel and sheet material: tint_thick.
 [[nodiscard]] inline ColorRole panelMaterialRole() noexcept {
   return Style::reduceTransparency() ? ColorRole::SolidRegular : ColorRole::TintThick;
-}
-[[nodiscard]] inline float panelMaterialAlpha(float opacity) noexcept {
-  return opacity >= 1.0F ? 1.0F : std::min(1.0F, opacity * (kTintThickAlpha / kTintRegularAlpha));
 }
 [[nodiscard]] ColorSpec fixedColorSpec(const Color& color) noexcept;
 [[nodiscard]] Color resolveColorSpec(const ColorSpec& color) noexcept;

@@ -11,6 +11,8 @@
 
 namespace settings {
   namespace {
+    constexpr float kDeviceSliderWidth = 220.0F;
+    constexpr float kAppSliderWidth = 180.0F;
 
     using namespace page_rows;
 
@@ -62,7 +64,7 @@ namespace settings {
           .maxValue = 1.0,
           .step = 0.01,
           .value = node->volume,
-          .width = 220.0F * scale,
+          .width = kDeviceSliderWidth * scale,
           .onValueChanged = [audio, output, id = node->id](double v) {
             if (output) {
               audio->setSinkVolume(id, static_cast<float>(v));
@@ -110,7 +112,7 @@ namespace settings {
             .maxValue = 1.0,
             .step = 0.01,
             .value = program.volume,
-            .width = 180.0F * scale,
+            .width = kAppSliderWidth * scale,
             .onValueChanged = [&audio, id = program.id](double v) {
               audio.setProgramOutputVolume(id, static_cast<float>(v));
             },

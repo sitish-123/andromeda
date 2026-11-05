@@ -1,6 +1,7 @@
 #include "render/core/damage_region.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 DamageRect uniteRects(const DamageRect& a, const DamageRect& b) noexcept {
@@ -59,6 +60,17 @@ void DamageRegion::add(const DamageRegion& region) {
   for (const DamageRect& rect : region.rects()) {
     add(rect);
   }
+}
+
+DamageRegion DamageRegion::toBufferPixels(float scaleX, float scaleY) const {
+  DamageRegion pixels;
+  for (const DamageRect& rect : rects()) {
+    pixels.add(
+        {std::floor(rect.x0 * scaleX), std::floor(rect.y0 * scaleY), std::ceil(rect.x1 * scaleX),
+         std::ceil(rect.y1 * scaleY)}
+    );
+  }
+  return pixels;
 }
 
 void DamageRegion::clipTo(const DamageRect& bounds) {

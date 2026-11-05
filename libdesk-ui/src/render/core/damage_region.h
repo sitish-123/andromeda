@@ -33,6 +33,9 @@ public:
 
   void add(const DamageRect& rect);
   void add(const DamageRegion& region);
+  // The rects in buffer pixels, snapped out to whole pixels and merged where they then overlap: every damaged pixel
+  // is in exactly one rect, so a pass drawn per rect never blends a pixel twice.
+  [[nodiscard]] DamageRegion toBufferPixels(float scaleX, float scaleY) const;
   void clipTo(const DamageRect& bounds);
   void clear() noexcept { m_count = 0; }
   [[nodiscard]] bool empty() const noexcept { return m_count == 0; }

@@ -14,12 +14,14 @@
 
 extern "C" {
 #include <wlr/util/addon.h>
+#include <wlr/util/box.h>
 }
 
 struct wlr_surface;
 struct dsk_surface_manager_v1_interface;
 struct dsk_surface_v1_interface;
 struct dsk_tracker_v1_interface;
+struct dsk_shape_v1_interface;
 
 namespace andromeda {
 
@@ -30,6 +32,11 @@ namespace andromeda {
     struct State {
       SurfaceMotion motion;
       int backdropTone = -1; // last dsk_surface_v1.backdrop sent, -1 = none yet
+      int version = 0; // dsk_surface_v1 version the client bound
+      // dsk_surface_v1.set_visible_region (v8), surface-local; nullopt = the whole surface.
+      std::optional<std::vector<pixman_box32_t>> visibleRegion;
+      // dsk_shape_v1 (v10) glass shapes in creation order; each owns its properties and animations.
+      std::vector<SurfaceMotion*> shapes;
     };
 
     explicit DskSurfaceManager(wl_display* display);
@@ -41,6 +48,11 @@ namespace andromeda {
     // Layout position of a layer surface (mapped or about to map), nullopt otherwise; set_clip_from does nothing until the server sets it.
     void setOriginLookup(std::function<std::optional<std::pair<int, int>>(wlr_surface*)> lookup) {
       m_originLookup = std::move(lookup);
+    }
+
+    // dsk_surface_v1.launch_from (v11): `box` is surface-local.
+    void setLaunchFromHandler(std::function<void(wl_client*, wlr_surface*, const wlr_box&)> handler) {
+      m_launchFromHandler = std::move(handler);
     }
 
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
@@ -71,11 +83,12 @@ namespace andromeda {
   private:
     struct Op {
       // ClipFrom: value is a clip in layout coordinates, made surface-local at commit.
-      enum class Kind : uint8_t { Set, Animate, ClipFrom } kind;
+      enum class Kind : uint8_t { Set, Animate, ClipFrom, Loop } kind;
       uint32_t serial;
       SurfaceMotion::Property property;
       SurfaceMotion::Curve curve;
       SurfaceMotion::Value value;
+      SurfaceMotion::LoopSpec loop; // Loop only
     };
 
     struct Surface;
@@ -115,6 +128,15 @@ namespace andromeda {
       TrackerMotion motion{};
     };
 
+    // A dsk_shape_v1; its ops apply on the parent wl_surface commit. parent is null once the dsk_surface_v1 is gone.
+    struct Shape {
+      DskSurfaceManager* manager = nullptr;
+      wl_resource* resource = nullptr;
+      Surface* parent = nullptr;
+      std::vector<Op> pending{};
+      SurfaceMotion motion{};
+    };
+
     // Lives with its wl_surface while the protocol object exists.
     struct Surface {
       DskSurfaceManager* manager = nullptr;
@@ -123,10 +145,13 @@ namespace andromeda {
       wlr_addon addon{};
       wl_listener clientCommit{};
       std::vector<Op> pending{};
+      std::optional<std::optional<std::vector<pixman_box32_t>>> pendingVisibleRegion{};
       State current{};
+      std::vector<Shape*> shapes{}; // every live dsk_shape_v1, in creation order
     };
 
     static const struct dsk_surface_manager_v1_interface kManagerImplementation;
+    static const struct dsk_shape_v1_interface kShapeImplementation;
     static const struct dsk_surface_v1_interface kSurfaceImplementation;
     static const struct dsk_tracker_v1_interface kTrackerImplementation;
     static const wlr_addon_interface kAddonInterface;
@@ -138,6 +163,8 @@ namespace andromeda {
     static void handleGetTracker(wl_client* client, wl_resource* resource, uint32_t id, wl_resource* surface);
     static void handleSurfaceDestroy(wl_client* client, wl_resource* resource);
     static void handleSetElevation(wl_client* client, wl_resource* resource, uint32_t level);
+    static void handleLaunchFrom(wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height);
+    static void handleSetVisibleRegion(wl_client* client, wl_resource* resource, wl_resource* region);
     static void
     handleSet(wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d);
     static void handleAnimate(
@@ -149,6 +176,24 @@ namespace andromeda {
         int32_t height
     );
     static void handleSurfaceResourceDestroyed(wl_resource* resource);
+    static void handleGetShape(wl_client* client, wl_resource* resource, uint32_t id);
+    static Shape* shapeFromResource(wl_resource* resource);
+    static void handleShapeDestroy(wl_client* client, wl_resource* resource);
+    static void handleShapeSet(
+        wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d
+    );
+    static void handleShapeAnimate(
+        wl_client* client, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t curve, int32_t a,
+        int32_t b, int32_t c, int32_t d
+    );
+    static void handleShapeLoop(
+        wl_client* client, wl_resource* resource, uint32_t serial, uint32_t property, uint32_t wave,
+        uint32_t periodMs, uint32_t seed, int32_t a, int32_t b, int32_t c, int32_t d
+    );
+    static void handleShapeResourceDestroyed(wl_resource* resource);
+    // Applies `ops` to `motion` as a commit does.
+    static void applyOps(const std::vector<Op>& ops, SurfaceMotion& motion);
+    static void sendShapeEvents(Shape& shape, uint32_t timeMs);
     static void handleClientCommit(wl_listener* listener, void* data);
     static void handleAddonDestroy(wlr_addon* addon);
     // timeMs stamps started events: the frame time from tick(), or the commit time.
@@ -181,6 +226,7 @@ namespace andromeda {
 
     wl_global* m_global = nullptr;
     std::function<std::optional<std::pair<int, int>>(wlr_surface*)> m_originLookup;
+    std::function<void(wl_client*, wlr_surface*, const wlr_box&)> m_launchFromHandler;
   };
 
 } // namespace andromeda

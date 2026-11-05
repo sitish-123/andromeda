@@ -21,6 +21,7 @@
 #include "util/secure_wipe.h"
 #include "util/string_utils.h"
 #include "wayland/text_input_service.h"
+#include "render/scene/accessible.h"
 
 #include <algorithm>
 #include <array>
@@ -149,6 +150,7 @@ namespace {
 } // namespace
 
 Input::Input() {
+  setAccessible({.role = AccessibleRole::TextField, .text = std::string()});
   // 0: background
   auto bg = std::make_unique<RectNode>();
   m_background = static_cast<RectNode*>(addChild(std::move(bg)));
@@ -404,6 +406,10 @@ Input::Input() {
 Input::~Input() {
   if (m_passwordMode) {
     util::secureWipe(m_value);
+    if (auto& text = accessibleState().text) {
+      util::secureWipe(*text);
+    }
+    util::secureWipe(m_labelVisibleSlice);
   }
   if (m_textInputService != nullptr) {
     m_textInputService->clearFocusedClient(this);
@@ -427,6 +433,12 @@ void Input::setValue(std::string_view value) {
 }
 
 void Input::setPlaceholder(std::string_view placeholder) {
+  // The placeholder names a field that has no label of its own.
+  auto& accessible = accessibleState();
+  if (accessible.name.empty() || accessible.name == accessible.description) {
+    accessible.name = std::string(placeholder);
+  }
+  accessible.description = std::string(placeholder);
   m_placeholder = std::string(placeholder);
   if (m_value.empty()) {
     updateDisplayText();
@@ -473,6 +485,7 @@ void Input::setPasswordMode(bool enabled) {
   }
   m_passwordMode = enabled;
   m_passwordRevealed = false;
+  m_label->setSensitive(enabled);
   if (m_passwordMode) {
     clearEditHistory();
   } else {
@@ -631,6 +644,7 @@ void Input::setFrameRadius(float radius) {
 }
 
 void Input::setEnabled(bool enabled) {
+  accessibleState().disabled = !enabled;
   if (m_enabled == enabled) {
     return;
   }
@@ -1015,15 +1029,21 @@ void Input::updateLabelVisibleSlice(Renderer& renderer) {
     return;
   }
 
-  const std::string slice = m_value.substr(sliceStart, sliceEnd - sliceStart);
+  std::string slice = m_value.substr(sliceStart, sliceEnd - sliceStart);
   m_labelSliceOriginX = sliced ? stopXForByte(sliceStart) : 0.0F;
   m_labelVisibleStartByte = sliceStart;
   if (slice != m_labelVisibleSlice) {
+    if (m_passwordMode) {
+      util::secureWipe(m_labelVisibleSlice);
+    }
     m_labelVisibleSlice = slice;
     m_label->setText(m_labelVisibleSlice);
     m_label->measure(renderer);
     const float h = m_controlHeight;
     m_cachedLabelY = std::round((h - m_label->height()) * 0.5F);
+  }
+  if (m_passwordMode) {
+    util::secureWipe(slice);
   }
 }
 
@@ -1690,6 +1710,9 @@ void Input::applyVisualState() {
 }
 
 void Input::updateDisplayText() {
+  if (m_passwordMode) {
+    util::secureWipe(m_labelVisibleSlice);
+  }
   if (m_value.empty() && !m_placeholder.empty()) {
     m_labelVisibleSlice.clear();
     m_label->setText(m_placeholder);
@@ -1700,6 +1723,7 @@ void Input::updateDisplayText() {
     m_labelVisibleSlice.clear();
     m_label->setText(m_value);
   }
+  syncAccessibleText();
 }
 
 void Input::requestCaretUpdate() {
@@ -1709,6 +1733,30 @@ void Input::requestCaretUpdate() {
   updateInteractiveGeometry();
   updateCursorVisibility();
   markPaintDirty();
+  syncAccessibleText();
+}
+
+void Input::syncAccessibleText() {
+  const auto isLead = [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; };
+  const auto caret = std::min(m_cursorPos, m_value.size());
+  const auto before = std::count_if(m_value.begin(), m_value.begin() + static_cast<std::ptrdiff_t>(caret), isLead);
+  auto& accessible = accessibleState();
+  if (passwordMasked()) {
+    std::string bullets;
+    for (auto n = std::count_if(m_value.begin(), m_value.end(), isLead); n > 0; --n) {
+      bullets += "\u2022";
+    }
+    accessible.text = std::move(bullets);
+  } else {
+    // A revealed password still reaches the screen reader (the user chose to show it); the old copy is wiped.
+    if (m_passwordMode) {
+      if (accessible.text) {
+        util::secureWipe(*accessible.text);
+      }
+    }
+    accessible.text = m_value;
+  }
+  accessible.caretOffset = static_cast<std::int32_t>(before);
 }
 
 bool Input::isReadOnlyVisual() const noexcept {

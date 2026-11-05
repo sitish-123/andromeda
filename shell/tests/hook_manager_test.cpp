@@ -3,9 +3,11 @@
 #include "hooks/hook_manager.h"
 #include "tests/test_check.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <unistd.h>
 #include <string>
 #include <string_view>
@@ -60,10 +62,61 @@ namespace {
     return finished && hookOk && markerSeenByAction;
   }
 
+  // Executables in <dir>/wallpaper-changed.d run one after another in name order as units with the event data; a
+  // failure is kept; fireAsync's done waits for them.
+  bool dirHooksRunAsUnits() {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("andromeda_hooks_" + std::to_string(::getpid()));
+    fs::remove_all(dir);
+    fs::create_directories(dir / "wallpaper-changed.d");
+    for (const char* name : {"20-second", "10-first", "30-not-executable"}) {
+      std::ofstream(dir / "wallpaper-changed.d" / name) << "#!/bin/sh\n";
+      if (std::string_view(name) != "30-not-executable") {
+        fs::permissions(dir / "wallpaper-changed.d" / name, fs::perms::owner_all);
+      }
+    }
+    HookManager hooks;
+    std::vector<std::vector<std::string>> runs;
+    std::vector<std::function<void(bool)>> pending;
+    hooks.setUnitRunner(
+        [&](std::vector<std::string> argv, std::function<void(bool)> done) {
+          runs.push_back(std::move(argv));
+          pending.push_back(std::move(done));
+        },
+        dir
+    );
+    hooks.setAsyncCommandRunner([](const std::string&, std::function<void(bool)> done) { done(true); });
+    auto has = [](const std::vector<std::string>& argv, std::string_view arg) {
+      return std::ranges::find(argv, arg) != argv.end();
+    };
+
+    bool ok = true;
+    hooks.fire(HookKind::WallpaperChanged, {{"NOCTALIA_WALLPAPER_PATH", "/w.png"}});
+    ok = ok && runs.size() == 1 && runs[0].back().ends_with("10-first");
+    ok = ok && has(runs[0], "--setenv=NOCTALIA_WALLPAPER_PATH=/w.png") && has(runs[0], "--property=RuntimeMaxSec=10");
+    pending[0](true);
+    ok = ok && runs.size() == 2 && runs[1].back().ends_with("20-second");
+    pending[1](false);
+    const auto failures = hooks.dirHookFailures();
+    ok = ok && runs.size() == 2 && failures.size() == 1 && failures[0].script == "20-second" &&
+         failures[0].event == "wallpaper-changed";
+
+    bool asyncDone = false;
+    hooks.fireAsync(HookKind::WallpaperChanged, [&](bool) { asyncDone = true; });
+    ok = ok && runs.size() == 3 && !asyncDone;
+    pending[2](true);
+    ok = ok && !asyncDone;
+    pending[3](true);
+    ok = ok && asyncDone;
+    fs::remove_all(dir);
+    return ok;
+  }
+
 } // namespace
 
 int main() {
   TEST_CHECK(asyncHookFinishesBeforeAction());
+  TEST_CHECK(dirHooksRunAsUnits());
 
   constexpr const char* kPathName = "NOCTALIA_WALLPAPER_PATH";
   constexpr const char* kConnectorName = "NOCTALIA_WALLPAPER_CONNECTOR";

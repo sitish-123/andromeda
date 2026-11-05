@@ -6,6 +6,7 @@
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <unistd.h>
@@ -169,6 +170,29 @@ ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
   CHECK(config.colors.accentPrimary == (std::array<float, 4>{1.0F, 0.0F, 0.5F, 1.0F}));
   CHECK(config.animation.windowsIn.style == "fade");
   CHECK(!config.animation.workspaces.enabled);
+}
+
+// Settings > Battery app rules: one [[window_rule]] per app in the settings file; a new choice replaces it, "normal"
+// removes it, and a rule the user wrote by hand stays.
+ANDROMEDA_TEST(appQosRulesReplaceAndRemoveOnlyTheirOwn) {
+  const std::filesystem::path file = std::filesystem::temp_directory_path() / ("app-qos-" + std::to_string(getpid()) + ".toml");
+  {
+    std::ofstream out(file);
+    out << "[[window_rule]]\nmatch.app_id = \"^foot$\"\nqos = \"never_throttle\"\nopacity = 0.9\n";
+  }
+  CHECK(andromeda::saveManagedAppQos(file, "org.mozilla.firefox", "never_throttle"));
+  CHECK(andromeda::saveManagedAppQos(file, "org.mozilla.firefox", "freeze_when_hidden"));
+  CHECK(andromeda::saveManagedAppQos(file, "Signal", "never_throttle"));
+  const auto read = [&file] {
+    std::ifstream in(file);
+    return std::string{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+  };
+  using Rules = std::vector<std::pair<std::string, std::string>>;
+  CHECK(andromeda::documentAppQos(read()) == (Rules{{"org.mozilla.firefox", "freeze_when_hidden"}, {"Signal", "never_throttle"}}));
+  CHECK(andromeda::saveManagedAppQos(file, "org.mozilla.firefox", "normal"));
+  CHECK(andromeda::documentAppQos(read()) == (Rules{{"Signal", "never_throttle"}}));
+  CHECK(read().find("opacity = 0.9") != std::string::npos);
+  std::filesystem::remove(file);
 }
 
 int main() { return RUN_TESTS(); }

@@ -4,6 +4,8 @@
 #include "render/core/shader_program.h"
 
 #include <GLES2/gl2.h>
+#include <array>
+#include <vector>
 
 struct RoundedRectStyle;
 
@@ -24,8 +26,21 @@ public:
       const Mat3& transform = Mat3::identity()
   ) const;
 
+  // Simple rects (solid fill, convex corners, no dash or shadow) can merge into one draw.
+  [[nodiscard]] static bool batchable(const RoundedRectStyle& style) noexcept;
+  // Appends the six vertices of one batchable rect; drawBatched() draws them all with the current GL state.
+  static void appendBatched(
+      std::vector<float>& out, float surfaceWidth, float surfaceHeight, float width, float height,
+      const RoundedRectStyle& style, const Mat3& transform
+  );
+  void drawBatched(const std::vector<float>& vertices) const;
+
 private:
+  void ensureBatchInitialized();
+
   ShaderProgram m_program;
+  ShaderProgram m_batchProgram;
+  std::array<GLint, 6> m_batchAttributes{};
   GLint m_positionLocation = -1;
   GLint m_surfaceSizeLocation = -1;
   GLint m_quadSizeLocation = -1;

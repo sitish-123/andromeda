@@ -83,5 +83,26 @@ int main() {
     ok = false;
   }
 
+  // A jack unplug: the card's output route goes from headphones to speakers, or the headphones turn unavailable.
+  const std::vector<Route> onHeadphones = {
+      Route{.index = 1, .device = 0, .direction = SPA_DIRECTION_OUTPUT, .available = SPA_PARAM_AVAILABILITY_yes,
+            .portType = "headphones"},
+  };
+  const Route toSpeaker{.index = 2, .device = 0, .direction = SPA_DIRECTION_OUTPUT,
+                        .available = SPA_PARAM_AVAILABILITY_yes, .portType = "speaker"};
+  Route goneHeadphones = onHeadphones[0];
+  goneHeadphones.available = SPA_PARAM_AVAILABILITY_no;
+  Route otherDevice = toSpeaker;
+  otherDevice.device = 1;
+  if (!headphonesUnplugged(onHeadphones, toSpeaker) || !headphonesUnplugged(onHeadphones, goneHeadphones)) {
+    std::println(stderr, "audio_route_selection_test: leaving the headphones port must count as an unplug");
+    ok = false;
+  }
+  if (headphonesUnplugged(onHeadphones, onHeadphones[0]) || headphonesUnplugged(onHeadphones, otherDevice)
+      || headphonesUnplugged({}, toSpeaker)) {
+    std::println(stderr, "audio_route_selection_test: an unchanged port, another device or a first route is no unplug");
+    ok = false;
+  }
+
   return ok ? 0 : 1;
 }

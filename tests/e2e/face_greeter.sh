@@ -11,7 +11,7 @@
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/face-greeter}
 source "$(dirname "$0")/lib.sh"
-GREETER=${GREETER:-$ROOT/greeter/build/noctalia-greeter}
+GREETER=${GREETER:-$ROOT/greeter/build-release/noctalia-greeter}
 MOCK="$ROOT/tests/e2e/mock_greetd.py"
 rm -rf "$OUT"
 boot_headless 1

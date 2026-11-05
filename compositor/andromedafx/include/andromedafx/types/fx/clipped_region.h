@@ -4,19 +4,18 @@
 #include <linux/stddef.h>
 #include <wlr/util/box.h>
 
-// uint16_t is a reasonable enough range for corner radius
-// and makes it 8 bytes wide, making it cheap with optimisations
+// 8 bytes wide, cheap with optimisations. A negative radius is a concave flare outside the box (corner_alpha.frag).
 // Note: layout is on purpose to be clockwise
 struct fx_corner_radii {
-  uint16_t top_left;
-  uint16_t top_right;
-  uint16_t bottom_right;
-  uint16_t bottom_left;
+  int16_t top_left;
+  int16_t top_right;
+  int16_t bottom_right;
+  int16_t bottom_left;
 };
 
-#define CORNER_RADIUS_MAX (UINT16_MAX)
+#define CORNER_RADIUS_MAX (INT16_MAX)
 
-static __always_inline uint16_t corner_radius_clamp(int radius) {
+static __always_inline int16_t corner_radius_clamp(int radius) {
   if (radius <= 0) {
     return 0;
   }
@@ -36,6 +35,29 @@ corner_radii_new(int top_left, int top_right, int bottom_right, int bottom_left)
       corner_radius_clamp(bottom_right),
       corner_radius_clamp(bottom_left),
   };
+}
+
+// The corners of the `edge` side (1 top, 2 right, 3 bottom, 4 left) flare concave by `flare` px along that edge,
+// outside the box; the other two keep `radius`.
+static __always_inline struct fx_corner_radii corner_radii_joined(int radius, int edge, int flare) {
+  struct fx_corner_radii corners = corner_radii_new(radius, radius, radius, radius);
+  const int16_t f = (int16_t)-corner_radius_clamp(flare);
+  if (f == 0) {
+    return corners;
+  }
+  if (edge == 1 || edge == 4) {
+    corners.top_left = f;
+  }
+  if (edge == 1 || edge == 2) {
+    corners.top_right = f;
+  }
+  if (edge == 2 || edge == 3) {
+    corners.bottom_right = f;
+  }
+  if (edge == 3 || edge == 4) {
+    corners.bottom_left = f;
+  }
+  return corners;
 }
 
 static __always_inline struct fx_corner_radii corner_radii_all(int radius) {

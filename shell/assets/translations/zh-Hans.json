@@ -3529,7 +3529,6 @@
           "description": "在截图后或在标注编辑器中点击“完成”时执行的操作"
         },
         "screenshot-pipe-command": {
-          "description": "使用 /bin/sh -lc 执行命令，并通过 stdin 传入 PNG 图片；适用于标注或上传工具（例如：swappy -f - 或 satty -f -）",
           "label": "管道命令",
           "placeholder": "swappy -f -"
         },

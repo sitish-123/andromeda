@@ -130,6 +130,8 @@ std::vector<SessionPanelActionConfig> defaultSessionPanelActions() {
 }
 
 std::vector<IdleBehaviorConfig> defaultIdleBehaviors() {
+  // docs/qos.md §7: on battery the screen dims at 2 min, goes off at 3 min and the machine suspends at 15 min; on AC
+  // the screen goes off at 10 min and the machine stays awake.
   return {
       IdleBehaviorConfig{
           .name = "lock",
@@ -140,20 +142,40 @@ std::vector<IdleBehaviorConfig> defaultIdleBehaviors() {
           .resumeCommand = "",
       },
       IdleBehaviorConfig{
+          .name = "dim",
+          .enabled = true,
+          .timeoutSeconds = 120,
+          .action = "dim",
+          .command = "",
+          .resumeCommand = "",
+          .power = "battery",
+      },
+      IdleBehaviorConfig{
           .name = "screen-off",
-          .enabled = false,
-          .timeoutSeconds = 660,
+          .enabled = true,
+          .timeoutSeconds = 180,
           .action = "screen_off",
           .command = "",
           .resumeCommand = "",
+          .power = "battery",
+      },
+      IdleBehaviorConfig{
+          .name = "screen-off-ac",
+          .enabled = true,
+          .timeoutSeconds = 600,
+          .action = "screen_off",
+          .command = "",
+          .resumeCommand = "",
+          .power = "ac",
       },
       IdleBehaviorConfig{
           .name = "lock-and-suspend",
-          .enabled = false,
+          .enabled = true,
           .timeoutSeconds = 900,
           .action = "lock_and_suspend",
           .command = "",
           .resumeCommand = "",
+          .power = "battery",
       },
   };
 }
@@ -190,19 +212,6 @@ std::vector<KeyChord> defaultKeybindSet(KeybindAction action) {
   return {};
 }
 
-float panelCardOpacityForTransparencyMode(PanelTransparencyMode mode, float panelBackgroundOpacity) noexcept {
-  const float backgroundOpacity = std::clamp(panelBackgroundOpacity, 0.0F, 1.0F);
-  switch (mode) {
-  case PanelTransparencyMode::Solid:
-    return 1.0F;
-  case PanelTransparencyMode::Soft:
-    return std::clamp(backgroundOpacity + 0.08F, 0.82F, 0.92F);
-  case PanelTransparencyMode::Glass:
-    return std::clamp(backgroundOpacity + 0.10F, 0.62F, 0.75F);
-  }
-  return 1.0F;
-}
-
 float detachedPanelBackgroundOpacityForTransparencyMode(PanelTransparencyMode mode) noexcept {
   switch (mode) {
   case PanelTransparencyMode::Solid:
@@ -230,6 +239,13 @@ ResolvedIdleBehavior resolveIdleBehaviorActions(const IdleBehaviorConfig& behavi
     return {
         .idleAction = idleAction(IdleActionKind::Lock),
         .resumeAction = {},
+        .resumeCommand = tmp.resumeCommand,
+    };
+  }
+  if (act == "dim") {
+    return {
+        .idleAction = idleAction(IdleActionKind::Dim),
+        .resumeAction = idleAction(IdleActionKind::Undim),
         .resumeCommand = tmp.resumeCommand,
     };
   }

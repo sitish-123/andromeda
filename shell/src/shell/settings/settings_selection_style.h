@@ -31,12 +31,14 @@ namespace settings {
     inline constexpr float kContentMaxWidth = 640.0F;
     inline constexpr float kRowHeight = 40.0F;
     inline constexpr float kRowHeightTwoLine = 56.0F;
+    inline constexpr float kSelectWidth = 190.0F;
     inline constexpr float kPickerTileWidth = 96.0F;
     inline constexpr float kPickerTileHeight = 64.0F;
     inline constexpr float kPickerGap = 8.0F;
     inline constexpr float kThumbHeight = 56.0F;
     inline constexpr float kKeycapHeight = 20.0F;
     inline constexpr float kSwatchSize = 20.0F;
+    inline constexpr float kSelectionBadgeSize = 20.0F;
     inline constexpr float kPickerRadius = 12.0F;
   } // namespace metrics
 

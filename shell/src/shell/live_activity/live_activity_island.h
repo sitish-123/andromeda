@@ -30,6 +30,7 @@ struct Notification;
 enum class NotificationEvent;
 class PipeWireSpectrum;
 class DskSurfaceClient;
+class DskShapeClient;
 class ConfigService;
 class Glyph;
 class InputArea;
@@ -93,6 +94,8 @@ public:
   [[nodiscard]] bool showOsd(const OsdContent& content);
   [[nodiscard]] bool osdVisible() const;
   [[nodiscard]] bool showBanner(const Notification& notification, NotificationEvent event);
+  // Do Not Disturb turned on: drops the banners that respect it.
+  void hideDndSuppressed();
   void setActivity(std::optional<LiveActivity> activity);
   // A fullscreen window: the rest pill hides under it; other faces and an active call still show over it.
   void setFullscreen(bool fullscreen);
@@ -125,12 +128,17 @@ private:
     float width = 0.0F; // surface width: the widest card
     CenterIslandSpace space;
     float liveWidth = 0.0F; // widest card the free center space allows
+    // Last blur and input regions sent; nullopt = none yet. A tick with the same rects sends nothing.
+    std::optional<std::vector<InputRect>> sentBlur;
+    std::optional<std::vector<InputRect>> sentInput;
     float restWidth = 0.0F;
     float scale = 1.0F; // surface px per layout px
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
-    std::optional<bool> backdropDark;
+    // Rest-face waveform drawn by the compositor as flat looping shapes; after `dsk`, so destroyed first.
+    std::array<std::unique_ptr<DskShapeClient>, 3> barShape;
+    std::optional<std::array<float, 6>> barShapeKey; // x, y, r, g, b, a of the looping bars; empty = client bars
     // sceneRoot must be destroyed before `animations`: ~Node() cancels its animations.
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
@@ -187,6 +195,8 @@ private:
     Label* bannerTime = nullptr;
     Label* bannerTitle = nullptr;
     Label* bannerBody = nullptr;
+    Node* bannerActionRow = nullptr;
+    std::array<Button*, 3> bannerActions{};
     std::string artUrl;
     std::string hoverArtUrl;
     Face face = Face::Rest;
@@ -235,6 +245,7 @@ private:
     } mirror;
     Timer mirrorStop;
     double dskLevel = 0.0; // last elevation level sent (protocol version 4)
+    bool compositorTint = false; // the compositor draws the glass tint; the fills paint nothing
   };
 
   struct BannerItem {
@@ -247,6 +258,11 @@ private:
     std::string icon;
     std::string desktopEntry;
     std::optional<NotificationImageData> imageData;
+    // (key, label) of the notification's actions besides "default", at most 3: §9.2 action buttons.
+    std::vector<std::pair<std::string, std::string>> actions;
+    // Critical or never expiring: no timeout; it stays until acted on or swiped away.
+    bool sticky = false;
+    bool respectsDnd = true;
   };
 
   void refreshNow();
@@ -254,6 +270,9 @@ private:
   void destroySurfaces();
   void prepareFrame(Instance& inst, bool needsUpdate, bool needsLayout);
   void buildScene(Instance& inst, float width, float height);
+  // The banner's §9.2 action buttons (hidden until a banner has actions); the first is the primary capsule.
+  std::unique_ptr<Node> bannerActionRow(Instance& inst);
+  void bannerAction(Instance& inst, std::size_t index);
   void applyContent(Instance& inst);
   void applyReveal(Instance& inst, float reveal);
   void animateReveal(Instance& inst, float velocity);
@@ -270,6 +289,8 @@ private:
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;
   void syncDsk(Instance& inst, bool animate);
+  // The glass tint of `face`: the pill material at rest, the sheet tint expanded; alpha 0 when the shell paints it.
+  [[nodiscard]] static DskSurfaceClient::Value islandTint(const Instance& inst, Face face);
   void startMirror(Instance& inst, const Rect& target, bool grow, bool waitForStart);
   void stepMirror(Instance& inst);
   void ensureMirrorDriver(Instance& inst);
@@ -283,6 +304,10 @@ private:
   void loadArt(Instance& inst, Renderer& renderer, const std::string& artUrl);
   void syncBars();
   void tickBars();
+  void syncBarShapes(Instance& inst);
+  [[nodiscard]] bool restUnderFullscreen(const Instance& inst) const;
+  [[nodiscard]] bool realSpectrum() const;
+  [[nodiscard]] bool barsNeedTimer() const;
   void syncHoverProgress(Instance& inst);
   void startNextBanner();
   void endBanner();
@@ -316,6 +341,7 @@ private:
   Timer m_callTimer;
   IconResolver m_iconResolver;
   std::optional<BannerItem> m_banner;
+  int m_notificationToken = -1;
   std::vector<BannerItem> m_bannerQueue;
   // Ids the island showed as a banner: their later updates never raise a toast.
   std::unordered_set<std::uint32_t> m_consumed;

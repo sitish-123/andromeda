@@ -12,6 +12,7 @@
 #include "shell/bar/widget.h"
 #include "shell/panel/attached_panel_context.h"
 #include "ui/signal.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 
 #include <array>
@@ -70,7 +71,6 @@ struct BarInstance {
   std::array<float, 4> sheetTrackerRect{};
   // Liquid glass on the islands (dsk_surface_v1 v5); destroyed before `surface`.
   std::unique_ptr<DskSurfaceClient> dsk;
-  std::optional<bool> backdropDark; // dsk_surface_v1.backdrop, unset until the first measurement
   // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;
@@ -83,8 +83,16 @@ struct BarInstance {
   noctalia::bar::WidgetActionBindings deadZoneBindings;
   InputArea deadZoneAxisSink;
   float hideOpacity = 1.0F;
+  // The auto-hide slide runs as a dsk Translate spring in the compositor (slideRoot stays at 0); `compositorSliding`
+  // while that spring runs: the glass stays shown and an attached panel waits.
+  bool compositorSlide = false;
+  bool compositorSliding = false;
   AnimationManager::Id slideAnimId = 0;
-  std::vector<InputRect> islandBlurStrips; // last island region sent; empty = none sent
+  bool compositorTint = false; // the compositor draws the island tint (dsk v9); islands paint no fill
+  std::vector<InputRect> islandBlurStrips; // last blur region sent (islands or bar body); empty = none sent
+  // dsk v10: one glass shape per island; the compositor draws its blur, rim and tint, so no blur region is sent.
+  std::vector<std::unique_ptr<DskShapeClient>> islandShapes;
+  std::vector<DskSurfaceClient::Value> islandShapeClips; // last clip sent per shape
   // bar-hide/toggle IPC on non-autohide bars: release compositor exclusive zone until bar-show (v4 isVisible=false).
   bool ipcLayoutReleased = false;
   // bar-auto-hide-set off keeps autoHide true until the reveal completes; block hover helpers from replacing it.

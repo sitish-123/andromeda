@@ -1,5 +1,6 @@
 #include "shell/settings/settings_content_about.h"
 
+#include "shell/settings/settings_content_common.h"
 #include "i18n/i18n.h"
 #include "shell/settings/settings_page_rows.h"
 #include "ui/builders.h"
@@ -163,26 +164,9 @@ namespace settings {
     addFact(*facts, "settings.about.system", prop("OperatingSystemPrettyName"), scale);
     addFact(*facts, "settings.about.kernel", kernel, scale);
 
-    if (ctx.checkUpdates) {
-      addHeader(content, i18n::tr("settings.about.updates"), nullptr, scale);
+    if (ctx.openSoftwareUpdate) {
       Flex* card = addCard(content, scale);
-      auto u = row(scale);
-      const std::string status = ctx.updates == -2 ? i18n::tr("settings.about.updates-checking")
-          : ctx.updates == -3                      ? i18n::tr("settings.about.updates-failed")
-          : ctx.updates == -4                      ? i18n::tr("settings.about.updates-no-terminal")
-          : ctx.updates == 0                       ? i18n::tr("settings.about.updates-none")
-          : ctx.updates > 0 ? i18n::trp("settings.about.updates-count", ctx.updates)
-                            : i18n::tr("settings.about.updates-unchecked");
-      u->addChild(title(status, scale));
-      if (ctx.updates > 0) {
-        u->addChild(plainButton(i18n::tr("settings.about.updates-install"), ButtonVariant::Primary, scale,
-                                ctx.installUpdates));
-      }
-      if (ctx.updates != -2) {
-        u->addChild(plainButton(i18n::tr("settings.about.updates-check"), ButtonVariant::Default, scale,
-                                ctx.checkUpdates));
-      }
-      card->addChild(std::move(u));
+      card->addChild(makeSettingsLinkRow(i18n::tr("settings.pages.software-update"), "", scale, ctx.openSoftwareUpdate));
     }
   }
 

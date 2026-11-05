@@ -28,6 +28,7 @@ namespace settings {
 
     std::vector<SelectOption> idleActionOptions = {
         {"lock", i18n::tr("settings.idle.behavior.kind.lock"), {}},
+        {"dim", i18n::tr("settings.idle.behavior.kind.dim"), {}},
         {"screen_off", i18n::tr("settings.idle.behavior.kind.screen-off"), {}},
         {"suspend", i18n::tr("settings.idle.behavior.kind.suspend"), {}},
         {"lock_and_suspend", i18n::tr("settings.idle.behavior.kind.lock-and-suspend"), {}},
@@ -150,6 +151,37 @@ namespace settings {
     });
     kindBlock->addChild(std::move(kindSelect));
     body->addChild(std::move(kindBlock));
+
+    const std::vector<SelectOption> powerOptions = {
+        {"any", i18n::tr("settings.idle.behavior.power.any"), {}},
+        {"battery", i18n::tr("settings.idle.behavior.power.battery"), {}},
+        {"ac", i18n::tr("settings.idle.behavior.power.ac"), {}},
+    };
+    auto powerBlock = ui::column(
+        {.align = FlexAlign::Stretch, .gap = Style::spaceXs * scale},
+        makeLabel(
+            i18n::tr("settings.idle.behavior.power-label"), Style::fontSizeCaption * scale,
+            colorSpecFromRole(ColorRole::Label2), FontWeight::Normal
+        )
+    );
+    const auto selectedPowerIndex = optionIndex(powerOptions, row.power);
+    powerBlock->addChild(ui::select({
+        .options = optionLabels(powerOptions),
+        .selectedIndex = selectedPowerIndex,
+        .clearSelection = !selectedPowerIndex.has_value(),
+        .fontSize = Style::fontSizeBody * scale,
+        .controlHeight = Style::controlHeight * scale,
+        .glyphSize = Style::fontSizeBody * scale,
+        .onSelectionChanged =
+            [&row, persist, powerOptions](std::size_t index, std::string_view /*label*/) {
+              if (index < powerOptions.size()) {
+                row.power = powerOptions[index].value;
+                persist();
+              }
+            },
+        .configure = [](Select& select) { select.setFillWidth(true); },
+    }));
+    body->addChild(std::move(powerBlock));
 
     Input* namePtr = nullptr;
     auto nameIn = ui::input({

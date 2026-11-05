@@ -121,11 +121,12 @@ void FaceAuthenticator::start() {
   }
   m_active = true;
   m_misses = 0;
+  m_unavailable = false;
   arm();
 }
 
 void FaceAuthenticator::resume() {
-  if (m_active || m_misses >= kMaxMisses) {
+  if (m_active || m_unavailable || m_misses >= kMaxMisses) {
     return;
   }
   m_active = true;
@@ -141,7 +142,7 @@ void FaceAuthenticator::stop() {
 }
 
 void FaceAuthenticator::onUserActivity() {
-  if (m_active && !m_verifying && !m_pending && !m_sleeping && m_misses < kMaxMisses) {
+  if (m_active && !m_unavailable && !m_verifying && !m_pending && !m_sleeping && m_misses < kMaxMisses) {
     arm();
   }
 }
@@ -187,11 +188,13 @@ void FaceAuthenticator::arm() {
             .uponReplyInvoke([this](std::optional<sdbus::Error> e, bool enrolled) {
               if (e.has_value()) {
                 m_pending = false;
+                m_unavailable = true;
                 kLog.info("face unlock unavailable: {}", e->what());
                 return;
               }
               if (!enrolled) {
                 m_pending = false;
+                m_unavailable = true;
                 kLog.info("face unlock off: no face enrolled for {}", m_user);
                 return;
               }

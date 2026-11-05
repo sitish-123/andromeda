@@ -1,6 +1,7 @@
 #include "launcher/emoji_provider.h"
 
 #include "core/files/resource_paths.h"
+#include "core/log.h"
 #include "i18n/i18n.h"
 #include "util/string_utils.h"
 #include "clipboard/clipboard_service.h"
@@ -14,6 +15,7 @@
 #include <string_view>
 
 namespace {
+  constexpr Logger kLog("emoji");
   constexpr std::size_t kMaxResults = 100;
 
   // Resolve an emoji category id (as stored in emoji.json) to its localized label.
@@ -29,19 +31,27 @@ void EmojiProvider::initialize() {
     return;
   }
 
-  try {
-    auto json = nlohmann::json::parse(file);
-    if (!json.is_array()) {
-      return;
-    }
-
+  // The bundled emoji.json: a damaged file is a packaging bug, logged; the provider then lists nothing.
+  const auto json = nlohmann::json::parse(file, nullptr, false);
+  if (json.is_discarded() || !json.is_array()) {
+    kLog.warn("emoji: {} is not a JSON array", path.string());
+    return;
+  }
+  const auto text = [](const nlohmann::json& item, const char* key) {
+    const auto it = item.find(key);
+    return it != item.end() && it->is_string() ? it->get<std::string>() : std::string();
+  };
+  {
     m_entries.reserve(json.size());
     for (const auto& item : json) {
+      if (!item.is_object()) {
+        continue;
+      }
       EmojiEntry entry;
-      entry.emoji = item.value("emoji", "");
-      entry.name = item.value("name", "");
+      entry.emoji = text(item, "emoji");
+      entry.name = text(item, "name");
       entry.nameLower = StringUtils::toLower(entry.name);
-      entry.category = item.value("category", "");
+      entry.category = text(item, "category");
 
       if (item.contains("keywords") && item["keywords"].is_array()) {
         for (const auto& kw : item["keywords"]) {
@@ -63,8 +73,6 @@ void EmojiProvider::initialize() {
         m_entries.push_back(std::move(entry));
       }
     }
-  } catch (...) {
-    // Failed to parse JSON
   }
 }
 

@@ -705,7 +705,7 @@ void ControlCenterPanel::applyTabContainerVisibility(TabId activeTab) {
 
 void ControlCenterPanel::layoutTabContainers(float bodyWidth, float bodyHeight) {
   // P12: pages slide side by side with a 32 gap; a deeper level moves the lower page 30 % and dims it.
-  constexpr float kPageGap = 32.0F;
+  constexpr const float& kPageGap = Tokens::spaceP32;
   constexpr float kParallax = 0.3F;
   const float travel = bodyWidth > 0.0F ? bodyWidth + kPageGap * m_contentScale : 0.0F;
   const float contentHeight = tabContentHeight(bodyHeight);

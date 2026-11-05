@@ -104,6 +104,7 @@ void LiveAppearanceSync::onSettingsChanged() {
       .reduceTransparency = c.value("appearance.reduce_transparency") == "true",
       .increaseContrast = c.value("appearance.increase_contrast") == "true",
       .reduceMotion = c.value("appearance.reduce_motion") == "true",
+      .blurEnabled = c.value("appearance.blur.enabled") == "true",
   };
   // A new value that the shell did not publish is another client's choice: adopt it instead of writing ours back.
   // The first snapshot can be stale from an earlier session, so only a change after it counts.

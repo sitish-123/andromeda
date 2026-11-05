@@ -3,6 +3,8 @@
 #include "design_tokens.h"
 
 #include <algorithm>
+#include <cmath>
+#include <numbers>
 #include <utility>
 
 namespace andromeda {
@@ -13,6 +15,19 @@ namespace andromeda {
 
     // Wrap-safe: CLOCK_MONOTONIC ms in a uint32_t wraps after 49 days.
     double secondsBetween(uint32_t fromMs, uint32_t toMs) { return static_cast<double>(toMs - fromMs) / 1000.0; }
+
+    // 0..1 at `cycles` periods since the loop started.
+    double waveLevel(SurfaceMotion::Wave wave, double cycles, uint32_t seed) {
+      constexpr double kTau = 2.0 * std::numbers::pi;
+      if (wave == SurfaceMotion::Wave::Sine) {
+        return 0.5 - 0.5 * std::cos(kTau * cycles);
+      }
+      // Two incommensurate sines per seed: no visible repeat, smooth at any frame rate.
+      const double s = static_cast<double>(seed);
+      const double carrier = std::sin(kTau * cycles * (1.0 + 0.33 * static_cast<double>(seed % 5)) + s * 2.1);
+      const double envelope = 0.65 + 0.35 * std::sin(kTau * cycles * 0.45 + s);
+      return std::clamp(0.5 + 0.5 * carrier * envelope, 0.0, 1.0);
+    }
 
   } // namespace
 
@@ -63,6 +78,33 @@ namespace andromeda {
     return false;
   }
 
+  bool SurfaceMotion::settling() const {
+    return std::ranges::any_of(m_tracks, [](const Track& track) { return track.running && !track.loop; });
+  }
+
+  bool SurfaceMotion::looping() const {
+    return std::ranges::any_of(m_tracks, [](const Track& track) { return track.running && track.loop; });
+  }
+
+  void SurfaceMotion::loop(
+      uint32_t serial, Property property, Wave wave, uint32_t periodMs, uint32_t seed, const Value& high
+  ) {
+    const auto index = static_cast<std::size_t>(property);
+    Track& track = m_tracks[index];
+    // A loop that replaces a loop keeps its low end, not the mid-cycle value.
+    const Value low = track.running && track.loop ? track.low : m_values[index];
+    finish(track, Reason::Retargeted);
+    track = Track{};
+    track.serial = serial;
+    track.running = true;
+    track.loop = true;
+    track.wave = wave;
+    track.periodMs = std::clamp<uint32_t>(periodMs, 100, 60000);
+    track.seed = seed;
+    track.low = low;
+    track.to = high;
+  }
+
   void SurfaceMotion::finish(Track& track, Reason reason) {
     if (!track.running) {
       return;
@@ -89,7 +131,7 @@ namespace andromeda {
       return;
     }
 
-    const bool keepVelocity = track.running && isSpring(track.curve) && isSpring(curve);
+    const bool keepVelocity = track.running && !track.loop && isSpring(track.curve) && isSpring(curve);
     finish(track, Reason::Retargeted);
     for (std::size_t i = 0; i < 4; ++i) {
       if (keepVelocity) {
@@ -99,6 +141,7 @@ namespace andromeda {
         track.springs[i] = desk::motion::Spring(current[i], to[i], springConfig(curve));
       }
     }
+    track.loop = false;
     track.curve = curve;
     track.serial = serial;
     track.running = true;
@@ -114,6 +157,20 @@ namespace andromeda {
     for (std::size_t index = 0; index < kPropertyCount; ++index) {
       Track& track = m_tracks[index];
       if (!track.running) {
+        continue;
+      }
+      if (track.loop) {
+        if (!track.started) {
+          track.started = true;
+          track.startMs = nowMs;
+          m_events.push_back({.kind = Event::Kind::Started, .serial = track.serial, .reason = Reason::Finished});
+        }
+        const double cycles = static_cast<double>(nowMs - track.startMs) / static_cast<double>(track.periodMs);
+        const double t = waveLevel(track.wave, cycles, track.seed);
+        for (std::size_t i = 0; i < 4; ++i) {
+          m_values[index][i] = track.low[i] + (track.to[i] - track.low[i]) * t;
+        }
+        changed = true;
         continue;
       }
       if (!track.started) {

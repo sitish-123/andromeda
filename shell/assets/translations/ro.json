@@ -3549,7 +3549,6 @@
           "description": "Acțiunile aplicate după captură sau când alegi Gata în editorul de adnotări."
         },
         "screenshot-pipe-command": {
-          "description": "Comanda executată ca /bin/sh -lc cu PNG-ul pe stdin; pentru adnotatoare sau instrumente de încărcare (de exemplu: swappy -f - sau satty -f -)",
           "label": "Comandă pipe",
           "placeholder": "swappy -f -"
         },

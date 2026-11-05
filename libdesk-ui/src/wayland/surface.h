@@ -93,6 +93,8 @@ public:
   void setOpaque(bool opaque);
   void clearBlurRegion();
   void setDebugName(std::string name);
+  // Window name for assistive technology; empty = derived from the debug name (layer namespace).
+  void setAccessibleTitle(std::string title) { m_accessibleTitle = std::move(title); }
 
   // Approximates a rounded rectangle as a stack of horizontal axis-aligned strips
   // suitable for `wl_region` (which has no curve primitives). The four corner radii
@@ -202,6 +204,7 @@ private:
   Node* m_sceneRoot = nullptr;
   std::optional<WallpaperMaskDrawParams> m_wallpaperMask;
   std::string m_debugName;
+  std::string m_accessibleTitle;
   std::shared_ptr<InvalidationToken> m_invalidationToken = std::make_shared<InvalidationToken>();
   ConfigureCallback m_configureCallback;
   PrepareFrameCallback m_prepareFrameCallback;

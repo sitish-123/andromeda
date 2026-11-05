@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 
@@ -10,6 +11,8 @@ struct wl_surface;
 struct dsk_surface_manager_v1;
 struct dsk_surface_v1;
 struct dsk_tracker_v1;
+struct dsk_shape_v1;
+struct dsk_shape_v1_listener;
 struct wl_region;
 struct dsk_surface_v1_listener;
 struct dsk_tracker_v1_listener;
@@ -20,7 +23,9 @@ struct dsk_tracker_v1_listener;
 class DskSurfaceClient {
 public:
   // Values match the protocol enums.
-  enum class Property : uint32_t { Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke };
+  enum class Property : uint32_t {
+    Translate, Scale, Opacity, Clip, Radius, Elevation, Liquid, Stroke, Tint, Join, Fill, FillDense
+  };
   enum class Curve : uint32_t { None, SpringStandard, SpringSnappy, SpringBouncy, EaseFast, EaseNormal, EaseSlow, SpringOpen, SpringClose, SpringIslandExpand, SpringIslandCollapse, SpringPage, SpringPress, SpringRelease, SpringEffects, SpringEffectsFast };
   // A compositor that binds protocol version < 3 knows only the first seven curves: use the closest one.
   [[nodiscard]] static Curve compatCurve(Curve curve, uint32_t version);
@@ -48,11 +53,23 @@ public:
   [[nodiscard]] bool hasLiquidProperty() const;
   // Protocol version 7: the compositor draws a 1 px hairline (rgba) inside the clip shape while a clip is set.
   [[nodiscard]] bool hasStrokeProperty() const;
+  // Protocol version 9: liquid [2] = lens, and the tint property (the compositor adapts its density).
+  [[nodiscard]] bool hasTintProperty() const;
+  // Protocol version 10: glass shapes (DskShapeClient), and the join, fill and fill_dense properties.
+  [[nodiscard]] bool hasShapes() const;
+  // hasTintProperty for surfaces of `manager`, before a DskSurfaceClient exists.
+  [[nodiscard]] static bool managerHasTint(dsk_surface_manager_v1* manager);
   // The curve the compositor runs for `curve` on this connection's protocol version.
   [[nodiscard]] Curve effectiveCurve(Curve curve) const;
   // Sets Clip to `rect` (x, y, width, height) of `source`, another layer surface of this client, mapped by the
   // compositor into this surface's coordinates. False when the compositor lacks it (protocol version 1).
   bool setClipFrom(wl_surface* source, const Value& rect);
+  // Protocol version 8: the surface-local area outside of which every pixel is transparent, shadows included; null
+  // = the whole surface. Applies on the next commit. False when the compositor lacks it.
+  bool setVisibleRegion(wl_region* region);
+  // Protocol version 11: an app launch starts from the icon at this surface-local rect. Send it just before the
+  // launch's activation token. False when the compositor lacks it.
+  bool launchFrom(int x, int y, int width, int height);
   // The clip the last setClipFrom computed, in this surface's coordinates; empty until the compositor reports it.
   [[nodiscard]] const std::optional<Value>& mappedClip() const noexcept { return m_mappedClip; }
   // Runs when the compositor reports the clip of the last setClipFrom.
@@ -78,6 +95,40 @@ private:
   std::function<void(bool)> m_onBackdrop;
   std::unordered_map<uint32_t, DoneCallback> m_pending;
   std::unordered_map<uint32_t, StartedCallback> m_started;
+};
+
+// One glass shape of a surface (dsk_shape_v1, protocol version 10): its own clip, corners, tint, liquid, elevation,
+// stroke and fill, with the surface's property enum and curves. Requests apply on the parent surface's next commit.
+// Create it only when DskSurfaceClient::hasShapes().
+class DskShapeClient {
+public:
+  using Property = DskSurfaceClient::Property;
+  using Curve = DskSurfaceClient::Curve;
+  using Value = DskSurfaceClient::Value;
+
+  explicit DskShapeClient(const DskSurfaceClient& surface);
+  ~DskShapeClient();
+
+  DskShapeClient(const DskShapeClient&) = delete;
+  DskShapeClient& operator=(const DskShapeClient&) = delete;
+
+  void set(Property property, const Value& value);
+  void animate(Property property, Curve curve, const Value& to, DskSurfaceClient::DoneCallback onDone = {});
+  // Values match dsk_shape_v1.wave.
+  enum class Wave : uint32_t { Sine, Noise };
+  // The compositor repeats the property between its current value and `high` every frame, with no client wake-up,
+  // until a set or animate replaces it. False when it cannot (an older compositor, or motion off or reduced): the
+  // caller shows a still state.
+  [[nodiscard]] bool loop(Property property, Wave wave, uint32_t periodMs, uint32_t seed, const Value& high);
+
+private:
+  static const dsk_shape_v1_listener kListener;
+  static void handleStarted(void* data, dsk_shape_v1* shape, uint32_t serial, uint32_t time);
+  static void handleDone(void* data, dsk_shape_v1* shape, uint32_t serial, uint32_t reason);
+
+  dsk_shape_v1* m_shape = nullptr;
+  uint32_t m_nextSerial = 1;
+  std::unordered_map<uint32_t, DskSurfaceClient::DoneCallback> m_pending;
 };
 
 // A compositor-owned gesture on a surface: the compositor tracks the input, runs inertia to a snap, and writes the

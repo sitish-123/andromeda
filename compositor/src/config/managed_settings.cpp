@@ -3,6 +3,7 @@
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
 #include "config/config_registry.h"
+#include "config/store.h"
 #include "config/value_parse.h"
 #include "andromeda_data_dir.h"
 
@@ -413,6 +414,9 @@ namespace andromeda {
         Spec{"overview.workspace_wallpaper", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.workspaceWallpaper); }},
         Spec{"overview.shortcuts", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.shortcuts); }},
         Spec{"general.focus_on_activate", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.focusOnActivate); }},
+        Spec{"general.freeze_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeBackgroundApps); }},
+        Spec{"general.freeze_hidden_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeHiddenApps); }},
+        Spec{"general.optimize_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.optimizeBackgroundApps); }},
         Spec{"hot_corners.top_left.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[0].enabled); }},
         Spec{"hot_corners.top_left.delay_ms", Kind::Int, 0, 10000, {}, [](const Config& c) { return text(c.hotCorners.corners[0].delayMs); }},
         Spec{"hot_corners.top_left.action", Kind::Action, 0, 0, {}, [](const Config& c) { return text(c.hotCorners.corners[0].action); }},
@@ -625,6 +629,16 @@ namespace andromeda {
     return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { applySetting(root, key, value); });
   }
 
+  bool saveManagedSettings(
+      const std::filesystem::path& file, const std::vector<std::pair<std::string, ManagedSettingValue>>& values
+  ) {
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+      for (const auto& [key, value] : values) {
+        applySetting(root, key, value);
+      }
+    });
+  }
+
   std::filesystem::path managedSettingsFile(const std::filesystem::path& configRoot) {
     // A root from a system config dir means the user has no config.toml yet: the user's choices still belong in
     // the user's config dir, never next to a read-only system file.
@@ -638,6 +652,10 @@ namespace andromeda {
     }
     if (std::ranges::find(systemDirs, configRoot.parent_path()) == systemDirs.end()) {
       return configRoot.parent_path() / "settings.toml";
+    }
+    // The user dir is fixed at the first load, like the config candidates; a later XDG_CONFIG_HOME does not move it.
+    if (const std::filesystem::path user = configStore().implicitUserConfig(); !user.empty()) {
+      return user.parent_path() / "settings.toml";
     }
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0') {
       return std::filesystem::path(xdg) / "andromeda/settings.toml";
@@ -658,6 +676,74 @@ namespace andromeda {
         root.erase("keybinds");
       }
     });
+  }
+
+  namespace {
+    std::string appIdPattern(std::string_view appId) {
+      std::string out = "^";
+      for (const char c : appId) {
+        if (std::string_view(".^$|()[]{}*+?\\").contains(c)) {
+          out += '\\';
+        }
+        out += c;
+      }
+      return out + "$";
+    }
+
+    // The app id of a rule saveManagedAppQos wrote; nullopt for any other rule, which it never touches.
+    std::optional<std::string> appQosRuleId(const toml::table& rule) {
+      const toml::table* match = rule["match"].as_table();
+      const std::optional<std::string> pattern = match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
+      if (rule.size() != 2 || !rule.contains("qos") || match->size() != 1 || !pattern || pattern->size() < 2
+          || !pattern->starts_with('^') || !pattern->ends_with('$')) {
+        return std::nullopt;
+      }
+      std::string id;
+      for (std::size_t i = 1; i + 1 < pattern->size(); ++i) {
+        if ((*pattern)[i] == '\\' && i + 2 < pattern->size()) {
+          ++i;
+        }
+        id += (*pattern)[i];
+      }
+      return appIdPattern(id) == *pattern ? std::optional(id) : std::nullopt;
+    }
+  } // namespace
+
+  bool saveManagedAppQos(const std::filesystem::path& file, std::string_view appId, std::string_view qos) {
+    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+      if (root["window_rule"].as_array() == nullptr) {
+        root.insert_or_assign("window_rule", toml::array{});
+      }
+      toml::array& rules = *root["window_rule"].as_array();
+      for (auto it = rules.begin(); it != rules.end();) {
+        const toml::table* rule = it->as_table();
+        it = rule != nullptr && appQosRuleId(*rule) == appId ? rules.erase(it) : it + 1;
+      }
+      if (qos != "normal") {
+        rules.push_back(toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}});
+      }
+      if (rules.empty()) {
+        root.erase("window_rule");
+      }
+    });
+  }
+
+  std::vector<std::pair<std::string, std::string>> documentAppQos(std::string_view document) {
+    std::vector<std::pair<std::string, std::string>> out;
+    try {
+      const toml::table table = toml::parse(document);
+      if (const toml::array* rules = table["window_rule"].as_array()) {
+        for (const toml::node& node : *rules) {
+          const toml::table* rule = node.as_table();
+          if (const auto id = rule != nullptr ? appQosRuleId(*rule) : std::nullopt) {
+            out.emplace_back(*id, (*rule)["qos"].value_or(std::string()));
+          }
+        }
+      }
+    } catch (const toml::parse_error&) {
+      return {};
+    }
+    return out;
   }
 
   std::vector<std::pair<std::string, std::string>> documentKeybinds(std::string_view document) {
@@ -681,12 +767,19 @@ namespace andromeda {
   }
 
   bool documentSetsKey(std::string_view root, std::string_view key) {
+    return documentSetsKeys(root, std::span<const std::string_view>(&key, 1)).front();
+  }
+
+  std::vector<bool> documentSetsKeys(std::string_view root, std::span<const std::string_view> keys) {
+    std::vector<bool> set(keys.size(), false);
     try {
       const toml::table table = toml::parse(root);
-      return table.at_path(key).node() != nullptr;
+      for (std::size_t i = 0; i < keys.size(); ++i) {
+        set[i] = table.at_path(keys[i]).node() != nullptr;
+      }
     } catch (const toml::parse_error&) {
-      return false;
     }
+    return set;
   }
 
 } // namespace andromeda

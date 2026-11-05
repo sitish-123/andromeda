@@ -47,18 +47,21 @@ namespace andromeda {
     return selected;
   }
 
-  wlr_output_mode* fastestPreferredMode(wlr_output* output) {
-    wlr_output_mode* best = wlr_output_preferred_mode(output);
-    if (best == nullptr) {
+  wlr_output_mode* fastestPreferredMode(wlr_output* output, int capMHz) {
+    wlr_output_mode* preferred = wlr_output_preferred_mode(output);
+    if (preferred == nullptr) {
       return nullptr;
     }
+    const auto allowed = [capMHz](const wlr_output_mode* m) { return capMHz <= 0 || m->refresh <= capMHz + 500; };
+    wlr_output_mode* best = nullptr;
     wlr_output_mode* mode = nullptr;
     wl_list_for_each(mode, &output->modes, link) {
-      if (mode->width == best->width && mode->height == best->height && mode->refresh > best->refresh) {
+      if (mode->width == preferred->width && mode->height == preferred->height && allowed(mode)
+          && (best == nullptr || mode->refresh > best->refresh)) {
         best = mode;
       }
     }
-    return best;
+    return best != nullptr ? best : preferred;
   }
 
   wlr_output_mode* preferredFallbackMode(wlr_output* output, const wlr_output_mode* staged) {

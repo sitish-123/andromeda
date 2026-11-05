@@ -20,6 +20,10 @@
 #include "util/time.h"
 
 #include <assert.h>
+#include <errno.h>
+#include <linux/sync_file.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <drm_fourcc.h>
 #include <math.h>
 #include <pixman.h>
@@ -27,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/backend.h>
+#include <wlr/backend/drm.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/config.h>
 #include <wlr/render/drm_syncobj.h>
@@ -775,27 +780,28 @@ static bool scene_nodes_in_box(
   return found;
 }
 
+// A negative radius (concave flare) leaves no corner arc inside the box.
 static pixman_region32_t
 create_corner_location_region(struct fx_corner_radii corners, int x, int y, int width, int height) {
   pixman_region32_t corner_region;
   pixman_region32_init(&corner_region);
-  if (corners.top_left) {
+  if (corners.top_left > 0) {
     pixman_region32_union_rect(&corner_region, &corner_region, x, y, corners.top_left, corners.top_left);
   }
 
-  if (corners.top_right) {
+  if (corners.top_right > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x + (width - corners.top_right), y, corners.top_right, corners.top_right
     );
   }
 
-  if (corners.bottom_left) {
+  if (corners.bottom_left > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x, y + (height - corners.bottom_left), corners.bottom_left, corners.bottom_left
     );
   }
 
-  if (corners.bottom_right) {
+  if (corners.bottom_right > 0) {
     pixman_region32_union_rect(
         &corner_region, &corner_region, x + (width - corners.bottom_right), y + (height - corners.bottom_right),
         corners.bottom_right, corners.bottom_right
@@ -898,6 +904,61 @@ static void scene_node_opaque_region(
   pixman_region32_init_rect(opaque, x, y, width, height);
 }
 
+// Opaque area of a subtree in its parent's coordinates. Ignores effects on common ancestors, which transform the
+// caller's sibling alike.
+static void scene_subtree_opaque_region(struct wlr_scene_node* node, int x, int y, pixman_region32_t* out) {
+  // A node's own effect (a window shader) may change alpha or shape: only a common ancestor's is ignored.
+  if (!node->enabled || scene_animation_get(node) != NULL) {
+    return;
+  }
+  x += node->x;
+  y += node->y;
+  pixman_region32_t region;
+  pixman_region32_init(&region);
+  if (node->type == WLR_SCENE_NODE_TREE) {
+    struct wlr_scene_node* child;
+    wl_list_for_each(child, &wlr_scene_tree_from_node(node)->children, link) {
+      scene_subtree_opaque_region(child, x, y, &region);
+    }
+  } else {
+    // over_black counts a buffer as opaque because a backdrop is under it: here that backdrop is the question.
+    struct wlr_scene_buffer* buffer = node->type == WLR_SCENE_NODE_BUFFER ? wlr_scene_buffer_from_node(node) : NULL;
+    const bool over_black = buffer != NULL && buffer->over_black;
+    if (over_black) {
+      buffer->over_black = false;
+    }
+    scene_node_opaque_region(NULL, node, x, y, &region);
+    if (over_black) {
+      buffer->over_black = true;
+    }
+  }
+  pixman_region32_t clip;
+  pixman_region32_init(&clip);
+  if (scene_node_local_clip(node, x, y, &clip)) {
+    pixman_region32_intersect(&region, &region, &clip);
+  }
+  pixman_region32_fini(&clip);
+  pixman_region32_union(out, out, &region);
+  pixman_region32_fini(&region);
+}
+
+static bool scene_rect_covered_by_siblings(struct wlr_scene_rect* rect) {
+  struct wlr_scene_node* node = &rect->node;
+  if (node->parent == NULL) {
+    return false;
+  }
+  pixman_region32_t opaque;
+  pixman_region32_init(&opaque);
+  for (struct wl_list* link = node->link.next; link != &node->parent->children; link = link->next) {
+    struct wlr_scene_node* sibling = wl_container_of(link, sibling, link);
+    scene_subtree_opaque_region(sibling, 0, 0, &opaque);
+  }
+  const pixman_box32_t box = {node->x, node->y, node->x + rect->width, node->y + rect->height};
+  const bool covered = pixman_region32_contains_rectangle(&opaque, &box) == PIXMAN_REGION_IN;
+  pixman_region32_fini(&opaque);
+  return covered;
+}
+
 struct scene_update_data {
   const struct scene_effects* effects;
   pixman_region32_t* visible;
@@ -966,6 +1027,13 @@ struct render_data {
   bool transient_effects;
   // A persistent effect draws on this output this frame: veto scanout and keep effect buffers.
   bool persistent_visible;
+  // An overlay plane frame: overlay_entry and the entries below it are drawn only inside overlay_clip (buffer
+  // coordinates).
+  const struct render_list_entry* overlay_entry;
+  // The overlay frame's primary plane entry: overlay_entry, or the opaque buffer under a video layer.
+  const struct render_list_entry* overlay_primary;
+  const pixman_region32_t* overlay_clip;
+  int animation_render_locks;
 };
 
 static void logical_to_buffer_coords(pixman_region32_t* region, const struct render_data* data, bool round_up) {
@@ -1013,7 +1081,10 @@ static void transform_output_box(struct wlr_box* box, const struct render_data* 
   box->y += data->capture_y;
 }
 
-static void scene_output_damage(struct wlr_scene_output* scene_output, const pixman_region32_t* damage) {
+// `under`: buffer content damage of an entry the last overlay frame drew only inside its clip.
+static void scene_output_damage_from(
+    struct wlr_scene_output* scene_output, const pixman_region32_t* damage, bool under
+) {
   struct wlr_output* output = scene_output->output;
 
   pixman_region32_t clipped;
@@ -1023,11 +1094,16 @@ static void scene_output_damage(struct wlr_scene_output* scene_output, const pix
   if (!pixman_region32_empty(&clipped)) {
     wlr_output_schedule_frame(scene_output->output);
     wlr_damage_ring_add(&scene_output->damage_ring, &clipped);
+    wlr_damage_ring_add(under ? &scene_output->overlay_under_damage_ring : &scene_output->overlay_damage_ring, &clipped);
 
     pixman_region32_union(&scene_output->pending_commit_damage, &scene_output->pending_commit_damage, &clipped);
   }
 
   pixman_region32_fini(&clipped);
+}
+
+static void scene_output_damage(struct wlr_scene_output* scene_output, const pixman_region32_t* damage) {
+  scene_output_damage_from(scene_output, damage, false);
 }
 
 static void scene_output_damage_whole(struct wlr_scene_output* scene_output) {
@@ -1219,6 +1295,11 @@ static void restack_xwayland_surface(struct wlr_scene_node* node, struct wlr_box
 }
 #endif
 
+// The node samples the cached bottom-layer blur this frame instead of blurring the live content under it.
+static bool blur_samples_cache(const struct wlr_scene_blur* blur) {
+  return blur->should_only_blur_bottom_layer || (blur->adaptive && blur->use_cache);
+}
+
 // Adds the visible part of every enabled blur node that samples the optimized cache, grown by the blur reach. A node
 // hidden under an opaque window (a bar island under fullscreen video) needs no cache until it shows again.
 static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y, int reach, pixman_region32_t* out) {
@@ -1232,7 +1313,7 @@ static void scene_blur_cache_consumers(struct wlr_scene_node* node, int x, int y
     }
   } else if (node->type == WLR_SCENE_NODE_BLUR) {
     struct wlr_scene_blur* blur = wlr_scene_blur_from_node(node);
-    if (blur->should_only_blur_bottom_layer && pixman_region32_not_empty(&node->visible)) {
+    if ((blur->should_only_blur_bottom_layer || blur->adaptive) && pixman_region32_not_empty(&node->visible)) {
       pixman_region32_t grown;
       pixman_region32_init(&grown);
       wlr_region_expand(&grown, &node->visible, reach);
@@ -2223,6 +2304,41 @@ void wlr_scene_border_set_geometry(
   scene_node_update(&border->node, NULL);
 }
 
+// A color change keeps geometry and visibility (a border is never opaque), so only the ring's visible pixels need
+// damage: the node box minus its hole, without the hole's rounded corner squares. The hole is the window content.
+static void scene_border_damage_ring(struct wlr_scene_border* border) {
+  struct wlr_scene_node* node = &border->node;
+  struct wlr_scene* scene = scene_node_get_root(node);
+  int x, y;
+  if (!wlr_scene_node_coords(node, &x, &y)) {
+    return;
+  }
+  // An effect margin draws past the ring into the hole; keep the full update for it.
+  if (scene_effects_get(scene, false) != NULL && scene_node_drawn_expand(node) > 0) {
+    scene_node_update(node, NULL);
+    return;
+  }
+  scene_node_note_update(node);
+  pixman_region32_t damage;
+  pixman_region32_init(&damage);
+  pixman_region32_copy(&damage, &node->visible);
+  const struct wlr_box* hole = &border->clipped_region.area;
+  const struct fx_corner_radii* c = &border->clipped_region.corners;
+  int r = c->top_left;
+  r = c->top_right > r ? c->top_right : r;
+  r = c->bottom_right > r ? c->bottom_right : r;
+  r = c->bottom_left > r ? c->bottom_left : r;
+  if (!wlr_box_empty(hole) && hole->width > 2 * r && hole->height > 2 * r) {
+    pixman_region32_t inner;
+    pixman_region32_init_rect(&inner, x + hole->x, y + hole->y + r, hole->width, hole->height - 2 * r);
+    pixman_region32_union_rect(&inner, &inner, x + hole->x + r, y + hole->y, hole->width - 2 * r, hole->height);
+    pixman_region32_subtract(&damage, &damage, &inner);
+    pixman_region32_fini(&inner);
+  }
+  scene_damage_outputs(scene, &damage);
+  pixman_region32_fini(&damage);
+}
+
 void wlr_scene_border_set_colors(
     struct wlr_scene_border* border, const float inner_color[static 4], const float outer_color[static 4]
 ) {
@@ -2233,7 +2349,7 @@ void wlr_scene_border_set_colors(
 
   memcpy(border->inner_color, inner_color, sizeof(border->inner_color));
   memcpy(border->outer_color, outer_color, sizeof(border->outer_color));
-  scene_node_update(&border->node, NULL);
+  scene_border_damage_ring(border);
 }
 
 static void scene_buffer_handle_buffer_release(struct wl_listener* listener, void* data) {
@@ -2310,6 +2426,14 @@ void wlr_scene_rect_set_corner_radii(struct wlr_scene_rect* rect, struct fx_corn
   }
 
   rect->corners = corners;
+  scene_node_update(&rect->node, NULL);
+}
+
+void wlr_scene_rect_set_skip_when_covered(struct wlr_scene_rect* rect, bool skip) {
+  if (rect->skip_when_covered == skip) {
+    return;
+  }
+  rect->skip_when_covered = skip;
   scene_node_update(&rect->node, NULL);
 }
 
@@ -2418,6 +2542,9 @@ struct wlr_scene_blur* wlr_scene_blur_create(struct wlr_scene_tree* parent, int 
   blur->clipped_region = (struct clipped_region){0};
   blur->corners = corner_radii_all(0);
   blur->should_only_blur_bottom_layer = false;
+  blur->adaptive = false;
+  blur->use_cache = false;
+  blur->cached_outputs = UINT64_MAX;
   blur->transparency_mask_source = linked_node_init();
   blur->width = width;
   blur->height = height;
@@ -2457,6 +2584,17 @@ void wlr_scene_blur_set_should_only_blur_bottom_layer(struct wlr_scene_blur* blu
   }
 
   blur->should_only_blur_bottom_layer = should_only_blur_bottom_layer;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_adaptive(struct wlr_scene_blur* blur, bool adaptive) {
+  if (blur->adaptive == adaptive) {
+    return;
+  }
+
+  blur->adaptive = adaptive;
+  blur->use_cache = false;
+  blur->cached_outputs = UINT64_MAX;
   scene_node_update(&blur->node, NULL);
 }
 
@@ -2514,6 +2652,26 @@ void wlr_scene_blur_set_liquid(struct wlr_scene_blur* blur, float liquid) {
   }
 
   blur->liquid = liquid;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_lens(struct wlr_scene_blur* blur, float lens) {
+  if (blur->lens == lens) {
+    return;
+  }
+  blur->lens = lens;
+  scene_node_update(&blur->node, NULL);
+}
+
+void wlr_scene_blur_set_tint_mix(struct wlr_scene_blur* blur, const float rgb[3], float amount) {
+  if (blur->tint_mix[0] == rgb[0] && blur->tint_mix[1] == rgb[1] && blur->tint_mix[2] == rgb[2]
+      && blur->tint_mix[3] == amount) {
+    return;
+  }
+  blur->tint_mix[0] = rgb[0];
+  blur->tint_mix[1] = rgb[1];
+  blur->tint_mix[2] = rgb[2];
+  blur->tint_mix[3] = amount;
   scene_node_update(&blur->node, NULL);
 }
 
@@ -2836,6 +2994,9 @@ void wlr_scene_buffer_set_buffer_with_options(
     }
   }
 
+  if (buffer != NULL && (options->damage == NULL || pixman_region32_not_empty(options->damage))) {
+    scene_buffer->content_seq++;
+  }
   scene_buffer_set_buffer(scene_buffer, buffer);
   scene_buffer_set_texture(scene_buffer, NULL);
   scene_buffer_set_wait_timeline(scene_buffer, options->wait_timeline, options->wait_point);
@@ -2929,7 +3090,9 @@ void wlr_scene_buffer_set_buffer_with_options(
         (int)round((ly - scene_output->y) * output_scale)
     );
     output_to_buffer_coords(&output_damage, scene_output->output);
-    scene_output_damage(scene_output, &output_damage);
+    const bool under = &scene_buffer->node == scene_output->overlay_under_nodes[0]
+        || &scene_buffer->node == scene_output->overlay_under_nodes[1];
+    scene_output_damage_from(scene_output, &output_damage, under);
     pixman_region32_fini(&output_damage);
   }
 
@@ -3501,6 +3664,9 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
   // Blur draws the raw backdrop: the 1 px safety expansion for fractional scales would show it outside its clip.
   logical_to_buffer_coords(&render_region, data, node->type != WLR_SCENE_NODE_BLUR);
   pixman_region32_intersect(&render_region, &render_region, &data->damage);
+  if (data->overlay_entry != NULL && entry >= data->overlay_entry) {
+    pixman_region32_intersect(&render_region, &render_region, data->overlay_clip);
+  }
   if (pixman_region32_empty(&render_region)) {
     pixman_region32_fini(&render_region);
     return;
@@ -3543,6 +3709,9 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
       break;
     }
     struct wlr_scene_rect* scene_rect = wlr_scene_rect_from_node(node);
+    if (scene_rect->skip_when_covered && scene_rect_covered_by_siblings(scene_rect)) {
+      break;
+    }
     struct fx_corner_radii rect_corners = scene_rect->corners;
 
     fx_corner_radii_transform(node_transform, &rect_corners);
@@ -3845,8 +4014,11 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         .release_timeline = data->output->in_timeline,
         .release_point = data->output->in_point,
     };
+    // A buffer on a plane already reported its scanout sample.
     if (!data->shadow_capture
         && !data->sampled_earlier
+        && entry != data->overlay_entry
+        && entry != data->overlay_primary
         && data->backdrop_group == NULL
         && !workspace_repeated(entry->node, data)) {
       wl_signal_emit_mutable(&scene_buffer->events.output_sample, &sample_event);
@@ -4023,12 +4195,14 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
                 .corners = fx_corner_radii_scale(blur_corners, data->scale),
                 .discard_transparent = false,
             },
-        .use_optimized_blur = blur->should_only_blur_bottom_layer,
+        .use_optimized_blur = blur_samples_cache(blur),
         .blur_data = &scene->blur_data,
         .ignore_alpha = mask != NULL ? blur->ignore_alpha : 0.0f,
         .blur_strength = blur->strength,
         .liquid = blur->liquid,
         .rim = blur->rim,
+        .lens = blur->lens,
+        .tint_mix = {blur->tint_mix[0], blur->tint_mix[1], blur->tint_mix[2], blur->tint_mix[3]},
         .liquid_box =
             wlr_box_empty(&blur->liquid_box)
                 ? (struct wlr_box){0}
@@ -5199,6 +5373,52 @@ static void scene_output_handle_commit(struct wl_listener* listener, void* data)
     scene_output_acknowledge_damage(scene_output, state);
   }
 
+  if ((state->committed & WLR_OUTPUT_STATE_ENABLED) && !state->enabled) {
+    // The CRTC and its planes are gone.
+    wlr_buffer_unlock(scene_output->overlay_shown_buffer);
+    scene_output->overlay_shown_buffer = NULL;
+  }
+  if ((state->committed & WLR_OUTPUT_STATE_LAYERS)
+      && state->layers_len > 0
+      && state->layers[state->layers_len - 1].layer == scene_output->overlay_layer) {
+    const struct wlr_output_layer_state* top = &state->layers[state->layers_len - 1];
+    struct wlr_buffer* shown = top->accepted ? top->buffer : NULL;
+    bool left = false;
+    for (size_t i = 0; i < state->layers_len; i++) {
+      left |= state->layers[i].buffer != NULL && !state->layers[i].accepted;
+    }
+    if (left) {
+      for (size_t i = 0; i < state->layers_len; i++) {
+        struct wlr_dmabuf_attributes dmabuf = {0};
+        if (state->layers[i].buffer != NULL && !state->layers[i].accepted) {
+          wlr_buffer_get_dmabuf(state->layers[i].buffer, &dmabuf);
+          if (state->layers[i].layer == scene_output->overlay_video_layer) {
+            scene_output->overlay_video_rejected_format = dmabuf.format;
+            scene_output->overlay_video_rejected_modifier = dmabuf.modifier;
+            scene_output->overlay_video_block = 600;
+          }
+          wlr_log(WLR_INFO, "overlay plane: the commit left layer %zu of %zu to composition (%dx%d format 0x%08x modifier 0x%016llx)",
+                  i, state->layers_len, state->layers[i].buffer->width, state->layers[i].buffer->height, dmabuf.format,
+                  (unsigned long long)dmabuf.modifier);
+        }
+      }
+      scene_output->overlay_tested_candidate = NULL;
+      // The real commit left the layer to composition: this frame lacks the UI. Composite for a while, or modeset
+      // once on the next attempt.
+      if (!scene_output->overlay_modeset_tried) {
+        scene_output->overlay_modeset_next = true;
+      } else {
+        scene_output->overlay_backoff = 60;
+      }
+      scene_output_damage_whole(scene_output);
+    }
+    if (shown != NULL) {
+      wlr_buffer_lock(shown);
+    }
+    wlr_buffer_unlock(scene_output->overlay_shown_buffer);
+    scene_output->overlay_shown_buffer = shown;
+  }
+
   bool force_update =
       state->committed & (WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_SCALE | WLR_OUTPUT_STATE_SUBPIXEL);
 
@@ -5278,11 +5498,15 @@ struct wlr_scene_output* wlr_scene_output_create(struct wlr_scene* scene, struct
   scene_output->output = output;
   scene_output->scene = scene;
   scene_output->direct_scanout_enabled = true;
+  scene_output->overlay_planes_enabled = true;
   scene_output->direct_scanout_status = WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE;
   scene_output->hdr_white_point[0] = scene_output->hdr_white_point[1] = scene_output->hdr_white_point[2] = 1.0f;
   wlr_addon_init(&scene_output->addon, &output->addons, scene, &output_addon_impl);
 
   wlr_damage_ring_init(&scene_output->damage_ring);
+  wlr_damage_ring_init(&scene_output->overlay_damage_ring);
+  wlr_damage_ring_init(&scene_output->overlay_under_damage_ring);
+  pixman_region32_init(&scene_output->overlay_last_clip);
   pixman_region32_init(&scene_output->pending_commit_damage);
   wl_list_init(&scene_output->damage_highlight_regions);
 
@@ -5363,8 +5587,16 @@ void wlr_scene_output_destroy(struct wlr_scene_output* scene_output) {
     highlight_region_destroy(damage);
   }
 
+  wlr_buffer_unlock(scene_output->overlay_layer_states[1].buffer);
+  wlr_buffer_unlock(scene_output->overlay_shown_buffer);
+  wlr_swapchain_destroy(scene_output->overlay_swapchain);
+  wlr_output_layer_destroy(scene_output->overlay_video_layer);
+  wlr_output_layer_destroy(scene_output->overlay_layer);
   wlr_addon_finish(&scene_output->addon);
   wlr_damage_ring_finish(&scene_output->damage_ring);
+  wlr_damage_ring_finish(&scene_output->overlay_damage_ring);
+  wlr_damage_ring_finish(&scene_output->overlay_under_damage_ring);
+  pixman_region32_fini(&scene_output->overlay_last_clip);
   pixman_region32_fini(&scene_output->pending_commit_damage);
   wl_list_remove(&scene_output->link);
   wl_list_remove(&scene_output->output_commit.link);
@@ -5413,6 +5645,15 @@ void wlr_scene_output_set_direct_scanout_enabled(struct wlr_scene_output* scene_
   }
 
   scene_output->direct_scanout_enabled = enabled;
+  scene_output_damage_whole(scene_output);
+}
+
+void wlr_scene_output_set_overlay_planes_enabled(struct wlr_scene_output* scene_output, bool enabled) {
+  if (scene_output->overlay_planes_enabled == enabled) {
+    return;
+  }
+
+  scene_output->overlay_planes_enabled = enabled;
   scene_output_damage_whole(scene_output);
 }
 
@@ -5737,6 +5978,9 @@ static int scanout_list_len(const struct render_list_entry* list, int len) {
   return len;
 }
 
+// Why the last overlay attempt failed, for ANDROMEDA_SCANOUT_DEBUG.
+static const char* overlay_refusal = "not tried";
+
 // ANDROMEDA_SCANOUT_DEBUG=1: once per second, log the nodes that keep an output composited.
 static void log_composited_entries(struct wlr_scene* scene, const struct render_list_entry* list, int len) {
   static bool enabled = false;
@@ -5757,8 +6001,9 @@ static void log_composited_entries(struct wlr_scene* scene, const struct render_
   }
   last_ns = now_ns;
   const struct scene_effects* effects = scene_effects_get(scene, false);
-  wlr_log(WLR_INFO, "scanout blocked: effects transient %u persistent %u bounded %u", effects ? effects->transient : 0,
-          effects ? effects->persistent : 0, effects ? effects->bounded : 0);
+  wlr_log(WLR_INFO, "scanout blocked: effects transient %u persistent %u bounded %u; overlay: %s",
+          effects ? effects->transient : 0, effects ? effects->persistent : 0, effects ? effects->bounded : 0,
+          overlay_refusal);
   for (int i = 0; i < len; i++) {
     struct wlr_scene_node* node = list[i].node;
     int w = 0, h = 0;
@@ -5779,6 +6024,17 @@ static void log_composited_entries(struct wlr_scene* scene, const struct render_
     } else if (node->type == WLR_SCENE_NODE_RECT) {
       kind = "rect";
       scene_node_get_size(node, &w, &h);
+    } else if (node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
+      struct wlr_scene_optimized_blur* blur = wlr_scene_optimized_blur_from_node(node);
+      pixman_region32_t work;
+      pixman_region32_init(&work);
+      optimized_blur_work(blur, &work);
+      wlr_log(WLR_INFO, "scanout blocked: optimized blur dirty %d pending %u consumers %u work %u", blur->dirty,
+              region_area(&blur->pending),
+              region_area(optimized_blur_consumers(blur, scene_blur_reach(scene_node_get_root(node)))),
+              region_area(&work));
+      pixman_region32_fini(&work);
+      kind = "optimized-blur";
     }
     pixman_region32_t opaque;
     pixman_region32_init(&opaque);
@@ -5800,9 +6056,44 @@ static void log_composited_entries(struct wlr_scene* scene, const struct render_
   }
 }
 
+// wlr_output_is_direct_scanout_allowed, minus the render locks that only keep animations composited.
+static bool overlay_scanout_allowed(struct wlr_output* output, int animation_render_locks) {
+  if (output->attach_render_locks > animation_render_locks) {
+    return false;
+  }
+  struct wlr_output_cursor* cursor;
+  wl_list_for_each(cursor, &output->cursors, link) {
+    if (cursor->enabled && cursor->visible && cursor != output->hardware_cursor) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The buffer a plane shows for a scene buffer: the client's dmabuf, or the linear staging copy a large shm buffer is
+// drawn from (fx_texture.c).
+static struct wlr_buffer* scene_buffer_scanout_buffer(struct wlr_scene_buffer* scene_buffer) {
+  struct wlr_buffer* buffer = scene_buffer->buffer;
+  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(buffer);
+  if (client_buffer == NULL) {
+    return buffer;
+  }
+  struct wlr_buffer* source = client_buffer->source != NULL && client_buffer->source->n_locks > 0 ? client_buffer->source : NULL;
+  struct wlr_dmabuf_attributes dmabuf;
+  if (source != NULL && wlr_buffer_get_dmabuf(source, &dmabuf)) {
+    return source;
+  }
+  struct wlr_buffer* slot = client_buffer->texture != NULL ? fx_texture_get_scanout_buffer(client_buffer->texture) : NULL;
+  return slot != NULL ? slot : source != NULL ? source : buffer;
+}
+
+// The compositor's libliftoff interposer defines it; absent in other programs that link the scene.
+bool andromeda_liftoff_take_composited(void) __attribute__((weak));
+
+// With a layer, the entry goes on the primary plane under that layer; the caller checks that only nodes above hide it.
 static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     struct render_list_entry* entry, struct wlr_output_state* state, const struct render_data* data,
-    enum wlr_scene_direct_scanout_status* status
+    struct wlr_output_layer_state* layer, size_t layers_len, enum wlr_scene_direct_scanout_status* status
 ) {
   struct wlr_scene_output* scene_output = data->output;
   struct wlr_scene_node* node = entry->node;
@@ -5824,7 +6115,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
 
   pixman_region32_t node_region;
   pixman_region32_init_rect(&node_region, node_box.x, node_box.y, node_box.width, node_box.height);
-  bool fully_visible = pixman_region32_equal(&node_region, &node->visible);
+  bool fully_visible = layer != NULL || pixman_region32_equal(&node_region, &node->visible);
   pixman_region32_fini(&node_region);
   if (!fully_visible) {
     *status = WLR_SCENE_DIRECT_SCANOUT_CROPPED;
@@ -5837,7 +6128,8 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     return SCANOUT_INELIGIBLE;
   }
 
-  if (!wlr_output_is_direct_scanout_allowed(scene_output->output)) {
+  if (layer != NULL ? !overlay_scanout_allowed(scene_output->output, data->animation_render_locks)
+                    : !wlr_output_is_direct_scanout_allowed(scene_output->output)) {
     // wlroots refuses for a render lock or a software cursor; the lock count tells them apart.
     *status = scene_output->output->attach_render_locks > 0 ? WLR_SCENE_DIRECT_SCANOUT_RENDER_LOCKED
                                                             : WLR_SCENE_DIRECT_SCANOUT_SOFTWARE_CURSOR;
@@ -5911,11 +6203,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   scene_node_get_size(node, &pending.buffer_dst_box.width, &pending.buffer_dst_box.height);
   transform_output_box(&pending.buffer_dst_box, data);
 
-  struct wlr_buffer* wlr_buffer = buffer->buffer;
-  struct wlr_client_buffer* client_buffer = wlr_client_buffer_get(wlr_buffer);
-  if (client_buffer != NULL && client_buffer->source != NULL && client_buffer->source->n_locks > 0) {
-    wlr_buffer = client_buffer->source;
-  }
+  struct wlr_buffer* wlr_buffer = scene_buffer_scanout_buffer(buffer);
 
   wlr_output_state_set_buffer(&pending, wlr_buffer);
   if (buffer->wait_timeline != NULL) {
@@ -5926,11 +6214,50 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     scene_output->out_point++;
     wlr_output_state_set_signal_timeline(&pending, scene_output->out_timeline, scene_output->out_point);
   }
+  if (layer != NULL) {
+    wlr_output_state_set_layers(&pending, layer, layers_len);
+  }
+  // The video layer's buffer changes every frame; the tested layout is its node, format and modifier.
+  const void* video = layers_len > 1 && layer[0].buffer != NULL ? scene_output->overlay_candidate : NULL;
+  struct wlr_dmabuf_attributes video_dmabuf = {0};
+  if (video != NULL) {
+    wlr_buffer_get_dmabuf(layer[0].buffer, &video_dmabuf);
+  }
 
-  if (!wlr_output_test_state(scene_output->output, &pending)) {
+  // wlroots 0.20 (DRM, libliftoff) sets layer->accepted only on a real commit, so a passing test is the answer here;
+  // the commit handler checks accepted afterwards.
+  struct wlr_dmabuf_attributes dmabuf = {0};
+  const bool known_layout = layer != NULL
+      && wlr_buffer_get_dmabuf(wlr_buffer, &dmabuf)
+      && scene_output->overlay_tested_candidate == node
+      && scene_output->overlay_tested_video == video
+      && scene_output->overlay_tested_video_format == video_dmabuf.format
+      && scene_output->overlay_tested_video_modifier == video_dmabuf.modifier
+      && scene_output->overlay_tested_format == dmabuf.format
+      && scene_output->overlay_tested_modifier == dmabuf.modifier
+      && scene_output->overlay_untested_frames < 120;
+  if (andromeda_liftoff_take_composited != NULL) {
+    andromeda_liftoff_take_composited();
+  }
+  if (known_layout) {
+    scene_output->overlay_untested_frames++;
+  } else if (!wlr_output_test_state(scene_output->output, &pending)
+             || (layer != NULL && andromeda_liftoff_take_composited != NULL && andromeda_liftoff_take_composited())) {
+    // libliftoff passes a test that leaves a layer to composition; that frame would lose the layer.
+    if (layer != NULL) {
+      scene_output->overlay_tested_candidate = NULL;
+    }
     wlr_output_state_finish(&pending);
     *status = WLR_SCENE_DIRECT_SCANOUT_REJECTED;
     return SCANOUT_CANDIDATE;
+  } else if (layer != NULL && dmabuf.n_planes > 0) {
+    scene_output->overlay_tested_candidate = node;
+    scene_output->overlay_tested_video = video;
+    scene_output->overlay_tested_video_format = video_dmabuf.format;
+    scene_output->overlay_tested_video_modifier = video_dmabuf.modifier;
+    scene_output->overlay_tested_format = dmabuf.format;
+    scene_output->overlay_tested_modifier = dmabuf.modifier;
+    scene_output->overlay_untested_frames = 0;
   }
 
   wlr_output_state_copy(state, &pending);
@@ -5947,6 +6274,379 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   return SCANOUT_SUCCESS;
 }
 
+// Video under glass: a covering buffer of list[0, len) goes on the primary plane (or on the video layer over the opaque
+// buffer on the primary plane) and the entries above it are composited into one overlay plane. The buffers below are
+// drawn there only where those entries or their blur read them: clip (buffer coordinates) receives that region.
+// A client buffer that covers the output exactly; *opaque tells whether it has no alpha anywhere.
+static bool overlay_entry_covers_output(const struct render_list_entry* entry, const struct render_data* data, bool* opaque) {
+  if (entry->node->type != WLR_SCENE_NODE_BUFFER || entry->x != data->logical.x || entry->y != data->logical.y) {
+    return false;
+  }
+  int width, height;
+  scene_node_get_size(entry->node, &width, &height);
+  if (width != data->logical.width || height != data->logical.height) {
+    return false;
+  }
+  pixman_region32_t region;
+  pixman_region32_init(&region);
+  scene_node_opaque_region(data->effects, entry->node, entry->x, entry->y, &region);
+  *opaque = pixman_region32_contains_rectangle(
+                &region, &(pixman_box32_t){entry->x, entry->y, entry->x + width, entry->y + height}
+            )
+      == PIXMAN_REGION_IN;
+  pixman_region32_fini(&region);
+  return true;
+}
+
+// A state carries every overlay layer that exists, bottom to top; one without a buffer is off.
+static void scene_output_set_overlay_layers(struct wlr_scene_output* scene_output, struct wlr_output_state* state) {
+  const bool video = scene_output->overlay_video_layer != NULL;
+  wlr_output_state_set_layers(state, &scene_output->overlay_layer_states[video ? 0 : 1], video ? 2 : 1);
+}
+
+// The video layer shows the entry's client buffer as it is: no crop, transform, opacity or rounded corners.
+static bool overlay_video_layer_state(
+    struct wlr_scene_output* scene_output, const struct wlr_output_state* state, const struct render_data* data,
+    const struct render_list_entry* entry, struct wlr_output_layer_state* layer
+) {
+  struct wlr_scene_buffer* scene_buffer = wlr_scene_buffer_from_node(entry->node);
+  struct wlr_buffer* buffer = scene_buffer->buffer;
+  if (buffer == NULL
+      || scene_buffer->transform != data->transform
+      || scene_buffer->opacity != 1
+      || !fx_corner_radii_is_empty(&scene_buffer->corners)
+      || (!wlr_fbox_empty(&scene_buffer->src_box)
+          && !wlr_fbox_equal(&scene_buffer->src_box, &(struct wlr_fbox){.width = buffer->width, .height = buffer->height}))
+      || !color_management_is_scanout_allowed(output_pending_image_description(scene_output->output, state), scene_buffer)
+      || !((scene_buffer->color_encoding == WLR_COLOR_ENCODING_NONE && scene_buffer->color_range == WLR_COLOR_RANGE_NONE)
+           || (scene_buffer->color_encoding == WLR_COLOR_ENCODING_IDENTITY
+               && scene_buffer->color_range == WLR_COLOR_RANGE_FULL))) {
+    return false;
+  }
+  if (scene_output->overlay_video_layer == NULL) {
+    scene_output->overlay_video_layer = wlr_output_layer_create(scene_output->output);
+    if (scene_output->overlay_video_layer == NULL) {
+      return false;
+    }
+  }
+  buffer = scene_buffer_scanout_buffer(scene_buffer);
+  *layer = (struct wlr_output_layer_state){
+      .layer = scene_output->overlay_video_layer,
+      .buffer = buffer,
+      .dst_box = {.x = entry->x - scene_output->x, .y = entry->y - scene_output->y},
+  };
+  scene_node_get_size(entry->node, &layer->dst_box.width, &layer->dst_box.height);
+  transform_output_box(&layer->dst_box, data);
+  return true;
+}
+
+// ANDROMEDA_OVERLAY_DAMAGE=0 redraws the whole overlay buffer every frame, for A/B runs.
+static bool overlay_damage_enabled(void) {
+  static int enabled = -1;
+  if (enabled < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_DAMAGE");
+    enabled = env == NULL || strcmp(env, "0") != 0;
+  }
+  return enabled;
+}
+
+// ANDROMEDA_OVERLAY_REUSE=0 renders a new overlay buffer every frame even when nothing it draws changed, for A/B runs.
+static bool overlay_reuse_enabled(void) {
+  static int enabled = -1;
+  if (enabled < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_REUSE");
+    enabled = env == NULL || strcmp(env, "0") != 0;
+  }
+  return enabled;
+}
+
+static bool overlay_reuse_debug(void) {
+  static int debug = -1;
+  if (debug < 0) {
+    const char* env = getenv("ANDROMEDA_OVERLAY_DEBUG");
+    debug = env != NULL && strcmp(env, "1") == 0;
+  }
+  return debug;
+}
+
+static bool scene_output_try_overlay(
+    struct wlr_scene_output* scene_output, struct wlr_output_state* state, const struct render_data* data,
+    struct render_list_entry* list, int len, pixman_region32_t* clip, int* index, int* primary, bool* opaque_whole
+) {
+  struct wlr_output* output = scene_output->output;
+  // Other backends may accept a layer and never show it (headless).
+  if (!wlr_output_is_drm(output)
+      || output->swapchain == NULL
+      || (output->swapchain->format.format != DRM_FORMAT_XRGB8888
+          && output->swapchain->format.format != DRM_FORMAT_ARGB8888)) {
+    overlay_refusal = "backend or format";
+    return false;
+  }
+  // The plane buffer is the topmost opaque covering buffer: entries below it are hidden and only feed blur caches.
+  // Else the bottom entry, whose alpha then blends over the black CRTC background as the composite blends over black.
+  // A covering buffer with alpha above that opaque one (a maximized video) takes the video layer between the two
+  // planes, when nothing between them draws.
+  *primary = len - 1;
+  int video = -1;
+  for (int i = 0; i < len; i++) {
+    bool opaque = false;
+    if (overlay_entry_covers_output(&list[i], data, &opaque)) {
+      if (opaque) {
+        *primary = i;
+        break;
+      }
+      if (video < 0) {
+        video = i;
+      }
+    }
+  }
+  bool primary_opaque = false;
+  if (video >= 0 && (video >= *primary || !overlay_entry_covers_output(&list[*primary], data, &primary_opaque)
+                     || !primary_opaque)) {
+    video = -1;
+  }
+  for (int i = video + 1; video >= 0 && i < *primary; i++) {
+    if (list[i].node->type != WLR_SCENE_NODE_OPTIMIZED_BLUR && !pixman_region32_empty(&list[i].node->visible)) {
+      video = -1;
+    }
+  }
+  struct wlr_dmabuf_attributes video_dmabuf = {0};
+  if (video >= 0) {
+    struct wlr_scene_buffer* video_buffer = wlr_scene_buffer_from_node(list[video].node);
+    struct wlr_buffer* source = video_buffer->buffer != NULL ? scene_buffer_scanout_buffer(video_buffer) : NULL;
+    if (scene_output->overlay_video_block > 0) {
+      scene_output->overlay_video_block--;
+    }
+    if (source == NULL
+        || !wlr_buffer_get_dmabuf(source, &video_dmabuf)
+        || (scene_output->overlay_video_block > 0
+            && video_dmabuf.format == scene_output->overlay_video_rejected_format
+            && video_dmabuf.modifier == scene_output->overlay_video_rejected_modifier)) {
+      video = -1;
+    }
+  }
+  *index = video >= 0 ? video : *primary;
+  struct render_list_entry* entry = &list[*index];
+  if (!overlay_entry_covers_output(entry, data, opaque_whole)) {
+    overlay_refusal = "no covering buffer";
+    return false;
+  }
+  if (video >= 0) {
+    // The opaque primary buffer is under the video everywhere.
+    *opaque_whole = true;
+  }
+  int width, height;
+  scene_node_get_size(entry->node, &width, &height);
+  // Only a buffer that keeps updating (video) pays for a second plane; a still one (wallpaper) composites.
+  // Buffer identity cannot tell: clients reuse buffers, and while composited the staging slot stays the same.
+  const uint32_t seq = wlr_scene_buffer_from_node(entry->node)->content_seq;
+  if (entry->node != scene_output->overlay_candidate) {
+    scene_output->overlay_candidate = entry->node;
+    scene_output->overlay_candidate_still = UINT8_MAX;
+  } else if (seq != scene_output->overlay_candidate_seq) {
+    scene_output->overlay_candidate_still = 0;
+  } else if (scene_output->overlay_candidate_still < UINT8_MAX) {
+    scene_output->overlay_candidate_still++;
+  }
+  scene_output->overlay_candidate_seq = seq;
+  if (scene_output->overlay_candidate_still > 30) {
+    overlay_refusal = "bottom buffer still";
+    return false;
+  }
+
+  // Only entries above may hide the bottom entry; an ancestor clip must not.
+  const int reach = (int)ceilf(blur_data_calc_size(&scene_output->scene->blur_data) / data->scale);
+  pixman_region32_t hidden;
+  pixman_region32_init_rect(&hidden, entry->x, entry->y, width, height);
+  pixman_region32_subtract(&hidden, &hidden, &entry->node->visible);
+  for (int i = 0; i < *index; i++) {
+    pixman_region32_t region;
+    pixman_region32_init(&region);
+    scene_node_opaque_region(data->effects, list[i].node, list[i].x, list[i].y, &region);
+    pixman_region32_subtract(&hidden, &hidden, &region);
+    wlr_region_expand(&region, &list[i].node->visible, reach);
+    pixman_region32_union(clip, clip, &region);
+    pixman_region32_fini(&region);
+  }
+  if (video >= 0) {
+    // The primary buffer bypasses its visible region too; the entries above it, the video included, may hide it.
+    struct render_list_entry* below = &list[*primary];
+    pixman_region32_t below_hidden;
+    pixman_region32_init_rect(&below_hidden, below->x, below->y, width, height);
+    pixman_region32_subtract(&below_hidden, &below_hidden, &below->node->visible);
+    for (int i = 0; i < *primary; i++) {
+      pixman_region32_t region;
+      pixman_region32_init(&region);
+      scene_node_opaque_region(data->effects, list[i].node, list[i].x, list[i].y, &region);
+      pixman_region32_subtract(&below_hidden, &below_hidden, &region);
+      pixman_region32_fini(&region);
+    }
+    pixman_region32_union(&hidden, &hidden, &below_hidden);
+    pixman_region32_fini(&below_hidden);
+  }
+  const bool cropped = !pixman_region32_empty(&hidden);
+  pixman_region32_fini(&hidden);
+  if (cropped) {
+    overlay_refusal = "cropped by a clip";
+    return false;
+  }
+  pixman_region32_translate(clip, -data->logical.x, -data->logical.y);
+  logical_to_buffer_coords(clip, data, true);
+  pixman_region32_intersect_rect(clip, clip, 0, 0, output->width, output->height);
+  // Past 3/4 of the output, the full composite costs less than the overlay draw plus a second full-size plane.
+  if ((uint64_t)region_area(clip) * 4 > (uint64_t)output->width * output->height * 3) {
+    overlay_refusal = "clip area over 3/4";
+    return false;
+  }
+
+  if (scene_output->overlay_layer == NULL) {
+    scene_output->overlay_layer = wlr_output_layer_create(output);
+    if (scene_output->overlay_layer == NULL) {
+      overlay_refusal = "layer create";
+      return false;
+    }
+  }
+  struct wlr_swapchain* swapchain = scene_output->overlay_swapchain;
+  if (swapchain != NULL && (swapchain->width != output->width || swapchain->height != output->height)) {
+    wlr_swapchain_destroy(swapchain);
+    swapchain = scene_output->overlay_swapchain = NULL;
+  }
+  if (swapchain == NULL) {
+    struct wlr_drm_format format = output->swapchain->format;
+    format.format = DRM_FORMAT_ARGB8888;
+    swapchain = scene_output->overlay_swapchain =
+        wlr_swapchain_create(output->allocator, output->width, output->height, &format);
+    if (swapchain == NULL) {
+      overlay_refusal = "swapchain create";
+      return false;
+    }
+  }
+  // Only the entries under the overlay changed (a video frame) and only outside its clip: the buffer on screen still
+  // holds every pixel the overlay draws.
+  struct wlr_buffer* shown = scene_output->overlay_shown_buffer;
+  pixman_region32_t under_damage;
+  pixman_region32_init(&under_damage);
+  pixman_region32_intersect(&under_damage, &scene_output->overlay_under_damage_ring.current, clip);
+  const bool reuse = shown != NULL
+      && shown == scene_output->overlay_rendered
+      && overlay_reuse_enabled()
+      && overlay_damage_enabled()
+      && shown->width == output->width
+      && shown->height == output->height
+      && list[*index].node == scene_output->overlay_under_nodes[0]
+      && list[*primary].node == scene_output->overlay_under_nodes[1]
+      && *opaque_whole == scene_output->overlay_last_opaque
+      && pixman_region32_equal(clip, &scene_output->overlay_last_clip)
+      && pixman_region32_empty(&scene_output->overlay_damage_ring.current)
+      && pixman_region32_empty(&under_damage);
+  if (overlay_reuse_debug()) {
+    static unsigned counts[7];
+    counts[reuse ? 0
+           : shown == NULL || shown != scene_output->overlay_rendered            ? 1
+           : list[*index].node != scene_output->overlay_under_nodes[0]
+                   || list[*primary].node != scene_output->overlay_under_nodes[1] ? 2
+           : !pixman_region32_equal(clip, &scene_output->overlay_last_clip)        ? 3
+           : !pixman_region32_empty(&scene_output->overlay_damage_ring.current)    ? 4
+           : !pixman_region32_empty(&under_damage)                                 ? 5
+                                                                                   : 6]++;
+    if (counts[0] + counts[1] + counts[2] + counts[3] + counts[4] + counts[5] + counts[6] >= 300) {
+      const pixman_box32_t* d = pixman_region32_extents(&scene_output->overlay_damage_ring.current);
+      wlr_log(WLR_INFO, "overlay reuse: %u reused; rejected: buffer %u, nodes %u, clip %u, damage %u (%d,%d %dx%d), "
+              "under %u, other %u", counts[0], counts[1], counts[2], counts[3], counts[4], d->x1, d->y1,
+              d->x2 - d->x1, d->y2 - d->y1, counts[5], counts[6]);
+      memset(counts, 0, sizeof(counts));
+    }
+  }
+  pixman_region32_fini(&under_damage);
+  struct wlr_buffer* buffer = reuse ? wlr_buffer_lock(shown) : wlr_swapchain_acquire(swapchain);
+  if (buffer == NULL) {
+    overlay_refusal = "swapchain acquire";
+    return false;
+  }
+  scene_output->overlay_reused = reuse;
+  scene_output->overlay_layer_states[1] = (struct wlr_output_layer_state){
+      .layer = scene_output->overlay_layer,
+      .buffer = buffer,
+      .dst_box = {.width = output->width, .height = output->height},
+  };
+  if (video >= 0 && !overlay_video_layer_state(scene_output, state, data, entry, &scene_output->overlay_layer_states[0])) {
+    wlr_buffer_unlock(buffer);
+    scene_output->overlay_layer_states[1].buffer = NULL;
+    overlay_refusal = "video layer";
+    return false;
+  }
+  struct wlr_output_layer_state* layers = &scene_output->overlay_layer_states[1];
+  size_t layers_len = 1;
+  if (scene_output->overlay_video_layer != NULL) {
+    scene_output->overlay_layer_states[0].layer = scene_output->overlay_video_layer;
+    layers = scene_output->overlay_layer_states;
+    layers_len = 2;
+  }
+  enum wlr_scene_direct_scanout_status status;
+  // wlroots registers planes lit at startup with libliftoff only on a modeset; the session starts without one.
+  if (scene_output->overlay_modeset_next) {
+    scene_output->overlay_modeset_next = false;
+    scene_output->overlay_modeset_tried = true;
+    state->allow_reconfiguration = true;
+    wlr_log(WLR_INFO, "overlay plane: one modeset to register planes and settle the display clock");
+  }
+  enum scene_direct_scanout_result result =
+      scene_entry_try_direct_scanout(&list[*primary], state, data, layers, layers_len, &status);
+  if (result != SCANOUT_SUCCESS
+      && status == WLR_SCENE_DIRECT_SCANOUT_REJECTED
+      && !scene_output->overlay_modeset_tried
+      && video < 0) {
+    // i915 recomputes the display clock (CDCLK) when a plane first turns on; a firmware clock kept by fastboot then
+    // differs, and only a modeset may change it. One blocking modeset per output settles it, usually lower.
+    scene_output->overlay_modeset_tried = true;
+    state->allow_reconfiguration = true;
+    result = scene_entry_try_direct_scanout(&list[*primary], state, data, layers, layers_len, &status);
+    if (result == SCANOUT_SUCCESS) {
+      wlr_log(WLR_INFO, "overlay plane: one modeset to settle the display clock");
+    }
+  }
+  if (result != SCANOUT_SUCCESS) {
+    state->allow_reconfiguration = false;
+    wlr_buffer_unlock(buffer);
+    scene_output->overlay_layer_states[1].buffer = NULL;
+    scene_output->overlay_layer_states[0].buffer = NULL;
+    if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED && video >= 0) {
+      // Often the planes take no such buffer (Skylake sprites lack 10-bit formats with alpha); the cause may also
+      // pass, so the video retries the layer after about 10 s of overlay attempts.
+      scene_output->overlay_video_rejected_format = video_dmabuf.format;
+      scene_output->overlay_video_rejected_modifier = video_dmabuf.modifier;
+      scene_output->overlay_video_block = 600;
+    } else if (status == WLR_SCENE_DIRECT_SCANOUT_REJECTED) {
+      // A rejected test costs an atomic test commit: retry about once a second.
+      scene_output->overlay_backoff = 60;
+    }
+    static const char* const reasons[] = {
+        [WLR_SCENE_DIRECT_SCANOUT_EFFECTS] = "effects",
+        [WLR_SCENE_DIRECT_SCANOUT_COLOR] = "color",
+        [WLR_SCENE_DIRECT_SCANOUT_TRANSFORM] = "transform",
+        [WLR_SCENE_DIRECT_SCANOUT_MODESET] = "modeset",
+        [WLR_SCENE_DIRECT_SCANOUT_RENDER_LOCKED] = "render locked",
+        [WLR_SCENE_DIRECT_SCANOUT_SOFTWARE_CURSOR] = "software cursor",
+        [WLR_SCENE_DIRECT_SCANOUT_REJECTED] = "test failed",
+    };
+    overlay_refusal = (size_t)status < sizeof(reasons) / sizeof(reasons[0]) && reasons[status] != NULL
+        ? reasons[status]
+        : "primary plane ineligible";
+    return false;
+  }
+  if (video >= 0) {
+    struct wlr_scene_output_sample_event sample_event = {
+        .output = scene_output,
+        .direct_scanout = true,
+        .release_timeline = scene_output->out_timeline,
+        .release_point = scene_output->out_point,
+    };
+    wl_signal_emit_mutable(&wlr_scene_buffer_from_node(entry->node)->events.output_sample, &sample_event);
+  }
+  overlay_refusal = video >= 0 ? "active, video layer" : "active";
+  return true;
+}
+
 bool wlr_scene_output_needs_frame(struct wlr_scene_output* scene_output) {
   return scene_output->output->needs_frame
       || !pixman_region32_empty(&scene_output->pending_commit_damage)
@@ -5961,7 +6661,7 @@ static bool should_blur_node_extend_damage(
     struct wlr_scene_blur* blur_node = wlr_scene_blur_from_node(node);
     // No artifact prevention needed when the whole blur is already
     // rendered
-    if (blur_node->should_only_blur_bottom_layer && blur_node->strength == 1.0) {
+    if (blur_samples_cache(blur_node) && blur_node->strength == 1.0) {
       fx_pass->has_blur = true;
       return false;
     }
@@ -6173,6 +6873,7 @@ static void scene_output_damage_box_quiet(struct wlr_scene_output* scene_output,
   pixman_region32_init_rect(&damage, box->x, box->y, box->width, box->height);
   pixman_region32_intersect_rect(&damage, &damage, 0, 0, scene_output->output->width, scene_output->output->height);
   wlr_damage_ring_add(&scene_output->damage_ring, &damage);
+  wlr_damage_ring_add(&scene_output->overlay_damage_ring, &damage);
   pixman_region32_union(&scene_output->pending_commit_damage, &scene_output->pending_commit_damage, &damage);
   pixman_region32_fini(&damage);
 }
@@ -6309,6 +7010,155 @@ static void render_background(
   );
 }
 
+// The commit's wait becomes a point that signals once the overlay render (in_point) and the bottom buffer's own wait
+// point, if any, both have.
+static bool scene_output_wait_overlay_render(struct wlr_scene_output* scene_output, struct wlr_output_state* state) {
+  struct wlr_drm_syncobj_timeline* timeline = scene_output->in_timeline;
+  if (state->wait_timeline == NULL) {
+    wlr_output_state_set_wait_timeline(state, timeline, scene_output->in_point);
+    return true;
+  }
+  int render = wlr_drm_syncobj_timeline_export_sync_file(timeline, scene_output->in_point);
+  if (render < 0) {
+    return false;
+  }
+  int client = wlr_drm_syncobj_timeline_export_sync_file(state->wait_timeline, state->wait_point);
+  if (client < 0) {
+    close(render);
+    return false;
+  }
+  struct sync_merge_data merge = {.name = "andromeda-overlay", .fd2 = client};
+  int ret;
+  do {
+    ret = ioctl(render, SYNC_IOC_MERGE, &merge);
+  } while (ret < 0 && (errno == EINTR || errno == EAGAIN));
+  close(client);
+  close(render);
+  if (ret < 0) {
+    return false;
+  }
+  scene_output->in_point++;
+  const bool imported = wlr_drm_syncobj_timeline_import_sync_file(timeline, scene_output->in_point, merge.fence);
+  close(merge.fence);
+  if (imported) {
+    wlr_output_state_set_wait_timeline(state, timeline, scene_output->in_point);
+  }
+  return imported;
+}
+
+// The layout region a render list entry draws into: its visible region grown by its effect margin, minus the hole a
+// shadow or border leaves inside its clipped box (the corner squares stay, as the hole corners are rounded).
+static void scene_entry_drawn_region(const struct render_list_entry* entry, pixman_region32_t* out) {
+  struct wlr_scene_node* node = entry->node;
+  wlr_region_expand(out, &node->visible, scene_node_effect_expand(node));
+  const struct clipped_region* clip = NULL;
+  if (node->type == WLR_SCENE_NODE_SHADOW) {
+    clip = &wlr_scene_shadow_from_node(node)->clipped_region;
+  } else if (node->type == WLR_SCENE_NODE_BORDER) {
+    clip = &wlr_scene_border_from_node(node)->clipped_region;
+  }
+  if (clip == NULL || wlr_box_empty(&clip->area)) {
+    return;
+  }
+  const struct fx_corner_radii c = clip->corners;
+  int r = c.top_left > c.top_right ? c.top_left : c.top_right;
+  r = c.bottom_left > r ? c.bottom_left : r;
+  r = c.bottom_right > r ? c.bottom_right : r;
+  const struct wlr_box* a = &clip->area;
+  const int x = entry->x + a->x;
+  const int y = entry->y + a->y;
+  pixman_region32_t hole;
+  pixman_region32_init(&hole);
+  if (a->width > 2 * r) {
+    pixman_region32_union_rect(&hole, &hole, x + r, y, a->width - 2 * r, a->height);
+  }
+  if (a->height > 2 * r) {
+    pixman_region32_union_rect(&hole, &hole, x, y + r, a->width, a->height - 2 * r);
+  }
+  pixman_region32_subtract(out, out, &hole);
+  pixman_region32_fini(&hole);
+}
+
+// A glass shape's own drop shadow: its hole is the glass box, so it adds only a faint halo inside the blur reach.
+static bool scene_entry_is_shadow_of(const struct render_list_entry* entry, const struct wlr_box* box) {
+  if (entry->node->type != WLR_SCENE_NODE_SHADOW) {
+    return false;
+  }
+  struct wlr_box hole = wlr_scene_shadow_from_node(entry->node)->clipped_region.area;
+  hole.x += entry->x;
+  hole.y += entry->y;
+  return wlr_box_equal(&hole, box);
+}
+
+// Each adaptive blur node samples the cached bottom-layer blur when no entry between it and the cache node (top to
+// bottom in `list`) reaches under it, else the live content. A changed choice repaints the node.
+static void scene_output_choose_blur_sources(
+    struct wlr_scene_output* scene_output, const struct render_list_entry* list, int len
+) {
+  int cache = -1;
+  for (int i = 0; i < len && cache < 0; i++) {
+    if (list[i].node->type == WLR_SCENE_NODE_OPTIMIZED_BLUR) {
+      cache = i;
+    }
+  }
+  static int debug = -1;
+  if (debug < 0) {
+    const char* env = getenv("ANDROMEDA_BLUR_DEBUG");
+    debug = env != NULL && strcmp(env, "1") == 0;
+  }
+  const int reach = scene_blur_reach(scene_output->scene);
+  for (int i = 0; i < len; i++) {
+    if (list[i].node->type != WLR_SCENE_NODE_BLUR) {
+      continue;
+    }
+    struct wlr_scene_blur* blur = wlr_scene_blur_from_node(list[i].node);
+    if (!blur->adaptive) {
+      continue;
+    }
+    bool cached = cache > i;
+    int blocker = -1;
+    if (cached) {
+      pixman_region32_t under;
+      pixman_region32_init(&under);
+      wlr_region_expand(&under, &blur->node.visible, reach);
+      pixman_region32_t hit;
+      pixman_region32_init(&hit);
+      const struct wlr_box own = {list[i].x, list[i].y, blur->width, blur->height};
+      for (int j = i + 1; j < cache && cached; j++) {
+        if (scene_entry_is_shadow_of(&list[j], &own)) {
+          continue;
+        }
+        scene_entry_drawn_region(&list[j], &hit);
+        pixman_region32_intersect(&hit, &hit, &under);
+        cached = pixman_region32_empty(&hit);
+        blocker = cached ? -1 : j;
+      }
+      pixman_region32_fini(&hit);
+      pixman_region32_fini(&under);
+    }
+    blur->use_cache = cached;
+    const uint64_t bit = 1ull << scene_output->index;
+    if (cached == ((blur->cached_outputs & bit) != 0)) {
+      continue;
+    }
+    blur->cached_outputs ^= bit;
+    if (debug) {
+      const pixman_box32_t* b = pixman_region32_extents(&list[blocker >= 0 ? blocker : i].node->visible);
+      wlr_log(WLR_INFO, "blur %dx%d at %d,%d: %s%s%d (%d,%d %dx%d)", blur->width, blur->height, list[i].x, list[i].y,
+              cached ? "cached" : "live", blocker >= 0 ? ", under it node type " : ", cache index ",
+              blocker >= 0 ? (int)list[blocker].node->type : cache, b->x1, b->y1, b->x2 - b->x1, b->y2 - b->y1);
+    }
+    pixman_region32_t damage;
+    pixman_region32_init(&damage);
+    pixman_region32_copy(&damage, &blur->node.visible);
+    pixman_region32_translate(&damage, -scene_output->x, -scene_output->y);
+    scale_region(&damage, scene_output->output->scale, true);
+    output_to_buffer_coords(&damage, scene_output->output);
+    scene_output_damage(scene_output, &damage);
+    pixman_region32_fini(&damage);
+  }
+}
+
 static bool scene_output_build_state(
     struct wlr_scene_output* scene_output, struct wlr_output_state* state,
     const struct wlr_scene_output_state_options* options
@@ -6316,6 +7166,11 @@ static bool scene_output_build_state(
   struct wlr_scene_output_state_options default_options = {0};
   if (!options) {
     options = &default_options;
+  }
+  // The state that showed the previous overlay buffer was committed or dropped by now.
+  if (scene_output->overlay_layer_states[1].buffer != NULL) {
+    wlr_buffer_unlock(scene_output->overlay_layer_states[1].buffer);
+    scene_output->overlay_layer_states[1].buffer = NULL;
   }
   struct wlr_scene_timer* timer = options->timer;
   struct timespec start_time;
@@ -6441,6 +7296,7 @@ static bool scene_output_build_state(
   int list_len = list_con.render_list->size / sizeof(*list_data);
   render_data.entries = list_data;
   render_data.entry_count = list_len;
+  scene_output_choose_blur_sources(scene_output, list_data, list_len);
 
   // Looked up only with scene effects, output slots, or a pending capture; otherwise
   // there is nothing to draw, save, or release.
@@ -6556,6 +7412,18 @@ static bool scene_output_build_state(
   // - Damage highlight debugging is not enabled
   enum scene_direct_scanout_result scanout_result = SCANOUT_INELIGIBLE;
   enum wlr_scene_direct_scanout_status scanout_status;
+  pixman_region32_t overlay_clip;
+  pixman_region32_init(&overlay_clip);
+  bool overlay = false;
+  bool overlay_opaque = false;
+  // A layer state fails while the output has no CRTC (wlroots DRM), as on the commit that enables it again.
+  const bool layers_allowed = output->enabled && !(state->committed & (WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_MODE));
+  if (scene_output->overlay_layer != NULL && layers_allowed) {
+    // A layer left out of a state keeps its last buffer: each state turns it off unless it shows it.
+    scene_output->overlay_layer_states[0] = (struct wlr_output_layer_state){.layer = scene_output->overlay_video_layer};
+    scene_output->overlay_layer_states[1] = (struct wlr_output_layer_state){.layer = scene_output->overlay_layer};
+    scene_output_set_overlay_layers(scene_output, state);
+  }
   // The policy comes first: an output with scanout turned off reports that, whatever else is on screen.
   if (!scene_output->scene->direct_scanout || !scene_output->direct_scanout_enabled) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DISABLED;
@@ -6571,15 +7439,45 @@ static bool scene_output_build_state(
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_NO_CANDIDATE;
   } else if (scanout_list_len(list_data, list_len) > 1) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_COMPOSITED;
-    log_composited_entries(scene_output->scene, list_data, list_len);
+    if (scene_output->overlay_backoff > 0) {
+      scene_output->overlay_backoff--;
+    } else if (scene_output->overlay_planes_enabled
+               && layers_allowed
+               && debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT
+               && options->swapchain == NULL
+               && options->workspace_from == NULL
+               && !capture_pending
+               && !unfiltered_pass
+               && !output_effects_active(output_effects)) {
+      const int len = scanout_list_len(list_data, list_len);
+      render_data.animation_render_locks = options->animation_render_locks;
+      int index = 0;
+      int primary = 0;
+      overlay = scene_output_try_overlay(
+          scene_output, state, &render_data, list_data, len, &overlay_clip, &index, &primary, &overlay_opaque
+      );
+      if (overlay) {
+        scanout_status = WLR_SCENE_DIRECT_SCANOUT_OVERLAY;
+        scanout_result = SCANOUT_CANDIDATE;
+        render_data.overlay_entry = &list_data[index];
+        render_data.overlay_primary = &list_data[primary];
+        render_data.overlay_clip = &overlay_clip;
+      }
+    }
+    if (!overlay) {
+      pixman_region32_clear(&overlay_clip);
+      log_composited_entries(scene_output->scene, list_data, list_len);
+    }
   } else if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
     scanout_status = WLR_SCENE_DIRECT_SCANOUT_DEBUG_DAMAGE;
   } else {
-    scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data, &scanout_status);
+    scanout_result = scene_entry_try_direct_scanout(&list_data[0], state, &render_data, NULL, 0, &scanout_status);
   }
   scene_output->direct_scanout_status = scanout_status;
-  scene_output->direct_scanout_buffer =
-      scanout_result == SCANOUT_SUCCESS ? wlr_scene_buffer_from_node(list_data[0].node) : NULL;
+  scene_output->direct_scanout_buffer = scanout_result == SCANOUT_SUCCESS
+      ? wlr_scene_buffer_from_node(list_data[0].node)
+      : overlay ? wlr_scene_buffer_from_node(render_data.overlay_primary->node)
+                : NULL;
 
   if (scanout_result == SCANOUT_INELIGIBLE) {
     if (scene_output->dmabuf_feedback_debounce > 0) {
@@ -6598,7 +7496,7 @@ static bool scene_output_build_state(
     wlr_log(WLR_DEBUG, "Direct scan-out %s", scanout ? "enabled" : "disabled");
   }
 
-  if (scanout) {
+  if (scanout || (overlay && scene_output->overlay_reused)) {
     if (wlr_renderer_is_fx(output->renderer)) {
       // The shared blend target did not receive the scanned-out frame.
       fx_offscreen_buffers_invalidate_blend(output);
@@ -6612,22 +7510,30 @@ static bool scene_output_build_state(
       timer->pre_render_duration = timespec_to_nsec(&duration);
     }
 
+    pixman_region32_fini(&overlay_clip);
     TRACY_MARK_FRAME;
     return true;
   }
 
-  struct wlr_swapchain* swapchain = options->swapchain;
-  if (!swapchain) {
-    if (!wlr_output_configure_primary_swapchain(output, state, &output->swapchain)) {
-      TRACY_MARK_FRAME;
-      return false;
+  struct wlr_buffer* buffer = NULL;
+  if (overlay) {
+    buffer = wlr_buffer_lock(scene_output->overlay_layer_states[1].buffer);
+  } else {
+    struct wlr_swapchain* swapchain = options->swapchain;
+    if (!swapchain) {
+      if (!wlr_output_configure_primary_swapchain(output, state, &output->swapchain)) {
+        pixman_region32_fini(&overlay_clip);
+        TRACY_MARK_FRAME;
+        return false;
+      }
+
+      swapchain = output->swapchain;
     }
 
-    swapchain = output->swapchain;
+    buffer = wlr_swapchain_acquire(swapchain);
   }
-
-  struct wlr_buffer* buffer = wlr_swapchain_acquire(swapchain);
   if (buffer == NULL) {
+    pixman_region32_fini(&overlay_clip);
     TRACY_MARK_FRAME;
     return false;
   }
@@ -6653,6 +7559,7 @@ static bool scene_output_build_state(
     const struct wlr_output_image_description* output_description = output_pending_image_description(output, state);
     if (!scene_output_combine_color_transforms(scene_output, options->color_transform, output_description, gamma_lut)) {
       wlr_buffer_unlock(buffer);
+      pixman_region32_fini(&overlay_clip);
       return false;
     }
   }
@@ -6669,6 +7576,7 @@ static bool scene_output_build_state(
       : wlr_renderer_begin_buffer_pass(output->renderer, buffer, &pass_options);
   if (render_pass == NULL) {
     wlr_buffer_unlock(buffer);
+    pixman_region32_fini(&overlay_clip);
 
     TRACY_MARK_FRAME;
     return false;
@@ -6677,7 +7585,35 @@ static bool scene_output_build_state(
   render_data.render_pass = render_pass;
 
   pixman_region32_init(&render_data.damage);
-  wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer, &render_data.damage);
+  if (overlay) {
+    const void* under[2] = {render_data.overlay_entry->node, render_data.overlay_primary->node};
+    if (!overlay_damage_enabled() || under[0] != scene_output->overlay_under_nodes[0]
+        || under[1] != scene_output->overlay_under_nodes[1] || overlay_opaque != scene_output->overlay_last_opaque) {
+      // Another layout draws other entries: no buffer of the swapchain holds it.
+      wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
+    } else if (!pixman_region32_equal(&overlay_clip, &scene_output->overlay_last_clip)) {
+      // Inside the old clip the buffers show the entries under the overlay; outside the new one they must not.
+      pixman_region32_t changed;
+      pixman_region32_init(&changed);
+      pixman_region32_union(&changed, &overlay_clip, &scene_output->overlay_last_clip);
+      wlr_damage_ring_add(&scene_output->overlay_damage_ring, &changed);
+      pixman_region32_fini(&changed);
+    }
+    scene_output->overlay_under_nodes[0] = under[0];
+    scene_output->overlay_under_nodes[1] = under[1];
+    scene_output->overlay_last_opaque = overlay_opaque;
+    pixman_region32_copy(&scene_output->overlay_last_clip, &overlay_clip);
+    wlr_damage_ring_rotate_buffer(&scene_output->overlay_damage_ring, buffer, &render_data.damage);
+    scene_output->overlay_rendered = buffer;
+    pixman_region32_t under_damage;
+    pixman_region32_init(&under_damage);
+    wlr_damage_ring_rotate_buffer(&scene_output->overlay_under_damage_ring, buffer, &under_damage);
+    pixman_region32_intersect(&under_damage, &under_damage, &overlay_clip);
+    pixman_region32_union(&render_data.damage, &render_data.damage, &under_damage);
+    pixman_region32_fini(&under_damage);
+  } else {
+    wlr_damage_ring_rotate_buffer(&scene_output->damage_ring, buffer, &render_data.damage);
+  }
   expand_damage_to_effects(scene_output, effects, output_effects, &render_data, &render_data.damage, false);
 
   struct fx_gles_render_pass* fx_pass = fx_get_render_pass(render_pass);
@@ -6776,6 +7712,9 @@ static bool scene_output_build_state(
       fx_pass->animation_failed = true;
       fx_pass->has_blur = false;
       should_compensate_blur = false;
+      // This frame draws blur nodes without blur: the next one must redraw them.
+      wlr_damage_ring_add_whole(&scene_output->damage_ring);
+      wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
     }
   }
   struct fx_framebuffer* blur_saved_pixels = NULL;
@@ -6795,7 +7734,26 @@ static bool scene_output_build_state(
   // Cull areas of the background that are occluded by opaque regions of
   // scene nodes above. Those scene nodes will just render atop having us
   // never see the background.
-  if (scene_output->scene->calculate_visibility) {
+  if (overlay) {
+    // The primary plane shows through wherever nothing above it is drawn. Outside the damage the buffer keeps it.
+    wlr_render_pass_add_rect(
+        render_pass, &(struct wlr_render_rect_options){
+                         .box = {.width = buffer->width, .height = buffer->height},
+                         .color = {0},
+                         .clip = &render_data.damage,
+                         .blend_mode = WLR_RENDER_BLEND_MODE_NONE,
+                     }
+    );
+    if (!overlay_opaque) {
+      // Under the plane buffer's alpha the composite shows the background: the overlay must too inside its clip.
+      pixman_region32_t background_clip;
+      pixman_region32_init(&background_clip);
+      pixman_region32_intersect(&background_clip, &overlay_clip, &render_data.damage);
+      render_background(render_pass, scene_output->scene, buffer, &background_clip, WLR_RENDER_BLEND_MODE_NONE);
+      pixman_region32_fini(&background_clip);
+    }
+    pixman_region32_clear(&background);
+  } else if (scene_output->scene->calculate_visibility) {
     for (int i = list_len - 1; i >= 0; i--) {
       struct render_list_entry* entry = &list_data[i];
 
@@ -6904,6 +7862,7 @@ static bool scene_output_build_state(
   }
 
   pixman_region32_fini(&render_data.damage);
+  pixman_region32_fini(&overlay_clip);
 
   if (!wlr_render_pass_submit(render_pass)) {
     wlr_buffer_unlock(buffer);
@@ -6911,9 +7870,24 @@ static bool scene_output_build_state(
     // if we failed to render the buffer, it will have undefined contents
     // Trash the damage ring
     wlr_damage_ring_add_whole(&scene_output->damage_ring);
+    wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
 
     TRACY_MARK_FRAME;
     return false;
+  }
+
+  if (overlay) {
+    // The state already scans out the bottom buffer; the layer shows this one. The blend target lacks the video.
+    wlr_buffer_unlock(buffer);
+    // Layers get no in-fence: the primary plane's fence holds the whole atomic commit, so it waits for both.
+    if (scene_output->in_timeline != NULL && !scene_output_wait_overlay_render(scene_output, state)) {
+      TRACY_MARK_FRAME;
+      return false;
+    }
+    fx_offscreen_buffers_invalidate_blend(output);
+    scene_output_state_attempt_gamma(scene_output, state);
+    TRACY_MARK_FRAME;
+    return true;
   }
 
   wlr_output_state_set_buffer(state, buffer);
