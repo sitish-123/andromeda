@@ -77,6 +77,8 @@ namespace andromeda {
     // Null when the client has not set one. X11 windows report their WM_CLASS class as the app id.
     [[nodiscard]] const char* title() const;
     [[nodiscard]] const char* appId() const;
+    // general.honor_restored_maximize, always on for our own apps (dev.andromeda.*): they restore their state.
+    [[nodiscard]] bool honorsRestoredMaximize() const;
     // Role state. For xdg toplevels `scheduled` is what the next configure carries and `current` what the client
     // acknowledged; an X11 window has no acknowledgement, so both read the state last sent to it.
     [[nodiscard]] bool scheduledFullscreen() const;

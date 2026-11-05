@@ -19,6 +19,7 @@ extern "C" {
 // clang-format off
 #include <algorithm>
 #include <cassert>
+#include <string_view>
 #include "wlr.h"
 // clang-format on
 #include "workspace/scratchpad.h"
@@ -213,7 +214,7 @@ namespace andromeda {
       return;
     }
     if (!m_mapped) {
-      if (config().general.honorRestoredMaximize && requestedMaximized()) {
+      if (honorsRestoredMaximize() && requestedMaximized()) {
         // Some clients restore maximization only after acknowledging the first
         // configure. Reconfigure before they map a buffer so their first visible
         // content already matches the maximized layout target.
@@ -226,7 +227,7 @@ namespace andromeda {
     if (!m_acceptClientMaximizeRequests) {
       // A mapped request before the opening gate is itself the restore re-assert.
       // Consume it here so no later request inherits the suppression.
-      if (!config().general.honorRestoredMaximize && requestedMaximized()) {
+      if (!honorsRestoredMaximize() && requestedMaximized()) {
         m_consumeRestoredMaximizeRequest = false;
       }
       return;
@@ -525,6 +526,11 @@ namespace andromeda {
     // Once mapped, wlroots' normal parent state is authoritative. Retire the
     // opening hint on any later request, especially an explicit null parent.
     m_openingParentRequested = !m_mapped && parentRequested;
+  }
+
+  bool View::honorsRestoredMaximize() const {
+    const char* id = appId();
+    return config().general.honorRestoredMaximize || (id != nullptr && std::string_view(id).starts_with("dev.andromeda."));
   }
 
   bool View::openingParented() const { return shellParentRequested() || m_openingParentRequested; }

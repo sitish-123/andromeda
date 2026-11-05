@@ -247,7 +247,7 @@ namespace andromeda {
     // state like any other window, and the client's session flag is ignored.
     const bool clientRequested = m_aloneOpeningSeed == AloneSeed::Fullscreen
         ? requestedFullscreen()
-        : m_aloneOpeningSeed == AloneSeed::Maximize && requestedMaximized() && config().general.honorRestoredMaximize;
+        : m_aloneOpeningSeed == AloneSeed::Maximize && requestedMaximized() && honorsRestoredMaximize();
     if (clientRequested) {
       // The client has asked for the state itself since the opening configure, so it owns it.
       m_aloneOpeningSeed = AloneSeed::None;

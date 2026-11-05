@@ -230,10 +230,10 @@ namespace andromeda {
     m_effects.resetSlots();
     m_tiledOpeningDeferred = false;
     m_presentedTiledBox = {};
-    m_acceptClientMaximizeRequests = config().general.honorRestoredMaximize;
+    m_acceptClientMaximizeRequests = honorsRestoredMaximize();
     // Firefox often re-assert session maximize after map. With honor off, consume that one request so
     // it cannot override alone/default opening policy; later maximize requests stay valid.
-    if (config().general.honorRestoredMaximize) {
+    if (honorsRestoredMaximize()) {
       m_consumeRestoredMaximizeRequest = false;
     } else if (requestedMaximized()) {
       m_consumeRestoredMaximizeRequest = true;
@@ -438,7 +438,7 @@ namespace andromeda {
     // restore overrides the layout's initial size. A tiled restore under the
     // workspace's client_maximize = "edges" lands in the edges, above any rule column.
     const bool ruleMaximized = !openingParented() && rule.defaultMaximize && *rule.defaultMaximize;
-    const bool restoredMaximized = config().general.honorRestoredMaximize && requestedMaximized();
+    const bool restoredMaximized = honorsRestoredMaximize() && requestedMaximized();
     const bool restoreToEdges = restoredMaximized
         && m_tiled
         && m_workspace != nullptr
@@ -898,7 +898,7 @@ namespace andromeda {
             || (alone.defaultMaximizeToEdges.value_or(false) && !rule.defaultMaximizeToEdges.value_or(false));
         // A client's restored maximize flag only blocks alone ownership when we honor it. Otherwise alone seeds as
         // usual and the restore is ignored (and consumed after map if the client re-asserts it).
-        const bool clientOwnsRestoredMaximize = config().general.honorRestoredMaximize && requestedMaximized();
+        const bool clientOwnsRestoredMaximize = honorsRestoredMaximize() && requestedMaximized();
         if (seedFullscreen && !requestedFullscreen()) {
           m_aloneOpeningSeed = AloneSeed::Fullscreen;
         } else if (seedMaximized && !requestedFullscreen() && !clientOwnsRestoredMaximize) {
@@ -919,12 +919,12 @@ namespace andromeda {
       const bool wantMaximizeToEdges = openingInScratchpad
           ? !wantFullscreen && rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges
           : (rule.defaultMaximizeToEdges && *rule.defaultMaximizeToEdges)
-              || (config().general.honorRestoredMaximize && requestedMaximized() && layoutMaximizeToEdges);
+              || (honorsRestoredMaximize() && requestedMaximized() && layoutMaximizeToEdges);
       const bool wantMaximized = openingInScratchpad
           ? wantMaximizeToEdges
           : (!openingParented() && rule.defaultMaximize && *rule.defaultMaximize)
               || wantMaximizeToEdges
-              || (config().general.honorRestoredMaximize && requestedMaximized());
+              || (honorsRestoredMaximize() && requestedMaximized());
 
       Output* targetOutput = targetGroup != nullptr ? targetGroup->output() : preferred;
       if (openingInScratchpad) {
