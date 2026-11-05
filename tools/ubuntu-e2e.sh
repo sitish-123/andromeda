@@ -2,7 +2,8 @@
 # Usage: tools/ubuntu-e2e.sh [ubuntu-version] [e2e-name...]
 # The unit suites and the headless E2E scripts in a clean Ubuntu container (default 26.04), on the working tree
 # (docs/ubuntu-port.md 4). No names: every script in tests/e2e. Build dirs stay in the output dir, so a rerun is
-# incremental. Output in ~/.cache/andromeda-ubuntu/e2e-<version>/src/: build.log, unit.log, e2e-failed.txt, e2e-logs/.
+# incremental. NOCTALIA (a path inside the container, /src = the copied tree) overrides the shell binary.
+# Output in ~/.cache/andromeda-ubuntu/e2e-<version>/src/: build.log, unit.log, e2e-failed.txt, e2e-logs/.
 set -euo pipefail
 VERSION=${1:-26.04}
 shift || true
@@ -24,7 +25,8 @@ FROM andromeda-build:ubuntu-$VERSION
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
   libei-dev libxcb-xtest0-dev dbus dbus-bin libglib2.0-bin grim wtype jq wl-clipboard foot imagemagick ffmpeg pipewire pipewire-bin wireplumber \
   pulseaudio-utils gstreamer1.0-tools xdotool mpv flatpak libgl1-mesa-dri mesa-vulkan-drivers fonts-noto-core \
-  fonts-noto-color-emoji python3-gi
+  fonts-noto-color-emoji python3-gi python3-dbus python3-pil gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  xkb-data gdb
 EOF
 
 names=("$@")
@@ -35,7 +37,7 @@ status=0
 gpu=()
 [[ -e /dev/dri ]] && gpu=(--device /dev/dri --group-add "$(stat -c %g /dev/dri/renderD128)")
 docker run --rm --user "$(id -u):$(id -g)" "${gpu[@]}" -e HOME=/tmp --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT/src:/src" -w /src \
-  -e SCRIPTS="$scripts" "$IMAGE" bash -c '
+  -e NOCTALIA -e SCRIPTS="$scripts" "$IMAGE" bash -c '
   set -o pipefail
   # A setup that failed halfway leaves a dir without build.ninja; remove it and set up again.
   { [ -f compositor/build-debug/build.ninja ] || { rm -rf compositor/build-debug &&
