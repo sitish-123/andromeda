@@ -132,3 +132,48 @@ fn software_decode_gives_bgrx_memfd_frames() {
     assert_eq!(frames, 30);
     assert_eq!(fourcc, u32::from_le_bytes(*b"XR24"));
 }
+
+/// A 1 s 440 Hz FLAC with a title tag, or None without ffmpeg.
+fn tagged_flac(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let path = dir.join("tone.flac");
+    let ok = Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1"])
+        .args(["-metadata", "title=Tone", "-metadata", "artist=Tester", "-c:a", "flac"])
+        .arg(&path)
+        .status()
+        .is_ok_and(|s| s.success());
+    ok.then_some(path)
+}
+
+#[test]
+fn audio_only_file_streams_its_pcm_and_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(path) = tagged_flac(dir.path()) else {
+        eprintln!("skipped: ffmpeg cannot make a FLAC");
+        return;
+    };
+    let helper = Helper::start(&path, &[]);
+    let (info, _, _) = helper.ask(Msg::new(OP_INFO, 0, 0, 0, 0));
+    assert_eq!(info.a, KIND_MEDIA);
+    assert_eq!(info.e & (proto::FLAG_AUDIO | FLAG_VIDEO), proto::FLAG_AUDIO, "audio only");
+
+    let (tags, _, fds) = helper.ask(Msg::new(proto::OP_TAGS, 0, 0, 0, 0));
+    assert_eq!(tags.op, proto::OP_TEXT_REPLY);
+    let mut text = Vec::new();
+    let mut file = std::fs::File::from(fds.into_iter().next().unwrap());
+    // The helper leaves the memfd offset at its end; the window maps it instead.
+    std::io::Seek::rewind(&mut file).unwrap();
+    std::io::Read::read_to_end(&mut file, &mut text).unwrap();
+    assert!(text.starts_with(b"Tone\nTester\n"), "{:?}", String::from_utf8_lossy(&text));
+
+    let (mut read, write) = std::io::pipe().unwrap();
+    proto::send(helper.sock.as_fd(), &Msg::new(proto::OP_AUDIO, 0, 0, 0, 0), Some(write.as_fd())).unwrap();
+    drop(write);
+    let mut pcm = Vec::new();
+    std::io::Read::read_to_end(&mut read, &mut pcm).unwrap();
+    // 1 s of stereo F32 at 48 kHz, give or take the codec's padding; a sine is not silence.
+    let seconds = pcm.len() as f64 / (48000.0 * 2.0 * 4.0);
+    assert!((0.9..1.2).contains(&seconds), "{seconds} s of audio");
+    let peak = pcm.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b).abs()).fold(0.0, f32::max);
+    assert!(peak > 0.1, "peak {peak}");
+}

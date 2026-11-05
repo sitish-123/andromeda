@@ -10,7 +10,7 @@ cairo-rs = { version = "0.22", default-features = false }
 glib = "0.22"
 landlock = "0.4"
 log = "0.4"
-poppler-rs = { version = "0.26", features = ["v21_12"] }
+poppler-rs = { version = "0.26", features = ["v25_6"] }
 rustix = { version = "1", default-features = false, features = ["std", "fs", "net", "process"] }
 seccompiler = "0.5"
 libc = "0.2"

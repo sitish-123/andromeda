@@ -19,12 +19,21 @@ pub const MAX_HEIGHT: u32 = 16384;
 pub const MAX_RECTS: usize = 4096;
 
 pub(crate) fn sealed(name: &str, bytes: &[u8]) -> Result<OwnedFd, u32> {
+    sealed_with(name, bytes, SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL)
+}
+
+/// A frame for wl_shm: the compositor maps a shm pool writable, which a write seal forbids. The size seals stay, so
+/// the buffer cannot shrink under the compositor's mapping.
+pub(crate) fn sealed_frame(name: &str, bytes: &[u8]) -> Result<OwnedFd, u32> {
+    sealed_with(name, bytes, SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL)
+}
+
+fn sealed_with(name: &str, bytes: &[u8], seals: SealFlags) -> Result<OwnedFd, u32> {
     let fd = rustix::fs::memfd_create(name, MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING).map_err(|_| ERR_DECODE)?;
     let mut file = File::from(fd);
     file.write_all(bytes).map_err(|_| ERR_DECODE)?;
     let fd = OwnedFd::from(file);
-    rustix::fs::fcntl_add_seals(&fd, SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL)
-        .map_err(|_| ERR_DECODE)?;
+    rustix::fs::fcntl_add_seals(&fd, seals).map_err(|_| ERR_DECODE)?;
     Ok(fd)
 }
 
@@ -68,6 +77,8 @@ pub fn text_reply(file: &mut File) -> Result<(Msg, OwnedFd), u32> {
 
 pub struct Pdf {
     doc: poppler::Document,
+    /// Annotations added in this session, by id - 1; None once removed.
+    annots: Vec<Option<(u32, poppler::Annot)>>,
 }
 
 fn centi_points(v: f64) -> u32 {
@@ -85,7 +96,20 @@ fn push_rect(out: &mut Vec<u8>, x0: f64, y0: f64, x1: f64, y1: f64) {
 }
 
 impl Pdf {
-    fn page(&self, index: u32) -> Result<poppler::Page, u32> {
+    pub(crate) fn doc(&self) -> &poppler::Document {
+        &self.doc
+    }
+
+    pub(crate) fn keep_annot(&mut self, page: u32, annot: poppler::Annot) -> u32 {
+        self.annots.push(Some((page, annot)));
+        u32::try_from(self.annots.len()).unwrap_or(u32::MAX)
+    }
+
+    pub(crate) fn take_annot(&mut self, id: u32) -> Option<(u32, poppler::Annot)> {
+        self.annots.get_mut(usize::try_from(id).ok()?.checked_sub(1)?)?.take()
+    }
+
+    pub(crate) fn page(&self, index: u32) -> Result<poppler::Page, u32> {
         i32::try_from(index)
             .ok()
             .filter(|&i| i < self.doc.n_pages())
@@ -164,7 +188,7 @@ impl Pdf {
     pub fn open(file: File) -> Result<Self, u32> {
         use std::os::fd::IntoRawFd;
         let doc = poppler::Document::from_fd(file.into_raw_fd(), None).map_err(|_| ERR_DECODE)?;
-        Ok(Self { doc })
+        Ok(Self { doc, annots: Vec::new() })
     }
 
     #[must_use]

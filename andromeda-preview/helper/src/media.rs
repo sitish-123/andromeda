@@ -2,7 +2,8 @@
 //! compositor. Audio pads are dropped here; S7d adds them.
 
 use crate::proto::{
-    ERR_BUSY, ERR_DECODE, FLAG_AUDIO, FLAG_HW_DECODE, FLAG_VIDEO, KIND_MEDIA, Msg, OP_END, OP_FRAME_REPLY, OP_INFO_REPLY,
+    ERR_BAD_REQUEST, ERR_BUSY, ERR_DECODE, ERR_RANGE, ERR_TOO_LARGE, FLAG_AUDIO, FLAG_HW_DECODE, FLAG_VIDEO, KIND_MEDIA,
+    Msg, OP_AUDIO_REPLY, OP_COVER_REPLY, OP_END, OP_FRAME_REPLY, OP_INFO_REPLY, OP_TEXT_REPLY,
 };
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -19,6 +20,8 @@ const DRM_FORMAT_MOD_LINEAR: u64 = 0;
 const PREROLL: gst::ClockTime = gst::ClockTime::from_seconds(10);
 /// Frames the window may hold at once; more would starve the decoder's buffer pool.
 const MAX_HELD: usize = 4;
+/// Cover art beyond this is not shown.
+const MAX_COVER: usize = 16 << 20;
 
 /// Loads the plugin registry. Call it before the sandbox: the registry cache lives under the user's cache.
 ///
@@ -34,9 +37,16 @@ pub struct Frame {
     pub fds: Vec<OwnedFd>,
 }
 
+/// What the decoder's pads were linked to: the video sink, the stream flags, the audio sink.
+type Found = (Option<AppSink>, u32, Option<AppSink>);
+
 pub struct Media {
     pipeline: gst::Pipeline,
-    sink: AppSink,
+    /// None for an audio-only file.
+    sink: Option<AppSink>,
+    /// F32LE 48 kHz stereo; drops buffers until the window asks for audio, so it never stalls the video.
+    audio: Option<AppSink>,
+    audio_thread: Option<std::thread::JoinHandle<()>>,
     _file: File,
     flags: u32,
     width: u32,
@@ -50,6 +60,10 @@ pub struct Media {
 impl Drop for Media {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gst::State::Null);
+        // The audio thread sees the stopped sink within one pull timeout.
+        if let Some(thread) = self.audio_thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -125,6 +139,22 @@ fn video_branch(hw: bool) -> Result<(gst::Element, AppSink), u32> {
     Ok((bin.upcast(), sink))
 }
 
+/// Decoded audio as interleaved F32LE stereo at 48 kHz: the window feeds it to PipeWire as raw PCM, so it parses
+/// no container or codec. Drops buffers until the window asks for audio.
+fn audio_branch() -> Result<(gst::Element, AppSink), u32> {
+    let bin = gst::parse::bin_from_description(
+        "audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=2,layout=interleaved ! appsink name=sink",
+        true,
+    )
+    .map_err(|_| ERR_DECODE)?;
+    let sink = bin.by_name("sink").and_then(|e| e.downcast::<AppSink>().ok()).ok_or(ERR_DECODE)?;
+    sink.set_property("sync", false);
+    sink.set_property("max-buffers", 64u32);
+    sink.set_property("drop", true);
+    sink.set_property("enable-last-sample", false);
+    Ok((bin.upcast(), sink))
+}
+
 impl Media {
     /// Builds the pipeline and opens the VA display, before the sandbox: VA finds render nodes through udev and
     /// sysfs, which the sandbox hides. No file data is read here. The display reaches the decoder later as a
@@ -159,7 +189,7 @@ impl Media {
         pipeline.add_many([src.upcast_ref::<gst::Element>(), &decode]).map_err(|_| ERR_DECODE)?;
         src.link(&decode).map_err(|_| ERR_DECODE)?;
 
-        let found: Arc<Mutex<(Option<AppSink>, u32)>> = Arc::default();
+        let found: Arc<Mutex<Found>> = Arc::default();
         let pipeline_weak = pipeline.downgrade();
         let found_in = Arc::clone(&found);
         decode.connect_pad_added(move |_, pad| {
@@ -167,8 +197,20 @@ impl Media {
             let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
             let Some(s) = caps.structure(0) else { return };
             let mut state = found_in.lock().unwrap();
-            if s.name().starts_with("audio/") {
-                state.1 |= FLAG_AUDIO;
+            if s.name().starts_with("audio/")
+                && state.2.is_none()
+                && let Ok((branch, sink)) = audio_branch()
+            {
+                let _ = pipeline.add(&branch);
+                if let Some(sink_pad) = branch.static_pad("sink")
+                    && pad.link(&sink_pad).is_ok()
+                {
+                    let _ = branch.sync_state_with_parent();
+                    state.2 = Some(sink);
+                    state.1 |= FLAG_AUDIO;
+                    return;
+                }
+                let _ = pipeline.remove(&branch);
             }
             if !s.name().starts_with("video/") || state.0.is_some() {
                 let sink = gst::ElementFactory::make("fakesink").property("sync", false).build().unwrap();
@@ -205,19 +247,33 @@ impl Media {
         if bus.timed_pop_filtered(PREROLL, &types).map(|m| m.type_()) != Some(gst::MessageType::AsyncDone) {
             return Err(fail(&pipeline));
         }
-        if found.lock().unwrap().0.is_none() {
+        let (sink, flags, audio) = {
+            let state = found.lock().unwrap();
+            (state.0.clone(), state.1, state.2.clone())
+        };
+        if sink.is_none() && audio.is_none() {
             return Err(fail(&pipeline));
         }
-        let (sink, flags) = {
-            let state = found.lock().unwrap();
-            (state.0.clone(), state.1)
-        };
-        let sink = sink.ok_or(ERR_DECODE)?;
-        let caps = sink.static_pad("sink").and_then(|p| p.current_caps()).ok_or(ERR_DECODE)?;
-        let s = caps.structure(0).ok_or(ERR_DECODE)?;
-        let width = s.get::<i32>("width").ok().and_then(|w| u32::try_from(w).ok()).ok_or(ERR_DECODE)?;
-        let height = s.get::<i32>("height").ok().and_then(|h| u32::try_from(h).ok()).ok_or(ERR_DECODE)?;
-        Ok(Self { pipeline, sink, _file: file, flags, width, height, playing: false, next_id: 1, held: HashMap::new() })
+        let (mut width, mut height) = (0, 0);
+        if let Some(sink) = &sink {
+            let caps = sink.static_pad("sink").and_then(|p| p.current_caps()).ok_or(ERR_DECODE)?;
+            let s = caps.structure(0).ok_or(ERR_DECODE)?;
+            width = s.get::<i32>("width").ok().and_then(|w| u32::try_from(w).ok()).ok_or(ERR_DECODE)?;
+            height = s.get::<i32>("height").ok().and_then(|h| u32::try_from(h).ok()).ok_or(ERR_DECODE)?;
+        }
+        Ok(Self {
+            pipeline,
+            sink,
+            audio,
+            audio_thread: None,
+            _file: file,
+            flags,
+            width,
+            height,
+            playing: false,
+            next_id: 1,
+            held: HashMap::new(),
+        })
     }
 
     #[must_use]
@@ -236,15 +292,15 @@ impl Media {
     /// # Errors
     /// `ERR_DECODE` when a frame cannot be exported.
     pub fn next_frame(&mut self) -> Result<Frame, u32> {
-        if !self.playing {
-            self.pipeline.set_state(gst::State::Playing).map_err(|_| ERR_DECODE)?;
-            self.playing = true;
-        }
+        self.play()?;
         if self.held.len() >= MAX_HELD {
             return Err(ERR_BUSY);
         }
-        let Some(sample) = self.sink.try_pull_sample(gst::ClockTime::from_seconds(5)) else {
-            if self.sink.is_eos() {
+        let Some(sink) = &self.sink else {
+            return Ok(Frame { msg: Msg::new(OP_END, 0, 0, 0, 0), payload: Vec::new(), fds: Vec::new() });
+        };
+        let Some(sample) = sink.try_pull_sample(gst::ClockTime::from_seconds(5)) else {
+            if sink.is_eos() {
                 return Ok(Frame { msg: Msg::new(OP_END, 0, 0, 0, 0), payload: Vec::new(), fds: Vec::new() });
             }
             return Err(ERR_DECODE);
@@ -256,6 +312,111 @@ impl Media {
         }
         self.next_id = self.next_id.wrapping_add(1).max(1);
         Ok(frame)
+    }
+
+    fn play(&mut self) -> Result<(), u32> {
+        if !self.playing {
+            self.pipeline.set_state(gst::State::Playing).map_err(|_| ERR_DECODE)?;
+            self.playing = true;
+        }
+        Ok(())
+    }
+
+    /// Starts writing PCM into `pipe` from a helper thread; the blocking write paces decoding to the window's
+    /// playback. The thread ends at the end of the stream or when the window closes its read end.
+    ///
+    /// # Errors
+    /// `ERR_BAD_REQUEST` without audio or when already started.
+    pub fn start_audio(&mut self, pipe: Option<OwnedFd>) -> Result<Msg, u32> {
+        let (Some(sink), Some(pipe), None) = (self.audio.clone(), pipe, self.audio_thread.as_ref()) else {
+            return Err(ERR_BAD_REQUEST);
+        };
+        sink.set_property("drop", false);
+        let mut out = File::from(pipe);
+        self.audio_thread = Some(std::thread::spawn(move || {
+            use std::io::Write;
+            // The window counts the PCM from 0; frames carry their stream PTS. Silence up to the first sample's
+            // PTS (a late audio start, an edit list) keeps the two on one timeline.
+            let mut started = false;
+            loop {
+                let Some(sample) = sink.try_pull_sample(gst::ClockTime::from_mseconds(500)) else {
+                    if sink.is_eos() || sink.current_state() == gst::State::Null {
+                        return;
+                    }
+                    continue;
+                };
+                let Some(buffer) = sample.buffer() else { continue };
+                let Ok(map) = buffer.map_readable() else { continue };
+                if !started {
+                    started = true;
+                    let lead = buffer.pts().map_or(0, gst::ClockTime::nseconds).min(10_000_000_000);
+                    // 48 kHz stereo F32: 8 bytes a frame.
+                    let frames = usize::try_from(lead * 48_000 / 1_000_000_000).unwrap_or(0);
+                    if out.write_all(&vec![0u8; frames * 8]).is_err() {
+                        return;
+                    }
+                }
+                if out.write_all(map.as_slice()).is_err() {
+                    return;
+                }
+            }
+        }));
+        self.play()?;
+        Ok(Msg::new(OP_AUDIO_REPLY, 48000, 2, 0, 0))
+    }
+
+    fn tags(&self) -> Option<gst::TagList> {
+        let pad = self.audio.as_ref().or(self.sink.as_ref())?.static_pad("sink")?;
+        // A pad can hold a stream-scope and a global-scope tag event (a tag demuxer forwards ID3 or Vorbis tags as
+        // global): merge them all.
+        let mut merged: Option<gst::TagList> = None;
+        for idx in 0.. {
+            let Some(event) = pad.sticky_event::<gst::event::Tag>(idx) else { break };
+            let tags = event.tag_owned();
+            merged = Some(match merged {
+                None => tags,
+                Some(prev) => prev.merge(&tags, gst::TagMergeMode::Keep),
+            });
+        }
+        merged
+    }
+
+    /// "title\nartist\nalbum" from the stream tags (empty lines where a tag is missing).
+    ///
+    /// # Errors
+    /// `ERR_DECODE` when the text cannot be passed.
+    pub fn tag_text(&self) -> Result<(Msg, OwnedFd), u32> {
+        let tags = self.tags();
+        let get = |f: fn(&gst::TagList) -> Option<String>| tags.as_ref().and_then(f).unwrap_or_default();
+        let text = [
+            get(|t| t.get::<gst::tags::Title>().map(|v| v.get().to_string())),
+            get(|t| t.get::<gst::tags::Artist>().map(|v| v.get().to_string())),
+            get(|t| t.get::<gst::tags::Album>().map(|v| v.get().to_string())),
+        ]
+        .join("\n")
+        .replace('\0', "");
+        let len = u32::try_from(text.len()).map_err(|_| ERR_DECODE)?;
+        // One byte past `len`: the window cannot map an empty file.
+        Ok((Msg::new(OP_TEXT_REPLY, len, 0, 0, 0), crate::decode::sealed("preview-tags", format!("{text} ").as_bytes())?))
+    }
+
+    /// The embedded cover image as stored (PNG or JPEG); the window decodes it with glycin.
+    ///
+    /// # Errors
+    /// `ERR_RANGE` when the file has no cover.
+    pub fn cover(&self) -> Result<(Msg, OwnedFd), u32> {
+        let tags = self.tags().ok_or(ERR_RANGE)?;
+        let sample = tags
+            .get::<gst::tags::Image>()
+            .map(|v| v.get().clone())
+            .or_else(|| tags.get::<gst::tags::PreviewImage>().map(|v| v.get().clone()))
+            .ok_or(ERR_RANGE)?;
+        let map = sample.buffer().ok_or(ERR_RANGE)?.map_readable().map_err(|_| ERR_DECODE)?;
+        if map.len() > MAX_COVER {
+            return Err(ERR_TOO_LARGE);
+        }
+        let len = u32::try_from(map.len()).map_err(|_| ERR_DECODE)?;
+        Ok((Msg::new(OP_COVER_REPLY, len, 0, 0, 0), crate::decode::sealed("preview-cover", map.as_slice())?))
     }
 
     pub fn release(&mut self, id: u32) {
@@ -313,7 +474,7 @@ fn export(sample: &gst::Sample, id: u32) -> Result<(Frame, bool), u32> {
     // Software frame: copy into a sealed memfd.
     let video = gstreamer_video::VideoInfo::from_caps(caps).map_err(|_| ERR_DECODE)?;
     let map = buffer.map_readable().map_err(|_| ERR_DECODE)?;
-    let fd = crate::decode::sealed("preview-frame", map.as_slice())?;
+    let fd = crate::decode::sealed_frame("preview-frame", map.as_slice())?;
     let mut payload = Vec::with_capacity(28);
     payload.extend_from_slice(&DRM_FORMAT_MOD_LINEAR.to_le_bytes());
     payload.extend_from_slice(&pts.to_le_bytes());

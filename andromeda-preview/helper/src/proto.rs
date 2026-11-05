@@ -21,6 +21,18 @@ pub const OP_FIND: u32 = 6;
 /// a = page index, b = `SELECT_*` unit; payload = 4 f32 (x0, y0, x1, y1) in points, origin top left.
 /// Reply `OP_SELECT_REPLY`.
 pub const OP_SELECT: u32 = 7;
+/// a = page, b = `annotate::ANNOT_*`, c = 0xRRGGBB; fd = sealed memfd with the body. Reply `OP_ANNOT_REPLY`.
+pub const OP_ANNOT_ADD: u32 = 8;
+/// b = annotation id. Reply `OP_ANNOT_REPLY`.
+pub const OP_ANNOT_REMOVE: u32 = 9;
+/// fd = a file open for writing: the document with its annotations goes there. Reply `OP_SAVED`.
+pub const OP_SAVE: u32 = 10;
+/// fd = the write end of a pipe: interleaved F32LE PCM goes there until the end of the stream. Reply `OP_AUDIO_REPLY`.
+pub const OP_AUDIO: u32 = 11;
+/// Reply `OP_TEXT_REPLY` with "title\nartist\nalbum".
+pub const OP_TAGS: u32 = 12;
+/// Reply `OP_COVER_REPLY`, or `ERR_RANGE` without a cover.
+pub const OP_COVER: u32 = 13;
 pub const SELECT_GLYPH: u32 = 0;
 pub const SELECT_WORD: u32 = 1;
 pub const SELECT_LINE: u32 = 2;
@@ -40,6 +52,13 @@ pub const OP_END: u32 = 0x85;
 pub const OP_FIND_REPLY: u32 = 0x86;
 /// a = text length in bytes, b = rect count; fd (when a or b > 0) = b rects of 4 f32 in points (origin top left), then the UTF-8 text.
 pub const OP_SELECT_REPLY: u32 = 0x87;
+/// a = page, b = annotation id.
+pub const OP_ANNOT_REPLY: u32 = 0x88;
+pub const OP_SAVED: u32 = 0x89;
+/// a = rate, b = channels (always 48000 and 2).
+pub const OP_AUDIO_REPLY: u32 = 0x8a;
+/// a = byte length; fd = the encoded image.
+pub const OP_COVER_REPLY: u32 = 0x8b;
 /// a = ERR_*.
 pub const OP_ERROR: u32 = 0xff;
 
