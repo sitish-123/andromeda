@@ -1,6 +1,7 @@
 *
 !.gitignore
 !PKGBUILD
+!deb-build.sh
 !andromeda-link.install
 !andromeda-compositor.install
 !wallpapers/

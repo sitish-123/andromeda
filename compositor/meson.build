@@ -58,7 +58,7 @@ wayland_protocols_dep = dependency('wayland-protocols', version: '>=1.47')
 # 0.20.1: its scene surface code reads `wlr_surface_output.suspended`.
 # A distro without wlroots 0.20 (Ubuntu 26.04 ships 0.19) builds it from subprojects/wlroots.wrap as a shared library:
 # andromedafx overrides wlroots symbols by ELF interposition, so a static wlroots would define them twice. Meson
-# ignores a subproject libdir, so the deb build moves the library to wlroots_private_libdir (pkg/deb-build.sh).
+# ignores a subproject libdir, so the package moves the library to wlroots_private_libdir (pkg/PKGBUILD).
 # No -Werror: our NDEBUG leaves its assert-only variables unused.
 wlroots_private_libdir = 'lib' / 'andromeda'
 wlroots_dep = dependency(
