@@ -20,7 +20,8 @@ case $ID in
     if ! grep -q '^\[andromeda\]' /etc/pacman.conf; then
       printf '\n[andromeda]\nServer = %s\n' "$REPO" | sudo tee -a /etc/pacman.conf > /dev/null
     fi
-    sudo pacman -Sy --needed andromeda
+    # Under curl | bash, stdin is the script: pacman must read its questions (replace a conflicting package) from the terminal.
+    sudo pacman -Sy --needed andromeda < /dev/tty
     ;;
   ubuntu)
     [[ $VERSION_ID == 26.04 ]] || { echo "Andromeda needs Ubuntu 26.04 (this is $VERSION_ID)." >&2; exit 1; }
