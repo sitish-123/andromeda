@@ -491,7 +491,8 @@ void BatteryWidget::syncState(Renderer& renderer) {
 
     // Whole percent: UPower's fractional percentage changes on every poll and would redraw a sub-pixel change.
     const auto newPct = static_cast<float>(pct);
-    if (m_animations != nullptr && std::abs(m_animatedPct - newPct) > 0.5F) {
+    // A 1 % step moves the fill by a fraction of a pixel: snap it instead of animating several frames.
+    if (m_animations != nullptr && std::abs(m_animatedPct - newPct) > 1.5F) {
       m_animations->cancel(m_fillAnim);
       m_fillAnim = m_animations->animateSpring(
           m_animatedPct, newPct, Style::spring(Tokens::springMove),
