@@ -5,6 +5,8 @@ post_install() {
   systemctl start andromeda-update-tonight.timer 2> /dev/null || true
 }
 
+# The running daemon keeps the old binary until a restart: new D-Bus objects (Display) and rules stay absent.
 post_upgrade() {
   post_install
+  systemctl try-restart andromeda-system.service 2> /dev/null || true
 }
