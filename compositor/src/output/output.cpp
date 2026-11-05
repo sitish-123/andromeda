@@ -1034,6 +1034,10 @@ namespace andromeda {
       markBlurBackgroundDirty();
       m_server->updateColorPreferences();
       kLog.error("output '{}': failed to commit configured state", m_output->name);
+      // A rejected modeset leaves no frame scheduled; without one the cursor plane stays put until a client damages.
+      if (enabled) {
+        scheduleFullFrame();
+      }
       return false;
     }
     if (stageGeometry && !usedModeFallback) {
