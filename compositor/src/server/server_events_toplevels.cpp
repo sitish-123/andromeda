@@ -698,6 +698,19 @@ namespace andromeda {
     claimLaunchOrigin(view, token);
   }
 
+  void Server::completeIpcLaunch(std::string_view tokenName, pid_t pid) {
+    if (m_xdgActivation == nullptr || tokenName.empty() || pid <= 0) {
+      return;
+    }
+    const std::string name(tokenName);
+    wlr_xdg_activation_token_v1* token = wlr_xdg_activation_v1_find_token(m_xdgActivation, name.c_str());
+    const auto* watch = token != nullptr ? static_cast<ActivationTokenWatch*>(token->data) : nullptr;
+    // A CLI helper inside a launch script must leave the script's application placement intact.
+    if (watch != nullptr && watch->compositorIssued && !watch->launchClaimed && watch->launchPid == pid) {
+      wlr_xdg_activation_token_v1_destroy(token);
+    }
+  }
+
   void Server::onActivationTokenDestroy(wl_listener* listener, void* /*data*/) {
     ActivationTokenWatch* watch;
     watch = wl_container_of(listener, watch, destroy);

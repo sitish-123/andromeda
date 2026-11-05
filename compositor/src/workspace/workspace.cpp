@@ -3073,7 +3073,7 @@ namespace andromeda {
       Workspace* workspace = m_workspaces[index].get();
       if (!workspace->named()
           && !workspace->displacedWorkspace()
-          && !workspace->hasViews()
+          && std::ranges::none_of(workspace->allViews(), &View::mapped)
           && !workspace->launchReserved()
           && workspace != activeKeeper
           && workspace != backKeeper

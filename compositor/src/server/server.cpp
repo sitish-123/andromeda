@@ -2028,6 +2028,9 @@ namespace andromeda {
       execl("/bin/sh", "/bin/sh", "-c", command, nullptr);
       _exit(1);
     }
+    if (launchToken != nullptr) {
+      static_cast<ActivationTokenWatch*>(launchToken->data)->launchPid = pid;
+    }
 
     if (scopeOverBus) {
       close(gate[0]);

@@ -369,6 +369,7 @@ namespace andromeda {
     void relayoutBanner();
     void relayoutQuitConfirm();
     void spawn(const char* command, const char* description = nullptr, bool withActivationToken = false);
+    void completeIpcLaunch(std::string_view tokenName, pid_t pid);
     void handleConfigReload(const ConfigReloadResult& result);
     // Re-evaluate application idle inhibitors after a surface's presentation
     // visibility changes.
@@ -772,6 +773,7 @@ namespace andromeda {
       bool inputBacked = false;
       bool pointerBacked = false;
       bool launchClaimed = false;
+      pid_t launchPid = 0;
       std::shared_ptr<WorkspaceLaunchAnchor> launchWorkspace;
       std::string launchScratchpad;
       std::string tokenName;

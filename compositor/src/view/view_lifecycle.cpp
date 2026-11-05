@@ -560,6 +560,10 @@ namespace andromeda {
     if (draggedToplevel) {
       m_server->seat()->toplevelDrags().mapped(this, restoreTiled && !assignedScratchpad);
     }
+    if (m_workspace != nullptr) {
+      // A remap can retain membership in an empty workspace without going through addView().
+      m_workspace->group()->reconcileDynamic();
+    }
   }
 
   void View::handleUnmap(bool animateClose) {
@@ -775,6 +779,10 @@ namespace andromeda {
     m_savedScrollingExtent.reset();
     if (m_displacedHome) {
       m_server->scheduleDisplacedViewRestore();
+    }
+    if (m_workspace != nullptr) {
+      // A client can keep its unmapped toplevel alive. Reconcile after its workspace and scene cleanup is complete.
+      m_workspace->group()->reconcileDynamic();
     }
   }
 
