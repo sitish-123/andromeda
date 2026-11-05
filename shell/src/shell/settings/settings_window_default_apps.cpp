@@ -26,7 +26,7 @@ void SettingsWindow::addDefaultAppsContent(float scale) {
           .entries = *entries,
           .currentDefault = [](
                                 default_apps::Category category
-                            ) { return default_apps::currentDefault(default_apps::mimeAppsListPath(), category); },
+                            ) { return default_apps::effectiveDefault(category); },
           .setDefault =
               [this](default_apps::Category category, std::string desktopId) {
                 default_apps::setDefault(default_apps::mimeAppsListPath(), category, desktopId);

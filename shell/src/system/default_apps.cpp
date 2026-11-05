@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <cctype>
 #include <fstream>
 #include <optional>
 
@@ -62,7 +63,65 @@ namespace default_apps {
 
   std::filesystem::path mimeAppsListPath() { return configHome() / "mimeapps.list"; }
 
-  std::string currentDefault(const std::filesystem::path& path, Category category) {
+  std::vector<std::string> defaultIds(const std::filesystem::path& path, Category category);
+
+  std::string effectiveDefault(Category category) {
+    const auto env = [](const char* name, std::string_view fallback) {
+      const char* value = std::getenv(name);
+      return std::string(value != nullptr && value[0] != '\0' ? std::string_view(value) : fallback);
+    };
+    const auto split = [](std::string_view list) {
+      std::vector<std::string> parts;
+      for (std::size_t start = 0; start <= list.size();) {
+        const std::size_t sep = list.find(':', start);
+        if (const std::string_view part = list.substr(start, sep - start); !part.empty()) {
+          parts.emplace_back(part);
+        }
+        if (sep == std::string_view::npos) {
+          break;
+        }
+        start = sep + 1;
+      }
+      return parts;
+    };
+    const char* home = std::getenv("HOME");
+    const std::string homeDir = home != nullptr ? home : "";
+    std::vector<std::filesystem::path> dirs{configHome()};
+    for (const std::string& dir : split(env("XDG_CONFIG_DIRS", "/etc/xdg"))) {
+      dirs.emplace_back(dir);
+    }
+    dirs.push_back(std::filesystem::path(env("XDG_DATA_HOME", homeDir + "/.local/share")) / "applications");
+    for (const std::string& dir : split(env("XDG_DATA_DIRS", "/usr/local/share:/usr/share"))) {
+      dirs.push_back(std::filesystem::path(dir) / "applications");
+    }
+    std::vector<std::string> prefixes;
+    for (std::string desktop : split(env("XDG_CURRENT_DESKTOP", ""))) {
+      std::ranges::transform(desktop, desktop.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+      prefixes.push_back(desktop + "-");
+    }
+    prefixes.emplace_back();
+    std::vector<std::filesystem::path> appDirs{std::filesystem::path(env("XDG_DATA_HOME", homeDir + "/.local/share")) / "applications"};
+    for (const std::string& dir : split(env("XDG_DATA_DIRS", "/usr/local/share:/usr/share"))) {
+      appDirs.push_back(std::filesystem::path(dir) / "applications");
+    }
+    // An id whose desktop file is not installed is skipped, as xdg-mime and GIO skip it.
+    const auto installed = [&appDirs](const std::string& id) {
+      std::error_code ec;
+      return std::ranges::any_of(appDirs, [&](const auto& dir) { return std::filesystem::is_regular_file(dir / id, ec); });
+    };
+    for (const auto& dir : dirs) {
+      for (const std::string& prefix : prefixes) {
+        for (const std::string& id : defaultIds(dir / (prefix + "mimeapps.list"), category)) {
+          if (installed(id)) {
+            return id;
+          }
+        }
+      }
+    }
+    return {};
+  }
+
+  std::vector<std::string> defaultIds(const std::filesystem::path& path, Category category) {
     const auto it = std::ranges::find(kCategories, category, &CategorySpec::category);
     if (it == kCategories.end()) {
       return {};
@@ -82,10 +141,14 @@ namespace default_apps {
       if (eq == std::string::npos || line.compare(0, eq, it->mimeType) != 0) {
         continue;
       }
-      const std::vector<std::string> ids = splitMimeList(std::string_view(line).substr(eq + 1));
-      return ids.empty() ? std::string() : ids.front();
+      return splitMimeList(std::string_view(line).substr(eq + 1));
     }
     return {};
+  }
+
+  std::string currentDefault(const std::filesystem::path& path, Category category) {
+    const std::vector<std::string> ids = defaultIds(path, category);
+    return ids.empty() ? std::string() : ids.front();
   }
 
   std::vector<const DesktopEntry*> candidatesForCategory(std::span<const DesktopEntry> entries, Category category) {

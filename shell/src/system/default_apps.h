@@ -37,6 +37,9 @@ namespace default_apps {
 
   // Desktop file id ("org.mozilla.firefox.desktop") currently set for a category, empty when unset.
   [[nodiscard]] std::string currentDefault(const std::filesystem::path& path, Category category);
+  // The default the desktop uses: the first entry over every mimeapps.list in XDG order (user, desktop-specific
+  // such as /usr/share/applications/andromeda-mimeapps.list, system), as xdg-mime and GIO resolve it.
+  [[nodiscard]] std::string effectiveDefault(Category category);
 
   // Desktop entries that either declare the category's MimeType or, failing that, fall back to its
   // main Categories= group (many file managers and terminals declare neither MimeType).

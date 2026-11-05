@@ -37,6 +37,25 @@ grep -qx "text/plain=other-editor.desktop;" "$MIMEAPPS" \
 grep -q "code.desktop" "$MIMEAPPS" || { echo "FAIL: unrelated [Added Associations] section was lost" >&2; exit 1; }
 cp "$MIMEAPPS" "$OUT/mimeapps.list"
 
+# The page shows the effective default: the package's andromeda-mimeapps.list in an Andromeda session, until the
+# user's own list sets one.
+# The desktop-specific list wins over the plain one in the same directory; a default that is not installed is skipped.
+SYS=$RUNTIME/system/applications
+mkdir -p "$SYS" "$RUNTIME/no-config-dirs"
+for id in dev.andromeda.Files other-files generic-files; do
+  printf '[Desktop Entry]\nType=Application\nName=%s\nExec=true\n' "$id" > "$SYS/$id.desktop"
+done
+printf '[Default Applications]\ninode/directory=missing-files.desktop;dev.andromeda.Files.desktop\n' > "$SYS/andromeda-mimeapps.list"
+printf '[Default Applications]\ninode/directory=generic-files.desktop\n' > "$SYS/mimeapps.list"
+effective() {
+  run env XDG_CURRENT_DESKTOP=andromeda XDG_CONFIG_DIRS="$RUNTIME/no-config-dirs" XDG_DATA_HOME="$RUNTIME/no-data-home" \
+    XDG_DATA_DIRS="$RUNTIME/system" "$RUNTIME/default-apps-set" --effective inode/directory
+}
+[[ $(effective) == dev.andromeda.Files.desktop ]] || { echo "FAIL: the system default is not shown: '$(effective)'" >&2; exit 1; }
+run "$RUNTIME/default-apps-set" "$MIMEAPPS" inode/directory other-files.desktop > /dev/null
+[[ $(effective) == other-files.desktop ]] || { echo "FAIL: the user's default does not win: '$(effective)'" >&2; exit 1; }
+echo "PASS effective default: desktop list over plain, uninstalled skipped, then the user's choice"
+
 with_noctalia '
   "$NOCTALIA" msg settings-open default-apps > /dev/null
   sleep 2 # real time: the settings window maps and paints
