@@ -98,12 +98,12 @@ namespace andromeda {
 
   class ScreenActivityRecorder;
   class CpuBoost;
-  class SystemdUnits;
   class LaunchFeedback;
+  class SystemdUnits;
+  class AppsBus;
   namespace qos {
     class Controller;
   }
-  class AppsBus;
   enum class ContentType;
   struct ConfigEffects;
 
@@ -815,8 +815,8 @@ namespace andromeda {
     wlr_idle_inhibit_manager_v1* m_idleInhibitManager = nullptr;
     wlr_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
     wlr_idle_notifier_v1* m_idleNotifier = nullptr;
-    bool m_idleInhibited = false;
     std::unique_ptr<ScreenActivityRecorder> m_screenActivity;
+    bool m_idleInhibited = false;
     wlr_xdg_activation_v1* m_xdgActivation = nullptr;
     wlr_gamma_control_manager_v1* m_gammaManager = nullptr;
     wlr_output_manager_v1* m_outputManager = nullptr;
@@ -1003,11 +1003,11 @@ namespace andromeda {
     std::unique_ptr<SystemdUnits> m_systemdUnits;
     std::unique_ptr<CpuBoost> m_cpuBoost;
     std::unique_ptr<qos::Controller> m_qos;
+    std::unique_ptr<AppsBus> m_appsBus; // after m_qos: its holds go through the controller
     void beginLaunchBusy(std::string token, std::string appId);
     void syncLaunchBusy();
     static int onLaunchBusyTimer(void* data);
     // Paces hidden `background_render` windows at their output's refresh rate; disarmed while none is hidden.
-    std::unique_ptr<AppsBus> m_appsBus; // after m_qos: its holds go through the controller
     wl_event_source* m_backgroundRenderTimer = nullptr;
     // One-shot refresh when dynamic startup rules expire.
     wl_event_source* m_startupRulesTimer = nullptr;

@@ -1179,12 +1179,12 @@ namespace andromeda {
   // Event sources hold a Server pointer; they go once nothing that fires them is left.
   void Server::removeEventSources() {
     // Its bus fd and launch timer live on the display's event loop, which destroyDisplay frees.
+    m_appsBus.reset();
     m_qos.reset();
     m_cpuBoost.reset();
     m_systemdUnits.reset();
     if (m_launchBusyTimer != nullptr) {
       wl_event_source_remove(m_launchBusyTimer);
-    m_appsBus.reset();
       m_launchBusyTimer = nullptr;
     }
     if (m_backgroundFrameTimer != nullptr) {
