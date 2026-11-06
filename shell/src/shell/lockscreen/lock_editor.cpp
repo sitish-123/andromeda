@@ -151,6 +151,9 @@ void LockEditor::open() {
   }
   startClock();
   kLog.info("opened on {}", m_connector);
+  if (m_openChanged) {
+    m_openChanged(true);
+  }
 }
 
 // One layout at each minute (or second) boundary, as on the lock (LockSurface::startAndromedaClock).
@@ -183,6 +186,9 @@ void LockEditor::close() {
   m_dim = nullptr;
   m_themeNotice = nullptr;
   m_surface.reset();
+  if (m_openChanged) {
+    m_openChanged(false);
+  }
   m_wallpaperPath.clear();
   kLog.info("closed");
 }

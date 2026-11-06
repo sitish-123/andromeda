@@ -14,6 +14,7 @@
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
 
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -53,6 +54,8 @@ public:
   // Drops the draft.
   void close();
   [[nodiscard]] bool isOpen() const noexcept { return m_surface != nullptr; }
+  // Called with true once the editor surface exists and with false when it closes.
+  void setOpenChangedCallback(std::function<void(bool)> callback) { m_openChanged = std::move(callback); }
 
   bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
@@ -152,4 +155,5 @@ private:
   bool m_ownWallpaper = false;
   SharedTextureCache::Lease m_wallpaperLease;
   Timer m_clockTimer;
+  std::function<void(bool)> m_openChanged;
 };
