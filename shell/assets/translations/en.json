@@ -2867,7 +2867,7 @@
           "label": "Show Palette Colors"
         },
         "palette-source": {
-          "description": "",
+          "description": "Where the accent and other colours come from",
           "label": "Colour theme"
         },
         "popup-borders": {
