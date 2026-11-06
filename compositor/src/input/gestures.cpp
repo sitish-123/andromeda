@@ -642,6 +642,12 @@ namespace andromeda {
       );
       stop = release.target;
       velocity = release.velocity;
+      // Rulebook 7.7: a release faster than this toward open or closed settles there, whatever the projection says.
+      constexpr double kFlickPxPerSec = 300.0;
+      const double fingerVelocity = m_overviewTracker.velocity();
+      if (std::abs(fingerVelocity) > kFlickPxPerSec) {
+        stop = fingerVelocity > 0.0 ? 1 : 0;
+      }
     }
     overview->gestureEnd(stop, velocity);
   }

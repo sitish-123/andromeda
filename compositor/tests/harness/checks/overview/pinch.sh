@@ -28,6 +28,18 @@ pinch end 2200 1 > /dev/null
 state=$(pinch update 2300 1 | jq -r '.active')
 [[ $state == false ]] || { echo "a cancelled pinch left the overview open"; exit 1; }
 
+# Rulebook 7.7: a short pinch let go at over 300 px/s toward open opens, though its projection ends short of half.
+pinch begin 4000 4 > /dev/null
+pinch update 4010 0.995 > /dev/null
+pinch update 4020 0.99 > /dev/null
+pinch update 4030 0.984 > /dev/null
+pinch end 4030 0 > /dev/null
+"$ANDROMEDA" settle > /dev/null
+flick=$(pinch update 4100 1 | jq -r '.active')
+[[ $flick == true ]] || { echo "a short pinch let go at ~410 px/s did not open the overview"; exit 1; }
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle > /dev/null
+
 pinch begin 3000 2 > /dev/null
 pinch update 3100 0.5 > /dev/null
 two=$(pinch end 3200 0 | jq -r '.active')
