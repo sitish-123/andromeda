@@ -30,6 +30,8 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -45,6 +47,18 @@ namespace {
   // Timer: the wallpaper transition runs for its configured duration, independent of the motion settings.
   constexpr Easing kWallpaperTransitionEasing = Easing::EaseInOutCubic;
   constexpr std::string_view kGlobalShuffleScope = "global";
+
+  // Same 15 s window as the compositor's HeldFrame::loginHandoff: it then crosses from the greeter's frame itself.
+  [[nodiscard]] bool loginHandoff() {
+    const char* value = std::getenv("ANDROMEDA_LOGIN_HANDOFF");
+    if (value == nullptr) {
+      return false;
+    }
+    char* end = nullptr;
+    const long long stamp = std::strtoll(value, &end, 10);
+    const long long now = static_cast<long long>(std::time(nullptr));
+    return end != value && *end == '\0' && stamp <= now && now - stamp <= 15;
+  }
 
   [[nodiscard]] std::string outputShuffleScope(std::string_view connector) {
     return std::string("output:").append(connector);
@@ -1432,7 +1446,7 @@ void Wallpaper::beginWallpaperChange(
   releaseFirstFrame(instance);
   if (instance.currentPath.empty()) {
     const auto& wpConfig = m_config->config().wallpaper;
-    if (wpConfig.transitionOnStartup && !wpConfig.transitions.empty()) {
+    if (wpConfig.transitionOnStartup && !wpConfig.transitions.empty() && !loginHandoff()) {
       instance.currentSourceKind = WallpaperSourceKind::Color;
       instance.currentImage.reset();
       instance.currentColor = rgba(0.0F, 0.0F, 0.0F, 0.0F);
