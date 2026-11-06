@@ -229,10 +229,12 @@ static void slot_stats_log(void) {
     return;
   }
   slot_stats.last_log_ms = ms;
+  // New slots are normal growth; an in-place write is the pressure this log exists for.
+  const bool pressure = slot_stats.in_place != slot_stats.logged_in_place;
   slot_stats.logged_created = slot_stats.created;
   slot_stats.logged_in_place = slot_stats.in_place;
-  wlr_log(WLR_INFO, "shm staging: %llu slots created, %llu in-place writes", (unsigned long long)slot_stats.created,
-          (unsigned long long)slot_stats.in_place);
+  wlr_log(pressure ? WLR_INFO : WLR_DEBUG, "shm staging: %llu slots created, %llu in-place writes",
+          (unsigned long long)slot_stats.created, (unsigned long long)slot_stats.in_place);
 }
 
 static bool fx_texture_update_from_buffer(

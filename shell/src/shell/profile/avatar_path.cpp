@@ -139,7 +139,9 @@ namespace shell {
     }
     if (accounts != nullptr) {
       const std::string& iconFile = accounts->iconFile();
-      if (!iconFile.empty()) {
+      // AccountsService reports ~/.face even when the user never set a picture and the file does not exist.
+      std::error_code ec;
+      if (!iconFile.empty() && std::filesystem::is_regular_file(iconFile, ec)) {
         return iconFile;
       }
     }
