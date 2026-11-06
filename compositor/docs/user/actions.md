@@ -149,7 +149,7 @@ Sizing rules per layout live in [Sizing behavior](layout.md#sizing-behavior).
 | `window-move-up`                                                                         | Move up in its column, or a float to the top edge           |
 | `window-set-primary-extent:<fraction>`                                                   | Set the focused area's primary extent fraction              |
 | `window-set-secondary-extent:<fraction>`                                                 | Set the focused area's secondary extent fraction            |
-| `window-snap:<left\|right\|top\|bottom\|top_left\|top_right\|bottom_left\|bottom_right>` | Snap the floating window, or restore it when already there  |
+| `window-snap:<left\|right\|top\|bottom\|top_left\|top_right\|bottom_left\|bottom_right\|<layout>.<zone>>` | Snap the floating window, or restore it when already there  |
 | `window-unsnap`                                                                          | Restore the floating window's size before snapping          |
 | `window-swap-down`                                                                       | Swap with the window below                                  |
 | `window-swap-left`                                                                       | Swap with the window to the left                            |

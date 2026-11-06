@@ -100,6 +100,14 @@ pub async fn pre(conn: &Connection) -> zbus::Result<Option<Pre>> {
     let snapper = SnapperProxy::new(conn).await?;
     let configs = match snapper.list_configs().await {
         // Snapper not installed: no snapshots. Any other error (snapperd crashed, timed out) stops the upgrade.
+        Err(zbus::Error::FDO(e))
+            if matches!(
+                *e,
+                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
+            ) =>
+        {
+            return Ok(None);
+        }
         Err(zbus::Error::MethodError(name, ..)) if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" => {
             return Ok(None);
         }
