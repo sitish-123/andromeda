@@ -2400,6 +2400,12 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
         box.setPosition(0.0F, 0.0F);
         if (!glassSidebar) {
           box.setFill(colorSpecFromRole(ColorRole::SolidRegular));
+        } else {
+          // A full window of text: never thinner than the Tinted recipe, so Clear still reads over a busy wallpaper.
+          const float tinted = glass::material(glass::Kind::Sheet, 0.5F, false, isLightPalette()).tint;
+          box.setFill(colorSpecFromRole(
+              panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet).tint, tinted)
+          ));
         }
       },
   });
