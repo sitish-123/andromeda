@@ -57,7 +57,10 @@ namespace {
                 return percentage;
               }),
               sdbus::registerProperty("Present").withGetter([this]() { return present; }),
-              sdbus::registerProperty("State").withGetter([]() { return std::string{"discharging"}; }),
+              sdbus::registerProperty("State").withGetter([this]() {
+                std::scoped_lock lock(stateMutex);
+                return batteryState;
+              }),
               sdbus::registerProperty("TimeToEmptyS").withGetter([]() { return std::int64_t{7200}; }),
               sdbus::registerProperty("TimeToFullS").withGetter([]() { return std::int64_t{0}; }),
               sdbus::registerProperty("RateW").withGetter([]() { return 8.0; }),
@@ -122,6 +125,10 @@ namespace {
       std::scoped_lock lock(stateMutex);
       percentage = value;
     }
+    void setState(std::string value) {
+      std::scoped_lock lock(stateMutex);
+      batteryState = std::move(value);
+    }
     std::size_t pendingCount() const {
       std::scoped_lock lock(stateMutex);
       return pendingResults.size();
@@ -145,6 +152,7 @@ namespace {
     bool thresholdEnabled = false;
     std::uint32_t supportedSettings = 3;
     double percentage = 55.0;
+    std::string batteryState = "discharging";
     int chargeLimitReads = 0;
     int percentageReads = 0;
     std::vector<sdbus::Result<>> pendingResults;
@@ -420,6 +428,32 @@ int main() {
       const auto* current = findBattery(service, bat1.path);
       return current != nullptr && !current->chargeLimit.requestPending && current->chargeLimit.enabled;
     });
+  }
+
+  // Unplugging gives an exact unplug time at once: UPower's history adds no point until the percentage changes.
+  {
+    for (FakeBattery* battery : {&bat0, &bat1}) {
+      battery->setState("charging");
+    }
+    UPowerService service(bus);
+    drainUntil(bus, [&]() { return service.state().state == BatteryState::Charging; });
+    TEST_CHECK(service.unpluggedAt() == 0);
+    const auto before = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::system_clock::now().time_since_epoch()
+    )
+                            .count();
+    for (FakeBattery* battery : {&bat0, &bat1}) {
+      battery->setState("discharging");
+      battery->emitChanged("State");
+    }
+    drainUntil(bus, [&]() { return service.state().state == BatteryState::Discharging; });
+    TEST_CHECK(service.unpluggedAt() >= before);
+    for (FakeBattery* battery : {&bat0, &bat1}) {
+      battery->setState("charging");
+      battery->emitChanged("State");
+    }
+    drainUntil(bus, [&]() { return service.state().state == BatteryState::Charging; });
+    TEST_CHECK(service.unpluggedAt() == 0);
   }
 
   // A retained async proxy must not dispatch its signal or reply callback into a destroyed service.

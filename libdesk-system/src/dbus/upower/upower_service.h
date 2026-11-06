@@ -170,6 +170,9 @@ public:
   void refresh();
 
   [[nodiscard]] const UPowerState& state() const noexcept { return m_state; }
+  // Unix seconds of the last seen change to Discharging; 0 while not discharging or when it started before this
+  // service. UPower's history gets no point until the percentage changes, so this is the only exact unplug time.
+  [[nodiscard]] std::int64_t unpluggedAt() const noexcept { return m_unpluggedAt; }
   [[nodiscard]] UPowerState stateForDevice(std::string_view selector) const;
   [[nodiscard]] std::vector<UPowerDeviceInfo> batteryDevices() const;
   [[nodiscard]] const UPowerDeviceInfo* defaultSystemBattery() const noexcept;
@@ -212,6 +215,7 @@ private:
   void applyEnumeratedDevices(const std::vector<std::string>& paths);
   [[nodiscard]] bool finishFirstSnapshot();
   [[nodiscard]] bool refreshDefaultState();
+  void setState(UPowerState next);
   void emitChangedIfNeeded(bool devicesChanged, bool chargeLimitChanged = false, bool deviceCatalogChanged = false);
   void emitControlOperationChanged();
   void invalidateChargeThresholdRequest(std::string_view devicePath);
@@ -230,6 +234,7 @@ private:
   std::vector<TrackedDevice> m_devices;
   std::optional<UPowerDeviceInfo> m_dummyDevice;
   UPowerState m_state;
+  std::int64_t m_unpluggedAt = 0;
   ChangeCallback m_changeCallback;
   std::shared_ptr<int> m_lifetimeToken = std::make_shared<int>(0);
   std::uint64_t m_nextChargeThresholdRequestId = 1;

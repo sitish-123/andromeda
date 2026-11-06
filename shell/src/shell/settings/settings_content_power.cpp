@@ -1135,7 +1135,12 @@ namespace settings {
       const bool discharging = state.state == BatteryState::Discharging;
       const int periodIndex = sotPeriodIndex() >= 0 ? sotPeriodIndex() : (discharging ? 0 : 1);
       const SotPeriod period = periodIndex == 0 ? SotPeriod::SinceUnplugged : SotPeriod::SinceFullCharge;
-      const auto& points = sotCache().charge;
+      std::vector<UPowerHistoryPoint> points = sotCache().charge;
+      const std::int64_t unpluggedAt = ctx.upower != nullptr ? ctx.upower->unpluggedAt() : 0;
+      if (discharging && unpluggedAt > 0) {
+        points.push_back({.time = static_cast<std::uint32_t>(unpluggedAt), .value = state.percentage,
+                          .state = BatteryState::Discharging});
+      }
 
       auto tabs = ui::row({.justify = FlexJustify::End, .flexGrow = 1.0F});
       tabs->addChild(ui::segmented({
@@ -1162,7 +1167,7 @@ namespace settings {
       if (!start.has_value() || *start >= now) {
         auto note = ui::column({.padding = Style::spaceLg * scale, .fillWidth = true});
         note->addChild(ui::label({
-            .text = i18n::tr(period == SotPeriod::SinceUnplugged && !points.empty() ? "settings.power.sot-plugged"
+            .text = i18n::tr(period == SotPeriod::SinceUnplugged && !discharging ? "settings.power.sot-plugged"
                                                                                     : "settings.power.sot-no-data"),
             .fontSize = Style::fontSizeBody * scale, .color = colorSpecFromRole(ColorRole::Label3), .maxLines = 0,
         }));
