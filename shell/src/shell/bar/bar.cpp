@@ -672,7 +672,8 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
         .width = std::max(0.0F, 2.0F * (halfFree - kGap)),
         .bottom = cfg.position == "bottom",
         .scale = cfg.scale,
-        .opacity = instance->hideOpacity,
+        // The rest pill fades out with the side islands while the Andromeda overview is open.
+        .opacity = instance->hideOpacity * (1.0F - instance->overviewAsideProgress),
         .backgroundOpacity = cfg.backgroundOpacity,
         .border = cfg.border,
         .borderWidth = cfg.borderWidth,

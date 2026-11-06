@@ -100,7 +100,7 @@ struct BarInstance {
   Timer autoHideDelayTimer;
   // smart_auto_hide: active workspace empty (or overview open) — keep the bar visible.
   bool smartAutoHidePinnedVisible = false;
-  // Islands bar while the Andromeda overview is open: the start and end islands step aside, the center island stays.
+  // Islands bar while the Andromeda overview is open: the start and end islands step aside; the center island rest pill fades with them.
   // Progress 0 = in place, 1 = aside; the rest geometry is the laid-out place the start [0] and end [1] islands
   // return to.
   struct IslandAsideRest {

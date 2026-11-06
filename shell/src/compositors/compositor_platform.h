@@ -212,7 +212,7 @@ public:
   [[nodiscard]] bool tracksOverviewState() const noexcept;
   [[nodiscard]] bool hasOverviewState() const noexcept;
   [[nodiscard]] bool isOverviewOpen() const noexcept;
-  // The Andromeda overview is open: the dock and the side bar islands step aside, the center island stays.
+  // The Andromeda overview is open: the dock and the side bar islands step aside; the center island rest pill fades out.
   [[nodiscard]] bool overviewStepsChromeAside() const noexcept;
 
   [[nodiscard]] bool closeOverview() const;

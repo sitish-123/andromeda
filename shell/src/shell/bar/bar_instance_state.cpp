@@ -494,6 +494,7 @@ void Bar::setIslandsOverviewAside(BarInstance& instance, bool aside) {
       [this, inst = &instance](float v) {
         inst->overviewAsideProgress = std::clamp(v, 0.0F, 1.0F);
         applyIslandAside(*inst);
+        notifyCenterIslandSpace(*inst);
         applyBarCompositorBlur(*inst);
       },
       [this, inst = &instance] {
