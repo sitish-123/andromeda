@@ -100,19 +100,32 @@ static bool gpu_snoops_cpu_cache(struct fx_renderer* renderer) {
 }
 
 #if defined(__x86_64__)
-__attribute__((target("clflushopt"))) static void flush_range_opt(const uint8_t* p, size_t len) {
-  for (uintptr_t a = (uintptr_t)p & ~(uintptr_t)63; a < (uintptr_t)p + len; a += 64) {
-    _mm_clflushopt((void*)a);
+// Non-temporal stores leave no dirty line in the CPU cache (as Linux memcpy_flushcache), so no flush pass follows.
+// Pixels are 4 bytes, so dst and len are multiples of 4.
+static void copy_uncached(uint8_t* dst, const uint8_t* src, size_t len) {
+  while (len >= 4 && ((uintptr_t)dst & 15) != 0) {
+    int v;
+    memcpy(&v, src, 4);
+    _mm_stream_si32((int*)dst, v);
+    dst += 4, src += 4, len -= 4;
   }
-}
-
-static void flush_range(const uint8_t* p, size_t len) {
-  if (__builtin_cpu_supports("clflushopt")) {
-    flush_range_opt(p, len);
-    return;
+  for (; len >= 64; dst += 64, src += 64, len -= 64) {
+    const __m128i a = _mm_loadu_si128((const __m128i*)src);
+    const __m128i b = _mm_loadu_si128((const __m128i*)(src + 16));
+    const __m128i c = _mm_loadu_si128((const __m128i*)(src + 32));
+    const __m128i d = _mm_loadu_si128((const __m128i*)(src + 48));
+    _mm_stream_si128((__m128i*)dst, a);
+    _mm_stream_si128((__m128i*)(dst + 16), b);
+    _mm_stream_si128((__m128i*)(dst + 32), c);
+    _mm_stream_si128((__m128i*)(dst + 48), d);
   }
-  for (uintptr_t a = (uintptr_t)p & ~(uintptr_t)63; a < (uintptr_t)p + len; a += 64) {
-    _mm_clflush((void*)a);
+  for (; len >= 16; dst += 16, src += 16, len -= 16) {
+    _mm_stream_si128((__m128i*)dst, _mm_loadu_si128((const __m128i*)src));
+  }
+  for (; len >= 4; dst += 4, src += 4, len -= 4) {
+    int v;
+    memcpy(&v, src, 4);
+    _mm_stream_si32((int*)dst, v);
   }
 }
 #endif
@@ -194,12 +207,13 @@ static void shm_slot_write(struct wlr_buffer* slot, const pixman_region32_t* reg
     const size_t x = (size_t)rects[i].x1 * 4;
     const size_t len = (size_t)(rects[i].x2 - rects[i].x1) * 4;
     for (int y = rects[i].y1; y < rects[i].y2; y++) {
-      memcpy(staging->map + y * dst_stride + x, data + y * src_stride + x, len);
 #if defined(__x86_64__)
       if (staging->flush) {
-        flush_range(staging->map + y * dst_stride + x, len);
+        copy_uncached(staging->map + y * dst_stride + x, data + y * src_stride + x, len);
+        continue;
       }
 #endif
+      memcpy(staging->map + y * dst_stride + x, data + y * src_stride + x, len);
     }
   }
 #if defined(__x86_64__)
