@@ -62,7 +62,7 @@ docker run --rm --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccach
   dpkg-buildpackage -b -nc -us -uc 2>&1 | tee /o/build.log || exit 11
   # andromeda-link comes from the Link release, not this source; install every other package.
   apt-get update -qq
-  apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_") 2>&1 | tee /o/install.log || exit 12
+  apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_\|/andromeda-dbgsym_") 2>&1 | tee /o/install.log || exit 12
 ' || status=$?
 docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache
 case $status in

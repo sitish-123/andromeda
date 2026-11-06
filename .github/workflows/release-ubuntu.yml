@@ -1,4 +1,4 @@
-# A tag v* builds the Ubuntu 26.04 and Debian testing debs and signs an apt repository for each, with Link's deb from Link's release of the same tag.
+# A tag v* builds the Ubuntu 26.04 debs and signs an apt repository, with Link's deb from Link's release of the same tag.
 # Each release workflow runs on its own and adds its assets to the GitHub release of the tag, which the first one to
 # finish creates. Run it by hand with a tag to rebuild only that part. The assets also serve as a pacman and an apt
 # repository at releases/latest/download (see README.md).
@@ -20,18 +20,15 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  # The same scripts as a local build: debs from debian/ in an ubuntu:26.04 or debian:testing container, checked by
-  # installing them. Each set is a flat apt repository: Ubuntu's in the tag's release (releases/latest/download), Debian's
-  # in the rolling release "debian", because both sets use the same asset names (see README.md).
-  # Debian testing also serves sid and Kali; Debian 13 lacks libglycin-2.
+  # The same scripts as a local build: debs from debian/ in an ubuntu:26.04 container, checked by installing them.
+  # The result is a flat apt repository in the tag's release (releases/latest/download); see README.md.
   ubuntu:
     name: ${{ matrix.base }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        # A prebuilt run signs the Ubuntu debs a local build uploaded; Debian always builds in CI.
-        base: ${{ fromJSON(inputs.prebuilt && '["26.04"]' || '["26.04", "testing"]') }}
+        base: ["26.04"]
     steps:
       # The scripts default to 6 CPUs; docker refuses more than the runner has.
       - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
@@ -113,20 +110,9 @@ jobs:
           path: src
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: apt-26.04, path: apt }
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: ${{ !inputs.prebuilt }}
-        with: { name: apt-testing, path: apt-debian }
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber apt/* src/install.sh src/andromeda-release.asc
-          [[ -d apt-debian ]] || exit 0
-          # Upload first, then drop the old release's debs, so the Debian repository never lists a missing file.
-          gh release view debian --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create debian --repo "$GITHUB_REPOSITORY" \
-            --latest=false --title "Debian apt repository" --notes "Rolling apt repository for Debian testing, sid and Kali. See README.md."
-          gh release upload debian --repo "$GITHUB_REPOSITORY" --clobber apt-debian/*
-          gh release view debian --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | while read -r name; do
-            [[ -e apt-debian/$name ]] || gh release delete-asset debian "$name" --repo "$GITHUB_REPOSITORY" -y
-          done
