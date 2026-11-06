@@ -1212,12 +1212,13 @@ namespace andromeda {
     TeardownStep m_stepRegistry{this, &Server::clearRegistry};
     TeardownStep m_stepLayerSurfaces{this, &Server::clearLayerSurfaces};
     std::unique_ptr<SessionLock> m_sessionLock;
-    std::unique_ptr<Overview> m_overview;
     std::unique_ptr<ConfigBanner> m_configBanner;
     TeardownStep m_stepCloseSnapshots{this, &Server::clearCloseSnapshots};
     std::unique_ptr<HintRect> m_insertHint;
     std::unique_ptr<Ipc> m_ipc;
     std::unique_ptr<ConfigWatcher> m_configWatcher;
+    // Destroyed first: ~Overview runs teardown(), which notifies m_ipc.
+    std::unique_ptr<Overview> m_overview;
   };
 
 } // namespace andromeda
