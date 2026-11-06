@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Usage: tools/deb-xwayland-satellite.sh [ubuntu-version]
-# Builds xwayland-satellite (X11 apps for the compositor; MPL-2.0) as a .deb for our apt repo: Ubuntu does not ship it.
+# Usage: tools/deb-xwayland-satellite.sh [ubuntu-version | debian-suite]
+# Builds xwayland-satellite (X11 apps for the compositor; MPL-2.0) as a .deb for our apt repo: Ubuntu and Debian do not ship it.
 # The tag matches the Arch package. Output: ~/.cache/andromeda-ubuntu/xwayland-satellite-<version>/ (the deb and build.log).
 set -euo pipefail
 VERSION=${1:-26.04}
+[[ $VERSION == [0-9]* ]] && BASE=ubuntu:$VERSION || BASE=debian:$VERSION
 TAG=v0.8.3
 OUT=${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-ubuntu/xwayland-satellite-$VERSION
 mkdir -p "$OUT"
-docker run --rm -v "$OUT:/o" "ubuntu:$VERSION" sh -c 'rm -rf /o/*'
+docker run --rm -v "$OUT:/o" "$BASE" sh -c 'rm -rf /o/*'
 status=0
-docker run --rm --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" "ubuntu:$VERSION" bash -c '
+docker run --rm --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" "$BASE" bash -c '
   set -e
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
@@ -34,7 +35,7 @@ Description: Xwayland outside the Wayland compositor
 CONTROL
   dpkg-deb --root-owner-group -b $d /o/xwayland-satellite_'"${TAG#v}"'-1andromeda1_amd64.deb
 ' > "$OUT/build.log" 2>&1 || status=$?
-docker run --rm -v "$OUT:/o" "ubuntu:$VERSION" chown -R "$(id -u):$(id -g)" /o
+docker run --rm -v "$OUT:/o" "$BASE" chown -R "$(id -u):$(id -g)" /o
 if [[ $status -eq 0 ]]; then
   echo "PASS: $(ls "$OUT"/*.deb)"
 else

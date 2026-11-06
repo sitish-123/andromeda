@@ -1,4 +1,4 @@
-# A tag v* builds the Ubuntu 26.04 debs and signs their apt repository, with Link's deb from Link's release of the same tag.
+# A tag v* builds the Ubuntu 26.04 and Debian testing debs and signs an apt repository for each, with Link's deb from Link's release of the same tag.
 # Each release workflow runs on its own and adds its assets to the GitHub release of the tag, which the first one to
 # finish creates. Run it by hand with a tag to rebuild only that part. The assets also serve as a pacman and an apt
 # repository at releases/latest/download (see README.md).
@@ -20,10 +20,18 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  # The same scripts as a local Ubuntu build: debs from debian/ in an ubuntu:26.04 container, checked by installing them.
-  # The release assets are also a flat apt repository: sources.list points at releases/latest/download (see README.md).
+  # The same scripts as a local build: debs from debian/ in an ubuntu:26.04 or debian:testing container, checked by
+  # installing them. Each set is a flat apt repository: Ubuntu's in the tag's release (releases/latest/download), Debian's
+  # in the rolling release "debian", because both sets use the same asset names (see README.md).
+  # Debian testing also serves sid and Kali; Debian 13 lacks libglycin-2.
   ubuntu:
+    name: ${{ matrix.base }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # A prebuilt run signs the Ubuntu debs a local build uploaded; Debian always builds in CI.
+        base: ${{ fromJSON(inputs.prebuilt && '["26.04"]' || '["26.04", "testing"]') }}
     steps:
       # The scripts default to 6 CPUs; docker refuses more than the runner has.
       - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
@@ -33,28 +41,28 @@ jobs:
           ref: ${{ inputs.ref || env.TAG }}
       - name: xwayland-satellite
         if: ${{ !inputs.prebuilt }}
-        run: tools/deb-xwayland-satellite.sh 26.04
+        run: tools/deb-xwayland-satellite.sh ${{ matrix.base }}
       - uses: actions/cache/restore@v4
         if: ${{ !inputs.prebuilt }}
         with:
-          path: ~/.cache/andromeda-ubuntu/ccache-deb-26.04
-          key: ccache-deb-26.04-${{ github.run_id }}
-          restore-keys: ccache-deb-26.04-
+          path: ~/.cache/andromeda-ubuntu/ccache-deb-${{ matrix.base }}
+          key: ccache-deb-${{ matrix.base }}-${{ github.run_id }}
+          restore-keys: ccache-deb-${{ matrix.base }}-
       - name: Packages
         if: ${{ !inputs.prebuilt }}
-        run: DEB_VERSION=${TAG#v} tools/ubuntu-deb.sh --clean 26.04
+        run: DEB_VERSION=${TAG#v} tools/ubuntu-deb.sh --clean ${{ matrix.base }}
       - uses: actions/cache/save@v4
         if: always() && !inputs.prebuilt
         with:
-          path: ~/.cache/andromeda-ubuntu/ccache-deb-26.04
-          key: ccache-deb-26.04-${{ github.run_id }}
+          path: ~/.cache/andromeda-ubuntu/ccache-deb-${{ matrix.base }}
+          key: ccache-deb-${{ matrix.base }}-${{ github.run_id }}
       # A local build (DEB_VERSION=<tag without v> tools/ubuntu-deb.sh) uploads its debs to the release first; this
       # only signs the repository.
       - name: Prebuilt debs
         if: ${{ inputs.prebuilt }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.deb' -D "$HOME/.cache/andromeda-ubuntu/deb-26.04"
+        run: gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*.deb' -D "$HOME/.cache/andromeda-ubuntu/deb-${{ matrix.base }}"
       - name: Link
         env:
           GH_TOKEN: ${{ github.token }}
@@ -68,13 +76,14 @@ jobs:
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+          BASE: ${{ matrix.base }}
         run: |
           sudo apt-get install -y -qq dpkg-dev apt-utils > /dev/null
           out=$HOME/.cache/andromeda-ubuntu
           shopt -s nullglob
           mkdir apt
           # GitHub rewrites ':' in asset names; Packages must list the names the assets really get.
-          for deb in "$out"/deb-26.04/*.deb "$out"/xwayland-satellite-26.04/*.deb "$RUNNER_TEMP"/link/*.deb; do
+          for deb in "$out"/deb-$BASE/*.deb "$out"/xwayland-satellite-$BASE/*.deb "$RUNNER_TEMP"/link/*.deb; do
             name=$(basename "$deb")
             cp "$deb" "apt/${name//:/.}"
           done
@@ -87,7 +96,7 @@ jobs:
           gpg --batch --yes --armor --detach-sign -o Release.gpg Release
       - uses: actions/upload-artifact@v4
         with:
-          name: apt
+          name: apt-${{ matrix.base }}
           path: apt/
 
   publish:
@@ -103,10 +112,21 @@ jobs:
           sparse-checkout-cone-mode: false
           path: src
       - uses: actions/download-artifact@v4
-        with: { name: apt, path: apt }
+        with: { name: apt-26.04, path: apt }
+      - uses: actions/download-artifact@v4
+        if: ${{ !inputs.prebuilt }}
+        with: { name: apt-testing, path: apt-debian }
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber apt/* src/install.sh src/andromeda-release.asc
+          [[ -d apt-debian ]] || exit 0
+          # Upload first, then drop the old release's debs, so the Debian repository never lists a missing file.
+          gh release view debian --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 || gh release create debian --repo "$GITHUB_REPOSITORY" \
+            --latest=false --title "Debian apt repository" --notes "Rolling apt repository for Debian testing, sid and Kali. See README.md."
+          gh release upload debian --repo "$GITHUB_REPOSITORY" --clobber apt-debian/*
+          gh release view debian --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | while read -r name; do
+            [[ -e apt-debian/$name ]] || gh release delete-asset debian "$name" --repo "$GITHUB_REPOSITORY" -y
+          done

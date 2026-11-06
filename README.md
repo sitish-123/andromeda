@@ -36,7 +36,8 @@ which apps use energy.
 
 ## Install
 
-Andromeda supports Arch Linux and Ubuntu 26.04 (x86_64). Each release publishes signed packages for both.
+Andromeda supports Arch Linux, Ubuntu 26.04, Debian testing/sid and Kali (x86_64). Each release publishes signed packages
+for all of them. Debian 13 (trixie) is not supported: it lacks libglycin-2.
 
 Run this one command. It detects your system, adds the Andromeda repository and installs the desktop:
 
@@ -79,15 +80,30 @@ sudo apt update
 sudo apt install andromeda
 ```
 
+### Debian testing, sid and Kali
+
+The same steps as Ubuntu, with the Debian repository. On Debian, first add `contrib` to the `Components:` lines in
+`/etc/apt/sources.list.d/debian.sources` (for scrcpy); Kali enables it by default.
+
+```sh
+sudo install -d -m 755 /etc/apt/keyrings
+curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc \
+  | sudo tee /etc/apt/keyrings/andromeda.asc > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/andromeda.asc] https://github.com/sitish-123/andromeda/releases/download/debian ./" \
+  | sudo tee /etc/apt/sources.list.d/andromeda.list
+sudo apt update
+sudo apt install andromeda
+```
+
 The release key fingerprint is `97DD 7B3B 28BE 58AC 8787  E32D 1143 7B48 C426 63B5`.
 
 ### After installing
 
 Log out, choose **Andromeda** on the login screen, and log in. The first-run setup opens.
 
-To update, run `sudo pacman -Syu` on Arch or `sudo apt update && sudo apt upgrade` on Ubuntu.
+To update, run `sudo pacman -Syu` on Arch or `sudo apt update && sudo apt upgrade` on Ubuntu, Debian and Kali.
 
-Optional: `andromeda-power-git` (Arch) or `andromeda-power` (Ubuntu) turns on extra laptop power saving (PCIe ASPM, USB autosuspend). It changes kernel
+Optional: `andromeda-power-git` (Arch) or `andromeda-power` (Ubuntu, Debian, Kali) turns on extra laptop power saving (PCIe ASPM, USB autosuspend). It changes kernel
 defaults and can upset some USB devices, so it is not installed by default.
 
 ## Build from source
@@ -99,7 +115,7 @@ just build
 just dev-nested   # opens a test desktop in a window
 ```
 
-`just package` builds the Arch packages into `pkg/`. `tools/ubuntu-deb.sh` builds the Ubuntu packages in a container.
+`just package` builds the Arch packages into `pkg/`. `tools/ubuntu-deb.sh` builds the Ubuntu packages in a container (`tools/ubuntu-deb.sh testing` for Debian).
 
 ## Phone app
 
