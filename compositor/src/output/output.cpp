@@ -2446,10 +2446,13 @@ namespace andromeda {
           }
           const auto now = std::chrono::steady_clock::now();
           if (m_busyStats.busy > 0 && now - m_busyStats.since >= std::chrono::seconds(1)) {
-            kLog.info(
-                "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
-                m_busyStats.retriedOk, m_busyStats.gaveUp
-            );
+            // A retried busy commit still made its frame; only a commit that gave up dropped one.
+            if (m_busyStats.gaveUp > 0) {
+              kLog.info(
+                  "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
+                  m_busyStats.retriedOk, m_busyStats.gaveUp
+              );
+            }
             m_busyStats = {.since = now};
           }
         }

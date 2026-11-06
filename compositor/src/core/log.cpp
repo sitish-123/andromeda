@@ -448,5 +448,11 @@ void wlrLogHandler(enum wlr_log_importance importance, const char* fmt, va_list 
   }
 
   const auto length = std::min(static_cast<std::size_t>(written), buffer.size() - 1);
-  detail::logMessage(level, "wlr", std::string_view(buffer.data(), length));
+  const std::string_view message(buffer.data(), length);
+  // EBUSY: xe completes an unused plane's previous commit just after the page-flip event, and libliftoff puts every
+  // plane in each commit. Output::commitState retries it and logs a summary when a retry gives up.
+  if (level == LogLevel::Error && message.ends_with("Atomic commit failed: Device or resource busy")) {
+    level = LogLevel::Debug;
+  }
+  detail::logMessage(level, "wlr", message);
 }
