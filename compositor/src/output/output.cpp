@@ -2176,6 +2176,14 @@ namespace andromeda {
     if (!outputFrameAllowed(m_server->stopping(), m_server->session())) {
       return;
     }
+    // The login screen is the greeter client alone. Its surfaces vanish the moment it exits, before the compositor
+    // sees the child exit: a frame without them is black with a cursor, and the next session would hold that frame.
+    // Keep the last greeter frame on screen instead.
+    if (greeterMode()
+        && std::ranges::none_of(m_server->layerSurfaces(), [](const auto& layer) { return layer->mapped(); })
+        && std::ranges::none_of(m_server->views(), [](const auto& view) { return view->mapped(); })) {
+      return;
+    }
     const OutputFrameScope frameScope(*m_server);
     stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
