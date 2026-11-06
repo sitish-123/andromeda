@@ -48,7 +48,7 @@ run() {
   fi
 }
 
-run compositor "meson setup --prefix=/usr -Dtests=disabled /tmp/b compositor && ninja -C /tmp/b"
+run compositor "meson setup --prefix=/usr -Dtests=disabled --force-fallback-for=wlroots-0.20,libliftoff -Dwlroots:libliftoff=enabled -Dlibliftoff:default_library=static -Dlibliftoff:werror=false /tmp/b compositor && ninja -C /tmp/b"
 run shell "meson setup --prefix=/usr /tmp/b shell && ninja -C /tmp/b"
 run portal "meson setup --prefix=/usr /tmp/b portal && ninja -C /tmp/b"
 run greeter "meson setup --prefix=/usr /tmp/b greeter && ninja -C /tmp/b"

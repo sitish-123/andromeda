@@ -19,7 +19,7 @@ env:
 
 jobs:
   debian:
-    name: testing
+    name: debian
     runs-on: ubuntu-latest
     steps:
       - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
