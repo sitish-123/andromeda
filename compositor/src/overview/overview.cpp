@@ -686,11 +686,15 @@ namespace andromeda {
       if (blur->width != outputBox.width || blur->height != outputBox.height) {
         wlr_scene_blur_set_size(blur, outputBox.width, outputBox.height);
       }
-      // Blur alpha is normalized to [0, 1]; clamp an overshooting progress. Strength stays 1: only a full-strength
-      // bottom-layer blur reads the cached wallpaper blur, any other strength re-blurs the whole output every frame.
+      // Blur alpha and strength are normalized to [0, 1]; clamp an overshooting progress.
       const auto level = static_cast<float>(std::clamp(m_progress, 0.0, 1.0));
       if (blur->alpha != level) {
         wlr_scene_blur_set_alpha(blur, level);
+      }
+      // A full-screen backdrop follows the slider's blur strength only: no rim or lens on the screen edge.
+      const float strength = level * configGlass(glass::Kind::Sheet).blurStrength;
+      if (blur->strength != strength) {
+        wlr_scene_blur_set_strength(blur, strength);
       }
     }
 
