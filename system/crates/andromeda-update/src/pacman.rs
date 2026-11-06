@@ -13,6 +13,8 @@ pub struct Update {
     pub old: String,
     pub new: String,
     pub size: u64,
+    /// From the Andromeda repository.
+    pub ours: bool,
 }
 
 /// `pacman -Qu` lines: `name old -> new`, optionally followed by ` [ignored]` (`IgnorePkg`: held, not upgraded).
@@ -25,7 +27,7 @@ pub fn parse_upgrades(text: &str) -> (Vec<Update>, Vec<Update>) {
         else {
             continue;
         };
-        let update = Update { name: name.into(), old: old.into(), new: new.into(), size: 0 };
+        let update = Update { name: name.into(), old: old.into(), new: new.into(), size: 0, ours: false };
         match parts.next() {
             None => updates.push(update),
             Some("[ignored]") => held.push(update),
@@ -35,12 +37,13 @@ pub fn parse_upgrades(text: &str) -> (Vec<Update>, Vec<Update>) {
     (updates, held)
 }
 
-/// `pacman -Sup --print-format '%n %s'` lines: name and download size in bytes.
-pub fn parse_sizes(text: &str) -> HashMap<String, u64> {
+/// `pacman -Sup --print-format '%n %s %r'` lines: name, download size in bytes and repository.
+pub fn parse_sizes(text: &str) -> HashMap<String, (u64, String)> {
     text.lines()
         .filter_map(|line| {
-            let (name, size) = line.split_once(' ')?;
-            Some((name.to_owned(), size.trim().parse().ok()?))
+            let mut parts = line.split_whitespace();
+            let (name, size) = (parts.next()?, parts.next()?.parse().ok()?);
+            Some((name.to_owned(), (size, parts.next().unwrap_or_default().to_owned())))
         })
         .collect()
 }
@@ -63,7 +66,7 @@ pub async fn check(db: &Path) -> Result<(Vec<Update>, Vec<Update>)> {
     }
     let (mut updates, held) = parse_upgrades(&String::from_utf8_lossy(&out.stdout));
     let sizes = Command::new("pacman")
-        .args(["-Sup", "--print-format", "%n %s", "--dbpath"])
+        .args(["-Sup", "--print-format", "%n %s %r", "--dbpath"])
         .arg(db)
         .env("LC_ALL", "C")
         .output()
@@ -72,7 +75,10 @@ pub async fn check(db: &Path) -> Result<(Vec<Update>, Vec<Update>)> {
     if sizes.status.success() {
         let sizes = parse_sizes(&String::from_utf8_lossy(&sizes.stdout));
         for update in &mut updates {
-            update.size = sizes.get(&update.name).copied().unwrap_or(0);
+            if let Some((size, repo)) = sizes.get(&update.name) {
+                update.size = *size;
+                update.ours = repo == andromeda_update::repo::PACMAN_REPO;
+            }
         }
     }
     Ok((updates, held))
@@ -93,9 +99,9 @@ mod tests {
 
     #[test]
     fn sizes_by_name() {
-        let sizes = parse_sizes("linux 140123456\nbroken line\nmesa 0\n");
-        assert_eq!(sizes.get("linux"), Some(&140_123_456));
-        assert_eq!(sizes.get("mesa"), Some(&0));
+        let sizes = parse_sizes("linux 140123456 core\nbroken line\nmesa 0 extra\n");
+        assert_eq!(sizes.get("linux"), Some(&(140_123_456, "core".to_owned())));
+        assert_eq!(sizes.get("mesa").map(|s| s.0), Some(0));
         assert_eq!(sizes.len(), 2);
     }
 }

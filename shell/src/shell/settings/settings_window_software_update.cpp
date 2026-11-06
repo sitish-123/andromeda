@@ -38,6 +38,8 @@ void SettingsWindow::addSoftwareUpdateContent(float scale) {
           .check = [service] { service->check(); },
           .markNewsRead = [service] { service->markNewsRead(); },
           .upgrade = [service] { service->upgrade(); },
+          .upgradeAndromeda = [service] { service->upgradeAndromeda(); },
+          .retry = [service] { service->retry(); },
           .scheduleTonight = [service](bool enable) { service->scheduleTonight(enable); },
           .restart = [this] {
             if (m_restartSession) {

@@ -71,6 +71,14 @@ public:
   void markNewsRead();
   // System (helper, root) and Apps (flatpak, as the user) together.
   void upgrade();
+  // Only the Andromeda repository packages (helper, root); not gated by the Arch news.
+  void upgradeAndromeda();
+  // Runs the last update again, full or Andromeda-only.
+  void retry() { m_lastAndromeda ? upgradeAndromeda() : upgrade(); }
+  // The last run was an Andromeda-only update that needs newer system packages first.
+  [[nodiscard]] bool needsSystemFirst() const noexcept {
+    return m_runState == RunState::Failed && m_resultMessage.starts_with("needs a system update first");
+  }
   // Update lock: `then(waited)` runs at once when no system update runs, else after it finishes (at most 60 min).
   // `waiting` runs when the wait starts. One pending action: a later call replaces it. Does not start the helper.
   void afterSystemUpdate(std::function<void(bool waited)> then, std::function<void()> waiting);
@@ -116,7 +124,9 @@ private:
   Timer m_updateWaitCap;
   void releaseWaiters();
   bool m_appsUpdating = false;
+  bool m_lastAndromeda = false;
   std::string m_appsError;
 
   void upgradeApps();
+  void startHelper(const char* method, bool withDryRun);
 };

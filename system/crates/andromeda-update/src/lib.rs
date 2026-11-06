@@ -4,3 +4,4 @@
 compile_error!("enable one package backend feature: arch or apt");
 
 pub mod news;
+pub mod repo;

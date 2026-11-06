@@ -5091,10 +5091,6 @@
           "label": "Wallpaper in Previews",
           "description": "Show the wallpaper inside each workspace preview"
         },
-        "overview-shortcuts": {
-          "label": "Shortcut Badges",
-          "description": "Label windows with keys that focus them"
-        },
         "input-focus-follows-mouse": {
           "label": "Focus Follows Mouse",
           "description": "Focus the window under the pointer"
@@ -6732,6 +6728,10 @@
       "news-unknown": "Arch news could not be checked yet",
       "news-read": "I Have Read This",
       "news-first": "Read the Arch news above to update",
+      "andromeda-title": "Andromeda",
+      "andromeda-version": "Andromeda {version}",
+      "andromeda-update": "Update Andromeda",
+      "needs-system": "Andromeda needs newer system packages. Update the system first.",
       "running": "Updating",
       "preparing": "Preparing…",
       "stage": {
@@ -6771,6 +6771,7 @@
       "tonight-cancel": "Cancel",
       "group-count": "{count} · {size}",
       "group": {
+        "andromeda": "Andromeda",
         "system": "System",
         "apps": "Apps",
         "snaps": "Snaps",

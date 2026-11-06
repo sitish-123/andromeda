@@ -17,7 +17,7 @@ pub const PATH: &str = "/org/andromeda/Update1";
 /// checkupdates downloads every sync database; firmware and Flatpak answer faster.
 const SOURCE_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// (group: system | apps | snaps | firmware | held, name, current version, new version, download bytes)
+/// (group: andromeda | system | apps | snaps | firmware | held, name, current version, new version, download bytes)
 pub type Row = (String, String, String, String, u64);
 
 #[derive(Default)]
@@ -109,7 +109,10 @@ impl Update {
         let mut errors = Vec::new();
         match repo {
             Ok((list, held)) => {
-                rows.extend(list.into_iter().map(|u| ("system".into(), u.name, u.old, u.new, u.size)));
+                rows.extend(list.into_iter().map(|u| {
+                    let group = if u.ours { "andromeda" } else { "system" };
+                    (group.into(), u.name, u.old, u.new, u.size)
+                }));
                 rows.extend(held.into_iter().map(|u| ("held".into(), u.name, u.old, u.new, 0)));
             }
             Err(e) => errors.push(format!("system: {e:#}")),

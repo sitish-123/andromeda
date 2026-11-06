@@ -22,7 +22,7 @@ namespace settings {
     namespace rows = page_rows;
     using RunState = SoftwareUpdateService::RunState;
 
-    constexpr std::array<std::string_view, 5> kGroups{"system", "apps", "snaps", "firmware", "held"};
+    constexpr std::array<std::string_view, 6> kGroups{"andromeda", "system", "apps", "snaps", "firmware", "held"};
 
     std::string sizeText(std::uint64_t bytes) {
       constexpr double kMb = 1000.0 * 1000.0;
@@ -63,6 +63,48 @@ namespace settings {
       return r;
     }
 
+    // "1:r15209.g6451e8bb8-1" -> "r15209", "0.5.2-1" -> "0.5.2": no epoch, commit hash or package release.
+    std::string shortVersion(std::string_view version) {
+      if (const auto colon = version.find(':'); colon != std::string_view::npos) {
+        version.remove_prefix(colon + 1);
+      }
+      version = version.substr(0, version.rfind('-'));
+      // A git build ("r15209.g6451e8bb8"): the commit hash means nothing to the user.
+      if (version.starts_with('r')) {
+        version = version.substr(0, version.find('.'));
+      }
+      return std::string(version);
+    }
+
+    // Andromeda's own packages (desktop, Link): updated alone, without the Arch news gate.
+    void addAndromeda(Flex& content, float scale, const SoftwareUpdateService& service,
+                      const SoftwareUpdateActions& actions) {
+      const std::size_t count = groupCount(service, "andromeda");
+      if (count == 0) {
+        return;
+      }
+      const auto& updates = service.updates();
+      const auto meta = std::ranges::find_if(
+          updates, [](const SoftwareUpdate& u) { return u.group == "andromeda" && u.name == "andromeda"; });
+      Flex* card = rows::addCard(content, scale);
+      auto r = rows::row(scale);
+      r->addChild(rows::symbol("sparkles", Tokens::sizeSymbol * scale, ColorRole::Label2));
+      auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
+      copy->addChild(makeLabel(meta == updates.end()
+                                   ? i18n::tr("settings.update.andromeda-title")
+                                   : i18n::tr("settings.update.andromeda-version", "version", shortVersion(meta->newVersion)),
+                               Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold));
+      copy->addChild(makeLabel(i18n::tr("settings.update.available", "count", std::to_string(count), "size",
+                                        sizeText(groupBytes(service, "andromeda"))),
+                               Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
+      r->addChild(std::move(copy));
+      if (service.canInstall() && service.runState() != RunState::Running) {
+        r->addChild(rows::plainButton(i18n::tr("settings.update.andromeda-update"), ButtonVariant::Primary, scale,
+                                      actions.upgradeAndromeda));
+      }
+      card->addChild(std::move(r));
+    }
+
     void addNews(Flex& content, float scale, const SoftwareUpdateService& service, const SoftwareUpdateActions& actions) {
       if (service.news().empty()) {
         // Blocked with no item: the feed has not been read yet (offline, or the first check runs).
@@ -97,9 +139,9 @@ namespace settings {
     }
 
     void addHero(Flex& content, float scale, const SoftwareUpdateService& service, const SoftwareUpdateActions& actions) {
-      // Update Now runs the System group (the helper); Apps and Firmware rows show their own count.
-      const std::size_t count = groupCount(service, "system");
-      const std::uint64_t bytes = groupBytes(service, "system");
+      // Update Now runs the full system upgrade (System and Andromeda); Apps and Firmware rows show their own count.
+      const std::size_t count = groupCount(service, "system") + groupCount(service, "andromeda");
+      const std::uint64_t bytes = groupBytes(service, "system") + groupBytes(service, "andromeda");
       rows::Hero hero;
       hero.glyph = "download";
       std::unique_ptr<Flex> progress;
@@ -124,11 +166,15 @@ namespace settings {
         hero.action = rows::plainButton(i18n::tr("settings.update.check"), ButtonVariant::Default, scale, actions.check);
         break;
       case RunState::Failed:
-        hero.title = i18n::tr("settings.update.failed");
-        hero.status = service.resultMessage();
-        hero.action = rows::plainButton(i18n::tr("settings.update.try-again"), ButtonVariant::Primary, scale,
-                                        actions.upgrade);
-        break;
+        // A refused Andromeda-only update leaves the system update as the way forward: show it as available.
+        if (!service.needsSystemFirst()) {
+          hero.title = i18n::tr("settings.update.failed");
+          hero.status = service.resultMessage();
+          hero.action = rows::plainButton(i18n::tr("settings.update.try-again"), ButtonVariant::Primary, scale,
+                                          actions.retry);
+          break;
+        }
+        [[fallthrough]];
       case RunState::Done:
       case RunState::Idle:
         if (service.restartNeeded()) {
@@ -171,6 +217,9 @@ namespace settings {
             hero.action = std::move(buttons);
             if (blocked) {
               hero.status = i18n::tr("settings.update.news-first");
+            }
+            if (service.needsSystemFirst()) {
+              hero.status = i18n::tr("settings.update.needs-system");
             }
           }
         }
@@ -258,6 +307,7 @@ namespace settings {
       addGroupList(content, scale, *service, group);
       return;
     }
+    addAndromeda(content, scale, *service, actions);
     addNews(content, scale, *service, actions);
     addHero(content, scale, *service, actions);
     addGroups(content, scale, *service, actions);

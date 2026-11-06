@@ -3,6 +3,7 @@
 
 MOCK_UPDATES=0 starts up to date; MOCK_NEWS=1 adds an unread Arch news item that blocks System. Calls are appended to
 argv[1]. Upgrade emits Progress at 0/40/80 % then Finished(ok); MOCK_UPGRADE=fail ends with Finished(false).
+MOCK_ANDROMEDA=1 adds Andromeda rows; UpgradeAndromeda ends with the needs-system refusal.
 dsk.test.Update.Progress(s stage, i percent, s package) emits one Progress signal for a still screenshot.
 """
 import os
@@ -28,6 +29,9 @@ def rows():
     if os.environ.get("MOCK_UPDATES", "1") == "0":
         return dbus.Array([], signature="(sssst)")
     return dbus.Array([
+        *([("andromeda", "andromeda", "1:r15206.g6e98f1910-1", "1:r15209.g6451e8bb8-1", dbus.UInt64(9_000_000)),
+           ("andromeda", "andromeda-link-git", "1:r15206.g6e98f1910-1", "1:r15209.g6451e8bb8-1",
+            dbus.UInt64(21_000_000))] if os.environ.get("MOCK_ANDROMEDA") else []),
         ("system", "linux", "6.18.2.arch1-1", "6.18.3.arch1-1", dbus.UInt64(148_000_000)),
         ("system", "mesa", "1:26.1.1-1", "1:26.1.2-1", dbus.UInt64(31_000_000)),
         ("system", "firefox", "145.0-1", "145.0.1-1", dbus.UInt64(72_000_000)),
@@ -100,6 +104,13 @@ class Helper(dbus.service.Object):
         GLib.timeout_add(200 * (len(steps) + 1), lambda: self.Finished(
             ok, "updated" if ok else "commit: could not satisfy dependencies",
             ["linux 6.18.3.arch1-1", "mesa 1:26.1.2-1"] if ok else [], []) and False)
+
+    @dbus.service.method(HELPER)
+    def UpgradeAndromeda(self):
+        log("UpgradeAndromeda")
+        self.Progress("install", 50, "andromeda")
+        GLib.timeout_add(400, lambda: self.Finished(
+            False, "needs a system update first: glibc", [], []) and False)
 
     @dbus.service.method(HELPER, in_signature="x")
     def MarkNewsRead(self, until):

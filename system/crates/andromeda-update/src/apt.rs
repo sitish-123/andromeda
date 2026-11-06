@@ -14,6 +14,8 @@ pub struct Update {
     pub old: String,
     pub new: String,
     pub size: u64,
+    /// From the Andromeda apt source.
+    pub ours: bool,
 }
 
 /// `apt-get -s` lines: `Inst name [old] (new origin [arch])`; a new package has no `[old]`.
@@ -30,7 +32,7 @@ pub fn parse_upgrades(text: &str) -> Vec<Update> {
                 None => ("", rest),
             };
             let new = rest.strip_prefix('(')?.split_whitespace().next()?;
-            Some(Update { name: name.into(), old: old.into(), new: new.into(), size: 0 })
+            Some(Update { name: name.into(), old: old.into(), new: new.into(), size: 0, ours: false })
         })
         .collect()
 }
@@ -123,7 +125,7 @@ pub async fn check(db: &Path) -> Result<(Vec<Update>, Vec<Update>)> {
             .into_iter()
             .map(|name| {
                 let (old, new) = versions.get(&name).cloned().unwrap_or_default();
-                Update { name, old, new, size: 0 }
+                Update { name, old, new, size: 0, ours: false }
             })
             .collect();
     }
@@ -133,6 +135,10 @@ pub async fn check(db: &Path) -> Result<(Vec<Update>, Vec<Update>)> {
         for update in &mut updates {
             update.size = sizes.get(&update.name).copied().unwrap_or(0);
         }
+    }
+    let ours = andromeda_update::repo::apt_names(&db.join("lists"));
+    for update in &mut updates {
+        update.ours = ours.contains(&update.name);
     }
     Ok((updates, held))
 }

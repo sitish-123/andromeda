@@ -15,10 +15,13 @@ namespace settings {
     std::function<void()> check;
     std::function<void()> markNewsRead;
     std::function<void()> upgrade;
+    std::function<void()> upgradeAndromeda;
+    // Try Again: the last update, full or Andromeda-only.
+    std::function<void()> retry;
     std::function<void(bool enable)> scheduleTonight;
     std::function<void()> restart;
     std::function<void(const std::string& url)> openLink;
-    // "system", "apps" or "firmware": the package list of that group.
+    // "andromeda", "system", "apps" or "firmware": the package list of that group.
     std::function<void(const std::string& group)> openGroup;
     std::function<void(bool on)> setCheckDaily;
   };
