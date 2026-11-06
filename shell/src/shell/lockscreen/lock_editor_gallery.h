@@ -61,6 +61,7 @@ public:
 
   // Panel backgrounds the editor puts frosted glass under.
   [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_panelBg}; }
+  [[nodiscard]] Node* panelGroup() const { return m_group; }
 
 private:
   struct Tile {

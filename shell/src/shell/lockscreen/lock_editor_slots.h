@@ -61,6 +61,8 @@ public:
 
   // Panel backgrounds the editor puts frosted glass under.
   [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_panelBg}; }
+  // The slot panel (widget gallery, bottom slot kinds) alone, for its open motion.
+  [[nodiscard]] Node* panelGroup() const { return m_panelGroup; }
 
 private:
   struct Tile {
@@ -80,6 +82,7 @@ private:
   std::array<Place, kPlaces> m_places{};
   RectNode* m_bottom = nullptr;
   Rect m_bottomRect;
+  Node* m_panelGroup = nullptr;
   RectNode* m_panelBg = nullptr;
   Rect m_panelRect;
   Label* m_title = nullptr;

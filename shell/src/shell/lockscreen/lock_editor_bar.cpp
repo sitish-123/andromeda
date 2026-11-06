@@ -104,19 +104,20 @@ void LockEditorBar::build(Node& root) {
   m_done.bg = addRect(*m_group);
   m_done.label = addLabel(*m_group, FontWeight::SemiBold);
   m_doneFocus = addRect(*m_group);
-  m_panelBg = addRect(*m_group);
-  m_layoutTitle = addLabel(*m_group, FontWeight::SemiBold);
-  m_themeTitle = addLabel(*m_group, FontWeight::SemiBold);
-  m_themeNote = addLabel(*m_group, FontWeight::Normal);
+  m_panelGroup = m_group->addChild(std::make_unique<Node>());
+  m_panelBg = addRect(*m_panelGroup);
+  m_layoutTitle = addLabel(*m_panelGroup, FontWeight::SemiBold);
+  m_themeTitle = addLabel(*m_panelGroup, FontWeight::SemiBold);
+  m_themeNote = addLabel(*m_panelGroup, FontWeight::Normal);
   for (Card& card : m_cards) {
-    card.bg = addRect(*m_group);
-    card.clock = addRect(*m_group);
-    card.line = addRect(*m_group);
-    card.label = addLabel(*m_group, FontWeight::Normal);
+    card.bg = addRect(*m_panelGroup);
+    card.clock = addRect(*m_panelGroup);
+    card.line = addRect(*m_panelGroup);
+    card.label = addLabel(*m_panelGroup, FontWeight::Normal);
   }
   for (Chip& chip : m_themes) {
-    chip.bg = addRect(*m_group);
-    chip.label = addLabel(*m_group, FontWeight::Medium);
+    chip.bg = addRect(*m_panelGroup);
+    chip.label = addLabel(*m_panelGroup, FontWeight::Medium);
   }
 }
 

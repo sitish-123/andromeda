@@ -99,16 +99,17 @@ void LockEditorSlots::build(Node& root) {
     p.plus = addLabel(*m_group, FontWeight::Normal);
   }
   m_bottom = addRect(*m_group);
-  m_panelBg = addRect(*m_group);
-  m_title = addLabel(*m_group, FontWeight::SemiBold);
+  m_panelGroup = m_group->addChild(std::make_unique<Node>());
+  m_panelBg = addRect(*m_panelGroup);
+  m_title = addLabel(*m_panelGroup, FontWeight::SemiBold);
   const auto addChip = [this](LockEditorGallery::Chip& chip) {
-    chip.bg = addRect(*m_group);
-    chip.label = addLabel(*m_group, FontWeight::Medium);
+    chip.bg = addRect(*m_panelGroup);
+    chip.label = addLabel(*m_panelGroup, FontWeight::Medium);
   };
   for (Tile& tile : m_kinds) {
-    tile.bg = addRect(*m_group);
-    tile.value = addLabel(*m_group, FontWeight::SemiBold);
-    tile.name = addLabel(*m_group, FontWeight::Normal);
+    tile.bg = addRect(*m_panelGroup);
+    tile.value = addLabel(*m_panelGroup, FontWeight::SemiBold);
+    tile.name = addLabel(*m_panelGroup, FontWeight::Normal);
   }
   addChip(m_remove);
   std::ranges::for_each(m_bottomKinds, addChip);

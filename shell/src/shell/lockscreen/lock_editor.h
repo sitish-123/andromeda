@@ -67,6 +67,8 @@ private:
   void layoutScene(float width, float height);
   void applyWallpaper();
   void layoutGlass(float width, float height);
+  // A panel that just opened fades in and grows from 96 % on the open spring.
+  void animatePanels();
   using Focus = std::variant<
       LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit, LockEditorFree::Hit, LockEditorWallpaper::Hit>;
   void activate(LockEditorBar::Hit hit);
@@ -160,6 +162,13 @@ private:
   SharedTextureCache::Lease m_glassLease;
   // One glass image per panel background, inserted just under it in the panel's own group.
   std::vector<std::pair<const RectNode*, ImageNode*>> m_glassNodes;
+  struct PanelMotion {
+    Node* group = nullptr;
+    const RectNode* bg = nullptr;
+    bool open = false;
+    AnimationManager::Id anim = 0;
+  };
+  std::vector<PanelMotion> m_panelMotion;
   Timer m_clockTimer;
   std::function<void(bool)> m_openChanged;
 };

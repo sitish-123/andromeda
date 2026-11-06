@@ -187,6 +187,7 @@ void LockEditor::close() {
   m_root.reset();
   m_wallpaper = nullptr;
   m_glassNodes.clear();
+  m_panelMotion.clear();
   m_glassLease.reset();
   m_dim = nullptr;
   m_themeNotice = nullptr;
@@ -450,6 +451,7 @@ void LockEditor::layoutScene(float width, float height) {
   m_alert.setState(std::move(alert));
   m_alert.layout(renderer, width, height, scale);
   layoutGlass(width, height);
+  animatePanels();
 }
 
 LockscreenConfig LockEditor::previewConfig() const {
@@ -1261,5 +1263,44 @@ void LockEditor::layoutGlass(float width, float height) {
       glass->setTextureId(texture.id);
       glass->setUvRect({(x - offsetX) / shownW, (y - offsetY) / shownH, bg->width() / shownW, bg->height() / shownH});
     }
+  }
+}
+
+void LockEditor::animatePanels() {
+  if (m_panelMotion.empty()) {
+    const auto add = [this](Node* group, const std::vector<const RectNode*>& bgs) {
+      if (group != nullptr && !bgs.empty() && bgs.back() != nullptr) {
+        m_panelMotion.push_back({.group = group, .bg = bgs.back()});
+      }
+    };
+    add(m_bar.panelGroup(), m_bar.glassBackgrounds());
+    add(m_gallery.panelGroup(), m_gallery.glassBackgrounds());
+    add(m_slots.panelGroup(), m_slots.glassBackgrounds());
+    add(m_wallpaperPanel.panelGroup(), m_wallpaperPanel.glassBackgrounds());
+  }
+  for (PanelMotion& panel : m_panelMotion) {
+    bool open = panel.bg->width() > 0.0F && panel.bg->height() > 0.0F;
+    for (const Node* node = panel.bg; open && node != nullptr && node != m_root.get(); node = node->parent()) {
+      open = node->visible();
+    }
+    if (open == panel.open) {
+      continue;
+    }
+    panel.open = open;
+    if (!open) {
+      m_animations.cancel(panel.anim);
+      panel.anim = 0;
+      panel.group->setOpacity(1.0F);
+      panel.group->setScale(1.0F);
+      continue;
+    }
+    Node* group = panel.group;
+    group->setTransformOrigin(panel.bg->x() + panel.bg->width() * 0.5F, panel.bg->y());
+    const auto apply = [group](float v) {
+      group->setOpacity(v);
+      group->setScale(0.96F + 0.04F * v);
+    };
+    apply(0.0F);
+    panel.anim = m_animations.animateSpring(0.0F, 1.0F, Style::spring(Tokens::springOpen), apply, {}, group);
   }
 }
