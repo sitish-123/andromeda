@@ -236,6 +236,7 @@ namespace settings {
         .configure = [](ScrollView& scrollView) {
           scrollView.clearFill();
           scrollView.clearBorder();
+          scrollView.setScrollbarAutoHide(true);
         },
     });
     if (ctx.outScroll != nullptr) {

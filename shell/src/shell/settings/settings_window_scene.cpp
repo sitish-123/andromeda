@@ -1343,7 +1343,7 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
        .paddingH = (Style::spaceSm - 2.0F) * scale,
-       .fill = colorSpecFromRole(ColorRole::SolidRegular),
+       .fill = colorSpecFromRole(ColorRole::Fill2),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
       ui::glyph({
@@ -1357,10 +1357,9 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
            .justify = FlexJustify::Center,
            .paddingH = Style::spaceXs * scale,
            .radius = Style::spaceXs * scale,
-           .border = colorSpecFromRole(ColorRole::Separator),
            .minWidth = settings::metrics::kKeycapHeight * scale,
            .minHeight = settings::metrics::kKeycapHeight * scale},
-          makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
+          makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label3), FontWeight::Medium)
       )
   );
 }
@@ -1599,8 +1598,12 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   m_sidebarNode = sidebar.get();
   body->addChild(std::move(sidebar));
 
-  auto contentColumn =
-      ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Fill1), .flexGrow = 1.0F});
+  // On glass the window is one surface: a content fill under the header would cut an L shape around the sidebar.
+  auto contentColumn = ui::column(
+      {.align = FlexAlign::Stretch,
+       .fill = m_glassSidebar ? clearColorSpec() : colorSpecFromRole(ColorRole::Fill1),
+       .flexGrow = 1.0F}
+  );
   auto outer = ui::column({.align = FlexAlign::Stretch});
   m_headerRow = outer->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
   if (m_expertOpen && m_searchQuery.empty()) {

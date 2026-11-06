@@ -55,7 +55,7 @@ namespace settings {
 
   [[nodiscard]] inline SelectionStyle selectionStyle() {
     return SelectionStyle{
-        .rowFill = colorSpecFromRole(ColorRole::Lens),
+        .rowFill = colorSpecFromRole(ColorRole::Fill3),
         .rowLabel = colorSpecFromRole(ColorRole::Label1),
         .tileFill = clearColorSpec(),
         .tileGlyph = colorSpecFromRole(ColorRole::AccentText),
