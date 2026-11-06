@@ -40,13 +40,24 @@ namespace andromeda::scanout_keeper {
       if (sd_bus_open_system(&bus) < 0) {
         return;
       }
+      // Waits for the reply: the daemon checks polkit against this connection, which a fire-and-forget send closes
+      // first, so the release was refused and the 15 s fallback dropped the greeter's planes on screen.
+      sd_bus_set_method_call_timeout(bus, kHoldTimeoutUs);
       sd_bus_message* message = nullptr;
-      if (sd_bus_message_new_method_call(bus, &message, kService, kPath, kInterface, "ReleaseScanout") >= 0) {
-        sd_bus_message_set_expect_reply(message, 0);
+      sd_bus_message* reply = nullptr;
+      sd_bus_error error = SD_BUS_ERROR_NULL;
+      int result = sd_bus_message_new_method_call(bus, &message, kService, kPath, kInterface, "ReleaseScanout");
+      if (result >= 0) {
         sd_bus_message_set_auto_start(message, 0);
-        sd_bus_send(bus, message, nullptr);
-        sd_bus_message_unref(message);
+        result = sd_bus_call(bus, message, 0, &error, &reply);
       }
+      // No daemon on the bus: nothing is held.
+      if (result < 0 && !sd_bus_error_has_names(&error, SD_BUS_ERROR_SERVICE_UNKNOWN, SD_BUS_ERROR_NAME_HAS_NO_OWNER)) {
+        kLog.warn("scanout release failed: {}", error.message != nullptr ? error.message : std::strerror(-result));
+      }
+      sd_bus_error_free(&error);
+      sd_bus_message_unref(reply);
+      sd_bus_message_unref(message);
       sd_bus_flush_close_unref(bus);
     }
   } // namespace
