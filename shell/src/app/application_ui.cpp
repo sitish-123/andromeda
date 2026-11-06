@@ -420,7 +420,6 @@ void Application::initLockScreenAndSession() {
     return !m_configService.config().wallpaper.automation.pauseOnFullscreen || !m_wayland.hasFullscreenToplevel();
   });
   m_greeterLockscreen = m_configService.config().lockscreen;
-  greeter::setLockWallpaperBakeReady([this] { scheduleGreeterAutoSync(); });
   m_configService.addReloadCallback([this] {
     if (m_logindService != nullptr) {
       m_logindService->setSessionLockIntegrationEnabled(m_configService.isLockScreenEnabled());
