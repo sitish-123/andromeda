@@ -269,7 +269,7 @@ namespace andromeda {
     bool operator==(const LayoutModeArg&) const = default;
   };
   struct SnapRegionArg {
-    SnapRegion region = SnapRegion::Left;
+    SnapSpot region = SnapRegion::Left;
     bool operator==(const SnapRegionArg&) const = default;
   };
   struct ColumnDisplayArg {

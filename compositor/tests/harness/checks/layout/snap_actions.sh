@@ -26,6 +26,12 @@ title_bar_wait_box snap-action 628x704+644+8
 "$ANDROMEDA" msg window-snap:right > /dev/null
 title_bar_wait_field snap-action snap null
 title_bar_wait_box snap-action 480x300+173+109
+# A Snap Layouts zone (layout 3, thirds; zone 2, the middle), then the same zone again restores.
+snap 3.2
+title_bar_wait_box snap-action 414x704+433+8
+"$ANDROMEDA" msg window-snap:3.2 > /dev/null
+title_bar_wait_field snap-action snap null
+title_bar_wait_box snap-action 480x300+173+109
 snap bottom_right
 title_bar_wait_box snap-action 628x348+644+364
 "$ANDROMEDA" msg window-toggle-maximize > /dev/null

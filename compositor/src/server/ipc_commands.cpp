@@ -689,7 +689,7 @@ namespace andromeda {
       entry["tab_hidden"] = view.tabHidden();
       entry["minimizable"] = view.minimizable();
       entry["minimized"] = view.minimized();
-      entry["snap"] = view.snapRegion() ? nlohmann::json(snapRegionName(*view.snapRegion())) : nlohmann::json(nullptr);
+      entry["snap"] = view.snapSpot() ? nlohmann::json(snapSpotName(*view.snapSpot())) : nlohmann::json(nullptr);
       entry["border_effect"] = effectSlotJson(view.effectSlot(EffectKind::Border), true);
       entry["window_effect"] = effectSlotJson(view.effectSlot(EffectKind::Window));
       // Workspace-local remembered focus. Seat-global activation is reported

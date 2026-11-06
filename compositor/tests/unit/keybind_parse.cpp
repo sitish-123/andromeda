@@ -1118,7 +1118,7 @@ ANDROMEDA_TEST(everyAdvertisedActionParsesWithItsDeclaredArgument) {
     case ActionArgKind::LayoutMode:
       return "<scrolling|dwindle|master|floating|toggle[:mode1,mode2,...]>";
     case ActionArgKind::SnapRegion:
-      return "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right>";
+      return "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right|<layout>.<zone>>";
     case ActionArgKind::ColumnDisplay:
       return "<normal|tabbed>";
     case ActionArgKind::TabIndex:
@@ -1338,13 +1338,13 @@ ANDROMEDA_TEST(parsesFloatingSnapActions) {
   CHECK(parseAction("window-snap:top_left", bind));
   CHECK(bind.action == KeybindAction::WindowSnap);
   auto* arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
-  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::TopLeft);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapSpot{andromeda::SnapRegion::TopLeft});
   CHECK(parseAction("window-snap:top", bind));
   arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
-  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::Top);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapSpot{andromeda::SnapRegion::Top});
   CHECK(parseAction("window-snap:bottom", bind));
   arg = andromeda::payloadIf<andromeda::SnapRegionArg>(bind);
-  CHECK(arg != nullptr && arg->region == andromeda::SnapRegion::Bottom);
+  CHECK(arg != nullptr && arg->region == andromeda::SnapSpot{andromeda::SnapRegion::Bottom});
   CHECK(parseAction("window-unsnap", bind));
   CHECK(bind.action == KeybindAction::WindowUnsnap);
   CHECK(!parseAction("window-snap:top-left", bind));

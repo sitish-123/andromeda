@@ -596,7 +596,7 @@ namespace andromeda {
   }
 
   void View::adoptFloatingClientSize() {
-    if (m_tiled || !m_mapped || scheduledFullscreen() || scheduledMaximized() || m_snapRegion) {
+    if (m_tiled || !m_mapped || scheduledFullscreen() || scheduledMaximized() || m_snap) {
       return;
     }
     if (!retireFloatingSizeRequest()) {
