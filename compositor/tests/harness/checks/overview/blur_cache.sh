@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# An animated overview open re-blurs the cached wallpaper once, not on every frame: the backdrop blur reads the cache
-# at full strength, and a cache re-render that reaches the output edge clears its pending area.
+# An animated overview open re-blurs the cached wallpaper once, not on every frame: a cache re-render that reaches the
+# output edge clears its pending area.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 cat >> "$ANDROMEDA_CONFIG" <<'CONFIG'
