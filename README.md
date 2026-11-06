@@ -45,57 +45,7 @@ Run this one command. It detects your system, adds the Andromeda repository and 
 curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/install.sh | bash
 ```
 
-To set it up by hand instead, follow the steps for your system.
-
-### Arch Linux
-
-Trust the release key, then add the repository to `/etc/pacman.conf`:
-
-```sh
-curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc -o andromeda.asc
-sudo pacman-key --add andromeda.asc
-sudo pacman-key --lsign-key 97DD7B3B28BE58AC8787E32D11437B48C42663B5
-```
-
-```ini
-[andromeda]
-Server = https://github.com/sitish-123/andromeda/releases/latest/download
-```
-
-Then install:
-
-```sh
-sudo pacman -Sy andromeda
-```
-
-### Ubuntu 26.04
-
-```sh
-sudo install -d -m 755 /etc/apt/keyrings
-curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc \
-  | sudo tee /etc/apt/keyrings/andromeda.asc > /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/andromeda.asc] https://github.com/sitish-123/andromeda/releases/latest/download ./" \
-  | sudo tee /etc/apt/sources.list.d/andromeda.list
-sudo apt update
-sudo apt install andromeda
-```
-
-### Debian testing, sid and Kali
-
-The same steps as Ubuntu, with the Debian repository. On Debian, first add `contrib` to the `Components:` lines in
-`/etc/apt/sources.list.d/debian.sources` (for scrcpy); Kali enables it by default.
-
-```sh
-sudo install -d -m 755 /etc/apt/keyrings
-curl -fsSL https://github.com/sitish-123/andromeda/releases/latest/download/andromeda-release.asc \
-  | sudo tee /etc/apt/keyrings/andromeda.asc > /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/andromeda.asc] https://github.com/sitish-123/andromeda/releases/download/debian ./" \
-  | sudo tee /etc/apt/sources.list.d/andromeda.list
-sudo apt update
-sudo apt install andromeda
-```
-
-The release key fingerprint is `97DD 7B3B 28BE 58AC 8787  E32D 1143 7B48 C426 63B5`.
+To read the script before you run it, download it with `curl -fsSLO` and run `bash install.sh`.
 
 ### After installing
 
