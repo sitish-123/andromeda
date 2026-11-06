@@ -283,7 +283,7 @@ struct ShellGreeterSyncConfig {
   // --sync, so that prefix must ultimately invoke pkexec to provide PKEXEC_UID.
   // Empty selects the protocol's default escalator.
   std::string privilegeCommand;
-  bool autoSync = false;
+  bool autoSync = true;
 
   bool operator==(const ShellGreeterSyncConfig&) const = default;
 };

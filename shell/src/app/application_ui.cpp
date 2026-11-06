@@ -419,6 +419,8 @@ void Application::initLockScreenAndSession() {
     }
     return !m_configService.config().wallpaper.automation.pauseOnFullscreen || !m_wayland.hasFullscreenToplevel();
   });
+  m_greeterLockscreen = m_configService.config().lockscreen;
+  greeter::setLockWallpaperBakeReady([this] { scheduleGreeterAutoSync(); });
   m_configService.addReloadCallback([this] {
     if (m_logindService != nullptr) {
       m_logindService->setSessionLockIntegrationEnabled(m_configService.isLockScreenEnabled());
@@ -426,6 +428,10 @@ void Application::initLockScreenAndSession() {
     }
     m_lockScreen.onConfigChanged();
     m_lockscreenWidgetsController.onLockStateChanged();
+    if (m_configService.config().lockscreen != m_greeterLockscreen) {
+      m_greeterLockscreen = m_configService.config().lockscreen;
+      scheduleGreeterAutoSync();
+    }
   });
   m_lockScreen.setSessionHooks(
       [this] {

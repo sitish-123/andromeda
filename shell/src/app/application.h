@@ -569,6 +569,8 @@ private:
   Timer m_polkitIdleCloseTimer;
   Timer m_greeterSyncTimeoutTimer;
   Timer m_greeterAutoSyncTimer;
+  // The lock screen look the greeter last saw; a change syncs it (the greeter draws the same look).
+  LockscreenConfig m_greeterLockscreen;
   Timer m_clipboardAutoPasteTimer;
   Timer m_launcherAutoPasteTimer;
   Timer m_pluginAutoUpdateTimer;
