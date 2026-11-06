@@ -13,26 +13,15 @@ surface follows one design and feels like one system.
 
 > **Status:** early preview. Expect rough edges, and keep another desktop installed.
 
-## Highlights
+## Features
 
-**Glass that stays fast.** Panels, the dock and the bar share one glass material. One slider in Settings takes it from
-clear to frosted. The compositor draws it in one pass, so it stays light on the GPU.
-
-**A center island.** The top of the screen shows the time at rest. It grows for music, volume, notifications, calls and
-timers, then shrinks back.
-
-**Search everything.** Tap Super to search apps, files, the clipboard and emoji, with a preview of each result.
-
-**Your phone, on the desktop.** Pair an Android phone to share files and the clipboard both ways. You can reply to
-notifications, control media, take calls, find your phone, and show its screen in a window.
-
-**One Settings app.** Displays, input, appearance, power, network, sound and users are all in one place. You never need
-a config file.
-
-**Apps that match.** Files, Player and Viewer use the same toolkit and design as the desktop.
-
-**Battery that lasts.** Hidden apps can freeze in power saver, the focused app gets priority, and a battery page shows
-which apps use energy.
+- Wayland compositor with a single-pass glass blur on panels, dock and bar (adjustable in Settings)
+- Dynamic island at the top of the screen for clock, media, volume, notifications, calls and timers
+- Universal search (Super key): apps, files, clipboard and emoji with inline previews
+- Android phone integration: shared clipboard and files, notification replies, media control, calls, phone finder, screen mirroring
+- Unified Settings app for displays, input, appearance, power, network, sound and users
+- Bundled apps (Files, Player, Viewer) built on the same toolkit and design
+- Power management: app freezing in power saver, focused-app priority, per-app battery usage
 
 ## Install
 
