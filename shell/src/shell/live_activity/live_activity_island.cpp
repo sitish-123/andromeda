@@ -665,8 +665,20 @@ bool LiveActivityIsland::restUnderFullscreen(const Instance& inst) const {
   return inst.face == Face::Rest && inst.revealAnimId == 0 && m_fullscreen && !m_activity.has_value();
 }
 
+void LiveActivityIsland::setUnderEditor(bool underEditor) {
+  if (m_underEditor == underEditor) {
+    return;
+  }
+  m_underEditor = underEditor;
+  for (auto& inst : m_instances) {
+    applyLayer(*inst);
+  }
+}
+
 void LiveActivityIsland::applyLayer(Instance& inst) {
-  inst.surface->setLayer(restUnderFullscreen(inst) ? LayerShellLayer::Top : LayerShellLayer::Overlay);
+  inst.surface->setLayer(
+      m_underEditor || restUnderFullscreen(inst) ? LayerShellLayer::Top : LayerShellLayer::Overlay
+  );
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
@@ -697,7 +709,7 @@ void LiveActivityIsland::updateFace(Instance& inst) {
     inst.hoverMedia = false;
   }
   const Face face = desiredFace(inst);
-  if (face != Face::Rest) {
+  if (face != Face::Rest && !m_underEditor) {
     inst.surface->setLayer(LayerShellLayer::Overlay);
   }
   if (face == inst.face) {

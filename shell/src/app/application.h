@@ -519,7 +519,6 @@ private:
   PrivacyOsd m_privacyOsd;
   OsdOverlay m_osdOverlay;
   LiveActivityIsland m_liveActivity;
-  bool m_lockEditorOpen = false;
   int m_islandUnreadToken = -1;
   HotCorners m_hotCorners{this};
   ScreenCorners m_screenCorners;

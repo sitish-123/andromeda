@@ -1291,10 +1291,9 @@ void Application::initWidgetControllersAndCallbacks() {
   });
   m_desktopWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
   m_lockscreenWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
-  // The editor is a full-screen preview on the overlay layer: the island rest pill must not draw over its top bar.
+  // The editor is a full-screen preview on the overlay layer: the island must not draw over its top bar.
   m_lockscreenWidgetsController.setLockEditorOpenChangedCallback([this](bool open) {
-    m_lockEditorOpen = open;
-    m_liveActivity.setFullscreen(open || m_wayland.hasFullscreenToplevel());
+    m_liveActivity.setUnderEditor(open);
   });
   const auto restoreSettingsAfterWidgetEditor = [this] {
     DeferredCall::callLater([this] {

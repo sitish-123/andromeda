@@ -1112,7 +1112,7 @@ void Application::initWaylandCallbacks() {
     m_bar.refresh();
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
-    m_liveActivity.setFullscreen(m_lockEditorOpen || m_wayland.hasFullscreenToplevel());
+    m_liveActivity.setFullscreen(m_wayland.hasFullscreenToplevel());
     if (m_backgroundPortal != nullptr) {
       m_backgroundPortal->onToplevelsChanged();
     }
