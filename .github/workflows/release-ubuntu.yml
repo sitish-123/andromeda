@@ -35,14 +35,14 @@ jobs:
     steps:
       # The scripts default to 6 CPUs; docker refuses more than the runner has.
       - run: echo "UBUNTU_BUILD_CPUS=$(nproc)" >> "$GITHUB_ENV"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || env.TAG }}
       - name: xwayland-satellite
         if: ${{ !inputs.prebuilt }}
         run: tools/deb-xwayland-satellite.sh ${{ matrix.base }}
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ !inputs.prebuilt }}
         with:
           path: ~/.cache/andromeda-ubuntu/ccache-deb-${{ matrix.base }}
@@ -51,7 +51,7 @@ jobs:
       - name: Packages
         if: ${{ !inputs.prebuilt }}
         run: DEB_VERSION=${TAG#v} tools/ubuntu-deb.sh --clean ${{ matrix.base }}
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always() && !inputs.prebuilt
         with:
           path: ~/.cache/andromeda-ubuntu/ccache-deb-${{ matrix.base }}
@@ -94,7 +94,7 @@ jobs:
           echo "$RELEASE_GPG_KEY" | gpg --batch --import
           gpg --batch --yes --clearsign -o InRelease Release
           gpg --batch --yes --armor --detach-sign -o Release.gpg Release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apt-${{ matrix.base }}
           path: apt/
@@ -103,7 +103,7 @@ jobs:
     needs: [ubuntu]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || env.TAG }}
           sparse-checkout: |
@@ -111,9 +111,9 @@ jobs:
             andromeda-release.asc
           sparse-checkout-cone-mode: false
           path: src
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: apt-26.04, path: apt }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: ${{ !inputs.prebuilt }}
         with: { name: apt-testing, path: apt-debian }
       - name: Publish
