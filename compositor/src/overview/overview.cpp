@@ -127,7 +127,8 @@ namespace andromeda {
     constexpr double kEdgePanPxPerMs = 0.55; // 22 px every 40 ms in the prototype, spread over every frame
     // Corner radius of the ring over the new-workspace target.
     constexpr int kPlusHintRadius = 14;
-    // A drop on the middle of a tiled window swaps the two; the outer 28 % on each side inserts beside it (prototype).
+    // A drop on the middle of a tiled window swaps the two; the outer 28 % on each side inserts beside it (prototype),
+    // and the outer 28 % at the top and bottom stacks above or below it.
     constexpr double kSwapZoneStart = 0.28;
     // How much of the focused border color mixes into the unfocused one for a landing target that is not the live one.
     constexpr float kLandingTargetBlend = 0.4F;
@@ -3825,8 +3826,10 @@ namespace andromeda {
     if (cardInThumb(*card)) {
       return nullptr;
     }
-    const double share = (lx - card->box.x) / card->box.width;
-    return share >= kSwapZoneStart && share <= 1.0 - kSwapZoneStart ? card->view : nullptr;
+    const auto central = [](double share) { return share >= kSwapZoneStart && share <= 1.0 - kSwapZoneStart; };
+    const bool inside = card->box.height > 0 && central((lx - card->box.x) / card->box.width)
+        && central((ly - card->box.y) / card->box.height);
+    return inside ? card->view : nullptr;
   }
 
   // Puts the dragged `view` where `other` is and `other` into the slot the drag took `view` from.
