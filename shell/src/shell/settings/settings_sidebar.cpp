@@ -257,8 +257,31 @@ namespace settings {
     const auto onAccountClick = ctx.openAccount;
     addNavButton(*nav, makeAccountCard(ctx, onAccountClick), onAccountClick);
 
+    bool* moreExpanded = &ctx.moreExpanded;
+    const bool moreHoldsSelection = std::ranges::any_of(ctx.pages, [&](const SettingsPage* page) {
+      return page->group == PageGroup::More && page->id == ctx.selectedPage;
+    });
     std::optional<PageGroup> lastGroup;
     for (const auto* page : ctx.pages) {
+      if (page->group == PageGroup::More && lastGroup != PageGroup::More) {
+        lastGroup = PageGroup::More;
+        const bool open = *moreExpanded || moreHoldsSelection;
+        const auto onMoreClick = [moreExpanded, open, requestRebuild]() {
+          *moreExpanded = !open;
+          requestRebuild();
+        };
+        addNavButton(
+            *nav,
+            makePageRow(
+                open ? "chevron-down" : "chevron-right", i18n::tr(settingsPageGroupLabelKey(PageGroup::More)), scale,
+                false, onMoreClick
+            ),
+            onMoreClick
+        );
+      }
+      if (page->group == PageGroup::More && !*moreExpanded && !moreHoldsSelection) {
+        continue;
+      }
       if (lastGroup.has_value() && *lastGroup != page->group) {
         nav->addChild(ui::column(
             {.align = FlexAlign::Start, .configure = [scale](Flex& header) {
@@ -279,15 +302,19 @@ namespace settings {
 
       const std::string pageId(page->id);
       const bool selected = showActiveTab && pageId == ctx.selectedPage;
+      // With 2+ bars each bar has a child row, and the selection look moves to that row.
+      const bool barRows = pageId == "bar" && selected && ctx.availableBars.size() > 1;
       const auto onClick = [navigate, pageId]() { navigate(pageId, {}); };
       addNavButton(
-          *nav, makePageRow(page->glyph, i18n::tr(settingsPageLabelKey(*page)), scale, selected, onClick), onClick
+          *nav,
+          makePageRow(page->glyph, i18n::tr(settingsPageLabelKey(*page)), scale, selected && !barRows, onClick),
+          onClick
       );
 
       if (pageId != "bar" || !selected) {
         continue;
       }
-      for (const auto& barName : ctx.availableBars) {
+      for (const auto& barName : barRows ? ctx.availableBars : std::vector<std::string>{}) {
         const bool barSelected = showActiveTab && ctx.selectedBarName == barName;
         const auto onBarClick = [navigate, barName]() { navigate("bar", barName); };
         addNavButton(

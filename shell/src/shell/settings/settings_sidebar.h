@@ -25,6 +25,8 @@ namespace settings {
     const std::string& selectedPage;
     const std::string& selectedBarName;
     std::string& creatingBarName;
+    // The More group (Services, Plugins, ...) stays folded unless the user opened it or a page in it is open.
+    bool& moreExpanded;
 
     // The search field sits above the account card; the window owns it because search drives the content.
     std::unique_ptr<Node> searchField;

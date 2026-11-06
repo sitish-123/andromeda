@@ -1965,6 +1965,7 @@
     },
     "expert": {
       "count": "{count} options",
+      "heading": "Advanced",
       "row": "More options",
       "search-placeholder": "Search in {page}"
     },
@@ -2216,14 +2217,17 @@
       "empty-hint": "The controls for this page arrive in a later update.",
       "empty-title": "Nothing to set here yet",
       "group-connectivity": "Connectivity",
-      "group-desktop": "Desktop",
-      "group-look": "Look and feel",
+      "group-personalize": "Personalize",
+      "group-device": "Device",
+      "group-apps": "Windows and Apps",
       "group-system": "System",
+      "group-more": "More",
       "wifi": "Wi-Fi",
       "bluetooth": "Bluetooth",
       "network": "Network",
       "appearance": "Appearance",
       "wallpaper": "Wallpaper",
+      "lock-screen": "Lock Screen",
       "displays": "Displays",
       "sound": "Sound",
       "notifications": "Notifications",
@@ -2295,6 +2299,7 @@
         "lifecycle": "Lifecycle",
         "location": "Location",
         "lock-screen": "Lock Screen",
+        "lock-look": "Look",
         "media": "Media",
         "monitor": "System Monitor",
         "monitor-polling": "Poll Intervals",
@@ -2327,6 +2332,7 @@
         "theme": "Theme",
         "toasts": "Toasts",
         "transition": "Transition",
+        "unlock": "Unlock",
         "user": "User",
         "wallpaper": "Wallpaper",
         "weather": "Weather",
@@ -3552,9 +3558,9 @@
           "label": "Lockscreen Widgets"
         },
         "widgets-editor": {
-          "button": "Toggle Editor",
+          "button": "Edit Lock Screen",
           "description": "Add, move, and resize widgets on the lock screen",
-          "label": "Lockscreen Widget Editor"
+          "label": "Customize the lock screen"
         }
       },
       "notifications": {

@@ -9,7 +9,7 @@
 
 namespace settings {
 
-  enum class PageGroup : std::uint8_t { Connectivity, LookAndFeel, Desktop, System };
+  enum class PageGroup : std::uint8_t { Connectivity, Personalize, Device, WindowsAndApps, System, More };
 
   // One sidebar page of the Settings window. A page shows the registry entries of its sections; a page with no
   // section has no content yet.

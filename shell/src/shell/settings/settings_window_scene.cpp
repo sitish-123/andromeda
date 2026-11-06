@@ -1575,6 +1575,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
           .selectedPage = m_selectedSection,
           .selectedBarName = m_selectedBarName,
           .creatingBarName = m_creatingBarName,
+          .moreExpanded = m_sidebarMoreExpanded,
           .searchField = buildSearchField(scale),
           .accountName = sessionDisplayName(),
           .accountAvatarPath = shell::avatarDisplayPath(m_accounts, cfg),
@@ -2114,7 +2115,7 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
     }
     settings::SettingEntry btn{
         .section = settings::SettingsSection::Security,
-        .group = "lock-screen",
+        .group = "~lock",
         .title = i18n::tr("settings.schema.lockscreen.widgets-editor.label"),
         .subtitle = i18n::tr("settings.schema.lockscreen.widgets-editor.description"),
         .path = {},
@@ -2125,7 +2126,7 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
                 .glyph = {}
             },
         .searchText = "lockscreen widgets editor edit layout",
-        .visibleWhen = [](const Config& c) { return c.lockscreen.enabled && c.lockscreenWidgets.enabled; },
+        .visibleWhen = [](const Config& c) { return c.lockscreen.enabled; },
     };
     m_settingsRegistry.insert(it, std::move(btn));
   }
