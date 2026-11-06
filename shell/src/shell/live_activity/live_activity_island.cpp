@@ -2305,8 +2305,9 @@ void LiveActivityIsland::syncBarShapes(Instance& inst) {
         inst.barShape[i] = std::make_unique<DskShapeClient>(*inst.dsk);
       }
       DskShapeClient& shape = *inst.barShape[i];
-      const double x = ((*key)[0] + static_cast<float>(i) * (kBarWidth + kBarGap)) * k;
-      const double y = (*key)[1] * k;
+      // The key is in surface px: absolutePosition includes the scene root's scale.
+      const double x = (*key)[0] + static_cast<float>(i) * (kBarWidth + kBarGap) * k;
+      const double y = (*key)[1];
       shape.set(DskShapeClient::Property::Fill, {(*key)[2], (*key)[3], (*key)[4], (*key)[5]});
       shape.set(DskShapeClient::Property::Radius, {1.5 * k, 0.0, 0.0, 0.0});
       shape.set(DskShapeClient::Property::Clip, {x, y + (kArt - 4.0F) * 0.5F * k, kBarWidth * k, 4.0 * k});
@@ -2342,8 +2343,9 @@ bool LiveActivityIsland::onPointerEvent(const PointerEvent& event) {
     if (inst->surface == nullptr || inst->sceneRoot == nullptr) {
       continue;
     }
-    const auto x = static_cast<float>(event.sx) / inst->scale;
-    const auto y = static_cast<float>(event.sy) / inst->scale;
+    // Surface px: the scene root's scale maps them to layout px.
+    const auto x = static_cast<float>(event.sx);
+    const auto y = static_cast<float>(event.sy);
     const bool ours = event.surface == inst->surface->wlSurface();
     switch (event.type) {
     case PointerEvent::Type::Enter:

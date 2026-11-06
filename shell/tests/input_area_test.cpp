@@ -132,6 +132,25 @@ int main() {
   }
 
   {
+    // A root scaled about its top-left corner, as a surface scale: positions and hits follow the drawn origin.
+    Node root;
+    root.setSize(100.0F, 100.0F);
+    root.setTransformOrigin(0.0F, 0.0F);
+    root.setScale(2.0F);
+    auto child = std::make_unique<InputArea>();
+    auto* childPtr = child.get();
+    child->setPosition(10.0F, 20.0F);
+    child->setSize(10.0F, 10.0F);
+    root.addChild(std::move(child));
+
+    float x = 0.0F;
+    float y = 0.0F;
+    Node::absolutePosition(childPtr, x, y);
+    ok = expect(x == 20.0F && y == 40.0F, "absolute position scales about the transform origin") && ok;
+    ok = expect(Node::hitTest(&root, 25.0F, 45.0F) == childPtr, "hit test scales about the transform origin") && ok;
+  }
+
+  {
     // The axis counterpart of the button mask: a direction the area has given up is reported
     // unconsumed, so the dispatcher can carry it to an ancestor that claims it.
     InputArea area;
