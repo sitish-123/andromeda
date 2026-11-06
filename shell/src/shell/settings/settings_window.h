@@ -301,6 +301,7 @@ private:
   void addSoundContent(float scale);
   void addUsersContent(float scale);
   void addPowerContent(float scale);
+  void addWorkspacesContent(float scale);
   void addAboutContent(float scale);
   void openDetail(std::string detail);
   void leaveDetail();

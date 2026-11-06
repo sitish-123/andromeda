@@ -764,6 +764,8 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
     env.backgroundActivityCount = m_activityFlaggedCount();
   }
   env.openActivity = m_openActivity;
+  // Runs later, on a click, never while this const method builds the registry.
+  env.openDetail = [window = const_cast<SettingsWindow*>(this)](std::string detail) { window->openDetail(std::move(detail)); };
   env.greeterSyncAvailable =
       m_config != nullptr && greeter::appearanceSyncAvailable(m_config->config().shell.greeterSync);
   const ThemeMode previewMode = m_config != nullptr ? shellThemeMode(m_config->config().theme) : ThemeMode::Dark;
@@ -1160,6 +1162,9 @@ void SettingsWindow::rebuildSettingsContent() {
     addUsersContent(scale);
     addPowerContent(scale);
     addAboutContent(scale);
+    if (detailOpen) {
+      addWorkspacesContent(scale);
+    }
     addProblemsContent(scale);
     addSoftwareUpdateContent(scale);
   }

@@ -14,6 +14,7 @@
 #include <vector>
 #include "shell/settings/settings_content_network.h"
 #include "shell/settings/settings_content_power.h"
+#include "shell/settings/settings_content_workspaces.h"
 #include "shell/settings/settings_content_sound.h"
 #include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_content_wifi.h"
@@ -314,6 +315,20 @@ void SettingsWindow::onPowerChanged() {
   if (isOpen() && m_selectedSection == "power" && m_searchQuery.empty() && !m_expertOpen) {
     requestContentRebuild();
   }
+}
+
+void SettingsWindow::addWorkspacesContent(float scale) {
+  if (m_selectedSection != "windows") {
+    return;
+  }
+  settings::addSettingsWorkspaces(
+      *m_contentContainer,
+      settings::SettingsWorkspacesContext{
+          .scale = scale,
+          .compositor = m_compositorSettings.get(),
+          .detail = m_detail,
+      }
+  );
 }
 
 void SettingsWindow::addAboutContent(float scale) {

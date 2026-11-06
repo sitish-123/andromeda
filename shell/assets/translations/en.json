@@ -6786,6 +6786,15 @@
       },
       "hooks": "Hooks that failed",
       "hook-failed": "on {event}"
+    },
+    "windows": {
+      "per-workspace": "Per-Workspace Arrangement",
+      "per-workspace-none": "Same for all",
+      "per-workspace-custom": "{count} custom",
+      "per-workspace-custom-plural": "{count} custom",
+      "workspace": "Workspace {n}",
+      "same-as-default": "Same as default ({mode})",
+      "per-workspace-button": "Choose…"
     }
   },
   "setup-wizard": {

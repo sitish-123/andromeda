@@ -679,6 +679,7 @@ _noctalia_sources = files(
   'src/shell/settings/settings_content_sound.cpp',
   'src/shell/settings/settings_content_users.cpp',
   'src/shell/settings/settings_content_power.cpp',
+  'src/shell/settings/settings_content_workspaces.cpp',
   'src/shell/settings/settings_content_about.cpp',
   'src/shell/settings/path_browse.cpp',
   'src/shell/settings/plugin_store_content.cpp',

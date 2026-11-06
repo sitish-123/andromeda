@@ -71,7 +71,10 @@ namespace settings {
     // Compositor settings, shown only once the compositor's settings manager has reported them. Options that only
     // apply in one mode (a layout's own options, blur strength with blur off) are left out until they apply; the
     // registry rebuilds whenever the compositor reports a change.
-    void addCompositorEntries(std::vector<SettingEntry>& entries, const SettingsControl& compositor) {
+    void addCompositorEntries(
+        std::vector<SettingEntry>& entries, const SettingsControl& compositor,
+        const std::function<void(std::string)>& openDetail
+    ) {
       using i18n::tr;
       const auto isOn = [&](std::string_view key) { return compositor.value(key) == "true"; };
       const auto add = [&](SettingsSection section, std::string_view group, std::string_view key,
@@ -220,6 +223,29 @@ namespace settings {
       }
       toggle(Layout, "workspaces", "workspaces.back_and_forth", "workspace back and forth previous");
       toggle(Layout, "workspaces", "workspaces.empty_above", "workspace empty");
+      // Per-Workspace Arrangement (ST2): the compositor reports one "workspace.<N>.layout.mode" per slot in use.
+      std::size_t slots = 0;
+      std::size_t custom = 0;
+      for (const auto& [key, setting] : compositor.settings()) {
+        if (key.starts_with("workspace.") && key.ends_with(".layout.mode")) {
+          ++slots;
+          custom += compositor.value(key).empty() ? 0 : 1;
+        }
+      }
+      if (slots > 0 && openDetail) {
+        const std::string title = tr("settings.windows.per-workspace");
+        entries.push_back(makeEntry(
+            Layout, "workspaces", title,
+            custom == 0 ? tr("settings.windows.per-workspace-none")
+                        : i18n::trp("settings.windows.per-workspace-custom", static_cast<long>(custom)),
+            {std::string(kCompositorPathRoot), "workspaces", "per-workspace"},
+            ButtonSetting{
+                .label = tr("settings.windows.per-workspace-button"),
+                .action = [openDetail, title] { openDetail("workspaces:" + title); },
+            },
+            "workspace arrangement layout per workspace different mode"
+        ));
+      }
 
       const std::string overviewStyle = compositor.value("overview.style");
       choice(

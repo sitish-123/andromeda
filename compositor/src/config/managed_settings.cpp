@@ -499,7 +499,31 @@ namespace andromeda {
       }
     }
 
+    constexpr std::array<std::string_view, 4> kWorkspaceLayoutModes{"scrolling", "dwindle", "master", "floating"};
+
+    // Replaces the [[workspace]] index = `index` rule with one holding only `value` as its layout mode, or drops it.
+    void applyWorkspaceLayout(toml::table& root, int64_t index, const ManagedSettingValue& value) {
+      if (root["workspace"].as_array() == nullptr) {
+        root.insert_or_assign("workspace", toml::array{});
+      }
+      toml::array& rules = *root["workspace"].as_array();
+      for (auto it = rules.begin(); it != rules.end();) {
+        const toml::table* rule = it->as_table();
+        it = rule != nullptr && (*rule)["index"].value<int64_t>() == index ? rules.erase(it) : it + 1;
+      }
+      if (const auto* mode = std::get_if<std::string>(&value)) {
+        rules.push_back(toml::table{{"index", index}, {"layout", toml::table{{"mode", *mode}}}});
+      }
+      if (rules.empty()) {
+        root.erase("workspace");
+      }
+    }
+
     void applySetting(toml::table& root, std::string_view key, const ManagedSettingValue& value) {
+      if (const std::optional<int64_t> index = workspaceLayoutIndex(key)) {
+        applyWorkspaceLayout(root, *index, value);
+        return;
+      }
       const std::vector<std::string_view> parts = splitKey(key);
       toml::table* table = &root;
       for (size_t i = 0; i + 1 < parts.size(); ++i) {
@@ -521,6 +545,44 @@ namespace andromeda {
   } // namespace
 
   std::span<const std::string_view> managedSettingKeys() { return kKeys; }
+
+  std::optional<int64_t> workspaceLayoutIndex(std::string_view key) {
+    constexpr std::string_view prefix = "workspace.";
+    constexpr std::string_view suffix = ".layout.mode";
+    if (key.size() <= prefix.size() + suffix.size() || !key.starts_with(prefix) || !key.ends_with(suffix)) {
+      return std::nullopt;
+    }
+    const std::string_view digits = key.substr(prefix.size(), key.size() - prefix.size() - suffix.size());
+    int64_t index = 0;
+    const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), index);
+    if (error != std::errc{} || end != digits.data() + digits.size() || index < 1
+        || index > static_cast<int64_t>(kMaxWorkspaces)) {
+      return std::nullopt;
+    }
+    return index;
+  }
+
+  std::string workspaceLayoutKey(int64_t index) { return std::format("workspace.{}.layout.mode", index); }
+
+  std::vector<std::pair<int64_t, std::string>> documentWorkspaceLayouts(std::string_view document) {
+    std::vector<std::pair<int64_t, std::string>> out;
+    try {
+      const toml::table table = toml::parse(document);
+      if (const toml::array* rules = table["workspace"].as_array()) {
+        for (const toml::node& node : *rules) {
+          const toml::table* rule = node.as_table();
+          const auto index = rule != nullptr ? (*rule)["index"].value<int64_t>() : std::nullopt;
+          const auto mode = rule != nullptr ? (*rule)["layout"]["mode"].value<std::string>() : std::nullopt;
+          if (index && mode) {
+            out.emplace_back(*index, *mode);
+          }
+        }
+      }
+    } catch (const toml::parse_error&) {
+      return {};
+    }
+    return out;
+  }
 
   std::span<const std::string_view> volatileSettingKeys() { return kVolatileKeys; }
 
@@ -563,6 +625,15 @@ namespace andromeda {
   const std::string& managedRuntimeOverlay() { return runtimeOverlay; }
 
   ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text) {
+    if (workspaceLayoutIndex(key)) {
+      if (text.empty()) {
+        return {.value = ManagedSettingValue{std::monostate{}}, .error = {}};
+      }
+      if (std::ranges::find(kWorkspaceLayoutModes, text) == kWorkspaceLayoutModes.end()) {
+        return {.value = std::nullopt, .error = std::format("{} expects scrolling, dwindle, master or floating", key)};
+      }
+      return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
+    }
     const Spec* spec = findSpec(key);
     if (spec == nullptr) {
       return {.value = std::nullopt, .error = std::format("'{}' is not a setting a settings app can change", key)};

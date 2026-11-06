@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 using andromeda::documentSetsKey;
+using andromeda::documentWorkspaceLayouts;
 using andromeda::editManagedSetting;
 using andromeda::managedSettingKeys;
 using andromeda::managedSettingValue;
@@ -204,3 +205,19 @@ ANDROMEDA_TEST(appQosRulesReplaceAndRemoveOnlyTheirOwn) {
 }
 
 int main() { return RUN_TESTS(); }
+
+ANDROMEDA_TEST(workspaceLayoutKeysWriteOneRulePerSlot) {
+  CHECK(accepts("workspace.2.layout.mode", "master"));
+  CHECK(!accepts("workspace.2.layout.mode", "grid"));
+  CHECK(!accepts("workspace.0.layout.mode", "master"));
+  const auto set = [](const std::string& doc, std::string_view key, std::string_view text) {
+    return editManagedSetting(doc, key, *parseManagedSetting(key, text).value);
+  };
+  std::string doc = set("", "workspace.2.layout.mode", "master");
+  doc = set(doc, "workspace.3.layout.mode", "floating");
+  doc = set(doc, "workspace.2.layout.mode", "dwindle");
+  using Rules = std::vector<std::pair<int64_t, std::string>>;
+  CHECK((documentWorkspaceLayouts(doc) == Rules{{3, "floating"}, {2, "dwindle"}}));
+  doc = set(doc, "workspace.3.layout.mode", "");
+  CHECK((documentWorkspaceLayouts(doc) == Rules{{2, "dwindle"}}));
+}
