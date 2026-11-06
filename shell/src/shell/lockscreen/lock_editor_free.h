@@ -81,6 +81,9 @@ public:
       float x, float y, const State& state, const lock_free::Zones& zones, float sw, float sh, float scale
   );
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_toolbarBg}; }
+
 private:
   struct Box {
     RectNode* bg = nullptr;

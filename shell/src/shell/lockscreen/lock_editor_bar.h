@@ -53,6 +53,9 @@ public:
   // Keyboard order: enabled segments (Snap after Free in Free mode), Done, then the open panel's cards and chips.
   [[nodiscard]] static std::vector<Hit> focusOrder(bool panelOpen, bool freeMode);
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_barBg, m_panelBg}; }
+
 private:
   struct Rect {
     float x = 0.0F;

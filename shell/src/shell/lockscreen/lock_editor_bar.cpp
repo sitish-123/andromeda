@@ -21,7 +21,7 @@ namespace {
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
   constexpr Color kLabel3 = rgba(1.0F, 1.0F, 1.0F, 0.46F);
   // The surface's own preview lies behind the bar, out of the compositor blur's reach: dark thick tint 0.92.
-  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.92F);
+  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.62F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kFill1 = rgba(1.0F, 1.0F, 1.0F, 0.10F);
   constexpr Color kFill2 = rgba(1.0F, 1.0F, 1.0F, 0.16F);

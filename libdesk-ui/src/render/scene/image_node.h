@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include "render/core/color.h"
 #include "render/core/render_styles.h"
 #include "render/core/texture_handle.h"
@@ -20,6 +21,7 @@ public:
   [[nodiscard]] TextureId textureId() const noexcept { return m_textureId; }
   [[nodiscard]] const Color& tint() const noexcept { return m_tint; }
   [[nodiscard]] float radius() const noexcept { return m_radius; }
+  [[nodiscard]] const std::array<float, 4>& uvRect() const noexcept { return m_uvRect; }
   [[nodiscard]] const Color& borderColor() const noexcept { return m_borderColor; }
   [[nodiscard]] float borderWidth() const noexcept { return m_borderWidth; }
   [[nodiscard]] ImageFitMode fitMode() const noexcept { return m_fitMode; }
@@ -61,6 +63,14 @@ public:
     markPaintDirty();
   }
 
+  // Samples only this texture sub-rect (u, v, width, height in 0..1), e.g. the part of a full-screen image a panel covers.
+  void setUvRect(const std::array<float, 4>& uvRect) {
+    if (m_uvRect == uvRect) {
+      return;
+    }
+    m_uvRect = uvRect;
+    markPaintDirty();
+  }
   void setRadius(float radius) {
     if (m_radius == radius) {
       return;
@@ -109,6 +119,7 @@ private:
   bool m_monochromeTint = false;
   bool m_alphaMaskTint = false;
   float m_radius = 0.0F;
+  std::array<float, 4> m_uvRect{0.0F, 0.0F, 1.0F, 1.0F};
   Color m_borderColor = {0.0F, 0.0F, 0.0F, 0.0F};
   float m_borderWidth = 0.0F;
   ImageFitMode m_fitMode = ImageFitMode::Stretch;

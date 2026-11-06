@@ -8,6 +8,7 @@
 #include "i18n/i18n.h"
 #include "shell/lockscreen/lock_thumbnail.h"
 #include "shell/wallpaper/wallpaper_paths.h"
+#include "render/scene/image_node.h"
 #include "render/core/render_styles.h"
 #include "render/render_context.h"
 #include "render/scene/node.h"
@@ -38,6 +39,8 @@ namespace {
 
   // Same as the lock: own images blur here (lock_surface.cpp kOwnImageBlur), 4.5:1 dim clamp.
   constexpr float kOwnImageBlur = 0.03F;
+  // Glass blur as a fraction of the image's longer side: denser than the strongest lock blur (0.03).
+  constexpr float kGlassBlur = 0.05F;
 
   int indexOf(const auto& names, const std::string& value) {
     for (std::size_t i = 0; i < names.size(); ++i) {
@@ -183,6 +186,8 @@ void LockEditor::close() {
   m_surface->setSceneRoot(nullptr);
   m_root.reset();
   m_wallpaper = nullptr;
+  m_glassNodes.clear();
+  m_glassLease.reset();
   m_dim = nullptr;
   m_themeNotice = nullptr;
   m_surface.reset();
@@ -269,7 +274,16 @@ void LockEditor::applyWallpaper() {
     m_ownWallpaper = own;
     m_wallpaperBlur = m_wall.blur;
     m_wallpaperLease.reset();
+    m_glassLease.reset();
     if (!path.empty()) {
+      m_glassLease = m_textureCache->acquire(
+          SharedTextureRequest{
+              .path = path,
+              .coverage = wallpaperTextureCoverage(m_wayland->outputs(), m_outputName, wallpaperConfig.fillMode),
+              .blur = kGlassBlur,
+          },
+          &m_renderContext->backend(), [this] { refresh(); }
+      );
       // The preview has no compositor blur behind it, so every image blurs here as the lock's own image does.
       const float blur = m_wall.blur * kOwnImageBlur;
       m_wallpaperLease = m_textureCache->acquire(
@@ -435,6 +449,7 @@ void LockEditor::layoutScene(float width, float height) {
   }
   m_alert.setState(std::move(alert));
   m_alert.layout(renderer, width, height, scale);
+  layoutGlass(width, height);
 }
 
 LockscreenConfig LockEditor::previewConfig() const {
@@ -1197,5 +1212,54 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   default:
     return;
+  }
+}
+
+// One rounded crop of the glass texture under each visible panel background, mapped as the wallpaper covers the screen.
+void LockEditor::layoutGlass(float width, float height) {
+  const TextureHandle texture = m_glassLease.texture();
+  const bool ready = texture.id != 0 && texture.width > 0 && texture.height > 0 && width > 0.0F && height > 0.0F;
+  const float cover =
+      ready ? std::max(width / static_cast<float>(texture.width), height / static_cast<float>(texture.height)) : 1.0F;
+  const float shownW = static_cast<float>(texture.width) * cover;
+  const float shownH = static_cast<float>(texture.height) * cover;
+  const float offsetX = (width - shownW) * 0.5F;
+  const float offsetY = (height - shownH) * 0.5F;
+  for (const auto& list : {m_bar.glassBackgrounds(), m_gallery.glassBackgrounds(), m_slots.glassBackgrounds(),
+                           m_wallpaperPanel.glassBackgrounds(), m_free.glassBackgrounds()}) {
+    for (const RectNode* bg : list) {
+      if (bg == nullptr || bg->parent() == nullptr) {
+        continue;
+      }
+      auto it = std::ranges::find(m_glassNodes, bg, &std::pair<const RectNode*, ImageNode*>::first);
+      if (it == m_glassNodes.end()) {
+        Node* group = bg->parent();
+        const auto& children = group->children();
+        const auto at = std::ranges::find_if(children, [bg](const auto& child) { return child.get() == bg; });
+        auto* glass = static_cast<ImageNode*>(group->insertChildAt(
+            static_cast<std::size_t>(at - children.begin()), std::make_unique<ImageNode>()
+        ));
+        m_glassNodes.emplace_back(bg, glass);
+        it = std::prev(m_glassNodes.end());
+      }
+      ImageNode* glass = it->second;
+      bool shown = ready && bg->width() > 0.0F && bg->height() > 0.0F;
+      float x = 0.0F;
+      float y = 0.0F;
+      for (const Node* node = bg; shown && node != nullptr && node != m_root.get(); node = node->parent()) {
+        shown = node->visible();
+        x += node->x();
+        y += node->y();
+      }
+      glass->setVisible(shown);
+      if (!shown) {
+        continue;
+      }
+      glass->setPosition(bg->x(), bg->y());
+      glass->setSize(bg->width(), bg->height());
+      glass->setRadius(bg->style().radius.tl);
+      glass->setTextureId(texture.id);
+      glass->setUvRect({(x - offsetX) / shownW, (y - offsetY) / shownH, bg->width() / shownW, bg->height() / shownH});
+    }
   }
 }

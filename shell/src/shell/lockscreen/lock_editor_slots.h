@@ -59,6 +59,9 @@ public:
   // Keyboard order after the clock gallery's: the row places, the bottom slot, then the open panel's chips.
   [[nodiscard]] static std::vector<Hit> focusOrder(const State& state);
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_panelBg}; }
+
 private:
   struct Tile {
     RectNode* bg = nullptr;

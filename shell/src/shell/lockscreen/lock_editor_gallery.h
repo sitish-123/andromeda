@@ -59,6 +59,9 @@ public:
   // Option chip (h 28, capsule): white when on, an accent ring when focused. The label text is set by the caller.
   static void layoutChip(Renderer& renderer, Chip& chip, float x, float y, float s, bool on, bool focused, bool hover);
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_panelBg}; }
+
 private:
   struct Tile {
     RectNode* bg = nullptr;

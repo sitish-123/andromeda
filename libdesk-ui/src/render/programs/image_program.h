@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include "render/core/color.h"
 #include "render/core/mat3.h"
 #include "render/core/render_styles.h"
@@ -26,7 +27,7 @@ public:
       bool monochromeTint, bool alphaMaskTint, float opacity, float radius = 0.0F,
       const Color& borderColor = {0.0F, 0.0F, 0.0F, 0.0F}, float borderWidth = 0.0F, int fitMode = 0,
       float textureWidth = 0.0F, float textureHeight = 0.0F, const Mat3& transform = Mat3::identity(),
-      const ImageScrim& scrim = {}
+      const ImageScrim& scrim = {}, const std::array<float, 4>& uvRect = {0.0F, 0.0F, 1.0F, 1.0F}
   ) const;
 
 private:
@@ -42,6 +43,7 @@ private:
   GLint m_borderWidthLocation = -1;
   GLint m_texSizeLocation = -1;
   GLint m_fitModeLocation = -1;
+  GLint m_uvRectLocation = -1;
   GLint m_samplerLocation = -1;
   GLint m_transformLocation = -1;
   GLint m_monochromeLocation = -1;

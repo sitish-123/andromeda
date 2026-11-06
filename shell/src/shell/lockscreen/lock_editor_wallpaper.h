@@ -83,6 +83,9 @@ public:
   // Called by the owner when a thumbnail finished loading.
   void setThumbnailReadyCallback(std::function<void()> callback) { m_onThumbnail = std::move(callback); }
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_panelBg}; }
+
 private:
   struct Tile {
     RectNode* bg = nullptr;
