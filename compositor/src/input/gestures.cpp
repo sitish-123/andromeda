@@ -26,6 +26,8 @@ namespace andromeda {
     // Finger travel for a full overview open or close. One workspace of the three-finger switch travels the same
     // distance, so the hand reads one gesture distance on either side of the overview.
     constexpr double kOverviewDistancePx = 300.0;
+    // Pinch travel per unit of scale: pinching in to 0.6 opens the overview fully, as a 300 px swipe does.
+    constexpr double kPinchDistancePx = kOverviewDistancePx / 0.4;
 
     int touchpadGestureDirection(wlr_pointer* pointer) {
       if (const std::optional<bool> naturalSwipe = config().input.touchpad.naturalSwipe) {
@@ -294,9 +296,9 @@ namespace andromeda {
       Workspace* workspace = overview->pointerScrollWorkspace(lx, ly);
       WorkspaceGroup* group = workspace != nullptr ? workspace->group() : nullptr;
       m_output = group != nullptr ? group->output() : nullptr;
-      // Previews are drawn at the settled zoom, so travel over one covers that much more of the content below it.
+      // The workspace shows scaled down, so travel over it covers that much more of the content below it.
       if (m_output == nullptr
-          || !beginScroll(workspace, 1.0 / Overview::settledZoom(), ScrollSource::OverviewPointer)) {
+          || !beginScroll(workspace, 1.0 / overview->workspaceScale(workspace), ScrollSource::OverviewPointer)) {
         m_output = nullptr;
         return false;
       }
@@ -382,7 +384,8 @@ namespace andromeda {
     }
     // Our clients' compositor-owned gestures win over compositor gestures inside their source region.
     if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
-        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        pointer.focused_surface != nullptr
+        && m_server->dskSurfaces() != nullptr
         && m_server->dskSurfaces()->beginSwipe(
             pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
         )) {
@@ -397,6 +400,7 @@ namespace andromeda {
       m_accumX = 0;
       m_accumY = 0;
       m_overviewWasOpen = overview->active();
+      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.reset();
       return;
     }
@@ -551,12 +555,8 @@ namespace andromeda {
         return;
       }
       // Swipe up opens, swipe down closes; base is where the gesture started.
-      const double base = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.push(-event->dy, event->time_msec);
-      const double p = GesturePhysics::rubberBand(
-          base + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, 1.0, GesturePhysics::kOverscrollLimit
-      );
-      overview->gestureUpdate(p);
+      overview->gestureUpdate(overviewGestureProgress());
       return;
     }
 
@@ -619,23 +619,37 @@ namespace andromeda {
 
   // ===== Overview finish (4-finger) =====
 
+  double Gestures::overviewGestureProgress() const {
+    return GesturePhysics::rubberBand(
+        m_overviewBase + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, 1.0,
+        GesturePhysics::kOverscrollLimit
+    );
+  }
+
   void Gestures::finishOverview(bool cancelled, uint32_t timeMsec) {
     m_state = State::Idle;
+    m_overviewPinch = false;
     Overview* overview = m_server->overview();
     if (overview == nullptr) {
       return;
     }
-    const double base = m_overviewWasOpen ? 1.0 : 0.0;
-    bool commitOpen = m_overviewWasOpen;
+    int stop = static_cast<int>(m_overviewBase);
     double velocity = 0.0;
     if (!cancelled) {
       m_overviewTracker.push(0.0, timeMsec);
-      const GesturePhysics::StepRelease release =
-          GesturePhysics::release(m_overviewTracker, kOverviewDistancePx, base, 0.0, 1.0);
-      commitOpen = release.target == 1;
+      const GesturePhysics::StepRelease release = GesturePhysics::release(
+          m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, 1.0
+      );
+      stop = release.target;
       velocity = release.velocity;
+      // Rulebook 7.7: a release faster than this toward open or closed settles there, whatever the projection says.
+      constexpr double kFlickPxPerSec = 300.0;
+      const double fingerVelocity = m_overviewTracker.velocity();
+      if (std::abs(fingerVelocity) > kFlickPxPerSec) {
+        stop = fingerVelocity > 0.0 ? 1 : 0;
+      }
     }
-    overview->gestureEnd(commitOpen, velocity);
+    overview->gestureEnd(stop, velocity);
   }
 
   // ===== Scroll finish (Step 5) =====
@@ -777,12 +791,24 @@ namespace andromeda {
       return;
     }
     if (const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
-        pointer.focused_surface != nullptr && m_server->dskSurfaces() != nullptr
+        pointer.focused_surface != nullptr
+        && m_server->dskSurfaces() != nullptr
         && m_server->dskSurfaces()->beginPinch(
             pointer.focused_surface, pointer.sx, pointer.sy, event->fingers, event->time_msec
         )) {
       m_trackerPinch = true;
       scheduleTrackerFrames();
+      return;
+    }
+    // Four fingers pinching in open the overview (docs/gestures-minimize.md G3); two-finger pinches stay with apps.
+    if (Overview* overview = m_server->overview(); event->fingers == 4 && overview != nullptr && m_state == State::Idle) {
+      overview->cancelNavigation();
+      m_state = State::Overview;
+      m_overviewPinch = true;
+      m_pinchScale = 1.0;
+      m_overviewWasOpen = overview->active();
+      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
+      m_overviewTracker.reset();
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_begin(
@@ -801,6 +827,18 @@ namespace andromeda {
       scheduleTrackerFrames();
       return;
     }
+    if (m_overviewPinch) {
+      Overview* overview = m_server->overview();
+      if (overview == nullptr || m_state != State::Overview) {
+        m_overviewPinch = false;
+        m_state = State::Idle;
+        return;
+      }
+      m_overviewTracker.push((m_pinchScale - event->scale) * kPinchDistancePx, event->time_msec);
+      m_pinchScale = event->scale;
+      overview->gestureUpdate(overviewGestureProgress());
+      return;
+    }
     wlr_pointer_gestures_v1_send_pinch_update(
         m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->dx, event->dy, event->scale,
         event->rotation
@@ -814,6 +852,13 @@ namespace andromeda {
       m_trackerPinch = false;
       m_server->dskSurfaces()->endSwipe(event->time_msec);
       scheduleTrackerFrames();
+      return;
+    }
+    if (m_overviewPinch) {
+      m_overviewPinch = false;
+      if (m_state == State::Overview) {
+        finishOverview(event->cancelled, event->time_msec);
+      }
       return;
     }
     if (m_server->sessionLocked()) {

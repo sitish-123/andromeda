@@ -32,7 +32,8 @@ pub async fn check(system: &Connection) -> Result<Vec<Update>> {
     let Ok(fwupd) = FwupdProxy::new(system).await else { return Ok(Vec::new()) };
     let devices = match fwupd.get_devices().await {
         Ok(devices) => devices,
-        // No fwupd, or no devices it can handle (VMs).
+        // No fwupd, or no devices it can handle (VMs). zbus returns org.freedesktop.DBus.Error.* replies as FDO.
+        Err(zbus::Error::FDO(_)) => return Ok(Vec::new()),
         Err(zbus::Error::MethodError(name, _, _))
             if name.as_str().starts_with("org.freedesktop.DBus.Error")
                 || matches!(name.as_str(), "org.freedesktop.fwupd.NothingToDo" | "org.freedesktop.fwupd.NotSupported") =>

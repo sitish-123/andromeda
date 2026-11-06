@@ -69,6 +69,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+    # NO_AUTO_START on every call: the session bus also knows the installed Update1 activation file, and an
+    # auto-started installed daemon (no stub sources) would answer instead of the one under test.
     stub_fwupd(bus)
     env = dict(os.environ, PATH=f"{stubs}:{os.environ['PATH']}", XDG_CACHE_HOME=str(tmp / "cache"),
                XDG_STATE_HOME=str(tmp / "state"), DBUS_SYSTEM_BUS_ADDRESS=os.environ["DBUS_SESSION_BUS_ADDRESS"],
@@ -87,13 +89,13 @@ def main():
                 result["error"] = e.message
 
         bus.call(NAME, PATH, NAME, method, GLib.Variant(sig, args) if sig else None, None,
-                 Gio.DBusCallFlags.NONE, timeout, None, done)
+                 Gio.DBusCallFlags.NO_AUTO_START, timeout, None, done)
         deadline = time.monotonic() + timeout / 1000
         while not result and time.monotonic() < deadline:
             ctx.iteration(False)
             time.sleep(0.01)
         if "error" in result:
-            if "ServiceUnknown" in result["error"]:
+            if "ServiceUnknown" in result["error"] or "NameHasNoOwner" in result["error"]:
                 return None
             fail(f"{method}: {result['error']}", log)
         return result.get("value")
@@ -108,7 +110,7 @@ def main():
                 result["error"] = e.message
 
         bus.call(NAME, PATH, "org.freedesktop.DBus.Properties", "Get", GLib.Variant("(ss)", (NAME, name)), None,
-                 Gio.DBusCallFlags.NONE, 5000, None, done)
+                 Gio.DBusCallFlags.NO_AUTO_START, 5000, None, done)
         deadline = time.monotonic() + 6
         while not result and time.monotonic() < deadline:
             ctx.iteration(False)

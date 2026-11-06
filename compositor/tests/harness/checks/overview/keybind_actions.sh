@@ -83,7 +83,6 @@ default_extent_fraction = 0.5
 follows_focus = true
 
 [overview]
-shortcuts = false
 
 [keybinds]
 "Ctrl+H" = "window-focus-left"

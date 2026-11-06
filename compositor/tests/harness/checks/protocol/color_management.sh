@@ -28,6 +28,8 @@ echo "wp_color_manager_v1 version $COLOR_MANAGER_VERSION advertised to native an
 # TOML cannot redefine [output.HEADLESS-1], so each phase below replaces the
 # whole config rather than appending to the previous one. Holding the pristine
 # config in a variable keeps that reset from needing a file on disk.
+# The overview sample below assumes the half-scale filmstrip card.
+printf '\n[overview]\nstyle = "strip"\n' >> "$ANDROMEDA_CONFIG"
 BASELINE=$(< "$ANDROMEDA_CONFIG")
 
 printf '\n[output.HEADLESS-1]\nhdr = "on"\n' >> "$ANDROMEDA_CONFIG"

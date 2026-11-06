@@ -70,6 +70,10 @@ namespace andromeda {
     // identical across the ext protocol and the IPC surface.
     [[nodiscard]] const std::string& id() const { return m_id; }
     [[nodiscard]] const std::string& name() const { return m_name; }
+    // The name to show: the label the user typed in the overview this session, else name(). The label never takes
+    // part in config matching, so a reconcile keeps it.
+    [[nodiscard]] const std::string& displayName() const { return m_label.empty() ? m_name : m_label; }
+    void setLabel(std::string label) { m_label = std::move(label); }
     // True for an explicit configured or client-created name. Numeric labels
     // generated for anonymous static or dynamic positions leave this false.
     [[nodiscard]] bool named() const { return m_named; }
@@ -313,6 +317,7 @@ namespace andromeda {
     wlr_ext_workspace_handle_v1* m_handle = nullptr;
     std::string m_id;
     std::string m_name;
+    std::string m_label;
     size_t m_index = 0;
     bool m_named = false;
     bool m_active = false;
@@ -420,6 +425,8 @@ namespace andromeda {
     // groups cannot be extended this way and return null.
     Workspace* insertDynamicWorkspace(size_t index);
     bool moveActiveWorkspace(int direction);
+    // Moves `workspace` to position `target`, shifting the ones between; the same empty-end rules as above apply.
+    bool moveWorkspace(Workspace* workspace, size_t target);
     void reconcileInventory();
     void refreshLayouts();
     // Re-resolve the output's workspace axis, settling any live slide on the old

@@ -15,7 +15,7 @@ use zbus_polkit::policykit1::{AuthorityProxy, CheckAuthorizationFlags, Subject};
 
 use crate::migrations;
 use crate::snapshot;
-use crate::transaction::{self, Event};
+use crate::transaction::{self, Event, Scope};
 
 pub const PATH: &str = "/org/andromeda/UpdateHelper1";
 
@@ -86,8 +86,15 @@ async fn authorize(conn: &Connection, header: &Header<'_>, action: &str) -> zbus
 
 impl Helper {
     /// After authorization: the news gate, the inhibitor, then the transaction on its own thread.
-    async fn start(&self, dry_run: bool, conn: &Connection, emitter: SignalEmitter<'_>) -> zbus::fdo::Result<()> {
-        if !dry_run {
+    async fn start(
+        &self,
+        scope: Scope,
+        dry_run: bool,
+        conn: &Connection,
+        emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        // The Arch news is about Arch packages; an Andromeda-only update is not gated by it.
+        if !dry_run && scope == Scope::All {
             self.news_gate().await?;
         }
         if self.running.load(Ordering::SeqCst) {
@@ -111,7 +118,7 @@ impl Helper {
         let work = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             // The pre snapshot is taken only once the transaction is sure to commit.
             let mut pre = None;
-            let outcome = transaction::upgrade(dry_run, &tx, &mut || {
+            let outcome = transaction::upgrade(scope, dry_run, &tx, &mut || {
                 pre = runtime
                     .block_on(snapshot::pre(&snapper_conn))
                     .map_err(|e| anyhow::anyhow!("the snapshot before the update failed: {e}"))?;
@@ -210,7 +217,20 @@ impl Helper {
         self.touch();
         authorize(conn, &header, if dry_run { "org.andromeda.update.preview" } else { "org.andromeda.update.upgrade" })
             .await?;
-        self.start(dry_run, conn, emitter).await
+        self.start(Scope::All, dry_run, conn, emitter).await
+    }
+
+    /// Starts an update of the Andromeda repository packages only. Not gated by the Arch news. Fails with a message
+    /// that starts "needs a system update first" when they need newer system packages (a partial upgrade).
+    async fn upgrade_andromeda(
+        &self,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.touch();
+        authorize(conn, &header, "org.andromeda.update.upgrade").await?;
+        self.start(Scope::Andromeda, false, conn, emitter).await
     }
 
     /// The user authenticates now for tonight's 02:00 run (`andromeda-update-tonight.timer`); `false` cancels.
@@ -269,7 +289,7 @@ impl Helper {
         }
         // The token is gone now: every refusal is reported, or the page would only see "Tonight" switch off.
         let refused = if all_sessions_locked(conn).await {
-            self.start(false, conn, emitter.clone()).await.err().map(|e| e.to_string())
+            self.start(Scope::All, false, conn, emitter.clone()).await.err().map(|e| e.to_string())
         } else {
             Some("a session was unlocked at 02:00".to_owned())
         };

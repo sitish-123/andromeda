@@ -30,6 +30,10 @@ wait_for_count() {
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
+[overview]
+style = "strip"
+zoom = 0.5
+
 [[window_rule]]
 match.title = "^wide-drag$"
 default_scrolling_extent = 0.75
@@ -54,10 +58,14 @@ start_x=$(jq -r --argjson origin "$OVERVIEW_X" --argjson zoom "$OVERVIEW_ZOOM" \
 start_y=$(jq -r --argjson origin "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
   '.[] | select(.title == "wide-drag") | ($origin + ((.y + .h / 2) * $zoom) | round)' <<< "$windows")
 
+# The left tenth of the terminal's card inserts before it; its middle would swap the two.
+read -r drop_x drop_y < <(jq -r --argjson ox "$OVERVIEW_X" --argjson oy "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
+  '.[] | select(.title == "terminal-drag") | "\($ox + ((.x + .w * 0.1) * $zoom) | round) \($oy + ((.y + .h / 2) * $zoom) | round)"' \
+  <<< "$windows")
+
 "$ANDROMEDA" msg overview-open > /dev/null
 "$ANDROMEDA" settle
-# The left side of the overview row maps to the gap before the terminal.
-pointer move "$start_x" "$start_y" press "$BTN_LEFT" move 345 360 release "$BTN_LEFT"
+pointer move "$start_x" "$start_y" press "$BTN_LEFT" move "$drop_x" "$drop_y" release "$BTN_LEFT"
 "$ANDROMEDA" settle
 "$ANDROMEDA" msg overview-close > /dev/null
 "$ANDROMEDA" settle

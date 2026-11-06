@@ -97,7 +97,18 @@ KeybindRecorder::KeybindRecorder() {
   refreshLabel();
 }
 
-KeybindRecorder::~KeybindRecorder() = default;
+namespace {
+  std::function<void(bool)>& recordingObserver() {
+    static std::function<void(bool)> observer;
+    return observer;
+  }
+} // namespace
+
+KeybindRecorder::~KeybindRecorder() {
+  if (m_recording && recordingObserver()) {
+    recordingObserver()(false);
+  }
+}
 
 void KeybindRecorder::setChord(std::optional<KeyChord> chord) {
   m_chord = chord;
@@ -252,12 +263,19 @@ void KeybindRecorder::handleKeyUp(std::uint32_t sym, std::uint32_t modifiers) {
   }
 }
 
+void KeybindRecorder::setRecordingObserver(std::function<void(bool)> observer) {
+  recordingObserver() = std::move(observer);
+}
+
 void KeybindRecorder::enterRecording() {
   if (!m_enabled || m_recording) {
     return;
   }
   m_recording = true;
   m_inputArea->setCapturesAllKeys(true);
+  if (recordingObserver()) {
+    recordingObserver()(true);
+  }
   m_pendingModifiers = 0;
   applyVisualState(VisualState::Recording);
   refreshLabel();
@@ -269,6 +287,9 @@ void KeybindRecorder::exitRecording(bool /*commit*/) {
   }
   m_recording = false;
   m_inputArea->setCapturesAllKeys(false);
+  if (recordingObserver()) {
+    recordingObserver()(false);
+  }
   m_pendingModifiers = 0;
   applyVisualState(VisualState::Idle);
   refreshLabel();

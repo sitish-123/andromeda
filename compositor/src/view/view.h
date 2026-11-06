@@ -419,12 +419,12 @@ namespace andromeda {
     // Put a maximized float back in the box its settings give it now, after a layout, border, strut, or usable area
     // change. Does nothing unless that box moved, so every arrange can ask.
     void refitFloatingMaximized();
-    [[nodiscard]] std::optional<SnapRegion> snapRegion() const { return m_snapRegion; }
+    [[nodiscard]] std::optional<SnapSpot> snapSpot() const { return m_snap; }
     [[nodiscard]] std::optional<wlr_box>
-    floatingSnappedBox(SnapRegion region, const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
+    floatingSnappedBox(const SnapSpot& spot, const wlr_box& usable, const ResolvedLayoutConfig* layout = nullptr) const;
     [[nodiscard]] bool canSnap() const;
     // A pointer drop can preserve its normal restore origin without moving the frame away from the release point.
-    bool snapTo(SnapRegion region, std::optional<FloatingPoint> restoreOrigin = std::nullopt);
+    bool snapTo(const SnapSpot& spot, std::optional<FloatingPoint> restoreOrigin = std::nullopt);
     void unsnap(bool animate = true);
     void clearSnapState();
     void refitFloatingSnapped();
@@ -1047,7 +1047,7 @@ namespace andromeda {
     bool m_floatingMaximized = false;
     bool m_maximizedToEdges = false;
     bool m_restoreMaximizedToEdges = false;
-    std::optional<SnapRegion> m_snapRegion;
+    std::optional<SnapSpot> m_snap;
     wlr_box m_snapRestoreBox{};
     bool m_hasSnapRestoreBox = false;
     wlr_box m_snappedBox{};

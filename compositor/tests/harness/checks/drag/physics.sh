@@ -25,6 +25,7 @@ enabled = false
 background_tint = "#000000FF"
 workspace_background = "#000000FF"
 [overview]
+style = "strip"
 zoom = 0.5
 [animation]
 duration_ms = 1

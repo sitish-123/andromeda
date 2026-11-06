@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include "render/core/damage_region.h"
 
 #include "render/core/color.h"
@@ -70,6 +71,8 @@ struct RenderImageDraw {
   float textureHeight = 0.0F;
   Mat3 transform = Mat3::identity();
   ImageScrim scrim{};
+  // Texture sub-rect (u, v, width, height) the image samples, after the fit mode.
+  std::array<float, 4> uvRect{0.0F, 0.0F, 1.0F, 1.0F};
 };
 
 struct RenderGlyphDraw {

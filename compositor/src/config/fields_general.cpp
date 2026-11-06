@@ -189,59 +189,26 @@ namespace andromeda {
       return fields;
     }
 
-    // Overview badge keys: printable ASCII, unique ignoring case.
-    std::optional<std::string> parseShortcutKeys(const toml::node& node, const std::string& path) {
-      const auto value = node.value<std::string>();
-      if (!value) {
-        warnAt(node.source(), "ignoring {} (expected string)", path);
-        return std::nullopt;
-      }
-      if (value->size() < 2) {
-        warnAt(node.source(), "ignoring {} (expected at least 2 characters)", path);
-        return std::nullopt;
-      }
-
-      std::string normalized;
-      normalized.reserve(value->size());
-      for (const unsigned char character : *value) {
-        if (character < 0x21 || character > 0x7E) {
-          warnAt(node.source(), "ignoring {} (invalid character 0x{:02X})", path, static_cast<unsigned int>(character));
-          return std::nullopt;
-        }
-        const char lowered =
-            character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
-        if (normalized.contains(lowered)) {
-          warnAt(
-              node.source(), R"(ignoring {} (duplicate key "{}" ignoring ASCII case))", path,
-              static_cast<char>(character)
-          );
-          return std::nullopt;
-        }
-        normalized.push_back(lowered);
-      }
-      return value;
-    }
-
     const registry::Fields<Config::Overview>& overviewFields() {
       using registry::boolean;
       using registry::real;
       using O = Config::Overview;
       static const registry::Fields<O> fields{
+          registry::choice(
+              "style", &O::style,
+              {{"spaces", OverviewStyle::Spaces},
+               {"taskview", OverviewStyle::TaskView},
+               {"strip", OverviewStyle::Strip},
+               {"grid", OverviewStyle::Grid}}
+          ),
+          registry::choice(
+              "titles", &O::titles, {{"hover", OverviewTitles::Hover}, {"always", OverviewTitles::Always}}
+          ),
           real("zoom", 0.1, 0.75, &O::zoom),
           real("scroll_factor_horizontal", 0.1, 10.0, &O::scrollFactorHorizontal),
           real("scroll_factor_vertical", 0.1, 10.0, &O::scrollFactorVertical),
           boolean("background_blur", &O::backgroundBlur),
           boolean("workspace_wallpaper", &O::workspaceWallpaper),
-          boolean("shortcuts", &O::shortcuts),
-          registry::custom<O>(
-              "shortcut_keys", registry::KeyDescription("string"),
-              [](const toml::node& node, const std::string& path, O& target, registry::ReadContext&) {
-                if (auto keys = parseShortcutKeys(node, path)) {
-                  target.shortcutKeys = std::move(*keys);
-                }
-              },
-              [](const O& defaults) { return nlohmann::ordered_json(defaults.shortcutKeys); }
-          ),
       };
       return fields;
     }

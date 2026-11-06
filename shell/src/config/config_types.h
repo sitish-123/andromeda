@@ -1318,7 +1318,7 @@ struct ShellConfig {
   AnimationConfig animation;
   std::string avatarPath;
   bool settingsExpandAllGroups = false;
-  bool settingsWindowTranslucent = false;
+  bool settingsWindowTranslucent = true;
   bool showLocation = true;
   bool appIconColorize = false;
   std::optional<ColorSpec> appIconColor;

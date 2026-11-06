@@ -55,10 +55,10 @@ namespace settings {
 
   [[nodiscard]] inline SelectionStyle selectionStyle() {
     return SelectionStyle{
-        .rowFill = colorSpecFromRole(ColorRole::Lens),
+        .rowFill = colorSpecFromRole(ColorRole::Accent, 0.24F),
         .rowLabel = colorSpecFromRole(ColorRole::Label1),
         .tileFill = clearColorSpec(),
-        .tileGlyph = colorSpecFromRole(ColorRole::AccentText),
+        .tileGlyph = colorSpecFromRole(ColorRole::Label1),
         .childFill = colorSpecFromRole(ColorRole::Fill3),
         .highlightFill = colorSpecFromRole(ColorRole::Accent, 0.14F),
     };
@@ -74,7 +74,20 @@ namespace settings {
     ColorSpec avatarInitial;
   };
 
+  // True while the Settings window draws as glass; grouped cards then become glass panes.
+  inline bool g_glassWindow = false;
+
   [[nodiscard]] inline FrameColors frameColors() {
+    if (g_glassWindow) {
+      return FrameColors{
+          .tileFill = clearColorSpec(),
+          .tileGlyph = colorSpecFromRole(ColorRole::Label2),
+          .cardFill = colorSpecFromRole(ColorRole::SolidThin, 0.5F),
+          .cardBorder = colorSpecFromRole(ColorRole::LensEdge),
+          .avatarFill = colorSpecFromRole(ColorRole::Accent),
+          .avatarInitial = colorSpecFromRole(ColorRole::OnAccent),
+      };
+    }
     return FrameColors{
         .tileFill = clearColorSpec(),
         .tileGlyph = colorSpecFromRole(ColorRole::Label2),

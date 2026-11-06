@@ -477,8 +477,12 @@ void Bar::reevaluateSmartAutoHide() {
     return;
   }
 
+  const bool overviewAside = m_platform->overviewStepsChromeAside();
   for (const auto& instanceUp : m_instances) {
     BarInstance* instance = instanceUp.get();
+    if (instance != nullptr && instance->barConfig.enabled) {
+      setIslandsOverviewAside(*instance, overviewAside);
+    }
     if (instance == nullptr
         || !instance->barConfig.enabled
         || !instance->barConfig.smartAutoHide
@@ -668,7 +672,8 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
         .width = std::max(0.0F, 2.0F * (halfFree - kGap)),
         .bottom = cfg.position == "bottom",
         .scale = cfg.scale,
-        .opacity = instance->hideOpacity,
+        // The rest pill fades out with the side islands while the Andromeda overview is open.
+        .opacity = instance->hideOpacity * (1.0F - instance->overviewAsideProgress),
         .backgroundOpacity = cfg.backgroundOpacity,
         .border = cfg.border,
         .borderWidth = cfg.borderWidth,
@@ -1221,6 +1226,8 @@ void Bar::unsuppressDisplay() {
   if (m_wasVisibleBeforeOverlaySuppress) {
     show();
   }
+  // The overview may have opened or closed while suppressed.
+  scheduleSmartAutoHideReevaluation();
 }
 
 void Bar::toggle() {

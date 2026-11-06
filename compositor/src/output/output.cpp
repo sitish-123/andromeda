@@ -666,7 +666,11 @@ namespace andromeda {
   }
 
   bool Output::applyConfiguredState(bool stageGeometry) {
+    // With libliftoff, wlroots silently rejects a commit whose visible cursor layer did not get a plane, which
+    // happens on modesets (eDP-1, xe): the cursor is drawn in software until the next frame.
+    wlr_output_lock_software_cursors(m_output, true);
     const bool committed = commitConfiguredState(stageGeometry);
+    wlr_output_lock_software_cursors(m_output, false);
     // A disabled output never presents; the next compositor's release must not wait for it.
     if (m_awaitingFirstFrame && !m_output->enabled) {
       m_awaitingFirstFrame = false;
@@ -2172,6 +2176,14 @@ namespace andromeda {
     if (!outputFrameAllowed(m_server->stopping(), m_server->session())) {
       return;
     }
+    // The login screen is the greeter client alone. Its surfaces vanish the moment it exits, before the compositor
+    // sees the child exit: a frame without them is black with a cursor, and the next session would hold that frame.
+    // Keep the last greeter frame on screen instead.
+    if (greeterMode()
+        && std::ranges::none_of(m_server->layerSurfaces(), [](const auto& layer) { return layer->mapped(); })
+        && std::ranges::none_of(m_server->views(), [](const auto& view) { return view->mapped(); })) {
+      return;
+    }
     const OutputFrameScope frameScope(*m_server);
     stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
@@ -2442,10 +2454,13 @@ namespace andromeda {
           }
           const auto now = std::chrono::steady_clock::now();
           if (m_busyStats.busy > 0 && now - m_busyStats.since >= std::chrono::seconds(1)) {
-            kLog.info(
-                "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
-                m_busyStats.retriedOk, m_busyStats.gaveUp
-            );
+            // A retried busy commit still made its frame; only a commit that gave up dropped one.
+            if (m_busyStats.gaveUp > 0) {
+              kLog.info(
+                  "output '{}': busy commits {}, retried ok {}, gave up {}", m_output->name, m_busyStats.busy,
+                  m_busyStats.retriedOk, m_busyStats.gaveUp
+              );
+            }
             m_busyStats = {.since = now};
           }
         }

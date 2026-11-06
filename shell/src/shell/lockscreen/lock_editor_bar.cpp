@@ -21,7 +21,7 @@ namespace {
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
   constexpr Color kLabel3 = rgba(1.0F, 1.0F, 1.0F, 0.46F);
   // The surface's own preview lies behind the bar, out of the compositor blur's reach: dark thick tint 0.92.
-  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.92F);
+  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.62F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kFill1 = rgba(1.0F, 1.0F, 1.0F, 0.10F);
   constexpr Color kFill2 = rgba(1.0F, 1.0F, 1.0F, 0.16F);
@@ -104,19 +104,20 @@ void LockEditorBar::build(Node& root) {
   m_done.bg = addRect(*m_group);
   m_done.label = addLabel(*m_group, FontWeight::SemiBold);
   m_doneFocus = addRect(*m_group);
-  m_panelBg = addRect(*m_group);
-  m_layoutTitle = addLabel(*m_group, FontWeight::SemiBold);
-  m_themeTitle = addLabel(*m_group, FontWeight::SemiBold);
-  m_themeNote = addLabel(*m_group, FontWeight::Normal);
+  m_panelGroup = m_group->addChild(std::make_unique<Node>());
+  m_panelBg = addRect(*m_panelGroup);
+  m_layoutTitle = addLabel(*m_panelGroup, FontWeight::SemiBold);
+  m_themeTitle = addLabel(*m_panelGroup, FontWeight::SemiBold);
+  m_themeNote = addLabel(*m_panelGroup, FontWeight::Normal);
   for (Card& card : m_cards) {
-    card.bg = addRect(*m_group);
-    card.clock = addRect(*m_group);
-    card.line = addRect(*m_group);
-    card.label = addLabel(*m_group, FontWeight::Normal);
+    card.bg = addRect(*m_panelGroup);
+    card.clock = addRect(*m_panelGroup);
+    card.line = addRect(*m_panelGroup);
+    card.label = addLabel(*m_panelGroup, FontWeight::Normal);
   }
   for (Chip& chip : m_themes) {
-    chip.bg = addRect(*m_group);
-    chip.label = addLabel(*m_group, FontWeight::Medium);
+    chip.bg = addRect(*m_panelGroup);
+    chip.label = addLabel(*m_panelGroup, FontWeight::Medium);
   }
 }
 

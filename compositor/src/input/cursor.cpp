@@ -1882,7 +1882,7 @@ namespace andromeda {
   }
 
   void Cursor::beginDrag(MoveGrab& grab) {
-    if (grab.target == DragTarget::Floating && (grab.view->floatingMaximized() || grab.view->snapRegion())) {
+    if (grab.target == DragTarget::Floating && (grab.view->floatingMaximized() || grab.view->snapSpot())) {
       View* view = grab.view;
       const int width = view->floatingSize()[0];
       const double fraction = width > 0 ? std::clamp((grab.startX - view->layoutX()) / width, 0.0, 1.0) : 0.5;

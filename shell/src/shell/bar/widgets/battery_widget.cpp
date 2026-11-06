@@ -108,7 +108,7 @@ std::string BatteryWidget::buildLabelText(int pct, const UPowerState& state) con
   case BatteryLabelContent::Percent:
     break;
   }
-  return m_displayMode == BatteryDisplayMode::Graphic ? std::to_string(pct) : std::format("{}%", pct);
+  return m_displayMode == BatteryDisplayMode::Graphic && !m_islandStyle ? std::to_string(pct) : std::format("{}%", pct);
 }
 
 void BatteryWidget::create() {
@@ -237,7 +237,22 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
     // symbol units times s.
     const float s = Tokens::componentIslandIcon / 24.0F * m_contentScale;
     const float boxW = 22.0F * m_contentScale;
-    const float offX = (boxW - 26.0F * s) * 0.5F;
+    const float boxH = 24.0F * s;
+    float labelW = 0.0F;
+    if (m_overlayLabel != nullptr && m_overlayLabel->visible()) {
+      m_overlayLabel->setFontSize(Style::fontSizeBody * fontScale());
+      m_overlayLabel->measure(renderer);
+      m_overlayLabel->setPosition(0.0F, std::round((boxH - m_overlayLabel->height()) * 0.5F));
+      labelW = m_overlayLabel->width() + Tokens::componentIslandGap * m_contentScale;
+    }
+    const float offX = labelW + (boxW - 26.0F * s) * 0.5F;
+    if (m_overlayGlyph != nullptr && m_overlayGlyph->visible()) {
+      m_overlayGlyph->setGlyphSize(13.8F * s);
+      m_overlayGlyph->measure(renderer);
+      m_overlayGlyph->setPosition(
+          offX + 0.1F * s + (21.8F * s - m_overlayGlyph->width()) * 0.5F, (boxH - m_overlayGlyph->height()) * 0.5F
+      );
+    }
     m_bodyBg->setRadius(4.4F * s);
     m_bodyBg->setPosition(offX + 0.1F * s, 5.1F * s);
     m_bodyBg->setSize(21.8F * s, 13.8F * s);
@@ -246,7 +261,7 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
     m_terminalNub->setSize(1.8F * s, 5.8F * s);
     m_fillRect->setRadius(1.5F * s);
     updateFillGeometry();
-    rootNode->setSize(boxW, 24.0F * s);
+    rootNode->setSize(labelW + boxW, boxH);
     return;
   }
 
@@ -380,7 +395,7 @@ void BatteryWidget::updateFillGeometry() {
   if (m_islandStyle && !m_isVertical) {
     const float s = m_bodyBg->height() / 13.8F;
     m_fillRect->setPosition(m_bodyBg->x() + 3.4F * s, 8.5F * s);
-    m_fillRect->setSize(12.0F * s * fraction, 7.0F * s);
+    m_fillRect->setSize(15.0F * s * fraction, 7.0F * s);
     return;
   }
 
@@ -412,6 +427,9 @@ void BatteryWidget::syncPalette() {
     m_bodyBg->setBorder(foreground, 1.8F * Tokens::componentIslandIcon / 24.0F * m_contentScale);
     m_fillRect->setFill(foreground);
     m_terminalNub->setFill(foreground);
+    if (m_overlayLabel != nullptr) {
+      m_overlayLabel->setColor(foreground);
+    }
   } else if (m_showLabel) {
     // Same light-on-dark body as the unlabelled battery, so it matches neighbouring glyphs. The track stays opaque and
     // light enough that surface-colored text reads on both sides of the moving fill boundary.

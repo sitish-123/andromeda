@@ -764,6 +764,8 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
     env.backgroundActivityCount = m_activityFlaggedCount();
   }
   env.openActivity = m_openActivity;
+  // Runs later, on a click, never while this const method builds the registry.
+  env.openDetail = [window = const_cast<SettingsWindow*>(this)](std::string detail) { window->openDetail(std::move(detail)); };
   env.greeterSyncAvailable =
       m_config != nullptr && greeter::appearanceSyncAvailable(m_config->config().shell.greeterSync);
   const ThemeMode previewMode = m_config != nullptr ? shellThemeMode(m_config->config().theme) : ThemeMode::Dark;
@@ -1160,6 +1162,9 @@ void SettingsWindow::rebuildSettingsContent() {
     addUsersContent(scale);
     addPowerContent(scale);
     addAboutContent(scale);
+    if (detailOpen) {
+      addWorkspacesContent(scale);
+    }
     addProblemsContent(scale);
     addSoftwareUpdateContent(scale);
   }
@@ -1343,13 +1348,13 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
        .paddingH = (Style::spaceSm - 2.0F) * scale,
-       .fill = colorSpecFromRole(ColorRole::SolidRegular),
+       .fill = colorSpecFromRole(ColorRole::SolidRegular, 0.6F),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
       ui::glyph({
           .glyph = "search",
           .glyphSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::Label3),
+          .color = colorSpecFromRole(ColorRole::Label2),
       }),
       std::move(input),
       ui::row(
@@ -1357,7 +1362,6 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
            .justify = FlexJustify::Center,
            .paddingH = Style::spaceXs * scale,
            .radius = Style::spaceXs * scale,
-           .border = colorSpecFromRole(ColorRole::Separator),
            .minWidth = settings::metrics::kKeycapHeight * scale,
            .minHeight = settings::metrics::kKeycapHeight * scale},
           makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
@@ -1523,9 +1527,6 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
         })
     );
   }
-  if (m_glassSidebar) {
-    row->setFill(colorSpecFromRole(ColorRole::SolidRegular));
-  }
   return row;
 }
 
@@ -1578,6 +1579,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
           .selectedPage = m_selectedSection,
           .selectedBarName = m_selectedBarName,
           .creatingBarName = m_creatingBarName,
+          .moreExpanded = m_sidebarMoreExpanded,
           .searchField = buildSearchField(scale),
           .accountName = sessionDisplayName(),
           .accountAvatarPath = shell::avatarDisplayPath(m_accounts, cfg),
@@ -1601,8 +1603,12 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   m_sidebarNode = sidebar.get();
   body->addChild(std::move(sidebar));
 
-  auto contentColumn =
-      ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Fill1), .flexGrow = 1.0F});
+  // On glass the window is one surface: a content fill under the header would cut an L shape around the sidebar.
+  auto contentColumn = ui::column(
+      {.align = FlexAlign::Stretch,
+       .fill = m_glassSidebar ? clearColorSpec() : colorSpecFromRole(ColorRole::Fill1),
+       .flexGrow = 1.0F}
+  );
   auto outer = ui::column({.align = FlexAlign::Stretch});
   m_headerRow = outer->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
   if (m_expertOpen && m_searchQuery.empty()) {
@@ -1663,15 +1669,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   rebuildSettingsContent();
 
   contentColumn->addChild(std::move(scroll));
-  if (m_glassSidebar) {
-    auto solid = ui::column(
-        {.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::SolidRegular), .flexGrow = 1.0F}
-    );
-    solid->addChild(std::move(contentColumn));
-    body->addChild(std::move(solid));
-  } else {
-    body->addChild(std::move(contentColumn));
-  }
+  body->addChild(std::move(contentColumn));
   outer->addChild(std::move(body));
   return outer;
 }
@@ -2125,7 +2123,7 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
     }
     settings::SettingEntry btn{
         .section = settings::SettingsSection::Security,
-        .group = "lock-screen",
+        .group = "~lock",
         .title = i18n::tr("settings.schema.lockscreen.widgets-editor.label"),
         .subtitle = i18n::tr("settings.schema.lockscreen.widgets-editor.description"),
         .path = {},
@@ -2136,7 +2134,7 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
                 .glyph = {}
             },
         .searchText = "lockscreen widgets editor edit layout",
-        .visibleWhen = [](const Config& c) { return c.lockscreen.enabled && c.lockscreenWidgets.enabled; },
+        .visibleWhen = [](const Config& c) { return c.lockscreen.enabled; },
     };
     m_settingsRegistry.insert(it, std::move(btn));
   }
@@ -2399,6 +2397,7 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
   }
 
   m_glassSidebar = cfg.shell.settingsWindowTranslucent && !Style::reduceTransparency();
+  settings::g_glassWindow = m_glassSidebar;
 
   auto bg = ui::box({
       .width = w,
@@ -2410,6 +2409,12 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
         box.setPosition(0.0F, 0.0F);
         if (!glassSidebar) {
           box.setFill(colorSpecFromRole(ColorRole::SolidRegular));
+        } else {
+          // A full window of text: never thinner than the Tinted recipe, so Clear still reads over a busy wallpaper.
+          const float tinted = glass::material(glass::Kind::Sheet, 0.5F, false, isLightPalette()).tint;
+          box.setFill(colorSpecFromRole(
+              panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet).tint, tinted)
+          ));
         }
       },
   });

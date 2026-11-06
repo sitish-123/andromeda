@@ -3,7 +3,9 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "layout/drop_target.h"
+#include "overview/chrome.h"
 #include "overview/navigation.h"
+#include "overview/style.h"
 #include "scene/hint_rect.h"
 #include "scene/surface_blur.h"
 #include "util/listener.h"
@@ -14,7 +16,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <wayland-server-core.h>
 
@@ -41,9 +45,10 @@ namespace andromeda {
   class Workspace;
   class WorkspaceGroup;
 
-  // Zoomed-out view of every workspace on every output, arranged as one vertical filmstrip per output. Clients are
-  // never reconfigured: the real window trees are hidden and re-rendered as "cards", per-surface scene buffers sharing
-  // the client textures and scaled by the scene graph. The overview is also an editor (click to focus, middle-click to
+  // Zoomed-out view of every workspace on every output, arranged by `[overview] style` (overview/style.h). Clients
+  // are never reconfigured: the real window trees are hidden and re-rendered as "cards", per-surface scene buffers
+  // sharing the client textures and scaled by the scene graph. Each card moves from its desktop rect to its placement
+  // rect with the open progress. The overview is also an editor (click to focus, middle-click to
   // close, drag to relocate), so it owns pointer and keyboard input while open.
   class Overview : public Animatable {
   public:
@@ -55,6 +60,8 @@ namespace andromeda {
 
     // Open, opening, or zooming back in.
     [[nodiscard]] bool active() const { return m_active; }
+    // 0 closed .. 1 open, as drawn this frame (gesture-driven or animating).
+    [[nodiscard]] double progress() const { return m_progress; }
     // Open and not already zooming back in: pointer/keyboard edits still apply. The IPC `overview` event reports this
     // as `open`, so clients drop overview-scoped surfaces while the windows are still hidden.
     [[nodiscard]] bool interactive() const { return m_active && !m_closing; }
@@ -76,7 +83,8 @@ namespace andromeda {
     // `releaseVelocity` is the speed the fingers were still moving at when they left, in overview progress per second,
     // and is zero for callers that are not a gesture.
     void gestureUpdate(double progress);
-    void gestureEnd(bool commitOpen, double releaseVelocity = 0);
+    // `stop`: 0 closed, 1 open.
+    void gestureEnd(int stop, double releaseVelocity = 0);
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     // Advances the zoom and workspace-row animations; returns true while either is still running.
@@ -122,19 +130,18 @@ namespace andromeda {
     void handleTouchpadAxis(wlr_pointer* pointer, bool vertical, double delta, uint32_t timeMsec, double lx, double ly);
     void handleTouchpadFrame();
     bool handleFallbackKey(uint32_t keysym);
-    // Clear pending badge input for directional focus while interactive. Configured
-    // actions retain their regular handlers throughout the closing animation.
+    // Configured actions retain their regular handlers throughout the closing animation.
     bool handleKeybindAction(KeybindAction action);
-    // Step the active workspace `delta` rows down the filmstrip on `output` (null: wherever the pointer is). Returns
+    // Step the active workspace `delta` rows along the workspaces on `output` (null: wherever the pointer is). Returns
     // false at either end. The wheel and middle-button drag use discrete steps;
     // touchpad navigation moves the rows continuously and selects on release.
     bool selectRelativeWorkspace(int delta, Output* output);
     // The workspace row a pointer drag at this point pans. The row extends along its scrolling axis across the
     // whole output, because its cards may overhang the centered workspace preview.
     [[nodiscard]] Workspace* pointerScrollWorkspace(double lx, double ly);
-    // The scale previews rest at once open. Gesture travel maps onto the settled layout, so it must not depend on
-    // how far the zoom has come.
-    [[nodiscard]] static double settledZoom();
+    // How much smaller than on the desktop `workspace` shows in the overview, so a pointer pan over it moves its
+    // content under the pointer. 1 when it is not shown.
+    [[nodiscard]] double workspaceScale(const Workspace* workspace) const;
     [[nodiscard]] bool dragging() const { return m_dragCard != nullptr || m_middlePressed; }
 
   private:
@@ -200,19 +207,11 @@ namespace andromeda {
       std::unique_ptr<ViewChromeAttachment> frame;
       std::vector<std::unique_ptr<CardSurface>> surfaces;
       wlr_box box{}; // content box in layout coordinates
-      wlr_scene_tree* badge = nullptr;
-      wlr_scene_rect* badgeRect = nullptr;
-      wlr_scene_buffer* badgeText = nullptr;
-      int badgeWidth = 0;
-      int badgeHeight = 0;
-      std::array<float, 4> badgeBackground{};
-      std::string shortcut;
-      size_t shortcutMatched = 0;
-    };
-
-    struct ShortcutAssignment {
-      View* view = nullptr;
-      std::string label;
+      // Card scale against the view's presented box, its placement opacity and its clip in card-local pixels (empty:
+      // none), as the latest output layout left them.
+      double scale = 1.0;
+      float opacity = 1.0F;
+      wlr_box clip{};
     };
 
     // One surface of the output's mirrored stack: a background- or bottom-layer surface copied into every workspace
@@ -250,8 +249,40 @@ namespace andromeda {
       std::vector<std::unique_ptr<DesktopMirror>> mirrors;
     };
 
+    // Where one workspace shows at the current progress: its card in layout coordinates and the map from its
+    // output-local desktop into the overview. The chosen workspace of Spaces and Task View maps into the main area.
+    struct WorkspaceView {
+      wlr_box box{};
+      ov::Fit fit{};
+      ov::CardKind kind = ov::CardKind::Frame;
+      bool shown = false;
+    };
+
     struct OutputState {
       Output* output = nullptr;
+      // Refreshed by every layoutOutput. `usableBox` is the output minus the layer-shell exclusive zones: panels of
+      // the top and overlay layers draw over the overview, so on-output is not on-screen for anything readable.
+      wlr_box outputBox{};
+      wlr_box usableBox{};
+      std::vector<WorkspaceView> workspaceViews;
+      // Spaces and Task View: the chosen workspace's windows fill this area instead of its card.
+      std::optional<wlr_box> mainBox;
+      ov::Fit mainFit{};
+      size_t mainWorkspace = 0;
+      // Cards step along x (thumb rows, grid rows, a horizontal strip) rather than y.
+      bool cardsHorizontal = false;
+      // The settled placement, recomputed only when its input, the chosen row or the style changes, so an open or
+      // close in flight only interpolates. `placeOf[k]` is card k's entry, or null.
+      ov::Input placedInput;
+      ov::Placement placement;
+      std::vector<const ov::WindowPlace*> placeOf;
+      ov::Style placedStyle = ov::Style::Spaces;
+      double placedRow = 0;
+      bool placed = false;
+      // What the placement is made of: the style, each workspace's arrangement and its windows. Only a change here (a
+      // window opening, closing or minimizing, a workspace added or removed, a style reload) reflows the overview;
+      // rows scrolling and windows moving under their own layout springs do not.
+      std::vector<uintptr_t> structure;
       wlr_scene_tree* tree = nullptr;
       wlr_scene_blur* backgroundBlur = nullptr;
       wlr_scene_rect* backgroundTint = nullptr;
@@ -260,27 +291,13 @@ namespace andromeda {
       std::vector<WorkspaceBackground> workspaceBackgrounds;
       std::vector<std::unique_ptr<Card>> cards;
       std::vector<std::unique_ptr<DesktopSurface>> desktop;
-      // Filmstrip position in workspace rows: 1.5 sits halfway between rows 1 and 2. Wheel steps, keyboard moves and
-      // touchpad releases all animate this one value; a gesture in flight snaps it to follow the fingers.
+      // Names, title row, filter field, hint, + target, On screen frame and title capsules, above every card.
+      std::unique_ptr<ov::Chrome> chrome;
+      // The chosen workspace, fractional while it moves: 1.5 sits halfway between workspaces 1 and 2. Strip scrolls
+      // its rows by it, Spaces and Task View morph between neighbours. Wheel steps, keyboard moves and touchpad
+      // releases all animate this one value; a gesture in flight snaps it to follow the fingers.
       AnimatedValue rowScroll;
       size_t activeWorkspaceIndex = 0;
-    };
-
-    // Workspace preview placement for one output at the current progress. Previews
-    // step along the output's workspace axis; the other axis stays centered.
-    struct PreviewMetrics {
-      wlr_box outputBox{};
-      // Output box minus the layer-shell exclusive zones. Panels of the top and
-      // overlay layers draw over the overview, so on-output is not the same as
-      // on-screen for anything the overview wants readable.
-      wlr_box usableBox{};
-      double zoom = 1.0;
-      WorkspaceAxis axis = WorkspaceAxis::Vertical;
-      int previewW = 0;
-      int previewH = 0;
-      int baseX = 0;
-      int baseY = 0;
-      int gap = 0;
     };
 
     static void onCardSurfaceCommit(CardSurface* entry, void* data);
@@ -304,19 +321,17 @@ namespace andromeda {
     static void onDesktopMirrorOutputSample(DesktopMirror* mirror, void* data);
     static void onDesktopMirrorFrameDone(DesktopMirror* mirror, void* data);
 
-    // Preview scale for the current open or close progress.
-    [[nodiscard]] double zoom() const;
+    // Placement input for one output: every laid-out card as a member of its workspace, id = index in `state.cards`.
+    // `targets` reads where the layout is heading instead of where windows show now.
+    [[nodiscard]] ov::Input placementInput(const OutputState& state, bool targets) const;
     // How much of the desktop's own chrome (window shadows, pinned windows) shows: 1 at rest on the desktop, fading to
     // 0 over the first stretch of the open, so a close brings it back while the zoom is still settling.
     [[nodiscard]] float desktopChromeAlpha() const;
-    // Upper bound on how far any visible card pixel moves per unit of zoom animation value, for ending a spring once
-    // its remaining motion can no longer change a pixel.
-    [[nodiscard]] double zoomPixelsPerUnit() const;
-    [[nodiscard]] static bool
-    previewMetrics(const OutputState& state, const Server& server, double zoom, PreviewMetrics& out);
-    // The workspace preview's box in layout coordinates.
-    [[nodiscard]] static wlr_box
-    previewBox(const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex);
+    // Upper bound on how far any visible card pixel moves per unit of the open or row animation value, for ending a
+    // spring once its remaining motion can no longer change a pixel.
+    [[nodiscard]] double motionPixelsPerUnit(bool rows) const;
+    // Re-reads the output and usable boxes; false while the output has no size.
+    bool refreshOutputBoxes(OutputState& state) const;
 
     bool beginPresentation();
     void buildState();
@@ -324,7 +339,7 @@ namespace andromeda {
     Card* createCard(OutputState& state, View* view, size_t workspaceIndex);
     void snapshotCardForClose(Card& card);
     void destroyCard(Card* card);
-    void layoutCardShadow(Card& card, double zoom, float alpha) const;
+    void layoutCardShadow(Card& card, float alpha) const;
     static void destroyCardShadow(Card& card);
     // Lay the card's chrome copy over `world`, the view's presented box, at `zoom`, or drop it with the view's chrome.
     void layoutCardChrome(Card& card, const wlr_box& world, int borderInset, double zoom, float alpha) const;
@@ -334,6 +349,23 @@ namespace andromeda {
     [[nodiscard]] OutputState* stateFor(const Output* output);
     [[nodiscard]] OutputState* stateForWorkspace(const Workspace* workspace);
     [[nodiscard]] Card* findCard(const View* view);
+    void updateHover(double lx, double ly);
+    [[nodiscard]] const View* closeButtonAt(double lx, double ly) const;
+    // The arrangement menu, open under a workspace's chip on one output. Compared, never dereferenced.
+    struct ArrangementMenu {
+      const Output* output = nullptr;
+      size_t workspace = 0;
+      int hovered = -1;
+    };
+    // Opens, steers and applies the arrangement menu; each returns false when it did not take the input.
+    bool menuPress(double lx, double ly);
+    bool menuKey(uint32_t keysym);
+    void setMenu(std::optional<ArrangementMenu> menu);
+    void applyMenuRow(int row);
+    void startRename();
+    bool renameKey(uint32_t keysym);
+    // Keeps the typed name (a blank one keeps the old name) or drops it, and ends the rename.
+    void finishRename(bool keep);
     [[nodiscard]] WorkspaceBackground createWorkspaceBackground(OutputState& state) const;
     // Mapped background- and bottom-layer surfaces of `output`, in render order.
     void collectDesktopSurfaces(const Output& output, std::vector<DesktopEntry>& out) const;
@@ -349,7 +381,11 @@ namespace andromeda {
     // Applies `alpha` to every pinned window and full opacity to every other.
     void applyPinnedOpacity(float alpha) const;
     void layoutOutput(OutputState& state);
-    void layoutCard(Card& card, const PreviewMetrics& metrics, double workspaceScroll, const View* liveTarget);
+    void layoutChrome(OutputState& state, const View* liveTarget);
+    // Lays the card out at its stored box, scale, opacity and clip.
+    void layoutCard(Card& card, const View* liveTarget);
+    // The workspace whose card or main area holds the point, on its output only.
+    [[nodiscard]] static bool workspaceViewContains(const OutputState& state, size_t index, double lx, double ly);
     // Refreshes a card's animation and persistent effect slots from its view.
     void syncCardEffects(Card& card);
     void syncCardEffects();
@@ -357,12 +393,18 @@ namespace andromeda {
     // output holding the cursor. Null when that workspace is empty, which is also when those actions do nothing.
     [[nodiscard]] View* liveTargetView() const;
     [[nodiscard]] std::array<float, 4> cardBorderColor(const Card& card, const View* liveTarget) const;
-    void assignShortcuts();
-    void renderCardShortcut(Card& card);
-    bool handleShortcutKey(uint32_t keysym);
-    void refreshShortcutMatches();
-    void clearShortcutInput();
-    void updateShortcutAssignments();
+    // Type-to-filter: `m_filter` dims the cards whose title and app id miss it and moves the selection onto a match.
+    [[nodiscard]] bool cardMatches(const Card& card) const;
+    // Live window cards in reading order, the active workspace on the pointer's output first; matches only.
+    [[nodiscard]] std::vector<Card*> selectableCards();
+    [[nodiscard]] Card* cardOf(const View* view);
+    // The window Enter, Delete and Tab act on: the live target while it matches the filter.
+    [[nodiscard]] Card* selectedCard();
+    void selectCard(Card& card);
+    void setFilter(std::string filter);
+    bool moveSelection(int dx, int dy);
+    bool cycleSelection(int step);
+    bool activateFilter();
 
     // `releaseVelocity` is the speed a gesture left behind, in overview progress per second, and is zero for every
     // other caller: it starts the zoom spring from the speed the fingers had instead of from rest.
@@ -377,7 +419,7 @@ namespace andromeda {
     void restoreFocus(View* focus);
     void scheduleFrames() const;
 
-    [[nodiscard]] Card* cardAt(double lx, double ly);
+    [[nodiscard]] Card* cardAt(double lx, double ly, const Card* skip = nullptr);
     [[nodiscard]] Workspace*
     workspaceAtPoint(double lx, double ly, OutputState** outState, size_t* outIndex, bool extendScrollingAxis);
     [[nodiscard]] WorkspaceGroup*
@@ -387,18 +429,50 @@ namespace andromeda {
 
     void beginDrag();
     void updateDrag(double lx, double ly);
+    // Recomputes the drop target under the pointer without moving the dragged card: rows can slide under a still one.
+    void retargetDrop(double lx, double ly);
+    // Edge auto-scroll: holding a dragged card within kEdgeZone of an output edge steps the rows along the workspace
+    // axis (Strip) or pans a scrolling workspace across it, after kEdgeDelayMs and then every kEdgeRepeatMs.
+    void updateEdgeScroll(double lx, double ly);
+    void stopEdgeScroll();
+    // Moves an armed pan by the frame's elapsed time; true while it can still move.
+    bool tickEdgePan(double nowMsec);
+    static int onEdgeTimer(void* data);
+    // The new-workspace target under the pointer, as an insertion at the end of its output's workspaces.
+    [[nodiscard]] WorkspaceGroup* plusTargetAt(double lx, double ly, OutputState** outState, wlr_box* outBox);
     void endDrag(bool drop);
+    // Inserts `view` back into the slot beginDrag detached the dragged window from.
+    void restoreDragSlot(View& view);
+    // The tiled window whose middle is under the pointer, which a drop swaps with the dragged one.
+    [[nodiscard]] View* swapTargetAt(double lx, double ly);
+    void swapDragged(View& view, View& other);
+    [[nodiscard]] bool cardInThumb(const Card& card) const;
+    // The workspace whose thumb or Grid tile is under the point (not a Frame or the main area), and its box.
+    [[nodiscard]] Workspace* thumbAt(double lx, double ly, wlr_box* outBox = nullptr);
+    // A thumb the pressed one can be reordered onto: another workspace of the same output.
+    [[nodiscard]] Workspace* thumbDropAt(double lx, double ly, wlr_box* outBox);
+    void updateThumbDrag(double lx, double ly);
+    void endThumbDrag(bool drop, double lx, double ly);
     void syncWorkspaceRows(OutputState& state, WorkspaceGroup& group);
-    void showDropHint(
-        const wlr_box& worldBox, const PreviewMetrics& metrics, double workspaceScroll, size_t workspaceIndex,
-        Output* output
-    );
+    // The desk->overview map of workspace `index` on `state`: the main area for the chosen workspace when it has one.
+    [[nodiscard]] static ov::Fit workspaceFit(const OutputState& state, size_t index);
+    void showDropHint(const wlr_box& worldBox, const OutputState& state, size_t workspaceIndex);
     void showWorkspaceInsertHint(Output* output, const wlr_box& box);
     void hideDropHint();
 
     Server* m_server = nullptr;
     wlr_scene_tree* m_tree = nullptr; // Server::overviewTree()
     std::unique_ptr<HintRect> m_dropHint;
+    std::unique_ptr<HintRect> m_edgeHint;
+    wl_event_source* m_edgeTimer = nullptr;
+    // The edge a drag is held at: the output it is on, and +-1 along (step rows) or across (pan) the workspace axis.
+    Output* m_edgeOutput = nullptr;
+    int m_edgeStep = 0;
+    int m_edgePan = 0;
+    Ref<Workspace> m_edgeWorkspace; // the scrolling workspace an armed pan moves
+    double m_edgePanLastMsec = -1.0; // frame time of the last pan step; < 0 before the first frame
+    double m_dragX = 0;
+    double m_dragY = 0;
     std::vector<std::unique_ptr<OutputState>> m_outputs;
 
     bool m_active = false;
@@ -407,18 +481,42 @@ namespace andromeda {
     double m_targetProgress = 0;
     double m_progressFrom = 0;
     AnimatedValue m_zoomAnim;
+    // Reflow: one shared spring from 0 to 1 carries every card and workspace card whose placed rect jumped in a
+    // structural change from where it was drawn to its new place. Keys are View and Workspace pointers, rects are
+    // layout coordinates before the open progress, so a card rebuilt or dropped on another output still glides.
+    // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
+    std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
+    std::vector<ov::ChromeWindow> m_chromeWindows;
+    AnimatedValue m_reflow{1.0};
+    std::unordered_map<const void*, ov::Rect> m_shownRects;
+    std::unordered_map<const void*, ov::Rect> m_reflowFrom;
+    void beginReflow();
+    ov::Rect reflowRect(const void* key, const ov::Rect& target, bool began);
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     bool m_gestureOpenedHere = false;
-    bool m_shortcutsDirty = true;
-    std::string m_shortcutInput;
-    std::vector<ShortcutAssignment> m_shortcutAssignments;
-    size_t m_shortcutLabelCapacity = 0;
+    std::string m_filter;
     // Output under the pointer, which is the output the live target resolves against.
     Ref<Output> m_pointerOutput;
 
     Card* m_pressCard = nullptr;
     Ref<Workspace> m_pressWorkspace;
+    bool m_pressThumb = false;    // the press landed on a thumb, so travel reorders workspaces
+    bool m_thumbDragging = false; // that press has moved past kDragThreshold
+    // The window card under the pointer and whether the pointer is on its close button. Compared, never dereferenced.
+    const View* m_hoverView = nullptr;
+    bool m_closeHover = false;
+    // The window whose close button a left press landed on; a release on the same button closes it.
+    const View* m_closePress = nullptr;
+    std::optional<ArrangementMenu> m_menu;
+    // F2 rename of the title row's workspace: the text so far; `fresh` until the first key, which replaces the name.
+    struct Rename {
+      Ref<Workspace> workspace;
+      std::string text;
+      bool fresh = true;
+    };
+    std::optional<Rename> m_rename;
+    uint32_t m_titlePressMsec = 0; // the last press on the title name, for a double-click
     double m_pressX = 0;
     double m_pressY = 0;
     Card* m_middlePressCard = nullptr;
@@ -440,6 +538,7 @@ namespace andromeda {
     int m_dragSourceColumn = -1;
     int m_dragSourceRow = -1;
     std::optional<DropColumnWidth> m_dragSourceWidth;
+    bool m_dragSourcePromotes = false; // lifting the dragged window promoted a stack window into the master area
     DropTarget m_drop{};
     WorkspaceGroup* m_dropWorkspaceGroup = nullptr;
     size_t m_dropWorkspaceIndex = 0;

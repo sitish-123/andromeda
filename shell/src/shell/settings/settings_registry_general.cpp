@@ -215,7 +215,7 @@ namespace settings {
 
     // Wallpaper
     if (env.compositorSettings != nullptr) {
-      addCompositorEntries(entries, *env.compositorSettings);
+      addCompositorEntries(entries, *env.compositorSettings, env.openDetail);
     }
     entries.push_back(makeEntry(
         SettingsSection::Wallpaper, "general", tr("settings.schema.shared.enabled.label"),

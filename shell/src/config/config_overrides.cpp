@@ -1060,6 +1060,8 @@ void ConfigService::setThemeMode(ThemeMode mode) {
 
   auto* themeTbl = ensureTable(m_overridesTable, "theme");
   themeTbl->insert_or_assign("mode", std::string(enumToKey(kThemeModes, mode)));
+  // A light/dark switch is for the whole desktop: a pinned shell mode would leave panels and Settings unchanged.
+  themeTbl->erase("shell_mode");
 
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);

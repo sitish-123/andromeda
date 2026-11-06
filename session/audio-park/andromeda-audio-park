@@ -14,7 +14,7 @@ log() { echo "$*" >&2; }
 silent() {
   local n
   n=$(timeout "$SILENCE" parec -d "$1" --raw --format=s16le --channels=1 --rate=8000 --latency-msec=100 2>/dev/null |
-    tr -d '\0' | head -c1 | wc -c)
+    tr -d '\0' 2>/dev/null | head -c1 | wc -c)
   ((n == 0))
 }
 

@@ -2671,19 +2671,26 @@ namespace andromeda {
   }
 
   bool WorkspaceGroup::moveActiveWorkspace(int direction) {
-    if (m_active == nullptr || m_workspaces.size() < 2 || direction == 0 || m_output == nullptr) {
+    if (m_active == nullptr || direction == 0) {
       return false;
     }
-    const size_t index = m_active->index();
-    const auto target = static_cast<std::ptrdiff_t>(index) + direction;
-    if (target < 0 || target >= static_cast<std::ptrdiff_t>(m_workspaces.size())) {
+    const auto target = static_cast<std::ptrdiff_t>(m_active->index()) + direction;
+    return target >= 0 && moveWorkspace(m_active, static_cast<size_t>(target));
+  }
+
+  bool WorkspaceGroup::moveWorkspace(Workspace* workspace, size_t target) {
+    if (workspace == nullptr || m_workspaces.size() < 2 || m_output == nullptr || target >= m_workspaces.size()) {
+      return false;
+    }
+    const size_t index = workspace->index();
+    if (index == target) {
       return false;
     }
     if (m_dynamic) {
-      if (direction > 0) {
-        const bool targetIsTrailingEmpty = static_cast<size_t>(target) == m_workspaces.size() - 1
-            && !m_workspaces[static_cast<size_t>(target)]->named()
-            && !m_workspaces[static_cast<size_t>(target)]->hasViews();
+      if (target > index) {
+        const bool targetIsTrailingEmpty = target == m_workspaces.size() - 1
+            && !m_workspaces[target]->named()
+            && !m_workspaces[target]->hasViews();
         if (targetIsTrailingEmpty) {
           return false;
         }
@@ -2695,12 +2702,19 @@ namespace andromeda {
       }
     }
     slideFinish();
-    std::swap(m_workspaces[index], m_workspaces[static_cast<size_t>(target)]);
+    const auto first = m_workspaces.begin();
+    const auto from = first + static_cast<std::ptrdiff_t>(index);
+    const auto to = first + static_cast<std::ptrdiff_t>(target);
+    if (target > index) {
+      std::rotate(from, from + 1, to + 1);
+    } else {
+      std::rotate(to, from, from + 1);
+    }
     if (m_dynamic) {
       reconcileDynamic();
       return true;
     }
-    for (const size_t slot : {index, static_cast<size_t>(target)}) {
+    for (size_t slot = std::min(index, target); slot <= std::max(index, target); ++slot) {
       Workspace* moved = m_workspaces[slot].get();
       const bool named = moved->named();
       const std::string name = named ? moved->name() : std::to_string(slot + 1);

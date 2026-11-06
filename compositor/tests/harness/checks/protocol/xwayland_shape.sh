@@ -34,10 +34,10 @@ enabled = false
 [appearance.blur]
 enabled = false
 [overview]
+style = "strip"
 zoom = 0.5
 background_blur = false
 workspace_wallpaper = false
-shortcuts = false
 [output.HEADLESS-1]
 mode = "1280x960"
 scale = $SCALE

@@ -29,7 +29,7 @@ Colors use `#RRGGBB` or `#RRGGBBAA`.
 | `accent_secondary` | Secondary emphasis and group headings.                                  |
 | `warning`          | Warning text and borders.                                               |
 | `error`            | Error text and confirmation borders.                                    |
-| `insert_hint`      | Drop-target preview during dragging.                                    |
+| `insert_hint`      | Drop-target preview during dragging (also the overview's drop outline). |
 | `backdrop`         | Fullscreen background and RGB color of the opaque emergency lock blank. |
 | `shadow`           | Window shadow color.                                                    |
 

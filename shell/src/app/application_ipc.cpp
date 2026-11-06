@@ -10,6 +10,9 @@
 #include "application_internal.h"
 #include "capture/screen_recorder.h"
 #include "cli/schema_msg.h"
+#include "system/default_apps.h"
+#include "system/desktop_entry.h"
+#include "system/desktop_entry_launch.h"
 #include "compositors/compositor_detect.h"
 #include "config/config_types.h"
 #include "core/build_info.h"
@@ -108,6 +111,7 @@
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
@@ -776,6 +780,32 @@ void Application::initIpc() {
       },
       IpcService::HandlerOptions{.actionEditorVisibility = IpcService::ActionEditorVisibility::Hidden}
   );
+
+  m_ipcService.bind(noctalia::cli::msg::defaultAppOpen, [](const std::string& args) -> std::string {
+    using default_apps::Category;
+    static constexpr std::array<std::pair<std::string_view, Category>, 5> kCategories{{
+        {"terminal", Category::Terminal},
+        {"files", Category::FileManager},
+        {"browser", Category::WebBrowser},
+        {"mail", Category::Mail},
+        {"editor", Category::TextEditor},
+    }};
+    const std::string name = StringUtils::trim(args);
+    const auto* match = std::ranges::find(kCategories, std::string_view(name), &std::pair<std::string_view, Category>::first);
+    if (match == kCategories.end()) {
+      return "error: unknown category '" + name + "'\n";
+    }
+    const std::vector<const DesktopEntry*> candidates =
+        default_apps::candidatesForCategory(desktopEntries(), match->second);
+    const std::string current = default_apps::effectiveDefault(match->second);
+    // With no default set, or one that is not installed, the first candidate opens.
+    const auto picked = std::ranges::find(candidates, current, [](const DesktopEntry* e) { return e->id + ".desktop"; });
+    const DesktopEntry* entry = picked != candidates.end() ? *picked : (candidates.empty() ? nullptr : candidates.front());
+    if (entry == nullptr) {
+      return "error: no " + name + " app installed\n";
+    }
+    return desktop_entry_launch::launchEntry(*entry) ? "ok\n" : "error: failed to launch " + entry->id + "\n";
+  });
 
   m_ipcService.bind(
       noctalia::cli::msg::activityCheck,

@@ -2878,10 +2878,6 @@
           "description": "個別設定のないシェルUIで使用する既定時刻形式",
           "label": "時刻形式"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Andromedaのオーバービューで入力するとランチャーを開きます。オーバービュー表示中は、キーボードフォーカス用の小さな領域を使用します",
-          "label": "入力でランチャーを開く"
-        },
         "window-switcher-current-workspace-only": {
           "description": "現在のワークスペースにあるウィンドウのみ表示。無効にすると、すべてのワークスペースのウィンドウを表示します",
           "label": "現在のワークスペースのみ"

@@ -1,6 +1,3 @@
-#include "shell/bar/bar.h"
-
-#include "shell/bar/bar_internal.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -14,22 +11,25 @@
 #include "ipc/ipc_service.h"
 #include "render/render_context.h"
 #include "render/scene/input_area.h"
+#include "shell/bar/bar.h"
 #include "shell/bar/bar_corner_shape.h"
+#include "shell/bar/bar_internal.h"
 #include "shell/bar/bar_reserved_zone.h"
+#include "shell/bar/island_aside.h"
 #include "shell/bar/widget.h"
 #include "shell/bar/widget_gesture_defaults.h"
 #include "shell/bar/widgets/plugin_widget.h"
-#include "shell/bar/widgets/taskbar_widget.h"
 #include "shell/bar/widgets/spacer_widget.h"
+#include "shell/bar/widgets/taskbar_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/panel/panel_manager.h"
-#include "wayland/dsk_surface_client.h"
-#include "ui/surface_shadow.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "ui/surface_shadow.h"
 #include "util/string_utils.h"
+#include "wayland/dsk_surface_client.h"
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
@@ -328,21 +328,109 @@ namespace bar_detail {
     }
   }
 
+  namespace {
+
+    constexpr std::array<std::size_t, 2> kAsideIslands{0, 2};
+
+    [[nodiscard]] Node* asideSlot(const BarInstance& instance, std::size_t side) {
+      return side == 0 ? instance.startSlot : instance.endSlot;
+    }
+
+    [[nodiscard]] std::array<float, 4> nodeRect(const Node& node) {
+      return {node.x(), node.y(), node.width(), node.height()};
+    }
+
+  } // namespace
+
+  void captureIslandAsideRest(BarInstance& instance) {
+    for (std::size_t side = 0; side < kAsideIslands.size(); ++side) {
+      auto& rest = instance.overviewAsideRest[side];
+      if (const Node* slot = asideSlot(instance, side); slot != nullptr) {
+        rest.slotX = slot->x();
+        rest.slotY = slot->y();
+      }
+      const Box* island = instance.islands[kAsideIslands[side]];
+      // Only a shown island was just placed by layoutBarIslands; a hidden one keeps its last rest.
+      if (island == nullptr || !island->visible()) {
+        continue;
+      }
+      rest.island = nodeRect(*island);
+      if (const Box* shadow = instance.islandShadows[kAsideIslands[side]]; shadow != nullptr) {
+        rest.shadow = nodeRect(*shadow);
+      }
+    }
+  }
+
+  void applyIslandAside(BarInstance& instance) {
+    const bool isVertical = instance.barConfig.position == "left" || instance.barConfig.position == "right";
+    const float progress = std::clamp(instance.overviewAsideProgress, 0.0F, 1.0F);
+    const float opacity = 1.0F - progress;
+    for (std::size_t side = 0; side < kAsideIslands.size(); ++side) {
+      const auto& rest = instance.overviewAsideRest[side];
+      const bool towardStart = side == 0;
+      const float shift = islandAsideShift(rest.island, progress, towardStart, isVertical);
+      if (Node* slot = asideSlot(instance, side); slot != nullptr) {
+        slot->setPosition(rest.slotX + (isVertical ? 0.0F : shift), rest.slotY + (isVertical ? shift : 0.0F));
+        slot->setOpacity(opacity);
+      }
+      Box* island = instance.islands[kAsideIslands[side]];
+      Box* shadow = instance.islandShadows[kAsideIslands[side]];
+      // Opacity on hidden islands too: layout restores their geometry when they show, not their opacity.
+      if (island != nullptr) {
+        island->setOpacity(opacity);
+      }
+      if (shadow != nullptr) {
+        shadow->setOpacity(opacity);
+      }
+      if (island == nullptr || !island->visible()) {
+        continue;
+      }
+      const auto rect = islandAsideRect(rest.island, progress, towardStart, isVertical);
+      island->setPosition(rect[0], rect[1]);
+      island->setSize(rect[2], rect[3]);
+      island->setRadius(std::min(rect[2], rect[3]) * 0.5F);
+      if (shadow == nullptr || !instance.islandShadowStyle.has_value()) {
+        continue;
+      }
+      const auto shadowRect = islandAsideRect(rest.shadow, progress, towardStart, isVertical);
+      RoundedRectStyle shadowStyle = *instance.islandShadowStyle;
+      shadowStyle.radius = std::min(shadowRect[2], shadowRect[3]) * 0.5F;
+      shadow->setStyle(shadowStyle);
+      shadow->setPosition(shadowRect[0], shadowRect[1]);
+      shadow->setSize(shadowRect[2], shadowRect[3]);
+    }
+  }
 
 } // namespace
 
 void Bar::syncSheetTracker(BarInstance& instance) {
   dsk_surface_manager_v1* manager = m_platform != nullptr ? m_platform->wayland().dskSurfaceManager() : nullptr;
   Box* island = instance.islands[2];
-  if (manager == nullptr || instance.surface == nullptr || instance.surface->wlSurface() == nullptr
-      || !instance.barConfig.islands || instance.barConfig.position != "top" || island == nullptr || !island->visible()) {
+  if (manager == nullptr
+      || instance.surface == nullptr
+      || instance.surface->wlSurface() == nullptr
+      || !instance.barConfig.islands
+      || instance.barConfig.position != "top"
+      || island == nullptr
+      || !island->visible()
+      || instance.overviewAside) {
     instance.sheetTracker.reset();
     return;
   }
   float x = 0.0F;
   float y = 0.0F;
   Node::absolutePosition(island, x, y);
-  const std::array<float, 4> rect{x, y, island->width(), island->height()};
+  std::array<float, 4> rect{x, y, island->width(), island->height()};
+  // Still coming back from the overview: track where the island rests, not where it is mid-flight.
+  if (instance.overviewAsideProgress > 0.0F) {
+    float px = 0.0F;
+    float py = 0.0F;
+    if (island->parent() != nullptr) {
+      Node::absolutePosition(island->parent(), px, py);
+    }
+    const auto& rest = instance.overviewAsideRest[1].island;
+    rect = {px + rest[0], py + rest[1], rest[2], rest[3]};
+  }
   if (instance.sheetTracker != nullptr && rect == instance.sheetTrackerRect) {
     return;
   }

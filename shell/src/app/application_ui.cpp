@@ -158,10 +158,7 @@ namespace {
   constexpr Logger kLog("app");
 
   [[nodiscard]] bool overviewTypeToLaunchEnabled(const ConfigService& configService) {
-    if (compositors::isAndromeda()) {
-      return configService.config().shell.andromedaOverviewTypeToLaunchEnabled;
-    }
-
+    // Andromeda's overview filters its windows as you type and hands an unmatched query to the launcher itself.
     if (compositors::isNiri()) {
       return configService.config().shell.niriOverviewTypeToLaunchEnabled;
     }
@@ -1294,6 +1291,10 @@ void Application::initWidgetControllersAndCallbacks() {
   });
   m_desktopWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
   m_lockscreenWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
+  // The editor is a full-screen preview on the overlay layer: the island must not draw over its top bar.
+  m_lockscreenWidgetsController.setLockEditorOpenChangedCallback([this](bool open) {
+    m_liveActivity.setUnderEditor(open);
+  });
   const auto restoreSettingsAfterWidgetEditor = [this] {
     DeferredCall::callLater([this] {
       if (!m_desktopWidgetsController.isEditing() && !m_lockscreenWidgetsController.isEditing()) {

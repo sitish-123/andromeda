@@ -99,6 +99,8 @@ public:
   void setActivity(std::optional<LiveActivity> activity);
   // A fullscreen window: the rest pill hides under it; other faces and an active call still show over it.
   void setFullscreen(bool fullscreen);
+  // The lock screen editor is open: every face goes under it, so a banner never covers the editor's top bar.
+  void setUnderEditor(bool underEditor);
   // IPC: "none" or "title|subtitle|secondary glyph|primary glyph"; press runs the button's action.
   [[nodiscard]] std::string describeActivity() const;
   bool pressActivityButton(bool secondary);
@@ -353,4 +355,5 @@ private:
   bool m_refreshScheduled = false;
   std::vector<std::unique_ptr<Instance>> m_instances;
   bool m_fullscreen = false;
+  bool m_underEditor = false;
 };

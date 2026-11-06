@@ -307,7 +307,8 @@ namespace {
   }
 
   [[nodiscard]] bool dockSmartAutoHideWantsPinnedVisible(const CompositorPlatform& platform, wl_output* output) {
-    if (platform.hasOverviewState() && platform.isOverviewOpen()) {
+    // The Andromeda overview sends the dock away instead (setOverviewSteppedAside).
+    if (platform.hasOverviewState() && platform.isOverviewOpen() && !platform.overviewStepsChromeAside()) {
       return true;
     }
     return !activeWorkspaceHasWindows(platform, output);
@@ -436,6 +437,8 @@ void Dock::unsuppressDisplay() {
   if (m_hadInstancesBeforeOverlaySuppress) {
     show();
   }
+  // The overview may have opened or closed while suppressed.
+  scheduleSmartAutoHideReevaluation();
 }
 
 void Dock::pruneCachedToplevelHandles() {
@@ -553,6 +556,7 @@ bool Dock::onPointerEvent(const PointerEvent& event) {
     updateHoverZoomPointer(*m_hoveredInstance, static_cast<float>(event.sx), static_cast<float>(event.sy));
     // Auto-hide: show the dock when the pointer enters.
     if (dockPointerHideAllowed(m_hoveredInstance->config, *m_hoveredInstance)
+        && !m_hoveredInstance->overviewSteppedAside
         && m_hoveredInstance->sceneRoot != nullptr) {
       shell::dock::animateDockHide(*m_hoveredInstance, 1.0F);
       // Restore full input region (full surface so shadow-margin edges don't
@@ -736,9 +740,19 @@ void Dock::reevaluateSmartAutoHide() {
     return;
   }
 
+  const bool overviewAside = m_platform->overviewStepsChromeAside();
   for (const auto& instanceUp : m_instances) {
     shell::dock::DockInstance* instance = instanceUp.get();
     if (instance == nullptr || instance->surface == nullptr) {
+      continue;
+    }
+    if (overviewAside != instance->overviewSteppedAside) {
+      if (overviewAside && m_popupOwnerInstance == instance) {
+        closeItemMenu();
+      }
+      shell::dock::setOverviewSteppedAside(*instance, overviewAside);
+    }
+    if (instance->overviewSteppedAside) {
       continue;
     }
     const auto& cfg = instance->config;

@@ -13,6 +13,20 @@ pub enum Event {
     Progress(String, i32, String),
 }
 
+/// What an upgrade covers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Scope {
+    /// The full system upgrade.
+    All,
+    /// Only the packages of the Andromeda apt source; refused when they need a newer system package.
+    Andromeda,
+}
+
+/// The message start the page shows as "update the system first".
+pub const NEEDS_SYSTEM: &str = "needs a system update first";
+
+const LISTS: &str = "/var/lib/apt/lists";
+
 pub struct Outcome {
     /// Packages the transaction installs or upgrades ("name version"), then those it removes ("-name").
     pub targets: Vec<String>,
@@ -63,10 +77,14 @@ fn status(line: &str) -> Option<Event> {
 /// `dry_run`: plans against the lists as they are (no refresh) and lists the targets. Otherwise refreshes, plans and
 /// commits. `before_commit` runs once the commit is certain (the snapshot); its error stops the upgrade.
 pub fn upgrade(
+    scope: Scope,
     dry_run: bool,
     events: &tokio::sync::mpsc::UnboundedSender<Event>,
     before_commit: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Outcome> {
+    if scope == Scope::Andromeda {
+        return upgrade_andromeda(dry_run, events, before_commit);
+    }
     if !dry_run {
         let out = apt_get().args(["-qq", "update"]).output().context("apt-get update")?;
         if !out.status.success() {
@@ -88,7 +106,7 @@ pub fn upgrade(
     }
     before_commit()?;
     if apt_installs {
-        apt_upgrade(events)?;
+        apt_upgrade(&["dist-upgrade"], events)?;
     }
     if !snaps.is_empty() {
         let _ = events.send(Event::Progress("snaps".into(), 0, String::new()));
@@ -98,6 +116,69 @@ pub fn upgrade(
         }
     }
     Ok(Outcome { targets, questions, committed: true })
+}
+
+/// Refreshes only the Andromeda source (the other lists stay as the installed system came from them), then upgrades
+/// the installed packages it offers.
+fn upgrade_andromeda(
+    dry_run: bool,
+    events: &tokio::sync::mpsc::UnboundedSender<Event>,
+    before_commit: &mut dyn FnMut() -> Result<()>,
+) -> Result<Outcome> {
+    if !dry_run {
+        let source = format!("Dir::Etc::sourcelist={}", andromeda_update::repo::APT_SOURCE);
+        let out = apt_get()
+            .args(["-qq", "-o", &source, "-o", "Dir::Etc::sourceparts=-", "-o", "APT::Get::List-Cleanup=0", "update"])
+            .output()
+            .context("apt-get update")?;
+        if !out.status.success() {
+            bail!("apt-get update: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+    }
+    let ours = andromeda_update::repo::apt_names(std::path::Path::new(LISTS));
+    if ours.is_empty() {
+        bail!("no Andromeda apt source");
+    }
+    let mut args = vec!["install".to_owned(), "--only-upgrade".to_owned()];
+    args.extend(ours.iter().cloned());
+    let sim = apt_get().arg("-s").args(&args).output().context("apt-get -s install")?;
+    if !sim.status.success() {
+        let err = String::from_utf8_lossy(&sim.stderr);
+        // Our packages depend on newer system packages than the installed system's lists offer.
+        if String::from_utf8_lossy(&sim.stdout).contains("unmet dependencies") || err.contains("unmet dependencies") {
+            bail!("{NEEDS_SYSTEM}: {}", err.trim());
+        }
+        bail!("apt-get -s install: {}", err.trim());
+    }
+    let text = String::from_utf8_lossy(&sim.stdout);
+    let system = system_upgrades(&text, &ours);
+    if !system.is_empty() {
+        bail!("{NEEDS_SYSTEM}: {}", system.join(", "));
+    }
+    let (mut targets, removed) = plan(&text);
+    let questions: Vec<String> = removed.iter().map(|name| format!("remove {name}")).collect();
+    targets.extend(removed.iter().map(|name| format!("-{name}")));
+    if dry_run || !questions.is_empty() || targets.is_empty() {
+        return Ok(Outcome { targets, questions, committed: false });
+    }
+    before_commit()?;
+    // The exact planned versions: lists that changed since the plan cannot widen the install.
+    let mut args = vec!["install".to_owned(), "--only-upgrade".to_owned()];
+    args.extend(targets.iter().filter_map(|t| t.split_once(' ')).map(|(name, version)| format!("{name}={version}")));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    apt_upgrade(&args, events)?;
+    Ok(Outcome { targets, questions, committed: true })
+}
+
+/// Installed packages outside `ours` that an `apt-get -s` plan upgrades (`Inst name [old] ...`).
+fn system_upgrades(text: &str, ours: &std::collections::HashSet<String>) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.strip_prefix("Inst ")?.split_whitespace();
+            let name = parts.next()?;
+            (parts.next()?.starts_with('[') && !ours.contains(name)).then(|| name.to_owned())
+        })
+        .collect()
 }
 
 /// "name version" for each pending snap refresh; none when snapd is not installed.
@@ -125,17 +206,19 @@ fn snap_targets(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn apt_upgrade(events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<()> {
+fn apt_upgrade(action: &[&str], events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<()> {
     // --no-remove: a removal that appears after the plan aborts instead of being taken.
     let mut child = apt_get()
-        .args(["-y", "-q", "--no-remove", "dist-upgrade", "-o", "APT::Status-Fd=1"])
+        .args(["-y", "-q", "--no-remove"])
+        .args(action)
+        .args(["-o", "APT::Status-Fd=1"])
         .args(["-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         // stderr goes to the journal: a second pipe nobody drains could fill and stall apt.
         .stderr(Stdio::inherit())
         .spawn()
-        .context("apt-get dist-upgrade")?;
+        .context("apt-get upgrade")?;
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if let Some(event) = status(&line) {
@@ -143,9 +226,9 @@ fn apt_upgrade(events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<()>
             }
         }
     }
-    let code = child.wait().context("apt-get dist-upgrade")?;
+    let code = child.wait().context("apt-get upgrade")?;
     if !code.success() {
-        bail!("apt-get dist-upgrade failed ({code}); see the journal of andromeda-update-helper");
+        bail!("apt-get {} failed ({code}); see the journal of andromeda-update-helper", action[0]);
     }
     Ok(())
 }

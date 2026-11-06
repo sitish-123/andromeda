@@ -97,6 +97,8 @@ namespace andromeda {
       blurOptions = view->popupBlurOptions();
       region = view->clientBlurRegion(surface);
     }
+    // A popup lies over its parent's content, never on the bare wallpaper the optimized blur caches.
+    blurOptions.optimized = false;
     // A client blur region turns popup blur on, as it does for windows; it is the exact shape, so no alpha test.
     if (region != nullptr && pixman_region32_not_empty(region)) {
       blurOptions.enabled = true;

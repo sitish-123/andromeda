@@ -76,6 +76,7 @@ class SystemBus;
 class ThumbnailService;
 class UPowerService;
 class ShellWaylandConnection;
+struct zwp_keyboard_shortcuts_inhibitor_v1;
 struct KeyboardEvent;
 struct PointerEvent;
 struct wl_output;
@@ -300,6 +301,7 @@ private:
   void addSoundContent(float scale);
   void addUsersContent(float scale);
   void addPowerContent(float scale);
+  void addWorkspacesContent(float scale);
   void addAboutContent(float scale);
   void openDetail(std::string detail);
   void leaveDetail();
@@ -374,6 +376,7 @@ private:
   void dismissOpenSelectDropdown();
 
   ShellWaylandConnection* m_wayland = nullptr;
+  zwp_keyboard_shortcuts_inhibitor_v1* m_shortcutsInhibitor = nullptr;
   CompositorPlatform* m_platform = nullptr;
   IdleManager* m_idleManager = nullptr;
   ConfigService* m_config = nullptr;
@@ -578,6 +581,7 @@ private:
   bool m_pendingEncryptedStorageReset = false;
   std::function<void()> m_openDesktopWidgetEditor;
   std::function<void()> m_openLockscreenWidgetEditor;
+  bool m_sidebarMoreExpanded = false;
   std::function<void()> m_openWallpaperPanel;
   std::function<void()> m_syncGreeterAppearance;
   std::function<void()> m_resetLauncherUsage;

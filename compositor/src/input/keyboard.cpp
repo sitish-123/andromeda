@@ -520,8 +520,12 @@ namespace andromeda {
       if (!modifierOnly && nsyms > 0) {
         m_server->cursor()->noteTyping();
       }
-      // IME echoes must not cancel the original key's pending tap.
-      if (!m_server->inputMethodRelay()->ownsKeyboard(m_keyboard)) {
+      // IME echoes must not cancel the original key's pending tap. While Settings records a chord, a lone modifier
+      // is part of that chord and must not arm its own bind.
+      const DesktopSettingsManager* recorder = m_server->desktopSettingsManager();
+      if (recorder != nullptr && recorder->capturingChord()) {
+        m_server->cancelModifierTap();
+      } else if (!m_server->inputMethodRelay()->ownsKeyboard(m_keyboard)) {
         m_server->armModifierTap(
             this, event->keycode, std::span<const uint32_t>(syms, nsyms > 0 ? static_cast<size_t>(nsyms) : 0), modifiers
         );
@@ -617,7 +621,8 @@ namespace andromeda {
       // panel) holds the keyboard: its Escape/arrows belong to it, not to the filmstrip.
       if (!handled && seat->keyboard_state.focused_surface == nullptr) {
         Overview* overview = m_server->overview();
-        const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2);
+        // Shift stays plain: it types capitals into the filter and turns Tab into a step back.
+        const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2 | WLR_MODIFIER_SHIFT);
         if (overview != nullptr && overview->interactive() && plain == 0) {
           for (int i = 0; i < nsyms && !handled; ++i) {
             handled = overview->handleFallbackKey(syms[i]);

@@ -3350,10 +3350,6 @@
           "description": "Formato de hora predeterminado para la interfaz del shell sin configuración propia",
           "label": "Formato de hora"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Abre el lanzador al escribir en la vista general de Andromeda; utiliza una superficie diminuta para el foco del teclado mientras la vista general está abierta",
-          "label": "Escribe para lanzar"
-        },
         "window-switcher-current-workspace-only": {
           "description": "Mostrar solo las ventanas del espacio de trabajo activo. Desactiva esta opción para incluir las ventanas de todos los espacios de trabajo.",
           "label": "Solo el espacio de trabajo actual"

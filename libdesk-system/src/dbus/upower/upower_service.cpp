@@ -8,6 +8,7 @@
 #include "util/sys_utils.h"
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cmath>
 #include <map>
@@ -328,7 +329,12 @@ bool UPowerDeviceInfo::sameCatalogEntry(const UPowerDeviceInfo& other) const {
 }
 
 bool upowerDeviceMatchesSelector(const UPowerDeviceInfo& info, std::string_view selector) {
-  const std::string trimmed = StringUtils::trim(selector);
+  std::string trimmed = StringUtils::trim(selector);
+  // Configs saved before andromeda-system name devices by UPower path; its object name is our path's last segment.
+  constexpr std::string_view kUPowerDevicePrefix = "/org/freedesktop/UPower/devices/";
+  if (trimmed.starts_with(kUPowerDevicePrefix)) {
+    trimmed.erase(0, kUPowerDevicePrefix.size());
+  }
   if (trimmed.empty()) {
     return false;
   }
@@ -861,11 +867,21 @@ bool UPowerService::refreshDefaultState() {
     return false;
   }
 
-  m_state = next;
+  setState(next);
   if (m_changeCallback) {
     m_changeCallback(UPowerChange{.origin = ChangeOrigin::DeviceState});
   }
   return true;
+}
+
+void UPowerService::setState(UPowerState next) {
+  if (next.state != BatteryState::Discharging) {
+    m_unpluggedAt = 0;
+  } else if (m_state.state != BatteryState::Discharging && m_state.state != BatteryState::Unknown) {
+    m_unpluggedAt = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+  }
+  m_state = next;
 }
 
 UPowerService::RefreshChanges UPowerService::refreshTrackedDevice(TrackedDevice& device, bool refreshChargeLimit) {
@@ -914,7 +930,7 @@ void UPowerService::emitChangedIfNeeded(bool devicesChanged, bool chargeLimitCha
     return;
   }
 
-  m_state = readDefaultState();
+  setState(readDefaultState());
   if (m_changeCallback) {
     m_changeCallback(UPowerChange{.origin = ChangeOrigin::DeviceState, .deviceCatalogChanged = deviceCatalogChanged});
   }

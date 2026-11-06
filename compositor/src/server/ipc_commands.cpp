@@ -4,6 +4,7 @@
 #include "config/config.h"
 #include "input/cursor.h"
 #include "input/input_capture.h"
+#include "overview/overview.h"
 #include "layer/layer_surface.h"
 #include "output/identity.h"
 #include "output/output.h"
@@ -297,7 +298,7 @@ namespace andromeda {
         std::println("  Enabled: {}", output.value("enabled", false) ? "yes" : "no");
         std::println("  Power: {}", output.value("powered", false) ? "on" : "off");
         std::println("  Focused: {}", output.value("focused", false) ? "yes" : "no");
-        const std::string workspace = output.value("active_workspace", "");
+        const std::string workspace = output.value("active_workspace_name", "");
         std::println("  Active workspace: {}", workspace.empty() ? "-" : workspace);
         if (output.at("config_name").is_string()) {
           std::println("  Config name: \"{}\"", output.at("config_name").get<std::string>());
@@ -688,7 +689,7 @@ namespace andromeda {
       entry["tab_hidden"] = view.tabHidden();
       entry["minimizable"] = view.minimizable();
       entry["minimized"] = view.minimized();
-      entry["snap"] = view.snapRegion() ? nlohmann::json(snapRegionName(*view.snapRegion())) : nlohmann::json(nullptr);
+      entry["snap"] = view.snapSpot() ? nlohmann::json(snapSpotName(*view.snapSpot())) : nlohmann::json(nullptr);
       entry["border_effect"] = effectSlotJson(view.effectSlot(EffectKind::Border), true);
       entry["window_effect"] = effectSlotJson(view.effectSlot(EffectKind::Window));
       // Workspace-local remembered focus. Seat-global activation is reported
@@ -851,6 +852,7 @@ namespace andromeda {
             {"urgent", std::ranges::any_of(views, [](const View* view) { return view->urgent(); })},
             {"layout", layoutModeName(workspace->layoutMode())},
             {"layout_override", workspace->layoutModeOverride().has_value()},
+            {"label", workspace->displayName()},
         });
       }
     }
@@ -994,6 +996,7 @@ namespace andromeda {
           {"powered", desktopEnabled && !output->dpmsOff()},
           {"focused", output.get() == preferred},
           {"active_workspace", activeWorkspace != nullptr ? activeWorkspace->id() : ""},
+          {"active_workspace_name", activeWorkspace != nullptr ? activeWorkspace->name() : ""},
           {"position", {{"x", layoutBox.x}, {"y", layoutBox.y}}},
           {"logical_size",
            {{"width", desktopEnabled ? layoutBox.width : 0}, {"height", desktopEnabled ? layoutBox.height : 0}}},
@@ -1266,6 +1269,40 @@ namespace andromeda {
   }
 
 #ifdef ANDROMEDA_TEST_IPC
+  nlohmann::json IpcCommands::pinchForTest(Server& server, std::string_view arg) {
+    std::istringstream input{std::string(arg)};
+    std::string phase;
+    uint32_t time = 0;
+    double value = 0;
+    input >> phase >> time >> value;
+    std::string extra;
+    if (input.fail() || (input >> extra) || !std::isfinite(value)
+        || (phase != "begin" && phase != "update" && phase != "end")) {
+      return nlohmann::json{{"err", "expected begin <ms> <fingers>, update <ms> <scale>, or end <ms> <cancelled:0|1>"}};
+    }
+    wlr_cursor* cursor = server.cursor()->wlr();
+    if (phase == "begin") {
+      wlr_pointer_pinch_begin_event event{
+          .pointer = nullptr, .time_msec = time, .fingers = static_cast<uint32_t>(value)
+      };
+      wl_signal_emit_mutable(&cursor->events.pinch_begin, &event);
+    } else if (phase == "update") {
+      wlr_pointer_pinch_update_event event{
+          .pointer = nullptr, .time_msec = time, .fingers = 4, .dx = 0, .dy = 0, .scale = value, .rotation = 0
+      };
+      wl_signal_emit_mutable(&cursor->events.pinch_update, &event);
+    } else {
+      wlr_pointer_pinch_end_event event{.pointer = nullptr, .time_msec = time, .cancelled = value != 0};
+      wl_signal_emit_mutable(&cursor->events.pinch_end, &event);
+    }
+    const Overview* overview = server.overview();
+    return nlohmann::json{
+        {"ok",
+         {{"active", overview != nullptr && overview->active()},
+          {"progress", overview != nullptr ? overview->progress() : 0.0}}}
+    };
+  }
+
   nlohmann::json IpcCommands::swipeForTest(Server& server, std::string_view arg) {
     std::istringstream input{std::string(arg)};
     std::string phase;
@@ -1468,6 +1505,8 @@ namespace andromeda {
        IpcCommandGroup::Harness, false, &IpcCommands::clockResume, nullptr},
       {"swipe-test", "<begin|update|end> <ms> [dx dy|cancelled]", "inject three-finger swipe events (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::swipeForTest, nullptr},
+      {"pinch-test", "<begin|update|end> <ms> <fingers|scale|cancelled>", "inject pinch events (harness only)",
+       IpcCommandGroup::Harness, true, &IpcCommands::pinchForTest, nullptr},
       {"animation-capture-fail", "<on|off>", "inject animation capture failure (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::animationCaptureFail, nullptr},
       {"blur-composite-split", "<on|off>",

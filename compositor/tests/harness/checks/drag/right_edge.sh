@@ -33,6 +33,7 @@ drag_opacity = 0.0
 default_extent_fraction = 0.5
 
 [overview]
+style = "strip"
 zoom = 0.5
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null

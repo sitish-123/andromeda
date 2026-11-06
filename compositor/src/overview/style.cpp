@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 
 namespace andromeda::ov {
 
@@ -23,10 +24,11 @@ namespace andromeda::ov {
     constexpr double kTaskViewTitleY = 22;
     constexpr double kMinimizedOpacity = 0.55;
 
-    constexpr double kStripScale = 0.36;
-    constexpr double kStripRowGap = 60;
+    constexpr double kStripGap = 60; // between Strip rows: room for the next row's name above it (prototype)
     constexpr double kStripFilterY = 14;
-    constexpr double kPlusShare = 0.45; // the Strip's New row is this share of a row's height
+    constexpr double kPlusShare = 0.45; // the Strip's New row is this share of a row's extent along the axis
+    constexpr double kDimmed = 0.5;
+    constexpr double kHiddenFade = 3; // a window the placement hides is gone a third of the way into the open
 
     constexpr double kGridMaxWidthShare = 0.2875; // 368 px tiles on a 1280 px output
     constexpr double kGridGapX = 28;
@@ -47,7 +49,23 @@ namespace andromeda::ov {
 
     Fit thumbFit(const Rect& card, double outputWidth) { return {card.w / outputWidth, card.x, card.y}; }
 
-    // Members of a non-current workspace fly into its thumb and fade, so closing lands them in place.
+    // The part of `desk` outside the output, so a window shrunk into a workspace miniature stays inside it.
+    std::optional<Insets> outputClip(const Rect& r, const Input& in) {
+      const Insets cut{
+          std::max(0.0, -r.y), std::max(0.0, r.x + r.w - in.width), std::max(0.0, r.y + r.h - in.height),
+          std::max(0.0, -r.x)
+      };
+      return cut == Insets{} ? std::nullopt : std::optional<Insets>{cut};
+    }
+
+    // A member wholly off the output has nothing left after outputClip, so it is not drawn.
+    double memberOpacity(const Member& m, const Input& in) {
+      const bool onOutput =
+          m.desk.x < in.width && m.desk.x + m.desk.w > 0 && m.desk.y < in.height && m.desk.y + m.desk.h > 0;
+      return m.minimized || !onOutput ? 0.0 : 1.0;
+    }
+
+    // Members of a non-current workspace shrink into its thumb, cut to the output, so the thumb is a live miniature.
     void placeIntoCards(Placement& out, const Input& in) {
       for (const Card& card : out.cards) {
         if (card.workspace == in.current && card.kind == CardKind::Thumb) {
@@ -55,9 +73,9 @@ namespace andromeda::ov {
         }
         const Fit fit = thumbFit(card.rect, in.width);
         for (const Member& m : in.workspaces[card.workspace].members) {
-          out.windows.push_back(
-              win(m.id, card.workspace, mapRect(m.desk, fit), card.kind == CardKind::Thumb ? 0.0 : 1.0)
-          );
+          WindowPlace w = win(m.id, card.workspace, mapRect(m.desk, fit), memberOpacity(m, in));
+          w.clip = outputClip(m.desk, in);
+          out.windows.push_back(w);
         }
       }
     }
@@ -83,11 +101,21 @@ namespace andromeda::ov {
       const double mainBottom = top ? in.height - kMainBottom : y - kMainBottom;
       const Rect main{kMargin, mainY, in.width - 2 * kMargin, std::max(1.0, mainBottom - mainY)};
       out.main = main;
+      out.mainFit = fitIn({0, 0, in.width, in.height}, main);
       out.title = Point{kMargin, titleY};
       out.filter = Point{in.width - kMargin - kFilterWidth, titleY};
 
       if (in.current < n) {
         const Workspace& ws = in.workspaces[in.current];
+        for (const Member& m : ws.members) {
+          const double x0 = std::max(0.0, m.desk.x);
+          const double y0 = std::max(0.0, m.desk.y);
+          const double x1 = std::min(in.width, m.desk.x + m.desk.w);
+          const double y1 = std::min(in.height, m.desk.y + m.desk.h);
+          if (!m.minimized && x1 > x0 && y1 > y0) {
+            out.currentDesk.push_back({x0, y0, x1 - x0, y1 - y0});
+          }
+        }
         if (!top || ws.arrangement == Arrangement::Free) {
           std::vector<ExposeItem> items;
           items.reserve(ws.members.size());
@@ -115,6 +143,7 @@ namespace andromeda::ov {
             content = {x0 - 8, u.y, x1 - x0 + 16, u.h};
           }
           const Fit fit = fitIn(content, main);
+          out.mainFit = fit;
           if (ws.arrangement == Arrangement::Scrolling) {
             out.viewport = mapRect({u.x - 4, u.y - 4, u.w + 8, u.h + 8}, fit);
           }
@@ -133,26 +162,68 @@ namespace andromeda::ov {
       return out;
     }
 
+    // Rows are whole pixels, so a column scrolled by whole rows puts every row on the pixel grid.
     Placement placeStrip(const Input& in) {
       Placement out;
       const size_t n = in.workspaces.size();
-      const double fw = in.width * kStripScale;
-      const double fh = in.height * kStripScale;
-      const double fx = (in.width - fw) / 2;
-      const double pitch = fh + kStripRowGap;
+      const double s = std::clamp(in.stripScale, 0.05, 1.0);
+      const double fw = std::max(1.0, std::round(in.width * s));
+      const double fh = std::max(1.0, std::round(in.height * s));
+      const double fx = std::round((in.width - fw) / 2);
+      const double fy = std::round((in.height - fh) / 2);
+      const double step = (in.horizontal ? fw : fh) + kStripGap;
       const double row = in.stripRow.value_or(static_cast<double>(in.current));
-      const auto rowY = [&](double i) { return (in.height - fh) / 2 + (i - row) * pitch; };
+      const auto frameAt = [&](double i) {
+        const double offset = (i - row) * step;
+        return in.horizontal ? Rect{fx + offset, fy, fw, fh} : Rect{fx, fy + offset, fw, fh};
+      };
       for (size_t i = 0; i < n; ++i) {
-        const Rect frame{fx, rowY(static_cast<double>(i)), fw, fh};
+        const Rect frame = frameAt(static_cast<double>(i));
         out.cards.push_back({i, frame, CardKind::Frame});
-        const Fit fit{kStripScale, frame.x, frame.y};
+        const Fit fit{s, frame.x, frame.y};
         for (const Member& m : in.workspaces[i].members) {
           const bool away = in.workspaces[i].arrangement == Arrangement::Scrolling && offscreen(m.desk, in.width);
           out.windows.push_back(win(m.id, i, mapRect(m.desk, fit), m.minimized ? 0.0 : 1.0, away));
         }
       }
-      out.plus = Rect{fx, rowY(static_cast<double>(n)), fw, fh * kPlusShare};
+      Rect plus = frameAt(static_cast<double>(n));
+      (in.horizontal ? plus.w : plus.h) *= kPlusShare;
+      out.plus = plus;
       out.filter = Point{in.width / 2 - kFilterWidth / 2, kStripFilterY};
+      return out;
+    }
+
+    double lerp(double a, double b, double t) { return a + (b - a) * t; }
+
+    Insets lerpInsets(const Insets& a, const Insets& b, double t) {
+      return {lerp(a.top, b.top, t), lerp(a.right, b.right, t), lerp(a.bottom, b.bottom, t), lerp(a.left, b.left, t)};
+    }
+
+    // Spaces and Task View between two chosen workspaces: every window and card moves from its place in `a` to its
+    // place in `b`; the chrome jumps at the halfway point.
+    Placement blend(const Placement& a, const Placement& b, double t) {
+      Placement out = t < 0.5 ? a : b;
+      out.windows.clear();
+      for (const WindowPlace& from : a.windows) {
+        const WindowPlace* to = findWindow(b, from.id);
+        if (to == nullptr) {
+          out.windows.push_back(from);
+          continue;
+        }
+        WindowPlace w = t < 0.5 ? from : *to;
+        w.rect = lerpRect(from.rect, to->rect, t);
+        w.opacity = lerp(from.opacity, to->opacity, t);
+        if (from.clip || to->clip) {
+          w.clip = lerpInsets(from.clip.value_or(Insets{}), to->clip.value_or(Insets{}), t);
+        }
+        out.windows.push_back(w);
+      }
+      for (size_t i = 0; i < out.cards.size() && i < a.cards.size() && i < b.cards.size(); ++i) {
+        out.cards[i].rect = lerpRect(a.cards[i].rect, b.cards[i].rect, t);
+      }
+      if (a.viewport && b.viewport) {
+        out.viewport = lerpRect(*a.viewport, *b.viewport, t);
+      }
       return out;
     }
 
@@ -182,15 +253,8 @@ namespace andromeda::ov {
         out.cards.push_back({i, tile, CardKind::Tile});
         const Fit fit = thumbFit(tile, in.width);
         for (const Member& m : in.workspaces[i].members) {
-          WindowPlace w = win(m.id, i, mapRect(m.desk, fit), m.minimized ? 0.0 : 1.0);
-          const Rect& r = m.desk;
-          const Insets cut{
-              std::max(0.0, -r.y), std::max(0.0, r.x + r.w - in.width), std::max(0.0, r.y + r.h - in.height),
-              std::max(0.0, -r.x)
-          };
-          if (cut != Insets{}) {
-            w.clip = cut;
-          }
+          WindowPlace w = win(m.id, i, mapRect(m.desk, fit), memberOpacity(m, in));
+          w.clip = outputClip(m.desk, in);
           out.windows.push_back(w);
         }
       }
@@ -232,6 +296,55 @@ namespace andromeda::ov {
   const WindowPlace* findWindow(const Placement& placement, uint32_t id) {
     const auto it = std::ranges::find(placement.windows, id, &WindowPlace::id);
     return it == placement.windows.end() ? nullptr : &*it;
+  }
+
+  Placement placeAt(Style style, Input input, double row) {
+    const size_t n = input.workspaces.size();
+    if (n == 0) {
+      return place(style, input);
+    }
+    row = std::clamp(row, 0.0, static_cast<double>(n - 1));
+    input.current = static_cast<size_t>(std::lround(row));
+    input.stripRow = row;
+    if (style != Style::Spaces && style != Style::TaskView) {
+      return place(style, input);
+    }
+    const double lower = std::floor(row);
+    const double t = row - lower;
+    input.current = static_cast<size_t>(lower);
+    const Placement a = place(style, input);
+    if (t < 1e-6 || input.current + 1 >= n) {
+      return a;
+    }
+    input.current += 1;
+    return blend(a, place(style, input), t);
+  }
+
+  Rect deskRect(const Input& input, const Rect& desk, size_t workspace, double row) {
+    const double offset = (static_cast<double>(workspace) - row) * (input.horizontal ? input.width : input.height);
+    return input.horizontal ? Rect{desk.x + offset, desk.y, desk.w, desk.h}
+                            : Rect{desk.x, desk.y + offset, desk.w, desk.h};
+  }
+
+  Rect cardDeskRect(Style style, const Input& input, const Card& card, double row) {
+    if (card.kind == CardKind::Thumb) {
+      const double y = style == Style::Spaces ? -card.rect.h : input.height;
+      return {card.rect.x, y, card.rect.w, card.rect.h};
+    }
+    return deskRect(input, {0, 0, input.width, input.height}, card.workspace, row);
+  }
+
+  double windowOpacity(const WindowPlace& place, bool minimized, double p) {
+    p = std::clamp(p, 0.0, 1.0);
+    double opacity = 1;
+    if (minimized) {
+      opacity = place.opacity * p;
+    } else if (place.opacity <= 0) {
+      opacity = 1 - std::min(1.0, p * kHiddenFade);
+    } else {
+      opacity = lerp(1, place.opacity, p);
+    }
+    return place.dimmed ? opacity * lerp(1, kDimmed, p) : opacity;
   }
 
 } // namespace andromeda::ov

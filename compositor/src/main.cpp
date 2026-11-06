@@ -442,6 +442,13 @@ int main(int argc, char** argv) {
 
   try {
     kLog.info("starting andromeda version={} commit={}", andromeda::build_info::version(), andromeda::build_info::revision());
+    // The event loop takes SIGINT and SIGTERM through a signalfd, which only works while every thread blocks them.
+    // Block them before any worker thread starts, so a worker never takes the signal's default action.
+    sigset_t terminate;
+    sigemptyset(&terminate);
+    sigaddset(&terminate, SIGINT);
+    sigaddset(&terminate, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &terminate, nullptr);
     andromeda::loadConfig(configPath);
     raiseMainThreadPriority();
     andromeda::Server server;

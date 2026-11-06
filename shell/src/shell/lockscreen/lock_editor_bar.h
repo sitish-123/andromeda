@@ -53,6 +53,11 @@ public:
   // Keyboard order: enabled segments (Snap after Free in Free mode), Done, then the open panel's cards and chips.
   [[nodiscard]] static std::vector<Hit> focusOrder(bool panelOpen, bool freeMode);
 
+  // Panel backgrounds the editor puts frosted glass under.
+  [[nodiscard]] std::vector<const RectNode*> glassBackgrounds() const { return {m_barBg, m_panelBg}; }
+  // The Layout and Theme panel alone, for its open motion.
+  [[nodiscard]] Node* panelGroup() const { return m_panelGroup; }
+
 private:
   struct Rect {
     float x = 0.0F;
@@ -86,6 +91,7 @@ private:
   std::array<Chip, kSegments> m_segments;
   Chip m_done;
   RectNode* m_doneFocus = nullptr;
+  Node* m_panelGroup = nullptr;
   RectNode* m_panelBg = nullptr;
   Rect m_panelRect;
   Label* m_layoutTitle = nullptr;

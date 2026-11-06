@@ -23,7 +23,7 @@ namespace {
   constexpr Color kLabel1 = rgba(1.0F, 1.0F, 1.0F, 0.96F);
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
   constexpr Color kRegular = rgba(28.0F / 255.0F, 28.0F / 255.0F, 32.0F / 255.0F, 0.40F);
-  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.92F);
+  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.62F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kAccentText = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
   // Mock section 2: zone bands are edges only; Top and Middle dashed, Auth solid.

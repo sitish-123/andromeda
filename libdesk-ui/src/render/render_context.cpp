@@ -750,6 +750,7 @@ void RenderContext::drawNodeSelf(
               .textureHeight = static_cast<float>(img->textureHeight()),
               .transform = worldTransform,
               .scrim = img->scrim(),
+              .uvRect = img->uvRect(),
           }
       );
     }

@@ -128,6 +128,31 @@ namespace andromeda::qos {
     if (m_timerSlackDenied || cgroupDir.empty()) {
       return;
     }
+    {
+      const std::scoped_lock lock(m_slackMutex);
+      m_slackQueue[cgroupDir] = ns;
+    }
+    m_slackWake.notify_one();
+  }
+
+  void Actuator::slackLoop(const std::stop_token& stop) {
+    std::unique_lock lock(m_slackMutex);
+    for (;;) {
+      m_slackWake.wait(lock, stop, [this] { return !m_slackQueue.empty(); });
+      if (m_slackQueue.empty()) {
+        return; // stop requested and nothing left to write
+      }
+      auto node = m_slackQueue.extract(m_slackQueue.begin());
+      lock.unlock();
+      writeTimerSlackNow(node.key(), node.mapped());
+      lock.lock();
+    }
+  }
+
+  void Actuator::writeTimerSlackNow(const std::string& cgroupDir, std::uint64_t ns) {
+    if (m_timerSlackDenied) {
+      return;
+    }
     std::ifstream procs(cgroupDir + "/cgroup.procs");
     const std::string value = std::to_string(ns);
     std::error_code ec;

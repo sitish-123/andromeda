@@ -18,6 +18,7 @@ uniform vec2 u_surface_size;
 uniform vec2 u_size;
 uniform vec2 u_tex_size;
 uniform int u_fit_mode;
+uniform vec4 u_uv_rect;
 uniform mat3 u_transform;
 varying vec2 v_texcoord;
 varying vec2 v_local;
@@ -50,7 +51,7 @@ void main() {
         }
     }
     vec2 offset = (vec2(1.0) - scale) * 0.5;
-    v_texcoord = offset + a_texcoord * scale;
+    v_texcoord = u_uv_rect.xy + (offset + a_texcoord * scale) * u_uv_rect.zw;
     v_local = local;
     gl_Position = vec4(to_ndc(pixel.xy), 0.0, 1.0);
 }
@@ -178,6 +179,7 @@ void ImageProgram::ensureInitialized() {
   m_borderWidthLocation = glGetUniformLocation(m_program.id(), "u_border_width");
   m_texSizeLocation = glGetUniformLocation(m_program.id(), "u_tex_size");
   m_fitModeLocation = glGetUniformLocation(m_program.id(), "u_fit_mode");
+  m_uvRectLocation = glGetUniformLocation(m_program.id(), "u_uv_rect");
   m_samplerLocation = glGetUniformLocation(m_program.id(), "u_texture");
   m_transformLocation = glGetUniformLocation(m_program.id(), "u_transform");
   m_scrimEnabledLocation = glGetUniformLocation(m_program.id(), "u_scrim_enabled");
@@ -200,7 +202,7 @@ void ImageProgram::ensureInitialized() {
       || m_borderColorLocation < 0
       || m_borderWidthLocation < 0
       || m_texSizeLocation < 0
-      || m_fitModeLocation < 0
+      || m_fitModeLocation < 0 || m_uvRectLocation < 0
       || m_samplerLocation < 0
       || m_transformLocation < 0
       || m_scrimEnabledLocation < 0
@@ -229,6 +231,7 @@ void ImageProgram::destroy() {
   m_borderWidthLocation = -1;
   m_texSizeLocation = -1;
   m_fitModeLocation = -1;
+  m_uvRectLocation = -1;
   m_samplerLocation = -1;
   m_transformLocation = -1;
   m_scrimEnabledLocation = -1;
@@ -245,7 +248,8 @@ void ImageProgram::abandon() noexcept { m_program.abandon(); }
 void ImageProgram::draw(
     TextureId texture, float surfaceWidth, float surfaceHeight, float width, float height, const Color& tint,
     bool monochromeTint, bool alphaMaskTint, float opacity, float radius, const Color& borderColor, float borderWidth,
-    int fitMode, float textureWidth, float textureHeight, const Mat3& transform, const ImageScrim& scrim
+    int fitMode, float textureWidth, float textureHeight, const Mat3& transform, const ImageScrim& scrim,
+    const std::array<float, 4>& uvRect
 ) const {
   if (!m_program.isValid() || texture == 0 || width <= 0.0F || height <= 0.0F) {
     return;
@@ -271,6 +275,7 @@ void ImageProgram::draw(
   glUniform1f(m_borderWidthLocation, std::max(0.0F, borderWidth));
   glUniform2f(m_texSizeLocation, textureWidth, textureHeight);
   glUniform1i(m_fitModeLocation, fitMode);
+  glUniform4f(m_uvRectLocation, uvRect[0], uvRect[1], uvRect[2], uvRect[3]);
   glUniformMatrix3fv(m_transformLocation, 1, GL_FALSE, transform.m.data());
   glUniform1i(m_scrimEnabledLocation, scrim.enabled ? 1 : 0);
   glUniform2f(

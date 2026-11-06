@@ -12,6 +12,7 @@ outer_border_width = 0
 corner_radius = 16
 drag_opacity = 1.0
 [overview]
+style = "strip"
 background_blur = false
 [appearance.shadow]
 enabled = false
@@ -221,7 +222,7 @@ curve = "linear"
 enabled = false
 EOF
 for style in fade slide; do
-  sed -i "s/^style = .*/style = \"$style\"/" "$ANDROMEDA_CONFIG"
+  sed -i "/^\[animation.windows_out\]$/,/^\[/s/^style = .*/style = \"$style\"/" "$ANDROMEDA_CONFIG"
   reload
   if [[ $style == slide ]]; then
     FILL_COLOR=0xFF5577AA "$ANDROMEDA_UNMAP_CLIENT" ssd-blur 480 300 >"$ANDROMEDA_RUNTIME_DIR/slide.log" 2>&1 &

@@ -20,11 +20,11 @@ namespace andromeda {
   }
 
   std::optional<wlr_box>
-  View::floatingSnappedBox(SnapRegion region, const wlr_box& usable, const ResolvedLayoutConfig* layout) const {
+  View::floatingSnappedBox(const SnapSpot& spot, const wlr_box& usable, const ResolvedLayoutConfig* layout) const {
     const auto resolved = layout != nullptr ? *layout
         : m_workspace != nullptr            ? m_workspace->layoutConfig()
                                             : resolveGlobalLayout(config());
-    const wlr_box tile = snapRegionBox(floatingMarginArea(usable, &resolved), region, resolved.totalGap);
+    const wlr_box tile = snapSpotBox(floatingMarginArea(usable, &resolved), spot, resolved.totalGap);
     // Snapping leaves maximize-to-edges, which makes the title bar visible again.
     const int bar = wantsTitleBar(m_titleBarMode.value_or(config().appearance.titleBar.mode))
         ? config().appearance.titleBar.height
@@ -47,19 +47,19 @@ namespace andromeda {
     };
   }
 
-  bool View::snapTo(SnapRegion region, std::optional<FloatingPoint> restoreOrigin) {
+  bool View::snapTo(const SnapSpot& spot, std::optional<FloatingPoint> restoreOrigin) {
     if (!canSnap()) {
       return false;
     }
-    if (m_snapRegion == region) {
+    if (m_snap == spot) {
       unsnap();
       return true;
     }
-    const auto box = floatingSnappedBox(region, floatingUsableArea());
+    const auto box = floatingSnappedBox(spot, floatingUsableArea());
     if (!box) {
       return false;
     }
-    if (!m_snapRegion) {
+    if (!m_snap) {
       const auto [width, height] = floatingSize();
       m_snapRestoreBox = m_hasMaximizeRestoreBox
           ? m_maximizeRestoreBox
@@ -71,7 +71,7 @@ namespace andromeda {
       m_hasSnapRestoreBox = width > 0 && height > 0;
     }
     dropMaximizedForResize();
-    m_snapRegion = region;
+    m_snap = spot;
     m_snappedBox = *box;
     requestFloatingSize(box->width, box->height);
     beginResizeAnimation(box->width, box->height);
@@ -82,16 +82,16 @@ namespace andromeda {
   }
 
   void View::clearSnapState() {
-    if (m_snapRegion) {
+    if (m_snap) {
       m_server->scheduleIpcWindowsEvent();
     }
-    m_snapRegion.reset();
+    m_snap.reset();
     m_hasSnapRestoreBox = false;
     m_snappedBox = {};
   }
 
   void View::unsnap(bool animate) {
-    if (!m_snapRegion || !canSnap()) {
+    if (!m_snap || !canSnap()) {
       return;
     }
     const auto restore = m_hasSnapRestoreBox ? std::optional{m_snapRestoreBox} : std::nullopt;
@@ -112,10 +112,10 @@ namespace andromeda {
   }
 
   void View::refitFloatingSnapped() {
-    if (!m_snapRegion || !canSnap() || scheduledMaximized() || m_server->cursor()->isDraggingView(this)) {
+    if (!m_snap || !canSnap() || scheduledMaximized() || m_server->cursor()->isDraggingView(this)) {
       return;
     }
-    const auto box = floatingSnappedBox(*m_snapRegion, floatingUsableArea());
+    const auto box = floatingSnappedBox(*m_snap, floatingUsableArea());
     if (!box) {
       unsnap();
       return;

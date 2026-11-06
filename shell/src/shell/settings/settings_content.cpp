@@ -164,8 +164,16 @@ namespace settings {
     if (count == 0) {
       return;
     }
-    Flex* body = addSettingsGroupCard(content, {}, ctx.scale);
-    body->addChild(makeSettingsLinkRow(i18n::tr("settings.expert.row"), std::to_string(count), ctx.scale, ctx.openExpert));
+    content.addChild(ui::column(
+        {.align = FlexAlign::Start, .configure = [scale = ctx.scale](Flex& header) {
+          header.setPadding(Style::spaceMd * scale, Style::spaceMd * scale, 0.0F, Style::spaceMd * scale);
+        }},
+        makeLabel(i18n::tr("settings.expert.heading"), Style::fontSizeTitle * ctx.scale, colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold)
+    ));
+    SettingsContentContext expertCtx = ctx;
+    expertCtx.rowScope = RowScope::Expert;
+    expertCtx.pageQuery = {};
+    addSettingsContentSections(content, registry, std::move(expertCtx));
   }
 
   std::size_t

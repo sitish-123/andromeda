@@ -1965,6 +1965,7 @@
     },
     "expert": {
       "count": "{count} options",
+      "heading": "Advanced",
       "row": "More options",
       "search-placeholder": "Search in {page}"
     },
@@ -2216,14 +2217,17 @@
       "empty-hint": "The controls for this page arrive in a later update.",
       "empty-title": "Nothing to set here yet",
       "group-connectivity": "Connectivity",
-      "group-desktop": "Desktop",
-      "group-look": "Look and feel",
+      "group-personalize": "Personalize",
+      "group-device": "Device",
+      "group-apps": "Windows and Apps",
       "group-system": "System",
+      "group-more": "More",
       "wifi": "Wi-Fi",
       "bluetooth": "Bluetooth",
       "network": "Network",
       "appearance": "Appearance",
       "wallpaper": "Wallpaper",
+      "lock-screen": "Lock Screen",
       "displays": "Displays",
       "sound": "Sound",
       "notifications": "Notifications",
@@ -2295,6 +2299,7 @@
         "lifecycle": "Lifecycle",
         "location": "Location",
         "lock-screen": "Lock Screen",
+        "lock-look": "Look",
         "media": "Media",
         "monitor": "System Monitor",
         "monitor-polling": "Poll Intervals",
@@ -2327,6 +2332,7 @@
         "theme": "Theme",
         "toasts": "Toasts",
         "transition": "Transition",
+        "unlock": "Unlock",
         "user": "User",
         "wallpaper": "Wallpaper",
         "weather": "Weather",
@@ -2861,7 +2867,7 @@
           "label": "Show Palette Colors"
         },
         "palette-source": {
-          "description": "",
+          "description": "Where the accent and other colours come from",
           "label": "Colour theme"
         },
         "popup-borders": {
@@ -3552,9 +3558,9 @@
           "label": "Lockscreen Widgets"
         },
         "widgets-editor": {
-          "button": "Toggle Editor",
+          "button": "Edit Lock Screen",
           "description": "Add, move, and resize widgets on the lock screen",
-          "label": "Lockscreen Widget Editor"
+          "label": "Customize the lock screen"
         }
       },
       "notifications": {
@@ -4676,10 +4682,6 @@
           "description": "Close the overview when an app launches from the launcher while the andromeda overview is open",
           "label": "Close on Launch"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Open the launcher when typing in andromeda overview; uses a tiny keyboard-focus surface while overview is open",
-          "label": "Type to Launch"
-        },
         "window-switcher-current-workspace-only": {
           "description": "List only windows on the active workspace; turn off to include windows from every workspace",
           "label": "Current Workspace Only"
@@ -5006,12 +5008,31 @@
           "description": "How dark unfocused windows get"
         },
         "layout-mode": {
-          "label": "Layout",
-          "description": "How windows are arranged on a new workspace",
+          "label": "Window Arrangement",
+          "description": "How windows are arranged on every workspace; the overview chip changes one workspace",
           "options": {
+            "floating": "Free",
             "scrolling": "Scrolling",
-            "dwindle": "Dwindle",
-            "master": "Master"
+            "dwindle": "Split",
+            "master": "Main + Stack"
+          }
+        },
+        "overview-style": {
+          "label": "Overview Style",
+          "description": "How the overview shows your workspaces",
+          "options": {
+            "spaces": "Spaces",
+            "taskview": "Task View",
+            "strip": "Strip",
+            "grid": "Grid"
+          }
+        },
+        "overview-titles": {
+          "label": "Window Titles",
+          "description": "When window titles show in the overview",
+          "options": {
+            "hover": "Hover",
+            "always": "Always"
           }
         },
         "layout-gap": {
@@ -5075,10 +5096,6 @@
         "overview-workspace-wallpaper": {
           "label": "Wallpaper in Previews",
           "description": "Show the wallpaper inside each workspace preview"
-        },
-        "overview-shortcuts": {
-          "label": "Shortcut Badges",
-          "description": "Label windows with keys that focus them"
         },
         "input-focus-follows-mouse": {
           "label": "Focus Follows Mouse",
@@ -6673,13 +6690,27 @@
       "unavailable": "Loading shortcuts from the compositor…",
       "groups": {
         "apps": "Apps",
+        "shell": "Desktop",
         "windows": "Windows",
-        "workspaces": "Workspaces and Displays",
-        "overview": "Overview and Scratchpads",
-        "system": "System",
-        "other": "Other",
-        "disabled": "Removed Shortcuts"
-      }
+        "workspaces": "Workspaces",
+        "screenshots": "Screenshots",
+        "media": "Media and Hardware",
+        "custom": "Custom"
+      },
+      "search": "Search",
+      "press": "Press Keys",
+      "search-placeholder": "Search shortcuts",
+      "press-hint": "Press a shortcut to see what uses it",
+      "no-results": "No shortcuts match",
+      "no-press-match": "Nothing uses {keys}",
+      "add-row": "Add…",
+      "kind-app": "Open an App",
+      "kind-command": "Run a Command",
+      "app-search": "Search apps",
+      "command-placeholder": "Command or script path",
+      "cancel": "Cancel",
+      "replaces": "Also used by {name}; adding replaces it",
+      "pick-action": "Search actions"
     },
     "devices": {
       "phones": "Phones",
@@ -6702,6 +6733,11 @@
       "news-open": "Open",
       "news-unknown": "Arch news could not be checked yet",
       "news-read": "I Have Read This",
+      "news-first": "Read the Arch news above to update",
+      "andromeda-title": "Andromeda",
+      "andromeda-version": "Andromeda {version}",
+      "andromeda-update": "Update Andromeda",
+      "needs-system": "Andromeda needs newer system packages. Update the system first.",
       "running": "Updating",
       "preparing": "Preparing…",
       "stage": {
@@ -6741,6 +6777,7 @@
       "tonight-cancel": "Cancel",
       "group-count": "{count} · {size}",
       "group": {
+        "andromeda": "Andromeda",
         "system": "System",
         "apps": "Apps",
         "snaps": "Snaps",
@@ -6749,6 +6786,15 @@
       },
       "hooks": "Hooks that failed",
       "hook-failed": "on {event}"
+    },
+    "windows": {
+      "per-workspace": "Per-Workspace Arrangement",
+      "per-workspace-none": "Same for all",
+      "per-workspace-custom": "{count} custom",
+      "per-workspace-custom-plural": "{count} custom",
+      "workspace": "Workspace {n}",
+      "same-as-default": "Same as default ({mode})",
+      "per-workspace-button": "Choose…"
     }
   },
   "setup-wizard": {

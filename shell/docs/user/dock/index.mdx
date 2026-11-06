@@ -173,7 +173,9 @@ Windows reported as minimised by Andromeda, KDE Plasma, or labwc do not hide the
 
 - Mutually exclusive with pointer auto-hide; if both are set in config, smart auto-hide takes precedence.
 - Uses the same slide animation and edge reveal strip while hidden.
-- On compositors that report overview state (Niri, Andromeda), the dock is kept visible while overview is open.
+- On compositors that report overview state (Niri), the dock is kept visible while overview is open.
+
+In the Andromeda overview the dock steps aside in every auto-hide mode: it slides out of view while the overview is open, takes no clicks, and slides back when the overview closes.
 
 `reserve_space` controls whether the dock keeps a compositor exclusive zone. With both auto-hide modes off, `reserve_space = true` keeps windows pushed away; `reserve_space = false` overlays the dock on top of full-screen clients. With pointer or smart auto-hide active, `reserve_space = false` retracts the dock as an overlay (no gap); `reserve_space = true` keeps the gap while the dock slides out of view.
 

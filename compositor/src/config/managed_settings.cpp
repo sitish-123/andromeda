@@ -1,11 +1,11 @@
 #include "config/managed_settings.h"
 
+#include "andromeda_data_dir.h"
+#include "config/config_registry.h"
 #include "config/generated_file.h"
 #include "config/keybind_parse.h"
-#include "config/config_registry.h"
 #include "config/store.h"
 #include "config/value_parse.h"
-#include "andromeda_data_dir.h"
 
 #include <algorithm>
 #include <array>
@@ -77,12 +77,16 @@ namespace andromeda {
 
     constexpr std::array<std::string_view, 5> kWindowsInStyles = {"popin", "zoom", "slide", "fade", "none"};
     constexpr std::array<std::string_view, 4> kWindowsOutStyles = {"fade", "slide", "popin", "zoom"};
-    constexpr std::array<std::string_view, 3> kLayoutModes = {"scrolling", "dwindle", "master"};
+    constexpr std::array<std::string_view, 4> kLayoutModes = {"scrolling", "dwindle", "master", "floating"};
     constexpr std::array<std::string_view, 3> kCenterFocused = {"never", "always", "on_overflow"};
     constexpr std::array<std::string_view, 3> kMasterPositions = {"left", "right", "center"};
     constexpr std::array<std::string_view, 4> kModKeys = {"Super", "Alt", "Ctrl", "Shift"};
 
     // Enumerators and choice arrays share their order.
+    constexpr std::array<std::string_view, 4> kOverviewStyles = {"spaces", "taskview", "strip", "grid"};
+    std::string text(OverviewStyle style) { return std::string(kOverviewStyles[static_cast<size_t>(style)]); }
+    constexpr std::array<std::string_view, 2> kOverviewTitles = {"hover", "always"};
+    std::string text(OverviewTitles titles) { return std::string(kOverviewTitles[static_cast<size_t>(titles)]); }
     std::string text(LayoutMode mode) { return std::string(kLayoutModes[static_cast<size_t>(mode)]); }
     std::string text(CenterFocusedColumn center) { return std::string(kCenterFocused[static_cast<size_t>(center)]); }
     // Unset keeps the runtime default (Super on hardware, Alt nested), which has no fixed text.
@@ -409,10 +413,11 @@ namespace andromeda {
         Spec{"layout.master.new_becomes_master", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.layout.master.newBecomesMaster); }},
         Spec{"workspaces.back_and_forth", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.backAndForth); }},
         Spec{"workspaces.empty_above", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.workspaces.emptyAbove); }},
+        Spec{"overview.style", Kind::Choice, 0, 0, kOverviewStyles, [](const Config& c) { return text(c.overview.style); }},
+        Spec{"overview.titles", Kind::Choice, 0, 0, kOverviewTitles, [](const Config& c) { return text(c.overview.titles); }},
         Spec{"overview.zoom", Kind::Real, 0.1, 0.75, {}, [](const Config& c) { return text(c.overview.zoom); }},
         Spec{"overview.background_blur", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.backgroundBlur); }},
         Spec{"overview.workspace_wallpaper", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.workspaceWallpaper); }},
-        Spec{"overview.shortcuts", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.shortcuts); }},
         Spec{"general.focus_on_activate", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.focusOnActivate); }},
         Spec{"general.freeze_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeBackgroundApps); }},
         Spec{"general.freeze_hidden_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeHiddenApps); }},
@@ -494,7 +499,31 @@ namespace andromeda {
       }
     }
 
+    constexpr std::array<std::string_view, 4> kWorkspaceLayoutModes{"scrolling", "dwindle", "master", "floating"};
+
+    // Replaces the [[workspace]] index = `index` rule with one holding only `value` as its layout mode, or drops it.
+    void applyWorkspaceLayout(toml::table& root, int64_t index, const ManagedSettingValue& value) {
+      if (root["workspace"].as_array() == nullptr) {
+        root.insert_or_assign("workspace", toml::array{});
+      }
+      toml::array& rules = *root["workspace"].as_array();
+      for (auto it = rules.begin(); it != rules.end();) {
+        const toml::table* rule = it->as_table();
+        it = rule != nullptr && (*rule)["index"].value<int64_t>() == index ? rules.erase(it) : it + 1;
+      }
+      if (const auto* mode = std::get_if<std::string>(&value)) {
+        rules.push_back(toml::table{{"index", index}, {"layout", toml::table{{"mode", *mode}}}});
+      }
+      if (rules.empty()) {
+        root.erase("workspace");
+      }
+    }
+
     void applySetting(toml::table& root, std::string_view key, const ManagedSettingValue& value) {
+      if (const std::optional<int64_t> index = workspaceLayoutIndex(key)) {
+        applyWorkspaceLayout(root, *index, value);
+        return;
+      }
       const std::vector<std::string_view> parts = splitKey(key);
       toml::table* table = &root;
       for (size_t i = 0; i + 1 < parts.size(); ++i) {
@@ -516,6 +545,44 @@ namespace andromeda {
   } // namespace
 
   std::span<const std::string_view> managedSettingKeys() { return kKeys; }
+
+  std::optional<int64_t> workspaceLayoutIndex(std::string_view key) {
+    constexpr std::string_view prefix = "workspace.";
+    constexpr std::string_view suffix = ".layout.mode";
+    if (key.size() <= prefix.size() + suffix.size() || !key.starts_with(prefix) || !key.ends_with(suffix)) {
+      return std::nullopt;
+    }
+    const std::string_view digits = key.substr(prefix.size(), key.size() - prefix.size() - suffix.size());
+    int64_t index = 0;
+    const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), index);
+    if (error != std::errc{} || end != digits.data() + digits.size() || index < 1
+        || index > static_cast<int64_t>(kMaxWorkspaces)) {
+      return std::nullopt;
+    }
+    return index;
+  }
+
+  std::string workspaceLayoutKey(int64_t index) { return std::format("workspace.{}.layout.mode", index); }
+
+  std::vector<std::pair<int64_t, std::string>> documentWorkspaceLayouts(std::string_view document) {
+    std::vector<std::pair<int64_t, std::string>> out;
+    try {
+      const toml::table table = toml::parse(document);
+      if (const toml::array* rules = table["workspace"].as_array()) {
+        for (const toml::node& node : *rules) {
+          const toml::table* rule = node.as_table();
+          const auto index = rule != nullptr ? (*rule)["index"].value<int64_t>() : std::nullopt;
+          const auto mode = rule != nullptr ? (*rule)["layout"]["mode"].value<std::string>() : std::nullopt;
+          if (index && mode) {
+            out.emplace_back(*index, *mode);
+          }
+        }
+      }
+    } catch (const toml::parse_error&) {
+      return {};
+    }
+    return out;
+  }
 
   std::span<const std::string_view> volatileSettingKeys() { return kVolatileKeys; }
 
@@ -558,6 +625,15 @@ namespace andromeda {
   const std::string& managedRuntimeOverlay() { return runtimeOverlay; }
 
   ManagedSettingParse parseManagedSetting(std::string_view key, std::string_view text) {
+    if (workspaceLayoutIndex(key)) {
+      if (text.empty()) {
+        return {.value = ManagedSettingValue{std::monostate{}}, .error = {}};
+      }
+      if (std::ranges::find(kWorkspaceLayoutModes, text) == kWorkspaceLayoutModes.end()) {
+        return {.value = std::nullopt, .error = std::format("{} expects scrolling, dwindle, master or floating", key)};
+      }
+      return {.value = ManagedSettingValue{std::string(text)}, .error = {}};
+    }
     const Spec* spec = findSpec(key);
     if (spec == nullptr) {
       return {.value = std::nullopt, .error = std::format("'{}' is not a setting a settings app can change", key)};
@@ -693,9 +769,15 @@ namespace andromeda {
     // The app id of a rule saveManagedAppQos wrote; nullopt for any other rule, which it never touches.
     std::optional<std::string> appQosRuleId(const toml::table& rule) {
       const toml::table* match = rule["match"].as_table();
-      const std::optional<std::string> pattern = match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
-      if (rule.size() != 2 || !rule.contains("qos") || match->size() != 1 || !pattern || pattern->size() < 2
-          || !pattern->starts_with('^') || !pattern->ends_with('$')) {
+      const std::optional<std::string> pattern =
+          match != nullptr ? (*match)["app_id"].value<std::string>() : std::nullopt;
+      if (rule.size() != 2
+          || !rule.contains("qos")
+          || match->size() != 1
+          || !pattern
+          || pattern->size() < 2
+          || !pattern->starts_with('^')
+          || !pattern->ends_with('$')) {
         return std::nullopt;
       }
       std::string id;
@@ -720,7 +802,9 @@ namespace andromeda {
         it = rule != nullptr && appQosRuleId(*rule) == appId ? rules.erase(it) : it + 1;
       }
       if (qos != "normal") {
-        rules.push_back(toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}});
+        rules.push_back(
+            toml::table{{"match", toml::table{{"app_id", appIdPattern(appId)}}}, {"qos", std::string(qos)}}
+        );
       }
       if (rules.empty()) {
         root.erase("window_rule");

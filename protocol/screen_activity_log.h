@@ -50,6 +50,9 @@ public:
   // serialize() plus the running span up to `now`: what the compositor writes for readers.
   [[nodiscard]] std::string snapshot(std::int64_t now) const;
   void parse(std::string_view text);
+  // parse() plus the running state the snapshot carried ("r" line), so spans() and hours() count on up to the
+  // reader's `now`. The compositor writes the file on every state change, so that state still holds.
+  void parseLive(std::string_view text);
 
 private:
   void addSpan(std::map<std::int64_t, Hour>& into, std::int64_t from, std::int64_t to, bool idle) const;
@@ -247,5 +250,35 @@ inline std::string ScreenActivityLog::snapshot(std::int64_t now) const {
   for (const Span& span : spans(now - kKeepHours * screen_activity_detail::kHour, now)) {
     out += std::format("s {} {} {}\n", span.start, span.end, static_cast<char>(span.state));
   }
+  if (m_since >= 0) {
+    out += std::format("r {} {} {} {}\n", std::max(now, m_since), int{m_screenOn}, int{m_userIdle}, m_idleSince);
+  }
   return out;
+}
+
+inline void ScreenActivityLog::parseLive(std::string_view text) {
+  parse(text);
+  const std::size_t found = text.starts_with("r ") ? 0 : text.rfind("\nr ");
+  if (found == std::string_view::npos) {
+    return;
+  }
+  std::string_view line = text.substr(found + (found == 0 ? 2 : 3));
+  line = line.substr(0, std::min(line.find('\n'), line.size()));
+  std::int64_t values[4] = {};
+  const char* p = line.data();
+  const char* last = line.data() + line.size();
+  for (std::int64_t& v : values) {
+    while (p < last && *p == ' ') {
+      ++p;
+    }
+    const auto [next, ec] = std::from_chars(p, last, v);
+    if (ec != std::errc{}) {
+      return;
+    }
+    p = next;
+  }
+  m_since = values[0];
+  m_screenOn = values[1] != 0;
+  m_userIdle = values[2] != 0;
+  m_idleSince = values[3];
 }

@@ -1,5 +1,6 @@
 #include "shell/settings/settings_window.h"
 
+#include "shell/settings/keybind_recorder.h"
 #include "shell/settings/settings_alert.h"
 
 #include "shell/settings/settings_pages.h"
@@ -53,6 +54,8 @@
 #include <thread>
 #include <utility>
 #include <xkbcommon/xkbcommon-keysyms.h>
+
+#include "keyboard-shortcuts-inhibit-unstable-v1-client-protocol.h"
 
 namespace {
 
@@ -179,6 +182,7 @@ SettingsWindow::SettingsWindow() = default;
 SettingsWindow::~SettingsWindow() {
   setCalendarService(nullptr);
   destroyWindow();
+  KeybindRecorder::setRecordingObserver(nullptr);
 }
 
 void SettingsWindow::setCalendarService(CalendarService* service) {
@@ -215,6 +219,15 @@ void SettingsWindow::initialize(
   m_dependencies = dependencies;
   m_upower = upower;
   m_accounts = accounts;
+  KeybindRecorder::setRecordingObserver([this](bool recording) {
+    if (m_shortcutsInhibitor != nullptr) {
+      zwp_keyboard_shortcuts_inhibitor_v1_destroy(m_shortcutsInhibitor);
+      m_shortcutsInhibitor = nullptr;
+    }
+    if (recording && m_wayland != nullptr) {
+      m_shortcutsInhibitor = m_wayland->inhibitShortcuts(wlSurface());
+    }
+  });
   m_modalHost.initialize(
       m_inputDispatcher,
       [this] {
@@ -1356,7 +1369,7 @@ void SettingsWindow::syncSidebarBlur() {
   if (m_surface == nullptr) {
     return;
   }
-  if (!m_glassSidebar || m_sidebarNode == nullptr) {
+  if (!m_glassSidebar || m_panelBackground == nullptr) {
     if (m_sidebarBlurSent.has_value()) {
       m_surface->clearBlurRegion();
       m_sidebarBlurSent.reset();
@@ -1365,12 +1378,12 @@ void SettingsWindow::syncSidebarBlur() {
   }
   float x = 0.0F;
   float y = 0.0F;
-  Node::absolutePosition(m_sidebarNode, x, y);
+  Node::absolutePosition(m_panelBackground, x, y);
   const InputRect rect{
       .x = static_cast<int>(std::floor(x)),
       .y = static_cast<int>(std::floor(y)),
-      .width = static_cast<int>(std::ceil(m_sidebarNode->width())),
-      .height = static_cast<int>(std::ceil(m_sidebarNode->height())),
+      .width = static_cast<int>(std::ceil(m_panelBackground->width())),
+      .height = static_cast<int>(std::ceil(m_panelBackground->height())),
   };
   if (m_sidebarBlurSent.has_value() && m_sidebarBlurSent->x == rect.x && m_sidebarBlurSent->y == rect.y
       && m_sidebarBlurSent->width == rect.width && m_sidebarBlurSent->height == rect.height) {

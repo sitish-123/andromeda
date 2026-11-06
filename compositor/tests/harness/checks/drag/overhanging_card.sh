@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The center of a scrolling card projected into the overview's margin must keep
-# its content-anchored stack hint, not become the strip's prepend target at the
-# centered preview boundary. That holds along either scrolling axis: with
+# A scrolling card projected into the overview's margin must keep its
+# content-anchored stack hint near its top edge (its middle swaps), not become the
+# strip's prepend target at the centered preview boundary. That holds along either scrolling axis: with
 # horizontally arranged workspaces the strip scrolls vertically and its cards
 # overhang the preview's bottom edge instead of its left one.
 set -euo pipefail
@@ -47,6 +47,7 @@ workspace_background = "#000000FF"
 default_extent_fraction = 0.5
 
 [overview]
+style = "strip"
 zoom = 0.5
 
 [output."HEADLESS-1"]
@@ -95,7 +96,7 @@ start_y=$(jq -r --argjson origin "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
 drop_x=$(jq -r --argjson origin "$OVERVIEW_X" --argjson zoom "$OVERVIEW_ZOOM" \
   '.[] | select(.title == "overhang-4") | ($origin + ((.x + .w / 2) * $zoom) | round)' <<< "$windows")
 drop_y=$(jq -r --argjson origin "$OVERVIEW_Y" --argjson zoom "$OVERVIEW_ZOOM" \
-  '.[] | select(.title == "overhang-4") | ($origin + ((.y + .h / 2) * $zoom) | round)' <<< "$windows")
+  '.[] | select(.title == "overhang-4") | ($origin + ((.y + .h * 0.15) * $zoom) | round)' <<< "$windows")
 target_right=$(jq -r --argjson origin "$OVERVIEW_X" --argjson zoom "$OVERVIEW_ZOOM" \
   '.[] | select(.title == "overhang-4") | ($origin + ((.x + .w) * $zoom) | round)' <<< "$windows")
 if (( drop_x <= 32 || drop_x >= OVERVIEW_X )); then
@@ -125,7 +126,7 @@ green=$(magick "$screenshot" -crop "${sample_w}x50+${sample_x}+195" \
 pointer_release
 
 if (( red < green + 35 )); then
-  echo "the overhanging card center was replaced by the left-edge prepend target: red=$red green=$green"
+  echo "the overhanging card top zone was replaced by the left-edge prepend target: red=$red green=$green"
   exit 1
 fi
 
@@ -141,7 +142,7 @@ read -r target_x target_y target_w < <(
   jq -r '.[] | select(.title == "overhang-4") | "\(.x) \(.y) \(.w)"' <<< "$windows"
 )
 if (( source_x != target_x || source_w != target_w || source_y >= target_y )); then
-  echo "the overhanging card center did not stack overhang-7 above overhang-4: $windows"
+  echo "the overhanging card top zone did not stack overhang-7 above overhang-4: $windows"
   exit 1
 fi
 
@@ -231,5 +232,5 @@ if ((moved_y != landed_y || moved_h != landed_h || moved_x >= landed_x)); then
   exit 1
 fi
 
-echo "the overhanging card center kept its stack hint and accepted the drop on either axis:" \
+echo "the overhanging card top zone kept its stack hint and accepted the drop on either axis:" \
   "red=$red green=$green, overhang red=$vertical_red green=$vertical_green into $target_title"

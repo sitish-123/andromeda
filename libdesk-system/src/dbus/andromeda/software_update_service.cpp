@@ -300,6 +300,16 @@ void SoftwareUpdateService::upgradeApps() {
 
 void SoftwareUpdateService::upgrade() {
   upgradeApps();
+  m_lastAndromeda = false;
+  startHelper("Upgrade", true);
+}
+
+void SoftwareUpdateService::upgradeAndromeda() {
+  m_lastAndromeda = true;
+  startHelper("UpgradeAndromeda", false);
+}
+
+void SoftwareUpdateService::startHelper(const char* method, bool withDryRun) {
   if (m_helper == nullptr || m_runState == RunState::Running) {
     return;
   }
@@ -313,10 +323,12 @@ void SoftwareUpdateService::upgrade() {
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
     // The reply comes after the polkit prompt; progress and the result follow as signals.
-    m_helper->callMethodAsync("Upgrade")
-        .onInterface(kHelperName)
-        .withArguments(false)
-        .withTimeout(std::chrono::minutes(5))
+    auto call = m_helper->callMethodAsync(method);
+    call.onInterface(kHelperName);
+    if (withDryRun) {
+      call.withArguments(false);
+    }
+    call.withTimeout(std::chrono::minutes(5))
         .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error) {
           if (alive.expired() || !error.has_value()) {
             return;

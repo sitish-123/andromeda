@@ -19,7 +19,7 @@ namespace {
   // Same values as the clock gallery (lock_editor_gallery.cpp).
   constexpr Color kLabel1 = rgba(1.0F, 1.0F, 1.0F, 0.96F);
   constexpr Color kLabel2 = rgba(1.0F, 1.0F, 1.0F, 0.70F);
-  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.92F);
+  constexpr Color kThick = rgba(32.0F / 255.0F, 32.0F / 255.0F, 36.0F / 255.0F, 0.62F);
   constexpr Color kStroke = rgba(1.0F, 1.0F, 1.0F, 0.14F);
   constexpr Color kFill1 = rgba(1.0F, 1.0F, 1.0F, 0.10F);
   constexpr Color kAccentText = rgba(140.0F / 255.0F, 133.0F / 255.0F, 1.0F, 1.0F);
@@ -99,16 +99,17 @@ void LockEditorSlots::build(Node& root) {
     p.plus = addLabel(*m_group, FontWeight::Normal);
   }
   m_bottom = addRect(*m_group);
-  m_panelBg = addRect(*m_group);
-  m_title = addLabel(*m_group, FontWeight::SemiBold);
+  m_panelGroup = m_group->addChild(std::make_unique<Node>());
+  m_panelBg = addRect(*m_panelGroup);
+  m_title = addLabel(*m_panelGroup, FontWeight::SemiBold);
   const auto addChip = [this](LockEditorGallery::Chip& chip) {
-    chip.bg = addRect(*m_group);
-    chip.label = addLabel(*m_group, FontWeight::Medium);
+    chip.bg = addRect(*m_panelGroup);
+    chip.label = addLabel(*m_panelGroup, FontWeight::Medium);
   };
   for (Tile& tile : m_kinds) {
-    tile.bg = addRect(*m_group);
-    tile.value = addLabel(*m_group, FontWeight::SemiBold);
-    tile.name = addLabel(*m_group, FontWeight::Normal);
+    tile.bg = addRect(*m_panelGroup);
+    tile.value = addLabel(*m_panelGroup, FontWeight::SemiBold);
+    tile.name = addLabel(*m_panelGroup, FontWeight::Normal);
   }
   addChip(m_remove);
   std::ranges::for_each(m_bottomKinds, addChip);

@@ -103,8 +103,11 @@ namespace andromeda::qos {
         m_efficiencyCpus(efficiencyCpus("/sys/devices/system/cpu")),
         m_focusMemoryLow(static_cast<std::uint64_t>(sysconf(_SC_PHYS_PAGES)) * static_cast<std::uint64_t>(sysconf(_SC_PAGESIZE)) / 4),
         m_delays(delaysFromEnvironment()) {
-    const char* powerSupply = std::getenv("ANDROMEDA_QOS_TEST_POWER_SUPPLY");
-    m_powerSupply = powerSupply != nullptr ? powerSupply : "/sys/class/power_supply";
+    if (const char* powerSupply = std::getenv("ANDROMEDA_QOS_TEST_POWER_SUPPLY")) {
+      m_powerSupply = powerSupply;
+    } else {
+      m_battery = std::make_unique<OnBatteryWatch>(loop, [this] { schedule(); });
+    }
     m_timer = wl_event_loop_add_timer(loop, onTimer, this);
     const std::string own = readFile("/proc/self/cgroup");
     m_ownCgroup = cgroupPath(own);
@@ -220,6 +223,10 @@ namespace andromeda::qos {
   }
 
   bool Controller::onBattery() const {
+    if (m_battery) {
+      // Unknown (andromeda-system not on the bus) counts as mains power: no battery-only throttling.
+      return m_battery->onBattery().value_or(false);
+    }
     std::error_code error;
     for (const auto& entry : std::filesystem::directory_iterator(m_powerSupply, error)) {
       const auto read = [&entry](const char* name) {

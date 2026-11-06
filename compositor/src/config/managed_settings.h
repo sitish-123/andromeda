@@ -18,6 +18,12 @@ namespace andromeda {
   // An empty value means unset, which restores the value from config.toml or the built-in default.
 
   [[nodiscard]] std::span<const std::string_view> managedSettingKeys();
+  // "workspace.<N>.layout.mode" (N from 1) is also settable: it writes a [[workspace]] index = N rule with that
+  // layout mode to the settings file; an empty value removes the rule. workspaceLayoutIndex returns N for such a key.
+  [[nodiscard]] std::optional<int64_t> workspaceLayoutIndex(std::string_view key);
+  [[nodiscard]] std::string workspaceLayoutKey(int64_t index);
+  // The rules those keys wrote in a settings document: index to mode.
+  [[nodiscard]] std::vector<std::pair<int64_t, std::string>> documentWorkspaceLayouts(std::string_view document);
 
   // Effective value of `key` in `config` as protocol text; empty when unset or when `key` is not a managed setting.
   [[nodiscard]] std::string managedSettingValue(const Config& config, std::string_view key);

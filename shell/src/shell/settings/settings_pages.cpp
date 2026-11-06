@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdlib>
 #include <string>
+#include <variant>
 
 namespace settings {
   namespace {
@@ -34,40 +35,43 @@ namespace settings {
     constexpr std::array<S, 2> kAbout{S::System, S::Shell};
 
     constexpr PageGroup kConn = PageGroup::Connectivity;
-    constexpr PageGroup kLook = PageGroup::LookAndFeel;
-    constexpr PageGroup kDesk = PageGroup::Desktop;
+    constexpr PageGroup kPers = PageGroup::Personalize;
+    constexpr PageGroup kDev = PageGroup::Device;
+    constexpr PageGroup kApps = PageGroup::WindowsAndApps;
     constexpr PageGroup kSys = PageGroup::System;
+    constexpr PageGroup kMore = PageGroup::More;
 
-    // IA order (DESIGN.md "Settings information architecture").
-    const std::array<SettingsPage, 29> kPages{{
+    // IA order (.agent/mockups/settings-ia.html).
+    const std::array<SettingsPage, 30> kPages{{
         {"wifi", kConn, "wifi", {}},
         {"bluetooth", kConn, "bluetooth", {}},
         {"network", kConn, "world", {}},
-        {"appearance", kLook, "palette", kAppearance},
-        {"wallpaper", kLook, "photo", kWallpaper},
-        {"displays", kLook, "device-desktop", kDisplays},
-        {"sound", kLook, "volume", {}},
-        {"notifications", kLook, "bell", kNotifications},
-        {"desktop-dock", kDesk, "layout-bottombar", kDesktopDock},
-        {"bar", kDesk, "crop-3-2", kBar},
-        {"control-center", kDesk, "adjustments", kControlCenter},
-        {"launcher", kDesk, "rocket", kLauncher},
-        {"windows", kDesk, "window", kWindows},
-        {"keyboard", kDesk, "keyboard", kKeyboard},
-        {"mouse", kDesk, "mouse", {}},
-        {"devices", kDesk, "device-mobile", kDevices},
-        {"power", kSys, "bolt", kPower},
+        {"appearance", kPers, "palette", kAppearance},
+        {"wallpaper", kPers, "photo", kWallpaper},
+        {"lock-screen", kPers, "lock", {}},
+        {"desktop-dock", kPers, "layout-bottombar", kDesktopDock},
+        {"bar", kPers, "crop-3-2", kBar},
+        {"notifications", kPers, "bell", kNotifications},
+        {"displays", kDev, "device-desktop", kDisplays},
+        {"sound", kDev, "volume", {}},
+        {"power", kDev, "bolt", kPower},
+        {"keyboard", kDev, "keyboard", kKeyboard},
+        {"mouse", kDev, "mouse", {}},
+        {"devices", kDev, "device-mobile", kDevices},
+        {"windows", kApps, "window", kWindows},
+        {"launcher", kApps, "rocket", kLauncher},
+        {"control-center", kApps, "adjustments", kControlCenter},
+        {"screenshot", kApps, "screenshot", kScreenshot},
+        {"default-apps", kApps, "apps", kDefaultApps},
         {"privacy", kSys, "shield-lock", kPrivacy},
         {"date-time", kSys, "clock", kDateTime},
         {"language", kSys, "language", kLanguage},
-        {"default-apps", kSys, "apps", kDefaultApps},
-        {"screenshot", kSys, "screenshot", kScreenshot},
-        {"services", kSys, "adjustments-horizontal", kServices},
-        {"plugins", kSys, "puzzle", kPlugins},
-        {"automation", kSys, "link", kAutomation},
-        {"problems", kSys, "alert-triangle", {}},
         {"software-update", kSys, "download", {}},
         {"about", kSys, "info-circle", kAbout},
+        {"services", kMore, "adjustments-horizontal", kServices},
+        {"plugins", kMore, "puzzle", kPlugins},
+        {"automation", kMore, "link", kAutomation},
+        {"problems", kMore, "alert-triangle", {}},
         {"users", kSys, "user", {}, false},
     }};
 
@@ -92,7 +96,9 @@ namespace settings {
       std::string_view prefix;
       std::string_view page;
     };
-    constexpr std::array<PageRule, 7> kPageRules{{
+    constexpr std::array<PageRule, 9> kPageRules{{
+        {"lockscreen.", "lock-screen"},
+        {"lockscreen_widgets.", "lock-screen"},
         {"nightlight.", "displays"},
         {"brightness.", "displays"},
         {"audio.", "sound"},
@@ -123,11 +129,20 @@ namespace settings {
         "shell.launcher.categories", "shell.launcher.sort_by_usage", "shell.launcher.track_usage",
         "shell.launcher.pinned",
         "andromeda.layout.mode", "andromeda.layout.gap", "andromeda.input.focus.follows_mouse",
-        "andromeda.workspaces.back_and_forth", "hot_corners.enabled", "shell.window_switcher.style",
-        "andromeda.overview.zoom",
+        "andromeda.input.window_snapping", "andromeda.layout.scrolling.center_focused",
+        "andromeda.layout.scrolling.center_underfull_strip", "andromeda.layout.dwindle.preserve_split",
+        "andromeda.layout.master.position", "andromeda.layout.master.default_width_fraction",
+        "andromeda.layout.master.new_on_top", "andromeda.layout.master.new_becomes_master",
+        "andromeda.workspaces.back_and_forth", "andromeda.workspaces.empty_above", "andromeda.workspaces.per-workspace",
+        "hot_corners.enabled",
+        "shell.window_switcher.style", "andromeda.overview.style", "andromeda.overview.titles", "andromeda.overview.zoom",
         "shell.session.actions", "idle.behavior", "andromeda.general.optimize_background_apps",
         "andromeda.general.freeze_background_apps", "andromeda.general.freeze_hidden_apps",
         "lockscreen.enabled", "lockscreen.lock_before_suspend", "lockscreen.grace_period_seconds",
+        "lockscreen.face", "lockscreen.fingerprint", "lockscreen.theme", "lockscreen.layout", "lockscreen.clock_style",
+        "lockscreen.notification_content",
+        "shell.animation.enabled", "shell.animation.speed", "accessibility.high_contrast",
+        "shell.window_switcher.mru", "shell.window_switcher.show_all_outputs",
         "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",
         "weather.enabled",
         "calendar.enabled", "calendar.reminders.enabled", "control_center.calendar.show_week_numbers",
@@ -155,6 +170,15 @@ namespace settings {
         {"dock.position", "~dock"},
         {"dock.auto_hide", "~dock"},
         {"dock.show_running", "~dock"},
+        {"lockscreen.enabled", "~lock"},
+        {"lockscreen.lock_before_suspend", "~lock"},
+        {"lockscreen.grace_period_seconds", "~lock"},
+        {"lockscreen.face", "unlock"},
+        {"lockscreen.fingerprint", "unlock"},
+        {"lockscreen.theme", "lock-look"},
+        {"lockscreen.layout", "lock-look"},
+        {"lockscreen.clock_style", "lock-look"},
+        {"lockscreen.notification_content", "lock-look"},
         {"desktop_widgets.enabled", "desktop"},
         {"shell.screen_corners.enabled", "desktop"},
     });
@@ -177,6 +201,10 @@ namespace settings {
   } // namespace
 
   const SettingsPage& settingsPageForEntry(const SettingEntry& entry) {
+    // The lock screen editor button has no path; it shares the group of the lock rows.
+    if (entry.section == SettingsSection::Security && (entry.group == "lock-screen" || entry.group == "~lock")) {
+      return *settingsPageFromId("lock-screen");
+    }
     const std::string key = settingEntryKey(entry);
     for (const auto& rule : kPageRules) {
       if (key.starts_with(rule.prefix)) {
@@ -201,6 +229,10 @@ namespace settings {
   bool settingEntryIsExpert(const SettingEntry& entry) {
     if (entry.advanced) {
       return true;
+    }
+    // Editor buttons (desktop widgets, lock screen) open whole tools; they never hide in Advanced.
+    if (entry.path.empty() && std::holds_alternative<ButtonSetting>(entry.control)) {
+      return false;
     }
     const std::string key = mainRowKey(entry);
     return !key.starts_with(kHookPrefix) && !std::ranges::contains(kMainRows, key);
@@ -248,7 +280,7 @@ namespace settings {
   }
 
   std::string settingsPageGroupLabelKey(PageGroup group) {
-    constexpr std::array<std::string_view, 4> kIds{"connectivity", "look", "desktop", "system"};
+    constexpr std::array<std::string_view, 6> kIds{"connectivity", "personalize", "device", "apps", "system", "more"};
     return "settings.pages.group-" + std::string(kIds[static_cast<std::size_t>(group)]);
   }
 

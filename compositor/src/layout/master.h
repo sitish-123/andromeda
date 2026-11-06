@@ -52,6 +52,8 @@ namespace andromeda {
     bool consumeFrom(View* view, int direction) override;
     bool moveViewVertical(View* view, int direction) override;
     bool swapViews(View* a, View* b) override;
+    // True when `view` is the master area's only window, which removing it would replace by promoting a stack window.
+    [[nodiscard]] bool isSoleMaster(const View* view) const { return m_master.views.size() == 1 && rowInArea(m_master, view) >= 0; }
     bool promoteFromStack();
     bool demoteToStack();
     void removeView(View* view) override;

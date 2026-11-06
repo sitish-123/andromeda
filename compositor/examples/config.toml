@@ -158,8 +158,22 @@ numlock_toggle = true
 [keybinds]
 
 # Applications and session
-"Mod+Return" = { action = "spawn:kitty", repeat = false }
+# Terminal and Files open the apps set in Settings > Default Apps.
+"Mod+Return" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
+"Ctrl+Alt+T" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
+"Mod+E" = { action = "spawn:noctalia msg default-app-open files", repeat = false }
 "Mod" = "shell:panel-toggle launcher"
+"Mod+Space" = { action = "shell:panel-toggle launcher", repeat = false }
+"Mod+Period" = { action = "shell:panel-toggle launcher /emo", repeat = false }
+"Mod+V" = { action = "shell:panel-toggle clipboard", repeat = false }
+"Mod+A" = { action = "shell:panel-toggle control-center", repeat = false }
+"Mod+N" = { action = "shell:panel-toggle notifications", repeat = false }
+"Mod+I" = { action = "shell:settings-toggle", repeat = false }
+"Ctrl+Shift+Escape" = { action = "shell:activity-open", repeat = false }
+"Alt+Tab" = "shell:window-switcher"
+"Mod+Tab" = "shell:window-switcher"
+"Mod+L" = { action = "shell:session lock", repeat = false }
+"Mod+Shift+L" = { action = "shell:panel-toggle session", repeat = false }
 "Mod+Q" = { action = "window-close", repeat = false }
 "Mod+Escape" = "session-quit"
 "Mod+Shift+Escape" = { action = "shortcuts-inhibit-toggle", allow_when_inhibited = true, repeat = false }
@@ -170,21 +184,29 @@ numlock_toggle = true
 "XF86AudioRaiseVolume" = { action = "spawn:noctalia msg volume-up", allow_when_locked = true }
 "XF86AudioLowerVolume" = { action = "spawn:noctalia msg volume-down", allow_when_locked = true }
 "XF86AudioMute" = { action = "spawn:noctalia msg volume-mute", allow_when_locked = true, repeat = false }
+"XF86AudioMicMute" = { action = "spawn:noctalia msg mic-mute", allow_when_locked = true, repeat = false }
+"XF86AudioPause" = { action = "spawn:noctalia msg media toggle", allow_when_locked = true, repeat = false }
 "XF86AudioPlay" = { action = "spawn:noctalia msg media toggle", allow_when_locked = true, repeat = false }
 "XF86AudioNext" = { action = "spawn:noctalia msg media next", allow_when_locked = true }
 "XF86AudioPrev" = { action = "spawn:noctalia msg media previous", allow_when_locked = true }
 "XF86MonBrightnessUp" = { action = "spawn:noctalia msg brightness-up", allow_when_locked = true }
 "XF86MonBrightnessDown" = { action = "spawn:noctalia msg brightness-down", allow_when_locked = true }
 
+# Screenshots and screen recording
+"Print" = { action = "shell:screenshot-region", repeat = false }
+"Mod+Shift+S" = { action = "shell:screenshot-region", repeat = false }
+"Ctrl+Print" = { action = "shell:screenshot-fullscreen", repeat = false }
+"Alt+Print" = { action = "shell:screenshot-window", repeat = false }
+"Shift+Print" = { action = "shell:screenshot-annotate", repeat = false }
+"Mod+Shift+R" = { action = "shell:screen-record-toggle", repeat = false }
+
 # Focus and movement
 "Mod+Left" = "window-focus-left"
 "Mod+Down" = "window-focus-down"
 "Mod+Up" = "window-focus-up"
 "Mod+Right" = "window-focus-right"
-"Mod+H" = "window-focus-left"
-"Mod+J" = "window-focus-down"
-"Mod+K" = "window-focus-up"
-"Mod+L" = "window-focus-right"
+"Mod+BracketLeft" = "window-focus-left"
+"Mod+BracketRight" = "window-focus-right"
 "Mod+F1" = "window-focus-next"
 "Mod+Shift+Left" = "column-move-left"
 "Mod+Shift+Down" = "window-move-down"
@@ -199,9 +221,8 @@ numlock_toggle = true
 "Mod+F" = { action = "window-toggle-fullscreen", repeat = false }
 "Mod+Ctrl+F" = { action = "window-toggle-maximize", repeat = false }
 "Mod+R" = "window-cycle-primary-extent"
-"Mod+Shift+R" = "window-cycle-primary-extent-back"
 "Mod+Comma" = "window-consume-left"
-"Mod+Period" = "window-consume-right"
+"Mod+Shift+Period" = "window-consume-right"
 "Mod+Ctrl+Comma" = "window-consume-from-left"
 "Mod+Ctrl+Period" = "window-consume-from-right"
 # Needs layout.mode = "dwindle".
@@ -209,8 +230,12 @@ numlock_toggle = true
 "Mod+W" = { action = "column-toggle-tabbed", repeat = false }
 "Mod+Alt+Right" = "column-focus-tab-next"
 "Mod+Alt+Left" = "column-focus-tab-previous"
-"Mod+WheelUp" = "window-focus-left"
-"Mod+WheelDown" = "window-focus-right"
+"Mod+WheelUp" = { action = "workspace-next", cooldown_ms = 150 }
+"Mod+WheelDown" = { action = "workspace-previous", cooldown_ms = 150 }
+"Mod+Ctrl+Left" = "workspace-previous"
+"Mod+Ctrl+Right" = "workspace-next"
+"Mod+Page_Up" = "workspace-previous"
+"Mod+Page_Down" = "workspace-next"
 "Mod+O" = { action = "overview-toggle", repeat = false }
 
 # Workspaces
@@ -235,9 +260,9 @@ numlock_toggle = true
 
 # Scratchpad
 "Mod+Shift+Space" = { action = "window-move-to-scratchpad", repeat = false }
-"Mod+Space" = "scratchpad-toggle"
+"Mod+S" = "scratchpad-toggle"
 "Mod+Ctrl+Space" = { action = "window-restore-from-scratchpad", repeat = false }
-"Mod+Tab" = "scratchpad-focus-next"
+"Mod+Ctrl+S" = "scratchpad-focus-next"
 
 # ==============================================================================
 # Layout

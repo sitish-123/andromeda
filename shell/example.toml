@@ -21,7 +21,7 @@ polkit_agent          = false
 password_style        = "default"    # default | random
 readline_shortcuts    = false        # readline-style shortcuts in every text field (Ctrl+A = line start)
 settings_expand_all_groups = false   # Plugins page: show its groups without tabs
-# settings_window_translucent = false  # translucent settings window background
+# settings_window_translucent = true  # light glass Settings window; false = solid
 show_location         = true         # hide weather location text in shell UI when false
 # app_icon_colorize   = false        # recolor application icons across the shell
 # app_icon_color      = "on_surface" # ColorSpec role or #hex when colorize is enabled

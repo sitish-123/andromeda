@@ -79,3 +79,26 @@ ANDROMEDA_TEST(regionNamesRoundTrip) {
 }
 
 int main() { return RUN_TESTS(); }
+
+ANDROMEDA_TEST(snapLayoutZonesTileTheAreaWithEvenGaps) {
+  const wlr_box area{.x = 10, .y = 20, .width = 1200, .height = 800};
+  // Thirds with a 12 px gap: zones 12 px apart, flush with both area edges.
+  const wlr_box first = andromeda::snapZoneBox(area, {.layout = 2, .zone = 0}, 12);
+  const wlr_box middle = andromeda::snapZoneBox(area, {.layout = 2, .zone = 1}, 12);
+  const wlr_box last = andromeda::snapZoneBox(area, {.layout = 2, .zone = 2}, 12);
+  CHECK(first.x == 10 && middle.x == first.x + first.width + 12 && last.x == middle.x + middle.width + 12);
+  CHECK(last.x + last.width == 1210 && first.height == 800);
+  // 1 + 2 stacked: the right zones split the height with the gap between them.
+  const wlr_box upper = andromeda::snapZoneBox(area, {.layout = 3, .zone = 1}, 12);
+  const wlr_box lower = andromeda::snapZoneBox(area, {.layout = 3, .zone = 2}, 12);
+  CHECK(upper.y == 20 && lower.y == upper.y + upper.height + 12 && lower.y + lower.height == 820);
+}
+
+ANDROMEDA_TEST(snapSpotNamesRoundTrip) {
+  const auto zone = andromeda::snapSpotNamed("6.3");
+  CHECK(zone.has_value() && andromeda::snapSpotName(*zone) == "6.3");
+  CHECK(andromeda::snapSpotNamed("left").has_value());
+  CHECK(!andromeda::snapSpotNamed("1.3").has_value()); // halves have two zones
+  CHECK(!andromeda::snapSpotNamed("7.1").has_value());
+  CHECK(!andromeda::snapSpotNamed("0.1").has_value());
+}

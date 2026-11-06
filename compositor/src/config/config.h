@@ -1,11 +1,11 @@
 #pragma once
-#include "design_tokens.h"
 #include "config/config_diag.h"
 #include "config/effects.h"
 #include "config/keybind_parse.h"
 #include "config/value_parse.h"
 #include "config/window_position.h"
 #include "core/animation.h"
+#include "design_tokens.h"
 #include "layout/layout.h"
 #include "qos/policy.h"
 #include "scene/ssd_frame_geometry.h"
@@ -661,10 +661,24 @@ namespace andromeda {
     }
   };
 
+  // `[overview] style`; same order as ov::Style.
+  enum class OverviewStyle : uint8_t {
+    Spaces,
+    TaskView,
+    Strip,
+    Grid,
+  };
+
+  // `[overview] titles`: when a window card shows its title capsule.
+  enum class OverviewTitles : uint8_t {
+    Hover,
+    Always,
+  };
+
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
-    // diagnostics banner, the quit confirmation, and overview badge text.
+    // diagnostics banner and the quit confirmation.
     struct Colors {
       struct TitleBar {
         std::array<float, 4> background{0.1607843F, 0.1607843F, 0.2F, 1.0F};
@@ -797,7 +811,8 @@ namespace andromeda {
       ColorScheme scheme = ColorScheme::Dark;
       // Unset: the design-token accent.
       std::optional<std::array<float, 4>> accent;
-      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with solids.
+      // Glass slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduceTransparency replaces glass with
+      // solids.
       double glass = 0.5;
       bool reduceTransparency = false;
       bool increaseContrast = false;
@@ -970,7 +985,13 @@ namespace andromeda {
     Effects effects;
 
     struct Overview {
-      // Workspace scale when fully zoomed out.
+      // How the overview arranges workspaces (overview/style.h): Spaces (thumbs on top, current workspace below),
+      // TaskView (current workspace spread out, desktops along the bottom), Strip (a zoomed row per workspace) or Grid
+      // (every workspace as an equal tile).
+      OverviewStyle style = OverviewStyle::Spaces;
+      // Title capsule under each window card: always, or only on the hovered or selected card.
+      OverviewTitles titles = OverviewTitles::Always;
+      // Strip only: each workspace row's scale.
       double zoom = 0.5;
       // Touchpad travel and wheel accumulation in the overview, by the physical direction of the movement rather
       // than the output's workspace axis. Independent of an input device's own scroll_factor.
@@ -983,11 +1004,6 @@ namespace andromeda {
       // colors.overview.workspace_background fill. The real bottom layer is hidden while the overview is open, so a
       // surface there appears once per workspace rather than twice at two scales.
       bool workspaceWallpaper = true;
-      // Keyboard shortcut badges on overview cards. Pressing a badge key focuses
-      // that window and closes the overview.
-      bool shortcuts = true;
-      // Favorite badge keys in preference order, one ASCII character each.
-      std::string shortcutKeys = "1234567890";
       bool operator==(const Overview&) const = default;
     } overview;
 

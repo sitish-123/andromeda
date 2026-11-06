@@ -13,6 +13,7 @@
 # Env: SECONDS_PER=8 (seconds per scenario), OUT=/tmp/glass-bench, BUDGET_SCALE (default: GPU lanes x pinned MHz
 #   over UHD 620's), LOWEND=0 runs without limits, BENCH_MODE=1920x1200@60 (a 1.5K low-end laptop panel; glass cost grows
 #   with the pixel count), CONF_HOME=$HOME (source of the andromeda and noctalia config and ~/Pictures),
+#   WS_CLIENTS=2 (foot windows per workspace in workspace_switch; 0 = empty workspaces), WS_ALPHA=1.0 (terminal alpha in workspace_switch; below 1 the window blur rule applies), BENCH_SCALE=1 (output scale; the laptop panel is 2880x1800@120 at 1.5), SCENARIOS="idle ..." (default: all),
 #   TOKENS=$ROOT/protocol/design-tokens.toml, RENDER_NODE (for example /dev/dri/renderD128 on a dual-GPU laptop).
 set -uo pipefail
 GPU=/sys/class/drm/card1
@@ -80,7 +81,7 @@ make_config() {
   else
     printf '\n[appearance]\nreduce_transparency = %s\nglass = %s\n' "$reduce" "$glass" >> "$dst"
   fi
-  printf '\n[output.HEADLESS-1]\nmode = "%s"\n' "$BENCH_MODE" >> "$dst"
+  printf '\n[output.HEADLESS-1]\nmode = "%s"\nscale = %s\n' "$BENCH_MODE" "${BENCH_SCALE:-1}" >> "$dst"
 }
 
 energy() { cat "$RAPL" 2>/dev/null || echo 0; }
@@ -135,8 +136,10 @@ run_mode() {
   local gpu_log=$!
 
   : > "$dir/scenarios.txt"
+  selected() { [[ -z ${SCENARIOS:-} || " $SCENARIOS " == *" $1 "* ]]; }
   scenario() {
     local name=$1; shift
+    selected "$name" || return 0
     local t0 e0 c0; t0=$(mono_ns); e0=$(energy); c0=$(cpu_ticks "$comp")
     "$@"
     local t1 e1 c1; t1=$(mono_ns); e1=$(energy); c1=$(cpu_ticks "$comp")
@@ -170,12 +173,37 @@ run_mode() {
     kill "$p1" "$p2" 2>/dev/null
   }
 
+  # Two terminals on each of two workspaces; the switch slides them past the bar islands and the dock.
+  # Setup runs outside the scenario window: a terminal's first frame is a window-open cost, not a switch cost.
+  ws_pids=()
+  ws_setup() {
+    local a=(env XDG_RUNTIME_DIR="$R" ANDROMEDA_SOCKET="$R/andromeda-wayland-0.sock" "$ANDROMEDA")
+    for ws in 2 1; do
+      "${a[@]}" msg "workspace-switch:$ws" > /dev/null
+      for _ in $(seq "${WS_CLIENTS:-2}"); do
+        XDG_RUNTIME_DIR="$R" WAYLAND_DISPLAY=wayland-0 foot -o colors.alpha="${WS_ALPHA:-1.0}" > /dev/null 2>&1 &
+        ws_pids+=($!); sleep 0.6
+      done
+    done
+    "${a[@]}" settle > /dev/null; sleep 1
+  }
+  s_workspace_switch() {
+    local a=(env XDG_RUNTIME_DIR="$R" ANDROMEDA_SOCKET="$R/andromeda-wayland-0.sock" "$ANDROMEDA")
+    for _ in $(seq 10); do
+      "${a[@]}" msg workspace-switch:2 > /dev/null; sleep 0.6
+      "${a[@]}" msg workspace-switch:1 > /dev/null; sleep 0.6
+    done
+  }
+
   scenario idle s_idle
   scenario cc_over_motion s_cc_over_motion
   scenario open_close s_open_close
   scenario window_open_close s_window_open_close
   scenario launcher_typing s_launcher_typing
   scenario worst s_worst
+  selected workspace_switch && ws_setup
+  scenario workspace_switch s_workspace_switch
+  ((${#ws_pids[@]})) && kill "${ws_pids[@]}" 2>/dev/null
   sleep 1
 
   [[ -n $gpu_log ]] && kill "$gpu_log" 2>/dev/null
@@ -195,7 +223,8 @@ done
 # Report: per scenario and mode. Budget: 25 % of a 60 Hz frame on the target GPU, scaled to this GPU.
 budget=$(awk -v s="$BUDGET_SCALE" 'BEGIN {printf "%.3f", 16.667 * 0.25 / s}')
 printf '%-16s %-8s %7s %8s %8s %8s %7s %6s %8s\n' scenario mode frames p50ms p99ms maxms watts cpu% rssMB
-for name in idle cc_over_motion open_close window_open_close launcher_typing worst; do
+for name in idle cc_over_motion open_close window_open_close launcher_typing worst workspace_switch; do
+  [[ -z ${SCENARIOS:-} || " $SCENARIOS " == *" $name "* ]] || continue
   for mode in "${MODES[@]}"; do
     line=$(awk -v n="$name" '$1 == n' "$OUT/$mode/scenarios.txt")
     read -r _ t0 t1 _ watts cpu rss <<< "$line"

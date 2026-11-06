@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+#DEBHELPER#
+if [ "$1" = remove ] || [ "$1" = abort-install ] || [ "$1" = disappear ]; then
+  # The undivert must not overwrite: the Andromeda copy goes first, then mpv's copy returns.
+  rm -f /etc/mpv/mpv.conf
+  dpkg-divert --package andromeda --remove --rename --divert /etc/mpv/mpv.conf.mpv-dist /etc/mpv/mpv.conf
+fi

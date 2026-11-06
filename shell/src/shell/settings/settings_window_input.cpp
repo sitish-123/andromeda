@@ -4,6 +4,11 @@
 #include "shell/settings/settings_pages.h"
 #include "shell/settings/settings_window.h"
 #include "compositors/shell_wayland_connection.h"
+#include "render/core/async_texture_cache.h"
+#include "system/desktop_entry.h"
+#include "system/icon_resolver.h"
+#include "ui/builders.h"
+#include "ui/controls/image.h"
 
 #include <utility>
 
@@ -68,6 +73,7 @@ void SettingsWindow::addShortcutsContent(float scale) {
     m_recordingShortcutRow.clear();
     return;
   }
+  const auto entries = desktopEntriesSnapshot();
   settings::addSettingsShortcuts(
       *m_contentContainer,
       settings::SettingsShortcutsContext{
@@ -75,6 +81,25 @@ void SettingsWindow::addShortcutsContent(float scale) {
           .compositor = m_compositorSettings.get(),
           .draft = m_shortcutDraft,
           .recordingRow = m_recordingShortcutRow,
+          .entries = *entries,
+          .appIcon = [this](const DesktopEntry& entry, float size) -> std::unique_ptr<Node> {
+            // Function-local: the icon-theme walk must not run before main().
+            static IconResolver resolver;
+            if (m_surface == nullptr || entry.icon.empty()) {
+              return nullptr;
+            }
+            const std::string& path = resolver.resolve(entry.icon, static_cast<int>(size));
+            if (path.empty()) {
+              return nullptr;
+            }
+            Image* image = nullptr;
+            auto node = ui::image({.out = &image, .fit = ImageFit::Contain, .width = size, .height = size});
+            if (image == nullptr
+                || !image->setSourceFile(m_surface->renderTarget().renderer(), path, static_cast<int>(size), true)) {
+              return nullptr;
+            }
+            return node;
+          },
           .bind =
               [this](std::string chord, std::string action) {
                 if (m_compositorSettings != nullptr) {

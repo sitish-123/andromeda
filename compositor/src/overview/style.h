@@ -30,11 +30,15 @@ namespace andromeda::ov {
     // wholly outside the output. A minimized window keeps its last rect here.
     Rect desk;
     bool minimized = false;
+
+    bool operator==(const Member&) const = default;
   };
 
   struct Workspace {
     Arrangement arrangement = Arrangement::Scrolling;
     std::vector<Member> members;
+
+    bool operator==(const Workspace&) const = default;
   };
 
   struct Input {
@@ -45,6 +49,12 @@ namespace andromeda::ov {
     size_t current = 0;
     // Strip only: the row the column is centred on, fractional while it scrolls. Unset = `current`.
     std::optional<double> stripRow;
+    // Strip only: each row's share of the output (`overview.zoom`), and whether rows step along x (the output's
+    // workspace axis is horizontal) instead of y.
+    double stripScale = 0.5;
+    bool horizontal = false;
+
+    bool operator==(const Input&) const = default;
   };
 
   struct Insets {
@@ -80,11 +90,17 @@ namespace andromeda::ov {
   struct Placement {
     std::vector<WindowPlace> windows;
     std::vector<Card> cards;
-    std::optional<Rect> plus;     // the new-workspace target
-    std::optional<Rect> main;     // the area the current workspace fills (Spaces, Task View)
+    std::optional<Rect> plus; // the new-workspace target
+    std::optional<Rect> main; // the area the current workspace fills (Spaces, Task View)
+    // Spaces, Task View: the current workspace's desktop -> the main area. A spread (exposé) workspace has no single
+    // map, so it is the whole output fitted into the area.
+    std::optional<Fit> mainFit;
     std::optional<Point> title;   // workspace name + layout chip, top-left corner
     std::optional<Point> filter;  // filter field, top-left corner; kFilterWidth wide
     std::optional<Rect> viewport; // Spaces + Scrolling: the frame marking what is on screen
+    // Spaces, Task View: the current workspace's shown windows on its desktop, cut to the output, bottom to top. Its
+    // windows sit in the main area, so its thumb draws these as blocks.
+    std::vector<Rect> currentDesk;
   };
 
   inline constexpr double kFilterWidth = 260;
@@ -92,5 +108,20 @@ namespace andromeda::ov {
 
   [[nodiscard]] Placement place(Style style, const Input& input);
   [[nodiscard]] const WindowPlace* findWindow(const Placement& placement, uint32_t id);
+
+  // The placement while the chosen workspace is `row`, fractional while the wheel, a key or a swipe moves it. Strip
+  // scrolls its column; Spaces and Task View morph between the two neighbouring workspaces' placements; Grid only
+  // marks a tile. `input.current` and `input.stripRow` are ignored.
+  [[nodiscard]] Placement placeAt(Style style, Input input, double row);
+
+  // Where a window of workspace `workspace` sits on the desktop while the workspaces are scrolled to `row`: its own
+  // rect, one output away per workspace along the workspace axis. Open progress 0 starts here.
+  [[nodiscard]] Rect deskRect(const Input& input, const Rect& desk, size_t workspace, double row);
+  // Where a workspace card starts at open progress 0: thumbs slide in from past the nearest edge, frames and tiles
+  // grow from the full output one workspace step away.
+  [[nodiscard]] Rect cardDeskRect(Style style, const Input& input, const Card& card, double row);
+  // A window's opacity at open progress `p` in [0, 1]: a minimized window fades in from 0, a window that the
+  // placement hides fades out early, an off-screen strip column dims to half.
+  [[nodiscard]] double windowOpacity(const WindowPlace& place, bool minimized, double p);
 
 } // namespace andromeda::ov

@@ -79,6 +79,8 @@ namespace noctalia::cli {
   inline constexpr std::array<std::string_view, 7> kMsgSessionActionChoices{"lock",    "suspend", "lock-and-suspend",
                                                                             "logout",  "reboot",  "reboot-uefi",
                                                                             "shutdown"};
+  inline constexpr std::array<std::string_view, 5> kMsgDefaultAppChoices{"terminal", "files", "browser", "mail",
+                                                                          "editor"};
   inline constexpr std::array<std::string_view, 2> kMsgTaskbarCycleDirectionChoices{"next", "prev"};
   inline constexpr std::array<std::string_view, 3> kMsgThemeModeSetModeChoices{"dark", "light", "auto"};
   inline constexpr std::array<std::string_view, 2> kMsgWorkspaceSwitchDirectionChoices{"next", "prev"};
@@ -265,6 +267,9 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgSettingsOpenPositionals{
       Positional{"context", {}, {}, false, false, false},
   };
+  inline constexpr std::array kMsgDefaultAppOpenPositionals{
+      Positional{"category", {}, kMsgDefaultAppChoices, true, false, false},
+  };
   inline constexpr std::array kMsgActivityOpenPositionals{
       Positional{"row", {}, {}, false, false, false},
   };
@@ -399,6 +404,10 @@ namespace noctalia::cli {
     inline constexpr Command activityOpen{
         "activity-open", "Open the Activity window, optionally with a row (app ID or unit name) selected", {}, {}, {},
         kMsgActivityOpenPositionals, {}, false
+    };
+    inline constexpr Command defaultAppOpen{
+        "default-app-open", "Open the default app for a category, as set in Settings > Default Apps", {}, {}, {},
+        kMsgDefaultAppOpenPositionals, {}, false
     };
     inline constexpr Command activityDump{
         "activity-dump", "Print Activity rows as JSON and keep sampling for 10 s", {}, {}, {}, {}, {}, false
@@ -1166,6 +1175,7 @@ namespace noctalia::cli {
       msg::airplaneStatus,
       msg::airplaneToggle,
       msg::annotate,
+      msg::defaultAppOpen,
       msg::barAutoHideSet,
       msg::barHide,
       msg::barLayerSet,

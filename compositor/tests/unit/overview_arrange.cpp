@@ -24,7 +24,7 @@ namespace {
 
   // The prototype's start state: Main scrolls three columns (the third off screen), Chat and Media hold two each.
   Input sample(Arrangement mainArrangement, size_t workspaces = 3) {
-    Input in{kW, kH, kUsable, {}, 0, std::nullopt};
+    Input in{kW, kH, kUsable, {}, 0, std::nullopt, 0.5, false};
     Workspace main{mainArrangement, {{1, {8, 44, 628, 672}}, {2, {644, 44, 628, 672}}, {3, {1280, 44, 416, 672}}}};
     in.workspaces.push_back(main);
     uint32_t id = 10;
@@ -59,17 +59,22 @@ ANDROMEDA_TEST(spacesScrollingShowsTheWholeStripInsideTheMainArea) {
   CHECK(findWindow(p, 3)->rect.x >= p.viewport->x + p.viewport->w - 4);
 }
 
-ANDROMEDA_TEST(otherWorkspacesFlyIntoTheirThumbAndFade) {
+ANDROMEDA_TEST(otherWorkspacesShrinkIntoTheirThumbCutToTheOutput) {
   for (Style style : {Style::Spaces, Style::TaskView}) {
     const Placement p = place(style, sample(Arrangement::Scrolling));
     for (const WindowPlace& w : p.windows) {
       if (w.workspace == 0) {
         continue;
       }
-      CHECK_EQ(w.opacity, 0.0);
+      CHECK_EQ(w.opacity, 1.0);
       CHECK(inside(w.rect, p.cards[w.workspace].rect));
     }
   }
+  Input in = sample(Arrangement::Scrolling);
+  in.current = 1;
+  const Placement p = place(Style::Spaces, in);
+  // Main's off-screen column hangs past the output, so its miniature is cut there.
+  CHECK(findWindow(p, 3)->clip.has_value() && findWindow(p, 3)->clip->right == 416.0);
 }
 
 ANDROMEDA_TEST(freeWorkspacesSpreadWithoutOverlap) {
@@ -130,6 +135,8 @@ ANDROMEDA_TEST(gridClipsEveryWindowToItsTile) {
     CHECK(inside(shown, tile));
   }
   CHECK(findWindow(p, 3)->clip.has_value());
+  // Wholly off the output: a zero-size clip would draw it uncut beside the tile.
+  CHECK(findWindow(p, 3)->opacity == 0.0);
 }
 
 ANDROMEDA_TEST(stripCentresTheChosenRowAndScrollsFractionally) {
@@ -142,6 +149,60 @@ ANDROMEDA_TEST(stripCentresTheChosenRowAndScrollsFractionally) {
   const Placement half = place(Style::Strip, in);
   const double mid = (half.cards[1].rect.y + half.cards[1].rect.h + half.cards[2].rect.y) / 2;
   CHECK(std::abs(mid - kH / 2) < 1e-9);
+}
+
+ANDROMEDA_TEST(stripRowsFollowAHorizontalWorkspaceAxis) {
+  Input in = sample(Arrangement::Scrolling);
+  in.horizontal = true;
+  in.stripScale = 0.25;
+  const Placement p = place(Style::Strip, in);
+  CHECK_EQ(p.cards[0].rect.w, 320.0);
+  CHECK_EQ(p.cards[1].rect.y, p.cards[0].rect.y);
+  CHECK_EQ(p.cards[1].rect.x - p.cards[0].rect.x, 320.0 + 60.0);
+}
+
+ANDROMEDA_TEST(placeAtMorphsSpacesBetweenNeighbouringWorkspaces) {
+  const Input in = sample(Arrangement::Scrolling);
+  Input at1 = in;
+  at1.current = 1;
+  const Placement a = place(Style::Spaces, in);
+  const Placement b = place(Style::Spaces, at1);
+  const Placement mid = placeAt(Style::Spaces, in, 0.5);
+  const Rect expected = lerpRect(findWindow(a, 10)->rect, findWindow(b, 10)->rect, 0.5);
+  CHECK(findWindow(mid, 10)->rect == expected);
+  CHECK(placeAt(Style::Spaces, in, 1.0).windows.size() == b.windows.size());
+  CHECK(findWindow(placeAt(Style::Spaces, in, 1.0), 10)->rect == findWindow(b, 10)->rect);
+  // Past either end the row clamps.
+  CHECK(findWindow(placeAt(Style::Spaces, in, -3), 1)->rect == findWindow(a, 1)->rect);
+}
+
+ANDROMEDA_TEST(desktopRectsStepOneOutputPerWorkspace) {
+  Input in = sample(Arrangement::Scrolling);
+  const Rect desk{8, 44, 628, 672};
+  CHECK(deskRect(in, desk, 2, 0.5) == (Rect{8, 44 + 1.5 * kH, 628, 672}));
+  in.horizontal = true;
+  CHECK(deskRect(in, desk, 0, 1) == (Rect{8 - kW, 44, 628, 672}));
+  const Placement spaces = place(Style::Spaces, in);
+  CHECK(cardDeskRect(Style::Spaces, in, spaces.cards[1], 0).y + spaces.cards[1].rect.h <= 0);
+  const Placement taskView = place(Style::TaskView, in);
+  CHECK(cardDeskRect(Style::TaskView, in, taskView.cards[1], 0).y >= kH);
+  const Placement grid = place(Style::Grid, in);
+  CHECK(cardDeskRect(Style::Grid, in, grid.cards[1], 0) == (Rect{kW, 0, kW, kH}));
+}
+
+ANDROMEDA_TEST(windowOpacityFadesHiddenMinimizedAndDimmedWindows) {
+  WindowPlace place{};
+  place.opacity = 1;
+  CHECK_EQ(windowOpacity(place, false, 0.5), 1.0);
+  CHECK_EQ(windowOpacity(place, true, 0.5), 0.5);
+  place.opacity = 0;
+  CHECK_EQ(windowOpacity(place, false, 0.0), 1.0);
+  CHECK_EQ(windowOpacity(place, false, 0.4), 0.0);
+  CHECK_EQ(windowOpacity(place, true, 1.0), 0.0);
+  place.opacity = 1;
+  place.dimmed = true;
+  CHECK_EQ(windowOpacity(place, false, 1.0), 0.5);
+  CHECK_EQ(windowOpacity(place, false, 2.0), 0.5);
 }
 
 int main() { return RUN_TESTS(); }

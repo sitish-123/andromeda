@@ -32,7 +32,7 @@ namespace andromeda {
       tiled = false;
     }
 
-    if (!tiled && (view->snapRegion() || view->floatingMaximized())) {
+    if (!tiled && (view->snapSpot() || view->floatingMaximized())) {
       deferUntilThreshold = true;
     }
     setActiveConstraint(nullptr);

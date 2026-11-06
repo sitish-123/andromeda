@@ -62,6 +62,13 @@ int main() {
       );
     }
   }
+  SettingEntry face;
+  face.section = SettingsSection::Security;
+  face.group = "unlock";
+  face.path = {"lockscreen", "face"};
+  check(settingEntryOnPage(face, "lock-screen", "", ""), "lock screen rows are not on the Lock Screen page");
+  check(!settingEntryOnPage(face, "privacy", "", ""), "lock screen rows are still on the Privacy page");
+  check(!settingEntryIsExpert(face), "face unlock is still an expert row");
   check(settingsPageFromId("unknown-page") == nullptr, "an unknown id opened a page");
   return 0;
 }

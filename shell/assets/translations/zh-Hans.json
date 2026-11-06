@@ -3609,10 +3609,6 @@
           "description": "在 andromeda 概览打开期间通过启动器启动应用时关闭概览",
           "label": "启动时关闭"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "在 andromeda 概览中键入时打开启动器；进入概览后，将通过一个极小的输入界面接收键盘输入",
-          "label": "键入启动"
-        },
         "window-switcher-current-workspace-only": {
           "description": "仅列出活动工作区的窗口；关闭后包含所有工作区的窗口",
           "label": "仅活动工作区"

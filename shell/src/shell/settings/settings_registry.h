@@ -346,6 +346,7 @@ namespace settings {
     std::string schedExtScheduler; // the running sched_ext scheduler; app priority (CPU weights) has no effect under it
     std::optional<std::size_t> backgroundActivityCount; // flagged background services at the last check; none = not checked
     std::function<void()> openActivity;
+    std::function<void(std::string)> openDetail; // opens a hand-built detail page ("kind:title") on the current page
     bool greeterSyncAvailable = false;          // hide greeter appearance sync when greeter is not installed
     std::vector<SelectOption> availableOutputs; // monitor selectors available on this machine
     bool batteryAvailable = false;

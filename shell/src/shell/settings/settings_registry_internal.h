@@ -220,7 +220,10 @@ namespace settings {
           panelOpenNearClickEntry;
     };
 
-    void addCompositorEntries(std::vector<SettingEntry>& entries, const SettingsControl& compositor);
+    void addCompositorEntries(
+        std::vector<SettingEntry>& entries, const SettingsControl& compositor,
+        const std::function<void(std::string)>& openDetail
+    );
     void add_appearance_settings(RegistryContext& ctx);
     void add_wallpaper_settings(RegistryContext& ctx);
     void add_templates_settings(RegistryContext& ctx);

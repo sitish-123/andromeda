@@ -6,8 +6,10 @@
 #include "config/keybind_parse.h"
 #include "config/managed_settings.h"
 #include "desktop-unstable-v1-protocol.h"
+#include "output/output.h"
 #include "server/server.h"
 #include "wlr.h"
+#include "workspace/workspace.h"
 
 #include <algorithm>
 #include <format>
@@ -172,6 +174,15 @@ namespace andromeda {
       setVolatileSetting(key, *parsed.value);
       settingsChanged();
       return;
+    }
+    if (const std::optional<int64_t> index = workspaceLayoutIndex(key)) {
+      // A session override from the overview chip or workspace-set-layout would mask the saved choice.
+      for (const auto& output : m_server.outputs()) {
+        WorkspaceGroup* group = output->workspaceGroup();
+        if (Workspace* workspace = group != nullptr ? group->workspaceAt(static_cast<size_t>(*index - 1)) : nullptr) {
+          workspace->clearLayoutModeOverride();
+        }
+      }
     }
     m_pendingSets.push_back({.owner = resource, .key = keyText, .value = *parsed.value});
     if (m_saveIdle == nullptr) {
@@ -362,13 +373,31 @@ namespace andromeda {
 
   void DesktopSettingsManager::sendSettings(wl_resource* resource) const {
     const std::span<const std::string_view> keys = managedSettingKeys();
-    const std::vector<bool> customizedKeys = documentSetsKeys(readFile(managedSettingsFile(configRootPath())), keys);
+    const std::string document = readFile(managedSettingsFile(configRootPath()));
+    const std::vector<bool> customizedKeys = documentSetsKeys(document, keys);
     for (std::size_t i = 0; i < keys.size(); ++i) {
       const std::string_view key = keys[i];
       const std::string keyText(key);
       const std::string value = managedSettingValue(config(), key);
       const uint32_t customized = customizedKeys[i] ? 1U : 0U;
       dsk_settings_manager_v1_send_setting(resource, keyText.c_str(), value.c_str(), customized);
+    }
+    // Every workspace slot in use gets a value, so a removed rule reaches Settings as unset ("").
+    const std::vector<std::pair<int64_t, std::string>> rules = documentWorkspaceLayouts(document);
+    int64_t slots = 0;
+    for (const auto& [index, mode] : rules) {
+      slots = std::max(slots, index);
+    }
+    for (const auto& output : m_server.outputs()) {
+      if (const WorkspaceGroup* group = output->workspaceGroup()) {
+        slots = std::max(slots, static_cast<int64_t>(group->workspaceCount()));
+      }
+    }
+    for (int64_t index = 1; index <= slots; ++index) {
+      const auto rule = std::ranges::find(rules, index, &std::pair<int64_t, std::string>::first);
+      const std::string key = workspaceLayoutKey(index);
+      const std::string value = rule != rules.end() ? rule->second : std::string();
+      dsk_settings_manager_v1_send_setting(resource, key.c_str(), value.c_str(), rule != rules.end() ? 1U : 0U);
     }
     if (wl_resource_get_version(resource) >= 2) {
       for (const std::string_view key : volatileSettingKeys()) {

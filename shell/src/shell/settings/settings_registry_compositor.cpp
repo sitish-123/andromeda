@@ -71,7 +71,10 @@ namespace settings {
     // Compositor settings, shown only once the compositor's settings manager has reported them. Options that only
     // apply in one mode (a layout's own options, blur strength with blur off) are left out until they apply; the
     // registry rebuilds whenever the compositor reports a change.
-    void addCompositorEntries(std::vector<SettingEntry>& entries, const SettingsControl& compositor) {
+    void addCompositorEntries(
+        std::vector<SettingEntry>& entries, const SettingsControl& compositor,
+        const std::function<void(std::string)>& openDetail
+    ) {
       using i18n::tr;
       const auto isOn = [&](std::string_view key) { return compositor.value(key) == "true"; };
       const auto add = [&](SettingsSection section, std::string_view group, std::string_view key,
@@ -197,9 +200,14 @@ namespace settings {
       }
 
       const std::string mode = compositor.value("layout.mode");
-      choice(Layout, "layout", "layout.mode", {"scrolling", "dwindle", "master"}, true, "tiling layout mode");
+      choice(
+          Layout, "layout", "layout.mode", {"floating", "scrolling", "dwindle", "master"}, false,
+          "window arrangement free floating scrolling split tiling main stack master layout mode"
+      );
       stepper(Layout, "layout", "layout.gap", 0, 500, 1, "px", "gaps spacing between windows");
-      if (mode == "scrolling") {
+      if (mode == "floating") {
+        toggle(Layout, "layout", "input.window_snapping", "snap tile half quarter edge drag");
+      } else if (mode == "scrolling") {
         choice(
             Layout, "layout", "layout.scrolling.center_focused", {"never", "always", "on_overflow"}, false,
             "center focused column"
@@ -215,11 +223,41 @@ namespace settings {
       }
       toggle(Layout, "workspaces", "workspaces.back_and_forth", "workspace back and forth previous");
       toggle(Layout, "workspaces", "workspaces.empty_above", "workspace empty");
+      // Per-Workspace Arrangement (ST2): the compositor reports one "workspace.<N>.layout.mode" per slot in use.
+      std::size_t slots = 0;
+      std::size_t custom = 0;
+      for (const auto& [key, setting] : compositor.settings()) {
+        if (key.starts_with("workspace.") && key.ends_with(".layout.mode")) {
+          ++slots;
+          custom += compositor.value(key).empty() ? 0 : 1;
+        }
+      }
+      if (slots > 0 && openDetail) {
+        const std::string title = tr("settings.windows.per-workspace");
+        entries.push_back(makeEntry(
+            Layout, "workspaces", title,
+            custom == 0 ? tr("settings.windows.per-workspace-none")
+                        : i18n::trp("settings.windows.per-workspace-custom", static_cast<long>(custom)),
+            {std::string(kCompositorPathRoot), "workspaces", "per-workspace"},
+            ButtonSetting{
+                .label = tr("settings.windows.per-workspace-button"),
+                .action = [openDetail, title] { openDetail("workspaces:" + title); },
+            },
+            "workspace arrangement layout per workspace different mode"
+        ));
+      }
 
-      slider(Overview, "overview", "overview.zoom", 0.1, 0.75, 0.05, false, "overview zoom scale size");
+      const std::string overviewStyle = compositor.value("overview.style");
+      choice(
+          Overview, "overview", "overview.style", {"spaces", "taskview", "strip", "grid"}, false,
+          "overview style spaces task view strip grid mission control expose"
+      );
+      choice(Overview, "overview", "overview.titles", {"hover", "always"}, true, "overview window titles names");
+      if (overviewStyle == "strip") {
+        slider(Overview, "overview", "overview.zoom", 0.1, 0.75, 0.05, false, "overview zoom scale size");
+      }
       toggle(Overview, "overview", "overview.background_blur", "overview blur wallpaper");
       toggle(Overview, "overview", "overview.workspace_wallpaper", "overview wallpaper preview");
-      toggle(Overview, "overview", "overview.shortcuts", "overview keyboard shortcut badges");
 
       toggle(Windows, "focus", "input.focus.follows_mouse", "focus follows mouse hover pointer");
       toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");
@@ -227,7 +265,6 @@ namespace settings {
       toggle(Power, "background-apps", "general.optimize_background_apps", "optimize background apps priority efficiency cores battery");
       toggle(Power, "background-apps", "general.freeze_background_apps", "freeze background services battery energy");
       toggle(Power, "background-apps", "general.freeze_hidden_apps", "freeze hidden apps power saver battery energy");
-      toggle(Windows, "focus", "input.window_snapping", "snap tile half quarter edge drag");
 
       choice(Shortcuts, "modifier", "general.mod_key", {"Super", "Alt", "Ctrl", "Shift"}, true, "mod key modifier");
 

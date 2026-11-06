@@ -479,3 +479,9 @@ void LockscreenWidgetsController::normalizeSnapshot() {
     }
   }
 }
+
+void LockscreenWidgetsController::setLockEditorOpenChangedCallback(std::function<void(bool)> callback) {
+  if (m_lockEditor != nullptr) {
+    m_lockEditor->setOpenChangedCallback(std::move(callback));
+  }
+}

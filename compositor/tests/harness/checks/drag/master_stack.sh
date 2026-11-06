@@ -47,6 +47,10 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [layout]
 mode = "master"
+
+[overview]
+style = "strip"
+zoom = 0.5
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 

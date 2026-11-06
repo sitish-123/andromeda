@@ -43,6 +43,9 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 [animation]
 enabled = false
 
+[overview]
+style = "strip"
+
 [layout]
 mode = "scrolling"
 EOF

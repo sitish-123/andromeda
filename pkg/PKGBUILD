@@ -67,6 +67,25 @@ build() {
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
 }
 
+# Library dependencies at least at the version this was built against: an Andromeda-only update (Settings) on an
+# older system then needs those system packages, and the update helper refuses it instead of a partial upgrade.
+_pin_depends() {
+  local dep name version pinned=()
+  for dep in "${depends[@]}"; do
+    if [[ $dep == *[\<\>=]* || $dep == andromeda* || $dep == noctalia* || $dep == xdg-desktop-portal-andromeda* ]]; then
+      pinned+=("$dep")
+      continue
+    fi
+    # Only a package of that exact name: a provider (bash for sh) may not carry a version.
+    read -r name version < <(pacman -Q "$dep" 2> /dev/null) || true
+    [[ $name == "$dep" ]] || version=
+    # pkgver without pkgrel: a mirror one rebuild behind the build container still satisfies it.
+    version=${version%-*}
+    pinned+=("$dep${version:+>=$version}")
+  done
+  depends=("${pinned[@]}")
+}
+
 package_andromeda-system-git() {
   pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
   depends=(dbus polkit upower power-profiles-daemon pacman-contrib fakeroot)
@@ -123,6 +142,7 @@ package_andromeda-system-git() {
     "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-system-session.service"
   install -Dm644 -t "$pkgdir/usr/share/andromeda/system/rules" desktop/system/data/rules/*.toml
   install -Dm644 desktop/system/data/upower-50-andromeda.conf "$pkgdir/etc/UPower/UPower.conf.d/50-andromeda.conf"
+  _pin_depends
 }
 
 package_andromeda() {
@@ -150,6 +170,7 @@ package_andromeda() {
   for unit in andromeda-index.socket andromeda-index.service; do
     ln -s ../$unit "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/$unit"
   done
+  _pin_depends
 }
 
 package_andromeda-compositor-git() {
@@ -184,6 +205,7 @@ package_andromeda-compositor-git() {
       "$pkgdir/usr/lib/systemd/system/$slice.d/andromeda-ui-memory.conf"
   done
   install -Dm644 desktop/compositor/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  _pin_depends
 }
 
 package_noctalia-desktop-git() {
@@ -209,6 +231,7 @@ package_noctalia-desktop-git() {
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
   ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/noctalia.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  _pin_depends
 }
 
 package_xdg-desktop-portal-andromeda-git() {
@@ -219,6 +242,7 @@ package_xdg-desktop-portal-andromeda-git() {
   replaces=(xdg-desktop-portal-umbriel-git)
   meson install -C build-portal --destdir "$pkgdir"
   install -Dm644 desktop/portal/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  _pin_depends
 }
 
 package_andromeda-link-git() {
@@ -263,6 +287,7 @@ package_andromeda-link-git() {
   install -Dm644 desktop/link/dist/org.andromeda.Link.desktop "$pkgdir/usr/share/applications/org.andromeda.Link.desktop"
   cp -r desktop/link/dist/icons "$pkgdir/usr/share/"
   install -Dm644 desktop/link/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  _pin_depends
 }
 
 package_andromeda-power-git() {
@@ -273,6 +298,7 @@ package_andromeda-power-git() {
   install -Dm644 desktop/session/power/andromeda-power.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/andromeda-power.conf"
   install -Dm644 desktop/session/power/60-andromeda-power.rules "$pkgdir/usr/lib/udev/rules.d/60-andromeda-power.rules"
   install -Dm644 desktop/session/power/andromeda-power.modprobe "$pkgdir/usr/lib/modprobe.d/andromeda-power.conf"
+  _pin_depends
 }
 
 package_noctalia-greeter-desktop-git() {
@@ -291,4 +317,5 @@ package_noctalia-greeter-desktop-git() {
     "$pkgdir/usr/lib/systemd/system/andromeda-login-fallback.service"
   install -Dm644 desktop/greeter/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 desktop/greeter/assets/fonts/outfit-license.txt "$pkgdir/usr/share/licenses/$pkgname/OFL-Outfit.txt"
+  _pin_depends
 }

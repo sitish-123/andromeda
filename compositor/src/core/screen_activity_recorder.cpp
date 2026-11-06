@@ -77,13 +77,17 @@ namespace andromeda {
 
   } // namespace
 
-  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop) : m_packageEnergy(loop) {
-    m_log.parse(readFile(screenActivityPath()));
-    m_energy.parse(readFile(appEnergyPath()));
+  ScreenActivityRecorder::ScreenActivityRecorder(wl_event_loop* loop, bool persist)
+      : m_packageEnergy(loop), m_persist(persist), m_worker(loop) {
+    if (m_persist) {
+      m_log.parse(readFile(screenActivityPath()));
+      m_energy.parse(readFile(appEnergyPath()));
+    }
     const std::int64_t now = unixNow();
     m_lastInput = now;
     m_sleptSeconds = sleptSeconds();
     m_log.setScreenOn(true, now);
+    writeLog(now);
     m_timer = wl_event_loop_add_timer(loop, onIdleCheck, this);
     if (m_timer != nullptr) {
       wl_event_source_timer_update(m_timer, kIdleCheckMs);
@@ -92,6 +96,7 @@ namespace andromeda {
   }
 
   ScreenActivityRecorder::~ScreenActivityRecorder() {
+    m_closing = true;
     write(true);
     if (m_timer != nullptr) {
       wl_event_source_remove(m_timer);
@@ -135,6 +140,7 @@ namespace andromeda {
     if (m_idle) {
       m_idle = false;
       m_log.setUserIdle(false, now);
+      writeLog(now);
       write(false);
       reportIdle();
     }
@@ -154,6 +160,7 @@ namespace andromeda {
       self->m_idle = true;
       self->m_log.setUserIdle(true, self->m_lastInput);
       self->m_timerArmed = false;
+      self->writeLog(now);
       self->write(false);
       self->reportIdle();
     } else {
@@ -164,31 +171,64 @@ namespace andromeda {
 
   // GPU time of every DRM client the user's processes hold, booked to its app unit (others only count in the total).
   void ScreenActivityRecorder::bookGpu(std::int64_t now) {
-    std::map<pid_t, std::string> unitOf;
+    using Booked = std::vector<std::pair<DrmClient, std::string>>;
+    std::vector<std::pair<std::string, std::string>> apps; // unit, cgroup dir
     for (const auto& [unit, app] : qos::registry().apps) {
-      for (const pid_t pid : cgroupPids(app.dir)) {
-        unitOf[pid] = unit;
+      apps.emplace_back(unit, app.dir);
+    }
+    auto scan = [apps = std::move(apps), manager = userManagerCgroup()]() {
+      std::map<pid_t, std::string> unitOf;
+      for (const auto& [unit, dir] : apps) {
+        for (const pid_t pid : cgroupPids(dir)) {
+          unitOf[pid] = unit;
+        }
       }
-    }
-    const std::string manager = userManagerCgroup();
-    std::vector<pid_t> pids = manager.empty() ? std::vector<pid_t>{getpid()} : cgroupPids(manager);
-    if (manager.empty()) {
-      for (const auto& entry : unitOf) {
-        pids.push_back(entry.first);
+      std::vector<pid_t> pids = manager.empty() ? std::vector<pid_t>{getpid()} : cgroupPids(manager);
+      if (manager.empty()) {
+        for (const auto& entry : unitOf) {
+          pids.push_back(entry.first);
+        }
       }
+      Booked out;
+      for (DrmClient& client : drmClients(pids)) {
+        const auto unit = unitOf.find(client.pid);
+        out.emplace_back(std::move(client), unit == unitOf.end() ? std::string() : unit->second);
+      }
+      return out;
+    };
+    auto book = [this, now](Booked booked) {
+      std::set<std::string> live;
+      for (const auto& [client, unit] : booked) {
+        m_energy.bookGpu(client.key, unit, client.busyNs, now);
+        live.insert(client.key);
+      }
+      m_energy.keepGpuClients(live);
+      writeFile(appEnergyPath(), m_energy.serialize(now));
+    };
+    if (m_closing) {
+      book(scan());
+      return;
     }
-    std::set<std::string> live;
-    for (const DrmClient& client : drmClients(pids)) {
-      const auto unit = unitOf.find(client.pid);
-      m_energy.bookGpu(client.key, unit == unitOf.end() ? std::string() : unit->second, client.busyNs, now);
-      live.insert(client.key);
+    if (m_gpuScanBusy) {
+      return;
     }
-    m_energy.keepGpuClients(live);
+    m_gpuScanBusy = true;
+    m_worker.post<Booked>(std::move(scan), [this, book = std::move(book)](Booked booked) {
+      m_gpuScanBusy = false;
+      book(std::move(booked));
+    });
+  }
+
+  // The state file alone, on each idle change: Settings reads it and counts the running state on from there.
+  void ScreenActivityRecorder::writeLog(std::int64_t now) {
+    if (m_persist) {
+      writeFile(screenActivityPath(), m_log.snapshot(now));
+    }
   }
 
   void ScreenActivityRecorder::write(bool force) {
     const std::int64_t now = unixNow();
-    if (!force && now - m_writtenAt < kWriteEverySeconds) {
+    if (!m_persist || (!force && now - m_writtenAt < kWriteEverySeconds)) {
       return;
     }
     m_writtenAt = now;
@@ -204,8 +244,8 @@ namespace andromeda {
     if (const auto all = readUsageUsec("/sys/fs/cgroup"); all.has_value()) {
       m_energy.bookTotal(*all, now);
     }
-    bookGpu(now);
     writeFile(appEnergyPath(), m_energy.serialize(now));
+    bookGpu(now);
     m_packageEnergy.request("PackageEnergyJ", [this, now](double joules) {
       if (std::isnan(joules)) {
         return;

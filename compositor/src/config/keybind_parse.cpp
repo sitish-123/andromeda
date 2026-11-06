@@ -511,7 +511,7 @@ namespace andromeda {
          KeybindAction::WindowSetPrimaryExtent, ActionArgKind::Fraction},
         {"window-set-secondary-extent", "<fraction>", "Set the focused area's secondary extent fraction",
          KeybindAction::WindowSetSecondaryExtent, ActionArgKind::Fraction},
-        {"window-snap", "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right>",
+        {"window-snap", "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right|<layout>.<zone>>",
          "Snap the floating window, or restore it when already there", KeybindAction::WindowSnap,
          ActionArgKind::SnapRegion},
         {"window-swap-down", "", "Swap with the window below", KeybindAction::WindowSwapDown},
@@ -829,7 +829,7 @@ namespace andromeda {
         break;
       case ActionArgKind::SnapRegion:
         if (takeActionArg(value, spec, arg)) {
-          if (const auto region = snapRegionNamed(arg)) {
+          if (const auto region = snapSpotNamed(arg)) {
             output.action = spec.action;
             output.payload = SnapRegionArg{.region = *region};
             return true;

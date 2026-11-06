@@ -9,6 +9,7 @@
 #include "fractional-scale-v1-client-protocol.h"
 #include "hyprland-focus-grab-v1-client-protocol.h"
 #include "idle-inhibit-unstable-v1-client-protocol.h"
+#include "keyboard-shortcuts-inhibit-unstable-v1-client-protocol.h"
 #include "text-input-unstable-v3-client-protocol.h"
 #include "util/string_utils.h"
 #include "viewporter-client-protocol.h"
@@ -50,6 +51,7 @@ namespace {
   constexpr std::uint32_t kXdgActivationVersion = 1;
   constexpr std::uint32_t kExtIdleNotifierVersion = 2;
   constexpr std::uint32_t kIdleInhibitManagerVersion = 1;
+  constexpr std::uint32_t kShortcutsInhibitManagerVersion = 1;
   constexpr std::uint32_t kExtBackgroundEffectManagerVersion = 1;
   // REMOVEME(wayland-protocols-1.45): Use the generated mask after requiring wayland-protocols >= 1.46;
   // version 1.45 generates zero for blur although the corrected v1 wire mask is 1.
@@ -1105,6 +1107,13 @@ ext_idle_notification_v1* WaylandConnection::createInputIdleNotification(std::ui
 }
 
 zwp_idle_inhibit_manager_v1* WaylandConnection::idleInhibitManager() const noexcept { return m_idleInhibitManager; }
+
+zwp_keyboard_shortcuts_inhibitor_v1* WaylandConnection::inhibitShortcuts(wl_surface* surface) const {
+  if (m_shortcutsInhibitManager == nullptr || m_seat == nullptr || surface == nullptr) {
+    return nullptr;
+  }
+  return zwp_keyboard_shortcuts_inhibit_manager_v1_inhibit_shortcuts(m_shortcutsInhibitManager, surface, m_seat);
+}
 bool WaylandConnection::hasBackgroundEffectBlur() const noexcept { return m_backgroundEffectBlurSupported; }
 ext_background_effect_manager_v1* WaylandConnection::backgroundEffectManager() const noexcept {
   return m_backgroundEffectManager;
@@ -1405,6 +1414,14 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zwp_keyboard_shortcuts_inhibit_manager_v1_interface.name) {
+    const auto bindVersion = std::min(version, kShortcutsInhibitManagerVersion);
+    m_shortcutsInhibitManager = static_cast<zwp_keyboard_shortcuts_inhibit_manager_v1*>(
+        wl_registry_bind(registry, name, &zwp_keyboard_shortcuts_inhibit_manager_v1_interface, bindVersion)
+    );
+    return;
+  }
+
   if (interfaceName == zwp_idle_inhibit_manager_v1_interface.name) {
     const auto bindVersion = std::min(version, kIdleInhibitManagerVersion);
     m_idleInhibitManager = static_cast<zwp_idle_inhibit_manager_v1*>(
@@ -1549,6 +1566,10 @@ void WaylandConnection::cleanup() {
   if (m_idleNotifier != nullptr) {
     ext_idle_notifier_v1_destroy(m_idleNotifier);
     m_idleNotifier = nullptr;
+  }
+  if (m_shortcutsInhibitManager != nullptr) {
+    zwp_keyboard_shortcuts_inhibit_manager_v1_destroy(m_shortcutsInhibitManager);
+    m_shortcutsInhibitManager = nullptr;
   }
   if (m_idleInhibitManager != nullptr) {
     zwp_idle_inhibit_manager_v1_destroy(m_idleInhibitManager);

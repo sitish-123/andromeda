@@ -3629,10 +3629,6 @@
           "description": "Fechar a overview quando uma aplicação executa do launcher enquanto a overview do Andromeda está aberta",
           "label": "Fechar ao Executar"
         },
-        "andromeda-overview-type-to-launch": {
-          "description": "Abrir o Launcher enquanto digite na Overveiw do Andromeda; utiliza uma pequena superfície de foco de teclado enquanto a Overview está aberta",
-          "label": "Digitar para Abrir Launcher"
-        },
         "window-switcher-current-workspace-only": {
           "description": "Listar somente janelas no espaço de trabalho ativo; desligue para incluir janelas de todos espaços de trabalho",
           "label": "Espaço de Trabalho Atual Somente"

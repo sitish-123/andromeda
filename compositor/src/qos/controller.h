@@ -1,6 +1,7 @@
 #pragma once
 
 #include "qos/actuator.h"
+#include "qos/on_battery_watch.h"
 #include "qos/policy.h"
 
 #include <sys/types.h>
@@ -8,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -109,7 +111,9 @@ namespace andromeda::qos {
     std::vector<int> m_efficiencyCpus;
     std::uint64_t m_focusMemoryLow; // 25 % of RAM (docs/qos.md §3)
     Delays m_delays;
+    // Set only by ANDROMEDA_QOS_TEST_POWER_SUPPLY (a fixture directory); otherwise m_battery answers.
     std::filesystem::path m_powerSupply;
+    std::unique_ptr<OnBatteryWatch> m_battery;
   };
 
 } // namespace andromeda::qos

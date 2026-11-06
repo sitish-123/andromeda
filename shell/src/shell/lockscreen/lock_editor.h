@@ -14,6 +14,7 @@
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
 
+#include <functional>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -23,6 +24,7 @@
 class ConfigService;
 class DesktopWidgetFactory;
 struct DesktopWidgetRuntimeServices;
+class ImageNode;
 class Label;
 class LockScreen;
 class Node;
@@ -53,6 +55,8 @@ public:
   // Drops the draft.
   void close();
   [[nodiscard]] bool isOpen() const noexcept { return m_surface != nullptr; }
+  // Called with true once the editor surface exists and with false when it closes.
+  void setOpenChangedCallback(std::function<void(bool)> callback) { m_openChanged = std::move(callback); }
 
   bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
@@ -62,6 +66,9 @@ private:
   void buildScene(float width, float height);
   void layoutScene(float width, float height);
   void applyWallpaper();
+  void layoutGlass(float width, float height);
+  // A panel that just opened fades in and grows from 96 % on the open spring.
+  void animatePanels();
   using Focus = std::variant<
       LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit, LockEditorFree::Hit, LockEditorWallpaper::Hit>;
   void activate(LockEditorBar::Hit hit);
@@ -151,5 +158,17 @@ private:
   std::string m_wallpaperPath;
   bool m_ownWallpaper = false;
   SharedTextureCache::Lease m_wallpaperLease;
+  // The same image blurred much more: frosted glass under the panels (the preview has no compositor blur).
+  SharedTextureCache::Lease m_glassLease;
+  // One glass image per panel background, inserted just under it in the panel's own group.
+  std::vector<std::pair<const RectNode*, ImageNode*>> m_glassNodes;
+  struct PanelMotion {
+    Node* group = nullptr;
+    const RectNode* bg = nullptr;
+    bool open = false;
+    AnimationManager::Id anim = 0;
+  };
+  std::vector<PanelMotion> m_panelMotion;
   Timer m_clockTimer;
+  std::function<void(bool)> m_openChanged;
 };

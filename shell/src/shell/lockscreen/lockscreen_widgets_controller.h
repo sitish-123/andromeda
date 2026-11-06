@@ -58,6 +58,8 @@ public:
   void enterEdit();
   void exitEdit();
   void toggleEdit();
+  // The lock screen editor (v2) opened or closed.
+  void setLockEditorOpenChangedCallback(std::function<void(bool)> callback);
   void setOnEnterEditCallback(std::function<void()> callback);
   void setOnExitEditCallback(std::function<void()> callback);
 

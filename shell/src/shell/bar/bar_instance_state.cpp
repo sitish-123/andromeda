@@ -354,7 +354,7 @@ bool Bar::syncIslandShapes(BarInstance& instance, bool material) const {
     DskShapeClient& shape = *instance.islandShapes[i];
     const Box* island = i < instance.islands.size() ? instance.islands[i] : nullptr;
     DskSurfaceClient::Value clip{};
-    if (shown && island != nullptr && island->visible()) {
+    if (shown && island != nullptr && island->visible() && island->width() >= 1.0F && island->height() >= 1.0F) {
       float x = 0.0F;
       float y = 0.0F;
       Node::absolutePosition(island, x, y);
@@ -423,13 +423,27 @@ void Bar::syncBarAutoHideInputRegion(BarInstance& instance) const {
     instance.surface->setInputRegion({});
     return;
   }
+  const auto sendAsideRegion = [&instance](std::vector<InputRect> rects) {
+    if (instance.clickThroughInputRegion != rects) {
+      instance.surface->setInputRegion(rects);
+      instance.clickThroughInputRegion = std::move(rects);
+    }
+  };
   if (barConfigUsesSlideSurface(instance.barConfig)) {
     const bool fullSurface = instance.pointerInside
         || instance.attachedPopupCount > 0
         || instance.hideOpacity > 0.5F
         || (instance.barConfig.smartAutoHide && instance.smartAutoHidePinnedVisible);
+    if (auto aside = overviewAsideInputRegion(instance); aside.has_value() && fullSurface) {
+      sendAsideRegion(std::move(*aside));
+      return;
+    }
     instance.clickThroughInputRegion.reset();
     instance.surface->setInputRegion(barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, fullSurface));
+    return;
+  }
+  if (auto aside = overviewAsideInputRegion(instance); aside.has_value()) {
+    sendAsideRegion(std::move(*aside));
     return;
   }
   const auto barRect = barContentInputRegion(instance.barConfig, m_config->config().shell.shadow, surfW, surfH);
@@ -443,6 +457,59 @@ void Bar::syncBarAutoHideInputRegion(BarInstance& instance) const {
   }
   instance.clickThroughInputRegion.reset();
   instance.surface->setInputRegion({barRect});
+}
+
+std::optional<std::vector<InputRect>> Bar::overviewAsideInputRegion(const BarInstance& instance) const {
+  if (!instance.overviewAside) {
+    return std::nullopt;
+  }
+  std::vector<InputRect> rects;
+  const Box* center = instance.islands[1];
+  if (center != nullptr && center->visible()) {
+    float x = 0.0F;
+    float y = 0.0F;
+    Node::absolutePosition(center, x, y);
+    rects.push_back(
+        InputRect{
+            static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
+            static_cast<int>(std::lround(center->width())), static_cast<int>(std::lround(center->height()))
+        }
+    );
+  }
+  return rects;
+}
+
+void Bar::setIslandsOverviewAside(BarInstance& instance, bool aside) {
+  aside = aside && instance.barConfig.islands;
+  if (instance.overviewAside == aside || instance.surface == nullptr || instance.slideRoot == nullptr) {
+    return;
+  }
+  instance.overviewAside = aside;
+  if (instance.overviewAsideProgress <= 0.0F && instance.overviewAsideAnimId == 0) {
+    captureIslandAsideRest(instance);
+  }
+  instance.overviewAsideAnimId = instance.animations.drive(
+      instance.overviewAsideAnimId, instance.overviewAsideProgress, aside ? 1.0F : 0.0F,
+      Style::spring(aside ? Tokens::springClose : Tokens::springPage),
+      [this, inst = &instance](float v) {
+        inst->overviewAsideProgress = std::clamp(v, 0.0F, 1.0F);
+        applyIslandAside(*inst);
+        notifyCenterIslandSpace(*inst);
+        applyBarCompositorBlur(*inst);
+      },
+      [this, inst = &instance] {
+        inst->overviewAsideAnimId = 0;
+        applyBarCompositorBlur(*inst);
+        if (inst->surface != nullptr) {
+          inst->surface->requestRedraw();
+        }
+      },
+      instance.slideRoot
+  );
+  // Input follows the target at once: an island on its way out takes no more clicks.
+  syncBarAutoHideInputRegion(instance);
+  syncSheetTracker(instance);
+  instance.surface->requestRedraw();
 }
 
 void Bar::revealAutoHideBar(BarInstance& instance) {
@@ -467,7 +534,10 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
     const int surfW = static_cast<int>(instance.surface->width());
     const int surfH = static_cast<int>(instance.surface->height());
     instance.clickThroughInputRegion.reset();
-    instance.surface->setInputRegion(barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, true));
+    auto aside = overviewAsideInputRegion(instance);
+    instance.surface->setInputRegion(
+        aside.has_value() ? *aside : barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, true)
+    );
     syncBarSurfaceChrome(instance);
     instance.surface->requestRedraw();
     notifyAttachedPanel();
@@ -488,7 +558,10 @@ void Bar::revealAutoHideBar(BarInstance& instance) {
   const int surfW = static_cast<int>(instance.surface->width());
   const int surfH = static_cast<int>(instance.surface->height());
   instance.clickThroughInputRegion.reset();
-  instance.surface->setInputRegion(barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, true));
+  auto aside = overviewAsideInputRegion(instance);
+  instance.surface->setInputRegion(
+      aside.has_value() ? *aside : barAutoHideSurfaceInputRegion(instance.barConfig, surfW, surfH, true)
+  );
   syncBarSurfaceChrome(instance);
   instance.surface->requestRedraw();
 }
@@ -579,7 +652,8 @@ void Bar::applyBarCompositorBlur(BarInstance& instance) const {
   if (instance.barConfig.islands) {
     std::vector<InputRect> strips;
     for (const Box* island : instance.islands) {
-      if (island == nullptr || !island->visible()) {
+      // A side island that stepped aside for the overview shrinks to nothing.
+      if (island == nullptr || !island->visible() || island->width() < 1.0F || island->height() < 1.0F) {
         continue;
       }
       float x = 0.0F;

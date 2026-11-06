@@ -49,5 +49,11 @@ int main() {
   restoredSleep.parse(slept.snapshot(h + 2100));
   const auto back = restoredSleep.spans(h, h + 2100);
   TEST_CHECK(back.size() == 4 && back[2].state == State::Sleep && back[3].end == h + 2100);
+  // Settings reads the file 600 s after the last write: the running state counts on to the read.
+  ScreenActivityLog live;
+  live.parseLive(slept.snapshot(h + 2100));
+  const auto later = live.spans(h, h + 2700);
+  TEST_CHECK(!later.empty() && later.back().state == State::On && later.back().end == h + 2700);
+  TEST_CHECK(live.hours(h, h + 3600, h + 2700)[0].onSeconds == 800);
   return 0;
 }

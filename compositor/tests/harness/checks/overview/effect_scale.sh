@@ -32,6 +32,7 @@ backdrop = "#000000FF"
 background_tint = "#000000FF"
 workspace_background = "#000000FF"
 [overview]
+style = "strip"
 zoom = 0.5
 [effects]
 border = "ring"
@@ -63,7 +64,7 @@ done
 measure() {
   local label=$1 zoom=$2 output_scale=${3:-1} x y w h image_w image_h green red expected_green expected_red
   grim "$IMAGE"
-  read -r x y w h < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox 'b > 0.9 || g > 0.9')
+  read -r x y w h < <("$ANDROMEDA_PIXEL_PROBE" "$IMAGE" bbox 'r < 0.1 && (b > 0.9 || g > 0.9)')
   if (( w == 0 || h == 0 )); then
     echo "$label: no client pixels"
     exit 1

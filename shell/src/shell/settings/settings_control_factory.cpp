@@ -4,6 +4,7 @@
 #include "config/config_service.h"
 #include "config/config_types.h"
 #include "i18n/i18n.h"
+#include "render/scene/accessible.h"
 #include "render/scene/input_area.h"
 #include "render/scene/rect_node.h"
 #include "shell/bar/widget_action.h"
@@ -310,6 +311,75 @@ namespace settings {
       return thumb;
     }
 
+    // Window arrangement and overview style drawings (prototype .agent/mockups/overview-proto/index.html): shapes on a
+    // 64 x 40 grid, scaled into the mode thumbnail; off-screen or neighbouring parts are faint.
+    struct ArrangementRect {
+      float x, y, w, h;
+      bool faint = false;
+    };
+
+    // Pickers drawn from arrangementRects rather than the Appearance mode thumbnails.
+    bool isDrawnPickerPath(const std::vector<std::string>& path) {
+      return path == std::vector<std::string>{"andromeda", "layout", "mode"}
+          || path == std::vector<std::string>{"andromeda", "overview", "style"};
+    }
+
+    std::vector<ArrangementRect> arrangementRects(std::string_view value) {
+      // Overview styles: Spaces (thumbs over the current workspace), Task View (spread windows over a desktop row),
+      // Strip (the current row between faint neighbours), Grid (every workspace as a tile).
+      if (value == "spaces") {
+        return {{8, 4, 10, 7}, {21, 4, 10, 7}, {34, 4, 10, 7}, {47, 4, 9, 7, true}, {8, 15, 48, 21}};
+      }
+      if (value == "taskview") {
+        return {{10, 5, 20, 15}, {34, 5, 20, 15}, {8, 27, 14, 8}, {25, 27, 14, 8}, {42, 27, 14, 8, true}};
+      }
+      if (value == "strip") {
+        return {{6, 2, 52, 7, true}, {4, 13, 26, 14}, {34, 13, 26, 14}, {6, 31, 52, 7, true}};
+      }
+      if (value == "grid") {
+        return {{5, 6, 16, 11}, {24, 6, 16, 11}, {43, 6, 16, 11}, {5, 22, 16, 11}, {24, 22, 16, 11},
+                {43, 22, 16, 11, true}};
+      }
+      if (value == "floating") {
+        return {{6, 6, 30, 20}, {26, 14, 32, 20}};
+      }
+      if (value == "scrolling") {
+        return {{-10, 6, 22, 28, true}, {16, 6, 22, 28}, {42, 6, 22, 28}, {68, 6, 22, 28, true}};
+      }
+      if (value == "dwindle") {
+        return {{6, 6, 25, 28}, {34, 6, 24, 13}, {34, 21, 11, 13}, {47, 21, 11, 13}};
+      }
+      return {{6, 6, 32, 28}, {41, 6, 17, 8}, {41, 16, 17, 8}, {41, 26, 17, 8}};
+    }
+
+    std::unique_ptr<Flex> makeArrangementPreview(std::string_view value, float scale) {
+      const float w = kModeThumbWidth * scale;
+      const float h = kModeThumbHeight * scale;
+      auto thumb = ui::column({
+          .fill = colorSpecFromRole(ColorRole::Fill2),
+          .radius = kPreviewRadius * scale,
+          .border = colorSpecFromRole(ColorRole::Separator),
+          .borderWidth = 0.5F * scale,
+          .clipChildren = true,
+          .width = w,
+          .height = h,
+      });
+      const float sx = w / 64.0F;
+      const float sy = h / 40.0F;
+      for (const ArrangementRect& r : arrangementRects(value)) {
+        auto window = ui::column({
+            .fill = colorSpecFromRole(r.faint ? ColorRole::Fill1 : ColorRole::Label3),
+            .radius = Style::scaledRadiusSm(scale),
+            .width = r.w * sx,
+            .height = r.h * sy,
+        });
+        window->setParticipatesInLayout(false);
+        window->setPosition(r.x * sx, r.y * sy);
+        thumb->addChild(std::move(window));
+      }
+      return thumb;
+    }
+
   } // namespace
 
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
@@ -365,6 +435,14 @@ namespace settings {
     tagTabFocusKey(*control, joinSettingPath(entry.path));
     actions->addChild(std::move(control));
 
+    // A drawn picker spans the card, so its title sits above the tiles instead of beside them.
+    if (selectSetting != nullptr && selectSetting->tiles && isDrawnPickerPath(entry.path)) {
+      section.addChild(ui::column(
+          {.gap = Style::spaceSm * scale, .paddingV = Style::spaceSm * scale, .fillWidth = true},
+          std::move(titleRow), ui::row({.justify = FlexJustify::Center, .fillWidth = true}, std::move(actions))
+      ));
+      return;
+    }
     auto row = layoutRow(
         std::move(titleRow), settingEntryShowsCaption(entry) ? std::string_view{entry.subtitle} : std::string_view{},
         !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
@@ -533,10 +611,13 @@ namespace settings {
       // Appearance thumbnails: a miniature screen per mode, the chosen one ringed.
       auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = kModeThumbGap * scale,
                             .fillWidth = true});
+      const bool arrangement = isDrawnPickerPath(path);
       auto ordered = setting.options;
-      std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
-        return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
-      });
+      if (!arrangement) {
+        std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
+          return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
+        });
+      }
       for (const auto& opt : ordered) {
         const bool selected = opt.value == setting.selectedValue;
         auto tile = ui::button({
@@ -545,10 +626,16 @@ namespace settings {
             .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
             .onClick = [commit, value = opt.value] { commit(value); },
-            .configure = [value = opt.value, scale, selected](Button& button) {
-              button.setTabStop(false);
+            .configure = [value = opt.value, label = opt.label, scale, selected, arrangement](Button& button) {
+              // The arrangement picks are the page's main control, so they take keyboard focus and read as radios.
+              button.setTabStop(arrangement);
+              if (arrangement) {
+                button.setAccessible(
+                    {.role = AccessibleRole::RadioButton, .name = label, .checked = selected, .actionName = "press"}
+                );
+              }
               button.setFlexGrow(0.0F);
-              button.addChild(makeModePreview(value, scale));
+              button.addChild(arrangement ? makeArrangementPreview(value, scale) : makeModePreview(value, scale));
               // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
               button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
                                    colorSpecFromRole(ColorRole::Accent));

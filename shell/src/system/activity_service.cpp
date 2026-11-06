@@ -1,5 +1,7 @@
 #include "system/activity_service.h"
 
+#include "core/shared_worker.h"
+
 #include <algorithm>
 #include <thread>
 #include <utility>
@@ -44,10 +46,39 @@ std::string_view qosTierName(std::string_view tier) {
   return {};
 }
 
-void ActivityService::sample(std::chrono::steady_clock::time_point now) {
-  for (const auto& unit : m_units) {
-    auto& history = m_history[unit.name];
-    history.push_back({now, readCgroupSample(m_cgroupRoot, unit.controlGroup)});
+ActivityService::Readings ActivityService::read(const std::string& cgroupRoot, const std::vector<SystemdUnit>& units) {
+  Readings out;
+  out.reserve(units.size());
+  for (const auto& unit : units) {
+    out.emplace_back(unit.name, readCgroupSample(cgroupRoot, unit.controlGroup));
+  }
+  return out;
+}
+
+void ActivityService::sample(std::chrono::steady_clock::time_point now) { apply(now, read(m_cgroupRoot, m_units)); }
+
+void ActivityService::sampleAsync(std::chrono::steady_clock::time_point now, std::function<void()> done) {
+  if (m_reading) {
+    return;
+  }
+  m_reading = true;
+  SharedWorker::instance().post<Readings>(
+      m_alive,
+      [root = m_cgroupRoot, units = m_units]() { return read(root, units); },
+      [this, now, done = std::move(done)](Readings readings) {
+        m_reading = false;
+        apply(now, std::move(readings));
+        if (done) {
+          done();
+        }
+      }
+  );
+}
+
+void ActivityService::apply(std::chrono::steady_clock::time_point now, Readings readings) {
+  for (auto& [name, reading] : readings) {
+    auto& history = m_history[name];
+    history.push_back({now, std::move(reading)});
     // Keep one sample at or before the window start so the rate spans the full window.
     while (history.size() > 2 && now - history[1].at >= kRateWindow) {
       history.pop_front();

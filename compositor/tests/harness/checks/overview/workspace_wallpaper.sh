@@ -27,6 +27,7 @@ enabled = false
 
 # Last section, so the second phase appends `workspace_wallpaper` to it.
 [overview]
+style = "strip"
 background_blur = false
 EOF
 
@@ -92,7 +93,7 @@ assert_rgb "bottom layer kept" "$FLAT" 40 40 0 255 0
 write_horizontal_config() {
   {
     cat "$BASE_CONFIG"
-    printf 'shortcuts = false\nworkspace_wallpaper = %s\n' "$1"
+    printf 'workspace_wallpaper = %s\n' "$1"
     cat <<'EOF'
 
 [output."HEADLESS-1"]
