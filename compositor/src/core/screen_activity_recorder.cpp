@@ -87,6 +87,7 @@ namespace andromeda {
     m_lastInput = now;
     m_sleptSeconds = sleptSeconds();
     m_log.setScreenOn(true, now);
+    writeLog(now);
     m_timer = wl_event_loop_add_timer(loop, onIdleCheck, this);
     if (m_timer != nullptr) {
       wl_event_source_timer_update(m_timer, kIdleCheckMs);
