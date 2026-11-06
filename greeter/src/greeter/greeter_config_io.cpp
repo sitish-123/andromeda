@@ -5,6 +5,7 @@
 #include "greeter/greeter_config_store.h"
 
 #include <cerrno>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -53,7 +54,8 @@ namespace {
         || key == "cursor"
         || key == "keyboard"
         || key == "auth"
-        || key == "idle";
+        || key == "idle"
+        || key == "lockscreen";
   }
 
   [[nodiscard]] bool isKnownSessionKey(std::string_view key) {
@@ -195,6 +197,10 @@ namespace {
       }
       if (!isKnownTopLevelKey(keyView)) {
         warnUnknownTopLevelKey(path, keyView);
+        continue;
+      }
+      // Sync-only, parsed from the root table by parseSync.
+      if (keyView == "lockscreen") {
         continue;
       }
 
@@ -625,8 +631,67 @@ namespace {
     return root;
   }
 
+  // A [lockscreen] table with a wrong type or out-of-range value is dropped whole, so the greeter keeps its defaults.
+  [[nodiscard]] std::optional<greeter::config::GreeterLockscreen>
+  parseLockscreen(const toml::table& root, const std::filesystem::path& path) {
+    const toml::table* table = root["lockscreen"].as_table();
+    if (table == nullptr) {
+      return std::nullopt;
+    }
+    greeter::config::GreeterLockscreen lockscreen;
+    bool ok = true;
+    const auto readString = [&](std::string_view key, std::string& out) {
+      if (const toml::node* node = table->get(key)) {
+        const auto value = node->value<std::string>();
+        ok = ok && value.has_value();
+        out = value.value_or("");
+      }
+    };
+    const auto readBool = [&](std::string_view key, bool& out) {
+      if (const toml::node* node = table->get(key)) {
+        const auto value = node->value<bool>();
+        ok = ok && value.has_value();
+        out = value.value_or(out);
+      }
+    };
+    const auto readUnit = [&](std::string_view key, double& out) {
+      if (const toml::node* node = table->get(key)) {
+        const auto value = node->value<double>();
+        ok = ok && value.has_value();
+        out = value.value_or(out);
+      }
+    };
+    readString("theme", lockscreen.theme);
+    readString("layout", lockscreen.layout);
+    readString("clock_style", lockscreen.clockStyle);
+    readString("clock_size", lockscreen.clockSize);
+    readBool("clock_format_24h", lockscreen.clockFormat24h);
+    readBool("clock_seconds", lockscreen.clockSeconds);
+    readUnit("blur_intensity", lockscreen.blurIntensity);
+    readUnit("tint_intensity", lockscreen.tintIntensity);
+    if (!ok || !greeter::config::isValidLockscreen(lockscreen)) {
+      kLog.warn("{}: invalid [lockscreen] table (ignored)", path.string());
+      return std::nullopt;
+    }
+    return lockscreen;
+  }
+
   [[nodiscard]] toml::table buildSyncTomlTable(const greeter::config::GreeterSyncFile& sync) {
     toml::table root;
+
+    if (sync.lockscreen.has_value()) {
+      const auto& ls = *sync.lockscreen;
+      toml::table lockscreen;
+      lockscreen.insert_or_assign("theme", ls.theme);
+      lockscreen.insert_or_assign("layout", ls.layout);
+      lockscreen.insert_or_assign("clock_style", ls.clockStyle);
+      lockscreen.insert_or_assign("clock_size", ls.clockSize);
+      lockscreen.insert_or_assign("clock_format_24h", ls.clockFormat24h);
+      lockscreen.insert_or_assign("clock_seconds", ls.clockSeconds);
+      lockscreen.insert_or_assign("blur_intensity", ls.blurIntensity);
+      lockscreen.insert_or_assign("tint_intensity", ls.tintIntensity);
+      root.insert("lockscreen", std::move(lockscreen));
+    }
 
     toml::table session;
     insertString(
@@ -765,6 +830,7 @@ namespace {
     sync.outputTransforms = full.outputTransforms;
     sync.outputScales = full.outputScales;
     sync.appearance = full.appearance;
+    sync.lockscreen = parseLockscreen(root, path);
 
     if (const auto* sessionNode = root.get("session")) {
       if (const auto* sessionTable = sessionNode->as_table()) {
@@ -886,6 +952,26 @@ namespace {
 } // namespace
 
 namespace greeter::config {
+
+  bool isSafeLockscreenId(std::string_view id) {
+    return id.size() <= 32 && std::ranges::all_of(id, [](char c) {
+             return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+           });
+  }
+
+  bool isValidLockscreen(const GreeterLockscreen& lockscreen) {
+    const auto unit = [](double v) { return std::isfinite(v) && v >= 0.0 && v <= 1.0; };
+    return isSafeLockscreenId(lockscreen.theme)
+        && isSafeLockscreenId(lockscreen.layout)
+        && isSafeLockscreenId(lockscreen.clockStyle)
+        && (lockscreen.clockSize.empty()
+            || lockscreen.clockSize == "s"
+            || lockscreen.clockSize == "m"
+            || lockscreen.clockSize == "l"
+            || lockscreen.clockSize == "xl")
+        && unit(lockscreen.blurIntensity)
+        && unit(lockscreen.tintIntensity);
+  }
 
   bool GreeterTomlAppearance::hasCompletePalette() const {
     for (const auto key : greeter::appearance::requiredPaletteKeys()) {

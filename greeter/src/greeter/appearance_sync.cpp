@@ -634,6 +634,7 @@ namespace greeter::appearance {
         return false;
       }
       appearanceUpdate.appearance = staged.appearance;
+      appearanceUpdate.lockscreen = staged.lockscreen;
       if (includeSessionCommands) {
         appearanceUpdate.sessionPowerSuspend = staged.sessionPowerSuspend;
         appearanceUpdate.sessionPowerReboot = staged.sessionPowerReboot;

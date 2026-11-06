@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -78,6 +79,21 @@ namespace greeter::config {
     std::optional<int> authRequestTimeoutSec;
   };
 
+  // The session's lock screen look ([lockscreen] in sync.toml), drawn by the shell's greeter mode. Ids are checked
+  // only for form (isSafeLockscreenId); the greeter falls back to its defaults for an id it does not know.
+  struct GreeterLockscreen {
+    std::string theme;
+    std::string layout;
+    std::string clockStyle;
+    std::string clockSize; // "" | s | m | l | xl
+    bool clockFormat24h = true;
+    bool clockSeconds = false;
+    double blurIntensity = 0.5; // 0..1
+    double tintIntensity = 0.3; // 0..1
+  };
+  [[nodiscard]] bool isSafeLockscreenId(std::string_view id);
+  [[nodiscard]] bool isValidLockscreen(const GreeterLockscreen& lockscreen);
+
   // Sync + UI mutable file (sync.toml). Never managed by Nix. Loses to greeter.toml.
   struct GreeterSyncFile {
     std::optional<std::string> sessionLast;
@@ -88,6 +104,7 @@ namespace greeter::config {
 
     // Sync-owned appearance (palette/wallpaper/theme/font); migrated from legacy appearance.json.
     GreeterTomlAppearance appearance;
+    std::optional<GreeterLockscreen> lockscreen;
 
     // Sync-owned session power actions; migrated from legacy appearance.json "session.power".
     std::optional<std::string> sessionPowerSuspend;

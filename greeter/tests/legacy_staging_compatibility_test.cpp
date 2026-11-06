@@ -447,6 +447,40 @@ refresh_rate = "DP-1:120; HDMI-A-1:60"
           false, error, passed
       );
     }
+
+    {
+      Fixture fixture(0700, 0600);
+      const ScopedStateDirectory stateDirectory(fixture.runtimeDirectory);
+      greeter::GreeterSyncAppearanceUpdate update;
+      update.lockscreen = greeter::config::GreeterLockscreen{
+          .theme = "ryoku",
+          .layout = "glance",
+          .clockStyle = "bold",
+          .clockSize = "xl",
+          .clockFormat24h = false,
+          .clockSeconds = true,
+          .blurIntensity = 0.8,
+          .tintIntensity = 0.1,
+      };
+      const bool applied = greeter::applyAppearanceSyncGreeterConf(std::nullopt, std::nullopt, std::nullopt, update);
+      expect("lock screen look is applied", applied, true, {}, passed);
+      const auto live = greeter::config::loadSync(greeter::appearance::syncConfPath());
+      const auto& ls = live.lockscreen;
+      expect(
+          "lock screen look survives the live sync.toml",
+          ls.has_value() && ls->theme == "ryoku" && ls->layout == "glance" && ls->clockStyle == "bold"
+              && ls->clockSize == "xl" && !ls->clockFormat24h && ls->clockSeconds && ls->blurIntensity == 0.8
+              && ls->tintIntensity == 0.1,
+          true, {}, passed
+      );
+
+      const auto invalid = fixture.runtimeDirectory / "invalid-sync.toml";
+      std::ofstream(invalid) << "[lockscreen]\ntheme = \"ryoku\"\nblur_intensity = 2.0\n";
+      expect(
+          "out-of-range lock screen table is dropped", greeter::config::loadSync(invalid).lockscreen.has_value(), false,
+          {}, passed
+      );
+    }
   } catch (const std::exception& exception) {
     std::cerr << "fixture setup failed: " << exception.what() << '\n';
     passed = false;

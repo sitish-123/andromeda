@@ -52,6 +52,7 @@ namespace greeter {
   // previously synced values wholesale (a staged sync.toml / legacy appearance.json is a full snapshot).
   struct GreeterSyncAppearanceUpdate {
     config::GreeterTomlAppearance appearance;
+    std::optional<config::GreeterLockscreen> lockscreen;
     bool replaceSession = true;
     std::optional<std::string> sessionPowerSuspend;
     std::optional<std::string> sessionPowerReboot;

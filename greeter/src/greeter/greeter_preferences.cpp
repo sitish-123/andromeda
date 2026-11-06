@@ -388,6 +388,7 @@ namespace greeter {
     }
     if (appearanceUpdate.has_value()) {
       sync.appearance = appearanceUpdate->appearance;
+      sync.lockscreen = appearanceUpdate->lockscreen;
       if (appearanceUpdate->replaceSession) {
         sync.sessionPowerSuspend = appearanceUpdate->sessionPowerSuspend;
         sync.sessionPowerReboot = appearanceUpdate->sessionPowerReboot;
