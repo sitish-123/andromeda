@@ -1,15 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=Andromeda
-Comment=A sleek, customizable desktop shell crafted for Wayland.
-Exec=noctalia --daemon
-Icon=andromeda
-Terminal=false
-Categories=Settings;DesktopSettings;
-StartupNotify=false
-Actions=Settings;
-Keywords=desktop;shell;wayland;
-
-[Desktop Action Settings]
-Name=Open Settings
+Name=Settings
+GenericName=System Settings
+Comment=Displays, sound, network, appearance, and every desktop setting
 Exec=sh -c "noctalia msg settings-open || { noctalia --daemon && noctalia msg settings-open; }"
+Icon=dev.noctalia.Settings
+Terminal=false
+Categories=System;Settings;DesktopSettings;
+StartupNotify=false
+StartupWMClass=dev.noctalia.Noctalia
+Keywords=settings;preferences;system;display;network;sound;appearance;power;users;andromeda;

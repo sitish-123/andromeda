@@ -1138,6 +1138,7 @@ install_data(
 
 install_data(
   'assets/andromeda.svg',
+  'assets/dev.noctalia.Settings.svg',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps',
 )
 
