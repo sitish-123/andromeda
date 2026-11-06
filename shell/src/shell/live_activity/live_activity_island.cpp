@@ -2322,9 +2322,13 @@ void LiveActivityIsland::syncBarShapes(Instance& inst) {
       shape.reset();
     }
   }
+  const Rect restR = faceRect(inst, Face::Rest);
   kLog.debug(
-      "media bars: {} (face {}, reveal anim {}, mirror {}, media {}, real spectrum {})", key ? "compositor loop" : "client",
-      static_cast<int>(inst.face), inst.revealAnimId, inst.mirror.active, inst.mediaGroup->visible(), realSpectrum()
+      "media bars: {} at ({:.1f}, {:.1f}) scale {:.2f}, rest pill ({:.1f}, {:.1f} {:.1f}x{:.1f}) (face {}, reveal anim {}, "
+      "mirror {}, media {}, real spectrum {})",
+      key ? "compositor loop" : "client", key ? (*key)[0] : 0.0F, key ? (*key)[1] : 0.0F, inst.scale, restR.x, restR.y,
+      restR.w, restR.h, static_cast<int>(inst.face), inst.revealAnimId, inst.mirror.active, inst.mediaGroup->visible(),
+      realSpectrum()
   );
   inst.barShapeKey = key;
   for (Box* box : inst.barBox) {
