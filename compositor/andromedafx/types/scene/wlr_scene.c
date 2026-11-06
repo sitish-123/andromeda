@@ -4104,6 +4104,10 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
             pixman_region32_copy(&buffer_part, &part);
             pixman_region32_translate(&buffer_part, -data->logical.x, -data->logical.y);
             logical_to_buffer_coords(&buffer_part, data, true);
+            // Rounding out reaches one pixel past the buffer edge, which no frame draws: it would stay pending forever
+            // and re-render the cache every frame.
+            pixman_region32_intersect_rect(&buffer_part, &buffer_part, 0, 0, fx_pass->buffer->buffer->width,
+                                           fx_pass->buffer->buffer->height);
             pixman_region32_t uncovered;
             pixman_region32_init(&uncovered);
             pixman_region32_subtract(&uncovered, &buffer_part, &render_region);
