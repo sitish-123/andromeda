@@ -161,6 +161,9 @@ fn open_activity(unit: &str) {
 
 /// A readable name from an app unit: `app-gnome-org.mozilla.firefox-1234.scope` -> `Firefox`.
 fn app_name(unit: &str) -> String {
+    if let Some(name) = launch_scope_name(unit) {
+        return name;
+    }
     let base = unit.strip_prefix("app-").unwrap_or(unit);
     let base = base.rsplit_once('.').filter(|(_, ext)| *ext == "scope" || *ext == "service").map_or(base, |(b, _)| b);
     let base = base.split('@').next().unwrap_or(base);
@@ -171,6 +174,26 @@ fn app_name(unit: &str) -> String {
     let name = base.rsplit('.').next().unwrap_or(base);
     let mut chars = name.chars();
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
+}
+
+/// The compositor's launch scopes (`app-andromeda-<pid>-<n>.scope`, in the user manager's app.slice) hold no app id:
+/// they take the name of their oldest process (`zen-bin` -> `Zen`).
+fn launch_scope_name(unit: &str) -> Option<String> {
+    let (pid, n) = unit.strip_prefix("app-andromeda-")?.strip_suffix(".scope")?.split_once('-')?;
+    if pid.is_empty() || n.is_empty() || !pid.chars().chain(n.chars()).all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let own = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    let path = own.lines().find_map(|line| line.strip_prefix("0::"))?;
+    let start = path.find("/user@")?;
+    let manager = &path[..start + path[start..].find(".service")? + ".service".len()];
+    let procs = std::fs::read_to_string(format!("/sys/fs/cgroup{manager}/app.slice/{unit}/cgroup.procs")).ok()?;
+    let oldest = procs.lines().filter_map(|pid| pid.parse::<u32>().ok()).min()?;
+    let comm = std::fs::read_to_string(format!("/proc/{oldest}/comm")).ok()?;
+    let comm = comm.trim();
+    let comm = comm.strip_suffix("-bin").unwrap_or(comm);
+    let mut chars = comm.chars();
+    chars.next().map(|first| first.to_uppercase().chain(chars).collect())
 }
 
 struct Spec {

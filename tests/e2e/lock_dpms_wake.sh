@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+# No wrong password: the headless shell checks it with the real PAM login stack, and faillock counts it.
 # The lock screen survives screen-off: lock, power the outputs off, wake them with a key press (no system sleep), then
-# typing redraws the password field and a wrong password still reaches PAM. Writes woke.png, typed.png and
+# typing redraws the password field. Writes woke.png, typed.png and
 # noctalia.log to $OUT (default ./artifacts/lock-dpms-wake).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-dpms-wake}
@@ -42,8 +43,6 @@ with_noctalia '
   wait_for "the lock screen did not redraw after typing (frame loop stuck)" shot_differs "$OUT/woke.ppm"
   grim "$OUT/typed.png"
 
-  wtype -k Return
-  wait_for "the password field took no input" grep -q "authentication failed" "$OUT/noctalia.log"
-  locked || fail "the session is not locked after a wrong password"
+  locked || fail "the session unlocked"
   echo "PASS"
 '
