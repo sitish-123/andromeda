@@ -1298,8 +1298,7 @@ namespace andromeda {
     return nlohmann::json{
         {"ok",
          {{"active", overview != nullptr && overview->active()},
-          {"progress", overview != nullptr ? overview->progress() : 0.0},
-          {"grid", overview != nullptr && overview->gridStop()}}}
+          {"progress", overview != nullptr ? overview->progress() : 0.0}}}
     };
   }
 

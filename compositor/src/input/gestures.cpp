@@ -400,7 +400,7 @@ namespace andromeda {
       m_accumX = 0;
       m_accumY = 0;
       m_overviewWasOpen = overview->active();
-      m_overviewBase = !m_overviewWasOpen ? 0.0 : overview->gridStop() ? 2.0 : 1.0;
+      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.reset();
       return;
     }
@@ -554,9 +554,9 @@ namespace andromeda {
         m_state = State::Idle;
         return;
       }
-      // Swipe up opens and goes on to the Grid stop, swipe down steps back; base is where the gesture started.
+      // Swipe up opens, swipe down closes; base is where the gesture started.
       m_overviewTracker.push(-event->dy, event->time_msec);
-      overview->gestureUpdate(overviewGestureProgress(*overview));
+      overview->gestureUpdate(overviewGestureProgress());
       return;
     }
 
@@ -619,9 +619,9 @@ namespace andromeda {
 
   // ===== Overview finish (4-finger) =====
 
-  double Gestures::overviewGestureProgress(const Overview& overview) const {
+  double Gestures::overviewGestureProgress() const {
     return GesturePhysics::rubberBand(
-        m_overviewBase + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, overview.canGridStop() ? 2.0 : 1.0,
+        m_overviewBase + m_overviewTracker.pos() / kOverviewDistancePx, 0.0, 1.0,
         GesturePhysics::kOverscrollLimit
     );
   }
@@ -638,7 +638,7 @@ namespace andromeda {
     if (!cancelled) {
       m_overviewTracker.push(0.0, timeMsec);
       const GesturePhysics::StepRelease release = GesturePhysics::release(
-          m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, overview->canGridStop() ? 2.0 : 1.0
+          m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, 1.0
       );
       stop = release.target;
       velocity = release.velocity;
@@ -801,7 +801,7 @@ namespace andromeda {
       m_overviewPinch = true;
       m_pinchScale = 1.0;
       m_overviewWasOpen = overview->active();
-      m_overviewBase = !m_overviewWasOpen ? 0.0 : overview->gridStop() ? 2.0 : 1.0;
+      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.reset();
       return;
     }
@@ -830,7 +830,7 @@ namespace andromeda {
       }
       m_overviewTracker.push((m_pinchScale - event->scale) * kPinchDistancePx, event->time_msec);
       m_pinchScale = event->scale;
-      overview->gestureUpdate(overviewGestureProgress(*overview));
+      overview->gestureUpdate(overviewGestureProgress());
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_update(

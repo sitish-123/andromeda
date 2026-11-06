@@ -78,7 +78,7 @@ namespace andromeda {
     void finishScroll(bool cancelled, uint32_t timeMsec);
     void finishSwitch(bool cancelled, uint32_t timeMsec);
     void finishOverview(bool cancelled, uint32_t timeMsec);
-    [[nodiscard]] double overviewGestureProgress(const Overview& overview) const;
+    [[nodiscard]] double overviewGestureProgress() const;
     void silentCancel();
     [[nodiscard]] bool beginScroll(Workspace* workspace, double scale, ScrollSource source);
     void updateScroll(double delta, uint32_t timeMsec);
