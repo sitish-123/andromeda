@@ -85,7 +85,8 @@ check: test link system
 
 package:
     # -C: a reused build dir keeps old subproject options (default_options apply only on the first configure).
-    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" makepkg -fC
+    # flock: -C wipes pkg/src, so a second session's run waits instead of deleting the first one's sources.
+    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" flock /tmp/andromeda-package.lock makepkg -fC
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
 
