@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Usage: [DEB_VERSION=x.y.z] tools/ubuntu-deb.sh [--clean] [ubuntu-version]
-# Builds the Ubuntu .deb packages (debian/) from the working tree in a container, then installs them with apt to
+# Usage: [DEB_VERSION=x.y.z] tools/ubuntu-deb.sh [--clean] [ubuntu-version | debian-suite]
+# Builds the Ubuntu or Debian (a suite name, e.g. testing) .deb packages (debian/) from the working tree in a container, then installs them with apt to
 # prove their dependencies resolve. Incremental: the copied tree, the meson build dirs and the cargo target dir stay
 # in the output dir, so a rerun compiles only what changed. --clean builds from nothing (CI, releases).
 # Output in ~/.cache/andromeda-ubuntu/deb-<version>/ (tmpfs /tmp is too small): the debs, build.log, install.log.
@@ -11,17 +11,18 @@ if [[ ${1:-} == --clean ]]; then
   shift
 fi
 VERSION=${1:-26.04}
+[[ $VERSION == [0-9]* ]] && BASE=ubuntu:$VERSION || BASE=debian:$VERSION
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-ubuntu/deb-$VERSION
-IMAGE=andromeda-deb:ubuntu-$VERSION
+IMAGE=andromeda-deb:${BASE/:/-}
 # ccache lives beside OUT, so --clean keeps it.
 CCACHE=$(dirname "$OUT")/ccache-deb-$VERSION
 mkdir -p "$OUT" "$CCACHE"
 # The container writes as root: clear through it.
 if [[ $CLEAN == 1 ]]; then
-  docker run --rm -v "$OUT:/o" "ubuntu:$VERSION" sh -c 'rm -rf /o/*'
+  docker run --rm -v "$OUT:/o" "$BASE" sh -c 'rm -rf /o/*'
 else
-  docker run --rm -v "$OUT:/o" "ubuntu:$VERSION" sh -c 'rm -f /o/*.deb /o/*.ddeb /o/*.buildinfo /o/*.changes'
+  docker run --rm -v "$OUT:/o" "$BASE" sh -c 'rm -f /o/*.deb /o/*.ddeb /o/*.buildinfo /o/*.changes'
 fi
 mkdir -p "$OUT/src/pkg"
 # Tracked and new files without the Link submodule (Link ships its own deb) or pkg/ build output. rsync skips
@@ -40,7 +41,7 @@ CTX=$OUT/image
 mkdir -p "$CTX"
 cp "$ROOT/debian/control" "$CTX/control"
 docker build -q -t "$IMAGE" -f - "$CTX" > /dev/null << DOCKER
-FROM ubuntu:$VERSION
+FROM $BASE
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends devscripts equivs ca-certificates
 COPY control /tmp/control
@@ -48,7 +49,7 @@ RUN apt-get update -qq && mk-build-deps -i -r -t "apt-get -y -qq --no-install-re
 RUN apt-get install -y -qq --no-install-recommends ccache
 DOCKER
 
-# Packages from our apt repo that Ubuntu lacks (tools/deb-xwayland-satellite.sh).
+# Packages from our apt repo that the distro lacks (tools/deb-xwayland-satellite.sh).
 mkdir -p "$OUT/extra"
 cp "$(dirname "$OUT")/xwayland-satellite-$VERSION"/*.deb "$OUT/extra/" 2> /dev/null || true
 status=0
@@ -63,7 +64,7 @@ docker run --rm --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccach
   apt-get update -qq
   apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_") 2>&1 | tee /o/install.log || exit 12
 ' || status=$?
-docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" "ubuntu:$VERSION" chown -R "$(id -u):$(id -g)" /o /ccache
+docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache
 case $status in
   0) echo "PASS: $(ls "$OUT"/*.deb | wc -l) debs built and installed" ;;
   11) echo "FAIL build: $(tail -n 3 "$OUT/build.log")" ;;
