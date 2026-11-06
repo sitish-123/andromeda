@@ -678,7 +678,7 @@ namespace andromeda {
   struct Config {
     // Every color Andromeda draws, each an independent literal. `background`
     // through `error` are the palette Andromeda's own panels paint with: the
-    // diagnostics banner, the quit confirmation, and overview badge text.
+    // diagnostics banner and the quit confirmation.
     struct Colors {
       struct TitleBar {
         std::array<float, 4> background{0.1607843F, 0.1607843F, 0.2F, 1.0F};
@@ -1004,11 +1004,6 @@ namespace andromeda {
       // colors.overview.workspace_background fill. The real bottom layer is hidden while the overview is open, so a
       // surface there appears once per workspace rather than twice at two scales.
       bool workspaceWallpaper = true;
-      // Keyboard shortcut badges on overview cards. Pressing a badge key focuses
-      // that window and closes the overview.
-      bool shortcuts = true;
-      // Favorite badge keys in preference order, one ASCII character each.
-      std::string shortcutKeys = "1234567890";
       bool operator==(const Overview&) const = default;
     } overview;
 

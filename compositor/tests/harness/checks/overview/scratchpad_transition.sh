@@ -78,7 +78,6 @@ enabled = false
 
 [overview]
 background_blur = false
-shortcuts = false
 
 [[window_rule]]
 match.title = "^overview-scratchpad-transition$"

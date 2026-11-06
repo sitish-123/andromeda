@@ -46,7 +46,6 @@ outer_border_width = 0
 corner_radius = 0
 
 [overview]
-shortcuts = false
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 

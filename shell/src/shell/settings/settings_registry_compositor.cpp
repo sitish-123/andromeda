@@ -232,7 +232,6 @@ namespace settings {
       }
       toggle(Overview, "overview", "overview.background_blur", "overview blur wallpaper");
       toggle(Overview, "overview", "overview.workspace_wallpaper", "overview wallpaper preview");
-      toggle(Overview, "overview", "overview.shortcuts", "overview keyboard shortcut badges");
 
       toggle(Windows, "focus", "input.focus.follows_mouse", "focus follows mouse hover pointer");
       toggle(Windows, "focus", "input.cursor.follows_focus", "cursor warp follows focus");

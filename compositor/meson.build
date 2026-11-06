@@ -852,7 +852,6 @@ pure_sources = files(
   'src/scene/effect_selection.cpp',
   'src/overview/arrange.cpp',
   'src/overview/interact.cpp',
-  'src/overview/shortcut_labels.cpp',
   'src/overview/style.cpp',
   'src/view/border_ring.cpp',
   'src/view/effects_rules.cpp',

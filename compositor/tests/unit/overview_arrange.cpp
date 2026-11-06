@@ -156,8 +156,7 @@ ANDROMEDA_TEST(stripRowsFollowAHorizontalWorkspaceAxis) {
   const Placement p = place(Style::Strip, in);
   CHECK_EQ(p.cards[0].rect.w, 320.0);
   CHECK_EQ(p.cards[1].rect.y, p.cards[0].rect.y);
-  // Gap: a tenth of a row's width.
-  CHECK_EQ(p.cards[1].rect.x - p.cards[0].rect.x, 320.0 + 32.0);
+  CHECK_EQ(p.cards[1].rect.x - p.cards[0].rect.x, 320.0 + 60.0);
 }
 
 ANDROMEDA_TEST(placeAtMorphsSpacesBetweenNeighbouringWorkspaces) {

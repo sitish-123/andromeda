@@ -98,6 +98,9 @@ namespace andromeda::ov {
     std::optional<Point> title;   // workspace name + layout chip, top-left corner
     std::optional<Point> filter;  // filter field, top-left corner; kFilterWidth wide
     std::optional<Rect> viewport; // Spaces + Scrolling: the frame marking what is on screen
+    // Spaces, Task View: the current workspace's shown windows on its desktop, cut to the output, bottom to top. Its
+    // windows sit in the main area, so its thumb draws these as blocks.
+    std::vector<Rect> currentDesk;
   };
 
   inline constexpr double kFilterWidth = 260;

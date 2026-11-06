@@ -24,7 +24,7 @@ namespace andromeda::ov {
     constexpr double kTaskViewTitleY = 22;
     constexpr double kMinimizedOpacity = 0.55;
 
-    constexpr double kStripGapShare = 0.1; // gap between Strip rows, as a share of a row's extent along the axis
+    constexpr double kStripGap = 60; // between Strip rows: room for the next row's name above it (prototype)
     constexpr double kStripFilterY = 14;
     constexpr double kPlusShare = 0.45; // the Strip's New row is this share of a row's extent along the axis
     constexpr double kDimmed = 0.5;
@@ -100,6 +100,15 @@ namespace andromeda::ov {
 
       if (in.current < n) {
         const Workspace& ws = in.workspaces[in.current];
+        for (const Member& m : ws.members) {
+          const double x0 = std::max(0.0, m.desk.x);
+          const double y0 = std::max(0.0, m.desk.y);
+          const double x1 = std::min(in.width, m.desk.x + m.desk.w);
+          const double y1 = std::min(in.height, m.desk.y + m.desk.h);
+          if (!m.minimized && x1 > x0 && y1 > y0) {
+            out.currentDesk.push_back({x0, y0, x1 - x0, y1 - y0});
+          }
+        }
         if (!top || ws.arrangement == Arrangement::Free) {
           std::vector<ExposeItem> items;
           items.reserve(ws.members.size());
@@ -155,8 +164,7 @@ namespace andromeda::ov {
       const double fh = std::max(1.0, std::round(in.height * s));
       const double fx = std::round((in.width - fw) / 2);
       const double fy = std::round((in.height - fh) / 2);
-      const double step =
-          (in.horizontal ? fw : fh) + std::round(kStripGapShare * (in.horizontal ? in.width : in.height) * s);
+      const double step = (in.horizontal ? fw : fh) + kStripGap;
       const double row = in.stripRow.value_or(static_cast<double>(in.current));
       const auto frameAt = [&](double i) {
         const double offset = (i - row) * step;

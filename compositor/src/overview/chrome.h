@@ -123,6 +123,7 @@ namespace andromeda::ov {
     Frame m_plus;
     Frame m_viewport;
     Frame m_current; // accent ring around the shown workspace's thumb, row or tile
+    std::vector<Frame> m_minis; // the shown workspace's windows as blocks in its thumb
     Label m_viewportTag;
     std::unordered_map<const void*, Label> m_titles;
     Label m_close;

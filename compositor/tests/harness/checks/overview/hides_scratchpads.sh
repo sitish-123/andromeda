@@ -148,7 +148,6 @@ enabled = false
 
 [overview]
 background_blur = false
-shortcuts = false
 
 [[scratchpad]]
 name = "overview-first"

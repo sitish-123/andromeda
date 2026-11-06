@@ -418,7 +418,6 @@ namespace andromeda {
         Spec{"overview.zoom", Kind::Real, 0.1, 0.75, {}, [](const Config& c) { return text(c.overview.zoom); }},
         Spec{"overview.background_blur", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.backgroundBlur); }},
         Spec{"overview.workspace_wallpaper", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.workspaceWallpaper); }},
-        Spec{"overview.shortcuts", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.overview.shortcuts); }},
         Spec{"general.focus_on_activate", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.focusOnActivate); }},
         Spec{"general.freeze_background_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeBackgroundApps); }},
         Spec{"general.freeze_hidden_apps", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.general.freezeHiddenApps); }},

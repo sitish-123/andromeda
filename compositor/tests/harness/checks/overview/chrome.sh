@@ -15,7 +15,6 @@ style = "spaces"
 titles = "always"
 background_blur = false
 workspace_wallpaper = false
-shortcuts = false
 
 [animation.overview]
 enabled = false

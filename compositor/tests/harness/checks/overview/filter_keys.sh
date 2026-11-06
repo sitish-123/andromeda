@@ -25,7 +25,6 @@ mode = "floating"
 
 [overview]
 style = "spaces"
-shortcuts = false
 EOF2
 "$ANDROMEDA" msg config-reload > /dev/null
 

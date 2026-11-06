@@ -15,7 +15,6 @@ mode = "floating"
 [overview]
 style = "spaces"
 background_blur = false
-shortcuts = false
 
 [animation.overview]
 duration_ms = 1000

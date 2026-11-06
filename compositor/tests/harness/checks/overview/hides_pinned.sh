@@ -59,7 +59,6 @@ enabled = false
 style = "strip"
 zoom = 0.5
 background_blur = false
-shortcuts = false
 
 [output.HEADLESS-1]
 workspaces = 2

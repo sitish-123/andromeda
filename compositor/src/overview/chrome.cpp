@@ -31,6 +31,7 @@ namespace andromeda::ov {
     constexpr int kViewportTagHeight = 18;
     constexpr int kCloseSize = 26;
     constexpr int kCloseInset = 4; // the button centres this far inside the card's top-right corner
+    constexpr int kMiniRadius = 3;
     constexpr std::array<float, 4> kCloseRed{0.898F, 0.282F, 0.302F, 1.0F};
 
     std::array<float, 4> withAlpha(std::array<float, 4> color, float alpha) {
@@ -51,7 +52,7 @@ namespace andromeda::ov {
       case Style::TaskView:
         return "Click a window to open it · drag it onto a desktop below · Esc closes";
       case Style::Strip:
-        return "Wheel changes row · Shift+wheel pans the strip · Esc closes";
+        return "Wheel changes row · Shift+wheel pans the strip · drag to the top or bottom edge to change rows · Esc closes";
       case Style::Grid:
         return "Click a tile to go there · drag windows between tiles · Esc closes";
       }
@@ -329,6 +330,26 @@ namespace andromeda::ov {
         : frame.style == Style::Spaces ? late
                                        : shown
     );
+
+    // The shown workspace's windows live in the main area; its thumb shows them as blocks (prototype .mini i).
+    size_t minis = 0;
+    if (current != nullptr && current->shown && current->kind == CardKind::Thumb && frame.output.width > 0) {
+      const double z = static_cast<double>(current->card.width) / frame.output.width;
+      const std::array<float, 4> line = withAlpha(colors.textPrimary, 0.1F);
+      for (const Rect& r : placement.currentDesk) {
+        if (minis == m_minis.size()) {
+          m_minis.emplace_back();
+        }
+        const wlr_box box{
+            current->card.x + px(r.x * z), current->card.y + px(r.y * z), std::max(1, px(r.w * z)),
+            std::max(1, px(r.h * z))
+        };
+        placeFrame(m_minis[minis++], box, kMiniRadius, 1, thick, line, shown);
+      }
+    }
+    for (; minis < m_minis.size(); ++minis) {
+      placeFrame(m_minis[minis], {}, kMiniRadius, 1, {}, {}, 0.0F);
+    }
 
     // The shown workspace's card carries an accent ring just outside it (prototype .card.cur: 3 px on thumbs, 2 px on
     // full-size rows and tiles).

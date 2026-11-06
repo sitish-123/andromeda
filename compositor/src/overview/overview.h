@@ -130,8 +130,7 @@ namespace andromeda {
     void handleTouchpadAxis(wlr_pointer* pointer, bool vertical, double delta, uint32_t timeMsec, double lx, double ly);
     void handleTouchpadFrame();
     bool handleFallbackKey(uint32_t keysym);
-    // Clear pending badge input for directional focus while interactive. Configured
-    // actions retain their regular handlers throughout the closing animation.
+    // Configured actions retain their regular handlers throughout the closing animation.
     bool handleKeybindAction(KeybindAction action);
     // Step the active workspace `delta` rows along the workspaces on `output` (null: wherever the pointer is). Returns
     // false at either end. The wheel and middle-button drag use discrete steps;
@@ -213,19 +212,6 @@ namespace andromeda {
       double scale = 1.0;
       float opacity = 1.0F;
       wlr_box clip{};
-      wlr_scene_tree* badge = nullptr;
-      wlr_scene_rect* badgeRect = nullptr;
-      wlr_scene_buffer* badgeText = nullptr;
-      int badgeWidth = 0;
-      int badgeHeight = 0;
-      std::array<float, 4> badgeBackground{};
-      std::string shortcut;
-      size_t shortcutMatched = 0;
-    };
-
-    struct ShortcutAssignment {
-      View* view = nullptr;
-      std::string label;
     };
 
     // One surface of the output's mirrored stack: a background- or bottom-layer surface copied into every workspace
@@ -392,12 +378,6 @@ namespace andromeda {
     // output holding the cursor. Null when that workspace is empty, which is also when those actions do nothing.
     [[nodiscard]] View* liveTargetView() const;
     [[nodiscard]] std::array<float, 4> cardBorderColor(const Card& card, const View* liveTarget) const;
-    void assignShortcuts();
-    void renderCardShortcut(Card& card);
-    bool handleShortcutKey(uint32_t keysym);
-    void refreshShortcutMatches();
-    void clearShortcutInput();
-    void updateShortcutAssignments();
     // Type-to-filter: `m_filter` dims the cards whose title and app id miss it and moves the selection onto a match.
     [[nodiscard]] bool cardMatches(const Card& card) const;
     // Live window cards in reading order, the active workspace on the pointer's output first; matches only.
@@ -500,11 +480,7 @@ namespace andromeda {
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     bool m_gestureOpenedHere = false;
-    bool m_shortcutsDirty = true;
-    std::string m_shortcutInput;
     std::string m_filter;
-    std::vector<ShortcutAssignment> m_shortcutAssignments;
-    size_t m_shortcutLabelCapacity = 0;
     // Output under the pointer, which is the output the live target resolves against.
     Ref<Output> m_pointerOutput;
 

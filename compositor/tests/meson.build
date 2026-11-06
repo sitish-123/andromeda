@@ -61,7 +61,6 @@ unit_tests = [
   ['master-layout', ['unit/master_layout.cpp'], []],
   ['floating-layout', ['unit/floating_layout.cpp'], []],
   ['tabbed-layout', ['unit/tabbed_layout.cpp'], []],
-  ['shortcut-labels', ['unit/shortcut_labels.cpp'], []],
   ['border-ring', ['unit/border_ring.cpp'], []],
   ['ssd-frame-geometry', ['unit/ssd_frame_geometry.cpp'], []],
   ['floating', ['unit/floating.cpp'], []],

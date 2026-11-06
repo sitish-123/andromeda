@@ -19,7 +19,6 @@ extern "C" {
 #include "layout/scrolling.h"
 #include "output/output.h"
 #include "overview/interact.h"
-#include "overview/shortcut_labels.h"
 #include "scene/border_rect.h"
 #include "scene/color.h"
 #include "scene/effect_registry.h"
@@ -132,8 +131,6 @@ namespace andromeda {
     constexpr double kSwapZoneStart = 0.28;
     // How much of the focused border color mixes into the unfocused one for a landing target that is not the live one.
     constexpr float kLandingTargetBlend = 0.4F;
-    // Inset of a shortcut badge from the card edge it hugs.
-    constexpr int kBadgeMargin = 6;
 
     std::array<float, 4> mixColor(const std::array<float, 4>& from, const std::array<float, 4>& to, float amount) {
       std::array<float, 4> out{};
@@ -205,30 +202,6 @@ namespace andromeda {
     // Cards are pure output: hit testing runs off Overview's own boxes, so scene
     // input must never land on them (Server::viewAt then sees layer surfaces only).
     bool rejectInput(wlr_scene_buffer* /*buffer*/, double* /*sx*/, double* /*sy*/) { return false; }
-
-    char asciiLower(char character) {
-      return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
-    }
-
-    char shortcutCharacter(uint32_t keysym) {
-      if (keysym >= XKB_KEY_KP_0 && keysym <= XKB_KEY_KP_9) {
-        return static_cast<char>('0' + (keysym - XKB_KEY_KP_0));
-      }
-      const xkb_keysym_t lowered = xkb_keysym_to_lower(keysym);
-      return lowered >= 0x21 && lowered <= 0x7E ? static_cast<char>(lowered) : '\0';
-    }
-
-    bool shortcutStartsWith(std::string_view label, std::string_view prefix) {
-      if (label.size() < prefix.size()) {
-        return false;
-      }
-      for (size_t index = 0; index < prefix.size(); ++index) {
-        if (asciiLower(label[index]) != prefix[index]) {
-          return false;
-        }
-      }
-      return true;
-    }
 
     wlr_scene_buffer* sourceBufferForSurface(wlr_scene_node* node, wlr_surface* surface) {
       if (node->type == WLR_SCENE_NODE_BUFFER) {
@@ -443,40 +416,6 @@ namespace andromeda {
     }
     layoutCardChrome(card, world, decorated ? total : 0, z, presentedOpacity);
     syncCardEffects(card);
-
-    if (card.badge != nullptr) {
-      // Overshooting curves can push m_progress past [0, 1] and wlr_scene_buffer_set_opacity asserts.
-      const auto badgeAlpha = static_cast<float>(std::clamp(m_progress, 0.0, 1.0));
-      const bool matched = card.shortcutMatched != SIZE_MAX;
-      const bool fits =
-          contentW >= card.badgeWidth + 2 * kBadgeMargin && contentH >= card.badgeHeight + 2 * kBadgeMargin;
-      const bool badgeOn =
-          !card.shortcut.empty() && matched && fits && !m_closing && &card != m_dragCard && badgeAlpha > 0.01F;
-      wlr_scene_node_set_enabled(&card.badge->node, badgeOn);
-      if (badgeOn) {
-        // The badge hugs the card's top-left corner, the only corner the output clip or the top/overlay exclusive
-        // zones can hide. On each axis it slides just far enough to clear the start of the usable area, never past
-        // the card's opposite inset, where a card scrolled out of view keeps it. `fits` keeps the card-local bounds
-        // ordered.
-        const auto inset = [](int origin, int extent, int badgeExtent, int clipStart) {
-          return std::clamp(
-              std::max(clipStart, origin) + kBadgeMargin - origin, kBadgeMargin, extent - badgeExtent - kBadgeMargin
-          );
-        };
-        wlr_scene_node_set_position(
-            &card.badge->node, inset(card.box.x, contentW, card.badgeWidth, card.owner->usableBox.x),
-            inset(card.box.y, contentH, card.badgeHeight, card.owner->usableBox.y)
-        );
-        wlr_scene_buffer_set_opacity(card.badgeText, badgeAlpha);
-        const std::array<float, 4> background = tint(card.badgeBackground, badgeAlpha);
-        wlr_scene_rect_set_color(card.badgeRect, background.data());
-        // The badge renders unscaled, so it takes the zoomed radius the cards
-        // around it use instead of the full-size one.
-        wlr_scene_rect_set_corner_radius(
-            card.badgeRect, std::min(scaledRadius, std::min(card.badgeWidth, card.badgeHeight) / 2)
-        );
-      }
-    }
 
     // Every surface of the card rounds against the card's content box, the same rule the live window uses, so a
     // client that draws its corners from a subsurface keeps them rounded in the thumbnail.
@@ -1057,10 +996,6 @@ namespace andromeda {
   }
 
   void Overview::applyProgress() {
-    if (m_shortcutsDirty) {
-      m_shortcutsDirty = false;
-      updateShortcutAssignments();
-    }
     for (const auto& state : m_outputs) {
       layoutOutput(*state);
     }
@@ -1528,7 +1463,6 @@ namespace andromeda {
     }
     Card* raw = card.get();
     state.cards.push_back(std::move(card));
-    m_shortcutsDirty = true;
 
     forEachCardSurface(raw, addCardSurface);
 
@@ -1659,8 +1593,7 @@ namespace andromeda {
       }
       destroyCard(it->get());
       state->cards.erase(it);
-      m_shortcutsDirty = true;
-      return;
+        return;
     }
   }
 
@@ -1711,243 +1644,6 @@ namespace andromeda {
     return std::ranges::any_of(m_outputs, [view](const auto& state) {
       return std::ranges::any_of(state->cards, [view](const auto& card) { return card->view == view; });
     });
-  }
-
-  void Overview::renderCardShortcut(Card& card) {
-    if (card.badge != nullptr) {
-      wlr_scene_node_destroy(&card.badge->node);
-    }
-    card.badge = nullptr;
-    card.badgeRect = nullptr;
-    card.badgeText = nullptr;
-    card.badgeWidth = 0;
-    card.badgeHeight = 0;
-
-    if (card.shortcut.empty() || card.tree == nullptr || card.owner == nullptr || card.owner->output == nullptr) {
-      return;
-    }
-
-    const double scale = std::max(1.0, std::ceil(static_cast<double>(card.owner->output->wlr()->scale)));
-    const size_t matched = card.shortcutMatched == SIZE_MAX ? 0 : std::min(card.shortcutMatched, card.shortcut.size());
-    const std::string_view shortcut(card.shortcut);
-    const auto& colors = config().colors;
-    const std::array<float, 4>& badgeColor = colors.overview.badge;
-    card.badgeBackground = keycapBackgroundColor(colors.background, badgeColor);
-    const std::string markup = std::format(
-        "<span foreground='{}' weight='bold'>{}</span><span foreground='{}' weight='bold'>{}</span>",
-        rgbaHex(colors.textPrimary), escapeMarkup(shortcut.substr(0, matched)), rgbaHex(badgeColor),
-        escapeMarkup(shortcut.substr(matched))
-    );
-    TextBufferResult rendered = renderTextBuffer({
-        .markup = markup,
-        .font = "monospace 19",
-        .maxWidth = 350,
-        .padding = 0,
-        .scale = scale,
-        .bgA = 0.0,
-    });
-    if (rendered.buffer == nullptr) {
-      return;
-    }
-
-    card.badge = wlr_scene_tree_create(card.tree);
-    if (card.badge == nullptr) {
-      wlr_buffer_drop(rendered.buffer);
-      return;
-    }
-    // Keycap proportions: the label's line box sets the height, and the badge is
-    // never narrower than it is tall, so a single character reads as a square.
-    constexpr int kBadgeSidePad = 8;
-    const int badgeHeight = rendered.logicalHeight;
-    const int badgeWidth = std::max(rendered.logicalWidth + 2 * kBadgeSidePad, badgeHeight);
-    const std::array<float, 4> background = tint(card.badgeBackground, 1.0);
-    card.badgeRect = wlr_scene_rect_create(card.badge, badgeWidth, badgeHeight, background.data());
-    card.badgeText = wlr_scene_buffer_create(card.badge, rendered.buffer);
-    wlr_buffer_drop(rendered.buffer);
-    if (card.badgeRect == nullptr || card.badgeText == nullptr) {
-      wlr_scene_node_destroy(&card.badge->node);
-      card.badge = nullptr;
-      card.badgeRect = nullptr;
-      card.badgeText = nullptr;
-      return;
-    }
-
-    wlr_scene_node_set_position(
-        &card.badgeText->node, (badgeWidth - rendered.logicalWidth) / 2, (badgeHeight - rendered.logicalHeight) / 2
-    );
-    wlr_scene_buffer_set_dest_size(card.badgeText, rendered.logicalWidth, rendered.logicalHeight);
-    card.badgeText->point_accepts_input = rejectInput;
-    card.badgeWidth = badgeWidth;
-    card.badgeHeight = badgeHeight;
-    wlr_scene_node_raise_to_top(&card.badge->node);
-    wlr_scene_node_set_enabled(&card.badge->node, false);
-  }
-
-  void Overview::assignShortcuts() {
-    m_shortcutInput.clear();
-    m_shortcutsDirty = true;
-    applyProgress();
-  }
-
-  void Overview::updateShortcutAssignments() {
-    const auto updateCard = [this](Card& card, std::string label) {
-      const bool changed = card.shortcut != label;
-      card.shortcut = std::move(label);
-      card.shortcutMatched = 0;
-      if (changed) {
-        renderCardShortcut(card);
-      }
-    };
-    const auto clearAll = [&]() {
-      for (const auto& state : m_outputs) {
-        for (const auto& card : state->cards) {
-          updateCard(*card, {});
-        }
-      }
-    };
-
-    if (!m_active || m_closing || !config().overview.shortcuts || config().overview.shortcutKeys.size() < 2) {
-      clearAll();
-      return;
-    }
-
-    std::vector<OutputState*> orderedStates;
-    orderedStates.reserve(m_outputs.size());
-    Output* preferred = m_server->outputFromWlr(m_server->preferredOutput());
-    if (OutputState* state = stateFor(preferred)) {
-      orderedStates.push_back(state);
-    }
-    for (const auto& state : m_outputs) {
-      if (orderedStates.empty() || state.get() != orderedStates.front()) {
-        orderedStates.push_back(state.get());
-      }
-    }
-
-    // Badges follow the settled placement at the row the overview is heading to, read from layout targets, so a
-    // window still sliding into place already has its final order.
-    std::vector<Card*> eligible;
-    for (OutputState* state : orderedStates) {
-      if (state == nullptr || !refreshOutputBoxes(*state)) {
-        continue;
-      }
-      WorkspaceGroup* group = state->output->workspaceGroup();
-      if (group == nullptr) {
-        continue;
-      }
-      const double row = state->rowScroll.target();
-      const ov::Input input = placementInput(*state, true);
-      const ov::Placement settled = ov::placeAt(configuredStyle(), input, row);
-      const ov::Rect output{0.0, 0.0, input.width, input.height};
-      const auto onOutput = [&output](const ov::Rect& rect) {
-        return rect.x < output.w && rect.y < output.h && rect.x + rect.w > 0 && rect.y + rect.h > 0;
-      };
-      const size_t chosen = static_cast<size_t>(std::max(0L, std::lround(row)));
-
-      std::vector<size_t> visible;
-      visible.reserve(group->workspaceCount());
-      for (const ov::Card& card : settled.cards) {
-        if (card.workspace < group->workspaceCount() && (onOutput(card.rect) || card.workspace == chosen)) {
-          visible.push_back(card.workspace);
-        }
-      }
-      std::ranges::stable_sort(visible, [row](size_t left, size_t right) {
-        const double leftDistance = std::abs(static_cast<double>(left) - row);
-        const double rightDistance = std::abs(static_cast<double>(right) - row);
-        return leftDistance == rightDistance ? left < right : leftDistance < rightDistance;
-      });
-
-      struct PositionedCard {
-        Card* card = nullptr;
-        double x = 0;
-        double y = 0;
-      };
-      // Reading order inside each workspace: rows of a horizontal workspace axis, columns otherwise.
-      const bool horizontalWorkspaces = input.horizontal;
-      for (const size_t index : visible) {
-        std::vector<PositionedCard> previewCards;
-        for (size_t k = 0; k < state->cards.size(); ++k) {
-          Card* card = state->cards[k].get();
-          if (card->workspaceIndex != index || card->view == nullptr || !card->view->mapped()) {
-            continue;
-          }
-          const ov::WindowPlace* place = ov::findWindow(settled, static_cast<uint32_t>(k));
-          if (place == nullptr || place->opacity <= 0.0) {
-            continue;
-          }
-          previewCards.push_back({.card = card, .x = std::round(place->rect.x), .y = std::round(place->rect.y)});
-        }
-        std::ranges::stable_sort(
-            previewCards, [horizontalWorkspaces](const PositionedCard& left, const PositionedCard& right) {
-              if (horizontalWorkspaces) {
-                return left.y == right.y ? left.x < right.x : left.y < right.y;
-              }
-              return left.x == right.x ? left.y < right.y : left.x < right.x;
-            }
-        );
-        for (const PositionedCard& positioned : previewCards) {
-          eligible.push_back(positioned.card);
-        }
-      }
-    }
-
-    const auto assignmentFor = [this](const View* view) -> ShortcutAssignment* {
-      const auto assignment = std::ranges::find_if(m_shortcutAssignments, [view](const ShortcutAssignment& item) {
-        return item.view == view;
-      });
-      return assignment == m_shortcutAssignments.end() ? nullptr : &*assignment;
-    };
-    for (Card* card : eligible) {
-      if (assignmentFor(card->view) == nullptr) {
-        m_shortcutAssignments.push_back({.view = card->view, .label = {}});
-      }
-    }
-
-    m_shortcutLabelCapacity = std::max(m_shortcutLabelCapacity, m_shortcutAssignments.size());
-    const std::vector<std::string> labels = shortcutLabels(m_shortcutLabelCapacity, config().overview.shortcutKeys);
-    std::vector<bool> used(labels.size(), false);
-    const auto labelIndex = [&labels](std::string_view label) {
-      for (size_t index = 0; index < labels.size(); ++index) {
-        if (labels[index] == label) {
-          return index;
-        }
-      }
-      return labels.size();
-    };
-
-    for (ShortcutAssignment& assignment : m_shortcutAssignments) {
-      const size_t index = labelIndex(assignment.label);
-      if (index == labels.size() || used[index]) {
-        assignment.label.clear();
-      } else {
-        used[index] = true;
-      }
-    }
-    size_t nextUnused = 0;
-    for (ShortcutAssignment& assignment : m_shortcutAssignments) {
-      if (!assignment.label.empty()) {
-        continue;
-      }
-      while (nextUnused < used.size() && used[nextUnused]) {
-        ++nextUnused;
-      }
-      if (nextUnused == labels.size()) {
-        break;
-      }
-      assignment.label = labels[nextUnused];
-      used[nextUnused] = true;
-    }
-
-    for (Card* card : eligible) {
-      ShortcutAssignment* assignment = assignmentFor(card->view);
-      updateCard(*card, assignment != nullptr ? assignment->label : std::string{});
-    }
-    for (const auto& state : m_outputs) {
-      for (const auto& card : state->cards) {
-        if (std::ranges::find(eligible, card.get()) == eligible.end()) {
-          updateCard(*card, {});
-        }
-      }
-    }
   }
 
   void Overview::populateCards(OutputState& state) {
@@ -2088,7 +1784,7 @@ namespace andromeda {
         animateRow(*state, row, switchPick.velocity);
       }
     }
-    assignShortcuts();
+    applyProgress();
 
     wlr_scene_node_set_enabled(&m_server->xdgTree()->node, false);
     wlr_scene_node_set_enabled(&m_server->fullscreenTree()->node, false);
@@ -2443,10 +2139,7 @@ namespace andromeda {
     m_dropWorkspaceGroup = nullptr;
     m_cardPresentationDirty = false;
     m_gestureOpenedHere = false;
-    m_shortcutInput.clear();
     m_filter.clear();
-    m_shortcutAssignments.clear();
-    m_shortcutLabelCapacity = 0;
     m_server->reconcileDynamicWorkspaces();
     m_server->scheduleSuspensionSync();
   }
@@ -2501,7 +2194,7 @@ namespace andromeda {
     if (createCard(*state, view, workspace->index()) == nullptr) {
       return;
     }
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onViewAttachmentsChanged(View* parent) {
@@ -2562,9 +2255,6 @@ namespace andromeda {
         m_dropWorkspaceGroup = nullptr;
         m_server->cursor()->overrideCursor(nullptr);
       }
-      std::erase_if(m_shortcutAssignments, [view](const ShortcutAssignment& assignment) {
-        return assignment.view == view;
-      });
       dropCard(view);
     } else if (card == nullptr && state != nullptr && view->workspace() != nullptr) {
       createCard(*state, view, view->workspace()->index());
@@ -2573,7 +2263,7 @@ namespace andromeda {
       layoutOutput(*state);
       wlr_output_schedule_frame(state->output->wlr());
     }
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onViewFloatingChanged(View* view) {
@@ -2583,16 +2273,13 @@ namespace andromeda {
     // Cards stack tiled, then floating (populateCards): rebuild so this one
     // moves to its new layer instead of keeping its old spot.
     rebuildCard(view);
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onViewUnmapped(View* view, bool animateClose) {
     if (!m_active || view == nullptr) {
       return;
     }
-    std::erase_if(m_shortcutAssignments, [view](const ShortcutAssignment& assignment) {
-      return assignment.view == view;
-    });
     if (m_pendingFocus == view) {
       m_pendingFocus = nullptr;
     }
@@ -2650,7 +2337,7 @@ namespace andromeda {
       layoutOutput(*state);
       wlr_output_schedule_frame(state->output->wlr());
     }
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onViewWorkspaceChanged(View* view) {
@@ -2671,7 +2358,7 @@ namespace andromeda {
         layoutOutput(*target);
         wlr_output_schedule_frame(target->output->wlr());
       }
-      assignShortcuts();
+      applyProgress();
       return;
     }
 
@@ -2688,7 +2375,7 @@ namespace andromeda {
         layoutOutput(*source);
         wlr_output_schedule_frame(source->output->wlr());
       }
-      assignShortcuts();
+      applyProgress();
       return;
     }
 
@@ -2696,12 +2383,12 @@ namespace andromeda {
     if (source == target) {
       layoutOutput(*target);
       wlr_output_schedule_frame(target->output->wlr());
-      assignShortcuts();
+      applyProgress();
       return;
     }
     if (source == nullptr) {
       rebuildCard(view);
-      assignShortcuts();
+      applyProgress();
       return;
     }
 
@@ -2710,7 +2397,7 @@ namespace andromeda {
     });
     if (it == source->cards.end()) {
       rebuildCard(view);
-      assignShortcuts();
+      applyProgress();
       return;
     }
 
@@ -2723,7 +2410,7 @@ namespace andromeda {
     layoutOutput(*target);
     wlr_output_schedule_frame(source->output->wlr());
     wlr_output_schedule_frame(target->output->wlr());
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onWorkspaceActivated(WorkspaceGroup* group) {
@@ -2746,7 +2433,7 @@ namespace andromeda {
       m_pendingFocus = nullptr;
     }
     animateRow(*target, row);
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onWorkspaceArranged(Workspace* workspace) {
@@ -2780,7 +2467,7 @@ namespace andromeda {
     syncWorkspaceRows(*state, *group);
     layoutOutput(*state);
     wlr_output_schedule_frame(state->output->wlr());
-    assignShortcuts();
+    applyProgress();
   }
 
   void Overview::onFocusChanged() {
@@ -2862,7 +2549,7 @@ namespace andromeda {
     if (m_outputs.empty()) {
       forceClose();
     } else {
-      assignShortcuts();
+      applyProgress();
     }
   }
 
@@ -3298,7 +2985,6 @@ namespace andromeda {
     if (target == nullptr) {
       return true;
     }
-    clearShortcutInput();
     if (workspace->active()) {
       m_server->focusView(target, FocusReason::Gesture);
     } else {
@@ -3577,84 +3263,6 @@ namespace andromeda {
     }
   }
 
-  void Overview::refreshShortcutMatches() {
-    for (const auto& state : m_outputs) {
-      for (const auto& card : state->cards) {
-        if (card->shortcut.empty()) {
-          continue;
-        }
-        const size_t matched = shortcutStartsWith(card->shortcut, m_shortcutInput) ? m_shortcutInput.size() : SIZE_MAX;
-        const size_t oldDisplayed = card->shortcutMatched == SIZE_MAX ? 0 : card->shortcutMatched;
-        const size_t newDisplayed = matched == SIZE_MAX ? 0 : matched;
-        card->shortcutMatched = matched;
-        if (oldDisplayed != newDisplayed) {
-          renderCardShortcut(*card);
-        }
-      }
-    }
-    applyProgress();
-    scheduleFrames();
-  }
-
-  void Overview::clearShortcutInput() {
-    m_shortcutInput.clear();
-    refreshShortcutMatches();
-  }
-
-  bool Overview::handleShortcutKey(uint32_t keysym) {
-    if (!config().overview.shortcuts || dragging()) {
-      return false;
-    }
-    if (!m_shortcutInput.empty() && keysym == XKB_KEY_BackSpace) {
-      m_shortcutInput.pop_back();
-      refreshShortcutMatches();
-      return true;
-    }
-    if (!m_shortcutInput.empty() && keysym == XKB_KEY_Escape) {
-      clearShortcutInput();
-      return true;
-    }
-
-    const char character = shortcutCharacter(keysym);
-    if (character == '\0' || std::ranges::none_of(config().overview.shortcutKeys, [character](char configured) {
-          return asciiLower(configured) == character;
-        })) {
-      return false;
-    }
-
-    std::string candidate = m_shortcutInput + character;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-      for (const auto& state : m_outputs) {
-        for (const auto& card : state->cards) {
-          if (card->shortcut.size() == candidate.size()
-              && shortcutStartsWith(card->shortcut, candidate)
-              && card->view != nullptr
-              && card->view->mapped()) {
-            closeToWorkspace(card->view->workspace(), card->view);
-            return true;
-          }
-        }
-      }
-      for (const auto& state : m_outputs) {
-        for (const auto& card : state->cards) {
-          if (shortcutStartsWith(card->shortcut, candidate)) {
-            m_shortcutInput = candidate;
-            refreshShortcutMatches();
-            return true;
-          }
-        }
-      }
-      if (m_shortcutInput.empty()) {
-        break;
-      }
-      m_shortcutInput.clear();
-      candidate.assign(1, character);
-    }
-
-    clearShortcutInput();
-    return true;
-  }
-
   bool Overview::handleKeybindAction(KeybindAction action) {
     const bool directional = action == KeybindAction::WindowFocusLeft
         || action == KeybindAction::WindowFocusRight
@@ -3675,9 +3283,6 @@ namespace andromeda {
       m_pendingFocus = nullptr;
     }
 
-    if (directional && interactive() && !m_shortcutInput.empty()) {
-      clearShortcutInput();
-    }
     return false;
   }
 
@@ -3751,7 +3356,6 @@ namespace andromeda {
     if (workspace == nullptr || workspace->group() == nullptr) {
       return;
     }
-    clearShortcutInput();
     if (workspace->group()->active() != workspace) {
       workspace->group()->select(workspace);
     }
@@ -3851,9 +3455,6 @@ namespace andromeda {
     if (!interactive()) {
       return false;
     }
-    if (m_filter.empty() && handleShortcutKey(keysym)) {
-      return true;
-    }
     if (!m_filter.empty()) {
       switch (keysym) {
       case XKB_KEY_Escape:
@@ -3899,14 +3500,12 @@ namespace andromeda {
         Output* output = m_server->outputFromWlr(m_server->preferredOutput());
         WorkspaceGroup* group = output != nullptr ? output->workspaceGroup() : nullptr;
         if (group != nullptr && static_cast<size_t>(digit) < group->workspaceCount()) {
-          clearShortcutInput();
           group->select(group->workspaceAt(static_cast<size_t>(digit)));
         }
         return true;
       }
     }
     if (std::string text = ov::filterText(keysym, m_filter.empty()); !text.empty()) {
-      clearShortcutInput();
       setFilter(m_filter + text);
       return true;
     }
@@ -3928,7 +3527,6 @@ namespace andromeda {
       if (neighbor != nullptr || !alongWorkspaceAxis) {
         return dispatch(action);
       }
-      clearShortcutInput();
       selectRelativeWorkspace(sign, workspace->group()->output());
       return true;
     };
@@ -3938,7 +3536,6 @@ namespace andromeda {
       return true;
     case XKB_KEY_Return:
     case XKB_KEY_KP_Enter:
-      clearShortcutInput();
       if (Workspace* workspace = preferredWorkspace()) {
         closeToWorkspace(workspace, workspace->focusedView());
       }

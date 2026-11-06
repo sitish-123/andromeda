@@ -1263,43 +1263,6 @@ center_on_overview_select = false
   CHECK(store.config().workspaceRules[0].layout.scrolling.centerOnOverviewSelect == false);
 }
 
-ANDROMEDA_TEST(overviewShortcutConfigurationLoads) {
-  const TempConfig file;
-  ConfigStore& store = andromeda::configStore();
-  store.setRootPath(file.path(), true);
-
-  file.write("[overview]\nshortcuts = false\nshortcut_keys = \"asdf\"\n");
-  CHECK(store.reload().success);
-  CHECK(!store.config().overview.shortcuts);
-  CHECK_EQ(store.config().overview.shortcutKeys, std::string{"asdf"});
-}
-
-ANDROMEDA_TEST(overviewShortcutKeysRejectInvalidValues) {
-  const TempConfig file;
-  ConfigStore& store = andromeda::configStore();
-  store.setRootPath(file.path(), true);
-
-  file.write("[overview]\nshortcut_keys = \"a\"\n");
-  CHECK(store.reload().success);
-  CHECK_EQ(store.config().overview.shortcutKeys, std::string{"1234567890"});
-  CHECK(containsDiagnostic(store, "expected at least 2 characters"));
-
-  file.write("[overview]\nshortcut_keys = \"aA\"\n");
-  CHECK(store.reload().success);
-  CHECK_EQ(store.config().overview.shortcutKeys, std::string{"1234567890"});
-  CHECK(containsDiagnostic(store, "duplicate key"));
-
-  file.write("[overview]\nshortcut_keys = \"a b\"\n");
-  CHECK(store.reload().success);
-  CHECK_EQ(store.config().overview.shortcutKeys, std::string{"1234567890"});
-  CHECK(containsDiagnostic(store, "invalid character 0x20"));
-
-  file.write("[overview]\nshortcut_keys = 12\n");
-  CHECK(store.reload().success);
-  CHECK_EQ(store.config().overview.shortcutKeys, std::string{"1234567890"});
-  CHECK(containsDiagnostic(store, "expected string"));
-}
-
 ANDROMEDA_TEST(colorsSectionOwnsEveryColor) {
   const TempConfig file;
   ConfigStore& store = andromeda::configStore();
