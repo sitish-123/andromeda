@@ -6731,6 +6731,7 @@
       "news-open": "Open",
       "news-unknown": "Arch news could not be checked yet",
       "news-read": "I Have Read This",
+      "news-first": "Read the Arch news above to update",
       "running": "Updating",
       "preparing": "Preparing…",
       "stage": {

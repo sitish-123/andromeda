@@ -58,7 +58,8 @@ namespace settings {
 
     std::unique_ptr<Flex> caption(std::string_view text, float scale) {
       auto r = rows::row(scale);
-      r->addChild(makeLabel(text, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
+      r->addChild(ui::label({.text = std::string(text), .fontSize = Style::fontSizeCaption * scale,
+                             .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 3, .flexGrow = 1.0F}));
       return r;
     }
 
@@ -156,13 +157,21 @@ namespace settings {
             hero.status = i18n::tr("settings.update.tonight-scheduled");
             hero.action = rows::plainButton(i18n::tr("settings.update.tonight-cancel"), ButtonVariant::Default, scale,
                                             [schedule = actions.scheduleTonight] { schedule(false); });
-          } else if (!service.newsBlocksSystem() && service.canInstall()) {
+          } else if (service.canInstall()) {
+            const bool blocked = service.newsBlocksSystem();
             auto buttons = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
-            buttons->addChild(rows::plainButton(i18n::tr("settings.update.tonight"), ButtonVariant::Default, scale,
-                                                [schedule = actions.scheduleTonight] { schedule(true); }));
-            buttons->addChild(rows::plainButton(i18n::tr("settings.update.update-now"), ButtonVariant::Primary, scale,
-                                                actions.upgrade));
+            if (!blocked) {
+              buttons->addChild(rows::plainButton(i18n::tr("settings.update.tonight"), ButtonVariant::Default, scale,
+                                                  [schedule = actions.scheduleTonight] { schedule(true); }));
+            }
+            auto now = rows::plainButton(i18n::tr("settings.update.update-now"), ButtonVariant::Primary, scale,
+                                         actions.upgrade);
+            static_cast<Button*>(now.get())->setEnabled(!blocked);
+            buttons->addChild(std::move(now));
             hero.action = std::move(buttons);
+            if (blocked) {
+              hero.status = i18n::tr("settings.update.news-first");
+            }
           }
         }
         break;
