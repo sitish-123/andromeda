@@ -351,6 +351,21 @@ namespace andromeda {
     [[nodiscard]] Card* findCard(const View* view);
     void updateHover(double lx, double ly);
     [[nodiscard]] const View* closeButtonAt(double lx, double ly) const;
+    // The arrangement menu, open under a workspace's chip on one output. Compared, never dereferenced.
+    struct ArrangementMenu {
+      const Output* output = nullptr;
+      size_t workspace = 0;
+      int hovered = -1;
+    };
+    // Opens, steers and applies the arrangement menu; each returns false when it did not take the input.
+    bool menuPress(double lx, double ly);
+    bool menuKey(uint32_t keysym);
+    void setMenu(std::optional<ArrangementMenu> menu);
+    void applyMenuRow(int row);
+    void startRename();
+    bool renameKey(uint32_t keysym);
+    // Keeps the typed name (a blank one keeps the old name) or drops it, and ends the rename.
+    void finishRename(bool keep);
     [[nodiscard]] WorkspaceBackground createWorkspaceBackground(OutputState& state) const;
     // Mapped background- and bottom-layer surfaces of `output`, in render order.
     void collectDesktopSurfaces(const Output& output, std::vector<DesktopEntry>& out) const;
@@ -493,6 +508,15 @@ namespace andromeda {
     bool m_closeHover = false;
     // The window whose close button a left press landed on; a release on the same button closes it.
     const View* m_closePress = nullptr;
+    std::optional<ArrangementMenu> m_menu;
+    // F2 rename of the title row's workspace: the text so far; `fresh` until the first key, which replaces the name.
+    struct Rename {
+      Ref<Workspace> workspace;
+      std::string text;
+      bool fresh = true;
+    };
+    std::optional<Rename> m_rename;
+    uint32_t m_titlePressMsec = 0; // the last press on the title name, for a double-click
     double m_pressX = 0;
     double m_pressY = 0;
     Card* m_middlePressCard = nullptr;

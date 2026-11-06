@@ -852,6 +852,7 @@ namespace andromeda {
             {"urgent", std::ranges::any_of(views, [](const View* view) { return view->urgent(); })},
             {"layout", layoutModeName(workspace->layoutMode())},
             {"layout_override", workspace->layoutModeOverride().has_value()},
+            {"label", workspace->displayName()},
         });
       }
     }

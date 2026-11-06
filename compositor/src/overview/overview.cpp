@@ -32,6 +32,7 @@ extern "C" {
 #include "view/view.h"
 // clang-format off
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <linux/input-event-codes.h>
@@ -75,6 +76,11 @@ namespace andromeda {
       }
       return "";
     }
+
+    // The arrangement menu's rows, top to bottom (ov::kMenuRows).
+    constexpr std::array<LayoutMode, ov::kMenuRows> kMenuModes{
+        LayoutMode::Floating, LayoutMode::Scrolling, LayoutMode::Dwindle, LayoutMode::Master
+    };
 
     ov::Arrangement arrangementOf(LayoutMode mode) {
       switch (mode) {
@@ -819,7 +825,7 @@ namespace andromeda {
       const WorkspaceView& view = state.workspaceViews[index];
       const Workspace* workspace = group != nullptr ? group->workspaceAt(index) : nullptr;
       m_chromeWorkspaces.push_back({
-          .name = workspace != nullptr ? std::string_view(workspace->name()) : std::string_view(),
+          .name = workspace != nullptr ? std::string_view(workspace->displayName()) : std::string_view(),
           .arrangement = workspace != nullptr ? arrangementLabel(workspace->layoutMode()) : std::string_view(),
           .card = view.box,
           .kind = view.kind,
@@ -869,6 +875,16 @@ namespace andromeda {
     if (m_dragCard != nullptr && m_dragCard->owner == &state) {
       addWindow(*m_dragCard);
     }
+    std::optional<ov::ChromeMenu> menu;
+    if (m_menu.has_value() && m_menu->output == state.output && group != nullptr) {
+      const Workspace* workspace = group->workspaceAt(m_menu->workspace);
+      const auto row = workspace != nullptr ? std::ranges::find(kMenuModes, workspace->layoutMode()) : kMenuModes.end();
+      menu = ov::ChromeMenu{
+          .workspace = m_menu->workspace,
+          .hovered = m_menu->hovered,
+          .current = row != kMenuModes.end() ? static_cast<int>(row - kMenuModes.begin()) : -1,
+      };
+    }
     const size_t current = m_chromeWorkspaces.empty()
         ? 0
         : static_cast<size_t>(
@@ -889,6 +905,10 @@ namespace andromeda {
         .hovered = m_hoverView,
         .closeHovered = m_closeHover,
         .hintHidden = m_edgeOutput == state.output && (m_edgeStep != 0 || m_edgePan != 0),
+        .menu = menu,
+        .renaming = m_rename.has_value() && group != nullptr && m_rename->workspace.get() == group->workspaceAt(current)
+            ? std::optional<std::string_view>(m_rename->text)
+            : std::nullopt,
     });
     // Cards rebuilt after the chrome was made land above it.
     state.chrome->raise();
@@ -1877,6 +1897,8 @@ namespace andromeda {
     m_hoverView = nullptr;
     m_closeHover = false;
     m_closePress = nullptr;
+    m_menu.reset();
+    finishRename(true);
     clearMiddlePress();
     m_pendingFocus = focus;
     for (const auto& state : m_outputs) {
@@ -2133,6 +2155,8 @@ namespace andromeda {
     m_hoverView = nullptr;
     m_closeHover = false;
     m_closePress = nullptr;
+    m_menu.reset();
+    m_rename.reset();
     m_dragCard = nullptr;
     m_dragSourceWorkspace = nullptr;
     m_dragSourceWidth.reset();
@@ -2804,6 +2828,29 @@ namespace andromeda {
       return true;
     }
 
+    if (m_rename.has_value()) {
+      // Pressing anywhere else ends the rename and keeps the name, like a text field losing focus.
+      finishRename(true);
+      return true;
+    }
+    if (menuPress(lx, ly)) {
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      return true;
+    }
+    if (std::ranges::any_of(m_outputs, [&](const auto& state) {
+          return state->chrome != nullptr && state->chrome->titleAt(lx, ly);
+        })) {
+      constexpr uint32_t kDoubleClickMsec = 400;
+      const bool second = m_titlePressMsec != 0 && timeMsec - m_titlePressMsec <= kDoubleClickMsec;
+      m_titlePressMsec = second ? 0 : timeMsec;
+      if (second) {
+        startRename();
+      }
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      return true;
+    }
     if (const View* close = closeButtonAt(lx, ly)) {
       m_closePress = close;
       m_pressCard = nullptr;
@@ -2946,7 +2993,163 @@ namespace andromeda {
     return nullptr;
   }
 
+  bool Overview::menuPress(double lx, double ly) {
+    if (m_menu.has_value()) {
+      for (const auto& state : m_outputs) {
+        if (state->output != m_menu->output || state->chrome == nullptr) {
+          continue;
+        }
+        if (const int row = state->chrome->menuRowAt(lx, ly); row >= 0) {
+          applyMenuRow(row);
+          return true;
+        }
+        if (state->chrome->menuContains(lx, ly)) {
+          return true;
+        }
+      }
+      // A press outside the menu only closes it, the way a popup menu does.
+      setMenu(std::nullopt);
+      return true;
+    }
+    for (const auto& state : m_outputs) {
+      if (state->chrome == nullptr) {
+        continue;
+      }
+      if (const std::optional<size_t> workspace = state->chrome->chipAt(lx, ly)) {
+        setMenu(ArrangementMenu{.output = state->output, .workspace = *workspace});
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool Overview::menuKey(uint32_t keysym) {
+    if (!m_menu.has_value()) {
+      return false;
+    }
+    ArrangementMenu menu = *m_menu;
+    switch (keysym) {
+    case XKB_KEY_Escape:
+      setMenu(std::nullopt);
+      break;
+    case XKB_KEY_Up:
+      menu.hovered = menu.hovered <= 0 ? ov::kMenuRows - 1 : menu.hovered - 1;
+      setMenu(menu);
+      break;
+    case XKB_KEY_Down:
+      menu.hovered = (menu.hovered + 1) % ov::kMenuRows;
+      setMenu(menu);
+      break;
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+    case XKB_KEY_space:
+      if (menu.hovered >= 0) {
+        applyMenuRow(menu.hovered);
+      }
+      break;
+    default:
+      break; // the open menu holds the keyboard, so typing does not start a filter under it
+    }
+    return true;
+  }
+
+  void Overview::startRename() {
+    Workspace* workspace = preferredWorkspace();
+    if (workspace == nullptr || workspace->group() == nullptr) {
+      return;
+    }
+    m_menu.reset();
+    m_rename = Rename{.workspace = workspace, .text = workspace->displayName()};
+    setMenu(std::nullopt);
+  }
+
+  bool Overview::renameKey(uint32_t keysym) {
+    if (!m_rename.has_value()) {
+      return false;
+    }
+    constexpr size_t kMaxNameBytes = 64;
+    switch (keysym) {
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+      finishRename(true);
+      return true;
+    case XKB_KEY_Escape:
+      finishRename(false);
+      return true;
+    case XKB_KEY_BackSpace:
+      if (m_rename->fresh) {
+        m_rename->text.clear();
+      } else {
+        ov::popFilterCharacter(m_rename->text);
+      }
+      break;
+    default:
+      if (std::string text = ov::filterText(keysym, false); !text.empty()) {
+        if (m_rename->fresh) {
+          m_rename->text.clear();
+        }
+        if (m_rename->text.size() + text.size() <= kMaxNameBytes) {
+          m_rename->text += text;
+        }
+      }
+      break; // the field holds the keyboard: other keys do nothing while it is open
+    }
+    m_rename->fresh = false;
+    setMenu(std::nullopt);
+    return true;
+  }
+
+  void Overview::finishRename(bool keep) {
+    if (!m_rename.has_value()) {
+      return;
+    }
+    Rename rename = std::move(*m_rename);
+    m_rename.reset();
+    const auto blank = std::ranges::all_of(rename.text, [](unsigned char c) { return std::isspace(c) != 0; });
+    if (Workspace* workspace = rename.workspace.get(); keep && workspace != nullptr && !blank) {
+      // Typing the configured name back clears the label.
+      workspace->setLabel(rename.text == workspace->name() ? std::string() : std::move(rename.text));
+    }
+    setMenu(std::nullopt);
+  }
+
+  void Overview::setMenu(std::optional<ArrangementMenu> menu) {
+    m_menu = menu;
+    const View* liveTarget = liveTargetView();
+    for (const auto& state : m_outputs) {
+      layoutChrome(*state, liveTarget);
+    }
+  }
+
+  void Overview::applyMenuRow(int row) {
+    const ArrangementMenu menu = *m_menu;
+    setMenu(std::nullopt);
+    for (const auto& state : m_outputs) {
+      WorkspaceGroup* group = state->output == menu.output ? state->output->workspaceGroup() : nullptr;
+      Workspace* workspace = group != nullptr ? group->workspaceAt(menu.workspace) : nullptr;
+      const LayoutMode mode = kMenuModes[static_cast<size_t>(row)];
+      if (workspace != nullptr && workspace->layoutMode() != mode) {
+        workspace->overrideLayoutMode(mode);
+        // The same swap as workspace-set-layout: a tiled resize on the old layout is stale.
+        m_server->cursor()->cancelStaleTiledResize();
+      }
+    }
+  }
+
   void Overview::updateHover(double lx, double ly) {
+    if (m_menu.has_value()) {
+      int row = -1;
+      for (const auto& state : m_outputs) {
+        if (state->output == m_menu->output && state->chrome != nullptr) {
+          row = state->chrome->menuRowAt(lx, ly);
+        }
+      }
+      if (row != m_menu->hovered) {
+        ArrangementMenu menu = *m_menu;
+        menu.hovered = row;
+        setMenu(menu);
+      }
+    }
     const View* close = closeButtonAt(lx, ly);
     const View* hover = close;
     if (hover == nullptr) {
@@ -3459,6 +3662,13 @@ namespace andromeda {
   bool Overview::handleFallbackKey(uint32_t keysym) {
     if (!interactive()) {
       return false;
+    }
+    if (renameKey(keysym) || menuKey(keysym)) {
+      return true;
+    }
+    if (keysym == XKB_KEY_F2) {
+      startRename();
+      return true;
     }
     if (!m_filter.empty()) {
       switch (keysym) {
