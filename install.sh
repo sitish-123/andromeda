@@ -12,6 +12,7 @@ KEY=97DD7B3B28BE58AC8787E32D11437B48C42663B5
 
 # Adds the signed apt repository at $1 and installs Andromeda from it.
 apt_install() {
+  command -v gpg > /dev/null || { sudo apt-get update && sudo apt-get install -y gnupg; }
   sudo install -d -m 755 /etc/apt/keyrings
   curl -fsSL "$REPO/andromeda-release.asc" | sudo tee /etc/apt/keyrings/andromeda.asc > /dev/null
   gpg --show-keys --with-colons /etc/apt/keyrings/andromeda.asc | grep -q "^fpr:*$KEY:" \
@@ -32,7 +33,7 @@ case $ID in
       printf '\n[andromeda]\nServer = %s\n' "$REPO" | sudo tee -a /etc/pacman.conf > /dev/null
     fi
     # Under curl | bash, stdin is the script: pacman must read its questions (replace a conflicting package) from the terminal.
-    sudo pacman -Sy --needed andromeda < /dev/tty
+    sudo pacman -Syu andromeda < /dev/tty
     ;;
   ubuntu)
     [[ $VERSION_ID == 26.04 ]] || { echo "Andromeda needs Ubuntu 26.04 (this is $VERSION_ID)." >&2; exit 1; }
