@@ -2,7 +2,8 @@
 url = https://gitlab.freedesktop.org/emersion/libliftoff.git
 revision = v0.5.0
 depth = 1
-# Leaves a plane out of a commit when its layer did not change since the last real commit (the cursor plane).
+# Leaves a plane out of a commit when its layer did not change since the last real commit (the cursor plane), and an
+# unused plane that is already off (else xe answers EBUSY right after the page-flip event).
 diff_files = libliftoff-skip-unchanged-planes.patch
 
 [provide]
