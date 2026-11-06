@@ -1312,7 +1312,8 @@ void Surface::render() {
   traceSurfaceEvent(*this, "render-end");
   recordSurfaceProfileEvent(*this, SurfaceProfileEvent::Render, renderMs);
   logSlowSurfaceOperation(
-      renderMs, "surface render took {:.1F}ms ({}x{} logical, {}x{} buffer)", renderMs, m_width, m_height,
+      renderMs, "surface render took {:.1F}ms ({}, {}x{} logical, {}x{} buffer)", renderMs, surfaceTraceName(*this),
+      m_width, m_height,
       m_renderTarget.bufferWidth(), m_renderTarget.bufferHeight()
   );
 

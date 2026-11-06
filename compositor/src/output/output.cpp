@@ -1888,7 +1888,12 @@ namespace andromeda {
   }
 
   void Output::onFrame(Output* self, void* /*data*/) {
+    const auto start = std::chrono::steady_clock::now();
     self->handleFrame();
+    const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    if (ms >= 250.0) {
+      kLog.warn("output '{}': frame took {:.1f} ms (main loop blocked)", self->m_output->name, ms);
+    }
   }
 
   void Output::onBackgroundUpdate(Output* self, void* data) {
