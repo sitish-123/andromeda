@@ -295,7 +295,7 @@ namespace settings {
                 .text = i18n::tr(settingsPageGroupLabelKey(page->group)),
                 .fontSize = Style::fontSizeMini * scale,
                 .fontWeight = FontWeight::Bold,
-                .color = colorSpecFromRole(ColorRole::Label3),
+                .color = colorSpecFromRole(ColorRole::Label2),
             })
         ));
       }

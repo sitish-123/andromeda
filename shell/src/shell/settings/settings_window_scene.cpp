@@ -1343,13 +1343,13 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
        .paddingH = (Style::spaceSm - 2.0F) * scale,
-       .fill = colorSpecFromRole(ColorRole::Fill2),
+       .fill = colorSpecFromRole(ColorRole::SolidRegular, 0.6F),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},
       ui::glyph({
           .glyph = "search",
           .glyphSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::Label3),
+          .color = colorSpecFromRole(ColorRole::Label2),
       }),
       std::move(input),
       ui::row(
@@ -1359,7 +1359,7 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
            .radius = Style::spaceXs * scale,
            .minWidth = settings::metrics::kKeycapHeight * scale,
            .minHeight = settings::metrics::kKeycapHeight * scale},
-          makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label3), FontWeight::Medium)
+          makeLabel("/", Style::fontSizeMini * scale, colorSpecFromRole(ColorRole::Label2), FontWeight::Medium)
       )
   );
 }
