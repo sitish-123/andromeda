@@ -4,4 +4,4 @@ Description=Andromeda Wayland socket
 PartOf=andromeda-session.target
 
 [Socket]
-ListenStream=%t/wayland-andromeda
+ListenStream=%t/wayland-0
