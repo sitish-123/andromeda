@@ -135,6 +135,8 @@ ANDROMEDA_TEST(gridClipsEveryWindowToItsTile) {
     CHECK(inside(shown, tile));
   }
   CHECK(findWindow(p, 3)->clip.has_value());
+  // Wholly off the output: a zero-size clip would draw it uncut beside the tile.
+  CHECK(findWindow(p, 3)->opacity == 0.0);
 }
 
 ANDROMEDA_TEST(stripCentresTheChosenRowAndScrollsFractionally) {

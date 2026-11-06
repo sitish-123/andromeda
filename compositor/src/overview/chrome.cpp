@@ -409,7 +409,12 @@ namespace andromeda::ov {
           label, span(l1, "600", window.title.empty() ? std::string_view("Untitled") : window.title),
           {.font = "sans 9", .padX = 10, .height = kCapsuleHeight, .maxWidth = kCapsuleMaxWidth, .fill = thick}, scale
       );
+      const int centre = window.box.x + window.box.width / 2;
+      // An off-screen Strip column sits beside its card; clamped in, its capsule would cover a neighbour's.
+      const bool inCard = !window.within.has_value()
+          || (centre >= window.within->x && centre < window.within->x + window.within->width);
       const bool wanted = (frame.titlesAlways || window.selected || window.key == frame.hovered)
+          && inCard
           && !window.dragged
           && window.box.width > kCapsuleMinCard
           && window.opacity > 0.45F;

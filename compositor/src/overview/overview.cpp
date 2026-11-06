@@ -2558,15 +2558,19 @@ namespace andromeda {
 
   Overview::Card* Overview::cardAt(double lx, double ly, const Card* skip) {
     // Topmost first: later outputs and later cards paint over earlier ones.
-    // Hit testing uses the same output clip as rendering. The dragged card is
+    // Hit testing uses the same card and output clips as rendering. The dragged card is
     // reparented to the unclipped root and hits everywhere.
     for (const auto& state : std::views::reverse(m_outputs)) {
       for (const auto& card : std::views::reverse(state->cards)) {
         if (card.get() == skip || card->tree == nullptr || !card->tree->node.enabled) {
           continue;
         }
-        wlr_box hit = card->box;
-        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &card->box, &state->outputBox)) {
+        wlr_box shown = card->box;
+        if (card->clip.width > 0 && card->clip.height > 0) {
+          shown = {card->box.x + card->clip.x, card->box.y + card->clip.y, card->clip.width, card->clip.height};
+        }
+        wlr_box hit = shown;
+        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &shown, &state->outputBox)) {
           continue;
         }
         if (boxContains(hit, lx, ly)) {

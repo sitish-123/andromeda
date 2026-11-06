@@ -58,6 +58,13 @@ namespace andromeda::ov {
       return cut == Insets{} ? std::nullopt : std::optional<Insets>{cut};
     }
 
+    // A member wholly off the output has nothing left after outputClip, so it is not drawn.
+    double memberOpacity(const Member& m, const Input& in) {
+      const bool onOutput =
+          m.desk.x < in.width && m.desk.x + m.desk.w > 0 && m.desk.y < in.height && m.desk.y + m.desk.h > 0;
+      return m.minimized || !onOutput ? 0.0 : 1.0;
+    }
+
     // Members of a non-current workspace shrink into its thumb, cut to the output, so the thumb is a live miniature.
     void placeIntoCards(Placement& out, const Input& in) {
       for (const Card& card : out.cards) {
@@ -66,7 +73,7 @@ namespace andromeda::ov {
         }
         const Fit fit = thumbFit(card.rect, in.width);
         for (const Member& m : in.workspaces[card.workspace].members) {
-          WindowPlace w = win(m.id, card.workspace, mapRect(m.desk, fit), m.minimized ? 0.0 : 1.0);
+          WindowPlace w = win(m.id, card.workspace, mapRect(m.desk, fit), memberOpacity(m, in));
           w.clip = outputClip(m.desk, in);
           out.windows.push_back(w);
         }
@@ -246,7 +253,7 @@ namespace andromeda::ov {
         out.cards.push_back({i, tile, CardKind::Tile});
         const Fit fit = thumbFit(tile, in.width);
         for (const Member& m : in.workspaces[i].members) {
-          WindowPlace w = win(m.id, i, mapRect(m.desk, fit), m.minimized ? 0.0 : 1.0);
+          WindowPlace w = win(m.id, i, mapRect(m.desk, fit), memberOpacity(m, in));
           w.clip = outputClip(m.desk, in);
           out.windows.push_back(w);
         }
