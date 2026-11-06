@@ -122,6 +122,7 @@ private:
   );
   void onImageChanged(WallpaperInstance& instance);
   static void cancelLoading(WallpaperInstance& instance);
+  static void releaseFirstFrame(WallpaperInstance& instance);
   [[nodiscard]] TextureCoverage textureCoverage(const WallpaperInstance& instance) const;
   // Re-targets every leased image of the instance after an output or fill mode change.
   void refreshTextureCoverage(WallpaperInstance& instance);

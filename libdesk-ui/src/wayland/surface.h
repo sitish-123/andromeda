@@ -92,6 +92,8 @@ public:
   // Declares the whole surface opaque, or not, from its next commit, so the compositor can skip what lies beneath it.
   void setOpaque(bool opaque);
   void clearBlurRegion();
+  // While held, the surface commits no buffer, so it stays unmapped; releasing it draws the next frame.
+  void holdRender(bool held);
   void setDebugName(std::string name);
   // Window name for assistive technology; empty = derived from the debug name (layer namespace).
   void setAccessibleTitle(std::string title) { m_accessibleTitle = std::move(title); }
@@ -221,6 +223,7 @@ private:
   bool m_updateRequested = false;
   bool m_layoutRequested = false;
   bool m_redrawRequested = false;
+  bool m_renderHeld = false;
   bool m_running = false;
   bool m_opaque = false;
   bool m_configured = false;

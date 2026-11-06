@@ -1311,6 +1311,13 @@ void Wallpaper::createInstance(const WaylandOutput& output) {
 
   instance->surface->setUpdateCallback([this, inst] { updateRendererState(*inst); });
 
+  // Until the first image is decoded the surface would show an empty, black frame; at login that frame ends the
+  // compositor's held greeter frame. The compositor drops its held frame after 3 s anyway.
+  if (!wallpaperPath.empty()) {
+    instance->surface->holdRender(true);
+    instance->firstFrameTimeout.start(std::chrono::milliseconds(2500), [inst] { inst->surface->holdRender(false); });
+  }
+
   if (!instance->surface->initialize(output.output)) {
     kLog.warn("failed to initialize surface for output {}", output.name);
     return;
@@ -1323,6 +1330,11 @@ void Wallpaper::releaseInstanceTextures(WallpaperInstance& inst) {
   inst.currentImage.reset();
   inst.nextImage.reset();
   cancelLoading(inst);
+}
+
+void Wallpaper::releaseFirstFrame(WallpaperInstance& instance) {
+  instance.firstFrameTimeout.stop();
+  instance.surface->holdRender(false);
 }
 
 void Wallpaper::cancelLoading(WallpaperInstance& instance) {
@@ -1380,6 +1392,7 @@ void Wallpaper::loadWallpaper(WallpaperInstance& instance, const std::string& pa
   }
   if (image.empty() || image.failed()) {
     kLog.warn("failed to load {}", path);
+    releaseFirstFrame(instance);
     return;
   }
   if (!image.texture().valid()) {
@@ -1398,6 +1411,7 @@ void Wallpaper::onImageChanged(WallpaperInstance& instance) {
     if (instance.loadingImage.failed()) {
       kLog.warn("failed to load {}", instance.loadingPath);
       cancelLoading(instance);
+      releaseFirstFrame(instance);
     } else if (instance.loadingImage.texture().valid()) {
       SharedTextureCache::Lease image = std::move(instance.loadingImage);
       const std::string path = std::exchange(instance.loadingPath, std::string{});
@@ -1415,6 +1429,7 @@ void Wallpaper::beginWallpaperChange(
     WallpaperInstance& instance, const std::string& path, WallpaperSourceKind kind, SharedTextureCache::Lease image,
     const Color& color
 ) {
+  releaseFirstFrame(instance);
   if (instance.currentPath.empty()) {
     const auto& wpConfig = m_config->config().wallpaper;
     if (wpConfig.transitionOnStartup && !wpConfig.transitions.empty()) {

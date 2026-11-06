@@ -1280,8 +1280,18 @@ void Surface::renderNow() {
   }
 }
 
+void Surface::holdRender(bool held) {
+  if (m_renderHeld == held) {
+    return;
+  }
+  m_renderHeld = held;
+  if (!held) {
+    requestRedraw();
+  }
+}
+
 void Surface::render() {
-  if (m_surface == nullptr || m_renderContext == nullptr || !m_renderTarget.isReady()) {
+  if (m_renderHeld || m_surface == nullptr || m_renderContext == nullptr || !m_renderTarget.isReady()) {
     return;
   }
 
