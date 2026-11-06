@@ -666,7 +666,11 @@ namespace andromeda {
   }
 
   bool Output::applyConfiguredState(bool stageGeometry) {
+    // With libliftoff, wlroots silently rejects a commit whose visible cursor layer did not get a plane, which
+    // happens on modesets (eDP-1, xe): the cursor is drawn in software until the next frame.
+    wlr_output_lock_software_cursors(m_output, true);
     const bool committed = commitConfiguredState(stageGeometry);
+    wlr_output_lock_software_cursors(m_output, false);
     // A disabled output never presents; the next compositor's release must not wait for it.
     if (m_awaitingFirstFrame && !m_output->enabled) {
       m_awaitingFirstFrame = false;
