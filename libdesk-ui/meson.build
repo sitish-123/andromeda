@@ -155,6 +155,9 @@ endif
 _desk_ui_sources = files(
   'src/core/deferred_call.cpp',
   'src/core/files/directory_scanner.cpp',
+  'src/core/files/directory_watcher.cpp',
+  'src/core/files/file_info.cpp',
+  'src/core/files/file_model.cpp',
   'src/core/files/resource_paths.cpp',
   'src/core/input/keybind_matcher.cpp',
   'src/core/input/key_chord.cpp',
@@ -278,6 +281,7 @@ _desk_ui_sources = files(
   'src/ui/dialogs/file_dialog.cpp',
   'src/ui/dialogs/file_dialog_popup.cpp',
   'src/ui/dialogs/file_dialog_view.cpp',
+  'src/ui/files/type_ahead.cpp',
   'src/ui/dialogs/file_entry_row.cpp',
   'src/ui/dialogs/file_entry_tile.cpp',
   'src/ui/dialogs/glyph_picker_dialog.cpp',

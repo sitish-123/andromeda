@@ -1,6 +1,6 @@
 #include "core/deferred_call.h"
-#include "files/directory_watcher.h"
-#include "files/file_model.h"
+#include "core/files/directory_watcher.h"
+#include "core/files/file_model.h"
 
 #include <algorithm>
 #include <chrono>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "app/desk_app.h"
-#include "files/directory_watcher.h"
+#include "core/files/directory_watcher.h"
 #include "core/timer_manager.h"
 #include "files/file_ops_client.h"
 #include "picker_portal.h"

@@ -1,6 +1,6 @@
 #include "file_row.h"
 
-#include "files/file_info.h"
+#include "core/files/file_info.h"
 #include "render/core/renderer.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"

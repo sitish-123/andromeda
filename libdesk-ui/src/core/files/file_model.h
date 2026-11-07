@@ -1,7 +1,7 @@
 #pragma once
 
-#include "files/directory_watcher.h"
-#include "files/file_info.h"
+#include "core/files/directory_watcher.h"
+#include "core/files/file_info.h"
 
 #include <filesystem>
 #include <functional>

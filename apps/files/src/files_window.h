@@ -1,6 +1,6 @@
 #pragma once
 
-#include "files/file_model.h"
+#include "core/files/file_model.h"
 #include "files/file_ops_client.h"
 #include "picker_portal.h"
 #include "trash.h"

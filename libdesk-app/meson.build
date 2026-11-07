@@ -64,9 +64,6 @@ desk_app_lib = static_library('desk_app',
     'src/app/desk_app.cpp',
     'src/app/single_instance.cpp',
     'src/app/state_store.cpp',
-    'src/files/directory_watcher.cpp',
-    'src/files/file_info.cpp',
-    'src/files/file_model.cpp',
     'src/files/file_ops_client.cpp',
   ),
   dependencies: _deps,
@@ -90,7 +87,7 @@ executable('desk-app-sample', 'examples/sample_app.cpp',
 )
 
 _dbus_run_session = find_program('dbus-run-session')
-foreach _t : ['command_table', 'state_store', 'file_model']
+foreach _t : ['command_table', 'state_store', 'file_model', 'type_ahead']
   test(_t, executable(_t + '_test', 'tests/' + _t + '_test.cpp', dependencies: desk_app_dep, cpp_args: _warnings))
 endforeach
 test('single_instance', _dbus_run_session,

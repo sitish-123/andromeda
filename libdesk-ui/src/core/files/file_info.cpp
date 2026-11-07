@@ -1,4 +1,4 @@
-#include "files/file_info.h"
+#include "core/files/file_info.h"
 
 #include <fcntl.h>
 #include <gio/gio.h>

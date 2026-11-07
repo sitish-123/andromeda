@@ -1,4 +1,4 @@
-#include "files/file_model.h"
+#include "core/files/file_model.h"
 
 #include "core/deferred_call.h"
 #include "core/log.h"
