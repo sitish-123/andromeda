@@ -251,6 +251,11 @@ namespace andromeda {
     }
 
     [[nodiscard]] bool initializeBackend() {
+      // libseat tries seatd before logind. In a logind session a running seatd hands out the seat without logind's VT
+      // tracking, so the greeter hand-off never sees the switch request and every commit fails with EACCES.
+      if (std::getenv("LIBSEAT_BACKEND") == nullptr && std::getenv("XDG_SESSION_ID") != nullptr) {
+        setenv("LIBSEAT_BACKEND", "logind", 1);
+      }
       const char* configuredBackends = std::getenv("WLR_BACKENDS");
       const DrmBackendEnvironment environment = resolveDrmBackendEnvironment(
           configuredBackends == nullptr ? std::nullopt : std::optional<std::string_view>(configuredBackends),
@@ -263,6 +268,11 @@ namespace andromeda {
       }
 
       if (!m_policyActive) {
+        // wlr_backend_autocreate waits for an active session, so the switch request comes first; else greetd's
+        // hand-off sees none and switches only after its 8 s timeout, with the greeter frozen meanwhile.
+        if (environment.native && scanout_keeper::switchOffered()) {
+          scanout_keeper::requestSwitch();
+        }
         m_backend = createWithLiftoff([&] { return wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session); });
         return m_backend != nullptr;
       }
