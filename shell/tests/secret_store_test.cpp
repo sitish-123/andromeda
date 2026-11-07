@@ -1,4 +1,5 @@
 #include "security/secret_store.h"
+#include "core/log.h"
 
 #include <array>
 #include <condition_variable>
@@ -411,6 +412,7 @@ namespace {
     }
 
     store.dispatch(fds, start);
+    flushLogs(); // log lines reach stderr on the writer thread
     std::fflush(stderr);
     (void)::dup2(savedStderr, STDERR_FILENO);
     ::close(savedStderr);

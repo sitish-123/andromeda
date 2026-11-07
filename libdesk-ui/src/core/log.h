@@ -61,6 +61,8 @@ private:
 void setLogLevel(LogLevel level);
 void initLogLevelFromEnvironment();
 void initLogFile();
+// Blocks until every queued line is written and the file flushed. Tests and shutdown only, never a frame path.
+void flushLogs();
 
 // Replaces the console and log-file output when set (the greeter logs to syslog and its own file).
 using LogSink = void (*)(LogLevel level, const char* section, std::string_view message);

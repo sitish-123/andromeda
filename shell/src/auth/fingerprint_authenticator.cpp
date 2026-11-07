@@ -121,19 +121,45 @@ void FingerprintAuthenticator::stop() {
   releaseDevice();
 }
 
-bool FingerprintAuthenticator::createDeviceProxy() {
-  sdbus::ObjectPath path;
-  try {
-    auto manager = sdbus::createProxy(m_bus.connection(), kFprintBusName, kManagerPath);
-    manager->callMethod("GetDefaultDevice").onInterface(kManagerInterface).storeResultsTo(path);
-  } catch (const sdbus::Error& e) {
-    kLog.info("no fprintd device available: {}", e.what());
-    return false;
+// Async: GetDefaultDevice D-Bus-activates fprintd, which can take seconds; the lock screen must not wait for it.
+void FingerprintAuthenticator::requestDevice() {
+  if (m_requestingDevice) {
+    return;
   }
+  try {
+    m_manager = sdbus::createProxy(m_bus.connection(), kFprintBusName, kManagerPath);
+    m_requestingDevice = true;
+    m_manager->callMethodAsync("GetDefaultDevice")
+        .onInterface(kManagerInterface)
+        .uponReplyInvoke([this](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
+          m_requestingDevice = false;
+          if (e.has_value()) {
+            kLog.info("no fprintd device available: {}", e->what());
+            m_verifying = false;
+            return;
+          }
+          if (m_device != nullptr || !createDeviceProxy(path)) {
+            m_verifying = false;
+            return;
+          }
+          if (!m_active || m_sleeping || m_abort) {
+            m_verifying = false;
+            return;
+          }
+          emitStatus(i18n::tr("auth.fingerprint.ready"), false);
+          claimDevice();
+        });
+  } catch (const sdbus::Error& e) {
+    m_requestingDevice = false;
+    m_verifying = false;
+    kLog.info("no fprintd device available: {}", e.what());
+  }
+}
 
+bool FingerprintAuthenticator::createDeviceProxy(const std::string& path) {
   kLog.info("using fingerprint device {}", path.c_str());
   try {
-    m_device = sdbus::createProxy(m_bus.connection(), kFprintBusName, path);
+    m_device = sdbus::createProxy(m_bus.connection(), kFprintBusName, sdbus::ObjectPath(path));
   } catch (const sdbus::Error& e) {
     kLog.warn("could not create device proxy: {}", e.what());
     m_device.reset();
@@ -202,13 +228,7 @@ void FingerprintAuthenticator::startVerify(bool isRetry) {
   m_verifying = true;
 
   if (m_device == nullptr) {
-    if (!createDeviceProxy()) {
-      m_verifying = false;
-      return;
-    }
-
-    emitStatus(i18n::tr("auth.fingerprint.ready"), false);
-    claimDevice();
+    requestDevice();
     return;
   }
   if (m_claiming) {
@@ -251,9 +271,15 @@ void FingerprintAuthenticator::stopVerify() {
   if (m_device == nullptr) {
     return;
   }
+  // Async: fprintd can take seconds while the sensor is busy, and the lock screen must not wait for it.
   try {
-    m_device->callMethod("VerifyStop").onInterface(kDeviceInterface);
-    kLog.debug("fingerprint verification stopped");
+    m_device->callMethodAsync("VerifyStop")
+        .onInterface(kDeviceInterface)
+        .uponReplyInvoke([](std::optional<sdbus::Error> e) {
+          if (e) {
+            kLog.debug("could not stop fingerprint verification: {}", e->what());
+          }
+        });
   } catch (const sdbus::Error& e) {
     kLog.debug("could not stop fingerprint verification: {}", e.what());
   }
@@ -263,8 +289,10 @@ void FingerprintAuthenticator::releaseDevice() {
   if (m_device == nullptr) {
     return;
   }
+  // The call is sent at once; the proxy reset below only drops its reply.
   try {
-    m_device->callMethod("Release").onInterface(kDeviceInterface);
+    m_device->callMethodAsync("Release").onInterface(kDeviceInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {
+    });
     kLog.info("released fingerprint device");
   } catch (const sdbus::Error& e) {
     kLog.debug("could not release fingerprint device: {}", e.what());

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -13,6 +14,8 @@
 class UsageTracker {
 public:
   UsageTracker();
+  // Writes a save still queued on SharedWorker in place: the worker drops its queue when it stops.
+  ~UsageTracker();
 
   void record(std::string_view providerId, std::string_view resultId);
   void clear();
@@ -25,6 +28,7 @@ public:
 private:
   void ensureLoaded();
   void save() const;
+  struct SaveState;
 
   std::string m_usageCountsPath;
   std::string m_recentlyUsedPath;
@@ -34,4 +38,6 @@ private:
   std::unordered_map<std::string, std::deque<std::string>> m_recentlyUsed;
   std::unordered_map<std::string, std::unordered_map<std::string, int>> m_recentlyUsedIndex;
   std::unordered_map<std::string, std::unordered_map<std::string, std::int64_t>> m_lastUsed;
+  // Shared with the worker job; the latest generation wins, so a stale job never writes over a newer save.
+  std::shared_ptr<SaveState> m_saveState;
 };

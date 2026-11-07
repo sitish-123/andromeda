@@ -69,6 +69,7 @@ namespace {
 
     initLogFile();
     logWarn("{}", std::string(10'000, 'x'));
+    flushLogs();
 
     const auto logPath = cacheRoot / "noctalia" / "noctalia.log";
     std::error_code ec;
@@ -108,6 +109,7 @@ namespace {
 
     initLogFile();
     logWarn("rotate-now");
+    flushLogs();
 
     const auto backupPath = logDir / "noctalia.log.1";
     std::error_code ec;

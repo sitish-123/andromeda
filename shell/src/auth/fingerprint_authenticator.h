@@ -30,7 +30,9 @@ public:
   void stop();
 
 private:
-  bool createDeviceProxy();
+  // Asks fprintd for its default device without blocking; on the reply it sets up m_device and claims it.
+  void requestDevice();
+  bool createDeviceProxy(const std::string& path);
   void claimDevice();
   void startVerify(bool isRetry);
   void stopVerify();
@@ -41,6 +43,7 @@ private:
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_loginManager;
   std::unique_ptr<sdbus::IProxy> m_device;
+  std::unique_ptr<sdbus::IProxy> m_manager; // alive while GetDefaultDevice is pending
 
   AuthenticatedCallback m_onAuthenticated;
   StatusCallback m_onStatus;
@@ -50,6 +53,7 @@ private:
   bool m_active = false;
   bool m_verifying = false;
   bool m_claiming = false;
+  bool m_requestingDevice = false;
   bool m_sleeping = false;
   bool m_abort = false;
   bool m_reclaimAttempted = false;

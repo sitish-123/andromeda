@@ -1,17 +1,41 @@
 #include "launcher/usage_tracker.h"
 
+#include "core/shared_worker.h"
+
 #include "util/file_utils.h"
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <nlohmann/json.hpp>
 
 namespace {
   constexpr std::size_t kMaxRecentlyUsedCount = 20;
 }
 
-UsageTracker::UsageTracker() {
+struct UsageTracker::SaveState {
+  std::mutex mutex;
+  std::uint64_t generation = 0; // of the latest save
+  std::uint64_t written = 0;    // generation on disk
+  std::vector<std::pair<std::string, std::string>> files;
+
+  // Caller holds `mutex`.
+  void writeLatest() {
+    if (written == generation) {
+      return;
+    }
+    for (const auto& [path, text] : files) {
+      std::error_code ec;
+      std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+      std::ofstream file(path, std::ios::trunc);
+      file << text;
+    }
+    written = generation;
+  }
+};
+
+UsageTracker::UsageTracker() : m_saveState(std::make_shared<SaveState>()) {
   const std::string dir = FileUtils::stateDir();
   m_usageCountsPath = (dir.empty() ? "." : dir) + "/usage_counts.json";
   m_recentlyUsedPath = (dir.empty() ? "." : dir) + "/recently_used.json";
@@ -153,25 +177,24 @@ void UsageTracker::ensureLoaded() {
   }
 }
 
+UsageTracker::~UsageTracker() {
+  std::scoped_lock lock(m_saveState->mutex);
+  m_saveState->writeLatest();
+}
+
+// Serialized here, written on SharedWorker: a launch must never wait on the disk.
 void UsageTracker::save() const {
-  std::error_code ec;
-  std::filesystem::create_directories(std::filesystem::path(m_usageCountsPath).parent_path(), ec);
-  if (ec) {
-    return;
-  }
   {
-    nlohmann::json json = m_counts;
-    std::ofstream file(m_usageCountsPath, std::ios::trunc);
-    file << json.dump(2) << '\n';
+    std::scoped_lock lock(m_saveState->mutex);
+    ++m_saveState->generation;
+    m_saveState->files = {
+        {m_usageCountsPath, nlohmann::json(m_counts).dump(2) + '\n'},
+        {m_recentlyUsedPath, nlohmann::json(m_recentlyUsed).dump(2) + '\n'},
+        {m_lastUsedPath, nlohmann::json(m_lastUsed).dump(2) + '\n'},
+    };
   }
-  {
-    nlohmann::json json = m_recentlyUsed;
-    std::ofstream file(m_recentlyUsedPath, std::ios::trunc);
-    file << json.dump(2) << '\n';
-  }
-  {
-    nlohmann::json json = m_lastUsed;
-    std::ofstream file(m_lastUsedPath, std::ios::trunc);
-    file << json.dump(2) << '\n';
-  }
+  SharedWorker::instance().post([state = m_saveState] {
+    std::scoped_lock lock(state->mutex);
+    state->writeLatest();
+  });
 }
