@@ -69,7 +69,7 @@ namespace andromeda {
         && options.enabled.value_or(false)
         && drawBox.width > 0
         && drawBox.height > 0
-        && (surfaceOpacity < 1.0F || surfaceTransparent(surface, surfaceBox));
+        && (options.always || surfaceOpacity < 1.0F || surfaceTransparent(surface, surfaceBox));
     if (!want) {
       if (m_node != nullptr) {
         wlr_scene_node_set_enabled(&m_node->node, false);
@@ -259,5 +259,11 @@ namespace andromeda {
   }
 
   bool SurfaceBlur::active() const { return m_node != nullptr && m_node->node.enabled; }
+
+  void SurfaceBlur::raiseToTop() {
+    if (m_node != nullptr) {
+      wlr_scene_node_raise_to_top(&m_node->node);
+    }
+  }
 
 } // namespace andromeda

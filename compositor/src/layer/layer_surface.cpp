@@ -1129,6 +1129,7 @@ namespace andromeda {
         m_scene->tree, m_layerSurface->surface, nodeBox, box, corners, clip ? &*clip : nullptr, options, 1.0F, nullptr,
         region
     );
+    m_glassMask.update(m_scene->tree, m_layerSurface->surface, state);
     pixman_region32_fini(&scaledRegion);
     if (m_shapeBlurs.size() + 1 < shapes.size()) {
       m_shapeBlurs.resize(shapes.size() - 1);
@@ -1247,6 +1248,7 @@ namespace andromeda {
     m_server->scheduleIpcLayersEvent();
     m_server->updateIdleInhibit();
     m_blur.hide();
+    m_glassMask.hide();
     for (SurfaceBlur& blur : m_shapeBlurs) {
       blur.hide();
     }

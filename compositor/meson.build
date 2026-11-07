@@ -995,6 +995,7 @@ core_sources = files(
   'src/view/view_state.cpp',
   'src/view/popup.cpp',
   'src/layer/layer_surface.cpp',
+  'src/scene/glass_mask.cpp',
   'src/scene/surface_blur.cpp',
   'src/scene/surface_shape.cpp',
   'src/scene/hint_rect.cpp',

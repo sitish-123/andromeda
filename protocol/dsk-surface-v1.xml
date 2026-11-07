@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="12">
+  <interface name="dsk_surface_manager_v1" version="13">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="12">
+  <interface name="dsk_surface_v1" version="13">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -243,6 +243,24 @@
         this request arrives, moving away from the icon until the app's first
         window maps or the launch expires. Takes effect at once, not on commit.
       </description>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+
+    <request name="set_glass_mask" since="13">
+      <description summary="glass in the shape of a mask, over the surface">
+        The compositor draws glass (the blurred scene under it, with the glass
+        tint) over this surface where the buffer's alpha is at least 0.5: for
+        example the digits of a clock. The buffer is a wl_shm ARGB8888
+        buffer of any size, stretched over the surface-local rectangle
+        (x, y, width, height); a client renders it at its output scale. The
+        compositor keeps the buffer until a new mask replaces it, then
+        releases it. A null buffer removes the mask. Double-buffered: it
+        applies on the next wl_surface.commit.
+      </description>
+      <arg name="buffer" type="object" interface="wl_buffer" allow-null="true"/>
       <arg name="x" type="int"/>
       <arg name="y" type="int"/>
       <arg name="width" type="int"/>

@@ -17,6 +17,7 @@ extern "C" {
 #include <wlr/util/box.h>
 }
 
+struct wlr_buffer;
 struct wlr_surface;
 struct dsk_surface_manager_v1_interface;
 struct dsk_surface_v1_interface;
@@ -37,6 +38,11 @@ namespace andromeda {
       std::optional<std::vector<pixman_box32_t>> visibleRegion;
       // dsk_shape_v1 (v10) glass shapes in creation order; each owns its properties and animations.
       std::vector<SurfaceMotion*> shapes;
+      // dsk_surface_v1.set_glass_mask (v13): the locked mask buffer and its surface-local box; null = none.
+      // glassMaskSerial changes with every committed mask, so a consumer rebuilds its mask node only then.
+      wlr_buffer* glassMask = nullptr;
+      wlr_box glassMaskBox{};
+      uint32_t glassMaskSerial = 0;
     };
 
     explicit DskSurfaceManager(wl_display* display);
@@ -146,6 +152,10 @@ namespace andromeda {
       wl_listener clientCommit{};
       std::vector<Op> pending{};
       std::optional<std::optional<std::vector<pixman_box32_t>>> pendingVisibleRegion{};
+      // A set_glass_mask since the last commit: the locked buffer (null = remove) and its origin.
+      bool pendingGlassMaskSet = false;
+      wlr_buffer* pendingGlassMask = nullptr;
+      wlr_box pendingGlassMaskBox{};
       State current{};
       std::vector<Shape*> shapes{}; // every live dsk_shape_v1, in creation order
     };
@@ -165,6 +175,10 @@ namespace andromeda {
     static void handleSetElevation(wl_client* client, wl_resource* resource, uint32_t level);
     static void handleLaunchFrom(wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height);
     static void handleSetVisibleRegion(wl_client* client, wl_resource* resource, wl_resource* region);
+    static void handleSetGlassMask(
+        wl_client* client, wl_resource* resource, wl_resource* buffer, int32_t x, int32_t y, int32_t width,
+        int32_t height
+    );
     static void
     handleSet(wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d);
     static void handleAnimate(

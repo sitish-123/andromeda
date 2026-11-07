@@ -7,6 +7,7 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "scene/node.h"
+#include "scene/glass_mask.h"
 #include "scene/surface_blur.h"
 #include "scene/surface_shadow.h"
 
@@ -114,6 +115,7 @@ namespace andromeda {
     wlr_scene_layer_surface_v1* m_scene = nullptr;
     wlr_scene_tree* m_popupTree = nullptr;
     SurfaceBlur m_blur;
+    GlassMask m_glassMask;
     // Blur nodes for the 2nd and later shapes of a client blur region (bar islands in one surface).
     std::vector<SurfaceBlur> m_shapeBlurs;
     float m_liquid = 0.0F;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "scene/node.h"
+#include "scene/glass_mask.h"
 #include "scene/surface_blur.h"
 
 #include <cstdint>
@@ -61,6 +62,7 @@ namespace andromeda {
     wl_listener m_outputCommit{};
     wl_listener m_commit{};
     SurfaceBlur m_blur;
+    GlassMask m_glassMask;
   };
 
   class SessionLock {

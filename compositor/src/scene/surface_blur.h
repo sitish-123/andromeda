@@ -19,6 +19,8 @@ namespace andromeda {
     float ignoreAlpha = 0.0F;
     std::optional<bool> enabled;
     std::optional<bool> optimized;
+    // Draws even over an opaque surface (a glass mask sits above the surface content).
+    bool always = false;
   };
 
   // The glass material of compositor-drawn glass from appearance.glass and appearance.reduce_transparency. The tint
@@ -68,6 +70,8 @@ namespace andromeda {
     // Never blocks: true with the mean luminance (0 to 1) when a sample finished since the last call.
     bool pollBackdrop(float* luminance);
     [[nodiscard]] bool backdropPending() const;
+    // Puts the blur above its siblings (it is created at the bottom, under the surface).
+    void raiseToTop();
     // Disable the node (unmap path); update() re-enables.
     void hide();
     // True while the blur node is shown.

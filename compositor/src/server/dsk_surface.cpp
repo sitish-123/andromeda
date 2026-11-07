@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 12;
+    constexpr int kVersion = 13;
     constexpr uint32_t kPropertyCount = 12;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
@@ -51,6 +51,7 @@ namespace andromeda {
       .set_visible_region = handleSetVisibleRegion,
       .get_shape = handleGetShape,
       .launch_from = handleLaunchFrom,
+      .set_glass_mask = handleSetGlassMask,
   };
 
   const struct dsk_shape_v1_interface DskSurfaceManager::kShapeImplementation = {
@@ -326,6 +327,27 @@ namespace andromeda {
     state->pendingVisibleRegion = std::vector<pixman_box32_t>(boxes, boxes + count);
   }
 
+  void DskSurfaceManager::handleSetGlassMask(
+      wl_client* /*client*/, wl_resource* resource, wl_resource* buffer, int32_t x, int32_t y, int32_t width,
+      int32_t height
+  ) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr) {
+      return;
+    }
+    wlr_buffer* locked = buffer != nullptr ? wlr_buffer_try_from_resource(buffer) : nullptr;
+    if (buffer != nullptr && locked == nullptr) {
+      wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT, "set_glass_mask needs a wl_shm buffer");
+      return;
+    }
+    if (state->pendingGlassMask != nullptr) {
+      wlr_buffer_unlock(state->pendingGlassMask);
+    }
+    state->pendingGlassMaskSet = true;
+    state->pendingGlassMask = locked;
+    state->pendingGlassMaskBox = {x, y, std::max(0, width), std::max(0, height)};
+  }
+
   void DskSurfaceManager::handleLaunchFrom(
       wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height
   ) {
@@ -470,6 +492,11 @@ namespace andromeda {
     for (Shape* shape : state->shapes) {
       shape->parent = nullptr;
     }
+    for (wlr_buffer* buffer : {state->pendingGlassMask, state->current.glassMask}) {
+      if (buffer != nullptr) {
+        wlr_buffer_unlock(buffer);
+      }
+    }
     wl_list_remove(&state->clientCommit.link);
     delete state;
   }
@@ -504,6 +531,16 @@ namespace andromeda {
     if (state->pendingVisibleRegion) {
       state->current.visibleRegion = std::move(*state->pendingVisibleRegion);
       state->pendingVisibleRegion.reset();
+    }
+    if (state->pendingGlassMaskSet) {
+      if (state->current.glassMask != nullptr) {
+        wlr_buffer_unlock(state->current.glassMask);
+      }
+      state->current.glassMask = state->pendingGlassMask;
+      state->current.glassMaskBox = state->pendingGlassMaskBox;
+      ++state->current.glassMaskSerial;
+      state->pendingGlassMask = nullptr;
+      state->pendingGlassMaskSet = false;
     }
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);

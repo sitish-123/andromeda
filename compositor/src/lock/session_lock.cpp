@@ -135,6 +135,8 @@ namespace andromeda {
 
   void LockSurface::updateBlur() {
     wlr_surface* surface = this->surface();
+    const DskSurfaceManager* dsk = m_server->dskSurfaces();
+    m_glassMask.update(m_sceneTree, surface, dsk != nullptr && surface != nullptr ? dsk->state(surface) : nullptr);
     const BackgroundEffectManager* effects = m_server->backgroundEffects();
     const pixman_region32_t* region =
         surface != nullptr && effects != nullptr ? effects->blurRegion(surface) : nullptr;
