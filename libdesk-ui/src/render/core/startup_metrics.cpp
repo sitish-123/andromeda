@@ -1,6 +1,7 @@
 #include "render/core/startup_metrics.h"
 
 #include "core/log.h"
+#include "core/scoped_timer.h"
 
 #include <ctime>
 #include <fstream>
@@ -53,6 +54,9 @@ namespace startup_metrics {
   void recordProgramBuild(double ms) {
     g_programMs += ms;
     ++g_programCount;
+    if (g_firstFrameLogged && noctalia::profiling::enabled()) {
+      kLog.info("GL program built after the first frame in {:.1f} ms", ms);
+    }
   }
 
   void recordFirstFrame() {

@@ -1,6 +1,7 @@
 #include "render/backend/gles_render_backend.h"
 
 #include "core/log.h"
+#include "core/scoped_timer.h"
 #include "render/backend/gles_framebuffer.h"
 #include "render/core/shader_program.h"
 #include "render/core/startup_metrics.h"
@@ -440,7 +441,12 @@ bool GlesRenderBackend::makeCurrent(RenderTarget& target) {
   return true;
 }
 
+namespace {
+  std::chrono::steady_clock::time_point g_frameBegin;
+} // namespace
+
 bool GlesRenderBackend::beginFrame(RenderTarget& target) {
+  g_frameBegin = std::chrono::steady_clock::now();
   flushRectBatch();
   if (!makeCurrent(target)) {
     return false;
@@ -474,6 +480,10 @@ void GlesRenderBackend::endFrame(RenderTarget& target, std::span<const DamageRec
   }
   auto& surface = glesSurfaceTarget(target);
   const auto swapStart = std::chrono::steady_clock::now();
+  if (const double drawMs = std::chrono::duration<double, std::milli>(swapStart - g_frameBegin).count();
+      drawMs > 2.0 && noctalia::profiling::enabled()) {
+    kLog.info("frame draw {:.1f} ms ({}x{})", drawMs, target.bufferWidth(), target.bufferHeight());
+  }
   std::vector<EGLint> rects;
   if (m_swapWithDamage != nullptr) {
     const auto height = static_cast<float>(target.bufferHeight());

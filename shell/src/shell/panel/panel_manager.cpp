@@ -6,6 +6,7 @@
 #include "core/input/key_chord.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
+#include "core/scoped_timer.h"
 #include "core/ui_phase.h"
 #include "ipc/ipc_arg_parse.h"
 #include "ipc/ipc_service.h"
@@ -3543,8 +3544,14 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
     const float panelBackgroundOpacity =
         m_attachedToBar ? m_attachedBackgroundOpacity : detachedBackgroundOpacity();
     m_activePanel->setPanelCardOpacity(densityCardOpacity(shell::panel_surface::cardOpacity(m_config, panelBackgroundOpacity)));
-    m_activePanel->create();
-    m_activePanel->onOpen(m_pendingOpenContext);
+    {
+      noctalia::profiling::ScopedTimer t(kLog, "panel: create");
+      m_activePanel->create();
+    }
+    {
+      noctalia::profiling::ScopedTimer t(kLog, "panel: onOpen");
+      m_activePanel->onOpen(m_pendingOpenContext);
+    }
     m_pendingOpenContext.clear();
     if (m_activePanel->root() != nullptr) {
       contentWrapper->addChild(m_activePanel->releaseRoot());
@@ -3630,10 +3637,12 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
 
   placePanelChrome();
   {
+    noctalia::profiling::ScopedTimer tu(kLog, "panel: first update");
     UiPhaseScope updatePhase(UiPhase::Update);
     m_activePanel->update(renderer);
   }
   {
+    noctalia::profiling::ScopedTimer tl(kLog, "panel: first layout");
     UiPhaseScope layoutPhase(UiPhase::Layout);
     layoutActivePanel(renderer);
   }
@@ -3867,14 +3876,17 @@ void PanelManager::prepareFrame(bool needsUpdate, bool needsLayout) {
       || static_cast<std::uint32_t>(std::round(m_sceneRoot->width())) != width
       || static_cast<std::uint32_t>(std::round(m_sceneRoot->height())) != height;
   if (needsSceneBuild) {
+    noctalia::profiling::ScopedTimer t(kLog, "panel: build scene");
     buildScene(width, height);
   }
 
   if (!needsSceneBuild && needsUpdate) {
+    noctalia::profiling::ScopedTimer t(kLog, "panel: update");
     UiPhaseScope updatePhase(UiPhase::Update);
     m_activePanel->update(renderer);
   }
   if (!needsSceneBuild && needsLayout) {
+    noctalia::profiling::ScopedTimer t(kLog, "panel: layout");
     UiPhaseScope layoutPhase(UiPhase::Layout);
     if (m_activePanel != nullptr) {
       layoutActivePanel(renderer);
