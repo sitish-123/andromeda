@@ -377,8 +377,9 @@ namespace andromeda {
       enum class Action { MoveToWorkspace, MoveToOutput, Rename, Arrangement, Close, CloseAll };
       struct Row {
         Action action = Action::Close;
-        // MoveToWorkspace: the target (null: a new workspace). MoveToOutput: that output's active workspace.
-        Ref<Workspace> workspace;
+        Ref<Workspace> workspace; // MoveToWorkspace target; Rename, Arrangement: the card's workspace
+        Ref<Output> output;       // MoveToOutput: the display, whose active workspace is resolved on apply
+        bool newWorkspace = false; // MoveToWorkspace into a new workspace
       };
       std::vector<std::string> rows;
       std::vector<Row> actions; // one per row

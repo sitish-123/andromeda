@@ -624,10 +624,14 @@ namespace andromeda {
         // Shift stays plain: it types capitals into the filter and turns Tab into a step back.
         const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2 | WLR_MODIFIER_SHIFT);
         if (overview != nullptr && overview->interactive() && (plain == 0 || plain == WLR_MODIFIER_CTRL)) {
-          for (int i = 0; i < nsyms && !handled; ++i) {
-            handled = overview->handleFallbackKey(
-                syms[i], (modifiers & WLR_MODIFIER_SHIFT) != 0, plain == WLR_MODIFIER_CTRL
-            );
+          if (plain == WLR_MODIFIER_CTRL) {
+            // Ctrl shortcuts follow the key, not the layout or Caps Lock, like keybinds do.
+            const uint32_t key = rawSym != XKB_KEY_NoSymbol ? rawSym : nsyms > 0 ? syms[0] : XKB_KEY_NoSymbol;
+            handled = overview->handleFallbackKey(xkb_keysym_to_lower(key), false, true);
+          } else {
+            for (int i = 0; i < nsyms && !handled; ++i) {
+              handled = overview->handleFallbackKey(syms[i], (modifiers & WLR_MODIFIER_SHIFT) != 0);
+            }
           }
         }
       }

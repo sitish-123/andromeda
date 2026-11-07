@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The window menu renames the card's desktop (Rename Desktop, fourth row from the bottom), and Ctrl+W closes the
-# selected window, with the overview open (DESIGN.md "Overview v3" Completion).
+# selected window (Caps Lock on too), with the overview open (DESIGN.md "Overview v3" Completion).
 set -euo pipefail
 
 readonly OUTPUT_W=1280
@@ -47,7 +47,8 @@ pointer move "$((x + w / 2))" "$((y + h / 2))" click "$BTN_RIGHT" tap $K_UP tap 
   tap $K_A tap $K_B tap $K_ENTER
 [[ $(label) == ab ]] || { echo "Rename Desktop, a, b, Enter labelled the desktop '$(label)'"; exit 1; }
 
-pointer tap $K_TAB mod ctrl tap $K_W mod none
+# Caps Lock on: Ctrl+W follows the key, not the Caps level.
+pointer tap $K_TAB lock caps mod ctrl tap $K_W mod none lock none
 for _ in $(seq 60); do
   [[ $(count) -eq 0 ]] && break
   sleep 0.05

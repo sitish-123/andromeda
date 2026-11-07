@@ -612,9 +612,9 @@ namespace andromeda {
         .actions = {},
     };
     using Action = WindowMenu::Action;
-    const auto add = [&menu](std::string row, Action action, Workspace* workspace = nullptr) {
+    const auto add = [&menu](std::string row, WindowMenu::Row action) {
       menu.rows.push_back(std::move(row));
-      menu.actions.push_back({.action = action, .workspace = Ref<Workspace>(workspace)});
+      menu.actions.push_back(std::move(action));
     };
     for (size_t index = 0; index < group->workspaceCount(); ++index) {
       Workspace* workspace = group->workspaceAt(index);
@@ -624,19 +624,20 @@ namespace andromeda {
       const bool named = workspace->named() || workspace->displayName() != workspace->name();
       add(named ? std::format("Move to {}", workspace->displayName())
                 : std::format("Move to Desktop {}", workspace->displayName()),
-          Action::MoveToWorkspace, workspace);
+          {.action = Action::MoveToWorkspace, .workspace = Ref<Workspace>(workspace), .output = {}, .newWorkspace = false});
     }
-    add("Move to New Desktop", Action::MoveToWorkspace);
+    add("Move to New Desktop", {.action = Action::MoveToWorkspace, .workspace = {}, .output = {}, .newWorkspace = true});
     for (const auto& state : m_outputs) {
       WorkspaceGroup* other = state->output != nullptr ? state->output->workspaceGroup() : nullptr;
       if (other != nullptr && other != group && other->active() != nullptr) {
-        add(std::format("Move to Display {}", state->output->wlr()->name), Action::MoveToOutput, other->active());
+        add(std::format("Move to Display {}", state->output->wlr()->name),
+            {.action = Action::MoveToOutput, .workspace = {}, .output = Ref<Output>(state->output), .newWorkspace = false});
       }
     }
-    add("Rename Desktop", Action::Rename, source);
-    add("Arrangement", Action::Arrangement, source);
-    add("Close", Action::Close);
-    add("Close All on This Desktop", Action::CloseAll);
+    add("Rename Desktop", {.action = Action::Rename, .workspace = {}, .output = {}, .newWorkspace = false});
+    add("Arrangement", {.action = Action::Arrangement, .workspace = {}, .output = {}, .newWorkspace = false});
+    add("Close", {.action = Action::Close, .workspace = {}, .output = {}, .newWorkspace = false});
+    add("Close All on This Desktop", {.action = Action::CloseAll, .workspace = {}, .output = {}, .newWorkspace = false});
     setWindowMenu(std::move(menu));
   }
 
@@ -659,13 +660,18 @@ namespace andromeda {
     Workspace* workspace = view->workspace();
     switch (picked.action) {
     case WindowMenu::Action::MoveToWorkspace:
-      moveViewTo(*view, picked.workspace.get());
-      return;
-    case WindowMenu::Action::MoveToOutput:
-      if (picked.workspace.get() != nullptr) {
+      // A target removed while the menu was open moves nothing; only the New row makes a workspace.
+      if (picked.newWorkspace || picked.workspace.get() != nullptr) {
         moveViewTo(*view, picked.workspace.get());
       }
       return;
+    case WindowMenu::Action::MoveToOutput: {
+      WorkspaceGroup* group = picked.output.get() != nullptr ? picked.output->workspaceGroup() : nullptr;
+      if (group != nullptr && group->active() != nullptr) {
+        moveViewTo(*view, group->active());
+      }
+      return;
+    }
     case WindowMenu::Action::Rename:
       startRename(workspace);
       return;
