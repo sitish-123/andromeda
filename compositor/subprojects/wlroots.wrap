@@ -4,7 +4,8 @@ revision = 0.20.2
 depth = 1
 # Skips the cursor plane in an atomic commit when the cursor did not change (upstream re-arms it each frame).
 # Skips layer feedback for planes another CRTC still holds at startup (no liftoff handle; upstream reads NULL).
-diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch
+# Registers the planes a previous master left on a CRTC at its first commit, not only on a modeset (no modeset at login).
+diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch, wlroots-register-planes-without-modeset.patch
 
 [provide]
 dependency_names = wlroots-0.20

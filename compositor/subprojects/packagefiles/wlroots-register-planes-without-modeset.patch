@@ -1,0 +1,15 @@
+diff --git a/backend/drm/libliftoff.c b/backend/drm/libliftoff.c
+index 333beac..716486b 100644
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -428,7 +429,9 @@ static bool commit(struct wlr_drm_backend *drm,
+ 	for (size_t i = 0; i < state->connectors_len; i++) {
+ 		struct wlr_drm_connector_state *conn_state = &state->connectors[i];
+ 		struct wlr_drm_connector *conn = conn_state->connector;
+-		if (state->modeset && !register_planes_for_crtc(drm, conn->crtc)) {
++		// Not only on a modeset: a compositor that keeps the live mode at startup never modesets, so the planes the
++		// previous master left on this CRTC (the console framebuffer on the primary plane) would stay on screen.
++		if (conn->crtc != NULL && !register_planes_for_crtc(drm, conn->crtc)) {
+ 			goto out;
+ 		}
+ 		if (!drm_atomic_connector_prepare(conn_state, state->modeset)) {
