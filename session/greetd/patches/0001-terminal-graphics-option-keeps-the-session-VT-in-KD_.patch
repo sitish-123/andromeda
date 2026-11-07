@@ -1,7 +1,7 @@
 From baaaa093efef7feadc45d17b76bdac5d5ac7bdc4 Mon Sep 17 00:00:00 2001
 From: sitish <sitishjayaswal12@gmail.com>
 Date: Sat, 7 Nov 2026 11:56:24 +0545
-Subject: [PATCH 1/4] terminal: graphics option keeps the session VT in
+Subject: [PATCH 1/5] terminal: graphics option keeps the session VT in
  KD_GRAPHICS without a clear, so the console never draws over the hand-off
 
 ---

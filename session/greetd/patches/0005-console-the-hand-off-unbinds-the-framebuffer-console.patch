@@ -1,0 +1,139 @@
+From 6e18ebdec7cd283c4086888a93cf32ec30de7a6f Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 13:28:47 +0545
+Subject: [PATCH 5/5] console: the hand-off unbinds the framebuffer console
+ from before the VT switch until the session reports its first frame (no DRM
+ master in between, so the console redrew over the greeter frame)
+
+---
+ greetd/src/console.rs | 36 ++++++++++++++++++++++++++++++++++++
+ greetd/src/context.rs | 26 +++++++++++++++++++++++---
+ greetd/src/main.rs    |  1 +
+ 3 files changed, 60 insertions(+), 3 deletions(-)
+ create mode 100644 greetd/src/console.rs
+
+diff --git a/greetd/src/console.rs b/greetd/src/console.rs
+new file mode 100644
+index 0000000..080b59b
+--- /dev/null
++++ b/greetd/src/console.rs
+@@ -0,0 +1,36 @@
++//! The kernel's framebuffer console during a graphical hand-off. While no DRM master exists (between the VT switch
++//! and the session compositor taking the display) the console redraws over the last frame; with it unbound for that
++//! moment the frame stays. Text VTs get it back as soon as the session reports its first frame.
++
++use std::{fs, path::PathBuf};
++
++fn framebuffer_console() -> Option<PathBuf> {
++    fs::read_dir("/sys/class/vtconsole").ok()?.filter_map(Result::ok).map(|e| e.path()).find(|path| {
++        fs::read_to_string(path.join("name")).is_ok_and(|name| name.contains("frame buffer"))
++    })
++}
++
++/// Unbinds the framebuffer console; returns true when it was bound, so the caller binds it again.
++pub fn release() -> bool {
++    let Some(path) = framebuffer_console() else {
++        return false;
++    };
++    if fs::read_to_string(path.join("bind")).map(|b| b.trim() != "1").unwrap_or(true) {
++        return false;
++    }
++    match fs::write(path.join("bind"), "0") {
++        Ok(()) => true,
++        Err(e) => {
++            eprintln!("console: unable to unbind {}: {e}", path.display());
++            false
++        }
++    }
++}
++
++pub fn restore() {
++    if let Some(path) = framebuffer_console() {
++        if let Err(e) = fs::write(path.join("bind"), "1") {
++            eprintln!("console: unable to bind {}: {e}", path.display());
++        }
++    }
++}
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 2cc7910..db9c883 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -323,10 +323,19 @@ impl Context {
+ 
+                     if self.handoff {
+                         let cards = hold_drm_cards();
++                        let console = crate::console::release();
+                         // The worker returns once the session's VT is in front: the greeter has lost the display
+                         // with its last frame still on the planes (wlroots closes framebuffers with CLOSEFB), and
+                         // the new compositor holds that frame until its own first frame.
+-                        let child = s.session.start().await?;
++                        let child = match s.session.start().await {
++                            Ok(child) => child,
++                            Err(e) => {
++                                if console {
++                                    crate::console::restore();
++                                }
++                                return Err(e);
++                            }
++                        };
+                         let mut inner = self.inner.write().await;
+                         let greeter = inner.current.replace(SessionChildSet {
+                             child,
+@@ -335,8 +344,10 @@ impl Context {
+                         });
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+-                            retire_on_ready(&s.user, g.child.sub_task);
++                            retire_on_ready(&s.user, g.child.sub_task, console);
+                             inner.outgoing = Some(g);
++                        } else if console {
++                            crate::console::restore();
+                         }
+                         inner.drm_hold = Some((cards, Instant::now()));
+                         alarm::set(1);
+@@ -525,8 +536,14 @@ fn hold_drm_cards() -> Vec<File> {
+ /// GDM-style retirement: the session compositor connects to `$XDG_RUNTIME_DIR/greetd-handoff.sock` once its first
+ /// frame is on screen (it is DRM master by then, so the kernel cannot restore its console when the greeter exits);
+ /// the greeter session then gets SIGTERM. Without a report the alarm fallback retires it after 10 s.
+-fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
++fn retire_on_ready(user: &str, greeter: nix::unistd::Pid, console: bool) {
++    let restore_console = move || {
++        if console {
++            crate::console::restore();
++        }
++    };
+     let Ok(Some(account)) = nix::unistd::User::from_name(user) else {
++        restore_console();
+         return;
+     };
+     let path = format!("/run/user/{}/greetd-handoff.sock", account.uid);
+@@ -535,6 +552,7 @@ fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
+         Ok(listener) => listener,
+         Err(e) => {
+             eprintln!("hand-off: unable to listen on {path}: {e}");
++            restore_console();
+             return;
+         }
+     };
+@@ -545,6 +563,8 @@ fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
+         if tokio::time::timeout(Duration::from_secs(10), listener.accept()).await.is_ok() {
+             let _ = nix::sys::signal::kill(greeter, nix::sys::signal::Signal::SIGTERM);
+         }
++        // The session compositor is DRM master now (or never came): the console cannot draw over its frame.
++        restore_console();
+         let _ = std::fs::remove_file(&path);
+     });
+ }
+diff --git a/greetd/src/main.rs b/greetd/src/main.rs
+index e66fdf1..95744c9 100644
+--- a/greetd/src/main.rs
++++ b/greetd/src/main.rs
+@@ -1,4 +1,5 @@
+ mod config;
++mod console;
+ mod context;
+ mod error;
+ mod pam;
+-- 
+2.56.0
+

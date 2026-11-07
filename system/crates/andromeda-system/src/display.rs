@@ -1,6 +1,8 @@
 //! `/org/andromeda/System1/Display`: keeps the last frame on screen between two compositors (login, logout).
-//! The kernel restores the text console when the last open file of a DRM device closes. A compositor that exits
-//! hands its DRM files here with `HoldScanout`; the next compositor calls `ReleaseScanout` after its first frame.
+//! The kernel restores the text console when the last open file of a DRM device closes, and the console redraws
+//! whenever no DRM master exists. A compositor that exits hands its DRM files here with `HoldScanout` while it is
+//! still master; the framebuffer console stays unbound until the next compositor calls `ReleaseScanout` after its
+//! first frame (logout: the greeter).
 
 use std::os::fd::OwnedFd;
 use std::sync::{Arc, Mutex};
@@ -23,6 +25,28 @@ const HOLD_LIMIT: Duration = Duration::from_secs(15);
 struct Held {
     files: Vec<OwnedFd>,
     generation: u64,
+    /// The framebuffer console was bound before the hold; bind it again on release.
+    console: bool,
+}
+
+fn framebuffer_console() -> Option<std::path::PathBuf> {
+    std::fs::read_dir("/sys/class/vtconsole").ok()?.filter_map(Result::ok).map(|e| e.path()).find(|path| {
+        std::fs::read_to_string(path.join("name")).is_ok_and(|name| name.contains("frame buffer"))
+    })
+}
+
+fn set_console_bound(bound: bool) {
+    if let Some(path) = framebuffer_console()
+        && let Err(e) = std::fs::write(path.join("bind"), if bound { "1" } else { "0" })
+    {
+        log::warn!("display: unable to {} the console: {e}", if bound { "bind" } else { "unbind" });
+    }
+}
+
+fn console_bound() -> bool {
+    framebuffer_console()
+        .and_then(|path| std::fs::read_to_string(path.join("bind")).ok())
+        .is_some_and(|bind| bind.trim() == "1")
 }
 
 #[derive(Clone, Default)]
@@ -42,6 +66,9 @@ impl Display {
     fn release(&self) -> usize {
         let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         held.generation += 1;
+        if std::mem::take(&mut held.console) {
+            set_console_bound(true);
+        }
         std::mem::take(&mut held.files).len()
     }
 }
@@ -68,6 +95,10 @@ impl Display {
             }
             held.files.push(fd);
             held.generation += 1;
+            if !held.console && console_bound() {
+                set_console_bound(false);
+                held.console = true;
+            }
             held.generation
         };
         log::info!("display: holding scanout for the next compositor");
@@ -78,6 +109,9 @@ impl Display {
             if held.generation == generation && !held.files.is_empty() {
                 log::warn!("display: no compositor took over in {}s; console restored", HOLD_LIMIT.as_secs());
                 held.files.clear();
+                if std::mem::take(&mut held.console) {
+                    set_console_bound(true);
+                }
             }
         });
         Ok(())
