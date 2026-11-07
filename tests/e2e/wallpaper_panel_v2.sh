@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wallpaper panel v2 (.agent/DESIGN.md "Wallpaper panel v2"): the panel opens on a folder of eight wallpapers in light
+# Wallpaper window (.agent/DESIGN.md "Wallpaper panel v2"): the window opens on a folder of eight wallpapers in light
 # and dark (shots for the design check), a search with no match shows the "No Results" state, Down moves from the
 # search into the grid, and F stores the selected wallpaper as a favourite. Every step waits on state with a timeout.
 # Shots go to $OUT (default ./artifacts/wallpaper-panel-v2).
@@ -34,7 +34,8 @@ with_noctalia '
     fail "the screen did not settle"
   }
   changed_from() { grim "$OUT/now.png"; ! cmp -s "$1" "$OUT/now.png"; }
-  # A new virtual keyboard needs one key to get focus before the shell routes its keys: Pause goes first.
+  # A new virtual keyboard needs one key to get focus before the shell routes its keys: Pause goes first. Keys can
+  # still be lost while the window takes the new keyboard, so each step retries until its result shows.
   key() { local a=(tap 119 tap 119) k; for k in "$@"; do a+=(tap "$k"); done; "$POINTER" 1280 720 "${a[@]}" > /dev/null; }
 
   "$NOCTALIA" msg theme-mode-set light > /dev/null
@@ -55,7 +56,7 @@ with_noctalia '
   cmp -s "$OUT/2-dark.png" "$OUT/3-no-matches.png" && fail "the search did not change the panel"
 
   # Backspace x3 restores the grid, Down enters it, F stores the first wallpaper as a favourite.
-  key 14 14 14
+  for try in 1 2 3; do key 14 14 14; wait_for 3 changed_from "$OUT/3-no-matches.png" && break; done
   settle
   # [wallpaper] favorite in overrides.toml lists the stored favourites.
   favourite_saved() {
@@ -64,8 +65,8 @@ with_noctalia '
     [[ -n $f ]] && python3 -I -c "import sys,tomllib; d=tomllib.load(open(sys.argv[1],\"rb\")); sys.exit(0 if any(\"wall-\" in str(x) for x in d.get(\"wallpaper\",{}).get(\"favorite\",[])) else 1)" "$f"
   }
   favourite_saved && fail "a favourite existed before F"
-  key 108 33
-  wait_for 5 favourite_saved || fail "F did not store a favourite"
+  for try in 1 2 3; do key 108 33; wait_for 3 favourite_saved && break; done
+  favourite_saved || fail "F did not store a favourite"
   settle
   cp "$OUT/now.png" "$OUT/4-favourite.png"
   echo PASS

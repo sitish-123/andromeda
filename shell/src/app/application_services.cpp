@@ -1288,6 +1288,7 @@ void Application::initAuxServicesAndHooks() {
     m_backdrop.onThemeChanged();
     m_settingsWindow.onThemeChanged();
     m_activityWindow.onThemeChanged();
+    m_wallpaperWindow.onThemeChanged();
     scheduleGreeterAutoSync();
   });
 

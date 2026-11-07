@@ -79,6 +79,12 @@ public:
 
   // Optional: invoked from shell UI (e.g. control center) to spawn the standalone settings toplevel.
   void setOpenSettingsWindowCallback(std::function<void(std::string)> callback);
+  // Opens `panelId` in an app window instead of a panel surface; `toggle` closes an open window.
+  void setWindowPanel(
+      std::string panelId, std::function<void(bool toggle, wl_output* output)> open, std::function<void()> close
+  ) {
+    m_windowPanels[std::move(panelId)] = WindowPanel{.open = std::move(open), .close = std::move(close)};
+  }
   void setOpenWidgetSettingsCallback(std::function<void(std::string barName, std::string widgetName)> callback);
   // Returns false when the plugin is unknown, disabled, or exposes no settings.
   void setOpenPluginSettingsCallback(std::function<bool(std::string pluginId)> callback);
@@ -298,6 +304,11 @@ private:
   ConfigService* m_config = nullptr;
   RenderContext* m_renderContext = nullptr;
   std::function<void(std::string)> m_openSettingsWindow;
+  struct WindowPanel {
+    std::function<void(bool, wl_output*)> open;
+    std::function<void()> close;
+  };
+  std::unordered_map<std::string, WindowPanel> m_windowPanels;
   std::function<void(std::string, std::string)> m_openWidgetSettings;
   std::function<bool(std::string)> m_openPluginSettings;
   std::function<void()> m_closeSettingsWindow;

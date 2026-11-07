@@ -30,6 +30,7 @@ class Spinner;
 class VirtualGridView;
 class WallpaperGridAdapter;
 class WaylandConnection;
+class WallpaperWindow;
 
 namespace noctalia::theme {
   class ThemeService;
@@ -61,6 +62,7 @@ public:
   [[nodiscard]] PanelPlacement panelPlacement() const noexcept override;
   [[nodiscard]] LayerShellKeyboard keyboardMode() const override { return LayerShellKeyboard::Exclusive; }
   [[nodiscard]] InputArea* initialFocusArea() const override;
+  void setWindow(WallpaperWindow* window) noexcept { m_window = window; }
 
 private:
   void doLayout(Renderer& renderer, float width, float height) override;
@@ -185,6 +187,10 @@ private:
   bool m_gridKeyboardActive = false;
   static constexpr std::size_t kNoVisibleSelection = std::numeric_limits<std::size_t>::max();
   std::size_t m_selectedVisibleIndex = kNoVisibleSelection;
+  void refreshHost();
+  void updateHost();
+
+  WallpaperWindow* m_window = nullptr;
   float m_lastWidth = 0.0F;
   float m_lastHeight = 0.0F;
   bool m_dirty = false;

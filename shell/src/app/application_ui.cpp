@@ -209,8 +209,8 @@ void Application::initUiRenderSurfacesAndSettings() {
       &m_compositorPlatform, m_accountsService.get()
   );
   m_settingsWindow.setSystemBus(m_systemBus.get());
-  m_settingsWindow.setConnectivityProviders([this] { return network(); }, [this] { return bluetooth(); });
   m_settingsWindow.setSessionBus(m_bus.get());
+  m_settingsWindow.setConnectivityProviders([this] { return network(); }, [this] { return bluetooth(); });
   m_settingsWindow.setAudioProvider([this] { return pipewire(); });
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
   m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });
@@ -589,6 +589,8 @@ void Application::initInputDispatch() {
       return;
     if (m_activityWindow.onPointerEvent(event))
       return;
+    if (m_wallpaperWindow.onPointerEvent(event))
+      return;
     if (m_liveActivity.onPointerEvent(event))
       return;
     if (m_bar.onPointerEvent(event))
@@ -711,6 +713,10 @@ void Application::initInputDispatch() {
       m_activityWindow.onKeyboardEvent(event);
       return;
     }
+    if (m_wallpaperWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
+      m_wallpaperWindow.onKeyboardEvent(event);
+      return;
+    }
     if (m_overviewLauncherCapture.handleKeyboardEvent(event)) {
       return;
     }
@@ -742,7 +748,7 @@ void Application::initPanelManagerAndPanels() {
   });
   m_settingsWindow.setOpenWallpaperPanel([this] {
     wl_output* output = m_compositorPlatform.preferredInteractiveOutput(std::chrono::milliseconds(1200));
-    m_panelManager.openPanel("wallpaper", PanelOpenRequest{.output = output});
+    m_wallpaperWindow.open(output);
   });
   m_settingsWindow.setCalendarService(&m_calendarService);
   m_calendarService.setCredentialChangeCallback([this] {
@@ -951,12 +957,19 @@ void Application::initPanelManagerAndPanels() {
     m_overviewLauncherCapture.setEnabled(overviewTypeToLaunchEnabled(m_configService));
   });
   m_overviewLauncherCapture.sync();
-  m_panelManager.registerPanel(
-      "wallpaper",
+  m_wallpaperWindow.initialize(
+      m_wayland, &m_configService, &m_renderContext,
       std::make_unique<WallpaperPanel>(
           &m_wayland, &m_configService, &m_thumbnailService, &m_wallpaperScanner, &m_themeService
       )
   );
+  m_panelManager.setWindowPanel("wallpaper", [this](bool toggle, wl_output* output) {
+    if (toggle) {
+      m_wallpaperWindow.toggle(output);
+    } else {
+      m_wallpaperWindow.open(output);
+    }
+  }, [this] { m_wallpaperWindow.close(); });
   m_panelManager.registerPanel("tray-drawer", std::make_unique<TrayDrawerPanel>(m_trayService.get(), &m_configService));
   m_panelManager.registerPanel("polkit", std::make_unique<PolkitPanel>(&m_configService, [this] {
                                  return m_polkitAgent.get();
@@ -1242,6 +1255,10 @@ void Application::initBarDockAndLayout() {
   m_layerPopupHosts.registerHost(
       [this](wl_surface* surface) { return m_settingsWindow.popupParentContextForSurface(surface); }, {}, {},
       [this] { return m_settingsWindow.fallbackPopupParentContext(); }
+  );
+  m_layerPopupHosts.registerHost(
+      [this](wl_surface* surface) { return m_wallpaperWindow.popupParentContextForSurface(surface); }, {}, {},
+      [this] { return m_wallpaperWindow.fallbackPopupParentContext(); }
   );
 
   m_colorPickerDialogPopup.initialize(m_wayland, m_configService, m_renderContext, m_layerPopupHosts);

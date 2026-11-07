@@ -15,7 +15,9 @@
 #include "ui/controls/box.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
+#include "core/deferred_call.h"
 #include "shell/panel/panel_manager.h"
+#include "shell/wallpaper/wallpaper_window.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "shell/wallpaper/panel/wallpaper_tile.h"
 #include "shell/wallpaper/wallpaper_paths.h"
@@ -56,6 +58,8 @@ namespace {
   constexpr Logger kLog("wp-panel");
   constexpr auto kFilterDebounceInterval = std::chrono::milliseconds(120);
   constexpr float kMinTileWidth = 180.0F;
+  // Search by file name only needs room for a short name (macOS Finder search field).
+  constexpr float kSearchWidth = 240.0F;
   constexpr float kPreviewWidth = 192.0F;  // 16:10, on the 4 grid
   constexpr float kPreviewHeight = 120.0F;
   constexpr auto kLoadingDelay = std::chrono::milliseconds(200); // rulebook 9.13: no spinner for fast scans
@@ -371,6 +375,18 @@ WallpaperPanel::~WallpaperPanel() {
   }
 }
 
+void WallpaperPanel::refreshHost() {
+  if (m_window != nullptr) {
+    m_window->refresh();
+  }
+}
+
+void WallpaperPanel::updateHost() {
+  if (m_window != nullptr) {
+    m_window->requestUpdateOnly();
+  }
+}
+
 PanelPlacement WallpaperPanel::panelPlacement() const noexcept {
   return m_config == nullptr ? PanelPlacement::Attached : m_config->config().shell.panel.wallpaperPlacement;
 }
@@ -410,8 +426,10 @@ void WallpaperPanel::create() {
       .color = colorSpecFromRole(ColorRole::Label1),
   }));
   header->addChild(ui::spacer());
-  header->addChild(iconButton(&m_closeButton, "close", i18n::tr("wallpaper.panel.close"), [] {
-    PanelManager::instance().close();
+  header->addChild(iconButton(&m_closeButton, "close", i18n::tr("wallpaper.panel.close"), [this] {
+    if (m_window != nullptr) {
+      DeferredCall::callLater([window = m_window] { window->close(); });
+    }
   }));
   root->addChild(std::move(header));
 
@@ -470,7 +488,7 @@ void WallpaperPanel::create() {
             syncBackButton();
             syncBrowseChrome();
             m_dirty = true;
-            PanelManager::instance().refresh();
+            refreshHost();
           },
   }));
   {
@@ -517,7 +535,7 @@ void WallpaperPanel::create() {
   card->addChild(std::move(info));
   root->addChild(std::move(card));
 
-  // Toolbar: search, source chips, folder navigation and list tools.
+  // Toolbar: search, source chips, then the list tools at the trailing edge.
   auto toolbar = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale, .fillWidth = true});
   toolbar->addChild(iconButton(&m_backButton, "chevron-left", i18n::tr("wallpaper.panel.navigate-up"), [this] {
     navigateUp();
@@ -530,7 +548,7 @@ void WallpaperPanel::create() {
       .horizontalPadding = Tokens::spaceP12 * scale,
       .surfaceOpacity = panelCardOpacity(),
       .surfaceRole = ColorRole::Fill2,
-      .flexGrow = 1.0F,
+      .width = kSearchWidth * scale,
       .onChange =
           [this](const std::string& text) {
             if (text == m_pendingFilterQuery) {
@@ -547,12 +565,12 @@ void WallpaperPanel::create() {
               rebindGrid();
               syncBrowseChrome();
               m_dirty = true;
-              PanelManager::instance().refresh();
+              refreshHost();
             });
           },
       .onKeyEvent = [this](std::uint32_t sym, std::uint32_t modifiers) { return handleKeyEvent(sym, modifiers); },
   }));
-  m_filterInput->setFrameRadius(Tokens::componentFieldRadius);
+  m_filterInput->setCapsule(true);
   toolbar->addChild(ui::segmented({
       .out = &m_sourceChips,
       .options =
@@ -572,9 +590,10 @@ void WallpaperPanel::create() {
             rebindGrid();
             syncBrowseChrome();
             m_dirty = true;
-            PanelManager::instance().refresh();
+            refreshHost();
           },
   }));
+  toolbar->addChild(ui::spacer());
   toolbar->addChild(ui::button({
       .out = &m_flattenButton,
       .glyph = "folders",
@@ -597,7 +616,7 @@ void WallpaperPanel::create() {
             rebindGrid();
             syncBrowseChrome();
             m_dirty = true;
-            PanelManager::instance().refresh();
+            refreshHost();
           },
   }));
   toolbar->addChild(iconButton(&m_sortButton, std::string(sortModeGlyph(m_sortMode)), i18n::tr(sortModeTooltipKey(m_sortMode)), [this] {
@@ -615,7 +634,7 @@ void WallpaperPanel::create() {
     rebindGrid();
     syncBrowseChrome();
     m_dirty = true;
-    PanelManager::instance().refresh();
+    refreshHost();
   }));
   root->addChild(std::move(toolbar));
   syncFlattenButton();
@@ -663,7 +682,7 @@ void WallpaperPanel::create() {
                 }
                 // The preview card follows the keyboard selection.
                 syncBrowseChrome();
-                PanelManager::instance().requestUpdateOnly();
+                updateHost();
               },
           .configure = [](VirtualGridView& grid) { grid.setFillWidth(true); },
       })
@@ -744,7 +763,7 @@ void WallpaperPanel::create() {
         return;
       }
       m_thumbnailRefreshPending = true;
-      PanelManager::instance().requestUpdateOnly();
+      updateHost();
     });
   }
 }
@@ -903,15 +922,17 @@ bool WallpaperPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers,
     return false;
   }
 
-  auto& dispatcher = PanelManager::instance().inputDispatcher();
-  InputArea* focused = dispatcher.focusedArea();
+  if (m_window == nullptr) {
+    return false;
+  }
+  InputArea* focused = m_window->focusedArea();
 
   // Down from the search field or the source chips goes into the grid.
   const bool fromToolbar = (m_filterInput != nullptr && focused == m_filterInput->inputArea())
       || (m_sourceChips != nullptr && focused == m_sourceChips->focusArea());
   if (fromToolbar && KeybindMatcher::matches(KeybindAction::Down, sym, modifiers) && m_grid != nullptr
       && m_grid->focusArea() != nullptr && !m_visibleEntries.empty()) {
-    dispatcher.setFocus(m_grid->focusArea());
+    m_window->setFocus(m_grid->focusArea());
     if (!hasVisibleSelection()) {
       selectVisibleIndex(0);
     }
@@ -1179,7 +1200,7 @@ void WallpaperPanel::syncStateView() {
       rebindGrid();
       syncBrowseChrome();
       m_dirty = true;
-      PanelManager::instance().refresh();
+      refreshHost();
     };
   } else if (m_favoritesOnly) {
     key = "no-favorites";
@@ -1282,7 +1303,7 @@ void WallpaperPanel::onScanComplete() {
   syncBrowseChrome();
   syncLoadingState();
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 void WallpaperPanel::syncLoadingState() {
@@ -1297,7 +1318,7 @@ void WallpaperPanel::syncLoadingState() {
       m_loadingShown = true;
       syncStateView();
       m_dirty = true;
-      PanelManager::instance().refresh();
+      refreshHost();
     });
   }
   syncStateView();
@@ -1381,7 +1402,7 @@ void WallpaperPanel::toggleFavoriteForPath(const std::string& path) {
   rebindGrid();
   syncBrowseChrome();
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 void WallpaperPanel::applyWallpaperPath(const std::string& path, const WallpaperFavorite* applyTheme) {
@@ -1417,7 +1438,7 @@ void WallpaperPanel::selectVisibleIndex(std::size_t index) {
   syncBrowseChrome();
 
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 void WallpaperPanel::activateSelectedEntry() {
@@ -1513,7 +1534,7 @@ void WallpaperPanel::navigateInto(const std::filesystem::path& dir) {
   syncBackButton();
   syncBrowseChrome();
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 void WallpaperPanel::navigateUp() {
@@ -1527,7 +1548,7 @@ void WallpaperPanel::navigateUp() {
   syncBackButton();
   syncBrowseChrome();
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 WallpaperPanel::SortMode WallpaperPanel::sortModeFromState(std::string_view value) {
@@ -1608,11 +1629,11 @@ void WallpaperPanel::syncSortButtonGlyph() {
   if (area == nullptr || !area->hasTooltip()) {
     return;
   }
-  const auto parentCtx = PanelManager::instance().fallbackPopupParentContext();
-  if (!parentCtx.has_value() || parentCtx->layerSurface == nullptr || parentCtx->output == nullptr) {
+  const auto parentCtx = (m_window != nullptr ? m_window->fallbackPopupParentContext() : std::nullopt);
+  if (!parentCtx.has_value() || parentCtx->xdgSurface == nullptr || parentCtx->output == nullptr) {
     return;
   }
-  TooltipManager::instance().onHoverChange(area, parentCtx->layerSurface, parentCtx->output);
+  TooltipManager::instance().onHoverChange(area, parentCtx->xdgSurface, parentCtx->output);
 }
 
 void WallpaperPanel::cycleSortMode() {
@@ -1652,7 +1673,7 @@ void WallpaperPanel::setSortMode(SortMode mode) {
   sortVisibleEntries();
   rebindGrid();
   m_dirty = true;
-  PanelManager::instance().refresh();
+  refreshHost();
 }
 
 void WallpaperPanel::reseedRandomSort() {

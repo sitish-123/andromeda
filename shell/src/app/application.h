@@ -76,6 +76,7 @@
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
 #include "shell/wallpaper/wallpaper.h"
 #include "shell/activity/activity_window.h"
+#include "shell/wallpaper/wallpaper_window.h"
 #include "system/container_service.h"
 #include "system/activity_actions.h"
 #include "system/ambient_brightness.h"
@@ -377,6 +378,7 @@ private:
   ActivityDetails m_activityDetails;
   // Declared after the monitor: it releases its monitor reference when it closes.
   ActivityWindow m_activityWindow;
+  WallpaperWindow m_wallpaperWindow;
   std::unique_ptr<DebugService> m_debugService;
   std::unique_ptr<AndromedaShellService> m_andromedaShellService;
   std::unique_ptr<SystemHealthService> m_systemHealthService;

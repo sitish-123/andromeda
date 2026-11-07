@@ -856,6 +856,7 @@ _noctalia_sources = files(
   'src/system/intel_gpu.cpp',
   'src/system/system_monitor_service.cpp',
   'src/shell/activity/activity_window.cpp',
+  'src/shell/wallpaper/wallpaper_window.cpp',
   'src/system/activity_actions.cpp',
   'src/system/crash_report.cpp',
   'src/system/activity_details.cpp',
@@ -1123,7 +1124,8 @@ noctalia_calc_module = shared_module('noctalia-calc',
 
 install_subdir('assets',
   install_dir: get_option('datadir') / 'noctalia',
-  exclude_files: ['dev.noctalia.Noctalia.desktop', 'dev.noctalia.Noctalia.Annotator.desktop', 'dev.andromeda.Activity.desktop'],
+  exclude_files: ['dev.noctalia.Noctalia.desktop', 'dev.noctalia.Noctalia.Annotator.desktop', 'dev.andromeda.Activity.desktop',
+                  'dev.andromeda.Wallpaper.desktop'],
 )
 
 install_data(
@@ -1138,6 +1140,7 @@ install_data(
   'assets/dev.noctalia.Noctalia.desktop',
   'assets/dev.noctalia.Noctalia.Annotator.desktop',
   'assets/dev.andromeda.Activity.desktop',
+  'assets/dev.andromeda.Wallpaper.desktop',
   install_dir: get_option('datadir') / 'applications',
 )
 

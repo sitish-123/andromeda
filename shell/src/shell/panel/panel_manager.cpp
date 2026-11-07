@@ -614,6 +614,10 @@ void PanelManager::openPanel(const std::string& panelId, PanelOpenRequest reques
     openPanel(alias->second.first, request);
     return;
   }
+  if (const auto window = m_windowPanels.find(panelId); window != m_windowPanels.end()) {
+    window->second.open(false, request.output);
+    return;
+  }
   if (m_inTransition || m_afterCaptureClose) {
     return;
   }
@@ -1843,6 +1847,10 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
     togglePanel(alias->second.first, request);
     return;
   }
+  if (const auto window = m_windowPanels.find(panelId); window != m_windowPanels.end()) {
+    window->second.open(true, request.output);
+    return;
+  }
   if (m_persistentHost.hasPanel(panelId)) {
     if (m_persistentHost.isOpen(panelId)) {
       m_persistentHost.close(panelId);
@@ -1877,6 +1885,10 @@ void PanelManager::togglePanel(const std::string& panelId, PanelOpenRequest requ
 void PanelManager::togglePanel(const std::string& panelId) {
   if (const auto alias = m_panelAliases.find(panelId); alias != m_panelAliases.end()) {
     togglePanel(alias->second.first, PanelOpenRequest{.context = alias->second.second});
+    return;
+  }
+  if (const auto window = m_windowPanels.find(panelId); window != m_windowPanels.end()) {
+    window->second.open(true, nullptr);
     return;
   }
   if (m_persistentHost.hasPanel(panelId)) {
@@ -3952,7 +3964,7 @@ void PanelManager::registerIpc(IpcService& ipc) {
         if (auto error = parseOpenArgs(args, "panel-toggle", panelId, context)) {
           return *error;
         }
-        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId)) {
+        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId) && !m_windowPanels.contains(panelId)) {
           return unknownPanelError(panelId);
         }
         // Output left unset: openPanel resolves it (focus source, else compositor probe).
@@ -3972,7 +3984,7 @@ void PanelManager::registerIpc(IpcService& ipc) {
         if (auto error = parseOpenArgs(args, "panel-open", panelId, context)) {
           return *error;
         }
-        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId)) {
+        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId) && !m_windowPanels.contains(panelId)) {
           return unknownPanelError(panelId);
         }
 
@@ -3995,8 +4007,13 @@ void PanelManager::registerIpc(IpcService& ipc) {
     if (!panelId.empty() && StringUtils::splitWhitespace(panelId).size() != 1) {
       return "error: panel-close accepts at most one panel id\n";
     }
-    if (!panelId.empty() && !m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId)) {
+    if (!panelId.empty() && !m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId)
+        && !m_windowPanels.contains(panelId)) {
       return unknownPanelError(panelId);
+    }
+    if (const auto window = m_windowPanels.find(panelId); window != m_windowPanels.end()) {
+      window->second.close();
+      return "ok\n";
     }
 
     if (!panelId.empty() && m_persistentHost.hasPanel(panelId)) {
