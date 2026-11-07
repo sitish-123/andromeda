@@ -392,7 +392,8 @@ namespace andromeda {
     const int borderWidth = view->decorationBorderWidth();
     const int outerBorderWidth = view->decorationOuterBorderWidth();
     const int total = borderWidth + outerBorderWidth;
-    const bool decorated = total > 0 && !view->currentFullscreen() && !view->maximizedToEdges();
+    // The live window's rule (View::surfaceRadius): a 0 px border still rounds the window.
+    const bool decorated = view->decorated() && !view->currentFullscreen() && !view->maximizedToEdges();
     const int scaledRadius = static_cast<int>(std::lround(view->decorationCornerRadius() * z));
     const int outerRadius = decorated ? scaledRadius : 0;
     const auto scaledWidth = [z](int width) {
