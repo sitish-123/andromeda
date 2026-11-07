@@ -3,6 +3,7 @@
 #include "auth/biometric_enrollment.h"
 #include "system/app_permissions.h"
 
+#include "shell/settings/font_family_catalog.h"
 #include "shell/settings/keybind_recorder.h"
 #include "shell/settings/settings_alert.h"
 
@@ -222,6 +223,7 @@ void SettingsWindow::initialize(
   m_dependencies = dependencies;
   m_upower = upower;
   m_accounts = accounts;
+  settings::prefetchFontFamilies();
   KeybindRecorder::setRecordingObserver([this](bool recording) {
     if (m_shortcutsInhibitor != nullptr) {
       zwp_keyboard_shortcuts_inhibitor_v1_destroy(m_shortcutsInhibitor);

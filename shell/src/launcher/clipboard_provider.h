@@ -33,7 +33,8 @@ public:
   // The stored text preview of a text entry (the row title is only its first line).
   [[nodiscard]] std::string text(const LauncherResult& result) const;
   // Encoded image bytes of an image entry (loads the payload from disk on first use); empty if none.
-  [[nodiscard]] std::vector<std::uint8_t> imageBytes(const LauncherResult& result);
+  // Loads the result's image data URI next (front of the queue); the results refresh when it lands.
+  void requestThumbnail(const LauncherResult& result);
   // Payload size in bytes, for the preview details.
   [[nodiscard]] std::size_t byteSize(const LauncherResult& result) const;
 

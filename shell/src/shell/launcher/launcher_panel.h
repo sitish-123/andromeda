@@ -177,6 +177,17 @@ private:
   UsageTracker m_usageTracker;
   SearchBroker m_searchBroker{m_providers, m_usageTracker, "/"};
   IconResolver m_iconResolver;
+  // App icon lookups run on the SharedWorker after startup and after each close, so an open only reads the cache.
+  void prefetchAppIcons();
+  // Lays out the first page of the Emoji and Symbols modes once after startup, one string per tick: the first layout
+  // of a script makes Pango find and load its fallback font (~8-13 ms each), which otherwise lands on the first open.
+  void warmModeText();
+  std::vector<std::pair<std::string, float>> m_textWarmup;
+  Timer m_textWarmupTimer;
+  Timer m_iconPrefetchTimer;
+  std::uint64_t m_iconPrefetchKey = 0;
+  bool m_iconPrefetching = false;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 
   Flex* m_container = nullptr;
   Input* m_input = nullptr;

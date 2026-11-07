@@ -37,7 +37,8 @@ public:
 private:
   [[nodiscard]] std::vector<LauncherResult> evaluate(std::string_view text) const;
 
-  // Replace m_calc with a fresh engine from the noctalia-calc module; nullptr when the module is missing.
+  // Replaces m_calc with a fresh engine from the noctalia-calc module (nullptr when the module is missing). The
+  // engine loads its definitions on the SharedWorker (~40 ms); math results wait until it lands.
   void rebuildCalculator();
   void loadCalculator();
 
@@ -53,6 +54,9 @@ private:
   HttpClient* m_httpClient = nullptr;
   std::unique_ptr<CalcEngine> m_calc;
   Timer m_loadTimer;
+  bool m_loading = false;
+  bool m_reloadAgain = false;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   std::filesystem::path m_definitionsDir;
   Inotify m_inotify;
   std::optional<int> m_definitionsWatcher;

@@ -675,6 +675,14 @@ const std::string& IconResolver::resolve(const std::string& iconName, int target
   return ins->second;
 }
 
+void IconResolver::prime(const std::string& iconName, int targetSize, std::string path, std::uint64_t generation) {
+  ensureFresh();
+  if (iconName.empty() || path.empty() || generation != m_generation) {
+    return;
+  }
+  m_cache.try_emplace(iconName + '\x1F' + std::to_string(std::max(0, targetSize)), std::move(path));
+}
+
 ResolvedIcon IconResolver::resolveSymbolicPreferred(const std::string& iconName, int targetSize) {
   if (iconName.empty()) {
     return {};

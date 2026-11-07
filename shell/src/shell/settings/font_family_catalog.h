@@ -11,8 +11,10 @@ namespace settings {
   // Parses `fc-list : family` output into unescaped families, deduplicated and sorted case-insensitively.
   [[nodiscard]] std::vector<std::string> parseFontFamilyList(std::string_view output);
 
-  // Installed font families, deduplicated and sorted case-insensitively. Discovered once via
-  // `fc-list` and cached for the process lifetime.
+  // Starts the font scan on the SharedWorker, so the first Settings open does not run FcFontList.
+  void prefetchFontFamilies();
+  // Installed font families, deduplicated and sorted case-insensitively. Listed once through fontconfig and cached
+  // for the process lifetime; waits for a running prefetch.
   [[nodiscard]] const std::vector<std::string>& discoverFontFamilies();
 
   // Select options for a per-widget font picker: an inherit/default entry (empty value) followed by

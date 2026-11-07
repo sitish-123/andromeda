@@ -49,6 +49,8 @@ public:
   // Returns empty when normal lookup selects application artwork or a bitmap.
   std::string resolveStatusVector(const std::string& iconName, int targetSize);
   void invalidateMissingCache();
+  // Adds a lookup another resolver made (e.g. on a worker) for the same theme generation; a stale one is dropped.
+  void prime(const std::string& iconName, int targetSize, std::string path, std::uint64_t generation);
 
   static bool checkThemeChanged();
   static bool checkThemePlanChanged();

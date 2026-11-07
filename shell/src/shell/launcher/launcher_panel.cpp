@@ -3,6 +3,11 @@
 #include "shell/launcher/launcher_adapters.h"
 #include "shell/launcher/launcher_panel_detail.h"
 
+#include "core/shared_worker.h"
+#include "render/render_context.h"
+#include "render/render_target.h"
+#include "shell/panel/panel_surface_style.h"
+
 LauncherPanel::LauncherPanel(ConfigService* config, AccountsService* accounts, AsyncTextureCache* asyncTextures)
     : m_iconResolver(true), m_config(config), m_accounts(accounts), m_asyncTextures(asyncTextures) {}
 
@@ -108,6 +113,97 @@ void LauncherPanel::addProvider(std::unique_ptr<LauncherProvider> provider) {
     finishActivation(*providerPtr, resultId, copied);
   });
   m_providers.push_back(std::move(provider));
+  if (providerPtr->id() == kApplicationsProviderId) {
+    m_iconPrefetchTimer.start(std::chrono::seconds(3), [this] { prefetchAppIcons(); });
+  }
+}
+
+void LauncherPanel::prefetchAppIcons() {
+  const auto apps =
+      std::ranges::find(m_providers, kApplicationsProviderId, [](const auto& provider) { return provider->id(); });
+  if (m_iconPrefetching || apps == m_providers.end()) {
+    return;
+  }
+  // The size the next open resolves at: create() sets the layout mode and the panel scale only on open.
+  const int size = static_cast<int>(std::round(launcherIconSize(launcherListStyleFrom(
+      usesBrowserLayout(), m_config, shell::panel_surface::contentScale(m_config), panelCardOpacity()
+  ))));
+  const std::uint64_t key = (desktopEntriesVersion() << 32U) ^ (IconResolver::themeGeneration() << 16U)
+      ^ static_cast<std::uint64_t>(size);
+  if (key == m_iconPrefetchKey) {
+    return;
+  }
+  std::vector<std::string> names{"application-x-executable"};
+  for (const auto& result : (*apps)->query("")) {
+    if (!result.iconName.empty() && result.iconPath.empty()) {
+      names.push_back(result.iconName);
+    }
+  }
+  struct Prefetch {
+    std::uint64_t generation = 0;
+    std::vector<std::pair<std::string, std::string>> paths;
+  };
+  m_iconPrefetching = true;
+  SharedWorker::instance().post<Prefetch>(
+      m_alive,
+      [names = std::move(names), size] {
+        IconResolver resolver;
+        Prefetch out{.generation = IconResolver::themeGeneration(), .paths = {}};
+        for (const auto& name : names) {
+          out.paths.emplace_back(name, resolver.resolve(name, size));
+        }
+        return out;
+      },
+      [this, size, key](Prefetch prefetch) {
+        m_iconPrefetching = false;
+        const bool first = m_iconPrefetchKey == 0;
+        m_iconPrefetchKey = key;
+        for (auto& [name, path] : prefetch.paths) {
+          m_iconResolver.prime(name, size, std::move(path), prefetch.generation);
+        }
+        if (first) {
+          warmModeText();
+        }
+      }
+  );
+}
+
+void LauncherPanel::warmModeText() {
+  const float scale = shell::panel_surface::contentScale(m_config);
+  const auto firstPage = [this](std::string_view id) {
+    const auto provider = std::ranges::find(m_providers, id, [](const auto& p) { return p->id(); });
+    return provider != m_providers.end() ? (*provider)->query("") : std::vector<LauncherResult>{};
+  };
+  constexpr std::size_t kRows = 8;
+  const auto emoji = firstPage("Emoji");
+  for (std::size_t i = 0; i < std::min(emoji.size(), kRows * kEmojiColumns); ++i) {
+    m_textWarmup.emplace_back(emoji[i].badge, Tokens::componentLauncherEmoji * scale);
+  }
+  if (!emoji.empty()) {
+    m_textWarmup.emplace_back(emoji.front().badge, Tokens::componentLauncherEmojiPreview * scale);
+  }
+  const auto symbols = firstPage("Symbols");
+  for (std::size_t i = 0; i < std::min<std::size_t>(symbols.size(), 3 * kRows); ++i) {
+    m_textWarmup.emplace_back(symbols[i].title, Style::fontSizeCaption * scale);
+    m_textWarmup.emplace_back(symbols[i].title, Style::fontSizeBody * scale);
+  }
+  const auto step = [this](const auto& self) -> void {
+    RenderContext* context = PanelManager::instance().renderContext();
+    if (m_textWarmup.empty() || context == nullptr) {
+      m_textWarmup.clear();
+      return;
+    }
+    // Up to ~4 ms of layouts per tick, so a frame in flight keeps its budget.
+    ScaledRenderer renderer(*context, 1.0F);
+    const auto start = std::chrono::steady_clock::now();
+    while (!m_textWarmup.empty() && std::chrono::steady_clock::now() - start < std::chrono::milliseconds(4)) {
+      const auto [text, size] = std::move(m_textWarmup.back());
+      m_textWarmup.pop_back();
+      (void)renderer.measureText(text, size);
+    }
+    m_textWarmupTimer.start(std::chrono::milliseconds(16), [this, self] { self(self); });
+  };
+  step(step);
 }
 
 void LauncherPanel::clearDynamicProviders() {
@@ -948,6 +1044,7 @@ void LauncherPanel::onOpen(std::string_view context) {
 
 void LauncherPanel::onClose() {
   stopPreviewGif();
+  m_iconPrefetchTimer.start(std::chrono::seconds(1), [this] { prefetchAppIcons(); });
   m_sentLiquid = -1.0F;
   if (m_actionsMenu != nullptr && m_actionsMenu->isOpen()) {
     m_actionsMenu->close();

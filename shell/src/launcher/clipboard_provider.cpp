@@ -166,13 +166,18 @@ std::string ClipboardProvider::text(const LauncherResult& result) const {
   return index == static_cast<std::size_t>(-1) ? std::string() : m_clipboard->history()[index].textPreview;
 }
 
-std::vector<std::uint8_t> ClipboardProvider::imageBytes(const LauncherResult& result) {
-  const std::size_t index = indexOf(result);
-  if (index == static_cast<std::size_t>(-1) || !m_clipboard->history()[index].isImage()
-      || !m_clipboard->ensureEntryLoaded(index)) {
-    return {};
+void ClipboardProvider::requestThumbnail(const LauncherResult& result) {
+  if (!result.id.starts_with(kIdPrefix)) {
+    return;
   }
-  return m_clipboard->history()[index].data;
+  const std::string id = result.id.substr(kIdPrefix.size());
+  if (m_thumbs.contains(id) || std::ranges::contains(m_pendingThumbs, id)) {
+    return;
+  }
+  m_pendingThumbs.insert(m_pendingThumbs.begin(), id);
+  if (!m_thumbTimer.active()) {
+    m_thumbTimer.start(std::chrono::milliseconds(0), [this] { loadNextThumbnail(); });
+  }
 }
 
 std::size_t ClipboardProvider::byteSize(const LauncherResult& result) const {

@@ -355,15 +355,21 @@ void LauncherPanel::bindPreview(Renderer& renderer) {
     const auto provider = std::ranges::find(m_providers, "Clipboard", [](const auto& p) { return p->id(); });
     clipboard = provider == m_providers.end() ? nullptr : dynamic_cast<ClipboardProvider*>(provider->get());
   }
-  // Decode only when the selection moves to another image: the payload may load from disk.
   if (!media) {
     stopPreviewGif();
   }
-  if (shot && clipboard != nullptr && m_previewShotId != result.id) {
-    m_previewShotId = result.id;
-    const auto bytes = clipboard->imageBytes(result);
-    if (bytes.empty() || !m_previewShot->setSourceBytes(renderer, bytes.data(), bytes.size())) {
+  // The image comes from the row's data URI (decrypted and encoded on the SharedWorker) and decodes in the async
+  // texture cache; an image without one yet asks for it and shows when the results refresh.
+  if (shot && clipboard != nullptr && m_previewShotId != result.id + result.iconPath) {
+    m_previewShotId = result.id + result.iconPath;
+    if (result.iconPath.empty() || m_asyncTextures == nullptr) {
       m_previewShot->clear(renderer);
+      clipboard->requestThumbnail(result);
+    } else {
+      (void)m_previewShot->setSourceFileAsync(
+          renderer, *m_asyncTextures, result.iconPath,
+          static_cast<int>(std::round(Tokens::componentLauncherPreviewMedia * 1.75F * scale))
+      );
     }
   }
   if (shot || media || body) {

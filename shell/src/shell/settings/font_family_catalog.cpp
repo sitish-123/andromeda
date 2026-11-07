@@ -1,11 +1,14 @@
 #include "shell/settings/font_family_catalog.h"
 
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "i18n/i18n.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
 #include <fontconfig/fontconfig.h>
+#include <future>
+#include <memory>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
@@ -79,9 +82,31 @@ namespace settings {
     return families;
   }
 
+  namespace {
+    std::shared_future<std::vector<std::string>>& familiesFuture() {
+      static std::shared_future<std::vector<std::string>> future;
+      return future;
+    }
+  } // namespace
+
+  void prefetchFontFamilies() {
+    auto& future = familiesFuture();
+    if (future.valid()) {
+      return;
+    }
+    auto task = std::make_shared<std::packaged_task<std::vector<std::string>()>>(discoverFontFamiliesUncached);
+    future = task->get_future().share();
+    SharedWorker::instance().post([task] { (*task)(); });
+  }
+
   const std::vector<std::string>& discoverFontFamilies() {
-    static const std::vector<std::string> kFamilies = discoverFontFamiliesUncached();
-    return kFamilies;
+    auto& future = familiesFuture();
+    if (!future.valid()) {
+      std::promise<std::vector<std::string>> families;
+      families.set_value(discoverFontFamiliesUncached());
+      future = families.get_future().share();
+    }
+    return future.get();
   }
 
   std::vector<WidgetSettingSelectOption> buildFontFamilySelectOptions() {

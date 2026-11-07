@@ -2,6 +2,7 @@
 
 #include "config/config_service.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "i18n/i18n.h"
 #include "launcher/calc_engine.h"
 #include "net/http_client.h"
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -112,8 +114,10 @@ void MathProvider::loadCalculator() { rebuildCalculator(); }
 
 void MathProvider::onLauncherOpened() {
   if (!m_calc) {
-    m_loadTimer.stop();
-    loadCalculator();
+    if (!m_loading) {
+      m_loadTimer.stop();
+      loadCalculator();
+    }
     return;
   }
 
@@ -143,12 +147,28 @@ void MathProvider::onLauncherOpened() {
 }
 
 void MathProvider::rebuildCalculator() {
+  if (m_loading) {
+    m_reloadAgain = true;
+    return;
+  }
   // Calculator::reset() leaves lazily cached items (e.g. the radian unit) dangling, full recreation instead.
   // Destroy the old engine first: libqalculate keeps one global Calculator pointer, which the new one sets.
   m_calc.reset();
-  if (const CreateEngine create = loadEngineModule()) {
-    m_calc.reset(create());
-  }
+  m_loading = true;
+  SharedWorker::instance().post<std::unique_ptr<CalcEngine>>(
+      m_alive,
+      [] {
+        const CreateEngine create = loadEngineModule();
+        return std::unique_ptr<CalcEngine>(create != nullptr ? create() : nullptr);
+      },
+      [this](std::unique_ptr<CalcEngine> engine) {
+        m_loading = false;
+        m_calc = std::move(engine);
+        if (std::exchange(m_reloadAgain, false)) {
+          rebuildCalculator();
+        }
+      }
+  );
 }
 
 bool MathProvider::watchDefinitionsDir() {
