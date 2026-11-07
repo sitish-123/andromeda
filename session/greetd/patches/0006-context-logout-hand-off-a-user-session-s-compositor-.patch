@@ -1,0 +1,296 @@
+From df317a774d50cfb0d40207d626f23101a4453de8 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 15:09:30 +0545
+Subject: [PATCH] context: logout hand-off: a user session's compositor sends
+ "logout" on its hand-off socket; greetd starts the greeter on its VT without
+ switching (ANDROMEDA_LOGIN_HANDOFF for the held frame), the greeter's
+ compositor asks for the switch, and its ready retires the user session
+
+---
+ greetd/src/context.rs | 150 ++++++++++++++++++++++++++++++++----------
+ greetd/src/server.rs  |   5 ++
+ 2 files changed, 122 insertions(+), 33 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 50aaa3b..d73ae20 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -8,7 +8,10 @@ use nix::{
+     sys::wait::{waitpid, WaitPidFlag, WaitStatus},
+     unistd::alarm,
+ };
+-use tokio::{sync::RwLock, time::sleep};
++use tokio::{
++    sync::{mpsc, Mutex, RwLock},
++    time::sleep,
++};
+ 
+ use crate::{
+     error::Error,
+@@ -58,6 +61,9 @@ pub struct Context {
+     runfile: String,
+     listener_path: String,
+     handoff: bool,
++    /// Hand-off: a user session's compositor asked to log out (`retire_on_ready`).
++    logout_tx: mpsc::UnboundedSender<()>,
++    logout_rx: Mutex<mpsc::UnboundedReceiver<()>>,
+ }
+ 
+ impl Context {
+@@ -73,6 +79,7 @@ impl Context {
+         listener_path: String,
+         handoff: bool,
+     ) -> Context {
++        let (logout_tx, logout_rx) = mpsc::unbounded_channel();
+         Context {
+             inner: RwLock::new(ContextInner {
+                 current: None,
+@@ -90,6 +97,8 @@ impl Context {
+             runfile,
+             listener_path,
+             handoff,
++            logout_tx,
++            logout_rx: Mutex::new(logout_rx),
+         }
+     }
+ 
+@@ -122,6 +131,7 @@ impl Context {
+         service: &str,
+         cmd: Vec<String>,
+         env: Vec<String>,
++        term_mode: &TerminalMode,
+     ) -> Result<SessionChild, Error> {
+         let mut scheduled_session = Session::new_external()?;
+         scheduled_session
+@@ -130,7 +140,7 @@ impl Context {
+                 class,
+                 user,
+                 false,
+-                &self.term_mode,
++                term_mode,
+                 self.source_profile,
+                 &self.listener_path,
+             )
+@@ -151,21 +161,69 @@ impl Context {
+     /// function does not take the inner lock, and can thus be used while it is
+     /// held.
+     async fn start_greeter(&self) -> Result<SessionChild, Error> {
++        self.start_greeter_on(&self.term_mode, vec![]).await
++    }
++
++    async fn start_greeter_on(&self, term_mode: &TerminalMode, mut env: Vec<String>) -> Result<SessionChild, Error> {
++        // The greeter stays up after its client finishes until the session reports its first frame.
++        if self.handoff {
++            env.push("GREETD_HANDOFF=1".to_string());
++        }
+         self.start_unauthenticated_session(
+             SessionClass::Greeter,
+             &self.greeter_user,
+             &self.greeter_service,
+             vec![self.greeter_bin.to_string()],
+-            // The greeter stays up after its client finishes until the session reports its first frame.
+-            if self.handoff {
+-                vec!["GREETD_HANDOFF=1".to_string()]
+-            } else {
+-                vec![]
+-            },
++            env,
++            term_mode,
+         )
+         .await
+     }
+ 
++    /// Resolves when a user session's compositor asks to log out.
++    pub async fn logout_requested(&self) {
++        let _ = self.logout_rx.lock().await.recv().await;
++    }
++
++    /// Logout hand-off, L6 in reverse: the greeter starts on its VT in the background while the user's compositor
++    /// keeps its frame and DRM master; the greeter's compositor asks for the VT switch once it holds the DRM device,
++    /// and its first frame retires the user session (the user's compositor also exits on its own once inactive).
++    pub async fn logout(&self) -> Result<(), Error> {
++        let mut inner = self.inner.write().await;
++        if inner.outgoing.is_some() || !inner.current.as_ref().is_some_and(|c| !c.is_greeter) {
++            return Ok(());
++        }
++        let TerminalMode::Terminal { path, vt, graphics, .. } = &self.term_mode else {
++            return Ok(());
++        };
++        let background = TerminalMode::Terminal {
++            path: path.clone(),
++            vt: *vt,
++            switch: false,
++            graphics: *graphics,
++        };
++        let stamp = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map(|d| d.as_secs())
++            .unwrap_or_default();
++        // The greeter's compositor holds the user's last frame until its own wallpaper maps (held_frame.cpp).
++        let greeter = self
++            .start_greeter_on(&background, vec![format!("ANDROMEDA_LOGIN_HANDOFF={stamp}")])
++            .await?;
++        let Some(mut user) = inner.current.replace(SessionChildSet {
++            child: greeter,
++            time: Instant::now(),
++            is_greeter: true,
++        }) else {
++            return Ok(());
++        };
++        user.time = Instant::now();
++        retire_on_ready(&self.greeter_user, Some(*vt), user.child.sub_task, None);
++        inner.outgoing = Some(user);
++        alarm::set(1);
++        Ok(())
++    }
++
+     /// Directly start a greeter session, bypassing the normal scheduling.
+     pub async fn greet(&self) -> Result<(), Error> {
+         {
+@@ -213,7 +271,7 @@ impl Context {
+         let mut inner = self.inner.write().await;
+         inner.current = Some(SessionChildSet {
+             child: self
+-                .start_unauthenticated_session(SessionClass::User, user, service, cmd, vec![])
++                .start_unauthenticated_session(SessionClass::User, user, service, cmd, vec![], &self.term_mode)
+                 .await?,
+             time: Instant::now(),
+             is_greeter: false,
+@@ -341,7 +399,7 @@ impl Context {
+                         });
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+-                            retire_on_ready(&s.user, s.vt, g.child.sub_task);
++                            retire_on_ready(&s.user, s.vt, g.child.sub_task, Some(self.logout_tx.clone()));
+                             inner.outgoing = Some(g);
+                         }
+                         inner.drm_hold = Some((cards, Instant::now()));
+@@ -528,13 +586,19 @@ fn hold_drm_cards() -> Vec<File> {
+ }
+ 
+ 
+-/// GDM-style hand-off over `/run/user/<uid>/greetd-handoff.sock`. The session compositor sends `switch` once it holds
+-/// the DRM device (inactive session) and greetd activates the session's VT: logind then pauses the greeter's devices
+-/// and resumes the compositor's in one step, so the kernel never gets a moment without a DRM master to restore its
+-/// console. After its first frame the compositor sends `ready` and the greeter session gets SIGTERM. A connection that
+-/// closes without a line is `ready` from a compositor that predates `switch`. Without `switch` greetd switches after
+-/// 3 s; without `ready` the alarm fallback retires the greeter after 10 s.
+-fn retire_on_ready(user: &str, vt: Option<usize>, greeter: nix::unistd::Pid) {
++/// GDM-style hand-off over `/run/user/<uid>/greetd-handoff.sock`, one request line per connection. The incoming
++/// compositor sends `switch` once it holds the DRM device (inactive session) and greetd activates `vt`: logind then
++/// pauses the outgoing session's devices and resumes the incoming ones in one step, so the kernel never gets a moment
++/// without a DRM master to restore its console. After its first frame the compositor sends `ready` and `outgoing`
++/// gets SIGTERM. A connection that closes without a line is `ready` from a compositor that predates `switch`.
++/// Without `switch` greetd switches after 3 s; without `ready` the alarm fallback retires `outgoing` after 10 s.
++/// With `logout`, the socket stays for the whole session: its `logout` request starts the logout hand-off.
++fn retire_on_ready(
++    user: &str,
++    vt: Option<usize>,
++    outgoing: nix::unistd::Pid,
++    logout: Option<mpsc::UnboundedSender<()>>,
++) {
+     let Ok(Some(account)) = nix::unistd::User::from_name(user) else {
+         if let Some(vt) = vt {
+             tokio::task::spawn_local(activate_vt(vt));
+@@ -558,35 +622,47 @@ fn retire_on_ready(user: &str, vt: Option<usize>, greeter: nix::unistd::Pid) {
+     }
+     tokio::task::spawn_local(async move {
+         use tokio::io::AsyncBufReadExt;
+-        use tokio::time::{timeout_at, Instant};
++        use tokio::time::{timeout, timeout_at, Instant};
+         let start = Instant::now();
+-        let deadline = start + Duration::from_secs(10);
++        let switch_deadline = start + Duration::from_secs(3);
++        let ready_deadline = start + Duration::from_secs(10);
+         let mut pending_vt = vt;
++        let mut retired = false;
+         'accept: loop {
+-            let until = if pending_vt.is_some() { start + Duration::from_secs(3) } else { deadline };
+-            let stream = match timeout_at(until, listener.accept()).await {
++            let until = match (pending_vt.is_some(), retired) {
++                (true, _) => Some(switch_deadline),
++                (false, false) => Some(ready_deadline),
++                (false, true) if logout.is_some() => None,
++                _ => break,
++            };
++            let accepted = match until {
++                Some(until) => timeout_at(until, listener.accept()).await,
++                None => Ok(listener.accept().await),
++            };
++            let stream = match accepted {
+                 Ok(Ok((stream, _))) => stream,
+                 Ok(Err(e)) => {
+                     eprintln!("hand-off: accept failed: {e}");
+                     break;
+                 }
+-                Err(_) => match pending_vt.take() {
+-                    Some(vt) => {
++                Err(_) => {
++                    if let Some(vt) = pending_vt.take() {
+                         eprintln!("hand-off: no switch request in 3 s, switching to VT {vt}");
+                         activate_vt(vt).await;
+-                        continue;
++                    } else {
++                        // The alarm fallback retires the outgoing session.
++                        retired = true;
+                     }
+-                    None => break,
+-                },
++                    continue;
++                }
+             };
+             let mut lines = tokio::io::BufReader::new(stream).lines();
+             let mut got_line = false;
+             loop {
+-                let line = match timeout_at(deadline, lines.next_line()).await {
++                let line = match timeout(Duration::from_secs(5), lines.next_line()).await {
+                     Ok(Ok(Some(line))) => line,
+-                    Ok(_) if got_line => continue 'accept,
+-                    Ok(_) => "ready".to_string(),
+-                    Err(_) => break 'accept,
++                    Ok(_) if !got_line => "ready".to_string(),
++                    _ => continue 'accept,
+                 };
+                 got_line = true;
+                 match line.trim() {
+@@ -599,10 +675,18 @@ fn retire_on_ready(user: &str, vt: Option<usize>, greeter: nix::unistd::Pid) {
+                         if let Some(vt) = pending_vt.take() {
+                             activate_vt(vt).await;
+                         }
+-                        let _ = nix::sys::signal::kill(greeter, nix::sys::signal::Signal::SIGTERM);
+-                        break 'accept;
++                        if !retired {
++                            retired = true;
++                            let _ = nix::sys::signal::kill(outgoing, nix::sys::signal::Signal::SIGTERM);
++                        }
++                    }
++                    "logout" if retired => {
++                        if let Some(logout) = &logout {
++                            let _ = logout.send(());
++                            break 'accept;
++                        }
+                     }
+-                    other => eprintln!("hand-off: unknown request {other:?}"),
++                    other => eprintln!("hand-off: unexpected request {other:?}"),
+                 }
+             }
+         }
+diff --git a/greetd/src/server.rs b/greetd/src/server.rs
+index a89a4a9..9e82ea8 100644
+--- a/greetd/src/server.rs
++++ b/greetd/src/server.rs
+@@ -284,6 +284,11 @@ pub async fn main(config: Config) -> Result<(), Error> {
+         tokio::select! {
+             _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {e}"))?,
+             _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {e}"))?,
++            _ = ctx.logout_requested() => {
++                if let Err(e) = ctx.logout().await {
++                    eprintln!("logout hand-off failed: {e}");
++                }
++            }
+             _ = term.recv() => {
+                 ctx.terminate().await.map_err(|e| format!("terminate: {e}"))?;
+                 break;
+-- 
+2.56.0
+

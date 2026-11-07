@@ -3,7 +3,6 @@
 #include "core/log.h"
 #include "wlr.h"
 
-#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -40,10 +39,8 @@ namespace andromeda::scanout_keeper {
       sd_bus_error_free(&error);
     }
 
-    std::string handoffSocketPath() {
-      const char* runtime = std::getenv("XDG_RUNTIME_DIR");
-      return runtime == nullptr ? std::string() : std::string(runtime) + "/greetd-handoff.sock";
-    }
+    // greetd binds it before the session starts (session/greetd patches).
+    std::string handoffSocketPath() { return "/run/greetd-handoff/" + std::to_string(getuid()) + ".sock"; }
 
     // One request per connection: greetd reads lines until the connection closes.
     bool sendHandoffRequest(const char* request) {
@@ -126,6 +123,14 @@ namespace andromeda::scanout_keeper {
     if (sendHandoffRequest("switch")) {
       kLog.info("asked greetd's hand-off for the VT switch");
     }
+  }
+
+  bool requestLogout() {
+    if (!sendHandoffRequest("logout")) {
+      return false;
+    }
+    kLog.info("asked greetd's hand-off to start the greeter for logout");
+    return true;
   }
 
   void expectFirstFrame() {

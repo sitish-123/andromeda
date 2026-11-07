@@ -581,6 +581,8 @@ namespace andromeda {
     void cancelInputCapture(uint64_t id);
     void inputCaptureStateChanged(bool active);
     static void onSessionActive(wl_listener* listener, void* data);
+    static int onLogoutHandoffTimer(void* data);
+    void startSessionShutdown();
     friend class Output;
 
     bool requestScreenCastCommand(ScreenCastCommandKind kind, std::string value, std::string* error);
@@ -965,6 +967,8 @@ namespace andromeda {
     bool m_sessionShutdownAvailable = false;
     bool m_sessionExitRequested = false;
     int m_sessionExitResultFd = -1;
+    // Logout hand-off: waits for greetd's greeter to take the VT before the shutdown target runs.
+    wl_event_source* m_logoutHandoffTimer = nullptr;
     wl_event_source* m_sessionExitResultSource = nullptr;
     std::string m_socketName;
     std::string m_systemdRunExecutable;

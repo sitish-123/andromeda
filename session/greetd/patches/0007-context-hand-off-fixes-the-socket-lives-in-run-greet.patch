@@ -1,0 +1,281 @@
+From 1e62c6bee457a3e6e438e69ebb63cb45a5fcf551 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 15:13:59 +0545
+Subject: [PATCH] context: hand-off fixes: the socket lives in
+ /run/greetd-handoff/<uid>.sock and is bound before the session starts; a
+ session that dies during the hand-off aborts its socket task and the new
+ greeter starts only after the old one exits; switch fallback 8 s; an outgoing
+ user session at logout ends itself (no SIGTERM, no alarm kill)
+
+---
+ greetd/src/context.rs | 142 ++++++++++++++++++++++++++++++------------
+ 1 file changed, 103 insertions(+), 39 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index d73ae20..359910a 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -47,6 +47,8 @@ struct ContextInner {
+     /// Hand-off: DRM card files held open across the greeter's exit. Closing the last open file of a card makes the
+     /// kernel put its console framebuffer (stale boot text) back on screen before the session compositor opens it.
+     drm_hold: Option<(Vec<File>, Instant)>,
++    /// Hand-off: the socket task of the incoming session; it must not switch to a session that already ended.
++    handoff_task: Option<tokio::task::AbortHandle>,
+ }
+ 
+ /// Context keeps track of running sessions and start new ones.
+@@ -87,6 +89,7 @@ impl Context {
+                 configuring: None,
+                 outgoing: None,
+                 drm_hold: None,
++                handoff_task: None,
+             }),
+             greeter_bin,
+             greeter_user,
+@@ -190,6 +193,8 @@ impl Context {
+     /// and its first frame retires the user session (the user's compositor also exits on its own once inactive).
+     pub async fn logout(&self) -> Result<(), Error> {
+         let mut inner = self.inner.write().await;
++        // An outgoing greeter (logout within seconds of login) still holds the greeter VT: the user's compositor then
++        // ends after its 10 s wait and greetd starts the greeter the plain way.
+         if inner.outgoing.is_some() || !inner.current.as_ref().is_some_and(|c| !c.is_greeter) {
+             return Ok(());
+         }
+@@ -206,10 +211,20 @@ impl Context {
+             .duration_since(std::time::UNIX_EPOCH)
+             .map(|d| d.as_secs())
+             .unwrap_or_default();
++        let socket = bind_handoff(&self.greeter_user);
+         // The greeter's compositor holds the user's last frame until its own wallpaper maps (held_frame.cpp).
+-        let greeter = self
++        let greeter = match self
+             .start_greeter_on(&background, vec![format!("ANDROMEDA_LOGIN_HANDOFF={stamp}")])
+-            .await?;
++            .await
++        {
++            Ok(greeter) => greeter,
++            Err(e) => {
++                if let Some((_, path)) = socket {
++                    let _ = std::fs::remove_file(path);
++                }
++                return Err(e);
++            }
++        };
+         let Some(mut user) = inner.current.replace(SessionChildSet {
+             child: greeter,
+             time: Instant::now(),
+@@ -218,9 +233,9 @@ impl Context {
+             return Ok(());
+         };
+         user.time = Instant::now();
+-        retire_on_ready(&self.greeter_user, Some(*vt), user.child.sub_task, None);
++        // The user session ends itself: its compositor runs its shutdown once the greeter took the VT.
++        inner.handoff_task = Some(serve_handoff(socket, Some(*vt), None, None));
+         inner.outgoing = Some(user);
+-        alarm::set(1);
+         Ok(())
+     }
+ 
+@@ -388,18 +403,30 @@ impl Context {
+ 
+                     if self.handoff {
+                         let cards = hold_drm_cards();
++                        // Bound before the start, so the compositor finds it at its first check.
++                        let socket = bind_handoff(&s.user);
+                         // The session starts on its own VT in the background; its compositor asks for the VT switch
+                         // once it holds the DRM device, so logind moves DRM master in one step.
+-                        let child = s.session.start().await?;
++                        let child = match s.session.start().await {
++                            Ok(child) => child,
++                            Err(e) => {
++                                if let Some((_, path)) = socket {
++                                    let _ = std::fs::remove_file(path);
++                                }
++                                return Err(e);
++                            }
++                        };
+                         let mut inner = self.inner.write().await;
+                         let greeter = inner.current.replace(SessionChildSet {
+                             child,
+                             time: Instant::now(),
+                             is_greeter: false,
+                         });
++                        let outgoing = greeter.as_ref().map(|g| g.child.sub_task);
++                        inner.handoff_task =
++                            Some(serve_handoff(socket, s.vt, outgoing, Some(self.logout_tx.clone())));
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+-                            retire_on_ready(&s.user, s.vt, g.child.sub_task, Some(self.logout_tx.clone()));
+                             inner.outgoing = Some(g);
+                         }
+                         inner.drm_hold = Some((cards, Instant::now()));
+@@ -434,11 +461,12 @@ impl Context {
+         // Keep trying to terminate the greeter until it gives up.
+         let mut inner = self.inner.write().await;
+ 
+-        // Fallback for a session that never reports ready: the greeter must not stay forever.
+-        if let Some(g) = &inner.outgoing {
+-            if g.time.elapsed() > Duration::from_secs(15) {
++        // Fallback for a session that never reports ready: the greeter must not stay forever. An outgoing user
++        // session (logout) ends itself after its shutdown target.
++        if let Some(g) = inner.outgoing.as_ref().filter(|g| g.is_greeter) {
++            if g.time.elapsed() > Duration::from_secs(20) {
+                 g.child.kill();
+-            } else if g.time.elapsed() >= Duration::from_secs(10) {
++            } else if g.time.elapsed() >= Duration::from_secs(15) {
+                 g.child.term();
+             }
+             alarm::set(1);
+@@ -495,6 +523,15 @@ impl Context {
+                     let mut inner = self.inner.write().await;
+                     if inner.outgoing.as_ref().is_some_and(|g| g.child.owns_pid(pid)) {
+                         inner.outgoing = None;
++                        // The incoming session ended before its hand-off finished: the greeter starts only now, so
++                        // two greeters never share the greeter VT.
++                        if inner.current.is_none() && inner.scheduled.is_none() {
++                            inner.current = Some(SessionChildSet {
++                                child: self.start_greeter().await?,
++                                time: Instant::now(),
++                                is_greeter: true,
++                            });
++                        }
+                         continue;
+                     }
+                     let (was_greeter, sesion_length) = match &inner.current {
+@@ -505,6 +542,16 @@ impl Context {
+                         }
+                         _ => continue,
+                     };
++                    if let Some(task) = inner.handoff_task.take() {
++                        task.abort();
++                    }
++                    if !was_greeter && inner.scheduled.is_none() {
++                        if let Some(g) = &inner.outgoing {
++                            // A crashed user session during the login hand-off: the old greeter goes first.
++                            g.child.term();
++                            continue;
++                        }
++                    }
+ 
+                     match inner.scheduled.take() {
+                         Some(mut scheduled) => {
+@@ -586,46 +633,60 @@ fn hold_drm_cards() -> Vec<File> {
+ }
+ 
+ 
+-/// GDM-style hand-off over `/run/user/<uid>/greetd-handoff.sock`, one request line per connection. The incoming
+-/// compositor sends `switch` once it holds the DRM device (inactive session) and greetd activates `vt`: logind then
+-/// pauses the outgoing session's devices and resumes the incoming ones in one step, so the kernel never gets a moment
+-/// without a DRM master to restore its console. After its first frame the compositor sends `ready` and `outgoing`
+-/// gets SIGTERM. A connection that closes without a line is `ready` from a compositor that predates `switch`.
+-/// Without `switch` greetd switches after 3 s; without `ready` the alarm fallback retires `outgoing` after 10 s.
+-/// With `logout`, the socket stays for the whole session: its `logout` request starts the logout hand-off.
+-fn retire_on_ready(
+-    user: &str,
+-    vt: Option<usize>,
+-    outgoing: nix::unistd::Pid,
+-    logout: Option<mpsc::UnboundedSender<()>>,
+-) {
+-    let Ok(Some(account)) = nix::unistd::User::from_name(user) else {
+-        if let Some(vt) = vt {
+-            tokio::task::spawn_local(activate_vt(vt));
+-        }
+-        return;
+-    };
+-    let path = format!("/run/user/{}/greetd-handoff.sock", account.uid);
++/// The hand-off socket of a user; greetd owns the directory, so it exists before the user's runtime dir does.
++fn handoff_path(uid: nix::unistd::Uid) -> String {
++    format!("/run/greetd-handoff/{uid}.sock")
++}
++
++/// Binds the user's hand-off socket before the session starts, so its compositor never misses it.
++fn bind_handoff(user: &str) -> Option<(tokio::net::UnixListener, String)> {
++    let account = nix::unistd::User::from_name(user).ok().flatten()?;
++    if let Err(e) = std::fs::create_dir_all("/run/greetd-handoff") {
++        eprintln!("hand-off: unable to create /run/greetd-handoff: {e}");
++        return None;
++    }
++    let path = handoff_path(account.uid);
+     let _ = std::fs::remove_file(&path);
+     let listener = match tokio::net::UnixListener::bind(&path) {
+         Ok(listener) => listener,
+         Err(e) => {
+             eprintln!("hand-off: unable to listen on {path}: {e}");
+-            if let Some(vt) = vt {
+-                tokio::task::spawn_local(activate_vt(vt));
+-            }
+-            return;
++            return None;
+         }
+     };
+     if let Err(e) = nix::unistd::chown(path.as_str(), Some(account.uid), Some(account.gid)) {
+         eprintln!("hand-off: unable to chown {path}: {e}");
+     }
++    Some((listener, path))
++}
++
++/// GDM-style hand-off over `/run/greetd-handoff/<uid>.sock`, one request line per connection. The incoming
++/// compositor sends `switch` once it holds the DRM device (inactive session) and greetd activates `vt`: logind then
++/// pauses the outgoing session's devices and resumes the incoming ones in one step, so the kernel never gets a moment
++/// without a DRM master to restore its console. After its first frame the compositor sends `ready` and `outgoing`
++/// gets SIGTERM. A connection that closes without a line is `ready` from a compositor that predates `switch`.
++/// Without `switch` greetd switches after 8 s; without `ready` the alarm fallback retires an outgoing greeter after 15 s.
++/// With `logout`, the socket stays for the whole session: its `logout` request starts the logout hand-off.
++fn serve_handoff(
++    socket: Option<(tokio::net::UnixListener, String)>,
++    vt: Option<usize>,
++    outgoing: Option<nix::unistd::Pid>,
++    logout: Option<mpsc::UnboundedSender<()>>,
++) -> tokio::task::AbortHandle {
++    let Some((listener, path)) = socket else {
++        return tokio::task::spawn_local(async move {
++            if let Some(vt) = vt {
++                activate_vt(vt).await;
++            }
++        })
++        .abort_handle();
++    };
+     tokio::task::spawn_local(async move {
+         use tokio::io::AsyncBufReadExt;
+         use tokio::time::{timeout, timeout_at, Instant};
+         let start = Instant::now();
+-        let switch_deadline = start + Duration::from_secs(3);
+-        let ready_deadline = start + Duration::from_secs(10);
++        let switch_deadline = start + Duration::from_secs(8);
++        let ready_deadline = start + Duration::from_secs(15);
+         let mut pending_vt = vt;
+         let mut retired = false;
+         'accept: loop {
+@@ -647,7 +708,7 @@ fn retire_on_ready(
+                 }
+                 Err(_) => {
+                     if let Some(vt) = pending_vt.take() {
+-                        eprintln!("hand-off: no switch request in 3 s, switching to VT {vt}");
++                        eprintln!("hand-off: no switch request in 8 s, switching to VT {vt}");
+                         activate_vt(vt).await;
+                     } else {
+                         // The alarm fallback retires the outgoing session.
+@@ -677,7 +738,9 @@ fn retire_on_ready(
+                         }
+                         if !retired {
+                             retired = true;
+-                            let _ = nix::sys::signal::kill(outgoing, nix::sys::signal::Signal::SIGTERM);
++                            if let Some(outgoing) = outgoing {
++                                let _ = nix::sys::signal::kill(outgoing, nix::sys::signal::Signal::SIGTERM);
++                            }
+                         }
+                     }
+                     "logout" if retired => {
+@@ -694,7 +757,8 @@ fn retire_on_ready(
+             activate_vt(vt).await;
+         }
+         let _ = std::fs::remove_file(&path);
+-    });
++    })
++    .abort_handle()
+ }
+ 
+ /// Activates `vt` and waits until it is in front; VT_WAITACTIVE blocks, so it runs off the event loop. Plain
+-- 
+2.56.0
+

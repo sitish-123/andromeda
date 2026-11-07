@@ -1,5 +1,6 @@
 #include "core/cpu_boost.h"
 #include "core/systemd_units.h"
+#include "core/scanout_keeper.h"
 #include "qos/controller.h"
 #include "server/server.h"
 #include "server/apps_bus.h"
@@ -561,6 +562,11 @@ namespace andromeda {
   void Server::onSessionActive(wl_listener* listener, void* /*data*/) {
     Server* self;
     self = wl_container_of(listener, self, m_sessionActive);
+    if (!self->m_session->active && self->m_logoutHandoffTimer != nullptr) {
+      wl_event_source_remove(std::exchange(self->m_logoutHandoffTimer, nullptr));
+      kLog.info("the greeter took the display; ending the session");
+      self->startSessionShutdown();
+    }
     if (!self->m_session->active) {
       if (self->m_inputCapture != nullptr) {
         self->m_inputCapture->suspend();
@@ -1056,6 +1062,9 @@ namespace andromeda {
     }
     if (m_sessionExitResultSource != nullptr) {
       wl_event_source_remove(m_sessionExitResultSource);
+    }
+    if (m_logoutHandoffTimer != nullptr) {
+      wl_event_source_remove(m_logoutHandoffTimer);
     }
     if (m_sessionExitResultFd >= 0) {
       close(m_sessionExitResultFd);
@@ -1823,6 +1832,27 @@ namespace andromeda {
       return;
     }
     m_sessionExitRequested = true;
+    // Logout hand-off (session/greetd patches): greetd starts the greeter in the background, and it takes the VT from
+    // this session in one logind step. The desktop stays on screen until then; the shutdown runs while inactive.
+    if (m_session != nullptr && m_session->active && scanout_keeper::requestLogout()) {
+      m_logoutHandoffTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_display), onLogoutHandoffTimer, this);
+      if (m_logoutHandoffTimer != nullptr) {
+        wl_event_source_timer_update(m_logoutHandoffTimer, 10'000);
+        return;
+      }
+    }
+    startSessionShutdown();
+  }
+
+  int Server::onLogoutHandoffTimer(void* data) {
+    auto* self = static_cast<Server*>(data);
+    wl_event_source_remove(std::exchange(self->m_logoutHandoffTimer, nullptr));
+    kLog.warn("the greeter did not take the display in 10 s; ending the session");
+    self->startSessionShutdown();
+    return 0;
+  }
+
+  void Server::startSessionShutdown() {
     int resultPipe[2]{-1, -1};
     if (pipe2(resultPipe, O_CLOEXEC | O_NONBLOCK) != 0) {
       kLog.error("cannot create session shutdown pipe: {}", std::strerror(errno));

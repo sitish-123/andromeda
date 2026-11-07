@@ -486,7 +486,10 @@ int main(int argc, char** argv) {
 #endif
 
     server.run();
-    andromeda::scanout_keeper::holdForNextCompositor(server.backend());
+    // An inactive session lost the display to the next compositor (logout hand-off): nothing to hold.
+    if (server.session() == nullptr || server.session()->active) {
+      andromeda::scanout_keeper::holdForNextCompositor(server.backend());
+    }
     kLog.info("shutting down");
     return EXIT_SUCCESS;
   } catch (const std::exception& ex) {

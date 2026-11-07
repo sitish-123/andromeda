@@ -13,6 +13,8 @@ namespace andromeda::scanout_keeper {
   // activate it, "ready" (after the first frame) retires the greeter.
   [[nodiscard]] bool switchOffered();
   void requestSwitch();
+  // Logout: greetd starts the greeter, which takes the VT once it holds the DRM device. False without a hand-off.
+  [[nodiscard]] bool requestLogout();
 
   void expectFirstFrame();
   void firstFrameShown();
