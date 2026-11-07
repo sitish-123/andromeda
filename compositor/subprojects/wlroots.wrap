@@ -3,7 +3,8 @@ url = https://gitlab.freedesktop.org/wlroots/wlroots.git
 revision = 0.20.2
 depth = 1
 # Skips the cursor plane in an atomic commit when the cursor did not change (upstream re-arms it each frame).
-diff_files = wlroots-cursor-plane-unchanged.patch
+# Skips layer feedback for planes another CRTC still holds at startup (no liftoff handle; upstream reads NULL).
+diff_files = wlroots-cursor-plane-unchanged.patch, wlroots-feedback-unregistered-plane.patch
 
 [provide]
 dependency_names = wlroots-0.20

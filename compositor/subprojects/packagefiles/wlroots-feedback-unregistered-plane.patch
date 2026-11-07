@@ -1,0 +1,16 @@
+diff --git a/backend/drm/libliftoff.c b/backend/drm/libliftoff.c
+index 333beac..2d88f84 100644
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -260,8 +260,9 @@ static void update_layer_feedback(struct wlr_drm_backend *drm,
+ 	bool changed = false;
+ 	for (size_t i = 0; i < drm->num_planes; i++) {
+ 		struct wlr_drm_plane *plane = &drm->planes[i];
+-		bool is_candidate = liftoff_layer_is_candidate_plane(layer->liftoff,
+-			plane->liftoff);
++		// A plane still owned by another CRTC since startup has no liftoff handle yet.
++		bool is_candidate = plane->liftoff != NULL &&
++			liftoff_layer_is_candidate_plane(layer->liftoff, plane->liftoff);
+ 		if (layer->candidate_planes[i] != is_candidate) {
+ 			layer->candidate_planes[i] = is_candidate;
+ 			changed = true;
