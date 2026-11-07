@@ -20,6 +20,11 @@ export XDG_RUNTIME_DIR
 mkdir -p "${XDG_RUNTIME_DIR}"
 chmod 700 "${XDG_RUNTIME_DIR}"
 unset WAYLAND_DISPLAY
+# Persistent caches (Mesa shaders, fontconfig): the greeter user's home is / (andromeda-greeter.tmpfiles).
+if [ -z "${XDG_CACHE_HOME:-}" ] && [ -w /var/cache/andromeda-greeter ]; then
+  XDG_CACHE_HOME=/var/cache/andromeda-greeter
+  export XDG_CACHE_HOME
+fi
 
 for bin in "${COMPOSITOR_BIN}" "${NOCTALIA_BIN}"; do
   if [ ! -x "${bin}" ]; then

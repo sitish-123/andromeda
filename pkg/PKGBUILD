@@ -3,7 +3,7 @@ pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-por
   andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git andromeda-greetd)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r15118.g323ef68bf
+pkgver=r15332.g18ac4627d
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -105,6 +105,8 @@ package_andromeda-greetd() {
   install -Dm644 desktop/session/greetd/greetd.pam "$pkgdir/etc/pam.d/greetd"
   install -Dm644 desktop/session/greetd/greetd.service "$pkgdir/usr/lib/systemd/system/greetd.service"
   install -Dm644 desktop/session/greetd/greetd.sysusers "$pkgdir/usr/lib/sysusers.d/greetd.conf"
+  # The cache dir of the greeter user this package creates (shader cache for greeter mode).
+  install -Dm644 desktop/session/greetd/andromeda-greeter.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/andromeda-greeter.conf"
   install -Dm644 greetd/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
