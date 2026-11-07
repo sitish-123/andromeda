@@ -803,6 +803,7 @@
       "quick": "Quick Settings"
     },
     "weather": {
+      "back": "Back to Calendar",
       "daily": {
         "tooltip": {
           "condition": "Condition",
@@ -816,6 +817,7 @@
       "details": {
         "elevation": "Elevation",
         "feels-like": "Feels Like",
+        "humidity": "Humidity",
         "sunrise": "Sunrise",
         "sunset": "Sunset",
         "temp-max": "Temperature Max",
@@ -825,6 +827,7 @@
         "wind": "Wind"
       },
       "disabled": "Enable [weather] in config.toml",
+      "feels": "Feels like {temp}°",
       "fetching": "Fetching forecast…",
       "forecast-placeholder": {
         "day": "Sunday",
@@ -847,8 +850,21 @@
       "location-unavailable": "Location unavailable",
       "no-location-body": "Add your address or enable auto-locate in Location settings.",
       "no-location-title": "No location set",
+      "now": "Now",
+      "off-body": "Turn on Weather in Settings to see the forecast.",
+      "off-title": "Weather is off",
       "refreshing": "Refreshing weather…",
-      "waiting": "Waiting for weather data"
+      "set-location": "Set Location…",
+      "sunset-at": "Sunset {time}",
+      "uv": {
+        "extreme": "Extreme",
+        "high": "High",
+        "low": "Low",
+        "moderate": "Moderate",
+        "very-high": "Very High"
+      },
+      "waiting": "Waiting for weather data",
+      "wind-from": "From {direction}"
     },
     "quick": {
       "all-devices": "All Devices…",

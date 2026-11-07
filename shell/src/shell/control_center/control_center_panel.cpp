@@ -124,7 +124,7 @@ float ControlCenterPanel::preferredWidth() const {
 
 bool ControlCenterPanel::fitsContentHeight() const noexcept {
   const TabId tab = tabFromContext(pendingOpenContext());
-  return tab == TabId::Quick || tab == TabId::Calendar || isDetailTab(tab);
+  return tab == TabId::Quick || tab == TabId::Calendar || tab == TabId::Weather || isDetailTab(tab);
 }
 
 float ControlCenterPanel::preferredHeight() const {
@@ -143,6 +143,11 @@ float ControlCenterPanel::measureContentHeight(Renderer& renderer, float content
   if (m_activeTab == TabId::Calendar) {
     if (auto* calendar = dynamic_cast<CalendarTab*>(m_tabs[tabIndex(TabId::Calendar)].get()); calendar != nullptr) {
       return calendar->measureHeight(renderer, contentWidth);
+    }
+  }
+  if (m_activeTab == TabId::Weather) {
+    if (auto* weather = dynamic_cast<WeatherTab*>(m_tabs[tabIndex(TabId::Weather)].get()); weather != nullptr) {
+      return weather->measureHeight(renderer, contentWidth);
     }
   }
   auto* quick = dynamic_cast<QuickTab*>(m_tabs[tabIndex(TabId::Quick)].get());
@@ -685,11 +690,13 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
   }
 
   if (m_backButton != nullptr) {
-    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar);
+    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar && tab != TabId::Weather);
   }
   if (m_contentHeader != nullptr) {
-    // The clock calendar sheet draws its own date header.
-    m_contentHeader->setVisible(tab != TabId::Quick && !(tab == TabId::Calendar && !m_showSidebar));
+    // The clock calendar and weather sheets draw their own headers.
+    m_contentHeader->setVisible(
+        tab != TabId::Quick && !((tab == TabId::Calendar || tab == TabId::Weather) && !m_showSidebar)
+    );
   }
   if (m_sidebarNav != nullptr) {
     m_sidebarNav->notifyExternalSelectionChanged();
@@ -1044,7 +1051,8 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
 
 bool ControlCenterPanel::isSheetContext(std::string_view context) const {
   const TabId tab = tabFromContext(context);
-  return tab == TabId::Quick || tab == TabId::Network || tab == TabId::Calendar || isDetailTab(tab);
+  return tab == TabId::Quick || tab == TabId::Network || tab == TabId::Calendar || tab == TabId::Weather
+      || isDetailTab(tab);
 }
 
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {
