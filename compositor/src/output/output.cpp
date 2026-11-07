@@ -228,6 +228,15 @@ namespace andromeda {
 
     applyCursorConfig();
     m_desktopEnabled = m_server->initialOutputEnabled(*this);
+    if (m_heldFrame != nullptr) {
+      // The first commit renders the scene before the output joins the layout; placed only after it, the held frame
+      // missed that frame and the hand-off showed one black frame. The layout box below corrects the placement.
+      const double scale = m_output->scale > 0.0F ? m_output->scale : 1.0;
+      m_heldFrame->setBox(
+          m_sceneOutput->x, m_sceneOutput->y, static_cast<int>(std::lround(m_heldFrame->bufferWidth() / scale)),
+          static_cast<int>(std::lround(m_heldFrame->bufferHeight() / scale))
+      );
+    }
     if (!applyConfiguredState()) {
       // Do not advertise a logical output whose initial backend enable failed.
       // Keeping it disabled lets a later output-enable action retry the commit.
@@ -890,6 +899,11 @@ namespace andromeda {
           if (secureMask == nullptr) {
             wlr_output_state_finish(&frameState);
             return FormatCommitResult::Retry;
+          }
+          // At login the held greeter frame covers the whole output: it stays over the mask, or the hand-off's first
+          // frame is the mask (a black blink between the greeter and the desktop).
+          if (m_heldFrame != nullptr && !m_server->sessionLocked()) {
+            wlr_scene_node_raise_to_top(&m_server->heldFrameTree()->node);
           }
         }
 
