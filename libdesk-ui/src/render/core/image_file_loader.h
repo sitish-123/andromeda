@@ -19,3 +19,6 @@ loadImageFile(const std::string& path, int targetSize = 0, bool centerSquareCrop
 
 // Approximate Gaussian blur (three box passes) of a tightly packed RGBA buffer, in place.
 void blurRgba(std::vector<std::uint8_t>& rgba, int width, int height, int radius);
+
+// 90th-percentile relative luminance (WCAG) of an RGBA buffer, sampled over about 64k pixels; -1 when empty.
+[[nodiscard]] float rgbaBrightLuminance(const std::vector<std::uint8_t>& rgba);

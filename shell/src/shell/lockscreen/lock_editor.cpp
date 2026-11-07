@@ -1,5 +1,7 @@
 #include "shell/lockscreen/lock_editor.h"
 
+#include "ui/auth/auth_clock.h"
+
 #include "auth/pam_authenticator.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -101,6 +103,11 @@ void LockEditor::open() {
   m_clock.size = indexOf(LockEditorGallery::kSizeNames, lock.clockSize);
   m_clock.hour24 = lock.clockFormat24h;
   m_clock.seconds = lock.clockSeconds;
+  m_clock.axes = {lock.clockWeight, lock.clockWidth, lock.clockRound, lock.clockSlant};
+  m_clock.color = std::max(0, indexOf(LockEditorGallery::kColorNames, lock.clockColor));
+  m_clock.material = indexOf(LockEditorGallery::kMaterialNames, lock.clockMaterial);
+  m_clock.motion = lock.clockMotion;
+  m_clockDrag = -1;
   m_widgets = LockCards::widgetList(lock.widgets);
   m_widgetsEdited = false;
   m_slotState = {};
@@ -162,7 +169,8 @@ void LockEditor::open() {
 // One layout at each minute (or second) boundary, as on the lock (LockSurface::startAndromedaClock).
 void LockEditor::startClock() {
   const LockscreenConfig lock = previewConfig();
-  const std::int64_t period = lock.clockSeconds || clockStyleById(lock.clockStyle).live ? 1000 : 60000;
+  const std::int64_t period =
+      clockTicksSeconds(clockStyleById(lock.clockStyle), lock.clockSeconds, lockClockOptions(lock).motion, lockClockOptions(lock).axes) ? 1000 : 60000;
   const auto now = std::chrono::system_clock::now();
   const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % period;
   m_clockTimer.start(std::chrono::milliseconds(period - into + 5), [this] {
@@ -191,6 +199,8 @@ void LockEditor::close() {
   m_glassLease.reset();
   m_dim = nullptr;
   m_themeNotice = nullptr;
+  // A new surface may reuse the old wl_surface address; the sync must not take it for the same surface.
+  m_clockGlass = {};
   m_surface.reset();
   if (m_openChanged) {
     m_openChanged(false);
@@ -247,7 +257,7 @@ void LockEditor::buildScene(float width, float height) {
   m_themeNotice = static_cast<Label*>(m_root->addChild(std::move(notice)));
   m_themeNotice->setZIndex(5);
   m_cards.build(m_auth.glanceLayer());
-  m_gallery.build(*m_root);
+  m_gallery.build(*m_root, m_animations);
   m_wallpaperPanel.build(*m_root);
   m_wallpaperPanel.setThumbnailReadyCallback([this] { refresh(); });
   m_slots.build(*m_root);
@@ -315,12 +325,7 @@ void LockEditor::layoutScene(float width, float height) {
   m_wallpaper->setSize(width, height);
   applyWallpaper();
 
-  float dim = m_wall.dim;
-  const float bright = m_wallpaperLease.texture().brightLuminance;
-  if (bright > 0.0F) {
-    constexpr float kMaxBackground = 1.05F / 4.5F - 0.05F;
-    dim = std::clamp(1.0F - kMaxBackground / bright, dim, 0.85F);
-  }
+  float dim = authBackdropDim(m_wall.dim, m_wallpaperLease.texture().brightLuminance);
   if (m_wallpaperLease.texture().id == 0) {
     dim = 1.0F;
   }
@@ -344,7 +349,7 @@ void LockEditor::layoutScene(float width, float height) {
   const auto [gradientFrom, gradientTo] =
       m_lockScreen != nullptr ? m_lockScreen->clockGradient() : std::pair<std::uint32_t, std::uint32_t>{0, 0};
   const LockscreenConfig preview = previewConfig();
-  fillLockClockState(state, preview, gradientFrom, gradientTo);
+  fillAuthClock(state, lockClockOptions(preview), gradientFrom, gradientTo);
   AuthPlacementInput input{
       .layout = authLayoutFromName(LockEditorBar::kLayoutNames[static_cast<std::size_t>(m_draft.layout)]),
       .sw = width,
@@ -354,6 +359,7 @@ void LockEditor::layoutScene(float width, float height) {
       .pointerMoved = true,
   };
   input.clockSize = clockSizeFor(preview.clockSize);
+  input.clockFill = clockFillsSpace(preview.clockSize);
   input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
   const bool slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots;
   const bool rowLayout = input.layout == AuthLayout::Centered || input.layout == AuthLayout::Split;
@@ -382,6 +388,7 @@ void LockEditor::layoutScene(float width, float height) {
   }
   m_cards.layout(renderer, place, scale);
   m_auth.glanceLayer().setVisible(!ryoku);
+  m_clockGlass.sync(*m_wayland, m_surface->wlSurface(), m_auth.clockGlassMask(renderer));
 
   m_themeNotice->setVisible(ryoku);
   if (ryoku) {
@@ -402,6 +409,8 @@ void LockEditor::layoutScene(float width, float height) {
   const float slotW = std::max(400.0F * scale, 3.0F * place.clockSize + 32.0F * scale);
   const float slotX = place.clockCentred ? place.clockX - slotW * 0.5F : place.clockX - 16.0F * scale;
   m_clock.slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots && place.clock;
+  m_clock.wallpaperInk = gradientFrom;
+  m_clock.gradientTo = gradientTo;
   m_gallery.layout(
       renderer, m_clock,
       {std::round(slotX), std::round(top - 12.0F * scale), std::round(slotW), std::round(bottom - top + 24.0F * scale)},
@@ -460,6 +469,13 @@ LockscreenConfig LockEditor::previewConfig() const {
   lock.clockSize = LockEditorGallery::kSizeNames[static_cast<std::size_t>(m_clock.size)];
   lock.clockFormat24h = m_clock.hour24;
   lock.clockSeconds = m_clock.seconds;
+  lock.clockWeight = m_clock.axes[0];
+  lock.clockWidth = m_clock.axes[1];
+  lock.clockRound = m_clock.axes[2];
+  lock.clockSlant = m_clock.axes[3];
+  lock.clockColor = LockEditorGallery::kColorNames[static_cast<std::size_t>(m_clock.color)];
+  lock.clockMaterial = LockEditorGallery::kMaterialNames[static_cast<std::size_t>(m_clock.material)];
+  lock.clockMotion = m_clock.motion;
   lock.widgets = shownWidgets();
   lock.bottomSlot = LockEditorSlots::kBottomNames[static_cast<std::size_t>(m_slotState.bottomSlot)];
   return lock;
@@ -811,9 +827,33 @@ void LockEditor::activateWallpaper(LockEditorWallpaper::Hit hit, float x, int st
   refresh();
 }
 
-void LockEditor::activateGallery(LockEditorGallery::Hit hit) {
+void LockEditor::activateGallery(LockEditorGallery::Hit hit, float x, int step) {
   using Target = LockEditorGallery::Target;
   switch (hit.target) {
+  case Target::Filter:
+    m_clock.filter = hit.index;
+    break;
+  case Target::Axis: {
+    const ClockStyle& style = clockStyles()[static_cast<std::size_t>(m_clock.style)];
+    const auto range = LockEditorGallery::axisRange(style, hit.index);
+    const float now = LockEditorGallery::axisValue(style, hit.index, m_clock.axes[static_cast<std::size_t>(hit.index)]);
+    // Keyboard and scroll: 1/20 of the range per step.
+    const float value = x >= 0.0F ? m_gallery.axisValueAt(m_clock, hit.index, x)
+                                  : std::clamp(now + (range.max - range.min) / 20.0F * static_cast<float>(step),
+                                               range.min, range.max);
+    m_clock.axes[static_cast<std::size_t>(hit.index)] = LockEditorGallery::axisRaw(style, hit.index, value);
+    break;
+  }
+  case Target::Color:
+    m_clock.color = hit.index;
+    break;
+  case Target::Material:
+    m_clock.material = hit.index;
+    break;
+  case Target::Motion:
+    m_clock.motion = !m_clock.motion;
+    startClock();
+    break;
   case Target::ClockSlot: {
     const bool open = !m_clock.open;
     closePanels();
@@ -821,6 +861,10 @@ void LockEditor::activateGallery(LockEditorGallery::Hit hit) {
     break;
   }
   case Target::Style:
+    if (m_clock.style != hit.index) {
+      // Axes belong to a font: a new style starts from its own values.
+      m_clock.axes = {0, 0, -1, 0};
+    }
     m_clock.style = hit.index;
     startClock();
     break;
@@ -943,6 +987,13 @@ void LockEditor::save() {
   change("clock_size", preview.clockSize, lock.clockSize);
   change("clock_format_24h", preview.clockFormat24h, lock.clockFormat24h);
   change("clock_seconds", preview.clockSeconds, lock.clockSeconds);
+  change("clock_weight", static_cast<std::int64_t>(preview.clockWeight), static_cast<std::int64_t>(lock.clockWeight));
+  change("clock_width", static_cast<std::int64_t>(preview.clockWidth), static_cast<std::int64_t>(lock.clockWidth));
+  change("clock_round", static_cast<std::int64_t>(preview.clockRound), static_cast<std::int64_t>(lock.clockRound));
+  change("clock_slant", static_cast<std::int64_t>(preview.clockSlant), static_cast<std::int64_t>(lock.clockSlant));
+  change("clock_color", preview.clockColor, lock.clockColor);
+  change("clock_material", preview.clockMaterial, lock.clockMaterial);
+  change("clock_motion", preview.clockMotion, lock.clockMotion);
   if (m_widgetsEdited) {
     change("widgets", m_widgets, lock.widgets);
   }
@@ -1037,8 +1088,20 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
     m_wall.hover = {};
     refresh();
   }
+  if (m_clockDrag >= 0) {
+    if (event.type == PointerEvent::Type::Motion) {
+      activateGallery({LockEditorGallery::Target::Axis, m_clockDrag}, x);
+    } else if (event.type == PointerEvent::Type::Button && !event.pressed && event.button == BTN_LEFT) {
+      m_clockDrag = -1;
+    }
+    return true;
+  }
   const LockEditorGallery::Hit galleryHit =
       barHit.target == LockEditorBar::Target::None ? m_gallery.hitTest(x, y) : LockEditorGallery::Hit{};
+  if (event.type == PointerEvent::Type::Axis && event.axis == 0 && galleryHit.target == LockEditorGallery::Target::Axis) {
+    activateGallery(galleryHit, -1.0F, event.axisValue < 0.0 ? 1 : -1);
+    return true;
+  }
   const LockEditorSlots::Hit slotHit =
       barHit.target == LockEditorBar::Target::None && galleryHit.target == LockEditorGallery::Target::None
       ? m_slots.hitTest(x, y)
@@ -1089,6 +1152,11 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
   } else if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
     setFocus(LockEditorBar::Hit{});
     if (galleryHit.target != LockEditorGallery::Target::None) {
+      if (galleryHit.target == LockEditorGallery::Target::Axis) {
+        m_clockDrag = galleryHit.index;
+        activateGallery(galleryHit, x);
+        return true;
+      }
       activateGallery(galleryHit);
     } else if (slotHit.target != LockEditorSlots::Target::None) {
       activateSlots(slotHit, false);
@@ -1185,6 +1253,10 @@ void LockEditor::onKeyboardEvent(const KeyboardEvent& event) {
   if ((m_wall.focus.target == LockEditorWallpaper::Target::Blur || m_wall.focus.target == LockEditorWallpaper::Target::Dim)
       && (event.sym == XKB_KEY_Left || event.sym == XKB_KEY_Right)) {
     activateWallpaper(m_wall.focus, -1.0F, event.sym == XKB_KEY_Right ? 1 : -1);
+    return;
+  }
+  if (m_clock.focus.target == LockEditorGallery::Target::Axis && (event.sym == XKB_KEY_Left || event.sym == XKB_KEY_Right)) {
+    activateGallery(m_clock.focus, -1.0F, event.sym == XKB_KEY_Right ? 1 : -1);
     return;
   }
   switch (event.sym) {

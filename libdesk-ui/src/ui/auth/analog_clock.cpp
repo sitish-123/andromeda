@@ -4,6 +4,7 @@
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 
+#include <cmath>
 #include <memory>
 #include <numbers>
 
@@ -39,6 +40,7 @@ void AnalogClock::build(Node& parent) {
   m_minutePivot = m_root->addChild(std::make_unique<Node>());
   m_minuteHand = addRect(*m_minutePivot);
   m_dot = addRect(*m_root);
+  m_planet = addRect(*m_root);
   m_root->setVisible(false);
 }
 
@@ -59,8 +61,37 @@ void AnalogClock::layout(float x, float y, float diameter, int hour, int minute,
   const float hourAngle = kTurn * (static_cast<float>(hour % 12) + static_cast<float>(minute) / 60.0F) / 12.0F;
   layoutHand(m_hourPivot, m_hourHand, cx, cy, 28.0F * k, 4.0F * k, hourAngle, ink);
   layoutHand(m_minutePivot, m_minuteHand, cx, cy, 38.0F * k, 2.5F * k, minuteAngle, ink);
+  m_minutePivot->setVisible(true);
+  m_planet->setVisible(false);
   const float dot = 6.0F * k;
   m_dot->setPosition(cx - dot * 0.5F, cy - dot * 0.5F);
   m_dot->setSize(dot, dot);
   m_dot->setStyle(RoundedRectStyle{.fill = ink, .radius = dot * 0.5F});
+}
+
+void AnalogClock::layoutOrbit(float x, float y, float diameter, int hour, int minute, Color ink, Color planet) {
+  const float k = diameter / kMockDial;
+  const float r = diameter * 0.5F;
+  m_dial->setPosition(x, y);
+  m_dial->setSize(diameter, diameter);
+  m_dial->setStyle(RoundedRectStyle{.fill = withAlpha(ink, 0.0F), .border = withAlpha(ink, 0.35F), .radius = r,
+                                    .borderWidth = 1.5F * k});
+  const float cx = x + r;
+  const float cy = y + r;
+  constexpr float kTurn = 2.0F * std::numbers::pi_v<float>;
+  const float minuteAngle = kTurn * static_cast<float>(minute) / 60.0F;
+  const float hourAngle = kTurn * (static_cast<float>(hour % 12) + static_cast<float>(minute) / 60.0F) / 12.0F;
+  layoutHand(m_hourPivot, m_hourHand, cx, cy, 30.0F * k, 5.0F * k, hourAngle, ink);
+  m_minutePivot->setVisible(false);
+  const float dot = 8.0F * k;
+  m_dot->setPosition(cx - dot * 0.5F, cy - dot * 0.5F);
+  m_dot->setSize(dot, dot);
+  m_dot->setStyle(RoundedRectStyle{.fill = ink, .radius = dot * 0.5F});
+  const float body = 14.0F * k;
+  const float px = cx + std::sin(minuteAngle) * r;
+  const float py = cy - std::cos(minuteAngle) * r;
+  m_planet->setVisible(true);
+  m_planet->setPosition(px - body * 0.5F, py - body * 0.5F);
+  m_planet->setSize(body, body);
+  m_planet->setStyle(RoundedRectStyle{.fill = planet, .radius = body * 0.5F});
 }

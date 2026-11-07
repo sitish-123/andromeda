@@ -92,6 +92,8 @@ public:
   [[nodiscard]] TextEllipsize ellipsize() const noexcept;
   [[nodiscard]] LabelBaselineMode baselineMode() const noexcept { return m_baselineMode; }
   [[nodiscard]] float baselineOffset() const noexcept { return m_baselineOffset; }
+  // Left edge of the drawn text inside the label (alignment and scroll included).
+  [[nodiscard]] float textBaseX() const noexcept { return m_textBaseX; }
 
   void measure(Renderer& renderer);
 

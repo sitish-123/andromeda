@@ -9,6 +9,10 @@ enum class AuthLayout { Centered, Glance, Split, Minimal };
 // Unknown names = Centered (the default layout).
 [[nodiscard]] AuthLayout authLayoutFromName(std::string_view name) noexcept;
 
+// Black dim over the wallpaper (rulebook 9.15): `dim`, raised until white text on the image's bright areas
+// (brightLuminance, rgbaBrightLuminance; <= 0 = unknown) reaches 4.5:1, at most 0.85.
+[[nodiscard]] float authBackdropDim(float dim, float brightLuminance) noexcept;
+
 struct AuthRect {
   float x = 0.0F;
   float y = 0.0F;
@@ -35,6 +39,9 @@ struct AuthPlacementInput {
   // and word styles.
   float clockSize = 0.0F;
   int clockLines = 1;
+  // lockscreen.clock_size = "fill": the clock takes the largest size the layout's free room allows (wins over
+  // clockSize).
+  bool clockFill = false;
   // Minimal: the island and session button show only after the pointer moves.
   bool pointerMoved = false;
   // Lock from phone: the reason card sits 32 above the avatar and takes room from the content above.

@@ -6,6 +6,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 struct wl_surface;
 struct dsk_surface_manager_v1;
@@ -14,6 +15,7 @@ struct dsk_tracker_v1;
 struct dsk_shape_v1;
 struct dsk_shape_v1_listener;
 struct wl_region;
+struct wl_shm;
 struct dsk_surface_v1_listener;
 struct dsk_tracker_v1_listener;
 
@@ -70,6 +72,11 @@ public:
   // Protocol version 11: an app launch starts from the icon at this surface-local rect. Send it just before the
   // launch's activation token. False when the compositor lacks it.
   bool launchFrom(int x, int y, int width, int height);
+  // Protocol version 13: the compositor draws glass where `alpha` (one byte per pixel, pixelWidth x pixelHeight) is
+  // at least 128, stretched over the surface-local rect (x, y, width, height). Empty alpha removes the mask. Applies
+  // on the next commit. False when the compositor lacks it or the buffer cannot be made.
+  bool setGlassMask(wl_shm* shm, const std::vector<std::uint8_t>& alpha, int pixelWidth, int pixelHeight, int x, int y,
+                    int width, int height);
   // The clip the last setClipFrom computed, in this surface's coordinates; empty until the compositor reports it.
   [[nodiscard]] const std::optional<Value>& mappedClip() const noexcept { return m_mappedClip; }
   // Runs when the compositor reports the clip of the last setClipFrom.

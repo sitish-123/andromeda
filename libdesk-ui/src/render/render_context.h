@@ -78,6 +78,10 @@ private:
       TextAlign align, TextEllipsize ellipsize, bool useMarkup
   );
   [[nodiscard]] TextMetrics measureFontScaled(float scale, float fontSize, const TextFont& font);
+  [[nodiscard]] TextAlphaRaster
+  rasterizeTextAlphaScaled(float scale, std::string_view text, float fontSize, const TextFont& font) {
+    return m_textRenderer.rasterizeAlpha(scale, text, fontSize, font);
+  }
   void measureTextCursorStopsScaled(
       float scale, std::string_view text, float fontSize, const std::vector<std::size_t>& byteOffsets,
       std::vector<float>& outStops, const TextFont& font

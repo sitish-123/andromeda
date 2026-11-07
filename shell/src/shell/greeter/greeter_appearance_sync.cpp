@@ -5,15 +5,21 @@
 #include "config/config_types.h"
 #include "core/log.h"
 #include "core/process/process.h"
+#include "core/shared_worker.h"
 #include "dbus/polkit/polkit_session_support.h"
 #include "ipc/ipc_service.h"
 #include "render/core/color.h"
+#include "render/core/image_encoder.h"
+#include "render/core/image_file_loader.h"
+#include "shell/lockscreen/lock_screen.h"
 #include "shell/session/session_action_meta.h"
+#include "ui/auth/auth_layout.h"
 #include "ui/palette.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <initializer_list>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -29,6 +35,8 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <sys/stat.h>
 #include <sys/vfs.h>
 #include <system_error>
@@ -248,6 +256,11 @@ namespace {
 
   // Fallback single wallpaper when no per-output map is usable.
   [[nodiscard]] std::string resolveSyncWallpaperPath(const ConfigService& configService) {
+    // The greeter shows the lock screen's own image when it has one, as the lock screen does (not a live one).
+    if (const std::string& lockWallpaper = configService.config().lockscreen.wallpaper;
+        !lockWallpaper.empty() && LockScreen::liveWallpaperType(lockWallpaper).empty()) {
+      return FileUtils::expandUserPath(lockWallpaper).string();
+    }
     if (const auto output = readGreeterConfiguredOutput(); output.has_value() && !output->empty()) {
       const std::string path = configService.getWallpaperPath(*output);
       if (!path.empty()) {
@@ -267,13 +280,160 @@ namespace {
     std::string sourcePath;
   };
 
+  // Blur as a fraction of the image's long side, on an image at most kBakedBlurMaxSide (lock_surface.cpp kOwnImageBlur).
+  constexpr float kBakedBlur = 0.03F;
+  constexpr int kBakedBlurMaxSide = 1024;
+
+  std::function<void()> g_onBakeReady;
+  std::uint32_t g_clockInkFrom = 0;
+  std::uint32_t g_clockInkTo = 0;
+  std::unordered_set<std::string> g_bakesInFlight;
+  // Bakes that failed (an image the loader cannot decode); the key holds the mtime, so a changed file tries again.
+  std::unordered_set<std::string> g_bakesFailed;
+  const std::shared_ptr<int> g_bakeAlive = std::make_shared<int>(0);
+
+  [[nodiscard]] std::filesystem::path bakeCacheDir() { return std::filesystem::path(FileUtils::stateDir()) / "greeter-lock"; }
+
+  // Same image file and the same blur and dim = the same key.
+  [[nodiscard]] std::string bakeKey(const std::filesystem::path& source, const LockscreenConfig& lock) {
+    std::error_code ec;
+    const auto size = std::filesystem::file_size(source, ec);
+    const auto mtime = std::filesystem::last_write_time(source, ec).time_since_epoch().count();
+    const std::string id = std::format(
+        "{}|{}|{}|{:.3f}|{:.3f}", source.string(), size, mtime, lock.blurIntensity, lock.tintIntensity
+    );
+    return std::format("{:016x}", std::hash<std::string>{}(id));
+  }
+
+  // Worker thread: the Andromeda lock look (blur, then the 4.5:1 dim) as a JPEG at `destination`.
+  [[nodiscard]] bool bakeLockWallpaper(
+      const std::filesystem::path& source, const std::filesystem::path& destination, float blurIntensity,
+      float tintIntensity
+  ) {
+    const float blur = std::clamp(blurIntensity, 0.0F, 1.0F) * kBakedBlur;
+    auto image = loadImageFile(source.string(), blur > 0.0F ? kBakedBlurMaxSide : 0);
+    if (!image.has_value()) {
+      kLog.warn("greeter sync: cannot decode '{}' to bake the lock look: {}", source.string(), image.error());
+      return false;
+    }
+    blurRgba(
+        image->rgba, image->width, image->height,
+        static_cast<int>(std::lround(blur * static_cast<float>(std::max(image->width, image->height))))
+    );
+    const float dim = authBackdropDim(std::min(tintIntensity, 0.6F), rgbaBrightLuminance(image->rgba));
+    const float keep = 1.0F - std::clamp(dim, 0.0F, 1.0F);
+    for (std::size_t i = 0; i < image->rgba.size(); i += 4) {
+      for (std::size_t c = 0; c < 3; ++c) {
+        image->rgba[i + c] = static_cast<std::uint8_t>(std::lround(static_cast<float>(image->rgba[i + c]) * keep));
+      }
+    }
+    std::string error;
+    const auto jpeg = encodeJpeg(image->rgba.data(), image->width, image->height, 90, &error);
+    if (jpeg.empty()) {
+      kLog.warn("greeter sync: cannot encode the baked '{}': {}", source.string(), error);
+      return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(destination.parent_path(), ec);
+    const std::filesystem::path temporary = destination.string() + ".tmp";
+    {
+      std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+      out.write(reinterpret_cast<const char*>(jpeg.data()), static_cast<std::streamsize>(jpeg.size()));
+      if (!out.good()) {
+        kLog.warn("greeter sync: cannot write '{}'", temporary.string());
+        return false;
+      }
+    }
+    std::filesystem::rename(temporary, destination, ec);
+    return !ec;
+  }
+
+  // Stages `source` as `<stem>.<ext>`. The greeter only shows the image, so the Andromeda lock look is baked into it
+  // (no blur work at boot). The bake runs on SharedWorker: until it is cached, the raw image is staged and a finished
+  // bake runs the bake-ready callback (a new sync). Ryoku paints an opaque scene, so its image is copied.
+  // `keys` collects the cache entries in use. Empty name = not staged; nullopt = the staging dir is not safe.
+  [[nodiscard]] std::optional<std::string> stageLockWallpaper(
+      const std::filesystem::path& staging, const std::filesystem::path& source, const std::string& stem,
+      const LockscreenConfig& lock, std::unordered_set<std::string>& keys
+  ) {
+    std::filesystem::path from = source;
+    std::string installedName = stem + source.extension().string();
+    if (lock.theme != "ryoku") {
+      const std::string key = bakeKey(source, lock);
+      keys.insert(key);
+      const std::filesystem::path baked = bakeCacheDir() / (key + ".jpg");
+      std::error_code ec;
+      if (std::filesystem::is_regular_file(baked, ec)) {
+        from = baked;
+        installedName = stem + ".jpg";
+      } else if (!g_bakesFailed.contains(key) && g_bakesInFlight.insert(key).second) {
+        const auto blur = static_cast<float>(lock.blurIntensity);
+        const auto tint = static_cast<float>(lock.tintIntensity);
+        SharedWorker::instance().post<bool>(
+            g_bakeAlive, [source, baked, blur, tint] { return bakeLockWallpaper(source, baked, blur, tint); },
+            [key](bool ok) {
+              g_bakesInFlight.erase(key);
+              if (!ok) {
+                g_bakesFailed.insert(key);
+              } else if (g_onBakeReady) {
+                g_onBakeReady();
+              }
+            }
+        );
+      }
+    }
+    std::error_code ec;
+    std::filesystem::copy_file(from, staging / installedName, std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+      kLog.warn("greeter sync: failed to stage wallpaper '{}': {}", from.string(), ec.message());
+      return std::string{};
+    }
+    if (!secureStagedFile(staging / installedName)) {
+      return std::nullopt;
+    }
+    return installedName;
+  }
+
+  // Drops cached bakes this sync did not use (old wallpapers, old blur and dim values).
+  void pruneBakeCache(const std::unordered_set<std::string>& keys) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(bakeCacheDir(), ec)) {
+      const std::string name = entry.path().filename().string();
+      // <key>.jpg, or <key>.jpg.tmp a failed bake left.
+      const std::string key = name.substr(0, name.find('.'));
+      if ((name.ends_with(".jpg") || name.ends_with(".jpg.tmp")) && !keys.contains(key) && !g_bakesInFlight.contains(key)) {
+        std::filesystem::remove(entry.path(), ec);
+      }
+    }
+  }
+
   // Stage every per-monitor wallpaper so the greeter can pick by connector name.
   // File wallpapers are copied as wallpaper-<connector>.*; solid color: specs are
   // kept as sourcePath only (no file) so the wallpapers map can still reference them.
   [[nodiscard]] std::optional<std::vector<StagedOutputWallpaper>>
-  stageAllOutputWallpapers(const std::filesystem::path& staging, const ConfigService& configService) {
+  stageAllOutputWallpapers(
+      const std::filesystem::path& staging, const ConfigService& configService, std::unordered_set<std::string>& keys
+  ) {
     std::vector<StagedOutputWallpaper> staged;
-    for (const auto& [connector, sourcePath] : configService.monitorWallpaperPaths()) {
+    // Each display gets the image its lock screen shows (LockScreen::wallpaperPathForOutput); a live lock wallpaper
+    // (video, shader) cannot be shown by the greeter, which then keeps the desktop image.
+    const LockscreenConfig& lock = configService.config().lockscreen;
+    std::unordered_map<std::string, std::string> outputs = configService.monitorWallpaperPaths();
+    for (const auto& [connector, path] : lock.wallpaperOutputs) {
+      outputs.try_emplace(connector);
+    }
+    for (auto& [connector, path] : outputs) {
+      const auto it = lock.wallpaperOutputs.find(connector);
+      const bool desktop = it != lock.wallpaperOutputs.end() && it->second == LockScreen::kDesktopWallpaper;
+      std::string own = it != lock.wallpaperOutputs.end() && !desktop ? it->second : std::string{};
+      if (own.empty() && !desktop) {
+        own = lock.wallpaper;
+      }
+      if (!own.empty() && LockScreen::liveWallpaperType(own).empty()) {
+        path = FileUtils::expandUserPath(own).string();
+      }
+    }
+    for (const auto& [connector, sourcePath] : outputs) {
       if (connector.empty() || sourcePath.empty()) {
         continue;
       }
@@ -288,18 +448,15 @@ namespace {
         kLog.warn("greeter sync: skip missing wallpaper for '{}': {}", connector, sourcePath);
         continue;
       }
-      const std::string extension = source.extension().string();
-      const std::string installedName =
-          "wallpaper-" + sanitizeConnectorFileToken(connector) + (extension.empty() ? "" : extension);
-      const auto destination = staging / installedName;
-      std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
-      if (ec) {
-        kLog.warn("greeter sync: failed to stage wallpaper for '{}': {}", connector, ec.message());
-        continue;
-      }
-      if (!secureStagedFile(destination)) {
+      const auto stagedName =
+          stageLockWallpaper(staging, source, "wallpaper-" + sanitizeConnectorFileToken(connector), lock, keys);
+      if (!stagedName.has_value()) {
         return std::nullopt;
       }
+      if (stagedName->empty()) {
+        continue;
+      }
+      const std::string& installedName = *stagedName;
       kLog.info("greeter sync: staged wallpaper for '{}' -> {}", connector, installedName);
       staged.push_back(StagedOutputWallpaper{connector, installedName, sourcePath});
     }
@@ -513,6 +670,37 @@ namespace {
     }
 
     root.insert("appearance", std::move(appearance));
+
+    const LockscreenConfig& ls = config.lockscreen;
+    toml::table lockscreen;
+    lockscreen.insert_or_assign("theme", ls.theme);
+    lockscreen.insert_or_assign("layout", ls.layout);
+    lockscreen.insert_or_assign("clock_style", ls.clockStyle);
+    lockscreen.insert_or_assign("clock_size", ls.clockSize);
+    lockscreen.insert_or_assign("clock_format_24h", ls.clockFormat24h);
+    lockscreen.insert_or_assign("clock_seconds", ls.clockSeconds);
+    // The greeter validator accepts only these forms; out-of-range values go as the style default.
+    lockscreen.insert_or_assign("clock_weight", ls.clockWeight >= 100 && ls.clockWeight <= 1000 ? ls.clockWeight : 0);
+    lockscreen.insert_or_assign("clock_width", ls.clockWidth >= 50 && ls.clockWidth <= 200 ? ls.clockWidth : 0);
+    lockscreen.insert_or_assign("clock_round", std::clamp(ls.clockRound, -1, 100));
+    lockscreen.insert_or_assign("clock_slant", std::clamp(ls.clockSlant, 0, 15));
+    // The greeter rejects the whole [lockscreen] table on an unknown value: send the default instead.
+    const auto oneOf = [](const std::string& v, std::initializer_list<std::string_view> known, std::string_view fallback) {
+      return std::ranges::find(known, v) != known.end() ? v : std::string(fallback);
+    };
+    lockscreen.insert_or_assign("clock_material", oneOf(ls.clockMaterial, {"solid", "glass", "tint"}, "solid"));
+    lockscreen.insert_or_assign(
+        "clock_color", oneOf(ls.clockColor, {"white", "accent", "wallpaper", "gradient"}, "white")
+    );
+    lockscreen.insert_or_assign("clock_motion", ls.clockMotion);
+    if (g_clockInkFrom != 0 && g_clockInkTo != 0) {
+      lockscreen.insert_or_assign("clock_ink_from", formatRgbHex(rgbaHex(g_clockInkFrom)));
+      lockscreen.insert_or_assign("clock_ink_to", formatRgbHex(rgbaHex(g_clockInkTo)));
+    }
+    lockscreen.insert_or_assign("blur_intensity", static_cast<double>(ls.blurIntensity));
+    lockscreen.insert_or_assign("tint_intensity", static_cast<double>(ls.tintIntensity));
+    root.insert("lockscreen", std::move(lockscreen));
+
     if (mode == GreeterSyncMode::LegacyAuthenticated) {
       appendSessionToSyncToml(root, config.shell.session);
     }
@@ -810,7 +998,10 @@ namespace {
   }
 
   [[nodiscard]] std::optional<std::string>
-  stageWallpaper(const std::filesystem::path& staging, std::string_view sourcePath) {
+  stageWallpaper(
+      const std::filesystem::path& staging, std::string_view sourcePath, const LockscreenConfig& lock,
+      std::unordered_set<std::string>& keys
+  ) {
     if (sourcePath.empty()) {
       return std::string{};
     }
@@ -824,18 +1015,7 @@ namespace {
       return std::string{};
     }
 
-    const std::string extension = source.extension().string();
-    std::string installedName = extension.empty() ? "wallpaper" : "wallpaper" + extension;
-    const auto destination = staging / installedName;
-    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::overwrite_existing, ec);
-    if (ec) {
-      kLog.warn("failed to stage wallpaper '{}': {}", source.string(), ec.message());
-      return std::string{};
-    }
-    if (!secureStagedFile(destination)) {
-      return std::nullopt;
-    }
-    return installedName;
+    return stageLockWallpaper(staging, source, "wallpaper", lock, keys);
   }
 
   [[nodiscard]] bool hasPrivilegeCommandOverride(const ShellGreeterSyncConfig& greeterSync) {
@@ -1052,18 +1232,20 @@ namespace greeter {
     std::string wallpaperPath;
     std::string installedWallpaperName;
     if (config.wallpaper.enabled) {
-      auto stagedOutputs = stageAllOutputWallpapers(staging, configService);
+      std::unordered_set<std::string> bakeKeys;
+      auto stagedOutputs = stageAllOutputWallpapers(staging, configService, bakeKeys);
       if (!stagedOutputs.has_value()) {
         return GreeterSyncLaunch::Failed;
       }
       outputWallpapers = std::move(*stagedOutputs);
 
       wallpaperPath = resolveSyncWallpaperPath(configService);
-      const auto stagedWallpaper = stageWallpaper(staging, wallpaperPath);
+      const auto stagedWallpaper = stageWallpaper(staging, wallpaperPath, configService.config().lockscreen, bakeKeys);
       if (!stagedWallpaper.has_value()) {
         return GreeterSyncLaunch::Failed;
       }
       installedWallpaperName = *stagedWallpaper;
+      pruneBakeCache(bakeKeys);
       if (installedWallpaperName.empty() && !wallpaperPath.starts_with("color:")) {
         wallpaperPath.clear();
       }
@@ -1137,6 +1319,13 @@ namespace greeter {
     return mode == GreeterSyncMode::Constrained ? GreeterSyncLaunch::LaunchedConstrained
                                                 : GreeterSyncLaunch::LaunchedLegacy;
   }
+
+  void setLockClockGradient(std::uint32_t from, std::uint32_t to) {
+    g_clockInkFrom = from;
+    g_clockInkTo = to;
+  }
+
+  void setLockWallpaperBakeReady(std::function<void()> callback) { g_onBakeReady = std::move(callback); }
 
   void registerIpc(
       IpcService& ipc, const ConfigService& config, std::function<std::string_view()> resolvedThemeMode,

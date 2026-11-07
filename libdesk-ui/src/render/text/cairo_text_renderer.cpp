@@ -1023,6 +1023,54 @@ void CairoTextRenderer::evictIfNeeded() {
   }
 }
 
+TextAlphaRaster
+CairoTextRenderer::rasterizeAlpha(float contentScale, std::string_view text, float fontSize, const TextFont& font) {
+  TextAlphaRaster out;
+  if (text.empty() || fontSize <= 0.0F || contentScale <= 0.0F) {
+    return out;
+  }
+  maybeSyncFontConfig();
+  PangoLayout* layout =
+      buildLayout(contentScale, text, fontSize, font, 0.0F, 1, TextAlign::Start, TextEllipsize::End, false);
+  PangoRectangle ink;
+  PangoRectangle logical;
+  pango_layout_get_pixel_extents(layout, &ink, &logical);
+  const double strokePx = static_cast<double>(font.stroke * fontSize * contentScale);
+  const int pad = 1 + static_cast<int>(std::ceil(strokePx));
+  const int x0 = ink.x - pad;
+  const int y0 = ink.y - pad;
+  out.width = std::max(1, ink.width + pad * 2);
+  out.height = std::max(1, ink.height + pad * 2);
+  cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_A8, out.width, out.height);
+  cairo_t* cr = cairo_create(surface);
+  cairo_translate(cr, -x0, -y0);
+  cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0);
+  if (strokePx > 0.0) {
+    pango_cairo_layout_path(cr, layout);
+    cairo_set_line_width(cr, strokePx);
+    cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+    cairo_stroke(cr);
+  } else {
+    pango_cairo_show_layout(cr, layout);
+  }
+  cairo_destroy(cr);
+  cairo_surface_flush(surface);
+  const int stride = cairo_image_surface_get_stride(surface);
+  const unsigned char* data = cairo_image_surface_get_data(surface);
+  out.alpha.resize(static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height));
+  for (int y = 0; y < out.height; ++y) {
+    std::memcpy(out.alpha.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(out.width),
+                data + static_cast<std::ptrdiff_t>(y) * stride, static_cast<std::size_t>(out.width));
+  }
+  cairo_surface_destroy(surface);
+  const int baselinePx = pango_layout_get_baseline(layout) / PANGO_SCALE;
+  g_object_unref(layout);
+  out.scale = contentScale;
+  out.left = static_cast<float>(x0) / contentScale;
+  out.top = static_cast<float>(y0 - baselinePx) / contentScale;
+  return out;
+}
+
 CairoTextRenderer::CacheEntry* CairoTextRenderer::lookupOrRasterize(
     float contentScale, std::string_view text, float fontSize, const TextFont& font, float maxWidth, int maxLines,
     TextAlign align, const Color& color, TextEllipsize ellipsize, bool useMarkup

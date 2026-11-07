@@ -576,11 +576,22 @@ struct LockscreenConfig {
   std::string notificationContent = "hidden";
   // Shown under the account, for example a phone number to call if found.
   std::string ownerMessage;
-  // Clock style id (libdesk-ui ui/auth/clock_style.h); s | m | l | xl, empty = the layout's size.
+  // Clock style id (libdesk-ui ui/auth/clock_style.h); s | m | l | xl | fill, empty = the layout's size.
   std::string clockStyle = "classic";
   std::string clockSize;
   bool clockFormat24h = true;
   bool clockSeconds = false;
+  // Font axes of the clock (clock_style.h ClockAxisValues): 0 (round -1) = the style's own value; slant in degrees.
+  int clockWeight = 0;
+  int clockWidth = 0;
+  int clockRound = -1;
+  int clockSlant = 0;
+  // solid | glass | tint
+  std::string clockMaterial = "solid";
+  // white | accent | wallpaper | gradient
+  std::string clockColor = "white";
+  // Motion styles animate (morph, breathing width, caret blink); off under Reduce Motion and power saver as well.
+  bool clockMotion = true;
   // Small widgets in the widget row (weather | battery | phone | notifications), <= 4; empty = the layout's own row.
   std::vector<std::string> widgets;
   // Centered card under the widget row: media | phone | notifications | none.

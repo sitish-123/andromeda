@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -74,6 +75,25 @@ public:
     std::string liveSeconds;
     // Two-tone: the part after the first ':' in accent_text.
     bool clockTwoTone = false;
+    // Clock ink (lockscreen.clock_color), packed 0xRRGGBBAA; 0 = label_1.
+    std::uint32_t clockInk = 0;
+    // Tint material: the ink at 55 %, so the wallpaper shows through the digits.
+    bool clockTint = false;
+    // Vertical scale of the lines; 1 = none.
+    float clockStretch = 1.0F;
+    // Morph: a new minute unfolds (scale + fade) instead of switching.
+    bool clockMorph = false;
+    // Typewriter: the caret shows this second.
+    bool clockCaret = false;
+    bool clockNeon = false;
+    // Split: the minutes after the first ':' as outlines.
+    bool clockSplit = false;
+    // Word grid: the lit rows (clockWordGridLit); empty = no grid. Orbit: the dial draws the orbit style.
+    std::vector<std::string> wordGridLit;
+    bool orbit = false;
+    // Glass material: the compositor draws the digits as glass (clockGlassMask); the ink stays at 30 % under it,
+    // so the clock still shows where the compositor draws no glass.
+    bool clockGlass = false;
     std::string date;
     // Glance layout: the line 72 above the bottom while the auth sheet is closed.
     std::string glanceHint;
@@ -89,12 +109,26 @@ public:
     float h = 0.0F;
   };
 
+  // The visible clock lines as one alpha mask in surface coordinates (dsk_surface_v1.set_glass_mask).
+  struct GlassMask {
+    std::vector<std::uint8_t> alpha;
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool operator==(const GlassMask&) const = default;
+  };
+
   void build(Node& root, AnimationManager& animations);
   void setState(State state);
   // Centered layout; scale = accessibility.ui_scale.
   void layout(Renderer& renderer, float sw, float sh, float scale);
   // place = placeAuth() for the same sw, sh and scale.
   void layout(Renderer& renderer, const AuthPlacement& place, float sw, float scale);
+  // Empty unless the state asks for glass and a clock line shows (after layout()).
+  [[nodiscard]] GlassMask clockGlassMask(Renderer& renderer) const;
   // Wrong password: the capsule shakes 3 x 8 px on the snap spring.
   void playRejected();
   // Login accepted: the column (and `alongside`, the chrome) Return on the close spring (scale 0.92, fade); reduced
@@ -151,6 +185,15 @@ private:
   Label* m_date = nullptr;
   // Clock lines (stacked and word styles use up to three); the accent label holds the two-tone minutes.
   std::array<Label*, 3> m_clockLines{};
+  // Neon: a wide faint outline under each line.
+  std::array<Label*, 3> m_clockGlow{};
+  // Word grid: dim letters, then the lit letters on top (one label per row each).
+  std::array<Label*, 10> m_gridDim{};
+  std::array<Label*, 10> m_gridLit{};
+  Label* m_caret = nullptr;
+  // Morph: the line text last laid out; a change unfolds the new text.
+  std::string m_morphText;
+  AnimationManager::Id m_morphAnim = 0;
   Label* m_clockAccent = nullptr;
   Label* m_clockSeconds = nullptr;
   AnalogClock m_analog;

@@ -10,6 +10,7 @@
 #include "shell/lockscreen/lock_editor_free.h"
 #include "shell/lockscreen/lock_editor_gallery.h"
 #include "shell/lockscreen/lock_editor_wallpaper.h"
+#include "ui/auth/clock_glass_sync.h"
 #include "shell/lockscreen/lock_editor_slots.h"
 #include "ui/auth/auth_column.h"
 #include "wayland/layer_surface.h"
@@ -72,7 +73,8 @@ private:
   using Focus = std::variant<
       LockEditorBar::Hit, LockEditorGallery::Hit, LockEditorSlots::Hit, LockEditorFree::Hit, LockEditorWallpaper::Hit>;
   void activate(LockEditorBar::Hit hit);
-  void activateGallery(LockEditorGallery::Hit hit);
+  // x >= 0: an axis bar value under the pointer; else step moves an axis 1/20 of its range.
+  void activateGallery(LockEditorGallery::Hit hit, float x = -1.0F, int step = 0);
   // x = the pointer for a slider press; a key press (x < 0) steps the slider by `step`.
   void activateWallpaper(LockEditorWallpaper::Hit hit, float x, int step = 0);
   void loadWallpaperItems();
@@ -104,6 +106,7 @@ private:
   LockScreen* m_lockScreen = nullptr;
 
   std::unique_ptr<LayerSurface> m_surface;
+  ClockGlassSync m_clockGlass;
   AnimationManager m_animations;
   std::unique_ptr<Node> m_root;
   WallpaperNode* m_wallpaper = nullptr;
@@ -114,6 +117,8 @@ private:
   LockEditorBar::State m_draft;
   LockEditorGallery m_gallery;
   LockEditorGallery::State m_clock;
+  // The axis bar under a held pointer; -1 = none.
+  int m_clockDrag = -1;
   LockEditorWallpaper m_wallpaperPanel;
   LockEditorWallpaper::State m_wall;
   std::vector<LockEditorWallpaper::Item> m_wallItems;

@@ -12,6 +12,8 @@ public:
   void setVisible(bool visible);
   // Lays the dial out at (x, y) with `diameter`; the hands show hour (0-23) and minute (0-59).
   void layout(float x, float y, float diameter, int hour, int minute, Color ink);
+  // Orbit style: no disc, a thin orbit ring, the hour hand, and a `planet` dot on the ring at the minute.
+  void layoutOrbit(float x, float y, float diameter, int hour, int minute, Color ink, Color planet);
 
 private:
   Node* m_root = nullptr;
@@ -21,4 +23,5 @@ private:
   Node* m_minutePivot = nullptr;
   RectNode* m_minuteHand = nullptr;
   RectNode* m_dot = nullptr;
+  RectNode* m_planet = nullptr;
 };

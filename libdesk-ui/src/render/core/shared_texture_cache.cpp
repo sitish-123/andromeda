@@ -38,40 +38,6 @@ namespace {
 
   constexpr int kBlurredMaxSide = 1024;
 
-  // 90th-percentile relative luminance (WCAG) over a sample of about 64k pixels.
-  [[nodiscard]] float brightLuminance(const std::vector<std::uint8_t>& rgba) {
-    const std::size_t pixels = rgba.size() / 4U;
-    if (pixels == 0) {
-      return -1.0F;
-    }
-    const auto linear = [](std::uint8_t value) {
-      const float c = static_cast<float>(value) / 255.0F;
-      return c <= 0.04045F ? c / 12.92F : std::pow((c + 0.055F) / 1.055F, 2.4F);
-    };
-    std::array<float, 256> table{};
-    for (std::size_t i = 0; i < table.size(); ++i) {
-      table[i] = linear(static_cast<std::uint8_t>(i));
-    }
-    std::array<std::uint32_t, 256> histogram{};
-    const std::size_t step = std::max<std::size_t>(1, pixels / 65536U);
-    std::uint32_t samples = 0;
-    for (std::size_t i = 0; i < pixels; i += step) {
-      const std::uint8_t* p = rgba.data() + i * 4U;
-      const float y = 0.2126F * table[p[0]] + 0.7152F * table[p[1]] + 0.0722F * table[p[2]];
-      ++histogram[std::min(255, static_cast<int>(y * 255.0F))];
-      ++samples;
-    }
-    const std::uint32_t target = samples - samples / 10U;
-    std::uint32_t seen = 0;
-    for (std::size_t bin = 0; bin < histogram.size(); ++bin) {
-      seen += histogram[bin];
-      if (seen >= target) {
-        return (static_cast<float>(bin) + 0.5F) / 255.0F;
-      }
-    }
-    return 1.0F;
-  }
-
   // Number of 2x halvings that keep the image at least `coverage` on both axes.
   [[nodiscard]] int reductionLevel(int width, int height, TextureCoverage coverage) {
     if (coverage.empty()) {
@@ -590,7 +556,7 @@ void SharedTextureCache::workerLoop(std::size_t slot) {
     const auto blur = [alphaMask](DecodedImage& image) {
       if (image.request.blur <= 0.0F) {
         if (!alphaMask) {
-          image.brightLuminance = brightLuminance(image.pixels);
+          image.brightLuminance = rgbaBrightLuminance(image.pixels);
         }
         return;
       }
@@ -601,7 +567,7 @@ void SharedTextureCache::workerLoop(std::size_t slot) {
       const float radius = image.request.blur * static_cast<float>(std::max(image.width, image.height));
       blurRgba(image.pixels, image.width, image.height, static_cast<int>(std::lround(radius)));
       if (!alphaMask) {
-        image.brightLuminance = brightLuminance(image.pixels);
+        image.brightLuminance = rgbaBrightLuminance(image.pixels);
       }
     };
     for (std::size_t i = 0; i + 1 < batch.size(); ++i) {

@@ -77,6 +77,7 @@
 #include "shell/control_center/control_center_panel.h"
 #include "shell/display_mode/display_mode_panel.h"
 #include "shell/greeter/greeter_appearance_sync.h"
+#include "shell/lockscreen/lock_surface.h"
 #include "shell/launcher/launcher_panel.h"
 #include "shell/panel/plugin_panel.h"
 #include "shell/phone/phone_panel.h"
@@ -323,6 +324,11 @@ void Application::performGreeterSync(bool quiet) {
       m_configService, m_themeService.resolvedShellMode(), complete, &m_compositorPlatform, m_logindService != nullptr
   );
   if (launch == greeter::GreeterSyncLaunch::Busy) {
+    // A change (or a finished wallpaper bake) during a running sync syncs again after it, or the greeter keeps the
+    // older look until an unrelated sync.
+    if (quiet) {
+      scheduleGreeterAutoSync();
+    }
     return;
   }
 
@@ -420,6 +426,7 @@ void Application::initLockScreenAndSession() {
     return !m_configService.config().wallpaper.automation.pauseOnFullscreen || !m_wayland.hasFullscreenToplevel();
   });
   m_greeterLockscreen = m_configService.config().lockscreen;
+  greeter::setLockWallpaperBakeReady([this] { scheduleGreeterAutoSync(); });
   m_configService.addReloadCallback([this] {
     if (m_logindService != nullptr) {
       m_logindService->setSessionLockIntegrationEnabled(m_configService.isLockScreenEnabled());
@@ -1484,9 +1491,9 @@ TimeService::Precision Application::timePrecisionNeeded() const {
 
 void Application::syncLockStreamPause() {
   const PowerProfilesService* profiles = powerProfiles();
-  m_lockscreenWidgetsController.setStreamsPaused(
-      profiles != nullptr && profiles->activeProfile() == "power-saver", m_compositorPlatform.outputPowerStates()
-  );
+  const bool powerSaver = profiles != nullptr && profiles->activeProfile() == "power-saver";
+  setLockClockPowerSaver(powerSaver);
+  m_lockscreenWidgetsController.setStreamsPaused(powerSaver, m_compositorPlatform.outputPowerStates());
 }
 
 void Application::syncAppActivity() {

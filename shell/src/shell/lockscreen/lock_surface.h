@@ -10,6 +10,8 @@
 #include "render/core/texture_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
+#include "ui/auth/auth_clock.h"
+#include "ui/auth/clock_glass_sync.h"
 #include "ui/auth/auth_chrome.h"
 #include "ui/auth/auth_column.h"
 #include "ui/auth/clock_style.h"
@@ -57,12 +59,10 @@ struct SessionPanelActionConfig;
 
 class LockscreenWidgetsHost;
 
-// Font family of a clock style; registers its bundled font file on first use.
-[[nodiscard]] std::string lockClockFontFamily(const ClockStyle& clock);
-// Clock lines, font, effects and date of lockscreen.clock_* at the current local time (lock screen and its editor).
-void fillLockClockState(
-    AuthColumn::State& state, const LockscreenConfig& lock, std::uint32_t gradientFrom, std::uint32_t gradientTo
-);
+// The power-saver profile is active: clock motion stops (set by Application::syncLockStreamPause).
+void setLockClockPowerSaver(bool powerSaver);
+// lockscreen.clock_* as the shared clock options (lock screen and its editor).
+[[nodiscard]] AuthClockOptions lockClockOptions(const LockscreenConfig& lock);
 // The lockscreen.widgets / bottom_slot choice and the widget values (battery, weather) for LockCards.
 void fillLockWidgetData(
     LockCards::Data& data, const LockscreenConfig& lock, const WeatherService* weather, const AuthColumn::Status& status
@@ -266,6 +266,7 @@ private:
   Button* m_passwordRevealButton = nullptr;
   Button* m_loginButton = nullptr;
   std::unique_ptr<RyokuAuthScene> m_ryoku;
+  ClockGlassSync m_clockGlass;
   Timer m_ryokuClock;
   AnimationManager::Id m_ryokuLive = 0;
   bool m_ryokuShownError = false;

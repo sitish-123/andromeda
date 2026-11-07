@@ -43,6 +43,19 @@ namespace {
     p.clockLines = std::max(1, in.clockLines);
   }
 
+  // Fill: the largest clock (scaled px) whose block fits `height` and whose widest line fits `width`; never smaller
+  // than the size sizeClock chose.
+  void fillClock(AuthPlacement& p, const AuthPlacementInput& in, float height, float width) {
+    if (!in.clockFill) {
+      return;
+    }
+    // A two-digit stacked line is about 1.4 sizes wide; "00:00" about kClockWidthPerSize.
+    const float perSize = p.clockLines > 1 ? 1.4F : kClockWidthPerSize;
+    const float fit = std::min(height / static_cast<float>(p.clockLines), width / perSize);
+    // Floor: a rounded-up size would cross the limit it was fitted to.
+    p.clockSize = std::max(p.clockSize, std::floor(fit));
+  }
+
   AuthRect rect(float x, float y, float w, float h) { return {snap(x), snap(y), snap(w), snap(h)}; }
 
   float stackHeight(int count, float item, float gap) {
@@ -71,6 +84,14 @@ namespace {
     const float accountTop = p.capsule.y - (kAccountHead + aboveAccount(in)) * s;
 
     sizeClock(p, in, 80.0F, s);
+    {
+      float slots = 0.0F;
+      slots += in.widgets > 0 ? (20.0F + kWidgetH) * s : 0.0F;
+      slots += in.media ? (20.0F + kCardH) * s : 0.0F;
+      slots += in.chips ? (20.0F + kChipH) * s : 0.0F;
+      const float top = (kMinTop + kDateLine + kDateGap) * s;
+      fillClock(p, in, accountTop - kMinGap * s - top - slots, in.sw - 2.0F * kEdge * s);
+    }
     p.clockX = cx;
     bool widgets = in.widgets > 0;
     bool media = in.media;
@@ -128,6 +149,10 @@ namespace {
     p.clockCentred = false;
     p.clockX = snap(kEdge * s);
     sizeClock(p, in, 80.0F, s);
+    fillClock(
+        p, in, in.sh * 0.5F - (120.0F + kDateLine + kDateGap) * s,
+        cx - 180.0F * s - kMinGap * s - kEdge * s
+    );
     p.date = rect(kEdge * s, 120.0F * s, 400.0F * s, kDateLine * s);
     p.clockY = p.date.bottom() + snap(kDateGap * s);
     if (in.cards > 0) {
@@ -151,6 +176,10 @@ namespace {
     p.clockCentred = false;
     p.clockX = snap(kEdge * s);
     sizeClock(p, in, 96.0F, s);
+    fillClock(
+        p, in, in.sh * 0.6F,
+        in.sw - (160.0F + kCapsuleW * 0.5F + kColumnTextHalf + kMinGap + kEdge) * s
+    );
     const float rowH = in.cards > 0 ? (24.0F + kWidgetH) * s : 0.0F;
     const float blockH = (kDateLine + kDateGap) * s + p.clockHeight() + rowH;
     const float blockTop = snap(in.sh * 0.5F - blockH * 0.5F);
@@ -181,6 +210,10 @@ namespace {
     p.clockX = cx;
     sizeClock(p, in, 96.0F, s);
     p.capsule = rect(cx - kCapsuleW * 0.5F * s, in.sh - (96.0F + kCapsuleH) * s, kCapsuleW * s, kCapsuleH * s);
+    fillClock(
+        p, in, p.capsule.y - (kMinGap + aboveAccount(in) + kMinTop + kDateGap + kDateLine) * s,
+        in.sw - 2.0F * kEdge * s
+    );
     // Top at 2/5; a tall clock (stacked, XL) moves up so the date stays 24 above the capsule.
     const float blockH = p.clockHeight() + (kDateGap + kDateLine) * s;
     const float limit = p.capsule.y - (kMinGap + aboveAccount(in)) * s - blockH;
@@ -196,6 +229,14 @@ namespace {
   }
 
 } // namespace
+
+float authBackdropDim(float dim, float brightLuminance) noexcept {
+  if (brightLuminance <= 0.0F) {
+    return dim;
+  }
+  constexpr float kMaxBackground = 1.05F / 4.5F - 0.05F;
+  return std::clamp(1.0F - kMaxBackground / brightLuminance, dim, 0.85F);
+}
 
 AuthLayout authLayoutFromName(std::string_view name) noexcept {
   if (name == "glance") {

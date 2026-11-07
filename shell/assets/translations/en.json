@@ -1308,7 +1308,25 @@
         "phone": "Phone",
         "notifications": "Notifications",
         "none": "None"
-      }
+      },
+      "filter-all": "All",
+      "filter-digital": "Digital",
+      "filter-serif": "Serif",
+      "filter-stacked": "Stacked",
+      "filter-analog": "Analog",
+      "filter-animated": "Animated",
+      "filter-matrix": "Matrix",
+      "axis-weight": "Weight",
+      "axis-width": "Width",
+      "axis-round": "Round",
+      "axis-slant": "Slant",
+      "colour": "Colour",
+      "size-fill": "Fill",
+      "material": "Material",
+      "material-solid": "Solid",
+      "material-tint": "Tint",
+      "material-glass": "Glass",
+      "motion": "Motion"
     },
     "widgets": {
       "weather": "Weather",
@@ -3482,7 +3500,18 @@
           "gradient": "Gradient",
           "analog": "Analog",
           "flip": "Flip",
-          "outline": "Outline"
+          "outline": "Outline",
+          "metropolitan": "Metropolitan",
+          "stretch": "Stretch",
+          "vertical-giant": "Vertical giant",
+          "morph": "Morph",
+          "typewriter": "Typewriter",
+          "neon": "Neon",
+          "split": "Split",
+          "poster": "Poster",
+          "word-grid": "Word grid",
+          "orbit": "Orbit",
+          "casual": "Casual"
         },
         "edge-smoothness": {
           "description": "Feathering of the lock screen transition edges",

@@ -223,6 +223,7 @@ _desk_ui_sources = files(
   'src/ui/app_icon_colorization.cpp',
   'src/ui/builders.cpp',
   'src/ui/auth/auth_chrome.cpp',
+  'src/ui/auth/auth_clock.cpp',
   'src/ui/auth/auth_column.cpp',
   'src/ui/auth/auth_layout.cpp',
   'src/ui/auth/analog_clock.cpp',

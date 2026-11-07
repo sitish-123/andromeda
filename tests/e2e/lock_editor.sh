@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The lock screen editor (L6a) runs unlocked and edits a draft: `msg lockscreen-widgets-edit` opens it, keys pick the
 # Glance layout in the Layout panel, Escape drops that draft (config unchanged), Done saves it (layout = "glance"), and
-# the Slots clock gallery saves a picked style (clock_style = "bold"), and the widget row and bottom slot save
+# the Slots clock sheet saves a picked style (clock_style = "bold") and a Weight bar step (clock_weight = 640), and the widget row and bottom slot save
 # widgets = ["weather"] and bottom_slot = "phone", Free saves a placed, arrow-moved widget (layout = "custom"), and a
 # layout pick after that asks first, and the Wallpaper panel saves a picked colour (L7). Writes editor.png, panel.png,
 # gallery.png, slots.png, free.png, alert.png, wallpaper.png and noctalia.log to $OUT (default ./artifacts/lock-editor).
@@ -46,16 +46,20 @@ with_noctalia '
   wait_for "Done did not close the editor" closed 2
   wait_for "Done did not save layout = glance" saved
 
-  # Slots: Tab past the bar to the clock slot, Return opens the gallery, Tab Tab = the second style (bold).
+  # Slots: Tab past the bar to the clock slot, Return opens the clock sheet; 7 filter chips, then Tab Tab = the second
+  # style (bold). 26 Tabs on = the Weight bar (after the 25 later tiles); Right = +1/20 of 100..900, so 640.
   bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  weight() { grep -rqs "clock_weight = 640" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a third time"
   wait_for "editor did not open a third time" opened 3
-  keys Tab Tab Tab Tab Tab Tab Tab Return Tab Tab Return
+  keys Tab Tab Tab Tab Tab Tab Tab Return Tab Tab Tab Tab Tab Tab Tab Tab Tab Return
+  keys Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Right
   sleep 0.5 # real time: one frame
   grim "$OUT/gallery.png"
   keys Escape Tab Tab Tab Tab Tab Tab Return
   wait_for "Done did not close the editor after the gallery" closed 3
   wait_for "Done did not save clock_style = bold" bold
+  wait_for "Right on the Weight bar did not save clock_weight = 640" weight
 
   # Step 2 saved Glance (no row): the Layout panel picks Centered (3 Tabs past Layout), Escape closes the panel.
   # Slots: the first row place opens the widget gallery on Weather (Return picks it); four Tabs on = the bottom slot,

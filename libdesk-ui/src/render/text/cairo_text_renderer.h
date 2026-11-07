@@ -97,6 +97,10 @@ public:
       std::vector<TextCharSpan>& outSpans, const TextFont& font = {}
   );
 
+  // One line of `text` as 8-bit coverage, shaped as draw() shapes it (see TextAlphaRaster).
+  [[nodiscard]] TextAlphaRaster
+  rasterizeAlpha(float contentScale, std::string_view text, float fontSize, const TextFont& font);
+
   void draw(
       float contentScale, float surfaceWidth, float surfaceHeight, float x, float baselineY, std::string_view text,
       float fontSize, const Color& color, const Mat3& transform, const TextFont& font = {}, float maxWidth = 0.0F,

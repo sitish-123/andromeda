@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -654,6 +655,13 @@ namespace {
         out = value.value_or(out);
       }
     };
+    const auto readInt = [&](std::string_view key, int& out) {
+      if (const toml::node* node = table->get(key)) {
+        const auto value = node->value<std::int64_t>();
+        ok = ok && value.has_value() && *value >= -1000 && *value <= 1000;
+        out = static_cast<int>(value.value_or(out));
+      }
+    };
     const auto readUnit = [&](std::string_view key, double& out) {
       if (const toml::node* node = table->get(key)) {
         const auto value = node->value<double>();
@@ -667,6 +675,15 @@ namespace {
     readString("clock_size", lockscreen.clockSize);
     readBool("clock_format_24h", lockscreen.clockFormat24h);
     readBool("clock_seconds", lockscreen.clockSeconds);
+    readInt("clock_weight", lockscreen.clockWeight);
+    readInt("clock_width", lockscreen.clockWidth);
+    readInt("clock_round", lockscreen.clockRound);
+    readInt("clock_slant", lockscreen.clockSlant);
+    readString("clock_material", lockscreen.clockMaterial);
+    readString("clock_color", lockscreen.clockColor);
+    readBool("clock_motion", lockscreen.clockMotion);
+    readString("clock_ink_from", lockscreen.clockInkFrom);
+    readString("clock_ink_to", lockscreen.clockInkTo);
     readUnit("blur_intensity", lockscreen.blurIntensity);
     readUnit("tint_intensity", lockscreen.tintIntensity);
     if (!ok || !greeter::config::isValidLockscreen(lockscreen)) {
@@ -688,6 +705,17 @@ namespace {
       lockscreen.insert_or_assign("clock_size", ls.clockSize);
       lockscreen.insert_or_assign("clock_format_24h", ls.clockFormat24h);
       lockscreen.insert_or_assign("clock_seconds", ls.clockSeconds);
+      lockscreen.insert_or_assign("clock_weight", ls.clockWeight);
+      lockscreen.insert_or_assign("clock_width", ls.clockWidth);
+      lockscreen.insert_or_assign("clock_round", ls.clockRound);
+      lockscreen.insert_or_assign("clock_slant", ls.clockSlant);
+      lockscreen.insert_or_assign("clock_material", ls.clockMaterial);
+      lockscreen.insert_or_assign("clock_color", ls.clockColor);
+      lockscreen.insert_or_assign("clock_motion", ls.clockMotion);
+      if (!ls.clockInkFrom.empty() && !ls.clockInkTo.empty()) {
+        lockscreen.insert_or_assign("clock_ink_from", ls.clockInkFrom);
+        lockscreen.insert_or_assign("clock_ink_to", ls.clockInkTo);
+      }
       lockscreen.insert_or_assign("blur_intensity", ls.blurIntensity);
       lockscreen.insert_or_assign("tint_intensity", ls.tintIntensity);
       root.insert("lockscreen", std::move(lockscreen));
@@ -961,6 +989,11 @@ namespace greeter::config {
 
   bool isValidLockscreen(const GreeterLockscreen& lockscreen) {
     const auto unit = [](double v) { return std::isfinite(v) && v >= 0.0 && v <= 1.0; };
+    const auto ink = [](std::string_view v) {
+      return v.empty() || (v.size() == 7 && v[0] == '#' && std::ranges::all_of(v.substr(1), [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+      }));
+    };
     return isSafeLockscreenId(lockscreen.theme)
         && isSafeLockscreenId(lockscreen.layout)
         && isSafeLockscreenId(lockscreen.clockStyle)
@@ -968,7 +1001,18 @@ namespace greeter::config {
             || lockscreen.clockSize == "s"
             || lockscreen.clockSize == "m"
             || lockscreen.clockSize == "l"
-            || lockscreen.clockSize == "xl")
+            || lockscreen.clockSize == "xl"
+            || lockscreen.clockSize == "fill")
+        && (lockscreen.clockWeight == 0 || (lockscreen.clockWeight >= 100 && lockscreen.clockWeight <= 1000))
+        && (lockscreen.clockWidth == 0 || (lockscreen.clockWidth >= 50 && lockscreen.clockWidth <= 200))
+        && lockscreen.clockRound >= -1 && lockscreen.clockRound <= 100
+        && lockscreen.clockSlant >= 0 && lockscreen.clockSlant <= 15
+        && (lockscreen.clockMaterial == "solid" || lockscreen.clockMaterial == "glass"
+            || lockscreen.clockMaterial == "tint")
+        && (lockscreen.clockColor == "white" || lockscreen.clockColor == "accent"
+            || lockscreen.clockColor == "wallpaper" || lockscreen.clockColor == "gradient")
+        && ink(lockscreen.clockInkFrom)
+        && ink(lockscreen.clockInkTo)
         && unit(lockscreen.blurIntensity)
         && unit(lockscreen.tintIntensity);
   }

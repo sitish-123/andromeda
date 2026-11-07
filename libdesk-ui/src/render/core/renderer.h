@@ -90,9 +90,26 @@ struct TextMetrics {
   float alignOffsetX = 0.0F;
 };
 
+// One line of text as 8-bit coverage at the renderer scale (a compositor glass mask). left/top: the bitmap's
+// top-left from the text origin (left edge, baseline), logical px; scale: bitmap pixels per logical px.
+struct TextAlphaRaster {
+  std::vector<std::uint8_t> alpha;
+  int width = 0;
+  int height = 0;
+  float left = 0.0F;
+  float top = 0.0F;
+  float scale = 1.0F;
+};
+
 class Renderer {
 public:
   virtual ~Renderer() = default;
+
+  // Coverage of `text` as drawn with the same layout as draw(); empty when the renderer has no text path.
+  [[nodiscard]] virtual TextAlphaRaster
+  rasterizeTextAlpha(std::string_view /*text*/, float /*fontSize*/, const TextFont& /*font*/) {
+    return {};
+  }
 
   [[nodiscard]] virtual TextMetrics measureText(
       std::string_view text, float fontSize, const TextFont& font = {}, float maxWidth = 0.0F, int maxLines = 0,

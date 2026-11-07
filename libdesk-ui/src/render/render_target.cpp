@@ -26,6 +26,11 @@ TextMetrics ScaledRenderer::measureText(
   );
 }
 
+TextAlphaRaster ScaledRenderer::rasterizeTextAlpha(std::string_view text, float fontSize, const TextFont& font) {
+  return m_context != nullptr ? m_context->rasterizeTextAlphaScaled(currentScale(), text, fontSize, font)
+                              : TextAlphaRaster{};
+}
+
 void ScaledRenderer::setTextCaching(bool enabled) {
   assert(m_context != nullptr && "ScaledRenderer setTextCaching without a bound RenderContext");
   m_context->setTextCaching(enabled);

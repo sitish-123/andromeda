@@ -3,7 +3,11 @@
 #include "dsk-surface-v1-client-protocol.h"
 #include "render/animation/motion_service.h"
 
+#include <cstring>
+#include <sys/mman.h>
+#include <unistd.h>
 #include <utility>
+#include <wayland-client-protocol.h>
 
 namespace {
   wl_fixed_t fixed(double value) { return wl_fixed_from_double(value); }
@@ -38,6 +42,62 @@ bool DskSurfaceClient::setVisibleRegion(wl_region* region) {
     return false;
   }
   dsk_surface_v1_set_visible_region(m_surface, region);
+  return true;
+}
+
+namespace {
+  // A mask buffer lives until the compositor releases it (when the next mask replaces it).
+  const wl_buffer_listener kMaskBufferListener = {
+      .release = [](void* /*data*/, wl_buffer* buffer) { wl_buffer_destroy(buffer); },
+  };
+} // namespace
+
+bool DskSurfaceClient::setGlassMask(
+    wl_shm* shm, const std::vector<std::uint8_t>& alpha, int pixelWidth, int pixelHeight, int x, int y, int width,
+    int height
+) {
+  if (wl_proxy_get_version(reinterpret_cast<wl_proxy*>(m_surface)) < DSK_SURFACE_V1_SET_GLASS_MASK_SINCE_VERSION) {
+    return false;
+  }
+  if (alpha.empty() || pixelWidth <= 0 || pixelHeight <= 0
+      || alpha.size() < static_cast<std::size_t>(pixelWidth) * static_cast<std::size_t>(pixelHeight)) {
+    dsk_surface_v1_set_glass_mask(m_surface, nullptr, 0, 0, 0, 0);
+    return true;
+  }
+  if (shm == nullptr) {
+    return false;
+  }
+  const int stride = pixelWidth * 4;
+  const std::size_t size = static_cast<std::size_t>(stride) * static_cast<std::size_t>(pixelHeight);
+  const int fd = memfd_create("desk-glass-mask", MFD_CLOEXEC);
+  if (fd < 0) {
+    return false;
+  }
+  if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
+    close(fd);
+    return false;
+  }
+  void* map = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (map == MAP_FAILED) {
+    close(fd);
+    return false;
+  }
+  // ARGB8888 premultiplied white: only the alpha matters to the compositor's stencil.
+  auto* pixels = static_cast<std::uint32_t*>(map);
+  for (std::size_t i = 0; i < static_cast<std::size_t>(pixelWidth) * static_cast<std::size_t>(pixelHeight); ++i) {
+    const std::uint32_t a = alpha[i];
+    pixels[i] = (a << 24U) | (a << 16U) | (a << 8U) | a;
+  }
+  munmap(map, size);
+  wl_shm_pool* pool = wl_shm_create_pool(shm, fd, static_cast<std::int32_t>(size));
+  close(fd);
+  wl_buffer* buffer = wl_shm_pool_create_buffer(pool, 0, pixelWidth, pixelHeight, stride, WL_SHM_FORMAT_ARGB8888);
+  wl_shm_pool_destroy(pool);
+  if (buffer == nullptr) {
+    return false;
+  }
+  wl_buffer_add_listener(buffer, &kMaskBufferListener, nullptr);
+  dsk_surface_v1_set_glass_mask(m_surface, buffer, x, y, width, height);
   return true;
 }
 

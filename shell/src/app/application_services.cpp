@@ -906,10 +906,25 @@ void Application::initStyleThemeAndWayland() {
     const auto& shellTokens = m_themeService.isLightMode() ? generated.light : generated.dark;
     const auto primary = shellTokens.find("primary");
     // The lock clock sits on a dimmed wallpaper: the light fixed tones keep the gradient legible.
+    // The second stop is the fixed tone farthest from the first: in a one-hue palette (the indigo default)
+    // tertiary_fixed is nearly primary_fixed, and the gradient and its swatch would read as one flat colour.
     const auto gradientFrom = generated.dark.find("primary_fixed");
-    const auto gradientTo = generated.dark.find("tertiary_fixed");
-    if (gradientFrom != generated.dark.end() && gradientTo != generated.dark.end()) {
-      m_lockScreen.setClockGradient((gradientFrom->second << 8U) | 0xFFU, (gradientTo->second << 8U) | 0xFFU);
+    if (gradientFrom != generated.dark.end()) {
+      const auto distance = [from = gradientFrom->second](std::uint32_t rgb) {
+        int sum = 0;
+        for (const unsigned shift : {16U, 8U, 0U}) {
+          sum += std::abs(static_cast<int>((rgb >> shift) & 0xFFU) - static_cast<int>((from >> shift) & 0xFFU));
+        }
+        return sum;
+      };
+      std::uint32_t to = gradientFrom->second;
+      for (const char* token : {"tertiary_fixed", "secondary_fixed", "tertiary", "primary"}) {
+        if (const auto it = generated.dark.find(token); it != generated.dark.end() && distance(it->second) > distance(to)) {
+          to = it->second;
+        }
+      }
+      m_lockScreen.setClockGradient((gradientFrom->second << 8U) | 0xFFU, (to << 8U) | 0xFFU);
+      greeter::setLockClockGradient((gradientFrom->second << 8U) | 0xFFU, (to << 8U) | 0xFFU);
     }
     m_liveAppearance.publish(
         m_themeService.resolvedShellMode(), primary != shellTokens.end() ? formatRgbHex(rgbHex(primary->second)) : ""

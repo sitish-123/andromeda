@@ -1,15 +1,22 @@
 #include "greeter/greeter_host.h"
 
 #include "core/deferred_call.h"
+#include "core/files/resource_paths.h"
 #include "core/log.h"
 #include "core/ui_phase.h"
 #include "greeter/greetd_client.h"
 #include "render/gl_shared_context.h"
 #include "render/render_context.h"
 #include "render/scene/node.h"
+#include "render/text/font_registry.h"
 #include "time/time_format.h"
 #include "ui/auth/auth_chrome.h"
+#include "ui/auth/auth_clock.h"
+#include "ui/auth/auth_layout.h"
 #include "ui/auth/auth_column.h"
+#include "ui/auth/clock_glass_sync.h"
+#include "ui/auth/clock_style.h"
+#include "ui/auth/ryoku_auth_scene.h"
 #include "ui/builders.h"
 #include "ui/controls/image.h"
 #include "cursor-shape-v1-client-protocol.h"
@@ -19,6 +26,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <atomic>
 #include <malloc.h>
 #include <cerrno>
@@ -80,6 +88,20 @@ namespace {
   void onSignal(int /*signal*/) { g_quit.store(true, std::memory_order_relaxed); }
 
   struct GreeterConfig {
+    // The session's lock screen look ([lockscreen], written by the shell's appearance sync); defaults until synced.
+    std::string theme;
+    std::string layout;
+    std::string clockStyle = "classic";
+    std::string clockSize;
+    bool clockFormat24h = true;
+    bool clockSeconds = false;
+    ClockAxisValues clockAxes;
+    std::string clockColor;
+    std::string clockMaterial;
+    bool clockMotion = true;
+    // The lock clock's gradient ink, packed 0xRRGGBBAA; 0 = not synced.
+    std::uint32_t clockInkFrom = 0;
+    std::uint32_t clockInkTo = 0;
     std::optional<std::string> wallpaper;
     std::vector<std::pair<std::string, std::string>> wallpapersByOutput;
 
@@ -102,6 +124,31 @@ namespace {
     } catch (const toml::parse_error& e) {
       kLog.info("no greeter appearance at {}: {}", path.string(), e.description());
       return config;
+    }
+    if (const toml::table* lock = table["lockscreen"].as_table()) {
+      config.theme = (*lock)["theme"].value_or(config.theme);
+      config.layout = (*lock)["layout"].value_or(config.layout);
+      config.clockStyle = (*lock)["clock_style"].value_or(config.clockStyle);
+      config.clockSize = (*lock)["clock_size"].value_or(config.clockSize);
+      config.clockFormat24h = (*lock)["clock_format_24h"].value_or(config.clockFormat24h);
+      config.clockSeconds = (*lock)["clock_seconds"].value_or(config.clockSeconds);
+      config.clockAxes.weight = (*lock)["clock_weight"].value_or(config.clockAxes.weight);
+      config.clockAxes.width = (*lock)["clock_width"].value_or(config.clockAxes.width);
+      config.clockAxes.round = (*lock)["clock_round"].value_or(config.clockAxes.round);
+      config.clockAxes.slant = (*lock)["clock_slant"].value_or(config.clockAxes.slant);
+      config.clockColor = (*lock)["clock_color"].value_or(config.clockColor);
+      config.clockMaterial = (*lock)["clock_material"].value_or(config.clockMaterial);
+      config.clockMotion = (*lock)["clock_motion"].value_or(config.clockMotion);
+      const auto ink = [](std::optional<std::string> hex) -> std::uint32_t {
+        if (!hex.has_value() || hex->size() != 7 || (*hex)[0] != '#') {
+          return 0;
+        }
+        std::uint32_t rgb = 0;
+        const auto [end, ec] = std::from_chars(hex->data() + 1, hex->data() + 7, rgb, 16);
+        return ec == std::errc{} && end == hex->data() + 7 ? (rgb << 8U) | 0xFFU : 0;
+      };
+      config.clockInkFrom = ink((*lock)["clock_ink_from"].value<std::string>());
+      config.clockInkTo = ink((*lock)["clock_ink_to"].value<std::string>());
     }
     if (const auto p = table["appearance"]["wallpaper"]["path"].value<std::string>()) {
       config.wallpaper = *p;
@@ -303,6 +350,18 @@ namespace {
                               : "battery";
   }
 
+  // Clock motion stops under the power-saver profile, as on the lock screen.
+  bool readPowerSaver() {
+    bool saver = false;
+    if (GVariant* dict = properties("org.andromeda.System1", "/org/andromeda/System1/Power", "org.andromeda.System1.Power")) {
+      const gchar* profile = nullptr;
+      g_variant_lookup(dict, "Profile", "&s", &profile);
+      saver = profile != nullptr && std::string_view(profile) == "power-saver";
+      g_variant_unref(dict);
+    }
+    return saver;
+  }
+
   AuthColumn::Status readStatus() {
     AuthColumn::Status status;
     if (GVariant* dict = properties(
@@ -397,7 +456,12 @@ namespace {
     std::unique_ptr<Node> root;
     Image* wallpaper = nullptr;
     AuthColumn auth;
+    // Set for the Ryoku theme; it then replaces the auth column (as on the lock screen).
+    std::unique_ptr<RyokuAuthScene> ryoku;
+    // Ryoku's dial sweeps smoothly while this runs, then steps once a second (lock_surface.cpp startRyokuLive).
+    AnimationManager::Id ryokuLive = 0;
     AuthChrome chrome;
+    ClockGlassSync clockGlass;
     bool built = false;
   };
 
@@ -446,7 +510,7 @@ namespace {
 
     int run() {
       wl_display* display = m_wayland.display();
-      std::string shownMinute = formatLocalTime("%H:%M");
+      std::string shownTime = formatLocalTime(secondsClock() ? "%T" : "%H:%M");
       while (!g_quit.load(std::memory_order_relaxed)) {
         for (auto& fn : DeferredCall::takePending()) {
           if (fn) {
@@ -465,7 +529,7 @@ namespace {
           return 1;
         }
 
-        int timeoutMs = msToNextMinute();
+        int timeoutMs = msToNextTick(secondsClock() ? 1000 : 60000);
         if (m_trimmed) {
           const auto untilStatus = std::chrono::duration_cast<std::chrono::milliseconds>(
               m_nextStatus - std::chrono::steady_clock::now()
@@ -543,10 +607,18 @@ namespace {
           return 0;
         }
 
-        if (const std::string minute = formatLocalTime("%H:%M"); minute != shownMinute) {
-          shownMinute = minute;
+        if (const std::string time = formatLocalTime(secondsClock() ? "%T" : "%H:%M"); time != shownTime) {
+          shownTime = time;
           for (auto& view : m_views) {
-            view->surface->requestLayout();
+            if (view->ryoku == nullptr) {
+              view->surface->requestLayout();
+            } else if (view->ryokuLive == 0) {
+              if (view->ryoku->tick(false)) {
+                view->surface->requestLayout();
+              } else {
+                view->surface->requestRedraw();
+              }
+            }
           }
         }
         Surface::drainPendingFrameWork();
@@ -560,8 +632,10 @@ namespace {
         // UPower and NetworkManager are read after the first frame and then every 30 s, never before it.
         if (m_trimmed && std::chrono::steady_clock::now() >= m_nextStatus) {
           m_nextStatus = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-          if (auto status = readStatus(); status != m_status) {
+          const bool powerSaver = readPowerSaver();
+          if (auto status = readStatus(); status != m_status || powerSaver != m_powerSaver) {
             m_status = std::move(status);
+            m_powerSaver = powerSaver;
             relayout();
           }
         }
@@ -570,10 +644,38 @@ namespace {
     }
 
   private:
-    static int msToNextMinute() {
+    static int msToNextTick(std::int64_t periodMs) {
       const auto now = std::chrono::system_clock::now().time_since_epoch();
-      const auto intoMinute = std::chrono::duration_cast<std::chrono::milliseconds>(now) % 60000;
-      return static_cast<int>((std::chrono::milliseconds(60000) - intoMinute).count()) + 5;
+      const auto into = std::chrono::duration_cast<std::chrono::milliseconds>(now).count() % periodMs;
+      return static_cast<int>(periodMs - into) + 5;
+    }
+
+    [[nodiscard]] bool ryokuTheme() const { return m_config.theme == "ryoku"; }
+
+    [[nodiscard]] bool clockMotion() const { return m_config.clockMotion && !m_powerSaver; }
+
+    // Seconds, a live clock style or the Ryoku dial need a wake each second; the rest each minute.
+    [[nodiscard]] bool secondsClock() const {
+      return ryokuTheme() || clockTicksSeconds(clockStyleById(m_config.clockStyle), m_config.clockSeconds, clockMotion(), m_config.clockAxes);
+    }
+
+    void startRyokuLive(OutputView& view) {
+      if (view.ryoku == nullptr) {
+        return;
+      }
+      if (view.ryokuLive != 0) {
+        view.animations.cancel(view.ryokuLive);
+      }
+      OutputView* raw = &view;
+      view.ryokuLive = view.animations.animateTimer(
+          0.0F, 1.0F, 20000.0F, Easing::Linear,
+          [raw](float /*progress*/) {
+            if (raw->ryoku->tick(true)) {
+              raw->surface->requestLayout();
+            }
+          },
+          [raw] { raw->ryokuLive = 0; }, raw
+      );
     }
 
     static bool eligible(const WaylandOutput& output) {
@@ -650,7 +752,14 @@ namespace {
           }
         }
         view.wallpaper = static_cast<Image*>(view.root->addChild(std::move(wallpaper)));
-        view.auth.build(*view.root, view.animations);
+        if (ryokuTheme()) {
+          (void)text::registerFontFile(paths::assetPath("fonts/Outfit-Black.ttf"));
+          view.ryoku = std::make_unique<RyokuAuthScene>();
+          view.ryoku->build(*view.root, view.animations);
+          startRyokuLive(view);
+        } else {
+          view.auth.build(*view.root, view.animations);
+        }
         view.chrome.build(*view.root);
         view.surface->setSceneRoot(view.root.get());
         view.built = true;
@@ -662,6 +771,19 @@ namespace {
       view.root->setSize(w, h);
       view.wallpaper->setPosition(0.0F, 0.0F);
       view.wallpaper->setSize(w, h);
+      if (view.ryoku != nullptr) {
+        const bool busy = m_phase == Phase::Posting || m_phase == Phase::Starting;
+        view.ryoku->setUser(displayName(m_user));
+        view.ryoku->setHint(
+            busy ? "Checking your key" : m_hint.empty() ? "Type your key" : m_hint, m_hintError && !busy,
+            !m_hintError && m_password.empty() && !busy
+        );
+        view.ryoku->setPasswordLength(codepointCount(m_password));
+        view.ryoku->layout(renderer, w, h);
+        view.chrome.setState(chromeState(view));
+        view.chrome.layout(renderer, w, h, 1.0F);
+        return;
+      }
       AuthColumn::State state;
       state.user = displayName(m_user);
       state.placeholder = "Password";
@@ -672,14 +794,37 @@ namespace {
       state.inputOff = !m_greetd.isConnected();
       state.hint = m_hint;
       state.hintError = m_hintError;
-      state.time = formatLocalTime("%H:%M");
-      state.date = formatLocalTime("%A, %-d %B");
+      state.glanceHint = "Press any key to sign in";
+      fillAuthClock(
+          state,
+          {.style = m_config.clockStyle,
+           .h24 = m_config.clockFormat24h,
+           .seconds = m_config.clockSeconds,
+           .axes = m_config.clockAxes,
+           .color = m_config.clockColor,
+           .material = m_config.clockMaterial,
+           .motion = clockMotion()},
+          m_config.clockInkFrom, m_config.clockInkTo
+      );
       state.status = m_status;
       if (m_wayland.keyboardLayoutNames().size() > 1) {
         state.status.layoutLabel = m_wayland.currentKeyboardLayoutName();
       }
+      AuthPlacementInput input{
+          .layout = authLayoutFromName(m_config.layout),
+          .sw = w,
+          .sh = h,
+          .scale = 1.0F,
+          .pointerMoved = m_pointerMoved,
+      };
+      input.clockSize = clockSizeFor(m_config.clockSize);
+      input.clockFill = clockFillsSpace(m_config.clockSize);
+      input.clockLines = std::max<int>(1, static_cast<int>(state.clockLines.size()));
       view.auth.setState(std::move(state));
-      view.auth.layout(renderer, w, h, 1.0F);
+      const AuthPlacement place = placeAuth(input);
+      view.auth.layout(renderer, place, w, 1.0F);
+      view.clockGlass.sync(m_wayland, view.surface->wlSurface(), view.auth.clockGlassMask(renderer));
+      view.chrome.setVisible(place.chrome);
       view.chrome.setState(chromeState(view));
       view.chrome.layout(renderer, w, h, 1.0F);
     }
@@ -755,6 +900,9 @@ namespace {
       } else {
         return;
       }
+      for (auto& view : m_views) {
+        startRyokuLive(*view);
+      }
       relayout();
     }
 
@@ -829,6 +977,10 @@ namespace {
         }
         m_pointerX = static_cast<float>(event.sx);
         m_pointerY = static_cast<float>(event.sy);
+        if (event.type == PointerEvent::Type::Motion && !m_pointerMoved) {
+          m_pointerMoved = true;
+          relayout();
+        }
         if (m_pointerView != nullptr && m_pointerView == m_menuView) {
           const auto hit = m_pointerView->chrome.hitTest(m_pointerX, m_pointerY);
           const int hover = hit.target == AuthChrome::Target::Item ? hit.index : -1;
@@ -966,7 +1118,11 @@ namespace {
         if (response.error.type == GreetdErrorType::AuthError) {
           setHint("Wrong password", true);
           for (auto& view : m_views) {
-            view->auth.playRejected();
+            if (view->ryoku != nullptr) {
+              view->ryoku->playRejected();
+            } else {
+              view->auth.playRejected();
+            }
           }
         } else {
           setHint(response.error.description, true);
@@ -997,6 +1153,10 @@ namespace {
     OutputView* m_pointerView = nullptr;
     float m_pointerX = 0.0F;
     float m_pointerY = 0.0F;
+    // Minimal shows the island and chrome only after the pointer moves.
+    bool m_pointerMoved = false;
+    // The power-saver profile (org.andromeda.System1.Power), read with the status every 30 s.
+    bool m_powerSaver = false;
     int m_hover = -1;
     GreetdClient m_greetd;
     Phase m_phase = Phase::Idle;
@@ -1021,7 +1181,12 @@ namespace {
       m_exiting = true;
       m_exitDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(600);
       for (auto& view : m_views) {
-        view->auth.playAccepted(&view->chrome.layer(), [this] { ++m_exitsDone; });
+        // Ryoku's granted blast ends on a white flash; the held frame stays on the calm scene (TASK-login L4).
+        if (view->ryoku != nullptr) {
+          ++m_exitsDone;
+        } else {
+          view->auth.playAccepted(&view->chrome.layer(), [this] { ++m_exitsDone; });
+        }
         view->surface->requestRedraw();
       }
     }

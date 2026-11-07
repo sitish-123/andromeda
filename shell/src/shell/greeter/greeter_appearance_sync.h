@@ -51,6 +51,12 @@ namespace greeter {
       const CompositorPlatform* platform = nullptr, bool logindOnSystemBus = false
   );
 
+  // The lock clock's gradient ink (packed 0xRRGGBBAA, LockScreen::setClockGradient); synced as [lockscreen] clock_ink_*.
+  void setLockClockGradient(std::uint32_t from, std::uint32_t to);
+
+  // Runs on the main loop when a staged wallpaper's lock look (blur, dim) finished baking; the caller syncs again.
+  void setLockWallpaperBakeReady(std::function<void()> callback);
+
   // No-op when appearanceSyncAvailable() is false (handler is not registered).
   void registerIpc(
       IpcService& ipc, const ConfigService& config, std::function<std::string_view()> resolvedThemeMode,
