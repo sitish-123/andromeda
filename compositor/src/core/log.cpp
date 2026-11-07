@@ -70,6 +70,8 @@ namespace {
   std::size_t gDroppedLines = 0;
   bool gWriterStop = false;
   bool gWriterRunning = false;
+  // Set by the exit join: later lines (static destructors, other threads) are written in place.
+  bool gWriterShutDown = false;
   // A forked child has no writer thread; it writes in place, as it did before the writer existed.
   bool gInForkedChild = false;
   std::thread gWriter;
@@ -365,7 +367,12 @@ namespace {
       writeQueuedLine(line);
       return;
     }
-    std::scoped_lock lock(gQueueMutex);
+    std::unique_lock lock(gQueueMutex);
+    if (gWriterShutDown) {
+      lock.unlock();
+      writeQueuedLine(line);
+      return;
+    }
     if (!gWriterRunning) {
       gWriter = std::thread(writerMain);
       gWriterRunning = true;
@@ -396,25 +403,26 @@ namespace {
     std::scoped_lock lock(gQueueMutex);
     gWriterRunning = false;
     gWriterStop = false;
+    gWriterShutDown = true;
   }
 
+  // gLogMutex is not taken: the writer holds it during disk I/O, and fork() must not wait for that. The child may
+  // inherit it locked, so it never touches the file: it logs to the console only.
   void prepareFork() {
     gStateMutex.lock();
     gQueueMutex.lock();
-    gLogMutex.lock();
   }
 
   void afterForkParent() {
-    gLogMutex.unlock();
     gQueueMutex.unlock();
     gStateMutex.unlock();
   }
 
   void afterForkChild() {
-    gLogMutex.unlock();
     gQueueMutex.unlock();
     gStateMutex.unlock();
     gInForkedChild = true;
+    gFileEnabled = false;
   }
 
   [[maybe_unused]] const bool gForkHandlers = pthread_atfork(prepareFork, afterForkParent, afterForkChild) == 0;

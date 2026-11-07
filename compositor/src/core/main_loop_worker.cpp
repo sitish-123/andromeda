@@ -16,12 +16,16 @@ namespace andromeda {
     m_thread = std::jthread([this](const std::stop_token& stop) { run(stop); });
   }
 
-  MainLoopWorker::~MainLoopWorker() {
+  void MainLoopWorker::stop() {
     m_thread.request_stop();
     m_wake.notify_all();
     if (m_thread.joinable()) {
       m_thread.join();
     }
+  }
+
+  MainLoopWorker::~MainLoopWorker() {
+    stop();
     if (m_source != nullptr) {
       wl_event_source_remove(m_source);
     }

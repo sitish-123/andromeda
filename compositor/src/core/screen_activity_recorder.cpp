@@ -97,6 +97,8 @@ namespace andromeda {
   }
 
   ScreenActivityRecorder::~ScreenActivityRecorder() {
+    // A file job still on the worker would race the in-place writes below on the same .tmp file.
+    m_worker.stop();
     m_closing = true;
     write(true);
     if (m_timer != nullptr) {

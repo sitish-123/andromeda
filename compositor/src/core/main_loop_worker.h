@@ -21,6 +21,10 @@ namespace andromeda {
     explicit MainLoopWorker(wl_event_loop* loop);
     ~MainLoopWorker();
 
+    // Finishes the running job and ends the thread; queued jobs and results are dropped. For an owner that writes
+    // its final state in place and must not race a job on the same file.
+    void stop();
+
     MainLoopWorker(const MainLoopWorker&) = delete;
     MainLoopWorker& operator=(const MainLoopWorker&) = delete;
 
