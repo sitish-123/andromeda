@@ -1,0 +1,128 @@
+From cb23330c9049d5f4f42998d66ec3d2a891bd0004 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 13:10:29 +0545
+Subject: [PATCH 4/4] context: GDM-style retirement: the greeter gets
+ GREETD_HANDOFF=1 and stays up until the session connects to
+ /run/user/<uid>/greetd-handoff.sock (its first frame), then SIGTERM; 10 s
+ fallback
+
+---
+ greetd/src/context.rs | 47 +++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 43 insertions(+), 4 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index f5b82f6..2cc7910 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -30,6 +30,7 @@ struct SessionChildSet {
+ struct SessionSet {
+     session: Session,
+     time: Instant,
++    user: String,
+ }
+ 
+ struct ContextInner {
+@@ -118,6 +119,7 @@ impl Context {
+         user: &str,
+         service: &str,
+         cmd: Vec<String>,
++        env: Vec<String>,
+     ) -> Result<SessionChild, Error> {
+         let mut scheduled_session = Session::new_external()?;
+         scheduled_session
+@@ -139,7 +141,7 @@ impl Context {
+             }
+         }
+ 
+-        scheduled_session.send_args(cmd, vec![]).await?;
++        scheduled_session.send_args(cmd, env).await?;
+         scheduled_session.start().await
+     }
+ 
+@@ -152,6 +154,12 @@ impl Context {
+             &self.greeter_user,
+             &self.greeter_service,
+             vec![self.greeter_bin.to_string()],
++            // The greeter stays up after its client finishes until the session reports its first frame.
++            if self.handoff {
++                vec!["GREETD_HANDOFF=1".to_string()]
++            } else {
++                vec![]
++            },
+         )
+         .await
+     }
+@@ -203,7 +211,7 @@ impl Context {
+         let mut inner = self.inner.write().await;
+         inner.current = Some(SessionChildSet {
+             child: self
+-                .start_unauthenticated_session(SessionClass::User, user, service, cmd)
++                .start_unauthenticated_session(SessionClass::User, user, service, cmd, vec![])
+                 .await?,
+             time: Instant::now(),
+             is_greeter: false,
+@@ -229,6 +237,7 @@ impl Context {
+         let mut session_set = SessionSet {
+             session: Session::new_external()?,
+             time: Instant::now(),
++            user: username.clone(),
+         };
+         session_set
+             .session
+@@ -326,6 +335,7 @@ impl Context {
+                         });
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
++                            retire_on_ready(&s.user, g.child.sub_task);
+                             inner.outgoing = Some(g);
+                         }
+                         inner.drm_hold = Some((cards, Instant::now()));
+@@ -360,10 +370,11 @@ impl Context {
+         // Keep trying to terminate the greeter until it gives up.
+         let mut inner = self.inner.write().await;
+ 
++        // Fallback for a session that never reports ready: the greeter must not stay forever.
+         if let Some(g) = &inner.outgoing {
+-            if g.time.elapsed() > Duration::from_secs(10) {
++            if g.time.elapsed() > Duration::from_secs(15) {
+                 g.child.kill();
+-            } else if g.time.elapsed() >= Duration::from_secs(2) {
++            } else if g.time.elapsed() >= Duration::from_secs(10) {
+                 g.child.term();
+             }
+             alarm::set(1);
+@@ -509,3 +520,31 @@ fn hold_drm_cards() -> Vec<File> {
+         })
+         .unwrap_or_default()
+ }
++
++
++/// GDM-style retirement: the session compositor connects to `$XDG_RUNTIME_DIR/greetd-handoff.sock` once its first
++/// frame is on screen (it is DRM master by then, so the kernel cannot restore its console when the greeter exits);
++/// the greeter session then gets SIGTERM. Without a report the alarm fallback retires it after 10 s.
++fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
++    let Ok(Some(account)) = nix::unistd::User::from_name(user) else {
++        return;
++    };
++    let path = format!("/run/user/{}/greetd-handoff.sock", account.uid);
++    let _ = std::fs::remove_file(&path);
++    let listener = match tokio::net::UnixListener::bind(&path) {
++        Ok(listener) => listener,
++        Err(e) => {
++            eprintln!("hand-off: unable to listen on {path}: {e}");
++            return;
++        }
++    };
++    if let Err(e) = nix::unistd::chown(path.as_str(), Some(account.uid), Some(account.gid)) {
++        eprintln!("hand-off: unable to chown {path}: {e}");
++    }
++    tokio::task::spawn_local(async move {
++        if tokio::time::timeout(Duration::from_secs(10), listener.accept()).await.is_ok() {
++            let _ = nix::sys::signal::kill(greeter, nix::sys::signal::Signal::SIGTERM);
++        }
++        let _ = std::fs::remove_file(&path);
++    });
++}
+-- 
+2.56.0
+

@@ -77,6 +77,7 @@ extern "C" {
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/prctl.h>
 #include <string_view>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -1738,8 +1739,17 @@ namespace andromeda {
     startWatchdog(notifySocket);
     if (greeterMode()) {
       // The greeter session runs the greeter alone and ends with it; config autostart does not apply.
-      m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this] {
-        wl_display_terminate(m_display);
+      // Under greetd's hand-off the greeter stays up after its client finishes, until greetd ends the greeter session
+      // once the user session drew its first frame: exiting earlier leaves no DRM master, and the kernel puts its
+      // console back on screen. The session process is our parent, so its exit ends us.
+      const bool handoff = std::getenv("GREETD_HANDOFF") != nullptr;
+      if (handoff) {
+        prctl(PR_SET_PDEATHSIG, SIGTERM);
+      }
+      m_greeterChild = std::make_unique<GreeterChild>(wl_display_get_event_loop(m_display), startupCmd, [this, handoff] {
+        if (!handoff) {
+          wl_display_terminate(m_display);
+        }
       });
       return m_greeterChild->running();
     }

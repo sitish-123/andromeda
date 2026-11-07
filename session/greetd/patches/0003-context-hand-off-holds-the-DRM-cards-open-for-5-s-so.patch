@@ -1,7 +1,7 @@
 From d94e7542661ee6a3ea33b5fd17fb2a554bbe2876 Mon Sep 17 00:00:00 2001
 From: sitish <sitishjayaswal12@gmail.com>
 Date: Sat, 7 Nov 2026 12:37:36 +0545
-Subject: [PATCH 3/3] context: hand-off holds the DRM cards open for 5 s, so
+Subject: [PATCH 3/4] context: hand-off holds the DRM cards open for 5 s, so
  the greeter's exit is never the card's last close (the kernel would restore
  its console framebuffer)
 
