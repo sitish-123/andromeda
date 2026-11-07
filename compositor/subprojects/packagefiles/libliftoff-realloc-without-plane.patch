@@ -1,0 +1,44 @@
+diff --git a/alloc.c b/alloc.c
+--- a/alloc.c
++++ b/alloc.c
+@@ -865,6 +865,27 @@
+ 	return order_changed;
+ }
+ 
++/* A visible layer has no plane and the composition layer has none either, so
++ * the CRTC scans out nothing for it. An allocation made while the CRTC was off,
++ * or before the previous DRM master's planes were released, ends this way; the
++ * FB_ID changes that follow never trigger a realloc on their own. */
++static bool
++layer_shown_nowhere(struct liftoff_output *output)
++{
++	struct liftoff_layer *layer;
++
++	if (output->composition_layer == NULL ||
++	    output->composition_layer->plane != NULL) {
++		return false;
++	}
++	liftoff_list_for_each(layer, &output->layers, link) {
++		if (layer->plane == NULL && layer_is_visible(layer)) {
++			return true;
++		}
++	}
++	return false;
++}
++
+ static int
+ reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
+ 		     uint32_t flags)
+@@ -890,6 +911,12 @@
+ 		}
+ 	}
+ 
++	if (layer_shown_nowhere(output)) {
++		liftoff_log(LIFTOFF_DEBUG, "Cannot re-use previous allocation: "
++			    "a visible layer has no plane and nothing composites it");
++		return -EINVAL;
++	}
++
+ 	if (layer_order_changed) {
+ 		liftoff_log(LIFTOFF_DEBUG, "Cannot re-use previous allocation: "
+ 			    "layer priority order changed.");
