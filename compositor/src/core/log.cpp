@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -12,8 +14,11 @@
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <poll.h>
+#include <pthread.h>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <unistd.h>
 
 namespace {
@@ -25,7 +30,11 @@ namespace {
 #endif
 
   FILE* gLogFile = nullptr;
+  // gLogMutex: the log file (writer thread, init). gStateMutex: the callers' repeat state; the main thread never
+  // takes gLogMutex, so a writer blocked in I/O cannot block it.
   std::mutex gLogMutex;
+  std::mutex gStateMutex;
+  bool gFileEnabled = false;
   std::string gLogPath;
   std::string gBackupLogPath;
   std::uintmax_t gLogSizeBytes = 0;
@@ -42,6 +51,28 @@ namespace {
   // Collapse runs of an identical message and report the count once the run ends: a per-frame failure can emit
   // thousands of lines per second, and synchronous VT writes at that rate stall the main loop.
   constexpr auto kRepeatWindow = std::chrono::seconds(1);
+
+  // Every write runs on one writer thread: a write to the journal or the log file can block for seconds under disk
+  // writeback throttling or a busy journald, and on the main thread that froze the frame loop and the cursor. The
+  // main thread only queues lines; past this budget it drops them and the writer reports the count.
+  constexpr std::size_t kMaxQueuedBytes = 4 * 1024 * 1024;
+
+  struct QueuedLine {
+    std::string console;
+    std::string file;
+    bool flush = false;
+  };
+
+  std::mutex gQueueMutex;
+  std::condition_variable gQueueReady;
+  std::deque<QueuedLine> gQueue;
+  std::size_t gQueuedBytes = 0;
+  std::size_t gDroppedLines = 0;
+  bool gWriterStop = false;
+  bool gWriterRunning = false;
+  // A forked child has no writer thread; it writes in place, as it did before the writer existed.
+  bool gInForkedChild = false;
+  std::thread gWriter;
 
   std::string gLastMessage;
   const char* gLastSection = nullptr;
@@ -169,22 +200,10 @@ namespace {
     return prefix;
   }
 
-  std::size_t writeLine(FILE* stream, std::string_view prefix, std::string_view msg) {
-    if (stream == nullptr) {
-      return 0;
+  void writeRaw(FILE* stream, const std::string& line) {
+    if (stream != nullptr && !line.empty()) {
+      std::fwrite(line.data(), 1, line.size(), stream);
     }
-
-    std::size_t bytes = 0;
-    if (!prefix.empty()) {
-      bytes += std::fwrite(prefix.data(), 1, prefix.size(), stream);
-    }
-    if (!msg.empty()) {
-      bytes += std::fwrite(msg.data(), 1, msg.size(), stream);
-    }
-    if (std::fputc('\n', stream) != EOF) {
-      ++bytes;
-    }
-    return bytes;
   }
 
   void flushLogFileUnlocked() {
@@ -196,20 +215,12 @@ namespace {
     gLastFileFlushAt = std::chrono::steady_clock::now();
   }
 
+  void stopWriter();
+
   void flushLogFileAtExit() {
+    stopWriter();
     std::scoped_lock lock(gLogMutex);
     flushLogFileUnlocked();
-  }
-
-  bool shouldFlushLogFile(LogLevel level) {
-    if (level >= LogLevel::Warn) {
-      return true;
-    }
-
-    ++gBufferedFileLogLines;
-    const auto now = std::chrono::steady_clock::now();
-    return gBufferedFileLogLines >= kBufferedFileLogFlushLines
-        || now - gLastFileFlushAt >= kBufferedFileLogFlushInterval;
   }
 
   void closeLogFileUnlocked() {
@@ -257,29 +268,156 @@ namespace {
     openLogFileUnlocked();
   }
 
+  void writeQueuedLine(const QueuedLine& line);
+  void queueLine(QueuedLine line);
+
   void emitUnlocked(LogLevel level, const char* section, std::string_view msg, const std::tm& tm, long msec) {
+    QueuedLine line;
     // Console: respects gMinLevel, ANSI colours, time only
     if (gConsoleEnabled && level >= gMinLevel) {
       const std::string prefix = consolePrefix(tm, msec, level, section);
       const CappedLogMessage capped = capMessageForLine(msg, prefix.size());
-      (void)writeLine(stderr, prefix, capped.text());
+      line.console = prefix;
+      line.console += capped.text();
+      line.console += '\n';
     }
 
     // File: always unfiltered, no ANSI, full date for context
-    if (gLogFile != nullptr) {
+    if (gFileEnabled) {
       const std::string prefix = filePrefix(tm, msec, level, section);
       const CappedLogMessage capped = capMessageForLine(msg, prefix.size());
-      const std::string_view cappedText = capped.text();
-      const std::uintmax_t lineBytes = prefix.size() + cappedText.size() + 1;
-      if (gLogSizeBytes > 0 && gLogSizeBytes + lineBytes > kMaxLogBytes) {
-        rotateLogFileUnlocked();
-      }
-      gLogSizeBytes += writeLine(gLogFile, prefix, cappedText);
-      if (shouldFlushLogFile(level)) {
-        flushLogFileUnlocked();
+      line.file = prefix;
+      line.file += capped.text();
+      line.file += '\n';
+      line.flush = level >= LogLevel::Warn;
+    }
+    queueLine(std::move(line));
+  }
+
+  std::size_t gSkippedConsoleLines = 0;
+
+  // The console is the journal stream or a pipe: when it is full, skip the line rather than wait, so the log file
+  // (written first) keeps going. A child shares stderr's file description, so it cannot be set O_NONBLOCK.
+  void writeConsole(const std::string& line) {
+    if (line.empty()) {
+      return;
+    }
+    pollfd fd{.fd = STDERR_FILENO, .events = POLLOUT, .revents = 0};
+    if (::poll(&fd, 1, 0) != 1 || (fd.revents & POLLOUT) == 0) {
+      ++gSkippedConsoleLines;
+      return;
+    }
+    if (gSkippedConsoleLines > 0) {
+      const std::string note = std::format("[log] {} console lines skipped: stderr was full\n", gSkippedConsoleLines);
+      gSkippedConsoleLines = 0;
+      (void)!::write(STDERR_FILENO, note.data(), note.size());
+    }
+    (void)!::write(STDERR_FILENO, line.data(), line.size());
+  }
+
+  // Runs on the writer thread, or in place in a forked child; gLogMutex guards the file state.
+  void writeQueuedLine(const QueuedLine& line) {
+    if (!line.file.empty()) {
+      std::scoped_lock lock(gLogMutex);
+      if (gLogFile != nullptr) {
+        if (gLogSizeBytes > 0 && gLogSizeBytes + line.file.size() > kMaxLogBytes) {
+          rotateLogFileUnlocked();
+        }
+        writeRaw(gLogFile, line.file);
+        gLogSizeBytes += line.file.size();
+        if (line.flush) {
+          flushLogFileUnlocked();
+        } else {
+          ++gBufferedFileLogLines;
+          if (gBufferedFileLogLines >= kBufferedFileLogFlushLines
+              || std::chrono::steady_clock::now() - gLastFileFlushAt >= kBufferedFileLogFlushInterval) {
+            flushLogFileUnlocked();
+          }
+        }
       }
     }
+    writeConsole(line.console);
   }
+
+  void writerMain() {
+    std::unique_lock lock(gQueueMutex);
+    while (true) {
+      gQueueReady.wait(lock, [] { return gWriterStop || !gQueue.empty(); });
+      if (gQueue.empty()) {
+        return;
+      }
+      QueuedLine line = std::move(gQueue.front());
+      gQueue.pop_front();
+      gQueuedBytes -= line.console.size() + line.file.size();
+      const std::size_t dropped = std::exchange(gDroppedLines, 0);
+      lock.unlock();
+      if (dropped > 0) {
+        const std::string note = std::format("[log] {} lines dropped: the log writer fell behind\n", dropped);
+        writeQueuedLine({.console = note, .file = note, .flush = true});
+      }
+      writeQueuedLine(line);
+      lock.lock();
+    }
+  }
+
+  void queueLine(QueuedLine line) {
+    if (gInForkedChild) {
+      writeQueuedLine(line);
+      return;
+    }
+    std::scoped_lock lock(gQueueMutex);
+    if (!gWriterRunning) {
+      gWriter = std::thread(writerMain);
+      gWriterRunning = true;
+      // Joins before static destruction: a joinable std::thread destructor terminates the process.
+      static const bool registered = std::atexit(stopWriter) == 0;
+      (void)registered;
+    }
+    const std::size_t bytes = line.console.size() + line.file.size();
+    if (gQueuedBytes + bytes > kMaxQueuedBytes) {
+      ++gDroppedLines;
+      return;
+    }
+    gQueuedBytes += bytes;
+    gQueue.push_back(std::move(line));
+    gQueueReady.notify_one();
+  }
+
+  void stopWriter() {
+    {
+      std::scoped_lock lock(gQueueMutex);
+      if (!gWriterRunning) {
+        return;
+      }
+      gWriterStop = true;
+    }
+    gQueueReady.notify_one();
+    gWriter.join();
+    std::scoped_lock lock(gQueueMutex);
+    gWriterRunning = false;
+    gWriterStop = false;
+  }
+
+  void prepareFork() {
+    gStateMutex.lock();
+    gQueueMutex.lock();
+    gLogMutex.lock();
+  }
+
+  void afterForkParent() {
+    gLogMutex.unlock();
+    gQueueMutex.unlock();
+    gStateMutex.unlock();
+  }
+
+  void afterForkChild() {
+    gLogMutex.unlock();
+    gQueueMutex.unlock();
+    gStateMutex.unlock();
+    gInForkedChild = true;
+  }
+
+  [[maybe_unused]] const bool gForkHandlers = pthread_atfork(prepareFork, afterForkParent, afterForkChild) == 0;
 
   // Emits the pending "repeated N times" summary, if any.
   void flushRepeatsUnlocked(const std::tm& tm, long msec) {
@@ -376,6 +514,8 @@ void initLogFile() {
     (void)std::atexit(flushLogFileAtExit);
     gRegisteredExitFlush = true;
   }
+  std::scoped_lock stateLock(gStateMutex);
+  gFileEnabled = gLogFile != nullptr;
 }
 
 namespace detail {
@@ -387,7 +527,7 @@ namespace detail {
     localtime_r(&ts.tv_sec, &tm);
     const long msec = ts.tv_nsec / 1'000'000;
 
-    std::scoped_lock lock(gLogMutex);
+    std::scoped_lock lock(gStateMutex);
 
     const auto now = std::chrono::steady_clock::now();
     if (msg == gLastMessage && section == gLastSection && level == gLastLevel) {
@@ -413,7 +553,7 @@ namespace detail {
 } // namespace detail
 
 void setConsoleLogging(bool enabled) {
-  std::scoped_lock lock(gLogMutex);
+  std::scoped_lock lock(gStateMutex);
   gConsoleEnabled = enabled;
 }
 
