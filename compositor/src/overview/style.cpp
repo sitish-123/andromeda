@@ -16,7 +16,6 @@ namespace andromeda::ov {
     constexpr double kSpacesThumbWidth = 176;
     constexpr double kTaskViewThumbWidth = 208;
     constexpr double kThumbTop = 56;     // Spaces: thumb row from the top edge, below the 32 px center island at 8
-    constexpr double kPlusShare = 0.64;  // Spaces: the + target is this share of a thumb's height wide (mockup A)
     constexpr double kSpacesBottom = 24; // Spaces: main area to the usable bottom (no hint line)
     constexpr double kThumbBottom = 52;  // Task View: thumb row above the bottom edge (names sit above the cards)
     constexpr double kTitleGap = 32;     // thumb row to the title row (room for the names under the thumbs)
@@ -93,7 +92,7 @@ namespace andromeda::ov {
       double tw = top ? kSpacesThumbWidth : kTaskViewThumbWidth;
       tw = std::max(1.0, std::min(tw, (avail - static_cast<double>(n) * kThumbGap) / static_cast<double>(n + 1)));
       const double th = tw * in.height / in.width;
-      const double plusW = top ? std::round(th * kPlusShare) : tw;
+      const double plusW = tw; // the + target is an empty desktop: a thumb-sized card
       const double total = static_cast<double>(n) * tw + plusW + static_cast<double>(n) * kThumbGap;
       const double y = top ? kThumbTop : in.height - th - kThumbBottom;
       double x = (in.width - total) / 2;
