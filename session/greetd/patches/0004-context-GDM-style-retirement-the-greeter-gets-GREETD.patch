@@ -1,7 +1,7 @@
 From cb23330c9049d5f4f42998d66ec3d2a891bd0004 Mon Sep 17 00:00:00 2001
 From: sitish <sitishjayaswal12@gmail.com>
 Date: Sat, 7 Nov 2026 13:10:29 +0545
-Subject: [PATCH 4/5] context: GDM-style retirement: the greeter gets
+Subject: [PATCH 4/6] context: GDM-style retirement: the greeter gets
  GREETD_HANDOFF=1 and stays up until the session connects to
  /run/user/<uid>/greetd-handoff.sock (its first frame), then SIGTERM; 10 s
  fallback
