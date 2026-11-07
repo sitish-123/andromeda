@@ -63,6 +63,9 @@ namespace andromeda {
     wlr_scene_rect* m_close = nullptr;
     wlr_scene_rect* m_maximize = nullptr;
     wlr_scene_rect* m_minimize = nullptr;
+    // Windows style: the hovered button's cell fill, under the marks.
+    wlr_scene_rect* m_hoverCell = nullptr;
+    TitleBarLayout m_parts;
     std::vector<TitleBarButton> m_buttons;
     std::array<wlr_scene_rect*, 4> m_grips{};
     std::shared_ptr<TabLabelCache> m_labels;

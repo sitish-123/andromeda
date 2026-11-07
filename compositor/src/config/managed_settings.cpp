@@ -87,6 +87,10 @@ namespace andromeda {
     std::string text(OverviewStyle style) { return std::string(kOverviewStyles[static_cast<size_t>(style)]); }
     constexpr std::array<std::string_view, 2> kOverviewTitles = {"hover", "always"};
     std::string text(OverviewTitles titles) { return std::string(kOverviewTitles[static_cast<size_t>(titles)]); }
+    constexpr std::array<std::string_view, 3> kTitleBarStyles = {"andromeda", "macos", "windows"};
+    std::string text(TitleBarStyle style) { return std::string(kTitleBarStyles[static_cast<size_t>(style)]); }
+    constexpr std::array<std::string_view, 2> kButtonSides = {"left", "right"};
+    std::string text(TitleBarButtonSide side) { return std::string(kButtonSides[static_cast<size_t>(side)]); }
     std::string text(LayoutMode mode) { return std::string(kLayoutModes[static_cast<size_t>(mode)]); }
     std::string text(CenterFocusedColumn center) { return std::string(kCenterFocused[static_cast<size_t>(center)]); }
     // Unset keeps the runtime default (Super on hardware, Alt nested), which has no fixed text.
@@ -367,6 +371,12 @@ namespace andromeda {
         Spec{"appearance.border_width", Kind::Int, 0, 100, {}, [](const Config& c) { return text(c.appearance.borderWidth); }},
         Spec{"appearance.outer_border_width", Kind::Int, 0, 100, {}, [](const Config& c) { return text(c.appearance.outerBorderWidth); }},
         Spec{"appearance.corner_radius", Kind::Int, 0, 100, {}, [](const Config& c) { return text(c.appearance.cornerRadius); }},
+        Spec{"appearance.title_bar.style", Kind::Choice, 0, 0, kTitleBarStyles, [](const Config& c) {
+               return text(c.appearance.titleBar.style);
+             }},
+        Spec{"appearance.title_bar.button_position", Kind::Choice, 0, 0, kButtonSides, [](const Config& c) {
+               return text(c.appearance.titleBar.buttonPosition);
+             }},
         Spec{"appearance.drag_opacity", Kind::Real, 0.0, 1.0, {}, [](const Config& c) { return text(c.appearance.dragOpacity); }},
         Spec{"appearance.prefer_no_csd", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.preferNoCsd); }},
         Spec{"appearance.opaque_fullscreen", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.appearance.opaqueFullscreen); }},

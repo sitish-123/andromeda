@@ -745,6 +745,7 @@ namespace andromeda {
         int height = 28;
         std::string font = "sans 10";
         TitleBarButtonSide buttonPosition = TitleBarButtonSide::Right;
+        TitleBarStyle style = TitleBarStyle::Andromeda;
         int buttonCornerRadius = -1;
         // Read from the title outward: the last one sits at the bar's edge.
         std::vector<TitleBarButton> buttons{TitleBarButton::Minimize, TitleBarButton::Maximize, TitleBarButton::Close};

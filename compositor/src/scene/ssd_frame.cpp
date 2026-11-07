@@ -24,6 +24,8 @@ namespace andromeda {
     }
     const float clear[4]{};
     m_background = wlr_scene_rect_create(m_tree, 1, 1, clear);
+    m_hoverCell = wlr_scene_rect_create(m_tree, 1, 1, clear);
+    wlr_scene_node_set_enabled(&m_hoverCell->node, false);
     m_close = wlr_scene_rect_create(m_tree, 1, 1, clear);
     m_maximize = wlr_scene_rect_create(m_tree, 1, 1, clear);
     m_minimize = wlr_scene_rect_create(m_tree, 1, 1, clear);
@@ -175,6 +177,37 @@ namespace andromeda {
     button(m_close, colors.close, SsdFramePart::Close, true);
     button(m_maximize, colors.maximize, SsdFramePart::Maximize, m_maximizeEnabled);
     button(m_minimize, colors.minimize, SsdFramePart::Minimize, true);
+    const auto hoveredCell = [&]() -> std::optional<wlr_box> {
+      switch (m_hovered) {
+      case SsdFramePart::Close:
+        return m_parts.cells[static_cast<size_t>(TitleBarButton::Close)];
+      case SsdFramePart::Maximize:
+        return m_maximizeEnabled ? m_parts.cells[static_cast<size_t>(TitleBarButton::Maximize)] : std::nullopt;
+      case SsdFramePart::Minimize:
+        return m_parts.cells[static_cast<size_t>(TitleBarButton::Minimize)];
+      default:
+        return std::nullopt;
+      }
+    }();
+    const bool cellShown = config().appearance.titleBar.style == TitleBarStyle::Windows && hoveredCell.has_value()
+        && m_geometry.titleBarHeight > 0;
+    wlr_scene_node_set_enabled(&m_hoverCell->node, cellShown);
+    if (cellShown) {
+      const int h = m_geometry.titleBarHeight;
+      wlr_scene_node_set_position(&m_hoverCell->node, zoomed(hoveredCell->x), zoomed(-h));
+      wlr_scene_rect_set_size(
+          m_hoverCell, std::max(1, zoomed(hoveredCell->x + hoveredCell->width) - zoomed(hoveredCell->x)),
+          std::max(1, zoomed(h))
+      );
+      // Close fills with its own colour; the others with a faint wash of the title text.
+      const auto& text = m_focused ? colors.text : colors.textUnfocused;
+      if (m_hovered == SsdFramePart::Close) {
+        premultiplied(color, colors.close, m_alpha);
+      } else {
+        premultiplied(color, text, m_alpha * 0.12F);
+      }
+      wlr_scene_rect_set_color(m_hoverCell, color);
+    }
     if (m_label != nullptr)
       wlr_scene_buffer_set_opacity(m_label, m_alpha);
     updateBlur();
@@ -220,7 +253,8 @@ namespace andromeda {
     const int radius = nestedRadius(g.cornerRadius, g.borderInset);
     wlr_scene_rect_set_corner_radii(m_background, corner_radii_new(zoomed(radius), zoomed(radius), 0, 0));
     const auto& style = config().appearance.titleBar;
-    const TitleBarLayout parts = titleBarLayout(g.contentWidth, h, style.buttonPosition, m_buttons);
+    m_parts = titleBarLayout(g.contentWidth, h, style.buttonPosition, m_buttons, style.style);
+    const TitleBarLayout& parts = m_parts;
     const auto drawButton = [&](wlr_scene_rect* button, const std::optional<wlr_box>& slot) {
       if (!slot) {
         wlr_scene_node_set_enabled(&button->node, false);
@@ -258,7 +292,9 @@ namespace andromeda {
         wlr_scene_buffer_set_buffer(m_label, label->buffer);
       }
       wlr_scene_buffer_set_dest_size(m_label, std::max(1, zoomed(label->width)), std::max(1, zoomed(label->height)));
-      wlr_scene_node_set_position(&m_label->node, zoomed(parts.title.x), zoomed(-h + (h - label->height) / 2));
+      const int labelX = parts.centredTitle ? parts.title.x + std::max(0, (parts.title.width - label->width) / 2)
+                                            : parts.title.x;
+      wlr_scene_node_set_position(&m_label->node, zoomed(labelX), zoomed(-h + (h - label->height) / 2));
     }
     updateColors();
   }
@@ -276,7 +312,7 @@ namespace andromeda {
       return {};
     return ssdFramePointAt(
         m_geometry.contentWidth, m_geometry.contentHeight, m_geometry.titleBarHeight, m_geometry.borderInset,
-        m_resizable, config().appearance.titleBar.buttonPosition, m_buttons, x, y
+        m_resizable, config().appearance.titleBar.buttonPosition, m_buttons, x, y, config().appearance.titleBar.style
     );
   }
 

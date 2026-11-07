@@ -97,6 +97,14 @@ namespace andromeda {
                   {.name = "right", .value = TitleBarButtonSide::Right},
               }
           ),
+          registry::choice(
+              "style", &A::TitleBar::style,
+              {
+                  {.name = "andromeda", .value = TitleBarStyle::Andromeda},
+                  {.name = "macos", .value = TitleBarStyle::Macos},
+                  {.name = "windows", .value = TitleBarStyle::Windows},
+              }
+          ),
           registry::custom<A::TitleBar>(
               "buttons", registry::KeyDescription("string_array").withValues(titleBarButtonNames()),
               [](const toml::node& node, const std::string& path, A::TitleBar& target, registry::ReadContext&) {

@@ -15,46 +15,59 @@ namespace andromeda {
     return diameter > 8 ? diameter - 1 : diameter + 1;
   }
 
-  TitleBarLayout titleBarLayout(int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown) {
+  TitleBarLayout titleBarLayout(
+      int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown, TitleBarStyle style
+  ) {
     const int diameter = titleBarButtonDiameter(height);
+    const bool cells = style == TitleBarStyle::Windows;
     const int inset = (height - diameter) / 2;
-    TitleBarLayout result{.title = {kTitleBarTitlePadding, 0, 0, height}};
-    // Walk from the edge inward: the last listed button is outermost.
-    int x = side == TitleBarButtonSide::Right ? width - inset - diameter : inset;
-    const int step =
-        side == TitleBarButtonSide::Right ? -(diameter + kTitleBarButtonGap) : diameter + kTitleBarButtonGap;
-    std::optional<int> innermost;
+    const int cellWidth = cells ? (height * 40 + 18) / 36 : diameter + kTitleBarButtonGap;
+    const int pitch = cells ? cellWidth : diameter + kTitleBarButtonGap;
+    TitleBarLayout result{.title = {kTitleBarTitlePadding, 0, 0, height}, .centredTitle = style == TitleBarStyle::Macos};
+    // Walk from the edge inward: the last listed button is outermost. `x` is the cell's left edge.
+    int x = side == TitleBarButtonSide::Right ? width - (cells ? cellWidth : inset + diameter + kTitleBarButtonGap / 2)
+                                              : (cells ? 0 : inset - kTitleBarButtonGap / 2);
+    const int step = side == TitleBarButtonSide::Right ? -pitch : pitch;
+    std::optional<int> innermost; // the inner edge of the innermost cell
     for (const TitleBarButton button : std::views::reverse(shown)) {
-      auto& slot = result.buttons[static_cast<size_t>(button)];
-      if (slot) {
+      const auto index = static_cast<size_t>(button);
+      if (result.buttons[index]) {
         continue;
       }
-      slot = wlr_box{x, inset, diameter, diameter};
-      innermost = x;
+      result.cells[index] = wlr_box{x, 0, cellWidth, height};
+      result.buttons[index] = wlr_box{x + (cellWidth - diameter) / 2, inset, diameter, diameter};
+      innermost = side == TitleBarButtonSide::Right ? x : x + cellWidth;
       x += step;
     }
+    const int edgeGap = cells ? kTitleBarTitlePadding : kTitleBarTitlePadding - kTitleBarButtonGap / 2;
     if (side == TitleBarButtonSide::Right) {
-      result.title.width = std::max(0, innermost.value_or(width) - 2 * kTitleBarTitlePadding);
+      result.title.width = std::max(0, innermost.value_or(width + edgeGap - kTitleBarTitlePadding) - edgeGap
+                                           - kTitleBarTitlePadding);
     } else {
       if (innermost) {
-        result.title.x = *innermost + diameter + kTitleBarTitlePadding;
+        result.title.x = *innermost + edgeGap;
       }
       result.title.width = std::max(0, width - result.title.x - kTitleBarTitlePadding);
+    }
+    if (result.centredTitle) {
+      // Equal room on both sides, so the title centres on the bar, not on the space beside the buttons.
+      const int reserve = std::max(result.title.x, width - result.title.x - result.title.width);
+      result.title = {reserve, 0, std::max(0, width - 2 * reserve), height};
     }
     return result;
   }
 
   SsdFramePoint ssdFramePointAt(
       int cw, int ch, int h, int b, bool resizable, TitleBarButtonSide side, std::span<const TitleBarButton> shown,
-      double x, double y
+      double x, double y, TitleBarStyle style
   ) {
     if (cw <= 0 || ch <= 0 || h < 0)
       return {};
     if (x >= 0 && x < cw && y >= -h && y < 0) {
-      const TitleBarLayout layout = titleBarLayout(cw, h, side, shown);
+      const TitleBarLayout layout = titleBarLayout(cw, h, side, shown, style);
       const auto inButton = [&layout, x](TitleBarButton button) {
-        const std::optional<wlr_box>& box = layout.button(button);
-        return box && x >= box->x - kTitleBarButtonGap / 2 && x < box->x + box->width + kTitleBarButtonGap / 2;
+        const std::optional<wlr_box>& box = layout.cells[static_cast<size_t>(button)];
+        return box && x >= box->x && x < box->x + box->width;
       };
       if (inButton(TitleBarButton::Close))
         return {SsdFramePart::Close, 0};
