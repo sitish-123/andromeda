@@ -40,6 +40,9 @@ namespace andromeda::ov {
     constexpr int kMenuArtWidth = 44;
     constexpr int kMenuArtHeight = 28;
     constexpr int kWindowMenuWidth = 240;
+    constexpr int kTabHeight = 24;
+    constexpr int kTabPad = 4;
+    constexpr int kTabBottom = 24; // tab bar above the usable bottom, where the dock sits
     constexpr int kWindowMenuRowHeight = 32;
 
     // One block of a row's drawing, in its 44 x 28 box (prototype MODE_SVG, cut to the box).
@@ -134,6 +137,15 @@ namespace andromeda::ov {
   bool Chrome::titleAt(double lx, double ly) const { return m_titleBox.has_value() && boxHolds(*m_titleBox, lx, ly); }
 
   bool Chrome::menuContains(double lx, double ly) const { return m_menuBox.has_value() && boxHolds(*m_menuBox, lx, ly); }
+
+  std::optional<size_t> Chrome::tabAt(double lx, double ly) const {
+    for (const auto& [index, box] : m_tabBoxes) {
+      if (boxHolds(box, lx, ly)) {
+        return index;
+      }
+    }
+    return std::nullopt;
+  }
 
   int Chrome::windowMenuRowAt(double lx, double ly) const {
     if (!m_windowMenuBox.has_value()) {
@@ -343,6 +355,58 @@ namespace andromeda::ov {
       if (!label.used && label.tree != nullptr) {
         wlr_scene_node_set_enabled(&label.tree->node, false);
       }
+    }
+
+    // Strip tabs: a thick capsule in the dock's place (the dock steps aside while open), current tab on fill 2.
+    m_tabBoxes.clear();
+    const size_t tabCount = frame.style == Style::Strip ? frame.workspaces.size() + 1 : 0;
+    m_tabs.resize(std::max(m_tabs.size(), tabCount));
+    int tabsWidth = kTabPad;
+    for (size_t index = 0; index < tabCount; ++index) {
+      const bool plus = index == frame.workspaces.size();
+      const std::string_view text = plus ? std::string_view("+") : frame.workspaces[index].name;
+      setLabel(
+          m_tabs[index], span(index == frame.current ? l1 : l2, "600", text),
+          {.font = "sans 9", .padX = 12, .height = kTabHeight, .maxWidth = 160}, scale
+      );
+      tabsWidth += m_tabs[index].width + kTabPad;
+    }
+    if (tabCount > 0) {
+      const int barHeight = kTabHeight + 2 * kTabPad;
+      const wlr_box bar{
+          ox + (frame.output.width - tabsWidth) / 2, frame.usable.y + frame.usable.height - kTabBottom - barHeight,
+          tabsWidth, barHeight
+      };
+      placeFrame(m_tabBar, bar, barHeight / 2, 1, thick, withAlpha(l1, 0.1F), late);
+      if (m_tabBar.tree != nullptr) {
+        wlr_scene_node_raise_to_top(&m_tabBar.tree->node);
+      }
+      int x = bar.x + kTabPad;
+      for (size_t index = 0; index < tabCount; ++index) {
+        Label& tab = m_tabs[index];
+        const wlr_box box{x, bar.y + kTabPad, tab.width, kTabHeight};
+        if (index == frame.current) {
+          placeFrame(m_tabCurrent, box, kTabHeight / 2, 1, withAlpha(l1, 0.14F), {}, late);
+          if (m_tabCurrent.tree != nullptr) {
+            wlr_scene_node_raise_to_top(&m_tabCurrent.tree->node);
+          }
+        }
+        placeLabel(tab, x, box.y + (kTabHeight - tab.height) / 2, late);
+        // Frames are created lazily and may land above the text; the text stays on top.
+        if (tab.tree != nullptr) {
+          wlr_scene_node_raise_to_top(&tab.tree->node);
+        }
+        if (late > 0.5F) {
+          m_tabBoxes.emplace_back(index, box);
+        }
+        x += tab.width + kTabPad;
+      }
+    } else {
+      placeFrame(m_tabBar, {}, 0, 0, {}, {}, 0.0F);
+      placeFrame(m_tabCurrent, {}, 0, 0, {}, {}, 0.0F);
+    }
+    for (size_t index = tabCount; index < m_tabs.size(); ++index) {
+      placeLabel(m_tabs[index], 0, 0, 0.0F);
     }
 
     // Title row: the chosen workspace's name and its arrangement chip.

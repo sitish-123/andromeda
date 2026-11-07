@@ -103,6 +103,8 @@ namespace andromeda::ov {
     // The same for the window menu.
     [[nodiscard]] int windowMenuRowAt(double lx, double ly) const;
     [[nodiscard]] bool windowMenuContains(double lx, double ly) const;
+    // Strip: the tab under the point, a workspace index; the workspace count is the + tab.
+    [[nodiscard]] std::optional<size_t> tabAt(double lx, double ly) const;
     // True when the point is on the title row's workspace name.
     [[nodiscard]] bool titleAt(double lx, double ly) const;
 
@@ -177,6 +179,10 @@ namespace andromeda::ov {
     std::optional<wlr_box> m_windowMenuBox;
     std::optional<wlr_box> m_titleBox;
     Frame m_titleRing; // accent ring around the name while it is renamed
+    Frame m_tabBar;     // Strip: one tab per workspace and a + tab, in the dock's place (mockup B)
+    Frame m_tabCurrent;
+    std::vector<Label> m_tabs;
+    std::vector<std::pair<size_t, wlr_box>> m_tabBoxes;
   };
 
 } // namespace andromeda::ov

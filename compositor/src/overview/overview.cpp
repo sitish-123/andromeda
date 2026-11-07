@@ -994,6 +994,7 @@ namespace andromeda {
     m_closeHover = false;
     m_closePress = nullptr;
     m_menu.reset();
+    m_windowMenu.reset();
     finishRename(true);
     clearMiddlePress();
     m_pendingFocus = focus;

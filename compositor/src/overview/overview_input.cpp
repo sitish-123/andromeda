@@ -276,6 +276,22 @@ namespace andromeda {
       m_pressWorkspace = nullptr;
       return true;
     }
+    for (const auto& state : m_outputs) {
+      WorkspaceGroup* group = state->output->workspaceGroup();
+      const std::optional<size_t> tab = state->chrome != nullptr ? state->chrome->tabAt(lx, ly) : std::nullopt;
+      if (!tab.has_value() || group == nullptr) {
+        continue;
+      }
+      // The + tab adds a workspace at the end; the row follows the selection (onWorkspaceActivated).
+      Workspace* workspace = *tab < group->workspaceCount() ? group->workspaceAt(*tab)
+                                                           : group->insertDynamicWorkspace(group->workspaceCount());
+      if (workspace != nullptr) {
+        group->select(workspace);
+      }
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      return true;
+    }
     if (std::ranges::any_of(m_outputs, [&](const auto& state) {
           return state->chrome != nullptr && state->chrome->titleAt(lx, ly);
         })) {
