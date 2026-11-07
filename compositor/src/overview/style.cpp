@@ -139,21 +139,23 @@ namespace andromeda::ov {
         } else {
           const Rect& u = in.usable;
           Rect content = u;
+          // Scrolling frames the whole screen, not the usable area: a fullscreen or edge-maximized window reaches under
+          // the bar and the dock, and the frame marks what is on screen.
           if (ws.arrangement == Arrangement::Scrolling) {
-            double x0 = u.x;
-            double x1 = u.x + u.w;
+            double x0 = 0;
+            double x1 = in.width;
             for (const Member& m : ws.members) {
               if (!m.minimized) {
                 x0 = std::min(x0, m.desk.x);
                 x1 = std::max(x1, m.desk.x + m.desk.w);
               }
             }
-            content = {x0 - 8, u.y - 8, x1 - x0 + 16, u.h + 16};
+            content = {x0 - 8, -8, x1 - x0 + 16, in.height + 16};
           }
           const Fit fit = fitIn(content, main);
           out.mainFit = fit;
           if (ws.arrangement == Arrangement::Scrolling) {
-            out.viewport = mapRect({u.x - 4, u.y - 4, u.w + 8, u.h + 8}, fit);
+            out.viewport = mapRect({-4, -4, in.width + 8, in.height + 8}, fit);
           }
           const Fit thumb = thumbFit(out.cards[in.current].rect, in.width);
           for (const Member& m : ws.members) {

@@ -46,6 +46,15 @@ ANDROMEDA_TEST(spacesMatchesThePrototypeAt1280x800) {
   CHECK(p.plus.has_value() && p.plus->x == p.cards[2].rect.x + 176 + 18);
 }
 
+// A fullscreen window reaches under the bar and the dock; the screen frame still holds its whole card.
+ANDROMEDA_TEST(spacesScrollingFrameHoldsAFullscreenWindow) {
+  Input in{kW, kH, kUsable, {}, 0, std::nullopt, 0.5, false};
+  in.workspaces.push_back({Arrangement::Scrolling, {{1, {0, 0, kW, kH}}}});
+  const Placement p = place(Style::Spaces, in);
+  const WindowPlace* w = findWindow(p, 1);
+  CHECK(w != nullptr && p.viewport.has_value() && inside(w->rect, *p.viewport));
+}
+
 ANDROMEDA_TEST(spacesScrollingShowsTheWholeStripInsideTheMainArea) {
   const Placement p = place(Style::Spaces, sample(Arrangement::Scrolling));
   for (uint32_t id : {1U, 2U, 3U}) {
