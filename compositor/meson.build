@@ -15,17 +15,18 @@ add_project_arguments(
   '-DWLR_USE_UNSTABLE',
   language: 'cpp',
 )
+fs = import('fs')
 git_program = find_program('git', required: false)
 if git_program.found()
   andromeda_git_revision_h = vcs_tag(
     input: 'src/core/git_revision.h.in',
     output: 'andromeda_git_revision.h',
     command: [git_program, 'describe', '--tags', '--always', '--dirty=-dirty', '--abbrev=12'],
-    fallback: 'unknown',
+    fallback: fs.is_file('REVISION') ? fs.read('REVISION').strip() : 'unknown',
   )
 else
   andromeda_git_revision_config = configuration_data()
-  andromeda_git_revision_config.set('VCS_TAG', 'unknown')
+  andromeda_git_revision_config.set('VCS_TAG', fs.is_file('REVISION') ? fs.read('REVISION').strip() : 'unknown')
   andromeda_git_revision_h = configure_file(
     input: 'src/core/git_revision.h.in',
     output: 'andromeda_git_revision.h',
@@ -74,7 +75,6 @@ wlroots_dep = dependency(
   ],
 )
 cpp = meson.get_compiler('cpp')
-fs = import('fs')
 
 # Unit tests, harness clients, and andromedafx's checks are defined only when
 # `tests` resolves to enabled. Auto mode covers unsanitized debug builds, so a

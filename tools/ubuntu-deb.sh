@@ -37,7 +37,11 @@ rsync -a "$ROOT/pkg/PKGBUILD" "$ROOT/pkg/deb-build.sh" "$OUT/src/pkg/"
 # below every release.
 if [[ -n ${DEB_VERSION:-} ]]; then
   sed -i "1s/([^)]*)/($DEB_VERSION)/" "$OUT/src/debian/changelog"
+  # `andromeda --version` and the log's start line report the release, not the source tree's placeholder.
+  printf '%s\n' "$DEB_VERSION" > "$OUT/src/compositor/VERSION"
 fi
+# The copy has no .git, so the build cannot describe its own commit.
+git -C "$ROOT" describe --tags --always --dirty=-dirty --abbrev=12 > "$OUT/src/compositor/REVISION"
 
 # The build dependencies from debian/control live in an image layer: docker reuses it until control changes.
 CTX=$OUT/image
