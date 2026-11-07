@@ -53,6 +53,7 @@
 #include "shell/bar/widgets/settings_widget.h"
 #include "shell/bar/widgets/settings_widget_definition.h"
 #include "shell/bar/widgets/spacer_widget.h"
+#include "shell/bar/widgets/show_desktop_widget_definition.h"
 #include "shell/bar/widgets/spacer_widget_definition.h"
 #include "shell/bar/widgets/sysmon_widget.h"
 #include "shell/bar/widgets/sysmon_widget_definition.h"
@@ -366,6 +367,12 @@ std::unique_ptr<Widget> WidgetFactory::create(
             return createWidget<SettingsWidget>(
                 context.contentScale, context.output,
                 settingsWidgetDefinition().resolve(context.config, context.settingContext)
+            );
+          }},
+      {"show_desktop", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
+            return createWidget<ShowDesktopWidget>(
+                context.contentScale, context.verticalBar,
+                showDesktopWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},
       {"spacer", [](const WidgetFactory&, const BuiltinWidgetContext& context) {

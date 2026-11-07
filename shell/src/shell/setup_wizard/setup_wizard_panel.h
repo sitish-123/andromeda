@@ -57,7 +57,7 @@ public:
   // The update client changed (a check started or finished).
   void onSoftwareUpdateChanged();
 
-  static constexpr int kPageCount = 11;
+  static constexpr int kPageCount = 12;
 
 private:
   // A node drawn over `host` (selection ring, hit area), outset by `outset` on every side.
@@ -95,6 +95,8 @@ private:
   void doLayout(Renderer& renderer, float width, float height) override;
   std::unique_ptr<Flex> buildWelcome(float scale);
   std::unique_ptr<Flex> buildAppearance(float scale);
+  std::unique_ptr<Flex> buildLayout(float scale);
+  void applyLayout(const std::string& preset);
   std::unique_ptr<Flex> buildKeyboard(float scale);
   std::unique_ptr<Flex> buildTimezone(float scale);
   std::unique_ptr<Flex> buildApps(float scale);
@@ -160,6 +162,10 @@ private:
   std::array<Flex*, 3> m_modeRings{};
   std::array<Label*, 3> m_modeLabels{};
   int m_mode = 0;
+
+  std::array<Flex*, 4> m_layoutRings{};
+  std::array<Label*, 4> m_layoutLabels{};
+  std::string m_layoutPick;
 
   Flex* m_colourRow = nullptr;
   Node* m_matchSeparator = nullptr;

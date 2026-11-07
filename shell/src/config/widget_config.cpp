@@ -96,6 +96,13 @@ namespace noctalia::config {
     date.settings["format"] = std::string("{:%a %d %b}");
     seed("date", std::move(date));
 
+    // Desktop Layouts, Windows: the Start button opens the launcher's apps grid.
+    WidgetConfig start;
+    start.type = "launcher";
+    start.settings["glyph"] = std::string("layout-grid");
+    start.tables["actions"]["left"] = "panel-toggle launcher apps";
+    seed("start", std::move(start));
+
     WidgetConfig activeWindow;
     activeWindow.type = "active_window";
     activeWindow.settings["max_length"] = 260.0;

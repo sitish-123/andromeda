@@ -903,6 +903,9 @@ namespace noctalia::cli {
         {},
         false
     };
+    inline constexpr Command showDesktop{
+        "show-desktop", "Minimize or restore every window on the focused workspace", {}, {}, {}, {}, {}, false
+    };
     inline constexpr Command status{"status", "Print current state as JSON", {}, {}, {}, {}, {}, false};
     inline constexpr std::array<std::string_view, 4> kSubscribeTopics{"bluetooth", "media", "network", "power-profile"};
     inline constexpr std::array kSubscribePositionals{
@@ -1293,6 +1296,7 @@ namespace noctalia::cli {
       msg::settingsOpenPlugin,
       msg::settingsOpenWidget,
       msg::settingsToggle,
+      msg::showDesktop,
       msg::status,
       msg::subscribe,
       msg::taskbarCycle,

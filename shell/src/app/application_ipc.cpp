@@ -622,6 +622,10 @@ void Application::initIpc() {
     return "ok\n";
   });
 
+  m_ipcService.bind(noctalia::cli::msg::showDesktop, [this](const std::string&) -> std::string {
+    return m_compositorPlatform.toggleShowDesktop() ? "ok\n" : "error: the compositor has no show desktop\n";
+  });
+
   m_ipcService.bindCycle(noctalia::cli::msg::workspaceSwitch, [this](const std::string& args) -> std::string {
     const auto parts = noctalia::ipc::splitWords(args);
     if (parts.size() != 1 || (parts[0] != "next" && parts[0] != "prev")) {

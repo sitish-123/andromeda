@@ -6985,6 +6985,16 @@
       "workspace": "Workspace {n}",
       "same-as-default": "Same as default ({mode})",
       "per-workspace-button": "Choose…"
+    },
+    "desktop-layout": {
+      "label": "Desktop Layout",
+      "custom": "Custom",
+      "options": {
+        "andromeda": "Andromeda",
+        "macos": "macOS",
+        "windows": "Windows",
+        "tiling": "Tiling"
+      }
     }
   },
   "setup-wizard": {
@@ -7095,7 +7105,9 @@
     "title": "Welcome to Andromeda",
     "wallpaper": "Wallpaper",
     "wallpaper-scheme": "Wallpaper Scheme",
-    "welcome-body": "Set up your desktop in a minute. You can change everything later in Settings."
+    "welcome-body": "Set up your desktop in a minute. You can change everything later in Settings.",
+    "layout-title": "How do you like to work?",
+    "layout-body": "Pick a desktop layout. You can change each part later in Settings."
   },
   "system": {
     "hardware": {

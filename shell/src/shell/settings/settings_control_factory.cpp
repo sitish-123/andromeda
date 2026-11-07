@@ -1,4 +1,5 @@
 #include "shell/settings/settings_control_factory.h"
+#include "shell/desktop_layout/desktop_layout.h"
 #include "shell/settings/settings_pages.h"
 
 #include "config/config_service.h"
@@ -321,12 +322,20 @@ namespace settings {
     // Pickers drawn from arrangementRects rather than the Appearance mode thumbnails.
     bool isDrawnPickerPath(const std::vector<std::string>& path) {
       return path == std::vector<std::string>{"andromeda", "layout", "mode"}
-          || path == std::vector<std::string>{"andromeda", "overview", "style"};
+          || path == std::vector<std::string>{"andromeda", "overview", "style"}
+          || path == std::vector<std::string>{"shell", "desktop_layout"};
     }
 
     std::vector<ArrangementRect> arrangementRects(std::string_view value) {
       // Overview styles: Spaces (thumbs over the current workspace), Task View (spread windows over a desktop row),
       // Strip (the current row between faint neighbours), Grid (every workspace as a tile).
+      if (const auto shapes = desktop_layout::drawing(value); !shapes.empty()) {
+        std::vector<ArrangementRect> rects;
+        for (const auto& shape : shapes) {
+          rects.push_back({shape.x, shape.y, shape.w, shape.h, shape.faint});
+        }
+        return rects;
+      }
       if (value == "spaces") {
         return {{8, 4, 10, 7}, {21, 4, 10, 7}, {34, 4, 10, 7}, {47, 4, 9, 7, true}, {8, 15, 48, 21}};
       }
@@ -535,8 +544,14 @@ namespace settings {
     const float scale = m_scale;
     if (setting.tiles) {
       const bool swatches = !path.empty() && path.back() == "builtin";
-      const auto commit = [setOverride = ctx.setOverride, requestRebuild = ctx.requestRebuild, path](std::string value) {
-        setOverride(path, std::move(value));
+      const auto commit = [setOverride = ctx.setOverride, setOverrides = ctx.setOverrides,
+                           requestRebuild = ctx.requestRebuild, groupedCommit = setting.groupedCommit,
+                           path](std::string value) {
+        if (groupedCommit) {
+          setOverrides(groupedCommit(value, path));
+        } else {
+          setOverride(path, std::move(value));
+        }
         if (requestRebuild) {
           requestRebuild();
         }

@@ -1874,6 +1874,10 @@ bool CompositorPlatform::toggleOverview() const {
   return false;
 }
 
+bool CompositorPlatform::toggleShowDesktop() const {
+  return compositors::isAndromeda() && andromedaRuntime().requestAction("workspace-toggle-show-desktop");
+}
+
 bool CompositorPlatform::closeOverview() const {
   if (!tracksOverviewState() || !hasOverviewState() || !isOverviewOpen()) {
     return false;

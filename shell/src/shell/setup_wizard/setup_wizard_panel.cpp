@@ -1,5 +1,7 @@
 #include "shell/setup_wizard/setup_wizard_panel.h"
 
+#include "shell/desktop_layout/desktop_layout.h"
+
 #include "auth/biometric_enrollment.h"
 #include "compositors/settings_control.h"
 #include "compositors/shell_wayland_connection.h"
@@ -58,8 +60,8 @@ namespace {
 
   constexpr Logger kLog("setup-wizard");
 
-  enum PageId : int { kWelcome, kAppearance, kKeyboard, kTimezone, kPhone, kUnlock, kLogin, kApps, kSearch, kUpdate, kDone };
-  constexpr const char* kPageNames[] = {"welcome", "appearance", "keyboard", "timezone", "phone", "unlock",
+  enum PageId : int { kWelcome, kAppearance, kLayout, kKeyboard, kTimezone, kPhone, kUnlock, kLogin, kApps, kSearch, kUpdate, kDone };
+  constexpr const char* kPageNames[] = {"welcome", "appearance", "layout", "keyboard", "timezone", "phone", "unlock",
                                         "login", "apps", "search", "update", "done"};
 
   // Thumbnail cell: 3 equal columns in the 640 sheet (592 content - 2 x 4 card - 2 x 8 thumbs - 2 x 8 gaps) / 3.
@@ -317,6 +319,7 @@ void SetupWizardPanel::create() {
   auto pages = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
   pages->addChild(buildWelcome(scale));
   pages->addChild(buildAppearance(scale));
+  pages->addChild(buildLayout(scale));
   pages->addChild(buildKeyboard(scale));
   pages->addChild(buildTimezone(scale));
   pages->addChild(buildPhone(scale));
@@ -806,6 +809,66 @@ std::unique_ptr<Flex> SetupWizardPanel::buildUnlock(float scale) {
   enrol->addChild(std::move(block));
   page->addChild(std::move(enrol));
   return page;
+}
+
+std::unique_ptr<Flex> SetupWizardPanel::buildLayout(float scale) {
+  auto page = makePage(kLayout, scale, "setup-wizard.layout-title", "setup-wizard.layout-body");
+  m_layoutPick = desktop_layout::current(m_config->config(), m_compositorSettings.get());
+  auto card = makeCard(scale);
+  auto grid = ui::column({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale, .padding = Tokens::spaceP8 * scale});
+  std::unique_ptr<Flex> row;
+  for (std::size_t i = 0; i < desktop_layout::kPresets.size(); ++i) {
+    const std::string preset(desktop_layout::kPresets[i]);
+    if (row == nullptr) {
+      row = ui::row({.align = FlexAlign::Start, .gap = Tokens::spaceP8 * scale});
+    }
+    Flex* frame = nullptr;
+    auto cell = makeThumb(
+        scale, i18n::tr("settings.desktop-layout.options." + preset), [this, preset] { applyLayout(preset); }, &frame,
+        &m_layoutRings[i], &m_layoutLabels[i]
+    );
+    // The 64 x 40 drawing at 2x, centred in the wider thumb.
+    const float unit = 2.0F * scale;
+    const float left = (kThumbWidth * scale - 64.0F * unit) * 0.5F;
+    for (const auto& shape : desktop_layout::drawing(preset)) {
+      auto part = ui::row({
+          .fill = colorSpecFromRole(shape.faint ? ColorRole::Fill2 : ColorRole::Label3),
+          .radius = Style::scaledRadiusSm(scale),
+          .width = shape.w * unit,
+          .height = shape.h * unit,
+      });
+      part->setParticipatesInLayout(false);
+      part->setPosition(left + shape.x * unit, shape.y * unit);
+      frame->addChild(std::move(part));
+    }
+    row->addChild(std::move(cell));
+    if (i % 2 == 1) {
+      grid->addChild(std::move(row));
+    }
+  }
+  card->addChild(std::move(grid));
+  page->addChild(std::move(card));
+  return page;
+}
+
+void SetupWizardPanel::applyLayout(const std::string& preset) {
+  m_layoutPick = preset;
+  std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> shell;
+  for (auto& [path, value] : desktop_layout::writes(preset, m_config->config().bars)) {
+    if (!path.empty() && path.front() == "andromeda") {
+      if (m_compositorSettings != nullptr) {
+        std::string key;
+        for (std::size_t i = 1; i < path.size(); ++i) {
+          key += (i > 1 ? "." : "") + path[i];
+        }
+        m_compositorSettings->set(key, std::get<std::string>(value));
+      }
+    } else {
+      shell.emplace_back(std::move(path), std::move(value));
+    }
+  }
+  m_config->setOverrides(shell);
+  syncSelection();
 }
 
 std::unique_ptr<Flex> SetupWizardPanel::buildKeyboard(float scale) {
@@ -1345,6 +1408,14 @@ void SetupWizardPanel::syncSelection() {
     if (m_modeLabels[i] != nullptr) {
       m_modeLabels[i]->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
       m_modeLabels[i]->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
+    }
+  }
+  for (std::size_t i = 0; i < m_layoutRings.size(); ++i) {
+    const bool on = desktop_layout::kPresets[i] == m_layoutPick;
+    setRing(m_layoutRings[i], on, ColorRole::Label1, scale);
+    if (m_layoutLabels[i] != nullptr) {
+      m_layoutLabels[i]->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
+      m_layoutLabels[i]->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
     }
   }
   const bool match = m_paletteSource == PaletteSource::Wallpaper;

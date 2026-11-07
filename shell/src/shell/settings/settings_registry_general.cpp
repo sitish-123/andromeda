@@ -1,4 +1,5 @@
 #include "shell/settings/settings_registry_internal.h"
+#include "shell/desktop_layout/desktop_layout.h"
 #include "config/app_icon_settings.h"
 
 #include "config/config_types.h"
@@ -53,6 +54,25 @@ namespace settings {
     shellRows = generateSchemaEntries(noctalia::config::schema::shellSchema(), cfg.shell, {"shell"});
     for (const auto* key : {"mode", "shell_mode", "source"}) {
       appendRow(entries, themeRows, key);
+    }
+    {
+      // Desktop Layout gallery: one pick writes every part; the current one is read back from the parts.
+      const std::string current = desktop_layout::current(cfg, env.compositorSettings);
+      std::vector<SelectOption> options;
+      for (const std::string_view preset : desktop_layout::kPresets) {
+        options.push_back(SelectOption{std::string(preset), tr("settings.desktop-layout.options." + std::string(preset))});
+      }
+      SelectSetting select{std::move(options), current};
+      select.tiles = true;
+      select.groupedCommit = [bars = cfg.bars](
+                                 std::string_view value, const std::vector<std::string>& /*primaryPath*/
+                             ) { return desktop_layout::writes(value, bars); };
+      entries.push_back(makeEntry(
+          SettingsSection::Appearance, "desktop-layout", tr("settings.desktop-layout.label"),
+          current == desktop_layout::kCustom ? tr("settings.desktop-layout.custom") : std::string(),
+          {"shell", "desktop_layout"}, std::move(select),
+          "desktop layout preset macos windows taskbar tiling dock bar look like"
+      ));
     }
     {
       const std::string_view fromWallpaper = "wallpaper";

@@ -26,6 +26,7 @@ with_noctalia '
   sleep 1.5
   shot welcome welcome
   shot appearance appearance
+  shot layout layout
   shot keyboard keyboard
   shot timezone timezone
   shot apps apps

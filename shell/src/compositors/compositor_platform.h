@@ -218,6 +218,8 @@ public:
   [[nodiscard]] bool closeOverview() const;
   // Opens or closes the compositor overview; false when the compositor has no overview action.
   bool toggleOverview() const;
+  // Minimizes every window on the focused workspace, or brings them back (Andromeda only).
+  bool toggleShowDesktop() const;
 
   [[nodiscard]] compositors::niri::NiriRuntime& niriRuntime() noexcept;
   [[nodiscard]] const compositors::niri::NiriRuntime& niriRuntime() const noexcept;
