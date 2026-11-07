@@ -120,13 +120,13 @@ text_scale_xl = 1.3
 # are the opaque backgrounds for GTK and Qt apps. shadow is the elevation colour; the level gives the opacity.
 [scheme.light]
 label_1 = "#141418eb"
-label_2 = "#1414189e"
-label_3 = "#14141861"
+label_2 = "#141418b8"
+label_3 = "#1414187a"
 fill_1 = "#0000000a"
 fill_2 = "#00000014"
 fill_3 = "#0000001f"
 separator = "#00000014"
-stroke = "#00000012"
+stroke = "#0000001f"
 edge = "#ffffffbf"
 lens = "#ffffffeb"
 lens_edge = "#00000000"
@@ -143,10 +143,12 @@ danger = "#d93025ff"
 danger_text = "#d93025ff"
 warning = "#b45309ff"
 success = "#1a7f37ff"
-slider_fill = "#ffffffef"
-on_slider_fill = "#1414189e"
-slider_track = "#0000000f"
+slider_fill = "#0000001f"
+on_slider_fill = "#141418eb"
+slider_track = "#ffffff8c"
 slider_edge = "#00000000"
+glass_card = "#ffffff8c"
+glass_card_edge = "#00000014"
 scrim = "#00000033"
 shadow = "#141428ff"
 window = "#f2f2f6ff"
@@ -185,6 +187,8 @@ slider_fill = "#ffffff3d"
 on_slider_fill = "#ffffffeb"
 slider_track = "#ffffff1a"
 slider_edge = "#00000000"
+glass_card = "#ffffff0f"
+glass_card_edge = "#00000000"
 scrim = "#00000066"
 shadow = "#000000ff"
 window = "#1e1e22ff"
@@ -259,9 +263,9 @@ damping = 0.80
 [spring.move]      # response 0.35 s, bounce 0.10: reflow, banner stack, tiling
 stiffness = 322.3
 damping = 0.90
-[spring.open]      # response 0.42 s, bounce 0.22: Grow from a source
-stiffness = 223.8
-damping = 0.78
+[spring.open]      # response 0.30 s, bounce 0.10: Grow from a source
+stiffness = 438.6
+damping = 0.90
 [spring.close]     # response 0.28 s, bounce 0: Return, dismissals
 stiffness = 503.6
 damping = 1.00

@@ -171,7 +171,7 @@ namespace {
         icon->setHoverMix(t);
         card.setFill(
             lerpColor(
-                resolveColorSpec(colorSpecFromRole(ColorRole::Fill1, opacity)),
+                resolveColorSpec(colorSpecFromRole(ColorRole::GlassCard, opacity)),
                 resolveColorSpec(colorSpecFromRole(ColorRole::Fill2, opacity)), t
             )
         );
@@ -205,9 +205,8 @@ std::unique_ptr<Flex> QuickTab::makeCard(bool badged) {
   const float s = contentScale();
   std::unique_ptr<Flex> card = badged ? std::make_unique<BadgedCard>() : std::make_unique<Flex>();
   control_center::applySectionCardStyle(*card, s, panelCardOpacity());
-  // Cards on a material are fill-1 (docs/design-system.md), lighter than the sheet; the shared card style is fill-2.
-  card->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
-  card->clearBorder();
+  card->setFill(colorSpecFromRole(ColorRole::GlassCard, panelCardOpacity()));
+  card->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * s);
   card->setRadius(Tokens::componentTileRadius * s);
   card->setPadding(Tokens::componentTilePadding * s);
   card->setGap(Tokens::componentTileGap * s);
@@ -967,7 +966,7 @@ void QuickTab::refreshDots(float offset) {
   }
   m_page = std::min(static_cast<std::size_t>(std::lround(std::max(offset, 0.0F) / m_pageStep)), m_pages.size() - 1);
   for (std::size_t i = 0; i < m_dots.size(); ++i) {
-    m_dots[i]->setFill(colorSpecFromRole(i == m_page ? ColorRole::Label1 : ColorRole::Fill3));
+    m_dots[i]->setFill(colorSpecFromRole(i == m_page ? ColorRole::Label1 : ColorRole::Label3));
   }
 }
 
@@ -1084,9 +1083,9 @@ void QuickTab::fadeIn(Node& node, float delayMs) {
 }
 
 void QuickTab::startStagger() {
-  // Rulebook P5: tiles stagger in after the content gate (35 % of the open spring), 16 ms apart, six at most.
+  // Rulebook P5: tiles stagger in after the content gate (35 % of the open spring), 8 ms apart, six at most.
   const int kGateMs = static_cast<int>(PanelManager::openContentGate().count());
-  constexpr int kStaggerMs = 16;
+  constexpr int kStaggerMs = 8;
   for (std::size_t i = 0; i < std::min(m_extras.size(), m_staggerTimers.size()); ++i) {
     Flex* card = m_extras[i].card;
     if (card == nullptr) {

@@ -421,32 +421,20 @@ namespace settings {
         Checkbox* checkbox = nullptr;
         Button* documentationButton = nullptr;
         auto checkedState = std::make_shared<bool>(checked);
+        // Selection = the sidebar's accent tint with label_1 (rulebook 9.7); hover and press follow the fill ladder.
         const auto cardPaletteFor = [scale](bool active) {
+          const ColorSpec selected = colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F);
+          const ColorSpec edge = colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha);
+          const ColorSpec label = colorSpecFromRole(ColorRole::Label1);
           return Button::ButtonPalette{
               .borderWidth = 1.0F * scale,
-              .normal =
-                  Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::SolidThin),
-                      .border = active ? colorSpecFromRole(ColorRole::Accent, 0.9F)
-                                       : colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
-                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
-                  },
-              .hover =
-                  Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
-                      .border = colorSpecFromRole(active ? ColorRole::Accent : ColorRole::Fill3),
-                      .label = colorSpecFromRole(active ? ColorRole::OnAccent : ColorRole::Label1),
-                  },
-              .pressed =
-                  Button::ButtonStateColors{
-                      .bg = colorSpecFromRole(ColorRole::Accent),
-                      .border = colorSpecFromRole(ColorRole::Accent),
-                      .label = colorSpecFromRole(ColorRole::OnAccent),
-                  },
+              .normal = Button::ButtonStateColors{.bg = active ? selected : colorSpecFromRole(ColorRole::SolidThin), .border = edge, .label = label},
+              .hover = Button::ButtonStateColors{.bg = active ? selected : colorSpecFromRole(ColorRole::Fill2), .border = edge, .label = label},
+              .pressed = Button::ButtonStateColors{.bg = active ? selected : colorSpecFromRole(ColorRole::Fill3), .border = edge, .label = label},
               .disabled =
                   Button::ButtonStateColors{
                       .bg = colorSpecFromRole(ColorRole::Fill2, 0.35F),
-                      .border = colorSpecFromRole(ColorRole::Stroke, Style::disabledOutlineAlpha),
+                      .border = edge,
                       .label = colorSpecFromRole(ColorRole::Label2),
                   },
               .selected = std::nullopt,

@@ -237,18 +237,21 @@ namespace control_center {
       form->addChild(ui::input({
           .out = &m_password,
           .placeholder = tr("control-center.network.password"),
+          .controlHeight = Tokens::componentFieldHeight * s,
           .passwordMode = true,
           .surfaceOpacity = panelCardOpacity(),
-          .surfaceRole = ColorRole::SolidRegular,
+          .surfaceRole = ColorRole::Fill2,
           .flexGrow = 1.0F,
           .onSubmit = join,
       }));
+      // Field and button share the row's height and the r 8 of the rows around them.
+      m_password->setFrameRadius(Tokens::componentFieldRadius);
       auto joinButton = std::make_unique<Button>();
       joinButton->setVariant(ButtonVariant::Primary);
       joinButton->setText(tr("control-center.network.join"));
-      joinButton->setControlHeight(Tokens::componentButtonHeightS * s);
+      joinButton->setControlHeight(Tokens::componentFieldHeight * s);
       joinButton->setRadius(Tokens::componentButtonRadius * s);
-      joinButton->setPadding(0.0F, Tokens::componentButtonInsetS * s, 0.0F, Tokens::componentButtonInsetS * s);
+      joinButton->setPadding(0.0F, Tokens::componentButtonInsetM * s, 0.0F, Tokens::componentButtonInsetM * s);
       joinButton->setOnClick([this, join] {
         if (m_password != nullptr) {
           join(m_password->value());
@@ -760,7 +763,7 @@ namespace control_center {
         .placeholder = tr("control-center.detail.search.placeholder"),
         .clearButtonEnabled = true,
         .surfaceOpacity = panelCardOpacity(),
-        .surfaceRole = ColorRole::SolidRegular,
+        .surfaceRole = ColorRole::Fill2,
         .onChange = [this](const std::string& text) {
           m_query = text;
         },
@@ -1067,7 +1070,7 @@ namespace control_center {
         .out = &m_reply,
         .placeholder = tr("control-center.detail.phone.reply"),
         .surfaceOpacity = panelCardOpacity(),
-        .surfaceRole = ColorRole::SolidRegular,
+        .surfaceRole = ColorRole::Fill2,
         .flexGrow = 1.0F,
         .onSubmit = send,
     }));

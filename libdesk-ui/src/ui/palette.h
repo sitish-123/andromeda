@@ -38,6 +38,8 @@ enum class ColorRole : std::uint8_t {
   OnSliderFill,
   SliderTrack,
   SliderEdge,
+  GlassCard,
+  GlassCardEdge,
   Popover,
   // Internal: the modal dim layer. No token entry, so the legacy name "scrim" still maps to Shadow.
   Scrim,
@@ -48,7 +50,7 @@ struct ColorRoleToken {
   std::string_view token;
 };
 
-inline constexpr std::array<ColorRoleToken, 27> kColorRoleTokens = {{
+inline constexpr std::array<ColorRoleToken, 29> kColorRoleTokens = {{
     {ColorRole::Label1, "label_1"},
     {ColorRole::Label2, "label_2"},
     {ColorRole::Fill1, "fill_1"},
@@ -75,6 +77,8 @@ inline constexpr std::array<ColorRoleToken, 27> kColorRoleTokens = {{
     {ColorRole::OnSliderFill, "on_slider_fill"},
     {ColorRole::SliderTrack, "slider_track"},
     {ColorRole::SliderEdge, "slider_edge"},
+    {ColorRole::GlassCard, "glass_card"},
+    {ColorRole::GlassCardEdge, "glass_card_edge"},
     {ColorRole::Popover, "popover"},
 }};
 
@@ -131,6 +135,8 @@ struct Palette {
   Color onSliderFill;
   Color sliderTrack;
   Color sliderEdge;
+  Color glassCard;
+  Color glassCardEdge;
   Color popover;
   Color scrim;
 

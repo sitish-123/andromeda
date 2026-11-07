@@ -281,9 +281,8 @@ void Bar::populateWidgets(BarInstance& instance) {
       return;
     }
     widget->setConfigName(name);
-    const FontWeight islandWeight = name == "island_app" ? FontWeight::Bold : FontWeight::SemiBold;
     widget->applyCommonOptions(
-        options, name.starts_with("island_") && name != "island_workspaces" ? islandWeight : labelFontWeight,
+        options, name.starts_with("island_") && name != "island_workspaces" ? FontWeight::SemiBold : labelFontWeight,
         barFontFamily, std::format("widget.{}", name)
     );
     widget->setActionContext(

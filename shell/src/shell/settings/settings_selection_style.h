@@ -16,7 +16,7 @@ namespace settings {
     inline constexpr float kSidebarRowHeight = 32.0F;
     inline constexpr float kSidebarRowPaddingH = 8.0F;
     inline constexpr float kSidebarRowGap = 8.0F;
-    inline constexpr float kSidebarTile = 22.0F;
+    inline constexpr float kSidebarTile = 16.0F; // rulebook 9.7: symbol 16, g 8, labels at 32
     inline constexpr float kSidebarTileGlyph = 16.0F;
     inline constexpr float kAccountAvatar = 24.0F;
     inline constexpr float kNewBarInputWidth = 120.0F;
@@ -55,7 +55,7 @@ namespace settings {
 
   [[nodiscard]] inline SelectionStyle selectionStyle() {
     return SelectionStyle{
-        .rowFill = colorSpecFromRole(ColorRole::Accent, 0.24F),
+        .rowFill = colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F),
         .rowLabel = colorSpecFromRole(ColorRole::Label1),
         .tileFill = clearColorSpec(),
         .tileGlyph = colorSpecFromRole(ColorRole::Label1),

@@ -30,7 +30,7 @@ namespace settings {
     }
     m_sheet.configure(std::move(request));
     const float scale = m_sheet.scale();
-    const float padding = 12.0F * scale;
+    const float padding = Tokens::spaceP24 * scale; // rulebook 9.10
     const std::weak_ptr<void> aliveGuard = m_aliveGuard;
     m_modalId = m_host->push(
         SettingsModalRequest{

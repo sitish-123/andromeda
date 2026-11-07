@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/scene/node.h"
+#include "design_tokens.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,7 @@ namespace settings {
     // The callback owns close policy and calls pop() when the modal should close.
     std::function<void()> requestClose;
     std::function<void()> onClosed;
-    float contentPadding = 12.0F;
+    float contentPadding = Tokens::spaceP24; // rulebook 9.10
     float windowMargin = 24.0F;
     float scale = 1.0F;
   };

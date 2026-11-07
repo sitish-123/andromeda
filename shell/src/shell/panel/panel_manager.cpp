@@ -2566,8 +2566,10 @@ void PanelManager::sendSheetStroke() {
 }
 
 // Liquid shapes get the compositor's specular rim instead of the sheet hairline, so the hairline fades with liquid.
+// In light mode the rim adds white light, which shows nothing over a white backdrop, so the hairline stays.
 ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
-  return scaleAlpha(shell::panel_surface::borderColor(m_config, backgroundOpacity), 1.0F - m_panelLiquid);
+  const float keep = isResolvedLightTheme() ? 1.0F : 1.0F - m_panelLiquid;
+  return scaleAlpha(shell::panel_surface::borderColor(m_config, backgroundOpacity), keep);
 }
 
 ColorSpec PanelManager::detachedFill() const {

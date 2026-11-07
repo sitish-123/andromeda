@@ -103,7 +103,7 @@ namespace settings {
       m_dismissSelectDropdown();
     }
     const float dialogScale = scale();
-    const float padding = 12.0F * dialogScale;
+    const float padding = Tokens::spaceP24 * dialogScale; // rulebook 9.10
     const std::weak_ptr<void> aliveGuard = m_aliveGuard;
     m_colorModal = m_host->push(
         SettingsModalRequest{
@@ -194,7 +194,7 @@ namespace settings {
       m_dismissSelectDropdown();
     }
     const float dialogScale = scale();
-    const float padding = 12.0F * dialogScale;
+    const float padding = Tokens::spaceP24 * dialogScale; // rulebook 9.10
     const std::weak_ptr<void> aliveGuard = m_aliveGuard;
     m_glyphModal = m_host->push(
         SettingsModalRequest{
@@ -279,7 +279,7 @@ namespace settings {
       m_dismissSelectDropdown();
     }
     const float dialogScale = scale();
-    const float padding = 12.0F * dialogScale;
+    const float padding = Tokens::spaceP24 * dialogScale; // rulebook 9.10
     m_fileDialog = std::make_unique<FileDialogView>(m_thumbnails);
     m_fileDialog->setHost(this);
     m_fileDialog->setAnimationManager(m_animations);

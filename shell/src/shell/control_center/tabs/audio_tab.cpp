@@ -864,7 +864,7 @@ namespace {
       setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
       setMinHeight(Style::controlHeightLg * scale);
       setRadius(Style::scaledRadiusMd(scale));
-      setFill(colorSpecFromRole(ColorRole::SolidRegular));
+      setFill(colorSpecFromRole(ColorRole::GlassCard));
       clearBorder();
 
       addChild(
@@ -942,21 +942,9 @@ namespace {
 
   private:
     void applyState() {
-      if (pressed()) {
-        setFill(colorSpecFromRole(ColorRole::Accent));
-        setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
-        if (m_title != nullptr) {
-          m_title->setColor(colorSpecFromRole(ColorRole::OnAccent));
-        }
-        return;
-      }
-
-      setFill(colorSpecFromRole(ColorRole::SolidRegular));
-      if (hovered()) {
-        setBorder(colorSpecFromRole(ColorRole::Accent), Style::borderWidth);
-      } else {
-        clearBorder();
-      }
+      // Fill ladder (rulebook 4.1): hover one step, press two; accent never marks a hovered or pressed row.
+      setFill(colorSpecFromRole(pressed() ? ColorRole::Fill2 : hovered() ? ColorRole::Fill1 : ColorRole::GlassCard));
+      setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F);
       if (m_title != nullptr) {
         m_title->setColor(colorSpecFromRole(ColorRole::Label1));
       }
@@ -988,7 +976,7 @@ namespace {
       setPadding(Style::spaceSm * scale, Style::spaceMd * scale);
       setMinHeight((Style::controlHeightLg + Style::spaceSm) * scale);
       setRadius(Style::scaledRadiusMd(scale));
-      setFill(colorSpecFromRole(ColorRole::SolidRegular));
+      setFill(colorSpecFromRole(ColorRole::GlassCard));
       clearBorder();
 
       constexpr float kIconSizeSm = 28.0F;
@@ -1415,7 +1403,7 @@ namespace {
                 .configure =
                     [scale](Flex& card) {
                       card.setRadius(Style::scaledRadiusMd(scale));
-                      card.setFill(colorSpecFromRole(ColorRole::SolidRegular));
+                      card.setFill(colorSpecFromRole(ColorRole::GlassCard));
                       card.clearBorder();
                     },
             },
@@ -1935,8 +1923,7 @@ std::unique_ptr<Flex> AudioTab::create() {
   }
 
   if (m_easyEffects != nullptr) {
-    m_easyEffects->refreshProfiles();
-    m_easyEffects->refreshActiveEffectsProfiles();
+    m_easyEffects->refreshAsync();
   }
 
   return tab;

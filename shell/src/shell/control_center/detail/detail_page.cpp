@@ -251,7 +251,8 @@ namespace control_center {
     card->setAlign(FlexAlign::Stretch);
     card->setPadding(Tokens::componentListCardPadding * s);
     card->setRadius(Tokens::componentListCardRadius * s);
-    card->setFill(colorSpecFromRole(ColorRole::Fill1, panelCardOpacity()));
+    card->setFill(colorSpecFromRole(ColorRole::GlassCard, panelCardOpacity()));
+    card->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * s);
     Flex* raw = card.get();
     section->addChild(std::move(card));
     m_content->addChild(std::move(section));
@@ -298,8 +299,7 @@ namespace control_center {
     }
     m_rowCard = &card;
     const bool twoLine = !row.secondary.empty();
-    const ColorSpec baseFill = row.selected ? colorSpecFromRole(ColorRole::Lens)
-                                            : colorSpecFromRole(ColorRole::Fill1, 0.0F);
+    const ColorSpec baseFill = colorSpecFromRole(ColorRole::Fill1, 0.0F);
     auto cell = std::make_unique<Flex>();
     cell->setDirection(FlexDirection::Horizontal);
     cell->setAlign(FlexAlign::Stretch);
@@ -321,10 +321,8 @@ namespace control_center {
     button->setEnabled(row.enabled && static_cast<bool>(row.onClick));
     if (row.onClick) {
       button->setOnClick(row.onClick);
-      if (!row.selected) {
-        button->setOnEnter([cellPtr] { cellPtr->setFill(colorSpecFromRole(ColorRole::Fill2)); });
-        button->setOnLeave([cellPtr] { cellPtr->setFill(colorSpecFromRole(ColorRole::Fill1, 0.0F)); });
-      }
+      button->setOnEnter([cellPtr] { cellPtr->setFill(colorSpecFromRole(ColorRole::Fill1)); });
+      button->setOnLeave([cellPtr] { cellPtr->setFill(colorSpecFromRole(ColorRole::Fill1, 0.0F)); });
     }
 
     float reserve = 2.0F * (Tokens::componentListCardPadding + Tokens::componentListRowInset);
@@ -344,8 +342,21 @@ namespace control_center {
       frame->addChild(std::move(image));
       button->addChild(std::move(frame));
       reserve += Tokens::spaceP24 + Tokens::spaceP8;
+    } else if (!row.glyph.empty() && row.selected) {
+      // The current item is marked by an accent round icon, not a row fill (rulebook 9.16).
+      const float box = Tokens::spaceP24 * s;
+      auto badge = std::make_unique<Flex>();
+      badge->setAlign(FlexAlign::Center);
+      badge->setJustify(FlexJustify::Center);
+      badge->setMinWidth(box);
+      badge->setMinHeight(box);
+      badge->setRadius(box * 0.5F);
+      badge->setFill(colorSpecFromRole(ColorRole::Accent));
+      badge->addChild(glyph(row.glyph, Tokens::sizeSymbol * 0.75F * s, ColorRole::OnAccent));
+      button->addChild(std::move(badge));
+      reserve += Tokens::spaceP24 + Tokens::spaceP8;
     } else if (!row.glyph.empty()) {
-      button->addChild(glyph(row.glyph, Tokens::sizeSymbol * s, row.selected ? ColorRole::AccentText : ColorRole::Label2));
+      button->addChild(glyph(row.glyph, Tokens::sizeSymbol * s, ColorRole::Label2));
       reserve += Tokens::sizeSymbol + Tokens::spaceP8;
     }
     auto text = std::make_unique<Flex>();

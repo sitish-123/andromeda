@@ -253,8 +253,8 @@ namespace {
   std::unique_ptr<Flex> makeCard(float scale, float opacity) {
     auto card = std::make_unique<Flex>();
     applySectionCardStyle(*card, scale, opacity);
-    card->setFill(colorSpecFromRole(ColorRole::Fill1, opacity));
-    card->clearBorder();
+    card->setFill(colorSpecFromRole(ColorRole::GlassCard, opacity));
+    card->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * scale);
     card->setRadius(Tokens::componentTileRadius * scale);
     card->setPadding(Tokens::componentTilePadding * scale);
     card->setGap(Tokens::spaceP12 * scale);

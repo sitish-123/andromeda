@@ -319,7 +319,8 @@ bool LiveActivityIsland::coversAllOutputs() const {
 }
 
 bool LiveActivityIsland::showOsd(const OsdContent& content) {
-  if (!coversAllOutputs() || m_activity.has_value()) {
+  // An OSD briefly takes the island over a live activity; the activity face returns when the OSD ends.
+  if (!coversAllOutputs()) {
     return false;
   }
   if (m_banner.has_value()) {
@@ -682,11 +683,11 @@ void LiveActivityIsland::applyLayer(Instance& inst) {
 }
 
 LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) const {
-  if (m_activity.has_value() && (!m_activity->since.has_value() || inst.hovered || inst.space.restless)) {
-    return Face::Live;
-  }
   if (m_osd.has_value()) {
     return Face::Osd;
+  }
+  if (m_activity.has_value() && (!m_activity->since.has_value() || inst.hovered || inst.space.restless)) {
+    return Face::Live;
   }
   if (m_banner.has_value()) {
     return Face::Banner;
@@ -1214,7 +1215,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
     auto button = ui::button({
         .out = out,
         .glyph = glyph,
-        .glyphSize = 18.0F,
+        .glyphSize = Tokens::sizeSymbol,
         .radius = kHoverButton * 0.5F,
         .width = kHoverButton,
         .height = kHoverButton,
@@ -1668,6 +1669,10 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   // OSD face.
   if (m_osd.has_value()) {
     inst.osdGlyph->setGlyph(m_osd->icon);
+    // An off state (Caps Lock Off, muted) reads secondary, as the level OSD's empty track does.
+    const ColorSpec osdText = m_osd->inactive ? liveLabel2() : liveLabel();
+    inst.osdGlyph->setColor(osdText);
+    inst.osdValue->setColor(osdText);
     inst.osdValue->setText(m_osd->value.empty() && m_osd->showProgress ? std::to_string(static_cast<int>(std::lround(std::clamp(m_osd->progress, 0.0F, 1.0F) * 100.0F))) + "%" : m_osd->value);
     inst.osdBar->setVisible(m_osd->showProgress);
     const float osdTarget = std::clamp(m_osd->progress, 0.0F, 1.0F);

@@ -22,7 +22,8 @@ import sys
 from PIL import Image, ImageChops
 box = tuple(int(v) for v in sys.argv[3].split(","))
 a, b = (Image.open(p).convert("RGB").crop(box) for p in sys.argv[1:3])
-sys.exit(0 if ImageChops.difference(a, b).getbbox() else 1)
+# The glass tint eases on its backdrop sample and can drift 1-2 levels; a real page change differs by ~200.
+sys.exit(0 if ImageChops.difference(a, b).point(lambda v: 255 if v > 4 else 0).getbbox() else 1)
 PY
   }
   # The pills and footer only: a keyboard focus ring on a tile must not decide a match.
@@ -113,7 +114,7 @@ PY
   cp "$OUT/6b-drag-page2.png" "$OUT/last.png"
   step 6c-page1 1079 196
 
-  step 7-edit 951 284
+  step 7-edit 1044 284
   step 8-removed 932 108
   step 9-done 1224 76
 

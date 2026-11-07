@@ -163,7 +163,7 @@ public:
       : m_device(std::move(device)), m_service(service) {
     setScale(scale);
     setRadius(Style::scaledRadiusMd(scale));
-    setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    setFill(colorSpecFromRole(ColorRole::GlassCard));
     clearBorder();
 
     auto header = ui::row(

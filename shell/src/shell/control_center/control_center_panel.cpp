@@ -33,6 +33,7 @@
 
 using namespace control_center;
 
+
 namespace {
 
   constexpr auto kMprisRefreshMinInterval = std::chrono::milliseconds(750);
@@ -323,6 +324,9 @@ void ControlCenterPanel::create() {
           .fontWeight = m_showSidebar ? FontWeight::Bold
                                       : static_cast<FontWeight>(Style::glassWeight(Tokens::typeTitle3.weight)),
           .color = colorSpecFromRole(m_showSidebar ? ColorRole::AccentText : ColorRole::Label1),
+          .maxLines = 1,
+          // The row gives the title the width the back button and actions leave (flexGrow), so it ellipsizes there.
+          .ellipsize = TextEllipsize::End,
           .flexGrow = 1.0F,
       })
   );
@@ -427,13 +431,6 @@ void ControlCenterPanel::doLayout(Renderer& renderer, float width, float height)
 
   if (m_contentHeader != nullptr) {
     m_contentHeader->setSize(contentInnerWidth, 0.0F);
-  }
-
-  if (m_contentTitle != nullptr) {
-    const float actionsWidth = m_contentHeaderActions != nullptr ? m_contentHeaderActions->width() : 0.0F;
-    const float headerGap = m_contentHeader != nullptr ? m_contentHeader->gap() : 0.0F;
-    const float titleWidth = std::max(0.0F, contentInnerWidth - actionsWidth - headerGap);
-    m_contentTitle->setMaxWidth(titleWidth);
   }
 
   for (auto* container : m_tabContainers) {

@@ -175,24 +175,19 @@ namespace {
           .disabled = makeState(clearColorSpec(), clearColorSpec(), colorSpecFromRole(ColorRole::Label1)),
           .selected = std::nullopt,
       };
-    case ButtonVariant::TabActive:
+    case ButtonVariant::TabActive: {
+      // The selected tab uses the Settings sidebar selection: an accent tint with label_1 content, never a solid fill.
+      const ColorSpec tint = colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F);
+      const ColorSpec label = colorSpecFromRole(ColorRole::Label1);
       return Button::ButtonPalette{
           .borderWidth = 0.0F,
-          .normal = makeState(
-              colorSpecFromRole(ColorRole::Accent), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
-          ),
-          .hover = makeState(
-              colorSpecFromRole(ColorRole::Accent), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
-          ),
-          .pressed = makeState(
-              colorSpecFromRole(ColorRole::Accent), clearColorSpec(), colorSpecFromRole(ColorRole::OnAccent)
-          ),
-          .disabled = makeState(
-              colorSpecFromRole(ColorRole::Accent, kDisabledAlpha), clearColorSpec(),
-              colorSpecFromRole(ColorRole::OnAccent)
-          ),
+          .normal = makeState(tint, clearColorSpec(), label),
+          .hover = makeState(tint, clearColorSpec(), label),
+          .pressed = makeState(tint, clearColorSpec(), label),
+          .disabled = makeState(colorSpecFromRole(ColorRole::Accent, kDisabledAlpha * 0.24F), clearColorSpec(), label),
           .selected = std::nullopt,
       };
+    }
     }
 
     return {};
