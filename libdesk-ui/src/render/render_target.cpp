@@ -77,6 +77,8 @@ TextureManager& ScaledRenderer::textureManager() {
 
 float ScaledRenderer::renderScale() const noexcept { return currentScale(); }
 
+float ScaledRenderer::textScale() const noexcept { return m_context != nullptr ? m_context->textScale() : 1.0F; }
+
 std::uint64_t ScaledRenderer::textMetricsGeneration() const noexcept {
   return m_context != nullptr ? m_context->textMetricsGeneration() : 0;
 }

@@ -291,6 +291,7 @@ void RenderContext::setTextFontFamily(std::string family) {
 void RenderContext::setTextScale(float scale) {
   makeCurrentNoSurface();
   m_textRenderer.setTextScale(scale);
+  m_textScale = scale;
   ++m_textMetricsGeneration;
 }
 

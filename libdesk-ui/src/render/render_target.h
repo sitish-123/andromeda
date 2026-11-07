@@ -63,6 +63,7 @@ public:
   [[nodiscard]] TextureManager& textureManager() override;
   [[nodiscard]] float renderScale() const noexcept override;
   [[nodiscard]] std::uint64_t textMetricsGeneration() const noexcept override;
+  [[nodiscard]] float textScale() const noexcept override;
   void notifyFontConfigChanged() override;
 
 private:

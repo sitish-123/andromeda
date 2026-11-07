@@ -64,6 +64,7 @@ public:
   // Texture/text-generation access for ScaledRenderer views and graphics-lifecycle owners.
   [[nodiscard]] TextureManager& textureManager();
   [[nodiscard]] std::uint64_t textMetricsGeneration() const noexcept { return m_textMetricsGeneration; }
+  [[nodiscard]] float textScale() const noexcept { return m_textScale; }
 
   // Frees every cached text and glyph texture; the next frame draws them again (memory pressure, docs/qos.md §5).
   void releaseUnusedCaches();
@@ -115,6 +116,7 @@ private:
   std::string m_textFontFamily = "sans-serif";
   bool m_textBaseDirRtl = false;
   std::uint64_t m_textMetricsGeneration = 1;
+  float m_textScale = 1.0F;
   std::uint64_t m_gpuResourceGeneration = 0;
   bool m_glyphTexturesDirty = false;
   // NOCTALIA_PROFILE frame stats: nodes drawn and culled in the current renderScene.

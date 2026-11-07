@@ -1,4 +1,5 @@
 accessibility.high_contrast
+accessibility.text_scale
 accessibility.ui_scale
 audio.auto_switch_hdmi
 audio.enable_notification_sounds

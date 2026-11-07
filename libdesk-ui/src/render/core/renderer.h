@@ -153,5 +153,7 @@ public:
   [[nodiscard]] virtual TextureManager& textureManager() = 0;
   [[nodiscard]] virtual float renderScale() const noexcept = 0;
   [[nodiscard]] virtual std::uint64_t textMetricsGeneration() const noexcept { return 0; }
+  // The user Text Size factor the text renderer applies to every font size; fixed line boxes grow with it.
+  [[nodiscard]] virtual float textScale() const noexcept { return 1.0F; }
   virtual void notifyFontConfigChanged() {}
 };

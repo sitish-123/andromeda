@@ -653,7 +653,7 @@ LayoutSize Label::measureWithConstraints(Renderer& renderer, const LayoutConstra
     float height = 0.0F;
     if (m_lineHeight > 0.0F && !isIconGlyph) {
       const auto fontMetrics = renderer.measureFont(m_textNode->fontSize(), font);
-      height = m_lineHeight;
+      height = std::round(m_lineHeight * renderer.textScale());
       m_baselineOffset = (height - (fontMetrics.bottom - fontMetrics.top)) * 0.5F - fontMetrics.top;
     } else if (m_baselineMode == LabelBaselineMode::InkCentered || isIconGlyph) {
       // Explicit ink mode, or an icon glyph: center the glyph's own ink.
