@@ -17,6 +17,9 @@ OUT=${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-ubuntu/deb-$VERSION
 IMAGE=andromeda-deb:${BASE/:/-}
 # ccache lives beside OUT, so --clean keeps it.
 CCACHE=$(dirname "$OUT")/ccache-deb-$VERSION
+# Crate downloads persist across runs, so a build needs the network only for new crates.
+CARGO_CACHE=$(dirname "$OUT")/cargo-deb-$VERSION
+mkdir -p "$CARGO_CACHE"
 mkdir -p "$OUT" "$CCACHE"
 # The container writes as root: clear through it.
 if [[ $CLEAN == 1 ]]; then
@@ -55,16 +58,22 @@ cp "$(dirname "$OUT")/xwayland-satellite-$VERSION"/*.deb "$OUT/extra/" 2> /dev/n
 status=0
 # -nc: no pre-clean, so debian/build (meson dirs) and system/target (cargo) survive; dh_prep still clears each
 # package's staging dir before the install step.
-docker run --rm --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccache" -e CCACHE_DIR=/ccache -w /o/src "$IMAGE" bash -c '
+# Host network: on the default bridge, DNS inside the container failed mid-build in three runs.
+docker run --rm --network host --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" -e CCACHE_DIR=/ccache -e CARGO_HOME=/cargo -e CARGO_NET_RETRY=10 -w /o/src "$IMAGE" bash -c '
   # A kept build stamp would make dh skip the build step, and cargo with it.
   rm -f debian/debhelper-build-stamp
   set -o pipefail
+  # Fetch every crate before the build, with retries: a DNS drop mid-build failed two runs.
+  for lock in $(find . -name Cargo.lock -not -path "*/target/*" -not -path "./debian/*"); do
+    for try in 1 2 3; do cargo fetch --locked --manifest-path "$(dirname "$lock")/Cargo.toml" > /dev/null 2>> /o/fetch.log && break
+      [ $try = 3 ] && { echo "cargo fetch failed: $lock" | tee -a /o/build.log; exit 11; }; sleep 5; done
+  done
   dpkg-buildpackage -b -nc -us -uc 2>&1 | tee /o/build.log || exit 11
   # andromeda-link comes from the Link release, not this source; install every other package.
   apt-get update -qq
   apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_\|/andromeda-dbgsym_") 2>&1 | tee /o/install.log || exit 12
 ' || status=$?
-docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache
+docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache /cargo
 case $status in
   0) echo "PASS: $(ls "$OUT"/*.deb | wc -l) debs built and installed" ;;
   11) echo "FAIL build: $(tail -n 3 "$OUT/build.log")" ;;

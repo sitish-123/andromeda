@@ -51,5 +51,14 @@ Description: Andromeda static kernel power policy
 
 Package: noctalia-greeter-desktop
 Architecture: amd64
-Depends: ${shlibs:Depends}, ${misc:Depends}, greetd
+Depends: ${shlibs:Depends}, ${misc:Depends}, andromeda-greetd
 Description: Andromeda login greeter for greetd
+
+Package: andromeda-greetd
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Provides: greetd
+Conflicts: greetd
+Replaces: greetd
+Description: greetd with a GDM-style hand-off
+ The greeter stays on screen until the user session took its own VT, so no console or black frame shows at login.

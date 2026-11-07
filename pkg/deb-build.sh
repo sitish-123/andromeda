@@ -41,6 +41,13 @@ case ${1:-} in
       --exclude andromeda-update --exclude andromeda-update-helper
     cargo build --locked --release --manifest-path desktop/system/Cargo.toml -p andromeda-update \
       -p andromeda-update-helper --no-default-features --features apt
+    # andromeda-greetd: the PKGBUILD source pin plus our patches (a kept tree is already patched).
+    if [[ ! -d greetd ]]; then
+      git clone -q https://git.sr.ht/~kennylevinsen/greetd greetd
+      git -C greetd checkout -q "${source[1]##*#commit=}"
+      for patch in desktop/session/greetd/patches/*.patch; do patch -d greetd -Np1 < "$patch"; done
+    fi
+    cargo build --locked --release --manifest-path greetd/Cargo.toml -p greetd
     ;;
   install)
     declare -A debs=(
@@ -51,6 +58,7 @@ case ${1:-} in
       [andromeda-system-git]=andromeda-system
       [andromeda-power-git]=andromeda-power
       [noctalia-greeter-desktop-git]=noctalia-greeter-desktop
+      [andromeda-greetd]=andromeda-greetd
     )
     for fn in "${!debs[@]}"; do
       pkgname=${debs[$fn]}
@@ -62,6 +70,8 @@ case ${1:-} in
     done
     # Debian PAM stacks: common-* replace Arch's system-login.
     sed -Ei 's/^(account|password|session)\s+include\s+system-login$/@include common-\1/' "$root"/debian/*/etc/pam.d/*
+    sed -Ei 's/^(auth|account|password|session)\s+include\s+system-local-login$/@include common-\1/' \
+      "$root"/debian/*/etc/pam.d/*
     # The pacman hook's apt equal is the dpkg trigger in debian/andromeda-system.triggers.
     rm -r "$root/debian/andromeda-system/usr/share/libalpm"
     ;;
