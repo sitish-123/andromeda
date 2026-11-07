@@ -43,13 +43,13 @@ ActivityMonitor::ActivityMonitor(SessionBus& bus, WindowPids windowPids, std::st
       m_userUnits(bus.connection(), SystemdUnitsService::Manager::User, [this]() {
         m_activity.setUnits(m_userUnits.units());
         if (!m_onceWaiters.empty()) {
-          if (!m_sampling) {
-            windowsChanged();
-            m_activity.sample(std::chrono::steady_clock::now());
-          }
-          for (auto waiters = std::exchange(m_onceWaiters, {}); auto& done : waiters) {
-            done();
-          }
+          // The cgroup reads run on the SharedWorker; the waiters run once they land.
+          windowsChanged();
+          m_activity.sampleAsync(std::chrono::steady_clock::now(), [this]() {
+            for (auto waiters = std::exchange(m_onceWaiters, {}); auto& done : waiters) {
+              done();
+            }
+          });
         }
         if (m_onChange) {
           m_onChange();

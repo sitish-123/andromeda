@@ -1,6 +1,7 @@
 #include "system/easyeffects_service.h"
 
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "ipc/ipc_service.h"
 #include "util/string_utils.h"
 
@@ -445,6 +446,49 @@ void EasyEffectsService::refreshActiveEffectsProfiles() {
   if (changed) {
     emitChanged();
   }
+}
+
+void EasyEffectsService::refreshAsync() {
+  struct Snapshot {
+    std::vector<std::string> output;
+    std::vector<std::string> input;
+    std::optional<std::string> activeOutput;
+    std::optional<std::string> activeInput;
+  };
+  SharedWorker::instance().post<Snapshot>(
+      m_alive,
+      [] {
+        const auto active = [](AudioEffectsProfileKind kind) -> std::optional<std::string> {
+          if (auto preset = queryEasyEffectsActivePreset(kind)) {
+            return preset;
+          }
+          std::string discovered = discoverActiveEffectsProfile(kind);
+          return discovered.empty() ? std::nullopt : std::optional(std::move(discovered));
+        };
+        return Snapshot{
+            .output = discoverEffectsProfiles(AudioEffectsProfileKind::Output),
+            .input = discoverEffectsProfiles(AudioEffectsProfileKind::Input),
+            .activeOutput = active(AudioEffectsProfileKind::Output),
+            .activeInput = active(AudioEffectsProfileKind::Input),
+        };
+      },
+      [this](Snapshot snapshot) {
+        bool changed = snapshot.output != m_outputEffectsProfiles || snapshot.input != m_inputEffectsProfiles;
+        m_outputEffectsProfiles = std::move(snapshot.output);
+        m_inputEffectsProfiles = std::move(snapshot.input);
+        // An unknown active preset keeps the last one, as refreshActiveEffectsProfiles does.
+        for (auto [next, cached] : {std::pair{&snapshot.activeOutput, &m_activeOutputEffectsProfile},
+                                    std::pair{&snapshot.activeInput, &m_activeInputEffectsProfile}}) {
+          if (next->has_value() && *cached != *next) {
+            *cached = std::move(*next);
+            changed = true;
+          }
+        }
+        if (changed) {
+          emitChanged();
+        }
+      }
+  );
 }
 
 bool EasyEffectsService::loadEffectsProfile(AudioEffectsProfileKind kind, std::string_view profile) {

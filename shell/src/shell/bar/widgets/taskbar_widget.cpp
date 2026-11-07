@@ -220,7 +220,7 @@ TaskbarWidget::TaskbarWidget(
       m_windowTitleMaxWidth(static_cast<float>(m_configOptions.windowTitleMaxWidth)),
       m_taskbarMaxWidth(static_cast<float>(m_configOptions.taskbarMaxWidth)),
       m_barPosition(std::move(context.barPosition)), m_barName(std::move(context.barName)),
-      m_widgetName(std::move(context.widgetName)) {
+      m_widgetName(std::move(context.widgetName)), m_asyncTextures(context.asyncTextures) {
   syncWorkspaceGroupingCapability();
   buildDesktopIconIndex();
 }
@@ -1198,8 +1198,26 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       } else {
         image->setAppIconColorization(effectiveShellAppIconColorizationTint(m_configService.config().shell));
       }
-      image->setSourceFile(renderer, task.icon.path, static_cast<int>(std::round(iconSize)), true);
-      if (image->hasImage()) {
+      // A task change rebuilds every tile: the shared cache decodes each icon once, off the main thread.
+      bool shown = false;
+      if (m_asyncTextures != nullptr) {
+        // A failed decode rebuilds the tiles, which then take the glyph.
+        Image* raw = image.get();
+        image->setAsyncReadyCallback([this, raw] {
+          if (raw->asyncFailed()) {
+            m_rebuildPending = true;
+            requestUpdate();
+          } else {
+            requestRedraw();
+          }
+        });
+        shown = image->setSourceFileAsync(renderer, *m_asyncTextures, task.icon.path,
+                                          static_cast<int>(std::round(iconSize)), true)
+                || (!image->sourcePath().empty() && !image->asyncFailed());
+      } else {
+        shown = image->setSourceFile(renderer, task.icon.path, static_cast<int>(std::round(iconSize)), true);
+      }
+      if (shown) {
         iconHost->addChild(std::move(image));
       } else {
         auto glyph = ui::glyph({

@@ -204,11 +204,15 @@ void DesktopSysmonWidget::onFrameTick(float deltaMs, Renderer& renderer) {
     if (!m_redrawLimiter.shouldStep([this] { requestFrameTick(); })) {
       return;
     }
-    if (m_monitor != nullptr) {
-      syncLabel();
-      syncGaugeProgress(currentNormalized());
-      syncValueColor();
+    // A redraw only when a new sample landed; the 5 fps step otherwise repainted unchanged values.
+    const auto sampledAt = m_monitor != nullptr ? m_monitor->latest().sampledAt : std::chrono::steady_clock::time_point{};
+    if (m_monitor == nullptr || sampledAt == m_gaugeSampleAt) {
+      return;
     }
+    m_gaugeSampleAt = sampledAt;
+    syncLabel();
+    syncGaugeProgress(currentNormalized());
+    syncValueColor();
     requestRedraw();
     return;
   }

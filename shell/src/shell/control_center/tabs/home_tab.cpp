@@ -1262,9 +1262,18 @@ void HomeTab::doUpdate(Renderer& renderer) {
         if (!m_active) {
           return;
         }
-        // refresh() schedules update+layout (Surface::requestUpdate); update-only ticks skipped
-        // HomeTab::doLayout so album art never picked up the final media card height.
-        PanelManager::instance().refresh();
+        // The album art takes the media card height in HomeTab::doLayout, so a new track gets update+layout
+        // (refresh); a tick on the same track only moves the position and needs no layout pass.
+        const auto player = m_mpris != nullptr ? m_mpris->activePlayer() : std::nullopt;
+        std::string track = player.has_value() ? player->busName + '\n' + player->trackId + '\n' + player->title + '\n'
+                + player->artUrl
+                                               : std::string();
+        if (track != m_progressTrack) {
+          m_progressTrack = std::move(track);
+          PanelManager::instance().refresh();
+        } else {
+          PanelManager::instance().requestUpdateOnly();
+        }
         PanelManager::instance().requestRedraw();
       });
     }

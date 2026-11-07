@@ -2,6 +2,7 @@
 
 #include "compositors/compositor_detect.h"
 #include "config/config_service.h"
+#include "core/shared_worker.h"
 #include "core/files/directory_scanner.h"
 #include "core/log.h"
 #include "core/process/process.h"
@@ -27,6 +28,8 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <memory>
+#include <map>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -190,7 +193,7 @@ namespace {
   }
 
   void
-  collectWallpaperCandidates(const std::filesystem::path& directory, bool recursive, std::vector<std::string>& out) {
+  walkWallpaperCandidates(const std::filesystem::path& directory, bool recursive, std::vector<std::string>& out) {
     out.clear();
     std::error_code ec;
     if (!std::filesystem::exists(directory, ec) || !std::filesystem::is_directory(directory, ec)) {
@@ -224,6 +227,45 @@ namespace {
         out.push_back(entry.path().string());
       }
     }
+  }
+
+  // A rotation reads the last walk of its folder and asks the SharedWorker for a fresh one past kRewalk, so the tree
+  // walk runs on the main thread only the first time a folder is used.
+  void
+  collectWallpaperCandidates(const std::filesystem::path& directory, bool recursive, std::vector<std::string>& out) {
+    struct Cached {
+      std::vector<std::string> paths;
+      std::chrono::steady_clock::time_point walkedAt;
+      bool walking = false;
+    };
+    constexpr auto kRewalk = std::chrono::seconds(60);
+    static std::map<std::pair<std::string, bool>, Cached> cache;
+    static const auto alive = std::make_shared<int>(0);
+    const auto key = std::pair{directory.string(), recursive};
+    auto it = cache.find(key);
+    if (it == cache.end()) {
+      Cached fresh;
+      walkWallpaperCandidates(directory, recursive, fresh.paths);
+      fresh.walkedAt = std::chrono::steady_clock::now();
+      it = cache.emplace(key, std::move(fresh)).first;
+    } else if (!it->second.walking && std::chrono::steady_clock::now() - it->second.walkedAt >= kRewalk) {
+      it->second.walking = true;
+      SharedWorker::instance().post<std::vector<std::string>>(
+          alive,
+          [directory, recursive] {
+            std::vector<std::string> paths;
+            walkWallpaperCandidates(directory, recursive, paths);
+            return paths;
+          },
+          [key](std::vector<std::string> paths) {
+            Cached& entry = cache[key];
+            entry.paths = std::move(paths);
+            entry.walkedAt = std::chrono::steady_clock::now();
+            entry.walking = false;
+          }
+      );
+    }
+    out = it->second.paths;
   }
 
   bool lessCaseInsensitive(std::string_view a, std::string_view b) {

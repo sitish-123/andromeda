@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -45,6 +46,7 @@ private:
   // Row thumbnails as data URIs (the texture cache decodes them off the main thread), by storage id. They load one
   // per timer tick after the first frame: a payload read decrypts it from disk.
   mutable std::unordered_map<std::string, std::string> m_thumbs;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   mutable std::vector<std::string> m_pendingThumbs;
   mutable Timer m_thumbTimer;
 };

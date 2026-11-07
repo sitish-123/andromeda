@@ -1774,8 +1774,7 @@ void Application::initBrightnessAndPipewire() {
       svc->onMixerVolumeChanged(id, volume, muted);
     });
     m_easyEffectsService = std::make_unique<EasyEffectsService>();
-    m_easyEffectsService->refreshProfiles();
-    m_easyEffectsService->refreshActiveEffectsProfiles();
+    m_easyEffectsService->refreshAsync();
     m_pipewireSpectrum = std::make_unique<PipeWireSpectrum>(*pipewire());
     m_andromedaAudioProvider = std::make_unique<compositors::andromeda::AndromedaAudioProvider>(
         m_compositorPlatform.andromedaRuntime(), [this] {

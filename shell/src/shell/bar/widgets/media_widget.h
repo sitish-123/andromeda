@@ -18,6 +18,7 @@ class MprisService;
 class Renderer;
 class ProgressBar;
 struct MprisPlayerInfo;
+class AsyncTextureCache;
 struct wl_output;
 
 enum class MediaTitleScrollMode : std::uint8_t {
@@ -43,7 +44,10 @@ public:
     bool showProgress = false;
   };
 
-  MediaWidget(MprisService* mpris, HttpClient* httpClient, wl_output* output, Options options);
+  MediaWidget(
+      MprisService* mpris, HttpClient* httpClient, wl_output* output, Options options,
+      AsyncTextureCache* asyncTextures = nullptr
+  );
 
   void create() override;
   [[nodiscard]] bool needsFrameTick() const override;
@@ -64,6 +68,8 @@ private:
 
   MprisService* m_mpris = nullptr;
   HttpClient* m_httpClient = nullptr;
+  // Album art decodes off the main thread; null (tests) decodes in place.
+  AsyncTextureCache* m_asyncTextures = nullptr;
   float m_maxWidth = 220.0F;
   float m_minWidth = 80.0F;
   float m_artSize = 16.0F;

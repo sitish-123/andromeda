@@ -736,25 +736,63 @@ bool ClipboardService::ensureEntryLoaded(std::size_t index) {
   return loadEntryPayload(m_history[index]);
 }
 
+namespace {
+  std::optional<std::string> toDataUri(const std::vector<std::uint8_t>& data) {
+    const std::size_t encodedSize = sodium_base64_encoded_len(data.size(), sodium_base64_VARIANT_ORIGINAL);
+    std::string source = "data:application/octet-stream;base64,";
+    const std::size_t prefixSize = source.size();
+    source.resize(prefixSize + encodedSize);
+    if (sodium_bin2base64(
+            source.data() + static_cast<std::ptrdiff_t>(prefixSize), encodedSize, data.data(), data.size(),
+            sodium_base64_VARIANT_ORIGINAL
+        )
+        == nullptr) {
+      return std::nullopt;
+    }
+    source.resize(
+        prefixSize + std::char_traits<char>::length(source.c_str() + static_cast<std::ptrdiff_t>(prefixSize))
+    );
+    return source;
+  }
+} // namespace
+
 std::optional<std::string> ClipboardService::imageDataUri(std::size_t index) {
   if (index >= m_history.size() || !m_history[index].isImage() || !loadEntryPayload(m_history[index])) {
     return std::nullopt;
   }
+  return toDataUri(m_history[index].data);
+}
 
-  const ClipboardEntry& entry = m_history[index];
-  const std::size_t encodedSize = sodium_base64_encoded_len(entry.data.size(), sodium_base64_VARIANT_ORIGINAL);
-  std::string source = "data:application/octet-stream;base64,";
-  const std::size_t prefixSize = source.size();
-  source.resize(prefixSize + encodedSize);
-  if (sodium_bin2base64(
-          source.data() + static_cast<std::ptrdiff_t>(prefixSize), encodedSize, entry.data.data(), entry.data.size(),
-          sodium_base64_VARIANT_ORIGINAL
-      )
-      == nullptr) {
-    return std::nullopt;
+void ClipboardService::imageDataUriAsync(
+    const std::string& storageId, std::function<void(std::optional<std::string>)> done
+) {
+  const auto entry = std::ranges::find_if(m_history, [&storageId](const ClipboardEntry& e) {
+    return e.storageId == storageId;
+  });
+  if (entry == m_history.end() || !entry->isImage()) {
+    done(std::nullopt);
+    return;
   }
-  source.resize(prefixSize + std::char_traits<char>::length(source.c_str() + static_cast<std::ptrdiff_t>(prefixSize)));
-  return source;
+  std::function<std::optional<std::string>()> work;
+  if (entry->payloadLoaded) {
+    work = [data = entry->data] { return toDataUri(data); };
+  } else if (m_dataKey != nullptr && isValidStorageId(storageId)) {
+    work = [path = payloadPathForId(storageId), key = m_dataKey, storageId, byteSize = entry->byteSize,
+            limit = maxEntryBytesFor(entry->dataMimeType)]() -> std::optional<std::string> {
+      auto result = security::readEncryptedFile(
+          path, *key, security::EncryptionContext{.purpose = std::string(kPayloadPurpose), .objectId = storageId},
+          limit
+      );
+      if (!result.succeeded() || result.plaintext.size() != byteSize) {
+        return std::nullopt;
+      }
+      return toDataUri(result.plaintext);
+    };
+  } else {
+    done(std::nullopt);
+    return;
+  }
+  SharedWorker::instance().post<std::optional<std::string>>(m_alive, std::move(work), std::move(done));
 }
 
 std::optional<std::string> ClipboardService::exportEntryForExternalTool(std::size_t index) {

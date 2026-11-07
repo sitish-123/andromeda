@@ -88,5 +88,6 @@ private:
   FileWatcher* m_fileWatcher;
   ScreenshotService* m_screenshots;
   RenderContext* m_renderContext = nullptr;
+  AsyncTextureCache* m_asyncTextures = nullptr;
   scripting::ScriptApiContext* m_scriptApi = nullptr;
 };

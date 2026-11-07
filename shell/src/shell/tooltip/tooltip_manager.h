@@ -81,6 +81,9 @@ private:
   std::unordered_set<std::string> m_suppressedBarTooltipPanels;
 
   TooltipContent m_pendingContent;
+  // What the current scene shows: a provider refresh with the same content skips the rebuild and redraw.
+  TooltipContent m_builtContent;
+  InputArea* m_builtArea = nullptr;
   zwlr_layer_surface_v1* m_pendingLayerParent = nullptr;
   xdg_surface* m_pendingXdgParent = nullptr;
   wl_output* m_pendingOutput = nullptr;

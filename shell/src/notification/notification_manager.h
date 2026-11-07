@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -238,7 +239,12 @@ private:
   bool m_historyNeedsRecovery = false;
   bool m_historyCleared = false;
   security::StorageKeyProvider* m_historyKeyProvider = nullptr;
-  std::optional<security::SecureKey> m_historyKey;
+  // Shared with the SharedWorker save.
+  std::shared_ptr<const security::SecureKey> m_historyKey;
+  // Debounces history saves; each change used to rewrite every entry on the main thread.
+  Timer m_persistTimer;
+  std::uint64_t m_persistGeneration = 0;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   Timer m_historyRetentionTimer;
 
   std::deque<Notification> m_notifications;

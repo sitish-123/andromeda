@@ -25,8 +25,10 @@ namespace {
 
 } // namespace
 
-MediaWidget::MediaWidget(MprisService* mpris, HttpClient* httpClient, wl_output* /*output*/, Options options)
-    : m_mpris(mpris), m_httpClient(httpClient), m_maxWidth(static_cast<float>(options.maxWidth)),
+MediaWidget::MediaWidget(
+    MprisService* mpris, HttpClient* httpClient, wl_output* /*output*/, Options options, AsyncTextureCache* asyncTextures
+)
+    : m_mpris(mpris), m_httpClient(httpClient), m_asyncTextures(asyncTextures), m_maxWidth(static_cast<float>(options.maxWidth)),
       m_minWidth(static_cast<float>(options.minWidth)), m_artSize(static_cast<float>(options.artSize)),
       m_titleScrollMode(options.titleScrollMode), m_hideWhenNoMedia(options.hideWhenNoMedia),
       m_hideWhenIdle(options.hideWhenIdle), m_rotateAlbumArt(options.rotateAlbumArt),
@@ -364,7 +366,11 @@ void MediaWidget::syncState(Renderer& renderer, const std::optional<MprisPlayerI
       const std::string artPath = resolveArtworkSource(
           m_httpClient, m_pendingArtDownloads, m_lastArtUrl, [this] { requestUpdate(); }, m_aliveGuard
       );
-      if (!artPath.empty()) {
+      if (!artPath.empty() && m_asyncTextures != nullptr) {
+        // The Cover fit crops to the square slot, as the in-place center crop did.
+        m_art->setAsyncReadyCallback([this] { requestUpdate(); });
+        m_art->setSourceFileAsync(renderer, *m_asyncTextures, artPath, artDecodePx, true);
+      } else if (!artPath.empty()) {
         if (!m_art->setSourceFile(renderer, artPath, artDecodePx, true, true)) {
           kLog.warn(R"(artwork load failed url="{}" path="{}")", m_lastArtUrl, artPath);
           m_art->clear(renderer);
@@ -380,7 +386,10 @@ void MediaWidget::syncState(Renderer& renderer, const std::optional<MprisPlayerI
     }
   } else if (!m_lastArtUrl.empty() && !m_art->hasImage() && !m_hideAlbumArt) {
     const std::string artPath = cachedArtworkPath(m_lastArtUrl);
-    if (!artPath.empty() && m_art->setSourceFile(renderer, artPath, artDecodePx, false, true)) {
+    if (!artPath.empty() && m_asyncTextures != nullptr) {
+      m_art->setAsyncReadyCallback([this] { requestUpdate(); });
+      m_art->setSourceFileAsync(renderer, *m_asyncTextures, artPath, artDecodePx, true);
+    } else if (!artPath.empty() && m_art->setSourceFile(renderer, artPath, artDecodePx, false, true)) {
       requestRedraw();
     }
   }

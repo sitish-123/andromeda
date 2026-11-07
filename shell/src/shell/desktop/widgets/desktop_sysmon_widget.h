@@ -121,6 +121,7 @@ private:
   float m_scrollProgress = 1.0F;
   FrameRateLimiter m_redrawLimiter{std::chrono::milliseconds{200}};
   std::chrono::steady_clock::time_point m_lastSampleAt;
+  std::chrono::steady_clock::time_point m_gaugeSampleAt{};
   std::string m_lastRawValue;
   std::string m_lastRawValue2;
 

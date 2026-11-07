@@ -1,5 +1,6 @@
 #pragma once
 
+class AsyncTextureCache;
 class BluetoothService;
 class LinkService;
 class BrightnessService;
@@ -53,6 +54,8 @@ struct BarServices {
   HttpClient* httpClient = nullptr;
   WeatherService* weather = nullptr;
   RenderContext* renderContext = nullptr;
+  // Shared off-thread icon decode; null in tests (widgets then decode in place).
+  AsyncTextureCache* asyncTextures = nullptr;
   GammaService* nightLight = nullptr;
   noctalia::theme::ThemeService* theme = nullptr;
   BluetoothService* bluetooth = nullptr;

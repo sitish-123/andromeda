@@ -63,6 +63,10 @@ std::vector<LauncherResult> ClipboardProvider::query(std::string_view text) cons
   const std::string needle = StringUtils::toLower(StringUtils::trim(text));
   const auto& history = m_clipboard->history();
   results.reserve(history.size());
+  // A thumbnail is a whole image as a data URI: drop those whose entry left the history.
+  std::erase_if(m_thumbs, [&history](const auto& thumb) {
+    return std::ranges::none_of(history, [&thumb](const ClipboardEntry& entry) { return entry.storageId == thumb.first; });
+  });
   std::size_t thumbCount = 0;
   // Pinned entries first, then newest first; history() keeps newest at the front.
   for (const bool pinnedPass : {true, false}) {
@@ -105,20 +109,20 @@ void ClipboardProvider::loadNextThumbnail() const {
   }
   const std::string id = m_pendingThumbs.front();
   m_pendingThumbs.erase(m_pendingThumbs.begin());
-  const auto& history = m_clipboard->history();
-  for (std::size_t i = 0; i < history.size(); ++i) {
-    if (history[i].storageId == id) {
-      if (auto uri = m_clipboard->imageDataUri(i)) {
-        m_thumbs[id] = std::move(*uri);
-      }
-      break;
+  // Decrypt and base64 run on the SharedWorker; the next thumbnail starts when this one lands.
+  m_clipboard->imageDataUriAsync(id, [this, id, alive = std::weak_ptr<int>(m_alive)](std::optional<std::string> uri) {
+    if (alive.expired()) {
+      return;
     }
-  }
-  if (!m_pendingThumbs.empty()) {
-    m_thumbTimer.start(std::chrono::milliseconds(0), [this] { loadNextThumbnail(); });
-  } else if (m_onResultsChanged) {
-    m_onResultsChanged();
-  }
+    if (uri) {
+      m_thumbs[id] = std::move(*uri);
+    }
+    if (!m_pendingThumbs.empty()) {
+      m_thumbTimer.start(std::chrono::milliseconds(0), [this] { loadNextThumbnail(); });
+    } else if (m_onResultsChanged) {
+      m_onResultsChanged();
+    }
+  });
 }
 
 std::size_t ClipboardProvider::indexOf(const LauncherResult& result) const {

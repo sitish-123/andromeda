@@ -232,8 +232,17 @@ void KeyboardBacklightService::publishBrightness(const Device& device) {
 
 bool KeyboardBacklightService::setBrightness(Device& device, int value) {
   const int clamped = util::clampOrdered(value, 0, device.maxBrightness);
+  // Async: a key repeat on the backlight key must not wait on UPower per step. The level shows at once; a refusal
+  // is logged.
   try {
-    device.proxy->callMethod("SetBrightness").onInterface(kKbdBacklightInterface).withArguments(clamped);
+    device.proxy->callMethodAsync("SetBrightness")
+        .onInterface(kKbdBacklightInterface)
+        .withArguments(clamped)
+        .uponReplyInvoke([path = device.path](std::optional<sdbus::Error> error) {
+          if (error.has_value()) {
+            kLog.warn("failed to set keyboard backlight {}: {}", path, error->what());
+          }
+        });
   } catch (const sdbus::Error& e) {
     kLog.warn("failed to set keyboard backlight {}: {}", device.path, e.what());
     return false;

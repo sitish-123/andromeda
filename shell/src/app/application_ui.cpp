@@ -1151,6 +1151,7 @@ void Application::initBarDockAndLayout() {
       .httpClient = &m_httpClient,
       .weather = &m_weatherService,
       .renderContext = &m_renderContext,
+      .asyncTextures = &m_asyncTextureCache,
       .nightLight = &m_gammaService,
       .theme = &m_themeService,
       .bluetooth = bluetooth(),

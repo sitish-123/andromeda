@@ -52,7 +52,7 @@ public:
   // Reads every unit's cgroup once and rebuilds rows().
   void sample(std::chrono::steady_clock::time_point now);
   // sample() with the reads on the SharedWorker (~3.6 ms for 33 units); `done` runs on the main loop after
-  // rows() changed. A call while one is in flight does nothing.
+  // rows() changed. A call while one is in flight reads nothing more; its `done` runs when that read lands.
   void sampleAsync(std::chrono::steady_clock::time_point now, std::function<void()> done);
 
   [[nodiscard]] const std::string& cgroupRoot() const noexcept { return m_cgroupRoot; }
@@ -79,5 +79,6 @@ private:
   std::map<std::string, std::deque<Timed>> m_history; // by unit name, oldest first
   std::vector<ActivityRow> m_rows;
   bool m_reading = false;
+  std::vector<std::function<void()>> m_readWaiters;
   std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 };

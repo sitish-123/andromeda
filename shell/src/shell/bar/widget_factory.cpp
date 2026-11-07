@@ -110,7 +110,7 @@ WidgetFactory::WidgetFactory(const BarServices& services)
       m_nightLight(services.nightLight), m_themeService(services.theme), m_bluetooth(services.bluetooth),
       m_link(services.link), m_brightness(services.brightness), m_lockKeys(services.lockKeys),
       m_clipboard(services.clipboard), m_fileWatcher(services.fileWatcher), m_screenshots(services.screenshots),
-      m_renderContext(services.renderContext), m_scriptApi(services.scriptApi) {
+      m_renderContext(services.renderContext), m_asyncTextures(services.asyncTextures), m_scriptApi(services.scriptApi) {
   scripting::PluginRegistry::instance().ensureScanned();
 }
 
@@ -221,6 +221,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
             options.focusedColor = colorSpecFromRole(ColorRole::Label1);
             options.occupiedColor = colorSpecFromRole(ColorRole::Label3);
             options.emptyColor = colorSpecFromRole(ColorRole::Label3);
+            options.asyncTextures = f.m_asyncTextures;
             return createWidget<WorkspacesWidget>(
                 context.contentScale, f.m_platform, f.m_configService, context.output, options
             );
@@ -314,7 +315,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
       {"media", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<MediaWidget>(
                 context.contentScale, f.m_mpris, f.m_httpClient, context.output,
-                mediaWidgetDefinition().resolve(context.config, context.settingContext)
+                mediaWidgetDefinition().resolve(context.config, context.settingContext), f.m_asyncTextures
             );
           }},
       {"network", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
@@ -390,6 +391,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
                     .barPosition = context.barPosition,
                     .barName = context.barName,
                     .widgetName = context.name,
+                    .asyncTextures = f.m_asyncTextures,
                 }
             );
           }},
@@ -413,7 +415,8 @@ std::unique_ptr<Widget> WidgetFactory::create(
                         .barPosition = context.barPosition,
                         .inlineEntryGap = context.widgetSpacing,
                     }
-                )
+                ),
+                f.m_asyncTextures
             );
           }},
       {"volume", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
@@ -435,9 +438,10 @@ std::unique_ptr<Widget> WidgetFactory::create(
             );
           }},
       {"workspaces", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = workspacesWidgetDefinition().resolve(context.config, context.settingContext);
+            options.asyncTextures = f.m_asyncTextures;
             return createWidget<WorkspacesWidget>(
-                context.contentScale, f.m_platform, f.m_configService, context.output,
-                workspacesWidgetDefinition().resolve(context.config, context.settingContext)
+                context.contentScale, f.m_platform, f.m_configService, context.output, options
             );
           }},
   });

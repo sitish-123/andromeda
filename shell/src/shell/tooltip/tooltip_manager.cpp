@@ -438,6 +438,7 @@ void TooltipManager::showPopup() {
   m_surface->setScaleChangedCallback([this](float) {
     // Genuine compositor scale change for this popup: remeasure/resize/rebuild.
     if (m_state == State::Showing && m_pendingArea != nullptr) {
+      m_builtArea = nullptr; // same content, new scale: rebuild
       refreshPopupContent();
     }
   });
@@ -580,6 +581,9 @@ void TooltipManager::refreshPopupContent() {
   if (m_surface == nullptr || m_renderContext == nullptr || m_pendingArea == nullptr) {
     return;
   }
+  if (m_sceneRoot != nullptr && m_builtArea == m_pendingArea && m_builtContent == m_pendingContent) {
+    return;
+  }
 
   const auto [contentW, contentH] = measureContent(m_surface->renderTarget().renderer(), m_pendingContent);
   if (contentW == 0 || contentH == 0) {
@@ -676,6 +680,8 @@ TooltipManager::Size TooltipManager::measureContent(Renderer& renderer, const To
 }
 
 void TooltipManager::buildScene(const TooltipContent& content, float w, float h, float opacity) {
+  m_builtContent = content;
+  m_builtArea = m_pendingArea;
   uiAssertNotRendering("TooltipManager::buildScene");
   if (m_renderContext == nullptr || m_surface == nullptr) {
     return;

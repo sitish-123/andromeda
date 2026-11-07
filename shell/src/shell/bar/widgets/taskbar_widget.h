@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+class AsyncTextureCache;
 class ContextMenuPopup;
 class ConfigService;
 class Box;
@@ -78,6 +79,7 @@ struct TaskbarWidgetContext {
   std::string barName;
   // Config key for [widget.<name>] overrides.
   std::string widgetName;
+  AsyncTextureCache* asyncTextures = nullptr;
 };
 
 class TaskbarWidget : public Widget {
@@ -279,6 +281,7 @@ private:
   float m_taskbarMaxWidth = 8192.0;
   std::string m_barPosition;
   std::string m_barName;
+  AsyncTextureCache* m_asyncTextures = nullptr;
   std::string m_widgetName;
   DragState m_drag;
   // Drag visuals, owned by the Layout phase and outliving the gesture: the tile currently lifted

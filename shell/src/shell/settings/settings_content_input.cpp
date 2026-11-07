@@ -10,6 +10,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 
+#include <chrono>
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -197,7 +198,21 @@ namespace settings {
     }
 
     // Icon themes with a cursors directory, in the XCursor search order (user dirs first, first name wins).
-    std::vector<std::string> cursorThemes() {
+    std::vector<std::string> scanCursorThemes();
+
+    // Each page build asked for the scan (a stat per icon theme); a short cache covers rebuilds while the page is open.
+    const std::vector<std::string>& cursorThemes() {
+      static std::vector<std::string> cached;
+      static std::chrono::steady_clock::time_point scannedAt;
+      const auto now = std::chrono::steady_clock::now();
+      if (cached.empty() || now - scannedAt > std::chrono::seconds(30)) {
+        cached = scanCursorThemes();
+        scannedAt = now;
+      }
+      return cached;
+    }
+
+    std::vector<std::string> scanCursorThemes() {
       namespace fs = std::filesystem;
       std::vector<fs::path> roots;
       const char* home = std::getenv("HOME");

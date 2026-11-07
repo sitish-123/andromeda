@@ -1,6 +1,7 @@
 #include "system/desktop_entry_launch.h"
 
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "core/process/process.h"
 #include "system/desktop_entry.h"
 #include "system/terminal_launch.h"
@@ -10,6 +11,7 @@
 #include <cctype>
 #include <chrono>
 #include <gio/gio.h>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <sdbus-c++/sdbus-c++.h>
@@ -217,9 +219,13 @@ namespace {
     return platformData;
   }
 
-  // Prefer D-Bus only when the app is already on the bus (focus / hand off).
+  bool dbusCandidate(const desktop_entry_launch::LaunchOptions& options) {
+    return options.dbusActivatable && !options.dbusAppId.empty() && options.customCommand.empty();
+  }
+
+  // Prefer D-Bus only when the app is already on the bus (focus / hand off). Blocks up to 700 ms: worker thread only.
   bool tryDbusActivation(const desktop_entry_launch::LaunchOptions& options) {
-    if (!options.dbusActivatable || options.dbusAppId.empty() || !options.customCommand.empty()) {
+    if (!dbusCandidate(options)) {
       return false;
     }
 
@@ -267,6 +273,25 @@ namespace {
       kLog.debug("dbus activation failed for '{}': {}; falling back to Exec", options.dbusAppId, error.what());
       return false;
     }
+  }
+
+  // The D-Bus probe and activation run on the SharedWorker; `exec` runs on the main loop when the app is not on the
+  // bus. True means the launch started.
+  bool activateOrExec(const desktop_entry_launch::LaunchOptions& options, std::function<bool()> exec) {
+    if (!dbusCandidate(options)) {
+      return exec();
+    }
+    static const auto alive = std::make_shared<int>(0);
+    SharedWorker::instance().post<bool>(
+        alive, [options] { return tryDbusActivation(options); },
+        [exec = std::move(exec), appId = options.dbusAppId](bool activated) {
+          // The caller already saw "started"; a failed fallback can only be logged.
+          if (!activated && !exec()) {
+            kLog.warn("launch of '{}' failed after D-Bus activation was not possible", appId);
+          }
+        }
+    );
+    return true;
   }
 
   bool launchPrepared(
@@ -352,28 +377,26 @@ namespace desktop_entry_launch {
     }
     resolved.desktopActionId.clear();
 
-    if (tryDbusActivation(resolved)) {
-      return true;
-    }
+    return activateOrExec(resolved, [entry, resolved] {
+      const bool runAsSystemdService = effectiveRunAsSystemdService(resolved);
+      if (runAsSystemdService && !resolved.customCommand.empty()) {
+        kLog.warn(
+            "launch_apps_as_systemd_services and launch_apps_custom_command are mutually exclusive; ignoring custom "
+            "command"
+        );
+      }
+      const std::string customCommand = runAsSystemdService ? "" : resolved.customCommand;
+      const std::string command = parseCustomCommand(entry.exec, customCommand);
+      auto prepared = prepareCommand(command, entry.terminal);
 
-    const bool runAsSystemdService = effectiveRunAsSystemdService(resolved);
-    if (runAsSystemdService && !resolved.customCommand.empty()) {
-      kLog.warn(
-          "launch_apps_as_systemd_services and launch_apps_custom_command are mutually exclusive; ignoring custom "
-          "command"
-      );
-    }
-    const std::string customCommand = runAsSystemdService ? "" : resolved.customCommand;
-    const std::string command = parseCustomCommand(entry.exec, customCommand);
-    auto prepared = prepareCommand(command, entry.terminal);
+      if (!prepared.has_value()) {
+        kLog.warn("Failed to prepare launch command for desktop entry '{}'", entry.id.empty() ? entry.name : entry.id);
+        return false;
+      }
 
-    if (!prepared.has_value()) {
-      kLog.warn("Failed to prepare launch command for desktop entry '{}'", entry.id.empty() ? entry.name : entry.id);
-      return false;
-    }
-
-    const std::string appName = !entry.id.empty() ? entry.id : appNameOrDefault(entry.name);
-    return launchPrepared(prepared->args, appName, entry.workingDir, resolved, runAsSystemdService);
+      const std::string appName = !entry.id.empty() ? entry.id : appNameOrDefault(entry.name);
+      return launchPrepared(prepared->args, appName, entry.workingDir, resolved, runAsSystemdService);
+    });
   }
 
   bool launchAction(
@@ -386,28 +409,28 @@ namespace desktop_entry_launch {
     }
     resolved.desktopActionId = action.id;
 
-    if (tryDbusActivation(resolved)) {
-      return true;
-    }
-
-    const bool runAsSystemdService = effectiveRunAsSystemdService(resolved);
-    if (runAsSystemdService && !resolved.customCommand.empty()) {
-      kLog.warn(
-          "launch_apps_as_systemd_services and launch_apps_custom_command are mutually exclusive; ignoring custom "
-          "command"
-      );
-    }
-    const std::string customCommand = runAsSystemdService ? "" : resolved.customCommand;
-    const std::string command = parseCustomCommand(action.exec, customCommand);
-    auto prepared = prepareCommand(command, terminal);
-    if (!prepared.has_value()) {
-      kLog.warn(
-          "Failed to prepare launch command for desktop action '{}'", action.id.empty() ? action.name : action.id
-      );
-      return false;
-    }
-
-    return launchPrepared(prepared->args, appName, workingDir, resolved, runAsSystemdService);
+    return activateOrExec(
+        resolved, [action, appName = std::string(appName), workingDir = std::string(workingDir), terminal, resolved] {
+          const bool runAsSystemdService = effectiveRunAsSystemdService(resolved);
+          if (runAsSystemdService && !resolved.customCommand.empty()) {
+            kLog.warn(
+                "launch_apps_as_systemd_services and launch_apps_custom_command are mutually exclusive; ignoring "
+                "custom command"
+            );
+          }
+          const std::string customCommand = runAsSystemdService ? "" : resolved.customCommand;
+          const std::string command = parseCustomCommand(action.exec, customCommand);
+          auto prepared = prepareCommand(command, terminal);
+          if (!prepared.has_value()) {
+            kLog.warn(
+                "Failed to prepare launch command for desktop action '{}'",
+                action.id.empty() ? action.name : action.id
+            );
+            return false;
+          }
+          return launchPrepared(prepared->args, appName, workingDir, resolved, runAsSystemdService);
+        }
+    );
   }
 
 } // namespace desktop_entry_launch

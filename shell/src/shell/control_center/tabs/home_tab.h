@@ -162,6 +162,8 @@ private:
   std::chrono::steady_clock::time_point m_nextRealtimeUpdateAt;
   std::chrono::steady_clock::time_point m_lastRealtimeMprisPollAt;
   Timer m_progressTimer;
+  // The track the last progress tick laid out; a new one needs a layout pass, a position change only an update.
+  std::string m_progressTrack;
   // Keeps the home tab clock ticking while the panel is open and idle; the clock
   // otherwise only refreshes when an unrelated service forces a redraw.
   Timer m_clockTimer;

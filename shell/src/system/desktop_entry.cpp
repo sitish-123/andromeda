@@ -2,6 +2,7 @@
 
 #include "core/inotify/inotify.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "i18n/language_tag.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -615,6 +616,8 @@ namespace {
       if (changed) {
         kLog.debug("desktop entry inotify detected filesystem changes; marking cache dirty");
         m_dirty = true;
+        // Rescan now, off the main thread, so the next keystroke already finds the new entries.
+        refreshIfNeeded();
       }
     }
 
@@ -628,23 +631,45 @@ namespace {
     }
 
   private:
+    struct Scan {
+      std::shared_ptr<const std::vector<DesktopEntry>> entries;
+      std::vector<fs::path> dirs;
+    };
+
+    // The first load scans in place (callers need the list); later rescans run on the SharedWorker while callers keep
+    // the previous list, which is swapped in on the main loop.
     void refreshIfNeeded() {
-      if (!m_dirty) {
+      if (!m_dirty || m_scanning) {
         return;
       }
 
       // Snapshot sources before scanning; a change during the scan keeps the cache dirty.
       m_sourceSignature = computeSourceSignature();
+      m_dirty = false;
+      const auto scan = [language = m_language] {
+        Scan out;
+        out.entries = std::make_shared<const std::vector<DesktopEntry>>(scanApplicationDirectories(language, &out.dirs));
+        return out;
+      };
+      if (m_version == 0) {
+        adopt(scan());
+        return;
+      }
+      m_scanning = true;
+      SharedWorker::instance().post<Scan>(m_alive, scan, [this](Scan result) {
+        m_scanning = false;
+        adopt(std::move(result));
+        refreshIfNeeded();
+      });
+    }
 
-      std::vector<fs::path> scannedDirs;
-      auto scanned =
-          std::make_shared<const std::vector<DesktopEntry>>(scanApplicationDirectories(m_language, &scannedDirs));
+    void adopt(Scan scan) {
       {
         std::scoped_lock lock(m_entriesMutex);
-        m_entries = std::move(scanned);
+        m_entries = std::move(scan.entries);
       }
-      rebuildWatches(scannedDirs);
-      m_dirty = computeSourceSignature() != m_sourceSignature;
+      rebuildWatches(scan.dirs);
+      m_dirty = m_dirty || computeSourceSignature() != m_sourceSignature;
       ++m_version;
       kLog.debug("refreshed desktop entries: {} apps (version {})", m_entries->size(), m_version);
     }
@@ -735,6 +760,8 @@ namespace {
     std::uint64_t m_version = 0;
     Inotify m_inotify;
     bool m_dirty = true;
+    bool m_scanning = false;
+    std::shared_ptr<int> m_alive = std::make_shared<int>(0);
     std::unordered_map<int, std::string> m_watches;
     std::string m_sourceSignature;
     std::string m_language;

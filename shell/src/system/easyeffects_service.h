@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +26,8 @@ public:
   [[nodiscard]] std::string activeEffectsProfile(AudioEffectsProfileKind kind) const;
   void refreshProfiles();
   void refreshActiveEffectsProfiles();
+  // Both refreshes on the SharedWorker: the server query blocks up to 250 ms per kind.
+  void refreshAsync();
   bool loadEffectsProfile(AudioEffectsProfileKind kind, std::string_view profile);
   void registerIpc(
       IpcService& ipc, const ConfigService& config, const EffectsProfileFeedbackCallback& effectsProfileFeedback = {}
@@ -38,4 +41,5 @@ private:
   std::optional<std::string> m_activeOutputEffectsProfile;
   std::optional<std::string> m_activeInputEffectsProfile;
   ChangeCallback m_changeCallback;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 };

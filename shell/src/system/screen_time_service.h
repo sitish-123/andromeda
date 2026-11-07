@@ -3,6 +3,7 @@
 #include "core/timer_manager.h"
 #include "ui/palette.h"
 
+#include <memory>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -72,7 +73,8 @@ private:
   void flushActiveSession(std::chrono::steady_clock::time_point now);
   void ensureCurrentDayLocked(std::chrono::system_clock::time_point now);
   void load();
-  void save();
+  // In place by default (lock, suspend, reset, exit); the minute tick writes on the SharedWorker.
+  void save(bool async = false);
   void pruneOldDaysLocked();
   [[nodiscard]] const DayRecord* dayRecordForKey(const std::string& dayKey) const;
   [[nodiscard]] std::vector<std::string> dayKeysForRange(int rangeDays) const;
@@ -99,6 +101,8 @@ private:
   std::string m_activeAppKey;
   std::chrono::steady_clock::time_point m_activeSince;
   bool m_dirty = false;
+  std::uint64_t m_saveGeneration = 0;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   bool m_enabled = false;
   bool m_sessionLocked = false;
   bool m_suspendPaused = false;

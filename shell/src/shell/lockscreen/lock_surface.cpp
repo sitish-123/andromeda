@@ -1,5 +1,6 @@
 #include "shell/lockscreen/lock_surface.h"
 
+#include "core/shared_worker.h"
 #include "capture/screencopy_capture.h"
 #include "core/files/resource_paths.h"
 #include "core/log.h"
@@ -1992,11 +1993,19 @@ void LockSurface::requestPower(int index) {
   }
   // Sleep checks sleep inhibitors; Restart and Shut down check shutdown ones. The shell's own locks never count.
   const char* what = index == 0 ? "sleep" : "shutdown";
-  if (powerActionBlocked(listLogindInhibitors(), what, static_cast<std::uint32_t>(::getpid()))) {
-    m_powerAlert = index;
-    return;
-  }
-  runPower(index, false);
+  // ListInhibitors is a system-bus round trip on a new connection: it runs on the SharedWorker.
+  SharedWorker::instance().post<bool>(
+      std::weak_ptr<void>(m_aliveGuard),
+      [what] { return powerActionBlocked(listLogindInhibitors(), what, static_cast<std::uint32_t>(::getpid())); },
+      [this, index](bool blocked) {
+        if (blocked) {
+          m_powerAlert = index;
+        } else {
+          runPower(index, false);
+        }
+        requestLayout();
+      }
+  );
 }
 
 void LockSurface::runPower(int index, bool skipInhibitors) {

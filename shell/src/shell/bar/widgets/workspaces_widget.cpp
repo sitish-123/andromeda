@@ -82,7 +82,7 @@ WorkspacesWidget::WorkspacesWidget(
       m_inactivePillSize(std::clamp(options.inactivePillSize, 0.25F, 8.0F)), m_style(options.style),
       m_focusedOutputOnly(options.focusedOutputOnly), m_changeColorOnHover(options.changeColorOnHover),
       m_focusedColor(options.focusedColor), m_occupiedColor(options.occupiedColor), m_emptyColor(options.emptyColor),
-      m_urgentColor(options.urgentColor), m_islandDots(options.islandDots) {
+      m_urgentColor(options.urgentColor), m_islandDots(options.islandDots), m_asyncTextures(options.asyncTextures) {
   buildDesktopIconIndex();
 }
 
@@ -1434,7 +1434,12 @@ void WorkspacesWidget::syncActiveWindowIcon(Renderer& renderer, Item& item) {
   item.iconPath = iconPath;
   if (!iconPath.empty()) {
     const int iconTargetSize = static_cast<int>(std::round(focusedPillIconSize() * 2.0F));
-    item.icon->setSourceFile(renderer, iconPath, iconTargetSize, true);
+    if (m_asyncTextures != nullptr) {
+      item.icon->setAsyncReadyCallback([this] { requestRedraw(); });
+      item.icon->setSourceFileAsync(renderer, *m_asyncTextures, iconPath, iconTargetSize, true);
+    } else {
+      item.icon->setSourceFile(renderer, iconPath, iconTargetSize, true);
+    }
   } else {
     item.icon->clear(renderer);
   }

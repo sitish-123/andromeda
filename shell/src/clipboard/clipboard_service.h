@@ -107,6 +107,8 @@ public:
   [[nodiscard]] bool hasEncryptedPersistence() const;
   bool ensureEntryLoaded(std::size_t index);
   [[nodiscard]] std::optional<std::string> imageDataUri(std::size_t index);
+  // The same data URI with the decrypt and base64 on the SharedWorker; `done` runs on the main loop.
+  void imageDataUriAsync(const std::string& storageId, std::function<void(std::optional<std::string>)> done);
   [[nodiscard]] std::optional<std::string> exportEntryForExternalTool(std::size_t index);
   void evictEntryPayload(std::size_t index);
   void evictAllPayloads();

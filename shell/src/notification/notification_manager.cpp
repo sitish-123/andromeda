@@ -1,7 +1,7 @@
 #include "notification_manager.h"
 
-#include "core/deferred_call.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "notification/notification_filter.h"
 #include "notification/notification_history_store.h"
 #include "pipewire/sound_player.h"
@@ -9,6 +9,7 @@
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <mutex>
 #include <filesystem>
 #include <ranges>
 #include <string_view>
@@ -925,16 +926,55 @@ void NotificationManager::markNotificationHistorySeen() {
   notifyUnreadStateChangedIfNeeded(hadUnreadBefore);
 }
 
+namespace {
+  bool writeHistory(
+      const std::filesystem::path& path, const std::deque<NotificationHistoryEntry>& entries, std::uint32_t nextId,
+      std::uint64_t serial, const security::SecureKey& key, std::uint64_t generation
+  );
+  std::filesystem::path historyPath();
+} // namespace
+
 void NotificationManager::schedulePersistHistory() {
   if (m_persistScheduled) {
     return;
   }
   m_persistScheduled = true;
-  DeferredCall::callLater([this] {
+  m_persistTimer.start(std::chrono::milliseconds(500), [this] {
     m_persistScheduled = false;
-    persistHistoryToDisk();
+    const auto path = historyPath();
+    if (path.empty() || !m_historyWritable || !m_historyKey) {
+      return;
+    }
+    SharedWorker::instance().post<bool>(
+        m_alive,
+        [path, entries = m_history, nextId = m_nextId, serial = m_changeSerial, key = m_historyKey,
+         generation = ++m_persistGeneration] { return writeHistory(path, entries, nextId, serial, *key, generation); },
+        [this](bool written) {
+          if (written && m_historyKeyProvider != nullptr) {
+            m_historyKeyProvider->noteEncryptedDataExists();
+          }
+        }
+    );
   });
 }
+
+namespace {
+  // The worker save and the in-place save at exit share the file: the newest snapshot always lands last.
+  std::mutex gHistoryWriteMutex;
+  std::uint64_t gHistoryWritten = 0;
+
+  bool writeHistory(
+      const std::filesystem::path& path, const std::deque<NotificationHistoryEntry>& entries, std::uint32_t nextId,
+      std::uint64_t serial, const security::SecureKey& key, std::uint64_t generation
+  ) {
+    std::scoped_lock lock(gHistoryWriteMutex);
+    if (generation <= gHistoryWritten) {
+      return false;
+    }
+    gHistoryWritten = generation;
+    return saveNotificationHistoryToFile(path, entries, nextId, serial, key);
+  }
+} // namespace
 
 namespace {
   std::filesystem::path historyPath() {
@@ -955,7 +995,9 @@ void NotificationManager::persistHistoryToDisk() {
   if (path.empty() || !m_historyWritable || !m_historyKey) {
     return;
   }
-  if (saveNotificationHistoryToFile(path, m_history, m_nextId, m_changeSerial, *m_historyKey)
+  m_persistTimer.stop();
+  m_persistScheduled = false;
+  if (writeHistory(path, m_history, m_nextId, m_changeSerial, *m_historyKey, ++m_persistGeneration)
       && m_historyKeyProvider != nullptr) {
     m_historyKeyProvider->noteEncryptedDataExists();
   }
@@ -970,7 +1012,9 @@ void NotificationManager::syncHistoryPersistence(security::StorageKeyProvider& p
     loadPersistedHistory();
     return;
   }
-  m_historyKey = provider.deriveKey(security::StorageKeyPurpose::NotificationHistory);
+  if (auto key = provider.deriveKey(security::StorageKeyPurpose::NotificationHistory)) {
+    m_historyKey = std::make_shared<const security::SecureKey>(std::move(*key));
+  }
   if (!m_historyKey) {
     return;
   }

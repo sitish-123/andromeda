@@ -2,6 +2,8 @@
 
 #include "compositors/compositor_platform.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
+#include "config/atomic_file.h"
 #include "system/app_identity.h"
 #include "system/desktop_entry.h"
 #include "system/internal_app_metadata.h"
@@ -11,6 +13,7 @@
 #include "compositors/wayland_toplevels.h"
 
 #include <algorithm>
+#include <mutex>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -409,7 +412,7 @@ void ScreenTimeService::tick() {
   }
   flushActiveSession(std::chrono::steady_clock::now());
   if (m_dirty) {
-    save();
+    save(true);
   }
   scheduleNextTick();
 }
@@ -834,7 +837,22 @@ void ScreenTimeService::load() {
   }
 }
 
-void ScreenTimeService::save() {
+namespace {
+  // Worker and in-place saves share the file: an older snapshot never replaces a newer one.
+  std::mutex gScreenTimeWriteMutex;
+  std::uint64_t gScreenTimeWritten = 0;
+
+  bool writeScreenTime(const std::string& path, const std::string& text, std::uint64_t generation) {
+    std::scoped_lock lock(gScreenTimeWriteMutex);
+    if (generation <= gScreenTimeWritten) {
+      return true;
+    }
+    gScreenTimeWritten = generation;
+    return writeTextFileAtomic(path, text);
+  }
+} // namespace
+
+void ScreenTimeService::save(bool async) {
   std::error_code ec;
   std::filesystem::create_directories(std::filesystem::path(m_storagePath).parent_path(), ec);
 
@@ -872,13 +890,24 @@ void ScreenTimeService::save() {
     root[key] = std::move(json);
   }
 
-  std::ofstream file(m_storagePath, std::ios::trunc);
-  if (!file.is_open()) {
-    kLog.warn("failed to write {}", m_storagePath);
+  // Temporary file + rename: a crash mid-write no longer truncates the history.
+  std::string text = root.dump(2) + '\n';
+  m_dirty = false;
+  const std::uint64_t generation = ++m_saveGeneration;
+  if (!async) {
+    if (!writeScreenTime(m_storagePath, text, generation)) {
+      kLog.warn("failed to write {}", m_storagePath);
+    }
     return;
   }
-  file << root.dump(2) << '\n';
-  m_dirty = false;
+  SharedWorker::instance().post<bool>(
+      m_alive, [path = m_storagePath, text = std::move(text), generation] { return writeScreenTime(path, text, generation); },
+      [path = m_storagePath](bool written) {
+        if (!written) {
+          kLog.warn("failed to write {}", path);
+        }
+      }
+  );
 }
 
 void ScreenTimeService::pruneOldDaysLocked() {

@@ -59,6 +59,9 @@ void ActivityService::sample(std::chrono::steady_clock::time_point now) { apply(
 
 void ActivityService::sampleAsync(std::chrono::steady_clock::time_point now, std::function<void()> done) {
   if (m_reading) {
+    if (done) {
+      m_readWaiters.push_back(std::move(done));
+    }
     return;
   }
   m_reading = true;
@@ -70,6 +73,9 @@ void ActivityService::sampleAsync(std::chrono::steady_clock::time_point now, std
         apply(now, std::move(readings));
         if (done) {
           done();
+        }
+        for (auto waiters = std::exchange(m_readWaiters, {}); auto& waiter : waiters) {
+          waiter();
         }
       }
   );

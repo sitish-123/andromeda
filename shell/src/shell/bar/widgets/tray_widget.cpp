@@ -164,8 +164,8 @@ namespace {
 
 } // namespace
 
-TrayWidget::TrayWidget(ConfigService& config, TrayService* tray, Options options)
-    : m_config(config), m_tray(tray), m_hiddenItems(std::move(options.hiddenItems)),
+TrayWidget::TrayWidget(ConfigService& config, TrayService* tray, Options options, AsyncTextureCache* asyncTextures)
+    : m_config(config), m_tray(tray), m_asyncTextures(asyncTextures), m_hiddenItems(std::move(options.hiddenItems)),
       m_pinnedItems(std::move(options.pinnedItems)), m_hidePassive(options.hidePassive),
       m_drawerMode(options.drawerMode), m_itemActivated(std::move(options.itemActivated)),
       m_barPosition(std::move(options.barPosition)), m_panelGridMode(options.panelGridMode),
@@ -622,7 +622,21 @@ void TrayWidget::rebuild(Renderer& renderer) {
           );
         }
       }
-      if (!loadedFromFile) {
+      if (!loadedFromFile && m_asyncTextures != nullptr) {
+        // A tray change rebuilds every item: the shared cache decodes each icon once, off the main thread.
+        // A failed decode rebuilds the items, which then take the fallback.
+        Image* raw = image.get();
+        image->setAsyncReadyCallback([this, raw] {
+          if (raw->asyncFailed()) {
+            m_rebuildPending = true;
+            requestUpdate();
+          } else {
+            requestRedraw();
+          }
+        });
+        loadedFromFile = image->setSourceFileAsync(renderer, *m_asyncTextures, iconPath, iconRequestSize, true)
+                         || (!image->sourcePath().empty() && !image->asyncFailed());
+      } else if (!loadedFromFile) {
         loadedFromFile = image->setSourceFile(renderer, iconPath, iconRequestSize, true);
       }
 
