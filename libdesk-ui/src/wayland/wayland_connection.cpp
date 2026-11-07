@@ -13,6 +13,7 @@
 #include "text-input-unstable-v3-client-protocol.h"
 #include "util/string_utils.h"
 #include "viewporter-client-protocol.h"
+#include "presentation-time-client-protocol.h"
 #include "wayland/hyprland/focus_grab_service.h"
 #include "wayland/layer_surface.h"
 #include "wayland/text_input_service.h"
@@ -1453,6 +1454,11 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == wp_presentation_interface.name) {
+    m_presentation = static_cast<wp_presentation*>(wl_registry_bind(registry, name, &wp_presentation_interface, 1));
+    return;
+  }
+
   if (interfaceName == wp_viewporter_interface.name) {
     const auto bindVersion = std::min(version, kViewporterVersion);
     m_viewporter = static_cast<wp_viewporter*>(wl_registry_bind(registry, name, &wp_viewporter_interface, bindVersion));
@@ -1606,6 +1612,11 @@ void WaylandConnection::cleanup() {
   if (m_outputManager != nullptr) {
     zwlr_output_manager_v1_destroy(m_outputManager);
     m_outputManager = nullptr;
+  }
+
+  if (m_presentation != nullptr) {
+    wp_presentation_destroy(m_presentation);
+    m_presentation = nullptr;
   }
 
   if (m_viewporter != nullptr) {

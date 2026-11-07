@@ -275,6 +275,16 @@ void AppWindow::prepareFrame(bool needsLayout) {
   }
 }
 
+void AppWindow::refreshNavigation() {
+  const std::array<const char*, 2> commands{"go.back", "go.forward"};
+  for (std::size_t i = 0; i < m_navButtons.size(); ++i) {
+    if (m_navButtons[i] != nullptr) {
+      m_navButtons[i]->setEnabled(m_commands.isEnabled(commands[i]));
+    }
+  }
+  invalidate();
+}
+
 std::unique_ptr<Flex> AppWindow::buildHeader() {
   const float s = m_uiScale;
   auto header = ui::row({
@@ -285,8 +295,10 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
       .height = kHeaderHeight * s,
   });
   if (m_config.navigation) {
+    std::size_t slot = 0;
     for (const auto& [glyph, command] : {std::pair{"chevron-left", "go.back"}, std::pair{"chevron-right", "go.forward"}}) {
       header->addChild(ui::button({
+          .out = &m_navButtons[slot++],
           .glyph = std::string(glyph),
           .glyphSize = 16.0F * s,
           .enabled = m_commands.isEnabled(command),
@@ -308,6 +320,9 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
       .ellipsize = TextEllipsize::End,
       .flexGrow = 1.0F,
   }));
+  if (m_headerAccessory) {
+    header->addChild(m_headerAccessory());
+  }
 
   auto buttons = ui::row({.align = FlexAlign::Center, .gap = kWindowButtonGap * s, .paddingH = (kWindowButtonInset - kNavInset) * s});
   const bool maximized = m_surface != nullptr && m_surface->state().maximized;
@@ -334,6 +349,7 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   m_input.setSceneRoot(nullptr);
   m_titleLabel = nullptr;
   m_maximizeButton = nullptr;
+  m_navButtons = {};
   m_root = ui::node({});
   m_root->setSize(width, height);
   m_root->setAnimationManager(&m_animations);

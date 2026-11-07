@@ -1,14 +1,57 @@
 #include "render/animation/animation_manager.h"
 
 #include "ui/style.h"
+#include "core/log.h"
 #include "render/animation/motion_service.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <utility>
 
 namespace {
   constexpr float kReducedMotionDurationMs = 1.0F;
+  constexpr Logger kTraceLog("motion");
+
+  const bool g_trace = [] {
+    const char* env = std::getenv("DESK_MOTION_TRACE");
+    return env != nullptr && env[0] != '\0' && env[0] != '0';
+  }();
+  thread_local std::string g_traceLabel;
+
+  // The token name of a spring, or "custom". press and follow share values: "follow" is reported.
+  const char* springName(const desk::motion::SpringConfig& spring) {
+    const std::pair<const char*, const Tokens::Spring*> springs[] = {
+        {"snap", &Tokens::springSnap},       {"trail", &Tokens::springTrail}, {"move", &Tokens::springMove},
+        {"open", &Tokens::springOpen},       {"close", &Tokens::springClose}, {"morph", &Tokens::springMorph},
+        {"collapse", &Tokens::springCollapse}, {"page", &Tokens::springPage}, {"follow", &Tokens::springFollow},
+        {"release", &Tokens::springRelease}, {"fade", &Tokens::springFade},   {"fade_out", &Tokens::springFadeOut},
+    };
+    for (const auto& [name, token] : springs) {
+      if (std::fabs(spring.stiffness - token->stiffness) < 0.05 && std::fabs(spring.damping - token->damping) < 0.005) {
+        return name;
+      }
+    }
+    return "custom";
+  }
+} // namespace
+
+MotionTraceLabel::MotionTraceLabel(std::string_view label) : m_previous(std::exchange(g_traceLabel, std::string(label))) {}
+
+MotionTraceLabel::~MotionTraceLabel() { g_traceLabel = std::move(m_previous); }
+
+void AnimationManager::traceMotion(
+    Entry& entry, float from, float to, const desk::motion::SpringConfig& spring, bool restart
+) {
+  if (!g_trace) {
+    return;
+  }
+  if (restart) {
+    entry.traceLabel = g_traceLabel.empty() ? std::string("-") : g_traceLabel;
+    entry.traceStart = std::chrono::steady_clock::now();
+  }
+  kTraceLog.info("motion {} {} {:.2f} {:.2f}", entry.traceLabel, springName(spring), from, to);
 }
 
 AnimationManager::AnimationManager() { MotionService::instance().registerManager(this); }
@@ -104,6 +147,7 @@ AnimationManager::Id AnimationManager::animateSpring(
           },
       }
   );
+  traceMotion(m_animations.back(), from, to, spring, true);
   return id;
 }
 
@@ -173,6 +217,7 @@ AnimationManager::Id AnimationManager::drive(
         anim.onGate = nullptr;
         anim.setter = std::move(setter);
         anim.onComplete = std::move(onComplete);
+        traceMotion(entry, current, to, spring, false);
         return id;
       }
     }
@@ -232,6 +277,9 @@ bool AnimationManager::retarget(Id id, float to) {
     if (entry.id == id && entry.animation.spring && !entry.animation.finished) {
       entry.animation.endValue = to;
       if (MotionService::instance().enabled()) {
+        if (g_trace) {
+          kTraceLog.info("motion {} retarget {:.2f} {:.2f}", entry.traceLabel, entry.animation.spring->value(), to);
+        }
         entry.animation.spring->retarget(to);
       } else {
         entry.animation.spring = desk::motion::Spring(to, to, {});
@@ -251,6 +299,7 @@ bool AnimationManager::retarget(Id id, float to, const desk::motion::SpringConfi
             entry.animation.spring->value(), to, spring, entry.animation.spring->velocity()
         );
         entry.animation.spring->setThreshold(entry.animation.threshold);
+        traceMotion(entry, static_cast<float>(entry.animation.spring->value()), to, spring, false);
       } else {
         entry.animation.spring = desk::motion::Spring(to, to, {});
       }
@@ -357,6 +406,12 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
       }
       if (anim.finished && anim.onComplete) {
         completedCallbacks.push_back({entry.id, entry.owner, std::move(anim.onComplete)});
+      }
+      if (g_trace && anim.finished && !entry.traceLabel.empty()) {
+        kTraceLog.info(
+            "settle {} {:.0f}", entry.traceLabel,
+            std::chrono::duration<float, std::milli>(now - entry.traceStart).count()
+        );
       }
       continue;
     }

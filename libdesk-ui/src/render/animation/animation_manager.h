@@ -5,7 +5,22 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <string>
+#include <string_view>
 #include <vector>
+
+// DESK_MOTION_TRACE=1 logs "motion <label> <spring> <from> <to>" when a spring starts or retargets and
+// "settle <label> <ms>" when it settles. Springs started while a MotionTraceLabel lives carry its label; others log "-".
+class MotionTraceLabel {
+public:
+  explicit MotionTraceLabel(std::string_view label);
+  ~MotionTraceLabel();
+  MotionTraceLabel(const MotionTraceLabel&) = delete;
+  MotionTraceLabel& operator=(const MotionTraceLabel&) = delete;
+
+private:
+  std::string m_previous;
+};
 
 class AnimationManager {
 public:
@@ -82,6 +97,8 @@ private:
     const void* owner = nullptr;
     bool respectMotionEnabled = true;
     Animation animation;
+    std::string traceLabel;
+    std::chrono::steady_clock::time_point traceStart;
   };
 
   struct Pending {
@@ -104,6 +121,7 @@ private:
       const void* owner, std::function<void()> onPass = {}
   );
   void cancelRunning(Id id);
+  void traceMotion(Entry& entry, float from, float to, const desk::motion::SpringConfig& spring, bool restart);
   Id animateInternal(
       float from, float to, float durationMs, Easing easing, std::function<void(float)> setter,
       std::function<void()> onComplete, const void* owner, bool scaleDuration, bool respectMotionEnabled

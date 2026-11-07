@@ -42,6 +42,7 @@ struct zwp_text_input_manager_v3;
 struct hyprland_focus_grab_manager_v1;
 struct wp_fractional_scale_manager_v1;
 struct wp_viewporter;
+struct wp_presentation;
 struct zwlr_output_manager_v1;
 struct zwlr_output_head_v1;
 struct zwlr_output_mode_v1;
@@ -178,6 +179,7 @@ public:
   [[nodiscard]] FocusGrabService* focusGrabService() const noexcept;
   [[nodiscard]] TextInputService* textInputService() const noexcept { return m_textInputService; }
   [[nodiscard]] wp_viewporter* viewporter() const noexcept;
+  [[nodiscard]] wp_presentation* presentation() const noexcept { return m_presentation; }
   [[nodiscard]] wl_display* display() const noexcept;
   [[nodiscard]] wl_registry* registry() const noexcept { return m_registry; }
   /// Registry name and bound version of zwlr_output_manager_v1, 0 when absent.
@@ -316,6 +318,7 @@ private:
   std::unordered_set<zwlr_output_mode_v1*> m_outputModes;
   std::unique_ptr<FocusGrabService> m_focusGrabService;
   wp_viewporter* m_viewporter = nullptr;
+  wp_presentation* m_presentation = nullptr;
   bool m_backgroundEffectBlurSupported = false;
   zwp_text_input_manager_v3* m_textInputManager = nullptr;
   TextInputService* m_textInputService = nullptr;

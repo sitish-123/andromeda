@@ -35,7 +35,6 @@ _files_lib = static_library('files_core',
 
 executable('andromeda-files',
   sources: files(
-    'src/file_row.cpp',
     'src/files_app.cpp',
     'src/files_window.cpp',
     'src/files_window_picker.cpp',

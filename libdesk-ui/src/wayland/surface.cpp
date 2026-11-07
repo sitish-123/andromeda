@@ -11,6 +11,7 @@
 #include "render/scene/node.h"
 #include "util/sys_utils.h"
 #include "viewporter-client-protocol.h"
+#include "wayland/frame_stats.h"
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
@@ -1297,6 +1298,10 @@ void Surface::render() {
 
   const bool callbackInFlight = m_frameCallback != nullptr;
   requestFrame();
+  FrameStats* stats = frameStats();
+  if (stats != nullptr) {
+    stats->beginFrame(m_surface, m_animationManager != nullptr && m_animationManager->hasActive());
+  }
   traceSurfaceEvent(*this, "render-begin");
   bool presented = false;
   const float renderMs = elapsedMs([this, &presented] {
@@ -1315,6 +1320,10 @@ void Surface::render() {
       wl_callback_destroy(m_frameCallback);
       m_frameCallback = nullptr;
     }
+  }
+  if (stats != nullptr) {
+    stats->addCpu(renderMs);
+    stats->endFrame();
   }
   if (presented && m_nextPresentCallback) {
     std::exchange(m_nextPresentCallback, {})();
@@ -1353,9 +1362,17 @@ void Surface::requestFrame() {
   }
 }
 
+FrameStats* Surface::frameStats() {
+  if (m_frameStats == nullptr && FrameStats::enabled() && m_connection.presentation() != nullptr) {
+    m_frameStats = std::make_unique<FrameStats>(m_connection.presentation(), std::string(surfaceTraceName(*this)));
+  }
+  return m_frameStats.get();
+}
+
 void Surface::destroySurface() {
   cancelQueuedFrameWork();
   cancelQueuedRender();
+  m_frameStats.reset();
 
   if (m_frameCallback != nullptr) {
     wl_callback_destroy(m_frameCallback);
@@ -1407,6 +1424,9 @@ void Surface::preparePendingFrame() {
   const float callbackMs =
       elapsedMs([this, needsUpdate, needsLayout] { m_prepareFrameCallback(needsUpdate, needsLayout); });
   recordSurfaceProfileEvent(*this, SurfaceProfileEvent::PrepareCallback, callbackMs);
+  if (m_frameStats != nullptr) {
+    m_frameStats->addCpu(callbackMs);
+  }
   logSlowSurfaceOperation(
       callbackMs, "surface prepareFrame callback took {:.1F}ms ({}, {}x{} logical)", callbackMs,
       static_cast<const void*>(this), m_width, m_height
@@ -1481,6 +1501,9 @@ void Surface::processQueuedFrameWork() {
     if (m_animationManager != nullptr) {
       const float tickMs = elapsedMs([this, deltaMs] { m_animationManager->tick(deltaMs); });
       recordSurfaceProfileEvent(*this, SurfaceProfileEvent::AnimationTick, tickMs);
+      if (m_frameStats != nullptr) {
+        m_frameStats->addCpu(tickMs);
+      }
       logSlowSurfaceOperation(
           tickMs, "surface animation tick took {:.1F}ms ({}, {}x{} logical)", tickMs, static_cast<const void*>(this),
           m_width, m_height
@@ -1493,6 +1516,9 @@ void Surface::processQueuedFrameWork() {
     if (m_frameTickCallback && ensureRenderTargetReady()) {
       const float callbackMs = elapsedMs([this, deltaMs] { m_frameTickCallback(deltaMs); });
       recordSurfaceProfileEvent(*this, SurfaceProfileEvent::FrameTick, callbackMs);
+      if (m_frameStats != nullptr) {
+        m_frameStats->addCpu(callbackMs);
+      }
       logSlowSurfaceOperation(
           callbackMs, "surface frame tick callback took {:.1F}ms ({}, {}x{} logical)", callbackMs,
           static_cast<const void*>(this), m_width, m_height
@@ -1502,6 +1528,9 @@ void Surface::processQueuedFrameWork() {
     if (m_updateCallback) {
       const float updateMs = elapsedMs([this] { m_updateCallback(); });
       recordSurfaceProfileEvent(*this, SurfaceProfileEvent::UpdateCallback, updateMs);
+      if (m_frameStats != nullptr) {
+        m_frameStats->addCpu(updateMs);
+      }
       logSlowSurfaceOperation(
           updateMs, "surface update callback took {:.1F}ms ({}, {}x{} logical)", updateMs,
           static_cast<const void*>(this), m_width, m_height

@@ -13,6 +13,7 @@
 #include <vector>
 
 struct wl_callback;
+class FrameStats;
 struct wl_output;
 struct wl_surface;
 struct ext_background_effect_surface_v1;
@@ -199,6 +200,7 @@ private:
   void renderQueuedFrame();
   bool ensureRenderTargetReady();
   void resizeRenderTarget();
+  FrameStats* frameStats();
 
   RenderContext* m_renderContext = nullptr;
   RenderTarget m_renderTarget;
@@ -216,6 +218,7 @@ private:
   OutputChangedCallback m_outputChangedCallback;
   std::function<void()> m_nextPresentCallback;
   wl_callback* m_frameCallback = nullptr;
+  std::unique_ptr<FrameStats> m_frameStats;
   ext_background_effect_surface_v1* m_backgroundEffect = nullptr;
   wp_viewport* m_viewport = nullptr;
   wp_fractional_scale_v1* m_fractionalScale = nullptr;

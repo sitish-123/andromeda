@@ -3,7 +3,6 @@
 #include "core/input/key_modifiers.h"
 #include "core/log.h"
 #include "dbus/session_bus.h"
-#include "file_row.h"
 #include "files_window.h"
 
 #include <gio/gio.h>
@@ -41,7 +40,6 @@ FilesApp::~FilesApp() = default;
 
 void FilesApp::startup() {
   loop().addSource(&m_watcher);
-  loop().wayland().setKeyboardModifiersCallback([](std::uint32_t modifiers) { FileRow::setModifiers(modifiers); });
   if (bus() != nullptr) {
     m_fileOps = std::make_unique<FileOpsClient>(*bus());
     m_fileOps->setJobChangedCallback([this](const FileOpsClient::Job& job) { onJobChanged(job); });

@@ -5,6 +5,7 @@
 #include "render/scene/node.h"
 #include "wayland/toplevel_surface.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -62,11 +63,18 @@ public:
 
   void setContentBuilder(ContentBuilder builder) { m_builder = std::move(builder); }
   void setSidebarBuilder(SidebarBuilder builder) { m_sidebarBuilder = std::move(builder); }
+  // App controls in the header between the title and the window buttons (rulebook 9.12: view switch, search).
+  void setHeaderAccessoryBuilder(std::function<std::unique_ptr<Node>()> builder) {
+    m_headerAccessory = std::move(builder);
+  }
+  [[nodiscard]] AnimationManager& animations() noexcept { return m_animations; }
   // Keys no command took and no text field owns (type-ahead, arrows in a list). True = handled.
   void setKeyHandler(std::function<bool(const KeyboardEvent&)> handler) { m_keyHandler = std::move(handler); }
   void setClosedCallback(std::function<void()> callback) { m_onClosed = std::move(callback); }
   void setTitle(std::string title);
   void requestRebuild();
+  // Updates the back / forward buttons from their commands without a rebuild.
+  void refreshNavigation();
   // Repaints or relayouts after a node changed in place.
   void invalidate();
   // Raises the window for a launch that carried an xdg-activation token.
@@ -110,6 +118,7 @@ private:
   Config m_config;
   ContentBuilder m_builder;
   SidebarBuilder m_sidebarBuilder;
+  std::function<std::unique_ptr<Node>()> m_headerAccessory;
   std::function<bool(const KeyboardEvent&)> m_keyHandler;
   std::function<void()> m_onClosed;
   std::function<void()> m_onLayout;
@@ -121,6 +130,7 @@ private:
   std::unique_ptr<Node> m_root;
   Label* m_titleLabel = nullptr;
   Button* m_maximizeButton = nullptr;
+  std::array<Button*, 2> m_navButtons{};
   AnimationManager m_animations;
   InputDispatcher m_input;
   bool m_rebuild = true;
