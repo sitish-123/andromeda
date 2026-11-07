@@ -1,5 +1,7 @@
 #include "shell/control_center/tabs/notifications_tab.h"
 
+#include "render/core/async_texture_cache.h"
+
 #include "compositors/compositor_platform.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
@@ -545,7 +547,13 @@ namespace {
       // This avoids showing stale HyprCap screenshots when the file gets overwritten later.
       const std::string iconPath = resolveHistoryIconPath(entry.notification, iconResolver, targetSize);
       if (!iconPath.empty()) {
-        const bool ready = m_image->setSourceFile(renderer, iconPath, targetSize);
+        // An icon file decodes on the texture cache workers; the glyph shows until it lands and the tab rebinds.
+        if (m_asyncTextures != nullptr) {
+          m_image->setAsyncReadyCallback([] { PanelManager::instance().refresh(); });
+        }
+        const bool ready = m_asyncTextures != nullptr
+            ? m_image->setSourceFileAsync(renderer, *m_asyncTextures, iconPath, targetSize)
+            : m_image->setSourceFile(renderer, iconPath, targetSize);
         if (ready) {
           m_imageKind = ImageKind::File;
           m_rawImageKey = 0;
@@ -558,7 +566,12 @@ namespace {
       showFallbackIcon(renderer);
     }
 
+  public:
+    void setAsyncTextures(AsyncTextureCache* cache) { m_asyncTextures = cache; }
+
+  private:
     float m_scale = 1.0F;
+    AsyncTextureCache* m_asyncTextures = nullptr;
     Flex* m_header = nullptr;
     Flex* m_leftCluster = nullptr;
     Box* m_iconSlot = nullptr;
@@ -771,6 +784,7 @@ public:
     const bool showHistoryActions =
         m_owner.m_notifications != nullptr && m_owner.m_notifications->canInvokeActions(entry.notification.id);
     const bool expanded = m_owner.m_expandedIds.contains(entry.notification.id);
+    row->card().setAsyncTextures(m_owner.m_asyncTextures);
     row->card().bind(
         renderer, entry, width, expanded, showHistoryActions, m_owner.m_iconResolver,
         [this](uint32_t id) { m_owner.toggleNotificationExpanded(id); },
@@ -790,8 +804,10 @@ private:
   float m_fillOpacity = 1.0F;
 };
 
-NotificationsTab::NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform)
-    : m_notifications(notifications), m_platform(platform) {}
+NotificationsTab::NotificationsTab(
+    NotificationManager* notifications, CompositorPlatform* platform, AsyncTextureCache* asyncTextures
+)
+    : m_notifications(notifications), m_platform(platform), m_asyncTextures(asyncTextures) {}
 
 NotificationsTab::~NotificationsTab() = default;
 

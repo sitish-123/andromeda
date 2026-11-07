@@ -29,9 +29,11 @@ struct NotificationListRow {
   std::size_t hiddenCount = 0;
 };
 
+class AsyncTextureCache;
+
 class NotificationsTab : public Tab {
 public:
-  NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform);
+  NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform, AsyncTextureCache* asyncTextures);
   ~NotificationsTab() override;
 
   std::unique_ptr<Flex> create() override;
@@ -68,6 +70,7 @@ private:
   NotificationManager* m_notifications = nullptr;
   CompositorPlatform* m_platform = nullptr;
   IconResolver m_iconResolver;
+  AsyncTextureCache* m_asyncTextures = nullptr; // icon files decode off the main thread
   std::unique_ptr<NotificationHistoryAdapter> m_adapter;
   // Rows from the current filter snapshot, grouped; ids are looked up with findHistoryEntry().
   std::vector<NotificationListRow> m_filtered;
