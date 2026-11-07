@@ -7,6 +7,7 @@
 #include "dbus/link/link_service.h"
 #include "shell/session/power_inhibitors.h"
 
+#include <cstdlib>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include "dbus/mpris/mpris_art.h"
@@ -1836,6 +1837,7 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     const auto& lock = m_config != nullptr ? m_config->config().lockscreen : LockscreenConfig{};
     const bool typing = !m_password.empty();
     state.user = m_user;
+    state.avatarPath = accountPicturePath(m_user, std::getenv("HOME") != nullptr ? std::getenv("HOME") : "");
     state.passwordLength = m_password.size();
     state.ownerMessage = lock.ownerMessage;
     if (m_authExtras.failDelay) {

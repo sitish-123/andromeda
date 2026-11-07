@@ -9,12 +9,14 @@
 #include "render/scene/node.h"
 #include "render/scene/rect_node.h"
 #include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "ui/controls/label.h"
 #include "ui/style.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <memory>
 #include <numbers>
 #include <utility>
@@ -127,6 +129,8 @@ void AuthColumn::build(Node& root, AnimationManager& animations) {
   m_cardBody = addLabel(*m_columnGroup, FontWeight::Medium, false);
 
   m_avatar = addRect(*m_columnGroup);
+  m_avatarImage = static_cast<Image*>(m_columnGroup->addChild(std::make_unique<Image>()));
+  m_avatarShown.clear();
   m_initial = addLabel(*m_columnGroup, FontWeight::SemiBold, false);
   m_name = addLabel(*m_columnGroup, FontWeight::SemiBold, true);
 
@@ -312,7 +316,6 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
   // Name (title-3) 16 above the capsule, avatar 64 12 above the name; Minimal shows neither.
   m_name->setVisible(place.account);
   m_avatar->setVisible(place.account);
-  m_initial->setVisible(place.account);
   m_name->setFontSize(Tokens::typeTitle3.size * s);
   m_name->setLineHeight(Tokens::typeTitle3.line * s);
   m_name->setColor(kLabel1);
@@ -338,6 +341,21 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
           .radius = avatar * 0.5F,
       }
   );
+  if (m_state.avatarPath != m_avatarShown) {
+    m_avatarShown = !m_state.avatarPath.empty()
+            && m_avatarImage->setSourceFile(renderer, m_state.avatarPath, static_cast<int>(avatar), true, true)
+        ? m_state.avatarPath
+        : std::string{};
+    if (m_avatarShown.empty()) {
+      m_avatarImage->clear(renderer);
+    }
+  }
+  const bool picture = place.account && !m_avatarShown.empty();
+  m_avatarImage->setVisible(picture);
+  m_initial->setVisible(place.account && !picture);
+  m_avatarImage->setPosition(snap(cx - avatar * 0.5F), avatarY);
+  m_avatarImage->setSize(avatar, avatar);
+  m_avatarImage->setRadius(avatar * 0.5F);
   m_initial->setFontSize(kInitialFontSize * s);
   m_initial->setColor(rgba(1.0F, 1.0F, 1.0F, 1.0F));
   m_initial->setText(initialOf(m_state.user));
@@ -774,4 +792,21 @@ void AuthColumn::playRejected() {
       },
       [this] { m_capsuleGroup->setPosition(m_capsuleRect.x, m_capsuleRect.y); }, this
   );
+}
+
+std::string accountPicturePath(const std::string& login, const std::string& home) {
+  std::error_code ec;
+  if (!login.empty() && login.find('/') == std::string::npos) {
+    const std::filesystem::path icon = std::filesystem::path("/var/lib/AccountsService/icons") / login;
+    if (std::filesystem::is_regular_file(icon, ec)) {
+      return icon.string();
+    }
+  }
+  if (!home.empty()) {
+    const std::filesystem::path face = std::filesystem::path(home) / ".face";
+    if (std::filesystem::is_regular_file(face, ec)) {
+      return face.string();
+    }
+  }
+  return {};
 }

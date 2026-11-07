@@ -22,6 +22,12 @@ class Renderer;
 // lock-from-phone reason card, for the lock screen and the greeter. The host keeps the real password field (invisible)
 // and the auth state; this class only draws. The column never moves between states; only the capsule and the hint
 // change.
+class Image;
+
+// The account picture of `login`: AccountsService's copy (GNOME and KDE settings write it, every user may read it),
+// else `home`/.face when `home` is set; empty = none.
+[[nodiscard]] std::string accountPicturePath(const std::string& login, const std::string& home = {});
+
 class AuthColumn {
 public:
   enum class Trailing { None, Face, Fingerprint, Go, Checking };
@@ -39,6 +45,8 @@ public:
 
   struct State {
     std::string user;
+    // The account picture (accountPicturePath); empty = the initial on the gradient.
+    std::string avatarPath;
     std::size_t passwordLength = 0;
     // "Password", or the fail-delay countdown.
     std::string placeholder;
@@ -165,6 +173,9 @@ private:
   Node* m_columnGroup = nullptr;
   RectNode* m_sheet = nullptr;
   RectNode* m_avatar = nullptr;
+  Image* m_avatarImage = nullptr;
+  // The picture m_avatarImage holds; empty = none loaded.
+  std::string m_avatarShown;
   Label* m_initial = nullptr;
   Label* m_name = nullptr;
   Node* m_capsuleGroup = nullptr;

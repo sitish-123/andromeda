@@ -786,6 +786,7 @@ namespace {
       }
       AuthColumn::State state;
       state.user = displayName(m_user);
+      state.avatarPath = accountPicturePath(m_user);
       state.placeholder = "Password";
       state.passwordLength = codepointCount(m_password);
       state.trailing = m_phase == Phase::Posting || m_phase == Phase::Starting ? AuthColumn::Trailing::Checking

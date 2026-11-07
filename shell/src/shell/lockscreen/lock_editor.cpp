@@ -27,6 +27,7 @@
 #include "wayland/wayland_seat.h"
 #include "ui/style.h"
 
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -345,6 +346,7 @@ void LockEditor::layoutScene(float width, float height) {
   const bool ryoku = m_draft.theme == 1;
   AuthColumn::State state;
   state.user = PamAuthenticator::currentUsername();
+  state.avatarPath = accountPicturePath(state.user, std::getenv("HOME") != nullptr ? std::getenv("HOME") : "");
   state.placeholder = i18n::tr("lockscreen.password-placeholder");
   state.ownerMessage = config.lockscreen.ownerMessage;
   const auto [gradientFrom, gradientTo] =
