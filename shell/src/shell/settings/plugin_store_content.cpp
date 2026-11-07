@@ -898,20 +898,20 @@ namespace settings {
     }
     if (storeEntry.source == "official") {
       addMetaItem(pill(
-          i18n::tr("settings.badges.official"), ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth
+          i18n::tr("settings.badges.official"), ColorRole::AccentText, ColorRole::Accent, 0.0F, kSourceBadgeMaxWidth
       ));
     } else if (storeEntry.source == "community") {
       addMetaItem(pill(
-          i18n::tr("settings.badges.community"), ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth
+          i18n::tr("settings.badges.community"), ColorRole::AccentText, ColorRole::Accent, 0.0F, kSourceBadgeMaxWidth
       ));
     } else {
-      addMetaItem(pill(storeEntry.source, ColorRole::Accent, ColorRole::Accent, 0.15F, kSourceBadgeMaxWidth));
+      addMetaItem(pill(storeEntry.source, ColorRole::AccentText, ColorRole::Accent, 0.0F, kSourceBadgeMaxWidth));
     }
     if (entry.deprecated) {
-      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::DangerText, ColorRole::DangerText, 0.15F));
+      addMetaItem(pill(i18n::tr("settings.badges.deprecated"), ColorRole::DangerText, ColorRole::DangerText, 0.0F));
     }
     if (entry.heldBack) {
-      addMetaItem(pill(i18n::tr("settings.plugins.store.held-back"), ColorRole::Accent, ColorRole::Accent, 0.15F));
+      addMetaItem(pill(i18n::tr("settings.plugins.store.held-back"), ColorRole::AccentText, ColorRole::Accent, 0.0F));
     }
     info->addChild(std::move(meta));
 

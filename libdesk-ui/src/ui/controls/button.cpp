@@ -508,7 +508,7 @@ void Button::ensureBadge() {
   badge->setVisible(false);
 
   auto label = std::make_unique<Label>();
-  label->setFontSize(Style::fontSizeCaption * 0.85F);
+  label->setFontSize(Style::fontSizeCaption);
   m_badgeLabel = static_cast<Label*>(badge->addChild(std::move(label)));
 
   m_badge = static_cast<Flex*>(addChild(std::move(badge)));

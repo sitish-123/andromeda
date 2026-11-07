@@ -112,7 +112,7 @@ const std::unordered_map<std::string, std::string_view> kAliases = {
     {"bluetooth-device-earbuds", "device-airpods"},
     {"bluetooth-device-headphones", "headphones"},
     {"bluetooth-device-mouse", "mouse-2"},
-    {"bluetooth-device-keyboard", "bluetooth"},
+    {"bluetooth-device-keyboard", "keyboard"},
     {"bluetooth-device-phone", "device-mobile"},
     {"bluetooth-device-watch", "device-watch"},
     {"bluetooth-device-speaker", "device-speaker"},

@@ -235,7 +235,7 @@ void SessionPanel::attachCountdownOverlay(Button& button, ActionCountdownOverlay
 
   auto ring = std::make_unique<CountdownRing>();
   ring->setRingSize(ringSize);
-  ring->setThickness(std::max(5.0F, 5.5F * scale));
+  ring->setThickness(std::max(Tokens::spaceP4, Tokens::spaceP4 * scale));
   ring->setFontSize(Tokens::typeTitle1.size * scale);
   ring->setParticipatesInLayout(false);
   ring->setZIndex(1);

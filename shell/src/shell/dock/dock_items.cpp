@@ -40,7 +40,7 @@ namespace {
   TOKENS_LIVE(kBadgeCornerInsetY, Tokens::componentBadgeOverhang / Tokens::componentBadgeHeight);
   constexpr float kDotSizeRatio = 0.09F;
   constexpr float kDotMinSize = 4.0F;
-  constexpr float kDotGap = 3.0F;
+  TOKENS_LIVE(kDotGap, Tokens::spaceP4);
   constexpr float kMinimizedIndicatorLength = 12.0F;
   constexpr float kMinimizedIndicatorThickness = 2.0F;
   // Running dot (rulebook 9.4): centred in the bottom padding, so 2 below the icon.

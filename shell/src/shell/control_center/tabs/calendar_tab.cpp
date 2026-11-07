@@ -840,9 +840,10 @@ void CalendarTab::addEventsEmptyState(float scale) {
   if (content == nullptr || m_config == nullptr) {
     return;
   }
-  const auto headline = [scale](std::string text, ColorRole role, const Tokens::Type& type, FontWeight weight) {
+  const auto headline = [scale](std::string text, ColorRole role, const Tokens::Type& type, FontWeight weight,
+                                int lines = 1) {
     auto label = ui::label({.text = std::move(text), .fontSize = type.size * scale, .fontWeight = weight,
-                            .color = colorSpecFromRole(role), .maxLines = 1, .ellipsize = TextEllipsize::End});
+                            .color = colorSpecFromRole(role), .maxLines = lines, .ellipsize = TextEllipsize::End});
     label->setLineHeight(type.line * scale);
     return label;
   };
@@ -854,8 +855,9 @@ void CalendarTab::addEventsEmptyState(float scale) {
     content->setGap(Tokens::spaceP4 * scale);
     content->addChild(headline(i18n::tr("control-center.calendar.no-calendars"), ColorRole::Label1, Tokens::typeHeadline,
                                FontWeight::SemiBold));
+    // Two lines, so the hint still reads at a large Text Size.
     content->addChild(headline(i18n::tr("control-center.calendar.no-calendars-body"), ColorRole::Label2,
-                               Tokens::typeFootnote, FontWeight::Medium));
+                               Tokens::typeFootnote, FontWeight::Medium, 2));
     content->addChild(ui::row(
         {.paddingV = Tokens::spaceP4 * scale},
         ui::button({
