@@ -70,8 +70,8 @@ public:
   };
   // Wraps the dmabuf without a copy; an invalid handle when the driver cannot import it.
   [[nodiscard]] virtual TextureHandle importDmabuf(const DmabufImage& image) = 0;
-  // A sync_file fd that signals once all GPU work submitted so far is done, or -1 when the
-  // driver has no EGL_ANDROID_native_fence_sync. The caller owns the fd.
+  // A sync_file fd that signals once all GPU work submitted so far is done. -1 when the driver
+  // has no EGL_ANDROID_native_fence_sync: that work is then already done. The caller owns the fd.
   [[nodiscard]] virtual int submittedWorkFence() = 0;
   virtual void unload(TextureHandle& handle) = 0;
   virtual void cleanup() = 0;

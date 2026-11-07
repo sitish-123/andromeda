@@ -297,6 +297,15 @@ TextureHandle GlesTextureManager::importDmabuf(const DmabufImage& image) {
 }
 
 int GlesTextureManager::submittedWorkFence() {
+  const int fd = nativeWorkFence();
+  if (fd < 0) {
+    // No fence to hand out: wait here, so the caller may release what the submitted work samples at once.
+    glFinish();
+  }
+  return fd;
+}
+
+int GlesTextureManager::nativeWorkFence() {
   static const auto createSync = reinterpret_cast<PFNEGLCREATESYNCKHRPROC>(eglGetProcAddress("eglCreateSyncKHR"));
   static const auto destroySync = reinterpret_cast<PFNEGLDESTROYSYNCKHRPROC>(eglGetProcAddress("eglDestroySyncKHR"));
   static const auto dupFence =

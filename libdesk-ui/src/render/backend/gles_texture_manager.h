@@ -46,6 +46,8 @@ public:
   void probeExtensions() override;
 
 private:
+  // The EGL_ANDROID_native_fence_sync fd for the submitted work, or -1.
+  [[nodiscard]] int nativeWorkFence();
   TextureHandle decodeEncodedRaster(
       const std::uint8_t* data, std::size_t size, const std::string* debugPath = nullptr, bool mipmap = false
   );
