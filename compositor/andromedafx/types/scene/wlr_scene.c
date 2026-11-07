@@ -561,6 +561,8 @@ static void scene_tree_init(struct wlr_scene_tree* tree, struct wlr_scene_tree* 
   wl_list_init(&tree->children);
 }
 
+uint64_t wlr_scene_update_serial(const struct wlr_scene* scene) { return scene->update_serial; }
+
 struct wlr_scene* wlr_scene_create(void) {
   struct wlr_scene* scene = calloc(1, sizeof(*scene));
   if (scene == NULL) {

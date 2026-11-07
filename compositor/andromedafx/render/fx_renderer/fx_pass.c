@@ -502,6 +502,7 @@ static bool render_pass_submit(struct wlr_render_pass* wlr_pass) {
 
   TRACY_FN(tracy_gpu_zone_end(&gpu_ctx); tracy_gpu_zone_end(&pass->frame_gpu_zone); gpu_zones_open = false;)
 
+  fx_backdrop_probes_fence(renderer);
   if (pass->signal_timeline != NULL) {
     EGLSyncKHR sync = wlr_egl_create_sync(renderer->egl, -1);
     if (sync == EGL_NO_SYNC_KHR) {

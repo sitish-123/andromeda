@@ -22,6 +22,8 @@ void fx_backdrop_probe_capture(
 );
 
 /** Releases the GL objects of every probe of this renderer; the renderer's context is current. */
+// Fences every probe captured since the last submit with one sync; called at render pass submit.
+void fx_backdrop_probes_fence(struct fx_renderer* renderer);
 void fx_backdrop_probes_release(struct fx_renderer* renderer);
 
 #endif

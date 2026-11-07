@@ -610,6 +610,10 @@ const char* andromedafx_scene_check_helpers(void);
  * destroyed through wlr_scene_node_destroy().
  */
 struct wlr_scene* wlr_scene_create(void);
+/**
+ * Changes when a node moves, resizes, restacks, shows or hides; a same-size buffer commit leaves it.
+ */
+uint64_t wlr_scene_update_serial(const struct wlr_scene* scene);
 
 // Sets the color painted where no node covers an output. Defaults to opaque
 // black. Fully damages every output.

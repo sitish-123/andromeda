@@ -558,6 +558,10 @@ static void handle_scene_surface_surface_commit(struct wl_listener* listener, vo
   struct wlr_scene_buffer* scene_buffer = surface->buffer;
 
   surface_reconfigure(surface);
+  // A new input region moves what the pointer hits without a node update; the compositor re-checks hover on the serial.
+  if ((surface->surface->current.committed & WLR_SURFACE_STATE_INPUT_REGION) != 0) {
+    scene_node_get_root(&scene_buffer->node)->update_serial++;
+  }
 
   // If the surface has requested a frame done event, honour that. The
   // frame_callback_list will be populated in this case. We should only

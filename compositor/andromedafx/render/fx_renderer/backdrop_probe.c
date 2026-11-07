@@ -10,15 +10,23 @@
 #include <wlr/util/log.h>
 
 enum { kProbeWidth = 4, kProbeHeight = 2 };
-// Density follows the backdrop within this; each capture costs a fence (a mid-frame flush) and a readback.
+// Density follows the backdrop within this; each capture costs a tiny draw and a readback.
 static const int64_t kProbeIntervalNs = 100 * 1000 * 1000;
+
+// One fence per render pass for every probe captured in it, created at submit: no mid-frame flush.
+struct probe_fence {
+  EGLSyncKHR sync;
+  int refs;
+  bool signaled;
+};
 
 struct fx_backdrop_probe {
   struct fx_renderer* renderer; // NULL once the renderer is gone
   struct wl_list link;          // fx_renderer.backdrop_probes
   GLuint texture;
   GLuint framebuffer;
-  EGLSyncKHR sync;
+  struct probe_fence* fence;
+  bool awaiting_fence; // captured; the pass submit fences it
   bool linear;
   bool captured;          // the first capture runs at once: a new sheet stays hidden until its first sample
   int64_t last_capture_ns; // CLOCK_MONOTONIC
@@ -84,11 +92,18 @@ static bool ensure_program(struct fx_renderer* renderer) {
   return true;
 }
 
-static void release_gl(struct fx_backdrop_probe* probe) {
-  if (probe->sync != EGL_NO_SYNC_KHR) {
-    wlr_egl_destroy_sync(probe->renderer->egl, probe->sync);
-    probe->sync = EGL_NO_SYNC_KHR;
+static void release_fence(struct fx_backdrop_probe* probe) {
+  struct probe_fence* fence = probe->fence;
+  probe->fence = NULL;
+  probe->awaiting_fence = false;
+  if (fence != NULL && --fence->refs == 0) {
+    wlr_egl_destroy_sync(probe->renderer->egl, fence->sync);
+    free(fence);
   }
+}
+
+static void release_gl(struct fx_backdrop_probe* probe) {
+  release_fence(probe);
   if (probe->framebuffer != 0) {
     glDeleteFramebuffers(1, &probe->framebuffer);
     probe->framebuffer = 0;
@@ -112,7 +127,6 @@ struct fx_backdrop_probe* fx_backdrop_probe_create(struct wlr_renderer* wlr_rend
     return NULL;
   }
   probe->renderer = renderer;
-  probe->sync = EGL_NO_SYNC_KHR;
   wl_list_insert(&renderer->backdrop_probes, &probe->link);
   return probe;
 }
@@ -136,12 +150,12 @@ struct wlr_renderer* fx_backdrop_probe_renderer(const struct fx_backdrop_probe* 
 }
 
 bool fx_backdrop_probe_due(const struct fx_backdrop_probe* probe) {
-  return probe != NULL && probe->sync == EGL_NO_SYNC_KHR
+  return probe != NULL && probe->fence == NULL && !probe->awaiting_fence
       && (!probe->captured || monotonic_ns() - probe->last_capture_ns >= kProbeIntervalNs);
 }
 
 bool fx_backdrop_probe_pending(const struct fx_backdrop_probe* probe) {
-  return probe != NULL && probe->renderer != NULL && probe->sync != EGL_NO_SYNC_KHR;
+  return probe != NULL && probe->renderer != NULL && (probe->fence != NULL || probe->awaiting_fence);
 }
 
 void fx_backdrop_probe_capture(
@@ -152,7 +166,6 @@ void fx_backdrop_probe_capture(
       || texture_height <= 0 || box->width <= 0 || box->height <= 0 || !ensure_program(probe->renderer)) {
     return;
   }
-  struct wlr_egl* egl = probe->renderer->egl;
   if (probe->texture == 0) {
     glGenTextures(1, &probe->texture);
     glBindTexture(GL_TEXTURE_2D, probe->texture);
@@ -169,7 +182,7 @@ void fx_backdrop_probe_capture(
     }
   }
   // The caller skips a capture while one is in flight; a node redrawn every frame would otherwise never finish one.
-  if (probe->sync != EGL_NO_SYNC_KHR) {
+  if (fx_backdrop_probe_pending(probe)) {
     return;
   }
 
@@ -205,7 +218,7 @@ void fx_backdrop_probe_capture(
   }
   glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 
-  probe->sync = egl->procs.eglCreateSyncKHR(egl->display, EGL_SYNC_FENCE_KHR, NULL);
+  probe->awaiting_fence = true;
   probe->linear = linear;
   probe->captured = true;
   probe->last_capture_ns = monotonic_ns();
@@ -215,19 +228,30 @@ bool fx_backdrop_probe_poll(struct fx_backdrop_probe* probe, float* luminance) {
   if (!fx_backdrop_probe_pending(probe)) {
     return false;
   }
+  struct probe_fence* fence = probe->fence;
+  if (fence == NULL) {
+    return false; // captured in a pass that has not been submitted yet
+  }
   struct wlr_egl* egl = probe->renderer->egl;
+  // The wait needs no current context; only the readback does.
+  if (!fence->signaled) {
+    const EGLint status = egl->eglClientWaitSyncKHR(egl->display, fence->sync, 0, 0);
+    if (status == EGL_FALSE) {
+      release_fence(probe);
+      return false;
+    }
+    if (status != EGL_CONDITION_SATISFIED_KHR) {
+      return false;
+    }
+    fence->signaled = true;
+  }
+  release_fence(probe);
   struct wlr_egl_context saved;
   if (!wlr_egl_make_current(egl, &saved)) {
-    // Without a context the sample cannot be read; drop it so the caller stops re-checking.
-    wlr_egl_destroy_sync(egl, probe->sync);
-    probe->sync = EGL_NO_SYNC_KHR;
     return false;
   }
   bool done = false;
-  const EGLint status = egl->eglClientWaitSyncKHR(egl->display, probe->sync, 0, 0);
-  if (status == EGL_CONDITION_SATISFIED_KHR) {
-    wlr_egl_destroy_sync(egl, probe->sync);
-    probe->sync = EGL_NO_SYNC_KHR;
+  {
     GLubyte pixels[kProbeWidth * kProbeHeight * 4];
     glBindFramebuffer(GL_FRAMEBUFFER, probe->framebuffer);
     glReadPixels(0, 0, kProbeWidth, kProbeHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
@@ -240,12 +264,34 @@ bool fx_backdrop_probe_poll(struct fx_backdrop_probe* probe, float* luminance) {
     double mean = sum / (kProbeWidth * kProbeHeight);
     *luminance = (float)(probe->linear ? pow(mean, 1.0 / 2.2) : mean);
     done = true;
-  } else if (status == EGL_FALSE) {
-    wlr_egl_destroy_sync(egl, probe->sync);
-    probe->sync = EGL_NO_SYNC_KHR;
   }
   wlr_egl_restore_context(&saved);
   return done;
+}
+
+void fx_backdrop_probes_fence(struct fx_renderer* renderer) {
+  struct probe_fence* fence = NULL;
+  struct fx_backdrop_probe* probe;
+  wl_list_for_each(probe, &renderer->backdrop_probes, link) {
+    if (!probe->awaiting_fence) {
+      continue;
+    }
+    if (fence == NULL) {
+      struct wlr_egl* egl = renderer->egl;
+      const EGLSyncKHR sync = egl->procs.eglCreateSyncKHR(egl->display, EGL_SYNC_FENCE_KHR, NULL);
+      fence = sync != EGL_NO_SYNC_KHR ? calloc(1, sizeof(*fence)) : NULL;
+      if (fence == NULL) {
+        if (sync != EGL_NO_SYNC_KHR) {
+          wlr_egl_destroy_sync(egl, sync);
+        }
+        return; // the probes stay awaiting; the next submit fences them
+      }
+      fence->sync = sync;
+    }
+    probe->awaiting_fence = false;
+    probe->fence = fence;
+    fence->refs++;
+  }
 }
 
 void fx_backdrop_probes_release(struct fx_renderer* renderer) {
