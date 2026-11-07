@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Control-center Notifications page: an active notification with an action shows its action button (it did not:
 # buttons showed only for expired ones), and clicking it sends ActionInvoked to the app. Every step waits on state
-# with a timeout. Shots go to $OUT (default ./artifacts/notifications-tab-actions).
+# with a timeout. A click on the card body (not a button) sends the "default" action. Shots go to $OUT (default ./artifacts/notifications-tab-actions).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/notifications-tab-actions}
 source "$(dirname "$0")/lib.sh"
@@ -31,5 +31,14 @@ with_noctalia '
   "$POINTER" 1280 720 move 1009 271 click 272 > /dev/null
   invoked() { grep -q "reply" "$OUT/invoked.txt"; }
   wait_for 5 invoked || fail "the row action did not reach the app (invoked.txt: $(cat "$OUT/invoked.txt"))"
+  # The newest card sits on top, in the same place: a click on its summary line runs "default".
+  notify-send -w -t 0 -a "$tag-d" -A "default=Open" "Open $tag" "body" > "$OUT/default.txt" 2>&1 &
+  "$POINTER" 1280 720 move 5 715 > /dev/null
+  settle
+  cp "$OUT/now.png" "$OUT/2-default.png"
+  "$POINTER" 1280 720 move 1150 213 > /dev/null
+  "$POINTER" 1280 720 move 1150 213 click 272 > /dev/null
+  defaulted() { grep -q "default" "$OUT/default.txt"; }
+  wait_for 5 defaulted || fail "a card body click did not send default (default.txt: $(cat "$OUT/default.txt"))"
   echo PASS
 '

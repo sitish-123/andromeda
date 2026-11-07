@@ -42,7 +42,7 @@ namespace {
   constexpr Logger kLog("control-center-notifications");
 
   constexpr float kHistoryIconSize = 36.0F;
-  constexpr float kHistoryIconGlyphSize = 22.0F;
+  const float kHistoryIconGlyphSize = Tokens::sizeSymbolL;
   constexpr float kHistoryIconReferenceSize = 36.0F;
 
   float notificationIconRadius(float iconSize, float localScale) {
@@ -732,6 +732,28 @@ public:
         + groupPartsHeight(m_owner.m_filtered[index], m_scale);
   }
 
+  // A click on the card body outside its buttons runs the app's "default" action, as the island banner does.
+  [[nodiscard]] bool itemInteractive(std::size_t index) const override {
+    const NotificationHistoryEntry* entry = m_owner.filteredEntry(index);
+    if (entry == nullptr || m_owner.m_notifications == nullptr
+        || !m_owner.m_notifications->canInvokeActions(entry->notification.id)) {
+      return false;
+    }
+    const auto& actions = entry->notification.actions;
+    for (std::size_t i = 0; i < actions.size(); i += 2) {
+      if (actions[i] == "default") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void onActivate(std::size_t index) override {
+    if (itemInteractive(index)) {
+      m_owner.invokeNotificationAction(m_owner.filteredEntry(index)->notification.id, "default");
+    }
+  }
+
   [[nodiscard]] std::unique_ptr<Node> createItem() override {
     return std::make_unique<NotificationGroupRow>(m_scale, m_fillOpacity);
   }
@@ -881,7 +903,6 @@ std::unique_ptr<Flex> NotificationsTab::createHeaderActions() {
           .configure =
               [scale](Button& button) {
                 panel_button_style::configureHeaderIconButton(button, scale);
-                button.setVariant(ButtonVariant::Destructive);
               },
       }),
       ui::button({
