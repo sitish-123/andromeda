@@ -125,6 +125,8 @@ public:
   void addCloseObserver(CloseCallback callback);
   void setReplyCallback(ReplyCallback callback);
   [[nodiscard]] bool hasPendingDBusClose(uint32_t id) const noexcept;
+  // True while the app can still receive an action: the notification is active, or expired with its app waiting.
+  [[nodiscard]] bool canInvokeActions(uint32_t id) const { return findInvokable(id) != nullptr; }
   [[nodiscard]] bool invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke = true);
   [[nodiscard]] bool invokeAction(
       uint32_t id, const std::string& actionKey, const std::string& activationToken, bool closeAfterInvoke = true

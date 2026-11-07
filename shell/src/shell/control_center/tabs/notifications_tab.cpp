@@ -727,7 +727,7 @@ public:
     const auto& entry = *found;
     const bool expanded = m_owner.m_expandedIds.contains(entry.notification.id);
     const bool showHistoryActions =
-        m_owner.m_notifications != nullptr && m_owner.m_notifications->hasPendingDBusClose(entry.notification.id);
+        m_owner.m_notifications != nullptr && m_owner.m_notifications->canInvokeActions(entry.notification.id);
     return measureNotificationCard(renderer, entry, m_scale, width, expanded, showHistoryActions).height
         + groupPartsHeight(m_owner.m_filtered[index], m_scale);
   }
@@ -747,7 +747,7 @@ public:
     }
     const auto& entry = *found;
     const bool showHistoryActions =
-        m_owner.m_notifications != nullptr && m_owner.m_notifications->hasPendingDBusClose(entry.notification.id);
+        m_owner.m_notifications != nullptr && m_owner.m_notifications->canInvokeActions(entry.notification.id);
     const bool expanded = m_owner.m_expandedIds.contains(entry.notification.id);
     row->card().bind(
         renderer, entry, width, expanded, showHistoryActions, m_owner.m_iconResolver,
@@ -1159,7 +1159,8 @@ void NotificationsTab::clearGroup(const std::string& key) {
 }
 
 void NotificationsTab::invokeNotificationAction(uint32_t id, const std::string& actionKey) {
-  if (m_notifications == nullptr || actionKey.empty() || !m_notifications->hasPendingDBusClose(id)) {
+  // Active notifications and expired ones whose app still waits both take actions.
+  if (m_notifications == nullptr || actionKey.empty() || !m_notifications->canInvokeActions(id)) {
     return;
   }
   const std::string activationToken =
