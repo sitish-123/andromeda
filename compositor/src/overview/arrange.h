@@ -50,15 +50,16 @@ namespace andromeda::ov {
   };
 
   struct ExposeLimits {
-    double padX = 40;      // horizontal room per cell around the window
-    double padY = 56;      // vertical room per cell, title capsule included
+    double padX = 40;      // horizontal room around each window
+    double padY = 56;      // vertical room per row, title capsule included
     double caption = 28;   // the capsule's share of padY, kept under the window
     double maxScale = 0.7; // never shows a window larger than this share of its real size
   };
 
-  // Exposé: every window scaled into a balanced grid inside `area` without overlap, rows filled in reading order of
-  // the windows' real positions (rows of 200 px, then x), so a window stays roughly where it was. Fewer columns win
-  // unless more columns show at least 2 % more window area. Returns one rect per item, in the order of `items`.
+  // Exposé: every window at one shared scale inside `area` without overlap, in rows filled in reading order of the
+  // windows' real positions (rows of 200 px, then x), so a window stays roughly where it was and keeps its size next
+  // to the others. Each row is as wide as its windows and centred. Fewer columns win unless more columns show at least
+  // 2 % more window area. Returns one rect per item, in the order of `items`.
   [[nodiscard]] std::vector<ExposeItem>
   exposeGrid(std::span<const ExposeItem> items, const Rect& area, const ExposeLimits& limits = {});
 
