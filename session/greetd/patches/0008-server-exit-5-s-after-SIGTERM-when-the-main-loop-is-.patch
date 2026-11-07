@@ -1,0 +1,37 @@
+From 43f493b36e7dbe98d57479d417a75b38d4c9d7f3 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 23:34:23 +0545
+Subject: [PATCH] server: exit 5 s after SIGTERM when the main loop is stuck
+
+The main loop awaits a greeter or session start inline, so a VT switch
+that never completes left SIGTERM unhandled until systemd's 30 s kill,
+and the unit failure started the display-manager fallback.
+---
+ greetd/src/server.rs | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/greetd/src/server.rs b/greetd/src/server.rs
+index 9e82ea8..2142ef2 100644
+--- a/greetd/src/server.rs
++++ b/greetd/src/server.rs
+@@ -280,6 +280,17 @@ pub async fn main(config: Config) -> Result<(), Error> {
+     let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
+     let mut int = signal(SignalKind::interrupt()).expect("unable to listen for SIGINT");
+ 
++    // The loop below awaits a session or greeter start inline (check_children holds the context while the greeter's
++    // worker waits for its VT); a VT switch that never completes then left SIGTERM unhandled until systemd's 30 s kill.
++    // A second listener bounds the stop: 5 s after SIGTERM the process exits, and systemd ends the rest of the unit.
++    let mut term_deadline = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
++    task::spawn_local(async move {
++        term_deadline.recv().await;
++        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
++        eprintln!("terminate: still busy 5 s after SIGTERM, exiting");
++        std::process::exit(1);
++    });
++
+     loop {
+         tokio::select! {
+             _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {e}"))?,
+-- 
+2.56.0
+
