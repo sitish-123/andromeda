@@ -1348,7 +1348,7 @@ std::unique_ptr<Flex> SettingsWindow::buildSearchField(float scale) {
   return ui::row(
       {.align = FlexAlign::Center,
        .gap = Style::spaceSm * scale,
-       .paddingH = (Style::spaceSm - 2.0F) * scale,
+       .paddingH = Tokens::spaceP8 * scale,
        .fill = colorSpecFromRole(ColorRole::SolidRegular, 0.6F),
        .radius = Style::scaledRadiusMd(scale),
        .minHeight = settings::metrics::kSearchFieldHeight * scale},

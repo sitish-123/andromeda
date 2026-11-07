@@ -313,7 +313,7 @@ namespace settings {
                      .fontSize = Style::fontSizeBody * scale,
                      .controlHeight = Style::controlHeight * scale,
                      .glyphSize = Style::fontSizeBody * scale,
-                     .width = 220.0F * scale,
+                     .width = settings::metrics::kSelectWidth * scale,
                      .height = Style::controlHeight * scale,
                      .onSelectionChanged = [set = ctx.switchLoginScreen, units = std::move(units)](
                                                std::size_t index, std::string_view

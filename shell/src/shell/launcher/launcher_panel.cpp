@@ -13,7 +13,7 @@ bool LauncherPanel::usesBrowserLayout() const {
       && (m_config == nullptr || m_config->config().shell.launcher.layout == ShellConfig::LauncherLayout::Full);
 }
 
-float LauncherPanel::preferredWidth() const { return scaled(usesBrowserLayout() ? Tokens::componentLauncherWidth : 560.0F); }
+float LauncherPanel::preferredWidth() const { return scaled(Tokens::componentLauncherWidth); }
 
 float LauncherPanel::preferredHeight() const { return scaled(usesBrowserLayout() ? launcherSheetHeight() : 500.0F); }
 

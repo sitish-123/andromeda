@@ -216,7 +216,7 @@ void PowerTab::buildStatusCard(Flex& root, float scale) {
       ui::progressBar({
           .out = &m_levelBar,
           .fill = colorSpecFromRole(ColorRole::Accent),
-          .track = colorSpecFromRole(ColorRole::SolidRegular),
+          .track = colorSpecFromRole(ColorRole::Fill2),
           .radius = Style::sliderTrackHeight * scale * 0.5F,
           .progress = 0.0F,
           .height = Style::sliderTrackHeight * scale,
@@ -364,7 +364,7 @@ void PowerTab::buildHealthCard(Flex& root, float scale) {
       ui::progressBar({
           .out = &m_healthBar,
           .fill = colorSpecFromRole(ColorRole::Accent),
-          .track = colorSpecFromRole(ColorRole::SolidRegular),
+          .track = colorSpecFromRole(ColorRole::Fill2),
           .radius = Style::sliderTrackHeight * scale * 0.5F,
           .progress = 0.0F,
           .height = Style::sliderTrackHeight * scale,

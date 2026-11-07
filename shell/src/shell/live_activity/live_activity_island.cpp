@@ -1084,7 +1084,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
           .out = &inst.divider,
           .fill = colorSpecFromRole(ColorRole::Label3),
           .width = 1.0F,
-          .height = 14.0F,
+          .height = Tokens::componentIslandDividerHeight,
           .visible = false,
       }),
       dot(&inst.micDot, colorSpecFromRole(ColorRole::Accent)),
@@ -1278,7 +1278,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       {.align = FlexAlign::Center, .gap = 12.0F, .paddingH = 16.0F, .width = inst.width, .height = kHeight},
       ui::label({
           .out = &inst.idleTime,
-          .fontSize = 22.0F,
+          .fontSize = Tokens::typeTitle1.size,
           .fontWeight = FontWeight::SemiBold,
           .color = liveLabel(),
           .maxLines = 1,

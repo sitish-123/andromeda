@@ -246,7 +246,7 @@ void ControlCenterPanel::create() {
               .out = &m_tabButtons[idx],
               .text = m_compact ? std::optional<std::string>{} : std::optional<std::string>{i18n::tr(tab.titleKey)},
               .glyph = tab.glyph,
-              .glyphSize = 21.0F * scale,
+              .glyphSize = Tokens::sizeSymbolL * scale,
               .contentAlign = m_compact ? ButtonContentAlign::Center : ButtonContentAlign::Start,
               .variant = ButtonVariant::Tab,
               .tooltip = m_compact ? i18n::tr(tab.titleKey) : std::string{},

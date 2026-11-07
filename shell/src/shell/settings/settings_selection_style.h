@@ -31,7 +31,7 @@ namespace settings {
     inline constexpr float kContentMaxWidth = 640.0F;
     inline constexpr float kRowHeight = 40.0F;
     inline constexpr float kRowHeightTwoLine = 56.0F;
-    inline constexpr float kSelectWidth = 190.0F;
+    inline constexpr float kSelectWidth = 192.0F;
     inline constexpr float kPickerTileWidth = 96.0F;
     inline constexpr float kPickerTileHeight = 64.0F;
     inline constexpr float kPickerGap = 8.0F;

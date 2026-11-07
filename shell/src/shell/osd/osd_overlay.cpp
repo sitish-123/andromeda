@@ -125,10 +125,8 @@ namespace {
     return horizontalPosition.empty() ? "top_center" : horizontalPosition;
   }
 
-  // Base units at ui_scale=1; passive overlay (no hit targets), between bar and old OSD size.
-  [[nodiscard]] float horizontalCardLength(float s) {
-    return (Style::controlHeight * 6 + Style::spaceMd + Style::spaceSm + Style::spaceXs) * s;
-  }
+  // The same capsule as the center-island OSD face (rulebook 9.2), for outputs without a center island.
+  [[nodiscard]] float horizontalCardLength(float s) { return Tokens::componentIslandCenterOsdWidth * s; }
 
   [[nodiscard]] float cardWidth(float s, const std::string& orientation) {
     if (isVerticalOrientation(orientation)) {
@@ -144,7 +142,7 @@ namespace {
       }
       return horizontalCardLength(s);
     }
-    return (Style::controlHeight + Style::spaceSm) * s;
+    return Tokens::componentIslandCenterOsdHeight * s;
   }
 
   [[nodiscard]] std::uint32_t osdSurfaceWidth(float s, const std::string& orientation, float innerPadX) {
@@ -157,27 +155,21 @@ namespace {
     return static_cast<std::uint32_t>(std::max(1, static_cast<int>(std::ceil(h))));
   }
 
-  [[nodiscard]] float glyphSize(float s) { return (Style::fontSizeTitle + Style::borderWidth * 4) * s; }
+  [[nodiscard]] float glyphSize(float s) { return Tokens::componentIslandIcon * s; }
 
-  [[nodiscard]] float valueFontSize(float s) { return Tokens::typeTitle3.size * s; }
+  [[nodiscard]] float valueFontSize(float s) { return Tokens::typeCaption.size * s; }
 
-  [[nodiscard]] float progressHeight(float s) { return (Style::spaceXs + Style::borderWidth * 2) * s; }
+  [[nodiscard]] float progressHeight(float s) { return Tokens::spaceP4 * s; }
 
   [[nodiscard]] float verticalProgressWidth(float s) { return progressHeight(s) * 1.75F; }
 
-  [[nodiscard]] float cardPadding(float s) { return Style::spaceMd * s; }
+  [[nodiscard]] float cardPadding(float s) { return Tokens::spaceP12 * s; }
 
-  [[nodiscard]] float innerGap(float s) { return (Style::spaceSm + Style::spaceXs * 0.5F) * s; }
+  [[nodiscard]] float innerGap(float s) { return Tokens::spaceP12 * s; }
 
-  [[nodiscard]] float osdCardRadius(float cw, float ch, float layoutScale) {
-    const float maxR = std::min(cw, ch) * 0.5F;
-    return std::min(maxR, Style::scaledRadiusXl(layoutScale));
-  }
+  [[nodiscard]] float osdCardRadius(float cw, float ch, float /*layoutScale*/) { return std::min(cw, ch) * 0.5F; }
 
-  [[nodiscard]] float osdProgressRadius(float layoutScale) {
-    const float ph = progressHeight(layoutScale);
-    return std::min(ph * 0.5F, Style::scaledRadiusSm(layoutScale));
-  }
+  [[nodiscard]] float osdProgressRadius(float layoutScale) { return progressHeight(layoutScale) * 0.5F; }
 
   [[nodiscard]] bool isBottomPosition(const std::string& position) { return position.starts_with("bottom_"); }
 
@@ -796,7 +788,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   auto icon = ui::glyph({
       .out = &inst.glyph,
       .glyphSize = glyphSize(s),
-      .color = colorSpecFromRole(ColorRole::AccentText),
+      .color = colorSpecFromRole(ColorRole::Label1),
       .configure = [](Glyph& glyph) { glyph.setZIndex(1); },
   });
 
@@ -804,7 +796,7 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
       .out = &inst.value,
       .text = "100%",
       .fontSize = valueFontSize(s),
-      .fontWeight = FontWeight::Bold,
+      .fontWeight = FontWeight::SemiBold,
       .fontFeatures = "tnum",
       .color = colorSpecFromRole(ColorRole::Label1),
       .maxWidth = vertical ? cw - pad * 2.0F : 0.0F,
@@ -820,8 +812,8 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   const float ph = progressHeight(s);
   auto progress = ui::progressBar({
       .out = &inst.progress,
-      .fill = colorSpecFromRole(ColorRole::Accent),
-      .track = colorSpecFromRole(ColorRole::Fill2),
+      .fill = colorSpecFromRole(ColorRole::SliderFill),
+      .track = colorSpecFromRole(ColorRole::SliderTrack),
       .radius = osdProgressRadius(s),
       .orientation = vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal,
       .width = vertical ? verticalProgressWidth(s) : 0.0F,
@@ -863,13 +855,13 @@ void OsdOverlay::updateInstanceContent(Instance& inst) {
   inst.background->setFill(colorSpecFromRole(materialRole(), osdBackgroundOpacity(m_config)));
   inst.background->setBorder(osdBorderColor(m_config), osdBorderWidth(m_config, s));
 
-  const ColorRole accentRole = m_content.overLimit ? ColorRole::Danger
-      : m_content.inactive                         ? ColorRole::Label2
-                                                   : ColorRole::Accent;
+  const ColorRole glyphRole = m_content.overLimit ? ColorRole::Danger
+      : m_content.inactive                        ? ColorRole::Label2
+                                                  : ColorRole::Label1;
   inst.glyph->setGlyph(m_content.icon);
-  inst.glyph->setColor(colorSpecFromRole(accentRole));
+  inst.glyph->setColor(colorSpecFromRole(glyphRole));
   inst.progress->setVisible(m_content.showProgress);
-  inst.progress->setFill(colorSpecFromRole(accentRole));
+  inst.progress->setFill(colorSpecFromRole(m_content.overLimit ? ColorRole::Danger : ColorRole::SliderFill));
   inst.progress->setOrientation(vertical ? ProgressBarOrientation::Vertical : ProgressBarOrientation::Horizontal);
   inst.row->setJustify((vertical || !m_content.showProgress) ? FlexJustify::Center : FlexJustify::Start);
   inst.value->setFontSize(valueFontSize(s));

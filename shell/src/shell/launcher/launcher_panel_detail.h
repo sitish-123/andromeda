@@ -87,8 +87,8 @@ namespace launcher_detail {
 
   constexpr std::size_t kRowOverscan = 3;
   // Minimum trimmed query length before prefixed opt-in providers join the global search.
-  constexpr float kIconSizeDefault = 40.0F;
-  constexpr float kIconSizeCompact = 28.0F;
+  constexpr float kIconSizeDefault = 32.0F;
+  constexpr float kIconSizeCompact = 24.0F;
   constexpr std::size_t kAppGridColumns = 6;
   // Emoji mode grid (DESIGN.md "Launcher media modes"): 8 cells across the 360 list pane.
   constexpr std::size_t kEmojiColumns = 8;
@@ -156,7 +156,7 @@ namespace launcher_detail {
   }};
   constexpr std::string_view kModeContextPrefix = "mode:";
   constexpr std::int32_t kCompactNavigationWidth = 680;
-  constexpr float kLauncherAvatarSize = 44.0F;
+  constexpr float kLauncherAvatarSize = 48.0F;
   constexpr std::string_view kApplicationsProviderId = "Applications";
   constexpr std::string_view kSessionProviderId = "Session";
   constexpr std::string_view kProviderOverviewProviderId = "__launcher_provider_overview__";

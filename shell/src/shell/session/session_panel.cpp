@@ -187,7 +187,7 @@ Button* SessionPanel::createActionButton(const SessionPanelActionConfig& cfg, st
   auto button = ui::button({
       .text = labelText,
       .glyph = glyph,
-      .fontSize = (Style::fontSizeBody + 1.0F) * scale,
+      .fontSize = Tokens::typeTitle3.size * scale,
       .glyphSize = 28.0F * scale,
       .contentAlign = ButtonContentAlign::Center,
       .variant = buttonVariantFor(cfg.variant),
@@ -236,7 +236,7 @@ void SessionPanel::attachCountdownOverlay(Button& button, ActionCountdownOverlay
   auto ring = std::make_unique<CountdownRing>();
   ring->setRingSize(ringSize);
   ring->setThickness(std::max(5.0F, 5.5F * scale));
-  ring->setFontSize(22.0F * scale);
+  ring->setFontSize(Tokens::typeTitle1.size * scale);
   ring->setParticipatesInLayout(false);
   ring->setZIndex(1);
   overlay.ring = ring.get();

@@ -704,7 +704,7 @@ namespace settings {
     const bool missingSelection = !selectedIndex.has_value();
     const bool unknownValue = missingSelection && !setting.selectedValue.empty();
     const bool clearSelection = unknownValue || (missingSelection && setting.allowEmptySelection);
-    const float selectWidth = setting.preferredWidth > 0.0F ? setting.preferredWidth : 190.0F;
+    const float selectWidth = setting.preferredWidth > 0.0F ? setting.preferredWidth : settings::metrics::kSelectWidth;
     auto options = setting.options;
     const bool clearOnEmpty = setting.clearOnEmpty;
     const SelectValueType valueType = setting.valueType;
@@ -757,7 +757,7 @@ namespace settings {
         .fontSize = Style::fontSizeBody * scale,
         .contentAlign = ButtonContentAlign::Start,
         .variant = ButtonVariant::Default,
-        .minWidth = 190.0F * scale,
+        .minWidth = settings::metrics::kSelectWidth * scale,
         .minHeight = Style::controlHeight * scale,
         .paddingV = Style::spaceSm * scale,
         .paddingH = Style::spaceMd * scale,
@@ -811,7 +811,7 @@ namespace settings {
         .fontSize = Style::fontSizeCaption * scale,
         .controlHeight = Style::controlHeight * scale,
         .horizontalPadding = Style::spaceXs * scale,
-        .width = 50.0F * scale,
+        .width = Tokens::sizeControlXl * scale,
         .height = Style::controlHeight * scale,
     });
 
@@ -945,7 +945,7 @@ namespace settings {
           .fontSize = Style::fontSizeCaption * scale,
           .controlHeight = Style::controlHeight * scale,
           .horizontalPadding = Style::spaceXs * scale,
-          .width = 50.0F * scale,
+          .width = Tokens::sizeControlXl * scale,
           .height = Style::controlHeight * scale,
       });
     };
@@ -1212,7 +1212,7 @@ namespace settings {
   ) {
     auto& ctx = m_ctx;
     const float scale = m_scale;
-    const float inputWidth = (width > 0.0F ? width : 190.0F) * scale;
+    const float inputWidth = (width > 0.0F ? width : settings::metrics::kSelectWidth) * scale;
     Input* inputPtr = nullptr;
     auto input = ui::input({
         .out = &inputPtr,
@@ -1313,7 +1313,7 @@ namespace settings {
         .fontSize = Style::fontSizeBody * scale,
         .controlHeight = Style::controlHeight * scale,
         .horizontalPadding = Style::spaceSm * scale,
-        .width = 190.0F * scale,
+        .width = settings::metrics::kSelectWidth * scale,
         .height = Style::controlHeight * scale,
     });
     input->setOnChange([inputPtr](const std::string& /*text*/) { inputPtr->setInvalid(false); });
@@ -1420,7 +1420,7 @@ namespace settings {
         .fontSize = Style::fontSizeBody * scale,
         .controlHeight = Style::controlHeight * scale,
         .glyphSize = Style::fontSizeBody * scale,
-        .width = 190.0F * scale,
+        .width = settings::metrics::kSelectWidth * scale,
     };
     return makeColorSpecSelect(
         std::move(options), [setOverride = ctx.setOverride, path](std::string value) { setOverride(path, value); },

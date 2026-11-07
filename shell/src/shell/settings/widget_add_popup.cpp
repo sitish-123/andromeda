@@ -587,7 +587,7 @@ namespace settings {
     constexpr float kPickerWidth = 520.0F;
     constexpr float kPickerHeight = 420.0F;
     constexpr float kCreateMinWidth = 360.0F;
-    constexpr float kCreateHeight = 190.0F;
+    constexpr float kCreateHeight = 192.0F;
     constexpr float kCreateMaxWidth = 640.0F;
     constexpr float kParentMargin = 48.0F;
 
