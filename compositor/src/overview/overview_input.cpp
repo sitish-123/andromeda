@@ -507,10 +507,16 @@ namespace andromeda {
     return true;
   }
 
-  void Overview::startRename() {
-    Workspace* workspace = preferredWorkspace();
+  void Overview::startRename(Workspace* workspace) {
+    if (workspace == nullptr) {
+      workspace = preferredWorkspace();
+    }
     if (workspace == nullptr || workspace->group() == nullptr) {
       return;
+    }
+    // The title row edits the shown workspace, so a rename from another workspace's card goes there first.
+    if (workspace->group()->active() != workspace) {
+      workspace->group()->select(workspace);
     }
     m_menu.reset();
     m_rename = Rename{.workspace = workspace, .text = workspace->displayName()};
@@ -591,7 +597,7 @@ namespace andromeda {
   }
 
   void Overview::openWindowMenu(const Card& card, double lx, double ly) {
-    const Workspace* source = card.view->workspace();
+    Workspace* source = card.view->workspace();
     WorkspaceGroup* group = source != nullptr ? source->group() : nullptr;
     if (group == nullptr || group->output() == nullptr) {
       return;
@@ -603,7 +609,12 @@ namespace andromeda {
         .y = static_cast<int>(std::lround(ly)),
         .hovered = -1,
         .rows = {},
-        .targets = {},
+        .actions = {},
+    };
+    using Action = WindowMenu::Action;
+    const auto add = [&menu](std::string row, Action action, Workspace* workspace = nullptr) {
+      menu.rows.push_back(std::move(row));
+      menu.actions.push_back({.action = action, .workspace = Ref<Workspace>(workspace)});
     };
     for (size_t index = 0; index < group->workspaceCount(); ++index) {
       Workspace* workspace = group->workspaceAt(index);
@@ -611,16 +622,21 @@ namespace andromeda {
         continue;
       }
       const bool named = workspace->named() || workspace->displayName() != workspace->name();
-      menu.rows.push_back(
-          named ? std::format("Move to {}", workspace->displayName())
-                : std::format("Move to Desktop {}", workspace->displayName())
-      );
-      menu.targets.emplace_back(workspace);
+      add(named ? std::format("Move to {}", workspace->displayName())
+                : std::format("Move to Desktop {}", workspace->displayName()),
+          Action::MoveToWorkspace, workspace);
     }
-    menu.rows.emplace_back("Move to New Desktop");
-    menu.targets.emplace_back(nullptr);
-    menu.rows.emplace_back("Close");
-    menu.rows.emplace_back("Close All on This Desktop");
+    add("Move to New Desktop", Action::MoveToWorkspace);
+    for (const auto& state : m_outputs) {
+      WorkspaceGroup* other = state->output != nullptr ? state->output->workspaceGroup() : nullptr;
+      if (other != nullptr && other != group && other->active() != nullptr) {
+        add(std::format("Move to Display {}", state->output->wlr()->name), Action::MoveToOutput, other->active());
+      }
+    }
+    add("Rename Desktop", Action::Rename, source);
+    add("Arrangement", Action::Arrangement, source);
+    add("Close", Action::Close);
+    add("Close All on This Desktop", Action::CloseAll);
     setWindowMenu(std::move(menu));
   }
 
@@ -636,19 +652,34 @@ namespace andromeda {
     WindowMenu menu = std::move(*m_windowMenu);
     setWindowMenu(std::nullopt);
     View* view = menu.view.get();
-    if (view == nullptr || !view->mapped() || row < 0) {
+    if (view == nullptr || !view->mapped() || row < 0 || static_cast<size_t>(row) >= menu.actions.size()) {
       return;
     }
-    const auto index = static_cast<size_t>(row);
-    if (index < menu.targets.size()) {
-      moveViewTo(*view, menu.targets[index].get());
+    const WindowMenu::Row& picked = menu.actions[static_cast<size_t>(row)];
+    Workspace* workspace = view->workspace();
+    switch (picked.action) {
+    case WindowMenu::Action::MoveToWorkspace:
+      moveViewTo(*view, picked.workspace.get());
       return;
-    }
-    if (index == menu.targets.size()) {
+    case WindowMenu::Action::MoveToOutput:
+      if (picked.workspace.get() != nullptr) {
+        moveViewTo(*view, picked.workspace.get());
+      }
+      return;
+    case WindowMenu::Action::Rename:
+      startRename(workspace);
+      return;
+    case WindowMenu::Action::Arrangement:
+      if (workspace != nullptr && workspace->group() != nullptr && workspace->group()->output() != nullptr) {
+        setMenu(ArrangementMenu{.output = workspace->group()->output(), .workspace = workspace->index()});
+      }
+      return;
+    case WindowMenu::Action::Close:
       view->requestClose();
       return;
+    case WindowMenu::Action::CloseAll:
+      break;
     }
-    Workspace* workspace = view->workspace();
     const OutputState* state = workspace != nullptr ? stateForWorkspace(workspace) : nullptr;
     if (state != nullptr) {
       // Collected first: a close can unmap at once and change the card list.
@@ -1273,7 +1304,17 @@ namespace andromeda {
     return true;
   }
 
-  bool Overview::handleFallbackKey(uint32_t keysym, bool shift) {
+  bool Overview::handleFallbackKey(uint32_t keysym, bool shift, bool ctrl) {
+    if (ctrl) {
+      // An open menu or rename holds the keyboard; Ctrl+W there must not close a window behind it.
+      if (keysym != XKB_KEY_w || m_rename.has_value() || m_windowMenu.has_value() || m_menu.has_value()) {
+        return false;
+      }
+      if (Card* card = selectedCard()) {
+        card->view->requestClose();
+      }
+      return true;
+    }
     if (!interactive()) {
       return false;
     }

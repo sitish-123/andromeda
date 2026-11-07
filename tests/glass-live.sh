@@ -124,6 +124,14 @@ s_scheme_flip_over_scroll() {
   while ((SECONDS < end)); do set_scheme dark; sleep 1.5; set_scheme light; sleep 1.5; done
   msg panel-close control-center; kill "$f"
 }
+# The overview over motion: open and close it over a video and a scrolling terminal (two live cards). Not in the
+# default list: SCENARIOS=overview_open.
+s_overview_open() {
+  local v f; v=$(video); f=$(scroller); edges
+  local end=$((SECONDS + SECONDS_PER))
+  while ((SECONDS < end)); do andromeda msg overview-open > /dev/null; sleep 2; andromeda msg overview-close > /dev/null; sleep 0.7; done
+  kill "$v" "$f"
+}
 s_worst() {
   local v; v=$(video); edges
   msg panel-open launcher

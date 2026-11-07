@@ -623,9 +623,11 @@ namespace andromeda {
         Overview* overview = m_server->overview();
         // Shift stays plain: it types capitals into the filter and turns Tab into a step back.
         const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2 | WLR_MODIFIER_SHIFT);
-        if (overview != nullptr && overview->interactive() && plain == 0) {
+        if (overview != nullptr && overview->interactive() && (plain == 0 || plain == WLR_MODIFIER_CTRL)) {
           for (int i = 0; i < nsyms && !handled; ++i) {
-            handled = overview->handleFallbackKey(syms[i], (modifiers & WLR_MODIFIER_SHIFT) != 0);
+            handled = overview->handleFallbackKey(
+                syms[i], (modifiers & WLR_MODIFIER_SHIFT) != 0, plain == WLR_MODIFIER_CTRL
+            );
           }
         }
       }

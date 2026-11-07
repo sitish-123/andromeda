@@ -129,8 +129,9 @@ namespace andromeda {
     void cancelNavigation();
     void handleTouchpadAxis(wlr_pointer* pointer, bool vertical, double delta, uint32_t timeMsec, double lx, double ly);
     void handleTouchpadFrame();
-    // `shift`: Shift is held (Shift+arrows move the selected window to the neighbouring workspace).
-    bool handleFallbackKey(uint32_t keysym, bool shift = false);
+    // `shift`: Shift is held (Shift+arrows move the selected window to the neighbouring workspace). `ctrl`: Ctrl is held
+    // (Ctrl+W closes the selected window); no other Ctrl key reaches the overview.
+    bool handleFallbackKey(uint32_t keysym, bool shift = false, bool ctrl = false);
     // Configured actions retain their regular handlers throughout the closing animation.
     bool handleKeybindAction(KeybindAction action);
     // Step the active workspace `delta` rows along the workspaces on `output` (null: wherever the pointer is). Returns
@@ -372,9 +373,14 @@ namespace andromeda {
       int x = 0;
       int y = 0;
       int hovered = -1;
+      enum class Action { MoveToWorkspace, MoveToOutput, Rename, Arrangement, Close, CloseAll };
+      struct Row {
+        Action action = Action::Close;
+        // MoveToWorkspace: the target (null: a new workspace). MoveToOutput: that output's active workspace.
+        Ref<Workspace> workspace;
+      };
       std::vector<std::string> rows;
-      // Row i < targets.size() moves the window there; a null target is a new workspace.
-      std::vector<Ref<Workspace>> targets;
+      std::vector<Row> actions; // one per row
     };
     void openWindowMenu(const Card& card, double lx, double ly);
     void setWindowMenu(std::optional<WindowMenu> menu);
@@ -385,7 +391,8 @@ namespace andromeda {
     bool windowMenuPress(double lx, double ly);
     bool windowMenuKey(uint32_t keysym);
     void applyMenuRow(int row);
-    void startRename();
+    // Renames `workspace`, or the preferred output's active workspace when null.
+    void startRename(Workspace* workspace = nullptr);
     bool renameKey(uint32_t keysym);
     // Keeps the typed name (a blank one keeps the old name) or drops it, and ends the rename.
     void finishRename(bool keep);
