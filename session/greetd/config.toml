@@ -1,5 +1,9 @@
 [terminal]
 vt = 1
+# andromeda-greetd: the VT stays in graphics mode, and a login starts the session on a free VT while the greeter
+# stays on screen until the switch, so no console or black frame shows between them.
+graphics = true
+handoff = true
 
 [general]
 # User logins run /etc/pam.d/gdm-face: pam_gaze hands the keyring password over only under that service name.

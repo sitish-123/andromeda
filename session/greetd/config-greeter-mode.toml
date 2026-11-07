@@ -1,5 +1,9 @@
 [terminal]
 vt = 1
+# andromeda-greetd: the VT stays in graphics mode, and a login starts the session on a free VT while the greeter
+# stays on screen until the switch, so no console or black frame shows between them.
+graphics = true
+handoff = true
 
 [general]
 # Password only at boot (greeter v2): /etc/pam.d/andromeda-greeter has no pam_gaze, so the keyring always unlocks.

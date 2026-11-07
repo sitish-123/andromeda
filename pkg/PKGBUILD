@@ -1,6 +1,6 @@
 pkgbase=desktop-git
 pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-portal-andromeda-git andromeda-link-git
-  andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git)
+  andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git andromeda-greetd)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
 pkgver=r15118.g323ef68bf
@@ -16,8 +16,10 @@ makedepends=(git meson ninja wayland-protocols xorg-xwayland poppler-glib libzip
   gstreamer gst-plugins-base-libs qt6-base qt6-declarative qt6-multimedia sqlite mpv ffmpeg)
 url=https://github.com/sitish-123/andromeda
 # `just package` and the release workflow build a local checkout; anyone else builds the published repository.
-source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}")
-sha256sums=(SKIP)
+# greetd base for andromeda-greetd; our patches are in desktop/session/greetd/patches.
+source=("desktop::git+${ANDROMEDA_SOURCE:-$url.git}"
+  "greetd::git+https://git.sr.ht/~kennylevinsen/greetd#commit=d5f27c3a8b1758da9e45608d2cff20303f21c2ff")
+sha256sums=(SKIP SKIP)
 
 pkgver() {
   cd desktop
@@ -32,6 +34,11 @@ prepare() {
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
   cargo fetch --locked --manifest-path desktop/system/Cargo.toml
   cargo fetch --locked --manifest-path desktop/andromeda-preview/helper/Cargo.toml
+  local patch
+  for patch in desktop/session/greetd/patches/*.patch; do
+    patch -d greetd -Np1 < "$patch"
+  done
+  cargo fetch --locked --manifest-path greetd/Cargo.toml
 }
 
 build() {
@@ -65,6 +72,7 @@ build() {
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror -p link-desk -p link-session
   RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
+  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" cargo build --frozen --release --manifest-path greetd/Cargo.toml -p greetd
 }
 
 # Library dependencies at least at the version this was built against: an Andromeda-only update (Settings) on an
@@ -84,6 +92,20 @@ _pin_depends() {
     pinned+=("$dep${version:+>=$version}")
   done
   depends=("${pinned[@]}")
+}
+
+package_andromeda-greetd() {
+  pkgdesc='greetd with a GDM-style hand-off: the greeter stays on screen until the session took its own VT'
+  depends=(pam)
+  provides=(greetd=0.10.3)
+  conflicts=(greetd)
+  backup=(etc/greetd/config.toml etc/pam.d/greetd)
+  install -Dm755 greetd/target/release/greetd "$pkgdir/usr/bin/greetd"
+  install -Dm644 greetd/config.toml "$pkgdir/etc/greetd/config.toml"
+  install -Dm644 desktop/session/greetd/greetd.pam "$pkgdir/etc/pam.d/greetd"
+  install -Dm644 desktop/session/greetd/greetd.service "$pkgdir/usr/lib/systemd/system/greetd.service"
+  install -Dm644 desktop/session/greetd/greetd.sysusers "$pkgdir/usr/lib/sysusers.d/greetd.conf"
+  install -Dm644 greetd/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 package_andromeda-system-git() {
@@ -303,7 +325,7 @@ package_andromeda-power-git() {
 
 package_noctalia-greeter-desktop-git() {
   pkgdesc='Noctalia greeter fork for greetd: the Ryoku login, face first through Gaze, the password always open'
-  depends=(greetd wlroots0.20 libinput libxkbcommon cairo pango librsvg libxml2 glib2 fontconfig freetype2)
+  depends=(andromeda-greetd wlroots0.20 libinput libxkbcommon cairo pango librsvg libxml2 glib2 fontconfig freetype2)
   optdepends=('gaze-bin: face login; needs the marker-host change until it is upstream (tools/gaze-patched.sh)')
   provides=(noctalia-greeter)
   conflicts=(noctalia-greeter)

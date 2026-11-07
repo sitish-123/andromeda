@@ -1,0 +1,197 @@
+From baaaa093efef7feadc45d17b76bdac5d5ac7bdc4 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 11:56:24 +0545
+Subject: [PATCH 1/2] terminal: graphics option keeps the session VT in
+ KD_GRAPHICS without a clear, so the console never draws over the hand-off
+
+---
+ greetd/src/config/mod.rs     | 13 +++++++++++++
+ greetd/src/server.rs         | 14 ++++++++++++--
+ greetd/src/session/worker.rs | 23 ++++++++++++++++++-----
+ 3 files changed, 43 insertions(+), 7 deletions(-)
+
+diff --git a/greetd/src/config/mod.rs b/greetd/src/config/mod.rs
+index 3ad6f21..2c553a3 100644
+--- a/greetd/src/config/mod.rs
++++ b/greetd/src/config/mod.rs
+@@ -50,6 +50,7 @@ pub struct ConfigInternal {
+ pub struct ConfigTerminal {
+     pub vt: VtSelection,
+     pub switch: bool,
++    pub graphics: bool,
+ }
+ 
+ #[derive(Debug, Eq, PartialEq)]
+@@ -186,6 +187,11 @@ fn parse_config(config_str: &str) -> Result<ConfigFile, Error> {
+                 .unwrap_or(&"true")
+                 .parse()
+                 .map_err(|e| format!("could not parse switch: {e}"))?,
++            graphics: section
++                .get("graphics")
++                .unwrap_or(&"false")
++                .parse()
++                .map_err(|e| format!("could not parse graphics: {e}"))?,
+         }),
+         None => Err("no terminal specified"),
+     }?;
+@@ -293,6 +299,7 @@ command = \"agreety\"
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Specific(1),
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -322,6 +329,7 @@ user = \"john\"
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Specific(1),
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -352,6 +360,7 @@ service = \"greetd-autologin\"
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Specific(1),
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -385,6 +394,7 @@ runfile = \"/path/to/greetd.state\"
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Specific(1),
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -429,6 +439,7 @@ vt = 1
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Specific(1),
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -453,6 +464,7 @@ vt = next
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Next,
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+@@ -477,6 +489,7 @@ vt = current
+                 terminal: ConfigTerminal {
+                     vt: VtSelection::Current,
+                     switch: true,
++                    graphics: false,
+                 },
+                 default_session: ConfigSession {
+                     command: "agreety".to_string(),
+diff --git a/greetd/src/server.rs b/greetd/src/server.rs
+index 057232d..171aeac 100644
+--- a/greetd/src/server.rs
++++ b/greetd/src/server.rs
+@@ -21,9 +21,15 @@ use greetd_ipc::{
+ 
+ fn reset_vt(term_mode: &TerminalMode) -> Result<(), Error> {
+     match term_mode {
+-        TerminalMode::Terminal { path, vt, .. } => {
++        TerminalMode::Terminal {
++            path, vt, graphics, ..
++        } => {
+             let term = Terminal::open(path)?;
+-            term.kd_setmode(terminal::KdMode::Text)?;
++            term.kd_setmode(if *graphics {
++                terminal::KdMode::Graphics
++            } else {
++                terminal::KdMode::Text
++            })?;
+             term.vt_setactivate(*vt)?;
+         }
+         TerminalMode::Stdin => (),
+@@ -127,6 +133,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
+                         path: term_name,
+                         vt,
+                         switch: false,
++                        graphics: config.file.terminal.graphics,
+                     }
+                 }
+                 Ok(term_name) if term_name.starts_with(PTS_PREFIX) => {
+@@ -143,6 +150,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
+                         path: format!("/dev/tty{vt}"),
+                         vt,
+                         switch: false,
++                        graphics: config.file.terminal.graphics,
+                     }
+                 }
+             }
+@@ -157,6 +165,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
+                 path: format!("/dev/tty{vt}"),
+                 vt,
+                 switch: config.file.terminal.switch,
++                graphics: config.file.terminal.graphics,
+             }
+         }
+         VtSelection::None => TerminalMode::Stdin,
+@@ -164,6 +173,7 @@ fn get_tty(config: &Config) -> Result<TerminalMode, Error> {
+             path: format!("/dev/tty{vt}"),
+             vt,
+             switch: config.file.terminal.switch,
++            graphics: config.file.terminal.graphics,
+         },
+     };
+     Ok(term)
+diff --git a/greetd/src/session/worker.rs b/greetd/src/session/worker.rs
+index f4765c8..c12f670 100644
+--- a/greetd/src/session/worker.rs
++++ b/greetd/src/session/worker.rs
+@@ -31,6 +31,8 @@ pub enum TerminalMode {
+         path: String,
+         vt: usize,
+         switch: bool,
++        /// Graphical sessions: the VT goes to KD_GRAPHICS without a clear, so the kernel console never draws it.
++        graphics: bool,
+     },
+     Stdin,
+ }
+@@ -178,7 +180,12 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
+ 
+     match tty {
+         TerminalMode::Stdin => (),
+-        TerminalMode::Terminal { path, vt, switch } => {
++        TerminalMode::Terminal {
++            path,
++            vt,
++            switch,
++            graphics,
++        } => {
+             // Tell PAM what TTY we're targeting, which is used by logind.
+             pam.set_item(PamItemType::TTY, &format!("tty{vt}"))?;
+             pam.putenv(&format!("XDG_VTNR={vt}"))?;
+@@ -189,10 +196,16 @@ fn worker(sock: &UnixDatagram) -> Result<(), Error> {
+             // Set the target VT mode to text for compatibility. Other login managers
+             // set this to graphics, but that disallows start of textual applications,
+             // which greetd aims to support.
+-            target_term.kd_setmode(terminal::KdMode::Text)?;
+-
+-            // Clear TTY so that it will be empty when we switch to it.
+-            target_term.term_clear()?;
++            // With `graphics`, the VT stays in graphics mode across the hand-off: a text-mode VT makes the kernel
++            // console draw over the last frame until the next compositor takes over.
++            if graphics {
++                target_term.kd_setmode(terminal::KdMode::Graphics)?;
++            } else {
++                target_term.kd_setmode(terminal::KdMode::Text)?;
++
++                // Clear TTY so that it will be empty when we switch to it.
++                target_term.term_clear()?;
++            }
+ 
+             // A bit more work if a VT switch is required.
+             if switch && vt != target_term.vt_get_current()? {
+-- 
+2.56.0
+
