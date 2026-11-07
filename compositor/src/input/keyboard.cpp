@@ -15,6 +15,7 @@
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/server.h"
+#include "view/snap_flyout.h"
 #include "wlr.h"
 
 #include <algorithm>
@@ -583,6 +584,15 @@ namespace andromeda {
           } else {
             m_server->dismissConfirmation();
           }
+          handled = true;
+          confirmationConsumed = true;
+        }
+      }
+      // The Snap Layouts flyout holds the keyboard while open: arrows, Enter and Escape drive it, any other key closes it
+      // and goes on to binds and clients.
+      if (!confirmationConsumed && !modifierOnly && nsyms > 0) {
+        if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active() && flyout->key(syms[0])) {
+          m_consumedKeycodes.insert(event->keycode);
           handled = true;
           confirmationConsumed = true;
         }

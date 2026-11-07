@@ -210,6 +210,7 @@ namespace andromeda {
     OutputSdrWhite,
     WindowSnap,
     WindowUnsnap,
+    WindowSnapLayouts,
     Shell,
     ZoomIn,
     ZoomOut,

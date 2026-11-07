@@ -1407,6 +1407,15 @@ namespace andromeda {
       return true;
     }
 
+    bool actionWindowSnapLayouts(Server& server, const Keybind&, std::string* error) {
+      View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
+      if (view == nullptr || !view->canSnap()) {
+        return reject(error, "window-snap-layouts needs a floating window");
+      }
+      server.openSnapLayouts(*view, true);
+      return true;
+    }
+
     bool actionWindowCenter(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       if (View* view = placementTarget(server, {}, FocusSource::Scratchpad).value_or(nullptr)) {
         view->centerFloating();
@@ -2434,6 +2443,7 @@ namespace andromeda {
         &actionOutputSdrWhite,
         &actionWindowSnap,
         &actionWindowUnsnap,
+        &actionWindowSnapLayouts,
         &actionShell,
         &actionZoom<1>,
         &actionZoom<-1>,

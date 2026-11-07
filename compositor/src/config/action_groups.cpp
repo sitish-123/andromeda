@@ -98,6 +98,7 @@ namespace andromeda {
     case A::WindowCycleSecondaryExtentBack:
     case A::WindowSnap:
     case A::WindowUnsnap:
+    case A::WindowSnapLayouts:
     case A::WindowCenter:
     case A::WindowMoveTo:
     case A::WindowMoveBy:

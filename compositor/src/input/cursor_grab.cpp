@@ -5,6 +5,7 @@
 #include "output/output.h"
 #include "scene/hint_rect.h"
 #include "server/server.h"
+#include "view/snap_flyout.h"
 #include "view/size_hints.h"
 #include "view/view.h"
 // clang-format off
@@ -265,7 +266,25 @@ namespace andromeda {
         }
       }
     }
-    const auto hit = snapZoneAt(area, m_cursor->x, m_cursor->y, grab->dwellReady ? 0 : shared);
+    const auto edge = snapZoneAt(area, m_cursor->x, m_cursor->y, grab->dwellReady ? 0 : shared);
+    std::optional<SnapSpot> hit = edge ? std::optional<SnapSpot>(*edge) : std::nullopt;
+    // Free mode: the top edge shows the Snap Layouts flyout; a zone under the pointer takes the drop. Leaving the top
+    // edge and the sheet closes it again.
+    if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && grab->floatingLayout) {
+      const wlr_box usable = output->usableArea();
+      if (edge == SnapRegion::Top && !flyout->active()) {
+        flyout->open(*grab->view, usable.x + usable.width / 2, usable.y + 8, usable, false);
+      }
+      if (flyout->active() && flyout->view() == grab->view) {
+        if (const std::optional<SnapZone> zone = flyout->zoneAt(m_cursor->x, m_cursor->y)) {
+          hit = *zone;
+        } else if (flyout->contains(m_cursor->x, m_cursor->y)) {
+          hit.reset();
+        } else if (edge != SnapRegion::Top) {
+          flyout->close();
+        }
+      }
+    }
     if (!hit) {
       grab->snap.reset();
       grab->snapOutput = nullptr;

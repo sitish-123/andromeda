@@ -858,6 +858,7 @@ pure_sources = files(
   'src/view/effects_rules.cpp',
   'src/view/floating.cpp',
   'src/view/snap.cpp',
+  'src/view/snap_flyout.cpp',
   'src/view/drag_physics.cpp',
   'src/xwayland/xsettings.cpp',
 )

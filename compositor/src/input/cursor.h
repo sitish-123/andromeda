@@ -63,7 +63,7 @@ namespace andromeda {
       int sourceColumn = -1;
       std::optional<DropColumnWidth> sourceWidth;
       DropTarget drop;
-      std::optional<SnapRegion> snap;
+      std::optional<SnapSpot> snap; // a half or quarter from an edge, or a Snap Layouts zone from the flyout
       Output* snapOutput = nullptr;
       int preDragX = 0;
       int preDragY = 0;
@@ -324,6 +324,10 @@ namespace andromeda {
     void updateSnapPreview();
     void clearSnapPreview();
     static int onSnapDwellTimer(void* data);
+    // Free mode: a pointer that rests on an SSD maximize button opens the Snap Layouts flyout under it; the flyout it
+    // opened closes when the pointer leaves both the button and the sheet. `view` is null off a maximize button.
+    void updateMaximizeDwell(View* view);
+    static int onMaximizeDwellTimer(void* data);
     // Present the size the drop will land on, so the drag is already the right
     // shape when it gets there.
     void retargetDragSize(MoveGrab& grab);
@@ -511,6 +515,9 @@ namespace andromeda {
     wl_event_source* m_hotCornerTimer = nullptr;
     wl_event_source* m_snapDwellTimer = nullptr;
     bool m_snapDwellArmed = false; // skips a disarm syscall per motion
+    wl_event_source* m_maximizeDwellTimer = nullptr;
+    Ref<View> m_maximizeDwellView;
+    bool m_flyoutFromHover = false;
     wl_event_source* m_dataDragEdgeScrollTimer = nullptr;
     Workspace* m_dataDragEdgeScrollWorkspace = nullptr;
     double m_dataDragEdgeScrollSpeed = 0;

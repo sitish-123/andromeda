@@ -177,6 +177,7 @@ namespace andromeda {
   class ConfigBanner;
   class FpsOverlay;
   class QuitConfirm;
+  class SnapFlyout;
   class Ipc;
 
   class Server {
@@ -235,6 +236,9 @@ namespace andromeda {
     [[nodiscard]] ConfigBanner* configBanner() const { return m_configBanner.get(); }
     [[nodiscard]] FpsOverlay* fpsOverlay() const { return m_fpsOverlay.get(); }
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
+    [[nodiscard]] SnapFlyout* snapFlyout() const { return m_snapFlyout.get(); }
+    // Shows the Snap Layouts flyout for `view`: at the window's top centre, or at (x, y) when given (layout coordinates).
+    void openSnapLayouts(View& view, bool keyboard, std::optional<std::pair<int, int>> at = std::nullopt);
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).
     [[nodiscard]] wlr_scene_tree* dragTree() const { return m_dragTree; }
     // Parent for wl_data_device drag icons; moved to the cursor while a drag is active.
@@ -965,6 +969,7 @@ namespace andromeda {
     wlr_scene_tree* m_bannerTree = nullptr;
     std::unique_ptr<FpsOverlay> m_fpsOverlay;
     wlr_scene_tree* m_quitConfirmTree = nullptr;
+    wlr_scene_tree* m_snapFlyoutTree = nullptr;
 
     bool m_nested = false;
     bool m_stopping = false;
@@ -1192,6 +1197,7 @@ namespace andromeda {
     TeardownStep m_stepWlrCore{this, &Server::destroyWlrCore};
     std::unique_ptr<ScratchpadManager> m_scratchpadManager;
     std::unique_ptr<QuitConfirm> m_quitConfirm;
+    std::unique_ptr<SnapFlyout> m_snapFlyout;
     std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
     std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
     std::unique_ptr<SyncobjAcquireBarrier> m_syncobjAcquireBarrier;

@@ -514,6 +514,7 @@ namespace andromeda {
         {"window-snap", "<left|right|top|bottom|top_left|top_right|bottom_left|bottom_right|<layout>.<zone>>",
          "Snap the floating window, or restore it when already there", KeybindAction::WindowSnap,
          ActionArgKind::SnapRegion},
+        {"window-snap-layouts", "", "Show the Snap Layouts for the floating window", KeybindAction::WindowSnapLayouts},
         {"window-swap-down", "", "Swap with the window below", KeybindAction::WindowSwapDown},
         {"window-swap-left", "", "Swap with the window to the left", KeybindAction::WindowSwapLeft},
         {"window-swap-next", "", "Swap with the next window in layout order", KeybindAction::WindowSwapNext},
@@ -1096,6 +1097,8 @@ namespace andromeda {
       activity.payload = SpawnArg{.command = "noctalia msg activity-open"};
       keybinds.push_back(std::move(activity));
     }
+    add(KeybindAction::WindowSnapLayouts, XKB_KEY_z).repeat = false;
+    add(KeybindAction::WorkspaceToggleShowDesktop, XKB_KEY_d).repeat = false;
 
     return keybinds;
   }

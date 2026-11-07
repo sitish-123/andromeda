@@ -12,6 +12,7 @@
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
 #include "server/dsk_surface.h"
+#include "view/snap_flyout.h"
 #include "view/view.h"
 // clang-format off
 #include <drm_fourcc.h>
@@ -80,6 +81,9 @@ namespace andromeda {
   }
 
   Cursor::~Cursor() {
+    if (m_maximizeDwellTimer != nullptr) {
+      wl_event_source_remove(m_maximizeDwellTimer);
+    }
     if (m_snapDwellTimer != nullptr) {
       wl_event_source_remove(m_snapDwellTimer);
     }
@@ -1088,6 +1092,14 @@ namespace andromeda {
     // button stays down in that client for good.
     const bool releasesClientGrab = state == WL_POINTER_BUTTON_STATE_RELEASED && pointerFocusPinned();
 
+    // The Snap Layouts flyout takes a press on itself; a press elsewhere closes it and goes on as usual.
+    if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr
+        && flyout->active()
+        && state == WL_POINTER_BUTTON_STATE_PRESSED
+        && flyout->press(m_cursor->x, m_cursor->y)) {
+      return;
+    }
+
     // Overview owns the pointer while it is up: cards are its own hit-test surface and the desktop underneath is inert.
     // Top/overlay layer surfaces (panels) stay fully interactive.
     if (Overview* overview = m_server->overview();
@@ -1509,6 +1521,9 @@ namespace andromeda {
     }
     updateHotCorner();
     forwardEffectPointer();
+    if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active()) {
+      flyout->hover(m_cursor->x, m_cursor->y);
+    }
     if (const wlr_drag* drag = m_server->seat()->wlr()->drag; drag != nullptr && drag->dropped) {
       return;
     }
@@ -1660,6 +1675,7 @@ namespace andromeda {
     m_ssdHoverView = frameView;
     if (frameView != nullptr)
       frameView->ssdFrame()->setHovered(frameHit->part);
+    updateMaximizeDwell(frameHit && frameHit->part == SsdFramePart::Maximize ? frameView : nullptr);
     if (m_ssdButtonPress.view != nullptr && m_ssdButtonPress.view->ssdFrame() != nullptr) {
       m_ssdButtonPress.view->ssdFrame()->setPressed(
           frameHit && frameView == m_ssdButtonPress.view && frameHit->part == m_ssdButtonPress.part
@@ -1972,6 +1988,9 @@ namespace andromeda {
       m_snapDwellArmed = false;
     }
     if (auto* grab = std::get_if<MoveGrab>(&m_grab)) {
+      if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active() && flyout->view() == grab->view) {
+        flyout->close();
+      }
       if (grab->snap) {
         m_server->hideInsertHint();
       }
@@ -1981,6 +2000,45 @@ namespace andromeda {
       grab->dwellEdges = 0;
       grab->dwellReady = false;
     }
+  }
+
+  void Cursor::updateMaximizeDwell(View* view) {
+    constexpr int kMaximizeDwellMs = 400;
+    if (view != nullptr
+        && (!view->ssdFrame()->maximizeEnabled()
+            || view->workspace() == nullptr
+            || view->workspace()->layoutMode() != LayoutMode::Floating)) {
+      view = nullptr;
+    }
+    SnapFlyout* flyout = m_server->snapFlyout();
+    const bool open = flyout != nullptr && flyout->active();
+    if (open && m_flyoutFromHover && view == nullptr && !flyout->contains(m_cursor->x, m_cursor->y)) {
+      flyout->close();
+    }
+    m_flyoutFromHover = m_flyoutFromHover && flyout != nullptr && flyout->active();
+    if (view == m_maximizeDwellView.get()) {
+      return;
+    }
+    m_maximizeDwellView = Ref<View>(view);
+    if (m_maximizeDwellTimer == nullptr) {
+      m_maximizeDwellTimer =
+          wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onMaximizeDwellTimer, this);
+    }
+    if (m_maximizeDwellTimer != nullptr) {
+      wl_event_source_timer_update(m_maximizeDwellTimer, view != nullptr && !open ? kMaximizeDwellMs : 0);
+    }
+  }
+
+  int Cursor::onMaximizeDwellTimer(void* data) {
+    auto* self = static_cast<Cursor*>(data);
+    View* view = self->m_maximizeDwellView.get();
+    if (view == nullptr || self->m_ssdButtonPress.view != nullptr || !std::holds_alternative<PassthroughGrab>(self->m_grab)) {
+      return 0;
+    }
+    // The sheet's top edge sits just under the pointer, so moving down from the button enters it at once.
+    self->m_server->openSnapLayouts(*view, false, std::pair{static_cast<int>(self->m_cursor->x), static_cast<int>(self->m_cursor->y) + 4});
+    self->m_flyoutFromHover = self->m_server->snapFlyout() != nullptr && self->m_server->snapFlyout()->active();
+    return 0;
   }
 
   int Cursor::onSnapDwellTimer(void* data) {
