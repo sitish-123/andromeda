@@ -992,7 +992,7 @@ namespace andromeda {
       // Title capsule under each window card: always, or only on the hovered or selected card.
       OverviewTitles titles = OverviewTitles::Always;
       // Strip only: each workspace row's scale.
-      double zoom = 0.5;
+      double zoom = 0.6;
       // Touchpad travel and wheel accumulation in the overview, by the physical direction of the movement rather
       // than the output's workspace axis. Independent of an input device's own scroll_factor.
       double scrollFactorHorizontal = 1.0;

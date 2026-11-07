@@ -26,8 +26,12 @@ namespace andromeda::ov {
     constexpr double kTaskViewTitleY = 22;
     constexpr double kMinimizedOpacity = 0.55;
 
-    constexpr double kStripGap = 60; // between Strip rows: room for the next row's name above it (prototype)
-    constexpr double kStripFilterY = 14;
+    constexpr double kStripGap = 60;      // between Strip rows: room for the next row's name above it (prototype)
+    constexpr double kStripFilterTop = 8; // Strip: filter field top, the center island's row
+    // Grid: filter field above the usable bottom (mockup B); the top of the screen holds the center island.
+    constexpr double kFilterBottom = 24;
+    constexpr double kFieldHeight = 32;
+    constexpr double kPeekOpacity = 0.6;     // Strip: a neighbouring workspace row one step away (mockup B)
     constexpr double kStripPlusShare = 0.45; // the Strip's New row is this share of a row's extent along the axis
     constexpr double kDimmed = 0.5;
     constexpr double kHiddenFade = 3; // a window the placement hides is gone a third of the way into the open
@@ -185,15 +189,18 @@ namespace andromeda::ov {
         const Rect frame = frameAt(static_cast<double>(i));
         out.cards.push_back({i, frame, CardKind::Frame});
         const Fit fit{s, frame.x, frame.y};
+        const double peek = 1.0 - (1.0 - kPeekOpacity) * std::min(1.0, std::abs(static_cast<double>(i) - row));
         for (const Member& m : in.workspaces[i].members) {
           const bool away = in.workspaces[i].arrangement == Arrangement::Scrolling && offscreen(m.desk, in.width);
-          out.windows.push_back(win(m.id, i, mapRect(m.desk, fit), m.minimized ? 0.0 : 1.0, away));
+          out.windows.push_back(win(m.id, i, mapRect(m.desk, fit), m.minimized ? 0.0 : peek, away));
         }
       }
       Rect plus = frameAt(static_cast<double>(n));
       (in.horizontal ? plus.w : plus.h) *= kStripPlusShare;
       out.plus = plus;
-      out.filter = Point{in.width / 2 - kFilterWidth / 2, kStripFilterY};
+      // Top trailing corner, level with the center island: the side bar islands step aside while the overview is open,
+      // and no row reaches there at any zoom (the bottom holds the next row).
+      out.filter = Point{in.width - kMargin - kFilterWidth, kStripFilterTop};
       return out;
     }
 
@@ -263,7 +270,7 @@ namespace andromeda::ov {
         }
       }
       out.plus = cell(n);
-      out.filter = Point{in.width / 2 - kFilterWidth / 2, kStripFilterY};
+      out.filter = Point{in.width / 2 - kFilterWidth / 2, in.usable.y + in.usable.h - kFilterBottom - kFieldHeight};
       return out;
     }
 

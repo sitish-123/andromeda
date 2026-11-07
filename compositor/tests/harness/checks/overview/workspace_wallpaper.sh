@@ -28,6 +28,8 @@ enabled = false
 # Last section, so the second phase appends `workspace_wallpaper` to it.
 [overview]
 style = "strip"
+# The geometry below assumes rows at half scale.
+zoom = 0.5
 background_blur = false
 EOF
 

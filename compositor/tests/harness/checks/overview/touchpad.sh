@@ -43,6 +43,8 @@ default_extent_fraction = 0.5
 
 [overview]
 style = "strip"
+# The geometry below assumes rows at half scale.
+zoom = 0.5
 background_blur = false
 scroll_factor_vertical = $2
 scroll_factor_horizontal = $3
