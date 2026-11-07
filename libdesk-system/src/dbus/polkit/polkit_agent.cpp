@@ -126,6 +126,8 @@ namespace {
   // pam_gaze sends these instead of English text to services on gazed's PamInternal list.
   constexpr std::string_view kGazeConfirmRequest = "GAZE_REQUIRE_CONFIRMATION";
   constexpr std::string_view kGazeConfirmed = "GAZE_CONFIRMED";
+  // gaze_core::dbus::GAZE_FACE_ON_REQUEST_PROMPT (pam_gaze `on-request`); matched exactly.
+  constexpr std::string_view kGazeFaceOnRequestPrompt = "Password (Enter for face): ";
 
   struct GazeMarker {
     PolkitFaceState state = PolkitFaceState::None;
@@ -344,6 +346,7 @@ struct PolkitAgent::Impl {
   PolkitFaceState face = PolkitFaceState::None;
   bool faceConfirm = false;
   bool faceConfirmIsPrompt = false;
+  bool faceOnRequest = false;
 
   mutable std::vector<GPollFD> glibPollFds;
   mutable gint glibMaxPriority = G_PRIORITY_DEFAULT;
@@ -569,6 +572,7 @@ struct PolkitAgent::Impl {
     face = PolkitFaceState::None;
     faceConfirm = false;
     faceConfirmIsPrompt = false;
+    faceOnRequest = false;
     responseRequired = false;
     responseVisible = false;
     inputPrompt.clear();
@@ -683,6 +687,14 @@ struct PolkitAgent::Impl {
       return;
     }
     faceConfirmIsPrompt = false;
+    faceOnRequest = prompt == kGazeFaceOnRequestPrompt;
+    if (faceOnRequest) {
+      inputPrompt = i18n::tr("auth.polkit.password-or-face");
+      responseVisible = false;
+      responseRequired = true;
+      emitStateChanged();
+      return;
+    }
     inputPrompt = prompt.empty() ? i18n::tr("auth.polkit.default-message") : prompt;
     responseVisible = echoOn;
     responseRequired = true;
@@ -783,10 +795,12 @@ struct PolkitAgent::Impl {
     if (pending == nullptr || session == nullptr || !responseRequired) {
       return;
     }
-    // Empty responses make pam_unix report "conversation failed" / "auth could not identify password".
-    if (response.empty()) {
+    // Empty responses make pam_unix report "conversation failed" / "auth could not identify password"; only the
+    // pam_gaze on-request prompt takes one (it asks for a face scan).
+    if (response.empty() && !faceOnRequest) {
       return;
     }
+    faceOnRequest = false;
     polkit_agent_session_response(session, response.c_str());
     faceConfirm = false;
     faceConfirmIsPrompt = false;
@@ -1031,3 +1045,7 @@ bool PolkitAgent::faceConfirmPending() const noexcept {
 }
 
 bool PolkitAgent::faceConfirmIsPrompt() const noexcept { return m_impl != nullptr && m_impl->faceConfirmIsPrompt; }
+
+bool PolkitAgent::faceOnRequestPending() const noexcept {
+  return m_impl != nullptr && m_impl->faceOnRequest && m_impl->responseRequired;
+}

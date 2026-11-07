@@ -70,6 +70,8 @@ public:
   [[nodiscard]] bool faceConfirmPending() const noexcept;
   // True when the confirmation is the prompt itself, so a typed password cannot answer it.
   [[nodiscard]] bool faceConfirmIsPrompt() const noexcept;
+  // pam_gaze on-request prompt: an empty answer asks for one face scan, a typed one is the password.
+  [[nodiscard]] bool faceOnRequestPending() const noexcept;
 
 private:
   void registerWithGaze();

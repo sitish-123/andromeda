@@ -83,6 +83,18 @@
     "yes": "Yes"
   },
   "auth": {
+    "finger": {
+      "right-index-finger": "Right index finger",
+      "left-index-finger": "Left index finger",
+      "right-middle-finger": "Right middle finger",
+      "left-middle-finger": "Left middle finger",
+      "right-thumb": "Right thumb",
+      "left-thumb": "Left thumb",
+      "right-ring-finger": "Right ring finger",
+      "left-ring-finger": "Left ring finger",
+      "right-little-finger": "Right little finger",
+      "left-little-finger": "Left little finger"
+    },
     "face": {
       "confirm": "Confirm",
       "hold-still": "Hold still…",
@@ -122,6 +134,7 @@
       "authenticating": "Authenticating…",
       "default-message": "Authentication required",
       "invalid-password": "Invalid password",
+      "password-or-face": "Password, or press Enter for Face Unlock",
       "password-placeholder": "Password",
       "title": "Authentication Required"
     }
@@ -1376,8 +1389,10 @@
     "failed-attempts": "{count} failed attempts",
     "glance-hint": "Press any key to unlock",
     "glance-hint-face": "Press any key or look at the camera to unlock",
+    "glance-hint-face-request": "Press any key, then tap the face icon to unlock",
     "password-cleared": "Password cleared",
     "password-placeholder": "Password",
+    "password-placeholder-face": "Password, or Enter for Face Unlock",
     "pam-error": "Can't check your password: {message}",
     "password-required": "Password required",
     "ready": "Type your password and press Enter.",
@@ -3525,6 +3540,10 @@
         "face": {
           "description": "Unlock by looking at the camera through Gaze, alongside password entry",
           "label": "Face Unlock"
+        },
+        "face-on-request": {
+          "description": "The camera starts only when you tap the face icon or press Enter with an empty field",
+          "label": "Start Face Unlock on Tap"
         },
         "fingerprint": {
           "description": "Unlock with a fingerprint reader via fprintd, alongside password entry",

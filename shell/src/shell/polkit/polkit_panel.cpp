@@ -148,7 +148,8 @@ void PolkitPanel::create() {
               [this](const std::string& value) {
                 if (m_submitButton != nullptr) {
                   PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
-                  const bool faceConfirm = agent != nullptr && agent->faceConfirmPending();
+                  const bool faceConfirm =
+                      agent != nullptr && (agent->faceConfirmPending() || agent->faceOnRequestPending());
                   m_submitButton->setEnabled(m_lastResponseRequired && (faceConfirm || !value.empty()));
                 }
               },
@@ -331,7 +332,8 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
   m_supplementaryLabel->setVisible(!supplementaryText.empty());
   m_supplementaryLabel->setColor(colorSpecFromRole(ColorRole::Label2));
   const PolkitFaceState face = agent->faceState();
-  const bool faceConfirm = agent->faceConfirmPending();
+  // An empty answer is valid for the on-request prompt: it asks for one face scan.
+  const bool faceConfirm = agent->faceConfirmPending() || agent->faceOnRequestPending();
   if (m_faceGlyph != nullptr) {
     m_faceGlyph->setVisible(face != PolkitFaceState::None);
     m_faceGlyph->setGlyph(face == PolkitFaceState::Failed ? "face-id-error" : "face-id");
@@ -339,7 +341,7 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
   }
   m_input->setVisible(needsInput && !agent->faceConfirmIsPrompt());
   m_submitButton->setVisible(needsInput);
-  m_submitButton->setText(i18n::tr(faceConfirm ? "auth.face.confirm" : "auth.polkit.authenticate"));
+  m_submitButton->setText(i18n::tr(agent->faceConfirmPending() ? "auth.face.confirm" : "auth.polkit.authenticate"));
   m_submitButton->setEnabled(needsInput && (faceConfirm || !m_input->value().empty()));
   if (needsInput && !m_lastResponseRequired) {
     if (auto* manager = PanelManager::current(); manager != nullptr && manager->isOpenPanel("polkit")) {
@@ -395,6 +397,8 @@ void PolkitPanel::submit(std::string_view response) {
   if (password.empty()) {
     if (agent->faceConfirmPending()) {
       agent->confirmFace();
+    } else if (agent->faceOnRequestPending()) {
+      agent->submitResponse("");
     }
     return;
   }

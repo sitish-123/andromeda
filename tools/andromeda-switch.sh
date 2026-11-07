@@ -22,6 +22,7 @@ pacman -Q andromeda-power-git > /dev/null 2>&1 || pacman -Q umbriel-power-git > 
 pacman -U --needed --noconfirm --ask 4 "${packages[@]}"
 
 "$ROOT/tools/gaze-patched.sh" install
-sed -i 's/^\(auth\s\+sufficient\s\+pam_gaze\.so\)$/\1 simultaneous/' /etc/pam.d/polkit-1 /etc/pam.d/sudo
+# Face scans only on request: an empty answer to the one prompt starts the camera.
+sed -i -E 's/^(auth\s+sufficient\s+pam_gaze\.so)(\s+(simultaneous|sequential|retry))?$/\1 on-request/' /etc/pam.d/polkit-1 /etc/pam.d/sudo
 "$ROOT/tools/greeter-switch.sh" greetd
 echo "done: reboot to log in through the Ryoku greeter"

@@ -97,6 +97,10 @@ FaceAuthenticator::FaceAuthenticator(SystemBus& bus, std::string user) : m_bus(b
       if (sleeping) {
         m_retryTimer.stop();
         stopVerify();
+        if (m_onRequest) {
+          m_active = false;
+          release();
+        }
       } else if (m_active) {
         arm();
       }
@@ -139,6 +143,26 @@ void FaceAuthenticator::stop() {
   m_pending = false;
   stopVerify();
   release();
+}
+
+void FaceAuthenticator::request() {
+  if (m_misses >= kMaxMisses) {
+    emitStatus(i18n::tr("auth.face.too-many-attempts"), true);
+    return;
+  }
+  if (m_unavailable) {
+    emitStatus(i18n::tr("auth.face.unavailable"), true);
+    return;
+  }
+  if (!m_active) {
+    m_active = true;
+    arm();
+    return;
+  }
+  if (!m_verifying && !m_pending && !m_sleeping) {
+    m_retryTimer.stop();
+    arm();
+  }
 }
 
 void FaceAuthenticator::onUserActivity() {
@@ -318,6 +342,21 @@ void FaceAuthenticator::handleVerifyStatus(
     return;
   }
 
+  if (m_onRequest) {
+    // One scan per request: the camera stops until the next tap or empty Enter.
+    if (judged) {
+      ++m_misses;
+    }
+    emitStatus(
+        m_misses >= kMaxMisses ? i18n::tr("auth.face.too-many-attempts")
+                               : (judged ? i18n::tr("auth.face.no-match") : unjudgedEndText(rgb, ir)),
+        true
+    );
+    m_active = false;
+    release();
+    return;
+  }
+
   if (!judged) {
     emitStatus(unjudgedEndText(rgb, ir), true);
     return;
@@ -346,6 +385,9 @@ void FaceAuthenticator::handleDaemonGone() {
   m_gaze.reset();
   if (wasVerifying && m_active) {
     emitStatus(i18n::tr("auth.face.unavailable"), true);
+  }
+  if (m_onRequest) {
+    m_active = false;
   }
 }
 

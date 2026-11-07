@@ -101,6 +101,15 @@ namespace settings {
       entries.push_back(std::move(e));
     }
     {
+      auto e = makeEntry(
+          SettingsSection::Security, "lock-screen", tr("settings.schema.lockscreen.face-on-request.label"),
+          tr("settings.schema.lockscreen.face-on-request.description"), {"lockscreen", "face_on_request"},
+          ToggleSetting{cfg.lockscreen.faceOnRequest}, "lock screen face unlock tap request camera privacy"
+      );
+      e.visibleWhen = [](const Config& c) { return c.lockscreen.enabled && c.lockscreen.face; };
+      entries.push_back(std::move(e));
+    }
+    {
       SelectSetting theme{
           {SelectOption{.value = "andromeda", .label = tr("settings.schema.lockscreen.theme.andromeda")},
            SelectOption{.value = "ryoku", .label = tr("settings.schema.lockscreen.theme.ryoku")}},

@@ -34,6 +34,16 @@ public:
   void stop();
   // A key press or pointer button: retries a verify that ended without judging a face.
   void onUserActivity();
+  // On request (lockscreen.face_on_request): the camera runs only after request(), one scan per request, and a
+  // scan that ends without a match waits for the next request instead of retrying.
+  void setOnRequest(bool onRequest) { m_onRequest = onRequest; }
+  [[nodiscard]] bool onRequest() const noexcept { return m_onRequest; }
+  // Starts a new lock: clears the miss count and the unavailable state.
+  void resetAttempts() noexcept {
+    m_misses = 0;
+    m_unavailable = false;
+  }
+  void request();
 
 private:
   bool ensureProxy();
@@ -59,6 +69,7 @@ private:
   Timer m_retryTimer;
 
   bool m_active = false;
+  bool m_onRequest = false;
   bool m_pending = false;
   bool m_claimed = false;
   bool m_verifying = false;

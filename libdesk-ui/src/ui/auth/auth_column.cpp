@@ -287,9 +287,10 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
   const float goY = (capH - goSize) * 0.5F;
   m_go->setVisible(go);
   m_goGlyph->setVisible(go);
+  // Placed even when hidden: it is the tap target of the face glyph (faceHit).
+  m_go->setPosition(goX, goY);
+  m_go->setSize(goSize, goSize);
   if (go) {
-    m_go->setPosition(goX, goY);
-    m_go->setSize(goSize, goSize);
     m_go->setStyle(RoundedRectStyle{.fill = kAccent, .radius = goSize * 0.5F});
     m_go->setOpacity(m_state.trailing == Trailing::Checking ? 0.5F : 1.0F);
     m_goGlyph->setGlyph("arrow-right");
@@ -809,4 +810,8 @@ std::string accountPicturePath(const std::string& login, const std::string& home
     }
   }
   return {};
+}
+
+bool AuthColumn::faceHit(float sceneX, float sceneY) const {
+  return m_state.trailing == Trailing::Face && m_go != nullptr && m_go->containsScenePoint(sceneX, sceneY);
 }

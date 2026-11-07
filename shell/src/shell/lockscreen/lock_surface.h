@@ -87,6 +87,8 @@ public:
     // The last error was a wrong password (shake), not a PAM error.
     bool rejected = false;
     bool face = false;
+    // Face unlock waits for a tap on its glyph or Enter with an empty field.
+    bool faceOnRequest = false;
     bool fingerprint = false;
     bool operator==(const AuthExtras&) const = default;
   };
@@ -116,6 +118,8 @@ public:
   void setBlackout(bool blackout);
   [[nodiscard]] bool isBlackout() const noexcept { return m_blackout; }
   void setOnLogin(std::function<void()> onLogin);
+  // A tap on the face glyph: face unlock starts only on this or on Enter with an empty field.
+  void setOnFaceRequest(std::function<void()> onFaceRequest) { m_onFaceRequest = std::move(onFaceRequest); }
   void setOnDeclineCall(std::function<void(const std::string&)> onDeclineCall);
   void setOnCycleLayout(std::function<void()> onCycleLayout);
   void setOnPasswordChanged(std::function<void(const std::string&)> onPasswordChanged);
@@ -315,6 +319,7 @@ private:
   bool m_wallpaperDirty = false;
   InputDispatcher m_inputDispatcher;
   std::function<void()> m_onLogin;
+  std::function<void()> m_onFaceRequest;
   std::function<void()> m_onCycleLayout;
   std::function<void(const std::string&)> m_onPasswordChanged;
   bool m_locked = false;

@@ -27,6 +27,7 @@ with_noctalia '
   locked() { msg status | grep -q "\"locked\": true"; }
   unlocked() { msg status | grep -q "\"locked\": false"; }
   logged() { grep -q "$1" "$OUT/noctalia.log"; }
+  reloaded() { [[ $(grep -c "config changed, reloading" "$OUT/noctalia.log") -ge $1 ]]; }
   start_mock() {
     python3 "$MOCK" "$OUT/calls.txt" >> "$OUT/mock.log" 2>&1 &
     mock=$!
@@ -43,19 +44,28 @@ with_noctalia '
   }
 
   kill %1; wait %1 2> /dev/null || true
+  # L1-L11 and L4 cover the automatic mode; R1-R3 turn on face_on_request.
+  printf "\n[lockscreen]\nface = true\nface_on_request = false\n" >> "$CONFIG"
   "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
   for _ in $(seq 100); do "$NOCTALIA" msg settings-close > /dev/null 2>&1 && break; sleep 0.1; done
   # A keyboard must exist before the lock surface maps, or the surface never receives keyboard focus.
   wtype -s 3600000 &
   sleep 0.3
 
-  # L1: no gazed, then gazed appears and a key press arms it; L3: a match unlocks.
+  # L1: no gazed: one ask per lock, a key press after gazed appears does not ask again; a face switch off and on
+  # (a new start) arms it. L3: a match unlocks.
   lock
   wait_for "L1: no unavailable log" logged "face unlock unavailable"
   locked || fail "L1: unlocked without gazed"
   start_mock
   wtype -k Escape
-  wait_for "L1: a key press did not arm face unlock" verifying
+  sleep 1
+  [[ $(called VerifyStartFor) == 0 ]] || fail "L1: a key press asked gazed again in the same lock"
+  sed -i "s/^face = true$/face = false/" "$CONFIG"
+  wait_for "L1: config not reloaded" reloaded 1
+  sed -i "s/^face = false$/face = true/" "$CONFIG"
+  wait_for "L1: config not reloaded" reloaded 2
+  wait_for "L1: turning face on again did not arm it" verifying
   grep -q "^VerifyStartFor andromeda-lock" "$OUT/calls.txt" || fail "L1: wrong PAM service"
   match_unlocks L3
   case_done L1-L3
@@ -68,6 +78,12 @@ with_noctalia '
   [[ $(called Claim) == 0 ]] || fail "L2: claimed with nothing enrolled"
   test_call SetEnrolled b true
   wtype -k Escape
+  sleep 1
+  [[ $(called Claim) == 0 ]] || fail "L2: a key press asked gazed again in the same lock"
+  sed -i "s/^face = true$/face = false/" "$CONFIG"
+  wait_for "L2: config not reloaded" reloaded 3
+  sed -i "s/^face = false$/face = true/" "$CONFIG"
+  wait_for "L2: config not reloaded" reloaded 4
   wait_for "L2: no verify after enrolling" verifying
   match_unlocks L2
   case_done L2
@@ -133,8 +149,8 @@ with_noctalia '
   case_done L9
 
   # L11: lockscreen.face = false never claims.
-  printf "\n[lockscreen]\nface = false\n" >> "$CONFIG"
-  wait_for "L11: config not reloaded" logged "config changed, reloading"
+  sed -i "s/^face = true$/face = false/" "$CONFIG"
+  wait_for "L11: config not reloaded" reloaded 5
   lock
   wtype -k Escape
   sleep 1
@@ -142,11 +158,32 @@ with_noctalia '
   case_done L11
   locked || fail "L11: unlocked without a face"
 
-  # L4 last: after three judged misses face unlock stays off, so this lock never ends by face. Turning face back on
-  # while locked arms it.
+  # R1: on request, face on while locked never starts the camera, even after a key press.
   : > "$OUT/calls.txt"
-  sed -i "s/^face = false$/face = true/" "$CONFIG"
-  wait_for "L4: re-enabling face did not arm it" verifying
+  sed -i -e "s/^face = false$/face = true/" -e "s/^face_on_request = false$/face_on_request = true/" "$CONFIG"
+  wait_for "R1: config not reloaded" reloaded 6
+  wtype -k Escape
+  sleep 1
+  [[ $(called Claim) == 0 && $(called VerifyStartFor) == 0 ]] || fail "R1: face started without a request"
+  # R2: Enter on the empty field runs one scan; a miss does not start another.
+  wtype -k Return
+  wait_for "R2: Enter did not start a scan" verifying
+  test_call Finish sssb verify-no-match usable usable true
+  sleep 1
+  wtype -k Escape
+  sleep 0.5
+  [[ $(called VerifyStartFor) == 1 ]] || fail "R2: a miss started another scan ($(called VerifyStartFor))"
+  # R3: the next Enter scans again, and a match unlocks.
+  wtype -k Return
+  wait_for "R3: second Enter did not scan" verifying 2
+  match_unlocks R3
+  case_done R3
+
+  # L4 last: after three judged misses face unlock stays off, so this lock never ends by face.
+  sed -i "s/^face_on_request = true$/face_on_request = false/" "$CONFIG"
+  wait_for "L4: config not reloaded" reloaded 7
+  lock
+  wait_for "L4: lock did not arm face" verifying
   for n in 1 2 3; do
     wait_for "L4: miss $n had no verify" verifying "$n"
     test_call Finish sssb verify-no-match usable usable true

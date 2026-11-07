@@ -512,7 +512,10 @@ void LockScreen::onConfigChanged() {
   applyOutputRestriction();
   applyWallpaperStyleToSurfaces();
   if (m_locked && !m_unlocking) {
-    faceEnabled() ? startFace() : stopFace();
+    if (!faceEnabled() || (m_face != nullptr && m_face->onRequest() != faceOnRequest())) {
+      stopFace();
+    }
+    startFace();
   }
   requestUpdate();
   requestLayout();
@@ -543,7 +546,7 @@ void LockScreen::onPointerEvent(const PointerEvent& event) {
     m_pointerSurface = event.surface;
   }
 
-  if (event.type == PointerEvent::Type::Button && m_face != nullptr && faceEnabled()) {
+  if (event.type == PointerEvent::Type::Button && m_face != nullptr && faceEnabled() && !faceOnRequest()) {
     m_face->onUserActivity();
   }
 
@@ -582,7 +585,7 @@ void LockScreen::onKeyboardEvent(const KeyboardEvent& event) {
   if (!event.pressed) {
     return;
   }
-  if (m_face != nullptr && faceEnabled()) {
+  if (m_face != nullptr && faceEnabled() && !faceOnRequest()) {
     m_face->onUserActivity();
   }
 
@@ -993,6 +996,7 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
   for (auto& instance : self->m_instances) {
     instance.surface->setLockedState(true);
     instance.surface->setOnLogin([self] { self->tryAuthenticate(); });
+    instance.surface->setOnFaceRequest([self] { self->requestFace(); });
     instance.surface->startEnterTransition();
   }
 
@@ -1001,6 +1005,9 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
   self->updatePromptOnSurfaces();
   self->updateIndicatorsOnSurfaces();
   self->startFingerprint();
+  if (self->m_face != nullptr) {
+    self->m_face->resetAttempts();
+  }
   self->startFace();
   kLog.info("session is locked");
   if (self->m_onSessionLocked) {
@@ -1473,6 +1480,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setSleepReadyCallback([this] { handleSleepReady(); });
   surface->setTransitionCallback([this] { handleTransitionStateChanged(); });
   surface->setOnLogin([this] { tryAuthenticate(); });
+  surface->setOnFaceRequest([this] { requestFace(); });
   surface->setOnDeclineCall([this](const std::string& deviceId) { m_pendingDecline = deviceId; });
   surface->setOnCycleLayout([this] { cycleKeyboardLayout(); });
   surface->setOnPasswordChanged([this](const std::string& value) { handlePasswordEdited(value); });
@@ -1541,6 +1549,7 @@ void LockScreen::updatePromptOnSurfaces() {
       .failures = m_failDelay.failures(),
       .rejected = m_lastRejected,
       .face = m_face != nullptr && faceEnabled(),
+      .faceOnRequest = faceOnRequest(),
       .fingerprint = m_fingerprint != nullptr && !m_passwordOnly
           && (m_configService == nullptr || m_configService->config().lockscreen.fingerprint),
   };
@@ -1635,12 +1644,14 @@ void LockScreen::tryAuthenticate() {
     updatePromptOnSurfaces();
     return;
   }
-  if (m_password.empty()) {
-    const bool allowEmptyPassword =
-        m_configService != nullptr && m_configService->config().lockscreen.allowEmptyPassword;
-    if (!allowEmptyPassword) {
-      return;
-    }
+  const bool allowEmptyPassword =
+      m_configService != nullptr && m_configService->config().lockscreen.allowEmptyPassword;
+  if (m_password.empty() && !allowEmptyPassword && m_face != nullptr && faceEnabled() && faceOnRequest()) {
+    requestFace();
+    return;
+  }
+  if (m_password.empty() && !allowEmptyPassword) {
+    return;
   }
 
   stopFingerprint();
@@ -1711,7 +1722,7 @@ void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticat
   }
   updatePromptOnSurfaces();
   startFingerprint();
-  if (m_face != nullptr && faceEnabled()) {
+  if (m_face != nullptr && faceEnabled() && !faceOnRequest()) {
     m_face->resume();
   }
 }
@@ -1760,9 +1771,24 @@ bool LockScreen::faceEnabled() const {
   return !m_passwordOnly && (m_configService == nullptr || m_configService->config().lockscreen.face);
 }
 
+bool LockScreen::faceOnRequest() const {
+  return m_configService == nullptr || m_configService->config().lockscreen.faceOnRequest;
+}
+
+// On request, locking only arms the mode: the camera stays off until requestFace().
 void LockScreen::startFace() {
   if (m_face != nullptr && faceEnabled()) {
-    m_face->start();
+    m_face->setOnRequest(faceOnRequest());
+    if (!faceOnRequest()) {
+      m_face->start();
+    }
+  }
+}
+
+void LockScreen::requestFace() {
+  if (m_face != nullptr && faceEnabled() && m_locked && !m_unlocking && !m_authenticating && !applyFailDelay()) {
+    m_face->setOnRequest(faceOnRequest());
+    m_face->request();
   }
 }
 

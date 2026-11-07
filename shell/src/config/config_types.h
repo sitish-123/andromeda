@@ -568,6 +568,8 @@ struct LockscreenConfig {
   int gracePeriodSeconds = 0;
   bool fingerprint = true;
   bool face = true;
+  // Face unlock starts only on a tap on the face glyph or Enter with an empty field, never on its own.
+  bool faceOnRequest = true;
   // "andromeda" (rulebook 9.15) or "ryoku" (the greeter's look, so login and unlock match).
   std::string theme = "andromeda";
   // centered | glance | split | minimal | custom

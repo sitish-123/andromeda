@@ -1127,6 +1127,12 @@ void LockSurface::onPointerEvent(const PointerEvent& event) {
       requestLayout();
       break;
     }
+    if (m_locked && pressed && m_auth != nullptr && m_onFaceRequest && m_auth->faceHit(x, y)) {
+      m_onFaceRequest();
+      focusPasswordField();
+      requestLayout();
+      break;
+    }
     if (m_locked && pressed && m_callCard.declineHit(x, y)) {
       m_declinePending = m_callCard.state().deviceId;
       if (m_onDeclineCall) {
@@ -1845,7 +1851,10 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
       state.inputOff = true;
       state.hint = i18n::tr("lockscreen.failed-attempts", "count", m_authExtras.failures);
     } else {
-      state.placeholder = i18n::tr("lockscreen.password-placeholder");
+      state.placeholder = i18n::tr(
+          m_authExtras.face && m_authExtras.faceOnRequest ? "lockscreen.password-placeholder-face"
+                                                          : "lockscreen.password-placeholder"
+      );
       state.hint = m_status == i18n::tr("lockscreen.ready") ? std::string{} : m_status;
       state.hintError = m_error;
       if (!m_error && typing && m_capsLock) {
@@ -1864,7 +1873,11 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
     }
     state.status = m_statusIsland;
     state.status.layoutLabel = m_hasMultipleLayouts ? m_layoutLabel : std::string{};
-    state.glanceHint = i18n::tr(m_authExtras.face ? "lockscreen.glance-hint-face" : "lockscreen.glance-hint");
+    state.glanceHint = i18n::tr(
+        !m_authExtras.face             ? "lockscreen.glance-hint"
+        : m_authExtras.faceOnRequest ? "lockscreen.glance-hint-face-request"
+                                     : "lockscreen.glance-hint-face"
+    );
     fillAuthClock(state, lockClockOptions(lock), m_clockGradientFrom, m_clockGradientTo);
     if (m_authExtras.passwordOnly) {
       state.reasonTitle = i18n::tr("lockscreen.phone-lock.title");

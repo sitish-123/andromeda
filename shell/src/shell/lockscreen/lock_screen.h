@@ -189,6 +189,9 @@ private:
   void handleBiometricStatus(const std::string& message, bool isError);
   [[nodiscard]] bool faceEnabled() const;
   void startFace();
+  [[nodiscard]] bool faceOnRequest() const;
+  // A tap on the face glyph or Enter with an empty field (lockscreen.face_on_request).
+  void requestFace();
   void stopFace();
   /// Passwordless grace window: any keypress or pointer movement beyond 5px unlocks
   /// without a password while the window is live (matches hyprlock).
