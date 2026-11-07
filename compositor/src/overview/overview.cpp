@@ -95,14 +95,11 @@ namespace andromeda {
       return ov::Arrangement::Scrolling;
     }
 
-    // Whole layout pixels: a settled card sits on the pixel grid.
+    // Whole layout pixels, each edge rounded once (ov::snapEdges): a settled card sits on the pixel grid and a moving
+    // one never steps an edge back.
     wlr_box layoutBox(const ov::Rect& rect, const wlr_box& output) {
-      return {
-          .x = static_cast<int>(std::lround(output.x + rect.x)),
-          .y = static_cast<int>(std::lround(output.y + rect.y)),
-          .width = std::max(1, static_cast<int>(std::lround(rect.w))),
-          .height = std::max(1, static_cast<int>(std::lround(rect.h))),
-      };
+      const ov::PixelBox box = ov::snapEdges({output.x + rect.x, output.y + rect.y, rect.w, rect.h});
+      return {.x = box.x, .y = box.y, .width = box.width, .height = box.height};
     }
 
     ov::Rect localRect(const wlr_box& box, const wlr_box& output) {
@@ -377,12 +374,18 @@ namespace andromeda {
     wlr_scene_node_set_enabled(&card.tree->node, true);
 
     const double z = card.scale;
-    const int contentW = std::max(1, static_cast<int>(std::lround(world.width * z)));
-    const int contentH = std::max(1, static_cast<int>(std::lround(world.height * z)));
-    // The drag owns the card origin; the size always follows the presented box, which may have changed since the
-    // output was laid out.
-    card.box.width = contentW;
-    card.box.height = contentH;
+    // A placed card keeps the box its edges snapped to: recomputing the size from the scale rounds it a second time
+    // and steps an edge back. The size follows the presented box only when that box really changed since the output
+    // was laid out (a client resize, more than the 1 px a second rounding moves), and for the drag, which owns the
+    // dragged card's origin.
+    const int scaledW = std::max(1, static_cast<int>(std::lround(world.width * z)));
+    const int scaledH = std::max(1, static_cast<int>(std::lround(world.height * z)));
+    if (&card == m_dragCard || std::abs(scaledW - card.box.width) > 1 || std::abs(scaledH - card.box.height) > 1) {
+      card.box.width = scaledW;
+      card.box.height = scaledH;
+    }
+    const int contentW = card.box.width;
+    const int contentH = card.box.height;
     wlr_scene_node_set_position(&card.tree->node, card.box.x, card.box.y);
     wlr_scene_tree_set_clip(card.tree, card.clip.width > 0 && card.clip.height > 0 ? &card.clip : nullptr);
     layoutCardShadow(card, desktopChromeAlpha() * card.opacity);
@@ -455,14 +458,15 @@ namespace andromeda {
       wlr_scene_buffer_set_opacity(entry->buffer, surfaceOpacity);
       const pixman_region32_t* shape = entry->view->xwayland() ? m_server->xwayland()->surfaceShape(surface) : nullptr;
       if (!entry->isRoot) {
-        wlr_box sub{
-            card.box.x + static_cast<int>(std::lround((entry->sx - geometry.x) * fx)),
-            card.box.y + static_cast<int>(std::lround((entry->sy - geometry.y) * fy)),
-            std::max(1, static_cast<int>(std::lround(surface->current.width * fx))),
-            std::max(1, static_cast<int>(std::lround(surface->current.height * fy))),
-        };
+        // Card-local, edges snapped like the card's own, so a subsurface moves and scales with the card's edges.
+        const ov::PixelBox sub = ov::snapEdges({
+            (entry->sx - geometry.x) * fx,
+            (entry->sy - geometry.y) * fy,
+            surface->current.width * fx,
+            surface->current.height * fy,
+        });
         wlr_scene_node_set_enabled(&entry->buffer->node, true);
-        wlr_scene_node_set_position(&entry->buffer->node, sub.x - card.box.x, sub.y - card.box.y);
+        wlr_scene_node_set_position(&entry->buffer->node, sub.x, sub.y);
         wlr_scene_buffer_set_dest_size(entry->buffer, sub.width, sub.height);
         applySurfaceShape(entry->buffer, surface, shape);
         roundToCardBox(entry->buffer);

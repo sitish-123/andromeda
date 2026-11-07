@@ -28,6 +28,19 @@ namespace andromeda::ov {
   [[nodiscard]] Fit fitIn(const Rect& content, const Rect& area);
   [[nodiscard]] Rect mapRect(const Rect& rect, const Fit& fit);
   [[nodiscard]] Rect lerpRect(const Rect& from, const Rect& to, double t);
+  struct PixelBox {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+
+    bool operator==(const PixelBox&) const = default;
+  };
+
+  // Rounds each edge once (x1 = round(x + w), width = x1 - x0), never the size on its own: a rect that moves or scales
+  // smoothly then moves every edge one way only, where rounding x and w apart steps an edge back by 1 px now and then.
+  [[nodiscard]] PixelBox snapEdges(const Rect& rect);
+
   // True when no more than 2 px of `rect` lies on an output `outputWidth` wide (a scrolled-away column).
   [[nodiscard]] bool offscreen(const Rect& rect, double outputWidth);
 

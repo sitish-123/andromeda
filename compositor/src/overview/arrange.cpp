@@ -80,4 +80,12 @@ namespace andromeda::ov {
     return out;
   }
 
+  PixelBox snapEdges(const Rect& rect) {
+    const auto x0 = static_cast<int>(std::lround(rect.x));
+    const auto y0 = static_cast<int>(std::lround(rect.y));
+    const auto x1 = static_cast<int>(std::lround(rect.x + rect.w));
+    const auto y1 = static_cast<int>(std::lround(rect.y + rect.h));
+    return {x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0)};
+  }
+
 } // namespace andromeda::ov

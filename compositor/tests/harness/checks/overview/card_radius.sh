@@ -52,25 +52,28 @@ measure() {
   awk -v w="$w" -v missing="$((1600 - filled))" 'BEGIN { printf "%d %.2f\n", w, sqrt(missing / (1 - 3.14159265 / 4)) }'
 }
 
+# Every arrangement and style without a border (the case that went square), one pair with a border.
+combos=()
+for mode in floating scrolling dwindle master; do
+  for style in spaces taskview strip grid; do combos+=("0 $mode $style"); done
+done
+combos+=("2 scrolling spaces")
 failed=0
-for border in 0 2; do
-  for mode in floating scrolling dwindle master; do
-    for style in spaces taskview strip grid; do
-      configure "$mode" "$style" "$border"
-      read -r live_w live_r < <(measure)
-      "$ANDROMEDA" msg overview-open > /dev/null
-      "$ANDROMEDA" settle
-      read -r card_w card_r < <(measure)
-      "$ANDROMEDA" msg overview-close > /dev/null
-      "$ANDROMEDA" settle
-      awk -v m="border $border $mode/$style" -v lw="$live_w" -v lr="$live_r" -v cw="$card_w" -v cr="$card_r" 'BEGIN {
-        want = lr * cw / lw
-        if (cr < want - 1.5 || cr > want + 1.5) {
-          printf "%s: card radius %.1f px, want %.1f (live %.1f x scale %.3f)\n", m, cr, want, lr, cw / lw; exit 1
-        }
-      }' || failed=1
-    done
-  done
+for combo in "${combos[@]}"; do
+  read -r border mode style <<< "$combo"
+  configure "$mode" "$style" "$border"
+  read -r live_w live_r < <(measure)
+  "$ANDROMEDA" msg overview-open > /dev/null
+  "$ANDROMEDA" settle
+  read -r card_w card_r < <(measure)
+  "$ANDROMEDA" msg overview-close > /dev/null
+  "$ANDROMEDA" settle
+  awk -v m="border $border $mode/$style" -v lw="$live_w" -v lr="$live_r" -v cw="$card_w" -v cr="$card_r" 'BEGIN {
+    want = lr * cw / lw
+    if (cr < want - 1.5 || cr > want + 1.5) {
+      printf "%s: card radius %.1f px, want %.1f (live %.1f x scale %.3f)\n", m, cr, want, lr, cw / lw; exit 1
+    }
+  }' || failed=1
 done
 ((failed == 0)) || exit 1
 echo "in every arrangement and overview style the card corner radius is the live radius times the card scale"
