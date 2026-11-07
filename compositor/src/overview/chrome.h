@@ -105,7 +105,7 @@ namespace andromeda::ov {
     // The same for the window menu.
     [[nodiscard]] int windowMenuRowAt(double lx, double ly) const;
     [[nodiscard]] bool windowMenuContains(double lx, double ly) const;
-    // Strip: the tab under the point, a workspace index; the workspace count is the + tab.
+    // The tab under the point, a workspace index; an index at or past the workspace count is the + tab or + target.
     [[nodiscard]] std::optional<size_t> tabAt(double lx, double ly) const;
     // True when the point is on the title row's workspace name.
     [[nodiscard]] bool titleAt(double lx, double ly) const;

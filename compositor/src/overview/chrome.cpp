@@ -7,6 +7,7 @@
 #include "wlr.h"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 #include <format>
 
@@ -145,6 +146,10 @@ namespace andromeda::ov {
       if (boxHolds(box, lx, ly)) {
         return index;
       }
+    }
+    // The + target past the thumbs adds a workspace like the + tab.
+    if (m_plus.alpha > 0.0F && boxHolds(m_plus.box, lx, ly)) {
+      return std::numeric_limits<size_t>::max();
     }
     return std::nullopt;
   }
