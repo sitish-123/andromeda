@@ -15,6 +15,7 @@
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
 #include "server/server.h"
+#include "view/snap_assist.h"
 #include "view/snap_flyout.h"
 #include "wlr.h"
 
@@ -592,6 +593,11 @@ namespace andromeda {
       // and goes on to binds and clients.
       if (!confirmationConsumed && !modifierOnly && nsyms > 0) {
         if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active() && flyout->key(syms[0])) {
+          m_consumedKeycodes.insert(event->keycode);
+          handled = true;
+          confirmationConsumed = true;
+        } else if (SnapAssist* assist = m_server->snapAssist();
+                   assist != nullptr && assist->active() && assist->key(syms[0])) {
           m_consumedKeycodes.insert(event->keycode);
           handled = true;
           confirmationConsumed = true;

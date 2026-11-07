@@ -12,6 +12,7 @@
 #include "scene/quit_confirm.h"
 #include "scene/ssd_frame.h"
 #include "server/dsk_surface.h"
+#include "view/snap_assist.h"
 #include "view/snap_flyout.h"
 #include "view/view.h"
 // clang-format off
@@ -1099,6 +1100,12 @@ namespace andromeda {
         && flyout->press(m_cursor->x, m_cursor->y)) {
       return;
     }
+    if (SnapAssist* assist = m_server->snapAssist(); assist != nullptr
+        && assist->active()
+        && state == WL_POINTER_BUTTON_STATE_PRESSED
+        && assist->press(m_cursor->x, m_cursor->y)) {
+      return;
+    }
 
     // Overview owns the pointer while it is up: cards are its own hit-test surface and the desktop underneath is inert.
     // Top/overlay layer surfaces (panels) stay fully interactive.
@@ -1523,6 +1530,9 @@ namespace andromeda {
     forwardEffectPointer();
     if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active()) {
       flyout->hover(m_cursor->x, m_cursor->y);
+    }
+    if (SnapAssist* assist = m_server->snapAssist(); assist != nullptr && assist->active()) {
+      assist->hover(m_cursor->x, m_cursor->y);
     }
     if (const wlr_drag* drag = m_server->seat()->wlr()->drag; drag != nullptr && drag->dropped) {
       return;

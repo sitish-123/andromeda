@@ -10,6 +10,7 @@
 #include "scene/surface_blur.h"
 #include "server/server.h"
 #include "view/view.h"
+#include "view/snap_assist.h"
 extern "C" {
 #include <andromedafx/render/effect.h>
 }
@@ -296,6 +297,11 @@ namespace andromeda {
     m_minimized = minimized;
     if (minimized) {
       m_minimizeSerial = ++gNextMinimizeSerial;
+    } else if (SnapAssist* assist = m_server->snapAssist(); assist != nullptr) {
+      // Restoring one window of a snap group restores the group.
+      for (View* mate : assist->groupMates(this)) {
+        mate->setMinimized(false);
+      }
     }
     if (m_sceneTree != nullptr) {
       setNodeEnabled(!minimized && m_mapped && m_onActiveWorkspace);

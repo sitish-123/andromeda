@@ -1,4 +1,5 @@
 #include "view/view.h"
+#include "view/snap_assist.h"
 
 #include "config/config.h"
 #include "config/resolve.h"
@@ -654,6 +655,12 @@ namespace andromeda {
     View* root = this;
     while (View* parent = root->transientParent()) {
       root = parent;
+    }
+    // A snap group comes up together, under the window that was raised.
+    if (SnapAssist* assist = m_server->snapAssist(); assist != nullptr) {
+      for (View* mate : assist->groupMates(root)) {
+        mate->raiseTransientTree();
+      }
     }
     root->raiseTransientTree();
     if (Workspace* home = workspace()) {

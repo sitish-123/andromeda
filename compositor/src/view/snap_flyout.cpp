@@ -152,8 +152,9 @@ namespace andromeda {
   void SnapFlyout::snap(SnapZone zone) {
     View* view = m_view.get();
     close();
-    if (view != nullptr) {
-      (void)view->snapTo(SnapSpot{zone});
+    if (view != nullptr && view->snapTo(SnapSpot{zone}) && view->snapSpot() == std::optional<SnapSpot>(zone)
+        && m_onSnapped) {
+      m_onSnapped(*view, zone);
     }
   }
 

@@ -178,6 +178,7 @@ namespace andromeda {
   class FpsOverlay;
   class QuitConfirm;
   class SnapFlyout;
+  class SnapAssist;
   class Ipc;
 
   class Server {
@@ -237,6 +238,7 @@ namespace andromeda {
     [[nodiscard]] FpsOverlay* fpsOverlay() const { return m_fpsOverlay.get(); }
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
     [[nodiscard]] SnapFlyout* snapFlyout() const { return m_snapFlyout.get(); }
+    [[nodiscard]] SnapAssist* snapAssist() const { return m_snapAssist.get(); }
     // Shows the Snap Layouts flyout for `view`: at the window's top centre, or at (x, y) when given (layout coordinates).
     void openSnapLayouts(View& view, bool keyboard, std::optional<std::pair<int, int>> at = std::nullopt);
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).
@@ -970,6 +972,7 @@ namespace andromeda {
     std::unique_ptr<FpsOverlay> m_fpsOverlay;
     wlr_scene_tree* m_quitConfirmTree = nullptr;
     wlr_scene_tree* m_snapFlyoutTree = nullptr;
+    wlr_scene_tree* m_snapAssistTree = nullptr;
 
     bool m_nested = false;
     bool m_stopping = false;
@@ -1198,6 +1201,7 @@ namespace andromeda {
     std::unique_ptr<ScratchpadManager> m_scratchpadManager;
     std::unique_ptr<QuitConfirm> m_quitConfirm;
     std::unique_ptr<SnapFlyout> m_snapFlyout;
+    std::unique_ptr<SnapAssist> m_snapAssist;
     std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
     std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
     std::unique_ptr<SyncobjAcquireBarrier> m_syncobjAcquireBarrier;

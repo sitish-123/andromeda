@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -43,6 +44,8 @@ namespace andromeda {
     bool key(uint32_t keysym);
     // Snaps the open view to `zone` and closes.
     void snap(SnapZone zone);
+    // Runs after a zone pick snapped the window (snap assist starts there).
+    void setOnSnapped(std::function<void(View&, SnapZone)> onSnapped) { m_onSnapped = std::move(onSnapped); }
 
   private:
     struct Mini {
@@ -60,5 +63,6 @@ namespace andromeda {
     Ref<View> m_view;
     std::optional<SnapZone> m_lit;
     bool m_open = false;
+    std::function<void(View&, SnapZone)> m_onSnapped;
   };
 } // namespace andromeda

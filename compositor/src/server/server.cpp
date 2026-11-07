@@ -36,6 +36,7 @@
 #include "scene/hint_rect.h"
 #include "scene/launch_feedback.h"
 #include "scene/quit_confirm.h"
+#include "view/snap_assist.h"
 #include "view/snap_flyout.h"
 #include "server/allocator.h"
 #include "server/backend_manager.h"
@@ -805,6 +806,7 @@ namespace andromeda {
     m_fullscreenTree = wlr_scene_tree_create(&m_scene->tree);
     m_pinnedTree = wlr_scene_tree_create(&m_scene->tree);
     m_xwaylandUnmanagedTree = wlr_scene_tree_create(&m_scene->tree);
+    m_snapAssistTree = wlr_scene_tree_create(&m_scene->tree);
     m_snapFlyoutTree = wlr_scene_tree_create(&m_scene->tree);
     m_shellLayerTrees[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY] = wlr_scene_tree_create(&m_scene->tree);
     m_imPopupTree = wlr_scene_tree_create(&m_scene->tree);
@@ -1751,6 +1753,8 @@ namespace andromeda {
     showConfigDiagnostics();
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
     m_snapFlyout = std::make_unique<SnapFlyout>(m_snapFlyoutTree);
+    m_snapAssist = std::make_unique<SnapAssist>(*this, m_snapAssistTree);
+    m_snapFlyout->setOnSnapped([this](View& view, SnapZone zone) { m_snapAssist->start(view, zone); });
     if (!notifyServiceReady(notifySocket)) {
       kLog.error("failed to report session readiness: {}", std::strerror(errno));
       return false;

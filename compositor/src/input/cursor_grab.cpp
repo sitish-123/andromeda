@@ -5,6 +5,7 @@
 #include "output/output.h"
 #include "scene/hint_rect.h"
 #include "server/server.h"
+#include "view/snap_assist.h"
 #include "view/snap_flyout.h"
 #include "view/size_hints.h"
 #include "view/view.h"
@@ -356,6 +357,11 @@ namespace andromeda {
       }
     }
     m_server->focusView(view, FocusReason::DragDrop);
+    // A drop on a Snap Layouts zone offers the layout's other zones, as a pick from the flyout does.
+    if (const auto* zone = snap ? std::get_if<SnapZone>(&*snap) : nullptr;
+        zone != nullptr && view->snapSpot() == snap && m_server->snapAssist() != nullptr) {
+      m_server->snapAssist()->start(*view, *zone);
+    }
   }
 
   void Cursor::processResize() {
