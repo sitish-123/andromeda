@@ -185,7 +185,7 @@ bool LockEditorGallery::inFilter(const ClockStyle& style, int filter) {
   case 5:
     return animated(style);
   case 6:
-    return style.file.starts_with("Doto") || style.layout == ClockLayout::WordGrid;
+    return style.file.starts_with("Doto") || style.ghost || style.layout == ClockLayout::WordGrid;
   default:
     return true;
   }
@@ -234,6 +234,7 @@ void LockEditorGallery::build(Node& root, AnimationManager& animations) {
   m_group = root.addChild(std::make_unique<Node>());
   m_group->setZIndex(9);
   m_slot = addRect(*m_group);
+  m_handle = addRect(*m_group);
   m_panelBg = addRect(*m_group);
   m_title = addLabel(*m_group, FontWeight::SemiBold);
   for (Chip& chip : m_filters) {
@@ -245,14 +246,15 @@ void LockEditorGallery::build(Node& root, AnimationManager& animations) {
   for (std::size_t i = 0; i < clockStyles().size(); ++i) {
     Tile tile;
     tile.bg = addRect(*m_group);
+    tile.under = addLabel(*m_group, FontWeight::Medium);
     tile.sample = addLabel(*m_group, FontWeight::Medium);
+    tile.minutes = addLabel(*m_group, FontWeight::Medium);
     tile.name = addLabel(*m_group, FontWeight::Normal);
     m_tiles.push_back(tile);
   }
   m_tileDial.build(*m_group);
   m_tileOrbit.build(*m_group);
   m_tileFlip.build(*m_group, animations);
-  m_tileMinutes = addLabel(*m_group, FontWeight::Medium);
   for (Bar& bar : m_bars) {
     bar.label = addLabel(*m_group, FontWeight::Normal);
     bar.track = addRect(*m_group);
@@ -357,6 +359,18 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
               .borderGap = 4.0F * s,
           });
   }
+  // The stretch handle (DESIGN.md "Lock clock styles v2"): a white dot with an accent ring on the slot's corner, as
+  // the Free-mode resize handle; it shows while the slot is picked.
+  const bool handle = state.slotsMode && slotOn;
+  m_handle->setVisible(handle);
+  m_handleRect = {};
+  if (handle) {
+    const float d = Tokens::spaceP12 * s;
+    place(m_handle, slot.x + slot.w - d * 0.5F, slot.y + slot.h - d * 0.5F, d, d,
+          RoundedRectStyle{.fill = kLabel1, .border = kAccentText, .radius = d * 0.5F, .borderWidth = Tokens::spaceP2 * s});
+    const float hit = Tokens::sizeHitMin * s;
+    m_handleRect = {slot.x + slot.w - hit * 0.5F, slot.y + slot.h - hit * 0.5F, hit, hit};
+  }
 
   const bool open = state.slotsMode && state.open;
   const auto styles = clockStyles();
@@ -378,9 +392,9 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
   m_tileDial.setVisible(false);
   m_tileOrbit.setVisible(false);
   m_tileFlip.setVisible(false);
-  m_tileMinutes->setVisible(false);
   for (std::size_t i = 0; i < m_tiles.size(); ++i) {
     show({m_tiles[i].bg, m_tiles[i].sample, m_tiles[i].name}, open && inFilter(styles[i], state.filter));
+    show({m_tiles[i].minutes, m_tiles[i].under}, false);
     if (!open || !inFilter(styles[i], state.filter)) {
       m_tiles[i].rect = {};
     }
@@ -479,14 +493,14 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
     tile.sample->setFontWeight(static_cast<FontWeight>(std::clamp(clockWeightAt(style, 30), 100, 900)));
     tile.sample->setVariations(std::string(style.variations));
     tile.sample->setTracking(style.tracking);
-    tile.sample->setStroke(style.stroke);
+    tile.sample->setStroke(style.neon ? 0.035F : style.stroke);
     tile.sample->setGradient(
         style.gradient ? state.wallpaperInk : 0U, style.gradient ? state.gradientTo : 0U
     );
     // One line that fits the tile: long samples (Words) shrink instead of wrapping.
     tile.sample->setMaxLines(1);
     tile.sample->setFontSize(kSampleFontSize * s);
-    tile.sample->setColor(kLabel1);
+    tile.sample->setColor(style.neon ? kAccentText : kLabel1);
     tile.sample->measure(renderer);
     const float room = tileW - 16.0F * s;
     if (tile.sample->width() > room) {
@@ -519,24 +533,44 @@ void LockEditorGallery::layout(Renderer& renderer, const State& state, Rect slot
       m_tileFlip.setVisible(true);
       m_tileFlip.layout(renderer, std::round(tx + (tileW - FlipClock::widthFor(clockSize)) * 0.5F), std::round(top),
                         clockSize, "10", "42", kLabel1);
-    } else if (style.twoTone) {
+    } else if (style.twoTone || style.splitOutline) {
+      // Two-tone fills the minutes in accent; Split draws them as outlines in the same ink.
       tile.sample->setText("10:");
-      tile.sample->setColor(kLabel1);
       tile.sample->measure(renderer);
-      m_tileMinutes->setVisible(true);
-      m_tileMinutes->setText("42");
-      m_tileMinutes->setFontFamily(clockFontFamily(style));
-      m_tileMinutes->setFontWeight(static_cast<FontWeight>(std::clamp(style.weight, 100, 900)));
-      m_tileMinutes->setTracking(style.tracking);
-      m_tileMinutes->setFontSize(tile.sample->fontSize());
-      m_tileMinutes->setColor(kAccentText);
-      m_tileMinutes->measure(renderer);
-      const float left = std::round(tx + (tileW - tile.sample->width() - m_tileMinutes->width()) * 0.5F);
+      Label* minutes = tile.minutes;
+      minutes->setVisible(true);
+      minutes->setText("42");
+      minutes->setFontFamily(clockFontFamily(style));
+      minutes->setFontWeight(static_cast<FontWeight>(std::clamp(style.weight, 100, 900)));
+      minutes->setTracking(style.tracking);
+      minutes->setStroke(style.splitOutline ? 0.025F : style.stroke);
+      minutes->setFontSize(tile.sample->fontSize());
+      minutes->setColor(style.splitOutline ? kLabel1 : kAccentText);
+      minutes->measure(renderer);
+      const float left = std::round(tx + (tileW - tile.sample->width() - minutes->width()) * 0.5F);
       tile.sample->setPosition(left, std::round(top));
-      m_tileMinutes->setPosition(left + tile.sample->width(), std::round(top));
-    }
-    if (!style.twoTone) {
+      minutes->setPosition(left + tile.sample->width(), std::round(top));
+    } else {
       tile.sample->setPosition(std::round(tx + (tileW - tile.sample->width()) * 0.5F), std::round(top));
+    }
+    // Neon: an accent tube over a wide faint glow; 7-segment: the unlit segments under the time (as auth_column).
+    if (style.neon || style.ghost) {
+      Label* under = tile.under;
+      std::string text = tile.sample->text();
+      if (style.ghost) {
+        std::ranges::replace_if(text, [](char c) { return c >= '0' && c <= '9'; }, '8');
+      }
+      under->setVisible(true);
+      under->setText(text);
+      under->setFontFamily(clockFontFamily(style));
+      under->setFontWeight(static_cast<FontWeight>(std::clamp(clockWeightAt(style, 30), 100, 900)));
+      under->setVariations(std::string(style.variations));
+      under->setTracking(style.tracking);
+      under->setStroke(style.neon ? 0.07F : 0.0F);
+      under->setFontSize(tile.sample->fontSize());
+      under->setColor(style.neon ? withAlpha(kAccentText, 0.16F) : withAlpha(kLabel1, 0.1F));
+      under->measure(renderer);
+      under->setPosition(tile.sample->x(), tile.sample->y());
     }
     tile.name->setPosition(
         std::round(tx + (tileW - tile.name->width()) * 0.5F), std::round(top + sampleH + 4.0F * s)
@@ -644,6 +678,9 @@ float LockEditorGallery::axisValueAt(const State& state, int axis, float x) cons
 }
 
 LockEditorGallery::Hit LockEditorGallery::hitTest(float x, float y) const {
+  if (m_handleRect.contains(x, y)) {
+    return {Target::Stretch, -1};
+  }
   if (m_state.slotsMode && m_state.open && m_panelRect.contains(x, y)) {
     for (int i = 0; i < kFilters; ++i) {
       if (m_filters[static_cast<std::size_t>(i)].rect.contains(x, y)) {

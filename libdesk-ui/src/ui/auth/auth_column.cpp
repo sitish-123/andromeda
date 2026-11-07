@@ -575,7 +575,7 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     const bool shown = !analog && !flip && !grid && place.clock && i < lines.size()
         && i < static_cast<std::size_t>(place.clockLines) && !lines[i].empty();
     label->setVisible(shown);
-    m_clockGlow[i]->setVisible(shown && m_state.clockNeon);
+    m_clockGlow[i]->setVisible(shown && (m_state.clockNeon || m_state.clockGhost));
     if (!shown) {
       continue;
     }
@@ -599,6 +599,13 @@ void AuthColumn::layout(Renderer& renderer, const AuthPlacement& place, float sw
     if (m_state.clockNeon) {
       // The glow: a wide faint accent outline under the line.
       styleLine(m_clockGlow[i], lines[i], withAlpha(kAccentText, 0.16F), 0.07F);
+      m_clockGlow[i]->setPosition(lineX(m_clockGlow[i]->width()), lineY);
+    } else if (m_state.clockGhost) {
+      // DSEG digits share one width, so "8" in every digit place lights every segment under the time.
+      std::string unlit = lines[i];
+      std::ranges::replace_if(unlit, [](char c) { return c >= '0' && c <= '9'; }, '8');
+      styleLine(m_clockGlow[i], unlit, withAlpha(ink, 0.1F), 0.0F);
+      m_clockGlow[i]->setGradient(0U, 0U);
       m_clockGlow[i]->setPosition(lineX(m_clockGlow[i]->width()), lineY);
     }
     if (i == 0 && m_state.clockMorph && m_animations != nullptr) {

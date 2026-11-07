@@ -44,6 +44,8 @@ struct ClockStyle {
   bool neon = false;
   // Split: the minutes as outlines next to filled hours.
   bool splitOutline = false;
+  // 7-segment: the unlit segments ("88:88") drawn faint under the time.
+  bool ghost = false;
 };
 
 // The variable axes of a style's font; a range with max <= min = the font has no such axis. Round is ROND or SOFT.

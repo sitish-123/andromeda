@@ -47,13 +47,13 @@ with_noctalia '
   wait_for "Done did not save layout = glance" saved
 
   # Slots: Tab past the bar to the clock slot, Return opens the clock sheet; 7 filter chips, then Tab Tab = the second
-  # style (bold). 26 Tabs on = the Weight bar (after the 25 later tiles); Right = +1/20 of 100..900, so 640.
+  # style (bold). 27 Tabs on = the Weight bar (after the 26 later tiles); Right = +1/20 of 100..900, so 640.
   bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   weight() { grep -rqs "clock_weight = 640" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a third time"
   wait_for "editor did not open a third time" opened 3
   keys Tab Tab Tab Tab Tab Tab Tab Return Tab Tab Tab Tab Tab Tab Tab Tab Tab Return
-  keys Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Right
+  keys Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Tab Right
   sleep 0.5 # real time: one frame
   grim "$OUT/gallery.png"
   keys Escape Tab Tab Tab Tab Tab Tab Return

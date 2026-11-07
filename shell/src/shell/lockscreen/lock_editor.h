@@ -75,6 +75,8 @@ private:
   void activate(LockEditorBar::Hit hit);
   // x >= 0: an axis bar value under the pointer; else step moves an axis 1/20 of its range.
   void activateGallery(LockEditorGallery::Hit hit, float x = -1.0F, int step = 0);
+  // Stretch handle drag to (x, y): the nearest Size step.
+  void stretchClock(float x, float y);
   // x = the pointer for a slider press; a key press (x < 0) steps the slider by `step`.
   void activateWallpaper(LockEditorWallpaper::Hit hit, float x, int step = 0);
   void loadWallpaperItems();
@@ -119,6 +121,14 @@ private:
   LockEditorGallery::State m_clock;
   // The axis bar under a held pointer; -1 = none.
   int m_clockDrag = -1;
+  // Stretch handle drag: the pressed point and the clock size (logical px) at the press; the drag scales the size by
+  // the pointer's distance from the slot's top-left corner and snaps it to a Size step.
+  bool m_stretchDrag = false;
+  float m_stretchFromX = 0.0F;
+  float m_stretchFromY = 0.0F;
+  float m_stretchBase = 0.0F;
+  // The clock size the last layout placed, in logical px.
+  float m_clockPx = 0.0F;
   LockEditorWallpaper m_wallpaperPanel;
   LockEditorWallpaper::State m_wall;
   std::vector<LockEditorWallpaper::Item> m_wallItems;

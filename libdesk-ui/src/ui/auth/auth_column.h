@@ -88,6 +88,8 @@ public:
     bool clockNeon = false;
     // Split: the minutes after the first ':' as outlines.
     bool clockSplit = false;
+    // 7-segment: unlit segments under each line.
+    bool clockGhost = false;
     // Word grid: the lit rows (clockWordGridLit); empty = no grid. Orbit: the dial draws the orbit style.
     std::vector<std::string> wordGridLit;
     bool orbit = false;

@@ -67,6 +67,7 @@ void fillAuthClock(
   state.clockCaret = clock.caret && (!options.motion || local.tm_sec % 2 == 0);
   state.clockNeon = clock.neon;
   state.clockSplit = clock.splitOutline;
+  state.clockGhost = clock.ghost;
   state.orbit = clock.layout == ClockLayout::Orbit;
   if (clock.layout == ClockLayout::WordGrid) {
     state.wordGridLit = clockWordGridLit(local);

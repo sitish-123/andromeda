@@ -108,6 +108,7 @@ void LockEditor::open() {
   m_clock.material = indexOf(LockEditorGallery::kMaterialNames, lock.clockMaterial);
   m_clock.motion = lock.clockMotion;
   m_clockDrag = -1;
+  m_stretchDrag = false;
   m_widgets = LockCards::widgetList(lock.widgets);
   m_widgetsEdited = false;
   m_slotState = {};
@@ -406,6 +407,7 @@ void LockEditor::layoutScene(float width, float height) {
   const float top = std::min(place.date.y, place.clockY);
   const float bottom = std::max(place.date.bottom(), place.clockY + place.clockHeight());
   // Centered's date line spans the output: the slot hugs the clock instead (about 3 x the clock size wide).
+  m_clockPx = place.clockSize / scale;
   const float slotW = std::max(400.0F * scale, 3.0F * place.clockSize + 32.0F * scale);
   const float slotX = place.clockCentred ? place.clockX - slotW * 0.5F : place.clockX - 16.0F * scale;
   m_clock.slotsMode = !ryoku && m_draft.mode == LockEditorBar::Segment::Slots && place.clock;
@@ -880,9 +882,35 @@ void LockEditor::activateGallery(LockEditorGallery::Hit hit, float x, int step) 
     break;
   case Target::None:
   case Target::Panel:
+  case Target::Stretch:
     break;
   }
   refresh();
+}
+
+void LockEditor::stretchClock(float x, float y) {
+  const LockEditorGallery::Rect& slot = m_gallery.slotRect();
+  const float from = std::hypot(m_stretchFromX - slot.x, m_stretchFromY - slot.y);
+  if (from < 1.0F || m_stretchBase <= 0.0F) {
+    return;
+  }
+  const float target = m_stretchBase * std::hypot(x - slot.x, y - slot.y) / from;
+  // Size steps S, M, L, XL (indexes 1-4 of kSizeNames); a quarter past XL is Fill (index 5).
+  int size = LockEditorGallery::kSizes - 1;
+  if (target < clockSizeFor("xl") * 1.25F) {
+    size = 1;
+    for (int i = 2; i <= 4; ++i) {
+      const float px = clockSizeFor(LockEditorGallery::kSizeNames[static_cast<std::size_t>(i)]);
+      const float best = clockSizeFor(LockEditorGallery::kSizeNames[static_cast<std::size_t>(size)]);
+      if (std::abs(px - target) < std::abs(best - target)) {
+        size = i;
+      }
+    }
+  }
+  if (size != m_clock.size) {
+    m_clock.size = size;
+    refresh();
+  }
 }
 
 void LockEditor::refresh() {
@@ -1088,6 +1116,14 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
     m_wall.hover = {};
     refresh();
   }
+  if (m_stretchDrag) {
+    if (event.type == PointerEvent::Type::Motion) {
+      stretchClock(x, y);
+    } else if (event.type == PointerEvent::Type::Button && !event.pressed && event.button == BTN_LEFT) {
+      m_stretchDrag = false;
+    }
+    return true;
+  }
   if (m_clockDrag >= 0) {
     if (event.type == PointerEvent::Type::Motion) {
       activateGallery({LockEditorGallery::Target::Axis, m_clockDrag}, x);
@@ -1152,6 +1188,13 @@ bool LockEditor::onPointerEvent(const PointerEvent& event) {
   } else if (event.type == PointerEvent::Type::Button && event.pressed && event.button == BTN_LEFT) {
     setFocus(LockEditorBar::Hit{});
     if (galleryHit.target != LockEditorGallery::Target::None) {
+      if (galleryHit.target == LockEditorGallery::Target::Stretch) {
+        m_stretchDrag = true;
+        m_stretchFromX = x;
+        m_stretchFromY = y;
+        m_stretchBase = m_clockPx;
+        return true;
+      }
       if (galleryHit.target == LockEditorGallery::Target::Axis) {
         m_clockDrag = galleryHit.index;
         activateGallery(galleryHit, x);

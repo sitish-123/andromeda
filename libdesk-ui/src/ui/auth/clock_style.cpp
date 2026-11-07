@@ -7,7 +7,7 @@
 
 namespace {
 
-  constexpr std::array<ClockStyle, 27> kStyles{{
+  constexpr std::array<ClockStyle, 28> kStyles{{
       {.id = "classic", .family = "Inter", .file = "", .weight = 300},
       {.id = "bold", .family = "Inter", .file = "", .weight = 600, .tracking = -0.03F},
       {.id = "editorial", .family = "Fraunces", .file = "Fraunces-Variable.ttf", .weight = 300},
@@ -22,6 +22,8 @@ namespace {
       {.id = "live", .family = "Bricolage Grotesque", .file = "BricolageGrotesque-Variable.ttf", .weight = 200,
        .live = true},
       {.id = "dot-matrix", .family = "Doto", .file = "Doto-Variable.ttf", .weight = 600, .variations = "ROND=100"},
+      {.id = "seven-segment", .family = "DSEG7 Classic", .file = "DSEG7Classic-Regular.ttf", .weight = 400,
+       .ghost = true},
       {.id = "gradient", .family = "Inter", .file = "", .weight = 300, .gradient = true},
       {.id = "analog", .family = "Inter", .file = "", .weight = 300, .layout = ClockLayout::Analog},
       {.id = "flip", .family = "Inter", .file = "", .weight = 600, .layout = ClockLayout::Flip},

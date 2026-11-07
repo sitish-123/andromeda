@@ -32,7 +32,8 @@ public:
   // lockscreen.clock_material values.
   static constexpr std::array<const char*, kMaterials> kMaterialNames{"solid", "tint", "glass"};
 
-  enum class Target { None, ClockSlot, Filter, Style, Axis, Material, Color, Size, Hour24, Seconds, Motion, Panel };
+  // Stretch = the drag handle on the clock slot's bottom-right corner.
+  enum class Target { None, ClockSlot, Filter, Style, Axis, Material, Color, Size, Hour24, Seconds, Motion, Panel, Stretch };
   struct Hit {
     Target target = Target::None;
     int index = -1;
@@ -93,6 +94,7 @@ public:
   // Keyboard order after the bar's: the clock slot, then the sheet's filters, shown tiles and options while open.
   [[nodiscard]] static std::vector<Hit> focusOrder(const State& state, int styleCount);
   [[nodiscard]] const Rect& panelRect() const noexcept { return m_panelRect; }
+  [[nodiscard]] const Rect& slotRect() const noexcept { return m_slotRect; }
 
   struct Chip {
     RectNode* bg = nullptr;
@@ -111,6 +113,9 @@ private:
     RectNode* bg = nullptr;
     Label* sample = nullptr;
     Label* name = nullptr;
+    // Two-tone and Split minutes; Neon glow and 7-segment unlit segments under the sample.
+    Label* minutes = nullptr;
+    Label* under = nullptr;
     Rect rect;
   };
   struct Bar {
@@ -133,6 +138,8 @@ private:
   Node* m_group = nullptr;
   RectNode* m_slot = nullptr;
   Rect m_slotRect;
+  RectNode* m_handle = nullptr;
+  Rect m_handleRect;
   RectNode* m_panelBg = nullptr;
   Rect m_panelRect;
   Label* m_title = nullptr;
@@ -142,7 +149,6 @@ private:
   AnalogClock m_tileDial;
   AnalogClock m_tileOrbit;
   FlipClock m_tileFlip;
-  Label* m_tileMinutes = nullptr;
   std::array<Bar, kAxes> m_bars;
   Label* m_materialLabel = nullptr;
   std::array<Chip, kMaterials> m_materials;
