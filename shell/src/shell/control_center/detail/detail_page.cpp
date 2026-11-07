@@ -238,6 +238,31 @@ namespace control_center {
     m_root->layout(renderer);
   }
 
+  Flex* DetailPage::addGroup(std::string_view header, std::string_view action, std::function<void()> onAction) {
+    Flex* card = addGroup(header);
+    auto* section = static_cast<Flex*>(card->parent());
+    if (section == nullptr || section->children().size() < 2) {
+      return card;
+    }
+    auto* inset = static_cast<Flex*>(section->children().front().get());
+    const float s = contentScale();
+    inset->setDirection(FlexDirection::Horizontal);
+    inset->setAlign(FlexAlign::Center);
+    inset->setPadding(0.0F, Tokens::componentListCardPadding * s, 0.0F,
+                      (Tokens::componentListCardPadding + Tokens::componentListRowInset) * s);
+    if (!inset->children().empty()) {
+      inset->children().front()->setFlexGrow(1.0F);
+    }
+    auto button = std::make_unique<Button>();
+    button->setVariant(ButtonVariant::Default);
+    button->setText(std::string(action));
+    button->setControlHeight(Tokens::spaceP24 * s);
+    button->setRadius(Tokens::spaceP8 * s);
+    button->setOnClick(std::move(onAction));
+    inset->addChild(std::move(button));
+    return card;
+  }
+
   Flex* DetailPage::addGroup(std::string_view header) {
     const float s = contentScale();
     auto section = std::make_unique<Flex>();

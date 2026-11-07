@@ -92,6 +92,8 @@ namespace control_center {
     void addBlock(std::unique_ptr<Node> node);
     // A section header over a fill_1 card; returns the card.
     Flex* addGroup(std::string_view header = {});
+    // A group whose header row ends in a small plain button (Clear).
+    Flex* addGroup(std::string_view header, std::string_view action, std::function<void()> onAction);
     void addGroupFooter(Flex& card, std::string_view text);
     Button* addRow(Flex& card, const DetailRow& row);
     void addSliderRow(Flex& card, const DetailSliderRow& row);

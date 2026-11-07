@@ -3,7 +3,9 @@
 #include "shell/control_center/shortcut_services.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
+#include "compositors/compositor_platform.h"
 #include "ipc/ipc_service.h"
+#include "notification/notification_display_name.h"
 #include "system/brightness_service.h"
 #include "system/format_units.h"
 #include "system/screen_time_service.h"
@@ -38,6 +40,7 @@
 #include <cmath>
 #include <ctime>
 #include <format>
+#include <map>
 #include <ranges>
 #include <string>
 #include <vector>
@@ -1736,6 +1739,144 @@ namespace control_center {
         addRow(*list, row);
       }
     }
+  }
+
+  // ---- Notifications ----
+
+  namespace {
+    std::string groupKeyOf(const Notification& n) { return n.group.has_value() ? "g:" + *n.group : "a:" + notificationDisplayAppName(n); }
+
+    std::string groupLabelOf(const Notification& n) {
+      if (!n.group.has_value()) {
+        return notificationDisplayAppName(n);
+      }
+      std::string label = *n.group;
+      if (const auto slash = label.rfind('/'); slash != std::string::npos) {
+        label.replace(slash, 1, " · ");
+      }
+      return label;
+    }
+
+    std::string ageText(const Notification& n) {
+      if (!n.receivedWallClock.has_value()) {
+        return {};
+      }
+      const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(std::chrono::system_clock::now() - *n.receivedWallClock).count();
+      if (minutes < 1) {
+        return i18n::tr("control-center.detail.notifications.now");
+      }
+      if (minutes < 60) {
+        return i18n::tr("control-center.detail.notifications.minutes", "count", static_cast<int>(minutes));
+      }
+      if (minutes < 24 * 60) {
+        return i18n::tr("control-center.detail.notifications.hours", "count", static_cast<int>(minutes / 60));
+      }
+      return i18n::tr("control-center.detail.notifications.days", "count", static_cast<int>(minutes / (24 * 60)));
+    }
+  } // namespace
+
+  void NotificationsDetailPage::setActive(bool active) {
+    if (active && m_notifications != nullptr) {
+      m_notifications->markNotificationHistorySeen();
+    }
+    if (!active) {
+      m_expanded.clear();
+    }
+  }
+
+  std::string NotificationsDetailPage::structureKey() const {
+    if (m_notifications == nullptr) {
+      return "none";
+    }
+    std::string key;
+    for (const NotificationHistoryEntry& entry : m_notifications->history()) {
+      key += std::format("{}:{};", entry.notification.id, ageText(entry.notification));
+    }
+    for (const std::string& group : m_expanded) {
+      key += "+" + group;
+    }
+    return key;
+  }
+
+  void NotificationsDetailPage::build() {
+    if (m_notifications == nullptr || m_notifications->history().empty()) {
+      setFooterVisible(false);
+      addEmpty("bell", tr("control-center.detail.notifications.empty"), {});
+      return;
+    }
+    setFooterVisible(true);
+    // Newest first, grouped by app (or the x-andromeda-group hint) in order of each group's newest notification.
+    std::vector<std::string> order;
+    std::map<std::string, std::vector<const Notification*>> groups;
+    const auto& history = m_notifications->history();
+    for (auto it = history.rbegin(); it != history.rend(); ++it) {
+      const std::string key = groupKeyOf(it->notification);
+      auto& list = groups[key];
+      if (list.empty()) {
+        order.push_back(key);
+      }
+      list.push_back(&it->notification);
+    }
+    for (const std::string& key : order) {
+      const auto& list = groups[key];
+      std::vector<std::uint32_t> ids;
+      for (const Notification* n : list) {
+        ids.push_back(n->id);
+      }
+      Flex* card = addGroup(groupLabelOf(*list.front()), tr("control-center.detail.notifications.clear"), [this, ids] {
+        for (const std::uint32_t id : ids) {
+          m_notifications->removeHistoryEntry(id);
+        }
+        requestRebuild();
+      });
+      const bool expanded = m_expanded.contains(key);
+      const std::size_t shown = expanded ? list.size() : std::min<std::size_t>(list.size(), 2);
+      for (std::size_t i = 0; i < shown; ++i) {
+        const Notification& n = *list[i];
+        DetailRow row;
+        row.title = n.summary.empty() ? notificationDisplayAppName(n) : n.summary;
+        row.secondary = n.body;
+        row.trailing = ageText(n);
+        if (n.imageData.has_value()) {
+          row.avatarImage = std::make_shared<const NotificationImageData>(*n.imageData);
+        }
+        if (n.icon.has_value()) {
+          row.avatarIcons.push_back(*n.icon);
+        }
+        if (n.desktopEntry.has_value()) {
+          row.avatarIcons.push_back(*n.desktopEntry);
+        }
+        if (row.avatarImage == nullptr && row.avatarIcons.empty()) {
+          row.glyph = "bell";
+        }
+        row.onClick = [this, id = n.id] {
+          if (!m_notifications->canInvokeActions(id)) {
+            return;
+          }
+          const std::string token = m_platform != nullptr ? m_platform->requestActivationToken(m_platform->lastPointerSurface()) : std::string{};
+          (void)m_notifications->invokeAction(id, "default", token, true);
+          PanelManager::instance().closePanel();
+        };
+        addRow(*card, row);
+      }
+      if (list.size() > 2) {
+        addShowAll(*card, expanded, [this, key, expanded] {
+          if (expanded) {
+            m_expanded.erase(key);
+          } else {
+            m_expanded.insert(key);
+          }
+          requestRebuild();
+        });
+      }
+    }
+  }
+
+  std::vector<DetailPage::FooterButton> NotificationsDetailPage::footerButtons() {
+    return {{tr("control-center.detail.notifications.clear-all"), [this] {
+               m_notifications->clearHistory();
+               requestRebuild();
+             }}};
   }
 
 } // namespace control_center

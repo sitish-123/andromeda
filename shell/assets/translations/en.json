@@ -526,6 +526,16 @@
         "playing": "Playing",
         "title": "Media"
       },
+      "notifications": {
+        "clear": "Clear",
+        "clear-all": "Clear All",
+        "days": "{count} d",
+        "empty": "No notifications",
+        "hours": "{count} h",
+        "minutes": "{count} min",
+        "now": "now",
+        "title": "Notifications"
+      },
       "phone": {
         "files": "Send files...",
         "files-title": "Send files",

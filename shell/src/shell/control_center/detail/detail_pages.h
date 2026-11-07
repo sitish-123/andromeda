@@ -6,6 +6,7 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include <set>
 #include <unordered_set>
 #include <string>
 
@@ -14,6 +15,7 @@ class BrightnessService;
 class SystemMonitorService;
 class ScreenTimeService;
 class MprisService;
+class CompositorPlatform;
 class HttpClient;
 class Image;
 class IpcService;
@@ -275,6 +277,24 @@ namespace control_center {
     std::unordered_set<std::string> m_pendingArt;
     std::shared_ptr<int> m_alive = std::make_shared<int>(0);
     Timer m_tick;
+  };
+
+  // Notification history (rulebook 9.11 notification center in the sheet): groups by app, newest first, 2 rows per
+  // group until "Show all", Clear per group and Clear All.
+  class NotificationsDetailPage final : public DetailPage {
+  public:
+    NotificationsDetailPage(NotificationManager* notifications, CompositorPlatform* platform)
+        : m_notifications(notifications), m_platform(platform) {}
+    void setActive(bool active) override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+
+    NotificationManager* m_notifications = nullptr;
+    CompositorPlatform* m_platform = nullptr;
+    std::set<std::string> m_expanded;
   };
 
 } // namespace control_center

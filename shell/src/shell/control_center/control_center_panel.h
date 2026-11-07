@@ -137,6 +137,7 @@ private:
     DetailSystem,
     DetailScreenTime,
     DetailMedia,
+    DetailNotifications,
     Count,
   };
 
@@ -173,6 +174,7 @@ private:
       {TabId::DetailSystem, "detail-system", "control-center.detail.system.title", "activity-heartbeat"},
       {TabId::DetailScreenTime, "detail-screen-time", "control-center.detail.screen-time.title", "hourglass"},
       {TabId::DetailMedia, "detail-media", "control-center.detail.media.title", "disc"},
+      {TabId::DetailNotifications, "detail-notifications", "control-center.detail.notifications.title", "bell"},
   }};
 
   // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.
