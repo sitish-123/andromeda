@@ -36,6 +36,7 @@
 
 #include <nlohmann/json.hpp>
 #include "server/server.h"
+#include "core/async_file_writer.h"
 #include "core/screen_activity_recorder.h"
 #include "server/server_events_internal.h"
 #include "view/popup.h"
@@ -876,21 +877,8 @@ namespace andromeda {
     if (dir.empty()) {
       return;
     }
-    std::error_code error;
-    std::filesystem::create_directories(dir, error);
     const nlohmann::json windows = IpcCommands::windows(*this, "")["ok"];
-    const std::filesystem::path path = dir / "session.json";
-    const std::filesystem::path temporary = dir / "session.json.tmp";
-    {
-      std::ofstream out(temporary, std::ios::trunc);
-      out << nlohmann::json{{"version", 1}, {"windows", windows}}.dump();
-      if (!out) {
-        kLog.warn("cannot write {}", temporary.string());
-        return;
-      }
-    }
-    // rename is atomic: a crash mid-write keeps the previous list.
-    std::filesystem::rename(temporary, path, error);
+    writeFileAsync(dir / "session.json", nlohmann::json{{"version", 1}, {"windows", windows}}.dump());
   }
 
   void Server::onIpcWindowsIdle(void* data) {

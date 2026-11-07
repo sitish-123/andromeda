@@ -14,6 +14,7 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <vector>
 
 namespace andromeda {
 
@@ -203,7 +204,7 @@ namespace andromeda {
         live.insert(client.key);
       }
       m_energy.keepGpuClients(live);
-      writeFile(appEnergyPath(), m_energy.serialize(now));
+      saveFile(appEnergyPath(), m_energy.serialize(now));
     };
     if (m_closing) {
       book(scan());
@@ -219,10 +220,24 @@ namespace andromeda {
     });
   }
 
+  void ScreenActivityRecorder::saveFile(std::string path, std::string text) {
+    if (m_closing) {
+      writeFile(path, text);
+      return;
+    }
+    m_worker.post<bool>(
+        [path = std::move(path), text = std::move(text)] {
+          writeFile(path, text);
+          return true;
+        },
+        [](bool) {}
+    );
+  }
+
   // The state file alone, on each idle change: Settings reads it and counts the running state on from there.
   void ScreenActivityRecorder::writeLog(std::int64_t now) {
     if (m_persist) {
-      writeFile(screenActivityPath(), m_log.snapshot(now));
+      saveFile(screenActivityPath(), m_log.snapshot(now));
     }
   }
 
@@ -232,30 +247,54 @@ namespace andromeda {
       return;
     }
     m_writtenAt = now;
-    writeFile(screenActivityPath(), m_log.snapshot(now));
-    std::set<std::string> live;
+    saveFile(screenActivityPath(), m_log.snapshot(now));
+    // cpu.stat reads go to the worker with the writes; the results are booked on the main thread.
+    struct Usage {
+      std::vector<std::pair<std::string, std::uint64_t>> units;
+      std::optional<std::uint64_t> total;
+    };
+    std::vector<std::pair<std::string, std::string>> apps; // unit, cgroup dir
     for (const auto& [unit, app] : qos::registry().apps) {
-      if (const auto usage = readUsageUsec(app.dir); usage.has_value()) {
-        m_energy.book(unit, *usage, now);
+      apps.emplace_back(unit, app.dir);
+    }
+    auto read = [apps = std::move(apps)] {
+      Usage usage;
+      for (const auto& [unit, dir] : apps) {
+        if (const auto value = readUsageUsec(dir); value.has_value()) {
+          usage.units.emplace_back(unit, *value);
+        }
+      }
+      usage.total = readUsageUsec("/sys/fs/cgroup");
+      return usage;
+    };
+    auto book = [this, now](Usage usage) {
+      std::set<std::string> live;
+      for (const auto& [unit, value] : usage.units) {
+        m_energy.book(unit, value, now);
         live.insert(unit);
       }
+      m_energy.keepUnits(live);
+      if (usage.total.has_value()) {
+        m_energy.bookTotal(*usage.total, now);
+      }
+      saveFile(appEnergyPath(), m_energy.serialize(now));
+    };
+    if (m_closing) {
+      book(read());
+    } else {
+      m_worker.post<Usage>(std::move(read), std::move(book));
     }
-    m_energy.keepUnits(live);
-    if (const auto all = readUsageUsec("/sys/fs/cgroup"); all.has_value()) {
-      m_energy.bookTotal(*all, now);
-    }
-    writeFile(appEnergyPath(), m_energy.serialize(now));
     bookGpu(now);
     m_packageEnergy.request("PackageEnergyJ", [this, now](double joules) {
       if (std::isnan(joules)) {
         return;
       }
       m_energy.bookPackage(joules, now);
-      writeFile(appEnergyPath(), m_energy.serialize(now));
+      saveFile(appEnergyPath(), m_energy.serialize(now));
       m_packageEnergy.request("UncoreEnergyJ", [this, now](double uncore) {
         if (!std::isnan(uncore)) {
           m_energy.bookUncore(uncore, now);
-          writeFile(appEnergyPath(), m_energy.serialize(now));
+          saveFile(appEnergyPath(), m_energy.serialize(now));
         }
       });
     });

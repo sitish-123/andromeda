@@ -51,14 +51,16 @@ namespace andromeda::scanout_keeper {
       }
       address.sun_family = AF_UNIX;
       std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
-      const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+      // Non-blocking: greetd not reading must never stall the main thread; the request is then lost (greetd's
+      // fallbacks cover it).
+      const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
       if (fd < 0) {
         return false;
       }
       bool sent = false;
       if (connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0) {
         const std::string line = std::string(request) + "\n";
-        sent = send(fd, line.data(), line.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(line.size());
+        sent = send(fd, line.data(), line.size(), MSG_NOSIGNAL | MSG_DONTWAIT) == static_cast<ssize_t>(line.size());
       }
       close(fd);
       return sent;

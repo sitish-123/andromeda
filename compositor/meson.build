@@ -892,6 +892,7 @@ core_sources = files(
   'src/core/application_scope.cpp',
   'src/core/cpu_boost.cpp',
   'src/core/package_energy.cpp',
+  'src/core/async_file_writer.cpp',
   'src/core/main_loop_worker.cpp',
   'src/core/scanout_keeper.cpp',
   'src/core/drm_clients.cpp',

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 
 struct wl_event_loop;
 struct wl_event_source;
@@ -37,6 +38,8 @@ namespace andromeda {
     static int onIdleCheck(void* data);
     void write(bool force);
     void writeLog(std::int64_t now);
+    // File writes run on m_worker (in order), never on the main thread; at shutdown they run in place.
+    void saveFile(std::string path, std::string text);
     // Scans every user process's fds (~19 ms for 100 processes) on m_worker, then books and writes on the loop.
     void bookGpu(std::int64_t now);
     // Books a suspend that ended before `now`: CLOCK_BOOTTIME runs on in suspend, CLOCK_MONOTONIC does not.
