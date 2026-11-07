@@ -6218,6 +6218,9 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
     pixman_region32_init_rect(&whole, 0, 0, wlr_buffer->width, wlr_buffer->height);
     wlr_output_state_set_damage(&pending, &whole);
     pixman_region32_fini(&whole);
+  } else if (pending.committed & WLR_OUTPUT_STATE_DAMAGE) {
+    // Whole-output redraws (zoom off, format change, scheduleFullFrame) land only in the damage ring.
+    pixman_region32_union(&pending.damage, &pending.damage, &scene_output->damage_ring.current);
   }
 
   wlr_output_state_set_buffer(&pending, wlr_buffer);
@@ -7731,6 +7734,11 @@ static bool scene_output_build_state(
       wlr_damage_ring_add_whole(&scene_output->damage_ring);
       wlr_damage_ring_add_whole(&scene_output->overlay_damage_ring);
     }
+  }
+  if (!overlay && (state->committed & WLR_OUTPUT_STATE_DAMAGE)) {
+    // The clips cover every pixel this frame draws: a redraw kept for buffer age may differ from what is on screen
+    // (blur dropped above, time-based effects), and PSR2 selective update shows only the clipped rows.
+    pixman_region32_union(&state->damage, &state->damage, &render_data.damage);
   }
   struct fx_framebuffer* blur_saved_pixels = NULL;
   if (should_compensate_blur) {
