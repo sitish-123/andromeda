@@ -137,6 +137,7 @@ tomlplusplus_dep = dependency('tomlplusplus')
 nlohmann_json_dep = dependency('nlohmann_json')
 cairo_dep = dependency('cairo')
 pangocairo_dep = dependency('pangocairo')
+librsvg_dep = dependency('librsvg-2.0')
 libdrm_dep = dependency('libdrm', version: '>=2.4.129')
 libdisplay_info_dep = dependency('libdisplay-info', version: '>=0.3.0')
 libudev_dep = dependency('libudev', required: false)
@@ -1017,6 +1018,7 @@ core_sources = files(
   'src/overview/overview_cards.cpp',
   'src/overview/overview_drag.cpp',
   'src/overview/overview_input.cpp',
+  'src/overview/app_icons.cpp',
   'src/overview/overview_mirrors.cpp',
   'src/workspace/workspace.cpp',
   'src/workspace/tab_presenter.cpp',
@@ -1039,6 +1041,7 @@ andromeda_core_deps = [
   tomlplusplus_dep,
   cairo_dep,
   pangocairo_dep,
+  librsvg_dep,
   libdrm_dep,
   libdisplay_info_dep,
   native_drm_policy_deps,

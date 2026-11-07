@@ -200,7 +200,7 @@ package_andromeda() {
 package_andromeda-compositor-git() {
   pkgdesc='Andromeda Wayland compositor'
   install=andromeda-compositor.install
-  depends=(libcap wlroots0.20 wayland libinput libei libxkbcommon libdrm pixman mesa cairo pango lcms2 jemalloc tomlplusplus
+  depends=(libcap wlroots0.20 wayland libinput libei libxkbcommon libdrm pixman mesa cairo pango librsvg lcms2 jemalloc tomlplusplus
     xwayland-satellite)
   provides=(andromeda-compositor)
   conflicts=(andromeda-compositor umbriel umbriel-desktop-git)

@@ -543,6 +543,7 @@ start_instance() {
     "${xwayland_environment[@]}" \
     DBUS_SYSTEM_BUS_ADDRESS="unix:path=$RUNTIME_DIR/no-system-bus" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+    XDG_DATA_HOME="$RUNTIME_DIR/xdg-data" \
     WLR_BACKENDS=headless \
     WLR_LIBINPUT_NO_DEVICES=1 \
     WLR_HEADLESS_OUTPUTS="$outputs" \

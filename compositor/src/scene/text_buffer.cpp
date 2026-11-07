@@ -73,6 +73,15 @@ namespace andromeda {
     return result;
   }
 
+  wlr_buffer* imageBuffer(cairo_surface_t* surface) {
+    auto* buf = new CairoBuffer;
+    buf->surface = cairo_surface_reference(surface);
+    wlr_buffer_init(
+        &buf->base, &kCairoBufferImpl, cairo_image_surface_get_width(surface), cairo_image_surface_get_height(surface)
+    );
+    return &buf->base;
+  }
+
   TextBufferResult renderTextBuffer(const TextBufferParams& params) {
     const double scale = std::max(1.0, params.scale);
 

@@ -3,6 +3,7 @@
 #include "config/config.h"
 #include "core/animation.h"
 #include "layout/drop_target.h"
+#include "overview/app_icons.h"
 #include "overview/chrome.h"
 #include "overview/navigation.h"
 #include "overview/style.h"
@@ -518,6 +519,7 @@ namespace andromeda {
     std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
     std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
     std::vector<ov::ChromeWindow> m_chromeWindows;
+    std::unique_ptr<ov::AppIcons> m_appIcons;
     AnimatedValue m_reflow{1.0};
     std::unordered_map<const void*, ov::Rect> m_shownRects;
     std::unordered_map<const void*, ov::Rect> m_reflowFrom;

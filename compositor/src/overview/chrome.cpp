@@ -20,6 +20,8 @@ namespace andromeda::ov {
     constexpr int kChipHeight = 24;
     constexpr int kFieldHeight = 32;
     constexpr int kCapsuleHeight = 26;
+    constexpr int kCapsuleIcon = 16; // app icon in a title capsule (prototype .lab)
+    constexpr int kIconGap = 6;      // icon to title
     constexpr int kCapsuleGap = 6;
     constexpr int kCapsuleMaxWidth = 260;
     constexpr int kCapsuleMinCard = 60; // a card narrower than this shows no title
@@ -165,8 +167,10 @@ namespace andromeda::ov {
 
   void Chrome::setLabel(Label& label, const std::string& markup, const LabelStyle& style, double scale) {
     label.used = true;
-    std::string key =
-        std::format("{}|{}|{}|{}|{}|{}", markup, style.font, scale, style.maxWidth, style.height, style.wrap);
+    std::string key = std::format(
+        "{}|{}|{}|{}|{}|{}|{}|{}", markup, style.font, scale, style.maxWidth, style.height, style.wrap,
+        static_cast<const void*>(style.icon), style.iconSize
+    );
     if (label.tree != nullptr && key == label.key) {
       return;
     }
@@ -182,7 +186,8 @@ namespace andromeda::ov {
       wlr_scene_node_destroy(&label.text->node);
       label.text = nullptr;
     }
-    const int textMax = std::max(1, style.maxWidth - 2 * style.padX);
+    const int lead = style.icon != nullptr ? style.iconSize + kIconGap : 0;
+    const int textMax = std::max(1, style.maxWidth - 2 * style.padX - lead);
     TextBufferResult rendered = renderTextBuffer({
         .markup = markup,
         .font = std::string(style.font),
@@ -200,7 +205,7 @@ namespace andromeda::ov {
     label.textHeight = rendered.logicalHeight;
     const bool capsule = style.height > 0;
     label.height = capsule ? style.height : rendered.logicalHeight;
-    label.width = capsule ? std::max(label.textWidth + 2 * style.padX, style.height) : label.textWidth;
+    label.width = capsule ? std::max(lead + label.textWidth + 2 * style.padX, style.height) : label.textWidth;
     label.color = style.fill;
     if (capsule) {
       if (label.fill == nullptr) {
@@ -219,9 +224,23 @@ namespace andromeda::ov {
     }
     label.text->point_accepts_input = [](wlr_scene_buffer*, double*, double*) { return false; };
     wlr_scene_buffer_set_dest_size(label.text, label.textWidth, label.textHeight);
-    wlr_scene_node_set_position(
-        &label.text->node, (label.width - label.textWidth) / 2, (label.height - label.textHeight) / 2
-    );
+    const int left = (label.width - lead - label.textWidth) / 2;
+    wlr_scene_node_set_position(&label.text->node, left + lead, (label.height - label.textHeight) / 2);
+    if (style.icon != nullptr) {
+      if (label.icon == nullptr) {
+        label.icon = wlr_scene_buffer_create(label.tree, style.icon);
+      } else {
+        wlr_scene_buffer_set_buffer(label.icon, style.icon);
+      }
+      if (label.icon != nullptr) {
+        label.icon->point_accepts_input = [](wlr_scene_buffer*, double*, double*) { return false; };
+        wlr_scene_buffer_set_dest_size(label.icon, style.iconSize, style.iconSize);
+        wlr_scene_node_set_position(&label.icon->node, left, (label.height - style.iconSize) / 2);
+      }
+    } else if (label.icon != nullptr) {
+      wlr_scene_node_destroy(&label.icon->node);
+      label.icon = nullptr;
+    }
     label.alpha = -1.0F; // the new buffer starts opaque
   }
 
@@ -240,6 +259,9 @@ namespace andromeda::ov {
     }
     label.alpha = alpha;
     wlr_scene_buffer_set_opacity(label.text, alpha);
+    if (label.icon != nullptr) {
+      wlr_scene_buffer_set_opacity(label.icon, alpha);
+    }
     if (label.fill != nullptr) {
       std::array<float, 4> fill{};
       premultiplied(fill.data(), label.color, alpha);
@@ -537,7 +559,14 @@ namespace andromeda::ov {
       Label& label = m_titles[window.key];
       setLabel(
           label, span(l1, "600", window.title.empty() ? std::string_view("Untitled") : window.title),
-          {.font = "sans 9", .padX = 10, .height = kCapsuleHeight, .maxWidth = kCapsuleMaxWidth, .fill = thick}, scale
+          {.font = "sans 9",
+           .padX = 10,
+           .height = kCapsuleHeight,
+           .maxWidth = kCapsuleMaxWidth,
+           .fill = thick,
+           .icon = window.icon,
+           .iconSize = kCapsuleIcon},
+          scale
       );
       const int centre = window.box.x + window.box.width / 2;
       // An off-screen Strip column sits beside its card; clamped in, its capsule would cover a neighbour's.

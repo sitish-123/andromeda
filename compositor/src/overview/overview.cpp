@@ -5,7 +5,20 @@ namespace andromeda {
   using namespace ovimpl;
 
 
-  Overview::Overview(Server& server) : m_server(&server) { m_server->registerAnimatable(this); }
+  Overview::Overview(Server& server) : m_server(&server) {
+    m_server->registerAnimatable(this);
+    // An icon that finished loading joins the capsules on the next chrome layout.
+    m_appIcons = std::make_unique<ov::AppIcons>(wl_display_get_event_loop(server.display()), [this] {
+      if (!m_active) {
+        return;
+      }
+      const View* liveTarget = liveTargetView();
+      for (const auto& state : m_outputs) {
+        layoutChrome(*state, liveTarget);
+        wlr_output_schedule_frame(state->output->wlr());
+      }
+    });
+  }
 
   Overview::~Overview() {
     m_server->unregisterAnimatable(this);
@@ -636,9 +649,12 @@ namespace andromeda {
         }
         within = holder.box;
       }
+      const char* appId = card.view->appId();
+      const int iconPx = static_cast<int>(std::ceil(static_cast<double>(state.output->wlr()->scale))) * 16;
       m_chromeWindows.push_back({
           .key = card.view,
           .title = title != nullptr ? std::string_view(title) : std::string_view(),
+          .icon = appId != nullptr ? m_appIcons->get(appId, std::max(16, iconPx)) : nullptr,
           .box = visible,
           .within = within,
           .opacity = card.opacity,

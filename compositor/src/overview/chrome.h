@@ -13,6 +13,7 @@
 #include <vector>
 #include <wlr/util/box.h>
 
+struct wlr_buffer;
 struct wlr_scene_border;
 struct wlr_scene_buffer;
 struct wlr_scene_rect;
@@ -33,6 +34,7 @@ namespace andromeda::ov {
   struct ChromeWindow {
     const void* key = nullptr;
     std::string_view title;
+    wlr_buffer* icon = nullptr; // app icon at the capsule's device-pixel size; null: title only
     wlr_box box{}; // the visible part of the card, layout coordinates
     // The workspace card holding it, which its capsule stays inside; empty for the main area's windows, whose capsule
     // sits under the card down to the usable bottom.
@@ -114,6 +116,7 @@ namespace andromeda::ov {
       wlr_scene_tree* tree = nullptr;
       wlr_scene_rect* fill = nullptr;
       wlr_scene_buffer* text = nullptr;
+      wlr_scene_buffer* icon = nullptr; // leading icon inside the capsule
       std::string key; // markup + font + scale + width the buffer was rendered for
       int width = 0;   // capsule (or text) size
       int height = 0;
@@ -130,6 +133,8 @@ namespace andromeda::ov {
       int maxWidth = 400;
       std::array<float, 4> fill{};
       bool wrap = false; // wrap at maxWidth instead of one ellipsized line
+      wlr_buffer* icon = nullptr; // drawn iconSize square before the text
+      int iconSize = 0;
     };
     // A rounded rect with a ring, sized only when its box changes.
     struct Frame {

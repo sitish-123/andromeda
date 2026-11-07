@@ -4,6 +4,7 @@
 #include <string_view>
 
 struct wlr_buffer;
+typedef struct _cairo_surface cairo_surface_t;
 
 namespace andromeda {
 
@@ -36,5 +37,8 @@ namespace andromeda {
   // Render Pango-markup text into a Cairo-backed wlr_buffer.
   // Returns a buffer the caller owns (drop after wlr_scene_buffer_create).
   [[nodiscard]] TextBufferResult renderTextBuffer(const TextBufferParams& params);
+
+  // Wraps a Cairo ARGB32 image surface in a wlr_buffer, taking a reference to it. The caller drops the buffer.
+  [[nodiscard]] wlr_buffer* imageBuffer(cairo_surface_t* surface);
 
 } // namespace andromeda
