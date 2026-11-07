@@ -249,6 +249,9 @@ package_noctalia-desktop-git() {
   install -Dm755 desktop/session/power/andromeda-power-config "$pkgdir/usr/lib/noctalia/andromeda-power-system"
   install -Dm644 desktop/session/power/org.andromeda.power.configure.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.power.configure.policy"
+  install -Dm755 desktop/session/power/andromeda-face-admin "$pkgdir/usr/lib/noctalia/andromeda-face-admin"
+  install -Dm644 desktop/session/power/org.andromeda.biometrics.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.andromeda.biometrics.policy"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
   ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/noctalia.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

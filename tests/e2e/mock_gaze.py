@@ -3,7 +3,8 @@
 
 Every Gaze call is appended to argv[1]. The test drives it through dsk.test.Gaze: SetEnrolled(b), SetClaimFails(b),
 Finish(result, rgb, ir, judged) ends the running verify with VerifyStatus, Status(s) sends FaceStatus, Sleep(b) sends
-PrepareForSleep, and Quit() exits as if gazed died. Answers PamInternal like gazed.
+PrepareForSleep, and Quit() exits as if gazed died. Answers PamInternal like gazed. ListFaces, DeleteFace and
+RenameFace work on two stored faces.
 """
 import os
 import sys
@@ -28,6 +29,7 @@ class Gaze(dbus.service.Object):
     def __init__(self, bus):
         super().__init__(bus, "/com/gundulabs/Gaze")
         self.enrolled = True
+        self.faces = ["Face", "With glasses"]
         self.claim_fails = False
         self.claimant = None
         self.pam_internal = []
@@ -36,6 +38,31 @@ class Gaze(dbus.service.Object):
     def HasEnrolledFaces(self, username):
         record(f"HasEnrolledFaces {username}")
         return self.enrolled
+
+    @dbus.service.method(GAZE, out_signature="b")
+    def IsCameraAvailable(self):
+        return True
+
+    @dbus.service.method(GAZE, in_signature="s", out_signature="a(subb)")
+    def ListFaces(self, username):
+        record(f"ListFaces {username}")
+        return dbus.Array([(f, dbus.UInt32(5), True, True) for f in self.faces], signature="(subb)")
+
+    @dbus.service.method(GAZE, in_signature="ss", out_signature="b")
+    def DeleteFace(self, username, face):
+        record(f"DeleteFace {username} {face}")
+        if face not in self.faces:
+            return False
+        self.faces.remove(face)
+        return True
+
+    @dbus.service.method(GAZE, in_signature="sss", out_signature="b")
+    def RenameFace(self, username, old, new):
+        record(f"RenameFace {username} {old} {new}")
+        if old not in self.faces or new in self.faces:
+            return False
+        self.faces[self.faces.index(old)] = new
+        return True
 
     @dbus.service.method(GAZE, in_signature="s", sender_keyword="sender")
     def Claim(self, username, sender):

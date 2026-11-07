@@ -1160,6 +1160,7 @@ void SettingsWindow::rebuildSettingsContent() {
     addNetworkContent(scale);
     addSoundContent(scale);
     addUsersContent(scale);
+    addPrivacyContent(scale);
     addPowerContent(scale);
     addAboutContent(scale);
     if (detailOpen) {

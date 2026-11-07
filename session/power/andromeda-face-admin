@@ -1,0 +1,31 @@
+#!/bin/sh
+# Runs as root through pkexec (polkit org.andromeda.biometrics.admin). Turns face unlock for admin prompts on or
+# off: the pam_gaze line in /etc/pam.d/sudo and /etc/pam.d/polkit-1. "on" sets on-request mode (the camera starts
+# only on an empty answer) and keeps the line's other options; "off" comments the line out with a marker, so "on"
+# can restore it.
+# Usage: andromeda-face-admin on|off
+set -eu
+PATH=/usr/bin:/usr/sbin
+case ${1:-} in
+  on | off) ;;
+  *) echo "usage: $0 on|off" >&2; exit 2 ;;
+esac
+[ $# -eq 1 ] || { echo "usage: $0 on|off" >&2; exit 2; }
+# ANDROMEDA_PAM_ETC is a test root; root always writes /etc.
+[ "$(id -u)" -ne 0 ] || ANDROMEDA_PAM_ETC=
+dir=${ANDROMEDA_PAM_ETC:-/etc}/pam.d
+active='^auth\s\+sufficient\s\+pam_gaze\.so'
+found=0
+for f in "$dir/sudo" "$dir/polkit-1"; do
+  [ -f "$f" ] || continue
+  grep -q "^\(#andromeda-off \)\?auth\s\+sufficient\s\+pam_gaze\.so" "$f" || continue
+  found=1
+  if [ "$1" = on ]; then
+    # Uncomment, drop any mode word, then add on-request once.
+    sed -i -e 's/^#andromeda-off \(auth\s\+sufficient\s\+pam_gaze\.so\)/\1/' \
+      -e "/$active/{s/\s\+\(simultaneous\|sequential\|retry\|on-request\)\(\s\|$\)/\2/g;s/\s*$/ on-request/}" "$f"
+  else
+    sed -i "s/$active/#andromeda-off &/" "$f"
+  fi
+done
+[ $found -eq 1 ] || { echo "pam_gaze is not in sudo or polkit-1; install the patched gaze first" >&2; exit 3; }

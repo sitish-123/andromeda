@@ -209,6 +209,7 @@ void Application::initUiRenderSurfacesAndSettings() {
   );
   m_settingsWindow.setSystemBus(m_systemBus.get());
   m_settingsWindow.setConnectivityProviders([this] { return network(); }, [this] { return bluetooth(); });
+  m_settingsWindow.setSessionBus(m_bus.get());
   m_settingsWindow.setAudioProvider([this] { return pipewire(); });
   m_settingsWindow.setPowerProfilesProvider([this] { return powerProfiles(); });
   m_settingsWindow.setPowerConfigProvider([this] { return m_powerConfigService.get(); });

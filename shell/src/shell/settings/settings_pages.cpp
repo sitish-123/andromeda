@@ -245,7 +245,7 @@ namespace settings {
 
   std::span<const SettingsPage> settingsPages() { return kPages; }
 
-  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users" || pageId == "problems" || pageId == "software-update"; }
+  bool settingsPageHasOwnContent(std::string_view pageId) { return pageId == "wifi" || pageId == "bluetooth" || pageId == "network" || pageId == "sound" || pageId == "mouse" || pageId == "users" || pageId == "privacy" || pageId == "problems" || pageId == "software-update"; }
 
   const SettingsPage* settingsPageFromId(std::string_view id) {
     if (const auto* it = std::ranges::find(kPages, id, &SettingsPage::id); it != kPages.end()) {

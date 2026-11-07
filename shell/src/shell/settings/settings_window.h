@@ -11,6 +11,7 @@
 #include "shell/settings/config_export_dialog_modal.h"
 #include "shell/settings/settings_content_problems.h"
 #include "shell/settings/settings_content_shortcuts.h"
+#include "shell/settings/settings_content_privacy.h"
 #include "shell/settings/settings_content_users.h"
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_modal_host.h"
@@ -40,6 +41,9 @@
 #include <utility>
 #include <vector>
 
+class AppPermissions;
+class BiometricEnrollment;
+class SessionBus;
 class Box;
 class BluetoothService;
 class PipeWireService;
@@ -155,6 +159,7 @@ public:
   // Also rebuilds the calendar account rows when an account's sync failure changes.
   void setCalendarService(CalendarService* service);
   void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
+  void setSessionBus(SessionBus* bus) { m_sessionBus = bus; }
   // Services start after Settings exists, so the pages ask for them when they build.
   void setConnectivityProviders(std::function<INetworkService*()> network, std::function<BluetoothService*()> bluetooth) {
     m_networkProvider = std::move(network);
@@ -300,6 +305,9 @@ private:
   void addNetworkContent(float scale);
   void addSoundContent(float scale);
   void addUsersContent(float scale);
+  void addPrivacyContent(float scale);
+  // Asks polkit (org.andromeda.biometrics.manage) before a fingerprint change; `then` runs only when allowed.
+  void authorizeBiometrics(std::function<void()> then);
   void addPowerContent(float scale);
   void addWorkspacesContent(float scale);
   void addAboutContent(float scale);
@@ -492,6 +500,7 @@ private:
   std::string m_recordingShortcutRow;
   std::optional<xkb::Catalog> m_xkbCatalog;
   SystemBus* m_systemBus = nullptr;
+  SessionBus* m_sessionBus = nullptr;
   // Exists only while the Date & Time section is showing.
   std::unique_ptr<TimeDateService> m_timeDateService;
   // Exists only while the Language & Region section is showing (also uses m_xkbCatalog).
@@ -565,6 +574,15 @@ private:
   std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
   std::string m_renameError;
   bool m_userDeleteBusy = false;
+  std::unique_ptr<BiometricEnrollment> m_enroll;
+  std::string m_privacyStatus;
+  settings::PasswordDraft m_passwordDraft;
+  std::unique_ptr<AppPermissions> m_permissions;
+  std::vector<settings::AccessKindView> m_access;
+  void loadAppAccess();
+  // Leaving the page or closing the window: a running enroll releases the camera or reader, typed passwords go.
+  void leavePrivacy();
+  void changePassword();
   std::string m_userDeleteError;
   // Settings › Users › Login Screen: result of the last switch, shown under the select.
   std::string m_loginScreenStatus;

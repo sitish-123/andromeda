@@ -1,5 +1,6 @@
 #include "shell/setup_wizard/setup_wizard_panel.h"
 
+#include "auth/biometric_enrollment.h"
 #include "compositors/settings_control.h"
 #include "compositors/shell_wayland_connection.h"
 #include "config/config_service.h"
@@ -83,9 +84,6 @@ namespace {
   // Installed with the andromeda-link package; without it the Phone page has nothing to offer.
   constexpr auto kLinkUnit = "/usr/lib/systemd/user/andromeda-linkd.service";
 
-  const sdbus::ServiceName kGazeBusName{"com.gundulabs.Gaze"};
-  const sdbus::ObjectPath kGazePath{"/com/gundulabs/Gaze"};
-  constexpr auto kGazeInterface = "com.gundulabs.Gaze";
   constexpr auto kFaceName = "Face";
 
   constexpr auto kLayoutKey = "input.keyboard.layout";
@@ -105,19 +103,8 @@ namespace {
     }
   }
 
-  const sdbus::ServiceName kFprintBusName{"net.reactivated.Fprint"};
-  const sdbus::ObjectPath kFprintManagerPath{"/net/reactivated/Fprint/Manager"};
-  constexpr auto kFprintManagerInterface = "net.reactivated.Fprint.Manager";
-  constexpr auto kFprintDeviceInterface = "net.reactivated.Fprint.Device";
-  constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
-  constexpr const char* kFingers[] = {
-      "right-index-finger", "left-index-finger", "right-middle-finger", "left-middle-finger", "right-thumb",
-      "left-thumb",         "right-ring-finger", "left-ring-finger",    "right-little-finger", "left-little-finger",
-  };
 
   constexpr auto kPairingPoll = std::chrono::seconds(1);
-
-  using FaceEntry = sdbus::Struct<std::string, std::uint32_t, bool, bool>;
 
   struct SelectOption {
     std::string_view labelKey;
@@ -254,15 +241,6 @@ namespace {
   }
 
   // callMethodAsync throws, not replies, when the connection itself is gone.
-  template <typename Call> bool tryCall(const char* what, Call&& call) {
-    try {
-      call();
-      return true;
-    } catch (const sdbus::Error& e) {
-      kLog.info("could not call {}: {}", what, e.what());
-      return false;
-    }
-  }
 
   std::string currentUser() {
     if (const passwd* pw = getpwuid(getuid()); pw != nullptr && pw->pw_name != nullptr) {
@@ -276,24 +254,6 @@ namespace {
     return code.size() == 6 ? code.substr(0, 3) + " " + code.substr(3) : code;
   }
 
-  std::string facePrompt(const std::string& message) {
-    if (message == "Tilt your face slightly up") {
-      return i18n::tr("setup-wizard.face-up");
-    }
-    if (message == "Tilt your face slightly down") {
-      return i18n::tr("setup-wizard.face-down");
-    }
-    if (message == "Turn your face slightly left") {
-      return i18n::tr("setup-wizard.face-left");
-    }
-    if (message == "Turn your face slightly right") {
-      return i18n::tr("setup-wizard.face-right");
-    }
-    if (message == "Face the camera") {
-      return i18n::tr("setup-wizard.face-straight");
-    }
-    return {};
-  }
 
   bool indexerReachable() {
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
@@ -1514,258 +1474,52 @@ void SetupWizardPanel::probeUnlock() {
   if (m_preview || m_enrolling != Method::None || m_systemBus == nullptr) {
     return;
   }
-  probeFace();
-  probeFinger();
-}
-
-void SetupWizardPanel::probeFace() {
-  if (m_gaze == nullptr) {
-    try {
-      m_gaze = sdbus::createProxy(m_systemBus->connection(), kGazeBusName, kGazePath);
-      m_gaze->uponSignal("EnrollStatus")
-          .onInterface(kGazeInterface)
-          .call([this](const std::string& /*name*/, std::uint32_t progress, std::uint32_t max, bool done, const std::string& message, double /*remaining*/) {
-            if (m_enrolling != Method::Face || !m_systemBus->isNameOwner(kGazeBusName, m_gaze->getCurrentlyProcessedMessage().getSender())) {
-              return;
-            }
-            m_enrolProgress = max > 0 ? static_cast<float>(progress) / static_cast<float>(max) : 0.0F;
-            if (const std::string prompt = facePrompt(message); !prompt.empty()) {
-              m_enrolPrompt = prompt;
-            }
-            if (done) {
-              finishEnrol(message == "Completed");
-            } else {
-              syncPages();
-            }
-          });
-    } catch (const sdbus::Error& e) {
-      kLog.debug("no gazed proxy: {}", e.what());
-      m_gaze.reset();
-      return;
-    }
+  if (m_enroll == nullptr) {
+    m_enroll = std::make_unique<BiometricEnrollment>(m_systemBus, m_user);
+    m_enroll->setChangedCallback([this] {
+      if (m_preview) {
+        return;
+      }
+      m_face.present = m_enroll->facePresent();
+      m_face.enrolled = static_cast<int>(m_enroll->faces().size());
+      m_finger.present = m_enroll->fingerPresent();
+      m_finger.enrolled = static_cast<int>(m_enroll->fingers().size());
+      m_enrolProgress = m_enroll->progress();
+      m_enrolPrompt = m_enroll->prompt();
+      syncPages();
+    });
+    m_enroll->setFinishedCallback([this](BiometricEnrollment::Method /*method*/, bool ok) { finishEnrol(ok); });
   }
-  tryCall("gazed IsCameraAvailable", [&] {
-    m_gaze->callMethodAsync("IsCameraAvailable")
-        .onInterface(kGazeInterface)
-        .uponReplyInvoke([this](std::optional<sdbus::Error> e, bool available) {
-          if (m_preview) {
-            return;
-          }
-          m_face.present = !e.has_value() && available;
-          if (!m_face.present) {
-            syncPages();
-            return;
-          }
-          tryCall("gazed ListFaces", [&] {
-            m_gaze->callMethodAsync("ListFaces")
-                .onInterface(kGazeInterface)
-                .withArguments(m_user)
-                .uponReplyInvoke([this](std::optional<sdbus::Error> e, const std::vector<FaceEntry>& faces) {
-                  if (m_preview) {
-                    return;
-                  }
-                  m_face.enrolled = e.has_value() ? 0 : static_cast<int>(faces.size());
-                  syncPages();
-                });
-          });
-        });
-  });
-}
-
-void SetupWizardPanel::probeFinger() {
-  tryCall("fprintd GetDefaultDevice", [&] {
-    auto manager = std::shared_ptr<sdbus::IProxy>(sdbus::createProxy(m_systemBus->connection(), kFprintBusName, kFprintManagerPath));
-    manager->callMethodAsync("GetDefaultDevice")
-        .onInterface(kFprintManagerInterface)
-        .uponReplyInvoke([this, manager](std::optional<sdbus::Error> e, const sdbus::ObjectPath& path) {
-          if (m_preview) {
-            return;
-          }
-          if (e.has_value()) {
-            m_finger.present = false;
-            syncPages();
-            return;
-          }
-          if (m_fprintDevice == nullptr || m_fingerDevice != path) {
-            try {
-              m_fprintDevice = sdbus::createProxy(m_systemBus->connection(), kFprintBusName, path);
-            } catch (const sdbus::Error& error) {
-              kLog.info("no fprintd device proxy: {}", error.what());
-              m_fprintDevice.reset();
-              return;
-            }
-            m_fingerDevice = path;
-            m_fprintDevice->uponSignal("EnrollStatus").onInterface(kFprintDeviceInterface).call([this](const std::string& result, bool done) {
-              if (m_enrolling != Method::Finger) {
-                return;
-              }
-              if (result == "enroll-completed") {
-                m_enrolProgress = 1.0F;
-                finishEnrol(true);
-                return;
-              }
-              if (result == "enroll-stage-passed") {
-                ++m_fingerPassed;
-                m_enrolProgress = m_fingerStages > 0 ? static_cast<float>(m_fingerPassed) / static_cast<float>(m_fingerStages) : 0.0F;
-                m_enrolPrompt = i18n::tr("setup-wizard.finger-again");
-              } else {
-                m_enrolPrompt = i18n::tr("setup-wizard.finger-retry");
-              }
-              if (done) {
-                finishEnrol(false);
-              } else {
-                syncPages();
-              }
-            });
-            m_fprintDevice->callMethodAsync("Get")
-                .onInterface(kPropertiesInterface)
-                .withArguments(std::string{kFprintDeviceInterface}, std::string{"num-enroll-stages"})
-                .uponReplyInvoke([this](std::optional<sdbus::Error> e, const sdbus::Variant& value) {
-                  m_fingerStages = e.has_value() ? 0 : value.get<std::int32_t>();
-                });
-          }
-          m_finger.present = true;
-          m_fprintDevice->callMethodAsync("ListEnrolledFingers")
-              .onInterface(kFprintDeviceInterface)
-              .withArguments(m_user)
-              .uponReplyInvoke([this](std::optional<sdbus::Error> e, const std::vector<std::string>& fingers) {
-                if (m_preview) {
-                  return;
-                }
-                // fprintd answers NoEnrolledPrints instead of an empty list.
-                m_fingerNames = e.has_value() ? std::vector<std::string>{} : fingers;
-                m_finger.enrolled = static_cast<int>(m_fingerNames.size());
-                syncPages();
-              });
-        });
-  });
+  m_enroll->probe();
 }
 
 void SetupWizardPanel::startEnrol(Method method) {
-  if (m_preview || m_enrolling != Method::None) {
+  if (m_preview || m_enrolling != Method::None || m_enroll == nullptr) {
     return;
   }
   UnlockMethod& m = method == Method::Face ? m_face : m_finger;
   m.failed = false;
   m_enrolling = method;
-  m_enrolProgress = 0.0F;
-  m_fingerPassed = 0;
-  m_enrolPrompt = i18n::tr(method == Method::Face ? "setup-wizard.face-turn" : "setup-wizard.finger-place");
-  syncPages();
-
-  if (method == Method::Face) {
-    if (m_gaze == nullptr || !tryCall("gazed Claim", [&] {
-          m_gaze->callMethodAsync("Claim")
-              .onInterface(kGazeInterface)
-              .withArguments(m_user)
-              .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-                if (e.has_value()) {
-                  kLog.info("gazed Claim failed: {}", e->what());
-                  if (m_enrolling == Method::Face) {
-                    finishEnrol(false);
-                  }
-                  return;
-                }
-                m_faceClaimed = true;
-                // Cancelled while the claim was pending: a held claim blocks face unlock on the lock screen.
-                if (m_enrolling != Method::Face) {
-                  releaseFace();
-                  return;
-                }
-                tryCall("gazed EnrollStart", [&] {
-                  m_gaze->callMethodAsync("EnrollStart")
-                      .onInterface(kGazeInterface)
-                      .withArguments(std::string{kFaceName})
-                      .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-                        if (e.has_value() && m_enrolling == Method::Face) {
-                          kLog.info("gazed EnrollStart failed: {}", e->what());
-                          finishEnrol(false);
-                        }
-                      });
-                });
-              });
-        })) {
-      finishEnrol(false);
-    }
-    return;
-  }
-
-  std::string finger;
-  for (const char* name : kFingers) {
-    if (std::ranges::find(m_fingerNames, name) == m_fingerNames.end()) {
-      finger = name;
-      break;
-    }
-  }
-  if (m_fprintDevice == nullptr || finger.empty() || !tryCall("fprintd Claim", [&] {
-        m_fprintDevice->callMethodAsync("Claim")
-            .onInterface(kFprintDeviceInterface)
-            .withArguments(m_user)
-            .uponReplyInvoke([this, finger](std::optional<sdbus::Error> e) {
-              if (e.has_value()) {
-                kLog.info("fprintd Claim failed: {}", e->what());
-                if (m_enrolling == Method::Finger) {
-                  finishEnrol(false);
-                }
-                return;
-              }
-              m_fingerClaimed = true;
-              if (m_enrolling != Method::Finger) {
-                releaseFinger();
-                return;
-              }
-              tryCall("fprintd EnrollStart", [&] {
-                m_fprintDevice->callMethodAsync("EnrollStart")
-                    .onInterface(kFprintDeviceInterface)
-                    .withArguments(finger)
-                    .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-                      if (e.has_value() && m_enrolling == Method::Finger) {
-                        kLog.info("fprintd EnrollStart failed: {}", e->what());
-                        finishEnrol(false);
-                      }
-                    });
-              });
-            });
-      })) {
-    finishEnrol(false);
-  }
-}
-
-void SetupWizardPanel::releaseFace() {
-  if (!m_faceClaimed || m_gaze == nullptr) {
-    m_faceClaimed = false;
-    return;
-  }
-  m_faceClaimed = false;
-  tryCall("gazed EnrollStop", [&] {
-    m_gaze->callMethodAsync("EnrollStop").onInterface(kGazeInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
-    m_gaze->callMethodAsync("Release").onInterface(kGazeInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
-  });
-}
-
-void SetupWizardPanel::releaseFinger() {
-  if (!m_fingerClaimed || m_fprintDevice == nullptr) {
-    m_fingerClaimed = false;
-    return;
-  }
-  m_fingerClaimed = false;
-  tryCall("fprintd EnrollStop", [&] {
-    m_fprintDevice->callMethodAsync("EnrollStop").onInterface(kFprintDeviceInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
-    m_fprintDevice->callMethodAsync("Release").onInterface(kFprintDeviceInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
-  });
+  m_enroll->start(
+      method == Method::Face ? BiometricEnrollment::Method::Face : BiometricEnrollment::Method::Finger,
+      method == Method::Face ? std::string{kFaceName} : std::string{}
+  );
 }
 
 void SetupWizardPanel::stopEnrol() {
   m_enrolling = Method::None;
-  releaseFace();
-  releaseFinger();
+  if (m_enroll != nullptr) {
+    m_enroll->stop();
+  }
 }
 
 void SetupWizardPanel::finishEnrol(bool ok) {
+  if (m_enrolling == Method::None) {
+    return;
+  }
   UnlockMethod& m = m_enrolling == Method::Face ? m_face : m_finger;
-  stopEnrol();
+  m_enrolling = Method::None;
   m.failed = !ok;
-  probeUnlock();
   syncPages();
 }
 

@@ -11,6 +11,7 @@
 #include <string_view>
 #include <vector>
 
+class BiometricEnrollment;
 class ConfigService;
 class Button;
 class CountdownRingNode;
@@ -125,13 +126,9 @@ private:
   void renderQr(Renderer& renderer);
   void startPairing();
   void probeUnlock();
-  void probeFace();
-  void probeFinger();
   void startEnrol(Method method);
   void stopEnrol();
   void finishEnrol(bool ok);
-  void releaseFace();
-  void releaseFinger();
   void probeKeyboard();
   void syncKeyboard();
   void syncTimezone();
@@ -207,14 +204,7 @@ private:
   Method m_enrolling = Method::None;
   float m_enrolProgress = 0.0F;
   std::string m_enrolPrompt;
-  int m_fingerStages = 0;
-  int m_fingerPassed = 0;
-  std::string m_fingerDevice;
-  std::vector<std::string> m_fingerNames;
-  std::unique_ptr<sdbus::IProxy> m_gaze;
-  std::unique_ptr<sdbus::IProxy> m_fprintDevice;
-  bool m_faceClaimed = false;
-  bool m_fingerClaimed = false;
+  std::unique_ptr<BiometricEnrollment> m_enroll;
   Flex* m_methodCard = nullptr;
   Node* m_unlockSeparator = nullptr;
   Flex* m_enrolCard = nullptr;

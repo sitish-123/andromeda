@@ -1,5 +1,8 @@
 #include "shell/settings/settings_window.h"
 
+#include "auth/biometric_enrollment.h"
+#include "system/app_permissions.h"
+
 #include "shell/settings/keybind_recorder.h"
 #include "shell/settings/settings_alert.h"
 
@@ -649,6 +652,7 @@ void SettingsWindow::dismissOpenSelectDropdown() {
 }
 
 void SettingsWindow::destroyWindow() {
+  leavePrivacy();
   // The next open reads the update service again.
   m_softwareUpdateRead = false;
   // A pending display confirmation keeps its binding so the revert timer still fires after the window closes.
