@@ -49,6 +49,11 @@ namespace andromeda {
     wlr_texture_destroy(frame);
     if (ok) {
       wlr_output_state_set_buffer(&state, target);
+      // Every magnified pixel can change; the scene damage is in unzoomed coordinates.
+      pixman_region32_t whole;
+      pixman_region32_init_rect(&whole, 0, 0, target->width, target->height);
+      wlr_output_state_set_damage(&state, &whole);
+      pixman_region32_fini(&whole);
     }
     wlr_buffer_unlock(target);
     return ok;

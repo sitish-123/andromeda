@@ -6210,6 +6210,15 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
   transform_output_box(&pending.buffer_dst_box, data);
 
   struct wlr_buffer* wlr_buffer = scene_buffer_scanout_buffer(buffer);
+  // FB_DAMAGE_CLIPS are in framebuffer coordinates; the scene damage is in output coordinates and matches only an
+  // uncropped buffer at the origin. Else the whole framebuffer is damaged, or PSR2 selective update shows stale rows.
+  if (!wlr_fbox_empty(&pending.buffer_src_box) || pending.buffer_dst_box.x != 0 || pending.buffer_dst_box.y != 0
+      || pending.buffer_dst_box.width != wlr_buffer->width || pending.buffer_dst_box.height != wlr_buffer->height) {
+    pixman_region32_t whole;
+    pixman_region32_init_rect(&whole, 0, 0, wlr_buffer->width, wlr_buffer->height);
+    wlr_output_state_set_damage(&pending, &whole);
+    pixman_region32_fini(&whole);
+  }
 
   wlr_output_state_set_buffer(&pending, wlr_buffer);
   if (buffer->wait_timeline != NULL) {
