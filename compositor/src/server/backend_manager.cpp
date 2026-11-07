@@ -1,6 +1,7 @@
 #include "server/backend_manager.h"
 
 #include "core/log.h"
+#include "core/scanout_keeper.h"
 #include "server/drm_policy.h"
 #include "util/driver_threads.h"
 #include "wlr.h"
@@ -343,6 +344,21 @@ namespace andromeda {
 #endif
     }
 
+    // Login hand-off: the DRM devices are open while the session is still inactive, so the VT switch greetd does
+    // on request moves DRM master from the greeter in one logind step. Runs before the backend start, after the
+    // output listeners exist: activation makes the DRM backend announce its outputs.
+    [[nodiscard]] bool activateHandoffSession() {
+#if ANDROMEDA_HAS_NATIVE_DRM_POLICY
+      if (m_session == nullptr || m_session->active) {
+        return true;
+      }
+      scanout_keeper::requestSwitch();
+      return waitForActiveSession();
+#else
+      return true;
+#endif
+    }
+
   private:
     wl_display* m_display = nullptr;
     Config::Drm m_config;
@@ -373,7 +389,7 @@ namespace andromeda {
         return false;
       }
       connectSessionListeners();
-      if (!waitForActiveSession()) {
+      if (!scanout_keeper::switchOffered() && !waitForActiveSession()) {
         return false;
       }
       if (!resolveIgnoredDevices()) {
@@ -949,5 +965,6 @@ namespace andromeda {
   }
   bool BackendManager::verifyOpenDevices(std::string_view context) { return m_impl->verifyOpenDevices(context); }
   void BackendManager::markStarted() { m_impl->markStarted(); }
+  bool BackendManager::activateHandoffSession() { return m_impl->activateHandoffSession(); }
 
 } // namespace andromeda

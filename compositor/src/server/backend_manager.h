@@ -26,6 +26,7 @@ namespace andromeda {
     [[nodiscard]] wlr_renderer* createRenderer();
     [[nodiscard]] bool verifyOpenDevices(std::string_view context);
     void markStarted();
+    [[nodiscard]] bool activateHandoffSession();
 
   private:
     class Impl;

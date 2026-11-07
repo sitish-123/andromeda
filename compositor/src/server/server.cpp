@@ -1504,6 +1504,10 @@ namespace andromeda {
     }
 
     refreshSystemKeymap();
+    if (!m_backendManager->activateHandoffSession()) {
+      wlr_log(WLR_ERROR, "the session did not become active");
+      return false;
+    }
     if (!wlr_backend_start(m_backend)) {
       wlr_log(WLR_ERROR, "failed to start backend");
       return false;

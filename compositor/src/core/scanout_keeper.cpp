@@ -40,32 +40,38 @@ namespace andromeda::scanout_keeper {
       sd_bus_error_free(&error);
     }
 
-    // greetd's hand-off waits for this connection before it ends the greeter session (session/greetd patches).
-    void reportHandoffReady() {
+    std::string handoffSocketPath() {
       const char* runtime = std::getenv("XDG_RUNTIME_DIR");
-      if (runtime == nullptr) {
-        return;
-      }
-      const std::string path = std::string(runtime) + "/greetd-handoff.sock";
+      return runtime == nullptr ? std::string() : std::string(runtime) + "/greetd-handoff.sock";
+    }
+
+    // One request per connection: greetd reads lines until the connection closes.
+    bool sendHandoffRequest(const char* request) {
+      const std::string path = handoffSocketPath();
       sockaddr_un address{};
-      if (path.size() >= sizeof(address.sun_path)) {
-        return;
+      if (path.empty() || path.size() >= sizeof(address.sun_path)) {
+        return false;
       }
       address.sun_family = AF_UNIX;
       std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
       const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
       if (fd < 0) {
-        return;
+        return false;
       }
+      bool sent = false;
       if (connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == 0) {
-        kLog.info("reported the first frame to greetd's hand-off");
+        const std::string line = std::string(request) + "\n";
+        sent = send(fd, line.data(), line.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(line.size());
       }
       close(fd);
+      return sent;
     }
 
     void release() {
       g_released = true;
-      reportHandoffReady();
+      if (sendHandoffRequest("ready")) {
+        kLog.info("reported the first frame to greetd's hand-off");
+      }
       sd_bus* bus = nullptr;
       if (sd_bus_open_system(&bus) < 0) {
         return;
@@ -109,6 +115,17 @@ namespace andromeda::scanout_keeper {
       holdBackend(backend, bus);
     }
     sd_bus_flush_close_unref(bus);
+  }
+
+  bool switchOffered() {
+    const std::string path = handoffSocketPath();
+    return !path.empty() && access(path.c_str(), F_OK) == 0;
+  }
+
+  void requestSwitch() {
+    if (sendHandoffRequest("switch")) {
+      kLog.info("asked greetd's hand-off for the VT switch");
+    }
   }
 
   void expectFirstFrame() {
