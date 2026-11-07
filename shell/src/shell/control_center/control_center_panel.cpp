@@ -90,7 +90,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
     m_tabs[tabIndex(id)] = std::move(page);
   };
   addDetail(TabId::DetailWifi, std::make_unique<control_center::WifiDetailPage>(services.network));
-  addDetail(TabId::DetailBluetooth, std::make_unique<control_center::BluetoothDetailPage>(services.bluetooth));
+  addDetail(TabId::DetailBluetooth, std::make_unique<control_center::BluetoothDetailPage>(services.bluetooth, services.bluetoothAgent));
   addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio));
   addDetail(TabId::DetailPower,
             std::make_unique<control_center::PowerDetailPage>(services.powerProfiles, services.upower));
@@ -1075,7 +1075,9 @@ ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view
 
 ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view context) const {
   // Contexts of the old sidebar tabs (bar gestures, IPC, user config) open their v2 page.
-  static constexpr std::array<std::pair<std::string_view, std::string_view>, 5> kOldContexts{{
+  static constexpr std::array<std::pair<std::string_view, std::string_view>, 7> kOldContexts{{
+      {"bluetooth", "detail-bluetooth"},
+      {"home", "quick"},
       {"notifications", "detail-notifications"},
       {"media", "detail-media"},
       {"screen-time", "detail-screen-time"},

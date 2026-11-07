@@ -5,6 +5,8 @@
 #include "dbus/mpris/mpris_service.h"
 #include "compositors/compositor_platform.h"
 #include "ipc/ipc_service.h"
+#include "util/parse_number.h"
+#include "util/string_utils.h"
 #include "notification/notification_display_name.h"
 #include "system/brightness_service.h"
 #include "system/format_units.h"
@@ -12,7 +14,9 @@
 #include "system/system_monitor_service.h"
 #include "ui/controls/countdown_ring.h"
 
+#include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
+#include "dbus/bluetooth/bluetooth_uuid_names.h"
 #include "dbus/link/link_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
@@ -393,6 +397,10 @@ namespace control_center {
     }
     const BluetoothState& state = m_bluetooth->state();
     std::string key = std::format("{}|{}|{}|{}", state.powered, state.discovering, m_showNearby, m_showAllPaired);
+    if (m_agent != nullptr && m_agent->hasPendingRequest()) {
+      const BluetoothPairingRequest req = m_agent->pendingRequest();
+      key += std::format("|pair:{}:{}:{}:{}", static_cast<int>(req.kind), req.devicePath, req.passkey, req.pin);
+    }
     for (const BluetoothDeviceInfo& d : m_bluetooth->devices()) {
       key += std::format("|{}:{}:{}:{}:{}:{}:{}", d.path, d.alias, d.paired, d.connected, d.connecting, d.hasBattery,
                          d.batteryPercent);
@@ -400,11 +408,116 @@ namespace control_center {
     return key;
   }
 
+  bool BluetoothDetailPage::deferRebuild() const {
+    return m_code != nullptr
+        && (!m_code->value().empty() || PanelManager::instance().inputDispatcher().focusedArea() == m_code->inputArea());
+  }
+
+  // The device's pairing question (.agent/DESIGN.md "Control Center pages", gaps): code to compare, PIN or passkey to
+  // type, or a yes/no; it shows while the agent holds a request and this page is open (Pair starts here).
+  void BluetoothDetailPage::addPairingPrompt() {
+    const BluetoothPairingRequest req = m_agent->pendingRequest();
+    std::string alias = req.devicePath;
+    for (const BluetoothDeviceInfo& d : m_bluetooth->devices()) {
+      if (d.path == req.devicePath && !d.alias.empty()) {
+        alias = d.alias;
+      }
+    }
+    const float s = contentScale();
+    Flex* card = addGroup();
+    auto body = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s, .padding = Tokens::spaceP12 * s});
+    body->addChild(ui::label({.text = i18n::tr("control-center.bluetooth.pair-title", "device", alias),
+                              .fontSize = Tokens::typeHeadline.size * s, .fontWeight = FontWeight::SemiBold,
+                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1, .ellipsize = TextEllipsize::End}));
+    std::string detail;
+    switch (req.kind) {
+    case BluetoothPairingKind::Confirm: detail = tr("control-center.bluetooth.pairing-detail.confirm"); break;
+    case BluetoothPairingKind::Authorize: detail = tr("control-center.bluetooth.pairing-detail.authorize"); break;
+    case BluetoothPairingKind::AuthorizeService:
+      detail = i18n::tr("control-center.bluetooth.pairing-detail.authorize-service", "uuid", bluetoothServiceLabel(req.uuid));
+      break;
+    case BluetoothPairingKind::DisplayPinCode: detail = tr("control-center.bluetooth.pairing-detail.display-pin"); break;
+    case BluetoothPairingKind::DisplayPasskey: detail = tr("control-center.bluetooth.pairing-detail.display-passkey"); break;
+    case BluetoothPairingKind::PinCode: detail = tr("control-center.bluetooth.pairing-detail.pin-code"); break;
+    case BluetoothPairingKind::Passkey: detail = tr("control-center.bluetooth.pairing-detail.passkey"); break;
+    case BluetoothPairingKind::None: break;
+    }
+    body->addChild(ui::label({.text = detail, .fontSize = Tokens::typeFootnote.size * s, .color = colorSpecFromRole(ColorRole::Label2),
+                              .maxLines = 3}));
+    const bool needsInput = req.kind == BluetoothPairingKind::PinCode || req.kind == BluetoothPairingKind::Passkey;
+    const bool showsCode = req.kind == BluetoothPairingKind::Confirm || req.kind == BluetoothPairingKind::DisplayPasskey
+        || req.kind == BluetoothPairingKind::DisplayPinCode;
+    if (showsCode) {
+      const std::string code = req.kind == BluetoothPairingKind::DisplayPinCode ? req.pin : std::format("{:06}", req.passkey);
+      body->addChild(ui::label({.text = code, .fontSize = Tokens::typeTitle2.size * s, .fontWeight = FontWeight::SemiBold,
+                                .color = colorSpecFromRole(ColorRole::Label1)}));
+    }
+    const auto submit = [this, kind = req.kind](const std::string& value) {
+      if (kind == BluetoothPairingKind::PinCode) {
+        m_agent->submitPin(value);
+      } else if (const auto passkey = parseNumber<std::uint32_t>(StringUtils::trim(value)); passkey.has_value() && *passkey <= 999999) {
+        m_agent->submitPasskey(*passkey);
+      } else {
+        m_agent->cancelPending();
+      }
+      m_code = nullptr;
+      requestRebuild();
+    };
+    if (needsInput) {
+      body->addChild(ui::input({
+          .out = &m_code,
+          .placeholder = tr("control-center.detail.bluetooth.code"),
+          .controlHeight = Tokens::componentFieldHeight * s,
+          .surfaceOpacity = panelCardOpacity(),
+          .surfaceRole = ColorRole::Fill2,
+          .onSubmit = submit,
+      }));
+      m_code->setCapsule(true);
+    }
+    auto buttons = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .gap = Tokens::spaceP8 * s});
+    const auto button = [s](const std::string& text, bool primary, std::function<void()> onClick) {
+      auto b = std::make_unique<Button>();
+      b->setVariant(primary ? ButtonVariant::Primary : ButtonVariant::Default);
+      b->setText(text);
+      b->setControlHeight(Tokens::componentButtonHeightM * s);
+      b->setRadius(Tokens::componentButtonRadius * s);
+      b->setOnClick(std::move(onClick));
+      return b;
+    };
+    const bool yesNo = req.kind == BluetoothPairingKind::Confirm || req.kind == BluetoothPairingKind::Authorize
+        || req.kind == BluetoothPairingKind::AuthorizeService;
+    buttons->addChild(button(tr("control-center.detail.bluetooth.cancel"), false, [this, yesNo] {
+      if (yesNo) {
+        m_agent->rejectConfirm();
+      } else {
+        m_agent->cancelPending();
+      }
+      requestRebuild();
+    }));
+    if (yesNo || req.kind == BluetoothPairingKind::DisplayPinCode) {
+      buttons->addChild(button(tr("control-center.detail.bluetooth.pair"), true, [this] {
+        m_agent->acceptConfirm();
+        requestRebuild();
+      }));
+    } else if (needsInput) {
+      buttons->addChild(button(tr("control-center.detail.bluetooth.pair"), true, [this, submit] {
+        if (m_code != nullptr) {
+          submit(m_code->value());
+        }
+      }));
+    }
+    body->addChild(std::move(buttons));
+    card->addChild(std::move(body));
+  }
+
   void BluetoothDetailPage::build() {
     if (m_bluetooth == nullptr || !m_bluetooth->state().adapterPresent) {
       addEmpty("bluetooth-off", tr("control-center.detail.bluetooth.unavailable"),
                tr("control-center.detail.bluetooth.unavailable-body"));
       return;
+    }
+    if (m_agent != nullptr && m_agent->hasPendingRequest()) {
+      addPairingPrompt();
     }
     if (!m_bluetooth->state().powered) {
       addEmpty("bluetooth-off", tr("control-center.detail.bluetooth.off"), tr("control-center.detail.bluetooth.off-body"));

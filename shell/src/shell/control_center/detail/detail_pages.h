@@ -11,6 +11,7 @@
 #include <string>
 
 class BluetoothService;
+class BluetoothAgent;
 class BrightnessService;
 class SystemMonitorService;
 class ScreenTimeService;
@@ -61,7 +62,7 @@ namespace control_center {
 
   class BluetoothDetailPage final : public DetailPage {
   public:
-    explicit BluetoothDetailPage(BluetoothService* bluetooth) : m_bluetooth(bluetooth) {}
+    BluetoothDetailPage(BluetoothService* bluetooth, BluetoothAgent* agent) : m_bluetooth(bluetooth), m_agent(agent) {}
     std::unique_ptr<Flex> createHeaderActions() override;
     void setActive(bool active) override;
     void onClose() override;
@@ -71,12 +72,19 @@ namespace control_center {
     void build() override;
     [[nodiscard]] std::vector<FooterButton> footerButtons() override;
     void sync() override;
-    void releaseControls() override { m_toggle = nullptr; }
+    void releaseControls() override {
+      m_toggle = nullptr;
+      m_code = nullptr;
+    }
+    [[nodiscard]] bool deferRebuild() const override;
+    void addPairingPrompt();
     void stopScan();
     void startScan();
 
     BluetoothService* m_bluetooth = nullptr;
+    BluetoothAgent* m_agent = nullptr;
     Toggle* m_toggle = nullptr;
+    Input* m_code = nullptr; // PIN or passkey the device asks for
     bool m_active = false;
     bool m_startedScan = false; // this page started the running scan
     std::chrono::steady_clock::time_point m_scanAttempt;
