@@ -55,6 +55,7 @@ S1 | shell/src/shell/lockscreen/lock_free_layout.h | kMinSize = | smallest Free-
 S1 | shell/src/shell/lockscreen/lockscreen_widgets_host.cpp | kDefaultStreamSize = | default plugin pixel-stream box 160 before the plugin sets a size
 S1 | shell/src/shell/settings/settings_content_about.cpp | kFieldWidth = | Settings text field width 240 (settings-v2 mockup)
 S1 | shell/src/shell/settings/settings_content_users.cpp | kFieldWidth = | Settings text field width 240 (settings-v2 mockup)
+S1 | shell/src/shell/settings/settings_content_privacy.cpp | kFieldWidth = | Settings text field width 240 (settings-v2 mockup)
 S1 | shell/src/shell/settings/settings_content_users.cpp | kUserRowHeight = | Users page account row 64 (settings-v2 mockup)
 S1 | shell/src/shell/settings/settings_content_network.cpp | kStatusDotSize = | connection status dot 6 (settings-v2 Network list)
 S1 | shell/src/shell/settings/settings_content_sound.cpp | kDeviceSliderWidth = | Sound page device volume slider 220 (.agent/mockups/settings-pages.html)

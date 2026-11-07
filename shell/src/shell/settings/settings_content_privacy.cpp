@@ -74,7 +74,7 @@ namespace settings {
           .fill = colorSpecFromRole(ColorRole::Accent),
           .track = colorSpecFromRole(ColorRole::Fill2),
           .progress = ctx.enrollProgress,
-          .height = 6.0F * scale,
+          .height = Style::sliderTrackHeight * scale,
           .flexGrow = 1.0F,
       }));
       card->addChild(std::move(bar));
