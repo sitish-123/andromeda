@@ -77,6 +77,7 @@ namespace andromeda {
     void cancelActive();
     void finishScroll(bool cancelled, uint32_t timeMsec);
     void finishSwitch(bool cancelled, uint32_t timeMsec);
+    void overviewTravel(double along, double across, uint32_t timeMsec);
     void finishOverview(bool cancelled, uint32_t timeMsec);
     [[nodiscard]] double overviewGestureProgress() const;
     void silentCancel();
@@ -130,6 +131,10 @@ namespace andromeda {
     bool m_overviewPinch = false;
     double m_pinchScale = 1.0;
     SwipeTracker m_overviewTracker;
+    // A 4-finger gesture moves the overview only once its travel leaves the dead zone; until then the travel adds up here.
+    bool m_overviewArmed = false;
+    double m_deadAlong = 0.0;
+    double m_deadAcross = 0.0;
 
     wl_listener m_swipeBegin{};
     wl_listener m_swipeUpdate{};

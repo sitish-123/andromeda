@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <utility>
 #include "wlr.h"
 // clang-format on
 #include "workspace/workspace.h"
@@ -28,6 +29,10 @@ namespace andromeda {
     constexpr double kOverviewDistancePx = 300.0;
     // Pinch travel per unit of scale: pinching in to 0.6 opens the overview fully, as a 300 px swipe does.
     constexpr double kPinchDistancePx = kOverviewDistancePx / 0.4;
+    // Finger travel before a 4-finger gesture moves the overview at all; less is a resting hand, not a request.
+    constexpr double kOverviewDeadZonePx = 12.0;
+    // Total finger travel a release needs before its speed alone may commit (DESIGN.md "Overview v3").
+    constexpr double kOverviewFlickTravelPx = 24.0;
 
     int touchpadGestureDirection(wlr_pointer* pointer) {
       if (const std::optional<bool> naturalSwipe = config().input.touchpad.naturalSwipe) {
@@ -402,6 +407,9 @@ namespace andromeda {
       m_overviewWasOpen = overview->active();
       m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.reset();
+      m_overviewArmed = false;
+      m_deadAlong = 0.0;
+      m_deadAcross = 0.0;
       return;
     }
     if (event->fingers == 3) {
@@ -555,8 +563,7 @@ namespace andromeda {
         return;
       }
       // Swipe up opens, swipe down closes; base is where the gesture started.
-      m_overviewTracker.push(-event->dy, event->time_msec);
-      overview->gestureUpdate(overviewGestureProgress());
+      overviewTravel(-event->dy, event->dx, event->time_msec);
       return;
     }
 
@@ -626,11 +633,36 @@ namespace andromeda {
     );
   }
 
+  void Gestures::overviewTravel(double along, double across, uint32_t timeMsec) {
+    if (!m_overviewArmed) {
+      m_deadAlong += along;
+      m_deadAcross += across;
+      if (std::max(std::abs(m_deadAlong), std::abs(m_deadAcross)) < kOverviewDeadZonePx) {
+        return;
+      }
+      // Sideways travel is not an overview request; the rest of this gesture does nothing.
+      if (std::abs(m_deadAcross) > std::abs(m_deadAlong)) {
+        m_state = State::Idle;
+        m_overviewPinch = false;
+        return;
+      }
+      m_overviewArmed = true;
+      along = m_deadAlong - std::copysign(kOverviewDeadZonePx, m_deadAlong);
+    }
+    m_overviewTracker.push(along, timeMsec);
+    if (Overview* overview = m_server->overview()) {
+      overview->gestureUpdate(overviewGestureProgress());
+    }
+  }
+
   void Gestures::finishOverview(bool cancelled, uint32_t timeMsec) {
     m_state = State::Idle;
     m_overviewPinch = false;
+    const bool armed = std::exchange(m_overviewArmed, false);
+    m_deadAlong = 0.0;
+    m_deadAcross = 0.0;
     Overview* overview = m_server->overview();
-    if (overview == nullptr) {
+    if (overview == nullptr || !armed) {
       return;
     }
     int stop = static_cast<int>(m_overviewBase);
@@ -645,7 +677,8 @@ namespace andromeda {
       // Rulebook 7.7: a release faster than this toward open or closed settles there, whatever the projection says.
       constexpr double kFlickPxPerSec = 300.0;
       const double fingerVelocity = m_overviewTracker.velocity();
-      if (std::abs(fingerVelocity) > kFlickPxPerSec) {
+      const double travel = std::abs(m_overviewTracker.pos()) + kOverviewDeadZonePx;
+      if (std::abs(fingerVelocity) > kFlickPxPerSec && travel >= kOverviewFlickTravelPx) {
         stop = fingerVelocity > 0.0 ? 1 : 0;
       }
     }
@@ -809,6 +842,9 @@ namespace andromeda {
       m_overviewWasOpen = overview->active();
       m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
       m_overviewTracker.reset();
+      m_overviewArmed = false;
+      m_deadAlong = 0.0;
+      m_deadAcross = 0.0;
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_begin(
@@ -834,9 +870,9 @@ namespace andromeda {
         m_state = State::Idle;
         return;
       }
-      m_overviewTracker.push((m_pinchScale - event->scale) * kPinchDistancePx, event->time_msec);
+      const double travel = (m_pinchScale - event->scale) * kPinchDistancePx;
       m_pinchScale = event->scale;
-      overview->gestureUpdate(overviewGestureProgress());
+      overviewTravel(travel, 0.0, event->time_msec);
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_update(

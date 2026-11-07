@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <drm_fourcc.h>
 #include <map>
 #include <nlohmann/json.hpp>
@@ -1309,8 +1310,16 @@ namespace andromeda {
     uint32_t time = 0;
     double dx = 0, dy = 0;
     int cancelled = 0;
+    uint32_t fingers = 3;
     input >> phase >> time;
-    if (phase == "update") {
+    if (phase == "begin") {
+      std::string count;
+      if (input >> count) {
+        fingers = static_cast<uint32_t>(std::strtoul(count.c_str(), nullptr, 10));
+      } else {
+        input.clear();
+      }
+    } else if (phase == "update") {
       input >> dx >> dy;
     } else if (phase == "end") {
       input >> cancelled;
@@ -1321,15 +1330,16 @@ namespace andromeda {
         || !std::isfinite(dx)
         || !std::isfinite(dy)
         || (phase != "begin" && phase != "update" && phase != "end")
-        || (cancelled != 0 && cancelled != 1)) {
-      return nlohmann::json{{"err", "expected begin <ms>, update <ms> <dx> <dy>, or end <ms> <cancelled:0|1>"}};
+        || (cancelled != 0 && cancelled != 1)
+        || fingers < 3 || fingers > 5) {
+      return nlohmann::json{{"err", "expected begin <ms> [fingers 3-5], update <ms> <dx> <dy>, or end <ms> <cancelled:0|1>"}};
     }
     wlr_cursor* cursor = server.cursor()->wlr();
     if (phase == "begin") {
-      wlr_pointer_swipe_begin_event event{.pointer = nullptr, .time_msec = time, .fingers = 3};
+      wlr_pointer_swipe_begin_event event{.pointer = nullptr, .time_msec = time, .fingers = fingers};
       wl_signal_emit_mutable(&cursor->events.swipe_begin, &event);
     } else if (phase == "update") {
-      wlr_pointer_swipe_update_event event{.pointer = nullptr, .time_msec = time, .fingers = 3, .dx = dx, .dy = dy};
+      wlr_pointer_swipe_update_event event{.pointer = nullptr, .time_msec = time, .fingers = fingers, .dx = dx, .dy = dy};
       wl_signal_emit_mutable(&cursor->events.swipe_update, &event);
     } else {
       wlr_pointer_swipe_end_event event{.pointer = nullptr, .time_msec = time, .cancelled = cancelled != 0};
@@ -1340,7 +1350,8 @@ namespace andromeda {
     return nlohmann::json{
         {"ok",
          {{"progress", group != nullptr ? group->slideProgress() : 0.0},
-          {"reveal", group != nullptr && group->revealActive()}}}
+          {"reveal", group != nullptr && group->revealActive()},
+          {"overview", server.overview() != nullptr && server.overview()->active()}}}
     };
   }
 
@@ -1503,7 +1514,7 @@ namespace andromeda {
        IpcCommandGroup::Harness, true, &IpcCommands::clockAdvance, nullptr, 35},
       {"clock-resume", "", "let animation time follow the monotonic clock again, from where it stopped",
        IpcCommandGroup::Harness, false, &IpcCommands::clockResume, nullptr},
-      {"swipe-test", "<begin|update|end> <ms> [dx dy|cancelled]", "inject three-finger swipe events (harness only)",
+      {"swipe-test", "<begin|update|end> <ms> [fingers|dx dy|cancelled]", "inject swipe events, 3 fingers unless begin names 4 or 5 (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::swipeForTest, nullptr},
       {"pinch-test", "<begin|update|end> <ms> <fingers|scale|cancelled>", "inject pinch events (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::pinchForTest, nullptr},

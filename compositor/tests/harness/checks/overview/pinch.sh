@@ -28,15 +28,24 @@ pinch end 2200 1 > /dev/null
 state=$(pinch update 2300 1 | jq -r '.active')
 [[ $state == false ]] || { echo "a cancelled pinch left the overview open"; exit 1; }
 
-# Rulebook 7.7: a short pinch let go at over 300 px/s toward open opens, though its projection ends short of half.
+# Rulebook 7.7: a pinch let go at over 300 px/s toward open opens, though its projection ends short of half, once it
+# travelled 24 px (0.032 of scale); a 12 px flick is a light touch and does nothing (DESIGN.md "Overview v3").
 pinch begin 4000 4 > /dev/null
 pinch update 4010 0.995 > /dev/null
 pinch update 4020 0.99 > /dev/null
 pinch update 4030 0.984 > /dev/null
 pinch end 4030 0 > /dev/null
 "$ANDROMEDA" settle > /dev/null
-flick=$(pinch update 4100 1 | jq -r '.active')
-[[ $flick == true ]] || { echo "a short pinch let go at ~410 px/s did not open the overview"; exit 1; }
+touch=$(pinch update 4100 1 | jq -r '.active')
+[[ $touch == false ]] || { echo "a 12 px pinch flick opened the overview"; exit 1; }
+pinch begin 5000 4 > /dev/null
+pinch update 5010 0.99 > /dev/null
+pinch update 5020 0.975 > /dev/null
+pinch update 5030 0.96 > /dev/null
+pinch end 5030 0 > /dev/null
+"$ANDROMEDA" settle > /dev/null
+flick=$(pinch update 5100 1 | jq -r '.active')
+[[ $flick == true ]] || { echo "a 30 px pinch let go at ~1000 px/s did not open the overview"; exit 1; }
 "$ANDROMEDA" msg overview-close > /dev/null
 "$ANDROMEDA" settle > /dev/null
 
