@@ -294,16 +294,23 @@ namespace {
     return true;
   }
 
+  // The double fork copies the shell's page tables twice and waits for the exec (several ms for a large shell), so it
+  // runs on the SharedWorker; the caller sees "started" and a failure is logged.
   bool launchPrepared(
       const std::vector<std::string>& args, std::string_view appName, std::string_view workingDir,
       const desktop_entry_launch::LaunchOptions& options, bool runAsSystemdService
   ) {
-    if (runAsSystemdService) {
-      return process::runAsyncAsSystemdService(
-          args, appNameOrDefault(appName), options.activationToken, std::string(workingDir)
-      );
-    }
-    return process::runAsync(args, options.activationToken, std::string(workingDir));
+    SharedWorker::instance().post(
+        [args, name = appNameOrDefault(appName), workingDir = std::string(workingDir),
+         token = options.activationToken, runAsSystemdService] {
+          const bool started = runAsSystemdService ? process::runAsyncAsSystemdService(args, name, token, workingDir)
+                                                   : process::runAsync(args, token, workingDir);
+          if (!started) {
+            kLog.warn("failed to start '{}'", args.front());
+          }
+        }
+    );
+    return true;
   }
 
 } // namespace

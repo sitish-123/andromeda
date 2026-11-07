@@ -12,6 +12,8 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <map>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -230,7 +232,12 @@ namespace noctalia::theme {
     if (!std::filesystem::is_directory(dir, ec) || ec) {
       return {};
     }
+    // Settings asks on every scene build: a file is parsed again only when its name or time changed.
+    static std::mutex mutex;
+    static std::map<std::string, std::pair<std::filesystem::file_time_type, AvailablePalette::Preview>> cache;
+    std::scoped_lock lock(mutex);
     std::vector<AvailablePalette> out;
+    std::map<std::string, std::pair<std::filesystem::file_time_type, AvailablePalette::Preview>> seen;
     for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
       if (ec || !entry.is_regular_file(ec) || ec) {
         continue;
@@ -239,8 +246,14 @@ namespace noctalia::theme {
       if (path.extension() != ".json") {
         continue;
       }
-      out.push_back(AvailablePalette{.name = path.stem().string(), .preview = palettePreviewFromFile(path)});
+      const auto time = entry.last_write_time(ec);
+      auto cached = cache.find(path.string());
+      auto preview = !ec && cached != cache.end() && cached->second.first == time ? cached->second.second
+                                                                                   : palettePreviewFromFile(path);
+      seen.emplace(path.string(), std::pair{time, preview});
+      out.push_back(AvailablePalette{.name = path.stem().string(), .preview = std::move(preview)});
     }
+    cache = std::move(seen);
     std::ranges::sort(out, {}, &AvailablePalette::name);
     return out;
   }

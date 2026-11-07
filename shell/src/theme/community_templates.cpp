@@ -19,6 +19,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <sstream>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -869,6 +870,29 @@ namespace noctalia::theme {
   }
 
   std::vector<AvailableTemplate> CommunityTemplateService::availableTemplates() {
+    // Settings asks on every scene build; a stat per template.toml is far cheaper than parsing each one again.
+    std::string key;
+    {
+      std::error_code ec;
+      const auto stamp = [&key, &ec](const std::filesystem::path& path) {
+        const auto time = std::filesystem::last_write_time(path, ec);
+        key += path.filename().string() + (ec ? std::string("-") : std::to_string(time.time_since_epoch().count())) + ';';
+      };
+      stamp(catalogCachePath());
+      for (const auto& entry : std::filesystem::directory_iterator(communityTemplatesCacheDir(), ec)) {
+        key += entry.path().filename().string() + '/';
+        stamp(entry.path() / "template.toml");
+      }
+    }
+    static std::mutex mutex;
+    static std::string cachedKey;
+    static std::vector<AvailableTemplate> cached;
+    {
+      std::scoped_lock lock(mutex);
+      if (!key.empty() && key == cachedKey) {
+        return cached;
+      }
+    }
     std::vector<AvailableTemplate> out;
     const auto catalog = parseCatalogFile(catalogCachePath());
     out.reserve(catalog.size());
@@ -914,6 +938,9 @@ namespace noctalia::theme {
         return a.displayName < b.displayName;
       return a.id < b.id;
     });
+    std::scoped_lock lock(mutex);
+    cachedKey = std::move(key);
+    cached = out;
     return out;
   }
 

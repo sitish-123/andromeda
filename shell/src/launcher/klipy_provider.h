@@ -3,6 +3,7 @@
 #include "core/timer_manager.h"
 #include "launcher/launcher_provider.h"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <unordered_map>
@@ -80,6 +81,8 @@ private:
   mutable std::unordered_set<std::string> m_missingThumbs;
   std::unordered_set<std::string> m_previewDownloads;
   mutable std::optional<std::string> m_answered;
+  mutable std::chrono::steady_clock::time_point m_answeredAt;
+  mutable std::string m_customerId;
   mutable std::optional<std::string> m_requested;
   mutable bool m_loading = false;
   mutable std::vector<LauncherResult> m_results;
@@ -88,4 +91,5 @@ private:
   mutable bool m_fluentRequested = false;
   mutable std::vector<FluentSticker> m_fluent;
   mutable std::unordered_set<std::string> m_fluentDownloads;
+  mutable std::unordered_set<std::string> m_fluentLocal; // files known on disk: no stat per keystroke
 };

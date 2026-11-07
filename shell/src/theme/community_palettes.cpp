@@ -13,6 +13,8 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -149,7 +151,22 @@ namespace noctalia::theme {
     });
   }
 
-  std::vector<AvailablePalette> availableCommunityPalettes() { return parseCatalogFile(catalogCachePath()); }
+  std::vector<AvailablePalette> availableCommunityPalettes() {
+    // Settings asks on every scene build: parse the catalog again only when the file changed.
+    const std::filesystem::path path = catalogCachePath();
+    std::error_code ec;
+    const auto time = std::filesystem::last_write_time(path, ec);
+    const auto stamp = ec ? std::filesystem::file_time_type::min() : time;
+    static std::mutex mutex;
+    static std::optional<std::filesystem::file_time_type> cachedStamp;
+    static std::vector<AvailablePalette> cached;
+    std::scoped_lock lock(mutex);
+    if (cachedStamp != stamp) {
+      cached = parseCatalogFile(path);
+      cachedStamp = stamp;
+    }
+    return cached;
+  }
 
   std::string communityPaletteCatalogMd5(std::string_view name) {
     const auto catalog = parseCatalogFile(catalogCachePath());

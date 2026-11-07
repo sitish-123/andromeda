@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 namespace {
+  constexpr auto kTrendingMaxAge = std::chrono::minutes(10);
   constexpr std::string_view kIdPrefix = "klipy-";
   constexpr std::string_view kSetupId = "klipy-setup";
   constexpr auto kTypingDebounce = std::chrono::milliseconds(250);
@@ -74,20 +75,28 @@ void KlipyProvider::initialize() {
 void KlipyProvider::reset() {
   m_debounce.stop();
   m_refresh.stop();
-  m_answered.reset();
   m_requested.reset();
   m_loading = false;
-  m_results.clear();
+  // The trending set stays for the next open, so the tab shows at once without a new request; a search does not.
+  if (m_answered != std::string() || std::chrono::steady_clock::now() - m_answeredAt > kTrendingMaxAge) {
+    m_answered.reset();
+    m_results.clear();
+  }
 }
 
 void KlipyProvider::setPack(std::string pack) {
   if (pack != m_pack) {
     m_pack = std::move(pack);
     reset();
+    m_answered.reset();
+    m_results.clear();
   }
 }
 
 std::string KlipyProvider::customerId() const {
+  if (!m_customerId.empty()) {
+    return m_customerId;
+  }
   const std::filesystem::path path = m_cacheDir / "customer_id";
   std::string id;
   if (std::ifstream in(path); in.is_open()) {
@@ -99,6 +108,7 @@ std::string KlipyProvider::customerId() const {
     std::filesystem::create_directories(m_cacheDir, ec);
     std::ofstream(path) << id;
   }
+  m_customerId = id;
   return id;
 }
 
@@ -202,6 +212,7 @@ void KlipyProvider::onResponse(const std::string& text, const std::string& body)
     m_media.clear();
   }
   m_answered = text;
+  m_answeredAt = std::chrono::steady_clock::now();
   m_loading = false;
   if (m_onResultsChanged) {
     m_onResultsChanged();
@@ -291,7 +302,8 @@ std::vector<LauncherResult> KlipyProvider::fluentResults(const std::string& need
     r.presentation = "sticker";
     r.category = section;
     std::error_code ec;
-    if (std::filesystem::exists(local, ec)) {
+    if (m_fluentLocal.contains(file) || (!m_fluentDownloads.contains(file) && std::filesystem::exists(local, ec))) {
+      m_fluentLocal.insert(file);
       r.iconPath = local.string();
     } else if (!m_fluentDownloads.contains(file)) {
       m_fluentDownloads.insert(file);
@@ -303,8 +315,9 @@ std::vector<LauncherResult> KlipyProvider::fluentResults(const std::string& need
       }
       m_http->download(url, local, [this, alive = m_alive, file](bool ok) {
         if (*alive) {
-          if (!ok) {
-            m_fluentDownloads.erase(file);
+          m_fluentDownloads.erase(file);
+          if (ok) {
+            m_fluentLocal.insert(file);
           }
           scheduleRefresh();
         }
