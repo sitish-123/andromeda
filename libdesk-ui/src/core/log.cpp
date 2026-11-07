@@ -297,6 +297,8 @@ namespace {
   }
 
   void writerMain() {
+    // Named: the idle-thread checks count unnamed threads as on-demand workers that should have exited.
+    pthread_setname_np(pthread_self(), "dsk-log");
     std::unique_lock lock(gQueueMutex);
     while (true) {
       gQueueReady.wait(lock, [] { return gWriterStop || !gQueue.empty(); });

@@ -634,8 +634,20 @@ void Image::subscribeAsyncReady() {
   );
 }
 
+bool Image::asyncFailed() const {
+  return m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()
+      && m_asyncTextureCache->failed(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+}
+
 void Image::handleAsyncTextureReady(TextureHandle handle) {
-  if (handle.id == 0 || m_asyncTextureCache == nullptr || m_asyncSourcePath.empty() || m_renderer == nullptr) {
+  if (handle.id == 0) {
+    // A failed decode: the owner swaps in its fallback.
+    if (m_asyncReadyCallback && asyncFailed()) {
+      m_asyncReadyCallback();
+    }
+    return;
+  }
+  if (m_asyncTextureCache == nullptr || m_asyncSourcePath.empty() || m_renderer == nullptr) {
     return;
   }
   presentAsyncTexture(handle);

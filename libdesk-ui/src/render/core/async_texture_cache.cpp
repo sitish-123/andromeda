@@ -155,6 +155,11 @@ TextureHandle AsyncTextureCache::acquire(const std::string& path, int targetSize
   return {};
 }
 
+bool AsyncTextureCache::failed(const std::string& path, int targetSize, bool mipmap) const {
+  const auto it = m_entries.find(makeKey(path, targetSize, mipmap));
+  return it != m_entries.end() && it->second.failed;
+}
+
 TextureHandle AsyncTextureCache::peek(const std::string& path, int targetSize, bool mipmap) const {
   const auto key = makeKey(path, targetSize, mipmap);
   if (key.path.empty()) {
@@ -255,6 +260,7 @@ void AsyncTextureCache::dispatch(const std::vector<pollfd>& fds, std::size_t sta
 
     if (job.failed || job.rgba.empty() || job.width <= 0 || job.height <= 0) {
       entryIt->second.failed = true;
+      notifyReady(job.key, TextureHandle{});
       continue;
     }
 
@@ -266,6 +272,7 @@ void AsyncTextureCache::dispatch(const std::vector<pollfd>& fds, std::size_t sta
     entryIt->second.handle = m_textureManager->loadFromRgba(job.rgba.data(), job.width, job.height, job.key.mipmap);
     if (entryIt->second.handle.id == 0) {
       entryIt->second.failed = true;
+      notifyReady(job.key, TextureHandle{});
       continue;
     }
     entryIt->second.handle.sourceWidth = job.sourceWidth;

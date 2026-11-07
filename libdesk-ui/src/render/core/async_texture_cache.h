@@ -60,6 +60,8 @@ public:
 
   [[nodiscard]] TextureHandle acquire(const std::string& path, int targetSize = 0, bool mipmap = false);
   [[nodiscard]] TextureHandle peek(const std::string& path, int targetSize = 0, bool mipmap = false) const;
+  // True once a decode of this request failed; ready subscribers then get an empty handle.
+  [[nodiscard]] bool failed(const std::string& path, int targetSize = 0, bool mipmap = false) const;
   void release(const std::string& path, int targetSize = 0, bool mipmap = false);
   void trimUnused(std::size_t maxUnusedEntries = 0);
   void abandonGpuResources() noexcept;

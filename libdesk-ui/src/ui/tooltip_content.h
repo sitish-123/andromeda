@@ -11,6 +11,8 @@ struct TooltipRow {
   std::string key;
   std::string value;
   TextEllipsize valueEllipsize = TextEllipsize::End;
+
+  bool operator==(const TooltipRow&) const = default;
 };
 
 enum class TooltipPlacement : std::uint8_t {
