@@ -268,12 +268,21 @@ namespace andromeda {
       }
 
       if (!m_policyActive) {
-        // wlr_backend_autocreate waits for an active session, so the switch request comes first; else greetd's
-        // hand-off sees none and switches only after its 8 s timeout, with the greeter frozen meanwhile.
-        if (environment.native && scanout_keeper::switchOffered()) {
-          scanout_keeper::requestSwitch();
+        // wlr_backend_autocreate waits for an active session by dispatching the loop, so the switch request goes out
+        // from an idle source in that wait: after logind's TakeControl has put the VT in graphics mode (a request
+        // before it showed one console frame), and before greetd's 8 s timeout (the greeter froze until then).
+        wl_event_loop* loop = wl_display_get_event_loop(m_display);
+        bool switchPending = environment.native && scanout_keeper::switchOffered();
+        wl_event_source* switchIdle = switchPending
+            ? wl_event_loop_add_idle(loop, [](void* data) {
+                *static_cast<bool*>(data) = false;
+                scanout_keeper::requestSwitch();
+              }, &switchPending)
+            : nullptr;
+        m_backend = createWithLiftoff([&] { return wlr_backend_autocreate(loop, &m_session); });
+        if (switchPending && switchIdle != nullptr) {
+          wl_event_source_remove(switchIdle);
         }
-        m_backend = createWithLiftoff([&] { return wlr_backend_autocreate(wl_display_get_event_loop(m_display), &m_session); });
         return m_backend != nullptr;
       }
 

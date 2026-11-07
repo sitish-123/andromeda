@@ -1,0 +1,95 @@
+--- a/alloc.c
++++ b/alloc.c
+@@ -600,6 +600,7 @@
+ 	struct liftoff_plane *plane;
+ 	size_t i;
+ 
++	output->last_apply_committed = true;
+ 	liftoff_list_for_each(layer, &output->layers, link) {
+ 		layer->committed_plane = NULL;
+ 	}
+@@ -887,9 +888,34 @@
+ 	return false;
+ }
+ 
++/* Since the last apply only buffers changed (FB_ID with the same FB info,
++ * IN_FENCE_FD, FB_DAMAGE_CLIPS): the plane layout the kernel accepted for the
++ * last real commit holds for this one too. */
++static bool
++output_flip_only(struct liftoff_output *output)
++{
++	struct liftoff_layer *layer;
++	struct liftoff_layer_property *prop;
++	size_t i;
++
++	liftoff_list_for_each(layer, &output->layers, link) {
++		for (i = 0; i < layer->props_len; i++) {
++			prop = &layer->props[i];
++			if (prop->value == prop->prev_value ||
++			    prop->core_index == LIFTOFF_PROP_FB_ID ||
++			    strcmp(prop->name, "IN_FENCE_FD") == 0 ||
++			    strcmp(prop->name, "FB_DAMAGE_CLIPS") == 0) {
++				continue;
++			}
++			return false;
++		}
++	}
++	return true;
++}
++
+ static int
+ reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
+-		     uint32_t flags)
++		     uint32_t flags, bool after_commit)
+ {
+ 	struct liftoff_device *device;
+ 	struct liftoff_layer *layer;
+@@ -931,6 +957,15 @@
+ 		return ret;
+ 	}
+ 
++	/* A test commit per frame doubles the kernel's atomic check. A buffer
++	 * flip on the layout of the last successful commit skips it; a real
++	 * commit that fails anyway is not marked committed, so the next frame
++	 * tests again. */
++	if (!(flags & DRM_MODE_ATOMIC_TEST_ONLY) && after_commit &&
++	    output_flip_only(output)) {
++		return 0;
++	}
++
+ 	ret = device_test_commit(device, req, flags);
+ 	if (ret != 0) {
+ 		drmModeAtomicSetCursor(req, cursor);
+@@ -1043,7 +1078,7 @@
+ 	const struct liftoff_output_apply_options default_options = {0};
+ 	size_t i, candidate_planes;
+ 	int ret;
+-	bool found_layer;
++	bool found_layer, after_commit;
+ 
+ 	if (options == NULL) {
+ 		options = &default_options;
+@@ -1054,7 +1089,11 @@
+ 	update_layers_priority(device);
+ 	update_layers_fb_info(output);
+ 
+-	ret = reuse_previous_alloc(output, req, flags);
++	/* Set again only by a successful real commit of this apply. */
++	after_commit = output->last_apply_committed;
++	output->last_apply_committed = false;
++
++	ret = reuse_previous_alloc(output, req, flags, after_commit);
+ 	if (ret == 0) {
+ 		log_reuse(output);
+ 		mark_layers_clean(output);
+--- a/include/private.h
++++ b/include/private.h
+@@ -60,6 +60,8 @@
+ 	bool layers_changed;
+ 
+ 	int alloc_reused_counter;
++	/* The last apply was followed by a successful real commit. */
++	bool last_apply_committed;
+ };
+ 
+ struct liftoff_layer {

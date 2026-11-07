@@ -5,7 +5,8 @@ depth = 1
 # Leaves a plane out of a commit when its layer did not change since the last real commit (the cursor plane), and an
 # unused plane that is already off (else xe answers EBUSY right after the page-flip event).
 # Allocates planes again when a visible layer has no plane and nothing composites it (black after a screen-off wake or at login).
-diff_files = libliftoff-skip-unchanged-planes.patch, libliftoff-realloc-without-plane.patch
+# Skips the per-frame test commit of a reused allocation when only buffers changed since a successful real commit.
+diff_files = libliftoff-skip-unchanged-planes.patch, libliftoff-realloc-without-plane.patch, libliftoff-reuse-without-test.patch
 
 [provide]
 dependency_names = libliftoff
