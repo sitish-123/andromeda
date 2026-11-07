@@ -129,7 +129,8 @@ namespace andromeda {
     void cancelNavigation();
     void handleTouchpadAxis(wlr_pointer* pointer, bool vertical, double delta, uint32_t timeMsec, double lx, double ly);
     void handleTouchpadFrame();
-    bool handleFallbackKey(uint32_t keysym);
+    // `shift`: Shift is held (Shift+arrows move the selected window to the neighbouring workspace).
+    bool handleFallbackKey(uint32_t keysym, bool shift = false);
     // Configured actions retain their regular handlers throughout the closing animation.
     bool handleKeybindAction(KeybindAction action);
     // Step the active workspace `delta` rows along the workspaces on `output` (null: wherever the pointer is). Returns
@@ -378,6 +379,8 @@ namespace andromeda {
     void openWindowMenu(const Card& card, double lx, double ly);
     void setWindowMenu(std::optional<WindowMenu> menu);
     void applyWindowMenuRow(int row);
+    // Moves `view` to `target` and keeps the overview open; a null target is a new workspace at the end.
+    void moveViewTo(View& view, Workspace* target);
     // Steers the open window menu; false when none is open.
     bool windowMenuPress(double lx, double ly);
     bool windowMenuKey(uint32_t keysym);

@@ -625,7 +625,7 @@ namespace andromeda {
         const uint32_t plain = modifiers & ~(WLR_MODIFIER_CAPS | WLR_MODIFIER_MOD2 | WLR_MODIFIER_SHIFT);
         if (overview != nullptr && overview->interactive() && plain == 0) {
           for (int i = 0; i < nsyms && !handled; ++i) {
-            handled = overview->handleFallbackKey(syms[i]);
+            handled = overview->handleFallbackKey(syms[i], (modifiers & WLR_MODIFIER_SHIFT) != 0);
           }
         }
       }

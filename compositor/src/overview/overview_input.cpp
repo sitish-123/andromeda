@@ -625,23 +625,7 @@ namespace andromeda {
     }
     const auto index = static_cast<size_t>(row);
     if (index < menu.targets.size()) {
-      Workspace* target = menu.targets[index].get();
-      if (target == nullptr) {
-        WorkspaceGroup* group = view->workspace() != nullptr ? view->workspace()->group() : nullptr;
-        target = group != nullptr ? group->insertDynamicWorkspace(group->workspaceCount()) : nullptr;
-      }
-      if (target != nullptr && target != view->workspace()) {
-        if (view->floating()) {
-          view->rememberFloatingPosition();
-        }
-        view->moveToWorkspace(target, true, LayoutAttachOrigin::MovedView);
-        if (!view->tiled()) {
-          target->exitFullscreenForIncomingView(view);
-        }
-        if (view->floating()) {
-          view->restoreFloatingPosition();
-        }
-      }
+      moveViewTo(*view, menu.targets[index].get());
       return;
     }
     if (index == menu.targets.size()) {
@@ -663,6 +647,26 @@ namespace andromeda {
           each->requestClose();
         }
       }
+    }
+  }
+
+  void Overview::moveViewTo(View& view, Workspace* target) {
+    if (target == nullptr) {
+      WorkspaceGroup* group = view.workspace() != nullptr ? view.workspace()->group() : nullptr;
+      target = group != nullptr ? group->insertDynamicWorkspace(group->workspaceCount()) : nullptr;
+    }
+    if (target == nullptr || target == view.workspace()) {
+      return;
+    }
+    if (view.floating()) {
+      view.rememberFloatingPosition();
+    }
+    view.moveToWorkspace(target, true, LayoutAttachOrigin::MovedView);
+    if (!view.tiled()) {
+      target->exitFullscreenForIncomingView(&view);
+    }
+    if (view.floating()) {
+      view.restoreFloatingPosition();
     }
   }
 
@@ -1253,7 +1257,7 @@ namespace andromeda {
     return true;
   }
 
-  bool Overview::handleFallbackKey(uint32_t keysym) {
+  bool Overview::handleFallbackKey(uint32_t keysym, bool shift) {
     if (!interactive()) {
       return false;
     }
@@ -1262,6 +1266,27 @@ namespace andromeda {
     }
     if (keysym == XKB_KEY_F2) {
       startRename();
+      return true;
+    }
+    const bool back = keysym == XKB_KEY_Left || keysym == XKB_KEY_Up;
+    if (shift && (back || keysym == XKB_KEY_Right || keysym == XKB_KEY_Down)) {
+      Card* card = selectedCard();
+      Workspace* source = card != nullptr && card->view != nullptr ? card->view->workspace() : nullptr;
+      WorkspaceGroup* group = source != nullptr ? source->group() : nullptr;
+      if (group != nullptr) {
+        const size_t index = source->index();
+        // Past the last workspace is a new one; before the first there is nothing.
+        if (!back || index > 0) {
+          View* view = card->view;
+          moveViewTo(*view, back ? group->workspaceAt(index - 1)
+                            : index + 1 < group->workspaceCount() ? group->workspaceAt(index + 1)
+                                                                  : nullptr);
+          // The overview follows the window and keeps it selected, so the next Shift+arrow moves it on.
+          if (Card* moved = findCard(view)) {
+            selectCard(*moved);
+          }
+        }
+      }
       return true;
     }
     if (!m_filter.empty()) {
