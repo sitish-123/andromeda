@@ -13,6 +13,7 @@ corner_radius = 16
 drag_opacity = 1.0
 [overview]
 style = "strip"
+zoom = 0.5
 background_blur = false
 [appearance.shadow]
 enabled = false
@@ -274,7 +275,7 @@ echo 'child-color corner-pattern FF00FF00' >&"$wallpaper_fd"
 await_lines "$ANDROMEDA_RUNTIME_DIR/wallpaper.log" 'done corner-pattern' 1
 
 expect_content_corner() {
-  local label=$1 rounded=$2 x=$3 y=$4 green
+  local label=$1 rounded=$2 x=$3 y=$4 most=${5:-150} green
   read -r _ green _ < <(sample "$x" "$y")
   if ((rounded)); then
     ((green < 5)) || {
@@ -282,7 +283,7 @@ expect_content_corner() {
       exit 1
     }
   else
-    ((green > 15 && green < 150)) || {
+    ((green > 15 && green < most)) || {
       echo "$label: transparent content retained a rounded blur corner: green=$green"
       exit 1
     }
@@ -353,7 +354,9 @@ for side in left right; do
     preview_x=$((bar_x + bar_w - 2))
   fi
   preview_y=$((bar_y + bar_h + 1))
-  expect_content_corner "$side overview seam" 0 "$preview_x" "$preview_y"
+  # The card blur samples wherever the card lands over the pattern, up to full green (153 under the 40 % fill); a
+  # rounded corner reads near 0, as with blur off.
+  expect_content_corner "$side overview seam" 0 "$preview_x" "$preview_y" 256
   "$ANDROMEDA" msg overview-close >/dev/null
 done
 echo "title bar blur follows window rules, scaling, dragging, overview, close animations, and transparent content corners"

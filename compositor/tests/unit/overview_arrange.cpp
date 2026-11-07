@@ -38,11 +38,11 @@ namespace {
 ANDROMEDA_TEST(spacesMatchesThePrototypeAt1280x800) {
   const Placement p = place(Style::Spaces, sample(Arrangement::Scrolling));
   CHECK_EQ(p.cards.size(), size_t{3});
-  CHECK_EQ(p.cards[0].rect.y, 20.0);
+  CHECK_EQ(p.cards[0].rect.y, 56.0);
   CHECK_EQ(p.cards[0].rect.w, 176.0);
   CHECK_EQ(p.cards[0].rect.h, 110.0);
-  CHECK(p.title.has_value() && p.title->y == 162.0);
-  CHECK(p.main.has_value() && p.main->y == 214.0);
+  CHECK(p.title.has_value() && p.title->y == 198.0);
+  CHECK(p.main.has_value() && p.main->y == 250.0);
   CHECK(p.plus.has_value() && p.plus->x == p.cards[2].rect.x + 176 + 18);
 }
 

@@ -148,7 +148,7 @@ namespace andromeda::ov {
                 x1 = std::max(x1, m.desk.x + m.desk.w);
               }
             }
-            content = {x0 - 8, u.y, x1 - x0 + 16, u.h};
+            content = {x0 - 8, u.y - 8, x1 - x0 + 16, u.h + 16};
           }
           const Fit fit = fitIn(content, main);
           out.mainFit = fit;
