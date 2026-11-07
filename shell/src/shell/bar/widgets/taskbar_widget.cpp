@@ -11,6 +11,7 @@
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "shell/dock/pinned_apps.h"
+#include "shell/bar/widgets/taskbar_preview.h"
 #include "shell/panel/panel_manager.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "system/app_identity.h"
@@ -266,6 +267,74 @@ void TaskbarWidget::syncWorkspaceGroupingCapability() {
 }
 
 TaskbarWidget::~TaskbarWidget() { m_aliveGuard.reset(); }
+
+void TaskbarWidget::hoverTaskPreview(TaskRef ref, InputArea& area, bool entered) {
+  if (!m_configOptions.windowPreviews) {
+    return;
+  }
+  if (!entered) {
+    m_previewOpenTimer.stop();
+    // R6: the popover stays 300 ms after the pointer leaves, so it can travel from the button onto it.
+    m_previewCloseTimer.start(std::chrono::milliseconds(300), [this] {
+      if (m_preview != nullptr && !m_preview->pointerInside()) {
+        m_preview->close();
+      }
+    });
+    return;
+  }
+  m_previewCloseTimer.stop();
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(&area, x, y);
+  const PopupAnchorRect anchor{
+      .x = static_cast<std::int32_t>(std::round(x)),
+      .y = static_cast<std::int32_t>(std::round(y)),
+      .width = static_cast<std::int32_t>(std::round(area.width())),
+      .height = static_cast<std::int32_t>(std::round(area.height())),
+  };
+  // Open after 400 ms of hover; once open, it moves to the next button at once.
+  if (m_preview != nullptr && m_preview->isOpen()) {
+    openTaskPreview(ref, anchor);
+  } else {
+    m_previewOpenTimer.start(std::chrono::milliseconds(400), [this, ref, anchor] { openTaskPreview(ref, anchor); });
+  }
+}
+
+void TaskbarWidget::openTaskPreview(TaskRef ref, PopupAnchorRect anchor) {
+  const TaskModel* task = resolveTask(m_tasks, ref, m_taskGeneration);
+  auto* renderContext = PanelManager::instance().renderContext();
+  if (task == nullptr || !task->running || renderContext == nullptr) {
+    return;
+  }
+  const std::string key = task->appId + "|" + task->idLower;
+  if (m_preview != nullptr && m_preview->isOpen() && m_preview->key() == key) {
+    return;
+  }
+  auto* layerSurface = m_platform.layerSurfaceFor(m_platform.lastPointerSurface());
+  if (layerSurface == nullptr) {
+    return;
+  }
+  if (m_preview == nullptr) {
+    m_preview = std::make_unique<TaskbarPreview>(m_platform, m_configService, *renderContext);
+    m_preview->setOnPointerLeave([this] {
+      m_previewCloseTimer.start(std::chrono::milliseconds(300), [this] {
+        if (m_preview != nullptr && !m_preview->pointerInside()) {
+          m_preview->close();
+        }
+      });
+    });
+  }
+  m_preview->open({
+      .parent = layerSurface,
+      .output = m_output,
+      .anchor = anchor,
+      .barPosition = m_barPosition,
+      .key = key,
+      .windows = m_platform.enrichedWindowsForApp(task->idLower, task->startupWmClassLower, toplevelOutputFilter()),
+      .icon = task->icon,
+      .contentScale = m_contentScale,
+  });
+}
 
 bool TaskbarWidget::taskInWorkspaceGroup(const TaskModel& task, const WorkspaceModel& ws) {
   if (task.workspaceKey.empty()) {
@@ -870,6 +939,10 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
   float iconSize = std::round(Style::baseGlyphSize * effectiveIconScale * m_contentScale);
   float tilePadding = Style::spaceXs * 0.35F * m_contentScale;
   float tileSize = std::round(iconSize + tilePadding * 2.0F);
+  if (m_configOptions.cellSize > 0) {
+    tileSize = std::max(iconSize, std::round(static_cast<float>(m_configOptions.cellSize) * m_contentScale));
+    tilePadding = std::floor((tileSize - iconSize) * 0.5F);
+  }
   const float barCross = m_vertical ? m_containerWidth : m_containerHeight;
   const float capsuleThickness = barCapsuleThicknessFor(m_configService, m_barName);
   const bool barCapsule = barCapsuleSpec().enabled;
@@ -918,7 +991,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
   const bool showWindowTitle = m_showWindowTitle && windowTitleWidth > minWindowTitleWidth;
   const float tileWidthWithTitle = tileSize + (showWindowTitle ? windowTitleWidth + windowTitleGap : 0.0F);
 
-  auto attachHover = [this](InputArea& area, float width, float height) {
+  auto attachHover = [this](InputArea& area, float width, float height, std::function<void(bool)> onHover = nullptr) {
     auto hoverBox = ui::box({
         .radius = resolvedBarCapsuleRadius(width, height),
         .width = width,
@@ -930,7 +1003,10 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     auto* hoverBoxPtr = static_cast<Box*>(area.addChild(std::move(hoverBox)));
 
     auto progress = std::make_shared<float>(0.0F);
-    area.setOnEnter([this, hoverBoxPtr, progress](const InputArea::PointerData&) {
+    area.setOnEnter([this, hoverBoxPtr, progress, onHover](const InputArea::PointerData&) {
+      if (onHover) {
+        onHover(true);
+      }
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
@@ -949,7 +1025,10 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       );
       requestFrameTick();
     });
-    area.setOnLeave([this, hoverBoxPtr, progress] {
+    area.setOnLeave([this, hoverBoxPtr, progress, onHover] {
+      if (onHover) {
+        onHover(false);
+      }
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
@@ -1307,7 +1386,19 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     }
 
     Box* indicatorPtr = nullptr;
-    if (m_showActiveIndicator) {
+    if (m_configOptions.runningBar && task.running) {
+      const float barW = std::round(Style::baseGlyphSize * m_contentScale);
+      const float barH = std::max(1.0F, std::round(3.0F * m_contentScale));
+      auto indicator = ui::box({
+          .fill = task.active ? m_activeIndicatorColor : colorSpecFromRole(ColorRole::Label3),
+          .radius = barH * 0.5F,
+          .width = barW,
+          .height = barH,
+      });
+      indicatorPtr = indicator.get();
+      indicator->setPosition(std::round((tileSize - barW) * 0.5F), tileSize - barH);
+      area->addChild(std::move(indicator));
+    } else if (m_showActiveIndicator && !m_configOptions.runningBar) {
       const float d = std::max(4.0F, std::round(Style::baseGlyphSize * 0.32F * m_contentScale));
       const float groupedCapsuleInset =
           (m_groupByWorkspace && m_workspaceGroupCapsule ? Style::borderWidth : 0.0F) * m_contentScale;
@@ -1341,7 +1432,8 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     // rebuild. Empty content measures to nothing, so the popup never shows.
     area->setTooltipProvider([this, taskRef, tooltipCandidates] -> TooltipContent {
       const TaskModel* current = resolveTask(m_tasks, taskRef, m_taskGeneration);
-      if (current == nullptr) {
+      // A running button shows its window previews instead.
+      if (current == nullptr || (m_configOptions.windowPreviews && current->running)) {
         return TooltipContent{std::monostate{}};
       }
       std::size_t minimized = current->minimizedCount;
@@ -1365,7 +1457,10 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
         .activeIndicator = indicatorPtr,
         .minimizeIndicator = minimizeIndicatorPtr,
     });
-    attachHover(*area, tileWidthWithTitle, tileSize);
+    InputArea* hoverArea = area.get();
+    attachHover(*area, tileWidthWithTitle, tileSize, [this, taskRef, hoverArea](bool entered) {
+      hoverTaskPreview(taskRef, *hoverArea, entered);
+    });
     return area;
   };
 
@@ -2960,7 +3055,11 @@ void TaskbarWidget::updateModels() {
             }
             tile.area->setOpacity(opacity);
           }
-          if (tile.activeIndicator != nullptr) {
+          if (tile.activeIndicator != nullptr && m_configOptions.runningBar) {
+            tile.activeIndicator->setFill(
+                task.active ? m_activeIndicatorColor : colorSpecFromRole(ColorRole::Label3)
+            );
+          } else if (tile.activeIndicator != nullptr) {
             tile.activeIndicator->setVisible(task.active);
           }
         }
@@ -2984,6 +3083,16 @@ void TaskbarWidget::updateModels() {
 }
 
 bool TaskbarWidget::onPointerEvent(const PointerEvent& event) {
+  if (m_preview != nullptr && m_preview->isOpen()) {
+    if (m_preview->onPointerEvent(event)) {
+      m_previewCloseTimer.stop();
+      return true;
+    }
+    if (event.type == PointerEvent::Type::Button && event.pressed) {
+      m_previewOpenTimer.stop();
+      m_preview->close();
+    }
+  }
   if (m_contextMenuPopup == nullptr || !m_contextMenuPopup->isOpen()) {
     return false;
   }

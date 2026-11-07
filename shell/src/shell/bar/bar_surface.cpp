@@ -1051,6 +1051,8 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
 
     // Bar background
     instance.bg = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
+    instance.edgeLine = static_cast<Box*>(instance.slideRoot->addChild(ui::box()));
+    instance.edgeLine->setHitTestVisible(false);
     for (std::size_t i = 0; i < instance.islands.size(); ++i) {
       if (shadowSize > 0.0F) {
         auto shadow = ui::box();
@@ -1198,6 +1200,20 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
         barAreaW + concave.logicalInset.left + concave.logicalInset.right,
         barAreaH + concave.logicalInset.top + concave.logicalInset.bottom
     );
+  }
+  if (instance.edgeLine != nullptr) {
+    const std::string& position = instance.barConfig.position;
+    const bool flush = !instance.barConfig.islands && instance.barConfig.marginEdge == 0;
+    instance.edgeLine->setVisible(flush);
+    instance.edgeLine->setFill(colorSpecFromRole(ColorRole::Stroke));
+    const float line = 1.0F;
+    if (position == "bottom" || position == "top") {
+      instance.edgeLine->setSize(barAreaW, line);
+      instance.edgeLine->setPosition(barAreaX, position == "bottom" ? barAreaY : barAreaY + barAreaH - line);
+    } else {
+      instance.edgeLine->setSize(line, barAreaH);
+      instance.edgeLine->setPosition(position == "right" ? barAreaX : barAreaX + barAreaW - line, barAreaY);
+    }
   }
 
   instance.paletteConn = paletteChanged().connect([this, inst = &instance] {

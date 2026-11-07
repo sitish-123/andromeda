@@ -103,6 +103,15 @@ namespace noctalia::config {
     start.tables["actions"]["left"] = "panel-toggle launcher apps";
     seed("start", std::move(start));
 
+    // Desktop Layouts, Windows: 24 px icons in 40 px cells over a running bar, window previews on hover.
+    WidgetConfig windowsTaskbar;
+    windowsTaskbar.type = "taskbar";
+    windowsTaskbar.settings["icon_scale"] = 1.5;
+    windowsTaskbar.settings["cell_size"] = std::int64_t{40};
+    windowsTaskbar.settings["running_bar"] = true;
+    windowsTaskbar.settings["window_previews"] = true;
+    seed("windows_taskbar", std::move(windowsTaskbar));
+
     WidgetConfig activeWindow;
     activeWindow.type = "active_window";
     activeWindow.settings["max_length"] = 260.0;

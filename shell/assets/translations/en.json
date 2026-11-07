@@ -5295,6 +5295,14 @@
           "label": "Window Snapping",
           "description": "Drag a window to a screen edge or corner to fill half or a quarter"
         },
+        "input-snap-layouts-hover": {
+          "label": "Snap Layouts on Maximize Hover",
+          "description": "Rest the pointer on a maximize button to pick a layout"
+        },
+        "input-snap-groups": {
+          "label": "Snap Groups",
+          "description": "Windows snapped together raise and restore together"
+        },
         "input-cursor-follows-focus": {
           "label": "Cursor Follows Focus",
           "description": "Move the pointer to a window when it gets focus from the keyboard"
@@ -6082,6 +6090,10 @@
           "taskbar-description": "Corner radius for the widget capsule, workspace disc indicators, and workspace group capsules; leave blank for automatic pill shape, or set 0 for square corners",
           "workspaces-description": "Corner radius for this widget capsule and workspace pills; leave blank for automatic pill shape, or set 0 for square corners"
         },
+        "cell-size": {
+          "description": "Square cell for each button; 0 fits the icon",
+          "label": "Button Size"
+        },
         "centered": {
           "description": "Center visualizer bars instead of aligning them to the edge",
           "label": "Centered"
@@ -6444,6 +6456,10 @@
           "description": "Rotate the album artwork while media is playing",
           "label": "Rotate Album Art"
         },
+        "running-bar": {
+          "description": "Show a short bar below running apps",
+          "label": "Running Indicator"
+        },
         "scale": {
           "description": "Scale this widget relative to the bar content scale",
           "label": "Scale"
@@ -6620,6 +6636,10 @@
         "width": {
           "description": "Widget width in pixels",
           "label": "Width"
+        },
+        "window-previews": {
+          "description": "Show the app's windows when you hover its button",
+          "label": "Window Previews"
         },
         "window-title-max-width": {
           "description": "Maximum width in pixels for window titles",

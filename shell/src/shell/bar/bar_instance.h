@@ -122,6 +122,8 @@ struct BarInstance {
 
   // Bar background, shadow, and layout sections (start/center/end along main axis)
   Box* bg = nullptr;
+  // Hairline on the inner edge of a painted bar flush with its screen edge (rulebook: every glass sheet has one).
+  Box* edgeLine = nullptr;
   // Islands mode: one pill per section (start, center, end), in slideRoot coordinates.
   std::array<Box*, 3> islands{};
   // Glass recipe of each island: drop shadow below it and the top edge highlight above its fill.

@@ -7,6 +7,7 @@
 #include "system/icon_resolver.h"
 #include "system/window_state.h"
 #include "ui/palette.h"
+#include "ui/popup_parent.h"
 #include "ui/signal.h"
 
 #include <cstdint>
@@ -24,6 +25,7 @@ class Box;
 class Flex;
 class InputArea;
 class Label;
+class TaskbarPreview;
 class TaskbarWidgetTestAccess;
 struct wl_output;
 struct zwlr_foreign_toplevel_handle_v1;
@@ -72,6 +74,12 @@ struct TaskbarWidgetOptions {
   bool showWindowTitle = false;
   int windowTitleMaxWidth = 100;
   int taskbarMaxWidth = 8192;
+  // Square cell per button in logical px; 0 = the icon plus a thin pad.
+  int cellSize = 0;
+  // A 16 x 3 capsule under every running button (accent on the focused one) instead of the focused dot.
+  bool runningBar = false;
+  // Hovering a running button for 400 ms shows its windows' previews instead of a tooltip.
+  bool windowPreviews = false;
 };
 
 struct TaskbarWidgetContext {
@@ -207,6 +215,9 @@ private:
   void buildDesktopIconIndex();
   [[nodiscard]] ResolvedIcon resolveIcon(const std::string& appId, const std::string& iconNameOrPath);
   void openTaskContextMenu(const TaskModel& task, InputArea& area, const std::vector<TaskRef>& members = {});
+  // The pointer entered or left a task button: opens, moves or closes the window previews.
+  void hoverTaskPreview(TaskRef ref, InputArea& area, bool entered);
+  void openTaskPreview(TaskRef ref, PopupAnchorRect anchor);
   void activateAdjacentWorkspace(int direction);
   void activateAdjacentTask(int direction);
   [[nodiscard]] bool activeWorkspaceIndex(std::size_t& index) const;
@@ -317,6 +328,9 @@ private:
   std::unordered_map<std::string, std::size_t> m_groupedAppCycleCursor;
   std::unordered_map<std::string, std::string> m_appIconsByLower;
   std::unique_ptr<ContextMenuPopup> m_contextMenuPopup;
+  std::unique_ptr<TaskbarPreview> m_preview;
+  Timer m_previewOpenTimer;
+  Timer m_previewCloseTimer;
   std::vector<zwlr_foreign_toplevel_handle_v1*> m_contextMenuHandles;
   zwlr_foreign_toplevel_handle_v1* m_contextMenuPrimaryHandle = nullptr;
   // KDE and Niri ext-foreign-toplevel tasks close through ToplevelInfo rather

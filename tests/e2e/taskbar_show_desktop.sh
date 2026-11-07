@@ -18,7 +18,7 @@ cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
 position = "bottom"
 islands = false
 start = []
-center = ["start", "taskbar"]
+center = ["start", "windows_taskbar"]
 thickness = 48
 margin_ends = 0
 margin_edge = 0
@@ -27,7 +27,7 @@ radius_top_left = 0
 radius_top_right = 0
 radius_bottom_left = 0
 radius_bottom_right = 0
-end = ["tray", "clock", "show_desktop"]
+end = ["tray", "network", "output_volume", "battery", "clock", "show_desktop"]
 
 [dock]
 enabled = false
@@ -55,5 +55,11 @@ with_noctalia '
   grim "$OUT/shown.png"
   "'"$POINTER"'" 1280 720 move 1276 "$y" click 272 > /dev/null
   wait_minimized false || fail "a second click did not bring the window back"
+  # Window previews (R6): rest on the app button (right of Start at the row centre) past the 400 ms open delay.
+  # The popover has no IPC state, so the shot is the check; it opens on a timer, not an event.
+  "'"$POINTER"'" 1280 720 move 651 "$y" > /dev/null
+  sleep 0.9
+  "$ANDROMEDA" settle > /dev/null
+  grim "$OUT/preview.png"
   echo "PASS: Show Desktop minimized the window and brought it back"
 '

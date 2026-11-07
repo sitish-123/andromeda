@@ -800,6 +800,7 @@ _noctalia_sources = files(
   'src/shell/bar/widgets/sysmon_widget.cpp',
   'src/shell/bar/widgets/sysmon_widget_definition.cpp',
   'src/shell/bar/widgets/taskbar_widget.cpp',
+  'src/shell/bar/widgets/taskbar_preview.cpp',
   'src/shell/bar/widgets/taskbar_widget_definition.cpp',
   'src/shell/bar/widgets/test_widget.cpp',
   'src/shell/bar/widgets/test_widget_definition.cpp',

@@ -207,6 +207,8 @@ namespace settings {
       stepper(Layout, "layout", "layout.gap", 0, 500, 1, "px", "gaps spacing between windows");
       if (mode == "floating") {
         toggle(Layout, "layout", "input.window_snapping", "snap tile half quarter edge drag");
+        toggle(Layout, "layout", "input.snap_layouts_hover", "snap layouts flyout maximize button hover zones");
+        toggle(Layout, "layout", "input.snap_groups", "snap groups assist restore raise together");
       } else if (mode == "scrolling") {
         choice(
             Layout, "layout", "layout.scrolling.center_focused", {"never", "always", "on_overflow"}, false,

@@ -64,9 +64,13 @@ namespace settings {
       }
       SelectSetting select{std::move(options), current};
       select.tiles = true;
-      select.groupedCommit = [bars = cfg.bars](
-                                 std::string_view value, const std::vector<std::string>& /*primaryPath*/
-                             ) { return desktop_layout::writes(value, bars); };
+      const auto now = std::make_shared<const desktop_layout::Snapshot>(
+          desktop_layout::snapshot(cfg, env.compositorSettings)
+      );
+      select.groupedCommit = [now](std::string_view value, const std::vector<std::string>& /*primaryPath*/) {
+        return desktop_layout::writes(value, *now);
+      };
+      select.groupedClears = [now](std::string_view value) { return desktop_layout::clears(value, *now); };
       entries.push_back(makeEntry(
           SettingsSection::Appearance, "desktop-layout", tr("settings.desktop-layout.label"),
           current == desktop_layout::kCustom ? tr("settings.desktop-layout.custom") : std::string(),

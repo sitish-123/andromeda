@@ -827,20 +827,11 @@ std::unique_ptr<Flex> SetupWizardPanel::buildLayout(float scale) {
         scale, i18n::tr("settings.desktop-layout.options." + preset), [this, preset] { applyLayout(preset); }, &frame,
         &m_layoutRings[i], &m_layoutLabels[i]
     );
-    // The 64 x 40 drawing at 2x, centred in the wider thumb.
-    const float unit = 2.0F * scale;
-    const float left = (kThumbWidth * scale - 64.0F * unit) * 0.5F;
-    for (const auto& shape : desktop_layout::drawing(preset)) {
-      auto part = ui::row({
-          .fill = colorSpecFromRole(shape.faint ? ColorRole::Fill2 : ColorRole::Label3),
-          .radius = Style::scaledRadiusSm(scale),
-          .width = shape.w * unit,
-          .height = shape.h * unit,
-      });
-      part->setParticipatesInLayout(false);
-      part->setPosition(left + shape.x * unit, shape.y * unit);
-      frame->addChild(std::move(part));
-    }
+    // The 64 x 40 card at 2x, centred in the wider thumb (the same card as Settings › Appearance).
+    auto card = desktop_layout::preview(preset, 128.0F * scale, kThumbHeight * scale, scale);
+    card->setParticipatesInLayout(false);
+    card->setPosition((kThumbWidth - 128.0F) * 0.5F * scale, 0.0F);
+    frame->addChild(std::move(card));
     row->addChild(std::move(cell));
     if (i % 2 == 1) {
       grid->addChild(std::move(row));
@@ -853,21 +844,34 @@ std::unique_ptr<Flex> SetupWizardPanel::buildLayout(float scale) {
 
 void SetupWizardPanel::applyLayout(const std::string& preset) {
   m_layoutPick = preset;
+  const desktop_layout::Snapshot now = desktop_layout::snapshot(m_config->config(), m_compositorSettings.get());
   std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> shell;
-  for (auto& [path, value] : desktop_layout::writes(preset, m_config->config().bars)) {
+  const auto compositorKey = [](const std::vector<std::string>& path) {
+    std::string key;
+    for (std::size_t i = 1; i < path.size(); ++i) {
+      key += (i > 1 ? "." : "") + path[i];
+    }
+    return key;
+  };
+  for (auto& [path, value] : desktop_layout::writes(preset, now)) {
     if (!path.empty() && path.front() == "andromeda") {
       if (m_compositorSettings != nullptr) {
-        std::string key;
-        for (std::size_t i = 1; i < path.size(); ++i) {
-          key += (i > 1 ? "." : "") + path[i];
-        }
-        m_compositorSettings->set(key, std::get<std::string>(value));
+        m_compositorSettings->set(compositorKey(path), std::get<std::string>(value));
       }
     } else {
       shell.emplace_back(std::move(path), std::move(value));
     }
   }
   m_config->setOverrides(shell);
+  for (const auto& path : desktop_layout::clears(preset, now)) {
+    if (!path.empty() && path.front() == "andromeda") {
+      if (m_compositorSettings != nullptr) {
+        m_compositorSettings->set(compositorKey(path), {});
+      }
+    } else {
+      m_config->clearOverride(path);
+    }
+  }
   syncSelection();
 }
 
@@ -1412,7 +1416,7 @@ void SetupWizardPanel::syncSelection() {
   }
   for (std::size_t i = 0; i < m_layoutRings.size(); ++i) {
     const bool on = desktop_layout::kPresets[i] == m_layoutPick;
-    setRing(m_layoutRings[i], on, ColorRole::Label1, scale);
+    setRing(m_layoutRings[i], on, ColorRole::Accent, scale);
     if (m_layoutLabels[i] != nullptr) {
       m_layoutLabels[i]->setColor(colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2));
       m_layoutLabels[i]->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);

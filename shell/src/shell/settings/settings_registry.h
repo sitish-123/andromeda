@@ -131,6 +131,8 @@ namespace settings {
         std::string_view selectedValue, const std::vector<std::string>& primaryPath
     )>
         groupedCommit;
+    // Paths a grouped commit also takes back to their defaults (tile pickers only).
+    std::function<std::vector<std::vector<std::string>>(std::string_view selectedValue)> groupedClears;
   };
 
   struct SearchPickerSetting {

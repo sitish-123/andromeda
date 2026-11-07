@@ -1,6 +1,11 @@
 #include "shell/desktop_layout/desktop_layout.h"
 
 #include "compositors/settings_control.h"
+#include "render/scene/rect_node.h"
+#include "ui/builders.h"
+#include "shell/settings/settings_selection_style.h"
+#include "ui/style.h"
+#include "ui/palette.h"
 
 #include <algorithm>
 #include <span>
@@ -43,7 +48,7 @@ namespace desktop_layout {
 
     // Windows (prototype .tbar2): a 48 px row with Start and the window buttons centred; tray, clock and Show Desktop
     // trail.
-    constexpr std::array<std::string_view, 2> kTaskbarCenter = {"start", "taskbar"};
+    constexpr std::array<std::string_view, 2> kTaskbarCenter = {"start", "windows_taskbar"};
     // The row's own geometry: flush to the screen edge and both ends, square, with Show Desktop at the very end.
     struct RowInt {
       std::string_view key;
@@ -60,7 +65,7 @@ namespace desktop_layout {
         {"radius_bottom_left", &BarConfig::radiusBottomLeft, 0},
         {"radius_bottom_right", &BarConfig::radiusBottomRight, 0},
     }};
-    constexpr std::array<std::string_view, 3> kTaskbarEnd = {"tray", "clock", "show_desktop"};
+    constexpr std::array<std::string_view, 6> kTaskbarEnd = {"tray", "network", "output_volume", "battery", "clock", "show_desktop"};
 
     bool isTaskbarRow(const BarConfig& bar) {
       return bar.startWidgets.empty() && std::ranges::equal(bar.centerWidgets, kTaskbarCenter)
@@ -96,9 +101,6 @@ namespace desktop_layout {
       if (!bars || cfg.dock.enabled != p.dock) {
         return false;
       }
-      if (compositor == nullptr || !compositor->ready()) {
-        return true;
-      }
       return std::ranges::all_of(compositorParts(p), [&](const auto& part) {
         return compositor->value(part.first) == part.second;
       });
@@ -106,64 +108,150 @@ namespace desktop_layout {
 
   } // namespace
 
-  std::vector<Shape> drawing(std::string_view preset) {
+  std::unique_ptr<Node> preview(std::string_view preset, float width, float height, float scale) {
+    // Grid units: 64 x 40. Glass = white over the wallpaper; windows are light app windows.
+    enum class Kind : std::uint8_t { Glass, Window, Faint };
+    struct Shape {
+      float x, y, w, h;
+      Kind kind;
+    };
+    std::vector<Shape> shapes;
     if (preset == "andromeda") {
-      return {{4, 2, 10, 3}, {24, 2, 16, 3}, {50, 2, 10, 3}, {-8, 8, 12, 23, true}, {8, 8, 24, 23}, {36, 8, 24, 23},
-              {20, 34, 24, 4}};
+      shapes = {{3, 2, 10, 3, Kind::Glass},   {25, 2, 14, 3, Kind::Glass},  {51, 2, 10, 3, Kind::Glass},
+                {-10, 8, 14, 24, Kind::Faint}, {8, 8, 23, 24, Kind::Window}, {34, 8, 23, 24, Kind::Window},
+                {22, 35, 20, 3, Kind::Glass}};
+    } else if (preset == "macos") {
+      shapes = {{0, 0, 64, 3, Kind::Glass}, {8, 8, 30, 20, Kind::Window}, {25, 13, 31, 18, Kind::Window},
+                {18, 35, 28, 3, Kind::Glass}};
+    } else if (preset == "windows") {
+      shapes = {{8, 5, 30, 21, Kind::Window}, {24, 10, 32, 20, Kind::Window}, {0, 36, 64, 4, Kind::Glass}};
+    } else if (preset == "tiling") {
+      shapes = {{3, 2, 10, 3, Kind::Glass},     {25, 2, 14, 3, Kind::Glass},     {51, 2, 10, 3, Kind::Glass},
+                {4, 7, 26, 30, Kind::Window}, {33, 7, 26, 30, Kind::Window}, {62, 7, 12, 30, Kind::Faint}};
     }
-    if (preset == "macos") {
-      return {{0, 0, 64, 4}, {8, 9, 30, 20}, {26, 14, 30, 17}, {16, 34, 32, 4}};
+    // Concentric with the picker's accent ring; windows round at half that, glass shapes are capsules.
+    const float cardRadius = (settings::metrics::kPickerRadius - Style::focusRingWidth - Style::focusRingGap) * scale;
+    auto card = ui::column({.radius = cardRadius, .clipChildren = true, .width = width, .height = height});
+    // The default wallpaper's night blue to teal, as a horizontal sweep.
+    const Color night = rgbHex(0x0D1630);
+    const Color teal = rgbHex(0x14455A);
+    auto wallpaper = std::make_unique<RectNode>();
+    wallpaper->setParticipatesInLayout(false);
+    wallpaper->setFrameSize(width, height);
+    wallpaper->setStyle(RoundedRectStyle{
+        .fill = night,
+        .border = clearColor(),
+        .fillMode = FillMode::LinearGradient,
+        .gradientDirection = GradientDirection::Horizontal,
+        .gradientStops = {GradientStop{0.0F, night}, GradientStop{0.55F, teal}, GradientStop{1.0F, night}},
+        .radius = cardRadius,
+        .softness = 1.0F,
+        .borderWidth = 0.0F,
+    });
+    card->addChild(std::move(wallpaper));
+    const float sx = width / 64.0F;
+    const float sy = height / 40.0F;
+    for (const Shape& shape : shapes) {
+      auto part = std::make_unique<RectNode>();
+      part->setParticipatesInLayout(false);
+      part->setPosition(shape.x * sx, shape.y * sy);
+      part->setFrameSize(shape.w * sx, shape.h * sy);
+      const Color fill = shape.kind == Kind::Glass ? Color{1.0F, 1.0F, 1.0F, 0.42F}
+          : shape.kind == Kind::Window           ? rgbHex(0xF2F2F6)
+                                                 : Color{0.949F, 0.949F, 0.965F, 0.35F};
+      part->setStyle(RoundedRectStyle{
+          .fill = fill,
+          .border = shape.kind == Kind::Glass ? Color{1.0F, 1.0F, 1.0F, 0.5F} : clearColor(),
+          .radius = shape.kind == Kind::Glass ? std::min(shape.h * sy, shape.w * sx) / 2 : cardRadius / 2,
+          .softness = 1.0F,
+          .borderWidth = shape.kind == Kind::Glass ? 0.5F * scale : 0.0F,
+      });
+      card->addChild(std::move(part));
     }
-    if (preset == "windows") {
-      return {{8, 5, 30, 21}, {24, 10, 32, 20}, {0, 35, 64, 5}, {2, 36, 5, 3, true}};
-    }
-    if (preset == "tiling") {
-      return {{4, 2, 10, 3}, {24, 2, 16, 3}, {50, 2, 10, 3}, {4, 8, 26, 29}, {33, 8, 26, 29}, {62, 8, 12, 29, true}};
-    }
-    return {};
+    return card;
   }
 
-  std::vector<Write> writes(std::string_view preset, const std::vector<BarConfig>& bars) {
+  Snapshot snapshot(const Config& cfg, const SettingsControl* compositor) {
+    Snapshot now{.bars = cfg.bars};
+    if (compositor != nullptr && compositor->ready()) {
+      now.cornerRadius = compositor->value("appearance.corner_radius");
+      for (const auto& [key, setting] : compositor->settings()) {
+        if (key.starts_with("workspace.") && key.ends_with(".layout.mode") && !compositor->value(key).empty()) {
+          now.workspaceModes.push_back(key);
+        }
+      }
+    }
+    return now;
+  }
+
+  std::vector<Write> writes(std::string_view preset, const Snapshot& now) {
     const Preset* p = find(preset);
     if (p == nullptr) {
       return {};
     }
     std::vector<Write> out;
-    for (const BarConfig& bar : bars) {
-      out.emplace_back(std::vector<std::string>{"bar", bar.name, "islands"}, p->islands);
+    for (const BarConfig& bar : now.bars) {
+      out.emplace_back(Path{"bar", bar.name, "islands"}, p->islands);
     }
-    if (!bars.empty()) {
-      const BarConfig& first = bars.front();
-      out.emplace_back(std::vector<std::string>{"bar", first.name, "position"}, std::string(p->barPosition));
-      // The taskbar row is set by Windows and put back to the defaults only when it is still the taskbar row, so
-      // other picks keep the user's own widgets.
-      const bool windows = preset == "windows";
-      if (windows || isTaskbarRow(first)) {
-        const BarConfig defaults;
+    if (!now.bars.empty()) {
+      const std::string& first = now.bars.front().name;
+      out.emplace_back(Path{"bar", first, "position"}, std::string(p->barPosition));
+      if (preset == "windows") {
         const auto list = [](std::span<const std::string_view> names) {
           return std::vector<std::string>(names.begin(), names.end());
         };
-        out.emplace_back(std::vector<std::string>{"bar", first.name, "start"},
-                         windows ? std::vector<std::string>{} : defaults.startWidgets);
-        out.emplace_back(std::vector<std::string>{"bar", first.name, "center"},
-                         windows ? list(kTaskbarCenter) : defaults.centerWidgets);
+        out.emplace_back(Path{"bar", first, "start"}, std::vector<std::string>{});
+        out.emplace_back(Path{"bar", first, "center"}, list(kTaskbarCenter));
+        out.emplace_back(Path{"bar", first, "end"}, list(kTaskbarEnd));
         for (const RowInt& field : kTaskbarGeometry) {
-          out.emplace_back(std::vector<std::string>{"bar", first.name, std::string(field.key)},
-                           windows ? field.taskbar : std::int64_t{defaults.*field.member});
+          out.emplace_back(Path{"bar", first, std::string(field.key)}, field.taskbar);
         }
-        out.emplace_back(std::vector<std::string>{"bar", first.name, "end"},
-                         windows ? list(kTaskbarEnd) : defaults.endWidgets);
       }
     }
-    out.emplace_back(std::vector<std::string>{"dock", "enabled"}, p->dock);
+    out.emplace_back(Path{"dock", "enabled"}, p->dock);
     for (const auto& [key, value] : compositorParts(*p)) {
       out.emplace_back(compositorPath(key), std::string(value));
     }
-    out.emplace_back(compositorPath("appearance.corner_radius"), std::string(p->radius));
+    if (!p->radius.empty()) {
+      out.emplace_back(compositorPath("appearance.corner_radius"), std::string(p->radius));
+    }
+    return out;
+  }
+
+  std::vector<Path> clears(std::string_view preset, const Snapshot& now) {
+    const Preset* p = find(preset);
+    if (p == nullptr) {
+      return {};
+    }
+    std::vector<Path> out;
+    for (const std::string& key : now.workspaceModes) {
+      out.push_back(compositorPath(key));
+    }
+    if (preset != "windows") {
+      if (!now.bars.empty() && isTaskbarRow(now.bars.front())) {
+        const std::string& first = now.bars.front().name;
+        for (const std::string_view key : {"start", "center", "end"}) {
+          out.push_back(Path{"bar", first, std::string(key)});
+        }
+        for (const RowInt& field : kTaskbarGeometry) {
+          out.push_back(Path{"bar", first, std::string(field.key)});
+        }
+      }
+      if (now.cornerRadius == find("windows")->radius) {
+        out.push_back(compositorPath("appearance.corner_radius"));
+      }
+    }
     return out;
   }
 
   std::string current(const Config& cfg, const SettingsControl* compositor) {
+    if (compositor == nullptr || !compositor->ready()) {
+      return {};
+    }
+    const Snapshot now = snapshot(cfg, compositor);
+    if (!now.workspaceModes.empty()) {
+      return std::string(kCustom);
+    }
     for (const std::string_view name : kPresets) {
       if (matches(name, *find(name), cfg, compositor)) {
         return std::string(name);

@@ -329,13 +329,6 @@ namespace settings {
     std::vector<ArrangementRect> arrangementRects(std::string_view value) {
       // Overview styles: Spaces (thumbs over the current workspace), Task View (spread windows over a desktop row),
       // Strip (the current row between faint neighbours), Grid (every workspace as a tile).
-      if (const auto shapes = desktop_layout::drawing(value); !shapes.empty()) {
-        std::vector<ArrangementRect> rects;
-        for (const auto& shape : shapes) {
-          rects.push_back({shape.x, shape.y, shape.w, shape.h, shape.faint});
-        }
-        return rects;
-      }
       if (value == "spaces") {
         return {{8, 4, 10, 7}, {21, 4, 10, 7}, {34, 4, 10, 7}, {47, 4, 9, 7, true}, {8, 15, 48, 21}};
       }
@@ -545,10 +538,16 @@ namespace settings {
     if (setting.tiles) {
       const bool swatches = !path.empty() && path.back() == "builtin";
       const auto commit = [setOverride = ctx.setOverride, setOverrides = ctx.setOverrides,
-                           requestRebuild = ctx.requestRebuild, groupedCommit = setting.groupedCommit,
+                           clearOverride = ctx.clearOverride, requestRebuild = ctx.requestRebuild,
+                           groupedCommit = setting.groupedCommit, groupedClears = setting.groupedClears,
                            path](std::string value) {
         if (groupedCommit) {
           setOverrides(groupedCommit(value, path));
+          if (groupedClears) {
+            for (const auto& cleared : groupedClears(value)) {
+              clearOverride(cleared);
+            }
+          }
         } else {
           setOverride(path, std::move(value));
         }
@@ -635,6 +634,8 @@ namespace settings {
       auto strip = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = kModeThumbGap * scale,
                             .fillWidth = true});
       const bool arrangement = isDrawnPickerPath(path);
+      // Desktop Layout cards (rulebook 9.7 thumbnail grid): a 2 px accent ring at a 2 px gap, label 600.
+      const bool layoutPicker = path == std::vector<std::string>{"shell", "desktop_layout"};
       auto ordered = setting.options;
       if (!arrangement) {
         std::ranges::stable_sort(ordered, {}, [](const SelectOption& option) {
@@ -645,11 +646,11 @@ namespace settings {
         const bool selected = opt.value == setting.selectedValue;
         auto tile = ui::button({
             .variant = ButtonVariant::Ghost,
-            .customPalette = ringed(selected, colorSpecFromRole(ColorRole::Label1)),
+            .customPalette = ringed(selected, colorSpecFromRole(layoutPicker ? ColorRole::Accent : ColorRole::Label1)),
             .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
             .onClick = [commit, value = opt.value] { commit(value); },
-            .configure = [value = opt.value, label = opt.label, scale, selected, arrangement](Button& button) {
+            .configure = [value = opt.value, label = opt.label, scale, selected, arrangement, layoutPicker](Button& button) {
               // The arrangement picks are the page's main control, so they take keyboard focus and read as radios.
               button.setTabStop(arrangement);
               if (arrangement) {
@@ -658,7 +659,14 @@ namespace settings {
                 );
               }
               button.setFlexGrow(0.0F);
-              button.addChild(arrangement ? makeArrangementPreview(value, scale) : makeModePreview(value, scale));
+              if (layoutPicker) {
+                button.addChild(desktop_layout::preview(
+                    value, (kModeThumbWidth - 2.0F * Style::focusRingWidth) * scale,
+                    (kModeThumbHeight - 2.0F * Style::focusRingWidth) * scale, scale
+                ));
+              } else {
+                button.addChild(arrangement ? makeArrangementPreview(value, scale) : makeModePreview(value, scale));
+              }
               // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
               button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
                                    colorSpecFromRole(ColorRole::Accent));
@@ -672,7 +680,7 @@ namespace settings {
                 makeLabel(
                     opt.label, Style::fontSizeCaption * scale,
                     colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
-                    selected ? FontWeight::Bold : FontWeight::Medium
+                    selected ? (layoutPicker ? FontWeight::SemiBold : FontWeight::Bold) : FontWeight::Medium
                 )
             )
         ));

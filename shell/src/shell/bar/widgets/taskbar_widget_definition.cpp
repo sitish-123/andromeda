@@ -149,6 +149,21 @@ const noctalia::bar::WidgetDefinition<TaskbarWidgetOptions>& taskbarWidgetDefini
                                   ),
                               }
                           ),
+                          field<&Options::cellSize>({
+                              .key = "cell_size",
+                              .minValue = 0.0,
+                              .maxValue = 64.0,
+                              .step = 4.0,
+                              .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
+                          }),
+                          field<&Options::windowPreviews>({
+                              .key = "window_previews",
+                              .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
+                          }),
+                          field<&Options::runningBar>({
+                              .key = "running_bar",
+                              .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
+                          }),
                           field<&Options::showRunning>({
                               .key = "show_running",
                               .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
