@@ -1,0 +1,23 @@
+diff --git a/backend/drm/libliftoff.c b/backend/drm/libliftoff.c
+index 333beac..186b4ec 100644
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -346,12 +347,12 @@ static bool add_connector(drmModeAtomicReq *req,
+ 		liftoff_layer_set_property(crtc->liftoff_composition_layer,
+ 			"FB_DAMAGE_CLIPS", state->fb_damage_clips);
+ 
+-		if (state->primary_in_fence_fd >= 0) {
+-			liftoff_layer_set_property(crtc->primary->liftoff_layer,
+-				"IN_FENCE_FD", state->primary_in_fence_fd);
+-			liftoff_layer_set_property(crtc->liftoff_composition_layer,
+-				"IN_FENCE_FD", state->primary_in_fence_fd);
+-		}
++		// Also -1 without a fence: the layers keep their last value, and the previous commit's fd is closed by now,
++		// so the kernel would reject every allocation with EINVAL and the CRTC would scan out no plane.
++		liftoff_layer_set_property(crtc->primary->liftoff_layer,
++			"IN_FENCE_FD", (uint64_t)(int64_t)state->primary_in_fence_fd);
++		liftoff_layer_set_property(crtc->liftoff_composition_layer,
++			"IN_FENCE_FD", (uint64_t)(int64_t)state->primary_in_fence_fd);
+ 
+ 		if (state->base->committed & WLR_OUTPUT_STATE_LAYERS) {
+ 			for (size_t i = 0; i < state->base->layers_len; i++) {
