@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <ranges>
+#include <vector>
 
 extern "C" {
 #include <wlr/util/edges.h>
@@ -18,18 +19,32 @@ namespace andromeda {
   TitleBarLayout titleBarLayout(
       int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown, TitleBarStyle style
   ) {
-    const int diameter = titleBarButtonDiameter(height);
+    // Windows: line glyphs centred in 46 wide full-height cells. macOS: 12 px traffic lights 8 apart, 12 from the end.
     const bool cells = style == TitleBarStyle::Windows;
+    const bool mac = style == TitleBarStyle::Macos;
+    const int diameter = cells ? std::min(10, height / 2) : mac ? std::min(12, height) : titleBarButtonDiameter(height);
     const int inset = (height - diameter) / 2;
-    const int cellWidth = cells ? (height * 40 + 18) / 36 : diameter + kTitleBarButtonGap;
-    const int pitch = cells ? cellWidth : diameter + kTitleBarButtonGap;
+    const int edge = mac ? 12 : inset;
+    const int cellWidth = cells ? 46 : diameter + kTitleBarButtonGap;
+    const int pitch = cellWidth;
     TitleBarLayout result{.title = {kTitleBarTitlePadding, 0, 0, height}, .centredTitle = style == TitleBarStyle::Macos};
     // Walk from the edge inward: the last listed button is outermost. `x` is the cell's left edge.
-    int x = side == TitleBarButtonSide::Right ? width - (cells ? cellWidth : inset + diameter + kTitleBarButtonGap / 2)
-                                              : (cells ? 0 : inset - kTitleBarButtonGap / 2);
+    int x = side == TitleBarButtonSide::Right ? width - (cells ? cellWidth : edge + diameter + kTitleBarButtonGap / 2)
+                                              : (cells ? 0 : edge - kTitleBarButtonGap / 2);
     const int step = side == TitleBarButtonSide::Right ? -pitch : pitch;
     std::optional<int> innermost; // the inner edge of the innermost cell
-    for (const TitleBarButton button : std::views::reverse(shown)) {
+    // macOS keeps its own order from the edge: close, minimize, zoom.
+    std::vector<TitleBarButton> order(shown.begin(), shown.end());
+    if (mac) {
+      std::vector<TitleBarButton> lights;
+      for (const TitleBarButton button : {TitleBarButton::Maximize, TitleBarButton::Minimize, TitleBarButton::Close}) {
+        if (std::ranges::contains(shown, button)) {
+          lights.push_back(button);
+        }
+      }
+      order = std::move(lights);
+    }
+    for (const TitleBarButton button : std::views::reverse(order)) {
       const auto index = static_cast<size_t>(button);
       if (result.buttons[index]) {
         continue;

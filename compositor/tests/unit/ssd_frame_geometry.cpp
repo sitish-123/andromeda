@@ -131,23 +131,28 @@ int main() { return RUN_TESTS(); }
 
 ANDROMEDA_TEST(windowsCellsSitFlushAtTheEdgeAndTakeThePointer) {
   const auto parts = titleBarLayout(480, 28, TitleBarButtonSide::Right, kAll, TitleBarStyle::Windows);
-  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Close)]->x, 449);
-  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Close)]->width, 31);
-  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Minimize)]->x, 387);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 457);
-  CHECK_EQ(parts.title.width, 371);
+  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Close)]->x, 434);
+  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Close)]->width, 46);
+  CHECK_EQ(parts.cells[static_cast<size_t>(TitleBarButton::Minimize)]->x, 342);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 452);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->width, 10);
+  CHECK_EQ(parts.title.width, 326);
   const auto at = [](double x) {
     return ssdFramePointAt(480, 300, 28, 2, true, TitleBarButtonSide::Right, kAll, x, -1, TitleBarStyle::Windows).part;
   };
   CHECK_EQ(at(479), SsdFramePart::Close);
-  CHECK_EQ(at(449), SsdFramePart::Close);
-  CHECK_EQ(at(448), SsdFramePart::Maximize);
-  CHECK_EQ(at(386), SsdFramePart::TitleBar);
+  CHECK_EQ(at(434), SsdFramePart::Close);
+  CHECK_EQ(at(433), SsdFramePart::Maximize);
+  CHECK_EQ(at(341), SsdFramePart::TitleBar);
 }
 
-ANDROMEDA_TEST(macosTitleCentresOnTheWholeBar) {
+ANDROMEDA_TEST(macosLightsSitTwelveInAndTheTitleCentresOnTheWholeBar) {
   const auto parts = titleBarLayout(480, 28, TitleBarButtonSide::Left, kAll, TitleBarStyle::Macos);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 12);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->width, 12);
+  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 32);
+  CHECK_EQ(parts.button(TitleBarButton::Maximize)->x, 52);
   CHECK(parts.centredTitle);
-  CHECK_EQ(parts.title.x, 73);
-  CHECK_EQ(parts.title.width, 334);
+  CHECK_EQ(parts.title.x, 72);
+  CHECK_EQ(parts.title.width, 336);
 }

@@ -230,6 +230,9 @@ namespace andromeda {
       return;
     }
     m_active = active;
+    if (!active) {
+      m_group->server()->dismissSnapChrome();
+    }
     wlr_ext_workspace_handle_v1_set_active(m_handle, active);
     applyVisibility();
     syncCloseSnapshots();
@@ -1711,7 +1714,9 @@ namespace andromeda {
       return;
     }
     // Nothing left to hide: bring back every minimized window here, however it was minimized.
+    // The newest is chosen first: restoring one window also restores its snap group, before the loop reaches it.
     View* latest = nullptr;
+    std::vector<View*> restore;
     for (View* view : m_views) {
       if (!view->mapped() || !view->minimized()) {
         continue;
@@ -1719,6 +1724,9 @@ namespace andromeda {
       if (latest == nullptr || view->minimizeSerial() > latest->minimizeSerial()) {
         latest = view;
       }
+      restore.push_back(view);
+    }
+    for (View* view : restore) {
       view->setMinimized(false);
     }
     focus = m_showDesktopFocus.get();

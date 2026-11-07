@@ -233,7 +233,19 @@ namespace andromeda {
     return std::nullopt;
   }
 
+  bool SnapAssist::anchorHolds() {
+    const View* anchor = m_members.empty() ? nullptr : m_members.front().view.get();
+    if (anchor != nullptr && anchor->mapped() && anchor->snapSpot() == std::optional<SnapSpot>(m_members.front().zone)) {
+      return true;
+    }
+    finish();
+    return false;
+  }
+
   void SnapAssist::hover(double lx, double ly) {
+    if (m_open && !anchorHolds()) {
+      return;
+    }
     if (const auto index = m_open ? cardAt(lx, ly) : std::nullopt; index && *index != m_lit) {
       m_lit = *index;
       draw();
@@ -241,7 +253,7 @@ namespace andromeda {
   }
 
   bool SnapAssist::press(double lx, double ly) {
-    if (!m_open) {
+    if (!m_open || !anchorHolds()) {
       return false;
     }
     if (const auto index = cardAt(lx, ly)) {
@@ -256,7 +268,7 @@ namespace andromeda {
   }
 
   bool SnapAssist::key(uint32_t keysym) {
-    if (!m_open || m_cards.empty()) {
+    if (!m_open || m_cards.empty() || !anchorHolds()) {
       return false;
     }
     const size_t count = m_cards.size();

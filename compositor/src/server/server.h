@@ -239,6 +239,8 @@ namespace andromeda {
     [[nodiscard]] QuitConfirm* quitConfirm() const { return m_quitConfirm.get(); }
     [[nodiscard]] SnapFlyout* snapFlyout() const { return m_snapFlyout.get(); }
     [[nodiscard]] SnapAssist* snapAssist() const { return m_snapAssist.get(); }
+    // Closes the Snap Layouts flyout and ends snap assist: on lock, workspace switch, overview open, output removal.
+    void dismissSnapChrome();
     // Shows the Snap Layouts flyout for `view`: at the window's top centre, or at (x, y) when given (layout coordinates).
     void openSnapLayouts(View& view, bool keyboard, std::optional<std::pair<int, int>> at = std::nullopt);
     // Above xdg windows, below layer-shell top/overlay (drag/drop insert hint).

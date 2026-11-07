@@ -121,6 +121,7 @@ namespace andromeda {
   }
 
   void Server::removeOutput(Output* output) {
+    dismissSnapChrome();
     for (const auto& entry : m_outputs) {
       if (entry->mirrorSource() == output) {
         entry->setMirrorSource(nullptr);

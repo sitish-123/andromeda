@@ -591,7 +591,11 @@ namespace andromeda {
       }
       // The Snap Layouts flyout holds the keyboard while open: arrows, Enter and Escape drive it, any other key closes it
       // and goes on to binds and clients.
-      if (!confirmationConsumed && !modifierOnly && nsyms > 0) {
+      // A key that is a bind (Super+Left, Alt+Tab) goes to the bind: the flyout and assist step aside for it.
+      if (!modifierOnly && nsyms > 0 && m_server->matchKeybind(syms[0], rawSym, modifiers) != nullptr) {
+        m_server->dismissSnapChrome();
+      }
+      if (!confirmationConsumed && !modifierOnly && nsyms > 0 && !m_server->sessionLocked()) {
         if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr && flyout->active() && flyout->key(syms[0])) {
           m_consumedKeycodes.insert(event->keycode);
           handled = true;

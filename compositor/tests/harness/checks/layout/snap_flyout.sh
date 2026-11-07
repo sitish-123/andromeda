@@ -18,6 +18,7 @@ default_floating = true
 default_position = { x = 173, y = 109, anchor = "top_left" }
 CONFIG
 "$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-set-layout:floating > /dev/null
 "$ANDROMEDA_FRACTIONAL_CLIENT" snap-flyout 480 300 > "$ANDROMEDA_RUNTIME_DIR/snap-flyout.log" 2>&1 &
 title_bar_wait_box snap-flyout 480x300+173+109
 pointer() { "$ANDROMEDA_POINTER_CLIENT" "$OUTPUT_W" "$OUTPUT_H" "$@"; }

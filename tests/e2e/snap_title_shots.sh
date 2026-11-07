@@ -39,12 +39,12 @@ with_noctalia '
     sed -i "s/^style = .*/style = \"$style\"/; s/^button_position = .*/button_position = \"$side\"/" "$conf"
     "$ANDROMEDA" msg config-reload > /dev/null
     "$ANDROMEDA" settle > /dev/null
-    grim -g "100,70 620x70" "$OUT/title-$style.png"
+    grim -g "100,112 620x44" "$OUT/title-$style.png"
   done
   # The Windows cell fill on hover: the pointer on the Mail close cell.
-  "$POINTER" 1280 720 move 668 96 > /dev/null
+  "$POINTER" 1280 720 move 665 134 > /dev/null
   "$ANDROMEDA" settle > /dev/null
-  grim -g "100,70 620x70" "$OUT/title-windows-hover.png"
+  grim -g "100,112 620x44" "$OUT/title-windows-hover.png"
   sed -i "s/^style = .*/style = \"andromeda\"/; s/^button_position = .*/button_position = \"right\"/" "$conf"
   "$ANDROMEDA" msg config-reload > /dev/null
   "$ANDROMEDA" msg window-snap-layouts > /dev/null

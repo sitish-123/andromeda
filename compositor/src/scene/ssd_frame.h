@@ -65,6 +65,16 @@ namespace andromeda {
     wlr_scene_rect* m_minimize = nullptr;
     // Windows style: the hovered button's cell fill, under the marks.
     wlr_scene_rect* m_hoverCell = nullptr;
+    // Line glyphs over the buttons (Windows always, macOS on hover); indexed by TitleBarButton.
+    std::array<wlr_scene_buffer*, kTitleBarButtonCount> m_glyphs{};
+    struct GlyphKey {
+      int px = 0;
+      bool mac = false;
+      std::array<float, 4> ink{};
+      double scale = 0.0;
+      bool operator==(const GlyphKey&) const = default;
+    };
+    std::array<GlyphKey, kTitleBarButtonCount> m_glyphKeys{};
     TitleBarLayout m_parts;
     std::vector<TitleBarButton> m_buttons;
     std::array<wlr_scene_rect*, 4> m_grips{};

@@ -1409,8 +1409,9 @@ namespace andromeda {
 
     bool actionWindowSnapLayouts(Server& server, const Keybind&, std::string* error) {
       View* view = placementTarget(server, {}, FocusSource::Layout).value_or(nullptr);
-      if (view == nullptr || !view->canSnap()) {
-        return reject(error, "window-snap-layouts needs a floating window");
+      if (view == nullptr || !view->canSnap() || view->workspace() == nullptr
+          || view->workspace()->layoutMode() != LayoutMode::Floating) {
+        return reject(error, "window-snap-layouts needs a window in Free arrangement");
       }
       server.openSnapLayouts(*view, true);
       return true;

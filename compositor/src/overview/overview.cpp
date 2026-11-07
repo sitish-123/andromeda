@@ -942,6 +942,7 @@ namespace andromeda {
 
   void Overview::open() {
     ANDROMEDA_ZONE("Overview::open");
+    m_server->dismissSnapChrome();
     if (m_active) {
       if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
         scratchpad->hideAll();

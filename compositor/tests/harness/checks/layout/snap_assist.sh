@@ -23,6 +23,7 @@ default_floating = true
 default_position = { x = 600, y = 300, anchor = "top_left" }
 CONFIG
 "$ANDROMEDA" msg config-reload > /dev/null
+"$ANDROMEDA" msg workspace-set-layout:floating > /dev/null
 "$ANDROMEDA_FRACTIONAL_CLIENT" assist-b 400 300 > "$ANDROMEDA_RUNTIME_DIR/assist-b.log" 2>&1 &
 title_bar_wait_box assist-b 400x300+600+300
 "$ANDROMEDA_FRACTIONAL_CLIENT" assist-a 400 300 > "$ANDROMEDA_RUNTIME_DIR/assist-a.log" 2>&1 &

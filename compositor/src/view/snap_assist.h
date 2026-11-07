@@ -58,6 +58,8 @@ namespace andromeda {
     void draw();
     void pick(size_t index);
     void finish();
+    // Ends assist when its anchor window left its zone or went away; returns whether it still holds.
+    bool anchorHolds();
     [[nodiscard]] std::optional<size_t> cardAt(double lx, double ly) const;
 
     Server& m_server;

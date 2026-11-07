@@ -1447,6 +1447,7 @@ namespace andromeda {
   void Server::enterRestartLock() {
     kLog.warn("the session was locked when the compositor stopped; it stays locked until a lock client unlocks");
     m_sessionLocked = true;
+    dismissSnapChrome();
     m_effects.setSuspended(true);
     // No layout exists yet; until updateLockBlank sizes the blank to it, cover any position an output can take.
     constexpr int kCover = 1 << 25;
@@ -2738,6 +2739,15 @@ namespace andromeda {
   uint64_t Server::uptimeMs() const {
     const auto diff = std::chrono::steady_clock::now() - m_startTime;
     return std::chrono::duration_cast<std::chrono::milliseconds>(diff).count();
+  }
+
+  void Server::dismissSnapChrome() {
+    if (m_snapFlyout != nullptr && m_snapFlyout->active()) {
+      m_snapFlyout->close();
+    }
+    if (m_snapAssist != nullptr && m_snapAssist->active()) {
+      m_snapAssist->end();
+    }
   }
 
   void Server::openSnapLayouts(View& view, bool keyboard, std::optional<std::pair<int, int>> at) {

@@ -156,6 +156,7 @@ namespace andromeda {
         m_desktopShell->releaseKeys();
       }
       m_sessionLocked = true;
+      dismissSnapChrome();
       m_effects.setSuspended(true);
       m_effects.applyOutputEffects();
       cancelModifierTap();

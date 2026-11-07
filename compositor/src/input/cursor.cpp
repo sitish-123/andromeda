@@ -1097,13 +1097,17 @@ namespace andromeda {
     if (SnapFlyout* flyout = m_server->snapFlyout(); flyout != nullptr
         && flyout->active()
         && state == WL_POINTER_BUTTON_STATE_PRESSED
+        && !m_server->sessionLocked()
         && flyout->press(m_cursor->x, m_cursor->y)) {
+      m_swallowedButtons.push_back(button);
       return;
     }
     if (SnapAssist* assist = m_server->snapAssist(); assist != nullptr
         && assist->active()
         && state == WL_POINTER_BUTTON_STATE_PRESSED
+        && !m_server->sessionLocked()
         && assist->press(m_cursor->x, m_cursor->y)) {
+      m_swallowedButtons.push_back(button);
       return;
     }
 
