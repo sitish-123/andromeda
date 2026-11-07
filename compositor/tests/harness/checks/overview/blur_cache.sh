@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# An animated overview open re-blurs the cached wallpaper once, not on every frame: a cache re-render that reaches the
-# output edge clears its pending area.
+# An animated overview open re-blurs the cached wallpaper at most once, not on every frame (a cache re-render that
+# reaches the output edge clears its pending area), and a later open or close does not re-blur it at all.
 set -euo pipefail
 source "$ANDROMEDA_HARNESS_LIB"
 cat >> "$ANDROMEDA_CONFIG" <<'CONFIG'
@@ -43,4 +43,12 @@ if ((rerendered > 2 * output)); then
   echo "opening the overview re-blurred $rerendered cached pixels over $drawn frames; one output is $output"
   exit 1
 fi
-echo "the open re-blurred the wallpaper cache once ($rerendered px over $drawn frames)"
+# Open and close leave the background layer as it is, so a second open reuses the cache.
+"$ANDROMEDA" msg overview-close > /dev/null
+"$ANDROMEDA" settle
+before=$(pixels)
+"$ANDROMEDA" msg overview-open > /dev/null
+"$ANDROMEDA" settle
+again=$(($(pixels) - before))
+((again == 0)) || { echo "a second open re-blurred $again cached pixels; the wallpaper did not change"; exit 1; }
+echo "the first open blurred the wallpaper cache once ($rerendered px over $drawn frames), the second reused it"

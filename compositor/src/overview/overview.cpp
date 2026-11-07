@@ -933,10 +933,9 @@ namespace andromeda {
     m_server->cursor()->clearConstraint();
 
     applyProgress();
+    // The wallpaper blur cache holds only the background layer, which the overview leaves as it is: open and close
+    // reuse it instead of re-blurring the whole output.
     wlr_scene_node_set_enabled(&m_server->overviewBlurTree()->node, true);
-    for (const auto& state : m_outputs) {
-      state->output->markBlurBackgroundDirty();
-    }
     kLog.debug("overview opened on {} output(s)", m_outputs.size());
     return true;
   }
@@ -1239,7 +1238,6 @@ namespace andromeda {
         wlr_scene_node_destroy(&state->tree->node);
         state->tree = nullptr;
       }
-      state->output->markBlurBackgroundDirty();
       wlr_output_schedule_frame(state->output->wlr());
     }
     m_outputs.clear();
