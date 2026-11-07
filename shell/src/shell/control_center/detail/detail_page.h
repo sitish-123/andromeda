@@ -36,6 +36,9 @@ namespace control_center {
     bool selected = false; // lens
     bool enabled = true;
     std::function<void()> onClick;
+    // A small trailing button (Connect, Disconnect, Pair) with its own action.
+    std::string action;
+    std::function<void()> onAction;
   };
 
   // A row with a window slider (rulebook 9.6): a 24 app icon when `iconCandidates` is set, else a 16 symbol.

@@ -69,7 +69,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
       PanelManager::instance().renderContext()
   );
   m_tabs[tabIndex(TabId::Weather)] = std::make_unique<WeatherTab>(services.weather, services.config);
-  m_tabs[tabIndex(TabId::Calendar)] = std::make_unique<CalendarTab>(services.config, services.calendar);
+  m_tabs[tabIndex(TabId::Calendar)] = std::make_unique<CalendarTab>(services.config, services.calendar, services.weather);
   m_tabs[tabIndex(TabId::Notifications)] =
       std::make_unique<NotificationsTab>(services.notifications, services.platform);
   m_tabs[tabIndex(TabId::Network)] =
@@ -124,7 +124,7 @@ float ControlCenterPanel::preferredWidth() const {
 
 bool ControlCenterPanel::fitsContentHeight() const noexcept {
   const TabId tab = tabFromContext(pendingOpenContext());
-  return tab == TabId::Quick || isDetailTab(tab);
+  return tab == TabId::Quick || tab == TabId::Calendar || isDetailTab(tab);
 }
 
 float ControlCenterPanel::preferredHeight() const {
@@ -138,6 +138,11 @@ float ControlCenterPanel::measureContentHeight(Renderer& renderer, float content
     if (page != nullptr) {
       return std::max(m_contentHeader->height(), Tokens::componentSheetDetailHeader * contentScale()) + m_content->gap() + m_content->paddingTop() + m_content->paddingBottom()
           + kTabViewportClipInset + page->measureHeight(renderer, contentWidth);
+    }
+  }
+  if (m_activeTab == TabId::Calendar) {
+    if (auto* calendar = dynamic_cast<CalendarTab*>(m_tabs[tabIndex(TabId::Calendar)].get()); calendar != nullptr) {
+      return calendar->measureHeight(renderer, contentWidth);
     }
   }
   auto* quick = dynamic_cast<QuickTab*>(m_tabs[tabIndex(TabId::Quick)].get());
@@ -680,10 +685,11 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
   }
 
   if (m_backButton != nullptr) {
-    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick);
+    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar);
   }
   if (m_contentHeader != nullptr) {
-    m_contentHeader->setVisible(tab != TabId::Quick);
+    // The clock calendar sheet draws its own date header.
+    m_contentHeader->setVisible(tab != TabId::Quick && !(tab == TabId::Calendar && !m_showSidebar));
   }
   if (m_sidebarNav != nullptr) {
     m_sidebarNav->notifyExternalSelectionChanged();
@@ -1038,7 +1044,7 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
 
 bool ControlCenterPanel::isSheetContext(std::string_view context) const {
   const TabId tab = tabFromContext(context);
-  return tab == TabId::Quick || tab == TabId::Network || isDetailTab(tab);
+  return tab == TabId::Quick || tab == TabId::Network || tab == TabId::Calendar || isDetailTab(tab);
 }
 
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {

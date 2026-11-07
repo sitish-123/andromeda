@@ -119,8 +119,8 @@ namespace control_center {
       return "unavailable";
     }
     const NetworkState& state = m_network->state();
-    std::string key = std::format("{}|{}|{}|{}|{}|{}", state.wirelessEnabled, state.resolving, state.ssid,
-                                  m_showAll, m_passwordSsid, m_error);
+    std::string key = std::format("{}|{}|{}|{}|{}|{}|{}|{}", state.wirelessEnabled, state.resolving, state.ssid,
+                                  m_showAll, m_passwordSsid, m_error, state.ipv4, state.frequencyMhz);
     if (state.wirelessEnabled) {
       for (const AccessPointInfo& ap : m_network->accessPoints()) {
         key += std::format("|{}:{}:{}:{}:{}", ap.ssid, network_display::wifiSignalBand(ap.strength), ap.secured,
@@ -165,31 +165,53 @@ namespace control_center {
       DetailRow row;
       row.glyph = network_display::wifiGlyphForSignal(active.strength);
       row.title = active.ssid;
-      row.secondary = state.resolving ? tr("control-center.quick.connecting") : std::string{};
-      row.selected = true;
-      row.trailingGlyphs = {};
-      if (active.secured) {
-        row.trailingGlyphs.push_back("lock");
+      // "Connected · 5 GHz · Secured": band from the associated BSS frequency.
+      std::string status = tr("control-center.detail.wifi.status-connected");
+      if (state.frequencyMhz >= 5925) {
+        status += " · 6 GHz";
+      } else if (state.frequencyMhz >= 4900) {
+        status += " · 5 GHz";
+      } else if (state.frequencyMhz > 0) {
+        status += " · 2.4 GHz";
       }
+      if (active.secured) {
+        status += " · " + tr("control-center.detail.wifi.secured");
+      }
+      row.secondary = state.resolving ? tr("control-center.quick.connecting") : status;
+      row.selected = true;
+      row.action = tr("control-center.detail.wifi.disconnect");
+      row.onAction = [this] {
+        m_network->disconnect();
+        requestRebuild();
+      };
       addRow(*card, row);
+      if (!state.ipv4.empty()) {
+        DetailRow ip;
+        ip.title = tr("control-center.detail.wifi.ip-address");
+        ip.trailing = state.ipv4;
+        addRow(*card, ip);
+      }
+      DetailRow details;
+      details.title = tr("control-center.detail.wifi.network-details");
+      details.trailingGlyphs = {Style::rtl() ? "chevron-left" : "chevron-right"};
+      details.onClick = [] { openSettings("wifi"); };
+      addRow(*card, details);
     }
 
+    std::vector<const AccessPointInfo*> known;
     std::vector<const AccessPointInfo*> others;
     for (const AccessPointInfo& ap : aps) {
       if (!ap.active) {
-        others.push_back(&ap);
+        (m_network->hasSavedConnection(ap.ssid) ? known : others).push_back(&ap);
       }
     }
-    if (others.empty()) {
+    if (known.empty() && others.empty()) {
       if (aps.empty()) {
         addEmpty("wifi", tr("control-center.detail.wifi.none"), "");
       }
       return;
     }
-    Flex* card = addGroup(tr("control-center.detail.wifi.other-networks"));
-    const std::size_t shown = m_showAll ? others.size() : std::min(others.size(), kCollapsedRows);
-    for (std::size_t i = 0; i < shown; ++i) {
-      const AccessPointInfo ap = *others[i];
+    const auto addAccessPoint = [this](Flex* card, const AccessPointInfo ap) {
       const bool saved = m_network->hasSavedConnection(ap.ssid);
       DetailRow row;
       row.glyph = network_display::wifiGlyphForSignal(ap.strength);
@@ -215,7 +237,7 @@ namespace control_center {
       };
       addRow(*card, row);
       if (m_passwordSsid != ap.ssid) {
-        continue;
+        return;
       }
       const float s = contentScale();
       auto form = std::make_unique<Flex>();
@@ -259,6 +281,20 @@ namespace control_center {
       });
       form->addChild(std::move(joinButton));
       card->addChild(std::move(form));
+    };
+    if (!known.empty()) {
+      Flex* card = addGroup(tr("control-center.detail.wifi.known-networks"));
+      for (const AccessPointInfo* ap : known) {
+        addAccessPoint(card, *ap);
+      }
+    }
+    if (others.empty()) {
+      return;
+    }
+    Flex* card = addGroup(tr("control-center.detail.wifi.other-networks"));
+    const std::size_t shown = m_showAll ? others.size() : std::min(others.size(), kCollapsedRows);
+    for (std::size_t i = 0; i < shown; ++i) {
+      addAccessPoint(card, *others[i]);
     }
     if (others.size() > kCollapsedRows) {
       addShowAll(*card, m_showAll, [this] {
@@ -359,16 +395,26 @@ namespace control_center {
       addEmpty("bluetooth-off", tr("control-center.detail.bluetooth.off"), tr("control-center.detail.bluetooth.off-body"));
       return;
     }
+    // Status line "Connected · 82 %" and one trailing action (Disconnect, Connect, Pair) per device.
     const auto deviceRow = [this](const BluetoothDeviceInfo& d, std::function<void()> click) {
       DetailRow row;
       row.glyph = bluetoothDeviceGlyph(d.kind);
       row.title = d.alias;
       if (d.connecting) {
         row.secondary = tr("control-center.quick.connecting");
+      } else if (d.connected) {
+        row.secondary = tr("control-center.detail.bluetooth.status-connected");
+        if (d.hasBattery) {
+          row.secondary += std::format(" · {} %", d.batteryPercent);
+        }
+      } else if (d.paired) {
+        row.secondary = tr("control-center.detail.bluetooth.status-not-connected");
       }
-      if (d.connected && d.hasBattery) {
-        row.trailing = std::format("{}%", d.batteryPercent);
-      }
+      row.selected = d.connected;
+      row.action = tr(d.connected ? "control-center.detail.bluetooth.disconnect"
+                      : d.paired  ? "control-center.detail.bluetooth.connect"
+                                  : "control-center.detail.bluetooth.pair");
+      row.onAction = click;
       row.onClick = std::move(click);
       return row;
     };

@@ -5,26 +5,35 @@
 #include "shell/control_center/tab.h"
 #include "calendar/calendar_view.h"
 
+#include <chrono>
 #include <limits>
 
 class Button;
 class CalendarService;
 class ConfigService;
+class Glyph;
 class InputArea;
 class Label;
 class ScrollView;
+class WeatherService;
 
 class CalendarTab : public Tab {
 public:
-  explicit CalendarTab(ConfigService* config = nullptr, CalendarService* calendar = nullptr);
+  explicit CalendarTab(ConfigService* config = nullptr, CalendarService* calendar = nullptr, WeatherService* weather = nullptr);
+
+  // Height of the one-column clock sheet at this width (the panel fits the sheet to it).
+  [[nodiscard]] float measureHeight(Renderer& renderer, float width);
 
   std::unique_ptr<Flex> create() override;
   std::unique_ptr<Flex> createHeaderActions() override;
   void setActive(bool active) override;
+  bool handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
   void onClose() override;
 
 private:
   void focusToday();
+  void moveSelection(int days);
+  void addEventsEmptyState(float scale);
   void changeMonthBy(int delta);
   void cancelMonthSlide();
   void beginSlideOut(int delta);
@@ -35,9 +44,22 @@ private:
   void rebuild();
   void rebuildEventList(float scale);
   void toggleEventsCard();
+  void updateWeather();
+  void updateDateHeader();
+  [[nodiscard]] static float gridHeight(float scale);
 
   ConfigService* m_config = nullptr;
   CalendarService* m_calendar = nullptr;
+  WeatherService* m_weather = nullptr;
+  Flex* m_eventsHeader = nullptr;
+  Label* m_weekdayLabel = nullptr;
+  Button* m_todayButton = nullptr;
+  std::chrono::system_clock::time_point m_weatherFetchedAt{};
+  Flex* m_weatherTile = nullptr;
+  Glyph* m_weatherGlyph = nullptr;
+  Label* m_weatherTitle = nullptr;
+  Label* m_weatherDetail = nullptr;
+  InputArea* m_weatherArea = nullptr;
   bool m_changeCallbackRegistered = false;
   bool m_eventsDirty = false;
   Flex* m_rootLayout = nullptr;

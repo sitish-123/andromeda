@@ -380,6 +380,18 @@ namespace control_center {
       button->addChild(glyph(name, Tokens::sizeSymbol * s, ColorRole::Label2));
       trailingWidth += Tokens::sizeSymbol + Tokens::spaceP8;
     }
+    if (!row.action.empty()) {
+      auto action = std::make_unique<Button>();
+      action->setVariant(ButtonVariant::Default);
+      action->setText(row.action);
+      action->setFontSize(Tokens::typeFootnote.size * s);
+      action->setControlHeight(Tokens::sizeControlS * s);
+      action->setRadius(Tokens::radiusR8 * s);
+      action->setPadding(0.0F, Tokens::spaceP8 * s, 0.0F, Tokens::spaceP8 * s);
+      action->setOnClick(row.onAction);
+      button->addChild(std::move(action));
+      trailingWidth += Tokens::sizeRow * 2;
+    }
     // Reserve for the scrollbar gutter too.
     reserve += trailingWidth + Tokens::spaceP12;
     m_ellipsized.push_back({.label = title, .reserve = reserve * s});

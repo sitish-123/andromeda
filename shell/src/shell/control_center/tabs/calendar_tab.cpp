@@ -12,6 +12,7 @@
 #include "shell/panel/panel_button_style.h"
 #include "shell/panel/panel_manager.h"
 #include "system/desktop_entry_launch.h"
+#include "system/weather_service.h"
 #include "time/time_format.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
@@ -24,29 +25,29 @@
 #include <cmath>
 #include <memory>
 #include <wayland-client-protocol.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace {
 
-  TOKENS_LIVE(kCalendarGridGap, Style::spaceSm);
-  TOKENS_LIVE(kCalendarNavButtonSize, Style::controlHeight);
-  TOKENS_LIVE(kCalendarWeekdayRowHeight, Style::fontSizeCaption + Style::spaceXs);
-  TOKENS_LIVE(kCalendarHeaderHeight, Style::controlHeight);
-  TOKENS_LIVE(kCalendarCellSizeMin, Style::controlHeight + Style::spaceXs);
-  TOKENS_LIVE(kCalendarCellSizeMax, Style::controlHeightLg + Style::spaceXs);
-  TOKENS_LIVE(kCalendarDayButtonSizeMax, Style::controlHeightLg);
+  // Month card (DESIGN.md "Clock calendar"): nav row 32, weekday row 24, day cells 36 with a 28 circle and a 4 dot.
+  TOKENS_LIVE(kCalendarGridGap, Tokens::spaceP4);
+  TOKENS_LIVE(kCalendarNavButtonSize, Tokens::sizeControlS);
+  TOKENS_LIVE(kCalendarWeekdayRowHeight, Tokens::sizeControlS);
+  TOKENS_LIVE(kCalendarHeaderHeight, Tokens::sizeControlM);
+  TOKENS_LIVE(kCalendarDayCellHeight, Tokens::sizeControlM + Tokens::spaceP4);
+  TOKENS_LIVE(kCalendarDayButtonSize, Tokens::sizeControlS + Tokens::spaceP4);
+  // Three event rows show before the list scrolls.
+  TOKENS_LIVE(kEventsHeight, Tokens::sizeRow * 3);
   constexpr float kCalendarLayoutEpsilon = 0.5F;
   // Week-number column: a fraction of a day column so it stays visually subordinate, floored at the
   // width of the two digits it holds (as a multiple of the caption font size) so it can never clip.
   constexpr float kCalendarWeekColumnRatio = 0.55F;
   constexpr float kCalendarWeekColumnMinFontScale = 1.45F;
 
-  std::string formatShellDate(const ConfigService* config) {
-    const char* format = config != nullptr ? config->config().shell.dateFormat.c_str() : "%A, %x";
-    return formatLocalTime(format);
-  }
 } // namespace
 
-CalendarTab::CalendarTab(ConfigService* config, CalendarService* calendar) : m_config(config), m_calendar(calendar) {}
+CalendarTab::CalendarTab(ConfigService* config, CalendarService* calendar, WeatherService* weather)
+    : m_config(config), m_calendar(calendar), m_weather(weather) {}
 
 std::unique_ptr<Flex> CalendarTab::create() {
   const float scale = contentScale();
@@ -64,14 +65,54 @@ std::unique_ptr<Flex> CalendarTab::create() {
     m_showWeekNumbers = m_config->config().controlCenter.calendarTab.showWeekNumbers;
   }
 
-  auto tab = ui::row({
+  // One-column clock sheet (.agent/DESIGN.md "Clock calendar + CC connectivity", direction A).
+  auto tab = ui::column({
       .out = &m_rootLayout,
       .align = FlexAlign::Stretch,
-      .gap = Style::spaceMd * scale,
+      .gap = Tokens::componentSheetGap * scale,
   });
 
+  tab->addChild(ui::row(
+      {.align = FlexAlign::Center, .gap = Tokens::spaceP12 * scale, .paddingH = Tokens::spaceP4 * scale,
+       .height = Tokens::componentSheetDetailHeader * scale},
+      ui::column(
+          {.align = FlexAlign::Start, .flexGrow = 1.0F},
+          ui::label({
+              .out = &m_weekdayLabel,
+              .fontSize = Tokens::typeFootnote.size * scale,
+              .fontWeight = FontWeight::Medium,
+              .color = colorSpecFromRole(ColorRole::Label2),
+              .maxLines = 1,
+          }),
+          ui::label({
+              .out = &m_todayLabel,
+              .fontSize = Tokens::typeTitle2.size * scale,
+              .fontWeight = FontWeight::SemiBold,
+              .color = colorSpecFromRole(ColorRole::Label1),
+              .maxLines = 1,
+          })
+      ),
+      ui::button({
+          .out = &m_todayButton,
+          .text = i18n::tr("control-center.calendar.today"),
+          .fontSize = Tokens::typeFootnote.size * scale,
+          .variant = ButtonVariant::Default,
+          .minHeight = Tokens::sizeControlS * scale,
+          .paddingH = Tokens::spaceP8 * scale,
+          .radius = Tokens::radiusR8 * scale,
+          .onClick =
+              [this] {
+                focusToday();
+                PanelManager::instance().refresh();
+              },
+      })
+  ));
+  m_weekdayLabel->setLineHeight(Tokens::typeFootnote.line * scale);
+  m_todayLabel->setLineHeight(Tokens::typeTitle2.line * scale);
+
   auto calendarArea = ui::inputArea({});
-  calendarArea->setFlexGrow(3.0F);
+  calendarArea->setParticipatesInLayout(false);
+  calendarArea->setPropagateEvents(true);
   calendarArea->setOnAxis([this](const InputArea::PointerData& data) {
     if (data.axis != WL_POINTER_AXIS_VERTICAL_SCROLL) {
       return;
@@ -86,94 +127,56 @@ std::unique_ptr<Flex> CalendarTab::create() {
 
   auto calendarCard = ui::column({
       .out = &m_card,
-      .gap = Style::spaceMd * scale,
-      .configure = [scale, opacity = panelCardOpacity()](Flex& card) {
-        control_center::applySectionCardStyle(card, scale, opacity);
-      },
+      .align = FlexAlign::Stretch,
+      .gap = Tokens::spaceP4 * scale,
+      .padding = Tokens::componentTilePadding * scale,
+      .fill = colorSpecFromRole(ColorRole::GlassCard),
+      .radius = Tokens::componentTileRadius * scale,
   });
-
-  calendarCard->addChild(
-      ui::label({
-          .out = &m_todayLabel,
-          .text = formatShellDate(m_config),
-          .fontSize = Style::fontSizeTitle * scale,
-          .fontWeight = FontWeight::Medium,
-          .color = colorSpecFromRole(ColorRole::AccentText),
-          .maxLines = 1,
-          .configure = [this](Label& label) {
-            label.setHitTestVisible(true);
-            label.setOnClick([this](const InputArea::PointerData&) {
-              const calendar_view::State state = calendar_view::stateForOffset(m_monthOffset);
-              const bool focusedOnToday = m_monthOffset == 0
-                  && m_selectedYear == state.current.year
-                  && m_selectedMonth == state.current.month
-                  && m_selectedDay == state.current.day;
-              if (focusedOnToday) {
-                return;
-              }
-              focusToday();
-              PanelManager::instance().refresh();
-            });
-          },
-      })
-  );
+  calendarCard->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * scale);
+  calendarCard->addChild(std::move(calendarArea));
 
   auto header = ui::row({
       .out = &m_header,
       .align = FlexAlign::Center,
-      .justify = FlexJustify::SpaceBetween,
-      .gap = Style::spaceSm * scale,
-      .minHeight = kCalendarHeaderHeight * scale,
+      .gap = Tokens::spaceP4 * scale,
+      .paddingH = Tokens::spaceP4 * scale,
+      .height = kCalendarHeaderHeight * scale,
   });
-
-  auto previousSlot = ui::row(
-      {.out = &m_previousSlot, .align = FlexAlign::Center, .justify = FlexJustify::Center},
-      ui::button({
-          .out = &m_previousButton,
-          .glyph = Style::rtl() ? "chevron-right" : "chevron-left",
-          .variant = ButtonVariant::Ghost,
-          .minWidth = kCalendarNavButtonSize * scale,
-          .minHeight = kCalendarNavButtonSize * scale,
-          .onClick = [this] { changeMonthBy(-1); },
-      })
-  );
-  header->addChild(std::move(previousSlot));
-
-  auto monthWrap = ui::column(
-      {.out = &m_monthWrap, .align = FlexAlign::Center, .justify = FlexJustify::Center, .flexGrow = 1.0F},
+  header->addChild(ui::column(
+      {.out = &m_monthWrap, .align = FlexAlign::Start, .flexGrow = 1.0F},
       ui::label({
           .out = &m_monthLabel,
-          .fontSize = (Style::fontSizeTitle + Style::spaceXs) * scale,
-          .fontWeight = FontWeight::Bold,
+          .fontSize = Tokens::typeHeadline.size * scale,
+          .fontWeight = FontWeight::SemiBold,
           .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
       })
-  );
-  header->addChild(std::move(monthWrap));
-
-  auto nextSlot = ui::row(
-      {.out = &m_nextSlot, .align = FlexAlign::Center, .justify = FlexJustify::Center},
-      ui::button({
-          .out = &m_nextButton,
-          .glyph = Style::rtl() ? "chevron-left" : "chevron-right",
-          .variant = ButtonVariant::Ghost,
-          .minWidth = kCalendarNavButtonSize * scale,
-          .minHeight = kCalendarNavButtonSize * scale,
-          .onClick = [this] { changeMonthBy(1); },
-      })
-  );
-  header->addChild(std::move(nextSlot));
-
+  ));
+  const auto navButton = [scale](Button** out, const char* glyph, std::function<void()> onClick) {
+    return ui::button({
+        .out = out,
+        .glyph = glyph,
+        .glyphSize = Tokens::sizeSymbol * scale,
+        .variant = ButtonVariant::Ghost,
+        .minWidth = kCalendarNavButtonSize * scale,
+        .minHeight = kCalendarNavButtonSize * scale,
+        .padding = 0.0F,
+        .radius = kCalendarNavButtonSize * scale * 0.5F,
+        .onClick = std::move(onClick),
+    });
+  };
+  header->addChild(navButton(&m_previousButton, Style::rtl() ? "chevron-right" : "chevron-left", [this] { changeMonthBy(-1); }));
+  header->addChild(navButton(&m_nextButton, Style::rtl() ? "chevron-left" : "chevron-right", [this] { changeMonthBy(1); }));
   calendarCard->addChild(std::move(header));
 
   auto gridViewport = ui::column({
       .out = &m_gridViewport,
       .align = FlexAlign::Stretch,
       .gap = 0.0F,
-      .flexGrow = 1.0F,
+      .height = gridHeight(scale),
       .configure = [](Flex& viewport) { viewport.setClipChildren(true); },
   });
-
   auto grid = ui::column({
       .out = &m_grid,
       .align = FlexAlign::Stretch,
@@ -182,37 +185,144 @@ std::unique_ptr<Flex> CalendarTab::create() {
   });
   gridViewport->addChild(std::move(grid));
   calendarCard->addChild(std::move(gridViewport));
-  calendarArea->addChild(std::move(calendarCard));
-  tab->addChild(std::move(calendarArea));
+  tab->addChild(std::move(calendarCard));
 
-  auto eventsCard = ui::column(
-      {.out = &m_eventsCard,
-       .gap = Style::spaceSm * scale,
-       .flexGrow = 2.0F,
-       .configure = [scale, opacity = panelCardOpacity()](
-                        Flex& card
-                    ) { control_center::applySectionCardStyle(card, scale, opacity); }},
+  // Events of the selected day: caption header (its date) over a grouped card.
+  tab->addChild(ui::row(
+      {.out = &m_eventsHeader, .paddingH = Tokens::spaceP16 * scale, .visible = m_showEventsCard},
       ui::label({
           .out = &m_eventsTitle,
-          .text = i18n::tr("control-center.calendar.events"),
-          .fontSize = Style::fontSizeTitle * scale,
-          .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::Label1),
+          .fontSize = Tokens::typeCaption.size * scale,
+          .fontWeight = FontWeight::SemiBold,
+          .color = colorSpecFromRole(ColorRole::Label3),
           .maxLines = 1,
-      }),
+      })
+  ));
+  auto eventsCard = ui::column(
+      {.out = &m_eventsCard,
+       .padding = Tokens::spaceP12 * scale,
+       .fill = colorSpecFromRole(ColorRole::GlassCard),
+       .radius = Tokens::componentTileRadius * scale,
+       .visible = m_showEventsCard},
       ui::scrollView({
           .out = &m_eventsScroll,
           .contentScale = scale,
+          .scrollbarAutoHide = true,
+          .viewportPaddingH = Tokens::spaceP4 * scale,
           .fillWidth = true,
-          .fillHeight = true,
-          .flexGrow = 1.0F,
+          .height = kEventsHeight * scale,
       })
   );
-  eventsCard->setVisible(m_showEventsCard);
-
+  eventsCard->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * scale);
   tab->addChild(std::move(eventsCard));
 
+  // Weather tile (span 2): opens the weather page; hidden while weather is off.
+  auto weatherTile = ui::row(
+      {.out = &m_weatherTile,
+       .align = FlexAlign::Center,
+       .gap = Tokens::componentTileGap * scale,
+       .paddingH = Tokens::componentTilePadding * scale,
+       .fill = colorSpecFromRole(ColorRole::GlassCard),
+       .radius = Tokens::componentTileRadius * scale,
+       .height = Tokens::componentTileHeight * scale,
+       .visible = false},
+      ui::row(
+          {.align = FlexAlign::Center,
+           .justify = FlexJustify::Center,
+           .fill = colorSpecFromRole(ColorRole::Fill2),
+           .radius = Tokens::componentRoundIconSize * scale * 0.5F,
+           .width = Tokens::componentRoundIconSize * scale,
+           .height = Tokens::componentRoundIconSize * scale},
+          ui::glyph({
+              .out = &m_weatherGlyph,
+              .glyph = "weather-sun",
+              .glyphSize = Tokens::componentRoundIconGlyph * scale,
+              .color = colorSpecFromRole(ColorRole::Label1),
+          })
+      ),
+      ui::column(
+          {.align = FlexAlign::Start, .flexGrow = 1.0F},
+          ui::label({
+              .out = &m_weatherTitle,
+              .fontSize = Tokens::typeHeadline.size * scale,
+              .fontWeight = FontWeight::SemiBold,
+              .color = colorSpecFromRole(ColorRole::Label1),
+              .maxLines = 1,
+          }),
+          ui::label({
+              .out = &m_weatherDetail,
+              .fontSize = Tokens::typeFootnote.size * scale,
+              .fontWeight = FontWeight::Medium,
+              .color = colorSpecFromRole(ColorRole::Label2),
+              .maxLines = 1,
+              .ellipsize = TextEllipsize::End,
+          })
+      ),
+      ui::glyph({
+          .glyph = Style::rtl() ? "chevron-left" : "chevron-right",
+          .glyphSize = Tokens::sizeSymbolInline * scale,
+          .color = colorSpecFromRole(ColorRole::Label3),
+      })
+  );
+  weatherTile->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * scale);
+  m_weatherTitle->setLineHeight(Tokens::typeHeadline.line * scale);
+  m_weatherDetail->setLineHeight(Tokens::typeFootnote.line * scale);
+  auto weatherArea = ui::inputArea({});
+  weatherArea->setParticipatesInLayout(false);
+  // Tile feedback (rulebook 9.3): hover fill_2, press fill_3.
+  const auto tileFill = [this](ColorRole role) {
+    if (m_weatherTile != nullptr) {
+      m_weatherTile->setFill(colorSpecFromRole(role));
+      PanelManager::instance().requestRedraw();
+    }
+  };
+  weatherArea->setOnEnter([tileFill](const InputArea::PointerData&) { tileFill(ColorRole::Fill2); });
+  weatherArea->setOnLeave([tileFill] { tileFill(ColorRole::GlassCard); });
+  weatherArea->setOnPress([tileFill](const InputArea::PointerData& data) {
+    tileFill(data.pressed ? ColorRole::Fill3 : ColorRole::Fill2);
+  });
+  weatherArea->setOnClick([](const InputArea::PointerData&) {
+    PanelManager::instance().openPanel("control-center", PanelOpenRequest{.context = "weather"});
+  });
+  m_weatherArea = weatherArea.get();
+  weatherTile->addChild(std::move(weatherArea));
+  tab->addChild(std::move(weatherTile));
+  updateWeather();
+
   return tab;
+}
+
+void CalendarTab::updateWeather() {
+  if (m_weatherTile == nullptr) {
+    return;
+  }
+  const bool show = m_weather != nullptr && m_weather->enabled() && m_weather->hasData();
+  m_weatherTile->setVisible(show);
+  if (!show) {
+    return;
+  }
+  const WeatherSnapshot& snap = m_weather->snapshot();
+  // Rebuild the text only when a new forecast arrived: doLayout calls this every frame the sheet lays out.
+  if (snap.fetchedAt == m_weatherFetchedAt && !m_weatherTitle->text().empty()) {
+    return;
+  }
+  m_weatherFetchedAt = snap.fetchedAt;
+  const auto temp = [this](double c) { return static_cast<int>(std::lround(m_weather->displayTemperature(c))); };
+  m_weatherGlyph->setGlyph(std::string(WeatherService::glyphForCode(snap.current.weatherCode, snap.current.isDay)));
+  m_weatherTitle->setText(
+      std::format("{}° {}", temp(snap.current.temperatureC), WeatherService::shortDescriptionForCode(snap.current.weatherCode))
+  );
+  std::string detail;
+  if (!snap.forecastDays.empty()) {
+    detail = i18n::tr(
+        "control-center.calendar.weather-high-low", "high", std::to_string(temp(snap.forecastDays.front().temperatureMaxC)),
+        "low", std::to_string(temp(snap.forecastDays.front().temperatureMinC))
+    );
+  }
+  if (!snap.locationName.empty()) {
+    detail += detail.empty() ? snap.locationName : " · " + snap.locationName;
+  }
+  m_weatherDetail->setText(detail);
 }
 
 std::unique_ptr<Flex> CalendarTab::createHeaderActions() {
@@ -241,13 +351,25 @@ void CalendarTab::doLayout(Renderer& renderer, float contentWidth, float bodyHei
     return;
   }
 
+  updateWeather();
   m_rootLayout->setSize(contentWidth, bodyHeight);
   m_rootLayout->layout(renderer);
-  m_card->setSize(m_calendarArea->width(), m_calendarArea->height());
-  m_card->layout(renderer);
+  m_calendarArea->setPosition(0.0F, 0.0F);
+  m_calendarArea->setSize(m_card->width(), m_card->height());
+  if (m_weatherArea != nullptr && m_weatherTile != nullptr) {
+    m_weatherArea->setPosition(0.0F, 0.0F);
+    m_weatherArea->setSize(m_weatherTile->width(), m_weatherTile->height());
+  }
+  if (m_todayButton != nullptr) {
+    // No dead control: Today shows only when the view left today.
+    const calendar_view::State now = calendar_view::stateForOffset(0);
+    const bool onToday = m_monthOffset == 0 && m_selectedYear == now.current.year && m_selectedMonth == now.current.month
+        && m_selectedDay == now.current.day;
+    m_todayButton->setVisible(!onToday);
+  }
 
   const float innerWidth = std::max(0.0F, m_card->width() - (m_card->paddingLeft() + m_card->paddingRight()));
-  const float innerHeight = std::max(0.0F, m_card->height() - (m_card->paddingTop() + m_card->paddingBottom()));
+  const float innerHeight = m_card->height();
   const calendar_view::State state = calendar_view::stateForOffset(m_monthOffset);
 
   // Default the selection to today until the user picks a day.
@@ -284,6 +406,18 @@ void CalendarTab::doLayout(Renderer& renderer, float contentWidth, float bodyHei
   m_lastToday = state.current.day;
 
   rebuild();
+  // The events card hugs its rows up to three, then scrolls.
+  if (m_eventsScroll != nullptr && m_eventsScroll->content() != nullptr) {
+    LayoutConstraints constraints;
+    constraints.setExactWidth(std::max(0.0F, m_eventsScroll->width() - 2.0F * Tokens::spaceP4 * contentScale()));
+    // Plus the inset under the last row, so a trailing button never touches the card edge.
+    const float rows = m_eventsScroll->content()->measure(renderer, constraints).height + Tokens::spaceP4 * contentScale();
+    const float height = std::clamp(rows, Tokens::sizeRowCompact * contentScale(), kEventsHeight * contentScale());
+    if (std::abs(height - m_eventsScroll->height()) >= kCalendarLayoutEpsilon) {
+      m_eventsScroll->setSize(m_eventsScroll->width(), height);
+      PanelManager::instance().refresh();
+    }
+  }
   if (m_grid != nullptr) {
     if (m_monthSlideAnimId == 0 && !m_startMonthSlideIn) {
       m_grid->setPosition(0.0F, 0.0F);
@@ -301,9 +435,30 @@ void CalendarTab::doLayout(Renderer& renderer, float contentWidth, float bodyHei
 
 void CalendarTab::doUpdate(Renderer& renderer) {
   (void)renderer;
-  if (m_todayLabel != nullptr) {
-    m_todayLabel->setText(formatShellDate(m_config));
+  updateDateHeader();
+}
+
+void CalendarTab::updateDateHeader() {
+  if (m_todayLabel == nullptr || m_weekdayLabel == nullptr) {
+    return;
   }
+  m_weekdayLabel->setText(formatLocalTime("%A"));
+  m_todayLabel->setText(formatLocalTime("%-d %B"));
+}
+
+float CalendarTab::gridHeight(float scale) {
+  return (kCalendarWeekdayRowHeight + kCalendarGridGap + 6.0F * kCalendarDayCellHeight + 5.0F * kCalendarGridGap) * scale;
+}
+
+float CalendarTab::measureHeight(Renderer& renderer, float width) {
+  if (m_rootLayout == nullptr) {
+    return 0.0F;
+  }
+  updateWeather();
+  m_rootLayout->setSize(width, 0.0F);
+  LayoutConstraints constraints;
+  constraints.setExactWidth(width);
+  return m_rootLayout->measure(renderer, constraints).height;
 }
 
 void CalendarTab::setActive(bool active) {
@@ -317,6 +472,63 @@ void CalendarTab::setActive(bool active) {
       m_eventsDirty = true;
       PanelManager::instance().refresh();
     });
+  }
+}
+
+bool CalendarTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
+  (void)modifiers;
+  if (!pressed || preedit || m_rootLayout == nullptr) {
+    return false;
+  }
+  switch (sym) {
+  case XKB_KEY_Left:
+    moveSelection(Style::rtl() ? 1 : -1);
+    return true;
+  case XKB_KEY_Right:
+    moveSelection(Style::rtl() ? -1 : 1);
+    return true;
+  case XKB_KEY_Up:
+    moveSelection(-7);
+    return true;
+  case XKB_KEY_Down:
+    moveSelection(7);
+    return true;
+  case XKB_KEY_Page_Up:
+    changeMonthBy(-1);
+    return true;
+  case XKB_KEY_Page_Down:
+    changeMonthBy(1);
+    return true;
+  case XKB_KEY_t:
+  case XKB_KEY_T:
+  case XKB_KEY_Home:
+    focusToday();
+    PanelManager::instance().refresh();
+    return true;
+  default:
+    return false;
+  }
+}
+
+void CalendarTab::moveSelection(int days) {
+  using namespace std::chrono;
+  if (m_selectedDay < 0) {
+    return;
+  }
+  const year_month_day from{year{m_selectedYear} / month{static_cast<unsigned>(m_selectedMonth + 1)}
+                            / day{static_cast<unsigned>(m_selectedDay)}};
+  const year_month_day to{sys_days{from} + std::chrono::days{days}};
+  m_selectedYear = static_cast<int>(to.year());
+  m_selectedMonth = static_cast<int>(static_cast<unsigned>(to.month())) - 1;
+  m_selectedDay = static_cast<int>(static_cast<unsigned>(to.day()));
+  m_eventsDirty = true;
+  // Crossing into another month slides the grid like the month buttons.
+  const int monthDelta = (m_selectedYear - static_cast<int>(from.year())) * 12 + m_selectedMonth
+      - (static_cast<int>(static_cast<unsigned>(from.month())) - 1);
+  if (monthDelta != 0) {
+    changeMonthBy(monthDelta);
+  } else {
+    PanelManager::instance().refresh();
   }
 }
 
@@ -352,6 +564,13 @@ void CalendarTab::onClose() {
   m_eventsCard = nullptr;
   m_eventsTitle = nullptr;
   m_eventsScroll = nullptr;
+  m_eventsHeader = nullptr;
+  m_weekdayLabel = nullptr;
+  m_weatherTile = nullptr;
+  m_weatherGlyph = nullptr;
+  m_weatherTitle = nullptr;
+  m_weatherDetail = nullptr;
+  m_weatherArea = nullptr;
   m_eventListState.linkOverlays.clear();
   m_selectedYear = std::numeric_limits<int>::min();
   m_selectedMonth = -1;
@@ -485,17 +704,8 @@ void CalendarTab::rebuild() {
 
   const float scale = contentScale();
   const float innerWidth = std::max(0.0F, m_card->width() - (m_card->paddingLeft() + m_card->paddingRight()));
-  const float innerHeight = std::max(0.0F, m_card->height() - (m_card->paddingTop() + m_card->paddingBottom()));
-  const float navWidth = kCalendarNavButtonSize * scale * 2.0F + Style::spaceSm * scale * 2.0F;
-  const float monthWidth = std::max(0.0F, innerWidth - navWidth);
-  const float gridHeightAvailable =
-      std::max(0.0F, innerHeight - kCalendarHeaderHeight * scale - kCalendarGridGap * scale);
   const float weekdayHeight = kCalendarWeekdayRowHeight * scale;
-  const float dayCellHeight = std::clamp(
-      (gridHeightAvailable - weekdayHeight - kCalendarGridGap * scale * 6.0F) / 6.0F, kCalendarCellSizeMin * scale,
-      kCalendarCellSizeMax * scale
-  );
-
+  const float dayCellHeight = kCalendarDayCellHeight * scale;
   // The week-number column takes its share of the row before the day columns split the rest. It is
   // inset from the divider by one grid gap, which reads as balanced against the card padding on its
   // other side without spending a full card padding's worth of width on a two-digit number.
@@ -517,35 +727,12 @@ void CalendarTab::rebuild() {
       : 0.0F;
   const float dayGridWidth = std::max(0.0F, innerWidth - weekColumnWidth - weekLaneOverhead);
   const float dayColumnWidth = std::max(0.0F, (dayGridWidth - kCalendarGridGap * scale * 6.0F) / 7.0F);
-  // Reserve a fixed strip under each day number for event indicator dots so all cells stay aligned.
-  const float dotDiameter = std::round(5.0F * scale);
-  const float dotGap = std::round(2.0F * scale);
-  const float dotStripHeight = dotDiameter;
-  const float buttonBudget = std::max(0.0F, dayCellHeight - dotStripHeight - dotGap);
-  const float dayButtonSize = std::floor(std::min({buttonBudget, dayColumnWidth, kCalendarDayButtonSizeMax * scale}));
+  const float dotDiameter = Tokens::spaceP4 * scale;
+  const float dotGap = Tokens::spaceP2 * scale;
+  const float dayButtonSize = std::min(kCalendarDayButtonSize * scale, dayColumnWidth);
 
-  if (m_header != nullptr) {
-    m_header->setSize(innerWidth, kCalendarHeaderHeight * scale);
-  }
-  if (m_previousSlot != nullptr) {
-    m_previousSlot->setSize(kCalendarNavButtonSize * scale, kCalendarHeaderHeight * scale);
-  }
-  if (m_nextSlot != nullptr) {
-    m_nextSlot->setSize(kCalendarNavButtonSize * scale, kCalendarHeaderHeight * scale);
-  }
-  if (m_previousButton != nullptr) {
-    m_previousButton->setSize(kCalendarNavButtonSize * scale, kCalendarNavButtonSize * scale);
-  }
-  if (m_nextButton != nullptr) {
-    m_nextButton->setSize(kCalendarNavButtonSize * scale, kCalendarNavButtonSize * scale);
-  }
-  if (m_monthWrap != nullptr) {
-    m_monthWrap->setSize(monthWidth, kCalendarHeaderHeight * scale);
-  }
-  m_monthLabel->setMaxWidth(monthWidth);
   if (m_todayLabel != nullptr) {
-    m_todayLabel->setText(formatShellDate(m_config));
-    m_todayLabel->setMaxWidth(innerWidth);
+    updateDateHeader();
   }
 
   calendar_view::rebuildMonth({
@@ -591,7 +778,7 @@ void CalendarTab::rebuild() {
   });
 
   if (m_gridViewport != nullptr) {
-    m_gridViewport->setSize(innerWidth, m_grid->height());
+    m_gridViewport->setSize(innerWidth, gridHeight(scale));
   }
   rebuildEventList(scale);
 }
@@ -620,6 +807,78 @@ void CalendarTab::rebuildEventList(float scale) {
           },
       .requestRedraw = [] { PanelManager::instance().requestRedraw(); },
   });
+  addEventsEmptyState(scale);
+}
+
+void CalendarTab::addEventsEmptyState(float scale) {
+  Flex* content = m_eventsScroll != nullptr ? m_eventsScroll->content() : nullptr;
+  if (content == nullptr || m_config == nullptr) {
+    return;
+  }
+  const auto headline = [scale](std::string text, ColorRole role, const Tokens::Type& type, FontWeight weight) {
+    auto label = ui::label({.text = std::move(text), .fontSize = type.size * scale, .fontWeight = weight,
+                            .color = colorSpecFromRole(role), .maxLines = 1, .ellipsize = TextEllipsize::End});
+    label->setLineHeight(type.line * scale);
+    return label;
+  };
+  // No account: the card offers the set-up instead of an empty list.
+  if (m_config->config().calendar.accounts.empty()) {
+    while (!content->children().empty()) {
+      content->removeChild(content->children().back().get());
+    }
+    content->setGap(Tokens::spaceP4 * scale);
+    content->addChild(headline(i18n::tr("control-center.calendar.no-calendars"), ColorRole::Label1, Tokens::typeHeadline,
+                               FontWeight::SemiBold));
+    content->addChild(headline(i18n::tr("control-center.calendar.no-calendars-body"), ColorRole::Label2,
+                               Tokens::typeFootnote, FontWeight::Medium));
+    content->addChild(ui::row(
+        {.paddingV = Tokens::spaceP4 * scale},
+        ui::button({
+            .text = i18n::tr("control-center.calendar.add-account"),
+            .fontSize = Tokens::typeFootnote.size * scale,
+            .variant = ButtonVariant::Default,
+            .minHeight = Tokens::sizeControlS * scale,
+            .paddingH = Tokens::spaceP8 * scale,
+            .radius = Tokens::radiusR8 * scale,
+            .onClick = [] { PanelManager::instance().openSettingsWindow("date-time"); },
+        })
+    ));
+    return;
+  }
+  // A day without events also names the next upcoming one, so the card always answers "what is next".
+  if (m_calendar == nullptr || !m_calendar->hasData()) {
+    return;
+  }
+  using namespace std::chrono;
+  const auto dayEnd = sys_days{year{m_selectedYear} / month{static_cast<unsigned>(m_selectedMonth + 1)}
+                               / day{static_cast<unsigned>(m_selectedDay)}}
+      + days{1};
+  const auto dayStart = dayEnd - days{1};
+  // Local midnight: shift by the zone offset so "the selected day" matches the grid.
+  const auto offset = current_zone()->get_info(system_clock::now()).offset;
+  const auto localStart = dayStart - offset;
+  const auto localEnd = dayEnd - offset;
+  const CalendarEvent* next = nullptr;
+  bool dayHasEvents = false;
+  for (const CalendarEvent& event : m_calendar->snapshot().events) {
+    if (event.start < localEnd && event.end > localStart) {
+      dayHasEvents = true;
+      break;
+    }
+    if (event.start >= localEnd && (next == nullptr || event.start < next->start)) {
+      next = &event;
+    }
+  }
+  if (dayHasEvents || next == nullptr) {
+    return;
+  }
+  const std::string when = formatLocalUnixTime(
+      duration_cast<seconds>(next->start.time_since_epoch()).count(),
+      next->allDay ? m_config->config().calendar.eventDateFormat
+                   : m_config->config().calendar.eventDateFormat + " " + m_config->config().calendar.eventTimeFormat
+  );
+  content->addChild(headline(i18n::tr("control-center.calendar.next-event", "title", next->title, "when", when),
+                             ColorRole::Label2, Tokens::typeFootnote, FontWeight::Medium));
 }
 
 void CalendarTab::toggleEventsCard() {
@@ -633,5 +892,8 @@ void CalendarTab::toggleEventsCard() {
   }
   if (m_eventsCard != nullptr) {
     m_eventsCard->setVisible(m_showEventsCard);
+  }
+  if (m_eventsHeader != nullptr) {
+    m_eventsHeader->setVisible(m_showEventsCard);
   }
 }

@@ -1,6 +1,8 @@
 #include "shell/control_center/tabs/quick_tab.h"
 
+#include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/link/link_service.h"
+#include "dbus/network/network_display.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
@@ -9,6 +11,7 @@
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/panel/panel_manager.h"
+#include "shell/control_center/tabs/bluetooth_tab.h"
 #include "shell/phone/phone_state.h"
 #include "system/brightness_service.h"
 #include "system/rfkill_helper.h"
@@ -19,6 +22,7 @@
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
+#include "ui/controls/input.h"
 #include "ui/controls/label.h"
 #include "render/animation/animation_manager.h"
 #include "render/core/color.h"
@@ -275,8 +279,14 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   container->addChild(std::move(text));
   if (chevron) {
     Button* unused = nullptr;
-    auto open = makeGlyphButton(unused, "chevron-right", s, [this, tab = std::string(detailTab)] {
-      if (!m_swallowClick) {
+    const bool expands = detailTab == "detail-wifi" || detailTab == "detail-bluetooth";
+    auto open = makeGlyphButton(unused, expands ? "chevron-down" : "chevron-right", s, [this, tab = std::string(detailTab), expands] {
+      if (m_swallowClick) {
+        return;
+      }
+      if (expands) {
+        toggleExpansion(tab == "detail-wifi" ? "wifi" : "bluetooth");
+      } else {
         m_openTab(tab);
       }
     },
@@ -769,6 +779,58 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
   }
   std::ranges::sort(connectivity, std::greater<>{}); // "wifi" before "bluetooth"
 
+  m_expansion = nullptr;
+  m_expansionRows = nullptr;
+  m_expansionKey.clear();
+  if (!m_expanded.empty() && std::ranges::find(connectivity, m_expanded) == connectivity.end()) {
+    m_expanded.clear();
+  }
+  std::size_t nextOther = 0;
+  if (!m_expanded.empty()) {
+    // Expanded (DESIGN.md "Clock calendar + CC connectivity" B): the tile spans both columns, its list sits under it,
+    // then the other connectivity tile beside the next tile.
+    auto page = std::make_unique<Flex>();
+    page->setDirection(FlexDirection::Vertical);
+    page->setAlign(FlexAlign::Stretch);
+    page->setGap(Tokens::componentSheetGap * s);
+    if (auto tile = makeTileCard(m_expanded); tile != nullptr) {
+      page->addChild(std::move(tile));
+    }
+    auto expansion = makeCard();
+    expansion->setDirection(FlexDirection::Vertical);
+    expansion->setAlign(FlexAlign::Stretch);
+    expansion->setPadding(Tokens::spaceP4 * s);
+    expansion->setGap(0.0F);
+    // Rows live in their own column: clearing the card itself would also drop its background rect.
+    auto rows = std::make_unique<Flex>();
+    rows->setDirection(FlexDirection::Vertical);
+    rows->setAlign(FlexAlign::Stretch);
+    m_expansionRows = rows.get();
+    expansion->addChild(std::move(rows));
+    m_expansion = expansion.get();
+    page->addChild(std::move(expansion));
+    auto row = std::make_unique<Flex>();
+    row->setDirection(FlexDirection::Horizontal);
+    row->setAlign(FlexAlign::Stretch);
+    row->setGap(Tokens::componentSheetGap * s);
+    for (const std::string& id : connectivity) {
+      if (id != m_expanded) {
+        if (auto tile = makeTileCard(id); tile != nullptr) {
+          m_halfWidth.push_back(tile.get());
+          row->addChild(std::move(tile));
+        }
+      }
+    }
+    while (row->children().size() < 2 && nextOther < others.size()) {
+      if (auto tile = makeTileCard(others[nextOther++]); tile != nullptr) {
+        m_halfWidth.push_back(tile.get());
+        row->addChild(std::move(tile));
+      }
+    }
+    page->addChild(std::move(row));
+    m_pages.push_back(page.get());
+    strip->addChild(std::move(page));
+  } else {
   // Page 1: the connectivity card (Wi-Fi and Bluetooth rows) beside the next two tiles stacked. The tiles are made in
   // row-major order so keyboard indices follow the screen.
   auto top = std::make_unique<Flex>();
@@ -781,7 +843,6 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
   stack->setDirection(FlexDirection::Vertical);
   stack->setAlign(FlexAlign::Stretch);
   stack->setGap(Tokens::componentSheetGap * s);
-  std::size_t nextOther = 0;
   for (std::size_t i = 0; i < 2; ++i) {
     if (i < connectivity.size()) {
       if (auto row = makeTileRow(connectivity[i], false); row != nullptr) {
@@ -802,6 +863,7 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
   top->addChild(std::move(stack));
   m_pages.push_back(top.get());
   strip->addChild(std::move(top));
+  }
 
   std::vector<std::unique_ptr<Flex>> cards;
   for (; nextOther < others.size(); ++nextOther) {
@@ -957,6 +1019,10 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
   }
   m_pager->setMinHeight(height);
   m_pager->setMaxHeight(height);
+  // A horizontal ScrollView keeps its first height; page 1 grows when a Wi-Fi/Bluetooth list opens.
+  if (std::abs(m_pager->height() - height) >= 0.5F) {
+    m_pager->setSize(m_pager->width(), height);
+  }
   m_volumeValue->setMaxWidth(width * 0.5F);
 }
 
@@ -1657,6 +1723,11 @@ void QuickTab::onClose() {
   for (Timer& timer : m_staggerTimers) {
     timer.stop();
   }
+  m_expanded.clear();
+  m_passwordSsid.clear();
+  m_connectingSsid.clear();
+  m_expansion = nullptr;
+  m_expansionRows = nullptr;
   if (m_editing) {
     saveEdit();
     m_editing = false;
@@ -1883,6 +1954,10 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
     }
     return false;
   }
+  if (sym == XKB_KEY_Escape && !m_expanded.empty()) {
+    toggleExpansion(m_expanded);
+    return true;
+  }
   const InputArea* focused = PanelManager::instance().inputDispatcher().focusedArea();
   if (focused != nullptr && handleSliderKey(sym, modifiers, focused)) {
     return true;
@@ -1954,12 +2029,279 @@ void QuickTab::doUpdate(Renderer& renderer) {
   syncLiftShadow();
   if (m_editing) {
     syncExtras();
+    syncExpansion();
     return;
   }
   syncExtras();
+  syncExpansion();
   syncSliders();
   syncFooter();
   syncPager();
   syncMedia(renderer);
   syncPhone();
+}
+
+void QuickTab::toggleExpansion(const std::string& id) {
+  m_expanded = m_expanded == id ? std::string{} : id;
+  m_passwordSsid.clear();
+  if (m_pager != nullptr) {
+    buildPages(tileOrder());
+  }
+  if (m_expanded == "wifi" && m_services.network != nullptr) {
+    m_services.network->requestScan();
+  }
+  syncExpansion();
+  PanelManager::instance().refresh();
+}
+
+void QuickTab::addExpansionRow(std::string_view glyph, bool on, std::string_view title, std::string_view trailing,
+                               bool trailingAccent, std::string_view trailingGlyph, std::string_view action,
+                               std::function<void()> onClick) {
+  const float s = contentScale();
+  auto row = std::make_unique<Button>();
+  row->setVariant(ButtonVariant::Ghost);
+  row->setDirection(FlexDirection::Horizontal);
+  row->setAlign(FlexAlign::Center);
+  row->setGap(Tokens::spaceP12 * s);
+  row->setPadding(0.0F, Tokens::spaceP12 * s, 0.0F, Tokens::spaceP12 * s);
+  row->setMinHeight(Tokens::sizeRow * s);
+  row->setRadius(Tokens::spaceP12 * s);
+  if (!glyph.empty()) {
+    auto icon = std::make_unique<Flex>();
+    icon->setAlign(FlexAlign::Center);
+    icon->setJustify(FlexJustify::Center);
+    icon->setMinWidth(Tokens::componentRoundIconSize * s);
+    icon->setMinHeight(Tokens::componentRoundIconSize * s);
+    icon->setRadius(Tokens::componentRoundIconSize * s * 0.5F);
+    icon->setFill(colorSpecFromRole(on ? ColorRole::Accent : ColorRole::Fill2));
+    auto g = std::make_unique<Glyph>();
+    g->setGlyph(std::string(glyph));
+    g->setGlyphSize(Tokens::componentRoundIconGlyph * s);
+    g->setColor(colorSpecFromRole(on ? ColorRole::OnAccent : ColorRole::Label1));
+    icon->addChild(std::move(g));
+    row->addChild(std::move(icon));
+  }
+  Label* titleLabel = nullptr;
+  auto text = makeLabel(titleLabel, Tokens::typeHeadline, s, glyph.empty() ? ColorRole::Label2 : ColorRole::Label1);
+  titleLabel->setText(title);
+  if (glyph.empty()) {
+    titleLabel->setFontSize(Tokens::typeFootnote.size * s);
+    titleLabel->setFontWeight(FontWeight::Medium);
+  }
+  titleLabel->setMaxLines(1);
+  titleLabel->setEllipsize(TextEllipsize::End);
+  titleLabel->setFlexGrow(1.0F);
+  row->addChild(std::move(text));
+  if (!trailing.empty()) {
+    Label* value = nullptr;
+    auto label = makeLabel(value, Tokens::typeFootnote, s, trailingAccent ? ColorRole::AccentText : ColorRole::Label2);
+    value->setText(trailing);
+    row->addChild(std::move(label));
+  }
+  if (!trailingGlyph.empty()) {
+    auto g = std::make_unique<Glyph>();
+    g->setGlyph(std::string(trailingGlyph));
+    g->setGlyphSize(Tokens::sizeSymbolInline * s);
+    g->setColor(colorSpecFromRole(ColorRole::Label3));
+    row->addChild(std::move(g));
+  }
+  if (!action.empty()) {
+    auto button = std::make_unique<Button>();
+    button->setVariant(ButtonVariant::Default);
+    button->setText(action);
+    button->setFontSize(Tokens::typeFootnote.size * s);
+    button->setControlHeight(Tokens::sizeControlS * s);
+    button->setRadius(Tokens::radiusR8 * s);
+    button->setPadding(0.0F, Tokens::spaceP8 * s, 0.0F, Tokens::spaceP8 * s);
+    button->setOnClick(onClick);
+    row->addChild(std::move(button));
+  }
+  row->setOnClick(std::move(onClick));
+  m_expansionRows->addChild(std::move(row));
+}
+
+void QuickTab::syncExpansion() {
+  // A swipe to another page collapses the list: it belongs to page 1.
+  if (!m_expanded.empty() && m_page != 0 && !m_editing) {
+    toggleExpansion(m_expanded);
+    return;
+  }
+  for (ToggleRow& row : m_extras) {
+    if ((row.id == "wifi" || row.id == "bluetooth") && row.chevron != nullptr) {
+      row.chevron->setGlyph(m_expanded == row.id ? "chevron-up" : "chevron-down");
+    }
+  }
+  if (m_expansion == nullptr) {
+    return;
+  }
+  constexpr std::size_t kMaxRows = 5;
+  std::string key = m_expanded;
+  std::vector<AccessPointInfo> aps;
+  std::vector<BluetoothDeviceInfo> devices;
+  if (m_expanded == "wifi" && m_services.network != nullptr && m_services.network->available()) {
+    const NetworkState& net = m_services.network->state();
+    if (!m_connectingSsid.empty() && (net.ssid == m_connectingSsid || std::chrono::steady_clock::now() > m_connectingUntil)) {
+      m_connectingSsid.clear();
+    }
+    key += std::format("|{}|{}|{}|{}", net.wirelessEnabled, net.resolving, m_connectingSsid, m_passwordSsid);
+    aps = m_services.network->accessPoints();
+    // Active first, then by signal band and name: raw percent would reshuffle rows on every scan.
+    std::ranges::sort(aps, [](const AccessPointInfo& a, const AccessPointInfo& b) {
+      if (a.active != b.active) {
+        return a.active;
+      }
+      const int bandA = network_display::wifiSignalBand(a.strength);
+      const int bandB = network_display::wifiSignalBand(b.strength);
+      return bandA != bandB ? bandA > bandB : a.ssid < b.ssid;
+    });
+    if (aps.size() > kMaxRows) {
+      aps.resize(kMaxRows);
+    }
+    for (const AccessPointInfo& ap : aps) {
+      key += std::format("|{}:{}:{}:{}", ap.ssid, network_display::wifiSignalBand(ap.strength), ap.secured, ap.active);
+    }
+  } else if (m_expanded == "bluetooth" && m_services.bluetooth != nullptr) {
+    key += std::format("|{}", m_services.bluetooth->state().powered);
+    for (const BluetoothDeviceInfo& d : m_services.bluetooth->devices()) {
+      if (d.paired) {
+        devices.push_back(d);
+      }
+    }
+    std::ranges::stable_sort(devices, [](const BluetoothDeviceInfo& a, const BluetoothDeviceInfo& b) {
+      return a.connected && !b.connected;
+    });
+    if (devices.size() > kMaxRows) {
+      devices.resize(kMaxRows);
+    }
+    for (const BluetoothDeviceInfo& d : devices) {
+      key += std::format("|{}:{}:{}:{}", d.alias, d.connected, d.connecting, d.hasBattery ? d.batteryPercent : -1);
+    }
+  }
+  const bool show = !m_expanded.empty() && !m_editing;
+  // While a password is typed the rows hold still: a scan result must not rebuild the field and drop the text.
+  if (!m_passwordSsid.empty() && m_expansionKey.find("|pw:" + m_passwordSsid) != std::string::npos) {
+    return;
+  }
+  if (!m_passwordSsid.empty()) {
+    key += "|pw:" + m_passwordSsid;
+  }
+  if (key == m_expansionKey && m_expansion->visible() == show) {
+    return;
+  }
+  m_expansionKey = key;
+  m_expansion->setVisible(show);
+  while (!m_expansionRows->children().empty()) {
+    m_expansionRows->removeChild(m_expansionRows->children().back().get());
+  }
+  if (!show) {
+    return;
+  }
+  if (m_expanded == "wifi") {
+    if (m_services.network == nullptr || !m_services.network->state().wirelessEnabled) {
+      addExpansionRow({}, false, i18n::tr("control-center.detail.wifi.off"), {}, false, {}, {}, nullptr);
+    }
+    const bool resolving = m_services.network != nullptr && m_services.network->state().resolving;
+    for (const AccessPointInfo& ap : aps) {
+      std::function<void()> click = [this, ap] {
+        INetworkService* network = m_services.network;
+        if (network == nullptr || ap.active) {
+          return;
+        }
+        // Enterprise sign-in needs the detail page; a new secured network gets its password field in the list.
+        if (ap.isEnterprise()) {
+          m_openTab("detail-wifi");
+          return;
+        }
+        if (ap.requiresCredentials() && !network->hasSavedConnection(ap.ssid)) {
+          m_passwordSsid = m_passwordSsid == ap.ssid ? std::string{} : ap.ssid;
+          PanelManager::instance().refresh();
+          return;
+        }
+        if (network->activateAccessPoint(ap)) {
+          m_connectingSsid = ap.ssid;
+          m_connectingUntil = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        }
+        PanelManager::instance().refresh();
+      };
+      const bool connecting = ap.ssid == m_connectingSsid || (ap.active && resolving);
+      const std::string status = connecting ? i18n::tr("control-center.quick.connecting")
+          : ap.active                       ? i18n::tr("control-center.detail.wifi.status-connected")
+                                            : std::string{};
+      addExpansionRow(network_display::wifiGlyphForSignal(ap.strength), ap.active, ap.ssid, status, ap.active && !connecting,
+                      !ap.active && !connecting && ap.secured ? "lock" : "", {}, std::move(click));
+      if (m_passwordSsid == ap.ssid) {
+        addPasswordRow(ap);
+      }
+    }
+    addExpansionRow({}, false, i18n::tr("control-center.quick.all-networks"), {}, false,
+                    Style::rtl() ? "chevron-left" : "chevron-right", {}, [this] { m_openTab("detail-wifi"); });
+  } else {
+    if (m_services.bluetooth == nullptr || !m_services.bluetooth->state().powered) {
+      addExpansionRow({}, false, i18n::tr("control-center.detail.bluetooth.off"), {}, false, {}, {}, nullptr);
+    }
+    for (const BluetoothDeviceInfo& d : devices) {
+      std::function<void()> click = [this, path = d.path, connected = d.connected] {
+        if (m_services.bluetooth == nullptr) {
+          return;
+        }
+        if (connected) {
+          m_services.bluetooth->disconnectDevice(path);
+        } else {
+          m_services.bluetooth->connect(path);
+        }
+      };
+      const std::string battery = d.connected && d.hasBattery ? std::format("{} %", d.batteryPercent) : std::string{};
+      const std::string status = d.connecting ? i18n::tr("control-center.quick.connecting") : battery;
+      addExpansionRow(bluetoothDeviceGlyph(d.kind), d.connected, d.alias, status, false, {},
+                      d.connected || d.connecting ? std::string{} : i18n::tr("control-center.detail.bluetooth.connect"),
+                      std::move(click));
+    }
+    addExpansionRow({}, false, i18n::tr("control-center.quick.all-devices"), {}, false,
+                    Style::rtl() ? "chevron-left" : "chevron-right", {}, [this] { m_openTab("detail-bluetooth"); });
+  }
+  // The rows change page 1's height: lay the pager and the sheet out again (sizePages measures page 1).
+  PanelManager::instance().refresh();
+}
+
+void QuickTab::addPasswordRow(const AccessPointInfo& ap) {
+  const float s = contentScale();
+  auto form = std::make_unique<Flex>();
+  form->setDirection(FlexDirection::Horizontal);
+  form->setAlign(FlexAlign::Center);
+  form->setGap(Tokens::spaceP8 * s);
+  form->setPadding(Tokens::spaceP4 * s, Tokens::spaceP12 * s, Tokens::spaceP8 * s, Tokens::spaceP12 * s);
+  const auto join = [this, ap](const std::string& psk) {
+    if (psk.empty() || m_services.network == nullptr) {
+      return;
+    }
+    m_passwordSsid.clear();
+    if (m_services.network->activateAccessPoint(ap, psk)) {
+      m_connectingSsid = ap.ssid;
+      m_connectingUntil = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    }
+    PanelManager::instance().refresh();
+  };
+  Input* field = nullptr;
+  form->addChild(ui::input({
+      .out = &field,
+      .placeholder = i18n::tr("control-center.network.password"),
+      .controlHeight = Tokens::componentFieldHeight * s,
+      .passwordMode = true,
+      .surfaceOpacity = panelCardOpacity(),
+      .surfaceRole = ColorRole::Fill2,
+      .flexGrow = 1.0F,
+      .onSubmit = join,
+  }));
+  field->setFrameRadius(Tokens::componentFieldRadius);
+  auto joinButton = std::make_unique<Button>();
+  joinButton->setVariant(ButtonVariant::Primary);
+  joinButton->setText(i18n::tr("control-center.network.join"));
+  joinButton->setControlHeight(Tokens::componentFieldHeight * s);
+  joinButton->setRadius(Tokens::componentButtonRadius * s);
+  joinButton->setPadding(0.0F, Tokens::componentButtonInsetM * s, 0.0F, Tokens::componentButtonInsetM * s);
+  joinButton->setOnClick([field, join] { join(field->value()); });
+  form->addChild(std::move(joinButton));
+  m_expansionRows->addChild(std::move(form));
+  // The field takes the keyboard at once, so typing starts without a second click.
+  PanelManager::instance().inputDispatcher().setFocus(field->inputArea());
 }

@@ -469,24 +469,34 @@
       "visible": "Discoverable by nearby devices"
     },
     "calendar": {
+      "add-account": "Add Calendar Account…",
       "all-day": "All day",
       "events": "Events",
       "hide-past-events": "Hide {count} past event",
       "hide-past-events-plural": "Hide {count} past events",
+      "next-event": "Next: {title} · {when}",
+      "no-calendars": "No calendars yet",
+      "no-calendars-body": "Add an account to see your events here.",
       "no-events": "No events.",
       "show-past-events": "Show {count} past event",
       "show-past-events-plural": "Show {count} past events",
       "today": "Today",
-      "toggle-events-card": "Toggle events card"
+      "toggle-events-card": "Toggle events card",
+      "weather-high-low": "High {high}° · Low {low}°"
     },
     "detail": {
       "bluetooth": {
         "connected-devices": "Connected devices",
+        "connect": "Connect",
+        "disconnect": "Disconnect",
         "nearby": "Nearby devices",
         "off": "Bluetooth is off",
         "off-body": "Turn on Bluetooth to see your devices.",
         "pair-new": "Pair New Device...",
         "paired": "Paired",
+        "pair": "Pair",
+        "status-connected": "Connected",
+        "status-not-connected": "Not connected",
         "scanning": "Searching...",
         "settings": "Bluetooth Settings...",
         "unavailable": "Bluetooth unavailable",
@@ -553,10 +563,16 @@
       "wifi": {
         "connect-failed": "Could not connect to {ssid}",
         "connected": "Connected",
+        "disconnect": "Disconnect",
+        "ip-address": "IP Address",
+        "known-networks": "Known Networks",
+        "network-details": "Network Details…",
         "needs-settings": "Join in Wi-Fi Settings",
         "none": "No networks in range",
         "off": "Wi-Fi is off",
         "off-body": "Turn on Wi-Fi to see networks.",
+        "secured": "Secured",
+        "status-connected": "Connected",
         "other-network": "Other Network...",
         "other-networks": "Other networks",
         "settings": "Wi-Fi Settings...",
@@ -835,6 +851,8 @@
       "waiting": "Waiting for weather data"
     },
     "quick": {
+      "all-devices": "All Devices…",
+      "all-networks": "All Networks…",
       "add-controls": "Add controls",
       "bluetooth": "Bluetooth",
       "connecting": "Connecting...",

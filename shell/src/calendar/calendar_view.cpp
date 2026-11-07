@@ -217,11 +217,10 @@ namespace calendar_view {
       tile->addChild(
           ui::label({
               .text = weekdays[index],
-              .fontSize = Style::fontSizeCaption * options.scale,
-              .fontWeight = FontWeight::Medium,
+              .fontSize = Tokens::typeCaption.size * options.scale,
+              .fontWeight = FontWeight::SemiBold,
               .fontFamily = options.fontFamily,
-              .color =
-                  colorSpecFromRole(weekday == 0 || weekday == 6 ? ColorRole::AccentText : ColorRole::Label2),
+              .color = colorSpecFromRole(ColorRole::Label3),
               .maxLines = 1,
           })
       );
@@ -300,7 +299,7 @@ namespace calendar_view {
           .minWidth = layout.dayButtonSize,
           .minHeight = layout.dayButtonSize,
           .padding = 0.0F,
-          .radius = Style::scaledRadiusMd(options.scale),
+          .radius = layout.dayButtonSize * 0.5F,
           .width = layout.dayButtonSize,
           .height = layout.dayButtonSize,
       });
@@ -308,21 +307,24 @@ namespace calendar_view {
         button->label()->setFontFamily(options.fontFamily);
       }
 
+      // Today = accent circle; the selected day (when not today) = fill_2 circle; other months label_3.
+      const bool isToday = inMonth && state.isCurrentMonth && date.day == state.current.day;
       if (!inMonth) {
         Button::ButtonPalette muted = Button::defaultPalette(ButtonVariant::Ghost);
-        muted.normal.label = colorSpecFromRole(ColorRole::Label2, 0.75F);
+        muted.normal.label = colorSpecFromRole(ColorRole::Label3);
         button->setCustomPalette(muted);
-      } else if (options.selected == date) {
+      } else if (isToday) {
         button->setVariant(ButtonVariant::Primary);
-      } else {
-        if (state.isCurrentMonth && date.day == state.current.day) {
-          Button::ButtonPalette today = Button::defaultPalette(ButtonVariant::Ghost);
-          today.normal.label = colorSpecFromRole(ColorRole::AccentText);
-          button->setCustomPalette(today);
-        }
         if (button->label() != nullptr) {
-          button->label()->setFontWeight(FontWeight::Bold);
+          button->label()->setFontWeight(FontWeight::SemiBold);
         }
+      } else if (options.selected == date) {
+        Button::ButtonPalette selected = Button::defaultPalette(ButtonVariant::Ghost);
+        selected.normal.bg = colorSpecFromRole(ColorRole::Fill2);
+        button->setCustomPalette(selected);
+      }
+      if (inMonth && !isToday && button->label() != nullptr) {
+        button->label()->setFontWeight(FontWeight::Medium);
       }
 
       const auto selectDate = [callback = options.onDateSelected, date, monthShift] {
