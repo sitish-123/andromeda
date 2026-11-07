@@ -59,15 +59,15 @@ PY
   settle
   grim "$OUT/1-page1.png"; cp "$OUT/1-page1.png" "$OUT/last.png"
 
-  # The Wi-Fi chevron expands the network list in place; Escape collapses it back to the sheet.
-  step 3-wifi-expand 1070 87
+  # The Wi-Fi chevron opens the Wi-Fi page; Escape returns to the sheet.
+  step 3-wifi-page 1070 87
   cp "$OUT/1-page1.png" "$OUT/4-back.png"
   # A new virtual keyboard needs one key to get focus before the shell routes its keys: Pause goes first.
   key() { local a=(tap 119 tap 119) k; for k in "$@"; do a+=(tap "$k"); done; "$POINTER" 1280 720 "${a[@]}" > /dev/null; }
   # press_until REF KEY: a key can still be lost while the shell takes focus of a new virtual keyboard, so resend
   # until the screen matches REF (at most 3 sends).
   press_until() { local ref=$1 try; shift; for try in 1 2 3; do key "$@"; wait_for 2 panel_matches "$ref" && return 0; cp "$OUT/now.png" "$OUT/press-miss-$try.png"; done; return 1; }
-  press_until "$OUT/4-back.png" 1 || fail "Escape did not collapse the Wi-Fi list"
+  press_until "$OUT/4-back.png" 1 || fail "Escape did not return from the Wi-Fi page"
   cp "$OUT/4-back.png" "$OUT/last.png"
   for try in 1 2 3; do key 53; wait_for 2 panel_changed && break; done
   panel_changed || fail "/ did not open the search"
@@ -89,9 +89,9 @@ PY
   panel_matches "$OUT/closed.png" && fail "the sheet closed instead of reopening the search"
   # Escape: search -> sheet.
   press_until "$OUT/4-back.png" 1 || fail "Escape did not return from the search to the sheet"
-  # Escape: expanded list -> sheet -> closed.
+  # Escape: Wi-Fi page -> sheet -> closed.
   step 6e-wifi-again 1070 87
-  press_until "$OUT/4-back.png" 1 || fail "Escape did not collapse the Wi-Fi list"
+  press_until "$OUT/4-back.png" 1 || fail "Escape did not return from the Wi-Fi page"
   press_until "$OUT/closed.png" 1 || fail "a second Escape did not close the sheet"
   "$NOCTALIA" msg panel-open control-center quick > /dev/null
   cp "$OUT/closed.png" "$OUT/last.png"

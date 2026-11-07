@@ -917,8 +917,6 @@
       "wind-from": "From {direction}"
     },
     "quick": {
-      "all-devices": "All Devices…",
-      "all-networks": "All Networks…",
       "add-controls": "Add controls",
       "bluetooth": "Bluetooth",
       "connecting": "Connecting...",
