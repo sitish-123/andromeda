@@ -75,6 +75,8 @@ public:
   // in a light palette. nullopt returns to the role colors.
   void setTextColorOverride(std::optional<Color> text, std::optional<Color> placeholder);
   void setFrameRadius(float radius);
+  /// Capsule frame that keeps its surface fill and shows no outline when focused; the caret marks focus.
+  void setCapsule(bool capsule);
   [[nodiscard]] bool enabled() const noexcept { return m_enabled; }
   [[nodiscard]] bool passwordRevealed() const noexcept { return m_passwordRevealed; }
   void selectAll();
@@ -266,6 +268,7 @@ private:
   bool m_multiline = false;
   bool m_invalid = false;
   bool m_frameVisible = true;
+  bool m_capsule = false;
   bool m_embeddedOnSolidPrimary = false;
   ColorRole m_surfaceRole = ColorRole::Fill2;
   std::optional<Color> m_textOverride;

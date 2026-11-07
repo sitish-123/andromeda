@@ -550,6 +550,14 @@ void Input::setInvalid(bool invalid) {
   markPaintDirty();
 }
 
+void Input::setCapsule(bool capsule) {
+  if (m_capsule == capsule) {
+    return;
+  }
+  m_capsule = capsule;
+  applyVisualState();
+}
+
 void Input::setFrameVisible(bool visible) {
   if (m_frameVisible == visible) {
     return;
@@ -1606,15 +1614,17 @@ void Input::applyVisualState() {
 
   if (m_frameVisible) {
     m_background->setVisible(true);
-    const Color fill =
-        focused ? resolved(ColorRole::SolidRegular, m_surfaceOpacity) : resolved(m_surfaceRole, m_surfaceOpacity);
+    const Color fill = focused && !m_capsule ? resolved(ColorRole::SolidRegular, m_surfaceOpacity)
+                                             : resolved(m_surfaceRole, m_surfaceOpacity);
     const Color border = m_invalid
         ? resolved(ColorRole::Danger)
         : (focused ? resolveColorSpec(focusRingColorSpec())
                    : (inputHovered ? resolved(ColorRole::Fill3) : resolved(ColorRole::Stroke)));
 
     float resolvedBorderWidth = 0.0F;
-    if (focused) {
+    if (m_capsule) {
+      resolvedBorderWidth = m_invalid ? Style::borderWidth : 0.0F;
+    } else if (focused) {
       resolvedBorderWidth = Style::focusRingWidth;
     } else if (Style::inputBordersEnabled()) {
       resolvedBorderWidth = Style::borderWidth;
@@ -1625,7 +1635,7 @@ void Input::applyVisualState() {
             .fill = fill,
             .border = border,
             .fillMode = FillMode::Solid,
-            .radius = Style::scaledRadius(m_frameRadius, chromeScale),
+            .radius = m_capsule ? m_controlHeight * 0.5F : Style::scaledRadius(m_frameRadius, chromeScale),
             .softness = 1.0F,
             .borderWidth = resolvedBorderWidth,
         }

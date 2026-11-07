@@ -68,7 +68,10 @@ private:
   // Wi-Fi / Bluetooth expand in place (DESIGN.md "Clock calendar + CC connectivity", direction B).
   void toggleExpansion(const std::string& id);
   void syncExpansion();
+  void applyExpansionRebuild();
   void addPasswordRow(const AccessPointInfo& ap);
+  bool handleExpandedKey(std::uint32_t sym, int at, const InputArea* focused);
+  [[nodiscard]] std::unique_ptr<Node> makeHairline();
   void addExpansionRow(std::string_view glyph, bool on, std::string_view title, std::string_view trailing,
                        bool trailingAccent, std::string_view trailingGlyph, std::string_view action,
                        std::function<void()> onClick);
@@ -132,6 +135,8 @@ private:
   std::string m_expanded; // "wifi", "bluetooth" or empty
   std::string m_expansionKey;
   std::string m_passwordSsid;  // network whose password field is open in the list
+  std::string m_frozenPasswordSsid; // the list holds still while this field is open
+  bool m_expansionRebuildPending = false;
   std::string m_connectingSsid; // shows "Connecting…" until the network reports it or the deadline passes
   std::chrono::steady_clock::time_point m_connectingUntil{};
 

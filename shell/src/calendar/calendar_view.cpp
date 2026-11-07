@@ -88,7 +88,7 @@ namespace {
     return calendar_view::dateKey({.year = value.tm_year + 1900, .month = value.tm_mon, .day = value.tm_mday});
   }
 
-  std::pair<int, int> eventDayRange(const CalendarEvent& event) {
+  std::pair<int, int> localEventDayRange(const CalendarEvent& event) {
     const int start = localDateKey(event.start);
     auto endTime = event.end;
     if (event.allDay && event.end > event.start) {
@@ -162,7 +162,7 @@ namespace calendar_view {
     }
     int count = 0;
     for (const CalendarEvent& event : snapshot.events) {
-      const auto [start, end] = eventDayRange(event);
+      const auto [start, end] = localEventDayRange(event);
       if (selectedKey >= start && selectedKey <= end && eventHiddenAsPast(event, now, hidePast, thresholdMinutes)) {
         ++count;
       }
@@ -241,7 +241,7 @@ namespace calendar_view {
       const int lastKey = dateKey({.year = year, .month = month, .day = monthDays});
       const auto now = std::chrono::system_clock::now();
       for (const CalendarEvent& event : options.snapshot->events) {
-        const auto [eventStart, eventEnd] = eventDayRange(event);
+        const auto [eventStart, eventEnd] = localEventDayRange(event);
         if (eventEnd < firstKey || eventStart > lastKey) {
           continue;
         }
@@ -546,7 +546,7 @@ namespace calendar_view {
     }
     if (options.snapshot != nullptr) {
       for (const CalendarEvent& event : options.snapshot->events) {
-        const auto [start, end] = eventDayRange(event);
+        const auto [start, end] = localEventDayRange(event);
         if (selectedKey < start || selectedKey > end) {
           continue;
         }
@@ -671,6 +671,8 @@ namespace calendar_view {
       );
     }
   }
+
+  std::pair<int, int> eventDayRange(const CalendarEvent& event) { return localEventDayRange(event); }
 
   void layoutEventLinkOverlays(const EventListState& state) {
     for (const auto& [row, area] : state.linkOverlays) {

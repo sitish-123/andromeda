@@ -1,5 +1,6 @@
 #pragma once
 
+#include <utility>
 #include <chrono>
 #include <functional>
 #include <string>
@@ -88,6 +89,8 @@ namespace calendar_view {
 
   [[nodiscard]] State stateForOffset(int monthOffset);
   [[nodiscard]] int dateKey(Date date) noexcept;
+  // The local days an event covers as dateKey values (all-day events end the day before their end stamp).
+  [[nodiscard]] std::pair<int, int> eventDayRange(const CalendarEvent& event);
 
   [[nodiscard]] bool eventPassed(const CalendarEvent& event, std::chrono::system_clock::time_point now);
 

@@ -793,14 +793,23 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
     page->setDirection(FlexDirection::Vertical);
     page->setAlign(FlexAlign::Stretch);
     page->setGap(Tokens::componentSheetGap * s);
-    if (auto tile = makeTileCard(m_expanded); tile != nullptr) {
-      page->addChild(std::move(tile));
-    }
+    // One merged module (macOS Tahoe): header row, hairline, the list, all in one glass card. The header drops the
+    // subtitle: the connected network is the first list row.
     auto expansion = makeCard();
     expansion->setDirection(FlexDirection::Vertical);
     expansion->setAlign(FlexAlign::Stretch);
     expansion->setPadding(Tokens::spaceP4 * s);
     expansion->setGap(0.0F);
+    if (auto header = makeTileRow(m_expanded, false); header != nullptr) {
+      header->setPadding(Tokens::spaceP8 * s);
+      header->setRadius(Tokens::spaceP12 * s);
+      m_extras.back().card = expansion.get();
+      if (m_extras.back().subtitle != nullptr) {
+        m_extras.back().subtitle->setVisible(false);
+      }
+      expansion->addChild(std::move(header));
+    }
+    expansion->addChild(makeHairline());
     // Rows live in their own column: clearing the card itself would also drop its background rect.
     auto rows = std::make_unique<Flex>();
     rows->setDirection(FlexDirection::Vertical);
@@ -1726,6 +1735,8 @@ void QuickTab::onClose() {
   m_expanded.clear();
   m_passwordSsid.clear();
   m_connectingSsid.clear();
+  m_frozenPasswordSsid.clear();
+  m_expansionRebuildPending = false;
   m_expansion = nullptr;
   m_expansionRows = nullptr;
   if (m_editing) {
@@ -1971,26 +1982,36 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
       at = static_cast<int>(i);
     }
   }
+  if (!m_expanded.empty() && handleExpandedKey(sym, at, focused)) {
+    return true;
+  }
+  if (!m_expanded.empty() && at >= 3) {
+    // Later pages start at index 3 here (page 1 holds 3 tiles): shift into the collapsed 4-per-page math.
+    ++at;
+  } else if (!m_expanded.empty()) {
+    at = -1;
+  }
+  const auto moveFocusShifted = [this](int index) { return moveFocus(m_expanded.empty() ? index : index - 1); };
   if (at >= 0) {
     const auto index = static_cast<std::size_t>(at);
     const bool leftColumn = at % 2 == 0;
     const int rowInPage = (at % 4) / 2;
     switch (sym) {
     case XKB_KEY_Left:
-      return leftColumn ? (at >= 4 ? moveFocus(at - 3) : true) : moveFocus(at - 1);
+      return leftColumn ? (at >= 4 ? moveFocusShifted(at - 3) : true) : moveFocusShifted(at - 1);
     case XKB_KEY_Right:
-      return !leftColumn ? (static_cast<std::size_t>(at + 3) < m_extras.size() ? moveFocus(at + 3) : true)
-                         : (index + 1 < m_extras.size() ? moveFocus(at + 1) : true);
+      return !leftColumn ? (static_cast<std::size_t>(at + 3) < m_extras.size() ? moveFocusShifted(at + 3) : true)
+                         : (index + 1 < m_extras.size() ? moveFocusShifted(at + 1) : true);
     case XKB_KEY_Up:
-      return rowInPage == 1 ? moveFocus(at - 2) : true;
+      return rowInPage == 1 ? moveFocusShifted(at - 2) : true;
     case XKB_KEY_Down:
       if (rowInPage == 0 && index + 2 < m_extras.size() && (at + 2) / 4 == at / 4) {
-        return moveFocus(at + 2);
+        return moveFocusShifted(at + 2);
       }
       return focusSlider(m_brightnessPill->visible() ? m_brightnessSlider : m_volumeSlider);
     case XKB_KEY_Menu:
-      if (!m_extras[index].detail.empty()) {
-        m_openTab(m_extras[index].detail);
+      if (const std::size_t real = m_expanded.empty() ? index : index - 1; !m_extras[real].detail.empty()) {
+        m_openTab(m_extras[real].detail);
       }
       return true;
     default:
@@ -2032,6 +2053,7 @@ void QuickTab::doUpdate(Renderer& renderer) {
     syncExpansion();
     return;
   }
+  applyExpansionRebuild();
   syncExtras();
   syncExpansion();
   syncSliders();
@@ -2044,9 +2066,18 @@ void QuickTab::doUpdate(Renderer& renderer) {
 void QuickTab::toggleExpansion(const std::string& id) {
   m_expanded = m_expanded == id ? std::string{} : id;
   m_passwordSsid.clear();
-  if (m_pager != nullptr) {
-    buildPages(tileOrder());
+  m_frozenPasswordSsid.clear();
+  // The rebuild destroys the chevron whose click got us here: run it from doUpdate, not inside the callback.
+  m_expansionRebuildPending = true;
+  PanelManager::instance().refresh();
+}
+
+void QuickTab::applyExpansionRebuild() {
+  if (!m_expansionRebuildPending || m_pager == nullptr) {
+    return;
   }
+  m_expansionRebuildPending = false;
+  buildPages(tileOrder());
   if (m_expanded == "wifi" && m_services.network != nullptr) {
     m_services.network->requestScan();
   }
@@ -2063,7 +2094,7 @@ void QuickTab::addExpansionRow(std::string_view glyph, bool on, std::string_view
   row->setDirection(FlexDirection::Horizontal);
   row->setAlign(FlexAlign::Center);
   row->setGap(Tokens::spaceP12 * s);
-  row->setPadding(0.0F, Tokens::spaceP12 * s, 0.0F, Tokens::spaceP12 * s);
+  row->setPadding(0.0F, Tokens::spaceP8 * s, 0.0F, Tokens::spaceP8 * s);
   row->setMinHeight(Tokens::sizeRow * s);
   row->setRadius(Tokens::spaceP12 * s);
   if (!glyph.empty()) {
@@ -2179,12 +2210,10 @@ void QuickTab::syncExpansion() {
   }
   const bool show = !m_expanded.empty() && !m_editing;
   // While a password is typed the rows hold still: a scan result must not rebuild the field and drop the text.
-  if (!m_passwordSsid.empty() && m_expansionKey.find("|pw:" + m_passwordSsid) != std::string::npos) {
+  if (!m_passwordSsid.empty() && m_passwordSsid == m_frozenPasswordSsid) {
     return;
   }
-  if (!m_passwordSsid.empty()) {
-    key += "|pw:" + m_passwordSsid;
-  }
+  m_frozenPasswordSsid = m_passwordSsid;
   if (key == m_expansionKey && m_expansion->visible() == show) {
     return;
   }
@@ -2217,6 +2246,7 @@ void QuickTab::syncExpansion() {
           PanelManager::instance().refresh();
           return;
         }
+        m_passwordSsid.clear();
         if (network->activateAccessPoint(ap)) {
           m_connectingSsid = ap.ssid;
           m_connectingUntil = std::chrono::steady_clock::now() + std::chrono::seconds(30);
@@ -2233,6 +2263,7 @@ void QuickTab::syncExpansion() {
         addPasswordRow(ap);
       }
     }
+    m_expansionRows->addChild(makeHairline());
     addExpansionRow({}, false, i18n::tr("control-center.quick.all-networks"), {}, false,
                     Style::rtl() ? "chevron-left" : "chevron-right", {}, [this] { m_openTab("detail-wifi"); });
   } else {
@@ -2256,6 +2287,7 @@ void QuickTab::syncExpansion() {
                       d.connected || d.connecting ? std::string{} : i18n::tr("control-center.detail.bluetooth.connect"),
                       std::move(click));
     }
+    m_expansionRows->addChild(makeHairline());
     addExpansionRow({}, false, i18n::tr("control-center.quick.all-devices"), {}, false,
                     Style::rtl() ? "chevron-left" : "chevron-right", {}, [this] { m_openTab("detail-bluetooth"); });
   }
@@ -2292,16 +2324,82 @@ void QuickTab::addPasswordRow(const AccessPointInfo& ap) {
       .flexGrow = 1.0F,
       .onSubmit = join,
   }));
-  field->setFrameRadius(Tokens::componentFieldRadius);
+  field->setCapsule(true);
   auto joinButton = std::make_unique<Button>();
   joinButton->setVariant(ButtonVariant::Primary);
   joinButton->setText(i18n::tr("control-center.network.join"));
   joinButton->setControlHeight(Tokens::componentFieldHeight * s);
-  joinButton->setRadius(Tokens::componentButtonRadius * s);
+  joinButton->setRadius(Tokens::componentFieldHeight * 0.5F * s);
   joinButton->setPadding(0.0F, Tokens::componentButtonInsetM * s, 0.0F, Tokens::componentButtonInsetM * s);
   joinButton->setOnClick([field, join] { join(field->value()); });
   form->addChild(std::move(joinButton));
   m_expansionRows->addChild(std::move(form));
   // The field takes the keyboard at once, so typing starts without a second click.
   PanelManager::instance().inputDispatcher().setFocus(field->inputArea());
+}
+
+bool QuickTab::handleExpandedKey(std::uint32_t sym, int at, const InputArea* focused) {
+  // Expanded page 1: [0 tile, full width] [list rows] [1 tile][2 tile]; rows are reached with Up/Down.
+  std::vector<InputArea*> rows;
+  if (m_expansionRows != nullptr) {
+    for (const auto& child : m_expansionRows->children()) {
+      if (auto* button = dynamic_cast<Button*>(child.get()); button != nullptr && button->inputArea() != nullptr) {
+        rows.push_back(button->inputArea());
+      }
+    }
+  }
+  const auto focusArea = [](InputArea* area) {
+    PanelManager::instance().inputDispatcher().setFocus(area);
+    PanelManager::instance().requestRedraw();
+    return true;
+  };
+  const auto row = std::ranges::find(rows, focused);
+  if (row != rows.end()) {
+    const auto index = static_cast<std::size_t>(row - rows.begin());
+    if (sym == XKB_KEY_Up) {
+      return index == 0 ? moveFocus(0) : focusArea(rows[index - 1]);
+    }
+    if (sym == XKB_KEY_Down) {
+      return index + 1 < rows.size() ? focusArea(rows[index + 1]) : (m_extras.size() > 1 ? moveFocus(1) : true);
+    }
+    return false;
+  }
+  if (at < 0 || at > 2) {
+    return false;
+  }
+  switch (sym) {
+  case XKB_KEY_Down:
+    if (at == 0) {
+      return !rows.empty() ? focusArea(rows.front()) : (m_extras.size() > 1 ? moveFocus(1) : true);
+    }
+    return focusSlider(m_brightnessPill->visible() ? m_brightnessSlider : m_volumeSlider);
+  case XKB_KEY_Up:
+    if (at == 0) {
+      return true;
+    }
+    return !rows.empty() ? focusArea(rows.back()) : moveFocus(0);
+  case XKB_KEY_Left:
+    return at == 2 ? moveFocus(1) : true;
+  case XKB_KEY_Right:
+    if (at == 1 && m_extras.size() > 2) {
+      return moveFocus(2);
+    }
+    return at == 2 && m_extras.size() > 3 ? moveFocus(3) : true;
+  default:
+    return false;
+  }
+}
+
+std::unique_ptr<Node> QuickTab::makeHairline() {
+  const float s = contentScale();
+  auto line = std::make_unique<Flex>();
+  line->setDirection(FlexDirection::Horizontal);
+  line->setAlign(FlexAlign::Stretch);
+  line->setPadding(Tokens::spaceP4 * s, Tokens::spaceP8 * s, Tokens::spaceP4 * s, Tokens::spaceP8 * s);
+  auto rule = std::make_unique<Box>();
+  rule->setFill(colorSpecFromRole(ColorRole::Separator));
+  rule->setSize(0.0F, std::max(1.0F, std::round(s)));
+  rule->setFlexGrow(1.0F);
+  line->addChild(std::move(rule));
+  return line;
 }

@@ -361,9 +361,11 @@ namespace control_center {
     }
     const BluetoothState& state = m_bluetooth->state();
     if (m_toggle != nullptr) {
-      m_toggle->setEnabled(state.adapterPresent);
+      // No adapter: no switch at all, the empty state says why (a disabled switch reads as broken).
+      m_toggle->setVisible(state.adapterPresent);
       m_toggle->setChecked(state.powered);
     }
+    setFooterVisible(state.adapterPresent);
     // The page scans while it is open; BlueZ may end a scan on its own, so the state decides.
     if (m_active && state.adapterPresent && state.powered) {
       startScan();

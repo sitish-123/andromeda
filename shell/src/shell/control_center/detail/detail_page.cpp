@@ -155,6 +155,12 @@ namespace control_center {
     m_ellipsized.clear();
   }
 
+  void DetailPage::setFooterVisible(bool visible) {
+    if (m_footer != nullptr) {
+      m_footer->setVisible(visible);
+    }
+  }
+
   void DetailPage::requestRebuild() {
     m_dirty = true;
     PanelManager::instance().refresh();

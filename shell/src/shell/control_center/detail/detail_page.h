@@ -82,6 +82,8 @@ namespace control_center {
     virtual void releaseControls() {}
 
     void requestRebuild();
+    // Hides the footer buttons while they cannot act (no adapter).
+    void setFooterVisible(bool visible);
     // Loads `raw` pixels, else the first of `candidates` (files or icon names), into `image` at the next layout, decoded
     // to `decodePx`.
     void bindImage(Image* image, std::vector<std::string> candidates, int decodePx,

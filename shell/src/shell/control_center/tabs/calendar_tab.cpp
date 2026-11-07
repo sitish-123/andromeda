@@ -8,6 +8,7 @@
 #include "render/animation/animation_manager.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
+#include "render/scene/input_dispatcher.h"
 #include "shell/control_center/tab.h"
 #include "shell/panel/panel_button_style.h"
 #include "shell/panel/panel_manager.h"
@@ -480,6 +481,16 @@ bool CalendarTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pre
   if (!pressed || preedit || m_rootLayout == nullptr) {
     return false;
   }
+  // The full panel's sidebar navigates with arrows too: take keys only while focus is in this sheet (or nowhere).
+  if (const InputArea* focused = PanelManager::instance().inputDispatcher().focusedArea(); focused != nullptr) {
+    const Node* node = focused;
+    while (node != nullptr && node != m_rootLayout) {
+      node = node->parent();
+    }
+    if (node == nullptr) {
+      return false;
+    }
+  }
   switch (sym) {
   case XKB_KEY_Left:
     moveSelection(Style::rtl() ? 1 : -1);
@@ -522,11 +533,12 @@ void CalendarTab::moveSelection(int days) {
   m_selectedMonth = static_cast<int>(static_cast<unsigned>(to.month())) - 1;
   m_selectedDay = static_cast<int>(static_cast<unsigned>(to.day()));
   m_eventsDirty = true;
-  // Crossing into another month slides the grid like the month buttons.
-  const int monthDelta = (m_selectedYear - static_cast<int>(from.year())) * 12 + m_selectedMonth
-      - (static_cast<int>(static_cast<unsigned>(from.month())) - 1);
-  if (monthDelta != 0) {
-    changeMonthBy(monthDelta);
+  // The shown month follows the selection: offset from today's month, not from the previous selection.
+  cancelMonthSlide();
+  const calendar_view::State now = calendar_view::stateForOffset(0);
+  const int target = (m_selectedYear - now.current.year) * 12 + (m_selectedMonth - now.current.month);
+  if (target != m_monthOffset) {
+    changeMonthBy(target - m_monthOffset);
   } else {
     PanelManager::instance().refresh();
   }
@@ -609,6 +621,12 @@ void CalendarTab::cancelMonthSlide() {
       animations->cancel(m_monthSlideAnimId);
     }
     m_monthSlideAnimId = 0;
+  }
+  // A slide cut short still lands on its month: the next move counts from there.
+  if (m_pendingMonthDelta != 0) {
+    m_monthOffset += m_pendingMonthDelta;
+    m_lastDisplayYear = std::numeric_limits<int>::min();
+    m_lastDisplayMonth = -1;
   }
   m_pendingMonthDelta = 0;
   m_startMonthSlideIn = false;
@@ -807,6 +825,13 @@ void CalendarTab::rebuildEventList(float scale) {
           },
       .requestRedraw = [] { PanelManager::instance().requestRedraw(); },
   });
+  // The sheet header already shows today's date: the caption says "Today" instead of repeating it.
+  if (m_eventsTitle != nullptr) {
+    const calendar_view::State now = calendar_view::stateForOffset(0);
+    if (m_selectedYear == now.current.year && m_selectedMonth == now.current.month && m_selectedDay == now.current.day) {
+      m_eventsTitle->setText(i18n::tr("control-center.calendar.today"));
+    }
+  }
   addEventsEmptyState(scale);
 }
 
@@ -850,22 +875,17 @@ void CalendarTab::addEventsEmptyState(float scale) {
     return;
   }
   using namespace std::chrono;
-  const auto dayEnd = sys_days{year{m_selectedYear} / month{static_cast<unsigned>(m_selectedMonth + 1)}
-                               / day{static_cast<unsigned>(m_selectedDay)}}
-      + days{1};
-  const auto dayStart = dayEnd - days{1};
-  // Local midnight: shift by the zone offset so "the selected day" matches the grid.
-  const auto offset = current_zone()->get_info(system_clock::now()).offset;
-  const auto localStart = dayStart - offset;
-  const auto localEnd = dayEnd - offset;
+  // Same day keys as the list (calendar_view::eventDayRange): local days, DST-safe, all-day aware.
+  const int selectedKey = calendar_view::dateKey({.year = m_selectedYear, .month = m_selectedMonth, .day = m_selectedDay});
   const CalendarEvent* next = nullptr;
   bool dayHasEvents = false;
   for (const CalendarEvent& event : m_calendar->snapshot().events) {
-    if (event.start < localEnd && event.end > localStart) {
+    const auto [first, last] = calendar_view::eventDayRange(event);
+    if (first <= selectedKey && selectedKey <= last) {
       dayHasEvents = true;
       break;
     }
-    if (event.start >= localEnd && (next == nullptr || event.start < next->start)) {
+    if (first > selectedKey && (next == nullptr || event.start < next->start)) {
       next = &event;
     }
   }
