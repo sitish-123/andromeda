@@ -1,0 +1,15 @@
+diff --git a/alloc.c b/alloc.c
+--- a/alloc.c
++++ b/alloc.c
+@@ -1026,7 +1026,10 @@
+ 	update_layers_priority(device);
+ 	update_layers_fb_info(output);
+ 
+-	ret = reuse_previous_alloc(output, req, flags);
++	/* A modeset changes the CRTC, so the previous allocation may hold no
++	 * plane for a layer that has one now (CRTC turned back on). */
++	ret = (flags & DRM_MODE_ATOMIC_ALLOW_MODESET) ? -EINVAL :
++		reuse_previous_alloc(output, req, flags);
+ 	if (ret == 0) {
+ 		log_reuse(output);
+ 		mark_layers_clean(output);

@@ -4,7 +4,8 @@ revision = v0.5.0
 depth = 1
 # Leaves a plane out of a commit when its layer did not change since the last real commit (the cursor plane), and an
 # unused plane that is already off (else xe answers EBUSY right after the page-flip event).
-diff_files = libliftoff-skip-unchanged-planes.patch
+# Allocates planes again on every modeset: a reused allocation from the power-off commit left the CRTC with no plane.
+diff_files = libliftoff-skip-unchanged-planes.patch, libliftoff-realloc-on-modeset.patch
 
 [provide]
 dependency_names = libliftoff
