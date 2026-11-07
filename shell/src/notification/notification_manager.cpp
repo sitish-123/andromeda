@@ -74,8 +74,9 @@ namespace {
         && notification.sender == sender;
   }
 
-  bool shouldTrackHistory(NotificationOrigin origin, Urgency urgency, bool transient, bool persistInHistory) noexcept {
-    return (origin == NotificationOrigin::External || persistInHistory) && urgency != Urgency::Low && !transient;
+  bool shouldTrackHistory(NotificationOrigin origin, Urgency /*urgency*/, bool transient, bool persistInHistory) noexcept {
+    // Low urgency is kept (user, 2026-11-07: downloads, updates and some chat apps send low); transient stays out.
+    return (origin == NotificationOrigin::External || persistInHistory) && !transient;
   }
 
   bool shouldSaveNotificationToHistory(

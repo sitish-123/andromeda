@@ -57,9 +57,9 @@ int main() {
   ok =
       check(historyContains(manager, "calendar-reminder"), "an opted-in internal notification was not persisted") && ok;
 
-  // Low urgency is excluded from history unconditionally, opt-in or not.
+  // Low urgency is kept in history like normal urgency.
   (void)addInternal("low-urgency", true, Urgency::Low);
-  ok = check(!historyContains(manager, "low-urgency"), "a low urgency notification was persisted") && ok;
+  ok = check(historyContains(manager, "low-urgency"), "a low urgency notification was not persisted") && ok;
 
   // Calendar reminders emit timeout 0, which must mean "never expires" so they survive the user
   // stepping away from the desk.
