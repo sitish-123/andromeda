@@ -642,10 +642,10 @@ namespace andromeda {
       if (blur->alpha != level) {
         wlr_scene_blur_set_alpha(blur, level);
       }
-      // A full-screen backdrop follows the slider's blur strength only: no rim or lens on the screen edge.
-      const float strength = level * configGlass(glass::Kind::Sheet).blurStrength;
-      if (blur->strength != strength) {
-        wlr_scene_blur_set_strength(blur, strength);
+      // Full strength samples the cached wallpaper blur (one re-render per change, not one per frame); a strength
+      // below 1 re-blurs the whole output live on every frame of the open. The open fades the blur in by alpha.
+      if (blur->strength != 1.0F) {
+        wlr_scene_blur_set_strength(blur, 1.0F);
       }
     }
 
