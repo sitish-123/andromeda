@@ -1,7 +1,8 @@
 diff --git a/alloc.c b/alloc.c
+index 241f8d7..d0b71f2 100644
 --- a/alloc.c
 +++ b/alloc.c
-@@ -865,6 +865,27 @@
+@@ -865,6 +865,28 @@ update_layers_order(struct liftoff_output *output)
  	return order_changed;
  }
  
@@ -19,7 +20,8 @@ diff --git a/alloc.c b/alloc.c
 +		return false;
 +	}
 +	liftoff_list_for_each(layer, &output->layers, link) {
-+		if (layer->plane == NULL && layer_is_visible(layer)) {
++		if (layer != output->composition_layer &&
++		    layer->plane == NULL && layer_is_visible(layer)) {
 +			return true;
 +		}
 +	}
@@ -29,7 +31,7 @@ diff --git a/alloc.c b/alloc.c
  static int
  reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
  		     uint32_t flags)
-@@ -890,6 +911,12 @@
+@@ -890,6 +912,12 @@ reuse_previous_alloc(struct liftoff_output *output, drmModeAtomicReq *req,
  		}
  	}
  
