@@ -59,6 +59,8 @@ public:
   void cleanup();
 
   void setFontFamily(std::string family);
+  // Multiplies every text size (accessibility text_scale); symbols drawn by the glyph renderer keep their size.
+  void setTextScale(float scale);
   void setBaseDirection(bool rtl);
   void notifyFontConfigChanged();
 
@@ -246,6 +248,7 @@ private:
 
   MetricsMap m_metricsCache;
   mutable FontMetricsMap m_fontMetricsCache;
+  float m_textScale = 1.0F;
   bool m_caching = true;
   std::list<CacheEntry> m_transient;
 

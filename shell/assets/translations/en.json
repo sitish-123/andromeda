@@ -2988,9 +2988,13 @@
           "description": "Choose Dark, Light, or Auto based on time of day; also applies to apps through templates",
           "label": "Theme Mode"
         },
+        "text-scale": {
+          "description": "Make text larger or smaller; icons and spacing keep their size",
+          "label": "Text Size"
+        },
         "ui-scale": {
           "description": "Scale the entire interface up or down",
-          "label": "Text Size"
+          "label": "Interface Size"
         },
         "wallpaper-generation-scheme": {
           "description": "Choose how wallpaper colors are converted into a palette",

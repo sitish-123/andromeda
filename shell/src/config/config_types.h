@@ -1949,6 +1949,7 @@ struct PluginsConfig {
 
 struct AccessibilityConfig {
   float uiScale = 1.0F;
+  float textScale = 1.05F; // text only; ui_scale scales the whole interface
   bool highContrast = false;
   bool operator==(const AccessibilityConfig&) const = default;
 };

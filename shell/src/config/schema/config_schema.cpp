@@ -3986,13 +3986,23 @@ namespace noctalia::config::schema {
   const Schema<AccessibilityConfig>& accessibilitySchema() {
     static const Schema<AccessibilityConfig> s = {
         field(
-            &AccessibilityConfig::uiScale, "ui_scale", kScaleRange,
+            &AccessibilityConfig::textScale, "text_scale", kTextScaleRange,
+            RowSpec{
+                .kind = RowSpec::Kind::Slider,
+                .section = "text-scale",
+                .group = "accessibility",
+                .label = "appearance.text-scale",
+                .tags = "size font text larger smaller",
+            }
+        ),
+        field(
+            &AccessibilityConfig::uiScale, "ui_scale", kUiScaleRange,
             RowSpec{
                 .kind = RowSpec::Kind::Slider,
                 .section = "text-scale",
                 .group = "accessibility",
                 .label = "appearance.ui-scale",
-                .tags = "size scale text panels",
+                .tags = "size scale interface zoom panels",
             }
         ),
         field(&AccessibilityConfig::highContrast, "high_contrast"),

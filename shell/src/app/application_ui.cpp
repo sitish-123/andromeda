@@ -199,6 +199,7 @@ void Application::initUiRenderSurfacesAndSettings() {
     m_asyncTextureCache.setMakeCurrentCallback([this] { m_renderContext.backend().makeCurrentNoSurface(); });
   }
   m_renderContext.setTextFontFamily(m_configService.config().shell.fontFamily);
+  m_renderContext.setTextScale(m_configService.config().accessibility.textScale);
   Style::setRtl(i18n::Service::instance().rtl());
   m_renderContext.setTextBaseDirection(i18n::Service::instance().rtl());
   m_wallpaper.initialize(m_wayland, &m_configService, &m_renderContext, &m_sharedTextureCache, &m_themeService);
@@ -1320,16 +1321,20 @@ void Application::initWidgetControllersAndCallbacks() {
   m_iconThemePollSource.setChangeCallback([this] { onIconThemeChanged(); });
 
   std::string lastShellFontFamily = m_configService.config().shell.fontFamily;
+  float lastTextScale = m_configService.config().accessibility.textScale;
   m_configService.addReloadCallback(
-      [this, lastShellFontFamily] mutable {
+      [this, lastShellFontFamily, lastTextScale] mutable {
         const std::string& newShellFontFamily = m_configService.config().shell.fontFamily;
-        if (newShellFontFamily == lastShellFontFamily) {
+        const float newTextScale = m_configService.config().accessibility.textScale;
+        if (newShellFontFamily == lastShellFontFamily && newTextScale == lastTextScale) {
           return;
         }
 
         lastShellFontFamily = newShellFontFamily;
+        lastTextScale = newTextScale;
         text::invalidateFontWeightCatalogCache();
         m_renderContext.setTextFontFamily(newShellFontFamily);
+        m_renderContext.setTextScale(newTextScale);
         m_bar.reload();
         m_dock.requestLayout();
         m_desktopWidgetsController.requestLayout();

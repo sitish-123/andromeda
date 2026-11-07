@@ -288,6 +288,12 @@ void RenderContext::setTextFontFamily(std::string family) {
   ++m_textMetricsGeneration;
 }
 
+void RenderContext::setTextScale(float scale) {
+  makeCurrentNoSurface();
+  m_textRenderer.setTextScale(scale);
+  ++m_textMetricsGeneration;
+}
+
 void RenderContext::setTextBaseDirection(bool rtl) {
   if (m_textBaseDirRtl == rtl) {
     return;

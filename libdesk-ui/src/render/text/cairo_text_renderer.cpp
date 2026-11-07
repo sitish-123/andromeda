@@ -360,6 +360,14 @@ void CairoTextRenderer::setFontFamily(std::string family) {
   clearCaches();
 }
 
+void CairoTextRenderer::setTextScale(float scale) {
+  if (m_textScale == scale) {
+    return;
+  }
+  m_textScale = scale;
+  clearCaches();
+}
+
 void CairoTextRenderer::setBaseDirection(bool rtl) {
   if (m_baseDirRtl == rtl) {
     return;
@@ -536,6 +544,7 @@ CairoTextRenderer::TextMetrics CairoTextRenderer::measure(
     float contentScale, std::string_view text, float fontSize, const TextFont& font, float maxWidth, int maxLines,
     TextAlign align, TextEllipsize ellipsize, bool useMarkup
 ) {
+  fontSize *= m_textScale;
   maybeSyncFontConfig();
   if (m_pangoContext == nullptr || text.empty()) {
     return {};
@@ -578,6 +587,7 @@ CairoTextRenderer::TextMetrics CairoTextRenderer::measure(
 
 CairoTextRenderer::TextMetrics
 CairoTextRenderer::measureFont(float contentScale, float fontSize, const TextFont& font) const {
+  fontSize *= m_textScale;
   if (m_pangoContext == nullptr) {
     return {};
   }
@@ -643,6 +653,7 @@ void CairoTextRenderer::measureCursorStops(
     float contentScale, std::string_view text, float fontSize, const std::vector<std::size_t>& byteOffsets,
     std::vector<float>& outStops, const TextFont& font
 ) {
+  fontSize *= m_textScale;
   maybeSyncFontConfig();
   outStops.clear();
   outStops.reserve(byteOffsets.size());
@@ -676,6 +687,7 @@ void CairoTextRenderer::measureCursorStopsWrapped(
     float contentScale, std::string_view text, float fontSize, const std::vector<std::size_t>& byteOffsets,
     float maxWidth, std::vector<TextCursorStop>& outStops, const TextFont& font
 ) {
+  fontSize *= m_textScale;
   maybeSyncFontConfig();
   outStops.clear();
   outStops.reserve(byteOffsets.size());
@@ -718,6 +730,7 @@ void CairoTextRenderer::measureCharSpans(
     float contentScale, std::string_view text, float fontSize, const std::vector<std::size_t>& byteOffsets,
     std::vector<TextCharSpan>& outSpans, const TextFont& font
 ) {
+  fontSize *= m_textScale;
   maybeSyncFontConfig();
   outSpans.clear();
   if (m_pangoContext == nullptr || text.empty() || byteOffsets.size() < 2) {
@@ -1025,6 +1038,7 @@ void CairoTextRenderer::evictIfNeeded() {
 
 TextAlphaRaster
 CairoTextRenderer::rasterizeAlpha(float contentScale, std::string_view text, float fontSize, const TextFont& font) {
+  fontSize *= m_textScale;
   TextAlphaRaster out;
   if (text.empty() || fontSize <= 0.0F || contentScale <= 0.0F) {
     return out;
@@ -1173,6 +1187,7 @@ void CairoTextRenderer::draw(
     float fontSize, const Color& color, const Mat3& transform, const TextFont& font, float maxWidth, int maxLines,
     TextAlign align, TextEllipsize ellipsize, bool useMarkup
 ) {
+  fontSize *= m_textScale;
   maybeSyncFontConfig();
   if (m_pangoContext == nullptr || m_backend == nullptr || text.empty()) {
     return;

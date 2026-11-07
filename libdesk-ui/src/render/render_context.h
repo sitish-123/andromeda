@@ -47,6 +47,7 @@ public:
   // See RenderBackend::readPixels.
   bool readPixels(RenderTarget& target, std::span<std::uint8_t> rgba);
   void setTextFontFamily(std::string family);
+  void setTextScale(float scale);
   void setTextBaseDirection(bool rtl);
   void notifyFontConfigChanged();
 

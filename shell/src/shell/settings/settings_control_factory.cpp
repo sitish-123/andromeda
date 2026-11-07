@@ -382,6 +382,16 @@ namespace settings {
 
   } // namespace
 
+  namespace {
+    // The title takes the width the control leaves and wraps, so large text never runs under the control.
+    template <typename T> std::unique_ptr<T> fittedTitle(std::unique_ptr<T> title) {
+      title->setFlexGrow(1.0F);
+      title->setMaxLines(2);
+      title->setEllipsize(TextEllipsize::End);
+      return title;
+    }
+  } // namespace
+
   void SettingsControlFactory::makeRow(Flex& section, const SettingEntry& entry, std::unique_ptr<Node> control) {
     auto& ctx = m_ctx;
     const float scale = m_scale;
@@ -402,9 +412,9 @@ namespace settings {
         .gap = Style::spaceSm * scale,
         .fillWidth = true,
     });
-    titleRow->addChild(
+    titleRow->addChild(fittedTitle(
         makeLabel(entry.title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
-    );
+    ));
     if (monitorExplicit) {
       titleRow->addChild(makeStatusBadge(
           i18n::tr("settings.badges.monitor"), colorSpecFromRole(ColorRole::Fill1),
@@ -416,7 +426,6 @@ namespace settings {
           colorSpecFromRole(ColorRole::Label2), false
       ));
     }
-    titleRow->addChild(ui::spacer());
 
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
     if (overridden) {
@@ -454,10 +463,9 @@ namespace settings {
       std::string_view title, std::unique_ptr<Node> control, float scale, std::string_view subtitle
   ) {
     auto titleRow = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale, .fillWidth = true});
-    titleRow->addChild(
+    titleRow->addChild(fittedTitle(
         makeLabel(title, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1), FontWeight::Medium)
-    );
-    titleRow->addChild(ui::spacer());
+    ));
     auto actions = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
     actions->addChild(std::move(control));
     return layoutRow(std::move(titleRow), subtitle, true, std::move(actions), scale);
@@ -890,8 +898,10 @@ namespace settings {
       wrap->addChild(std::move(invert));
     }
     std::pair<std::string, std::string> ends;
-    if (joined == "accessibility.ui_scale") {
+    if (joined == "accessibility.text_scale") {
       ends = {"A", "A"};
+    } else if (joined == "accessibility.ui_scale") {
+      ends = {i18n::tr("settings.sliders.small"), i18n::tr("settings.sliders.large")};
     } else if (glassDetent) {
       ends = {i18n::tr("settings.sliders.clear"), i18n::tr("settings.sliders.frosted")};
     } else if (joined == "dock.icon_size") {

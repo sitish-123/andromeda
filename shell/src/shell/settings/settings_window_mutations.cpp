@@ -27,7 +27,7 @@ namespace {
           || path[1] == "settings_window_translucent";
     }
     if (path.size() == 2 && path[0] == "accessibility") {
-      return path[1] == "ui_scale";
+      return path[1] == "ui_scale" || path[1] == "text_scale";
     }
     return false;
   }

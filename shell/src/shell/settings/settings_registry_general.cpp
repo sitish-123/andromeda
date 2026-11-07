@@ -178,6 +178,7 @@ namespace settings {
     appendRow(entries, shellRows, "show_close_buttons");
     auto accessibilityRows =
         generateSchemaEntries(noctalia::config::schema::accessibilitySchema(), cfg.accessibility, {"accessibility"});
+    appendRow(entries, accessibilityRows, "text_scale");
     appendRow(entries, accessibilityRows, "ui_scale");
     // On andromeda the compositor's appearance.increase_contrast row replaces this one.
     if (env.compositorSettings == nullptr) {
