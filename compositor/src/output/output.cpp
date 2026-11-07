@@ -1898,10 +1898,14 @@ namespace andromeda {
 
   void Output::onBackgroundUpdate(Output* self, void* data) {
     self->markBlurBackgroundDirty(static_cast<wlr_scene_node*>(data));
-    // The shell's wallpaper is up: give the bar 300 ms to join, then cross.
-    if (self->m_heldFrame != nullptr && !self->m_heldFrameGated) {
-      self->m_heldFrameGated = true;
-      wl_event_source_timer_update(self->m_heldFrameTimer, 300);
+  }
+
+  void Output::backgroundMapped() {
+    // The wallpaper maps with its first decoded frame (an unmapped surface already updates the background tree): give
+    // the bar 300 ms to join, then cross.
+    if (m_heldFrame != nullptr && !m_heldFrameGated) {
+      m_heldFrameGated = true;
+      wl_event_source_timer_update(m_heldFrameTimer, 300);
     }
   }
 

@@ -1208,6 +1208,7 @@ namespace andromeda {
       out->markDirty(Dirty::LayerArrange);
       if (m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
         out->markBlurBackgroundDirty(&m_scene->tree->node);
+        out->backgroundMapped();
       }
     }
     // Protocol requires focus for exclusive. On-demand layers also take it as they map: launchers,

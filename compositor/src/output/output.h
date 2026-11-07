@@ -212,6 +212,8 @@ namespace andromeda {
     void markBlurBackgroundDirty(const wlr_box& box);
     // The node's drawn bounds now and at its previous call; a destroyed or hidden node marks only the previous ones.
     void markBlurBackgroundDirty(wlr_scene_node* node);
+    // A background layer surface mapped: the login held frame crosses to the session 300 ms later.
+    void backgroundMapped();
     [[nodiscard]] size_t blurNodeCount() const { return m_blurNodeBoxes.size(); }
     void scheduleFullFrame();
     // Commit this custom mode and arrange around it. `refreshMHz` paces frames; 0 keeps the backend's default.
