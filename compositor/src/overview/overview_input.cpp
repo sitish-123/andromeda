@@ -250,6 +250,18 @@ namespace andromeda {
       m_middleScrolling = false;
       return true;
     }
+    if (windowMenuPress(lx, ly)) {
+      m_pressCard = nullptr;
+      m_pressWorkspace = nullptr;
+      return true;
+    }
+    if (button == BTN_RIGHT) {
+      if (card != nullptr && card->view != nullptr && card->view->mapped()) {
+        setMenu(std::nullopt);
+        openWindowMenu(*card, lx, ly);
+      }
+      return true;
+    }
     if (button != BTN_LEFT) {
       return true;
     }
@@ -562,7 +574,163 @@ namespace andromeda {
     }
   }
 
+  void Overview::openWindowMenu(const Card& card, double lx, double ly) {
+    const Workspace* source = card.view->workspace();
+    WorkspaceGroup* group = source != nullptr ? source->group() : nullptr;
+    if (group == nullptr || group->output() == nullptr) {
+      return;
+    }
+    WindowMenu menu{
+        .output = group->output(),
+        .view = card.view,
+        .x = static_cast<int>(std::lround(lx)),
+        .y = static_cast<int>(std::lround(ly)),
+        .hovered = -1,
+        .rows = {},
+        .targets = {},
+    };
+    for (size_t index = 0; index < group->workspaceCount(); ++index) {
+      Workspace* workspace = group->workspaceAt(index);
+      if (workspace == nullptr || workspace == source) {
+        continue;
+      }
+      const bool named = workspace->named() || workspace->displayName() != workspace->name();
+      menu.rows.push_back(
+          named ? std::format("Move to {}", workspace->displayName())
+                : std::format("Move to Desktop {}", workspace->displayName())
+      );
+      menu.targets.emplace_back(workspace);
+    }
+    menu.rows.emplace_back("Move to New Desktop");
+    menu.targets.emplace_back(nullptr);
+    menu.rows.emplace_back("Close");
+    menu.rows.emplace_back("Close All on This Desktop");
+    setWindowMenu(std::move(menu));
+  }
+
+  void Overview::setWindowMenu(std::optional<WindowMenu> menu) {
+    m_windowMenu = std::move(menu);
+    const View* liveTarget = liveTargetView();
+    for (const auto& state : m_outputs) {
+      layoutChrome(*state, liveTarget);
+    }
+  }
+
+  void Overview::applyWindowMenuRow(int row) {
+    WindowMenu menu = std::move(*m_windowMenu);
+    setWindowMenu(std::nullopt);
+    View* view = menu.view.get();
+    if (view == nullptr || !view->mapped() || row < 0) {
+      return;
+    }
+    const auto index = static_cast<size_t>(row);
+    if (index < menu.targets.size()) {
+      Workspace* target = menu.targets[index].get();
+      if (target == nullptr) {
+        WorkspaceGroup* group = view->workspace() != nullptr ? view->workspace()->group() : nullptr;
+        target = group != nullptr ? group->insertDynamicWorkspace(group->workspaceCount()) : nullptr;
+      }
+      if (target != nullptr && target != view->workspace()) {
+        if (view->floating()) {
+          view->rememberFloatingPosition();
+        }
+        view->moveToWorkspace(target, true, LayoutAttachOrigin::MovedView);
+        if (!view->tiled()) {
+          target->exitFullscreenForIncomingView(view);
+        }
+        if (view->floating()) {
+          view->restoreFloatingPosition();
+        }
+      }
+      return;
+    }
+    if (index == menu.targets.size()) {
+      view->requestClose();
+      return;
+    }
+    Workspace* workspace = view->workspace();
+    const OutputState* state = workspace != nullptr ? stateForWorkspace(workspace) : nullptr;
+    if (state != nullptr) {
+      // Collected first: a close can unmap at once and change the card list.
+      std::vector<Ref<View>> closing;
+      for (const auto& card : state->cards) {
+        if (card->view != nullptr && card->view->workspace() == workspace) {
+          closing.emplace_back(card->view);
+        }
+      }
+      for (const Ref<View>& each : closing) {
+        if (each.get() != nullptr && each->mapped()) {
+          each->requestClose();
+        }
+      }
+    }
+  }
+
+  bool Overview::windowMenuPress(double lx, double ly) {
+    if (!m_windowMenu.has_value()) {
+      return false;
+    }
+    for (const auto& state : m_outputs) {
+      if (state->output != m_windowMenu->output || state->chrome == nullptr) {
+        continue;
+      }
+      if (const int row = state->chrome->windowMenuRowAt(lx, ly); row >= 0) {
+        applyWindowMenuRow(row);
+        return true;
+      }
+      if (state->chrome->windowMenuContains(lx, ly)) {
+        return true;
+      }
+    }
+    // A press outside the menu only closes it, the way a popup menu does.
+    setWindowMenu(std::nullopt);
+    return true;
+  }
+
+  bool Overview::windowMenuKey(uint32_t keysym) {
+    if (!m_windowMenu.has_value()) {
+      return false;
+    }
+    const auto rows = static_cast<int>(m_windowMenu->rows.size());
+    WindowMenu menu = *m_windowMenu;
+    switch (keysym) {
+    case XKB_KEY_Escape:
+      setWindowMenu(std::nullopt);
+      break;
+    case XKB_KEY_Up:
+      menu.hovered = menu.hovered <= 0 ? rows - 1 : menu.hovered - 1;
+      setWindowMenu(std::move(menu));
+      break;
+    case XKB_KEY_Down:
+      menu.hovered = (menu.hovered + 1) % rows;
+      setWindowMenu(std::move(menu));
+      break;
+    case XKB_KEY_Return:
+    case XKB_KEY_KP_Enter:
+      if (menu.hovered >= 0) {
+        applyWindowMenuRow(menu.hovered);
+      }
+      break;
+    default:
+      break;
+    }
+    return true;
+  }
+
   void Overview::updateHover(double lx, double ly) {
+    if (m_windowMenu.has_value()) {
+      int row = -1;
+      for (const auto& state : m_outputs) {
+        if (state->output == m_windowMenu->output && state->chrome != nullptr) {
+          row = state->chrome->windowMenuRowAt(lx, ly);
+        }
+      }
+      if (row != m_windowMenu->hovered) {
+        WindowMenu menu = *m_windowMenu;
+        menu.hovered = row;
+        setWindowMenu(std::move(menu));
+      }
+    }
     if (m_menu.has_value()) {
       int row = -1;
       for (const auto& state : m_outputs) {
@@ -1089,7 +1257,7 @@ namespace andromeda {
     if (!interactive()) {
       return false;
     }
-    if (renameKey(keysym) || menuKey(keysym)) {
+    if (renameKey(keysym) || windowMenuKey(keysym) || menuKey(keysym)) {
       return true;
     }
     if (keysym == XKB_KEY_F2) {

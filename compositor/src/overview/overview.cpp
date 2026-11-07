@@ -594,11 +594,22 @@ namespace andromeda {
     }
     const WorkspaceGroup* group = state.output->workspaceGroup();
     m_chromeWorkspaces.clear();
+    // Every name is built before any view into the list is taken, so no view outlives a reallocation.
+    m_chromeNames.resize(state.workspaceViews.size());
+    for (size_t index = 0; index < state.workspaceViews.size(); ++index) {
+      const Workspace* workspace = group != nullptr ? group->workspaceAt(index) : nullptr;
+      m_chromeNames[index].clear();
+      if (workspace != nullptr) {
+        // An unnamed workspace reads "Desktop 2", not a bare "2" (macOS, Windows).
+        const bool named = workspace->named() || workspace->displayName() != workspace->name();
+        m_chromeNames[index] = named ? workspace->displayName() : std::format("Desktop {}", workspace->displayName());
+      }
+    }
     for (size_t index = 0; index < state.workspaceViews.size(); ++index) {
       const WorkspaceView& view = state.workspaceViews[index];
       const Workspace* workspace = group != nullptr ? group->workspaceAt(index) : nullptr;
       m_chromeWorkspaces.push_back({
-          .name = workspace != nullptr ? std::string_view(workspace->displayName()) : std::string_view(),
+          .name = m_chromeNames[index],
           .arrangement = workspace != nullptr ? arrangementLabel(workspace->layoutMode()) : std::string_view(),
           .card = view.box,
           .kind = view.kind,
@@ -658,6 +669,16 @@ namespace andromeda {
           .current = row != kMenuModes.end() ? static_cast<int>(row - kMenuModes.begin()) : -1,
       };
     }
+    std::optional<ov::ChromeWindowMenu> windowMenu;
+    if (m_windowMenu.has_value() && m_windowMenu->output == state.output) {
+      windowMenu = ov::ChromeWindowMenu{
+          .x = m_windowMenu->x,
+          .y = m_windowMenu->y,
+          .rows = m_windowMenu->rows,
+          .hovered = m_windowMenu->hovered,
+          .dangerFrom = static_cast<int>(m_windowMenu->rows.size()) - 1,
+      };
+    }
     const size_t current = m_chromeWorkspaces.empty()
         ? 0
         : static_cast<size_t>(
@@ -678,6 +699,7 @@ namespace andromeda {
         .hovered = m_hoverView,
         .closeHovered = m_closeHover,
         .menu = menu,
+        .windowMenu = windowMenu,
         .renaming = m_rename.has_value() && group != nullptr && m_rename->workspace.get() == group->workspaceAt(current)
             ? std::optional<std::string_view>(m_rename->text)
             : std::nullopt,

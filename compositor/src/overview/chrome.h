@@ -52,6 +52,15 @@ namespace andromeda::ov {
     int current = -1;
   };
 
+  // The window menu, open at the pointer over a window card (right-click). Rows from `dangerFrom` on are destructive.
+  struct ChromeWindowMenu {
+    int x = 0; // layout coordinates of the press
+    int y = 0;
+    std::span<const std::string> rows;
+    int hovered = -1;
+    int dangerFrom = -1;
+  };
+
   struct ChromeFrame {
     Style style = Style::Spaces;
     double progress = 0;
@@ -67,6 +76,7 @@ namespace andromeda::ov {
     const void* hovered = nullptr; // the window card under the pointer; it shows its title and close button
     bool closeHovered = false;     // the pointer is on that close button
     std::optional<ChromeMenu> menu;
+    std::optional<ChromeWindowMenu> windowMenu;
     std::optional<std::string_view> renaming; // the title row's name being typed (F2), drawn as a text field
   };
 
@@ -90,6 +100,9 @@ namespace andromeda::ov {
     // The open menu's row under the point, or -1; menuContains covers its whole panel.
     [[nodiscard]] int menuRowAt(double lx, double ly) const;
     [[nodiscard]] bool menuContains(double lx, double ly) const;
+    // The same for the window menu.
+    [[nodiscard]] int windowMenuRowAt(double lx, double ly) const;
+    [[nodiscard]] bool windowMenuContains(double lx, double ly) const;
     // True when the point is on the title row's workspace name.
     [[nodiscard]] bool titleAt(double lx, double ly) const;
 
@@ -157,6 +170,11 @@ namespace andromeda::ov {
     std::array<std::array<Frame, 4>, kMenuRows> m_menuArt; // each row's drawing, up to four blocks
     std::array<wlr_box, kMenuRows> m_menuRowBoxes{};
     std::optional<wlr_box> m_menuBox;
+    Frame m_windowMenu;
+    Frame m_windowMenuHover;
+    std::vector<Label> m_windowMenuLabels;
+    std::vector<wlr_box> m_windowMenuRows;
+    std::optional<wlr_box> m_windowMenuBox;
     std::optional<wlr_box> m_titleBox;
     Frame m_titleRing; // accent ring around the name while it is renamed
   };

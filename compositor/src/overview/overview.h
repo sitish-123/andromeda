@@ -364,6 +364,23 @@ namespace andromeda {
     bool menuPress(double lx, double ly);
     bool menuKey(uint32_t keysym);
     void setMenu(std::optional<ArrangementMenu> menu);
+    // Right-click window menu: Move to each other workspace, Move to New Desktop, Close, Close All on its workspace.
+    struct WindowMenu {
+      const Output* output = nullptr;
+      Ref<View> view;
+      int x = 0;
+      int y = 0;
+      int hovered = -1;
+      std::vector<std::string> rows;
+      // Row i < targets.size() moves the window there; a null target is a new workspace.
+      std::vector<Ref<Workspace>> targets;
+    };
+    void openWindowMenu(const Card& card, double lx, double ly);
+    void setWindowMenu(std::optional<WindowMenu> menu);
+    void applyWindowMenuRow(int row);
+    // Steers the open window menu; false when none is open.
+    bool windowMenuPress(double lx, double ly);
+    bool windowMenuKey(uint32_t keysym);
     void applyMenuRow(int row);
     void startRename();
     bool renameKey(uint32_t keysym);
@@ -489,6 +506,7 @@ namespace andromeda {
     // layout coordinates before the open progress, so a card rebuilt or dropped on another output still glides.
     // Scratch lists layoutChrome refills every frame, kept to avoid reallocating them.
     std::vector<ov::ChromeWorkspace> m_chromeWorkspaces;
+    std::vector<std::string> m_chromeNames; // owns the names m_chromeWorkspaces views
     std::vector<ov::ChromeWindow> m_chromeWindows;
     AnimatedValue m_reflow{1.0};
     std::unordered_map<const void*, ov::Rect> m_shownRects;
@@ -512,6 +530,7 @@ namespace andromeda {
     // The window whose close button a left press landed on; a release on the same button closes it.
     const View* m_closePress = nullptr;
     std::optional<ArrangementMenu> m_menu;
+    std::optional<WindowMenu> m_windowMenu;
     // F2 rename of the title row's workspace: the text so far; `fresh` until the first key, which replaces the name.
     struct Rename {
       Ref<Workspace> workspace;

@@ -39,6 +39,8 @@ namespace andromeda::ov {
     constexpr int kMenuRadius = 14;
     constexpr int kMenuArtWidth = 44;
     constexpr int kMenuArtHeight = 28;
+    constexpr int kWindowMenuWidth = 240;
+    constexpr int kWindowMenuRowHeight = 32;
 
     // One block of a row's drawing, in its 44 x 28 box (prototype MODE_SVG, cut to the box).
     struct ArtBlock {
@@ -132,6 +134,22 @@ namespace andromeda::ov {
   bool Chrome::titleAt(double lx, double ly) const { return m_titleBox.has_value() && boxHolds(*m_titleBox, lx, ly); }
 
   bool Chrome::menuContains(double lx, double ly) const { return m_menuBox.has_value() && boxHolds(*m_menuBox, lx, ly); }
+
+  int Chrome::windowMenuRowAt(double lx, double ly) const {
+    if (!m_windowMenuBox.has_value()) {
+      return -1;
+    }
+    for (size_t row = 0; row < m_windowMenuRows.size(); ++row) {
+      if (boxHolds(m_windowMenuRows[row], lx, ly)) {
+        return static_cast<int>(row);
+      }
+    }
+    return -1;
+  }
+
+  bool Chrome::windowMenuContains(double lx, double ly) const {
+    return m_windowMenuBox.has_value() && boxHolds(*m_windowMenuBox, lx, ly);
+  }
 
   void Chrome::setLabel(Label& label, const std::string& markup, const LabelStyle& style, double scale) {
     label.used = true;
@@ -598,6 +616,56 @@ namespace andromeda::ov {
           placeFrame(art, {}, 0, 0, {}, {}, 0.0F);
         }
       }
+    }
+
+    // Window menu: plain text rows at the pointer, kept on the output; same panel look as the arrangement menu.
+    m_windowMenuBox.reset();
+    const size_t windowRows = frame.windowMenu.has_value() ? frame.windowMenu->rows.size() : 0;
+    if (m_windowMenuLabels.size() < windowRows) {
+      m_windowMenuLabels.resize(windowRows);
+      m_windowMenuRows.resize(windowRows);
+    }
+    if (windowRows > 0) {
+      const ChromeWindowMenu& wm = *frame.windowMenu;
+      const int height = 2 * kMenuPad + static_cast<int>(windowRows) * kWindowMenuRowHeight;
+      const int x = std::clamp(
+          wm.x, frame.output.x + kMenuPad, frame.output.x + frame.output.width - kMenuPad - kWindowMenuWidth
+      );
+      const int y =
+          std::clamp(wm.y, frame.output.y + kMenuPad, frame.output.y + frame.output.height - kMenuPad - height);
+      m_windowMenuBox = wlr_box{x, y, kWindowMenuWidth, height};
+      placeFrame(
+          m_windowMenu, *m_windowMenuBox, kMenuRadius, 1, withAlpha(colors.background, 0.97F), withAlpha(l1, 0.1F), 1.0F
+      );
+      raise(m_windowMenu.tree);
+      for (size_t row = 0; row < windowRows; ++row) {
+        const wlr_box box{
+            x + kMenuPad, y + kMenuPad + static_cast<int>(row) * kWindowMenuRowHeight, kWindowMenuWidth - 2 * kMenuPad,
+            kWindowMenuRowHeight
+        };
+        m_windowMenuRows[row] = box;
+        if (static_cast<int>(row) == wm.hovered) {
+          placeFrame(m_windowMenuHover, box, 8, 1, withAlpha(l1, 0.08F), {}, 1.0F);
+          raise(m_windowMenuHover.tree);
+        }
+        const bool danger = wm.dangerFrom >= 0 && static_cast<int>(row) >= wm.dangerFrom;
+        Label& label = m_windowMenuLabels[row];
+        setLabel(
+            label, span(danger ? colors.error : l1, "normal", wm.rows[row]),
+            {.font = "sans 9.75", .maxWidth = kWindowMenuWidth - 2 * kMenuPad - 24}, scale
+        );
+        placeLabel(label, box.x + 12, box.y + (kWindowMenuRowHeight - label.height) / 2, 1.0F);
+        raise(label.tree);
+      }
+    }
+    if (!m_windowMenuBox.has_value() || frame.windowMenu->hovered < 0) {
+      placeFrame(m_windowMenuHover, {}, 0, 0, {}, {}, 0.0F);
+    }
+    if (!m_windowMenuBox.has_value()) {
+      placeFrame(m_windowMenu, {}, 0, 0, {}, {}, 0.0F);
+    }
+    for (size_t row = windowRows; row < m_windowMenuLabels.size(); ++row) {
+      placeLabel(m_windowMenuLabels[row], 0, 0, 0.0F);
     }
 
     for (auto it = m_titles.begin(); it != m_titles.end();) {
