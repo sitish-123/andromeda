@@ -1,0 +1,219 @@
+From a00d617565ebb05711f353bc1f29d94d4bf03f00 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 14:59:19 +0545
+Subject: [PATCH] context: hand-off starts the session on its VT without
+ switching; the hand-off socket takes "switch" (greetd activates the VT once
+ the compositor holds the DRM device, so logind moves master in one step) and
+ "ready" (retire the greeter); a line-less connection is ready, 3 s switch
+ fallback
+
+---
+ greetd/src/context.rs      | 109 ++++++++++++++++++++++++++++++++-----
+ greetd/src/terminal/mod.rs |   2 +-
+ 2 files changed, 96 insertions(+), 15 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 2cc7910..50aaa3b 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -31,6 +31,8 @@ struct SessionSet {
+     session: Session,
+     time: Instant,
+     user: String,
++    /// Hand-off: the session's VT, which greetd activates when the session asks for it.
++    vt: Option<usize>,
+ }
+ 
+ struct ContextInner {
+@@ -91,8 +93,8 @@ impl Context {
+         }
+     }
+ 
+-    /// The terminal of a user session. With hand-off, a free VT in graphics mode, so the greeter keeps its VT and
+-    /// its frame on screen until the session's compositor takes over.
++    /// The terminal of a user session. With hand-off, a free VT in graphics mode that greetd activates only when the
++    /// session's compositor asks (`retire_on_ready`), so the greeter keeps its VT and frame on screen until then.
+     fn user_term_mode(&self) -> Result<TerminalMode, Error> {
+         match (&self.term_mode, self.handoff) {
+             (TerminalMode::Terminal { .. }, true) => {
+@@ -102,7 +104,7 @@ impl Context {
+                 Ok(TerminalMode::Terminal {
+                     path: format!("/dev/tty{vt}"),
+                     vt,
+-                    switch: true,
++                    switch: false,
+                     graphics: true,
+                 })
+             }
+@@ -234,10 +236,15 @@ impl Context {
+             }
+         }
+ 
++        let term_mode = self.user_term_mode()?;
+         let mut session_set = SessionSet {
+             session: Session::new_external()?,
+             time: Instant::now(),
+             user: username.clone(),
++            vt: match (&term_mode, self.handoff) {
++                (TerminalMode::Terminal { vt, .. }, true) => Some(*vt),
++                _ => None,
++            },
+         };
+         session_set
+             .session
+@@ -246,7 +253,7 @@ impl Context {
+                 SessionClass::User,
+                 &username,
+                 true,
+-                &self.user_term_mode()?,
++                &term_mode,
+                 self.source_profile,
+                 &self.listener_path,
+             )
+@@ -323,9 +330,8 @@ impl Context {
+ 
+                     if self.handoff {
+                         let cards = hold_drm_cards();
+-                        // The worker returns once the session's VT is in front: the greeter has lost the display
+-                        // with its last frame still on the planes (wlroots closes framebuffers with CLOSEFB), and
+-                        // the new compositor holds that frame until its own first frame.
++                        // The session starts on its own VT in the background; its compositor asks for the VT switch
++                        // once it holds the DRM device, so logind moves DRM master in one step.
+                         let child = s.session.start().await?;
+                         let mut inner = self.inner.write().await;
+                         let greeter = inner.current.replace(SessionChildSet {
+@@ -335,7 +341,7 @@ impl Context {
+                         });
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+-                            retire_on_ready(&s.user, g.child.sub_task);
++                            retire_on_ready(&s.user, s.vt, g.child.sub_task);
+                             inner.outgoing = Some(g);
+                         }
+                         inner.drm_hold = Some((cards, Instant::now()));
+@@ -522,11 +528,17 @@ fn hold_drm_cards() -> Vec<File> {
+ }
+ 
+ 
+-/// GDM-style retirement: the session compositor connects to `$XDG_RUNTIME_DIR/greetd-handoff.sock` once its first
+-/// frame is on screen (it is DRM master by then, so the kernel cannot restore its console when the greeter exits);
+-/// the greeter session then gets SIGTERM. Without a report the alarm fallback retires it after 10 s.
+-fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
++/// GDM-style hand-off over `/run/user/<uid>/greetd-handoff.sock`. The session compositor sends `switch` once it holds
++/// the DRM device (inactive session) and greetd activates the session's VT: logind then pauses the greeter's devices
++/// and resumes the compositor's in one step, so the kernel never gets a moment without a DRM master to restore its
++/// console. After its first frame the compositor sends `ready` and the greeter session gets SIGTERM. A connection that
++/// closes without a line is `ready` from a compositor that predates `switch`. Without `switch` greetd switches after
++/// 3 s; without `ready` the alarm fallback retires the greeter after 10 s.
++fn retire_on_ready(user: &str, vt: Option<usize>, greeter: nix::unistd::Pid) {
+     let Ok(Some(account)) = nix::unistd::User::from_name(user) else {
++        if let Some(vt) = vt {
++            tokio::task::spawn_local(activate_vt(vt));
++        }
+         return;
+     };
+     let path = format!("/run/user/{}/greetd-handoff.sock", account.uid);
+@@ -535,6 +547,9 @@ fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
+         Ok(listener) => listener,
+         Err(e) => {
+             eprintln!("hand-off: unable to listen on {path}: {e}");
++            if let Some(vt) = vt {
++                tokio::task::spawn_local(activate_vt(vt));
++            }
+             return;
+         }
+     };
+@@ -542,9 +557,75 @@ fn retire_on_ready(user: &str, greeter: nix::unistd::Pid) {
+         eprintln!("hand-off: unable to chown {path}: {e}");
+     }
+     tokio::task::spawn_local(async move {
+-        if tokio::time::timeout(Duration::from_secs(10), listener.accept()).await.is_ok() {
+-            let _ = nix::sys::signal::kill(greeter, nix::sys::signal::Signal::SIGTERM);
++        use tokio::io::AsyncBufReadExt;
++        use tokio::time::{timeout_at, Instant};
++        let start = Instant::now();
++        let deadline = start + Duration::from_secs(10);
++        let mut pending_vt = vt;
++        'accept: loop {
++            let until = if pending_vt.is_some() { start + Duration::from_secs(3) } else { deadline };
++            let stream = match timeout_at(until, listener.accept()).await {
++                Ok(Ok((stream, _))) => stream,
++                Ok(Err(e)) => {
++                    eprintln!("hand-off: accept failed: {e}");
++                    break;
++                }
++                Err(_) => match pending_vt.take() {
++                    Some(vt) => {
++                        eprintln!("hand-off: no switch request in 3 s, switching to VT {vt}");
++                        activate_vt(vt).await;
++                        continue;
++                    }
++                    None => break,
++                },
++            };
++            let mut lines = tokio::io::BufReader::new(stream).lines();
++            let mut got_line = false;
++            loop {
++                let line = match timeout_at(deadline, lines.next_line()).await {
++                    Ok(Ok(Some(line))) => line,
++                    Ok(_) if got_line => continue 'accept,
++                    Ok(_) => "ready".to_string(),
++                    Err(_) => break 'accept,
++                };
++                got_line = true;
++                match line.trim() {
++                    "switch" => {
++                        if let Some(vt) = pending_vt.take() {
++                            activate_vt(vt).await;
++                        }
++                    }
++                    "ready" => {
++                        if let Some(vt) = pending_vt.take() {
++                            activate_vt(vt).await;
++                        }
++                        let _ = nix::sys::signal::kill(greeter, nix::sys::signal::Signal::SIGTERM);
++                        break 'accept;
++                    }
++                    other => eprintln!("hand-off: unknown request {other:?}"),
++                }
++            }
++        }
++        if let Some(vt) = pending_vt {
++            activate_vt(vt).await;
+         }
+         let _ = std::fs::remove_file(&path);
+     });
+ }
++
++/// Activates `vt` and waits until it is in front; VT_WAITACTIVE blocks, so it runs off the event loop. Plain
++/// VT_ACTIVATE, not VT_SETACTIVATE: the latter resets the VT to VT_AUTO, over logind's VT_PROCESS from TakeControl.
++async fn activate_vt(vt: usize) {
++    let res = tokio::task::spawn_blocking(move || {
++        Terminal::open("/dev/tty0").and_then(|t| {
++            t.vt_activate(vt)?;
++            t.vt_waitactive(vt)
++        })
++    })
++    .await;
++    match res {
++        Ok(Ok(())) => (),
++        Ok(Err(e)) => eprintln!("hand-off: unable to activate VT {vt}: {e}"),
++        Err(e) => eprintln!("hand-off: VT activation task failed: {e}"),
++    }
++}
+diff --git a/greetd/src/terminal/mod.rs b/greetd/src/terminal/mod.rs
+index 1361907..b9a7734 100644
+--- a/greetd/src/terminal/mod.rs
++++ b/greetd/src/terminal/mod.rs
+@@ -100,7 +100,7 @@ impl Terminal {
+     }
+ 
+     /// Switches to the specified VT and waits for completion of switch.
+-    fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
++    pub fn vt_activate(&self, target_vt: usize) -> Result<(), Error> {
+         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
+             return Err(format!("terminal: unable to activate: {v}").into());
+         }
+-- 
+2.56.0
+
