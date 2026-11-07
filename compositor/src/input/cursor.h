@@ -5,6 +5,7 @@
 #include "util/tracked.h"
 #include "view/snap.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -221,7 +222,8 @@ namespace andromeda {
     void refreshInteractiveCursor();
     // Re-resolve what lies under a stationary cursor on `output` once its content has settled, so the client under it
     // sees the pointer where it is drawn.
-    void refreshPointerContents(const Output* output);
+    // False while content under the pointer still moves: the caller asks again on a later frame.
+    bool refreshPointerContents(const Output* output);
     // Hide immediately after a non-modifier key press when configured.
     void noteTyping();
     // A logical focus change can leave the pointer over a different window without crossing a scene boundary. Let the
@@ -503,8 +505,12 @@ namespace andromeda {
     uint32_t m_clientCursorImageWidth = 0;
     uint32_t m_clientCursorImageHeight = 0;
     wl_event_source* m_hideTimer = nullptr;
+    // Motion only stamps the time; the timer is armed once and re-armed for the rest when it fires early.
+    std::chrono::steady_clock::time_point m_lastActivity;
+    int m_hideArmedMs = 0;
     wl_event_source* m_hotCornerTimer = nullptr;
     wl_event_source* m_snapDwellTimer = nullptr;
+    bool m_snapDwellArmed = false; // skips a disarm syscall per motion
     wl_event_source* m_dataDragEdgeScrollTimer = nullptr;
     Workspace* m_dataDragEdgeScrollWorkspace = nullptr;
     double m_dataDragEdgeScrollSpeed = 0;

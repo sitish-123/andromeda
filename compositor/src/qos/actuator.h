@@ -52,6 +52,7 @@ namespace andromeda::qos {
       std::optional<bool> frozenDone = false; // the state systemd last confirmed; empty after a failed call
       bool freezerBusy = false;
       int freezerFailures = 0; // in a row; retried at once up to kFreezerRetries
+      bool thawWritten = false; // since the last freeze request or systemd answer
     };
     void syncFreezer(const std::string& unit);
 

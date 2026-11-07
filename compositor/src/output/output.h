@@ -175,7 +175,7 @@ namespace andromeda {
       wlr_buffer* m_buffer = nullptr;
       bool m_grouped = false;
       bool m_counted = false;
-      DirectScanoutState m_state;
+      std::shared_ptr<const DirectScanoutState> m_state;
       Listener m_commit;
     };
     [[nodiscard]] bool clientTearingHintAsync(const View* view) const;
@@ -260,8 +260,9 @@ namespace andromeda {
     void setBitDepthFallbackReason(std::string_view reason);
     void updateSceneSdrWhite();
     void updateSceneHdrWhitePoint(wlr_gamma_control_v1* control);
-    void armFrameRetry();
-    [[nodiscard]] DirectScanoutState builtDirectScanout() const;
+    void armFrameRetry(int delayMs);
+    // Shared and rebuilt only on change: it is read on every scene commit.
+    [[nodiscard]] std::shared_ptr<const DirectScanoutState> builtDirectScanout();
     void recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq);
     void absorbGroupedCommit(uint32_t commitSeq) { m_directScanout.absorbGroupedCommit(commitSeq); }
     void armEffectFrame(uint64_t nowMsec);
@@ -315,6 +316,8 @@ namespace andromeda {
       int retriedOk = 0;
       int gaveUp = 0;
     } m_busyStats;
+    int m_busyRetries = 0;
+    uint64_t m_pointerSceneSerial = 0;
     CursorPlaneState m_lastCursorPlane{};
 #ifdef ANDROMEDA_TEST_IPC
     std::optional<CursorPlaneState> m_syntheticPlaneCursor;
@@ -389,6 +392,18 @@ namespace andromeda {
     unsigned m_tracyLastPresentSeq = 0;
 #endif
     TearingCommitRecovery m_tearingRecovery;
+    std::shared_ptr<const DirectScanoutState> m_builtScanout = std::make_shared<const DirectScanoutState>();
+    // Buffer layout of the last passed async page-flip test, reused while the layout stays the same.
+    struct TearingTest {
+      uint32_t format = 0;
+      uint64_t modifier = 0;
+      int width = 0;
+      int height = 0;
+      uint32_t committed = 0;
+      size_t layers = 0;
+      bool operator==(const TearingTest&) const = default;
+    };
+    std::optional<TearingTest> m_tearingTest;
     int m_deferredWidth = 0;
     int m_deferredHeight = 0;
     int m_deferredRefresh = 0;

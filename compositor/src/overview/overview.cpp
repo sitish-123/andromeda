@@ -657,7 +657,8 @@ namespace andromeda {
     const ov::Style style = configuredStyle();
     const double row = state.rowScroll.current();
     ov::Input input = placementInput(state, false);
-    std::vector<uintptr_t> structure{static_cast<uintptr_t>(style), input.workspaces.size()};
+    std::vector<uintptr_t>& structure = state.nextStructure;
+    structure.assign({static_cast<uintptr_t>(style), input.workspaces.size()});
     for (const ov::Workspace& workspace : input.workspaces) {
       structure.push_back(static_cast<uintptr_t>(workspace.arrangement));
       structure.push_back(workspace.members.size());
@@ -672,7 +673,7 @@ namespace andromeda {
       }
     }
     const bool reflowed = state.placed && structure != state.structure;
-    state.structure = std::move(structure);
+    state.structure.swap(structure);
     if (reflowed) {
       beginReflow();
     }
@@ -1084,7 +1085,7 @@ namespace andromeda {
   }
 
   void Overview::refreshDesktop(OutputState& state) {
-    std::vector<DesktopEntry> resolved;
+    std::vector<DesktopEntry>& resolved = state.resolvedDesktop;
     collectDesktopSurfaces(*state.output, resolved);
     bool same = resolved.size() == state.desktop.size();
     for (size_t index = 0; same && index < resolved.size(); ++index) {

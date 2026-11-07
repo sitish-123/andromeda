@@ -94,13 +94,14 @@ namespace andromeda {
   }
 
   bool saveOutputs(const std::filesystem::path& file, std::span<const SavedOutput> outputs) {
-    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { mergeOutputs(root, outputs); });
+    rewriteGeneratedTomlAsync(file, kHeader, [&](toml::table& root) { mergeOutputs(root, outputs); });
+    return true;
   }
 
   bool saveOutputProperty(
       const std::filesystem::path& file, const std::string& name, std::string_view key, const SavedProperty& value
   ) {
-    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) {
+    rewriteGeneratedTomlAsync(file, kHeader, [&](toml::table& root) {
       toml::table& table = generatedTable(root, {"output", name});
       std::visit(
           [&]<typename T>(const T& stored) {
@@ -113,11 +114,13 @@ namespace andromeda {
           value
       );
     });
+    return true;
   }
 
   bool
   saveMirror(const std::filesystem::path& file, const std::string& name, const std::optional<std::string>& source) {
-    return rewriteGeneratedToml(file, kHeader, [&](toml::table& root) { setMirror(root, name, source); });
+    rewriteGeneratedTomlAsync(file, kHeader, [&](toml::table& root) { setMirror(root, name, source); });
+    return true;
   }
 
   bool documentSetsOutput(const std::filesystem::path& configRoot, std::string_view name) {

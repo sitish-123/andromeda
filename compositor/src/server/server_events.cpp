@@ -3,6 +3,7 @@
 #include "config/config_watcher.h"
 #include "config/store.h"
 #include "core/log.h"
+#include "core/main_loop_worker.h"
 #include "desktop-unstable-v1-protocol.h"
 #include "input/cursor.h"
 #include "input/eis.h"
@@ -256,7 +257,28 @@ namespace andromeda {
   }
 
   bool Server::refreshSystemKeymap() {
-    XkbNames names = usesSystemXkbNames(config().input) ? querySystemKeymap() : XkbNames{};
+    return adoptSystemKeymap(usesSystemXkbNames(config().input) ? querySystemKeymap() : XkbNames{});
+  }
+
+  void Server::refreshSystemKeymapAsync() {
+    if (!usesSystemXkbNames(config().input)) {
+      if (adoptSystemKeymap({})) {
+        applyKeyboardConfig();
+      }
+      return;
+    }
+    if (m_keymapWorker == nullptr) {
+      m_keymapWorker = std::make_unique<MainLoopWorker>(wl_display_get_event_loop(m_display));
+    }
+    m_keymapWorker->post<XkbNames>(querySystemKeymap, [this](XkbNames names) {
+      // A later reload may have turned the system keymap off while the read ran.
+      if (usesSystemXkbNames(config().input) && adoptSystemKeymap(std::move(names))) {
+        applyKeyboardConfig();
+      }
+    });
+  }
+
+  bool Server::adoptSystemKeymap(XkbNames names) {
     if (names == m_systemKeymap) {
       return false;
     }
@@ -276,9 +298,11 @@ namespace andromeda {
     if (result.success && !result.change.any() && !result.effects.any()) {
       kLog.info("config reloaded (sections: none; effects: none)");
     } else if (result.success) {
-      // The localed query is a blocking D-Bus round trip plus a keymap compile (~10 ms on an HD 520 laptop): only an
-      // input edit asks for it, not every appearance change.
-      const bool systemKeymapChanged = result.change.input && refreshSystemKeymap();
+      // The localed query is a D-Bus round trip plus a keymap compile (~10 ms on an HD 520 laptop): only an input edit
+      // asks for it, and it runs on a worker.
+      if (result.change.input) {
+        refreshSystemKeymapAsync();
+      }
       if (result.change.drm) {
         kLog.warn("DRM configuration changed; restart Andromeda to apply it");
       }
@@ -299,9 +323,6 @@ namespace andromeda {
       }
       if (m_desktopOutputManager != nullptr) {
         m_desktopOutputManager->propertiesChanged();
-      }
-      if (systemKeymapChanged && !result.effects.input) {
-        applyKeyboardConfig();
       }
       if ((result.change.colors || result.change.appearance) && m_ipc != nullptr) {
         m_ipc->notifyThemeChanged();
@@ -354,7 +375,8 @@ namespace andromeda {
     }
     // Off while no mapped window is hidden, so an idle desktop gets no 10 Hz wakeup.
     const bool hidden = std::ranges::any_of(m_registry.all(), [](const auto& view) {
-      return view->mapped() && !view->seen() && !view->backgroundRender();
+      return view->mapped() && !view->seen() && !view->backgroundRender()
+          && (!view->suspended() || view->configureOutstanding());
     });
     wl_event_source_timer_update(m_backgroundFrameTimer, hidden ? kBackgroundFrameIntervalMs : 0);
   }

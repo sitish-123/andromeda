@@ -726,26 +726,71 @@ namespace andromeda {
     }
   }
 
-  void Ipc::notifyThemeChanged() { broadcastEvent(kEventTheme, themeEvent()); }
+  bool Ipc::hasSubscriber(uint16_t event) {
+    for (const auto& connection : m_connections) {
+      if ((connection->subscribedEvents & event) != 0) {
+        return true;
+      }
+    }
+    m_lastBroadcast.at(static_cast<size_t>(std::countr_zero(event))).clear();
+    return false;
+  }
 
-  void Ipc::notifyOverviewChanged() { broadcastEvent(kEventOverview, overviewEvent(*m_server)); }
+  void Ipc::notifyThemeChanged() {
+    if (hasSubscriber(kEventTheme)) {
+      broadcastEvent(kEventTheme, themeEvent());
+    }
+  }
+
+  void Ipc::notifyOverviewChanged() {
+    if (hasSubscriber(kEventOverview)) {
+      broadcastEvent(kEventOverview, overviewEvent(*m_server));
+    }
+  }
 
   void Ipc::notifyKeyboardLayoutChanged() {
+    if (!hasSubscriber(kEventKeyboardLayout)) {
+      return;
+    }
     if (const auto event = keyboardLayoutEvent(*m_server)) {
       broadcastEvent(kEventKeyboardLayout, *event);
     }
   }
 
-  void Ipc::notifyWindowsChanged() { broadcastEvent(kEventWindows, windowsEvent(*m_server)); }
+  void Ipc::notifyWindowsChanged() {
+    if (hasSubscriber(kEventWindows)) {
+      broadcastEvent(kEventWindows, windowsEvent(*m_server));
+    }
+  }
 
-  void Ipc::notifyWorkspacesChanged() { broadcastEvent(kEventWorkspaces, workspacesEvent(*m_server)); }
+  void Ipc::notifyWorkspacesChanged() {
+    if (hasSubscriber(kEventWorkspaces)) {
+      broadcastEvent(kEventWorkspaces, workspacesEvent(*m_server));
+    }
+  }
 
-  void Ipc::notifySubmapChanged() { broadcastEvent(kEventSubmap, submapEvent(*m_server)); }
+  void Ipc::notifySubmapChanged() {
+    if (hasSubscriber(kEventSubmap)) {
+      broadcastEvent(kEventSubmap, submapEvent(*m_server));
+    }
+  }
 
-  void Ipc::notifyScreenCastChanged() { broadcastEvent(kEventScreenCast, screenCastEvent(*m_server)); }
+  void Ipc::notifyScreenCastChanged() {
+    if (hasSubscriber(kEventScreenCast)) {
+      broadcastEvent(kEventScreenCast, screenCastEvent(*m_server));
+    }
+  }
 
-  void Ipc::notifyLayersChanged() { broadcastEvent(kEventLayers, layersEvent(*m_server)); }
+  void Ipc::notifyLayersChanged() {
+    if (hasSubscriber(kEventLayers)) {
+      broadcastEvent(kEventLayers, layersEvent(*m_server));
+    }
+  }
 
-  void Ipc::notifyOutputsChanged() { broadcastEvent(kEventOutputs, outputsEvent(*m_server)); }
+  void Ipc::notifyOutputsChanged() {
+    if (hasSubscriber(kEventOutputs)) {
+      broadcastEvent(kEventOutputs, outputsEvent(*m_server));
+    }
+  }
 
 } // namespace andromeda

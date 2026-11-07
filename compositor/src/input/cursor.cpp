@@ -187,6 +187,7 @@ namespace andromeda {
       if (m_hideTimer != nullptr) {
         wl_event_source_timer_update(m_hideTimer, 0);
       }
+      m_hideArmedMs = 0;
       if (m_cursorHidden) {
         m_cursorHidden = false;
         forwardEffectPointer();
@@ -205,7 +206,11 @@ namespace andromeda {
       }
     }
     if (!m_cursorHidden) {
-      wl_event_source_timer_update(m_hideTimer, timeoutMs);
+      m_lastActivity = std::chrono::steady_clock::now();
+      if (m_hideArmedMs != timeoutMs) {
+        wl_event_source_timer_update(m_hideTimer, timeoutMs);
+        m_hideArmedMs = timeoutMs;
+      }
     }
   }
 
@@ -234,7 +239,18 @@ namespace andromeda {
   }
 
   int Cursor::onHideTimer(void* data) {
-    static_cast<Cursor*>(data)->hideCursor();
+    auto* self = static_cast<Cursor*>(data);
+    const int timeoutMs = self->m_hideArmedMs;
+    self->m_hideArmedMs = 0;
+    const auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - self->m_lastActivity
+    );
+    if (timeoutMs > 0 && idle.count() < timeoutMs) {
+      self->m_hideArmedMs = timeoutMs;
+      wl_event_source_timer_update(self->m_hideTimer, static_cast<int>(timeoutMs - idle.count()));
+      return 0;
+    }
+    self->hideCursor();
     return 0;
   }
 
@@ -1951,8 +1967,9 @@ namespace andromeda {
   }
 
   void Cursor::clearSnapPreview() {
-    if (m_snapDwellTimer != nullptr) {
+    if (m_snapDwellArmed) {
       wl_event_source_timer_update(m_snapDwellTimer, 0);
+      m_snapDwellArmed = false;
     }
     if (auto* grab = std::get_if<MoveGrab>(&m_grab)) {
       if (grab->snap) {
@@ -1968,6 +1985,7 @@ namespace andromeda {
 
   int Cursor::onSnapDwellTimer(void* data) {
     auto* self = static_cast<Cursor*>(data);
+    self->m_snapDwellArmed = false;
     if (auto* grab = std::get_if<MoveGrab>(&self->m_grab)) {
       grab->dwellReady = true;
       self->updateSnapPreview();
@@ -2244,23 +2262,23 @@ namespace andromeda {
     }
   }
 
-  void Cursor::refreshPointerContents(const Output* output) {
+  bool Cursor::refreshPointerContents(const Output* output) {
     wlr_seat* seat = m_server->seat()->wlr();
     if (output == nullptr
         || m_cursorHidden
         || std::ranges::any_of(m_tools, [](const auto& tool) { return tool->inProximity; })
         || wlr_output_layout_output_at(m_server->outputLayout(), m_cursor->x, m_cursor->y) != output->wlr()) {
-      return;
+      return true;
     }
     if (seat->drag != nullptr) {
       updateDataDragEdgeScroll();
       if (seat->drag->dropped) {
-        return;
+        return true;
       }
       if (m_server->sessionLocked()) {
         wlr_seat_pointer_notify_clear_focus(seat);
         wlr_seat_pointer_notify_frame(seat);
-        return;
+        return true;
       }
       double sx = 0;
       double sy = 0;
@@ -2274,23 +2292,24 @@ namespace andromeda {
         wlr_seat_pointer_notify_clear_focus(seat);
       }
       wlr_seat_pointer_notify_frame(seat);
-      return;
+      return true;
     }
     if (tiledMoveDragActive()) {
       // The compositor owns drop targeting during a window move; client pointer focus stays suspended.
       updateDataDragEdgeScroll();
       updateDropTarget();
-      return;
+      return true;
     }
+    // A grab or a held button defers the check: after it ends, the scene may have changed meanwhile.
     if (!isPassthrough() || seat->pointer_state.button_count != 0) {
-      return;
+      return false;
     }
     // Content still in motion would flicker hover state on every frame. The next press resolves it regardless.
     if (!m_server->sessionLocked()
         && ((m_server->overview() != nullptr && m_server->overview()->active())
             || m_server->animationsActiveFor(output)
             || (m_server->gestures() != nullptr && m_server->gestures()->movingContent()))) {
-      return;
+      return false;
     }
 
     double sx = 0;
@@ -2299,7 +2318,7 @@ namespace andromeda {
     LayerSurface* layer = nullptr;
     View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
     if (!pointerContentsStale(surface, sx, sy)) {
-      return;
+      return true;
     }
     if (surface != nullptr) {
       setPointerFocus(surface, sx, sy, monotonicMsec());
@@ -2312,6 +2331,7 @@ namespace andromeda {
     wlr_seat_pointer_notify_frame(m_server->seat()->wlr());
     updateConstraintForSurface(surface);
     updateInteractiveCursor(view);
+    return true;
   }
 
   void Cursor::updateInteractiveCursor(View* under) {

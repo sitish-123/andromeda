@@ -54,7 +54,6 @@ extern "C" {
 #include <ctime>
 #include <drm_fourcc.h>
 #include <format>
-#include <thread>
 
 #ifdef TRACY_ENABLE
 #include <set>
@@ -66,10 +65,10 @@ namespace andromeda {
     constexpr Logger kLog("output");
     constexpr int kFrameRetryDelayMs = 16;
     // A nonblocking flip can fail with EBUSY while the kernel still finishes the previous commit on a plane
-    // ("busy with a previous commit"); it clears within about a millisecond. Committing the built state again beats
-    // re-rendering on the 16 ms retry.
+    // ("busy with a previous commit"); it clears within about a millisecond. The frame retries on a 1 ms timer, so the
+    // main thread never sleeps; after kBusyCommitRetries in a row it falls back to the 16 ms retry.
     constexpr int kBusyCommitRetries = 3;
-    constexpr auto kBusyCommitRetryDelay = std::chrono::microseconds(1000);
+    constexpr int kBusyRetryDelayMs = 1;
     // wlroots paces frame callbacks and picks buffer scale from every output a surface overlaps, so an off-layout
     // output that keeps drawing (a mirror) must sit where no surface can reach it.
     constexpr int kOffLayoutOrigin = -(1 << 24);
@@ -2011,7 +2010,7 @@ namespace andromeda {
       self->m_output.absorbGroupedCommit(event->output->commit_seq);
       return;
     }
-    self->m_output.recordDirectScanout(self->m_state, event->output->commit_seq);
+    self->m_output.recordDirectScanout(*self->m_state, event->output->commit_seq);
     self->m_counted = true;
     if (self->m_grouped) {
       return;
@@ -2020,22 +2019,31 @@ namespace andromeda {
     self->m_commit.disconnect();
   }
 
-  DirectScanoutState Output::builtDirectScanout() const {
+  std::shared_ptr<const DirectScanoutState> Output::builtDirectScanout() {
     const wlr_scene_direct_scanout_status status = wlr_scene_output_direct_scanout_status(m_sceneOutput);
-    DirectScanoutState state;
-    state.active = status == WLR_SCENE_DIRECT_SCANOUT_ACTIVE;
-    state.reason = directScanoutReason(status);
+    const bool active = status == WLR_SCENE_DIRECT_SCANOUT_ACTIVE;
+    const std::string_view reason = directScanoutReason(status);
+    const View* view = nullptr;
     if (wlr_scene_buffer* buffer = wlr_scene_output_direct_scanout_buffer(m_sceneOutput)) {
       wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
-      const View* view =
-          sceneSurface != nullptr ? View::fromSurface(wlr_surface_get_root_surface(sceneSurface->surface)) : nullptr;
-      if (view != nullptr) {
-        state.windowId = view->extForeignIdentifier() != nullptr ? view->extForeignIdentifier() : "";
-        state.appId = view->appId() != nullptr ? view->appId() : "";
-        state.title = view->title() != nullptr ? view->title() : "";
-      }
+      view = sceneSurface != nullptr ? View::fromSurface(wlr_surface_get_root_surface(sceneSurface->surface)) : nullptr;
     }
-    return state;
+    auto text = [](const char* value) { return std::string_view(value != nullptr ? value : ""); };
+    const std::string_view windowId = view != nullptr ? text(view->extForeignIdentifier()) : "";
+    const std::string_view appId = view != nullptr ? text(view->appId()) : "";
+    const std::string_view title = view != nullptr ? text(view->title()) : "";
+    const DirectScanoutState& last = *m_builtScanout;
+    if (last.active != active || last.reason != reason || last.windowId != windowId || last.appId != appId
+        || last.title != title) {
+      m_builtScanout = std::make_shared<const DirectScanoutState>(DirectScanoutState{
+          .active = active,
+          .reason = std::string(reason),
+          .windowId = std::string(windowId),
+          .appId = std::string(appId),
+          .title = std::string(title),
+      });
+    }
+    return m_builtScanout;
   }
 
   void Output::recordDirectScanout(const DirectScanoutState& state, uint32_t commitSeq) {
@@ -2067,9 +2075,9 @@ namespace andromeda {
     return 0;
   }
 
-  void Output::armFrameRetry() {
+  void Output::armFrameRetry(int delayMs) {
     if (m_frameRetryTimer != nullptr && outputFrameAllowed(m_server->stopping(), m_server->session())) {
-      wl_event_source_timer_update(m_frameRetryTimer, kFrameRetryDelayMs);
+      wl_event_source_timer_update(m_frameRetryTimer, delayMs);
       m_frameRetryArmed = true;
     }
   }
@@ -2320,7 +2328,7 @@ namespace andromeda {
             m_output, m_server->renderer(), m_mirrorSource->m_lastFrame, m_mirrorSource->m_output->transform
         );
         if (m_mirrorDirty) {
-          armFrameRetry();
+          armFrameRetry(kFrameRetryDelayMs);
         }
       }
       if (Ipc* ipc = m_server->ipc()) {
@@ -2334,6 +2342,7 @@ namespace andromeda {
     // video players) block on wl_surface.frame before submitting their next buffer. If we skip frame_done on the
     // "nothing to render" path, they never commit again, damage stays clean, and the output stops producing frames.
     bool commitFailed = false;
+    bool busyRetry = false;
     // Sample the plane before the needs_frame test below: a cursor-only move
     // damages nothing else, so this frame is the only commit that can carry
     // the damage. wlroots clears needs_frame on commit, so every mutation
@@ -2342,9 +2351,12 @@ namespace andromeda {
     paceCursorPlaneTransition();
     const bool sceneChanged = wlr_scene_output_needs_frame(m_sceneOutput);
     if (sceneChanged) {
-      // Scene motion under a stationary cursor must reach the client before its next press.
-      if (Cursor* cursor = m_server->cursor()) {
-        cursor->refreshPointerContents(this);
+      // Scene motion under a stationary cursor must reach the client before its next press. A frame that only
+      // carries new buffer content (video) moves nothing, so it skips the hit test.
+      const uint64_t serial = wlr_scene_update_serial(m_server->scene());
+      if (Cursor* cursor = m_server->cursor(); cursor != nullptr && serial != m_pointerSceneSerial
+          && cursor->refreshPointerContents(this)) {
+        m_pointerSceneSerial = serial;
       }
     }
     const bool hdrTransitionPending = m_hdrTransition.pending(m_output->enabled, hdrRequested());
@@ -2438,7 +2450,24 @@ namespace andromeda {
         bool backendRejectedTearing = false;
         if (commitTearing) {
           state.tearing_page_flip = true;
-          if (!wlr_output_test_state(m_output, &state)) {
+          TearingTest key{
+              .width = state.buffer->width,
+              .height = state.buffer->height,
+              .committed = state.committed,
+              .layers = (state.committed & WLR_OUTPUT_STATE_LAYERS) != 0 ? state.layers_len : 0,
+          };
+          if (wlr_dmabuf_attributes dmabuf{}; wlr_buffer_get_dmabuf(state.buffer, &dmabuf)) {
+            key.format = dmabuf.format;
+            key.modifier = dmabuf.modifier;
+          }
+          // Only a pass is kept: a failure can depend on the previous commit's planes, so it is tested again.
+          if (m_tearingTest != key) {
+            m_tearingTest.reset();
+            if (wlr_output_test_state(m_output, &state)) {
+              m_tearingTest = key;
+            }
+          }
+          if (!m_tearingTest) {
             state.tearing_page_flip = false;
             commitTearing = false;
             backendRejectedTearing = true;
@@ -2454,12 +2483,18 @@ namespace andromeda {
           commitOk = wlr_output_commit_state(m_output, &state);
           if (!commitOk && hasBuffer && errno == EBUSY) {
             ++m_busyStats.busy;
-            for (int retry = 1; !commitOk && errno == EBUSY && retry <= kBusyCommitRetries; ++retry) {
-              std::this_thread::sleep_for(kBusyCommitRetryDelay);
-              errno = 0;
-              commitOk = wlr_output_commit_state(m_output, &state);
+            busyRetry = m_busyRetries < kBusyCommitRetries;
+            if (busyRetry) {
+              ++m_busyRetries;
+            } else {
+              m_busyRetries = 0;
+              ++m_busyStats.gaveUp;
             }
-            ++(commitOk ? m_busyStats.retriedOk : m_busyStats.gaveUp);
+          } else if (m_busyRetries > 0) {
+            if (commitOk) {
+              ++m_busyStats.retriedOk;
+            }
+            m_busyRetries = 0;
           }
           const auto now = std::chrono::steady_clock::now();
           if (m_busyStats.busy > 0 && now - m_busyStats.since >= std::chrono::seconds(1)) {
@@ -2499,6 +2534,7 @@ namespace andromeda {
             lock->handleOutputCommit(*this, m_output->commit_seq);
           }
         } else if (commitTearing) {
+          m_tearingTest.reset();
           m_tearingFallbackReason = "async page flip commit failed";
         } else if (hasBuffer && m_tearingRecovery.regularCommitPending()) {
           m_tearingFallbackReason = "regular recovery commit failed";
@@ -2537,7 +2573,7 @@ namespace andromeda {
       wlr_output_schedule_frame(m_output);
       break;
     case OutputFrameFollowup::RetryDelayed:
-      armFrameRetry();
+      armFrameRetry(busyRetry ? kBusyRetryDelayMs : kFrameRetryDelayMs);
       break;
     case OutputFrameFollowup::None:
       break;

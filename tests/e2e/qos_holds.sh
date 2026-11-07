@@ -9,7 +9,9 @@ CLIENT=${CLIENT:-$ROOT/compositor/build-debug/tests/background-client}
 USER_BUS=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus
 [[ -S $USER_BUS ]] || { echo "no systemd user bus at $USER_BUS" >&2; exit 1; }
 UNIT=app-qos-holds-$$.scope
-APPS=(org.andromeda.Compositor1 /org/andromeda/Compositor1/Apps org.andromeda.Compositor1.Apps)
+# The session's own compositor owns org.andromeda.Compositor1; the headless one takes its own name.
+export ANDROMEDA_COMPOSITOR_BUS_NAME=org.andromeda.Compositor1.QosHolds$$
+APPS=("$ANDROMEDA_COMPOSITOR_BUS_NAME" /org/andromeda/Compositor1/Apps org.andromeda.Compositor1.Apps)
 
 # The compositor's private runtime dir reaches the real user bus through this link.
 ln -s "$USER_BUS" "$RUNTIME/bus"

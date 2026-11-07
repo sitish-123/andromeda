@@ -247,8 +247,10 @@ namespace andromeda {
     if (area.y + area.height - m_cursor->y <= kSnapEdge && adjacent(m_cursor->x, area.y + area.height))
       shared |= WLR_EDGE_BOTTOM;
     if (grab->dwellOutput != output || grab->dwellEdges != shared) {
-      if (m_snapDwellTimer != nullptr)
+      if (m_snapDwellArmed) {
         wl_event_source_timer_update(m_snapDwellTimer, 0);
+        m_snapDwellArmed = false;
+      }
       grab->dwellOutput = output;
       grab->dwellEdges = shared;
       grab->dwellReady = false;
@@ -257,8 +259,10 @@ namespace andromeda {
           m_snapDwellTimer =
               wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onSnapDwellTimer, this);
         }
-        if (m_snapDwellTimer != nullptr)
+        if (m_snapDwellTimer != nullptr) {
           wl_event_source_timer_update(m_snapDwellTimer, kSnapDwellMs);
+          m_snapDwellArmed = true;
+        }
       }
     }
     const auto hit = snapZoneAt(area, m_cursor->x, m_cursor->y, grab->dwellReady ? 0 : shared);

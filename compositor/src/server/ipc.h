@@ -97,6 +97,8 @@ namespace andromeda {
     void beginFrameWait(Connection& connection, FrameWait wait, std::string reply);
     void finishFrameWait(Connection& connection, std::string response);
     void broadcastEvent(uint16_t event, const nlohmann::json& payload);
+    // False clears the family's last payload: a later subscriber's initial line is not what `last` holds.
+    bool hasSubscriber(uint16_t event);
     void refreshScreenCastActive();
     void dropAudioOwner();
 

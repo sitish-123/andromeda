@@ -14,6 +14,7 @@
 #include "core/application_scope.h"
 #include "core/fdlimit.h"
 #include "core/log.h"
+#include "core/main_loop_worker.h"
 #include "core/process.h"
 #include "core/tracy.h"
 #include "input/cursor.h"
@@ -1055,8 +1056,10 @@ namespace andromeda {
       wl_list_remove(&m_sessionActive.link);
     }
     m_keyboardLeds.reset();
-    // Its timer belongs to the display's event loop, which is destroyed below.
+    // Their sources belong to the display's event loop, which is destroyed below.
     m_screenActivity.reset();
+    m_keymapWorker.reset();
+    scanout_keeper::finishRelease();
     if (m_cursor != nullptr) {
       m_cursor->finishToplevelDrag(false);
     }

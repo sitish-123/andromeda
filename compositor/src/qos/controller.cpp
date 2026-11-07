@@ -214,8 +214,9 @@ namespace andromeda::qos {
     const std::string unit = std::format("app-andromeda-{}.scope", pid);
     kLog.debug("pid {} has no app scope: moving it to {}", pid, unit);
     m_units.startScope(unit, pid, [this, pid](bool ok) {
+      // A failed move is tried again at the next evaluate; a kept entry would block a reused pid for good.
+      m_adopting.erase(pid);
       if (ok) {
-        m_adopting.erase(pid);
         m_pids.erase(pid);
         schedule();
       }
@@ -265,6 +266,8 @@ namespace andromeda::qos {
     };
     std::unordered_map<std::string, Gathered> gathered;
     std::unordered_map<pid_t, Cgroup> seen;
+    // One /proc children walk per pid: a browser's windows share one.
+    std::unordered_map<pid_t, std::vector<pid_t>> children;
     for (const Snapshot::Window& window : snapshot.windows) {
       const Cgroup& cgroup = cgroupOf(window.pid, seen);
       if (cgroup.unit.empty()) {
@@ -286,7 +289,11 @@ namespace andromeda::qos {
       addWindow(cgroup);
       // An app that moves itself into its own scope (Chromium) leaves the children it forked before in the launch
       // scope: they follow the window, or a hidden app freezes only its browser process.
-      for (const pid_t child : childrenOf(window.pid)) {
+      auto [walked, fresh] = children.try_emplace(window.pid);
+      if (fresh) {
+        walked->second = childrenOf(window.pid);
+      }
+      for (const pid_t child : walked->second) {
         if (const Cgroup& scope = cgroupOf(child, seen); !scope.unit.empty() && scope.unit != cgroup.unit) {
           addWindow(scope).follows.push_back(cgroup.unit);
         }

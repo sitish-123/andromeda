@@ -21,6 +21,11 @@ namespace andromeda {
   bool rewriteGeneratedToml(
       const std::filesystem::path& file, std::string_view header, const std::function<void(toml::table&)>& edit
   );
+  // The same edit, written by core/async_file_writer: the main thread never waits on a write. An edit starts from the
+  // file on disk, or from our last document while that write is still pending, so hand edits are kept.
+  void rewriteGeneratedTomlAsync(
+      const std::filesystem::path& file, std::string_view header, const std::function<void(toml::table&)>& edit
+  );
 
   // The table at `path` below `root`, created along the way. A non-table value in the way is replaced.
   toml::table& generatedTable(toml::table& root, std::initializer_list<std::string_view> path);

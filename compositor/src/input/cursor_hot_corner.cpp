@@ -79,12 +79,13 @@ namespace andromeda {
   }
 
   void Cursor::cancelHotCorner() {
+    // Only an armed timer needs the disarm syscall; this runs on every pointer motion.
+    if (m_hotCornerPending && m_hotCornerTimer != nullptr) {
+      wl_event_source_timer_update(m_hotCornerTimer, 0);
+    }
     m_hotCornerPending = false;
     m_hotCornerTriggered = false;
     m_hotCornerIndex = config().hotCorners.corners.size();
-    if (m_hotCornerTimer != nullptr) {
-      wl_event_source_timer_update(m_hotCornerTimer, 0);
-    }
   }
 
   void Cursor::updateHotCorner() {

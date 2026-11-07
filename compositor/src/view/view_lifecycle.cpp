@@ -1155,7 +1155,7 @@ namespace andromeda {
 
     for (wl_listener* listener :
          {&m_map, &m_unmap, &m_commit, &m_destroy, &m_requestMove, &m_requestResize, &m_requestMaximize,
-          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_xRequestConfigure,
+          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_configure, &m_xRequestConfigure,
           &m_xRequestActivate, &m_xSetHints, &m_xShapeChanged, &m_setDecorations}) {
       removeListener(*listener);
     }

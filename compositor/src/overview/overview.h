@@ -283,6 +283,9 @@ namespace andromeda {
       // window opening, closing or minimizing, a workspace added or removed, a style reload) reflows the overview;
       // rows scrolling and windows moving under their own layout springs do not.
       std::vector<uintptr_t> structure;
+      // Per-tick scratch, kept for its capacity.
+      std::vector<uintptr_t> nextStructure;
+      std::vector<DesktopEntry> resolvedDesktop;
       wlr_scene_tree* tree = nullptr;
       wlr_scene_blur* backgroundBlur = nullptr;
       wlr_scene_rect* backgroundTint = nullptr;

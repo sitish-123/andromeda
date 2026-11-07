@@ -76,6 +76,7 @@ namespace andromeda::qos {
     }
     if (applied.frozenWanted != frozen) {
       applied.freezerFailures = 0;
+      applied.thawWritten = false;
     }
     applied.frozenWanted = frozen;
     if (!frozen) {
@@ -96,10 +97,11 @@ namespace andromeda::qos {
     }
     Applied& applied = it->second;
     const bool frozen = applied.frozenWanted;
-    if (!frozen && (applied.frozenDone != false || applied.freezerBusy)) {
+    if (!frozen && (applied.frozenDone != false || applied.freezerBusy) && !applied.thawWritten) {
       // ThawUnit takes a bus round trip and a systemd loop turn; the direct write thaws within the frame. It also
       // runs while a freeze is in flight, so a window shown meanwhile never waits for systemd.
       writeThaw(applied.cgroupDir);
+      applied.thawWritten = true;
     }
     if (applied.freezerBusy || applied.frozenDone == frozen) {
       return;
@@ -112,6 +114,7 @@ namespace andromeda::qos {
       }
       Applied& state = found->second;
       state.freezerBusy = false;
+      state.thawWritten = false;
       state.frozenDone = ok ? std::optional<bool>(frozen) : std::nullopt;
       state.freezerFailures = ok ? 0 : state.freezerFailures + 1;
       if (state.freezerFailures <= kFreezerRetries) {

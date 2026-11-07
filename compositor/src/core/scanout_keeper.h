@@ -18,5 +18,7 @@ namespace andromeda::scanout_keeper {
 
   void expectFirstFrame();
   void firstFrameShown();
+  // Waits for the first-frame release call, if one runs; before a hold and at shutdown.
+  void finishRelease();
 
 } // namespace andromeda::scanout_keeper

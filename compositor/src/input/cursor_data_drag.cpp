@@ -99,7 +99,8 @@ namespace andromeda {
   }
 
   void Cursor::cancelDataDragEdgeScroll() {
-    if (m_dataDragEdgeScrollTimer != nullptr) {
+    // The timer runs only while an edge scroll waits or ticks; this runs on every drag motion.
+    if (m_dataDragEdgeScrollTimer != nullptr && (m_dataDragEdgeScrollPending || m_dataDragEdgeScrollWorkspace != nullptr)) {
       wl_event_source_timer_update(m_dataDragEdgeScrollTimer, 0);
     }
     m_dataDragEdgeScrollWorkspace = nullptr;

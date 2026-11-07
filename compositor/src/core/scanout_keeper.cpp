@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <string>
+#include <thread>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -66,11 +67,20 @@ namespace andromeda::scanout_keeper {
       return sent;
     }
 
+    void releaseOverBus();
+    std::thread g_releaseThread;
+
     void release() {
       g_released = true;
       if (sendHandoffRequest("ready")) {
         kLog.info("reported the first frame to greetd's hand-off");
       }
+      // The call waits for its reply (up to kHoldTimeoutUs), so it runs on its own thread: the main thread is drawing
+      // the first frames. It touches no compositor state; finishRelease() joins it.
+      g_releaseThread = std::thread(releaseOverBus);
+    }
+
+    void releaseOverBus() {
       sd_bus* bus = nullptr;
       if (sd_bus_open_system(&bus) < 0) {
         return;
@@ -97,7 +107,15 @@ namespace andromeda::scanout_keeper {
     }
   } // namespace
 
+  void finishRelease() {
+    if (g_releaseThread.joinable()) {
+      g_releaseThread.join();
+    }
+  }
+
   void holdForNextCompositor(wlr_backend* backend) {
+    // A release still in flight must not land after the hold and cancel it.
+    finishRelease();
     // Outputs torn down after this must not release the hold just placed.
     g_released = true;
     if (backend == nullptr) {

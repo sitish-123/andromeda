@@ -605,6 +605,7 @@ namespace andromeda {
     static void onDialogSetModal(wl_listener* listener, void* data);
     static void onDialogDestroy(wl_listener* listener, void* data);
     static void onSetTitle(wl_listener* listener, void* data);
+    static void onConfigure(wl_listener* listener, void* data);
     static void onSetAppId(wl_listener* listener, void* data);
     static void onForeignActivate(wl_listener* listener, void* data);
     static void onForeignClose(wl_listener* listener, void* data);
@@ -1123,6 +1124,7 @@ namespace andromeda {
     wl_listener m_requestFullscreen{};
     wl_listener m_setParent{};
     wl_listener m_setTitle{};
+    wl_listener m_configure{};
     wl_listener m_setAppId{};
     wl_listener m_foreignActivate{};
     wl_listener m_foreignClose{};

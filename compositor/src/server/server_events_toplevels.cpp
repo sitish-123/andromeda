@@ -86,13 +86,14 @@ namespace andromeda {
       if (!stream) {
         return std::nullopt;
       }
-      std::string environment(kMaximumEnvironmentSize, '\0');
-      stream.read(environment.data(), static_cast<std::streamsize>(environment.size()));
-      const auto size = static_cast<size_t>(stream.gcount());
-      if (size == environment.size()) {
-        return std::nullopt;
+      std::string environment;
+      std::array<char, 16 * 1024> chunk{};
+      while (stream.read(chunk.data(), chunk.size()) || stream.gcount() > 0) {
+        environment.append(chunk.data(), static_cast<size_t>(stream.gcount()));
+        if (environment.size() > kMaximumEnvironmentSize) {
+          return std::nullopt;
+        }
       }
-      environment.resize(size);
       const std::string prefix = std::string(name) + "=";
       size_t offset = 0;
       while (offset < environment.size()) {
@@ -684,6 +685,16 @@ namespace andromeda {
 
   void Server::assignLaunchOriginFromEnvironment(View& view) {
     if (m_xdgActivation == nullptr || view.pid() <= 0) {
+      return;
+    }
+    // Only a compositor-issued token is claimed, so with none outstanding the environment read is skipped.
+    bool issued = false;
+    wlr_xdg_activation_token_v1* pending = nullptr;
+    wl_list_for_each(pending, &m_xdgActivation->tokens, link) {
+      const auto* pendingWatch = static_cast<const ActivationTokenWatch*>(pending->data);
+      issued = issued || (pendingWatch != nullptr && pendingWatch->compositorIssued);
+    }
+    if (!issued) {
       return;
     }
     const std::optional<std::string> tokenName = processEnvironmentValue(view.pid(), kLaunchTokenEnvironment);

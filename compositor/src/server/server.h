@@ -97,6 +97,7 @@ struct wlr_virtual_pointer_v1;
 namespace andromeda {
 
   class ScreenActivityRecorder;
+  class MainLoopWorker;
   class CpuBoost;
   class LaunchFeedback;
   class SystemdUnits;
@@ -466,6 +467,8 @@ namespace andromeda {
     void refreshOutputPolicies();
     // Suspends every view out of sight (View::hidden) and resumes the rest; after a lock or output power change.
     void syncSuspendedViews();
+    // Arms the 10 Hz frame-callback tick while a hidden view needs callbacks (see kBackgroundFrameIntervalMs).
+    void armBackgroundFrameTimer();
     // Match every output's configured `mirror` to a connected source, starting or stopping mirrors as needed.
     void applyConfiguredMirrors();
     // Start or, with a null source, stop a mirror at runtime; windows on the target move to the source, and the change
@@ -642,7 +645,6 @@ namespace andromeda {
     // Arms the background-render tick for the fastest refresh among hidden `background_render` windows, or disarms it
     // when there are none.
     void armBackgroundRenderTimer();
-    void armBackgroundFrameTimer();
     static int onStartupRulesTimer(void* data);
     static int onTerminateSignal(int signal, void* data);
     static void onIpcWindowsIdle(void* data);
@@ -715,8 +717,11 @@ namespace andromeda {
     void applyConfig(const ConfigEffects& effects);
     // Recompile every keyboard's keymap from the current config and system keymap.
     void applyKeyboardConfig();
-    // Re-read the system keymap when the config uses it; true when it changed.
+    // Re-read the system keymap when the config uses it; true when it changed. Blocks on D-Bus: startup only.
     bool refreshSystemKeymap();
+    // The same read on a worker; applies the keyboard config when the keymap changed.
+    void refreshSystemKeymapAsync();
+    bool adoptSystemKeymap(XkbNames names);
     void showConfigDiagnostics();
     void clearNormalFocus() { m_focus.clearNormalFocus(); }
     void setLockBlankEnabled(bool enabled);
@@ -1118,6 +1123,8 @@ namespace andromeda {
     std::vector<std::unique_ptr<ShortcutsInhibitorWatch>> m_shortcutsInhibitors;
     SurfaceLayoutMemory m_surfaceLayouts;
     XkbNames m_systemKeymap;
+    // localed D-Bus reads; created at the first input config reload.
+    std::unique_ptr<MainLoopWorker> m_keymapWorker;
     Keyboard* m_keyboardLayoutSource = nullptr;
     Keyboard* m_keyboardInputSource = nullptr;
     ModifierTapState m_modifierTap;
