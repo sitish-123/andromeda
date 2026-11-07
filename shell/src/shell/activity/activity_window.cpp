@@ -780,6 +780,7 @@ std::unique_ptr<Flex> ActivityWindow::buildSidebar(float scale) {
             },
         })
     );
+    m_searchInput->setCapsule(true);
   }
   sidebar->addChild(ui::node({.height = Style::spaceSm * scale}));
 
