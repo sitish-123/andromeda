@@ -20,6 +20,7 @@
 #include "system/desktop_entry.h"
 #include "system/system_monitor_service.h"
 #include "ui/builders.h"
+#include "render/scene/accessible.h"
 #include "ui/controls/button.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/glyph.h"
@@ -63,6 +64,9 @@ namespace {
   constexpr const float& kSidebarGraphHeight = Tokens::sizeControlS;
   constexpr const float& kInspectorGraphHeight = Tokens::spaceP64;
   constexpr float kHistoryGraphWidth = 160.0F;
+  // Text Size of the last built scene: value columns widen with it, or larger figures overflow into each other.
+  float g_columnTextScale = 1.0F;
+  [[nodiscard]] float columnWidth(float width, float scale) { return width * scale * g_columnTextScale; }
 
   // Values scaled to [0, 1] by their own maximum (Graph wants normalized series); 1 = the largest value.
   std::vector<float> normalized(const std::deque<float>& values, float floor = 1.0F) {
@@ -90,7 +94,7 @@ namespace {
         {.align = FlexAlign::End,
          .justify = FlexJustify::End,
          .gap = Tokens::spaceP2 * scale,
-         .width = kEnergyWidth * scale}
+         .width = columnWidth(kEnergyWidth, scale)}
     );
     for (int i = 0; i < 4; ++i) {
       const bool on = i < bars;
@@ -164,7 +168,7 @@ namespace {
         .text = std::move(text),
         .fontSize = Style::fontSizeBody * scale,
         .color = colorSpecFromRole(role),
-        .width = kColumnWidth * scale,
+        .width = columnWidth(kColumnWidth, scale),
         .textAlign = TextAlign::End,
     });
   }
@@ -471,6 +475,7 @@ void ActivityWindow::prepareFrame(bool /*needsUpdate*/, bool needsLayout) {
 
 void ActivityWindow::buildScene(Renderer& renderer, float width, float height) {
   const float scale = uiScale();
+  g_columnTextScale = renderer.textScale();
   refreshRowStates(false);
   // Rows rebuild every sample: the search field moves into the new tree whole, so its caret, selection and
   // preedit survive, and it keeps focus.
@@ -951,8 +956,6 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
   }
   const std::string caption = captionFor(row);
   return ui::button({
-      .text = id.name,
-      .fontSize = Style::fontSizeBody * scale,
       .contentAlign = ButtonContentAlign::Start,
       .variant = ButtonVariant::Tab,
       .customPalette = selected ? std::optional{settings::selectedRowPalette(
@@ -993,19 +996,29 @@ std::unique_ptr<Button> ActivityWindow::buildRow(Renderer& renderer, const Activ
                   })
               );
             }
-            if (Label* name = button.label(); name != nullptr) {
-              name->setMaxLines(1);
-            }
-            button.addChild(
+            // Name over caption in one growing column: the caption never runs into the value columns.
+            auto names = ui::column(
+                {.align = FlexAlign::Stretch, .justify = FlexJustify::Center, .flexGrow = 1.0F},
                 ui::label({
-                    .text = caption,
-                    .fontSize = Style::fontSizeCaption * scale,
-                    .color = colorSpecFromRole(ColorRole::Label3),
+                    .text = id.name,
+                    .fontSize = Style::fontSizeBody * scale,
+                    .color = colorSpecFromRole(ColorRole::Label1),
                     .maxLines = 1,
                     .ellipsize = TextEllipsize::End,
-                    .flexGrow = 1.0F,
                 })
             );
+            if (!caption.empty()) {
+              names->addChild(ui::label({
+                  .text = caption,
+                  .fontSize = Style::fontSizeCaption * scale,
+                  .color = colorSpecFromRole(ColorRole::Label3),
+                  .maxLines = 1,
+                  .ellipsize = TextEllipsize::End,
+              }));
+            }
+            button.addChild(std::move(names));
+            button.accessibleState().name = id.name;
+            button.accessibleState().description = caption;
             const double gpu = m_details != nullptr ? m_details->gpuPercent(row.key) : 0.0;
             const auto bind = [&](std::unique_ptr<Label> label, auto text) {
               m_liveText.push_back(
@@ -1068,7 +1081,7 @@ void ActivityWindow::addRow(Renderer& renderer, Flex& card, const ActivityRow& r
                 .flexGrow = 1.0F,
             }),
             std::move(cpuCell), std::move(memoryCell), cell("–", scale, ColorRole::Label3),
-            ui::node({.width = kEnergyWidth * scale})
+            ui::node({.width = columnWidth(kEnergyWidth, scale)})
         )
     );
   }
@@ -1095,7 +1108,7 @@ std::unique_ptr<Flex> ActivityWindow::buildList(Renderer& renderer, float scale)
             .text = i18n::tr(key),
             .fontSize = Style::fontSizeCaption * scale,
             .color = colorSpecFromRole(ColorRole::Label2),
-            .width = width * scale,
+            .width = columnWidth(width, scale),
             .textAlign = TextAlign::End,
         })
     );
@@ -1294,7 +1307,7 @@ void ActivityWindow::addHistoryCards(Renderer& /*renderer*/, Flex& list, float s
                  .flexGrow = 1.0F}
             ),
             makeGraph(
-                normalized(history->longMemoryMb), kHistoryGraphWidth * scale, Tokens::sizeControlS * scale,
+                normalized(history->longMemoryMb), columnWidth(kHistoryGraphWidth, scale), Tokens::sizeControlS * scale,
                 ColorRole::Accent
             ),
             cell(memoryText(static_cast<std::uint64_t>(peak) * 1024 * 1024), scale, ColorRole::Label1)
@@ -2219,7 +2232,9 @@ std::string ActivityWindow::buttonsJson() const {
       float bottom = 0.0F;
       Node::transformedBounds(&node, left, top, right, bottom);
       out.push_back(
-          {{"text", button->label() != nullptr ? button->label()->text() : std::string()},
+          {{"text", button->label() != nullptr      ? button->label()->text()
+                    : button->accessible() != nullptr ? button->accessible()->name
+                                                      : std::string()},
            {"x", (left + right) / 2.0F},
            {"y", (top + bottom) / 2.0F}}
       );
