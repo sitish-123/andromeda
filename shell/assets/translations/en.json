@@ -502,6 +502,13 @@
         "unavailable": "Bluetooth unavailable",
         "unavailable-body": "No Bluetooth adapter was found."
       },
+      "display": {
+        "brightness": "Brightness",
+        "off": "Off",
+        "on": "On",
+        "settings": "Display Settings...",
+        "title": "Display"
+      },
       "focus": {
         "active-until": "Do Not Disturb until {time}",
         "dnd": "Do Not Disturb",
@@ -510,6 +517,14 @@
         "settings": "Notification Settings...",
         "tomorrow": "Until tomorrow",
         "until": "Until"
+      },
+      "media": {
+        "empty": "Nothing playing",
+        "empty-body": "Start music or a video to control it here.",
+        "paused": "Paused",
+        "players": "Players",
+        "playing": "Playing",
+        "title": "Media"
       },
       "phone": {
         "files": "Send files...",
@@ -539,6 +554,18 @@
         "unavailable": "Power profiles unavailable",
         "unavailable-body": "No power profile service is running."
       },
+      "screen-time": {
+        "average": "Daily average {time}",
+        "hours": "{hours} h {minutes} min",
+        "less": "{percent} % less than last week",
+        "minutes": "{minutes} min",
+        "more": "{percent} % more than last week",
+        "most-used": "Most Used",
+        "off": "Screen Time is off",
+        "off-body": "Turn it on in Settings to see how long you use each app.",
+        "title": "Screen Time",
+        "today": "Today"
+      },
       "search": {
         "modules": "Controls",
         "networks": "Wi-Fi networks",
@@ -558,6 +585,17 @@
         "title": "Sound",
         "unavailable": "Sound unavailable",
         "unavailable-body": "No audio service is running."
+      },
+      "system": {
+        "activity": "Open Activity...",
+        "cpu": "CPU",
+        "disk": "Disk",
+        "gpu": "GPU",
+        "memory": "Memory",
+        "network": "Network",
+        "temperature": "Temperature",
+        "title": "System",
+        "unavailable": "System monitor unavailable"
       },
       "try-again": "Try Again",
       "wifi": {

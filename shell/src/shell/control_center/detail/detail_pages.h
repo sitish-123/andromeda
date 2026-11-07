@@ -6,9 +6,19 @@
 #include <chrono>
 #include <functional>
 #include <optional>
+#include <unordered_set>
 #include <string>
 
 class BluetoothService;
+class BrightnessService;
+class SystemMonitorService;
+class ScreenTimeService;
+class MprisService;
+class HttpClient;
+class Image;
+class IpcService;
+class Shortcut;
+struct ShortcutServices;
 class INetworkService;
 class LinkService;
 struct LinkDevice;
@@ -196,6 +206,75 @@ namespace control_center {
     std::optional<bool> m_pendingOn;
     std::chrono::steady_clock::time_point m_pendingSince;
     std::shared_ptr<int> m_alive = std::make_shared<int>(0);
+  };
+
+  // Brightness per output, Dark Mode and Night Light (.agent/DESIGN.md "Control Center pages", Display).
+  class DisplayDetailPage final : public DetailPage {
+  public:
+    DisplayDetailPage(BrightnessService* brightness, const ShortcutServices& shortcuts);
+    ~DisplayDetailPage() override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+
+    BrightnessService* m_brightness = nullptr;
+    std::unique_ptr<Shortcut> m_darkMode;
+    std::unique_ptr<Shortcut> m_nightLight;
+  };
+
+  // System B "Rings + rates" (.agent/DESIGN.md "Control Center pages"): CPU, Memory, GPU rings, then disk, network and
+  // temperature rows. Samples once a second only while the page is shown.
+  class SystemDetailPage final : public DetailPage {
+  public:
+    SystemDetailPage(SystemMonitorService* monitor, IpcService* ipc) : m_monitor(monitor), m_ipc(ipc) {}
+    ~SystemDetailPage() override;
+    void setActive(bool active) override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+    void retain(bool on);
+
+    SystemMonitorService* m_monitor = nullptr;
+    IpcService* m_ipc = nullptr;
+    bool m_retained = false;
+    Timer m_tick;
+  };
+
+  // Screen Time A "Week + most used" (.agent/DESIGN.md "Control Center pages").
+  class ScreenTimeDetailPage final : public DetailPage {
+  public:
+    explicit ScreenTimeDetailPage(ScreenTimeService* screenTime) : m_screenTime(screenTime) {}
+    void setActive(bool active) override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+
+    ScreenTimeService* m_screenTime = nullptr;
+    Timer m_tick;
+  };
+
+  // Media (rulebook 9.3 "Media"): now-playing card with seek line and controls, then the players list when 2 or more.
+  class MediaDetailPage final : public DetailPage {
+  public:
+    MediaDetailPage(MprisService* mpris, HttpClient* http) : m_mpris(mpris), m_http(http) {}
+    void setActive(bool active) override;
+
+  private:
+    [[nodiscard]] std::string structureKey() const override;
+    void build() override;
+    [[nodiscard]] std::vector<FooterButton> footerButtons() override { return {}; }
+
+    MprisService* m_mpris = nullptr;
+    HttpClient* m_http = nullptr;
+    std::unordered_set<std::string> m_pendingArt;
+    std::shared_ptr<int> m_alive = std::make_shared<int>(0);
+    Timer m_tick;
   };
 
 } // namespace control_center

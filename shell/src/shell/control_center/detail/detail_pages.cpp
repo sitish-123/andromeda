@@ -1,4 +1,14 @@
 #include "shell/control_center/detail/detail_pages.h"
+#include "shell/control_center/shortcut_registry.h"
+#include "shell/control_center/shortcut_services.h"
+#include "dbus/mpris/mpris_art.h"
+#include "dbus/mpris/mpris_service.h"
+#include "ipc/ipc_service.h"
+#include "system/brightness_service.h"
+#include "system/format_units.h"
+#include "system/screen_time_service.h"
+#include "system/system_monitor_service.h"
+#include "ui/controls/countdown_ring.h"
 
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/link/link_service.h"
@@ -1303,6 +1313,429 @@ namespace control_center {
 
   std::vector<DetailPage::FooterButton> PhoneDetailPage::footerButtons() {
     return {{tr("control-center.detail.phone.open-link"), [] { LinkService::openApp(); }}};
+  }
+
+  // ---- Display ----
+
+  DisplayDetailPage::DisplayDetailPage(BrightnessService* brightness, const ShortcutServices& shortcuts)
+      : m_brightness(brightness), m_darkMode(ShortcutRegistry::create("dark_mode", shortcuts)) {
+    if (shortcuts.nightLight != nullptr) {
+      m_nightLight = ShortcutRegistry::create("nightlight", shortcuts);
+    }
+  }
+
+  DisplayDetailPage::~DisplayDetailPage() = default;
+
+  std::string DisplayDetailPage::structureKey() const {
+    std::string key;
+    if (m_brightness != nullptr) {
+      for (const BrightnessDisplay& display : m_brightness->displays()) {
+        if (display.controllable) {
+          key += display.id + "|" + display.label + "|";
+        }
+      }
+    }
+    for (const Shortcut* shortcut : {m_darkMode.get(), m_nightLight.get()}) {
+      if (shortcut != nullptr) {
+        key += std::format("{}{}|{}", shortcut->id(), shortcut->active() ? 1 : 0, shortcut->displayLabel());
+      }
+    }
+    return key;
+  }
+
+  void DisplayDetailPage::build() {
+    const auto& displays = m_brightness != nullptr ? m_brightness->displays() : std::vector<BrightnessDisplay>{};
+    Flex* sliders = nullptr;
+    for (const BrightnessDisplay& display : displays) {
+      if (!display.controllable) {
+        continue;
+      }
+      if (sliders == nullptr) {
+        sliders = addGroup(tr("control-center.detail.display.brightness"));
+      }
+      DetailSliderRow row;
+      row.glyph = "sun";
+      row.title = display.label;
+      row.value = [this, id = display.id]() -> std::optional<float> {
+        const BrightnessDisplay* current = m_brightness->findDisplay(id);
+        return current != nullptr ? std::optional<float>(current->brightness) : std::nullopt;
+      };
+      row.onChange = [this, id = display.id](float value) { m_brightness->setBrightness(id, value); };
+      addSliderRow(*sliders, row);
+    }
+    Flex* card = addGroup();
+    for (Shortcut* shortcut : {m_darkMode.get(), m_nightLight.get()}) {
+      if (shortcut == nullptr) {
+        continue;
+      }
+      DetailRow row;
+      row.glyph = std::string(shortcut->currentIcon());
+      row.title = shortcut->defaultLabel();
+      row.trailing = shortcut->active() ? tr("control-center.detail.display.on") : tr("control-center.detail.display.off");
+      row.selected = shortcut->active();
+      row.onClick = [this, shortcut] {
+        shortcut->onClick();
+        requestRebuild();
+      };
+      addRow(*card, row);
+    }
+  }
+
+  std::vector<DetailPage::FooterButton> DisplayDetailPage::footerButtons() {
+    return {{tr("control-center.detail.display.settings"), [] { openSettings("displays"); }}};
+  }
+
+  // ---- System ----
+
+  SystemDetailPage::~SystemDetailPage() { retain(false); }
+
+  void SystemDetailPage::setActive(bool active) {
+    retain(active);
+    if (active) {
+      m_tick.startRepeating(std::chrono::seconds(1), [] { PanelManager::instance().requestUpdateOnly(); });
+    } else {
+      m_tick.stop();
+    }
+  }
+
+  void SystemDetailPage::retain(bool on) {
+    if (m_monitor == nullptr || on == m_retained) {
+      return;
+    }
+    m_retained = on;
+    if (on) {
+      m_monitor->retainSampling();
+      m_monitor->retainCpuTemp();
+      m_monitor->retainGpuUsage();
+      m_monitor->retainDiskPath("/");
+      return;
+    }
+    m_monitor->releaseSampling();
+    m_monitor->releaseCpuTemp();
+    m_monitor->releaseGpuUsage();
+    m_monitor->releaseDiskPath("/");
+  }
+
+  std::string SystemDetailPage::structureKey() const {
+    if (m_monitor == nullptr) {
+      return "unavailable";
+    }
+    const SystemStats stats = m_monitor->latest();
+    return std::format("{}|{}|{}|{}|{}|{}|{}", std::lround(stats.cpuUsagePercent), std::lround(stats.ramUsagePercent),
+                       std::lround(stats.gpuUsagePercent.value_or(-1.0)), std::lround(stats.cpuTempC.value_or(-1.0)),
+                       std::lround(stats.netRxBytesPerSec / 1000.0), std::lround(stats.netTxBytesPerSec / 1000.0),
+                       std::lround(m_monitor->diskUsagePercent("/")));
+  }
+
+  void SystemDetailPage::build() {
+    if (m_monitor == nullptr) {
+      addEmpty("activity-heartbeat", tr("control-center.detail.system.unavailable"), {});
+      return;
+    }
+    const float s = contentScale();
+    const SystemStats stats = m_monitor->latest();
+    Flex* card = addGroup();
+    auto rings = ui::row({.align = FlexAlign::Start, .justify = FlexJustify::Center, .gap = Tokens::spaceP32 * s,
+                          .paddingV = Tokens::spaceP12 * s});
+    const auto addRing = [&](float percent, const char* nameKey) {
+      const float size = (Tokens::spaceP64 + Tokens::spaceP8) * s;
+      auto cell = ui::column({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s});
+      auto stack = std::make_unique<Flex>();
+      stack->setMinWidth(size);
+      stack->setMinHeight(size);
+      for (const bool value : {false, true}) {
+        auto ring = std::make_unique<CountdownRing>();
+        ring->setRingSize(size);
+        ring->setThickness(Tokens::spaceP8 * s);
+        ring->setProgress(value ? std::clamp(percent / 100.0F, 0.0F, 1.0F) : 1.0F);
+        ring->setColor(colorSpecFromRole(value ? ColorRole::AccentText : ColorRole::Fill2));
+        if (value) {
+          ring->setParticipatesInLayout(false);
+        }
+        stack->addChild(std::move(ring));
+      }
+      cell->addChild(std::move(stack));
+      cell->addChild(ui::label({.text = std::format("{} %", std::lround(percent)), .fontSize = Tokens::typeHeadline.size * s,
+                                .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1)}));
+      cell->addChild(ui::label({.text = tr(nameKey), .fontSize = Tokens::typeFootnote.size * s,
+                                .color = colorSpecFromRole(ColorRole::Label2)}));
+      rings->addChild(std::move(cell));
+    };
+    addRing(static_cast<float>(stats.cpuUsagePercent), "control-center.detail.system.cpu");
+    addRing(static_cast<float>(stats.ramUsagePercent), "control-center.detail.system.memory");
+    if (stats.gpuUsagePercent.has_value()) {
+      addRing(static_cast<float>(*stats.gpuUsagePercent), "control-center.detail.system.gpu");
+    }
+    card->addChild(std::move(rings));
+
+    Flex* rows = addGroup();
+    if (const auto disk = m_monitor->diskStats("/"); disk.has_value()) {
+      const std::uint64_t total = m_monitor->diskTotalBytes("/");
+      const std::uint64_t free = m_monitor->diskAvailBytes("/");
+      addRow(*rows, {.glyph = "database",
+                     .title = tr("control-center.detail.system.disk"),
+                     .trailing = FormatUnits::formatDecimalBytesUsage(static_cast<double>(total - std::min(free, total)),
+                                                                      static_cast<double>(total))});
+    }
+    addRow(*rows, {.glyph = "network",
+                   .title = tr("control-center.detail.system.network"),
+                   .trailing = std::format("{} ↓ · {} ↑", FormatUnits::formatDecimalBytesPerSecond(stats.netRxBytesPerSec),
+                                           FormatUnits::formatDecimalBytesPerSecond(stats.netTxBytesPerSec))});
+    if (stats.cpuTempC.has_value()) {
+      addRow(*rows, {.glyph = "temperature",
+                     .title = tr("control-center.detail.system.temperature"),
+                     .trailing = std::format("{} °C", std::lround(*stats.cpuTempC))});
+    }
+  }
+
+  std::vector<DetailPage::FooterButton> SystemDetailPage::footerButtons() {
+    return {{tr("control-center.detail.system.activity"), [this] {
+      if (m_ipc != nullptr) {
+        (void)m_ipc->execute("activity-open");
+      }
+    }}};
+  }
+
+  // ---- Screen Time ----
+
+  namespace {
+    std::string formatScreenTime(std::chrono::seconds total) {
+      const auto minutes = std::chrono::duration_cast<std::chrono::minutes>(total).count();
+      if (minutes < 60) {
+        return i18n::tr("control-center.detail.screen-time.minutes", "minutes", static_cast<int>(minutes));
+      }
+      return i18n::tr("control-center.detail.screen-time.hours", "hours", static_cast<int>(minutes / 60), "minutes",
+                      static_cast<int>(minutes % 60));
+    }
+  } // namespace
+
+  void ScreenTimeDetailPage::setActive(bool active) {
+    if (active) {
+      // The service records once a minute; the page follows while shown.
+      m_tick.startRepeating(std::chrono::seconds(30), [] { PanelManager::instance().requestUpdateOnly(); });
+    } else {
+      m_tick.stop();
+    }
+  }
+
+  std::string ScreenTimeDetailPage::structureKey() const {
+    if (m_screenTime == nullptr || !m_screenTime->enabled()) {
+      return "off";
+    }
+    const ScreenTimeSnapshot week = m_screenTime->snapshot(14);
+    std::string key = std::to_string(week.total.count());
+    for (const auto& bucket : week.buckets) {
+      key += "|" + std::to_string(bucket.count() / 60);
+    }
+    return key;
+  }
+
+  void ScreenTimeDetailPage::build() {
+    if (m_screenTime == nullptr || !m_screenTime->enabled()) {
+      addEmpty("hourglass", tr("control-center.detail.screen-time.off"), tr("control-center.detail.screen-time.off-body"));
+      return;
+    }
+    const float s = contentScale();
+    const ScreenTimeSnapshot fortnight = m_screenTime->snapshot(14);
+    const std::size_t n = fortnight.buckets.size();
+    const std::size_t split = n >= 7 ? n - 7 : 0;
+    std::chrono::seconds thisWeek{0};
+    std::chrono::seconds lastWeek{0};
+    std::chrono::seconds peak{0};
+    for (std::size_t i = 0; i < n; ++i) {
+      (i >= split ? thisWeek : lastWeek) += fortnight.buckets[i];
+      if (i >= split) {
+        peak = std::max(peak, fortnight.buckets[i]);
+      }
+    }
+    const std::chrono::seconds today = n > 0 ? fortnight.buckets.back() : std::chrono::seconds{0};
+
+    Flex* card = addGroup();
+    auto body = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s, .padding = Tokens::spaceP12 * s});
+    auto top = ui::row({.align = FlexAlign::End, .justify = FlexJustify::SpaceBetween});
+    top->addChild(ui::label({.text = formatScreenTime(today), .fontSize = Tokens::typeHero.size * s,
+                             .fontWeight = FontWeight::Light, .color = colorSpecFromRole(ColorRole::Label1)}));
+    top->addChild(ui::label({.text = tr("control-center.detail.screen-time.today"), .fontSize = Tokens::typeFootnote.size * s,
+                             .color = colorSpecFromRole(ColorRole::Label2)}));
+    body->addChild(std::move(top));
+    std::string average = i18n::tr("control-center.detail.screen-time.average", "time", formatScreenTime(thisWeek / 7));
+    if (lastWeek.count() > 0) {
+      const long change = std::lround(100.0 * static_cast<double>(thisWeek.count() - lastWeek.count())
+                                      / static_cast<double>(lastWeek.count()));
+      average += " · " + i18n::tr(change >= 0 ? "control-center.detail.screen-time.more" : "control-center.detail.screen-time.less",
+                                  "percent", static_cast<int>(std::abs(change)));
+    }
+    body->addChild(ui::label({.text = average, .fontSize = Tokens::typeFootnote.size * s,
+                              .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 1, .ellipsize = TextEllipsize::End}));
+    const float barsHeight = (Tokens::spaceP64 + Tokens::spaceP32) * s;
+    auto bars = ui::row({.align = FlexAlign::End, .justify = FlexJustify::SpaceBetween, .paddingH = Tokens::spaceP8 * s});
+    auto days = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::SpaceBetween, .paddingH = Tokens::spaceP8 * s});
+    for (std::size_t i = split; i < n; ++i) {
+      const float share = peak.count() > 0 ? static_cast<float>(fortnight.buckets[i].count()) / static_cast<float>(peak.count()) : 0.0F;
+      auto column = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::End, .minHeight = barsHeight});
+      column->addChild(ui::box({.fill = colorSpecFromRole(i + 1 == n ? ColorRole::Accent : ColorRole::Fill3),
+                                .radius = Tokens::spaceP4 * s, .width = (Tokens::spaceP24 + Tokens::spaceP4) * s,
+                                .height = std::max(Tokens::spaceP4, share * barsHeight / s) * s}));
+      bars->addChild(std::move(column));
+      const std::string dayKey = i < fortnight.bucketDayKeys.size() ? fortnight.bucketDayKeys[i] : std::string();
+      days->addChild(ui::label({.text = dayKey.empty() ? std::string() : ScreenTimeService::dayDisplayName(dayKey).substr(0, 1),
+                                .fontSize = Tokens::typeCaption.size * s, .fontWeight = FontWeight::SemiBold,
+                                .color = colorSpecFromRole(ColorRole::Label3), .width = (Tokens::spaceP24 + Tokens::spaceP4) * s,
+                                .textAlign = TextAlign::Center}));
+    }
+    body->addChild(std::move(bars));
+    body->addChild(std::move(days));
+    card->addChild(std::move(body));
+
+    const ScreenTimeSnapshot day = m_screenTime->snapshot(1);
+    if (!day.apps.empty()) {
+      Flex* apps = addGroup(tr("control-center.detail.screen-time.most-used"));
+      for (std::size_t i = 0; i < std::min<std::size_t>(day.apps.size(), 3); ++i) {
+        const ScreenTimeAppUsage& app = day.apps[i];
+        addRow(*apps, {.title = app.displayName, .trailing = formatScreenTime(app.total), .avatarIcons = {app.appKey}});
+      }
+    }
+  }
+
+  std::vector<DetailPage::FooterButton> ScreenTimeDetailPage::footerButtons() { return {}; }
+
+  // ---- Media ----
+
+  namespace {
+    std::string clockText(std::int64_t us) {
+      const std::int64_t secs = std::max<std::int64_t>(0, us / 1'000'000);
+      return std::format("{}:{:02}", secs / 60, secs % 60);
+    }
+
+    std::unique_ptr<Button> mediaButton(std::string_view glyphName, float box, float s, bool enabled,
+                                        std::function<void()> onClick, bool filled = false) {
+      auto b = std::make_unique<Button>();
+      b->setVariant(filled ? ButtonVariant::Default : ButtonVariant::Ghost);
+      b->setGlyph(glyphName);
+      b->setGlyphSize(Tokens::sizeSymbol * (filled ? 1.25F : 1.0F) * s);
+      b->setControlHeight(box * s);
+      b->setMinWidth(box * s);
+      b->setRadius(box * 0.5F * s);
+      b->setEnabled(enabled);
+      b->setOnClick(std::move(onClick));
+      return b;
+    }
+  } // namespace
+
+  void MediaDetailPage::setActive(bool active) {
+    if (active) {
+      // MprisService polls Position about once a second; the seek line follows while shown.
+      m_tick.startRepeating(std::chrono::seconds(1), [] { PanelManager::instance().requestUpdateOnly(); });
+    } else {
+      m_tick.stop();
+    }
+  }
+
+  std::string MediaDetailPage::structureKey() const {
+    if (m_mpris == nullptr) {
+      return "none";
+    }
+    std::string key;
+    for (const MprisPlayerInfo& player : m_mpris->listPlayers()) {
+      key += std::format("{}|{}|{}|{}|{}|{}|{};", player.busName, player.playbackStatus, player.title,
+                         mpris::effectiveArtUrl(player), player.positionUs / 1'000'000, player.shuffle, player.loopStatus);
+    }
+    if (const auto active = m_mpris->activePlayer(); active.has_value()) {
+      key += "*" + active->busName;
+    }
+    return key;
+  }
+
+  void MediaDetailPage::build() {
+    const std::optional<MprisPlayerInfo> player = m_mpris != nullptr ? m_mpris->activePlayer() : std::nullopt;
+    if (!player.has_value()) {
+      addEmpty("disc", tr("control-center.detail.media.empty"), tr("control-center.detail.media.empty-body"));
+      return;
+    }
+    const float s = contentScale();
+    const std::string bus = player->busName;
+    Flex* card = addGroup();
+    auto body = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s, .padding = Tokens::spaceP8 * s});
+
+    auto head = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s});
+    const float art = Tokens::spaceP64 * s;
+    auto image = std::make_unique<Image>();
+    image->setFit(ImageFit::Cover);
+    image->setSize(art, art);
+    image->setRadius(Tokens::spaceP8 * s);
+    const std::string path = mpris::resolveArtworkSource(m_http, m_pendingArt, mpris::effectiveArtUrl(*player), [this] {
+      requestRebuild();
+      PanelManager::instance().refresh();
+    }, m_alive);
+    if (!path.empty()) {
+      bindImage(image.get(), {path}, static_cast<int>(std::ceil(art * 2.0F)));
+    }
+    head->addChild(std::move(image));
+    auto text = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
+    const std::string artist = mpris::joinArtists(player->artists);
+    text->addChild(ui::label({.text = player->title.empty() ? player->identity : player->title, .fontSize = Tokens::typeTitle3.size * s,
+                              .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
+                              .ellipsize = TextEllipsize::End}));
+    const std::string line = player->album.empty() ? artist : (artist.empty() ? player->album : artist + " · " + player->album);
+    if (!line.empty()) {
+      text->addChild(ui::label({.text = line, .fontSize = Tokens::typeFootnote.size * s, .color = colorSpecFromRole(ColorRole::Label2),
+                                .maxLines = 1, .ellipsize = TextEllipsize::End}));
+    }
+    text->addChild(ui::label({.text = player->identity, .fontSize = Tokens::typeFootnote.size * s,
+                              .color = colorSpecFromRole(ColorRole::Label3), .maxLines = 1, .ellipsize = TextEllipsize::End}));
+    head->addChild(std::move(text));
+    body->addChild(std::move(head));
+
+    if (player->lengthUs > 0) {
+      const float progress = std::clamp(static_cast<float>(player->positionUs) / static_cast<float>(player->lengthUs), 0.0F, 1.0F);
+      auto track = ui::row({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Fill2),
+                            .radius = Tokens::spaceP2 * s, .minHeight = Tokens::spaceP4 * s});
+      auto fill = ui::box({.fill = colorSpecFromRole(ColorRole::Label1), .radius = Tokens::spaceP2 * s, .flexGrow = progress});
+      track->addChild(std::move(fill));
+      if (progress < 1.0F) {
+        track->addChild(ui::box({.flexGrow = 1.0F - progress}));
+      }
+      body->addChild(std::move(track));
+      auto times = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::SpaceBetween});
+      times->addChild(ui::label({.text = clockText(player->positionUs), .fontSize = Tokens::typeFootnote.size * s,
+                                 .color = colorSpecFromRole(ColorRole::Label2)}));
+      times->addChild(ui::label({.text = "-" + clockText(player->lengthUs - player->positionUs), .fontSize = Tokens::typeFootnote.size * s,
+                                 .color = colorSpecFromRole(ColorRole::Label2)}));
+      body->addChild(std::move(times));
+    }
+
+    auto controls = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Tokens::spaceP16 * s});
+    const float small = Tokens::spaceP32;
+    controls->addChild(mediaButton("arrows-shuffle", small, s, player->canControl,
+                                   [this, bus, on = player->shuffle] { m_mpris->setShuffle(bus, !on); }));
+    controls->addChild(mediaButton("player-skip-back", small, s, player->canGoPrevious, [this, bus] { m_mpris->previous(bus); }));
+    controls->addChild(mediaButton(player->playbackStatus == "Playing" ? "player-pause" : "player-play", Tokens::spaceP48, s,
+                                   player->canPlay || player->canPause, [this, bus] { m_mpris->playPause(bus); }, true));
+    controls->addChild(mediaButton("player-skip-forward", small, s, player->canGoNext, [this, bus] { m_mpris->next(bus); }));
+    controls->addChild(mediaButton(player->loopStatus == "Track" ? "repeat-once" : "repeat", small, s, player->canControl,
+                                   [this, bus, loop = player->loopStatus] {
+                                     m_mpris->setLoopStatus(bus, loop == "None" ? "Playlist" : (loop == "Playlist" ? "Track" : "None"));
+                                   }));
+    body->addChild(std::move(controls));
+    card->addChild(std::move(body));
+
+    const std::vector<MprisPlayerInfo> players = m_mpris->listPlayers();
+    if (players.size() >= 2) {
+      Flex* list = addGroup(tr("control-center.detail.media.players"));
+      for (const MprisPlayerInfo& other : players) {
+        DetailRow row;
+        row.title = other.identity;
+        row.secondary = other.title;
+        row.trailing = other.playbackStatus == "Playing" ? tr("control-center.detail.media.playing") : tr("control-center.detail.media.paused");
+        row.avatarIcons = {other.desktopEntry, other.identity};
+        row.selected = other.busName == bus;
+        row.onClick = [this, name = other.busName] {
+          m_mpris->setPinnedPlayerPreference(name);
+          requestRebuild();
+        };
+        addRow(*list, row);
+      }
+    }
   }
 
 } // namespace control_center

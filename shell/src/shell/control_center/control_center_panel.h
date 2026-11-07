@@ -133,6 +133,10 @@ private:
     DetailFocus,
     DetailSearch,
     DetailPhone,
+    DetailDisplay,
+    DetailSystem,
+    DetailScreenTime,
+    DetailMedia,
     Count,
   };
 
@@ -165,6 +169,10 @@ private:
       {TabId::DetailFocus, "detail-focus", "control-center.quick.focus", "moon"},
       {TabId::DetailSearch, "detail-search", "control-center.detail.search.title", "search"},
       {TabId::DetailPhone, "detail-phone", "control-center.detail.phone.title", "device-mobile"},
+      {TabId::DetailDisplay, "detail-display", "control-center.detail.display.title", "sun"},
+      {TabId::DetailSystem, "detail-system", "control-center.detail.system.title", "activity-heartbeat"},
+      {TabId::DetailScreenTime, "detail-screen-time", "control-center.detail.screen-time.title", "hourglass"},
+      {TabId::DetailMedia, "detail-media", "control-center.detail.media.title", "disc"},
   }};
 
   // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.

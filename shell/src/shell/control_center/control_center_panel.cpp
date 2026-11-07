@@ -100,6 +100,11 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   }));
   addDetail(TabId::DetailFocus, std::make_unique<control_center::FocusDetailPage>(services.notifications));
   addDetail(TabId::DetailPhone, std::make_unique<control_center::PhoneDetailPage>(services.link, services.notifications));
+  addDetail(TabId::DetailDisplay,
+            std::make_unique<control_center::DisplayDetailPage>(services.brightness, services.shortcutServices()));
+  addDetail(TabId::DetailSystem, std::make_unique<control_center::SystemDetailPage>(services.sysmon, services.ipc));
+  addDetail(TabId::DetailScreenTime, std::make_unique<control_center::ScreenTimeDetailPage>(services.screenTime));
+  addDetail(TabId::DetailMedia, std::make_unique<control_center::MediaDetailPage>(services.mpris, services.httpClient));
   m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
@@ -1067,6 +1072,18 @@ ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view
 }
 
 ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view context) const {
+  // Contexts of the old sidebar tabs (bar gestures, IPC, user config) open their v2 page.
+  static constexpr std::array<std::pair<std::string_view, std::string_view>, 4> kOldContexts{{
+      {"media", "detail-media"},
+      {"screen-time", "detail-screen-time"},
+      {"monitor", "detail-display"},
+      {"system", "detail-system"},
+  }};
+  for (const auto& [old, current] : kOldContexts) {
+    if (context == old) {
+      context = current;
+    }
+  }
   for (const auto& tab : kTabs) {
     if (context == tab.key) {
       return tab.id;
