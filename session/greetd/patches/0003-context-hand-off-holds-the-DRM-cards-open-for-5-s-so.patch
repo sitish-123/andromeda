@@ -1,0 +1,92 @@
+From d94e7542661ee6a3ea33b5fd17fb2a554bbe2876 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 12:37:36 +0545
+Subject: [PATCH 3/3] context: hand-off holds the DRM cards open for 5 s, so
+ the greeter's exit is never the card's last close (the kernel would restore
+ its console framebuffer)
+
+---
+ greetd/src/context.rs | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 7d9a53a..f5b82f6 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -38,6 +38,9 @@ struct ContextInner {
+     configuring: Option<SessionSet>,
+     /// Hand-off: the greeter that stays alive after the user session took its own VT, until it exits.
+     outgoing: Option<SessionChildSet>,
++    /// Hand-off: DRM card files held open across the greeter's exit. Closing the last open file of a card makes the
++    /// kernel put its console framebuffer (stale boot text) back on screen before the session compositor opens it.
++    drm_hold: Option<(Vec<File>, Instant)>,
+ }
+ 
+ /// Context keeps track of running sessions and start new ones.
+@@ -73,6 +76,7 @@ impl Context {
+                 scheduled: None,
+                 configuring: None,
+                 outgoing: None,
++                drm_hold: None,
+             }),
+             greeter_bin,
+             greeter_user,
+@@ -309,6 +313,7 @@ impl Context {
+                     s.session.send_args(cmd, env).await?;
+ 
+                     if self.handoff {
++                        let cards = hold_drm_cards();
+                         // The worker returns once the session's VT is in front: the greeter has lost the display
+                         // with its last frame still on the planes (wlroots closes framebuffers with CLOSEFB), and
+                         // the new compositor holds that frame until its own first frame.
+@@ -322,8 +327,9 @@ impl Context {
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+                             inner.outgoing = Some(g);
+-                            alarm::set(2);
+                         }
++                        inner.drm_hold = Some((cards, Instant::now()));
++                        alarm::set(1);
+                         return Ok(());
+                     }
+ 
+@@ -357,11 +363,19 @@ impl Context {
+         if let Some(g) = &inner.outgoing {
+             if g.time.elapsed() > Duration::from_secs(10) {
+                 g.child.kill();
+-            } else {
++            } else if g.time.elapsed() >= Duration::from_secs(2) {
+                 g.child.term();
+             }
+             alarm::set(1);
+         }
++        // The session compositor opens the card within a second of its start; 5 s covers a slow start.
++        if let Some((_, since)) = &inner.drm_hold {
++            if since.elapsed() >= Duration::from_secs(5) {
++                inner.drm_hold = None;
++            } else {
++                alarm::set(1);
++            }
++        }
+ 
+         if let Some(mut p) = inner.scheduled.take() {
+             if let Some(g) = inner.current.take() {
+@@ -483,3 +497,15 @@ impl Context {
+         Ok(())
+     }
+ }
++
++/// Opens every DRM card node read-only; failures are skipped (no card, no hold needed).
++fn hold_drm_cards() -> Vec<File> {
++    std::fs::read_dir("/dev/dri")
++        .map(|dir| {
++            dir.filter_map(Result::ok)
++                .filter(|entry| entry.file_name().to_string_lossy().starts_with("card"))
++                .filter_map(|entry| File::open(entry.path()).ok())
++                .collect()
++        })
++        .unwrap_or_default()
++}
+-- 
+2.56.0
+

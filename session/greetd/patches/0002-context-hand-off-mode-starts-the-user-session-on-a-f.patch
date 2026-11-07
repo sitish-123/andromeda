@@ -1,7 +1,7 @@
 From d7da2b98979525db0932fc7f4334ca0fbdd9c27f Mon Sep 17 00:00:00 2001
 From: sitish <sitishjayaswal12@gmail.com>
 Date: Sat, 7 Nov 2026 11:59:34 +0545
-Subject: [PATCH 2/2] context: hand-off mode starts the user session on a free
+Subject: [PATCH 2/3] context: hand-off mode starts the user session on a free
  VT in graphics mode and retires the greeter after the switch
 
 ---
