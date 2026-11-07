@@ -7,6 +7,7 @@
 #include <deque>
 #include <cstdarg>
 #include <cstdint>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -374,7 +375,14 @@ namespace {
       return;
     }
     if (!gWriterRunning) {
+      // The first line can come before main blocks SIGINT/SIGTERM for its signalfd; a writer that inherits them
+      // unblocked would take the signal's default action and kill the process.
+      sigset_t all;
+      sigset_t previous;
+      sigfillset(&all);
+      pthread_sigmask(SIG_BLOCK, &all, &previous);
       gWriter = std::thread(writerMain);
+      pthread_sigmask(SIG_SETMASK, &previous, nullptr);
       gWriterRunning = true;
       // Joins before static destruction: a joinable std::thread destructor terminates the process.
       static const bool registered = std::atexit(stopWriter) == 0;
