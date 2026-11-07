@@ -1075,13 +1075,16 @@ ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view
 
 ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view context) const {
   // Contexts of the old sidebar tabs (bar gestures, IPC, user config) open their v2 page.
-  static constexpr std::array<std::pair<std::string_view, std::string_view>, 7> kOldContexts{{
+  static constexpr std::array<std::pair<std::string_view, std::string_view>, 10> kOldContexts{{
+      {"audio", "detail-sound"},
       {"bluetooth", "detail-bluetooth"},
       {"home", "quick"},
       {"notifications", "detail-notifications"},
       {"media", "detail-media"},
       {"screen-time", "detail-screen-time"},
       {"monitor", "detail-display"},
+      {"network", "detail-wifi"},
+      {"power", "detail-power"},
       {"system", "detail-system"},
   }};
   for (const auto& [old, current] : kOldContexts) {
