@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <set>
 #include <string>
 #include <vector>
@@ -105,6 +106,16 @@ private:
     std::size_t memory = 0;
   };
   [[nodiscard]] Limits limitsOf(const ActivityRow& row) const;
+  // cgroup files of the selected row, the limited rows and the engine services, read on the SharedWorker.
+  struct CgroupControls {
+    bool frozen = false;
+    double cpuShare = 0.0;   // cpu.max quota / period; 0 = max
+    double memoryHigh = 0.0; // bytes; 0 = max
+    std::uint64_t memoryCurrent = 0;
+    bool operator==(const CgroupControls&) const = default;
+  };
+  [[nodiscard]] const CgroupControls* controlsOf(const ActivityRow& row) const;
+  void readControlsAsync();
   void setSelectedLimits(Limits limits);
   void updateLive();
   void forceQuitSelected();
@@ -180,4 +191,8 @@ private:
   std::vector<LiveText> m_liveText; // pointers into m_sceneRoot; cleared on each rebuild
   std::vector<LiveGraph> m_liveGraphs;
   std::string m_structure; // structureKey() of the current scene
+  std::unordered_map<std::string, CgroupControls> m_controls; // by unit cgroup path
+  bool m_controlsReading = false;
+  bool m_controlsAgain = false;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 };

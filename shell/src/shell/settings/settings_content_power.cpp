@@ -1,6 +1,7 @@
 #include "shell/settings/settings_content_power.h"
 
 #include "core/process/process.h"
+#include "core/shared_worker.h"
 #include "dbus/andromeda/system_health_service.h"
 #include "dbus/logind/power_config_service.h"
 #include "dbus/power/power_profiles_service.h"
@@ -30,6 +31,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -664,15 +666,59 @@ namespace settings {
       });
     }
 
-    // The compositor records screen time (it owns outputs and input); the page only reads its snapshot.
-    ScreenActivityLog readScreenActivity() {
-      ScreenActivityLog log;
-      std::ifstream in(screenActivityPath());
+    // The compositor writes both logs (it owns outputs, input and the energy booking); the page reads them on the
+    // SharedWorker at most once a minute and rebuilds when they arrive.
+    struct LogCache {
+      bool pending = false;
+      std::int64_t readAt = 0;
+      ScreenActivityLog screen;
+      AppEnergyLog energy;
+    };
+    LogCache& logCache() {
+      static LogCache cache;
+      return cache;
+    }
+
+    std::string readText(const std::string& path) {
+      std::ifstream in(path);
       std::stringstream text;
       text << in.rdbuf();
-      log.parseLive(text.str());
-      return log;
+      return text.str();
     }
+
+    void fetchLogs(std::function<void()> rebuild) {
+      LogCache& cache = logCache();
+      if (cache.pending || unixNow() - cache.readAt < 60) {
+        return;
+      }
+      cache.pending = true;
+      struct Logs {
+        ScreenActivityLog screen;
+        AppEnergyLog energy;
+      };
+      static const auto alive = std::make_shared<int>(0);
+      SharedWorker::instance().post<Logs>(
+          alive,
+          [screenPath = screenActivityPath(), energyPath = appEnergyPath()] {
+            Logs logs;
+            logs.screen.parseLive(readText(screenPath));
+            logs.energy.parse(readText(energyPath));
+            return logs;
+          },
+          [rebuild = std::move(rebuild)](Logs logs) {
+            LogCache& c = logCache();
+            c.pending = false;
+            c.readAt = unixNow();
+            c.screen = std::move(logs.screen);
+            c.energy = std::move(logs.energy);
+            if (rebuild) {
+              rebuild();
+            }
+          }
+      );
+    }
+
+    const ScreenActivityLog& readScreenActivity() { return logCache().screen; }
 
     std::string hoursMinutes(std::int64_t seconds) {
       // formatDuration says "<1m" for 0, which reads as some time on a measured total.
@@ -1174,7 +1220,7 @@ namespace settings {
         card->addChild(std::move(note));
         return;
       }
-      const ScreenActivityLog log = readScreenActivity();
+      const ScreenActivityLog& log = readScreenActivity();
       const std::vector<ScreenActivityLog::Span> spans = log.spans(*start, now);
       const ScreenOnTime sot = screenOnTime(spans, points, *start, now);
 
@@ -1325,11 +1371,7 @@ namespace settings {
       // CPU share) where andromeda-system reports RAPL, else CPU time over 10 days.
       std::vector<ActivityRow> pastRows;
       if (tab == 0) {
-        std::ifstream in(appEnergyPath());
-        std::stringstream text;
-        text << in.rdbuf();
-        AppEnergyLog log;
-        log.parse(text.str());
+        const AppEnergyLog& log = logCache().energy;
         const std::int64_t seconds = static_cast<std::int64_t>(tenDays ? 10 * kDay : kDay);
         auto booked = log.wattHours(unixNow(), seconds);
         const bool energy = !booked.empty();
@@ -1424,6 +1466,7 @@ namespace settings {
 
   void addSettingsPower(Flex& content, const SettingsPowerContext& ctx) {
     const float scale = ctx.scale;
+    fetchLogs(ctx.rebuild);
     if (ctx.detail.starts_with("app-rules:")) {
       if (ctx.health != nullptr) {
         addAppRules(content, *ctx.health, ctx);

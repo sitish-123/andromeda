@@ -756,13 +756,6 @@ namespace {
   }
 } // namespace
 
-std::optional<std::string> ClipboardService::imageDataUri(std::size_t index) {
-  if (index >= m_history.size() || !m_history[index].isImage() || !loadEntryPayload(m_history[index])) {
-    return std::nullopt;
-  }
-  return toDataUri(m_history[index].data);
-}
-
 void ClipboardService::imageDataUriAsync(
     const std::string& storageId, std::function<void(std::optional<std::string>)> done
 ) {

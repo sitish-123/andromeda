@@ -7,6 +7,7 @@
 #include "core/deferred_call.h"
 #include "core/input/key_modifiers.h"
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "dbus/systemd/systemd_unit_name.h"
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
@@ -36,6 +37,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <utility>
 #include <fstream>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -391,6 +393,7 @@ void ActivityWindow::destroyWindow() {
 
 void ActivityWindow::onSample() {
   refreshContainers();
+  readControlsAsync();
   if (m_monitor != nullptr && m_details != nullptr) {
     const auto& activity = m_monitor->activity();
     const auto start = std::chrono::steady_clock::now();
@@ -421,6 +424,7 @@ void ActivityWindow::requestRebuild() {
   if (m_surface != nullptr) {
     m_rebuildRequested = true;
     m_surface->requestLayout();
+    readControlsAsync();
   }
 }
 
@@ -526,43 +530,112 @@ const ActivityRow* ActivityWindow::findRow(const std::string& key) const {
   return it != rows.end() ? &*it : nullptr;
 }
 
-bool ActivityWindow::isFrozen(const ActivityRow& row) const {
+const ActivityWindow::CgroupControls* ActivityWindow::controlsOf(const ActivityRow& row) const {
   const auto& units = m_monitor->userUnits().units();
   for (const auto& name : row.units) {
     if (const auto it = std::ranges::find(units, name, &SystemdUnit::name);
         it != units.end() && !it->controlGroup.empty()) {
-      std::ifstream events(m_monitor->activity().cgroupRoot() + it->controlGroup + "/cgroup.events");
-      for (std::string line; std::getline(events, line);) {
-        if (line == "frozen 1") {
-          return true;
-        }
-      }
-      return false;
+      const auto found = m_controls.find(it->controlGroup);
+      return found != m_controls.end() ? &found->second : nullptr;
     }
   }
-  return false;
+  return nullptr;
+}
+
+bool ActivityWindow::isFrozen(const ActivityRow& row) const {
+  const CgroupControls* controls = controlsOf(row);
+  return controls != nullptr && controls->frozen;
 }
 
 ActivityWindow::Limits ActivityWindow::limitsOf(const ActivityRow& row) const {
-  const auto& units = m_monitor->userUnits().units();
-  for (const auto& name : row.units) {
-    const auto it = std::ranges::find(units, name, &SystemdUnit::name);
-    if (it == units.end() || it->controlGroup.empty()) {
-      continue;
-    }
-    const std::string dir = m_monitor->activity().cgroupRoot() + it->controlGroup;
-    Limits limits;
-    std::string quota;
-    double period = 0.0;
-    if (std::ifstream cpu(dir + "/cpu.max"); cpu >> quota >> period && quota != "max" && period > 0.0) {
-      limits.cpu = nearestIndex(kCpuLimitPercent, std::stod(quota) / period / m_monitor->activity().cpuCount() * 100.0);
-    }
-    if (std::string high; std::ifstream(dir + "/memory.high") >> high && high != "max") {
-      limits.memory = nearestIndex(kMemoryLimitBytes, std::stod(high));
-    }
-    return limits;
+  const CgroupControls* controls = controlsOf(row);
+  if (controls == nullptr) {
+    return {};
   }
-  return {};
+  Limits limits;
+  if (controls->cpuShare > 0.0) {
+    limits.cpu = nearestIndex(kCpuLimitPercent, controls->cpuShare / m_monitor->activity().cpuCount() * 100.0);
+  }
+  if (controls->memoryHigh > 0.0) {
+    limits.memory = nearestIndex(kMemoryLimitBytes, controls->memoryHigh);
+  }
+  return limits;
+}
+
+void ActivityWindow::readControlsAsync() {
+  if (m_monitor == nullptr || m_surface == nullptr) {
+    return;
+  }
+  if (m_controlsReading) {
+    m_controlsAgain = true;
+    return;
+  }
+  const auto& units = m_monitor->userUnits().units();
+  std::vector<std::string> groups;
+  const auto addRow = [&](const ActivityRow& row) {
+    for (const auto& name : row.units) {
+      if (const auto it = std::ranges::find(units, name, &SystemdUnit::name);
+          it != units.end() && !it->controlGroup.empty()) {
+        groups.push_back(it->controlGroup);
+        return;
+      }
+    }
+  };
+  if (const ActivityRow* row = selectedRow(); row != nullptr) {
+    addRow(*row);
+  }
+  for (const auto& key : m_limitedKeys) {
+    if (const ActivityRow* row = findRow(key); row != nullptr) {
+      addRow(*row);
+    }
+  }
+  if (m_containers != nullptr) {
+    for (const auto& engine : m_containers->engines()) {
+      for (const auto& unit : engineUnits(engine)) {
+        if (unit.name.ends_with(".service") && !unit.controlGroup.empty()) {
+          groups.push_back(unit.controlGroup);
+        }
+      }
+    }
+  }
+  m_controlsReading = true;
+  using Controls = std::unordered_map<std::string, CgroupControls>;
+  SharedWorker::instance().post<Controls>(
+      m_alive,
+      [root = m_monitor->activity().cgroupRoot(), groups = std::move(groups)] {
+        Controls out;
+        for (const auto& group : groups) {
+          const std::string dir = root + group;
+          CgroupControls controls;
+          std::ifstream events(dir + "/cgroup.events");
+          for (std::string line; std::getline(events, line);) {
+            controls.frozen = controls.frozen || line == "frozen 1";
+          }
+          std::string quota;
+          double period = 0.0;
+          if (std::ifstream cpu(dir + "/cpu.max"); cpu >> quota >> period && quota != "max" && period > 0.0) {
+            controls.cpuShare = std::stod(quota) / period;
+          }
+          if (std::string high; std::ifstream(dir + "/memory.high") >> high && high != "max") {
+            controls.memoryHigh = std::stod(high);
+          }
+          std::ifstream(dir + "/memory.current") >> controls.memoryCurrent;
+          out.emplace(group, controls);
+        }
+        return out;
+      },
+      [this](Controls controls) {
+        m_controlsReading = false;
+        const bool changed = controls != m_controls;
+        m_controls = std::move(controls);
+        if (std::exchange(m_controlsAgain, false)) {
+          readControlsAsync();
+        }
+        if (changed) {
+          refreshAfterSample();
+        }
+      }
+  );
 }
 
 void ActivityWindow::setSelectedLimits(Limits limits) {
@@ -1732,16 +1805,6 @@ namespace {
 
   bool hasUsage(const ContainerInfo& container) { return container.state == "running" || container.state == "paused"; }
 
-  std::uint64_t cgroupMemory(const std::string& root, const std::string& cgroup) {
-    if (cgroup.empty()) {
-      return 0;
-    }
-    std::ifstream in(root + cgroup + "/memory.current");
-    std::uint64_t bytes = 0;
-    in >> bytes;
-    return bytes;
-  }
-
 } // namespace
 
 std::vector<SystemdUnit> ActivityWindow::engineUnits(const ContainerEngine& engine) const {
@@ -1827,7 +1890,6 @@ void ActivityWindow::runContainerAction(const ContainerInfo& container, int acti
 }
 
 void ActivityWindow::addContainerCards(Flex& list, float scale) {
-  const std::string& root = m_monitor->activity().cgroupRoot();
   const auto& containers = m_containers != nullptr ? m_containers->containers() : std::vector<ContainerInfo>{};
   if (m_containers == nullptr || m_containers->engines().empty()) {
     list.addChild(ui::label({
@@ -1852,7 +1914,7 @@ void ActivityWindow::addContainerCards(Flex& list, float scale) {
     } else {
       title = i18n::tr("activity.engine-running", "name", name);
     }
-    const auto summaryText = [this, root, socket = engine.socket] {
+    const auto summaryText = [this, socket = engine.socket] {
       const auto& all = m_containers->engines();
       const auto live = std::ranges::find(all, socket, &ContainerEngine::socket);
       if (live == all.end()) {
@@ -1876,7 +1938,8 @@ void ActivityWindow::addContainerCards(Flex& list, float scale) {
           i18n::tr("activity.engine-summary", "running", std::to_string(running), "total", std::to_string(total));
       const auto units = engineUnits(*live);
       const auto service = std::ranges::find_if(units, [](const SystemdUnit& u) { return u.name.ends_with(".service"); });
-      if (const std::uint64_t bytes = service != units.end() ? cgroupMemory(root, service->controlGroup) : 0; bytes > 0) {
+      const auto controls = service != units.end() ? m_controls.find(service->controlGroup) : m_controls.end();
+      if (const std::uint64_t bytes = controls != m_controls.end() ? controls->second.memoryCurrent : 0; bytes > 0) {
         text += " · " + memoryText(bytes);
       }
       return text;

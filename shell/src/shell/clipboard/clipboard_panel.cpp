@@ -31,6 +31,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace {
 
@@ -500,6 +502,37 @@ public:
   void setRenderer(Renderer* renderer) { m_renderer = renderer; }
   void setFilteredIndices(const std::vector<std::size_t>* indices) { m_filteredIndices = indices; }
   void setOnActivate(std::function<void(std::size_t)> callback) { m_onActivate = std::move(callback); }
+  void setOnImageReady(std::function<void(const std::string&)> callback) { m_onImageReady = std::move(callback); }
+
+  // The cached data URI of an image entry; empty while its decrypt and base64 run on the SharedWorker.
+  [[nodiscard]] std::string imageUri(const ClipboardEntry& entry) {
+    if (const auto it = m_imageUris.find(entry.storageId); it != m_imageUris.end()) {
+      return it->second;
+    }
+    if (m_clipboard != nullptr && !entry.storageId.empty() && m_pendingUris.insert(entry.storageId).second) {
+      m_clipboard->imageDataUriAsync(
+          entry.storageId, [this, id = entry.storageId, alive = std::weak_ptr<int>(m_alive)](std::optional<std::string> uri) {
+            if (alive.expired()) {
+              return;
+            }
+            m_pendingUris.erase(id);
+            if (!uri) {
+              return;
+            }
+            std::erase_if(m_imageUris, [this](const auto& cached) {
+              return std::ranges::none_of(m_clipboard->history(), [&](const ClipboardEntry& e) {
+                return e.storageId == cached.first;
+              });
+            });
+            m_imageUris[id] = std::move(*uri);
+            if (m_onImageReady) {
+              m_onImageReady(id);
+            }
+          }
+      );
+    }
+    return {};
+  }
 
   [[nodiscard]] std::size_t itemCount() const override {
     return m_filteredIndices == nullptr ? 0 : m_filteredIndices->size();
@@ -524,7 +557,7 @@ public:
     auto* row = static_cast<ClipboardListRow*>(&tile);
     std::string imageSource;
     if (history[historyIndex].isImage()) {
-      imageSource = m_clipboard->imageDataUri(historyIndex).value_or("");
+      imageSource = imageUri(history[historyIndex]);
     }
     row->bind(
         *m_renderer, history[historyIndex], historyIndex, row->width(), row->height(), selected, hovered && !selected,
@@ -546,6 +579,10 @@ private:
   Renderer* m_renderer = nullptr;
   const std::vector<std::size_t>* m_filteredIndices = nullptr;
   std::function<void(std::size_t)> m_onActivate;
+  std::function<void(const std::string&)> m_onImageReady;
+  std::unordered_map<std::string, std::string> m_imageUris; // by storage id
+  std::unordered_set<std::string> m_pendingUris;
+  std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 };
 
 ClipboardPanel::ClipboardPanel(ClipboardService* clipboard, ConfigService* config, AsyncTextureCache* asyncTextures)
@@ -676,6 +713,18 @@ void ClipboardPanel::create() {
                          : std::nullopt
   );
   m_listAdapter->setFilteredIndices(&m_filteredIndices);
+  m_listAdapter->setOnImageReady([this](const std::string& id) {
+    if (m_listGrid != nullptr) {
+      m_listGrid->notifyDataChanged();
+    }
+    const std::size_t selected = selectedHistoryIndex();
+    if (m_clipboard != nullptr && selected < m_clipboard->history().size()
+        && m_clipboard->history()[selected].storageId == id) {
+      m_lastPreviewWidth = -1.0F;
+      m_lastPreviewHeight = -1.0F;
+    }
+    PanelManager::instance().refresh();
+  });
   m_listAdapter->setOnActivate([this](std::size_t index) {
     if (m_selectedIndex == index) {
       activateSelected();
@@ -1261,9 +1310,9 @@ void ClipboardPanel::rebuildPreview(Renderer& renderer, float width, float heigh
       PanelManager::instance().refresh();
     });
     if (m_asyncTextures != nullptr && m_clipboard != nullptr) {
-      const auto imageSource = m_clipboard->imageDataUri(historyIndex);
-      if (imageSource.has_value()) {
-        (void)image->setSourceFileAsync(renderer, *m_asyncTextures, *imageSource, previewTargetSize);
+      const std::string imageSource = m_listAdapter != nullptr ? m_listAdapter->imageUri(entry) : std::string();
+      if (!imageSource.empty()) {
+        (void)image->setSourceFileAsync(renderer, *m_asyncTextures, imageSource, previewTargetSize);
         if (showLoadedImage()) {
           m_previewMeta->setText(formatPreviewMeta(entry, image->sourceWidth(), image->sourceHeight()));
         }
