@@ -35,5 +35,10 @@ BEFORE_NOCTALIA='
   wait_calls "^ListFaces" 2
   sleep 0.5
   grim "$OUT/privacy-face-removed.png"
+  # The Lock Screen page links to the face and fingerprint pages.
+  "$NOCTALIA" msg settings-close > /dev/null
+  "$NOCTALIA" msg settings-open lock-screen > /dev/null
+  sleep 1
+  grim "$OUT/lock-screen-link.png"
 '
 echo PASS

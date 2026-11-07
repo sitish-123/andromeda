@@ -2113,6 +2113,31 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
     m_settingsRegistry.insert(it, std::move(btn));
   }
 
+  // Faces and fingerprints are managed in Privacy and Security; the Lock Screen page links there.
+  {
+    auto it = std::ranges::find_if(m_settingsRegistry, [](const settings::SettingEntry& e) {
+      return e.path == std::vector<std::string>{"lockscreen", "face_on_request"};
+    });
+    if (it != m_settingsRegistry.end()) {
+      settings::SettingEntry link{
+          .section = settings::SettingsSection::Security,
+          .group = "unlock",
+          .title = i18n::tr("settings.privacy.manage-biometrics"),
+          .subtitle = {},
+          .path = {},
+          .control =
+              settings::ButtonSetting{
+                  .label = i18n::tr("settings.privacy.manage-biometrics-button"),
+                  .action = [this] { navigateTo("privacy"); },
+                  .glyph = {}
+              },
+          .searchText = "face fingerprint enroll add remove manage biometric",
+          .visibleWhen = [](const Config& c) { return c.lockscreen.enabled; },
+      };
+      m_settingsRegistry.insert(it + 1, std::move(link));
+    }
+  }
+
   if (m_openLockscreenWidgetEditor) {
     auto it = std::ranges::find_if(m_settingsRegistry, [](const settings::SettingEntry& e) {
       return e.section == settings::SettingsSection::Security

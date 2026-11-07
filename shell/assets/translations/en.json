@@ -1680,6 +1680,8 @@
   },
   "settings": {
     "privacy": {
+      "manage-biometrics": "Faces and Fingerprints",
+      "manage-biometrics-button": "Manage…",
       "use-admin": "Admin prompts (sudo, apps)",
       "app-access": "App Access",
       "camera": "Camera",

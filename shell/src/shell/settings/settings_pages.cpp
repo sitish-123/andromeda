@@ -203,8 +203,9 @@ namespace settings {
   } // namespace
 
   const SettingsPage& settingsPageForEntry(const SettingEntry& entry) {
-    // The lock screen editor button has no path; it shares the group of the lock rows.
-    if (entry.section == SettingsSection::Security && (entry.group == "lock-screen" || entry.group == "~lock")) {
+    // The lock screen editor button and the faces link have no path; they share the group of the lock rows.
+    if (entry.section == SettingsSection::Security
+        && (entry.group == "lock-screen" || entry.group == "~lock" || entry.group == "unlock")) {
       return *settingsPageFromId("lock-screen");
     }
     const std::string key = settingEntryKey(entry);
