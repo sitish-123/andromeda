@@ -19,6 +19,7 @@ drag_opacity = 1.0
 enabled = false
 [appearance.title_bar]
 mode = "forced"
+height = 28
 [colors.title_bar]
 background = "#FF00FFFF"
 background_unfocused = "#FF00FFFF"

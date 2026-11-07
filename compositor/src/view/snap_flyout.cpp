@@ -3,26 +3,29 @@
 #include "config/config.h"
 #include "design_tokens.h"
 #include "scene/glass_panel.h"
+#include "output/output.h"
+#include "server/server.h"
 #include "view/view.h"
 #include "wlr.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 
 namespace andromeda {
   namespace {
-    // Rulebook 9.9 popover (r 20, p 12) holding prototype SNAP_LAYOUTS: 3 x 2 minis of a 16:10 screen, 64 x 40 at r 8
-    // (R7: 20 - 12), zones 4 apart, layouts 8 apart.
-    constexpr int kPad = 12;
+    // Board desktop-layouts.html section 3 (radius set B): popover r 12, p 8, holding prototype SNAP_LAYOUTS as 3 x 2
+    // minis of a 16:10 screen, 64 x 40, zones r 4 and 4 apart, layouts 8 apart.
+    constexpr int kPad = 8;
     constexpr int kMiniW = 64;
     constexpr int kMiniH = 40;
     constexpr int kGap = 8;
     constexpr int kZoneGap = 4;
     constexpr int kColumns = 3;
-    constexpr int kSheetRadius = 20;
-    constexpr int kZoneRadius = 8;
+    constexpr int kSheetRadius = 12;
+    constexpr int kZoneRadius = 4;
     constexpr int kSheetW = 2 * kPad + kColumns * kMiniW + (kColumns - 1) * kGap;
     constexpr int kSheetH = 2 * kPad + 2 * kMiniH + kGap;
 
@@ -30,19 +33,6 @@ namespace andromeda {
       const auto channel = [value](int shift) { return static_cast<float>((value >> shift) & 0xFFU) / 255.0F; };
       const float a = channel(0);
       return {channel(24) * a, channel(16) * a, channel(8) * a, a};
-    }
-
-    // A zone keeps the mini's outer r 8 on the corners it shares with the mini, and a small inner radius elsewhere.
-    fx_corner_radii zoneCorners(const wlr_box& mini, const wlr_box& zone) {
-      constexpr int kInner = 3;
-      const bool left = zone.x <= mini.x;
-      const bool top = zone.y <= mini.y;
-      const bool right = zone.x + zone.width >= mini.x + mini.width;
-      const bool bottom = zone.y + zone.height >= mini.y + mini.height;
-      return corner_radii_new(
-          top && left ? kZoneRadius : kInner, top && right ? kZoneRadius : kInner,
-          bottom && right ? kZoneRadius : kInner, bottom && left ? kZoneRadius : kInner
-      );
     }
 
     bool holds(const wlr_box& box, double x, double y) {
@@ -58,7 +48,9 @@ namespace andromeda {
     }
   } // namespace
 
-  SnapFlyout::SnapFlyout(wlr_scene_tree* parent) : m_tree(wlr_scene_tree_create(parent)) {
+  SnapFlyout::SnapFlyout(Server& server, wlr_scene_tree* parent)
+      : m_server(server), m_tree(wlr_scene_tree_create(parent)) {
+    m_server.registerAnimatable(this);
     if (m_tree == nullptr) {
       return;
     }
@@ -69,10 +61,11 @@ namespace andromeda {
         m_zoneRects.push_back(roundRect(m_tree, kZoneRadius));
       }
     }
+    m_zoneFill.resize(m_zoneRects.size());
   }
 
   // The scene owns the tree and frees it with the rest of the chrome at teardown.
-  SnapFlyout::~SnapFlyout() = default;
+  SnapFlyout::~SnapFlyout() { m_server.unregisterAnimatable(this); }
 
   void SnapFlyout::open(View& view, int x, int y, const wlr_box& bounds, bool keyboard) {
     if (m_tree == nullptr) {
@@ -93,27 +86,127 @@ namespace andromeda {
         mini.zones.emplace_back(id, snapZoneBox(mini.box, id, kZoneGap));
       }
     }
+    m_output = wlr_output_layout_output_at(m_server.outputLayout(), m_box.x + m_box.width / 2.0, m_box.y);
     m_open = true;
     m_lit = keyboard ? std::optional<SnapZone>(SnapZone{}) : std::nullopt;
+    // P10 Grow: scale 0.92 -> 1 on open with opacity on fade; reduced motion keeps only the fade (7.8).
+    const auto& anim = config().animation;
+    const bool reduced = config().appearance.reduceMotion;
+    m_scale.snap(anim.enabled && !reduced ? 0.92 : 1.0);
+    m_opacity.snap(anim.enabled ? 0.0 : 1.0);
+    if (anim.enabled) {
+      m_scale.settleSpring(1.0, {.damping = Tokens::springOpen.damping, .stiffness = Tokens::springOpen.stiffness});
+      m_opacity.settleSpring(1.0, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness});
+    }
+    retargetZones(false);
     wlr_scene_node_raise_to_top(&m_tree->node);
     wlr_scene_node_set_enabled(&m_tree->node, true);
     draw();
+    scheduleFrame();
   }
 
-  void SnapFlyout::close() {
+  void SnapFlyout::close(bool animate) {
+    const bool wasOpen = m_open;
     m_open = false;
     m_lit.reset();
     m_view = Ref<View>();
-    if (m_tree != nullptr) {
+    if (m_tree == nullptr) {
+      return;
+    }
+    // P10 Return: opacity on fade_out, scale 1 -> 0.96 toward the anchor on close; the tree hides once it is clear.
+    const auto& anim = config().animation;
+    if (!wasOpen || !anim.enabled || !animate) {
+      m_opacity.snap(0.0);
+      m_scale.snap(1.0);
       wlr_scene_node_set_enabled(&m_tree->node, false);
+      return;
+    }
+    if (!config().appearance.reduceMotion) {
+      m_scale.settleSpring(0.96, {.damping = Tokens::springClose.damping, .stiffness = Tokens::springClose.stiffness});
+    }
+    m_opacity.settleSpring(
+        0.0, {.damping = Tokens::springFadeOut.damping, .stiffness = Tokens::springFadeOut.stiffness}
+    );
+    scheduleFrame();
+  }
+
+  void SnapFlyout::scheduleFrame() {
+    // Every output: the sheet's own output can be unknown or gone, and a fade must still finish.
+    for (const auto& output : m_server.outputs()) {
+      wlr_output_schedule_frame(output->wlr());
     }
   }
 
-  void SnapFlyout::draw() {
+  void SnapFlyout::retargetZones(bool animate) {
     const bool light = config().appearance.scheme == ColorScheme::Light;
     const auto& scheme = light ? Tokens::schemeLight : Tokens::schemeDark;
+    const bool springs = animate && config().animation.enabled;
+    size_t index = 0;
+    for (const Mini& mini : m_minis) {
+      for (const auto& entry : mini.zones) {
+        const SnapZone zone = entry.first;
+        if (index >= m_zoneFill.size()) {
+          return;
+        }
+        // The lit zone in accent, its layout's other zones fill_3, every other zone fill_2.
+        const bool lit = m_lit == zone;
+        const bool sameLayout = m_lit.has_value() && m_lit->layout == zone.layout;
+        const auto color = lit ? token(scheme.accent) : sameLayout ? token(scheme.fill3) : token(scheme.fill2);
+        auto& fill = m_zoneFill[index++];
+        // P3: a fill rises on fade_out (quick) and falls back on fade (slower), so a quick pass does not flicker.
+        const bool rising = lit || sameLayout;
+        const auto& spring = rising ? Tokens::springFadeOut : Tokens::springFade;
+        for (size_t channel = 0; channel < fill.size(); ++channel) {
+          if (springs) {
+            fill[channel].settleSpring(color[channel], {.damping = spring.damping, .stiffness = spring.stiffness});
+          } else {
+            fill[channel].snap(color[channel]);
+          }
+        }
+      }
+    }
+  }
+
+  bool SnapFlyout::tickAnimations(double nowMsec) {
+    bool running = m_scale.tick(nowMsec);
+    running = m_opacity.tick(nowMsec) || running;
+    for (auto& fill : m_zoneFill) {
+      for (auto& channel : fill) {
+        running = channel.tick(nowMsec) || running;
+      }
+    }
+    if (m_tree != nullptr && !m_open && !m_opacity.animating()) {
+      wlr_scene_node_set_enabled(&m_tree->node, false);
+    } else {
+      draw();
+    }
+    return running;
+  }
+
+  bool SnapFlyout::hasActiveAnimations() const {
+    return m_scale.animating() || m_opacity.animating()
+        || std::ranges::any_of(m_zoneFill, [](const auto& fill) {
+             return std::ranges::any_of(fill, [](const AnimatedValue& channel) { return channel.animating(); });
+           });
+  }
+
+  bool SnapFlyout::animatesOn(const Output* output) const { return output != nullptr && hasActiveAnimations(); }
+
+  void SnapFlyout::draw() {
+    // Scaled about the anchor, the sheet's top centre under the button that opened it.
+    const double scale = m_scale.current();
+    const auto opacity = static_cast<float>(std::clamp(m_opacity.current(), 0.0, 1.0));
+    const double anchorX = m_box.x + m_box.width / 2.0;
+    const double anchorY = m_box.y;
+    const auto grown = [&](const wlr_box& box) {
+      const double x = anchorX + (box.x - anchorX) * scale;
+      const double y = anchorY + (box.y - anchorY) * scale;
+      return wlr_box{static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)),
+                     std::max(1, static_cast<int>(std::lround(box.width * scale))),
+                     std::max(1, static_cast<int>(std::lround(box.height * scale)))};
+    };
     if (m_panel != nullptr) {
-      m_panel->place(m_box, kSheetRadius);
+      m_panel->place(grown(m_box), kSheetRadius, opacity);
     }
     size_t index = 0;
     for (const Mini& mini : m_minis) {
@@ -123,13 +216,15 @@ namespace andromeda {
         if (rect == nullptr) {
           continue;
         }
-        wlr_scene_node_set_position(&rect->node, box.x, box.y);
-        wlr_scene_rect_set_size(rect, box.width, box.height);
-        wlr_scene_rect_set_corner_radii(rect, zoneCorners(mini.box, box));
-        // The lit zone in accent, its layout's other zones fill_3, every other zone fill_2.
-        const bool lit = m_lit == zone;
-        const bool sameLayout = m_lit.has_value() && m_lit->layout == zone.layout;
-        const auto color = lit ? token(scheme.accent) : sameLayout ? token(scheme.fill3) : token(scheme.fill2);
+        const wlr_box placed = grown(box);
+        wlr_scene_node_set_position(&rect->node, placed.x, placed.y);
+        wlr_scene_rect_set_size(rect, placed.width, placed.height);
+        wlr_scene_rect_set_corner_radius(rect, kZoneRadius);
+        const auto& fill = m_zoneFill[index - 1];
+        std::array<float, 4> color{};
+        for (size_t channel = 0; channel < color.size(); ++channel) {
+          color[channel] = static_cast<float>(fill[channel].current()) * opacity;
+        }
         wlr_scene_rect_set_color(rect, color.data());
       }
     }
@@ -140,7 +235,9 @@ namespace andromeda {
       return;
     }
     m_lit = zone;
+    retargetZones(true);
     draw();
+    scheduleFrame();
   }
 
   bool SnapFlyout::contains(double lx, double ly) const { return active() && holds(m_box, lx, ly); }

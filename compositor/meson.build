@@ -529,6 +529,31 @@ dsk_surface_server_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+kde_appmenu_server_h = custom_target(
+  'kde-appmenu-protocol.h',
+  input: 'protocols/kde-appmenu.xml',
+  output: 'kde-appmenu-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+kde_appmenu_server_c = custom_target(
+  'kde-appmenu-protocol.c',
+  input: 'protocols/kde-appmenu.xml',
+  output: 'kde-appmenu-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+gtk_shell_server_h = custom_target(
+  'gtk-shell-protocol.h',
+  input: 'protocols/gtk-shell.xml',
+  output: 'gtk-shell-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+gtk_shell_server_c = custom_target(
+  'gtk-shell-protocol.c',
+  input: 'protocols/gtk-shell.xml',
+  output: 'gtk-shell-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 color_management_server_h = custom_target(
   'color-management-v1-server-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/color-management/color-management-v1.xml',
@@ -936,6 +961,7 @@ core_sources = files(
   'src/server/dsk_tracker.cpp',
   'src/server/greeter_mode.cpp',
   'src/server/tracker_motion.cpp',
+  'src/server/app_menu.cpp',
   'src/server/fifo.cpp',
   'src/server/commit_timing.cpp',
   'src/server/allocator.cpp',
@@ -1071,6 +1097,10 @@ andromeda_core = static_library(
     desktop_server_c,
     dsk_surface_server_h,
     dsk_surface_server_c,
+    kde_appmenu_server_h,
+    kde_appmenu_server_c,
+    gtk_shell_server_h,
+    gtk_shell_server_c,
     xdg_output_server_h,
     xdg_output_server_c,
   ] + staging_server_sources,

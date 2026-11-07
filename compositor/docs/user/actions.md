@@ -151,6 +151,7 @@ Sizing rules per layout live in [Sizing behavior](layout.md#sizing-behavior).
 | `window-set-secondary-extent:<fraction>`                                                 | Set the focused area's secondary extent fraction            |
 | `window-snap:<left\|right\|top\|bottom\|top_left\|top_right\|bottom_left\|bottom_right\|<layout>.<zone>>` | Snap the floating window, or restore it when already there  |
 | `window-unsnap`                                                                          | Restore the floating window's size before snapping          |
+| `window-snap-layouts`                                                                    | Show the Snap Layouts for the floating window               |
 | `window-swap-down`                                                                       | Swap with the window below                                  |
 | `window-swap-left`                                                                       | Swap with the window to the left                            |
 | `window-swap-next`                                                                       | Swap with the next window in layout order                   |

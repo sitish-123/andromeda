@@ -5,6 +5,8 @@
 #include "scene/text_buffer.h"
 #include "scene/color.h"
 #include "scene/tab_label_cache.h"
+#include "output/output.h"
+#include "server/server.h"
 #include "view/border_ring.h"
 #include "wlr.h"
 
@@ -12,8 +14,54 @@
 #include <cairo.h>
 #include <cmath>
 #include <utility>
+#include <vector>
 
 namespace andromeda {
+
+  namespace {
+    // Frames with a hover fade running; a frame leaves the list when it rests or is destroyed.
+    std::vector<SsdFrame*> g_hoverFading;
+    TitleBarMotion* g_titleBarMotion = nullptr;
+
+    void startHoverFade(SsdFrame* frame) {
+      if (std::ranges::find(g_hoverFading, frame) == g_hoverFading.end()) {
+        g_hoverFading.push_back(frame);
+      }
+    }
+  } // namespace
+
+  TitleBarMotion::TitleBarMotion(Server& server) : m_server(server) {
+    g_titleBarMotion = this;
+    m_server.registerAnimatable(this);
+  }
+
+  TitleBarMotion::~TitleBarMotion() {
+    m_server.unregisterAnimatable(this);
+    g_titleBarMotion = nullptr;
+  }
+
+  bool TitleBarMotion::tickAnimations(double nowMsec) {
+    // A tick can end a fade, which drops the frame from the list.
+    const std::vector<SsdFrame*> frames = g_hoverFading;
+    for (SsdFrame* frame : frames) {
+      if (!frame->tickHover(nowMsec)) {
+        std::erase(g_hoverFading, frame);
+      }
+    }
+    return !g_hoverFading.empty();
+  }
+
+  void TitleBarMotion::scheduleFrames() {
+    for (const auto& output : m_server.outputs()) {
+      wlr_output_schedule_frame(output->wlr());
+    }
+  }
+
+  bool TitleBarMotion::hasActiveAnimations() const { return !g_hoverFading.empty(); }
+
+  // Frames do not know their output, so every output keeps drawing while a fade (about 150 ms) runs.
+  bool TitleBarMotion::animatesOn(const Output* output) const { return output != nullptr && hasActiveAnimations(); }
+
   namespace {
     bool rejectInput(wlr_scene_buffer*, double*, double*) { return false; }
 
@@ -107,6 +155,7 @@ namespace andromeda {
   }
 
   SsdFrame::~SsdFrame() {
+    std::erase(g_hoverFading, this);
     if (m_blur != nullptr)
       wlr_scene_node_destroy(&m_blur->node);
     wlr_scene_node_destroy(&m_gripTree->node);
@@ -165,7 +214,35 @@ namespace andromeda {
     if (m_hovered == part)
       return;
     m_hovered = part;
+    // P3: the wash comes in on fade_out (quick) and leaves on fade (slower); between two buttons it moves at once.
+    const bool animate = config().animation.enabled && !m_preview && g_titleBarMotion != nullptr;
+    if (part != SsdFramePart::None) {
+      m_shownHover = part;
+    }
+    const double target = part != SsdFramePart::None ? 1.0 : 0.0;
+    if (animate && m_hoverLevel.current() != target) {
+      const auto& spring = target > 0.0 ? Tokens::springFadeOut : Tokens::springFade;
+      m_hoverLevel.settleSpring(target, {.damping = spring.damping, .stiffness = spring.stiffness});
+      startHoverFade(this);
+      g_titleBarMotion->scheduleFrames();
+    } else {
+      m_hoverLevel.snap(target);
+      if (target == 0.0) {
+        m_shownHover = SsdFramePart::None;
+      }
+    }
     updateColors();
+  }
+
+  bool SsdFrame::tickHover(double nowMsec) {
+    // tick() also answers true on the step that settles; the frame leaves the list only once nothing moves.
+    m_hoverLevel.tick(nowMsec);
+    const bool running = m_hoverLevel.animating();
+    if (!running && m_hoverLevel.current() <= 0.0) {
+      m_shownHover = SsdFramePart::None;
+    }
+    updateColors();
+    return running;
   }
   void SsdFrame::setPressed(SsdFramePart part) {
     if (m_pressed == part)
@@ -234,25 +311,27 @@ namespace andromeda {
     wlr_scene_rect_set_color(m_background, color);
     const float contrast =
         background[0] * 0.2126F + background[1] * 0.7152F + background[2] * 0.0722F < 0.5F ? 1.0F : 0.0F;
-    const bool buttonHovered = m_hovered == SsdFramePart::Close
-        || m_hovered == SsdFramePart::Maximize
-        || m_hovered == SsdFramePart::Minimize;
+    const auto level = static_cast<float>(std::clamp(m_hoverLevel.current(), 0.0, 1.0));
+    const bool buttonHovered = level > 0.0F
+        && (m_shownHover == SsdFramePart::Close
+            || m_shownHover == SsdFramePart::Maximize
+            || m_shownHover == SsdFramePart::Minimize);
     const auto button = [&](wlr_scene_rect* rect, std::array<float, 4> value, SsdFramePart part, bool enabled) {
       if (style == TitleBarStyle::Windows) {
         // Windows draws glyphs only; the round marks stay hidden.
         wlr_scene_node_set_enabled(&rect->node, false);
         return;
       }
-      float alpha = !enabled ? 0.35F : (m_hovered == part ? 1.0F : 0.85F);
+      float alpha = !enabled ? 0.35F : (m_shownHover == part ? 0.85F + 0.15F * level : 0.85F);
       if (style == TitleBarStyle::Macos) {
         // Traffic lights at full strength; an inactive window shows all three in fill_3.
         alpha = enabled ? 1.0F : 0.35F;
         if (!m_focused) {
           value = rgba(tokens.fill3);
         }
-      } else if (enabled && m_hovered == part) {
+      } else if (enabled && m_shownHover == part) {
         for (size_t i = 0; i < 3; ++i)
-          value[i] += (contrast - value[i]) * 0.2F;
+          value[i] += (contrast - value[i]) * 0.2F * level;
       }
       if (enabled && m_pressed == part) {
         for (size_t i = 0; i < 3; ++i)
@@ -285,7 +364,8 @@ namespace andromeda {
       const bool enabled = kButtons[i] != TitleBarButton::Maximize || m_maximizeEnabled;
       const std::array<float, 4> ink = mac ? std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.55F}
           : !enabled                 ? rgba(tokens.label3)
-          : (m_hovered == SsdFramePart::Close && kParts[i] == SsdFramePart::Close) ? std::array<float, 4>{1, 1, 1, 1}
+          : (m_shownHover == SsdFramePart::Close && kParts[i] == SsdFramePart::Close && level > 0.5F)
+          ? std::array<float, 4>{1, 1, 1, 1}
                                                                                     : rgba(tokens.label1);
       // Redrawn only when its look changes; fades only change the node's opacity.
       const int px = static_cast<int>(std::lround(box->width * scale));
@@ -298,14 +378,15 @@ namespace andromeda {
           wlr_buffer_drop(buffer);
         }
       }
-      wlr_scene_buffer_set_opacity(glyph, m_alpha);
+      // macOS glyphs come in with the hover wash; Windows glyphs always show.
+      wlr_scene_buffer_set_opacity(glyph, mac ? m_alpha * level : m_alpha);
       wlr_scene_buffer_set_dest_size(glyph, std::max(1, zoomed(box->width)), std::max(1, zoomed(box->height)));
       wlr_scene_node_set_position(&glyph->node, zoomed(box->x), zoomed(box->y - m_geometry.titleBarHeight));
       wlr_scene_node_raise_to_top(&glyph->node);
     }
 
     const auto hoveredCell = [&]() -> std::optional<wlr_box> {
-      switch (m_hovered) {
+      switch (level > 0.0F ? m_shownHover : SsdFramePart::None) {
       case SsdFramePart::Close:
         return m_parts.cells[static_cast<size_t>(TitleBarButton::Close)];
       case SsdFramePart::Maximize:
@@ -335,7 +416,7 @@ namespace andromeda {
           )
       );
       // Close fills with danger under a white glyph; minimize and maximize with fill_2.
-      premultiplied(color, rgba(m_hovered == SsdFramePart::Close ? tokens.danger : tokens.fill2), m_alpha);
+      premultiplied(color, rgba(m_shownHover == SsdFramePart::Close ? tokens.danger : tokens.fill2), m_alpha * level);
       wlr_scene_rect_set_color(m_hoverCell, color);
     }
     if (m_label != nullptr)

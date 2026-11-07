@@ -22,8 +22,9 @@ namespace andromeda {
     GlassPanel(const GlassPanel&) = delete;
     GlassPanel& operator=(const GlassPanel&) = delete;
 
-    // Places the panel at `box` (layout coordinates) with corner `radius`, in the current scheme and glass slider.
-    void place(const wlr_box& box, int radius);
+    // Places the panel at `box` (layout coordinates) with corner `radius`, in the current scheme and glass slider;
+    // `opacity` (0..1) fades every layer together for open and close motion.
+    void place(const wlr_box& box, int radius, float opacity = 1.0F);
     void setEnabled(bool enabled);
     // A flat scrim of `color` (premultiplied) over a plain blur, with no shadow, rim or hairline: for dimming an area.
     void setScrim(const std::array<float, 4>& color);

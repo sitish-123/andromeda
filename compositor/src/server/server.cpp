@@ -37,6 +37,7 @@
 #include "scene/launch_feedback.h"
 #include "scene/quit_confirm.h"
 #include "view/snap_assist.h"
+#include "scene/ssd_frame.h"
 #include "view/snap_flyout.h"
 #include "server/allocator.h"
 #include "server/backend_manager.h"
@@ -48,6 +49,7 @@
 #include "server/background_effect.h"
 #include "server/dsk_surface.h"
 #include "server/greeter_mode.h"
+#include "server/app_menu.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/syncobj_acquire_barrier.h"
@@ -99,7 +101,7 @@ namespace andromeda {
     // Security-context clients only receive reviewed, ordinary application
     // protocols. New globals stay unavailable until they are classified here.
     // [[security_context_rule]] widens the set for matching clients.
-    constexpr std::array<std::string_view, 38> kAllowedSecurityContextGlobals{
+    constexpr std::array<std::string_view, 40> kAllowedSecurityContextGlobals{
         "wl_shm",
         "wl_drm",
         "zwp_linux_dmabuf_v1",
@@ -116,6 +118,9 @@ namespace andromeda {
         "wp_single_pixel_buffer_manager_v1",
         "wp_alpha_modifier_v1",
         "wp_fifo_manager_v1",
+        // Menu addresses only (the macOS-layout top bar reads the menus over D-Bus).
+        "org_kde_kwin_appmenu_manager",
+        "gtk_shell1",
         "wp_commit_timing_manager_v1",
         "wl_output",
         "wp_color_manager_v1",
@@ -743,6 +748,7 @@ namespace andromeda {
       setLaunchFrom(surface, box);
     });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
+    m_appMenus = std::make_unique<AppMenuRegistry>(m_display, [this] { scheduleIpcWindowsEvent(); });
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
       throw std::runtime_error("failed to create single-pixel-buffer manager");
@@ -1753,7 +1759,8 @@ namespace andromeda {
     m_configWatcher->watch(configWatchPaths());
     showConfigDiagnostics();
     m_quitConfirm = std::make_unique<QuitConfirm>(*this, m_quitConfirmTree);
-    m_snapFlyout = std::make_unique<SnapFlyout>(m_snapFlyoutTree);
+    m_snapFlyout = std::make_unique<SnapFlyout>(*this, m_snapFlyoutTree);
+    m_titleBarMotion = std::make_unique<TitleBarMotion>(*this);
     m_snapAssist = std::make_unique<SnapAssist>(*this, m_snapAssistTree);
     m_snapFlyout->setOnSnapped([this](View& view, SnapZone zone) { m_snapAssist->start(view, zone); });
     if (!notifyServiceReady(notifySocket)) {
@@ -2743,10 +2750,10 @@ namespace andromeda {
 
   void Server::dismissSnapChrome() {
     if (m_snapFlyout != nullptr && m_snapFlyout->active()) {
-      m_snapFlyout->close();
+      m_snapFlyout->close(false);
     }
     if (m_snapAssist != nullptr && m_snapAssist->active()) {
-      m_snapAssist->end();
+      m_snapAssist->end(false);
     }
   }
 

@@ -742,8 +742,9 @@ namespace andromeda {
     struct Appearance {
       struct TitleBar {
         TitleBarMode mode = TitleBarMode::Off;
-        int height = 28;
-        std::string font = "sans 10";
+        // Board desktop-layouts.html section 5: 40 high (as the Settings title bar), title 13 px semibold.
+        int height = 40;
+        std::string font = "sans Semi-Bold 9.75";
         TitleBarButtonSide buttonPosition = TitleBarButtonSide::Right;
         TitleBarStyle style = TitleBarStyle::Andromeda;
         int buttonCornerRadius = -1;

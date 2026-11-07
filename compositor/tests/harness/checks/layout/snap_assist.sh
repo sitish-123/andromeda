@@ -36,6 +36,12 @@ pointer tap "$K_ENTER"
 title_bar_wait_field assist-a snap 1.1
 pointer tap "$K_ENTER"
 title_bar_wait_field assist-b snap 1.2
+# Both report the same snap group, and each its zone of the work area, for the dock and taskbar group card.
+group=$(title_bar_window assist-a | jq -r .snap_group)
+[[ $group =~ ^[0-9]+$ && $(title_bar_window assist-b | jq -r .snap_group) == "$group" ]] \
+  || { echo "expected one snap group for both windows, got $group"; exit 1; }
+[[ $(title_bar_window assist-b | jq -c '.snap_zone_rect | map(. * 100 | round)') == "[50,0,50,100]" ]] \
+  || { echo "expected assist-b in the right half, got $(title_bar_window assist-b | jq -c .snap_zone_rect)"; exit 1; }
 
 # The group restores together: minimize both, restore assist-a through foreign-toplevel, assist-b comes back too.
 OUTPUT=$(title_bar_window assist-a | jq -r .output)

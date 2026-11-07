@@ -21,25 +21,23 @@
 
 namespace andromeda {
   namespace {
-    // DESIGN.md "Design review fixes" R2, on the rulebook 4 grid: the zone outline sits 8 inside the scrim; cards are
-    // thumbnails at window aspect, up to 3 columns 16 apart, each over an icon 16 and a footnote title.
+    // Board desktop-layouts.html section 4 (radius set B): the scrim covers the empty zone (inset 8, r 12, padding
+    // 24); cards are thumbnails at window aspect (r 4), up to 3 columns 16 apart, each over an icon 16 and a title.
     constexpr int kZoneSpacing = 8;
-    constexpr int kOutlineInset = 8;
-    constexpr int kOutlineRadius = 16;
-    constexpr int kScrimRadius = kOutlineRadius + kOutlineInset;
+    constexpr int kScrimRadius = 12;
     constexpr int kPad = 24;
     constexpr int kGap = 16;
     constexpr int kMaxColumns = 3;
     constexpr int kMaxRows = 3;
     constexpr int kMaxCardW = 280;
     constexpr int kMinCardW = 96;
-    constexpr int kThumbRadius = 12;
+    constexpr int kThumbRadius = 4;
     constexpr int kIcon = 16;
-    constexpr int kIconGap = 6;
+    constexpr int kIconGap = 8;
     constexpr int kLabelGap = 8;
     constexpr int kLabelH = 16;
-    constexpr int kLensPad = 8;
-    constexpr int kLensRadius = kThumbRadius + kLensPad;
+    constexpr int kLensPad = 4;
+    constexpr int kLensRadius = 8;
 
     // A token (0xRRGGBBAA) as a premultiplied colour.
     std::array<float, 4> premultiplied(std::uint32_t token) {
@@ -126,7 +124,6 @@ namespace andromeda {
       wlr_scene_node_set_enabled(&m_tree->node, false);
       m_scrim = std::make_unique<GlassPanel>(m_tree, glass::Kind::Sheet);
       const float clear[4]{};
-      m_outline = wlr_scene_rect_create(m_tree, 1, 1, clear);
       m_lensShadow = wlr_scene_shadow_create(m_tree, 1, 1, 0, 1.0F, clear);
       m_lens = wlr_scene_rect_create(m_tree, 1, 1, clear);
     }
@@ -186,7 +183,50 @@ namespace andromeda {
     wlr_scene_node_set_enabled(&m_tree->node, true);
     build();
     moveLens(false);
+    if (config().animation.enabled) {
+      m_fade.snap(0.0);
+      m_fade.settleSpring(1.0, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness});
+      if (m_output != nullptr) {
+        wlr_output_schedule_frame(m_output);
+      }
+    } else {
+      m_fade.snap(1.0);
+    }
+    applyFade();
     return true;
+  }
+
+  void SnapAssist::applyFade() {
+    const auto opacity = static_cast<float>(std::clamp(m_fade.current(), 0.0, 1.0));
+    if (m_scrim != nullptr) {
+      m_scrim->place(m_box, kScrimRadius, opacity);
+    }
+    const auto faded = [opacity](std::array<float, 4> color) {
+      for (float& channel : color) {
+        channel *= opacity;
+      }
+      return color;
+    };
+    if (m_lens != nullptr) {
+      wlr_scene_rect_set_color(m_lens, faded(m_lensColor).data());
+    }
+    if (m_lensShadow != nullptr) {
+      wlr_scene_shadow_set_color(m_lensShadow, faded(m_lensShadowColor).data());
+    }
+    for (const auto& card : m_cards) {
+      if (card->frame != nullptr) {
+        card->frame->setAlpha(opacity);
+      }
+    }
+    if (m_content != nullptr) {
+      wlr_scene_node_for_each_buffer(
+          &m_content->node,
+          [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
+            wlr_scene_buffer_set_opacity(buffer, *static_cast<float*>(data));
+          },
+          const_cast<float*>(&opacity)
+      );
+    }
   }
 
   void SnapAssist::build() {
@@ -194,35 +234,21 @@ namespace andromeda {
       wlr_scene_node_destroy(&m_content->node);
     }
     m_content = wlr_scene_tree_create(m_tree);
-    if (m_content == nullptr || m_outline == nullptr || m_lens == nullptr || m_lensShadow == nullptr) {
+    if (m_content == nullptr || m_lens == nullptr || m_lensShadow == nullptr) {
       return;
     }
     const auto& colors = scheme();
     const bool light = config().appearance.scheme == ColorScheme::Light;
 
-    // Rulebook scrim over the empty zone only, on a plain blur of what it covers; the outline marks the zone's edge.
-    m_scrim->setScrim(premultiplied(colors.scrim));
+    // Scrim over the empty zone only, on a plain blur of what it covers: white 36 % light, the scheme scrim (black
+    // 40 %) dark.
+    m_scrim->setScrim(light ? std::array<float, 4>{0.36F, 0.36F, 0.36F, 0.36F} : premultiplied(colors.scrim));
     m_scrim->place(m_box, kScrimRadius);
-    const wlr_box outline{m_box.x + kOutlineInset, m_box.y + kOutlineInset, m_box.width - 2 * kOutlineInset,
-                          m_box.height - 2 * kOutlineInset};
-    wlr_scene_node_set_position(&m_outline->node, outline.x, outline.y);
-    wlr_scene_rect_set_size(m_outline, outline.width, outline.height);
-    wlr_scene_rect_set_corner_radius(m_outline, kOutlineRadius);
-    // The scrim always darkens, so the outline takes the dark scheme's label_3 (light grey) in both schemes.
-    wlr_scene_rect_set_color(m_outline, premultiplied(Tokens::schemeDark.label3).data());
-    wlr_scene_rect_set_clipped_region(
-        m_outline,
-        clipped_region{
-            .area = {1, 1, std::max(0, outline.width - 2), std::max(0, outline.height - 2)},
-            .corners = corner_radii_new(
-                kOutlineRadius - 1, kOutlineRadius - 1, kOutlineRadius - 1, kOutlineRadius - 1
-            ),
-        }
-    );
+    const wlr_box& zone = m_box;
 
     // Grid: as many cards as fit at kMinCardW or more, up to 3 x 3; slots are 4:3, each thumbnail fits its slot.
-    const int areaW = outline.width - 2 * kPad;
-    const int areaH = outline.height - 2 * kPad;
+    const int areaW = zone.width - 2 * kPad;
+    const int areaH = zone.height - 2 * kPad;
     const int rowExtra = kLabelGap + kLabelH;
     size_t count = std::min(m_cards.size(), static_cast<size_t>(kMaxColumns * kMaxRows));
     int columns = 1;
@@ -243,8 +269,8 @@ namespace andromeda {
     m_columns = columns;
     const int slotH = cardW * 3 / 4;
     const int cardH = slotH + rowExtra;
-    const int left = outline.x + (outline.width - (columns * cardW + (columns - 1) * kGap)) / 2;
-    const int top = outline.y + (outline.height - (rows * cardH + (rows - 1) * kGap)) / 2;
+    const int left = zone.x + (zone.width - (columns * cardW + (columns - 1) * kGap)) / 2;
+    const int top = zone.y + (zone.height - (rows * cardH + (rows - 1) * kGap)) / 2;
     const double scale = std::max(1.0, std::ceil(m_output != nullptr ? m_output->scale : 1.0));
 
     for (size_t i = 0; i < m_cards.size(); ++i) {
@@ -319,13 +345,13 @@ namespace andromeda {
     }
 
     // Rulebook 6 lens behind the current card: white 92 % light / 14 % dark with E1.
-    wlr_scene_rect_set_color(m_lens, premultiplied(colors.lens).data());
+    m_lensColor = premultiplied(colors.lens);
     wlr_scene_rect_set_corner_radius(m_lens, kLensRadius);
     const auto& e1 = Tokens::elevationE1;
     const auto shadow = premultiplied((colors.shadow & ~0xFFU) | static_cast<std::uint32_t>(std::lround(
                                           (light ? e1.keyLight : e1.keyDark) * 255.0F
                                       )));
-    wlr_scene_shadow_set_color(m_lensShadow, shadow.data());
+    m_lensShadowColor = shadow;
     if (m_lit >= m_cards.size()) {
       m_lit = 0;
     }
@@ -385,20 +411,28 @@ namespace andromeda {
     }
     const wlr_box& box = m_cards[m_lit]->box;
     const std::array<double, 4> target{static_cast<double>(box.x - kLensPad), static_cast<double>(box.y - kLensPad),
-                                       static_cast<double>(box.width + 2 * kLensPad),
-                                       static_cast<double>(box.height + 2 * kLensPad)};
+                                       static_cast<double>(box.x + box.width + kLensPad),
+                                       static_cast<double>(box.y + box.height + kLensPad)};
     const auto& anim = config().animation;
-    // Rulebook 7.6 P1: the lens travels on the snap spring, never fades between cards.
-    const SpringConfig spring{.damping = Tokens::springSnap.damping, .stiffness = Tokens::springSnap.stiffness};
-    for (size_t i = 0; i < target.size(); ++i) {
-      if (animate && anim.enabled) {
-        m_lensBox[i].settleSpring(target[i], spring);
-      } else {
-        m_lensBox[i].snap(target[i]);
+    // Rulebook 7.6 P1: the edge facing the target leads on snap and the far edge trails, so the lens stretches toward
+    // the target and settles. Reduced motion (7.8): the lens jumps.
+    const bool travel = animate && anim.enabled && !config().appearance.reduceMotion;
+    const SpringConfig snap{.damping = Tokens::springSnap.damping, .stiffness = Tokens::springSnap.stiffness};
+    const SpringConfig trail{.damping = Tokens::springTrail.damping, .stiffness = Tokens::springTrail.stiffness};
+    for (size_t axis = 0; axis < 2; ++axis) {
+      AnimatedValue& low = m_lensBox[axis];
+      AnimatedValue& high = m_lensBox[axis + 2];
+      if (!travel) {
+        low.snap(target[axis]);
+        high.snap(target[axis + 2]);
+        continue;
       }
+      const bool forward = target[axis] > low.current();
+      low.settleSpring(target[axis], forward ? trail : snap);
+      high.settleSpring(target[axis + 2], forward ? snap : trail);
     }
     placeLens();
-    if (animate && anim.enabled && m_output != nullptr) {
+    if (travel && m_output != nullptr) {
       wlr_output_schedule_frame(m_output);
     }
   }
@@ -415,8 +449,8 @@ namespace andromeda {
     }
     const int x = static_cast<int>(std::lround(m_lensBox[0].current()));
     const int y = static_cast<int>(std::lround(m_lensBox[1].current()));
-    const int w = std::max(1, static_cast<int>(std::lround(m_lensBox[2].current())));
-    const int h = std::max(1, static_cast<int>(std::lround(m_lensBox[3].current())));
+    const int w = std::max(1, static_cast<int>(std::lround(m_lensBox[2].current())) - x);
+    const int h = std::max(1, static_cast<int>(std::lround(m_lensBox[3].current())) - y);
     wlr_scene_node_set_position(&m_lens->node, x, y);
     wlr_scene_rect_set_size(m_lens, w, h);
     const auto& e1 = Tokens::elevationE1;
@@ -433,27 +467,53 @@ namespace andromeda {
     for (auto& value : m_lensBox) {
       running = value.tick(nowMsec) || running;
     }
-    placeLens();
+    const bool fading = m_fade.tick(nowMsec);
+    running = fading || running;
+    if (!m_open && !m_fade.animating()) {
+      destroyContent();
+      return running;
+    }
+    if (m_open) {
+      placeLens();
+    }
+    applyFade();
     return running;
   }
 
   bool SnapAssist::hasActiveAnimations() const {
-    return std::ranges::any_of(m_lensBox, [](const AnimatedValue& value) { return value.animating(); });
+    return m_fade.animating()
+        || std::ranges::any_of(m_lensBox, [](const AnimatedValue& value) { return value.animating(); });
   }
 
   bool SnapAssist::animatesOn(const Output* output) const {
     return output != nullptr && output->wlr() == m_output && hasActiveAnimations();
   }
 
-  void SnapAssist::end() {
+  void SnapAssist::end(bool animate) {
+    const bool wasOpen = m_open;
     m_open = false;
     m_cards.clear();
+    for (auto& value : m_lensBox) {
+      value.snap(value.target());
+    }
+    // The cards' listeners are gone, so what fades out is a still picture of the last frame.
+    if (animate && wasOpen && config().animation.enabled && m_tree != nullptr) {
+      m_fade.settleSpring(
+          0.0, {.damping = Tokens::springFadeOut.damping, .stiffness = Tokens::springFadeOut.stiffness}
+      );
+      if (m_output != nullptr) {
+        wlr_output_schedule_frame(m_output);
+      }
+      return;
+    }
+    m_fade.snap(0.0);
+    destroyContent();
+  }
+
+  void SnapAssist::destroyContent() {
     if (m_content != nullptr) {
       wlr_scene_node_destroy(&m_content->node);
       m_content = nullptr;
-    }
-    for (auto& value : m_lensBox) {
-      value.snap(value.target());
     }
     if (m_tree != nullptr) {
       wlr_scene_node_set_enabled(&m_tree->node, false);
@@ -466,12 +526,13 @@ namespace andromeda {
     if (m_members.size() >= 2) {
       // A window belongs to one group: picking it into a new one takes it out of the old.
       for (auto& group : m_groups) {
-        std::erase_if(group, [&](const Member& old) {
+        std::erase_if(group.members, [&](const Member& old) {
           return std::ranges::any_of(m_members, [&](const Member& m) { return m.view.get() == old.view.get(); });
         });
       }
-      std::erase_if(m_groups, [](const auto& group) { return group.size() < 2; });
-      m_groups.push_back(std::move(m_members));
+      std::erase_if(m_groups, [](const Group& group) { return group.members.size() < 2; });
+      m_groups.push_back({.id = m_nextGroupId++, .members = std::move(m_members)});
+      m_server.scheduleIpcWindowsEvent();
     }
     m_members.clear();
   }
@@ -568,25 +629,29 @@ namespace andromeda {
     }
   }
 
-  std::vector<View*> SnapAssist::groupMates(const View* view) {
-    if (!config().input.snapGroups) {
-      return {};
-    }
+  void SnapAssist::pruneGroups() {
     // Members still in their zone and on the first member's workspace stay; the rest drop out.
     for (auto& group : m_groups) {
-      const Workspace* home = group.empty() || group.front().view.get() == nullptr ? nullptr
-                                                                                   : group.front().view->workspace();
-      std::erase_if(group, [&](const Member& member) {
+      const View* first = group.members.empty() ? nullptr : group.members.front().view.get();
+      const Workspace* home = first != nullptr ? first->workspace() : nullptr;
+      std::erase_if(group.members, [&](const Member& member) {
         const View* v = member.view.get();
         return v == nullptr || !v->mapped() || v->workspace() != home
             || v->snapSpot() != std::optional<SnapSpot>(member.zone);
       });
     }
-    std::erase_if(m_groups, [](const auto& group) { return group.size() < 2; });
-    for (const auto& group : m_groups) {
-      if (std::ranges::any_of(group, [&](const Member& member) { return member.view.get() == view; })) {
+    std::erase_if(m_groups, [](const Group& group) { return group.members.size() < 2; });
+  }
+
+  std::vector<View*> SnapAssist::groupMates(const View* view) {
+    if (!config().input.snapGroups) {
+      return {};
+    }
+    pruneGroups();
+    for (const Group& group : m_groups) {
+      if (std::ranges::any_of(group.members, [&](const Member& member) { return member.view.get() == view; })) {
         std::vector<View*> mates;
-        for (const Member& member : group) {
+        for (const Member& member : group.members) {
           if (member.view.get() != view) {
             mates.push_back(member.view.get());
           }
@@ -595,5 +660,18 @@ namespace andromeda {
       }
     }
     return {};
+  }
+
+  std::optional<uint32_t> SnapAssist::groupOf(const View* view) {
+    if (!config().input.snapGroups) {
+      return std::nullopt;
+    }
+    pruneGroups();
+    for (const Group& group : m_groups) {
+      if (std::ranges::any_of(group.members, [&](const Member& member) { return member.view.get() == view; })) {
+        return group.id;
+      }
+    }
+    return std::nullopt;
   }
 } // namespace andromeda

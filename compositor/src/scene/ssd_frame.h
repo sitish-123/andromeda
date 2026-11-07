@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/animation.h"
 #include "scene/ssd_frame_geometry.h"
 #include "scene/surface_blur.h"
 #include "view/chrome_attachment.h"
@@ -17,7 +18,27 @@ struct wlr_scene_buffer;
 struct wlr_scene_blur;
 
 namespace andromeda {
+  class Server;
   class TabLabelCache;
+
+  // Ticks the title-bar hover fades (rulebook P3) of every frame that has one running; one per server.
+  class TitleBarMotion final : public Animatable {
+  public:
+    explicit TitleBarMotion(Server& server);
+    ~TitleBarMotion() override;
+    TitleBarMotion(const TitleBarMotion&) = delete;
+    TitleBarMotion& operator=(const TitleBarMotion&) = delete;
+
+    [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
+    bool tickAnimations(double nowMsec) override;
+    [[nodiscard]] bool hasActiveAnimations() const override;
+    [[nodiscard]] bool animatesOn(const Output* output) const override;
+    void scheduleFrames();
+
+  private:
+    Server& m_server;
+  };
+
 
   class SsdFrame final : public ViewChromeAttachment {
   public:
@@ -53,6 +74,9 @@ namespace andromeda {
     void redraw();
     void updateColors();
     void updateBlur();
+    friend class TitleBarMotion;
+    // Advances the hover fade; false once it rests.
+    bool tickHover(double nowMsec);
     [[nodiscard]] int zoomed(int value) const;
     wlr_scene_tree* m_tree = nullptr;
     // Invisible resize bands stay outside the window's animation capture bounds.
@@ -91,6 +115,9 @@ namespace andromeda {
     float m_alpha = 1.0F;
     float m_blurAlpha = 1.0F;
     SsdFramePart m_hovered = SsdFramePart::None;
+    // The part the hover wash is drawn on, kept while it fades out; m_hoverLevel is the wash strength 0..1.
+    SsdFramePart m_shownHover = SsdFramePart::None;
+    AnimatedValue m_hoverLevel{0.0};
     SsdFramePart m_pressed = SsdFramePart::None;
   };
 } // namespace andromeda

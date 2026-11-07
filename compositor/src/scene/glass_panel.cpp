@@ -39,13 +39,20 @@ namespace andromeda {
     m_useScrim = true;
   }
 
-  void GlassPanel::place(const wlr_box& box, int radius) {
+  void GlassPanel::place(const wlr_box& box, int radius, float opacity) {
     if (m_tree == nullptr || m_shadow == nullptr || m_blur == nullptr || m_tint == nullptr || m_hairline == nullptr) {
       return;
     }
     const bool light = config().appearance.scheme == ColorScheme::Light;
     const auto& scheme = light ? Tokens::schemeLight : Tokens::schemeDark;
     const glass::Material material = configGlass(m_kind);
+    // Colours are premultiplied, so a fade scales all four channels.
+    const auto faded = [opacity](std::array<float, 4> color) {
+      for (float& channel : color) {
+        channel *= opacity;
+      }
+      return color;
+    };
 
     // E3: key shadow 12 down, 32 blur; the hole keeps it from showing through the translucent glass.
     const auto& e3 = Tokens::elevationE3;
@@ -56,7 +63,7 @@ namespace andromeda {
     wlr_scene_shadow_set_size(m_shadow, box.width + 2 * sigma, box.height + 2 * sigma);
     wlr_scene_shadow_set_blur_sigma(m_shadow, static_cast<float>(sigma));
     wlr_scene_shadow_set_corner_radius(m_shadow, radius);
-    wlr_scene_shadow_set_color(m_shadow, rgba(scheme.shadow | 0xFFU, light ? e3.keyLight : e3.keyDark).data());
+    wlr_scene_shadow_set_color(m_shadow, faded(rgba(scheme.shadow | 0xFFU, light ? e3.keyLight : e3.keyDark)).data());
     const fx_corner_radii corners = corner_radii_new(radius, radius, radius, radius);
     wlr_scene_shadow_set_clipped_region(
         m_shadow,
@@ -70,12 +77,12 @@ namespace andromeda {
     wlr_scene_blur_set_liquid(m_blur, m_useScrim ? 0.0F : material.level);
     wlr_scene_blur_set_rim(m_blur, m_useScrim ? 0.0F : material.rim);
     wlr_scene_blur_set_strength(m_blur, material.blurStrength);
-    wlr_scene_blur_set_alpha(m_blur, 1.0F);
+    wlr_scene_blur_set_alpha(m_blur, opacity);
 
     wlr_scene_node_set_position(&m_tint->node, box.x, box.y);
     wlr_scene_rect_set_size(m_tint, box.width, box.height);
     wlr_scene_rect_set_corner_radius(m_tint, radius);
-    wlr_scene_rect_set_color(m_tint, (m_useScrim ? m_scrim : rgba(scheme.tintThick, material.tint)).data());
+    wlr_scene_rect_set_color(m_tint, faded(m_useScrim ? m_scrim : rgba(scheme.tintThick, material.tint)).data());
 
     // Hairline: the stroke colour with the inside cut away, 1 px wide.
     wlr_scene_node_set_enabled(&m_hairline->node, !m_useScrim);
@@ -83,7 +90,7 @@ namespace andromeda {
     wlr_scene_rect_set_size(m_hairline, box.width, box.height);
     wlr_scene_rect_set_corner_radius(m_hairline, radius);
     const std::uint32_t stroke = scheme.stroke;
-    wlr_scene_rect_set_color(m_hairline, rgba(stroke | 0xFFU, static_cast<float>(stroke & 0xFFU) / 255.0F).data());
+    wlr_scene_rect_set_color(m_hairline, faded(rgba(stroke | 0xFFU, static_cast<float>(stroke & 0xFFU) / 255.0F)).data());
     const int inner = std::max(0, radius - 1);
     wlr_scene_rect_set_clipped_region(
         m_hairline,

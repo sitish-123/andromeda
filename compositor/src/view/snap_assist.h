@@ -37,7 +37,8 @@ namespace andromeda {
 
     // `anchor` just snapped to `zone`; shows the picker in the first empty zone of its layout, if any window can go.
     void start(View& anchor, SnapZone zone);
-    void end();
+    // `animate` false hides at once (interruptions: lock, output removal, workspace switch).
+    void end(bool animate = true);
     [[nodiscard]] bool active() const { return m_open; }
 
     void hover(double lx, double ly);
@@ -48,6 +49,8 @@ namespace andromeda {
 
     // The other live members of `view`'s snap group, bottom to top; empty when it is in none.
     [[nodiscard]] std::vector<View*> groupMates(const View* view);
+    // The id of `view`'s snap group (stable while the group lives), for the IPC window list.
+    [[nodiscard]] std::optional<uint32_t> groupOf(const View* view);
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     bool tickAnimations(double nowMsec) override;
@@ -75,6 +78,9 @@ namespace andromeda {
     void syncThumbnail(Card& card);
     void moveLens(bool animate);
     void placeLens();
+    // Applies m_fade to the scrim, lens, cards and labels.
+    void applyFade();
+    void destroyContent();
     void pick(size_t index);
     void finish();
     // Ends assist when its anchor window left its zone or went away; returns whether it still holds.
@@ -85,14 +91,24 @@ namespace andromeda {
     wlr_scene_tree* m_tree = nullptr;
     wlr_scene_tree* m_content = nullptr; // rebuilt per zone
     std::unique_ptr<GlassPanel> m_scrim;
-    wlr_scene_rect* m_outline = nullptr;
     wlr_scene_shadow* m_lensShadow = nullptr;
     wlr_scene_rect* m_lens = nullptr;
     std::unique_ptr<ov::AppIcons> m_icons;
     std::vector<std::unique_ptr<Card>> m_cards;
     std::vector<Member> m_members; // the group being formed, anchor first
-    std::vector<std::vector<Member>> m_groups;
-    std::array<AnimatedValue, 4> m_lensBox; // x, y, width, height
+    struct Group {
+      uint32_t id = 0;
+      std::vector<Member> members;
+    };
+    // Drops members that left their zone or workspace, then groups under 2.
+    void pruneGroups();
+    std::vector<Group> m_groups;
+    uint32_t m_nextGroupId = 1;
+    std::array<AnimatedValue, 4> m_lensBox; // left, top, right, bottom
+    // Opacity of the whole assist: in on fade, out on fade_out (rulebook 7.3: fade alone for a frame that does not move).
+    AnimatedValue m_fade{0.0};
+    std::array<float, 4> m_lensColor{};
+    std::array<float, 4> m_lensShadowColor{};
     wlr_output* m_output = nullptr;
     wlr_box m_box{};
     SnapZone m_zone;

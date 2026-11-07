@@ -153,6 +153,7 @@ namespace andromeda {
   class DskSurfaceManager;
   class GreeterChild;
   class FifoManager;
+  class AppMenuRegistry;
   struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
@@ -178,6 +179,7 @@ namespace andromeda {
   class FpsOverlay;
   class QuitConfirm;
   class SnapFlyout;
+  class TitleBarMotion;
   class SnapAssist;
   class Ipc;
 
@@ -487,6 +489,7 @@ namespace andromeda {
     [[nodiscard]] const BackgroundEffectManager* backgroundEffects() const { return m_backgroundEffects.get(); }
     [[nodiscard]] DskSurfaceManager* dskSurfaces() const { return m_dskSurfaces.get(); }
     [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
+    [[nodiscard]] AppMenuRegistry* appMenus() const { return m_appMenus.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
@@ -1203,6 +1206,7 @@ namespace andromeda {
     std::unique_ptr<ScratchpadManager> m_scratchpadManager;
     std::unique_ptr<QuitConfirm> m_quitConfirm;
     std::unique_ptr<SnapFlyout> m_snapFlyout;
+    std::unique_ptr<TitleBarMotion> m_titleBarMotion;
     std::unique_ptr<SnapAssist> m_snapAssist;
     std::unique_ptr<SyncobjSupersededRelease> m_syncobjSupersededRelease;
     std::unique_ptr<SyncobjUnmapRelease> m_syncobjUnmapRelease;
@@ -1212,6 +1216,7 @@ namespace andromeda {
     std::unique_ptr<DskSurfaceManager> m_dskSurfaces;
     std::unique_ptr<BackgroundEffectManager> m_backgroundEffects;
     std::unique_ptr<FifoManager> m_fifoManager;
+    std::unique_ptr<AppMenuRegistry> m_appMenus;
     TeardownStep m_stepClients{this, &Server::destroyClients};
     std::unique_ptr<DesktopShell> m_desktopShell;
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;

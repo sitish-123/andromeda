@@ -10,6 +10,7 @@ border_width = 0
 outer_border_width = 0
 [appearance.title_bar]
 mode = "off"
+height = 28
 [[window_rule]]
 match.title = "^snap-action$"
 default_floating = true

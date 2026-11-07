@@ -113,6 +113,9 @@ namespace {
   }
 
   uint32_t modifierMask(const VirtualKeyboard& keyboard, const std::string& name) {
+    if (const auto plus = name.find('+'); plus != std::string::npos) { // "control+shift"
+      return modifierMask(keyboard, name.substr(0, plus)) | modifierMask(keyboard, name.substr(plus + 1));
+    }
     const char* xkbName = nullptr;
     if (name == "shift") {
       xkbName = XKB_MOD_NAME_SHIFT;

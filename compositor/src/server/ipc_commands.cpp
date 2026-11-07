@@ -13,6 +13,9 @@
 #include "server/focus.h"
 #include "server/server.h"
 #include "view/view.h"
+#include "view/snap.h"
+#include "server/app_menu.h"
+#include "view/snap_assist.h"
 #include "wlr.h"
 #include "workspace/scratchpad.h"
 #include "workspace/workspace.h"
@@ -691,6 +694,36 @@ namespace andromeda {
       entry["minimizable"] = view.minimizable();
       entry["minimized"] = view.minimized();
       entry["snap"] = view.snapSpot() ? nlohmann::json(snapSpotName(*view.snapSpot())) : nlohmann::json(nullptr);
+      // Snap group (snap assist) and the member's zone as fractions of the work area, for the dock and taskbar
+      // group card (board desktop-menus.html B).
+      const std::optional<uint32_t> group = server.snapAssist() != nullptr ? server.snapAssist()->groupOf(&view)
+                                                                              : std::nullopt;
+      entry["snap_group"] = group ? nlohmann::json(*group) : nlohmann::json(nullptr);
+      const std::optional<SnapSpot> spot = view.snapSpot();
+      const auto* zone = spot ? std::get_if<SnapZone>(&*spot) : nullptr;
+      if (group && zone != nullptr) {
+        constexpr int kUnit = 1000;
+        const wlr_box box = snapZoneBox({0, 0, kUnit, kUnit}, *zone, 0);
+        entry["snap_zone_rect"] = {box.x / double(kUnit), box.y / double(kUnit), box.width / double(kUnit),
+                                   box.height / double(kUnit)};
+      } else {
+        entry["snap_zone_rect"] = nullptr;
+      }
+      // Menu address for the macOS-layout top bar (board desktop-menus.html A5); null when the app exports none.
+      const std::optional<AppMenuAddress> menu = server.appMenus() != nullptr && view.rootSurface() != nullptr
+          ? server.appMenus()->addressFor(view.rootSurface())
+          : std::nullopt;
+      if (menu.has_value()) {
+        entry["app_menu"] = {
+            {"kind", menu->kind == AppMenuAddress::Kind::Gtk ? "gtk" : "dbusmenu"},
+            {"service", menu->service},
+            {"path", menu->path},
+            {"application_path", menu->applicationPath},
+            {"window_path", menu->windowPath},
+        };
+      } else {
+        entry["app_menu"] = nullptr;
+      }
       entry["border_effect"] = effectSlotJson(view.effectSlot(EffectKind::Border), true);
       entry["window_effect"] = effectSlotJson(view.effectSlot(EffectKind::Window));
       // Workspace-local remembered focus. Seat-global activation is reported

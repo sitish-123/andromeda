@@ -7,6 +7,7 @@ cat >> "$ANDROMEDA_CONFIG" <<'CONFIG'
 enabled = false
 [appearance.title_bar]
 mode = "forced"
+height = 28
 [output.HEADLESS-1]
 workspaces = 5
 [[workspace]]

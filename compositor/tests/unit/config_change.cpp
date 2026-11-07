@@ -1068,7 +1068,7 @@ ANDROMEDA_TEST(effectActionRootsAreUniqueAcrossKeybindsAndCorners) {
 ANDROMEDA_TEST(titleBarGeometryReloadRearrangesWorkspaces) {
   Config before;
   Config after = before;
-  after.appearance.titleBar.height = 40;
+  after.appearance.titleBar.height = before.appearance.titleBar.height + 8;
   CHECK(ConfigEffects::between(before, after).workspaceLayout);
   CHECK(ConfigEffects::between(before, after).viewChrome);
   after = before;
