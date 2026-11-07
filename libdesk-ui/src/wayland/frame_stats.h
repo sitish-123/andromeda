@@ -23,6 +23,8 @@ public:
   void addCpu(float ms) noexcept { m_cpuMs += ms; }
   // Before the commit of a frame.
   void beginFrame(wl_surface* surface, bool animating);
+  // The frame drew nothing new: the compositor discards feedback for a commit with no new buffer, which is not a miss.
+  void dropFrame();
   // After the frame was rendered (its CPU time is complete).
   void endFrame();
 

@@ -49,7 +49,8 @@ FrameStats::~FrameStats() {
 }
 
 void FrameStats::beginFrame(wl_surface* surface, bool animating) {
-  if (!m_active && !animating) {
+  // Once the run ends, only its pending frames count; a surface that keeps repainting must not hold the run open.
+  if ((!m_active && !animating) || (m_active && m_ending)) {
     m_frameInRun = false;
     return;
   }
@@ -67,6 +68,17 @@ void FrameStats::beginFrame(wl_surface* surface, bool animating) {
   struct wp_presentation_feedback* feedback = wp_presentation_feedback(m_presentation, surface);
   wp_presentation_feedback_add_listener(feedback, &kListener, this);
   m_pending.push_back(feedback);
+}
+
+void FrameStats::dropFrame() {
+  if (!m_frameInRun || m_pending.empty()) {
+    return;
+  }
+  wp_presentation_feedback_destroy(m_pending.back());
+  m_pending.pop_back();
+  m_frameInRun = false;
+  m_cpuMs = 0.0F;
+  finishIfDone();
 }
 
 void FrameStats::endFrame() {
@@ -93,6 +105,7 @@ void FrameStats::onDiscarded(struct wp_presentation_feedback* feedback) {
   std::erase(m_pending, feedback);
   wp_presentation_feedback_destroy(feedback);
   ++m_missed;
+  m_lastPresentedNs = 0; // the gap to the next presented frame is this miss, already counted
   finishIfDone();
 }
 

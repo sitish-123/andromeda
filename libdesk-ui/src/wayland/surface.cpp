@@ -1308,6 +1308,9 @@ void Surface::render() {
     presented =
         m_renderContext->renderScene(m_renderTarget, m_sceneRoot, m_wallpaperMask ? &*m_wallpaperMask : nullptr);
   });
+  if (!presented && stats != nullptr) {
+    stats->dropFrame();
+  }
   if (!presented && m_frameCallback != nullptr) {
     // Nothing changed: keep the current buffer. Commit the callback only when a tick needs it; otherwise the
     // compositor would run an output frame for nothing.
