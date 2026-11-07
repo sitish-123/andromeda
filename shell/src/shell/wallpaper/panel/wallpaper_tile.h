@@ -93,6 +93,10 @@ private:
 
   Flex* m_layout = nullptr;
   Box* m_thumbHost = nullptr;
+  // Rulebook 9.7: the current wallpaper gets a 2 px label_1 ring at a 2 px gap and an accent check badge; the
+  // keyboard selection gets the accent focus ring in the same place.
+  Box* m_ring = nullptr;
+  Box* m_checkBadge = nullptr;
   Image* m_thumb = nullptr;
   Glyph* m_starGlyph = nullptr;
   Button* m_modeBadge = nullptr;

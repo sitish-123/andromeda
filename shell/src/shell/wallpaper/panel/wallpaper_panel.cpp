@@ -1,6 +1,7 @@
 #include "shell/wallpaper/panel/wallpaper_panel.h"
 
 #include "config/config_service.h"
+#include "core/input/key_modifiers.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/random.h"
@@ -9,23 +10,25 @@
 #include "i18n/i18n.h"
 #include "render/core/renderer.h"
 #include "render/core/thumbnail_service.h"
+#include "render/scene/accessible.h"
 #include "render/scene/input_area.h"
+#include "ui/controls/box.h"
+#include "ui/controls/glyph.h"
+#include "ui/controls/image.h"
 #include "shell/panel/panel_manager.h"
 #include "shell/tooltip/tooltip_manager.h"
 #include "shell/wallpaper/panel/wallpaper_tile.h"
 #include "shell/wallpaper/wallpaper_paths.h"
-#include "theme/builtin_palettes.h"
-#include "theme/community_palettes.h"
-#include "theme/custom_palettes.h"
 #include "theme/theme_service.h"
 #include "ui/builders.h"
 #include "ui/dialogs/color_picker_dialog.h"
-#include "ui/dialogs/search_picker_popup.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
 #include "wayland/wayland_connection.h"
+
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 #include <algorithm>
 #include <cctype>
@@ -53,50 +56,10 @@ namespace {
   constexpr Logger kLog("wp-panel");
   constexpr auto kFilterDebounceInterval = std::chrono::milliseconds(120);
   constexpr float kMinTileWidth = 180.0F;
-  constexpr float kMonitorSelectMinWidth = 136.0F;
-  constexpr float kFavoriteSelectMinWidth = 168.0F;
-  TOKENS_LIVE(kFavoritesMetaRowGap, Style::spaceSm);
+  constexpr float kPreviewWidth = 192.0F;  // 16:10, on the 4 grid
+  constexpr float kPreviewHeight = 120.0F;
+  constexpr auto kLoadingDelay = std::chrono::milliseconds(200); // rulebook 9.13: no spinner for fast scans
   constexpr float kTileAspect = 0.78F; // height / width, leaves room for label under widescreen thumb
-
-  [[nodiscard]] std::size_t themeModeSegmentIndex(ThemeMode mode) {
-    switch (mode) {
-    case ThemeMode::Dark:
-      return 0;
-    case ThemeMode::Light:
-      return 1;
-    case ThemeMode::Auto:
-    default:
-      return 2;
-    }
-  }
-
-  [[nodiscard]] ThemeMode themeModeFromSegmentIndex(std::size_t index) {
-    switch (index) {
-    case 0:
-      return ThemeMode::Dark;
-    case 1:
-      return ThemeMode::Light;
-    default:
-      return ThemeMode::Auto;
-    }
-  }
-
-  [[nodiscard]] std::vector<std::string> wallpaperSchemeOptions() {
-    return {
-        i18n::tr("theme.scheme.m3-content"),     i18n::tr("theme.scheme.m3-tonal-spot"),
-        i18n::tr("theme.scheme.m3-fruit-salad"), i18n::tr("theme.scheme.m3-rainbow"),
-        i18n::tr("theme.scheme.m3-monochrome"),  i18n::tr("theme.scheme.vibrant"),
-        i18n::tr("theme.scheme.faithful"),       i18n::tr("theme.scheme.soft"),
-        i18n::tr("theme.scheme.dysfunctional"),  i18n::tr("theme.scheme.muted"),
-    };
-  }
-
-  [[nodiscard]] std::vector<std::string> wallpaperSchemeValues() {
-    return {
-        "m3-content", "m3-tonal-spot", "m3-fruit-salad", "m3-rainbow",    "m3-monochrome",
-        "vibrant",    "faithful",      "soft",           "dysfunctional", "muted",
-    };
-  }
 
   [[nodiscard]] std::optional<ThemeMode> favoriteThemeBadge(const WallpaperFavorite* favorite) {
     if (favorite == nullptr) {
@@ -135,20 +98,6 @@ namespace {
     favorite.customPalette = theme.customPalette;
     favorite.wallpaperScheme = theme.wallpaperScheme;
     return favorite;
-  }
-
-  [[nodiscard]] std::string paletteSelectionValue(const WallpaperFavorite& theme) {
-    switch (theme.paletteSource.value_or(PaletteSource::Builtin)) {
-    case PaletteSource::Builtin:
-      return theme.builtinPalette;
-    case PaletteSource::Wallpaper:
-      return theme.wallpaperScheme;
-    case PaletteSource::Community:
-      return theme.communityPalette;
-    case PaletteSource::Custom:
-      return theme.customPalette;
-    }
-    return {};
   }
 
   [[nodiscard]] std::filesystem::path canonicalWallpaperDirectory(const std::filesystem::path& dir) {
@@ -428,322 +377,248 @@ PanelPlacement WallpaperPanel::panelPlacement() const noexcept {
 
 void WallpaperPanel::create() {
   const float scale = contentScale();
+  const float control = Tokens::sizeControlM * scale;
+  const auto iconButton = [&](Button** out, std::string glyph, std::string tooltip, std::function<void()> onClick) {
+    return ui::button({
+        .out = out,
+        .glyph = std::move(glyph),
+        .glyphSize = Tokens::sizeSymbol * scale,
+        .variant = ButtonVariant::Ghost,
+        .tooltip = std::move(tooltip),
+        .minWidth = control,
+        .minHeight = control,
+        .padding = Tokens::spaceP8 * scale,
+        .radius = Tokens::componentButtonRadius * scale,
+        .onClick = std::move(onClick),
+    });
+  };
 
   auto root = ui::column({
       .out = &m_rootLayout,
       .align = FlexAlign::Stretch,
-      .gap = Style::spaceSm * scale,
+      .gap = Tokens::spaceP12 * scale,
   });
 
-  auto toolbar = ui::row({
-      .out = &m_toolbar,
-      .align = FlexAlign::Center,
-      .gap = Style::spaceSm * scale,
-      .fillWidth = true,
-  });
+  // Header: title and close.
+  auto header = ui::row({.out = &m_toolbar, .align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale, .fillWidth = true});
+  header->setMinHeight(control);
+  header->addChild(ui::label({
+      .out = &m_title,
+      .text = i18n::tr("wallpaper.panel.title"),
+      .fontSize = Tokens::typeTitle3.size * scale,
+      .fontWeight = FontWeight::SemiBold,
+      .color = colorSpecFromRole(ColorRole::Label1),
+  }));
+  header->addChild(ui::spacer());
+  header->addChild(iconButton(&m_closeButton, "close", i18n::tr("wallpaper.panel.close"), [] {
+    PanelManager::instance().close();
+  }));
+  root->addChild(std::move(header));
 
-  toolbar->addChild(
-      ui::label({
-          .out = &m_title,
-          .text = i18n::tr("wallpaper.panel.title"),
-          .fontSize = Style::fontSizeTitle * scale,
-          .fontWeight = FontWeight::Bold,
-          .color = colorSpecFromRole(ColorRole::AccentText),
-      })
-  );
+  // Preview card: the focused wallpaper (or the current one) with its display and fill choices.
+  auto card = ui::row({.out = &m_favoritesOptionsColumn, .align = FlexAlign::Center, .gap = Tokens::spaceP16 * scale, .fillWidth = true});
+  card->setPadding(Tokens::spaceP12 * scale);
+  card->setRadius(Tokens::radiusR12 * scale);
+  card->setFill(colorSpecFromRole(ColorRole::GlassCard, panelCardOpacity()));
+  card->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * scale);
+  card->addChild(ui::box({
+      .out = &m_previewFrame,
+      .fill = colorSpecFromRole(ColorRole::Fill1),
+      .radius = Tokens::radiusR8 * scale,
+      .configure = [](Box& box) { box.setClipChildren(true); },
+  }));
+  m_previewFrame->setFrameSize(kPreviewWidth * scale, kPreviewHeight * scale);
+  m_previewFrame->addChild(ui::image({
+      .out = &m_previewImage,
+      .fit = ImageFit::Cover,
+      .radius = Tokens::radiusR8 * scale,
+      .participatesInLayout = false,
+  }));
+  m_previewImage->setFrameSize(kPreviewWidth * scale, kPreviewHeight * scale);
 
-  toolbar->addChild(
-      ui::input({
-          .out = &m_filterInput,
-          .placeholder = i18n::tr("wallpaper.panel.filter-placeholder"),
-          .fontSize = Style::fontSizeBody * scale,
-          .controlHeight = Style::controlHeight * scale,
-          .horizontalPadding = Style::spaceMd * scale,
-          .surfaceOpacity = panelCardOpacity(),
-          .width = 210.0F * scale,
-          .height = 0.0F,
-          .onChange =
-              [this](const std::string& text) {
-                if (text == m_pendingFilterQuery) {
-                  return;
-                }
-                m_pendingFilterQuery = text;
-                m_filterDebounceTimer.start(kFilterDebounceInterval, [this] {
-                  if (m_pendingFilterQuery == m_filterQuery) {
-                    return;
-                  }
-                  m_filterQuery = m_pendingFilterQuery;
-                  applyFilter();
-                  resetSelection();
-                  rebindGrid();
-                  syncBrowseChrome();
-                  m_dirty = true;
-                  PanelManager::instance().refresh();
-                });
-              },
-          .onKeyEvent = [this](std::uint32_t sym, std::uint32_t modifiers) { return handleKeyEvent(sym, modifiers); },
-      })
-  );
+  auto info = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP4 * scale, .flexGrow = 1.0F});
+  info->addChild(ui::label({
+      .out = &m_previewName,
+      .fontSize = Tokens::typeHeadline.size * scale,
+      .fontWeight = FontWeight::SemiBold,
+      .color = colorSpecFromRole(ColorRole::Label1),
+      .maxLines = 1,
+  }));
+  m_previewName->setEllipsize(TextEllipsize::Middle);
+  info->addChild(ui::label({
+      .out = &m_previewFolder,
+      .fontSize = Tokens::typeFootnote.size * scale,
+      .color = colorSpecFromRole(ColorRole::Label2),
+      .maxLines = 1,
+  }));
+  m_previewFolder->setEllipsize(TextEllipsize::Middle);
+  info->addChild(ui::spacer());
 
-  toolbar->addChild(
-      ui::button({
-          .out = &m_backButton,
-          .glyph = "arrow-big-up",
-          .glyphSize = Style::fontSizeBody * scale,
-          .variant = ButtonVariant::Secondary,
-          .tooltip = i18n::tr("wallpaper.panel.navigate-up"),
-          .minWidth = Style::controlHeight * scale,
-          .minHeight = Style::controlHeight * scale,
-          .padding = Style::spaceXs * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .onClick = [this] { navigateUp(); },
-      })
-  );
-
-  toolbar->addChild(ui::spacer());
-
-  toolbar->addChild(
-      ui::label({
-          .out = &m_flattenLabel,
-          .text = i18n::tr("wallpaper.panel.flatten"),
-          .fontSize = Style::fontSizeBody * scale,
-          .color = colorSpecFromRole(ColorRole::Label2),
-      })
-  );
-
-  toolbar->addChild(
-      ui::toggle({
-          .out = &m_flattenToggle,
-          .checked = m_flatten,
-          .onChange = [this](bool checked) {
-            m_flatten = checked;
-            if (m_config != nullptr) {
-              (void)m_config->setStateBool("wallpaper_panel", "flatten", checked);
-            }
+  auto choices = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale, .fillWidth = true});
+  choices->addChild(ui::select({
+      .out = &m_monitorSelect,
+      .fontSize = Tokens::typeBody.size * scale,
+      .controlHeight = control,
+      .surfaceOpacity = panelCardOpacity(),
+      .onSelectionChanged =
+          [this](std::size_t idx, std::string_view) {
+            m_selectedMonitorIndex = idx;
+            m_navStack.clear();
             refreshVisibleEntries();
             resetSelection();
             rebindGrid();
+            syncBackButton();
             syncBrowseChrome();
             m_dirty = true;
             PanelManager::instance().refresh();
           },
-      })
-  );
-
-  toolbar->addChild(
-      ui::select({
-          .out = &m_monitorSelect,
-          .fontSize = Style::fontSizeBody * scale,
-          .controlHeight = Style::controlHeight * scale,
-          .surfaceOpacity = panelCardOpacity(),
-          .onSelectionChanged =
-              [this](std::size_t idx, std::string_view) {
-                m_selectedMonitorIndex = idx;
-                m_navStack.clear();
-                refreshVisibleEntries();
-                resetSelection();
-                rebindGrid();
-                syncBackButton();
-                syncBrowseChrome();
-                m_dirty = true;
-                PanelManager::instance().refresh();
-              },
-          .configure = [scale](Select& select) { select.setMinWidth(kMonitorSelectMinWidth * scale); },
-      })
-  );
-
-  toolbar->addChild(
-      ui::button({
-          .out = &m_colorButton,
-          .glyph = "color-picker",
-          .glyphSize = Style::fontSizeBody * scale,
-          .variant = ButtonVariant::Default,
-          .tooltip = i18n::tr("wallpaper.panel.choose-color"),
-          .minWidth = Style::controlHeight * scale,
-          .minHeight = Style::controlHeight * scale,
-          .padding = Style::spaceXs * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .onClick = [this] { applyColorWallpaper(); },
-      })
-  );
-
-  toolbar->addChild(
-      ui::button({
-          .out = &m_sortButton,
-          .glyph = std::string(sortModeGlyph(m_sortMode)),
-          .glyphSize = Style::fontSizeBody * scale,
-          .variant = ButtonVariant::Default,
-          .tooltip = i18n::tr(sortModeTooltipKey(m_sortMode)),
-          .minWidth = Style::controlHeight * scale,
-          .minHeight = Style::controlHeight * scale,
-          .padding = Style::spaceXs * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .onClick = [this] { cycleSortMode(); },
-      })
-  );
-
-  toolbar->addChild(
-      ui::button({
-          .out = &m_refreshButton,
-          .glyph = "refresh",
-          .glyphSize = Style::fontSizeBody * scale,
-          .variant = ButtonVariant::Default,
-          .tooltip = i18n::tr("wallpaper.panel.refresh"),
-          .minWidth = Style::controlHeight * scale,
-          .minHeight = Style::controlHeight * scale,
-          .padding = Style::spaceXs * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .onClick = [this] {
-            if (m_scanner != nullptr) {
-              m_scanner->invalidate();
-            }
-            refreshVisibleEntries();
-            resetSelection();
-            rebindGrid();
-            syncBrowseChrome();
-            m_dirty = true;
-            PanelManager::instance().refresh();
-          },
-      })
-  );
-
-  if (Style::closeButtonsEnabled()) {
-    toolbar->addChild(
-        ui::button({
-            .out = &m_closeButton,
-            .glyph = "close",
-            .glyphSize = Style::fontSizeBody * scale,
-            .tooltip = i18n::tr("wallpaper.panel.close"),
-            .minWidth = Style::controlHeight * scale,
-            .minHeight = Style::controlHeight * scale,
-            .padding = Style::spaceXs * scale,
-            .radius = Style::scaledRadiusMd(scale),
-            .onClick = [] { PanelManager::instance().close(); },
-        })
+  }));
+  {
+    std::vector<std::string> fillLabels;
+    std::size_t fillIndex = 0;
+    for (std::size_t i = 0; i < std::size(kWallpaperFillModes); ++i) {
+      fillLabels.push_back(i18n::tr(kWallpaperFillModes[i].labelKey));
+      if (m_config != nullptr && kWallpaperFillModes[i].value == m_config->config().wallpaper.fillMode) {
+        fillIndex = i;
+      }
+    }
+    choices->addChild(ui::select({
+        .out = &m_fillSelect,
+        .options = std::move(fillLabels),
+        .selectedIndex = fillIndex,
+        .fontSize = Tokens::typeBody.size * scale,
+        .controlHeight = control,
+        .surfaceOpacity = panelCardOpacity(),
+        .onSelectionChanged =
+            [this](std::size_t idx, std::string_view) {
+              if (m_config != nullptr && idx < std::size(kWallpaperFillModes)) {
+                (void)m_config->setOverride({"wallpaper", "fill_mode"}, std::string(kWallpaperFillModes[idx].key));
+              }
+            },
+    }));
+    m_fillSelect->setAccessible(
+        {.role = AccessibleRole::Button, .name = i18n::tr("settings.schema.wallpaper.fill-mode.label"), .actionName = "press"}
     );
   }
+  choices->addChild(ui::spacer());
+  choices->addChild(ui::button({
+      .out = &m_favoriteCurrentButton,
+      .text = i18n::tr("wallpaper.panel.favorite"),
+      .glyph = "star",
+      .fontSize = Tokens::typeBody.size * scale,
+      .glyphSize = Tokens::sizeSymbol * scale,
+      .controlHeight = control,
+      .variant = ButtonVariant::Default,
+      .paddingH = Tokens::componentButtonInsetM * scale,
+      .radius = Tokens::componentButtonRadius * scale,
+      .onClick = [this] { toggleFavoriteForPath(previewWallpaperPath()); },
+  }));
+  info->addChild(std::move(choices));
+  card->addChild(std::move(info));
+  root->addChild(std::move(card));
 
-  root->addChild(std::move(toolbar));
-
-  const float favoritesControlHeight = Style::controlHeight * scale;
-  const float favoritesLabelFontSize = Style::fontSizeCaption * scale;
-
-  auto favoritesOptions = ui::row({
-      .out = &m_favoritesOptionsColumn,
-      .align = FlexAlign::Center,
-      .gap = kFavoritesMetaRowGap * scale,
-      .fillWidth = true,
-  });
-
-  // Only offer palette sources that actually have palettes; Community/Custom are empty
-  // when nothing is fetched/installed, and selecting them would do nothing.
-  m_paletteSourceOrder.clear();
-  std::vector<ui::SegmentedOption> paletteSourceOptions;
-  const auto addPaletteSource = [&](PaletteSource source, const char* labelKey) {
-    m_paletteSourceOrder.push_back(source);
-    paletteSourceOptions.push_back({.label = i18n::tr(labelKey)});
-  };
-  addPaletteSource(PaletteSource::Builtin, "settings.options.theme.source.built-in");
-  addPaletteSource(PaletteSource::Wallpaper, "settings.options.theme.source.wallpaper");
-  if (!noctalia::theme::availableCommunityPalettes().empty()) {
-    addPaletteSource(PaletteSource::Community, "settings.options.theme.source.community");
-  }
-  if (!noctalia::theme::availableCustomPalettes().empty()) {
-    addPaletteSource(PaletteSource::Custom, "settings.options.theme.source.custom");
-  }
-
-  favoritesOptions->addChild(
-      ui::segmented({
-          .out = &m_favoritePaletteSourceSegmented,
-          .options = std::move(paletteSourceOptions),
-          .selectedIndex = static_cast<std::size_t>(0),
-          .scale = scale,
-          .compact = true,
-          .surfaceOpacity = panelCardOpacity(),
-          .onChange = [this](std::size_t index) {
-            if (m_syncingFavoriteControls || m_config == nullptr) {
+  // Toolbar: search, source chips, folder navigation and list tools.
+  auto toolbar = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * scale, .fillWidth = true});
+  toolbar->addChild(iconButton(&m_backButton, "chevron-left", i18n::tr("wallpaper.panel.navigate-up"), [this] {
+    navigateUp();
+  }));
+  toolbar->addChild(ui::input({
+      .out = &m_filterInput,
+      .placeholder = i18n::tr("wallpaper.panel.filter-placeholder"),
+      .fontSize = Tokens::typeBody.size * scale,
+      .controlHeight = control,
+      .horizontalPadding = Tokens::spaceP12 * scale,
+      .surfaceOpacity = panelCardOpacity(),
+      .surfaceRole = ColorRole::Fill2,
+      .flexGrow = 1.0F,
+      .onChange =
+          [this](const std::string& text) {
+            if (text == m_pendingFilterQuery) {
               return;
             }
-            const std::optional<PaletteSource> source = paletteSourceForSegment(index);
-            if (!source.has_value()) {
-              return;
-            }
-            // Repopulate the palette picker for the newly chosen source, then apply.
-            WallpaperFavorite seed = activeThemeSettings();
-            seed.paletteSource = source;
-            if (m_favoriteThemeSegmented != nullptr) {
-              seed.themeMode = themeModeFromSegmentIndex(m_favoriteThemeSegmented->selectedIndex());
-            }
-            m_syncingFavoriteControls = true;
-            rebuildFavoritePaletteDetailPicker(&seed);
-            m_syncingFavoriteControls = false;
-
-            applyThemeFromControls();
-            m_dirty = true;
-            PanelManager::instance().refresh();
+            m_pendingFilterQuery = text;
+            m_filterDebounceTimer.start(kFilterDebounceInterval, [this] {
+              if (m_pendingFilterQuery == m_filterQuery) {
+                return;
+              }
+              m_filterQuery = m_pendingFilterQuery;
+              applyFilter();
+              resetSelection();
+              rebindGrid();
+              syncBrowseChrome();
+              m_dirty = true;
+              PanelManager::instance().refresh();
+            });
           },
-      })
-  );
-
-  favoritesOptions->addChild(
-      ui::button({
-          .out = &m_favoritePaletteDetailButton,
-          .fontSize = favoritesLabelFontSize,
-          .controlHeight = favoritesControlHeight,
-          .contentAlign = ButtonContentAlign::Start,
-          .variant = ButtonVariant::Default,
-          .surfaceOpacity = panelCardOpacity(),
-          .minWidth = kFavoriteSelectMinWidth * scale,
-          .paddingH = Style::spaceSm * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .visible = false,
-          .onClick = [this] { openFavoritePaletteDetailPicker(); },
-      })
-  );
-
-  favoritesOptions->addChild(
-      ui::button({
-          .out = &m_favoriteCurrentButton,
-          .glyph = "star",
-          .glyphSize = Style::fontSizeBody * scale,
-          .variant = ButtonVariant::Default,
-          .tooltip = i18n::tr("wallpaper.panel.favorite-current"),
-          .minWidth = Style::controlHeight * scale,
-          .minHeight = Style::controlHeight * scale,
-          .padding = Style::spaceXs * scale,
-          .radius = Style::scaledRadiusMd(scale),
-          .onClick = [this] { toggleFavoriteForPath(currentWallpaperPathForSelection()); },
-      })
-  );
-
-  favoritesOptions->addChild(ui::spacer());
-
-  favoritesOptions->addChild(
-      ui::segmented({
-          .out = &m_favoriteThemeSegmented,
-          .options =
-              std::vector<ui::SegmentedOption>{
-                  {.label = i18n::tr("settings.options.theme.mode.dark")},
-                  {.label = i18n::tr("settings.options.theme.mode.light")},
-                  {.label = i18n::tr("common.states.auto")},
-              },
-          .selectedIndex = static_cast<std::size_t>(0),
-          .scale = scale,
-          .compact = true,
-          .surfaceOpacity = panelCardOpacity(),
-          .onChange = [this](std::size_t) {
-            if (m_syncingFavoriteControls || m_config == nullptr) {
-              return;
-            }
-            applyThemeFromControls();
+      .onKeyEvent = [this](std::uint32_t sym, std::uint32_t modifiers) { return handleKeyEvent(sym, modifiers); },
+  }));
+  m_filterInput->setFrameRadius(Tokens::componentFieldRadius);
+  toolbar->addChild(ui::segmented({
+      .out = &m_sourceChips,
+      .options =
+          std::vector<ui::SegmentedOption>{
+              {.label = i18n::tr("wallpaper.panel.all")},
+              {.label = i18n::tr("wallpaper.panel.favorites")},
+          },
+      .selectedIndex = static_cast<std::size_t>(m_favoritesOnly ? 1 : 0),
+      .scale = scale,
+      .compact = true,
+      .surfaceOpacity = panelCardOpacity(),
+      .onChange =
+          [this](std::size_t index) {
+            m_favoritesOnly = index == 1;
+            refreshVisibleEntries();
+            resetSelection();
             rebindGrid();
+            syncBrowseChrome();
             m_dirty = true;
             PanelManager::instance().refresh();
           },
-      })
-  );
-
-  root->addChild(std::move(favoritesOptions));
+  }));
+  toolbar->addChild(ui::button({
+      .out = &m_flattenButton,
+      .glyph = "folders",
+      .glyphSize = Tokens::sizeSymbol * scale,
+      .variant = ButtonVariant::Ghost,
+      .tooltip = i18n::tr("wallpaper.panel.subfolders"),
+      .minWidth = control,
+      .minHeight = control,
+      .padding = Tokens::spaceP8 * scale,
+      .radius = Tokens::componentButtonRadius * scale,
+      .onClick =
+          [this] {
+            m_flatten = !m_flatten;
+            if (m_config != nullptr) {
+              (void)m_config->setStateBool("wallpaper_panel", "flatten", m_flatten);
+            }
+            syncFlattenButton();
+            refreshVisibleEntries();
+            resetSelection();
+            rebindGrid();
+            syncBrowseChrome();
+            m_dirty = true;
+            PanelManager::instance().refresh();
+          },
+  }));
+  toolbar->addChild(iconButton(&m_sortButton, std::string(sortModeGlyph(m_sortMode)), i18n::tr(sortModeTooltipKey(m_sortMode)), [this] {
+    cycleSortMode();
+  }));
+  toolbar->addChild(iconButton(&m_colorButton, "color-picker", i18n::tr("wallpaper.panel.choose-color"), [this] {
+    applyColorWallpaper();
+  }));
+  toolbar->addChild(iconButton(&m_refreshButton, "refresh", i18n::tr("wallpaper.panel.refresh"), [this] {
+    if (m_scanner != nullptr) {
+      m_scanner->invalidate();
+    }
+    refreshVisibleEntries();
+    resetSelection();
+    rebindGrid();
+    syncBrowseChrome();
+    m_dirty = true;
+    PanelManager::instance().refresh();
+  }));
+  root->addChild(std::move(toolbar));
+  syncFlattenButton();
 
   // ── Body: virtualized scrolling grid ──────────────────────────────────
   m_adapter = std::make_unique<WallpaperGridAdapter>(scale);
@@ -770,8 +645,8 @@ void WallpaperPanel::create() {
           .contentScale = scale,
           .minCellWidth = kMinTileWidth * scale,
           .squareCells = false,
-          .columnGap = Style::spaceMd * scale,
-          .rowGap = Style::spaceMd * scale,
+          .columnGap = Tokens::componentGridGap * scale,
+          .rowGap = Tokens::componentGridGap * scale,
           .overscanRows = 2,
           .itemCursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER,
           .adapter = m_adapter.get(),
@@ -786,7 +661,9 @@ void WallpaperPanel::create() {
                 } else {
                   m_selectedVisibleIndex = kNoVisibleSelection;
                 }
-                syncThemeControls();
+                // The preview card follows the keyboard selection.
+                syncBrowseChrome();
+                PanelManager::instance().requestUpdateOnly();
               },
           .configure = [](VirtualGridView& grid) { grid.setFillWidth(true); },
       })
@@ -811,31 +688,50 @@ void WallpaperPanel::create() {
     });
   }
 
-  // Loading state shown while the directory scan runs on the worker thread.
-  // Occupies the body in place of the grid (only one is visible at a time).
-  root->addChild(
-      ui::column(
-          {
-              .out = &m_loadingBox,
-              .align = FlexAlign::Center,
-              .justify = FlexJustify::Center,
-              .gap = Style::spaceMd * scale,
-              .fillWidth = true,
-              .flexGrow = 1.0F,
-              .visible = false,
-          },
-          ui::spinner({
-              .out = &m_spinner,
-              .spinnerSize = Style::fontSizeTitle * scale * 1.6F,
-              .spinning = false,
-          }),
-          ui::label({
-              .text = i18n::tr("wallpaper.panel.loading"),
-              .fontSize = Style::fontSizeBody * scale,
-              .color = colorSpecFromRole(ColorRole::Label2),
-          })
-      )
-  );
+  // One state view replaces the grid: loading (after a short delay, so fast scans never flash), an empty folder,
+  // no matches, no favourites, or a missing folder.
+  root->addChild(ui::column(
+      {
+          .out = &m_loadingBox,
+          .align = FlexAlign::Center,
+          .justify = FlexJustify::Center,
+          .gap = Tokens::spaceP8 * scale,
+          .fillWidth = true,
+          .flexGrow = 1.0F,
+          .visible = false,
+      },
+      ui::spinner({.out = &m_spinner, .spinnerSize = Tokens::spaceP24 * scale, .spinning = false}),
+      ui::glyph({
+          .out = &m_stateGlyph,
+          .glyph = "photo",
+          .glyphSize = Tokens::spaceP32 * scale,
+          .color = colorSpecFromRole(ColorRole::Label3),
+      }),
+      ui::label({
+          .out = &m_stateTitle,
+          .fontSize = Tokens::typeHeadline.size * scale,
+          .fontWeight = FontWeight::SemiBold,
+          .color = colorSpecFromRole(ColorRole::Label1),
+          .textAlign = TextAlign::Center,
+      }),
+      ui::label({
+          .out = &m_stateBody,
+          .fontSize = Tokens::typeFootnote.size * scale,
+          .color = colorSpecFromRole(ColorRole::Label2),
+          .maxWidth = 320.0F * scale,
+          .maxLines = 3,
+          .textAlign = TextAlign::Center,
+      }),
+      ui::button({
+          .out = &m_stateAction,
+          .fontSize = Tokens::typeBody.size * scale,
+          .controlHeight = control,
+          .variant = ButtonVariant::Default,
+          .paddingH = Tokens::componentButtonInsetM * scale,
+          .radius = Tokens::componentButtonRadius * scale,
+          .visible = false,
+      })
+  ));
 
   setRoot(std::move(root));
   if (m_animations != nullptr) {
@@ -881,6 +777,7 @@ void WallpaperPanel::doLayout(Renderer& renderer, float width, float height) {
 
   m_rootLayout->setSize(width, height);
   m_rootLayout->layout(renderer);
+  syncPreview(renderer);
   m_dirty = false;
 }
 
@@ -897,6 +794,7 @@ void WallpaperPanel::doUpdate(Renderer& renderer) {
       m_adapter->refreshVisibleThumbnails(renderer);
     }
   }
+  syncPreview(renderer);
 }
 
 void WallpaperPanel::onPanelCardOpacityChanged(float opacity) {
@@ -906,14 +804,14 @@ void WallpaperPanel::onPanelCardOpacityChanged(float opacity) {
   if (m_monitorSelect != nullptr) {
     m_monitorSelect->setSurfaceOpacity(opacity);
   }
-  if (m_favoriteThemeSegmented != nullptr) {
-    m_favoriteThemeSegmented->setSurfaceOpacity(opacity);
+  if (m_fillSelect != nullptr) {
+    m_fillSelect->setSurfaceOpacity(opacity);
   }
-  if (m_favoritePaletteSourceSegmented != nullptr) {
-    m_favoritePaletteSourceSegmented->setSurfaceOpacity(opacity);
+  if (m_sourceChips != nullptr) {
+    m_sourceChips->setSurfaceOpacity(opacity);
   }
-  if (m_favoritePaletteDetailButton != nullptr) {
-    m_favoritePaletteDetailButton->setSurfaceOpacity(opacity);
+  if (m_favoritesOptionsColumn != nullptr) {
+    m_favoritesOptionsColumn->setFill(colorSpecFromRole(ColorRole::GlassCard, opacity));
   }
 }
 
@@ -924,9 +822,7 @@ void WallpaperPanel::onOpen(std::string_view /*context*/) {
   if (m_filterInput != nullptr) {
     m_filterInput->setValue("");
   }
-  if (m_flattenToggle != nullptr) {
-    m_flattenToggle->setCheckedImmediate(m_flatten);
-  }
+  syncFlattenButton();
   const bool showNames = m_config == nullptr || m_config->config().shell.panel.wallpaperShowNames;
   if (showNames != m_showNames) {
     m_showNames = showNames;
@@ -969,15 +865,28 @@ void WallpaperPanel::onClose() {
   m_monitorSelect = nullptr;
   m_favoriteCurrentButton = nullptr;
   m_filterInput = nullptr;
-  m_flattenToggle = nullptr;
-  m_flattenLabel = nullptr;
+  m_flattenButton = nullptr;
+  m_previewFrame = nullptr;
+  m_previewImage = nullptr;
+  m_previewName = nullptr;
+  m_previewFolder = nullptr;
+  m_fillSelect = nullptr;
+  m_sourceChips = nullptr;
+  m_stateGlyph = nullptr;
+  m_stateTitle = nullptr;
+  m_stateBody = nullptr;
+  m_stateAction = nullptr;
+  m_loadingDelayTimer.stop();
+  m_loadingShown = false;
+  if (m_thumbnails != nullptr && !m_previewPath.empty() && m_previewPx > 0) {
+    m_thumbnails->release(m_previewPath, m_previewPx);
+  }
+  m_previewPath.clear();
+  m_previewPx = 0;
   m_sortButton = nullptr;
   m_refreshButton = nullptr;
   m_colorButton = nullptr;
   m_closeButton = nullptr;
-  m_favoriteThemeSegmented = nullptr;
-  m_favoritePaletteSourceSegmented = nullptr;
-  m_favoritePaletteDetailButton = nullptr;
   m_grid = nullptr;
   m_loadingBox = nullptr;
   m_spinner = nullptr;
@@ -997,27 +906,16 @@ bool WallpaperPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers,
   auto& dispatcher = PanelManager::instance().inputDispatcher();
   InputArea* focused = dispatcher.focusedArea();
 
-  if (m_favoriteThemeSegmented != nullptr && focused == m_favoriteThemeSegmented->focusArea()) {
-    const bool moveIntoGrid = KeybindMatcher::matches(KeybindAction::Down, sym, modifiers)
-        || KeybindMatcher::matches(KeybindAction::TabNext, sym, modifiers);
-    if (moveIntoGrid && m_grid != nullptr && m_grid->focusArea() != nullptr) {
-      dispatcher.setFocus(m_grid->focusArea());
-      if (!hasVisibleSelection() && !m_visibleEntries.empty()) {
-        selectVisibleIndex(0);
-      }
-      return true;
+  // Down from the search field or the source chips goes into the grid.
+  const bool fromToolbar = (m_filterInput != nullptr && focused == m_filterInput->inputArea())
+      || (m_sourceChips != nullptr && focused == m_sourceChips->focusArea());
+  if (fromToolbar && KeybindMatcher::matches(KeybindAction::Down, sym, modifiers) && m_grid != nullptr
+      && m_grid->focusArea() != nullptr && !m_visibleEntries.empty()) {
+    dispatcher.setFocus(m_grid->focusArea());
+    if (!hasVisibleSelection()) {
+      selectVisibleIndex(0);
     }
-  }
-
-  if (m_favoritePaletteSourceSegmented != nullptr && focused == m_favoritePaletteSourceSegmented->focusArea()) {
-    const bool moveIntoGrid = KeybindMatcher::matches(KeybindAction::Down, sym, modifiers);
-    if (moveIntoGrid && m_grid != nullptr && m_grid->focusArea() != nullptr) {
-      dispatcher.setFocus(m_grid->focusArea());
-      if (!hasVisibleSelection() && !m_visibleEntries.empty()) {
-        selectVisibleIndex(0);
-      }
-      return true;
-    }
+    return true;
   }
 
   if (focused != nullptr && !isDescendantOf(focused, m_grid)) {
@@ -1033,7 +931,7 @@ InputArea* WallpaperPanel::initialFocusArea() const {
 
 void WallpaperPanel::populateMonitorChoices() {
   m_monitorChoices.clear();
-  m_monitorChoices.push_back({"", i18n::tr("wallpaper.panel.all-monitors")});
+  m_monitorChoices.push_back({"", i18n::tr("wallpaper.panel.all-displays")});
   if (m_wayland != nullptr) {
     for (const auto& out : m_wayland->outputs()) {
       if (out.connectorName.empty()) {
@@ -1055,6 +953,8 @@ void WallpaperPanel::populateMonitorChoices() {
     }
     m_monitorSelect->setOptions(std::move(labels));
     m_monitorSelect->setSelectedIndex(m_selectedMonitorIndex);
+    // One display: "All Displays" and the display itself are the same choice.
+    m_monitorSelect->setVisible(m_monitorChoices.size() > 2);
   }
 }
 
@@ -1155,15 +1055,158 @@ void WallpaperPanel::syncBrowseChrome() {
     m_backButton->setVisible(!m_navStack.empty());
   }
   if (m_favoriteCurrentButton != nullptr && m_config != nullptr) {
-    const std::string current = currentWallpaperPathForSelection();
-    const bool favorite = !current.empty() && m_config->isWallpaperFavorite(current);
-    m_favoriteCurrentButton->setEnabled(!current.empty());
+    const std::string path = previewWallpaperPath();
+    const bool favorite = !path.empty() && m_config->isWallpaperFavorite(path);
+    m_favoriteCurrentButton->setEnabled(!path.empty());
     m_favoriteCurrentButton->setGlyph(favorite ? "star-filled" : "star");
-    m_favoriteCurrentButton->setTooltip(
-        i18n::tr(favorite ? "wallpaper.panel.unfavorite-current" : "wallpaper.panel.favorite-current")
+    m_favoriteCurrentButton->setText(i18n::tr(favorite ? "wallpaper.panel.favorited" : "wallpaper.panel.favorite"));
+  }
+  syncStateView();
+}
+
+std::string WallpaperPanel::previewWallpaperPath() const {
+  const std::string selected = selectedWallpaperPath();
+  return selected.empty() ? currentWallpaperPathForSelection() : selected;
+}
+
+void WallpaperPanel::syncFlattenButton() {
+  if (m_flattenButton == nullptr) {
+    return;
+  }
+  m_flattenButton->setVariant(m_flatten ? ButtonVariant::Default : ButtonVariant::Ghost);
+  m_flattenButton->setAccessible({
+      .role = AccessibleRole::ToggleButton,
+      .name = i18n::tr("wallpaper.panel.subfolders"),
+      .checked = m_flatten,
+      .actionName = "press",
+  });
+}
+
+void WallpaperPanel::syncPreview(Renderer& renderer) {
+  if (m_previewImage == nullptr || m_previewFrame == nullptr) {
+    return;
+  }
+  const std::string path = previewWallpaperPath();
+  if (m_previewName != nullptr) {
+    m_previewName->setText(path.empty() ? i18n::tr("wallpaper.panel.none") : displayNameForWallpaperPath(path));
+  }
+  if (m_previewFolder != nullptr) {
+    m_previewFolder->setText(
+        path.empty() || path.starts_with("color:") ? std::string{} : std::filesystem::path(path).parent_path().string()
     );
   }
-  syncThemeControls();
+
+  Color colorFill;
+  const bool colorWallpaper = parseColorWallpaperPath(path, colorFill);
+  m_previewFrame->setFill(colorWallpaper ? fixedColorSpec(colorFill) : colorSpecFromRole(ColorRole::Fill1));
+  const std::string thumbPath = colorWallpaper ? std::string{} : path;
+  const int px = static_cast<int>(std::lround(kPreviewWidth * contentScale() * std::max(1.0F, renderer.renderScale())));
+  if (thumbPath != m_previewPath || px != m_previewPx) {
+    if (m_thumbnails != nullptr && !m_previewPath.empty() && m_previewPx > 0) {
+      m_thumbnails->release(m_previewPath, m_previewPx);
+    }
+    m_previewPath = thumbPath;
+    m_previewPx = px;
+    if (m_thumbnails != nullptr && !m_previewPath.empty()) {
+      (void)m_thumbnails->acquire(m_previewPath, m_previewPx);
+    }
+  }
+  const TextureHandle handle =
+      (m_thumbnails != nullptr && !m_previewPath.empty()) ? m_thumbnails->peek(m_previewPath, m_previewPx) : TextureHandle{};
+  if (handle.id != 0) {
+    m_previewImage->setExternalTexture(renderer, handle);
+    m_previewImage->setVisible(true);
+  } else {
+    m_previewImage->clear(renderer);
+    m_previewImage->setVisible(false);
+  }
+}
+
+void WallpaperPanel::syncStateView() {
+  if (m_loadingBox == nullptr || m_grid == nullptr) {
+    return;
+  }
+  const bool loading = m_scanPending && m_loadingShown;
+  const bool scanning = m_scanPending && !m_loadingShown;
+  const auto dir = activeDirectoryForSelection();
+  std::error_code ec;
+  const bool missing = !m_favoritesOnly && !dir.empty() && !std::filesystem::is_directory(dir, ec);
+  const bool empty = !m_scanPending && m_visibleEntries.empty();
+  const bool showState = loading || (!scanning && (missing || empty));
+
+  m_grid->setVisible(!showState && !scanning);
+  m_loadingBox->setVisible(showState);
+  if (m_spinner != nullptr) {
+    m_spinner->setVisible(loading);
+    loading ? m_spinner->start() : m_spinner->stop();
+  }
+  if (!showState || loading) {
+    if (m_stateGlyph != nullptr) {
+      m_stateGlyph->setVisible(false);
+    }
+    if (m_stateTitle != nullptr) {
+      m_stateTitle->setText(loading ? i18n::tr("wallpaper.panel.loading") : std::string{});
+    }
+    if (m_stateBody != nullptr) {
+      m_stateBody->setVisible(false);
+    }
+    if (m_stateAction != nullptr) {
+      m_stateAction->setVisible(false);
+    }
+    return;
+  }
+
+  std::string key;
+  std::string glyph = "photo";
+  std::function<void()> action;
+  std::string actionKey;
+  if (missing) {
+    key = "missing-folder";
+    glyph = "folder-off";
+    actionKey = "wallpaper.panel.open-settings";
+    action = [] { PanelManager::instance().openSettingsWindow("wallpaper"); };
+  } else if (!m_filterQuery.empty()) {
+    key = "no-matches";
+    glyph = "search";
+    actionKey = "wallpaper.panel.clear-search";
+    action = [this] {
+      if (m_filterInput != nullptr) {
+        m_filterInput->setValue("");
+      }
+      m_pendingFilterQuery.clear();
+      m_filterQuery.clear();
+      applyFilter();
+      rebindGrid();
+      syncBrowseChrome();
+      m_dirty = true;
+      PanelManager::instance().refresh();
+    };
+  } else if (m_favoritesOnly) {
+    key = "no-favorites";
+    glyph = "star";
+  } else {
+    key = "empty-folder";
+    actionKey = "wallpaper.panel.open-settings";
+    action = [] { PanelManager::instance().openSettingsWindow("wallpaper"); };
+  }
+  if (m_stateGlyph != nullptr) {
+    m_stateGlyph->setGlyph(glyph);
+    m_stateGlyph->setVisible(true);
+  }
+  if (m_stateTitle != nullptr) {
+    m_stateTitle->setText(i18n::tr("wallpaper.panel.state." + key + ".title"));
+  }
+  if (m_stateBody != nullptr) {
+    m_stateBody->setText(i18n::tr("wallpaper.panel.state." + key + ".body", "folder", dir.string()));
+    m_stateBody->setVisible(true);
+  }
+  if (m_stateAction != nullptr) {
+    m_stateAction->setVisible(static_cast<bool>(action));
+    if (action) {
+      m_stateAction->setText(i18n::tr(actionKey));
+      m_stateAction->setOnClick(std::move(action));
+    }
+  }
 }
 
 std::string WallpaperPanel::selectedWallpaperPath() const {
@@ -1209,204 +1252,6 @@ void WallpaperPanel::appendFilteredFavoriteEntries(
   }
 }
 
-void WallpaperPanel::rebuildFavoritePaletteDetailPicker(const WallpaperFavorite* favorite) {
-  if (m_favoritePaletteDetailButton == nullptr) {
-    return;
-  }
-
-  m_favoritePaletteDetailValues.clear();
-  m_favoritePaletteDetailLabels.clear();
-  m_favoritePaletteDetailIndex = 0;
-  std::string selectedValue;
-
-  if (favorite != nullptr) {
-    const PaletteSource source = favorite->paletteSource.value_or(PaletteSource::Builtin);
-    switch (source) {
-    case PaletteSource::Builtin:
-      for (const auto& builtin : noctalia::theme::builtinPalettes()) {
-        m_favoritePaletteDetailValues.emplace_back(builtin.name);
-        m_favoritePaletteDetailLabels.emplace_back(builtin.name);
-      }
-      selectedValue = favorite->builtinPalette;
-      break;
-    case PaletteSource::Wallpaper:
-      m_favoritePaletteDetailValues = wallpaperSchemeValues();
-      m_favoritePaletteDetailLabels = wallpaperSchemeOptions();
-      selectedValue = favorite->wallpaperScheme;
-      break;
-    case PaletteSource::Community:
-      for (const auto& community : noctalia::theme::availableCommunityPalettes()) {
-        m_favoritePaletteDetailValues.push_back(community.name);
-        m_favoritePaletteDetailLabels.push_back(community.name);
-      }
-      selectedValue = favorite->communityPalette;
-      break;
-    case PaletteSource::Custom:
-      for (const auto& custom : noctalia::theme::availableCustomPalettes()) {
-        m_favoritePaletteDetailValues.push_back(custom.name);
-        m_favoritePaletteDetailLabels.push_back(custom.name);
-      }
-      selectedValue = favorite->customPalette;
-      break;
-    }
-  }
-
-  const bool visible = !m_favoritePaletteDetailLabels.empty();
-  m_favoritePaletteDetailButton->setVisible(visible);
-  if (!visible) {
-    m_favoritePaletteDetailButton->setText("");
-    return;
-  }
-
-  if (!selectedValue.empty()) {
-    const auto it = std::ranges::find(m_favoritePaletteDetailValues, selectedValue);
-    if (it != m_favoritePaletteDetailValues.end()) {
-      m_favoritePaletteDetailIndex = static_cast<std::size_t>(it - m_favoritePaletteDetailValues.begin());
-    }
-  }
-  m_favoritePaletteDetailButton->setText(m_favoritePaletteDetailLabels[m_favoritePaletteDetailIndex]);
-}
-
-void WallpaperPanel::openFavoritePaletteDetailPicker() {
-  if (m_favoritePaletteDetailValues.empty()) {
-    return;
-  }
-
-  const char* titleKey = "settings.schema.appearance.builtin-palette.label";
-  if (m_favoritePaletteSourceSegmented != nullptr) {
-    switch (
-        paletteSourceForSegment(m_favoritePaletteSourceSegmented->selectedIndex()).value_or(PaletteSource::Builtin)) {
-    case PaletteSource::Builtin:
-      break;
-    case PaletteSource::Wallpaper:
-      titleKey = "settings.schema.appearance.wallpaper-generation-scheme.label";
-      break;
-    case PaletteSource::Community:
-      titleKey = "settings.schema.appearance.community-palette.label";
-      break;
-    case PaletteSource::Custom:
-      titleKey = "settings.schema.appearance.custom-palette.label";
-      break;
-    }
-  }
-
-  std::vector<SearchPickerOption> options;
-  options.reserve(m_favoritePaletteDetailValues.size());
-  for (std::size_t i = 0; i < m_favoritePaletteDetailValues.size(); ++i) {
-    options.push_back(
-        SearchPickerOption{
-            .value = m_favoritePaletteDetailValues[i],
-            .label = m_favoritePaletteDetailLabels[i],
-        }
-    );
-  }
-
-  (void)SearchPickerDialog::open(
-      SearchPickerPopupRequest{
-          .title = i18n::tr(titleKey),
-          .options = std::move(options),
-          .selectedValue = m_favoritePaletteDetailValues[m_favoritePaletteDetailIndex],
-          .placeholder = i18n::tr("ui.controls.search-picker.placeholder"),
-          .emptyText = i18n::tr("ui.controls.search-picker.empty"),
-          .scale = contentScale(),
-      },
-      [this](const std::string& value) {
-        const auto it = std::ranges::find(m_favoritePaletteDetailValues, value);
-        if (it == m_favoritePaletteDetailValues.end() || m_config == nullptr) {
-          return;
-        }
-        m_favoritePaletteDetailIndex = static_cast<std::size_t>(it - m_favoritePaletteDetailValues.begin());
-        if (m_favoritePaletteDetailButton != nullptr) {
-          m_favoritePaletteDetailButton->setText(m_favoritePaletteDetailLabels[m_favoritePaletteDetailIndex]);
-        }
-        applyThemeFromControls();
-        m_dirty = true;
-        PanelManager::instance().refresh();
-      }
-  );
-}
-
-std::optional<PaletteSource> WallpaperPanel::paletteSourceForSegment(std::size_t index) const {
-  if (index >= m_paletteSourceOrder.size()) {
-    return std::nullopt;
-  }
-  return m_paletteSourceOrder[index];
-}
-
-std::size_t WallpaperPanel::segmentForPaletteSource(PaletteSource source) const {
-  for (std::size_t i = 0; i < m_paletteSourceOrder.size(); ++i) {
-    if (m_paletteSourceOrder[i] == source) {
-      return i;
-    }
-  }
-  return 0;
-}
-
-WallpaperFavorite WallpaperPanel::activeThemeSettings() const {
-  // A selected favorite wallpaper's saved preset is the source of truth; otherwise the live global theme is.
-  WallpaperFavorite theme =
-      (m_config != nullptr) ? wallpaperFavoriteFromTheme(m_config->config().theme) : WallpaperFavorite{};
-  if (m_config != nullptr) {
-    if (const std::string path = selectedWallpaperPath(); !path.empty()) {
-      if (const WallpaperFavorite* favorite = m_config->wallpaperFavorite(path); favorite != nullptr) {
-        theme = *favorite;
-      }
-    }
-  }
-  return theme;
-}
-
-void WallpaperPanel::applyThemeFromControls() {
-  if (m_config == nullptr) {
-    return;
-  }
-  const WallpaperFavorite theme = themeFromControls();
-  const std::string path = selectedWallpaperPath();
-
-  if (!path.empty() && m_config->isWallpaperFavorite(path)) {
-    // Edit the selected wallpaper's favorite preset and apply it live (also re-asserts the wallpaper).
-    if (theme.themeMode.has_value()) {
-      m_config->setWallpaperFavoriteThemeMode(path, *theme.themeMode);
-    }
-    m_config->setWallpaperFavoritePaletteSource(path, theme.paletteSource);
-    m_config->setWallpaperFavoritePaletteSelection(path, paletteSelectionValue(theme));
-    applyWallpaperPath(path, &theme);
-    return;
-  }
-
-  // No favorite target, so behave like the Settings window and change the global theme only.
-  if (theme.themeMode.has_value()) {
-    m_config->setThemeMode(*theme.themeMode);
-  }
-  if (theme.paletteSource.has_value()) {
-    (void)m_config->setThemeColorScheme(*theme.paletteSource, paletteSelectionValue(theme));
-  }
-}
-
-void WallpaperPanel::syncThemeControls() {
-  if (m_favoriteThemeSegmented == nullptr || m_config == nullptr) {
-    return;
-  }
-
-  const WallpaperFavorite themeSettings = activeThemeSettings();
-
-  m_syncingFavoriteControls = true;
-
-  // A favorite without a stored mode keeps the global mode, so show that.
-  m_favoriteThemeSegmented->setSelectedIndex(
-      themeModeSegmentIndex(themeSettings.themeMode.value_or(m_config->config().theme.mode))
-  );
-
-  if (m_favoritePaletteSourceSegmented != nullptr) {
-    const std::size_t sourceIndex =
-        themeSettings.paletteSource.has_value() ? segmentForPaletteSource(*themeSettings.paletteSource) : 0;
-    m_favoritePaletteSourceSegmented->setSelectedIndex(sourceIndex);
-  }
-
-  rebuildFavoritePaletteDetailPicker(&themeSettings);
-  m_syncingFavoriteControls = false;
-}
-
 void WallpaperPanel::refreshScan() {
   const auto dir = activeDirectoryForSelection();
   if (dir.empty() || m_scanner == nullptr) {
@@ -1441,20 +1286,21 @@ void WallpaperPanel::onScanComplete() {
 }
 
 void WallpaperPanel::syncLoadingState() {
-  const bool loading = m_scanPending;
-  if (m_loadingBox != nullptr) {
-    m_loadingBox->setVisible(loading);
+  if (!m_scanPending) {
+    m_loadingDelayTimer.stop();
+    m_loadingShown = false;
+  } else if (!m_loadingShown && !m_loadingDelayTimer.active()) {
+    m_loadingDelayTimer.start(kLoadingDelay, [this] {
+      if (m_rootLayout == nullptr || !m_scanPending) {
+        return;
+      }
+      m_loadingShown = true;
+      syncStateView();
+      m_dirty = true;
+      PanelManager::instance().refresh();
+    });
   }
-  if (m_grid != nullptr) {
-    m_grid->setVisible(!loading);
-  }
-  if (m_spinner != nullptr) {
-    if (loading) {
-      m_spinner->start();
-    } else {
-      m_spinner->stop();
-    }
-  }
+  syncStateView();
 }
 
 void WallpaperPanel::applyFilter() {
@@ -1462,11 +1308,12 @@ void WallpaperPanel::applyFilter() {
   std::unordered_set<std::string> favoritePaths;
   const auto dir = activeDirectoryForSelection();
   const auto rootDir = rootDirectoryForSelection();
-  appendFilteredFavoriteEntries(m_visibleEntries, favoritePaths, dir, rootDir);
+  // Favourites show from every folder of this display, so the Favourites chip lists them all.
+  appendFilteredFavoriteEntries(m_visibleEntries, favoritePaths, m_favoritesOnly ? rootDir : dir, rootDir);
   m_pinnedFavoriteCount = m_visibleEntries.size();
 
   const WallpaperScanResult* result =
-      (dir.empty() || m_scanner == nullptr) ? nullptr : m_scanner->cached(dir, m_flatten);
+      (m_favoritesOnly || dir.empty() || m_scanner == nullptr) ? nullptr : m_scanner->cached(dir, m_flatten);
   if (result != nullptr) {
     const std::string needle = StringUtils::toLower(m_filterQuery);
     const bool filterActive = !needle.empty();
@@ -1557,37 +1404,6 @@ const WallpaperFavorite* WallpaperPanel::favoriteThemeToApply(std::string_view p
   return m_config->wallpaperFavorite(path);
 }
 
-WallpaperFavorite WallpaperPanel::themeFromControls() const {
-  WallpaperFavorite theme;
-  if (m_favoriteThemeSegmented != nullptr) {
-    theme.themeMode = themeModeFromSegmentIndex(m_favoriteThemeSegmented->selectedIndex());
-  }
-  if (m_favoritePaletteSourceSegmented != nullptr) {
-    theme.paletteSource = paletteSourceForSegment(m_favoritePaletteSourceSegmented->selectedIndex());
-  }
-  if (!m_favoritePaletteDetailValues.empty()) {
-    const std::size_t index = m_favoritePaletteDetailIndex;
-    if (index < m_favoritePaletteDetailValues.size()) {
-      const std::string& value = m_favoritePaletteDetailValues[index];
-      switch (theme.paletteSource.value_or(PaletteSource::Builtin)) {
-      case PaletteSource::Builtin:
-        theme.builtinPalette = value;
-        break;
-      case PaletteSource::Wallpaper:
-        theme.wallpaperScheme = value;
-        break;
-      case PaletteSource::Community:
-        theme.communityPalette = value;
-        break;
-      case PaletteSource::Custom:
-        theme.customPalette = value;
-        break;
-      }
-    }
-  }
-  return theme;
-}
-
 void WallpaperPanel::selectVisibleIndex(std::size_t index) {
   if (m_visibleEntries.empty() || index >= m_visibleEntries.size()) {
     return;
@@ -1598,7 +1414,7 @@ void WallpaperPanel::selectVisibleIndex(std::size_t index) {
     m_grid->setSelectedIndex(index);
     m_grid->scrollToIndex(index);
   }
-  syncThemeControls();
+  syncBrowseChrome();
 
   m_dirty = true;
   PanelManager::instance().refresh();
@@ -1622,16 +1438,13 @@ bool WallpaperPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) 
     return false;
   }
 
-  // Approximate column count from current grid layout. VirtualGridView does
-  // not expose its column count directly, so we recompute from viewport width.
-  std::size_t columns = 1;
-  if (m_grid != nullptr) {
-    const float viewportW = m_grid->scrollView().contentViewportWidth();
-    const float cellW = kMinTileWidth * contentScale();
-    const float gap = Style::spaceMd * contentScale();
-    if (cellW > 0.0F) {
-      columns = std::max<std::size_t>(1, static_cast<std::size_t>((viewportW + gap) / (cellW + gap)));
-    }
+  const std::size_t columns = m_grid != nullptr ? std::max<std::size_t>(1, m_grid->layoutColumns()) : 1;
+
+  // F toggles the favourite of the selected wallpaper (the star is pointer-only otherwise).
+  if ((sym == XKB_KEY_f || sym == XKB_KEY_F) && (modifiers & ~KeyMod::Shift) == 0 && hasVisibleSelection()
+      && !m_visibleEntries[m_selectedVisibleIndex].isDir) {
+    toggleFavoriteForPath(m_visibleEntries[m_selectedVisibleIndex].absPath.string());
+    return true;
   }
 
   if (KeybindMatcher::matches(KeybindAction::Left, sym, modifiers)) {

@@ -7126,6 +7126,33 @@
   },
   "wallpaper": {
     "panel": {
+      "all": "All",
+      "all-displays": "All Displays",
+      "clear-search": "Clear Search",
+      "favorite": "Favourite",
+      "favorited": "Favourited",
+      "favorites": "Favourites",
+      "none": "No wallpaper",
+      "open-settings": "Wallpaper Settings…",
+      "state": {
+        "empty-folder": {
+          "body": "Add pictures to {folder}, or choose another folder.",
+          "title": "No Wallpapers"
+        },
+        "missing-folder": {
+          "body": "{folder} does not exist. Choose a folder in Wallpaper Settings.",
+          "title": "Folder Not Found"
+        },
+        "no-favorites": {
+          "body": "Select a wallpaper and press F, or click its star.",
+          "title": "No Favourites"
+        },
+        "no-matches": {
+          "body": "No file name contains this text.",
+          "title": "No Results"
+        }
+      },
+      "subfolders": "Include Subfolders",
       "all-monitors": "ALL",
       "choose-color": "Choose wallpaper color",
       "close": "Close wallpaper panel",

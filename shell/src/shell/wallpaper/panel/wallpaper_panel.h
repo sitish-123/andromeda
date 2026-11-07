@@ -16,15 +16,17 @@
 #include <unordered_set>
 #include <vector>
 
+class Box;
 class Button;
 class ConfigService;
 class Flex;
+class Glyph;
+class Image;
 class Input;
 class Label;
 class Segmented;
 class Select;
 class Spinner;
-class Toggle;
 class VirtualGridView;
 class WallpaperGridAdapter;
 class WaylandConnection;
@@ -71,6 +73,12 @@ private:
   };
 
   void populateMonitorChoices();
+  // The path the preview card shows: the keyboard-selected tile, else the current wallpaper.
+  [[nodiscard]] std::string previewWallpaperPath() const;
+  void syncPreview(Renderer& renderer);
+  void syncFlattenButton();
+  // Shows the state view (loading, empty, no matches, no favourites, missing folder) in place of the grid.
+  void syncStateView();
   void refreshVisibleEntries();
   void refreshScan();
   void onScanComplete();
@@ -83,15 +91,7 @@ private:
   void applyWallpaperFromEntry(const WallpaperEntry& entry);
   void applyWallpaperPath(const std::string& path, const WallpaperFavorite* applyTheme);
   [[nodiscard]] const WallpaperFavorite* favoriteThemeToApply(std::string_view path) const;
-  [[nodiscard]] WallpaperFavorite themeFromControls() const;
-  [[nodiscard]] WallpaperFavorite activeThemeSettings() const;
-  void applyThemeFromControls();
   void toggleFavoriteForPath(const std::string& path);
-  void syncThemeControls();
-  void rebuildFavoritePaletteDetailPicker(const WallpaperFavorite* favorite);
-  void openFavoritePaletteDetailPicker();
-  [[nodiscard]] std::optional<PaletteSource> paletteSourceForSegment(std::size_t index) const;
-  [[nodiscard]] std::size_t segmentForPaletteSource(PaletteSource source) const;
   [[nodiscard]] std::string selectedWallpaperPath() const;
   void appendFilteredFavoriteEntries(
       std::vector<WallpaperEntry>& out, std::unordered_set<std::string>& favoritePaths,
@@ -132,19 +132,30 @@ private:
   Flex* m_favoritesOptionsColumn = nullptr;
   Label* m_title = nullptr;
   Button* m_backButton = nullptr;
-  Segmented* m_favoriteThemeSegmented = nullptr;
-  Segmented* m_favoritePaletteSourceSegmented = nullptr;
-  Button* m_favoritePaletteDetailButton = nullptr;
   Select* m_monitorSelect = nullptr;
   Input* m_filterInput = nullptr;
   Button* m_favoriteCurrentButton = nullptr;
-  Toggle* m_flattenToggle = nullptr;
-  Label* m_flattenLabel = nullptr;
   Button* m_sortButton = nullptr;
   Button* m_refreshButton = nullptr;
   Button* m_colorButton = nullptr;
   Button* m_closeButton = nullptr;
   VirtualGridView* m_grid = nullptr;
+  Box* m_previewFrame = nullptr;
+  Image* m_previewImage = nullptr;
+  Label* m_previewName = nullptr;
+  Label* m_previewFolder = nullptr;
+  Select* m_fillSelect = nullptr;
+  Segmented* m_sourceChips = nullptr;
+  Button* m_flattenButton = nullptr;
+  Glyph* m_stateGlyph = nullptr;
+  Label* m_stateTitle = nullptr;
+  Label* m_stateBody = nullptr;
+  Button* m_stateAction = nullptr;
+  std::string m_previewPath;
+  int m_previewPx = 0;
+  bool m_favoritesOnly = false;
+  bool m_loadingShown = false;
+  Timer m_loadingDelayTimer;
   Flex* m_loadingBox = nullptr;
   Spinner* m_spinner = nullptr;
   std::unique_ptr<WallpaperGridAdapter> m_adapter;
@@ -170,14 +181,8 @@ private:
   SortMode m_sortMode = SortMode::NameAsc;
   std::uint64_t m_randomSeed = 0;
   std::size_t m_pinnedFavoriteCount = 0;
-  bool m_syncingFavoriteControls = false;
   bool m_syncingGridSelectionVisual = false;
   bool m_gridKeyboardActive = false;
-  // Options of the palette-detail picker for the active palette source; index-aligned.
-  std::vector<std::string> m_favoritePaletteDetailValues;
-  std::vector<std::string> m_favoritePaletteDetailLabels;
-  std::size_t m_favoritePaletteDetailIndex = 0;
-  std::vector<PaletteSource> m_paletteSourceOrder;
   static constexpr std::size_t kNoVisibleSelection = std::numeric_limits<std::size_t>::max();
   std::size_t m_selectedVisibleIndex = kNoVisibleSelection;
   float m_lastWidth = 0.0F;

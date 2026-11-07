@@ -118,6 +118,8 @@ public:
 
   void setColumns(std::size_t columns); // 0 = auto from minCellWidth.
   void setMinCellWidth(float width);    // Used when columns == 0.
+  // Columns of the last layout (auto or fixed); keyboard navigation moves by this many per row.
+  [[nodiscard]] std::size_t layoutColumns() const noexcept { return m_layoutColumns; }
   void setCellHeight(float height);     // Required unless squareCells is set.
   void setSquareCells(bool square);     // Cell height tracks cell width.
   void setColumnGap(float gap);

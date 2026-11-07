@@ -5,6 +5,7 @@
 #include "render/animation/animation_manager.h"
 #include "render/core/renderer.h"
 #include "render/core/thumbnail_service.h"
+#include "render/scene/accessible.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
 #include "ui/palette.h"
@@ -38,15 +39,11 @@ namespace {
     return (Style::fontSizeCaption + Style::spaceXs * 2.0F) * contentScale;
   }
 
-  [[nodiscard]] float activeThumbScale(bool selected, bool current, bool hovered) {
-    if (selected || current) {
-      return 1.04F;
-    }
-    if (hovered) {
-      return 1.025F;
-    }
-    return 1.0F;
-  }
+  // The ring sits focusRingGap outside the thumbnail, so the tile padding must hold ring + gap.
+  [[nodiscard]] float tilePadding(float contentScale) { return Tokens::spaceP4 * contentScale; }
+  [[nodiscard]] float thumbRadius(float contentScale) { return Tokens::radiusR12 * contentScale; }
+  constexpr const float& kCheckBadge = Tokens::spaceP20;
+  constexpr const float& kCheckInset = Tokens::spaceP8;
 
   void applyStarGlyphStyle(Glyph* glyph, const ColorSpec& fill, float contentScale) {
     if (glyph == nullptr) {
@@ -59,7 +56,7 @@ namespace {
 
   [[nodiscard]] bool
   starRegionContains(float cellWidth, float /*cellHeight*/, float contentScale, float localX, float localY) {
-    const float padding = Style::spaceXs * contentScale;
+    const float padding = tilePadding(contentScale);
     const float frameWidth = std::max(0.0F, cellWidth - padding * 2.0F);
     const float btnSize = starButtonSize(contentScale);
     const float starX = padding + frameWidth - btnSize;
@@ -77,7 +74,7 @@ bool WallpaperTile::hitTestStarRegion(
 
 TooltipAnchorInsets
 WallpaperTile::starTooltipAnchorInsets(float cellWidth, float cellHeight, float contentScale) noexcept {
-  const float padding = Style::spaceXs * contentScale;
+  const float padding = tilePadding(contentScale);
   const float btnSize = starButtonSize(contentScale);
   return TooltipAnchorInsets{
       .top = padding,
@@ -112,8 +109,14 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
     }
   });
 
-  const float frameRadius = Style::scaledRadiusLg(m_contentScale);
+  const float frameRadius = thumbRadius(m_contentScale);
   const float badgeSize = modeBadgeSize(m_contentScale);
+
+  addChild(ui::box({
+      .out = &m_ring,
+      .radius = frameRadius + (Style::focusRingWidth + Style::focusRingGap) * m_contentScale,
+      .participatesInLayout = false,
+  }));
 
   auto layout = ui::column({
       .out = &m_layout,
@@ -145,7 +148,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       ui::glyph({
           .out = &m_folderGlyph,
           .glyph = "folder",
-          .color = colorSpecFromRole(ColorRole::AccentText),
+          .color = colorSpecFromRole(ColorRole::Label2),
           .visible = false,
           .participatesInLayout = false,
       })
@@ -178,7 +181,7 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
           .out = &m_modeBadge,
           .glyph = "sun",
           .glyphSize = Style::fontSizeCaption * m_contentScale,
-          .variant = ButtonVariant::Primary,
+          .variant = ButtonVariant::Default,
           .minWidth = badgeSize,
           .minHeight = badgeSize,
           .padding = Style::spaceXs * m_contentScale * 0.5F,
@@ -188,10 +191,25 @@ WallpaperTile::WallpaperTile(float cellWidth, float cellHeight, float contentSca
       })
   );
 
+  m_thumbHost->addChild(ui::box({
+      .out = &m_checkBadge,
+      .fill = colorSpecFromRole(ColorRole::Accent),
+      .radius = kCheckBadge * 0.5F * m_contentScale,
+      .visible = false,
+      .participatesInLayout = false,
+  }));
+  m_checkBadge->setFrameSize(kCheckBadge * m_contentScale, kCheckBadge * m_contentScale);
+  m_checkBadge->addChild(ui::glyph({
+      .glyph = "check",
+      .glyphSize = Tokens::sizeSymbol * 0.75F * m_contentScale,
+      .color = colorSpecFromRole(ColorRole::OnAccent),
+      .participatesInLayout = false,
+  }));
+
   m_layout->addChild(
       ui::label({
           .out = &m_label,
-          .fontSize = Style::fontSizeCaption * m_contentScale,
+          .fontSize = Tokens::typeFootnote.size * m_contentScale,
           .color = colorSpecFromRole(ColorRole::Label2),
           .maxLines = 1,
       })
@@ -230,6 +248,24 @@ void WallpaperTile::layoutThumbOverlays() {
     m_thumb->setFrameSize(w, h);
   }
 
+  if (m_ring != nullptr) {
+    const float out = (Style::focusRingWidth + Style::focusRingGap) * m_contentScale;
+    const float pad = tilePadding(m_contentScale);
+    m_ring->setPosition(pad - out, pad - out);
+    m_ring->setFrameSize(w + out * 2.0F, h + out * 2.0F);
+  }
+
+  if (m_checkBadge != nullptr) {
+    const float inset = kCheckInset * m_contentScale;
+    m_checkBadge->setPosition(inset, inset);
+    for (const auto& child : m_checkBadge->children()) {
+      child->setPosition(
+          std::round((m_checkBadge->width() - child->width()) * 0.5F),
+          std::round((m_checkBadge->height() - child->height()) * 0.5F)
+      );
+    }
+  }
+
   if (m_starGlyph != nullptr) {
     const float hitSize = starButtonSize(m_contentScale);
     const float glyphW = m_starGlyph->width() > 0.0F ? m_starGlyph->width() : hitSize;
@@ -260,7 +296,7 @@ void WallpaperTile::layoutThumbOverlays() {
 }
 
 float WallpaperTile::captionHeight(float contentScale) noexcept {
-  return Style::spaceXs * contentScale + Style::fontSizeCaption * contentScale * 1.4F;
+  return Tokens::spaceP4 * contentScale + Tokens::typeFootnote.size * contentScale * 1.4F;
 }
 
 void WallpaperTile::setShowName(bool showName) {
@@ -279,8 +315,8 @@ void WallpaperTile::setCellSize(float cellWidth, float cellHeight) {
   m_cellHeight = cellHeight;
   setSize(cellWidth, cellHeight);
 
-  const float padding = Style::spaceXs * m_contentScale;
-  const float innerGap = Style::spaceXs * m_contentScale;
+  const float padding = tilePadding(m_contentScale);
+  const float innerGap = Tokens::spaceP4 * m_contentScale;
   const float captionH = m_showName ? captionHeight(m_contentScale) : 0.0F;
   m_thumbFrameWidth = std::max(0.0F, cellWidth - padding * 2.0F);
   m_thumbFrameHeight = std::max(0.0F, cellHeight - padding * 2.0F - captionH);
@@ -337,6 +373,7 @@ void WallpaperTile::setEntry(const WallpaperEntry& entry, Renderer& renderer) {
   setVisible(true);
 
   m_label->setText(entry.name);
+  setAccessible({.role = AccessibleRole::ListItem, .name = entry.name, .actionName = "activate"});
 
   if (m_starGlyph != nullptr) {
     m_starGlyph->setVisible(!entry.isDir);
@@ -621,32 +658,28 @@ void WallpaperTile::applyVisualState() {
   if (m_thumbHost == nullptr || m_thumb == nullptr) {
     return;
   }
-  const bool active = m_selected || m_hoveredVisual || m_current;
   setOpacity(m_missingFile ? 0.45F : 1.0F);
-  setZIndex((m_selected || m_current) ? 2 : (m_hoveredVisual ? 1 : 0));
-  animateThumbScale(activeThumbScale(m_selected, m_current, m_hoveredVisual));
-  m_thumb->setTint(active ? rgba(1.0F, 1.0F, 1.0F, 1.0F) : rgba(0.5F, 0.5F, 0.5F, 1.0F));
+  setZIndex(m_hoveredVisual ? 1 : 0);
+  animateThumbScale(m_hoveredVisual && !m_selected ? 1.02F : 1.0F);
+  m_thumb->setTint(rgba(1.0F, 1.0F, 1.0F, 1.0F));
 
-  auto outlineWidth = Style::borderWidth;
-  if (m_selected || m_current || m_hoveredVisual) {
-    outlineWidth = Style::emphasizedBorderWidth;
+  const float ringWidth = Style::focusRingWidth * m_contentScale;
+  if (m_ring != nullptr) {
+    if (m_selected) {
+      m_ring->setBorder(colorSpecFromRole(ColorRole::Accent), ringWidth);
+    } else if (m_current) {
+      m_ring->setBorder(colorSpecFromRole(ColorRole::Label1), ringWidth);
+    } else {
+      m_ring->clearBorder();
+    }
   }
-
-  ColorSpec borderColor = m_selected ? colorSpecFromRole(ColorRole::Accent)
-      : m_current                    ? colorSpecFromRole(ColorRole::Accent)
-      : m_hoveredVisual              ? colorSpecFromRole(ColorRole::Fill3)
-                                     : colorSpecFromRole(ColorRole::Stroke);
-  ColorSpec labelColor =
-      m_current ? colorSpecFromRole(ColorRole::AccentText) : colorSpecFromRole(ColorRole::Label2);
-  ColorSpec frameBg = colorSpecFromRole(ColorRole::Fill2);
-  m_label->setColor(labelColor);
-
-  m_thumbHost->setFill(frameBg);
-  if (m_entry.isDir) {
-    m_thumbHost->setBorder(borderColor, outlineWidth);
-    m_thumb->setBorder(colorSpecFromRole(ColorRole::Stroke), outlineWidth);
-  } else {
-    m_thumbHost->clearBorder();
-    m_thumb->setBorder(borderColor, outlineWidth);
+  if (m_checkBadge != nullptr) {
+    m_checkBadge->setVisible(m_current && !m_entry.isDir);
   }
+  m_label->setColor(colorSpecFromRole(m_current ? ColorRole::Label1 : ColorRole::Label2));
+  m_label->setFontWeight(m_current ? FontWeight::SemiBold : FontWeight::Normal);
+
+  m_thumbHost->setFill(colorSpecFromRole(ColorRole::Fill1));
+  m_thumbHost->setBorder(colorSpecFromRole(ColorRole::Stroke), 0.5F * m_contentScale);
+  m_thumb->setBorder(clearColorSpec(), 0.0F);
 }
