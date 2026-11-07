@@ -13,6 +13,7 @@
 #include "scene/ssd_frame.h"
 #include "scene/surface_blur.h"
 #include "server/greeter_mode.h"
+#include "server/ipc.h"
 #include "server/server.h"
 #include "view/view.h"
 extern "C" {
@@ -170,6 +171,9 @@ namespace andromeda {
   void View::onCommit(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_commit);
     self->handleCommit();
+    if (Ipc* ipc = self->m_server->ipc()) {
+      ipc->notifyViewCommitted();
+    }
   }
 
   void View::onViewSurfaceCommit(wl_listener* listener, void* /*data*/) {

@@ -57,6 +57,8 @@ namespace andromeda {
     void notifyOutputsChanged();
     // End of an output frame: answers frame waits (settle, clock-advance) once every output has drawn a frame.
     void notifyOutputFrame(const Output& output);
+    // A hidden window's commit draws no frame, yet it can answer the last configure a settle waits for.
+    void notifyViewCommitted();
 
   private:
     enum class FrameWait : uint8_t { None, Drawn, Settled };

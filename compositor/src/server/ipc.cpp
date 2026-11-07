@@ -464,6 +464,21 @@ namespace andromeda {
     }
   }
 
+  void Ipc::notifyViewCommitted() {
+    std::vector<Connection*> ready;
+    for (const auto& connection : m_connections) {
+      if (connection->frameWait == FrameWait::Settled && connection->waitOutputs.empty()) {
+        ready.push_back(connection.get());
+      }
+    }
+    if (ready.empty() || !m_server->settled()) {
+      return;
+    }
+    for (Connection* connection : ready) {
+      finishFrameWait(*connection, std::move(connection->waitReply));
+    }
+  }
+
   void Ipc::removeConnection(Connection* connection) {
     const auto entry = std::ranges::find_if(m_connections, [connection](const auto& candidate) {
       return candidate.get() == connection;
