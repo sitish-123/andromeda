@@ -17,6 +17,8 @@ class Label;
 class MprisService;
 class PipeWireSpectrum;
 
+class AsyncTextureCache;
+
 class DesktopMediaPlayerWidget : public DesktopWidget {
 public:
   struct Options {
@@ -27,6 +29,7 @@ public:
     bool albumArtBackground = false;
     int albumArtBlur = 24;
     bool audioVisualizer = false;
+    AsyncTextureCache* asyncTextures = nullptr;
   };
 
   DesktopMediaPlayerWidget(MprisService* mpris, HttpClient* httpClient, PipeWireSpectrum* spectrum, Options options);
@@ -73,6 +76,7 @@ private:
   bool m_albumArtBackground = false;
   int m_albumArtBlur = 24;
   bool m_audioVisualizerEnabled = false;
+  AsyncTextureCache* m_asyncTextures = nullptr;
   bool m_editorPreview = false;
   bool m_visible = true;
   bool m_visibilityInitialized = false;

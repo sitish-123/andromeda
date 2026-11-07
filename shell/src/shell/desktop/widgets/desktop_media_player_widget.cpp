@@ -1,5 +1,7 @@
 #include "shell/desktop/widgets/desktop_media_player_widget.h"
 
+#include "render/core/async_texture_cache.h"
+
 #include "core/ui_phase.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
@@ -55,7 +57,7 @@ DesktopMediaPlayerWidget::DesktopMediaPlayerWidget(
       m_color(options.color), m_shadow(options.shadow), m_hideWhenNoMedia(options.hideWhenNoMedia),
       m_albumArtBackground(options.albumArtBackground),
       m_albumArtBlur(std::clamp(options.albumArtBlur, 0, kMaxBackgroundBlurRadius)),
-      m_audioVisualizerEnabled(options.audioVisualizer) {}
+      m_audioVisualizerEnabled(options.audioVisualizer), m_asyncTextures(options.asyncTextures) {}
 
 DesktopMediaPlayerWidget::~DesktopMediaPlayerWidget() {
   if (m_spectrum != nullptr && m_spectrumListenerId != 0) {
@@ -344,7 +346,14 @@ void DesktopMediaPlayerWidget::refreshArtworkTextures(Renderer& renderer) {
 
   const int foregroundTarget =
       quantizeDecodeSize(std::max(m_artwork->width(), m_artwork->height()), 64, kMaxArtworkDecodeSize);
-  if (!m_artwork->setSourceFile(renderer, m_artPath, foregroundTarget, true, true)) {
+  // Decode, crop and blur run on the texture cache workers: a track change must not stall the frame.
+  const auto redrawWhenReady = [this] { requestRedraw(); };
+  if (m_asyncTextures != nullptr) {
+    m_artwork->setAsyncReadyCallback(redrawWhenReady);
+    (void)m_artwork->setSourceFileAsync(
+        renderer, *m_asyncTextures, m_artPath, foregroundTarget, true, {.centerSquareCrop = true, .blurRadius = 0}
+    );
+  } else if (!m_artwork->setSourceFile(renderer, m_artPath, foregroundTarget, true, true)) {
     m_artwork->clear(renderer);
   }
 
@@ -357,7 +366,13 @@ void DesktopMediaPlayerWidget::refreshArtworkTextures(Renderer& renderer) {
   const float cardHeight = card->height();
   const int backgroundTarget =
       quantizeDecodeSize(std::max(cardWidth, cardHeight), kMinBackgroundArtDecodeSize, kMaxBackgroundArtDecodeSize);
-  if (!m_backgroundArtwork->setSourceFileBlurred(renderer, m_artPath, backgroundTarget, m_albumArtBlur, true)) {
+  if (m_asyncTextures != nullptr) {
+    m_backgroundArtwork->setAsyncReadyCallback(redrawWhenReady);
+    (void)m_backgroundArtwork->setSourceFileAsync(
+        renderer, *m_asyncTextures, m_artPath, backgroundTarget, true,
+        {.centerSquareCrop = false, .blurRadius = m_albumArtBlur}
+    );
+  } else if (!m_backgroundArtwork->setSourceFileBlurred(renderer, m_artPath, backgroundTarget, m_albumArtBlur, true)) {
     m_backgroundArtwork->clear(renderer);
   }
 }

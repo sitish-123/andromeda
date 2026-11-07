@@ -185,7 +185,7 @@ namespace {
 DesktopWidgetFactory::DesktopWidgetFactory(DesktopWidgetRuntimeServices services)
     : m_calendar(services.calendar), m_pipewire(services.pipewire), m_pipewireSpectrum(services.pipewireSpectrum),
       m_weather(services.weather), m_mpris(services.mpris), m_httpClient(services.httpClient),
-      m_sysmon(services.sysmon), m_scriptDeps(services.scriptDeps) {}
+      m_sysmon(services.sysmon), m_asyncTextures(services.asyncTextures), m_scriptDeps(services.scriptDeps) {}
 
 std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
     const std::string& type, const std::unordered_map<std::string, WidgetSettingValue>& settings, float contentScale
@@ -318,6 +318,7 @@ std::unique_ptr<DesktopWidget> DesktopWidgetFactory::create(
             .albumArtBackground = getBoolSetting(settings, "album_art_background", false),
             .albumArtBlur = getIntSetting(settings, "album_art_blur", 24),
             .audioVisualizer = getBoolSetting(settings, "audio_visualizer", false),
+            .asyncTextures = m_asyncTextures,
         }
     );
     applyCommonSettings(*widget, settings);

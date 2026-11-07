@@ -20,9 +20,17 @@
 class GlSharedContext;
 class TextureManager;
 
+// Decode steps beyond scaling; part of the cache key, so one file can be resident with different options.
+struct TextureDecodeOptions {
+  bool centerSquareCrop = false;
+  int blurRadius = 0;
+  [[nodiscard]] bool operator==(const TextureDecodeOptions&) const = default;
+};
+
 class AsyncTextureCache : public PollSource {
 public:
   using TextureReadyCallback = std::function<void(TextureHandle)>;
+  using DecodeOptions = TextureDecodeOptions;
 
   class ReadySubscription {
   public:
@@ -56,13 +64,15 @@ public:
   void initialize(GlSharedContext* sharedGl);
   void setMakeCurrentCallback(std::function<void()> callback) { m_makeCurrentCallback = std::move(callback); }
   [[nodiscard]] ReadySubscription
-  subscribeReady(const std::string& path, int targetSize, bool mipmap, TextureReadyCallback callback);
+  subscribeReady(
+      const std::string& path, int targetSize, bool mipmap, TextureReadyCallback callback, DecodeOptions options = {}
+  );
 
-  [[nodiscard]] TextureHandle acquire(const std::string& path, int targetSize = 0, bool mipmap = false);
-  [[nodiscard]] TextureHandle peek(const std::string& path, int targetSize = 0, bool mipmap = false) const;
+  [[nodiscard]] TextureHandle acquire(const std::string& path, int targetSize = 0, bool mipmap = false, DecodeOptions options = {});
+  [[nodiscard]] TextureHandle peek(const std::string& path, int targetSize = 0, bool mipmap = false, DecodeOptions options = {}) const;
   // True once a decode of this request failed; ready subscribers then get an empty handle.
-  [[nodiscard]] bool failed(const std::string& path, int targetSize = 0, bool mipmap = false) const;
-  void release(const std::string& path, int targetSize = 0, bool mipmap = false);
+  [[nodiscard]] bool failed(const std::string& path, int targetSize = 0, bool mipmap = false, DecodeOptions options = {}) const;
+  void release(const std::string& path, int targetSize = 0, bool mipmap = false, DecodeOptions options = {});
   void trimUnused(std::size_t maxUnusedEntries = 0);
   void abandonGpuResources() noexcept;
   void reloadResidentTextures();
@@ -78,9 +88,10 @@ private:
     std::string path;
     int targetSize = 0;
     bool mipmap = false;
+    DecodeOptions options;
 
     [[nodiscard]] bool operator==(const RequestKey& other) const noexcept {
-      return path == other.path && targetSize == other.targetSize && mipmap == other.mipmap;
+      return path == other.path && targetSize == other.targetSize && mipmap == other.mipmap && options == other.options;
     }
   };
 
@@ -119,7 +130,7 @@ private:
   void removeReadyListener(std::uint64_t id);
   void notifyReady(const RequestKey& key, TextureHandle handle);
 
-  [[nodiscard]] static RequestKey makeKey(const std::string& path, int targetSize, bool mipmap);
+  [[nodiscard]] static RequestKey makeKey(const std::string& path, int targetSize, bool mipmap, DecodeOptions options);
 
   GlSharedContext* m_sharedGl = nullptr;
   std::function<void()> m_makeCurrentCallback;

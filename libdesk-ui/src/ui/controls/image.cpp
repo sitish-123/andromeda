@@ -299,7 +299,8 @@ bool Image::reloadSourceFile(
 }
 
 bool Image::setSourceFileAsync(
-    Renderer& renderer, AsyncTextureCache& cache, const std::string& path, int targetSize, bool mipmap
+    Renderer& renderer, AsyncTextureCache& cache, const std::string& path, int targetSize, bool mipmap,
+    AsyncTextureCache::DecodeOptions options
 ) {
   bindRenderer(renderer);
 
@@ -309,12 +310,16 @@ bool Image::setSourceFileAsync(
     clear(renderer);
     return false;
   }
+  if (options.blurRadius > 0) {
+    options.blurRadius = renderTargetSize(renderer, options.blurRadius);
+  }
 
   const bool sameRequest = m_asyncTextureCache == &cache
       && m_asyncSourcePath == path
       && m_asyncRequestedTargetSize == requestedTargetSize
       && m_asyncTargetSize == normalizedTargetSize
-      && m_asyncMipmap == mipmap;
+      && m_asyncMipmap == mipmap
+      && m_asyncOptions == options;
   if (sameRequest && m_texture.id != 0) {
     if (m_appIconColorizeTint.has_value() && !m_ownsTexture) {
       presentAsyncTexture(m_texture);
@@ -329,12 +334,13 @@ bool Image::setSourceFileAsync(
     m_asyncRequestedTargetSize = requestedTargetSize;
     m_asyncTargetSize = normalizedTargetSize;
     m_asyncMipmap = mipmap;
-    m_texture = cache.acquire(path, normalizedTargetSize, mipmap);
+    m_asyncOptions = options;
+    m_texture = cache.acquire(path, normalizedTargetSize, mipmap, options);
     if (m_texture.id == 0) {
       subscribeAsyncReady();
     }
   } else if (m_texture.id == 0) {
-    m_texture = cache.peek(path, normalizedTargetSize, mipmap);
+    m_texture = cache.peek(path, normalizedTargetSize, mipmap, options);
     if (m_texture.id != 0) {
       m_asyncReadySub.disconnect();
     }
@@ -474,13 +480,14 @@ void Image::clear(Renderer& renderer) {
 void Image::clearAsyncSource() {
   m_asyncReadySub.disconnect();
   if (m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()) {
-    m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+    m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
   }
   m_asyncTextureCache = nullptr;
   m_asyncSourcePath.clear();
   m_asyncRequestedTargetSize = 0;
   m_asyncTargetSize = 0;
   m_asyncMipmap = false;
+  m_asyncOptions = {};
 }
 
 void Image::storeOwnedRgbaSource(const std::uint8_t* rgba, int width, int height) {
@@ -531,7 +538,7 @@ void Image::doLayout(Renderer& renderer) {
     const int textureTargetSize = renderTargetSize(renderer, m_asyncRequestedTargetSize);
     if (textureTargetSize != m_asyncTargetSize) {
       m_asyncReadySub.disconnect();
-      m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+      m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
       m_texture = {};
       m_ownsTexture = false;
       m_asyncTargetSize = textureTargetSize;
@@ -539,7 +546,7 @@ void Image::doLayout(Renderer& renderer) {
         m_image->setTextureId({});
         m_image->setFrameSize(0.0F, 0.0F);
       }
-      m_texture = m_asyncTextureCache->acquire(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+      m_texture = m_asyncTextureCache->acquire(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
       if (m_texture.id != 0) {
         presentAsyncTexture(m_texture);
       } else {
@@ -549,7 +556,7 @@ void Image::doLayout(Renderer& renderer) {
   }
 
   if (m_texture.id == 0 && m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()) {
-    const auto handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+    const auto handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
     if (handle.id != 0) {
       presentAsyncTexture(handle);
     }
@@ -589,7 +596,7 @@ void Image::doInvalidateGpuResources(Renderer& renderer) {
   }
 
   if (m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()) {
-    const TextureHandle handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+    const TextureHandle handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
     if (handle.id != 0) {
       m_texture = handle;
       if (m_image != nullptr) {
@@ -630,13 +637,13 @@ void Image::subscribeAsyncReady() {
 
   m_asyncReadySub = m_asyncTextureCache->subscribeReady(
       m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap,
-      [this](TextureHandle handle) { handleAsyncTextureReady(handle); }
+      [this](TextureHandle handle) { handleAsyncTextureReady(handle); }, m_asyncOptions
   );
 }
 
 bool Image::asyncFailed() const {
   return m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()
-      && m_asyncTextureCache->failed(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+      && m_asyncTextureCache->failed(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
 }
 
 void Image::handleAsyncTextureReady(TextureHandle handle) {
@@ -659,9 +666,9 @@ void Image::presentAsyncTexture(TextureHandle handle) {
   }
 
   if (m_appIconColorizeTint.has_value() && m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()) {
-    if (auto loaded = loadImageFile(m_asyncSourcePath, m_asyncTargetSize)) {
+    if (auto loaded = loadImageFile(m_asyncSourcePath, m_asyncTargetSize, m_asyncOptions.centerSquareCrop)) {
       if (commitColorizedRgba(*m_renderer, loaded->rgba.data(), loaded->width, loaded->height, m_asyncMipmap)) {
-        m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+        m_asyncTextureCache->release(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
         m_sourcePath = m_asyncSourcePath;
       }
     }
@@ -828,7 +835,7 @@ void Image::reloadUncolorizedSource() {
   }
 
   if (m_asyncTextureCache != nullptr && !m_asyncSourcePath.empty()) {
-    const TextureHandle handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap);
+    const TextureHandle handle = m_asyncTextureCache->peek(m_asyncSourcePath, m_asyncTargetSize, m_asyncMipmap, m_asyncOptions);
     if (handle.id != 0) {
       presentAsyncTexture(handle);
     }

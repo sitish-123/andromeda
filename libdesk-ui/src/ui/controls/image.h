@@ -53,7 +53,8 @@ public:
       bool centerSquareCrop = false
   );
   bool setSourceFileAsync(
-      Renderer& renderer, AsyncTextureCache& cache, const std::string& path, int targetSize = 0, bool mipmap = false
+      Renderer& renderer, AsyncTextureCache& cache, const std::string& path, int targetSize = 0, bool mipmap = false,
+      AsyncTextureCache::DecodeOptions options = {}
   );
   bool setSourceBytes(Renderer& renderer, const std::uint8_t* data, std::size_t size, bool mipmap = false);
   bool setSourceRaw(
@@ -136,6 +137,7 @@ private:
   int m_asyncRequestedTargetSize = 0;
   int m_asyncTargetSize = 0;
   bool m_asyncMipmap = false;
+  AsyncTextureCache::DecodeOptions m_asyncOptions;
   AsyncReadyCallback m_asyncReadyCallback;
   Signal<>::ScopedConnection m_paletteConn;
 };

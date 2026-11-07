@@ -1277,6 +1277,7 @@ void Application::initWidgetControllersAndCallbacks() {
       .mpris = mpris(),
       .httpClient = &m_httpClient,
       .sysmon = m_systemMonitor.get(),
+      .asyncTextures = &m_asyncTextureCache,
       .scriptDeps = desktopWidgetScriptDeps,
   };
   const DesktopWidgetServices lockscreenWidgetServices{

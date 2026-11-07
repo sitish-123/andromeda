@@ -104,16 +104,29 @@ AsyncTextureCache::~AsyncTextureCache() {
   }
 }
 
+namespace {
+  std::expected<LoadedImageFile, std::string>
+  decodeImage(const std::string& path, int targetSize, AsyncTextureCache::DecodeOptions options) {
+    auto loaded = loadImageFile(path, targetSize, options.centerSquareCrop);
+    if (loaded && options.blurRadius > 0) {
+      blurRgba(loaded->rgba, loaded->width, loaded->height, options.blurRadius);
+    }
+    return loaded;
+  }
+} // namespace
+
 void AsyncTextureCache::initialize(GlSharedContext* sharedGl) { m_sharedGl = sharedGl; }
 
 AsyncTextureCache::ReadySubscription
-AsyncTextureCache::subscribeReady(const std::string& path, int targetSize, bool mipmap, TextureReadyCallback callback) {
-  auto key = makeKey(path, targetSize, mipmap);
+AsyncTextureCache::subscribeReady(
+    const std::string& path, int targetSize, bool mipmap, TextureReadyCallback callback, DecodeOptions options
+) {
+  auto key = makeKey(path, targetSize, mipmap, options);
   if (key.path.empty() || !callback) {
     return {};
   }
 
-  if (const auto handle = peek(key.path, key.targetSize, key.mipmap); handle.id != 0) {
+  if (const auto handle = peek(key.path, key.targetSize, key.mipmap, key.options); handle.id != 0) {
     callback(handle);
     return {};
   }
@@ -123,8 +136,8 @@ AsyncTextureCache::subscribeReady(const std::string& path, int targetSize, bool 
   return ReadySubscription{this, m_lifetimeToken, id};
 }
 
-TextureHandle AsyncTextureCache::acquire(const std::string& path, int targetSize, bool mipmap) {
-  const auto key = makeKey(path, targetSize, mipmap);
+TextureHandle AsyncTextureCache::acquire(const std::string& path, int targetSize, bool mipmap, DecodeOptions options) {
+  const auto key = makeKey(path, targetSize, mipmap, options);
   if (key.path.empty()) {
     return {};
   }
@@ -155,13 +168,13 @@ TextureHandle AsyncTextureCache::acquire(const std::string& path, int targetSize
   return {};
 }
 
-bool AsyncTextureCache::failed(const std::string& path, int targetSize, bool mipmap) const {
-  const auto it = m_entries.find(makeKey(path, targetSize, mipmap));
+bool AsyncTextureCache::failed(const std::string& path, int targetSize, bool mipmap, DecodeOptions options) const {
+  const auto it = m_entries.find(makeKey(path, targetSize, mipmap, options));
   return it != m_entries.end() && it->second.failed;
 }
 
-TextureHandle AsyncTextureCache::peek(const std::string& path, int targetSize, bool mipmap) const {
-  const auto key = makeKey(path, targetSize, mipmap);
+TextureHandle AsyncTextureCache::peek(const std::string& path, int targetSize, bool mipmap, DecodeOptions options) const {
+  const auto key = makeKey(path, targetSize, mipmap, options);
   if (key.path.empty()) {
     return {};
   }
@@ -170,8 +183,8 @@ TextureHandle AsyncTextureCache::peek(const std::string& path, int targetSize, b
   return it != m_entries.end() ? it->second.handle : TextureHandle{};
 }
 
-void AsyncTextureCache::release(const std::string& path, int targetSize, bool mipmap) {
-  const auto key = makeKey(path, targetSize, mipmap);
+void AsyncTextureCache::release(const std::string& path, int targetSize, bool mipmap, DecodeOptions options) {
+  const auto key = makeKey(path, targetSize, mipmap, options);
   if (key.path.empty()) {
     return;
   }
@@ -323,7 +336,7 @@ void AsyncTextureCache::reloadResidentTextures() {
     entry.handle = {};
     entry.failed = false;
 
-    auto loaded = loadImageFile(key.path, key.targetSize);
+    auto loaded = decodeImage(key.path, key.targetSize, key.options);
     if (!loaded) {
       entry.failed = true;
       kLog.warn("failed to reload image after GPU reset: {} ({})", ImageSourceLog::describe(key.path), loaded.error());
@@ -346,6 +359,8 @@ std::size_t AsyncTextureCache::RequestKeyHash::operator()(const RequestKey& key)
   std::size_t seed = std::hash<std::string>{}(key.path);
   seed ^= std::hash<int>{}(key.targetSize) + 0x9e3779b9U + (seed << 6U) + (seed >> 2U);
   seed ^= std::hash<bool>{}(key.mipmap) + 0x9e3779b9U + (seed << 6U) + (seed >> 2U);
+  seed ^= std::hash<int>{}(key.options.blurRadius * 2 + (key.options.centerSquareCrop ? 1 : 0)) + 0x9e3779b9U
+      + (seed << 6U) + (seed >> 2U);
   return seed;
 }
 
@@ -370,7 +385,7 @@ void AsyncTextureCache::workerLoop(std::size_t slot) {
     DecodedJob result;
     result.key = key;
 
-    if (auto loaded = loadImageFile(key.path, key.targetSize)) {
+    if (auto loaded = decodeImage(key.path, key.targetSize, key.options)) {
       result.rgba = std::move(loaded->rgba);
       result.width = loaded->width;
       result.height = loaded->height;
@@ -470,6 +485,7 @@ void AsyncTextureCache::pruneUnusedEntries(std::size_t maxUnusedEntries) {
   }
 }
 
-AsyncTextureCache::RequestKey AsyncTextureCache::makeKey(const std::string& path, int targetSize, bool mipmap) {
-  return RequestKey{.path = path, .targetSize = std::max(0, targetSize), .mipmap = mipmap};
+AsyncTextureCache::RequestKey
+AsyncTextureCache::makeKey(const std::string& path, int targetSize, bool mipmap, DecodeOptions options) {
+  return RequestKey{.path = path, .targetSize = std::max(0, targetSize), .mipmap = mipmap, .options = options};
 }
