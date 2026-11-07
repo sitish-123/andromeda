@@ -1,6 +1,8 @@
 #include "view/snap_flyout.h"
 
 #include "config/config.h"
+#include "design_tokens.h"
+#include "scene/glass_panel.h"
 #include "view/view.h"
 #include "wlr.h"
 
@@ -11,21 +13,36 @@
 
 namespace andromeda {
   namespace {
-    // Rulebook 4 grid; prototype SNAP_LAYOUTS: 3 x 2 minis of a 16:10 screen.
+    // Rulebook 9.9 popover (r 20, p 12) holding prototype SNAP_LAYOUTS: 3 x 2 minis of a 16:10 screen, 64 x 40 at r 8
+    // (R7: 20 - 12), zones 4 apart, layouts 8 apart.
     constexpr int kPad = 12;
-    constexpr int kMiniW = 72;
-    constexpr int kMiniH = 44;
+    constexpr int kMiniW = 64;
+    constexpr int kMiniH = 40;
     constexpr int kGap = 8;
     constexpr int kZoneGap = 4;
     constexpr int kColumns = 3;
-    constexpr int kSheetRadius = 16;
-    constexpr int kZoneRadius = 4;
+    constexpr int kSheetRadius = 20;
+    constexpr int kZoneRadius = 8;
     constexpr int kSheetW = 2 * kPad + kColumns * kMiniW + (kColumns - 1) * kGap;
     constexpr int kSheetH = 2 * kPad + 2 * kMiniH + kGap;
 
-    std::array<float, 4> premultiplied(const std::array<float, 4>& color, float alpha) {
-      const float a = color[3] * alpha;
-      return {color[0] * a, color[1] * a, color[2] * a, a};
+    std::array<float, 4> token(std::uint32_t value) {
+      const auto channel = [value](int shift) { return static_cast<float>((value >> shift) & 0xFFU) / 255.0F; };
+      const float a = channel(0);
+      return {channel(24) * a, channel(16) * a, channel(8) * a, a};
+    }
+
+    // A zone keeps the mini's outer r 8 on the corners it shares with the mini, and a small inner radius elsewhere.
+    fx_corner_radii zoneCorners(const wlr_box& mini, const wlr_box& zone) {
+      constexpr int kInner = 3;
+      const bool left = zone.x <= mini.x;
+      const bool top = zone.y <= mini.y;
+      const bool right = zone.x + zone.width >= mini.x + mini.width;
+      const bool bottom = zone.y + zone.height >= mini.y + mini.height;
+      return corner_radii_new(
+          top && left ? kZoneRadius : kInner, top && right ? kZoneRadius : kInner,
+          bottom && right ? kZoneRadius : kInner, bottom && left ? kZoneRadius : kInner
+      );
     }
 
     bool holds(const wlr_box& box, double x, double y) {
@@ -46,7 +63,7 @@ namespace andromeda {
       return;
     }
     wlr_scene_node_set_enabled(&m_tree->node, false);
-    m_sheet = roundRect(m_tree, kSheetRadius);
+    m_panel = std::make_unique<GlassPanel>(m_tree, glass::Kind::Menu);
     for (size_t layout = 0; layout < kSnapLayouts; ++layout) {
       for (size_t zone = 0; zone < snapLayoutZones(layout); ++zone) {
         m_zoneRects.push_back(roundRect(m_tree, kZoneRadius));
@@ -93,11 +110,10 @@ namespace andromeda {
   }
 
   void SnapFlyout::draw() {
-    const auto& colors = config().colors;
-    if (m_sheet != nullptr) {
-      wlr_scene_node_set_position(&m_sheet->node, m_box.x, m_box.y);
-      wlr_scene_rect_set_size(m_sheet, m_box.width, m_box.height);
-      wlr_scene_rect_set_color(m_sheet, premultiplied(colors.background, 0.92F).data());
+    const bool light = config().appearance.scheme == ColorScheme::Light;
+    const auto& scheme = light ? Tokens::schemeLight : Tokens::schemeDark;
+    if (m_panel != nullptr) {
+      m_panel->place(m_box, kSheetRadius);
     }
     size_t index = 0;
     for (const Mini& mini : m_minis) {
@@ -109,8 +125,11 @@ namespace andromeda {
         }
         wlr_scene_node_set_position(&rect->node, box.x, box.y);
         wlr_scene_rect_set_size(rect, box.width, box.height);
+        wlr_scene_rect_set_corner_radii(rect, zoneCorners(mini.box, box));
+        // The lit zone in accent, its layout's other zones fill_3, every other zone fill_2.
         const bool lit = m_lit == zone;
-        const auto color = lit ? premultiplied(colors.accentPrimary, 1.0F) : premultiplied(colors.textPrimary, 0.24F);
+        const bool sameLayout = m_lit.has_value() && m_lit->layout == zone.layout;
+        const auto color = lit ? token(scheme.accent) : sameLayout ? token(scheme.fill3) : token(scheme.fill2);
         wlr_scene_rect_set_color(rect, color.data());
       }
     }
@@ -125,6 +144,11 @@ namespace andromeda {
   }
 
   bool SnapFlyout::contains(double lx, double ly) const { return active() && holds(m_box, lx, ly); }
+
+  bool SnapFlyout::reaches(double lx, double ly) const {
+    constexpr int kBridge = 12;
+    return active() && holds({m_box.x, m_box.y - kBridge, m_box.width, m_box.height + kBridge}, lx, ly);
+  }
 
   std::optional<SnapZone> SnapFlyout::zoneAt(double lx, double ly) const {
     if (!contains(lx, ly)) {

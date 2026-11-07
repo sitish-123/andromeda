@@ -236,6 +236,8 @@ namespace andromeda {
     [[nodiscard]] int titleBarHeight() const;
     void syncSsdFrame();
     [[nodiscard]] SsdFramePoint ssdFramePointAt(double lx, double ly) const;
+    // A title-bar button's cell in layout coordinates; empty without a server-side title bar or that button.
+    [[nodiscard]] std::optional<wlr_box> ssdButtonBox(TitleBarButton button) const;
     [[nodiscard]] SsdFrame* ssdFrame() const { return m_ssdFrame.get(); }
     [[nodiscard]] int decorationBorderWidth() const { return m_decoration.borderWidth(); }
     [[nodiscard]] int decorationOuterBorderWidth() const { return m_decoration.outerBorderWidth(); }

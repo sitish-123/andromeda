@@ -30,10 +30,10 @@ title_bar_wait_box snap-flyout 628x704+644+8
 "$ANDROMEDA" msg window-snap:1.2 > /dev/null
 title_bar_wait_box snap-flyout 480x300+173+109
 
-# The sheet's top centre sits 8 px into the window's top centre (413, 117): 260 wide, 12 px padding, 72 x 44 minis
-# 8 apart. Layout 3 (thirds) is the third mini; its middle zone's centre is at (491, 151).
+# The sheet's top centre sits 8 px into the window's top centre (413, 117): 232 wide, 12 px padding, 64 x 40 minis
+# 8 apart. Layout 3 (thirds) is the third mini at (453, 129); its middle zone's centre is at (486, 149).
 "$ANDROMEDA" msg window-snap-layouts > /dev/null
-pointer move 491 151 click "$BTN_LEFT"
+pointer move 486 149 click "$BTN_LEFT"
 title_bar_wait_field snap-flyout snap 3.2
 title_bar_wait_box snap-flyout 414x704+433+8
 echo "the Snap Layouts flyout snaps from the keyboard (1.2) and from a click (3.2)"

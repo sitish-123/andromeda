@@ -213,6 +213,10 @@ namespace andromeda {
         },
         Spec{"input.touch.enabled", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.touch.enabled); }},
         Spec{
+            "input.snap_layouts_hover", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.snapLayoutsHover); }
+        },
+        Spec{"input.snap_groups", Kind::Bool, 0, 0, {}, [](const Config& c) { return text(c.input.snapGroups); }},
+        Spec{
             "input.window_snapping",
             Kind::Bool,
             0,

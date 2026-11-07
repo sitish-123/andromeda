@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -13,6 +14,7 @@ struct wlr_scene_rect;
 struct wlr_scene_tree;
 
 namespace andromeda {
+  class GlassPanel;
   class Output;
   class View;
 
@@ -35,6 +37,8 @@ namespace andromeda {
 
     [[nodiscard]] std::optional<SnapZone> zoneAt(double lx, double ly) const;
     [[nodiscard]] bool contains(double lx, double ly) const;
+    // The sheet plus the 8 px bridge above it to the button that opened it.
+    [[nodiscard]] bool reaches(double lx, double ly) const;
     // Lights the zone under the point (none outside a zone); returns it.
     std::optional<SnapZone> hover(double lx, double ly);
     // A press snaps to the zone under it and closes; inside the sheet it is kept, outside it closes and passes on.
@@ -56,7 +60,7 @@ namespace andromeda {
     void setLit(std::optional<SnapZone> zone);
 
     wlr_scene_tree* m_tree = nullptr;
-    wlr_scene_rect* m_sheet = nullptr;
+    std::unique_ptr<GlassPanel> m_panel;
     std::vector<wlr_scene_rect*> m_zoneRects; // in Mini/zone order
     std::array<Mini, kSnapLayouts> m_minis{};
     wlr_box m_box{};

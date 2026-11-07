@@ -1011,6 +1011,7 @@ core_sources = files(
   'src/scene/quit_confirm.cpp',
   'src/scene/text_buffer.cpp',
   'src/scene/tab_bar.cpp',
+  'src/scene/glass_panel.cpp',
   'src/scene/ssd_frame.cpp',
   'src/scene/tab_bar_style.cpp',
   'src/scene/tab_label_cache.cpp',

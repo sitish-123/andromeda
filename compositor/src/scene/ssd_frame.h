@@ -43,6 +43,8 @@ namespace andromeda {
     [[nodiscard]] int titleBarHeight() const { return m_geometry.titleBarHeight; }
     [[nodiscard]] bool contains(const wlr_scene_node* node) const;
     [[nodiscard]] SsdFramePoint pointAt(double x, double y) const;
+    // A button's cell relative to the client content (the title bar lies above y = 0); empty when not shown.
+    [[nodiscard]] std::optional<wlr_box> buttonCell(TitleBarButton button) const;
     void snapshot(wlr_scene_tree* parent) const;
     [[nodiscard]] std::unique_ptr<ViewChromeAttachment> makePreview(wlr_scene_tree* parent) const override;
     void syncPreview(ViewChromeAttachment& preview) const override;

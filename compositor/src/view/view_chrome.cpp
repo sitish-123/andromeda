@@ -76,6 +76,20 @@ namespace andromeda {
 
   void View::handleSetDecorations() { refreshTitleBar(); }
 
+  std::optional<wlr_box> View::ssdButtonBox(TitleBarButton button) const {
+    int x = 0;
+    int y = 0;
+    if (m_ssdFrame == nullptr || !wlr_scene_node_coords(&m_contentTree->node, &x, &y)) {
+      return std::nullopt;
+    }
+    auto box = m_ssdFrame->buttonCell(button);
+    if (box) {
+      box->x += x;
+      box->y += y;
+    }
+    return box;
+  }
+
   SsdFramePoint View::ssdFramePointAt(double lx, double ly) const {
     if (m_ssdFrame == nullptr)
       return {};

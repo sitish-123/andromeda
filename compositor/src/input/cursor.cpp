@@ -2019,14 +2019,15 @@ namespace andromeda {
   void Cursor::updateMaximizeDwell(View* view) {
     constexpr int kMaximizeDwellMs = 400;
     if (view != nullptr
-        && (!view->ssdFrame()->maximizeEnabled()
+        && (!config().input.snapLayoutsHover
+            || !view->ssdFrame()->maximizeEnabled()
             || view->workspace() == nullptr
             || view->workspace()->layoutMode() != LayoutMode::Floating)) {
       view = nullptr;
     }
     SnapFlyout* flyout = m_server->snapFlyout();
     const bool open = flyout != nullptr && flyout->active();
-    if (open && m_flyoutFromHover && view == nullptr && !flyout->contains(m_cursor->x, m_cursor->y)) {
+    if (open && m_flyoutFromHover && view == nullptr && !flyout->reaches(m_cursor->x, m_cursor->y)) {
       flyout->close();
     }
     m_flyoutFromHover = m_flyoutFromHover && flyout != nullptr && flyout->active();
@@ -2049,8 +2050,11 @@ namespace andromeda {
     if (view == nullptr || self->m_ssdButtonPress.view != nullptr || !std::holds_alternative<PassthroughGrab>(self->m_grab)) {
       return 0;
     }
-    // The sheet's top edge sits just under the pointer, so moving down from the button enters it at once.
-    self->m_server->openSnapLayouts(*view, false, std::pair{static_cast<int>(self->m_cursor->x), static_cast<int>(self->m_cursor->y) + 4});
+    // Rulebook 9.9: the popover hangs 8 below the maximize button, centred on it, clamped to the output.
+    const auto button = view->ssdButtonBox(TitleBarButton::Maximize);
+    const std::pair at = button ? std::pair{button->x + button->width / 2, button->y + button->height + 8}
+                                : std::pair{static_cast<int>(self->m_cursor->x), static_cast<int>(self->m_cursor->y) + 8};
+    self->m_server->openSnapLayouts(*view, false, at);
     self->m_flyoutFromHover = self->m_server->snapFlyout() != nullptr && self->m_server->snapFlyout()->active();
     return 0;
   }

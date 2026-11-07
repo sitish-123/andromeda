@@ -1137,6 +1137,10 @@ namespace andromeda {
       bool clientWindowDrag = true;
       // Preview and apply half or quarter placement while dragging to output edges.
       bool windowSnapping = true;
+      // Free mode: resting on a title bar maximize button opens the Snap Layouts flyout.
+      bool snapLayoutsHover = true;
+      // Windows placed together through snap assist raise and restore together.
+      bool snapGroups = true;
       // Retarget an interactive window drag with the free mouse button: float
       // it, pin it, or leave the drag alone.
       WindowDragToggle windowDragToggle = WindowDragToggle::None;

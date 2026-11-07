@@ -394,6 +394,8 @@ namespace andromeda {
           boolean("middle_click_paste", &In::middleClickPaste),
           boolean("client_window_drag", &In::clientWindowDrag),
           boolean("window_snapping", &In::windowSnapping),
+          boolean("snap_layouts_hover", &In::snapLayoutsHover),
+          boolean("snap_groups", &In::snapGroups),
           choice(
               "window_drag_toggle", &In::windowDragToggle,
               {{.name = "none", .value = WindowDragToggle::None},

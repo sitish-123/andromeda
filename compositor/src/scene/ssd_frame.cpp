@@ -437,6 +437,14 @@ namespace andromeda {
     }
     return false;
   }
+  std::optional<wlr_box> SsdFrame::buttonCell(TitleBarButton button) const {
+    auto cell = m_parts.cells[static_cast<size_t>(button)];
+    if (cell) {
+      cell->y -= m_geometry.titleBarHeight;
+    }
+    return cell;
+  }
+
   SsdFramePoint SsdFrame::pointAt(double x, double y) const {
     if (m_preview || m_geometry.suppressed || (!m_tree->node.enabled && !m_gripTree->node.enabled))
       return {};
