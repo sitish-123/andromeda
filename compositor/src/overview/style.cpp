@@ -15,18 +15,20 @@ namespace andromeda::ov {
     constexpr double kThumbGap = 18;
     constexpr double kSpacesThumbWidth = 176;
     constexpr double kTaskViewThumbWidth = 208;
-    constexpr double kThumbTop = 20;    // Spaces: thumb row from the top edge
-    constexpr double kThumbBottom = 52; // Task View: thumb row above the bottom edge (names sit above the cards)
-    constexpr double kTitleGap = 32;    // thumb row to the title row (room for the names under the thumbs)
-    constexpr double kTitleHeight = 52; // title row to the main area
-    constexpr double kMainBottom = 36;  // main area to the hint / thumb row
+    constexpr double kThumbTop = 56;     // Spaces: thumb row from the top edge, below the 32 px center island at 8
+    constexpr double kPlusShare = 0.64;  // Spaces: the + target is this share of a thumb's height wide (mockup A)
+    constexpr double kSpacesBottom = 24; // Spaces: main area to the usable bottom (no hint line)
+    constexpr double kThumbBottom = 52;  // Task View: thumb row above the bottom edge (names sit above the cards)
+    constexpr double kTitleGap = 32;     // thumb row to the title row (room for the names under the thumbs)
+    constexpr double kTitleHeight = 52;  // title row to the main area
+    constexpr double kMainBottom = 36;   // Task View: main area to the thumb row
     constexpr double kTaskViewTop = 76;
     constexpr double kTaskViewTitleY = 22;
     constexpr double kMinimizedOpacity = 0.55;
 
     constexpr double kStripGap = 60; // between Strip rows: room for the next row's name above it (prototype)
     constexpr double kStripFilterY = 14;
-    constexpr double kPlusShare = 0.45; // the Strip's New row is this share of a row's extent along the axis
+    constexpr double kStripPlusShare = 0.45; // the Strip's New row is this share of a row's extent along the axis
     constexpr double kDimmed = 0.5;
     constexpr double kHiddenFade = 3; // a window the placement hides is gone a third of the way into the open
 
@@ -87,23 +89,25 @@ namespace andromeda::ov {
       double tw = top ? kSpacesThumbWidth : kTaskViewThumbWidth;
       tw = std::max(1.0, std::min(tw, (avail - static_cast<double>(n) * kThumbGap) / static_cast<double>(n + 1)));
       const double th = tw * in.height / in.width;
-      const double total = static_cast<double>(n + 1) * tw + static_cast<double>(n) * kThumbGap;
+      const double plusW = top ? std::round(th * kPlusShare) : tw;
+      const double total = static_cast<double>(n) * tw + plusW + static_cast<double>(n) * kThumbGap;
       const double y = top ? kThumbTop : in.height - th - kThumbBottom;
       double x = (in.width - total) / 2;
       for (size_t i = 0; i < n; ++i) {
         out.cards.push_back({i, {x, y, tw, th}, CardKind::Thumb});
         x += tw + kThumbGap;
       }
-      out.plus = Rect{x, y, tw, th};
+      out.plus = Rect{x, y, plusW, th};
 
       const double titleY = top ? y + th + kTitleGap : kTaskViewTitleY;
       const double mainY = top ? titleY + kTitleHeight : kTaskViewTop;
-      const double mainBottom = top ? in.height - kMainBottom : y - kMainBottom;
+      const double mainBottom = top ? in.usable.y + in.usable.h - kSpacesBottom : y - kMainBottom;
       const Rect main{kMargin, mainY, in.width - 2 * kMargin, std::max(1.0, mainBottom - mainY)};
       out.main = main;
       out.mainFit = fitIn({0, 0, in.width, in.height}, main);
       out.title = Point{kMargin, titleY};
-      out.filter = Point{in.width - kMargin - kFilterWidth, titleY};
+      // Spaces centres the field under the thumbs (mockup A); Task View keeps it at the trailing edge.
+      out.filter = Point{top ? (in.width - kFilterWidth) / 2 : in.width - kMargin - kFilterWidth, titleY};
 
       if (in.current < n) {
         const Workspace& ws = in.workspaces[in.current];
@@ -187,7 +191,7 @@ namespace andromeda::ov {
         }
       }
       Rect plus = frameAt(static_cast<double>(n));
-      (in.horizontal ? plus.w : plus.h) *= kPlusShare;
+      (in.horizontal ? plus.w : plus.h) *= kStripPlusShare;
       out.plus = plus;
       out.filter = Point{in.width / 2 - kFilterWidth / 2, kStripFilterY};
       return out;

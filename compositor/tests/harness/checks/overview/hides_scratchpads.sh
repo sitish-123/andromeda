@@ -102,10 +102,11 @@ assert_blue() {
   fi
 }
 
+# Hidden = none of the window's blue at its centre; overview chrome (a thumb, the filter field) may sit there.
 assert_dark() {
   local label=$1 image=$2 x=$3 y=$4 red green blue
   read -r red green blue <<< "$(sample_rgb "$image" "$x" "$y")"
-  if ((red > 15 || green > 15 || blue > 15)); then
+  if ((blue >= 100 && blue >= red + 40)); then
     echo "$label scratchpad window remained visible: red=$red green=$green blue=$blue"
     return 1
   fi

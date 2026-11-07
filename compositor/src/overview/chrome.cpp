@@ -19,8 +19,6 @@ namespace andromeda::ov {
     constexpr int kToolHeight = 32;
     constexpr int kChipHeight = 24;
     constexpr int kFieldHeight = 32;
-    constexpr int kHintHeight = 24;
-    constexpr int kHintBottom = 10;
     constexpr int kCapsuleHeight = 26;
     constexpr int kCapsuleGap = 6;
     constexpr int kCapsuleMaxWidth = 260;
@@ -77,20 +75,6 @@ namespace andromeda::ov {
     float lateFade(double progress) {
       const double t = std::clamp((progress - 0.8) / 0.2, 0.0, 1.0);
       return static_cast<float>(t * t * (3.0 - 2.0 * t));
-    }
-
-    std::string_view hintText(Style style) {
-      switch (style) {
-      case Style::Spaces:
-        return "Click a thumbnail to look at that workspace · drag windows onto thumbnails or each other · Esc closes";
-      case Style::TaskView:
-        return "Click a window to open it · drag it onto a desktop below · Esc closes";
-      case Style::Strip:
-        return "Wheel changes row · Shift+wheel pans the strip · drag to the top or bottom edge to change rows · Esc closes";
-      case Style::Grid:
-        return "Click a tile to go there · drag windows between tiles · Esc closes";
-      }
-      return "";
     }
 
     std::string span(const std::array<float, 4>& color, std::string_view weight, std::string_view text) {
@@ -394,22 +378,7 @@ namespace andromeda::ov {
       placeLabel(m_filter, 0, 0, 0.0F);
     }
 
-    setLabel(
-        m_hint, span(withAlpha({1.0F, 1.0F, 1.0F, 1.0F}, 0.75F), "normal", hintText(frame.style)),
-        {.font = "sans 9",
-         .padX = 12,
-         .height = kHintHeight,
-         .maxWidth = std::max(200, frame.output.width - 2 * static_cast<int>(kMargin)),
-         .fill = {0.0F, 0.0F, 0.0F, 0.35F}},
-        scale
-    );
     const int usableBottom = frame.usable.y + frame.usable.height;
-    placeLabel(
-        m_hint, frame.output.x + (frame.output.width - m_hint.width) / 2, usableBottom - kHintBottom - m_hint.height,
-        frame.hintHidden ? 0.0F
-        : frame.style == Style::Spaces ? late
-                                       : shown
-    );
 
     // The shown workspace's windows live in the main area; its thumb shows them as blocks (prototype .mini i).
     size_t minis = 0;
@@ -475,8 +444,7 @@ namespace andromeda::ov {
     }
 
     // Window title capsules, centred under their cards, in card stacking order.
-    const int capsuleFloor = m_hint.tree != nullptr && m_hint.tree->node.enabled ? m_hint.tree->node.y - kCapsuleGap
-                                                                                 : usableBottom - kCapsuleGap;
+    const int capsuleFloor = usableBottom - kCapsuleGap;
     for (auto& [key, label] : m_titles) {
       label.used = false;
     }
@@ -503,7 +471,7 @@ namespace andromeda::ov {
         const wlr_box& card = *window.within;
         x = std::clamp(x, card.x, std::max(card.x, card.x + card.width - label.width));
       }
-      // A card reaching down to the hint, or to the bottom of its workspace card, carries its capsule over its own
+      // A card reaching down to the usable bottom, or to the bottom of its workspace card, carries its capsule over its own
       // bottom edge instead.
       const int floor =
           window.within.has_value() ? window.within->y + window.within->height - kCapsuleGap : capsuleFloor;

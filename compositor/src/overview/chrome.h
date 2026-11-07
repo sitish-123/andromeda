@@ -35,7 +35,7 @@ namespace andromeda::ov {
     std::string_view title;
     wlr_box box{}; // the visible part of the card, layout coordinates
     // The workspace card holding it, which its capsule stays inside; empty for the main area's windows, whose capsule
-    // sits under the card down to the hint.
+    // sits under the card down to the usable bottom.
     std::optional<wlr_box> within;
     float opacity = 1.0F;
     bool selected = false;
@@ -66,13 +66,12 @@ namespace andromeda::ov {
     std::string_view filter;
     const void* hovered = nullptr; // the window card under the pointer; it shows its title and close button
     bool closeHovered = false;     // the pointer is on that close button
-    bool hintHidden = false;       // a drag is held at an edge: the edge glows instead
     std::optional<ChromeMenu> menu;
     std::optional<std::string_view> renaming; // the title row's name being typed (F2), drawn as a text field
   };
 
   // The overview's labels and targets on one output: workspace names, the title row (name + layout chip), the filter
-  // field, the hint, the new-workspace target, the On screen frame and the window title capsules. Text renders once
+  // field, the new-workspace target, the On screen frame and the window title capsules. Text renders once
   // per change of text or scale; every frame after that only moves and fades nodes. The nodes live under `parent`
   // and are freed by its scene-tree teardown, never by this class.
   class Chrome {
@@ -139,7 +138,6 @@ namespace andromeda::ov {
     Label m_title;
     Label m_chip;
     Label m_filter;
-    Label m_hint;
     Label m_plusMark;
     Frame m_plus;
     Frame m_viewport;

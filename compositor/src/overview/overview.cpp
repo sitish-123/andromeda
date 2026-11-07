@@ -910,7 +910,6 @@ namespace andromeda {
         .filter = m_filter,
         .hovered = m_hoverView,
         .closeHovered = m_closeHover,
-        .hintHidden = m_edgeOutput == state.output && (m_edgeStep != 0 || m_edgePan != 0),
         .menu = menu,
         .renaming = m_rename.has_value() && group != nullptr && m_rename->workspace.get() == group->workspaceAt(current)
             ? std::optional<std::string_view>(m_rename->text)
@@ -4322,8 +4321,6 @@ namespace andromeda {
     if (output == m_edgeOutput && step == m_edgeStep && pan == m_edgePan) {
       return;
     }
-    const bool hintChanged = output != m_edgeOutput || ((step | pan) == 0) != ((m_edgeStep | m_edgePan) == 0);
-    Output* previous = m_edgeOutput;
     m_edgeOutput = output;
     m_edgeStep = step;
     m_edgePan = pan;
@@ -4351,14 +4348,6 @@ namespace andromeda {
       m_edgeHint->show(output, edge, 0, HintLook::Edge, strong);
       if (m_dragCard != nullptr) {
         wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
-      }
-    }
-    if (hintChanged) {
-      const View* liveTarget = liveTargetView();
-      for (const auto& candidate : m_outputs) {
-        if (candidate->output == output || candidate->output == previous) {
-          layoutChrome(*candidate, liveTarget);
-        }
       }
     }
     scheduleFrames();
