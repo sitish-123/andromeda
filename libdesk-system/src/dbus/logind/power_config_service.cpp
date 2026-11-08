@@ -303,8 +303,10 @@ void PowerConfigService::readScheduledShutdown() {
           return;
         }
         const auto scheduled = value.get<sdbus::Struct<std::string, std::uint64_t>>();
-        m_state.scheduledAction = scheduled.get<0>();
-        m_state.scheduledUsec = scheduled.get<1>();
+        // logind reports "nothing scheduled" as ("", UINT64_MAX).
+        const bool none = scheduled.get<0>().empty() || scheduled.get<1>() == UINT64_MAX;
+        m_state.scheduledAction = none ? std::string{} : scheduled.get<0>();
+        m_state.scheduledUsec = none ? 0 : scheduled.get<1>();
         notify();
       }
   );
