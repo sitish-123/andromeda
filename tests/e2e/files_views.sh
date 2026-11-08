@@ -63,7 +63,7 @@ run "$ANDROMEDA" settle > /dev/null
 
 wait_log() {
   for _ in $(seq 60); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1
@@ -109,7 +109,7 @@ wait_log "$m" "collapse Alpha" || fail "Left did not collapse Alpha"
 run "$ANDROMEDA" settle > /dev/null
 m=$(mark); run "$POINTER" 1280 720 move $(at "disclosure Alpha") click 272 > /dev/null   # the triangle expands
 wait_log "$m" "expand Alpha" || fail "a press on Alpha's disclosure triangle did not expand it"
-tail -n +"$((m + 1))" "$OUT/files.log" | grep -q "cursor Alpha/" && fail "the triangle press selected a row"
+grep -q "cursor Alpha/" < <(tail -n +"$((m + 1))" "$OUT/files.log") && fail "the triangle press selected a row"
 run "$ANDROMEDA" settle > /dev/null
 m=$(mark); run "$POINTER" 1280 720 move $(at "disclosure Alpha") click 272 > /dev/null   # and collapses
 wait_log "$m" "collapse Alpha" || fail "a second press on the triangle did not collapse Alpha"
@@ -137,7 +137,7 @@ sleep 1.1
 keys tap 34 tap 106                              # g, Right: Gamma; 4 columns overflow the stage
 wait_log "$m" "location $SRC/Alpha/Beta/Gamma\$" || fail "Right did not open Gamma"
 wait_log "$m" "motion files.columns page" || fail "the new column did not scroll in on spring.page"
-tail -n +"$((m + 1))" "$OUT/files.log" | grep -q "motion files.page" && fail "the columns view slid the page"
+grep -q "motion files.page" < <(tail -n +"$((m + 1))" "$OUT/files.log") && fail "the columns view slid the page"
 shot 3-columns
 
 m=$(mark); keys tap 105                          # Left: back to Beta with Gamma selected
@@ -226,6 +226,8 @@ wait_log "$m" "location $SRC\$" || fail "go did not open Work"
 m=$(mark); keys mod control tap 2 mod none
 wait_log "$m" "view icons" || fail "Ctrl+1 did not show the icons view in Work"
 # No wait for the page slide: a press during it must reach the incoming page, not the outgoing This PC page on top.
+# The layout before Ctrl+1 also logs "geometry view": wait for one after the switch.
+m=$(awk -v m="$m" 'NR > m && /view icons/ { print NR; exit }' "$OUT/files.log")
 wait_log "$m" "geometry view " || fail "no geometry for the view after going to Work"
 m=$(mark); run "$POINTER" 1280 720 move $(at view) click 273 > /dev/null
 run "$ANDROMEDA" settle > /dev/null

@@ -46,7 +46,7 @@ run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_D
 
 wait_log() {
   for _ in $(seq "${3:-100}"); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1

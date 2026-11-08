@@ -69,7 +69,7 @@ select_names() { # where-label, count, names gvariant
     before=$(wc -l < "$OUT/files.log")
     action select "[<$3>]"
     sleep 0.05
-    tail -n +"$((before + 1))" "$OUT/files.log" | grep -q "selected $2 of .* in $1" && return 0
+    grep -q "selected $2 of .* in $1" < <(tail -n +"$((before + 1))" "$OUT/files.log") && return 0
   done
   fail "could not select $3 in $1"
 }
@@ -161,7 +161,7 @@ run grim "$OUT/pill-popover.png"
 stop_x=$((WX + px + pw - 24))
 pause_x=$((WX + px + pw - 56))
 row_y=$((WY + py + ph + 61))
-progress_after() { tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -q "job copy running $job"; }
+progress_after() { grep -q "job copy running $job" < <(tail -n +"$(($1 + 1))" "$OUT/files.log"); }
 m=$(wc -l < "$OUT/files.log")
 wait_for "no progress arrived while the popover was open" progress_after "$m"
 run "$POINTER" 1280 720 move "$pause_x" "$row_y" click 272 > /dev/null

@@ -42,7 +42,7 @@ run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_D
 
 wait_log() {
   for _ in $(seq "${3:-100}"); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1
@@ -51,6 +51,13 @@ mark() { wc -l < "$OUT/files.log"; }
 keys() { run "$POINTER" 1280 720 keyboard-only tap 119 pause 100 "$@" > /dev/null; }
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 num() { grep -E "$1" "$OUT/files.log" | tail -n 1 | grep -oE "$2" | grep -oE '[0-9.]+' | head -n 1; }
+mem() { # label: RSS and PSS of the Files process (smaps_rollup), MB
+  local pid rss pss
+  pid=$(pgrep -n -f -- "$SRC") || return 0
+  rss=$(awk '/^Rss:/ {print int($2 / 1024)}' "/proc/$pid/smaps_rollup")
+  pss=$(awk '/^Pss:/ {print int($2 / 1024)}' "/proc/$pid/smaps_rollup")
+  printf '%-28s %10s MB   PSS %s MB\n' "memory $1" "$rss" "$pss" | tee -a "$OUT/numbers.txt"
+}
 report() { # name value budget unit
   local verdict=ok
   awk -v v="$2" -v b="$3" 'BEGIN { exit !(v > b) }' && verdict="OVER (release budget)"
@@ -75,6 +82,7 @@ report "window first frame" "$(num 'first frame at' 'at [0-9]+ ms')" 120 ms
 # The listing result waits behind the first frame on the main thread, so its GL program build adds to both numbers.
 report "  of it: GL program build" "$(num 'first frame at' 'built in [0-9.]+ ms')" 120 ms
 report "$COUNT names listed" "$(num 'listed [0-9]+ in' 'in [0-9.]+ ms')" 150 ms
+mem "after open"
 report "$COUNT stats read" "$(num 'statted [0-9]+ in' 'in [0-9.]+ ms')" 1000 ms
 
 # List view, then a fast wheel scroll over it: no missed frames, p99 CPU per frame under one 60 Hz frame.
@@ -99,10 +107,10 @@ m=$(mark); keys mod control tap 33 mod none tap 19 tap 18 tap 25 tap 24    # Ctr
 wait_log "$m" 'filter "repo" shows' || fail "the filter did not run"
 filter_ms=$(tail -n +"$((m + 1))" "$OUT/files.log" | grep -oE "filter took [0-9.]+" | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
 report "type-to-filter per key" "$filter_ms" 16 ms
-m=$(mark); keys tap 1 tap 1                     # Escape clears, Escape leaves the field
-DESK_GEO_WAIT=40
+esc=$(mark); keys tap 1 tap 1                   # Escape clears, Escape leaves the field
 for key in Size Name; do
-  for _ in $(seq $DESK_GEO_WAIT); do grep -qE "geometry sort-header $key " "$OUT/files.log" && break; sleep 0.05; done
+  # The header moves up when the filter field closes: take its geometry from after the Escapes.
+  wait_log "$esc" "geometry sort-header $key " 40 || fail "no geometry for the $key column header"
   read -r hx hy <<< "$(grep -E "geometry sort-header $key " "$OUT/files.log" | tail -n 1 | awk '{print $(NF-1), $NF}')"
   [[ -n ${hx:-} ]] || fail "no geometry for the $key column header"
   m=$(mark); run "$POINTER" 1280 720 move $((WX + hx)) $((WY + hy)) click 272 > /dev/null
@@ -111,5 +119,6 @@ done
 sort_ms=$(grep -oE "sort took [0-9.]+" "$OUT/files.log" | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
 report "sort $COUNT (worst)" "$sort_ms" 16 ms
 
+mem "after scroll, filter, sort"
 grep -E "anim .* missed [1-9]" "$OUT/files.log" && echo "WARN: an animation missed frames (debug build)"
 echo "pass files_speed"

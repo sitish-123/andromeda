@@ -47,7 +47,7 @@ run "$ANDROMEDA" settle > /dev/null
 
 wait_log() {
   for _ in $(seq 80); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1
@@ -139,7 +139,7 @@ wait_file '[[ -L $SRC/Box/delta.txt && -f $SRC/delta.txt ]]' || fail "Ctrl+Shift
 m=$(mark); ptr move $(at "item Box") click 272
 drag "$(at "item Box")" "$(at "item Box")"
 wait_log "$m" "drag 1 items" || fail "the Box drag did not start"
-tail -n +"$((m + 1))" "$OUT/files.log" | grep -qE "drop [0-9]+ items" && fail "Box was dropped into itself"
+grep -qE "drop [0-9]+ items" < <(tail -n +"$((m + 1))" "$OUT/files.log") && fail "Box was dropped into itself"
 
 # The sidebar Trash row.
 m=$(mark); ptr move $(at "item omega.txt") click 272

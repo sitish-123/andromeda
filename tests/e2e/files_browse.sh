@@ -43,7 +43,7 @@ run "$ANDROMEDA" settle > /dev/null
 # Waits until a line matching $2 appears in the log after line $1.
 wait_log() {
   for _ in $(seq 60); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1

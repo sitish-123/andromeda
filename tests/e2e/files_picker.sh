@@ -57,7 +57,7 @@ select_names() { # count, names gvariant
     before=$(wc -l < "$OUT/picker.log")
     action select "[<$2>]"
     sleep 0.05
-    tail -n +"$((before + 1))" "$OUT/picker.log" | grep -q "selected $1 of " && return 0
+    grep -q "selected $1 of " < <(tail -n +"$((before + 1))" "$OUT/picker.log") && return 0
   done
   fail "could not select $2 (wanted $1)"
 }

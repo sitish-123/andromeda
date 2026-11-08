@@ -42,7 +42,7 @@ run "$ANDROMEDA" settle > /dev/null
 
 wait_log() {
   for _ in $(seq 80); do
-    tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0
+    grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0
     sleep 0.05
   done
   return 1

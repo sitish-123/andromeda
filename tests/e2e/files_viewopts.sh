@@ -71,7 +71,7 @@ start() { # folder
   run "$ANDROMEDA" settle > /dev/null
 }
 mark() { wc -l < "$LOG"; }
-wait_log() { for _ in $(seq 100); do tail -n +"$(($1 + 1))" "$LOG" | grep -qE "$2" && return 0; sleep 0.05; done; return 1; }
+wait_log() { for _ in $(seq 100); do grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$LOG") && return 0; sleep 0.05; done; return 1; }
 keys() { run "$POINTER" 1280 720 keyboard-only tap 119 pause 100 "$@" > /dev/null; }
 action() { DBUS_SESSION_BUS_ADDRESS=$BUS gdbus call --session -d "$APP" -o /dev/andromeda/Files \
   -m org.freedesktop.Application.ActivateAction "$1" "${2:-[]}" '{}' > /dev/null; }

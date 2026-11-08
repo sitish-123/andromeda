@@ -50,7 +50,7 @@ with_noctalia '
   keys() { "$POINTER" 1280 720 keyboard-only tap 119 pause 100 "$@" > /dev/null; }
   log() { cat "$OUT/files.log"; }
   mark() { wc -l < "$OUT/files.log"; }
-  wait_log() { for _ in $(seq 100); do tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -qE "$2" && return 0; sleep 0.05; done; return 1; }
+  wait_log() { for _ in $(seq 100); do grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$OUT/files.log") && return 0; sleep 0.05; done; return 1; }
   action() { gdbus call --session -d dev.andromeda.Files -o /dev/andromeda/Files \
     -m org.freedesktop.Application.ActivateAction "$1" "${2:-[]}" "{}" > /dev/null; }
   at() { local line; line=$(grep -E "geometry $1( |$)" "$OUT/files.log" | tail -n 1); [[ -n $line ]] || fail "no geometry for $1"
