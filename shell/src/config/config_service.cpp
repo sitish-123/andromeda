@@ -40,6 +40,7 @@
 #include <fstream>
 #include <iomanip>
 #include <optional>
+#include <ranges>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -2039,6 +2040,30 @@ void ConfigService::registerIpc(IpcService& ipc) {
             std::move(candidateOverrides), nullptr,
             {.baseline = &baselineDiagnostics, .candidate = &candidateDiagnostics}
         )) {
+      return std::format(
+          "error: {}\n", m_lastMutationError.empty() ? "failed to write config overrides" : m_lastMutationError
+      );
+    }
+    return "ok\n";
+  });
+
+  ipc.bind(noctalia::cli::msg::configUnset, [this](const std::string& args) -> std::string {
+    auto tokens = StringUtils::splitShellWords(args);
+    if (!tokens || tokens->size() != 1) {
+      return "error: expected exactly one argument: <path>\n";
+    }
+    if (!m_configTable->at_path((*tokens)[0])) {
+      return std::format("error: path not found: {}\n", (*tokens)[0]);
+    }
+    std::vector<std::string> path;
+    for (const auto part : std::views::split(std::string_view((*tokens)[0]), '.')) {
+      path.emplace_back(part.begin(), part.end());
+    }
+    if (std::ranges::any_of(path, &std::string::empty)) {
+      return std::format("error: invalid path: {}\n", (*tokens)[0]);
+    }
+    bool changed = false;
+    if (!mutateOverrides({}, {path}, &changed)) {
       return std::format(
           "error: {}\n", m_lastMutationError.empty() ? "failed to write config overrides" : m_lastMutationError
       );

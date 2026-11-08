@@ -139,6 +139,9 @@ namespace noctalia::cli {
       Positional{"path", "Dotted config path (e.g. theme.shell_mode)", {}, true, false, false},
       Positional{"value", "TOML value; quote strings (e.g. \"'light'\")", {}, true, false, false},
   };
+  inline constexpr std::array kMsgConfigUnsetPositionals{
+      Positional{"path", "Dotted config path (e.g. desktop_icons.snap_to_grid)", {}, true, false, false},
+  };
   inline constexpr std::array kMsgEffectsProfileSetPositionals{
       Positional{"kind", {}, kMsgEffectsProfileSetKindChoices, true, false, false},
       Positional{"profile", {}, {}, true, false, false},
@@ -540,6 +543,10 @@ namespace noctalia::cli {
                                        {},           kMsgConfigGetPositionals, {}, false};
     inline constexpr Command configSet{"config-set", "Set a config value",     {}, {},
                                        {},           kMsgConfigSetPositionals, {}, false};
+    inline constexpr Command configUnset{
+        "config-unset", "Drop a value set by Settings or config-set: the config file or default applies again", {}, {},
+        {}, kMsgConfigUnsetPositionals, {}, false
+    };
     inline constexpr Command configReload{"config-reload", "Reload the config file", {}, {}, {}, {}, {}, false};
     inline constexpr Command desktopWidgetsEdit{
         "desktop-widgets-edit", "Open the desktop widgets editor", {}, {}, {}, {}, {}, false
@@ -1208,6 +1215,7 @@ namespace noctalia::cli {
       msg::colorSchemeSet,
       msg::configGet,
       msg::configSet,
+      msg::configUnset,
       msg::configReload,
       msg::desktopWidgetsEdit,
       msg::desktopWidgetsExit,

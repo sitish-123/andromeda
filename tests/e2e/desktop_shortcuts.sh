@@ -7,7 +7,8 @@
 #   - Ctrl+Shift+N does not make "untitled folder" with its name field open, or typing a name and Enter does not
 #     rename it,
 #   - with Snap to Grid off, a dragged icon does not keep the exact drop point (saved as [col, row, x, y]),
-#   - Ctrl+C then Ctrl+V on the desktop does not paste a copy of the folder.
+#   - Ctrl+C then Ctrl+V on the desktop does not paste a copy of the folder,
+#   - `noctalia msg config-unset` does not bring back a default, or accepts an unknown key.
 # Shots (launcher drag, desktop menu, item menu) and logs go to $OUT (default ./artifacts/desktop-shortcuts).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/desktop-shortcuts}
@@ -95,7 +96,7 @@ with_noctalia '
   echo "PASS new folder with rename"
 
   # 4. Snap to Grid off: the icon keeps the exact drop point.
-  sed -i "s/^enabled = true$/enabled = true\nsnap_to_grid = false/" "$H/.config/noctalia/config.toml"
+  [[ $("$NOCTALIA" msg config-set desktop_icons.snap_to_grid false) == ok ]] || fail "config-set snap_to_grid false failed"
   wait_for "snap_to_grid = false did not apply" logged "$OUT/noctalia.log" "desktop free placement"
   settle
   # Projects is the first folder: top-left cell (96 x 104, 16 from the edge, plate 72).
@@ -129,6 +130,12 @@ with_noctalia '
   wait_for "a click outside did not close the launcher" bash -c "[[ \$(grep -c \"closing \\\"launcher\\\"\" \"$OUT/noctalia.log\") -ge 2 ]]"
   wait_for "the closing click did not reach the desktop icon" bash -c "[[ \$(grep -c \"desktop press dropcatch.desktop\" \"$OUT/noctalia.log\") -gt $presses ]]"
   echo "PASS outside click closes the panel and passes through"
+
+  # 7. config-unset drops the override: the default (Snap to Grid on) applies again.
+  [[ $("$NOCTALIA" msg config-unset desktop_icons.snap_to_grid) == ok ]] || fail "config-unset failed"
+  wait_for "config-unset did not bring back the default" bash -c "[[ \$(\"$NOCTALIA\" msg config-get desktop_icons.snap_to_grid) == true ]]"
+  [[ $("$NOCTALIA" msg config-unset desktop_icons.no_such_key) == error* ]] || fail "config-unset accepted an unknown key"
+  echo "PASS config-unset restores the default"
 
   # Menus, for the screenshot compare (DESIGN.md "Desktop icons").
   "$POINTER" 1280 720 move $((FX + 238)) $((FY + 211)) click 273 > /dev/null
