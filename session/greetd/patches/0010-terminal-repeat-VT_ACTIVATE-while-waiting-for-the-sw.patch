@@ -1,0 +1,43 @@
+From 11d3e6363e90c38feea68c0b14c4a5ff9cf41fbc Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sun, 8 Nov 2026 21:37:45 +0545
+Subject: [PATCH] terminal: repeat VT_ACTIVATE while waiting for the switch
+
+When a killed session's VT is still VT_PROCESS, logind resets it to VT_AUTO
+and the kernel drops the pending switch. greetd waited 10 s, exited, and the
+SDDM fallback took over.
+---
+ greetd/src/terminal/mod.rs | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/greetd/src/terminal/mod.rs b/greetd/src/terminal/mod.rs
+index 8cc0300..d9b2713 100644
+--- a/greetd/src/terminal/mod.rs
++++ b/greetd/src/terminal/mod.rs
+@@ -110,12 +110,21 @@ impl Terminal {
+ 
+     /// Waits up to 10 s for the VT to become active. VT_WAITACTIVE has no timeout: a VT_PROCESS owner that never
+     /// releases the VT would block the caller forever.
++    /// The request repeats every 500 ms: when logind resets a dead session's VT_PROCESS VT to VT_AUTO, the kernel
++    /// drops the pending switch.
+     pub fn vt_waitactive(&self, target_vt: usize) -> Result<(), Error> {
+-        let deadline = Instant::now() + Duration::from_secs(10);
++        let start = Instant::now();
++        let deadline = start + Duration::from_secs(10);
++        let mut next_request = start + Duration::from_millis(500);
+         while self.vt_get_current()? != target_vt {
+-            if Instant::now() >= deadline {
++            let now = Instant::now();
++            if now >= deadline {
+                 return Err(format!("terminal: VT {target_vt} not active after 10 s").into());
+             }
++            if now >= next_request {
++                let _ = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) };
++                next_request = now + Duration::from_millis(500);
++            }
+             std::thread::sleep(Duration::from_millis(20));
+         }
+         Ok(())
+-- 
+2.56.0
+

@@ -64,8 +64,19 @@ if ! command -v systemctl >/dev/null 2>&1 ||
 fi
 
 if systemctl --user --quiet is-active andromeda.service; then
-  echo "An Andromeda session is already running." >&2
-  exit 1
+  # A compositor whose logind session ended (its launcher was killed) would block every later login: stop it.
+  old_session=$(systemctl --user show-environment | sed -n 's/^XDG_SESSION_ID=//p')
+  old_state=
+  if [ -n "$old_session" ]; then
+    old_state=$(loginctl show-session "$old_session" -p State --value 2>/dev/null) || old_state=gone
+  fi
+  case "$old_state" in
+    "" | active | online)
+      echo "An Andromeda session is already running." >&2
+      exit 1
+      ;;
+  esac
+  systemctl --user start --job-mode=replace-irreversibly andromeda-shutdown.target
 fi
 
 systemctl --user reset-failed
