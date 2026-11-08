@@ -2,6 +2,7 @@
 #include "config/resolve.h"
 #include "core/log.h"
 #include "input/cursor.h"
+#include "input/seat.h"
 #include "output/output.h"
 #include "overview/overview.h"
 #include "server/server.h"
@@ -162,9 +163,14 @@ namespace andromeda {
         appId() != nullptr ? appId() : "", m_mapped, m_onActiveWorkspace, workspace != nullptr ? workspace->name() : "",
         workspace != nullptr && !workspace->active()
     );
+    // A click on the dock, a bar or their popups activated the window: the pointer is already where the user wants it.
+    wlr_surface* pointed = m_server->seat()->wlr()->pointer_state.focused_surface;
+    const bool fromShellClick = pointed != nullptr
+        && (wlr_layer_surface_v1_try_from_wlr_surface(wlr_surface_get_root_surface(pointed)) != nullptr
+            || wlr_xdg_popup_try_from_wlr_surface(wlr_surface_get_root_surface(pointed)) != nullptr);
     m_server->focusView(this, FocusReason::ForeignActivation);
     Overview* overview = m_server->overview();
-    if (config().input.cursor.followsFocus && (overview == nullptr || !overview->active())) {
+    if (config().input.cursor.followsFocus && !fromShellClick && (overview == nullptr || !overview->active())) {
       m_server->cursor()->warpToView(*this);
     }
   }
