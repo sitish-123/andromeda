@@ -690,6 +690,25 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
   if (it == outputs.end() || it->logicalWidth <= 0) {
     return std::nullopt;
   }
+  // A full-width bar (macOS top bar, Windows taskbar): banners sit beside it at the trailing edge, clear of the bar.
+  for (const auto& instance : m_instances) {
+    const BarConfig& cfg = instance->barConfig;
+    if (instance->output != output || cfg.islands || (cfg.position != "top" && cfg.position != "bottom")) {
+      continue;
+    }
+    return CenterIslandSpace{
+        .edgeMargin = cfg.marginEdge + cfg.thickness + static_cast<std::int32_t>(Tokens::spaceChromeGap),
+        .height = Tokens::spaceP32,
+        .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - kGap - kGap),
+        .bottom = cfg.position == "bottom",
+        .end = true,
+        .restless = true,
+        .scale = cfg.scale,
+        .backgroundOpacity = cfg.backgroundOpacity,
+        .border = cfg.border,
+        .borderWidth = cfg.borderWidth,
+    };
+  }
   const BarConfig defaults{};
   return CenterIslandSpace{
       .edgeMargin = static_cast<std::int32_t>(Tokens::spaceChromeGap),

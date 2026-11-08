@@ -115,7 +115,8 @@ void ActiveWindowWidget::doLayout(Renderer& renderer, float containerWidth, floa
     m_icon->setPosition(0.0F, 0.0F);
     rootNode->setSize(m_icon->width(), m_icon->height());
   } else {
-    const bool showIcon = !showingEmptyPlaceholder && m_displayMode != ActiveWindowDisplayMode::TextOnly;
+    const bool showIcon =
+        !showingEmptyPlaceholder && m_displayMode != ActiveWindowDisplayMode::TextOnly && !m_lastIconPath.empty();
     const bool showTitle =
         showingEmptyPlaceholder || (m_displayMode != ActiveWindowDisplayMode::IconOnly && !m_lastTitle.empty());
     m_icon->setVisible(showIcon);
@@ -312,6 +313,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
 
   std::string identifier;
   std::string title;
+  std::string windowTitle;
   std::string appId;
   bool emptyState = false;
 
@@ -323,6 +325,7 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
   } else {
     identifier = current->identifier;
     title = StringUtils::windowTitleSingleLine(current->title);
+    windowTitle = title;
     appId = current->appId;
     if (m_appName) {
       const auto entry = app_identity::findDesktopEntry(appId, desktopEntries());
@@ -332,6 +335,12 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
       title = appId;
     }
   }
+
+  // An app-name label gets the window title as its tooltip, and none when both match; a title label may ellipsize.
+  const std::string tooltipText = emptyState ? std::string{}
+      : !m_appName                             ? title
+      : windowTitle != title                   ? windowTitle
+                                               : std::string{};
 
   const bool showWidget = !emptyState || m_showEmptyLabel;
   syncWidgetVisibility(showWidget);
@@ -360,7 +369,8 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
       && identifier == m_lastIdentifier
       && title == m_lastTitle
       && appId == m_lastAppId
-      && emptyState == m_lastEmptyState) {
+      && emptyState == m_lastEmptyState
+      && tooltipText == m_lastTooltipTitle) {
     return;
   }
   m_iconColorizeRefreshPending = false;
@@ -370,7 +380,6 @@ void ActiveWindowWidget::syncState(Renderer& renderer) {
   m_lastAppId = appId;
   m_lastEmptyState = emptyState;
 
-  const std::string tooltipText = emptyState ? std::string{} : title;
   if (tooltipText != m_lastTooltipTitle) {
     m_lastTooltipTitle = tooltipText;
     if (m_area != nullptr) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Desktop Layouts board parts that no other script shoots: the Settings › Appearance gallery in light and dark and with
+# Desktop Layouts board parts that no other script shoots: the Settings › Windows gallery in light and dark and with
 # the Custom card (board .agent/mockups/desktop-layouts.html section 6), the dock snap-group hover card (board
 # desktop-menus.html B), and a macOS title bar and the Windows taskbar row at output scale 1.5. Shots only; the boards
 # are the reference. Usage: tests/e2e/desktop_layouts_shots.sh; images in $OUT.
@@ -18,6 +18,7 @@ mode = "scrolling"
 [overview]
 style = "spaces"
 [appearance.title_bar]
+mode = "auto"
 style = "andromeda"
 button_position = "right"
 CONFIG
@@ -47,8 +48,8 @@ with_noctalia '
   window() { "$ANDROMEDA" windows --json | jq -c ".[] | select(.title == \"$1\")"; }
   settings_up() { [[ -n $("$ANDROMEDA" windows --json | jq -r ".[] | select(.app_id == \"dev.noctalia.Noctalia\") | .id") ]]; }
 
-  # 1-2. Gallery: the row sits under Mode, Shell Mode and Source at the top of the Appearance page.
-  "$NOCTALIA" msg settings-open appearance > /dev/null
+  # 1-2. Gallery: the first card of the Windows page.
+  "$NOCTALIA" msg settings-open layout > /dev/null
   for _ in $(seq 100); do settings_up && break; sleep 0.05; done
   settings_up || fail "the Settings window did not map"
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
@@ -106,7 +107,7 @@ with_noctalia '
 
   # 4. Scale 1.5: a macOS title bar on desk-a and the Windows taskbar row.
   printf "\n[output.HEADLESS-1]\nscale = 1.5\n" >> "$RUNTIME/andromeda.toml"
-  sed -i "s/^style = \"andromeda\"/mode = \"forced\"\nstyle = \"macos\"/; s/^button_position = .*/button_position = \"left\"/" "$RUNTIME/andromeda.toml"
+  sed -i "s/^mode = \"auto\"/mode = \"forced\"/; s/^style = \"andromeda\"/style = \"macos\"/; s/^button_position = .*/button_position = \"left\"/" "$RUNTIME/andromeda.toml"
   "$ANDROMEDA" msg config-reload > /dev/null
   for _ in $(seq 100); do [[ $("$ANDROMEDA" outputs --json | jq -r ".[0].scale") == 1.5 ]] && break; sleep 0.05; done
   [[ $("$ANDROMEDA" outputs --json | jq -r ".[0].scale") == 1.5 ]] || fail "the output did not take scale 1.5"

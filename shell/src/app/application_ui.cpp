@@ -544,6 +544,10 @@ void Application::initInputDispatch() {
       m_lockScreen.onPointerEvent(event);
       return;
     }
+    if (m_powerOverlay.isActive()) {
+      (void)m_powerOverlay.onPointerEvent(event);
+      return;
+    }
     if (m_windowSwitcher.isActive()) {
       if (m_windowSwitcher.onPointerEvent(event)) {
         return;
@@ -668,6 +672,9 @@ void Application::initInputDispatch() {
   m_wayland.setKeyboardEventCallback([this](const KeyboardEvent& event) {
     if (m_lockScreen.isActive()) {
       m_lockScreen.onKeyboardEvent(event);
+      return;
+    }
+    if (m_powerOverlay.onKeyboardEvent(event)) {
       return;
     }
     // Grab popups are modal: while one is open it owns the keyboard and ESC
@@ -850,6 +857,8 @@ void Application::initPanelManagerAndPanels() {
       .accounts = m_accountsService.get(),
       .thumbnails = &m_thumbnailService,
       .asyncTextures = &m_asyncTextureCache,
+      .sessionGuard = &m_sessionGuard,
+      .softwareUpdates = [this] { return softwareUpdateService(); },
   });
   ControlCenterPanel* controlCenterPanelPtr = controlCenterPanel.get();
   m_panelManager.registerPanel("control-center", std::move(controlCenterPanel));
@@ -1028,8 +1037,8 @@ void Application::initNotificationAndOsd() {
   m_liveActivity.initialize(m_wayland, &m_configService, &m_renderContext);
   m_liveActivity.setVisibilityCallback([this](wl_output* output, bool visible) { m_bar.setCenterIslandHidden(output, visible); });
   m_liveActivity.setSpaceProvider([this](wl_output* output) { return m_bar.centerIslandSpace(output); });
-  m_liveActivity.setRestSources([this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager, [this](wl_output* output) {
-    m_panelManager.togglePanel("control-center", PanelOpenRequest{.output = output, .context = "notifications"});
+  m_liveActivity.setRestSources([this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager, [this](wl_output* output, std::string_view context) {
+    m_panelManager.togglePanel("control-center", PanelOpenRequest{.output = output, .context = context});
   });
   m_liveActivity.setExtraSources(&m_httpClient, [this] { return m_pipewireSpectrum.get(); }, &m_calendarService);
   (void)m_calendarService.addChangeCallback(m_liveActivity.refresher());
@@ -1044,6 +1053,19 @@ void Application::initNotificationAndOsd() {
       m_wayland, &m_renderContext, m_compositorPlatform, &m_configService, &m_asyncTextureCache
   );
   m_configService.addReloadCallback([this] { m_windowSwitcher.onConfigReload(); });
+  m_powerOverlay.initialize(m_wayland, &m_renderContext, &m_configService, &m_ipcService, &m_compositorPlatform);
+  // The last session ended with "Reopen windows when you log back in": open its apps again, once.
+  DeferredCall::callLater([this] {
+    const std::vector<std::string> running = m_wayland.runningAppIds();
+    for (const std::string& appId : PowerOverlay::takeReopenApps()) {
+      if (std::ranges::contains(running, appId)) {
+        continue;
+      }
+      if (const auto entry = app_identity::findDesktopEntry(appId, desktopEntries()); entry.has_value()) {
+        (void)desktop_entry_launch::launchEntry(*entry);
+      }
+    }
+  });
   m_configService.addReloadCallback([this] { m_osdOverlay.onConfigReload(); });
   m_scriptApi.setShowOsdHook(
       [this](const std::string& icon, const std::string& value, std::optional<double> progress, bool inactive) {
@@ -1508,6 +1530,7 @@ void Application::initWidgetControllersAndCallbacks() {
     paletteChanged().emit();
     m_panelManager.onConfigReloaded();
     m_osdOverlay.onConfigReload();
+    m_settingsWindow.onGlassChanged();
     requestAllSurfacesRedraw();
   });
 }
@@ -1555,6 +1578,7 @@ SoftwareUpdateService* Application::softwareUpdateService() {
       m_softwareUpdateService = std::make_unique<SoftwareUpdateService>(*m_bus, m_systemBus.get());
       m_softwareUpdateService->setChangeCallback([this] {
         m_settingsWindow.onSoftwareUpdateChanged();
+        m_sessionGuard.onUpdateChanged();
         if (m_setupWizard != nullptr) {
           m_setupWizard->onSoftwareUpdateChanged();
         }

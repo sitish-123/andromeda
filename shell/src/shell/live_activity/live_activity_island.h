@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -84,7 +85,7 @@ public:
   // Sources of the rest content, and the click on the rest pill.
   void setRestSources(
       std::function<PipeWireService*()> pipewire, std::function<MprisService*()> mpris, NotificationManager* notifications,
-      std::function<void(wl_output*)> open
+      std::function<void(wl_output*, std::string_view)> open
   );
   // Album art download, audio levels for the media bars, and the next event of the idle hover face.
   void setExtraSources(HttpClient* http, std::function<PipeWireSpectrum*()> spectrum, CalendarService* calendar);
@@ -300,6 +301,9 @@ private:
   void finishReveal(Instance& inst);
   [[nodiscard]] float surfaceHeight(float scale) const;
   [[nodiscard]] static std::int32_t surfaceMargin(const CenterIslandSpace& space);
+  [[nodiscard]] static std::uint32_t islandAnchor(const CenterIslandSpace& space);
+  [[nodiscard]] static std::int32_t endMargin();
+  [[nodiscard]] static float endPad(const Instance& inst);
   [[nodiscard]] Rect faceRect(const Instance& inst, Face face) const;
   void hoverEnter(Instance& inst);
   void hoverLeave(Instance& inst);
@@ -325,7 +329,7 @@ private:
   std::function<MprisService*()> m_mpris;
   std::string m_date;
   NotificationManager* m_notifications = nullptr;
-  std::function<void(wl_output*)> m_open;
+  std::function<void(wl_output*, std::string_view)> m_open;
   PrivacyFilter m_micFilter;
   PrivacyFilter m_camFilter;
   PrivacyFilter m_screenFilter;

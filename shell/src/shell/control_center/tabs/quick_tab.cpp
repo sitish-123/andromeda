@@ -173,6 +173,11 @@ namespace {
     const auto hoverTo = [rowPtr, motion, opacity, icon](float target) {
       driveCard(*rowPtr, motion, &CardMotion::hover, &CardMotion::hoverId, target, Tokens::springFade, [opacity, icon](Flex& card, float t) {
         icon->setHoverMix(t);
+        // At rest the card keeps the role spec, so a theme change after a hover repaints it.
+        if (t <= 0.0F) {
+          card.setFill(colorSpecFromRole(ColorRole::GlassCard, opacity));
+          return;
+        }
         card.setFill(
             lerpColor(
                 resolveColorSpec(colorSpecFromRole(ColorRole::GlassCard, opacity)),
@@ -241,12 +246,13 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   container->setGap(iconTextGap * s);
   container->setContentAlign(ButtonContentAlign::Start);
   Shortcut* shortcut = row.shortcut.get();
-  // An empty detail tab means the card itself is the toggle.
-  container->setOnClick([this, shortcut, tab = std::string(detailTab), chevron] {
+  // The round icon toggles; the rest of a row with a detail page opens it (macOS / iOS Control Center), so a tap on
+  // the name never turns Wi-Fi off. An empty detail tab means the card itself is the toggle.
+  container->setOnClick([this, shortcut, tab = std::string(detailTab)] {
     if (m_swallowClick) {
       return;
     }
-    if (!tab.empty() && !chevron) {
+    if (!tab.empty()) {
       m_openTab(tab);
     } else if (shortcut != nullptr) {
       shortcut->onClick();

@@ -16,6 +16,8 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 class Box;
@@ -56,6 +58,8 @@ namespace shell::dock {
     std::vector<std::string> lastPinnedConfig;
     std::vector<DesktopEntry> pinnedEntries;
     std::uint64_t modelSerial = 0;
+    // Each item's main-axis place before a rebuild, by app id, so the next rest sync can glide it from there.
+    std::unordered_map<std::string, float> glideFrom;
     std::uint64_t entriesVersion = 0;
     std::unique_ptr<LayerSurface> surface;
     // Liquid glass on the dock (dsk_surface_v1 v5); declared after `surface`: destroyed first.

@@ -299,8 +299,16 @@ namespace {
     return "bottom";
   }
 
+  void setDockTooltipText(InputArea& area, std::string text) {
+    if (text.empty()) {
+      area.clearTooltip();
+    } else {
+      area.setTooltip(std::move(text));
+    }
+  }
+
   void configureDockTooltip(InputArea& area, const DockConfig& cfg, std::string text) {
-    area.setTooltip(std::move(text));
+    setDockTooltipText(area, std::move(text));
     area.setTooltipPlacement(tooltipPlacementAwayFromEdge(dockEdgeKey(cfg.position)));
     area.setTooltipAnchorInsets(
         TooltipAnchorInsets{
@@ -313,6 +321,10 @@ namespace {
   }
 
   [[nodiscard]] std::string dockItemTooltipText(const shell::dock::DockItemModel& model) {
+    // A running app shows its window previews on hover; their header names it, and a label would cover them.
+    if (model.running) {
+      return {};
+    }
     const auto& entry = model.entry;
     std::string text = !entry.name.empty() ? entry.name : !entry.genericName.empty() ? entry.genericName : entry.id;
     if (model.minimizedCount != 0) {
@@ -533,7 +545,15 @@ namespace shell::dock {
         .callbacks = callbacks,
     });
 
+    instance.glideFrom.clear();
     for (auto& item : instance.items) {
+      if (item.area != nullptr && !item.idLower.empty() && !item.isDragGhost) {
+        instance.glideFrom[item.idLower] = item.restMainPos + item.glideMainOffset;
+      }
+      if (item.glideAnimId != 0) {
+        instance.animations.cancel(item.glideAnimId);
+        item.glideAnimId = 0;
+      }
       if (item.scaleAnimId != 0) {
         instance.animations.cancel(item.scaleAnimId);
         item.scaleAnimId = 0;
@@ -586,6 +606,7 @@ namespace shell::dock {
       }
       const auto& model = itemModels[itemIndex];
       auto& item = instance.items.emplace_back();
+      item.idLower = model.idLower;
       DockItemAction action{
           .entry = model.entry,
           .idLower = model.idLower,
@@ -924,7 +945,8 @@ namespace shell::dock {
 
         if (!cfg.magnification && !dragActive) {
           item.hoverMainOffset = 0.0F;
-          applyItemMainOffset(item.area, shell::dock::isVerticalEdge(edge), item.restMainPos, item.restCrossPos, 0.0F);
+          applyItemMainOffset(item.area, shell::dock::isVerticalEdge(edge), item.restMainPos, item.restCrossPos,
+                              item.glideMainOffset);
           if (item.area != nullptr) {
             item.area->setZIndex(0);
           }
@@ -956,7 +978,7 @@ namespace shell::dock {
         const std::string tooltipText = dockItemTooltipText(model);
         if (item.tooltipText != tooltipText) {
           item.tooltipText = tooltipText;
-          item.area->setTooltip(item.tooltipText);
+          setDockTooltipText(*item.area, item.tooltipText);
         }
       }
       if (item.minimizedIndicator != nullptr) {
@@ -1188,6 +1210,12 @@ namespace shell::dock {
     for (std::size_t itemIndex = 0; itemIndex < itemCount; ++itemIndex) {
       auto& item = instance.items[itemIndex];
       const auto& model = snapshot.items[itemIndex];
+      // Magnification owns the position from here: a glide still running would fight it each frame.
+      if (pointerActive && item.glideAnimId != 0) {
+        instance.animations.cancel(item.glideAnimId);
+        item.glideAnimId = 0;
+        item.glideMainOffset = 0.0F;
+      }
       Node* iconNode =
           item.iconImage != nullptr ? static_cast<Node*>(item.iconImage) : static_cast<Node*>(item.iconGlyph);
       slots.push_back(
@@ -1198,7 +1226,7 @@ namespace shell::dock {
               .visualScale = &item.visualScale,
               .hoverMainOffset = &item.hoverMainOffset,
               .scaleAnimId = &item.scaleAnimId,
-              .restMainPos = item.restMainPos,
+              .restMainPos = item.restMainPos + item.glideMainOffset,
               .restCrossPos = item.restCrossPos,
               .baseScale = model.active ? cfg.activeScale : cfg.inactiveScale,
               .restCenterMain = itemRestCenterMain(item.restMainPos, cellMain),
@@ -1276,6 +1304,26 @@ namespace shell::dock {
       }
     }
 
+    // The lens grows with the magnified focused icon: the icon's drawn rect plus the lens inset.
+    if (instance.lensActiveIndex < instance.items.size() && !instance.drag.active) {
+      const auto& lensItem = instance.items[instance.lensActiveIndex];
+      const InputArea* area = lensItem.area;
+      if (area != nullptr && lensItem.visualScale > 0.0F) {
+        const TooltipAnchorInsets in = scaledIconTooltipAnchor(area, edge, kCellPad, iSize, lensItem.visualScale);
+        const float k = iSize / Tokens::componentDockIcon;
+        const float drawn = vertical ? area->height() - in.top - in.bottom : area->width() - in.left - in.right;
+        const float grow = drawn / iSize;
+        const float inset = Tokens::componentDockLensInset * k * grow;
+        const float mainStart = vertical ? area->y() + in.top : area->x() + in.left;
+        const float crossStart = vertical ? area->x() + in.left : area->y() + in.top;
+        const float cross = vertical ? area->width() - in.left - in.right : area->height() - in.top - in.bottom;
+        instance.lens.moveTo(
+            mainStart - inset, mainStart + drawn + inset, crossStart - inset, cross + 2.0F * inset,
+            Tokens::componentDockLensRadius * k * grow, false
+        );
+      }
+    }
+
     if (needsMoreFrames && instance.sceneRoot != nullptr) {
       instance.sceneRoot->markPaintDirty();
     }
@@ -1299,7 +1347,28 @@ namespace shell::dock {
       item.restMainPos = vertical ? item.area->y() : item.area->x();
       item.restCrossPos = vertical ? item.area->x() : item.area->y();
       item.hoverMainOffset = 0.0F;
+      const auto from = instance.glideFrom.find(item.idLower);
+      if (from == instance.glideFrom.end() || std::abs(from->second - item.restMainPos) < 0.5F) {
+        continue;
+      }
+      // Icons that stay glide into their new places instead of jumping when an app opens or closes (motion audit 4).
+      item.glideMainOffset = from->second - item.restMainPos;
+      applyItemMainOffset(item.area, vertical, item.restMainPos, item.restCrossPos, item.glideMainOffset);
+      DockItemView* view = &item;
+      item.glideAnimId = instance.animations.animateSpring(
+          item.glideMainOffset, 0.0F, Style::spring(Tokens::springMove),
+          [view, vertical, &instance](float offset) {
+            view->glideMainOffset = offset;
+            applyItemMainOffset(view->area, vertical, view->restMainPos, view->restCrossPos,
+                                view->hoverMainOffset + view->dragMainOffset + offset);
+            if (instance.sceneRoot != nullptr) {
+              instance.sceneRoot->markPaintDirty();
+            }
+          },
+          [view] { view->glideAnimId = 0; }, view, 0.0F, Unit::Px
+      );
     }
+    instance.glideFrom.clear();
     if (cfg.launcherPosition == DockLauncherPosition::End && instance.launcherArea != nullptr) {
       instance.launcherRestMainPos = vertical ? instance.launcherArea->y() : instance.launcherArea->x();
       instance.launcherRestCrossPos = vertical ? instance.launcherArea->x() : instance.launcherArea->y();
@@ -1388,7 +1457,7 @@ namespace shell::dock {
       }
 
       item.dragMainOffset = extraOffset;
-      const float totalMain = item.restMainPos + item.hoverMainOffset + extraOffset;
+      const float totalMain = item.restMainPos + item.hoverMainOffset + extraOffset + item.glideMainOffset;
       if (!vertical) {
         item.area->setPosition(totalMain, item.restCrossPos);
       } else {
@@ -1406,7 +1475,7 @@ namespace shell::dock {
       item.dragMainOffset = 0.0F;
       item.isDragGhost = false;
       item.area->setZIndex(0);
-      const float totalMain = item.restMainPos + item.hoverMainOffset;
+      const float totalMain = item.restMainPos + item.hoverMainOffset + item.glideMainOffset;
       if (!vertical) {
         item.area->setPosition(totalMain, item.restCrossPos);
       } else {

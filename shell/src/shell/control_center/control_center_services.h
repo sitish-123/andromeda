@@ -2,6 +2,8 @@
 
 #include "shell/control_center/shortcut_services.h"
 
+#include <functional>
+
 class AccountsService;
 class AsyncTextureCache;
 class BluetoothAgent;
@@ -31,6 +33,8 @@ class PipeWireService;
 class PipeWireSpectrum;
 class PowerProfilesService;
 class ScreenTimeService;
+class SessionGuard;
+class SoftwareUpdateService;
 class SystemMonitorService;
 class ThumbnailService;
 class UPowerService;
@@ -83,6 +87,9 @@ struct ControlCenterServices {
   AccountsService* accounts = nullptr;
   ThumbnailService* thumbnails = nullptr;
   AsyncTextureCache* asyncTextures = nullptr;
+  SessionGuard* sessionGuard = nullptr;
+  // Created on first call (D-Bus activates Update1), so the power menu asks only when it opens.
+  std::function<SoftwareUpdateService*()> softwareUpdates;
 
   [[nodiscard]] ShortcutServices shortcutServices() const {
     return {

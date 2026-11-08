@@ -49,6 +49,10 @@ namespace shell::dock {
     bool runningShown = false;
     float runningScale = 0.0F;
     AnimationManager::Id runningAnimId = 0;
+    std::string idLower;
+    // After a rebuild the item glides from where it was to its new rest place (rulebook spring `move`).
+    float glideMainOffset = 0.0F;
+    AnimationManager::Id glideAnimId = 0;
   };
 
   struct DockItemAction {

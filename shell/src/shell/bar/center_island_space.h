@@ -19,6 +19,7 @@ struct CenterIslandSpace {
   float height = 0.0F;         // height of the side islands
   float width = 0.0F;          // free center width, already minus the gap to each side island
   bool bottom = false;
+  bool end = false; // a full-width bar: banners sit at the trailing screen edge, as on macOS and Windows
   bool restless = false; // left or right bar: no rest pill, the island shows only for a banner or live activity
   float scale = 1.0F;             // the bar's content scale (ui_scale included): the island's layout scale
   float opacity = 1.0F;           // follows the bar's auto-hide fade

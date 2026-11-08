@@ -1597,6 +1597,7 @@ void Dock::openItemPreview(shell::dock::DockInstance* instance, const std::strin
   float x = 0.0F;
   float y = 0.0F;
   Node::absolutePosition(&area, x, y);
+  const TooltipAnchorInsets inset = area.tooltipAnchorInsets();
   constexpr int kIcon = 16;
   const auto describe = [this, models](const std::string& appId) {
     const std::string lower = StringUtils::toLower(appId);
@@ -1627,10 +1628,11 @@ void Dock::openItemPreview(shell::dock::DockInstance* instance, const std::strin
   m_preview->open({
       .parent = layerSurface,
       .output = instance->output,
-      .anchor = {.x = static_cast<std::int32_t>(std::lround(x)),
-                 .y = static_cast<std::int32_t>(std::lround(y)),
-                 .width = static_cast<std::int32_t>(std::lround(area.width())),
-                 .height = static_cast<std::int32_t>(std::lround(area.height()))},
+      // The magnified icon, not its cell: a grown icon reaches past the cell toward the screen.
+      .anchor = {.x = static_cast<std::int32_t>(std::lround(x + inset.left)),
+                 .y = static_cast<std::int32_t>(std::lround(y + inset.top)),
+                 .width = static_cast<std::int32_t>(std::lround(area.width() - inset.left - inset.right)),
+                 .height = static_cast<std::int32_t>(std::lround(area.height() - inset.top - inset.bottom))},
       .barPosition = edge,
       .key = key,
       .windows = std::move(windows),

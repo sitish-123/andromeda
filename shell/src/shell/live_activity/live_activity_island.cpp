@@ -232,7 +232,7 @@ void LiveActivityIsland::setSpaceProvider(SpaceProvider provider) { m_spaceProvi
 
 void LiveActivityIsland::setRestSources(
     std::function<PipeWireService*()> pipewire, std::function<MprisService*()> mpris, NotificationManager* notifications,
-    std::function<void(wl_output*)> open
+    std::function<void(wl_output*, std::string_view)> open
 ) {
   m_pipewire = std::move(pipewire);
   m_mpris = std::move(mpris);
@@ -493,7 +493,7 @@ void LiveActivityIsland::ensureSurfaces() {
     const bool outputGone = std::ranges::none_of(m_wayland->outputs(), [&inst](const auto& output) {
       return output.output == inst->output;
     });
-    if (outputGone || !space.has_value() || space->bottom != inst->space.bottom || (space->height > 0.0F && std::abs(islandScale(*space) - inst->scale) > 0.001F)) {
+    if (outputGone || !space.has_value() || space->bottom != inst->space.bottom || space->end != inst->space.end || (space->height > 0.0F && std::abs(islandScale(*space) - inst->scale) > 0.001F)) {
       inst->animations.cancelAll();
       return true;
     }
@@ -504,13 +504,15 @@ void LiveActivityIsland::ensureSurfaces() {
       kLog.info("center island surface width {} -> {} (logical output width {})", inst->width, width, output->logicalWidth);
       inst->width = width;
       inst->surface->setAnchorAndSize(
-          space->bottom ? LayerShellAnchor::Bottom : LayerShellAnchor::Top, static_cast<std::uint32_t>(std::ceil(width * inst->scale)),
+          islandAnchor(*space), static_cast<std::uint32_t>(std::ceil(width * inst->scale)),
           static_cast<std::uint32_t>(std::ceil(surfaceHeight(inst->scale) * inst->scale))
       );
       inst->dskTarget.reset();
     }
     if (space->edgeMargin != inst->space.edgeMargin) {
-      inst->surface->setMargins(space->bottom ? 0 : surfaceMargin(*space), 0, space->bottom ? surfaceMargin(*space) : 0, 0);
+      inst->surface->setMargins(
+          space->bottom ? 0 : surfaceMargin(*space), space->end ? endMargin() : 0, space->bottom ? surfaceMargin(*space) : 0, 0
+      );
       inst->pad = static_cast<float>(std::min(space->edgeMargin, kShadowPad)) / inst->scale;
       inst->dskTarget.reset();
     }
@@ -543,12 +545,13 @@ void LiveActivityIsland::ensureSurfaces() {
         LayerSurfaceConfig{
             .nameSpace = "noctalia-live-activity",
             .layer = LayerShellLayer::Overlay,
-            .anchor = space->bottom ? LayerShellAnchor::Bottom : LayerShellAnchor::Top,
+            .anchor = islandAnchor(*space),
             .width = static_cast<std::uint32_t>(std::ceil(inst->width * inst->scale)),
             .height = static_cast<std::uint32_t>(std::ceil(surfaceHeight(inst->scale) * inst->scale)),
             // -1: placed from the screen edge, over the bar's exclusive zone.
             .exclusiveZone = -1,
             .marginTop = space->bottom ? 0 : surfaceMargin(*space),
+            .marginRight = space->end ? endMargin() : 0,
             .marginBottom = space->bottom ? surfaceMargin(*space) : 0,
             .keyboard = LayerShellKeyboard::None,
             .defaultWidth = static_cast<std::uint32_t>(std::ceil(inst->width * inst->scale)),
@@ -608,6 +611,22 @@ std::int32_t LiveActivityIsland::surfaceMargin(const CenterIslandSpace& space) {
   return space.edgeMargin - std::min(space.edgeMargin, kShadowPad);
 }
 
+namespace {
+  // Banner gap to the trailing screen edge on a full-width bar.
+  std::int32_t endGap() { return static_cast<std::int32_t>(Tokens::spaceChromeGap); }
+} // namespace
+
+std::uint32_t LiveActivityIsland::islandAnchor(const CenterIslandSpace& space) {
+  const std::uint32_t edge = space.bottom ? LayerShellAnchor::Bottom : LayerShellAnchor::Top;
+  return space.end ? edge | LayerShellAnchor::Right : edge;
+}
+
+std::int32_t LiveActivityIsland::endMargin() { return endGap() - std::min(endGap(), kShadowPad); }
+
+float LiveActivityIsland::endPad(const Instance& inst) {
+  return static_cast<float>(std::min(endGap(), kShadowPad)) / inst.scale;
+}
+
 LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face face) const {
   float w = inst.liveWidth;
   float h = kHeight;
@@ -640,7 +659,7 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
     break;
   }
   return Rect{
-      .x = std::round((inst.width - w) * 0.5F),
+      .x = inst.space.end ? inst.width - endPad(inst) - w : std::round((inst.width - w) * 0.5F),
       .y = inst.space.bottom ? surfaceHeight(inst.scale) - inst.pad - h : inst.pad,
       .w = w,
       .h = h,
@@ -1425,7 +1444,8 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               }
               return;
             }
-            if (instPtr->face == Face::Banner && m_banner.has_value()) {
+            const bool fromBanner = instPtr->face == Face::Banner;
+            if (fromBanner && m_banner.has_value()) {
               const BannerItem banner = *m_banner;
               endBanner();
               if (banner.defaultAction && m_notifications != nullptr) {
@@ -1435,8 +1455,9 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
                 }
               }
             }
+            // A banner opens the notification history; the resting date pill opens the calendar, as the clock does.
             if (m_open) {
-              m_open(instPtr->output);
+              m_open(instPtr->output, fromBanner ? "notifications" : "calendar");
             }
           },
   });

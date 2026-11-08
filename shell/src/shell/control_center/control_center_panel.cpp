@@ -10,6 +10,7 @@
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "shell/control_center/tabs/screen_time_tab.h"
+#include "shell/control_center/tabs/session_tab.h"
 #include "shell/panel/panel_button_style.h"
 #include "render/animation/motion_service.h"
 #include "shell/panel/panel_manager.h"
@@ -69,6 +70,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
       PanelManager::instance().renderContext()
   );
   m_tabs[tabIndex(TabId::Weather)] = std::make_unique<WeatherTab>(services.weather, services.config);
+  m_tabs[tabIndex(TabId::Session)] = std::make_unique<SessionTab>(services);
   m_tabs[tabIndex(TabId::Calendar)] = std::make_unique<CalendarTab>(services.config, services.calendar, services.weather);
   m_tabs[tabIndex(TabId::Notifications)] =
       std::make_unique<NotificationsTab>(services.notifications, services.platform, services.asyncTextures);
@@ -81,7 +83,13 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
   m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
   m_tabs[tabIndex(TabId::Power)] = std::make_unique<PowerTab>(services.upower, services.powerProfiles);
+  // A page opened straight from a bar icon closes on back (Esc), as a macOS / Windows flyout; one reached from the
+  // quick sheet goes back to it.
   const auto back = [this] {
+    if (m_openedOnDetail) {
+      PanelManager::instance().close();
+      return;
+    }
     selectTab(TabId::Quick, /*animated=*/true);
     PanelManager::instance().refresh();
   };
@@ -131,7 +139,8 @@ float ControlCenterPanel::preferredWidth() const {
 
 bool ControlCenterPanel::fitsContentHeight() const noexcept {
   const TabId tab = tabFromContext(pendingOpenContext());
-  return tab == TabId::Quick || tab == TabId::Calendar || tab == TabId::Weather || isDetailTab(tab);
+  return tab == TabId::Quick || tab == TabId::Calendar || tab == TabId::Weather || tab == TabId::Session
+      || isDetailTab(tab);
 }
 
 float ControlCenterPanel::preferredHeight() const {
@@ -150,6 +159,11 @@ float ControlCenterPanel::measureContentHeight(Renderer& renderer, float content
   if (m_activeTab == TabId::Calendar) {
     if (auto* calendar = dynamic_cast<CalendarTab*>(m_tabs[tabIndex(TabId::Calendar)].get()); calendar != nullptr) {
       return calendar->measureHeight(renderer, contentWidth);
+    }
+  }
+  if (m_activeTab == TabId::Session) {
+    if (auto* session = dynamic_cast<SessionTab*>(m_tabs[tabIndex(TabId::Session)].get()); session != nullptr) {
+      return session->measureHeight(renderer, contentWidth);
     }
   }
   if (m_activeTab == TabId::Weather) {
@@ -498,7 +512,9 @@ void ControlCenterPanel::onOpen(std::string_view context) {
   }
   const bool animateTabSwitch = !m_firstOpenAfterCreate;
   m_firstOpenAfterCreate = false;
-  selectTab(tabFromContext(context), animateTabSwitch);
+  const TabId tab = tabFromContext(context);
+  m_openedOnDetail = isDetailTab(tab);
+  selectTab(tab, animateTabSwitch);
 }
 
 bool ControlCenterPanel::isContextActive(std::string_view context) const {
@@ -697,12 +713,15 @@ void ControlCenterPanel::updateTabChrome(TabId tab) {
   }
 
   if (m_backButton != nullptr) {
-    m_backButton->setVisible(!m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar && tab != TabId::Weather);
+    m_backButton->setVisible(
+        !m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar && tab != TabId::Weather && tab != TabId::Session
+    );
   }
   if (m_contentHeader != nullptr) {
     // The clock calendar and weather sheets draw their own headers.
     m_contentHeader->setVisible(
-        tab != TabId::Quick && !((tab == TabId::Calendar || tab == TabId::Weather) && !m_showSidebar)
+        tab != TabId::Quick && tab != TabId::Session
+        && !((tab == TabId::Calendar || tab == TabId::Weather) && !m_showSidebar)
     );
   }
   if (m_sidebarNav != nullptr) {
@@ -1059,7 +1078,7 @@ bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) co
 bool ControlCenterPanel::isSheetContext(std::string_view context) const {
   const TabId tab = tabFromContext(context);
   return tab == TabId::Quick || tab == TabId::Network || tab == TabId::Calendar || tab == TabId::Weather
-      || isDetailTab(tab);
+      || tab == TabId::Session || isDetailTab(tab);
 }
 
 ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {

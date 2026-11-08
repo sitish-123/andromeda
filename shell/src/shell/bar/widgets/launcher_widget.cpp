@@ -6,12 +6,14 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 LauncherWidget::LauncherWidget(wl_output* /*output*/, Options options)
     : m_barGlyphId(std::move(options.glyph)),
       m_customImage(widget_custom_image::fromConfig(options.customImage, options.customImageColorize)),
-      m_iconSize(options.iconSize) {}
+      m_iconSize(options.iconSize), m_cellSize(options.cellSize) {}
 
 void LauncherWidget::create() {
   auto area = ui::inputArea({});
@@ -43,11 +45,19 @@ void LauncherWidget::doLayout(Renderer& renderer, float /*containerWidth*/, floa
     const float scale = m_iconSize > 0 ? m_contentScale * static_cast<float>(m_iconSize) / Style::baseGlyphSize
                                        : m_contentScale;
     widget_custom_image::sync(*m_image, renderer, m_customImage, scale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
-    node->setSize(m_image->width(), m_image->height());
+    fitCell(*node, *m_image);
   } else if (m_glyph != nullptr) {
     m_glyph->setGlyphSize((m_iconSize > 0 ? static_cast<float>(m_iconSize) : Style::baseGlyphSize) * m_contentScale);
     m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     m_glyph->measure(renderer);
-    node->setSize(m_glyph->width(), m_glyph->height());
+    fitCell(*node, *m_glyph);
   }
+}
+
+void LauncherWidget::fitCell(Node& node, Node& icon) const {
+  const float cell = static_cast<float>(m_cellSize) * m_contentScale;
+  const float w = std::max(cell, icon.width());
+  const float h = std::max(cell, icon.height());
+  icon.setPosition(std::round((w - icon.width()) * 0.5F), std::round((h - icon.height()) * 0.5F));
+  node.setSize(w, h);
 }

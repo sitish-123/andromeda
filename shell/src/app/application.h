@@ -72,6 +72,8 @@
 #include "shell/screen_corners/screen_corners.h"
 #include "shell/session/session_action_runner.h"
 #include "shell/settings/settings_window.h"
+#include "shell/session/power_overlay.h"
+#include "shell/session/session_guard.h"
 #include "shell/switcher/window_switcher.h"
 #include "shell/tray/tray_menu.h"
 #include "shell/wallpaper/panel/wallpaper_scanner.h"
@@ -269,6 +271,9 @@ private:
   void retrySecretServiceConsumers(bool defaultCollectionUnlocked = false);
   void scheduleNotificationShellRefresh();
   void syncLiveActivity();
+  // logind's scheduled shutdown: an island live activity with Cancel, and banners at 5 and 1 minute (D3).
+  void syncScheduledShutdown();
+  Timer m_shutdownWarnTimer;
   void syncPolkitAgent();
   [[nodiscard]] bool likelySupportsInSessionPolkit() const noexcept;
   void syncClipboardService();
@@ -512,6 +517,8 @@ private:
       m_scriptApi, &m_fileWatcher, &m_httpClient, &m_clipboardService
   };
   WindowSwitcher m_windowSwitcher;
+  PowerOverlay m_powerOverlay;
+  SessionGuard m_sessionGuard;
   OverviewLauncherCapture m_overviewLauncherCapture;
   AudioOsd m_audioOsd;
   HdmiAudioSwitch m_hdmiAudioSwitch;

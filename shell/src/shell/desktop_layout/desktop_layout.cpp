@@ -23,6 +23,7 @@ namespace desktop_layout {
       bool dock;
       std::string_view arrangement; // compositor layout.mode
       std::string_view overview;    // compositor overview.style
+      std::string_view titleBarMode; // compositor appearance.title_bar.mode
       std::string_view titleBar;    // compositor appearance.title_bar.style
       std::string_view buttons;     // compositor appearance.title_bar.button_position
       std::string_view radius;      // compositor appearance.corner_radius; empty = the default
@@ -30,10 +31,10 @@ namespace desktop_layout {
 
     // macOS and Windows use a full-width bar until their own top bar (DL5) and taskbar (DL2) exist.
     const Preset* find(std::string_view name) {
-      static const Preset andromeda{true, "top", true, "scrolling", "spaces", "andromeda", "right", ""};
-      static const Preset macos{false, "top", true, "floating", "spaces", "macos", "left", ""};
-      static const Preset windows{false, "bottom", false, "floating", "taskview", "windows", "right", "8"};
-      static const Preset tiling{true, "top", false, "scrolling", "grid", "andromeda", "right", ""};
+      static const Preset andromeda{true, "top", true, "scrolling", "spaces", "auto", "andromeda", "right", ""};
+      static const Preset macos{false, "top", true, "floating", "spaces", "on", "macos", "left", ""};
+      static const Preset windows{false, "bottom", false, "floating", "taskview", "on", "windows", "right", "8"};
+      static const Preset tiling{true, "top", false, "scrolling", "grid", "auto", "andromeda", "right", ""};
       if (name == "andromeda") {
         return &andromeda;
       }
@@ -89,7 +90,7 @@ namespace desktop_layout {
           std::nullopt, 0, 0, 4
       };
       static const BarRow macos{
-          {"brand", "macos_app"}, {}, {"group:status", "macos_clock"}, 32, std::nullopt, 12, 16, 16
+          {"brand", "macos_app"}, {}, {"group:status", "macos_clock", "notifications"}, 32, std::nullopt, 12, 16, 16
       };
       return preset == "windows" ? &windows : preset == "macos" ? &macos : nullptr;
     }
@@ -97,10 +98,11 @@ namespace desktop_layout {
     BarCapsuleGroupStyle statusGroup() {
       BarCapsuleGroupStyle group;
       group.id = "status";
-      group.members = {"network", "output_volume", "status_battery"};
+      group.members = {"network", "status_volume", "status_battery"};
       group.fill = clearColorSpec();
       group.radius = Style::spaceSm;
-      group.hoverAsOne = true;
+      // Each icon opens its own page, so each lights alone.
+      group.hoverAsOne = false;
       return group;
     }
 
@@ -123,6 +125,7 @@ namespace desktop_layout {
       return {
           {"layout.mode", p.arrangement},
           {"overview.style", p.overview},
+          {"appearance.title_bar.mode", p.titleBarMode},
           {"appearance.title_bar.style", p.titleBar},
           {"appearance.title_bar.button_position", p.buttons},
       };
@@ -340,6 +343,8 @@ namespace desktop_layout {
                                                           : field.value;
           out.emplace_back(Path{"bar", first, std::string(field.key)}, value);
         }
+        // Status flyouts float with a gap off a full-width bar, as on macOS and Windows.
+        out.emplace_back(Path{"shell", "panel", "control_center_placement"}, std::string("floating"));
       }
     }
     out.emplace_back(Path{"dock", "enabled"}, p->dock);
@@ -375,6 +380,7 @@ namespace desktop_layout {
       for (const RowInt& field : kRowGeometry) {
         out.push_back(Path{"bar", first, std::string(field.key)});
       }
+      out.push_back(Path{"shell", "panel", "control_center_placement"});
     }
     if (!hasDesktopIcons(preset)) {
       out.push_back(Path{"desktop_icons", "enabled"});

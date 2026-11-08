@@ -14,6 +14,7 @@
 #include "core/process/process.h"
 #include "dbus/accounts/accounts_service.h"
 #include "dbus/andromeda/shell_service.h"
+#include "dbus/andromeda/software_update_service.h"
 #include "dbus/andromeda/system_health_service.h"
 #include "dbus/bluetooth/bluetooth_agent.h"
 #include "dbus/bluetooth/bluetooth_service.h"
@@ -67,6 +68,7 @@
 #include "launcher/window_provider.h"
 #include "net/url_open.h"
 #include "notification/notifications.h"
+#include "time/time_format.h"
 #include "pipewire/pipewire_poll_source.h"
 #include "pipewire/pipewire_service.h"
 #include "pipewire/pipewire_spectrum.h"
@@ -192,6 +194,47 @@ namespace {
   }
 } // namespace
 
+void Application::syncScheduledShutdown() {
+  syncLiveActivity();
+  m_shutdownWarnTimer.stop();
+  if (m_powerConfigService == nullptr || m_powerConfigService->state().scheduledUsec == 0) {
+    return;
+  }
+  using namespace std::chrono;
+  const auto at = system_clock::time_point(microseconds(m_powerConfigService->state().scheduledUsec));
+  const auto left = duration_cast<seconds>(at - system_clock::now());
+  // One minute before, the session end takes over from logind: apps get the close request and the countdown alert
+  // (with Cancel) is the last warning, so a logind power-off never cuts open windows.
+  const auto handOver = [this] {
+    const std::string action = m_powerConfigService->state().scheduledAction == "reboot" ? "reboot" : "shutdown";
+    m_powerConfigService->cancelScheduledShutdown();
+    (void)m_ipcService.execute("power-overlay end " + action);
+  };
+  if (left <= minutes(1)) {
+    handOver();
+    return;
+  }
+  // A banner at 5 minutes, then the hand-over at 1 minute.
+  for (const minutes mark : {minutes(5), minutes(1)}) {
+    if (left > mark) {
+      if (mark == minutes(1)) {
+        m_shutdownWarnTimer.start(duration_cast<milliseconds>(left - mark), handOver);
+        return;
+      }
+      m_shutdownWarnTimer.start(duration_cast<milliseconds>(left - mark), [this, mark] {
+        const bool reboot = m_powerConfigService->state().scheduledAction == "reboot";
+        notify::info("Andromeda",
+                     i18n::tr(reboot ? "control-center.power-menu.scheduled-reboot-soon"
+                                     : "control-center.power-menu.scheduled-shutdown-soon",
+                              "minutes", std::to_string(mark.count())),
+                     i18n::tr("control-center.power-menu.scheduled-body"));
+        syncScheduledShutdown();
+      });
+      return;
+    }
+  }
+}
+
 // One activity at a time, by priority: call, screen recording, file transfer.
 void Application::syncLiveActivity() {
   if (m_linkService != nullptr) {
@@ -227,6 +270,43 @@ void Application::syncLiveActivity() {
         .title = i18n::tr("live-activity.recording"),
         .actionGlyph = "player-stop",
         .action = [this] { (void)m_screenRecorder->toggle(); },
+    });
+    return;
+  }
+  if (m_powerConfigService != nullptr && m_powerConfigService->state().scheduledUsec > 0) {
+    const PowerConfigState& power = m_powerConfigService->state();
+    const auto at = static_cast<std::int64_t>(power.scheduledUsec / 1000000U);
+    const bool reboot = power.scheduledAction == "reboot";
+    m_liveActivity.setActivity(LiveActivity{
+        .glyph = "clock",
+        .title = i18n::tr(reboot ? "control-center.power-menu.scheduled-reboot" : "control-center.power-menu.scheduled-shutdown",
+                          "time", formatLocalUnixTime(at, m_configService.config().shell.timeFormat)),
+        .actionGlyph = "close",
+        .action = [this] { m_powerConfigService->cancelScheduledShutdown(); },
+    });
+    return;
+  }
+  // Restart or Shut Down waiting behind a block inhibitor or an update ("When done", DESIGN.md D3).
+  if (const std::string& queued = m_sessionGuard.queued(); !queued.empty()) {
+    const bool updating = m_sessionGuard.updating();
+    std::string subtitle;
+    if (updating && m_softwareUpdateService != nullptr) {
+      subtitle = m_softwareUpdateService->stagePackage().empty() ? m_softwareUpdateService->stage()
+                                                                 : m_softwareUpdateService->stagePackage();
+    } else if (!m_sessionGuard.blockers().empty()) {
+      const SessionGuard::Blocker& first = m_sessionGuard.blockers().front();
+      subtitle = first.who + " · " + first.why;
+    }
+    m_liveActivity.setActivity(LiveActivity{
+        .glyph = updating ? "refresh" : "hourglass",
+        .title = i18n::tr(updating ? "control-center.power-menu.waiting-update"
+                                   : "control-center.power-menu.waiting-" + queued),
+        .subtitle = std::move(subtitle),
+        .actionGlyph = "close",
+        .action = [this] { m_sessionGuard.cancel(); },
+        .open = [this](wl_output* output) {
+          m_panelManager.openPanel("control-center", PanelOpenRequest{.output = output, .context = "session"});
+        },
     });
     return;
   }
@@ -620,6 +700,7 @@ void Application::syncClipboardService() {
   // and the history UI.
   m_wayland.setClipboardService(&m_clipboardService);
   Input::setTextClipboard(&m_clipboardService);
+  m_clipboardService.setPrimarySelectionSource(&m_wayland);
   m_clipboardService.setHistoryRetentionEnabled(enabled);
   // Taking the selection over when its owner exits belongs to that same live
   // transport, so it follows its own setting rather than history retention.
@@ -645,7 +726,6 @@ void Application::syncStorageKeyProvider() {
   const StorageConfig& storage = m_configService.config().storage;
   const bool encryptedDataExists = m_clipboardService.hasEncryptedPersistence()
       || m_calendarService.hasEncryptedCache()
-  m_clipboardService.setPrimarySelectionSource(&m_wayland);
       || m_notificationManager.hasEncryptedHistory();
   m_storageKeyProvider.configure(storage.keySource, storage.keyFile, encryptedDataExists);
 }
@@ -1074,6 +1154,7 @@ void Application::reconcileOutputSurfaces() {
   m_osdOverlay.onOutputChange();
   m_liveActivity.onOutputChange();
   m_windowSwitcher.onOutputChange();
+  m_powerOverlay.onOutputChange();
   m_pluginLayerHost.onOutputChange();
 }
 
@@ -1112,6 +1193,7 @@ void Application::initWaylandCallbacks() {
     m_dock.onWorkspaceChanged();
     m_bar.refresh();
     m_windowSwitcher.onToplevelChange();
+    m_powerOverlay.onToplevelChange();
   });
   m_compositorPlatform.setKeyboardLayoutChangeCallback([this] {
     m_bar.refresh();
@@ -1129,6 +1211,7 @@ void Application::initWaylandCallbacks() {
     m_bar.refresh();
     m_dock.refresh();
     m_windowSwitcher.onToplevelChange();
+    m_powerOverlay.onToplevelChange();
     m_liveActivity.setFullscreen(m_wayland.hasFullscreenToplevel());
     if (m_backgroundPortal != nullptr) {
       m_backgroundPortal->onToplevelsChanged();
@@ -1366,7 +1449,20 @@ void Application::initSystemBusServices() {
       try {
         m_logindService = std::make_unique<LogindService>(*m_systemBus);
         m_powerConfigService = std::make_unique<PowerConfigService>(*m_systemBus);
-        m_powerConfigService->setChangeCallback([this] { m_settingsWindow.onPowerChanged(); });
+        m_powerConfigService->setChangeCallback([this] {
+          m_settingsWindow.onPowerChanged();
+          syncScheduledShutdown();
+        });
+        m_powerOverlay.setPowerKeyHandling(m_systemBus.get(), m_powerConfigService.get(), [this] {
+          return m_lockScreen.isActive();
+        });
+        m_sessionGuard.initialize(m_systemBus.get(), &m_ipcService);
+        m_powerOverlay.setSessionGuard(&m_sessionGuard);
+        m_sessionGuard.setChangeCallback([this] {
+          m_panelManager.refresh();
+          m_powerOverlay.onGuardChanged();
+          syncLiveActivity();
+        });
         m_logindService->setPrepareForSleepCallback([this](bool sleeping) {
           // Idle grace overlay must not survive suspend; hide on both edges as a fallback when
           // fade-complete cleanup races with process freeze.
@@ -2089,6 +2185,8 @@ void Application::initSessionBusServices() {
 
     try {
       m_inhibitPortal = std::make_unique<InhibitPortal>(*m_bus, m_systemBus.get());
+      m_inhibitPortal->setChangeCallback([this] { m_powerOverlay.onToplevelChange(); });
+      m_powerOverlay.setInhibitPortal(m_inhibitPortal.get());
       m_backgroundPortal = std::make_unique<BackgroundPortal>(
           *m_bus,
           [this] {

@@ -12,6 +12,11 @@ const noctalia::bar::WidgetDefinition<LauncherWidget::Options>& launcherWidgetDe
           .minValue = 0.0,
           .maxValue = 64.0,
           .step = 4.0,
+      }), noctalia::bar::field<&Options::cellSize>({
+          .key = "cell_size",
+          .minValue = 0.0,
+          .maxValue = 96.0,
+          .step = 4.0,
       })),
       .glyph = [](const Options& options) { return options.glyph; },
   };
