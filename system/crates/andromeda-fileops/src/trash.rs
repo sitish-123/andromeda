@@ -77,6 +77,18 @@ fn ensure_trash(dir: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// A per-device trash someone else could have made (GIO's checks): the folder, files and info must be real folders
+/// owned by this user. No mode check: FAT, exFAT and NTFS drives show every folder as 0777.
+fn check_own_trash(dir: &Path) -> io::Result<()> {
+    for path in [dir.to_path_buf(), dir.join("files"), dir.join("info")] {
+        let meta = fs::symlink_metadata(&path)?;
+        if !meta.is_dir() || meta.uid() != uid() {
+            return Err(io::Error::other(format!("{} is not a trash folder of this user", path.display())));
+        }
+    }
+    Ok(())
+}
+
 /// The trash for `path` and the name its info file stores: absolute for the home trash, relative to the top
 /// folder for a per-device trash.
 fn trash_for(path: &Path) -> io::Result<(PathBuf, PathBuf)> {
@@ -96,7 +108,7 @@ fn trash_for(path: &Path) -> io::Result<(PathBuf, PathBuf)> {
         && meta.mode() & 0o1000 != 0
     {
         let dir = shared.join(uid().to_string());
-        if ensure_trash(&dir).is_ok() {
+        if ensure_trash(&dir).and_then(|()| check_own_trash(&dir)).is_ok() {
             return Ok((dir, relative));
         }
     }
@@ -105,6 +117,7 @@ fn trash_for(path: &Path) -> io::Result<(PathBuf, PathBuf)> {
         return Err(io::Error::other("trash folder is a link"));
     }
     ensure_trash(&own)?;
+    check_own_trash(&own)?;
     Ok((own, relative))
 }
 

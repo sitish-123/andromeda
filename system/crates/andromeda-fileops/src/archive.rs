@@ -937,8 +937,9 @@ pub fn compress(
             }
             OutFormat::TarZst => {
                 let tar_part = part.with_extension("tar");
+                // create_new: never follows or truncates a file someone placed at the name; the guard owns it only after.
+                let plain = BufWriter::new(OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tar_part)?);
                 let tar_guard = Staging(tar_part.clone());
-                let plain = BufWriter::new(File::create(&tar_part)?);
                 write_tar(plain, &items, ctl, &bytes)?.flush()?;
                 let mut source = Quiet { inner: BufReader::new(File::open(&tar_guard.0)?), error: None };
                 let mut drain = Quiet { inner: out, error: None };

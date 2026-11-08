@@ -3,7 +3,8 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::{DirBuilderExt, FileExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{CWD, RenameFlags, Timespec, Timestamps, copy_file_range, futimens, ioctl_ficlone, renameat_with};
@@ -337,7 +338,9 @@ impl<'a> Run<'a> {
         let meta = fs::symlink_metadata(source).map_err(io_at(source))?;
         if meta.is_dir() {
             if !merge {
-                fs::create_dir(target).map_err(io_at(target))?;
+                // Private until the end: the source's mode applies once the contents are in, and an error or a
+                // cancel leaves a folder no one else can read rather than one open by umask.
+                fs::DirBuilder::new().mode(0o700).create(target).map_err(io_at(target))?;
                 if record {
                     self.undo.push(UndoStep::Created(target.to_path_buf()));
                 }
@@ -352,7 +355,11 @@ impl<'a> Run<'a> {
                     self.copy_to(&entry.path(), &target.join(entry.file_name()), false, false)?;
                 }
             }
+            copy_xattrs(source, target);
             fs::set_permissions(target, meta.permissions()).map_err(io_at(target))?;
+            if !merge {
+                set_times(target, &meta);
+            }
         } else if meta.is_symlink() {
             symlink(fs::read_link(source).map_err(io_at(source))?, target).map_err(io_at(target))?;
             if record {
@@ -379,7 +386,9 @@ impl<'a> Run<'a> {
             .mode(meta.permissions().mode() & 0o7777)
             .open(target)
             .map_err(io_at(target))?;
-        let result = self.copy_data(&input, &output, meta.len(), source);
+        // Fewer blocks than bytes: holes, which a plain copy would fill (VM images, databases).
+        let sparse = meta.blocks().saturating_mul(512) < meta.len();
+        let result = self.copy_data(&input, &output, meta.len(), source, sparse);
         if result.is_err() {
             let _ = fs::remove_file(target);
             return result;
@@ -388,13 +397,17 @@ impl<'a> Run<'a> {
             last_access: Timespec { tv_sec: meta.atime(), tv_nsec: meta.atime_nsec() },
             last_modification: Timespec { tv_sec: meta.mtime(), tv_nsec: meta.mtime_nsec() },
         };
+        copy_xattrs(source, target);
         futimens(&output, &times).map_err(errno_at(target))
     }
 
-    fn copy_data(&mut self, input: &File, output: &File, len: u64, source: &Path) -> OpResult<()> {
+    fn copy_data(&mut self, input: &File, output: &File, len: u64, source: &Path, sparse: bool) -> OpResult<()> {
         if len > 0 && ioctl_ficlone(output, input).is_ok() {
             self.tick(0, len, source);
             return Ok(());
+        }
+        if sparse {
+            return self.copy_sparse(input, output, len, source);
         }
         loop {
             self.check()?;
@@ -407,6 +420,34 @@ impl<'a> Run<'a> {
                 Err(e) => return Err(OpError::Io(source.into(), e.into())),
             }
         }
+    }
+
+    /// Copies only the data runs (SEEK_DATA / SEEK_HOLE) and sets the length, so holes stay holes.
+    fn copy_sparse(&mut self, input: &File, output: &File, len: u64, source: &Path) -> OpResult<()> {
+        let mut buffer = vec![0u8; 1 << 20];
+        let mut pos = 0u64;
+        while pos < len {
+            let data = match rustix::fs::seek(input, rustix::fs::SeekFrom::Data(pos)) {
+                Ok(data) => data,
+                Err(Errno::NXIO) => break,
+                Err(e) => return Err(OpError::Io(source.into(), e.into())),
+            };
+            let hole = rustix::fs::seek(input, rustix::fs::SeekFrom::Hole(data)).map_err(errno_at(source))?.min(len);
+            let mut at = data;
+            while at < hole {
+                self.check()?;
+                let want = usize::try_from(hole - at).unwrap_or(usize::MAX).min(buffer.len());
+                let n = input.read_at(&mut buffer[..want], at).map_err(io_at(source))?;
+                if n == 0 {
+                    break;
+                }
+                output.write_all_at(&buffer[..n], at).map_err(io_at(source))?;
+                at += n as u64;
+                self.tick(0, n as u64, source);
+            }
+            pos = hole.max(at);
+        }
+        output.set_len(len).map_err(io_at(source))
     }
 
     fn copy_plain(&mut self, mut input: &File, mut output: &File, source: &Path) -> OpResult<()> {
@@ -455,6 +496,34 @@ impl<'a> Run<'a> {
             Err(e) => Err(OpError::Io(source.into(), e.into())),
         }
     }
+}
+
+/// Extended attributes a copy keeps: user ones (our tags in user.xdg.tags) and POSIX ACLs. Security labels belong to
+/// the target place, so they are not copied. A target file system without xattrs keeps the data only.
+fn copy_xattrs(source: &Path, target: &Path) {
+    let mut names = vec![0u8; 64 * 1024];
+    let Ok(n) = rustix::fs::llistxattr(source, &mut names[..]) else {
+        return;
+    };
+    let mut value = vec![0u8; 64 * 1024];
+    for name in names[..n].split(|b| *b == 0).filter(|name| !name.is_empty()) {
+        if !(name.starts_with(b"user.") || name.starts_with(b"system.posix_acl_")) {
+            continue;
+        }
+        let name = std::ffi::OsStr::from_bytes(name);
+        if let Ok(len) = rustix::fs::lgetxattr(source, name, &mut value[..]) {
+            let _ = rustix::fs::lsetxattr(target, name, &value[..len], rustix::fs::XattrFlags::empty());
+        }
+    }
+}
+
+/// A folder's times, set after its contents went in (each new entry moved its mtime to now).
+fn set_times(target: &Path, meta: &fs::Metadata) {
+    let times = Timestamps {
+        last_access: Timespec { tv_sec: meta.atime(), tv_nsec: meta.atime_nsec() },
+        last_modification: Timespec { tv_sec: meta.mtime(), tv_nsec: meta.mtime_nsec() },
+    };
+    let _ = rustix::fs::utimensat(CWD, target, &times, rustix::fs::AtFlags::SYMLINK_NOFOLLOW);
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -731,6 +800,33 @@ mod tests {
         assert!(result.is_ok());
         assert!(!dst.join("a (copy).txt").exists());
         assert_eq!(read(&dst.join("a.txt")), "old");
+    }
+
+    #[test]
+    fn copy_keeps_tags_holes_and_folder_mode() {
+        let root = tempfile::tempdir().expect("tmp");
+        let (src, dst) = (root.path().join("src"), root.path().join("dst"));
+        let dir = src.join("private");
+        write(&dir.join("disk.img"), "");
+        let file = OpenOptions::new().write(true).open(dir.join("disk.img")).expect("open");
+        file.write_all_at(b"head", 0).expect("head");
+        file.write_all_at(b"tail", 64 << 20).expect("tail");
+        drop(file);
+        rustix::fs::setxattr(dir.join("disk.img"), "user.xdg.tags", b"Work", rustix::fs::XattrFlags::empty())
+            .expect("tag (needs a file system with user xattrs)");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).expect("chmod");
+        fs::create_dir_all(&dst).expect("dst");
+        let ctl = Answers::new(&[]);
+        let (_, result) = copy(&[dir.clone()], &dst, &ctl);
+        assert!(result.is_ok());
+        let copied = dst.join("private/disk.img");
+        let meta = fs::metadata(&copied).expect("copied");
+        assert_eq!(meta.len(), (64 << 20) + 4);
+        assert!(meta.blocks() * 512 < 1 << 20, "the hole was filled: {} blocks", meta.blocks());
+        let mut tag = [0u8; 16];
+        let n = rustix::fs::getxattr(&copied, "user.xdg.tags", &mut tag[..]).expect("tag copied");
+        assert_eq!(&tag[..n], b"Work");
+        assert_eq!(fs::metadata(dst.join("private")).expect("dir").permissions().mode() & 0o777, 0o700);
     }
 
     #[test]

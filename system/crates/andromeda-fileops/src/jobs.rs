@@ -286,6 +286,20 @@ impl Job {
     fn result(&self) -> String {
         lock(&self.shared.status).result.clone()
     }
+    /// What a finished job moved or renamed, as (from, to): clients that keep paths (starred, pins) follow them.
+    #[zbus(property)]
+    fn moves(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let status = lock(&self.shared.status);
+        status
+            .undo
+            .iter()
+            .flatten()
+            .filter_map(|step| match step {
+                UndoStep::Moved { from, to } => Some((bytes(from), bytes(to))),
+                _ => None,
+            })
+            .collect()
+    }
     #[zbus(property)]
     fn undoable(&self) -> bool {
         lock(&self.shared.status).undo.as_ref().is_some_and(|steps| !steps.is_empty())
@@ -449,6 +463,7 @@ async fn publish(conn: Connection, path: OwnedObjectPath, shared: Arc<Shared>, a
         if finished {
             let _ = job.error_changed(emitter).await;
             let _ = job.undoable_changed(emitter).await;
+            let _ = job.moves_changed(emitter).await;
             let _ = job.result_changed(emitter).await;
             let mut activity = lock(&activity);
             activity.0 -= 1;
