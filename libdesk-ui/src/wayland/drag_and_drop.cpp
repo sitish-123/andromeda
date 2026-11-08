@@ -2,6 +2,7 @@
 
 #include "core/deferred_call.h"
 #include "core/log.h"
+#include "wayland/pipe_io.h"
 #include "wayland/wayland_connection.h"
 
 #include <algorithm>
@@ -15,9 +16,11 @@
 namespace {
   constexpr Logger kLog("dnd");
   constexpr std::uint32_t kUnset = 0xffffffffU;
-  constexpr int kReadTimeoutMs = 5000;
   // set_actions and finish are wl_data_device_manager v3.
   bool v3(void* proxy) { return wl_proxy_get_version(static_cast<wl_proxy*>(proxy)) >= 3; }
+
+  using pipe_io::readPipe;
+  using pipe_io::writeAll;
 
   DragAndDrop* self(void* data) { return static_cast<DragAndDrop*>(data); }
 
@@ -38,38 +41,6 @@ namespace {
       .dnd_finished = [](void*, wl_data_source*) {},
       .action = [](void*, wl_data_source*, uint32_t) {},
   };
-
-  // Reads a pipe the source writes from its own loop, off the main thread; gives up after kReadTimeoutMs of silence.
-  // Past `maxBytes` the read stops and gives nothing: a partial clipboard is worse than none.
-  std::string readPipe(int fd, std::size_t maxBytes = static_cast<std::size_t>(-1)) {
-    std::string bytes;
-    char buf[4096];
-    while (true) {
-      pollfd pfd{.fd = fd, .events = POLLIN, .revents = 0};
-      const int ready = ::poll(&pfd, 1, kReadTimeoutMs);
-      if (ready < 0 && errno == EINTR) {
-        continue;
-      }
-      if (ready <= 0) {
-        bytes.clear();
-        break;
-      }
-      const ssize_t n = ::read(fd, buf, sizeof(buf));
-      if (n < 0 && errno == EINTR) {
-        continue;
-      }
-      if (n <= 0) {
-        break;
-      }
-      bytes.append(buf, static_cast<std::size_t>(n));
-      if (bytes.size() > maxBytes) {
-        bytes.clear();
-        break;
-      }
-    }
-    ::close(fd);
-    return bytes;
-  }
 
   const wl_data_offer_listener kOfferListener = {
       .offer = [](void* data, wl_data_offer* offer, const char* mime) { self(data)->onOfferMime(offer, mime); },
@@ -95,19 +66,6 @@ namespace {
       .selection = [](void* data, wl_data_device*, wl_data_offer* offer) { self(data)->onSelection(offer); },
   };
 
-  void writeAll(int fd, const std::string& bytes) {
-    std::size_t done = 0;
-    while (done < bytes.size()) {
-      const ssize_t n = ::write(fd, bytes.data() + done, bytes.size() - done);
-      if (n < 0 && errno == EINTR) {
-        continue;
-      }
-      if (n <= 0) {
-        break;
-      }
-      done += static_cast<std::size_t>(n);
-    }
-  }
 } // namespace
 
 std::unique_ptr<DragAndDrop> DragAndDrop::create(WaylandConnection& connection, wl_data_device_manager* manager) {

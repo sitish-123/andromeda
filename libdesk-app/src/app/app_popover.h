@@ -35,6 +35,9 @@ public:
   void close() { destroyPopup(); }
   // Builds the content again (the jobs list changed); keeps the popover open.
   void refresh();
+  // The anchor moved or the content changed size: the open popover follows, keeping its grab.
+  void resize(std::int32_t anchorX, std::int32_t anchorY, std::int32_t anchorWidth, std::int32_t anchorHeight,
+              float width, float height);
   void setOnClosed(std::function<void()> closed) { m_closed = std::move(closed); }
 
   using DialogPopupHost::isOpen;
@@ -55,6 +58,7 @@ protected:
   void onSheetClose() override;
 
 private:
+  [[nodiscard]] PopupSurfaceConfig popupConfig() const;
   class Settings final : public UiSettings {
   public:
     float scale = 1.0F;

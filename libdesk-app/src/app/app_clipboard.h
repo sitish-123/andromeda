@@ -2,6 +2,7 @@
 
 #include "core/text_clipboard.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,6 +20,9 @@ public:
 
   [[nodiscard]] std::optional<std::string> clipboardText() override { return m_text; }
   void setClipboardText(std::string text) override;
+  [[nodiscard]] std::optional<std::string> primaryText() override;
+  void setPrimaryText(std::string text) override;
+  void requestPrimaryText(std::function<void(std::optional<std::string>)> done) override;
 
 private:
   void refresh();

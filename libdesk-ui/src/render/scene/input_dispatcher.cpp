@@ -103,7 +103,9 @@ void InputDispatcher::setSceneRoot(Node* root) {
   }
   if (root == nullptr && m_focusedArea != nullptr) {
     clearTextInputFocus(m_focusedArea);
+    s_sceneTeardown = true;
     m_focusedArea->dispatchFocusLoss();
+    s_sceneTeardown = false;
     m_focusedArea = nullptr;
   }
 

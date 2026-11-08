@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include <vector>
 
+class WaylandConnection;
 struct wl_registry;
 struct wl_seat;
 
@@ -116,6 +117,11 @@ public:
   // hint, duplicate of a pin, blank or oversized text) is still what pastes.
   [[nodiscard]] std::optional<std::string> clipboardText() override;
   void setClipboardText(std::string text) override;
+  // Middle-click paste in shell text fields, through the toolkit's primary selection on `wayland`.
+  void setPrimarySelectionSource(WaylandConnection* wayland);
+  [[nodiscard]] std::optional<std::string> primaryText() override;
+  void setPrimaryText(std::string text) override;
+  void requestPrimaryText(std::function<void(std::optional<std::string>)> done) override;
 
   // When disabled, the live clipboard transport stays active (so basic
   // copy/paste keeps working) but history is neither accumulated nor persisted.
@@ -157,6 +163,7 @@ public:
   void handleSourceCancelled(void* source);
 
 private:
+  WaylandConnection* m_primaryWayland = nullptr;
   struct OfferState {
     void* offer = nullptr;
     std::vector<std::string> mimeTypes;

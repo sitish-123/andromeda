@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -15,4 +16,10 @@ public:
 
   // Replace the system clipboard selection with the given text.
   virtual void setClipboardText(std::string text) = 0;
+
+  // The primary selection (select to copy, middle click to paste); hosts without one keep these defaults.
+  [[nodiscard]] virtual std::optional<std::string> primaryText() { return std::nullopt; }
+  virtual void setPrimaryText(std::string /*text*/) {}
+  // The primary text once known: a middle click can arrive in the same dispatch as the selection it pastes.
+  virtual void requestPrimaryText(std::function<void(std::optional<std::string>)> done) { done(primaryText()); }
 };

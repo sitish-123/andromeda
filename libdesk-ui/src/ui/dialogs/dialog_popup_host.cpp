@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -198,6 +199,8 @@ void DialogPopupHost::destroyPopup() {
   // this surface is destroyed, or the compositor raises xdg_popup protocol error
   // 2 ("destroyed while it was not the topmost popup").
   closeChildPopups();
+  m_animations.cancel(m_acceptFadeAnim);
+  m_acceptFadeAnim = 0;
   m_closeRequestedDuringOpen = false;
   if (m_attachedToHost && m_popupHosts != nullptr) {
     m_popupHosts->endAttachedPopup(m_parentSurface);
@@ -219,9 +222,54 @@ void DialogPopupHost::destroyPopup() {
   m_sceneRoot.reset();
   m_surface.reset();
   m_chrome = {};
+  if (auto then = std::exchange(m_acceptThen, {})) {
+    DeferredCall::callLater(std::move(then)); // holds its own callback (settle): out of a destructor or a reopen
+  }
 }
 
-void DialogPopupHost::closeAfterAccept() { destroyPopup(); }
+void DialogPopupHost::resizePopup(PopupSurfaceConfig config) {
+  if (m_surface == nullptr || m_acceptFadeAnim != 0) {
+    return;
+  }
+  m_chrome = popup_chrome::computeGeometry(
+      static_cast<float>(config.width), static_cast<float>(config.height), shadowStyle(),
+      Style::popupShadowsEnabled()
+  );
+  popup_chrome::applyToConfig(config, m_chrome, chromeAttachment());
+  m_surface->repositionAnchor(config, false);
+  m_surface->resize(config.width, config.height, true);
+  popup_chrome::setContentInputRegion(*m_surface, m_chrome);
+  requestLayout();
+}
+
+void DialogPopupHost::closeAfterAccept(std::function<void()> then) {
+  if (m_surface == nullptr || m_sceneRoot == nullptr || m_openInProgress || m_acceptFadeAnim != 0) {
+    destroyPopup();
+    if (then) {
+      then();
+    }
+    return;
+  }
+  m_acceptThen = std::move(then);
+  // The sheet fades out; input stops at once so the accepted sheet takes no second click.
+  m_acceptFadeAnim = m_animations.animateSpring(
+      1.0F, 0.0F, Style::spring(Tokens::springFadeOut),
+      [this](float v) {
+        if (m_sceneRoot != nullptr) {
+          m_sceneRoot->setOpacity(v);
+        }
+      },
+      [this, alive = std::weak_ptr<bool>(m_alive)] {
+        // Out of the animation tick: destroyPopup frees the surface whose frame runs this.
+        DeferredCall::callLater([this, alive] {
+          if (!alive.expired() && m_acceptFadeAnim != 0) {
+            destroyPopup();
+          }
+        });
+      }
+  );
+  m_surface->requestRedraw();
+}
 
 float DialogPopupHost::uiScale() const {
   if (m_uiSettings == nullptr) {
@@ -257,7 +305,7 @@ PopupSurfaceConfig DialogPopupHost::defaultPopupConfig(
 }
 
 bool DialogPopupHost::onPointerEvent(const PointerEvent& event) {
-  if (m_surface == nullptr) {
+  if (m_surface == nullptr || m_acceptFadeAnim != 0) {
     return false;
   }
 
@@ -324,7 +372,7 @@ bool DialogPopupHost::onPointerEvent(const PointerEvent& event) {
 }
 
 void DialogPopupHost::onKeyboardEvent(const KeyboardEvent& event) {
-  if (m_surface == nullptr) {
+  if (m_surface == nullptr || m_acceptFadeAnim != 0) {
     return;
   }
 
@@ -378,8 +426,11 @@ void DialogPopupHost::cancel() {
   if (m_surface == nullptr) {
     return;
   }
+  const bool accepted = static_cast<bool>(m_acceptThen); // dismissed during the accept fade: the pick stands
   destroyPopup();
-  cancelToFacade();
+  if (!accepted) {
+    cancelToFacade();
+  }
 }
 
 void DialogPopupHost::prepareFrame(bool needsUpdate, bool needsLayout) {

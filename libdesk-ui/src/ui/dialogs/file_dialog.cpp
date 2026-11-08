@@ -60,14 +60,18 @@ bool FileDialog::open(FileDialogOptions options, CompletionCallback callback) {
   return true;
 }
 
-void FileDialog::complete(std::optional<std::filesystem::path> result) {
+void FileDialog::complete(std::optional<std::filesystem::path> result) { settle(std::move(result))(); }
+
+std::function<void()> FileDialog::settle(std::optional<std::filesystem::path> result) {
   auto callback = std::move(s_callback);
   s_callback = {};
   s_hasPendingCallback = false;
   s_options = {};
-  if (callback) {
-    callback(std::move(result));
-  }
+  return [callback = std::move(callback), result = std::move(result)]() mutable {
+    if (callback) {
+      callback(std::move(result));
+    }
+  };
 }
 
 void FileDialog::cancelIfPending() {

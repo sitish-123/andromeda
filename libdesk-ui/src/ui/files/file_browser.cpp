@@ -12,6 +12,7 @@
 #include "render/core/thumbnail_service.h"
 #include "render/scene/accessible.h"
 #include "render/scene/input_area.h"
+#include "render/scene/input_dispatcher.h"
 #include "ui/builders.h"
 #include "ui/controls/box.h"
 #include "ui/controls/button.h"
@@ -946,9 +947,20 @@ std::unique_ptr<Node> FileBrowser::buildHeaderAccessory() {
     }
   });
   m_ui->searchField->setOnFocusLoss([this, alive = m_alive] {
-    if (*alive) {
-      setSearchFocused(false);
+    if (!*alive) {
+      return;
     }
+    if (InputDispatcher::inSceneTeardown()) {
+      // A window rebuild, not a blur: the search keeps the keys once the new scene is up.
+      DeferredCall::callLater([this, alive] {
+        if (*alive && m_ui->searchFocused && m_ui->searchField != nullptr && m_host.focus &&
+            !(m_host.modal && m_host.modal())) {
+          m_host.focus(m_ui->searchField->inputArea());
+        }
+      });
+      return;
+    }
+    setSearchFocused(false);
   });
   row->addChild(std::move(search));
   syncSearchMode();
@@ -1876,6 +1888,39 @@ void FileBrowser::newTab() {
   m_forward.clear();
   navigate(current(), Motion::None);
   refreshTabs();
+}
+
+std::vector<fs::path> FileBrowser::tabFolders() const {
+  std::vector<fs::path> out;
+  out.reserve(m_tabs.size());
+  for (std::size_t i = 0; i < m_tabs.size(); ++i) {
+    const HistoryEntry& entry = i == m_tab ? current() : m_tabs[i].entry;
+    out.push_back(entry.listing.has_value() ? fs::path() : entry.path);
+  }
+  return out;
+}
+
+void FileBrowser::restoreTabs(const std::vector<fs::path>& folders, std::size_t current) {
+  std::error_code ec;
+  std::size_t shown = 0;
+  for (std::size_t i = 0; i < folders.size(); ++i) {
+    if (folders[i].empty() || !fs::is_directory(folders[i], ec)) {
+      continue;
+    }
+    // The first tab exists already (opened on the last place, which is the current tab's folder).
+    if (i > 0) {
+      newTab();
+      jump(folders[i]);
+    } else if (folders[0] != location()) {
+      jump(folders[0]);
+    }
+    if (i <= current) {
+      shown = m_tab;
+    }
+  }
+  if (m_tabs.size() > 1) {
+    selectTab(std::min(shown, m_tabs.size() - 1));
+  }
 }
 
 void FileBrowser::openInNewTab(std::size_t index) {

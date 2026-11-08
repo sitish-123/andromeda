@@ -7,6 +7,8 @@
 #include "ext-data-control-v1-client-protocol.h"
 #include "security/encrypted_file_store.h"
 #include "util/file_utils.h"
+#include "wayland/primary_selection.h"
+#include "wayland/wayland_connection.h"
 #include "wlr-data-control-unstable-v1-client-protocol.h"
 
 #include <algorithm>
@@ -864,6 +866,24 @@ void ClipboardService::setSelectionText(std::optional<std::string> text) {
 }
 
 void ClipboardService::setClipboardText(std::string text) { (void)copyText(std::move(text)); }
+
+void ClipboardService::setPrimarySelectionSource(WaylandConnection* wayland) {
+  m_primaryWayland = wayland;
+  if (wayland != nullptr) {
+    (void)wayland->primarySelection(); // its device must exist to hear selections before the first middle click
+  }
+}
+
+std::optional<std::string> ClipboardService::primaryText() {
+  PrimarySelection* primary = m_primaryWayland != nullptr ? m_primaryWayland->primarySelection() : nullptr;
+  return primary != nullptr ? primary->text() : std::nullopt;
+}
+
+void ClipboardService::setPrimaryText(std::string text) {
+  if (PrimarySelection* primary = m_primaryWayland != nullptr ? m_primaryWayland->primarySelection() : nullptr) {
+    primary->setText(m_primaryWayland->lastInputSerial(), std::move(text));
+  }
+}
 
 bool ClipboardService::copyText(std::string text) {
   std::vector<std::uint8_t> data(text.begin(), text.end());
@@ -2372,5 +2392,13 @@ std::string ClipboardService::buildTextPreview(const std::vector<std::uint8_t>& 
 void ClipboardService::notifyChanged() const {
   if (m_changeCallback) {
     m_changeCallback();
+  }
+}
+
+void ClipboardService::requestPrimaryText(std::function<void(std::optional<std::string>)> done) {
+  if (PrimarySelection* primary = (m_primaryWayland != nullptr ? m_primaryWayland->primarySelection() : nullptr)) {
+    primary->whenText(std::move(done));
+  } else {
+    done(std::nullopt);
   }
 }

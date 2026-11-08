@@ -18,24 +18,7 @@ void AppPopover::open(Request request) {
   }
   m_request = std::move(request);
   m_settings.scale = m_request.scale;
-  const auto width = static_cast<std::uint32_t>(std::max(1.0F, m_request.width));
-  const auto height = static_cast<std::uint32_t>(std::max(1.0F, m_request.height));
-  // Under the control, its right edges lined up; slides back on screen near the edges.
-  const PopupSurfaceConfig config{
-      .anchorX = m_request.anchorX,
-      .anchorY = m_request.anchorY,
-      .anchorWidth = std::max(1, m_request.anchorWidth),
-      .anchorHeight = std::max(1, m_request.anchorHeight),
-      .width = width,
-      .height = height,
-      .anchor = XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
-      .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_LEFT,
-      .constraintAdjustment = XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y,
-      .offsetX = 0,
-      .offsetY = 4,
-      .serial = m_request.serial,
-      .grab = true,
-  };
+  const PopupSurfaceConfig config = popupConfig();
   if (!openPopupAsChild(config, XdgPopupParent{.xdgSurface = m_request.parentXdg, .wlSurface = m_request.parentWl,
                                                .output = nullptr, .serial = m_request.serial, .width = 0, .height = 0})) {
     destroyPopup();
@@ -52,6 +35,41 @@ void AppPopover::layoutSheet(float contentWidth, float contentHeight) {
     m_body->setSize(contentWidth, contentHeight);
     m_body->layout(renderer());
   }
+}
+
+PopupSurfaceConfig AppPopover::popupConfig() const {
+  const auto width = static_cast<std::uint32_t>(std::max(1.0F, m_request.width));
+  const auto height = static_cast<std::uint32_t>(std::max(1.0F, m_request.height));
+  // Under the control, its right edges lined up; slides back on screen near the edges.
+  return PopupSurfaceConfig{
+      .anchorX = m_request.anchorX,
+      .anchorY = m_request.anchorY,
+      .anchorWidth = std::max(1, m_request.anchorWidth),
+      .anchorHeight = std::max(1, m_request.anchorHeight),
+      .width = width,
+      .height = height,
+      .anchor = XDG_POSITIONER_ANCHOR_BOTTOM_RIGHT,
+      .gravity = XDG_POSITIONER_GRAVITY_BOTTOM_LEFT,
+      .constraintAdjustment = XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_SLIDE_X | XDG_POSITIONER_CONSTRAINT_ADJUSTMENT_FLIP_Y,
+      .offsetX = 0,
+      .offsetY = 4,
+      .serial = m_request.serial,
+      .grab = true,
+  };
+}
+
+void AppPopover::resize(std::int32_t anchorX, std::int32_t anchorY, std::int32_t anchorWidth, std::int32_t anchorHeight,
+                        float width, float height) {
+  if (!isOpen()) {
+    return;
+  }
+  m_request.anchorX = anchorX;
+  m_request.anchorY = anchorY;
+  m_request.anchorWidth = anchorWidth;
+  m_request.anchorHeight = anchorHeight;
+  m_request.width = width;
+  m_request.height = height;
+  resizePopup(popupConfig());
 }
 
 void AppPopover::refresh() {

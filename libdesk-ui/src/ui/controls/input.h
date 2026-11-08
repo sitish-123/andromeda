@@ -88,12 +88,15 @@ public:
   // Set once at application startup; all Input instances use this for Ctrl+C/X/V.
   static void setTextClipboard(TextClipboard* clipboard) noexcept;
   [[nodiscard]] static TextClipboard* textClipboard() noexcept;
+  // Right-click on a field: the host shows the edit menu (scene coordinates of the field's surface).
+  static void setContextMenuHandler(std::function<void(Input&, float sceneX, float sceneY)> handler) noexcept;
   /// Submit invokes onSubmit only when this matcher returns true (Application wires ConfigService validate keybinds).
   static void setValidateKeyMatcher(std::function<bool(std::uint32_t sym, std::uint32_t modifiers)> matcher) noexcept;
   static void setPasswordMaskStyle(PasswordMaskStyle style) noexcept;
   /// Readline-style editing shortcuts for every Input (Ctrl+A moves to the start instead of selecting all).
   static void setReadlineShortcutsEnabled(bool enabled) noexcept;
   void clearSelection();
+  [[nodiscard]] bool hasSelection() const noexcept;
 
   [[nodiscard]] const std::string& value() const noexcept { return m_value; }
   [[nodiscard]] InputArea* inputArea() const noexcept { return m_inputArea; }
@@ -106,6 +109,8 @@ public:
   void textInputDeactivated(TextInputService& service) override;
 
 private:
+  void publishPrimary();
+  void pastePrimaryAt(std::size_t offset);
   enum class EditCoalesceKind : std::uint8_t {
     None = 0,
     Typing = 1,
@@ -151,7 +156,6 @@ private:
   [[nodiscard]] bool clearButtonVisible() const noexcept;
   [[nodiscard]] float clearButtonHitWidth() const noexcept;
   [[nodiscard]] float clearButtonTextReserveWidth() const noexcept;
-  [[nodiscard]] bool hasSelection() const noexcept;
   [[nodiscard]] std::size_t selectionStart() const noexcept;
   [[nodiscard]] std::size_t selectionEnd() const noexcept;
   [[nodiscard]] bool isReadOnlyVisual() const noexcept;

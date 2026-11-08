@@ -46,15 +46,19 @@ bool ColorPickerDialog::open(ColorPickerDialogOptions options, CompletionCallbac
   return true;
 }
 
-void ColorPickerDialog::complete(const Color& result) {
+void ColorPickerDialog::complete(const Color& result) { settle(result)(); }
+
+std::function<void()> ColorPickerDialog::settle(const Color& result) {
   s_lastResult = result;
   auto callback = std::move(s_callback);
   s_callback = {};
   s_hasPendingCallback = false;
   s_options = {};
-  if (callback) {
-    DeferredCall::callLater([callback = std::move(callback), result] { callback(result); });
-  }
+  return [callback = std::move(callback), result] {
+    if (callback) {
+      DeferredCall::callLater([callback, result] { callback(result); });
+    }
+  };
 }
 
 void ColorPickerDialog::cancelIfPending() {

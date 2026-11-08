@@ -23,6 +23,7 @@
 #include "wayland/text_input_service.h"
 #include "render/scene/accessible.h"
 
+#include <linux/input-event-codes.h>
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -41,6 +42,7 @@ namespace {
   Input::PasswordMaskStyle g_passwordMaskStyle = Input::PasswordMaskStyle::CircleFilled;
   bool g_readlineShortcuts = false;
   std::function<bool(std::uint32_t, std::uint32_t)> g_validateKeyMatcher;
+  std::function<void(Input&, float, float)> g_contextMenu;
 
   std::optional<std::string> readClipboardText() {
     return g_clipboard != nullptr ? g_clipboard->clipboardText() : std::nullopt;
@@ -239,7 +241,20 @@ Input::Input() {
       m_onFocusLoss();
     }
   });
+  // Right press only with a menu host (desk apps); elsewhere it reaches the parent's own context menu.
+  area->setAcceptedButtons(g_contextMenu ? InputArea::buttonMask({BTN_LEFT, BTN_MIDDLE, BTN_RIGHT})
+                                         : InputArea::buttonMask({BTN_LEFT, BTN_MIDDLE}));
   area->setOnPress([this](const InputArea::PointerData& data) {
+    if (data.button == BTN_RIGHT) {
+      // Cut / Copy / Paste / Select All, as every toolkit's text field (the host opens the menu).
+      if (data.pressed && g_contextMenu) {
+        g_contextMenu(*this, data.sceneX, data.sceneY);
+      }
+      return;
+    }
+    if (!data.pressed && data.button == BTN_LEFT) {
+      publishPrimary(); // a drag, double or triple click selected: select to copy
+    }
     if (data.pressed) {
       resetUndoCoalescing();
       m_goalCaretX = -1.0F;
@@ -247,6 +262,10 @@ Input::Input() {
       const std::size_t offset = m_multiline
           ? pointToByteOffset(data.localX - textStartX, data.localY - kMultilinePadV + m_scrollOffsetY)
           : xToByteOffset(data.localX - textStartX + m_scrollOffset - m_contentLeadSlack);
+      if (data.button == BTN_MIDDLE) {
+        pastePrimaryAt(offset);
+        return;
+      }
       const auto now = std::chrono::steady_clock::now();
       const bool inMultiClickWindow = data.button == BTN_LEFT
           && m_hasLastPrimaryPress
@@ -668,6 +687,43 @@ void Input::setEnabled(bool enabled) {
 }
 
 void Input::setTextClipboard(TextClipboard* clipboard) noexcept { g_clipboard = clipboard; }
+
+void Input::publishPrimary() {
+  if (g_clipboard != nullptr && hasSelection() && !m_passwordMode) {
+    g_clipboard->setPrimaryText(m_value.substr(selectionStart(), selectionEnd() - selectionStart()));
+  }
+}
+
+void Input::pastePrimaryAt(std::size_t offset) {
+  if (g_clipboard == nullptr || !m_enabled || isReadOnlyVisual()) {
+    return;
+  }
+  g_clipboard->requestPrimaryText([this, offset, alive = std::weak_ptr<int>(m_aliveToken)](std::optional<std::string> text) {
+    if (alive.expired() || !text.has_value() || text->empty()) {
+      return;
+    }
+    // As in GTK and Qt: the text goes where the middle click is, not over the selection.
+    std::size_t at = std::min(offset, m_value.size());
+    while (at > 0 && at < m_value.size() && (static_cast<unsigned char>(m_value[at]) & 0xC0U) == 0x80U) {
+      --at; // the value may have changed since the click: never split a UTF-8 sequence
+    }
+    pushUndoSnapshot(EditCoalesceKind::Discrete);
+    insertValue(at, *text);
+    m_cursorPos = at + text->size();
+    m_selectionAnchor = m_cursorPos;
+    updateDisplayText();
+    markTextContentChanged();
+    revealCursor();
+    notifyTextInputStateChanged(TextInputChangeCause::Other);
+    if (m_onChange) {
+      m_onChange(m_value);
+    }
+  });
+}
+
+void Input::setContextMenuHandler(std::function<void(Input&, float sceneX, float sceneY)> handler) noexcept {
+  g_contextMenu = std::move(handler);
+}
 
 TextClipboard* Input::textClipboard() noexcept { return g_clipboard; }
 
@@ -1188,6 +1244,7 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
   // dialog that owns it). Bail before touching members if that happens.
   const std::weak_ptr<int> alive = m_aliveToken;
   clampEditState();
+  const std::pair selectionBefore{selectionStart(), selectionEnd()};
 
   // Apps without a keybind config (libdesk-app) validate with a plain Enter.
   const bool validateMatch = g_validateKeyMatcher ? g_validateKeyMatcher(sym, modifiers)
@@ -1536,6 +1593,9 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
   }
 
   updateDisplayText();
+  if (std::pair{selectionStart(), selectionEnd()} != selectionBefore) {
+    publishPrimary();
+  }
   if (changed) {
     markTextContentChanged();
     revealCursor();

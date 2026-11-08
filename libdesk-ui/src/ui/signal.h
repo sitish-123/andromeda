@@ -29,6 +29,11 @@ private:
   struct State {
     std::vector<Slot> slots;
     std::uint64_t nextId = 0;
+    std::size_t dead = 0;
+    void reap() {
+      slots.erase(std::remove_if(slots.begin(), slots.end(), [](const Slot& s) { return !s.callback; }), slots.end());
+      dead = 0;
+    }
   };
 
 public:
@@ -59,11 +64,19 @@ public:
         return;
       }
       if (auto state = m_state.lock()) {
+        // Slots stay sorted by id (connect appends increasing ids): find by binary search, leave a tombstone and
+        // compact in batches, so tearing down thousands of subscribed nodes stays linear, not quadratic.
         auto& slots = state->slots;
-        slots.erase(
-            std::remove_if(slots.begin(), slots.end(), [id = m_id](const Slot& slot) { return slot.id == id; }),
-            slots.end()
-        );
+        const auto it = std::lower_bound(slots.begin(), slots.end(), m_id,
+                                         [](const Slot& slot, std::uint64_t id) { return slot.id < id; });
+        if (it != slots.end() && it->id == m_id && it->callback) {
+          // Moved out first: its captures may disconnect from this signal (and reap) when they are destroyed.
+          Callback dead;
+          dead.swap(it->callback);
+          if (++state->dead > 32 && state->dead * 2 > slots.size()) {
+            state->reap();
+          }
+        }
       }
       m_id = 0;
     }
@@ -94,9 +107,7 @@ public:
         slot.callback(args...);
       }
     }
-    // Reap tombstones from the canonical list.
-    auto& slots = m_state->slots;
-    slots.erase(std::remove_if(slots.begin(), slots.end(), [](const Slot& s) { return !s.callback; }), slots.end());
+    m_state->reap();
   }
 
 private:

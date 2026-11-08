@@ -91,6 +91,8 @@ public:
   // Runs when the compositor activates or deactivates the window (xdg_toplevel activated state).
   void setActiveCallback(std::function<void(bool active)> callback) { m_onActive = std::move(callback); }
   void setTitle(std::string title);
+  // The edit menu of a text field in this window; false when the field is not in it.
+  bool openTextMenu(class Input& input, float sceneX, float sceneY);
   // A click on the header title (Files: type a location, as Dolphin's editable path). Applies from the next rebuild.
   void setTitleClick(std::function<void()> click) { m_titleClick = std::move(click); }
   // Search mode (Files): the header hides back / forward, the title and More; the accessory takes the row.
@@ -108,6 +110,8 @@ public:
   // A popover under `anchor` (a node of this window), `width` x `height` logical px before ui scale.
   void openPopover(const Node* anchor, float width, float height, std::function<std::unique_ptr<Node>(float scale)> content);
   void refreshPopover();
+  // The open popover takes a new anchor and size in place (same grab), then builds its content again.
+  void resizePopover(const Node* anchor, float width, float height);
   void invalidatePopover(); // its nodes changed in place: relayout and repaint, no rebuild
   void closePopover();
   [[nodiscard]] bool popoverOpen() const noexcept;
@@ -138,6 +142,8 @@ public:
   void onKeyboardEvent(const KeyboardEvent& event);
 
 private:
+  void attachSheet(Renderer& renderer, float width, float height, float margin);
+  void detachSheet();
   void prepareFrame(bool needsLayout);
   void buildScene(Renderer& renderer, float width, float height);
   [[nodiscard]] std::unique_ptr<Flex> buildHeader();
@@ -168,6 +174,8 @@ private:
   std::uint32_t m_sheetAnim = 0;
   std::function<void()> m_onClosed;
   std::function<void()> m_onLayout;
+  bool m_sheetAttach = false; // a sheet waits to join the scene without a rebuild
+  bool m_sheetDetach = false; // a closed sheet waits to leave it
   Rect m_contentRect;
   float m_uiScale = 1.0F;
 
@@ -195,6 +203,7 @@ private:
   InputDispatcher m_input;
   bool m_rebuild = true;
   bool m_buttonDown = false;
+  int m_buttonsHeld = 0;
   bool m_pointerInside = false;
   bool m_inResizeBand = false;
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true); // deferred lambdas skip a destroyed window

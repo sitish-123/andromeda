@@ -97,6 +97,5 @@ void ColorPickerDialogPopup::onSheetClose() {
 }
 
 void ColorPickerDialogPopup::accept(const Color& result) {
-  closeAfterAccept();
-  ColorPickerDialog::complete(result);
+  closeAfterAccept(ColorPickerDialog::settle(result));
 }

@@ -77,6 +77,8 @@ public:
     // Starts a system drag of these paths; false when the platform has none. The host calls dragEnded() after.
     std::function<bool(const std::vector<std::filesystem::path>&)> startDrag;
     std::function<void(InputArea*)> focus;
+    // True while a modal sheet covers the window: the search field behind it does not take the keys back.
+    std::function<bool()> modal;
     // Renames `path` to `name`; `done` gets "" or the error to show under the field.
     std::function<void(const std::filesystem::path& path, const std::string& name,
                        std::function<void(const std::string& error)> done)>
@@ -182,6 +184,11 @@ public:
   void selectTab(std::size_t index);
   void stepTab(int delta); // Ctrl+Tab, Ctrl+Shift+Tab
   [[nodiscard]] std::size_t tabCount() const noexcept { return m_tabs.size(); }
+  [[nodiscard]] std::size_t currentTab() const noexcept { return m_tab; }
+  // Each tab's folder (empty for a listing tab such as Recents), for restore at the next launch.
+  [[nodiscard]] std::vector<std::filesystem::path> tabFolders() const;
+  // Opens one tab per folder after the current one (missing folders are skipped), then shows tab `current`.
+  void restoreTabs(const std::vector<std::filesystem::path>& folders, std::size_t current);
   // Icons view icon size in logical px, 48-128 on the 16 grid (path bar zoom slider); 0 = component.grid.icon.
   void setIconSize(float size);
   [[nodiscard]] float iconSize() const noexcept;

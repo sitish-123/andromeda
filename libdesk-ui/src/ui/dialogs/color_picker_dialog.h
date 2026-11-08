@@ -26,6 +26,9 @@ public:
   static void setPresenter(ColorPickerDialogPresenter* presenter) noexcept;
   [[nodiscard]] static bool open(ColorPickerDialogOptions options, CompletionCallback callback);
   static void complete(const Color& result);
+  // Ends the request now (a cancel or a new open no longer sees it) and returns the call that hands `result` to its
+  // callback, for the popup to run once its fade is over.
+  [[nodiscard]] static std::function<void()> settle(const Color& result);
   static void cancelIfPending();
 
   [[nodiscard]] static const ColorPickerDialogOptions& currentOptions();

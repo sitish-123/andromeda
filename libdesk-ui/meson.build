@@ -111,6 +111,7 @@ foreach _p : [
   ['hyprland-focus-grab-v1', 'protocols/hyprland-focus-grab-v1.xml'],
   ['wlr-output-management-unstable-v1', 'protocols/wlr-output-management-unstable-v1.xml'],
   ['dsk-surface-v1', 'protocols/dsk-surface-v1.xml'],
+  ['primary-selection-unstable-v1', wayland_protos_dir / 'unstable/primary-selection/primary-selection-unstable-v1.xml'],
 ]
   _h = custom_target(_p[0] + '-client-header',
     input: _p[1],
@@ -321,6 +322,8 @@ _desk_ui_sources = files(
   'src/wayland/popup_surface.cpp',
   'src/wayland/subsurface.cpp',
   'src/wayland/drag_and_drop.cpp',
+  'src/wayland/pipe_io.cpp',
+  'src/wayland/primary_selection.cpp',
   'src/wayland/drag_icon_surface.cpp',
   'src/wayland/frame_stats.cpp',
   'src/wayland/surface.cpp',

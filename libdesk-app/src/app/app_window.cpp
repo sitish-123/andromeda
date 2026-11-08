@@ -16,6 +16,8 @@
 #include "ui/controls/button.h"
 #include "app/app_popover.h"
 #include "ui/controls/context_menu_popup.h"
+#include "core/text_clipboard.h"
+#include "ui/controls/input.h"
 #include "ui/controls/select_dropdown_popup.h"
 #include "ui/tooltip/tooltip_manager.h"
 #include "ui/controls/flex.h"
@@ -309,6 +311,30 @@ void AppWindow::openMoreMenu() {
   });
 }
 
+bool AppWindow::openTextMenu(Input& input, float sceneX, float sceneY) {
+  if (InputDispatcher::owning(&input) != &m_input || input.inputArea() == nullptr) {
+    return false;
+  }
+  m_input.setFocus(input.inputArea());
+  const bool selection = input.hasSelection();
+  const bool paste = Input::textClipboard() != nullptr && Input::textClipboard()->clipboardText().has_value();
+  std::vector<ContextMenuControlEntry> entries{
+      {.id = XKB_KEY_x, .label = "Cut", .shortcut = "Ctrl+X", .enabled = selection},
+      {.id = XKB_KEY_c, .label = "Copy", .shortcut = "Ctrl+C", .enabled = selection},
+      {.id = XKB_KEY_v, .label = "Paste", .shortcut = "Ctrl+V", .enabled = paste},
+      {.separator = true},
+      {.id = XKB_KEY_a, .label = "Select All", .shortcut = "Ctrl+A"},
+  };
+  // Each row runs the field's own editing chord, so undo, password rules and change callbacks stay the same.
+  openContextMenu(std::move(entries), sceneX, sceneY, [this](std::int32_t sym) {
+    const auto key = static_cast<std::uint32_t>(sym);
+    m_input.keyEvent(key, 0, KeyMod::Ctrl, true);
+    m_input.keyEvent(key, 0, KeyMod::Ctrl, false);
+    invalidate();
+  });
+  return true;
+}
+
 void AppWindow::openContextMenu(std::vector<ContextMenuControlEntry> entries, float sceneX, float sceneY,
                                 std::function<void(std::int32_t id)> activated) {
   if (m_surface == nullptr || entries.empty()) {
@@ -356,6 +382,20 @@ void AppWindow::openPopover(const Node* anchor, float width, float height,
                    .anchorWidth = static_cast<std::int32_t>(anchor->width()),
                    .anchorHeight = static_cast<std::int32_t>(anchor->height()), .width = width * m_uiScale,
                    .height = height * m_uiScale, .scale = m_uiScale, .content = std::move(content)});
+}
+
+void AppWindow::resizePopover(const Node* anchor, float width, float height) {
+  if (m_popover == nullptr || !m_popover->isOpen() || anchor == nullptr || m_surface == nullptr) {
+    return;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(anchor, x, y);
+  const auto margin = static_cast<float>(m_surface->margin());
+  m_popover->resize(static_cast<std::int32_t>(x - margin), static_cast<std::int32_t>(y - margin),
+                    static_cast<std::int32_t>(anchor->width()), static_cast<std::int32_t>(anchor->height()),
+                    width * m_uiScale, height * m_uiScale);
+  m_popover->refresh();
 }
 
 void AppWindow::refreshPopover() {
@@ -578,6 +618,18 @@ void AppWindow::prepareFrame(bool needsLayout) {
     buildScene(renderer, width, height);
     return;
   }
+  // Held while a button is down, as a rebuild is: a press under the sheet must end where it started.
+  if (!m_buttonDown && std::exchange(m_sheetDetach, false)) {
+    detachSheet();
+  }
+  if (!m_buttonDown && std::exchange(m_sheetAttach, false) && m_sheetBuilder && m_sheetScrim == nullptr) {
+    const auto margin = static_cast<float>(m_surface->margin());
+    m_input.setFocus(nullptr); // the sheet takes the keys, as after a rebuild
+    attachSheet(renderer, width - 2.0F * margin, height - 2.0F * margin, margin); // the card lays itself out
+    m_input.syncPointerHover(); // the scrim is under the pointer now, not the view
+    m_surface->requestRedraw();
+    return;
+  }
   if (compact != m_compact) {
     m_compact = compact;
     swapSidebar(renderer, height - 2.0F * static_cast<float>(m_surface->margin()));
@@ -694,6 +746,7 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
         press->moved = true;
         press->down = false;
         m_buttonDown = false;
+        m_buttonsHeld = 0;
         m_surface->beginMove(press->serial);
       }
     });
@@ -875,31 +928,12 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   m_sheetCard = nullptr;
   m_sheetShade = nullptr;
   m_sheetScrim = nullptr;
+  m_sheetAttach = false;
+  m_sheetDetach = false;
   if (m_sheetBuilder) {
-    const float s = m_uiScale;
-    auto scrim = ui::inputArea({});
-    m_sheetScrim = scrim.get();
-    scrim->setPosition(margin, margin);
-    scrim->setSize(width, height);
-    auto shade = ui::box({.fill = colorSpecFromRole(ColorRole::Shadow, isResolvedLightTheme() ? 0.20F : 0.40F),
-                          .radius = Style::scaledRadius(Tokens::componentWindowRadius, s)});
-    shade->setSize(width, height);
-    shade->setOpacity(m_sheetMix); // the dim fades in with the card
-    m_sheetShade = shade.get();
-    scrim->addChild(std::move(shade));
-    auto card = ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Popover),
-                            .radius = Style::scaledRadius(Tokens::componentDialogRadius, s), .clipChildren = true});
     partStart = std::chrono::steady_clock::now();
-    card->addChild(m_sheetBuilder(s));
+    attachSheet(renderer, width, height, margin);
     sheetMs = since(partStart);
-    card->layout(renderer);
-    card->setPosition(std::round((width - card->width()) / 2.0F), std::round((height - card->height()) / 2.0F));
-    card->setTransformOrigin(card->width() / 2.0F, card->height() / 2.0F);
-    card->setOpacity(m_sheetMix);
-    card->setScale(0.96F + 0.04F * m_sheetMix);
-    m_sheetCard = card.get();
-    scrim->addChild(std::move(card));
-    m_root->addChild(std::move(scrim));
   }
 
   if (m_select == nullptr) {
@@ -1010,7 +1044,8 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
     m_input.pointerEnter(x, y, event.serial);
     // After a drag the pointer comes back with no release event: a rebuild held for the press runs now.
     m_buttonDown = false;
-    if (m_rebuild) {
+    m_buttonsHeld = 0;
+    if (m_rebuild || m_sheetAttach || m_sheetDetach) {
       m_surface->requestLayout();
     }
     break;
@@ -1031,8 +1066,10 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
       }
       break;
     }
-    m_buttonDown = event.pressed;
-    if (!event.pressed && m_rebuild) {
+    // Counted, not the last event: left held + right pressed and released is still a held button.
+    m_buttonsHeld = std::max(0, m_buttonsHeld + (event.pressed ? 1 : -1));
+    m_buttonDown = m_buttonsHeld > 0;
+    if (!event.pressed && (m_rebuild || m_sheetAttach || m_sheetDetach)) {
       m_surface->requestLayout();
     }
     m_input.pointerMotion(x, y, event.serial);
@@ -1040,9 +1077,11 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
     const bool inHeader = windowY >= 0.0F && windowY < kHeaderHeight * m_uiScale && m_input.hoveredArea() == nullptr;
     if (event.pressed && inHeader && event.button == BTN_LEFT) {
       m_buttonDown = false;
+      m_buttonsHeld = 0;
       m_surface->beginMove(event.serial);
     } else if (event.pressed && inHeader && event.button == BTN_RIGHT) {
       m_buttonDown = false;
+      m_buttonsHeld = 0;
       m_surface->showWindowMenu(event.serial, static_cast<std::int32_t>(x), static_cast<std::int32_t>(y));
     } else {
       m_input.pointerButton(x, y, event.button, event.pressed, event.serial, event.time, event.touch);
@@ -1126,6 +1165,44 @@ void AppWindow::setSidebarVisible(bool visible) {
   m_surface->requestLayout(); // the spring ticks on frames; a key press alone asks for none
 }
 
+void AppWindow::attachSheet(Renderer& renderer, float width, float height, float margin) {
+  const float s = m_uiScale;
+  auto scrim = ui::inputArea({});
+  m_sheetScrim = scrim.get();
+  scrim->setPosition(margin, margin);
+  scrim->setSize(width, height);
+  auto shade = ui::box({.fill = colorSpecFromRole(ColorRole::Shadow, isResolvedLightTheme() ? 0.20F : 0.40F),
+                        .radius = Style::scaledRadius(Tokens::componentWindowRadius, s)});
+  shade->setSize(width, height);
+  shade->setOpacity(m_sheetMix); // the dim fades in with the card
+  m_sheetShade = shade.get();
+  scrim->addChild(std::move(shade));
+  auto card = ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Popover),
+                          .radius = Style::scaledRadius(Tokens::componentDialogRadius, s), .clipChildren = true});
+  card->addChild(m_sheetBuilder(s));
+  card->layout(renderer);
+  card->setPosition(std::round((width - card->width()) / 2.0F), std::round((height - card->height()) / 2.0F));
+  card->setTransformOrigin(card->width() / 2.0F, card->height() / 2.0F);
+  card->setOpacity(m_sheetMix);
+  card->setScale(0.96F + 0.04F * m_sheetMix);
+  m_sheetCard = card.get();
+  scrim->addChild(std::move(card));
+  m_root->addChild(std::move(scrim));
+}
+
+void AppWindow::detachSheet() {
+  Node* scrim = std::exchange(m_sheetScrim, nullptr);
+  if (scrim == nullptr || m_root == nullptr) {
+    requestRebuild();
+    return;
+  }
+  auto removed = m_root->removeChild(scrim);
+  m_input.forgetDetached(); // hover or focus inside the sheet goes while its nodes still live
+  removed.reset();
+  m_input.syncPointerHover();
+  m_surface->requestRedraw();
+}
+
 void AppWindow::presentSheet(std::function<std::unique_ptr<Node>(float)> builder, std::function<void()> onCancel) {
   const bool replacing = static_cast<bool>(m_sheetBuilder);
   m_sheetBuilder = std::move(builder);
@@ -1157,6 +1234,12 @@ void AppWindow::presentSheet(std::function<std::unique_ptr<Node>(float)> builder
       },
       nullptr
   );
+  if (m_root != nullptr && m_sheetScrim == nullptr) {
+    // Only the sheet joins the scene: the window under it stays as it is (no teardown of a large view).
+    m_sheetAttach = true;
+    m_surface->requestLayout();
+    return;
+  }
   requestRebuild();
 }
 
@@ -1212,8 +1295,8 @@ void AppWindow::dismissSheet() {
           m_sheetMix = 1.0F;
           m_sheetCard = nullptr;
           m_sheetShade = nullptr;
-          m_sheetScrim = nullptr;
-          requestRebuild();
+          m_sheetDetach = true;
+          m_surface->requestLayout();
         },
         nullptr
     );

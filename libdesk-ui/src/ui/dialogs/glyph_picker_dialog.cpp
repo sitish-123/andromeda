@@ -45,15 +45,19 @@ bool GlyphPickerDialog::open(GlyphPickerDialogOptions options, CompletionCallbac
   return true;
 }
 
-void GlyphPickerDialog::complete(const GlyphPickerResult& result) {
+void GlyphPickerDialog::complete(const GlyphPickerResult& result) { settle(result)(); }
+
+std::function<void()> GlyphPickerDialog::settle(const GlyphPickerResult& result) {
   s_lastResult = result;
   auto callback = std::move(s_callback);
   s_callback = {};
   s_hasPendingCallback = false;
   s_options = {};
-  if (callback) {
-    callback(result);
-  }
+  return [callback = std::move(callback), result] {
+    if (callback) {
+      callback(result);
+    }
+  };
 }
 
 void GlyphPickerDialog::cancelIfPending() {

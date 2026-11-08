@@ -7,6 +7,7 @@
 #include "wayland/popup_surface.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -93,10 +94,11 @@ protected:
   // reset the scene tree, drop the PopupSurface. Safe to call repeatedly.
   void destroyPopup();
 
-  // Subclass `accept(T)` calls this before invoking its facade's
-  // `complete(T)`. Wraps `destroyPopup()` so the sheet teardown happens
-  // before the facade is notified.
-  void closeAfterAccept();
+  // Subclass `accept(T)` passes its facade's `settle(T)` as `then`: the request ends at once, the sheet fades out and
+  // is torn down, and only then does the caller get the result, so its handler may close the parent surface.
+  void closeAfterAccept(std::function<void()> then);
+  // New content size and anchor for the open popup, in place (xdg_popup reposition: no new grab).
+  void resizePopup(PopupSurfaceConfig config);
 
   // Tear the popup down and notify the facade via `cancelToFacade()`.
   // Subclasses route their sheet's Cancel button through this. Also fires
@@ -195,6 +197,9 @@ protected:
   bool m_pointerInside = false;
   bool m_openInProgress = false;
   bool m_closeRequestedDuringOpen = false;
+  AnimationManager::Id m_acceptFadeAnim = 0;
+  std::function<void()> m_acceptThen; // runs once the popup is gone, whatever ends the fade
+  std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 
 private:
   // Tear down any popup parented to this one (e.g. a glyph/color/file picker

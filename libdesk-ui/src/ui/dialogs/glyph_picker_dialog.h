@@ -26,6 +26,9 @@ public:
   static void setPresenter(GlyphPickerDialogPresenter* presenter) noexcept;
   [[nodiscard]] static bool open(GlyphPickerDialogOptions options, CompletionCallback callback);
   static void complete(const GlyphPickerResult& result);
+  // Ends the request now (a cancel or a new open no longer sees it) and returns the call that hands `result` to its
+  // callback, for the popup to run once its fade is over.
+  [[nodiscard]] static std::function<void()> settle(const GlyphPickerResult& result);
   static void cancelIfPending();
 
   [[nodiscard]] static const GlyphPickerDialogOptions& currentOptions();

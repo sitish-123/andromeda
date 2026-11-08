@@ -645,6 +645,7 @@ void Application::syncStorageKeyProvider() {
   const StorageConfig& storage = m_configService.config().storage;
   const bool encryptedDataExists = m_clipboardService.hasEncryptedPersistence()
       || m_calendarService.hasEncryptedCache()
+  m_clipboardService.setPrimarySelectionSource(&m_wayland);
       || m_notificationManager.hasEncryptedHistory();
   m_storageKeyProvider.configure(storage.keySource, storage.keyFile, encryptedDataExists);
 }

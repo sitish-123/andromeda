@@ -87,3 +87,8 @@ S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowWidth = | Wallpaper
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowHeight = | Wallpaper window frame 980 x 700
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowMinWidth = | Wallpaper window minimum: preview card + 2 grid columns fit
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowMinHeight = | Wallpaper window minimum: header, preview card and one grid row fit
+S1 | libdesk-ui/src/ui/tooltip/tooltip_manager.cpp | kMaxContentWidth = | tooltip text wraps at 280 (rulebook tooltip; moved from shell/src/shell/tooltip)
+S1 | libdesk-ui/src/ui/tooltip/tooltip_manager.cpp | kTableMinPeerColumnWidth = | tooltip key table column minimum (moved from shell/src/shell/tooltip)
+S1 | libdesk-ui/src/ui/files/file_browser.cpp | 4.0F * Tokens::componentFilesViewItemWidth | a count (4 cells, 5 paddings), not a size
+S1 | libdesk-ui/src/ui/files/file_gallery.cpp | 2.0F * Tokens::spaceP16 | a count (padding on both sides), not a size
+S1 | libdesk-ui/src/ui/files/file_gallery.cpp | std::max(4.0F, std::round((fx1 | navigator frame floor in navigator pixels, so a deep zoom still shows a frame

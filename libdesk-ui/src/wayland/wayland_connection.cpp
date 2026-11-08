@@ -16,6 +16,8 @@
 #include "viewporter-client-protocol.h"
 #include "presentation-time-client-protocol.h"
 #include "wayland/drag_and_drop.h"
+#include "wayland/primary_selection.h"
+#include "primary-selection-unstable-v1-client-protocol.h"
 #include "wayland/hyprland/focus_grab_service.h"
 #include "wayland/layer_surface.h"
 #include "wayland/text_input_service.h"
@@ -1476,6 +1478,12 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zwp_primary_selection_device_manager_v1_interface.name) {
+    m_primarySelectionManager = static_cast<zwp_primary_selection_device_manager_v1*>(
+        wl_registry_bind(registry, name, &zwp_primary_selection_device_manager_v1_interface, 1));
+    return;
+  }
+
   if (interfaceName == wl_data_device_manager_interface.name) {
     m_dataDeviceManager = static_cast<wl_data_device_manager*>(
         wl_registry_bind(registry, name, &wl_data_device_manager_interface, std::min(version, 3U)));
@@ -1648,6 +1656,11 @@ void WaylandConnection::cleanup() {
   }
 
   m_dragAndDrop.reset();
+  m_primarySelection.reset();
+  if (m_primarySelectionManager != nullptr) {
+    zwp_primary_selection_device_manager_v1_destroy(m_primarySelectionManager);
+    m_primarySelectionManager = nullptr;
+  }
   if (m_dataDeviceManager != nullptr) {
     wl_data_device_manager_destroy(m_dataDeviceManager);
     m_dataDeviceManager = nullptr;
@@ -1753,6 +1766,13 @@ void WaylandConnection::logStartupSummary() const {
       );
     }
   }
+}
+
+PrimarySelection* WaylandConnection::primarySelection() {
+  if (m_primarySelection == nullptr && m_primarySelectionManager != nullptr && seat() != nullptr) {
+    m_primarySelection = std::make_unique<PrimarySelection>(*this, m_primarySelectionManager);
+  }
+  return m_primarySelection.get();
 }
 
 DragAndDrop* WaylandConnection::dragAndDrop() {

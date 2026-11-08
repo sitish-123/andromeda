@@ -30,6 +30,8 @@ public:
 
   // The dispatcher whose scene root is `node` or one of its ancestors (assistive-technology focus requests).
   [[nodiscard]] static InputDispatcher* owning(const Node* node);
+  // True inside the focus loss that a scene teardown (a window rebuild) sends, not a user's blur.
+  [[nodiscard]] static bool inSceneTeardown() noexcept { return s_sceneTeardown; }
 
   void setSceneRoot(Node* root);
   void setCursorShapeCallback(CursorShapeCallback callback);
@@ -56,6 +58,8 @@ public:
   // A touchpad pinch goes to the nearest area under (x, y), or its ancestor, that handles pinches.
   void pointerPinch(float x, float y, const InputArea::PinchData& data);
   void cancelPointerCapture();
+  // Drops hover, capture and focus held by areas no longer in the scene (a removed subtree, before it is freed).
+  void forgetDetached() { pruneDetachedAreas(); }
 
   // Dispatch keyboard events to the focused area
   void keyEvent(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modifiers, bool pressed, bool preedit = false);
@@ -76,6 +80,7 @@ public:
   [[nodiscard]] bool pointerCaptured() const noexcept { return m_capturedArea != nullptr; }
 
 private:
+  static inline bool s_sceneTeardown = false;
   InputArea* findInputAreaAt(float x, float y);
   [[nodiscard]] bool isAttachedToScene(const InputArea* area) const;
   void pruneDetachedAreas();

@@ -100,6 +100,5 @@ InputArea* FileDialogPopup::focusedArea() const {
 }
 
 void FileDialogPopup::accept(std::optional<std::filesystem::path> result) {
-  closeAfterAccept();
-  FileDialog::complete(std::move(result));
+  closeAfterAccept(FileDialog::settle(std::move(result)));
 }

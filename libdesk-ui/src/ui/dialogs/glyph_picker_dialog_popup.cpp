@@ -93,6 +93,5 @@ void GlyphPickerDialogPopup::onSheetClose() {
 }
 
 void GlyphPickerDialogPopup::accept(const GlyphPickerResult& result) {
-  closeAfterAccept();
-  GlyphPickerDialog::complete(result);
+  closeAfterAccept(GlyphPickerDialog::settle(result));
 }

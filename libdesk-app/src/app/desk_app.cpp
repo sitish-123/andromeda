@@ -93,6 +93,7 @@ DeskApp::~DeskApp() {
   m_windows.clear();
   TooltipManager::instance().shutdown();
   Input::setTextClipboard(nullptr);
+  Input::setContextMenuHandler({});
   if (m_textInput != nullptr) {
     m_loop.wayland().setTextInputService(nullptr);
   }
@@ -178,6 +179,13 @@ int DeskApp::run(int argc, char* argv[]) {
       m_loop.wayland(), [this] { return m_windows.empty() ? 1.0F : m_windows.front()->uiScale(); }, &m_loop.renderContext()
   );
   Input::setTextClipboard(m_clipboard.get());
+  Input::setContextMenuHandler([this](Input& input, float x, float y) {
+    for (const auto& window : m_windows) {
+      if (window->openTextMenu(input, x, y)) {
+        return;
+      }
+    }
+  });
   addStandardCommands();
   m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { routePointer(event); });
   m_loop.wayland().setPinchEventCallback([this](const PinchEvent& event) {

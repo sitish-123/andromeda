@@ -53,6 +53,8 @@ class LayerSurface;
 class FocusGrabService;
 class TextInputService;
 class DragAndDrop;
+class PrimarySelection;
+struct zwp_primary_selection_device_manager_v1;
 
 struct WaylandOutput {
   std::uint32_t name = 0;
@@ -188,6 +190,8 @@ public:
   [[nodiscard]] wl_data_device_manager* dataDeviceManager() const noexcept { return m_dataDeviceManager; }
   // Created on first use; nullptr without a data device manager or seat.
   [[nodiscard]] DragAndDrop* dragAndDrop();
+  // Created on first use; nullptr when the compositor has no primary selection.
+  [[nodiscard]] PrimarySelection* primarySelection();
   [[nodiscard]] wl_display* display() const noexcept;
   [[nodiscard]] wl_registry* registry() const noexcept { return m_registry; }
   /// Registry name and bound version of zwlr_output_manager_v1, 0 when absent.
@@ -329,6 +333,8 @@ private:
   std::unordered_set<zwlr_output_mode_v1*> m_outputModes;
   std::unique_ptr<FocusGrabService> m_focusGrabService;
   std::unique_ptr<DragAndDrop> m_dragAndDrop;
+  std::unique_ptr<PrimarySelection> m_primarySelection;
+  zwp_primary_selection_device_manager_v1* m_primarySelectionManager = nullptr;
   wp_viewporter* m_viewporter = nullptr;
   wp_presentation* m_presentation = nullptr;
   wl_data_device_manager* m_dataDeviceManager = nullptr;

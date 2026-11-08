@@ -48,6 +48,9 @@ public:
   static void setPresenter(FileDialogPresenter* presenter) noexcept;
   [[nodiscard]] static bool open(FileDialogOptions options, CompletionCallback callback);
   static void complete(std::optional<std::filesystem::path> result);
+  // Ends the request now (a cancel or a new open no longer sees it) and returns the call that hands `result` to its
+  // callback, for the popup to run once its fade is over.
+  [[nodiscard]] static std::function<void()> settle(std::optional<std::filesystem::path> result);
   static void cancelIfPending();
   static void setLastBrowsedDirectory(std::filesystem::path directory) noexcept;
 
