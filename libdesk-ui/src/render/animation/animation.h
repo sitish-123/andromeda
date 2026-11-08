@@ -63,6 +63,8 @@ struct Animation {
   // Set for spring animations: the spring owns the timing and durationMs/easing do not apply.
   std::optional<desk::motion::Spring> spring;
   std::chrono::steady_clock::time_point lastStep;
+  // False until the first frame tick, which advances at most one frame.
+  bool stepped = false;
   float threshold = 0.0F;
   bool clamp01 = false;
   // Stagger: the spring holds until this much time has passed.

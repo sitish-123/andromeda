@@ -5,7 +5,9 @@
 #include "dbus/system_bus.h"
 #include "util/file_utils.h"
 
+#include <algorithm>
 #include <ctime>
+#include <map>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -162,6 +164,18 @@ PowerConfigService::PowerConfigService(SystemBus& bus) {
         finishTrial();
       }
     });
+    // A shutdown scheduled anywhere (Settings, `shutdown +10`) shows in the island; logind emits the change.
+    m_manager->uponSignal("PropertiesChanged")
+        .onInterface("org.freedesktop.DBus.Properties")
+        .call([this](
+                  const std::string& interface, const std::map<std::string, sdbus::Variant>& changed,
+                  const std::vector<std::string>& invalidated
+              ) {
+          if (interface == kManagerInterface
+              && (changed.contains("ScheduledShutdown") || std::ranges::contains(invalidated, "ScheduledShutdown"))) {
+            readScheduledShutdown();
+          }
+        });
   }
   refresh();
 }
@@ -278,6 +292,57 @@ void PowerConfigService::readSystem() {
   saved >> m_state.trial >> m_trialFingerprint;
 }
 
+void PowerConfigService::readScheduledShutdown() {
+  if (m_manager == nullptr) {
+    return;
+  }
+  const std::weak_ptr<int> alive = m_aliveToken;
+  m_manager->getPropertyAsync("ScheduledShutdown").onInterface(kManagerInterface).uponReplyInvoke(
+      [this, alive](std::optional<sdbus::Error> e, const sdbus::Variant& value) {
+        if (alive.expired() || e.has_value()) {
+          return;
+        }
+        const auto scheduled = value.get<sdbus::Struct<std::string, std::uint64_t>>();
+        m_state.scheduledAction = scheduled.get<0>();
+        m_state.scheduledUsec = scheduled.get<1>();
+        notify();
+      }
+  );
+}
+
+void PowerConfigService::scheduleShutdown(const std::string& action, std::uint64_t usec) {
+  if (m_manager == nullptr) {
+    return;
+  }
+  m_manager->callMethodAsync("ScheduleShutdown").onInterface(kManagerInterface).withArguments(action, usec).uponReplyInvoke(
+      [this, alive = std::weak_ptr<int>(m_aliveToken)](std::optional<sdbus::Error> e) {
+        if (e.has_value()) {
+          kLog.warn("schedule shutdown refused: {}", e->what());
+        }
+        // logind may not signal ScheduledShutdown: read it back.
+        if (!alive.expired()) {
+          readScheduledShutdown();
+        }
+      }
+  );
+}
+
+void PowerConfigService::cancelScheduledShutdown() {
+  if (m_manager == nullptr) {
+    return;
+  }
+  m_manager->callMethodAsync("CancelScheduledShutdown").onInterface(kManagerInterface).uponReplyInvoke(
+      [this, alive = std::weak_ptr<int>(m_aliveToken)](std::optional<sdbus::Error> e, bool /*cancelled*/) {
+        if (e.has_value()) {
+          kLog.warn("cancel scheduled shutdown failed: {}", e->what());
+        }
+        if (!alive.expired()) {
+          readScheduledShutdown();
+        }
+      }
+  );
+}
+
 void PowerConfigService::readLogind() {
   if (m_manager == nullptr) {
     return;
@@ -302,6 +367,7 @@ void PowerConfigService::readLogind() {
   readString("HandleLidSwitchExternalPower", &PowerConfigState::lidPower);
   readString("HandleLidSwitchDocked", &PowerConfigState::lidDocked);
   readString("HandlePowerKey", &PowerConfigState::powerKey);
+  readScheduledShutdown();
 
   const auto readCan = [this, alive](const char* method, bool PowerConfigState::* field) {
     m_manager->callMethodAsync(method).onInterface(kManagerInterface).uponReplyInvoke(

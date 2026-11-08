@@ -47,6 +47,9 @@ struct PowerConfigState {
   // The helper's "guide: <url>" line for an exit 3: official manual steps for this setup.
   std::string lastGuide;
   int lastExit = 0;
+  // logind ScheduledShutdown: "poweroff", "reboot", ... and when, in CLOCK_REALTIME microseconds; 0 = none.
+  std::string scheduledAction;
+  std::uint64_t scheduledUsec = 0;
 };
 
 class PowerConfigService {
@@ -69,12 +72,16 @@ public:
   // Sets UPower's critical action to Hibernate when hibernateVerified(), else Power Off; asks polkit only on a change.
   void syncCriticalAction();
   void reboot();
+  // `action` is poweroff or reboot; `usec` is CLOCK_REALTIME microseconds. polkit may ask for a password.
+  void scheduleShutdown(const std::string& action, std::uint64_t usec);
+  void cancelScheduledShutdown();
 
   [[nodiscard]] const PowerConfigState& state() const noexcept { return m_state; }
 
 private:
   void readSystem();
   void readLogind();
+  void readScheduledShutdown();
   void notify();
   void writeTrial(const std::string& value);
   void finishTrial();

@@ -55,7 +55,7 @@ namespace glass {
       break;
     case Kind::Sheet:
     case Kind::Menu:
-      tint = light ? curve(0.20F, 0.34F, 0.95F) : curve(0.46F, 0.66F, 0.99F);
+      tint = light ? curve(0.60F, 0.84F, 0.97F) : curve(0.46F, 0.66F, 0.99F);
       break;
     case Kind::Tooltip:
       tint = light ? curve(0.70F, 0.84F, 0.95F) : curve(0.80F, 0.88F, 0.99F);

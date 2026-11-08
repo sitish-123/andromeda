@@ -381,7 +381,11 @@ void AnimationManager::tickAt(std::chrono::steady_clock::time_point now) {
 
     if (anim.spring) {
       constexpr float kMaxStepMs = 50.0F;
-      float stepMs = std::clamp(std::chrono::duration<float, std::milli>(now - anim.lastStep).count(), 0.0F, kMaxStepMs);
+      // The first tick advances at most one frame, so a surface mapped late still starts near the start value.
+      constexpr float kFirstStepMs = 1000.0F / 60.0F;
+      float stepMs = std::clamp(std::chrono::duration<float, std::milli>(now - anim.lastStep).count(), 0.0F,
+                                anim.stepped ? kMaxStepMs : kFirstStepMs);
+      anim.stepped = true;
       anim.lastStep = now;
       if (anim.delayMs > 0.0F) {
         anim.delayMs -= stepMs;

@@ -16,9 +16,9 @@ namespace {
   constexpr auto kRequestInterface = "org.freedesktop.impl.portal.Request";
   constexpr auto kSessionInterface = "org.freedesktop.impl.portal.Session";
   constexpr std::uint32_t kVersion = 3;
+  constexpr std::uint32_t kFlagLogout = 1;
   constexpr std::uint32_t kFlagSuspend = 4;
   constexpr std::uint32_t kFlagIdle = 8;
-  constexpr std::uint32_t kSessionRunning = 1;
 
 } // namespace
 
@@ -37,8 +37,17 @@ InhibitPortal::InhibitPortal(SessionBus& bus, SystemBus* systemBus) : m_bus(bus)
               .implementedAs([this](
                                  const sdbus::ObjectPath& handle, const std::string& appId,
                                  const std::string& /*window*/, std::uint32_t flags,
-                                 const std::map<std::string, sdbus::Variant>& /*options*/
-                             ) { inhibit(handle, appId, flags); }),
+                                 const std::map<std::string, sdbus::Variant>& options
+                             ) {
+                std::string reason;
+                if (const auto it = options.find("reason"); it != options.end()) {
+                  try {
+                    reason = it->second.get<std::string>();
+                  } catch (const sdbus::Error&) {
+                  }
+                }
+                inhibit(handle, appId, flags, reason);
+              }),
           sdbus::registerMethod("CreateMonitor")
               .withInputParamNames("handle", "session_handle", "app_id", "window")
               .withOutputParamNames("response")
@@ -62,8 +71,13 @@ InhibitPortal::InhibitPortal(SessionBus& bus, SystemBus* systemBus) : m_bus(bus)
 
 InhibitPortal::~InhibitPortal() = default;
 
-void InhibitPortal::inhibit(const std::string& handle, const std::string& appId, std::uint32_t flags) {
+void InhibitPortal::inhibit(
+    const std::string& handle, const std::string& appId, std::uint32_t flags, const std::string& reason
+) {
   Handle entry;
+  entry.appId = appId;
+  entry.reason = reason;
+  entry.flags = flags;
   entry.object = sdbus::createObject(m_bus.connection(), sdbus::ObjectPath{handle});
   entry.object->addVTable(
                   sdbus::registerMethod("Close").implementedAs([this, handle]() { close(handle); })
@@ -87,6 +101,39 @@ void InhibitPortal::inhibit(const std::string& handle, const std::string& appId,
   }
   kLog.info("{} inhibits flags {} ({} logind locks)", who, flags, entry.inhibitors.size());
   m_handles.insert_or_assign(handle, std::move(entry));
+  if ((flags & kFlagLogout) != 0 && m_changeCallback) {
+    m_changeCallback();
+  }
+}
+
+std::vector<InhibitPortal::LogoutInhibitor> InhibitPortal::logoutInhibitors() const {
+  std::vector<LogoutInhibitor> out;
+  for (const auto& [handle, entry] : m_handles) {
+    if (!entry.monitor && (entry.flags & kFlagLogout) != 0) {
+      out.push_back({.appId = entry.appId, .reason = entry.reason});
+    }
+  }
+  return out;
+}
+
+void InhibitPortal::setSessionState(SessionState state) {
+  if (state == m_state) {
+    return;
+  }
+  m_state = state;
+  for (const auto& [handle, entry] : m_handles) {
+    if (entry.monitor) {
+      emitState(handle);
+    }
+  }
+}
+
+void InhibitPortal::emitState(const std::string& sessionHandle) {
+  const std::map<std::string, sdbus::Variant> state{
+      {"screensaver-active", sdbus::Variant{false}},
+      {"session-state", sdbus::Variant{static_cast<std::uint32_t>(m_state)}}
+  };
+  m_object->emitSignal("StateChanged").onInterface(kInterface).withArguments(sdbus::ObjectPath{sessionHandle}, state);
 }
 
 void InhibitPortal::createMonitor(const std::string& sessionHandle) {
@@ -98,17 +145,14 @@ void InhibitPortal::createMonitor(const std::string& sessionHandle) {
           sdbus::registerSignal("Closed"), sdbus::registerProperty("version").withGetter([]() { return 1U; })
       )
       .forInterface(kSessionInterface);
+  entry.monitor = true;
   m_handles.insert_or_assign(sessionHandle, std::move(entry));
 
   // xdg-desktop-portal registers the session only once CreateMonitor has replied.
   DeferredCall::callLater([this, sessionHandle]() {
-    if (!m_handles.contains(sessionHandle)) {
-      return;
+    if (m_handles.contains(sessionHandle)) {
+      emitState(sessionHandle);
     }
-    const std::map<std::string, sdbus::Variant> state{
-        {"screensaver-active", sdbus::Variant{false}}, {"session-state", sdbus::Variant{kSessionRunning}}
-    };
-    m_object->emitSignal("StateChanged").onInterface(kInterface).withArguments(sdbus::ObjectPath{sessionHandle}, state);
   });
 }
 
@@ -118,6 +162,12 @@ void InhibitPortal::close(const std::string& handle) {
     return;
   }
   it->second.inhibitors.clear();
+  const bool logout = !it->second.monitor && (it->second.flags & kFlagLogout) != 0;
   // The object is running this Close call; destroy it once the call has returned.
-  DeferredCall::callLater([this, handle]() { m_handles.erase(handle); });
+  DeferredCall::callLater([this, handle, logout]() {
+    m_handles.erase(handle);
+    if (logout && m_changeCallback) {
+      m_changeCallback();
+    }
+  });
 }
