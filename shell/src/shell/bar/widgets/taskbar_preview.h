@@ -62,6 +62,7 @@ public:
   void closeNow();
   [[nodiscard]] bool isOpen() const noexcept { return m_surface != nullptr && !m_closing; }
   [[nodiscard]] const std::string& key() const noexcept { return m_request.key; }
+  [[nodiscard]] const std::vector<ToplevelInfo>& windows() const noexcept { return m_request.windows; }
   [[nodiscard]] bool pointerInside() const noexcept { return m_pointerInside; }
   // Called when the pointer leaves the popover.
   void setOnPointerLeave(std::function<void()> callback) { m_onPointerLeave = std::move(callback); }

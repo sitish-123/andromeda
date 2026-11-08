@@ -334,7 +334,10 @@ void TaskbarWidget::openTaskPreview(TaskRef ref, PopupAnchorRect anchor) {
     return;
   }
   const std::string key = task->appId + "|" + task->idLower;
-  if (m_preview != nullptr && m_preview->isOpen() && m_preview->key() == key) {
+  auto windows = m_platform.enrichedWindowsForApp(task->idLower, task->startupWmClassLower, toplevelOutputFilter());
+  // An open preview of the same app is kept unless its windows changed (one opened or closed meanwhile).
+  if (m_preview != nullptr && m_preview->isOpen() && m_preview->key() == key
+      && std::ranges::equal(m_preview->windows(), windows, {}, &ToplevelInfo::identifier, &ToplevelInfo::identifier)) {
     return;
   }
   auto* layerSurface = m_platform.layerSurfaceFor(m_platform.lastPointerSurface());
@@ -351,7 +354,6 @@ void TaskbarWidget::openTaskPreview(TaskRef ref, PopupAnchorRect anchor) {
       });
     });
   }
-  auto windows = m_platform.enrichedWindowsForApp(task->idLower, task->startupWmClassLower, toplevelOutputFilter());
   m_preview->open({
       .parent = layerSurface,
       .output = m_output,

@@ -509,6 +509,9 @@ void WindowMenuWidget::openPopup(std::size_t index, std::vector<ContextMenuContr
   Node::absolutePosition(menuItem.area, absX, absY);
   const bool bottom = m_barPosition == "bottom";
   const auto gap = static_cast<std::int32_t>(std::lround(Style::spaceXs * m_contentScale));
+  // Set before open(): its first roundtrip can deliver the press's release, whose hover refresh must see this item
+  // as the open one, or onEnter reopens the menu and destroys the popup being created.
+  m_openItem = index;
   m_menu->open(ContextMenuPopupRequest{
       .entries = std::move(entries),
       .minMenuWidth = kMenuWidth * m_contentScale,
@@ -550,6 +553,5 @@ void WindowMenuWidget::openPopup(std::size_t index, std::vector<ContextMenuContr
       }
     }
   });
-  m_openItem = index;
   syncFills();
 }

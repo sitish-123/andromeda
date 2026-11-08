@@ -957,8 +957,10 @@ namespace {
 
             const float rootX = shellX + member.x;
             const float rootY = shellY + member.y;
-            const float mainStart = shellMainStart + member.sliceStart;
-            const float mainEnd = shellMainStart + member.sliceEnd;
+            // hover_as_one: every member's pill spans the whole group, so the hovered one lights all of it.
+            const bool asOne = run.spec.hoverAsOne;
+            const float mainStart = shellMainStart + (asOne ? laidOut.front().sliceStart : member.sliceStart);
+            const float mainEnd = shellMainStart + (asOne ? laidOut.back().sliceEnd : member.sliceEnd);
             const float mainExtent = std::max(0.0F, mainEnd - mainStart);
             const float hoverW = isVertical ? hoverCross : mainExtent;
             const float hoverH = isVertical ? mainExtent : hoverCross;
