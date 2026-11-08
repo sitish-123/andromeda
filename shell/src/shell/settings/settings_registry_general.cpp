@@ -962,6 +962,9 @@ namespace settings {
         noctalia::config::schema::desktopWidgetsSchema(), cfg.desktopWidgets, {"desktop_widgets"}
     );
     appendGroup(entries, desktopWidgetRows, "widgets");
+    auto desktopIconRows =
+        generateSchemaEntries(noctalia::config::schema::desktopIconsSchema(), cfg.desktopIcons, {"desktop_icons"});
+    appendGroup(entries, desktopIconRows, "icons");
     auto screenCornerRows = generateSchemaEntries(
         noctalia::config::schema::screenCornersSchema(), cfg.shell.screenCorners, {"shell", "screen_corners"}
     );

@@ -829,6 +829,7 @@ struct DesktopIconsConfig {
   DesktopIconsCorner startCorner = DesktopIconsCorner::TopLeft;
   std::int32_t iconSize = 64;
   bool stacks = false; // Use Stacks: files grouped by kind (FILES-UI-SPEC §20)
+  bool snapToGrid = true; // off: an icon stays where it is dropped
 
   bool operator==(const DesktopIconsConfig&) const = default;
 };

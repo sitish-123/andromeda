@@ -1,6 +1,7 @@
 #include "shell/desktop/desktop_icons.h"
 
 #include "config/config_service.h"
+#include "dbus/session_bus.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
 #include "i18n/i18n.h"
@@ -35,6 +36,7 @@
 #include <set>
 #include <sstream>
 #include <nlohmann/json.hpp>
+#include <sdbus-c++/sdbus-c++.h>
 #include <gio/gio.h>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -70,7 +72,15 @@ namespace {
     IconMedium,
     IconLarge,
     UseStacks,
+    SnapToGrid,
+    NewDocument,
+    Paste,
+    Cut,
+    Copy,
+    Properties,
+    OpenWithFirst = 100, // + index into the app list of the menu
   };
+  constexpr std::size_t kOpenWithMax = 4;
 
   std::string fileUri(const std::filesystem::path& path) {
     gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
@@ -102,6 +112,7 @@ void DesktopIcons::initialize(WaylandConnection& wayland, ConfigService& config,
                               ThumbnailService& thumbnails, SessionBus* bus) {
   m_wayland = &wayland;
   m_fileOps = std::make_unique<DesktopFileOps>(bus);
+  m_bus = bus;
   m_config = &config;
   m_renderContext = &renderContext;
   m_thumbnails = &thumbnails;
@@ -123,6 +134,13 @@ void DesktopIcons::sync() {
   const auto& outputs = m_wayland->outputs();
   wl_output* first = outputs.empty() ? nullptr : outputs.front().output;
   const bool want = m_config->config().desktopIcons.enabled && first != nullptr;
+  // Snap to Grid turned on (menu, Settings or config file) snaps every free icon to the cell saved with it.
+  const bool snap = m_config->config().desktopIcons.snapToGrid;
+  if (snap && m_snapToGrid == false && !m_freeAt.empty()) {
+    m_freeAt.clear();
+    saveSlots();
+  }
+  m_snapToGrid = snap;
   if (!want || first != m_output) {
     close();
   }
@@ -224,7 +242,7 @@ void DesktopIcons::onDropTarget(float x, float y, std::uint32_t action, const st
   } else {
     const Slot slot = slotAt(x, y);
     kLog.debug("desktop drop copies in at {},{}", slot.column, slot.row);
-    transferIn(urisToPaths(data), m_dir, false, slot);
+    transferIn(urisToPaths(data), m_dir, false, std::pair{x, y});
   }
 }
 
@@ -373,11 +391,12 @@ std::vector<std::filesystem::path> DesktopIcons::urisToPaths(const std::string& 
 }
 
 void DesktopIcons::transferIn(const std::vector<std::filesystem::path>& paths, const std::filesystem::path& dir,
-                              bool move, std::optional<Slot> slot) {
+                              bool move, std::optional<std::pair<float, float>> at, bool duplicate) {
   std::vector<std::filesystem::path> sources;
   for (const auto& source : paths) {
-    // Nothing into the folder it is already in, and no folder into itself.
-    if (source.parent_path() != dir && dir != source && !dir.string().starts_with(source.string() + "/")) {
+    // Nothing into the folder it is already in (a pasted copy there is a duplicate), and no folder into itself.
+    if ((source.parent_path() != dir || (duplicate && !move)) && dir != source
+        && !dir.string().starts_with(source.string() + "/")) {
       sources.push_back(source);
     }
   }
@@ -385,20 +404,194 @@ void DesktopIcons::transferIn(const std::vector<std::filesystem::path>& paths, c
     return;
   }
   std::error_code error;
-  if (slot.has_value() && dir == m_dir && !m_config->config().desktopIcons.stacks
-      && !std::filesystem::exists(dir / sources.front().filename(), error)
-      && std::ranges::none_of(m_cells, [&](const Cell& cell) { return cell.slot == *slot; })) {
-    // Every icon keeps its place from now on, so the first new file lands under the pointer.
-    for (const Cell& cell : m_cells) {
-      m_slots.try_emplace(cell.info->name, cell.slot);
-    }
-    m_slots[sources.front().filename().string()] = *slot;
-    saveSlots();
+  if (at.has_value() && dir == m_dir && !std::filesystem::exists(dir / sources.front().filename(), error)) {
+    placeAt(sources.front().filename().string(), at->first, at->second);
   }
   std::filesystem::create_directories(dir, error);
   if (m_fileOps == nullptr || !m_fileOps->transfer(move, sources, dir)) {
     kLog.warn("{} {} items into {} failed: no FileOps1", move ? "moving" : "copying", sources.size(), dir.string());
   }
+}
+
+bool DesktopIcons::canPaste() const {
+  const DragAndDrop* dnd = m_wayland->dragAndDrop();
+  if (dnd == nullptr) {
+    return false;
+  }
+  if (dnd->ownsSelection()) {
+    return !m_clipboard.empty();
+  }
+  return std::ranges::any_of(dnd->selectionTypes(), [](const std::string& type) {
+    return type == "x-special/gnome-copied-files" || type == "text/uri-list";
+  });
+}
+
+void DesktopIcons::copyToClipboard(const std::vector<std::filesystem::path>& paths, bool cut) {
+  DragAndDrop* dnd = m_wayland->dragAndDrop();
+  if (dnd == nullptr || paths.empty()) {
+    return;
+  }
+  std::string uris;
+  std::string text;
+  for (const auto& path : paths) {
+    uris += fileUri(path) + "\r\n";
+    text += (text.empty() ? "" : "\n") + path.string();
+  }
+  // GNOME's copied-files type carries cut or copy; Files and Nautilus read it, others take the uri-list.
+  std::string gnome = cut ? "cut" : "copy";
+  for (const auto& path : paths) {
+    gnome += "\n" + fileUri(path);
+  }
+  const bool set = dnd->setSelection(
+      m_wayland->lastInputSerial(),
+      {.mimeTypes = {"x-special/gnome-copied-files", "text/uri-list", "text/plain;charset=utf-8", "text/plain"},
+       .data = [gnome, uris, text](const std::string& mime) {
+         return mime == "x-special/gnome-copied-files" ? gnome : mime == "text/uri-list" ? uris : text;
+       }}
+  );
+  if (set) {
+    m_clipboard = paths;
+    m_clipboardCut = cut;
+  }
+  kLog.debug("desktop {} {} items to the clipboard: {}", cut ? "cut" : "copied", paths.size(), set ? "ok" : "failed");
+}
+
+void DesktopIcons::paste(const std::filesystem::path& dir, std::optional<std::pair<float, float>> at) {
+  DragAndDrop* dnd = m_wayland->dragAndDrop();
+  if (dnd == nullptr) {
+    return;
+  }
+  if (dnd->ownsSelection()) {
+    if (!m_clipboard.empty()) {
+      kLog.debug("desktop paste {} {} items into {}", m_clipboardCut ? "moves" : "copies", m_clipboard.size(), dir.string());
+      transferIn(m_clipboard, dir, m_clipboardCut, at, true);
+      if (m_clipboardCut) {
+        m_clipboard.clear(); // a cut pastes once, as in Files
+      }
+    }
+    return;
+  }
+  dnd->readSelection(
+      {"x-special/gnome-copied-files", "text/uri-list"},
+      [this, alive = std::weak_ptr<bool>(m_alive), dir, at](const std::string& mime, std::string bytes) {
+        if (alive.expired() || bytes.empty()) {
+          return;
+        }
+        bool cut = false;
+        if (mime == "x-special/gnome-copied-files") {
+          const std::size_t line = bytes.find('\n');
+          cut = bytes.substr(0, line) == "cut";
+          bytes = line == std::string::npos ? std::string{} : bytes.substr(line + 1);
+        }
+        const auto paths = urisToPaths(bytes);
+        kLog.debug("desktop paste {} {} items into {}", cut ? "moves" : "copies", paths.size(), dir.string());
+        transferIn(paths, dir, cut, at, true);
+      },
+      static_cast<std::size_t>(1) << 20
+  );
+}
+
+void DesktopIcons::openWithApp(GAppInfo* app, const std::vector<std::filesystem::path>& paths) {
+  GList* files = nullptr;
+  for (const auto& path : paths) {
+    files = g_list_append(files, g_file_new_for_path(path.c_str()));
+  }
+  GError* error = nullptr;
+  if (!g_app_info_launch(app, files, nullptr, &error)) {
+    kLog.warn("open with {} failed: {}", g_app_info_get_name(app), error != nullptr ? error->message : "");
+    g_clear_error(&error);
+  }
+  g_list_free_full(files, g_object_unref);
+}
+
+void DesktopIcons::showProperties(const std::vector<std::filesystem::path>& paths) {
+  if (m_bus == nullptr || paths.empty()) {
+    return;
+  }
+  std::vector<std::string> uris;
+  for (const auto& path : paths) {
+    uris.push_back(fileUri(path));
+  }
+  // Files answers org.freedesktop.FileManager1 (D-Bus activated) with its Get Info window.
+  try {
+    if (m_fileManager == nullptr) {
+      m_fileManager = sdbus::createProxy(m_bus->connection(), sdbus::ServiceName{"org.freedesktop.FileManager1"},
+                                         sdbus::ObjectPath{"/org/freedesktop/FileManager1"});
+    }
+    m_fileManager->callMethodAsync("ShowItemProperties")
+        .onInterface("org.freedesktop.FileManager1")
+        .withArguments(uris, std::string{})
+        .uponReplyInvoke([](std::optional<sdbus::Error> error) {
+          if (error.has_value()) {
+            kLog.warn("ShowItemProperties failed: {}", error->getMessage());
+          }
+        });
+  } catch (const sdbus::Error& e) {
+    kLog.warn("FileManager1 is not reachable: {}", e.getMessage());
+  }
+}
+
+void DesktopIcons::createNew(bool folder, std::optional<std::pair<float, float>> at) {
+  const std::string base = i18n::tr(folder ? "desktop-icons.untitled-folder" : "desktop-icons.untitled-document");
+  const std::string ext = folder ? "" : ".txt";
+  std::filesystem::path path = m_dir / (base + ext);
+  for (int n = 2; std::filesystem::exists(path); ++n) {
+    path = m_dir / std::format("{} {}{}", base, n, ext);
+  }
+  std::error_code error;
+  std::filesystem::create_directories(m_dir, error);
+  const bool made = folder ? std::filesystem::create_directory(path, error) : static_cast<bool>(std::ofstream(path));
+  if (!made) {
+    kLog.warn("new {} failed: {}", path.string(), error.message());
+    return;
+  }
+  // As on Windows: the item appears where it was asked for, selected, with its name ready to type.
+  const std::string name = path.filename().string();
+  kLog.debug("desktop new {}", name);
+  if (at.has_value()) {
+    placeAt(name, at->first, at->second);
+  }
+  m_selected = {name};
+  m_renaming = name;
+  m_renameText.reset();
+  requestBuild();
+}
+
+void DesktopIcons::addShortcut(const std::filesystem::path& desktopEntry) {
+  kLog.debug("desktop shortcut for {}", desktopEntry.filename().string());
+  transferIn({desktopEntry}, m_dir, false);
+}
+
+bool DesktopIcons::freePlacement() const {
+  return !m_config->config().desktopIcons.snapToGrid && !m_config->config().desktopIcons.stacks;
+}
+
+void DesktopIcons::placeAt(const std::string& name, float x, float y) {
+  if (m_surface == nullptr || m_config->config().desktopIcons.stacks) {
+    return;
+  }
+  const Slot slot = slotAt(x, y);
+  const bool free = freePlacement();
+  if (!free && std::ranges::any_of(m_cells, [&](const Cell& cell) { return cell.slot == slot && cell.info->name != name; })) {
+    return; // the cell is taken: the file fills the next free one
+  }
+  for (const Cell& cell : m_cells) {
+    m_slots.try_emplace(cell.info->name, cell.slot);
+  }
+  m_slots[name] = slot;
+  if (free) {
+    // The point is the middle of the icon plate.
+    const float w = static_cast<float>(m_surface->width());
+    const float left = std::clamp(x - static_cast<float>(m_cellW) / 2.0F, 0.0F, w - static_cast<float>(m_cellW));
+    const float top = std::clamp(y - static_cast<float>(m_plate) / 2.0F, 0.0F,
+                                 static_cast<float>(m_surface->height()) - static_cast<float>(m_cellH));
+    const bool fromRight = m_config->config().desktopIcons.startCorner == DesktopIconsCorner::TopRight;
+    m_freeAt[name] = {fromRight ? w - static_cast<float>(m_cellW) - left : left, top};
+  } else {
+    m_freeAt.erase(name);
+  }
+  saveSlots();
+  rebuildCells();
 }
 
 std::string DesktopIcons::keyOf(const Cell& cell) const {
@@ -583,9 +776,21 @@ void DesktopIcons::rebuildCells() {
   } else {
     placeSaved(rows, columns);
   }
+  const bool free = freePlacement();
+  if (free) {
+    kLog.debug("desktop free placement: {} cells", m_cells.size());
+  }
+  const bool fromRight = m_config->config().desktopIcons.startCorner == DesktopIconsCorner::TopRight;
+  const auto maxX = static_cast<float>(static_cast<int>(m_surface->width()) - m_cellW);
+  const auto maxY = static_cast<float>(static_cast<int>(m_surface->height()) - m_cellH);
   for (Cell& cell : m_cells) {
     cell.x = slotX(cell.slot.column);
     cell.y = slotY(cell.slot.row);
+    if (const auto it = m_freeAt.find(cell.info->name); free && !cell.stack && it != m_freeAt.end()) {
+      // Kept inside the surface when the output shrinks.
+      cell.x = std::clamp(fromRight ? maxX - it->second.first : it->second.first, 0.0F, std::max(0.0F, maxX));
+      cell.y = std::clamp(it->second.second, 0.0F, std::max(0.0F, maxY));
+    }
   }
   std::set<std::string> present;
   for (const auto& info : m_view->rows()) {
@@ -594,7 +799,8 @@ void DesktopIcons::rebuildCells() {
   for (const Cell& cell : m_cells) {
     present.insert(keyOf(cell));
   }
-  std::erase_if(m_selected, [&](const std::string& key) { return !present.contains(key); });
+  // A new folder is selected and renamed before the listing shows it.
+  std::erase_if(m_selected, [&](const std::string& key) { return !present.contains(key) && key != m_renaming; });
   // Cell indices change with the rebuild.
   m_dropHighlight.reset();
   requestBuild();
@@ -604,10 +810,15 @@ void DesktopIcons::placeSaved(int rows, int columns) {
   std::set<std::pair<int, int>> taken;
   std::vector<std::shared_ptr<const FileInfo>> unplaced;
   // Saved places first; the rest fill free places column by column from the corner (more than fit go on inward).
+  // A freely placed icon draws at its own point, so it keeps its nearest cell even when a grid icon holds it.
+  const bool free = freePlacement();
   for (const auto& info : m_view->rows()) {
     const auto saved = m_slots.find(info->name);
-    if (saved != m_slots.end() && saved->second.column < columns && saved->second.row < rows
-        && taken.insert({saved->second.column, saved->second.row}).second) {
+    const bool fits = saved != m_slots.end() && saved->second.column < columns && saved->second.row < rows;
+    if (fits && free && m_freeAt.contains(info->name)) {
+      taken.insert({saved->second.column, saved->second.row});
+      m_cells.push_back({.info = info, .slot = saved->second});
+    } else if (fits && taken.insert({saved->second.column, saved->second.row}).second) {
       m_cells.push_back({.info = info, .slot = saved->second});
     } else {
       unplaced.push_back(info);
@@ -639,6 +850,7 @@ std::filesystem::path DesktopIcons::slotsFile() const {
 
 void DesktopIcons::loadSlots() {
   m_slots.clear();
+  m_freeAt.clear();
   std::ifstream in(slotsFile());
   const auto json = nlohmann::json::parse(in, nullptr, false);
   const auto output = json.is_object() ? json.find(outputKey()) : json.end();
@@ -646,8 +858,12 @@ void DesktopIcons::loadSlots() {
     return;
   }
   for (const auto& [name, place] : output->items()) {
-    if (place.is_array() && place.size() == 2 && place[0].is_number_integer() && place[1].is_number_integer()) {
+    // [column, row] or, for a freely placed icon, [column, row, x, y].
+    if (place.is_array() && place.size() >= 2 && place[0].is_number_integer() && place[1].is_number_integer()) {
       m_slots[name] = {.column = place[0].get<int>(), .row = place[1].get<int>()};
+      if (place.size() == 4 && place[2].is_number() && place[3].is_number()) {
+        m_freeAt[name] = {place[2].get<float>(), place[3].get<float>()};
+      }
     }
   }
 }
@@ -662,7 +878,9 @@ void DesktopIcons::saveSlots() const {
   auto& output = json[outputKey()];
   output = nlohmann::json::object();
   for (const auto& [name, slot] : m_slots) {
-    output[name] = {slot.column, slot.row};
+    const auto free = m_freeAt.find(name);
+    output[name] = free != m_freeAt.end() ? nlohmann::json{slot.column, slot.row, free->second.first, free->second.second}
+                                          : nlohmann::json{slot.column, slot.row};
   }
   std::error_code error;
   std::filesystem::create_directories(file.parent_path(), error);
@@ -713,12 +931,25 @@ void DesktopIcons::drop() {
       taken.insert({cell.slot.column, cell.slot.row});
     }
   }
-  // Each moved icon snaps to the nearest place; a place another icon holds keeps the moved one where it was.
+  const bool free = freePlacement();
+  const auto maxX = static_cast<float>(static_cast<int>(m_surface->width()) - m_cellW);
+  const auto maxY = static_cast<float>(static_cast<int>(m_surface->height()) - m_cellH);
+  // Each moved icon snaps to the nearest place; a place another icon holds keeps the moved one where it was. With
+  // Snap to Grid off it stays where it was dropped.
   for (const std::size_t i : selected) {
     const Cell& cell = m_cells[i];
     if (cell.area != nullptr) {
       m_shownAt[cell.info->name] = {cell.area->x(), cell.area->y()};
     }
+    if (free) {
+      const float x = std::clamp(cell.x + dx, 0.0F, std::max(0.0F, maxX));
+      const float y = std::clamp(cell.y + dy, 0.0F, std::max(0.0F, maxY));
+      m_freeAt[cell.info->name] = {fromRight ? maxX - x : x, y};
+      m_slots[cell.info->name] =
+          slotAt(x + static_cast<float>(m_cellW) / 2.0F, y + static_cast<float>(m_plate) / 2.0F);
+      continue;
+    }
+    m_freeAt.erase(cell.info->name);
     const float step = static_cast<float>(cell.slot.column) + (fromRight ? -dx : dx) / m_cellW;
     const int column = std::clamp(static_cast<int>(std::lround(step)), 0, columns - 1);
     const int row = std::clamp(static_cast<int>(std::lround(static_cast<float>(cell.slot.row) + dy / m_cellH)), 0, rows - 1);
@@ -781,6 +1012,22 @@ std::string DesktopIcons::iconPathFor(const FileInfo& info) {
     }
   }
   return {};
+}
+
+std::string DesktopIcons::labelFor(const FileInfo& info) const {
+  // An app shortcut shows the app's name, as on Windows and GNOME.
+  if (!info.isDir && info.name.ends_with(".desktop")) {
+    // Each build asks for every label: parse a shortcut again only after it changed.
+    auto& cached = m_labels[info.name];
+    if (cached.first != info.mtimeNs || info.mtimeNs == 0) {
+      const auto entry = loadDesktopFile(pathOf(info));
+      cached = {info.mtimeNs, entry.has_value() ? entry->name : std::string{}};
+    }
+    if (!cached.second.empty()) {
+      return cached.second;
+    }
+  }
+  return info.displayName;
 }
 
 std::vector<std::size_t> DesktopIcons::selection() const {
@@ -959,7 +1206,7 @@ void DesktopIcons::build() {
     }
     // Names: white with a soft shadow on any wallpaper; the accent pill and every line while selected.
     auto name = ui::label({
-        .text = cell.stack ? stackName(*cell.stack) : cell.info->displayName,
+        .text = cell.stack ? stackName(*cell.stack) : labelFor(*cell.info),
         .fontSize = Style::fontSizeCaption,
         .fontWeight = FontWeight::Medium,
         .color = fixedColorSpec(Color{1.0F, 1.0F, 1.0F, 0.92F}),
@@ -1205,6 +1452,9 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
   const int iconSize = m_config->config().desktopIcons.iconSize;
   std::vector<ContextMenuControlEntry> entries{
       {.id = NewFolder, .label = i18n::tr("desktop-icons.new-folder")},
+      {.id = NewDocument, .label = i18n::tr("desktop-icons.new-document")},
+      {.separator = true},
+      {.id = Paste, .label = i18n::tr("desktop-icons.paste"), .enabled = canPaste()},
       {.separator = true},
       {.label = i18n::tr("desktop-icons.sort-by"), .header = true},
       {.id = SortName, .label = i18n::tr("desktop-icons.sort-name"), .radio = true,
@@ -1216,6 +1466,8 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
       {.id = UseStacks, .label = i18n::tr("desktop-icons.use-stacks"), .checkmark = true,
        .toggleState = m_config->config().desktopIcons.stacks ? 1 : 0},
       {.id = CleanUp, .label = i18n::tr("desktop-icons.clean-up"), .enabled = !m_config->config().desktopIcons.stacks},
+      {.id = SnapToGrid, .label = i18n::tr("desktop-icons.snap-to-grid"), .enabled = !m_config->config().desktopIcons.stacks,
+       .checkmark = true, .toggleState = m_config->config().desktopIcons.snapToGrid ? 1 : 0},
       {.separator = true},
       {.label = i18n::tr("desktop-icons.icon-size"), .header = true},
       {.id = IconSmall, .label = i18n::tr("desktop-icons.icon-small"), .radio = true,
@@ -1231,24 +1483,25 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
     m_menu = std::make_unique<ContextMenuPopup>(*m_wayland, *m_renderContext);
   }
   m_menu->setShadowConfig(m_config->config().shell.shadow);
-  m_menu->setOnActivate([this](const ContextMenuControlEntry& entry) {
+  m_menu->setOnActivate([this, x, y](const ContextMenuControlEntry& entry) {
     const auto sortBy = [this](FileSortKey key) {
       // Sorting re-arranges every icon, as Finder's Sort By does.
       m_slots.clear();
+      m_freeAt.clear();
       saveSlots();
       m_groupsStale = true;
       m_view->setSort({.key = key, .descending = key == FileSortKey::Modified, .foldersFirst = true});
     };
     switch (entry.id) {
-    case NewFolder: {
-      std::filesystem::path path = m_dir / i18n::tr("desktop-icons.untitled-folder");
-      for (int n = 2; std::filesystem::exists(path); ++n) {
-        path = m_dir / std::format("{} {}", i18n::tr("desktop-icons.untitled-folder"), n);
-      }
-      std::error_code error;
-      std::filesystem::create_directories(path, error);
+    case NewFolder:
+      createNew(true, std::pair{x, y});
       break;
-    }
+    case NewDocument:
+      createNew(false, std::pair{x, y});
+      break;
+    case Paste:
+      paste(m_dir, std::pair{x, y});
+      break;
     case SortName:
       sortBy(FileSortKey::Name);
       break;
@@ -1268,6 +1521,9 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
       (void)m_config->setOverride({"desktop_icons", "icon_size"}, size);
       break;
     }
+    case SnapToGrid:
+      (void)m_config->setOverride({"desktop_icons", "snap_to_grid"}, !m_config->config().desktopIcons.snapToGrid);
+      break;
     case UseStacks:
       m_expanded.clear();
       (void)m_config->setOverride({"desktop_icons", "stacks"}, !m_config->config().desktopIcons.stacks);
@@ -1275,6 +1531,7 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
     case CleanUp:
       // Forgets the arranged places: every icon goes back into sort order from the corner.
       m_slots.clear();
+      m_freeAt.clear();
       saveSlots();
       rebuildCells();
       break;
@@ -1285,7 +1542,7 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
   m_menu->open(ContextMenuPopupRequest{
       .entries = std::move(entries),
       .minMenuWidth = static_cast<float>(kMenuW),
-      .maxVisible = 16,
+      .maxVisible = 24, // every row shows: a scrolling desktop menu hides Change Wallpaper
       .anchor = PopupAnchorRect{.x = static_cast<std::int32_t>(x), .y = static_cast<std::int32_t>(y)},
       .parent = PopupSurfaceParent{.layerSurface = m_surface->layerSurface(), .output = m_output},
       .pointerParentSurface = m_surface->wlSurface(),
@@ -1293,19 +1550,59 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
 }
 
 void DesktopIcons::openItemMenu(std::size_t index, float x, float y) {
-  (void)index;
-  std::vector<ContextMenuControlEntry> entries{
-      {.id = Open, .label = i18n::tr("desktop-icons.open")},
-      {.id = Rename, .label = i18n::tr("desktop-icons.rename"), .enabled = selection().size() == 1 && !m_cells[selection().front()].stack},
-      {.separator = true},
-      {.id = Trash, .label = i18n::tr("desktop-icons.move-to-trash")},
-  };
+  const bool single = selection().size() == 1 && !m_cells[selection().front()].stack;
+  std::vector<ContextMenuControlEntry> entries{{.id = Open, .label = i18n::tr("desktop-icons.open")}};
+  // Open With: the apps registered for the file's type, the default first (menus flatten submenus into captions).
+  std::vector<GAppInfo*> apps;
+  const FileInfo& info = *m_cells[index].info;
+  if (single && !info.name.ends_with(".desktop") && !info.contentType.empty()) {
+    GList* list = g_app_info_get_all_for_type(info.contentType.c_str());
+    for (GList* it = list; it != nullptr && apps.size() < kOpenWithMax; it = it->next) {
+      auto* app = G_APP_INFO(it->data);
+      if (g_app_info_should_show(app)) {
+        apps.push_back(G_APP_INFO(g_object_ref(app)));
+      }
+    }
+    g_list_free_full(list, g_object_unref);
+  }
+  if (!apps.empty()) {
+    entries.push_back({.label = i18n::tr("desktop-icons.open-with"), .header = true});
+    for (std::size_t i = 0; i < apps.size(); ++i) {
+      entries.push_back({.id = static_cast<std::int32_t>(OpenWithFirst + i), .label = g_app_info_get_name(apps[i]),
+                         .indentLevel = 1});
+    }
+  }
+  entries.push_back({.separator = true});
+  entries.push_back({.id = Cut, .label = i18n::tr("desktop-icons.cut")});
+  entries.push_back({.id = Copy, .label = i18n::tr("desktop-icons.copy")});
+  if (info.isDir && single) {
+    entries.push_back({.id = Paste, .label = i18n::tr("desktop-icons.paste-into-folder"), .enabled = canPaste()});
+  }
+  entries.push_back({.separator = true});
+  entries.push_back({.id = Rename, .label = i18n::tr("desktop-icons.rename"), .enabled = single});
+  entries.push_back({.id = Trash, .label = i18n::tr("desktop-icons.move-to-trash")});
+  entries.push_back({.separator = true});
+  entries.push_back({.id = Properties, .label = i18n::tr("desktop-icons.properties")});
   if (m_menu == nullptr) {
     m_menu = std::make_unique<ContextMenuPopup>(*m_wayland, *m_renderContext);
   }
   m_menu->setShadowConfig(m_config->config().shell.shadow);
-  m_menu->setOnActivate([this](const ContextMenuControlEntry& entry) {
-    if (entry.id == Open) {
+  auto openWith = std::shared_ptr<std::vector<GAppInfo*>>(new std::vector<GAppInfo*>(std::move(apps)), [](auto* list) {
+    for (GAppInfo* app : *list) {
+      g_object_unref(app);
+    }
+    delete list;
+  });
+  m_menu->setOnActivate([this, openWith, folder = pathOf(info)](const ContextMenuControlEntry& entry) {
+    if (entry.id >= OpenWithFirst && static_cast<std::size_t>(entry.id - OpenWithFirst) < openWith->size()) {
+      openWithApp((*openWith)[static_cast<std::size_t>(entry.id - OpenWithFirst)], selectedPaths());
+    } else if (entry.id == Cut || entry.id == Copy) {
+      copyToClipboard(selectedPaths(), entry.id == Cut);
+    } else if (entry.id == Paste) {
+      paste(folder, std::nullopt);
+    } else if (entry.id == Properties) {
+      showProperties(selectedPaths());
+    } else if (entry.id == Open) {
       activate(selectedPaths());
     } else if (entry.id == Trash) {
       trash(selectedPaths());
@@ -1318,7 +1615,7 @@ void DesktopIcons::openItemMenu(std::size_t index, float x, float y) {
   m_menu->open(ContextMenuPopupRequest{
       .entries = std::move(entries),
       .minMenuWidth = static_cast<float>(kMenuW),
-      .maxVisible = 8,
+      .maxVisible = 20,
       .anchor = PopupAnchorRect{.x = static_cast<std::int32_t>(x), .y = static_cast<std::int32_t>(y)},
       .parent = PopupSurfaceParent{.layerSurface = m_surface->layerSurface(), .output = m_output},
       .pointerParentSurface = m_surface->wlSurface(),
@@ -1383,6 +1680,15 @@ void DesktopIcons::onKeyboardEvent(const KeyboardEvent& event) {
   if (event.pressed) {
     kLog.debug("desktop key {:#x} with {} selected", event.sym, m_selected.size());
   }
+  if (event.pressed && (event.sym == XKB_KEY_n || event.sym == XKB_KEY_N) && (event.modifiers & KeyMod::Ctrl) != 0
+      && (event.modifiers & KeyMod::Shift) != 0) {
+    createNew(true, std::nullopt);
+    return;
+  }
+  if (event.pressed && (event.sym == XKB_KEY_v || event.sym == XKB_KEY_V) && (event.modifiers & KeyMod::Ctrl) != 0) {
+    paste(m_dir, std::nullopt);
+    return;
+  }
   if (!event.pressed || m_cells.empty()) {
     return;
   }
@@ -1411,6 +1717,14 @@ void DesktopIcons::onKeyboardEvent(const KeyboardEvent& event) {
       }
     }
     break;
+  case XKB_KEY_c:
+  case XKB_KEY_C:
+  case XKB_KEY_x:
+  case XKB_KEY_X:
+    if ((event.modifiers & KeyMod::Ctrl) != 0 && !m_selected.empty()) {
+      copyToClipboard(selectedPaths(), event.sym == XKB_KEY_x || event.sym == XKB_KEY_X);
+    }
+    return;
   default:
     return;
   }

@@ -899,6 +899,9 @@ void Application::initPanelManagerAndPanels() {
         });
       });
     });
+    launcherPanel->setAddToDesktopCallback([this](const std::filesystem::path& entry) {
+      m_desktopIcons.addShortcut(entry);
+    });
     launcherPanel->setOnAppLaunchCallback([this] {
       if (!overviewCloseOnLaunchEnabled(m_configService)) {
         return;

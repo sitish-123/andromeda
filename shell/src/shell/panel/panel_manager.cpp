@@ -514,6 +514,8 @@ void PanelManager::setAttachedPanelGeometryCallback(
   m_attachedPanelGeometryCallback = std::move(callback);
 }
 
+void PanelManager::dropClickShield() { m_clickShield.deactivate(); }
+
 void PanelManager::setClickShieldExcludeRectsProvider(std::function<std::vector<InputRect>(wl_output*)> provider) {
   m_clickShieldExcludeRectsProvider = std::move(provider);
 }
@@ -1957,6 +1959,14 @@ bool PanelManager::onPointerEvent(const PointerEvent& event) {
       }
     }
     return false;
+  }
+
+  if (m_activePanel != nullptr && m_surface != nullptr && event.surface == m_wlSurface && !ignorePointer
+      && m_activePanel->interceptPointerEvent(
+          event, static_cast<float>(m_surface->width()), static_cast<float>(m_surface->height())
+      )) {
+    m_inputDispatcher.cancelPointerCapture();
+    return true;
   }
 
   switch (event.type) {
@@ -4014,6 +4024,11 @@ void PanelManager::registerIpc(IpcService& ipc) {
     if (const auto window = m_windowPanels.find(panelId); window != m_windowPanels.end()) {
       window->second.close();
       return "ok\n";
+    }
+    if (panelId.empty()) {
+      for (auto& [id, window] : m_windowPanels) {
+        window.close();
+      }
     }
 
     if (!panelId.empty() && m_persistentHost.hasPanel(panelId)) {

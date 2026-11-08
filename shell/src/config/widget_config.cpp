@@ -119,6 +119,12 @@ namespace noctalia::config {
     windowsTaskbar.settings["combine_apps"] = true;
     seed("windows_taskbar", std::move(windowsTaskbar));
 
+    // Desktop Layouts: Wi-Fi in the status cell is the symbol alone; the network name stays in its flyout.
+    WidgetConfig statusNetwork;
+    statusNetwork.type = "network";
+    statusNetwork.settings["show_label"] = false;
+    seed("status_network", std::move(statusNetwork));
+
     // Desktop Layouts: the volume in the status cell is the symbol alone, as on the boards.
     WidgetConfig statusVolume;
     statusVolume.type = "volume";

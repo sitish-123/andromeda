@@ -98,7 +98,7 @@ namespace desktop_layout {
     BarCapsuleGroupStyle statusGroup() {
       BarCapsuleGroupStyle group;
       group.id = "status";
-      group.members = {"network", "status_volume", "status_battery"};
+      group.members = {"status_network", "status_volume", "status_battery"};
       group.fill = clearColorSpec();
       group.radius = Style::spaceSm;
       // Each icon opens its own page, so each lights alone.
@@ -151,7 +151,9 @@ namespace desktop_layout {
       }
       const bool bars = std::ranges::all_of(cfg.bars, [&](const BarConfig& bar) { return bar.islands == p.islands; })
           && (cfg.bars.empty() || cfg.bars.front().position == p.barPosition);
-      if (!bars || cfg.dock.enabled != p.dock || cfg.desktopIcons.enabled != hasDesktopIcons(name)) {
+      // Desktop icons are a choice of their own (Settings › Desktop and Dock): a layout sets them, but turning them
+      // on or off later keeps the layout.
+      if (!bars || cfg.dock.enabled != p.dock) {
         return false;
       }
       return std::ranges::all_of(compositorParts(p), [&](const auto& part) {

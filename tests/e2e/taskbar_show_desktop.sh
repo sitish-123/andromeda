@@ -31,7 +31,7 @@ radius_bottom_right = 0
 end = ["tray", "group:status", "windows_clock", "notifications", "show_desktop"]
 [[bar.default.capsule_group]]
 id = "status"
-members = ["network", "status_volume", "status_battery"]
+members = ["status_network", "status_volume", "status_battery"]
 fill = "#00000000"
 radius = 8
 hover_as_one = false

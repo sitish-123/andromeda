@@ -3621,10 +3621,22 @@ namespace noctalia::config::schema {
   const Schema<DesktopIconsConfig>& desktopIconsSchema() {
     static constexpr Range<std::int64_t> kIconSizes{48, 80, 16};
     static const Schema<DesktopIconsConfig> s = {
-        field(&DesktopIconsConfig::enabled, "enabled"),
-        enumField(&DesktopIconsConfig::startCorner, "start_corner", kDesktopIconsCorners),
+        field(
+            &DesktopIconsConfig::enabled, "enabled",
+            RowSpec{.section = "desktop", .group = "icons", .label = "desktop.icons", .tags = "desktop icons files shortcuts"}
+        ),
+        enumField(
+            &DesktopIconsConfig::startCorner, "start_corner", kDesktopIconsCorners,
+            RowSpec{.kind = RowSpec::Kind::Select, .section = "desktop", .group = "icons",
+                    .label = "desktop.icons-start-corner", .tags = "desktop icons corner arrange", .segmented = true}
+        ),
         field(&DesktopIconsConfig::iconSize, "icon_size", kIconSizes),
         field(&DesktopIconsConfig::stacks, "stacks"),
+        field(
+            &DesktopIconsConfig::snapToGrid, "snap_to_grid",
+            RowSpec{.section = "desktop", .group = "icons", .label = "desktop.icons-snap-to-grid",
+                    .tags = "desktop icons grid align free position"}
+        ),
     };
     return s;
   }

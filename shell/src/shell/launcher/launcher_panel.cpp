@@ -1,4 +1,5 @@
 #include "shell/launcher/launcher_panel.h"
+#include "wayland/drag_icon_surface.h"
 
 #include "shell/launcher/launcher_adapters.h"
 #include "shell/launcher/launcher_panel_detail.h"

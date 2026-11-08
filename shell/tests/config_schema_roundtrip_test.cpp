@@ -417,6 +417,11 @@ location = "https://example.invalid/bad"
             .allowedUrgencies = {"normal", "critical"},
         }},
     };
+    c.desktopIcons.enabled = true;
+    c.desktopIcons.startCorner = DesktopIconsCorner::TopRight;
+    c.desktopIcons.iconSize = 80;
+    c.desktopIcons.stacks = true;
+    c.desktopIcons.snapToGrid = false;
     c.dock.enabled = true;
     c.dock.position = DockEdge::Left;
     c.dock.iconSize = 40;

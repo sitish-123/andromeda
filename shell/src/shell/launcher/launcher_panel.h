@@ -12,6 +12,7 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -19,6 +20,7 @@
 #include <vector>
 
 class ContextMenuPopup;
+class DragIconSurface;
 class AccountsService;
 class Button;
 class Flex;
@@ -60,6 +62,7 @@ public:
   void onOpen(std::string_view context) override;
   [[nodiscard]] std::string handoffContext() const override;
   void onClose() override;
+  [[nodiscard]] bool interceptPointerEvent(const PointerEvent& event, float width, float height) override;
   void onIconThemeChanged() override;
 
   void clearUsage();
@@ -70,6 +73,10 @@ public:
   void setCopiedActivationCallback(std::function<void(bool isImage)> callback) { m_onCopiedActivation = std::move(callback); }
 
   void setOnAppLaunchCallback(std::function<void()> callback) { m_onAppLaunch = std::move(callback); }
+  // "Add to Desktop" in the app menu (shown while desktop icons are on) and app drags dropped on the desktop.
+  void setAddToDesktopCallback(std::function<void(const std::filesystem::path&)> callback) {
+    m_addToDesktop = std::move(callback);
+  }
 
   [[nodiscard]] float preferredWidth() const override;
   [[nodiscard]] float preferredHeight() const override;
@@ -314,4 +321,13 @@ private:
   Signal<>::ScopedConnection m_appIconColorizeConn;
   std::function<void(bool isImage)> m_onCopiedActivation;
   std::function<void()> m_onAppLaunch;
+  std::function<void(const std::filesystem::path&)> m_addToDesktop;
+  // An app row pressed and dragged out of the launcher becomes a system drag of its .desktop file (text/uri-list),
+  // so the desktop makes a shortcut where it is dropped.
+  bool m_dragArmed = false;
+  std::optional<std::size_t> m_dragIndex;
+  std::uint32_t m_dragSerial = 0;
+  std::unique_ptr<DragIconSurface> m_dragIcon;
+  std::unique_ptr<Node> m_dragImage;
+  void startAppDrag(const LauncherResult& result);
 };

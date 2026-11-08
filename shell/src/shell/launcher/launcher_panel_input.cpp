@@ -2,6 +2,21 @@
 
 #include "shell/launcher/launcher_adapters.h"
 #include "shell/launcher/launcher_panel_detail.h"
+#include "core/deferred_call.h"
+#include "render/render_context.h"
+#include "ui/builders.h"
+#include "ui/controls/image.h"
+#include "ui/controls/virtual_grid_view.h"
+#include "ui/controls/virtual_list_view.h"
+#include "wayland/drag_and_drop.h"
+#include "wayland/drag_icon_surface.h"
+#include "wayland/wayland_connection.h"
+#include "wayland/wayland_seat.h"
+
+#include <cmath>
+
+#include <glib.h>
+#include <linux/input-event-codes.h>
 
 
 bool LauncherPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
@@ -68,6 +83,7 @@ bool LauncherPanel::openAppActionsMenu(std::size_t index, float anchorX, float a
   constexpr std::int32_t kActionOpen = -1;
   constexpr std::int32_t kActionPin = -2;
   constexpr std::int32_t kActionUnpin = -3;
+  constexpr std::int32_t kActionAddToDesktop = -4;
 
   std::vector<ContextMenuControlEntry> entries;
   entries.reserve(actionsCopy.size() + 2);
@@ -114,6 +130,10 @@ bool LauncherPanel::openAppActionsMenu(std::size_t index, float anchorX, float a
     );
   }
 
+  if (m_addToDesktop && m_config != nullptr && m_config->config().desktopIcons.enabled) {
+    entries.push_back(ContextMenuControlEntry{.id = kActionAddToDesktop, .label = i18n::tr("launcher.context-menu.add-to-desktop")});
+  }
+
   const float scale = contentScale();
   constexpr float kMenuWidth = 240.0F;
   const float minMenuWidth = kMenuWidth * scale;
@@ -132,6 +152,12 @@ bool LauncherPanel::openAppActionsMenu(std::size_t index, float anchorX, float a
   m_actionsMenu->setOnActivate([this, base, actionsCopy = std::move(actionsCopy),
                                 entryForPin = *match](const ContextMenuControlEntry& entry) {
     LauncherResult result = base;
+    if (entry.id == kActionAddToDesktop) {
+      if (m_addToDesktop) {
+        m_addToDesktop(entryForPin.path);
+      }
+      return;
+    }
     if (entry.id == kActionPin) {
       if (m_config == nullptr
           || entryForPin.id.empty()
@@ -408,4 +434,128 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
   }
 
   return false;
+}
+
+bool LauncherPanel::interceptPointerEvent(const PointerEvent& event, float width, float height) {
+  if (event.type == PointerEvent::Type::Button && event.button == BTN_LEFT) {
+    // Only a press on a result row arms it (not the search field); the scene selects that row after this, and the
+    // first motion reads it.
+    const auto onResults = [&](const Node* view) {
+      if (view == nullptr || !view->visible() || view->width() <= 0.0F) {
+        return false;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(view, x, y);
+      return event.sx >= x && event.sx < x + view->width() && event.sy >= y && event.sy < y + view->height();
+    };
+    m_dragArmed = event.pressed && (onResults(m_launcherSections) || onResults(m_grid));
+    if (event.pressed) {
+      kLog.debug("launcher press {:.0f},{:.0f} on results {}", event.sx, event.sy, m_dragArmed);
+    }
+    m_dragIndex.reset();
+    m_dragSerial = event.serial;
+    return false;
+  }
+  if (event.type == PointerEvent::Type::Enter && m_selectedIndex < m_results.size()) {
+    // Test hook (E2E desktop_shortcuts.sh): where the selected row is, in surface coordinates.
+    const Node* cell = m_launcherSections != nullptr && m_launcherSections->visible()
+        ? sectionCellForResult(*m_launcherSections, m_selectedIndex)
+        : nullptr;
+    if (cell == nullptr && m_grid != nullptr) {
+      cell = m_grid->nodeForIndex(m_selectedIndex);
+    }
+    if (cell != nullptr) {
+      float x = 0.0F;
+      float y = 0.0F;
+      Node::absolutePosition(cell, x, y);
+      kLog.debug("launcher selected row {} at {:.0f},{:.0f} {} {} {} {}", m_results[m_selectedIndex].title, event.sx,
+                 event.sy, x, y, cell->width(), cell->height());
+    }
+  }
+  if (event.type != PointerEvent::Type::Motion || !m_dragArmed) {
+    return false;
+  }
+  if (!m_dragIndex.has_value()) {
+    m_dragIndex = m_selectedIndex;
+  }
+  // Inside the launcher a drag reorders pinned apps or swipes grid pages; past its edge it carries the app out.
+  const bool outside = event.sx < 0.0 || event.sy < 0.0 || event.sx >= width || event.sy >= height;
+  if (outside) {
+    kLog.debug("launcher drag left the panel with row {}", *m_dragIndex);
+  }
+  if (!outside || *m_dragIndex >= m_results.size() || m_results[*m_dragIndex].desktopEntryPath.empty()) {
+    return false;
+  }
+  m_dragArmed = false;
+  startAppDrag(m_results[*m_dragIndex]);
+  return true;
+}
+
+void LauncherPanel::startAppDrag(const LauncherResult& result) {
+  WaylandConnection* wl = PanelManager::instance().wayland();
+  RenderContext* rc = PanelManager::instance().renderContext();
+  wl_surface* origin = PanelManager::instance().wlSurface();
+  DragAndDrop* dnd = wl != nullptr ? wl->dragAndDrop() : nullptr;
+  if (dnd == nullptr || rc == nullptr || origin == nullptr) {
+    return;
+  }
+  gchar* uri = g_filename_to_uri(result.desktopEntryPath.c_str(), nullptr, nullptr);
+  if (uri == nullptr) {
+    return;
+  }
+  const std::string uris = std::string(uri) + "\r\n";
+  g_free(uri);
+  // Drag image: the app icon at the 64 desktop icon size.
+  constexpr int kIcon = 64;
+  m_dragIcon.reset();
+  m_dragImage.reset();
+  if (!result.iconPath.empty()) {
+    auto icon = std::make_unique<DragIconSurface>(*wl, kIcon, kIcon, std::max(1, static_cast<int>(std::ceil(contentScale()))));
+    icon->setRenderContext(rc);
+    m_dragImage = ui::node({});
+    m_dragImage->setSize(static_cast<float>(kIcon), static_cast<float>(kIcon));
+    icon->setPrepareFrameCallback([this, rc, raw = icon.get(), file = result.iconPath, loaded = false](bool, bool) mutable {
+      rc->makeCurrent(raw->renderTarget());
+      if (!loaded && m_dragImage != nullptr) {
+        loaded = true;
+        auto image = ui::image({.fit = ImageFit::Contain, .width = static_cast<float>(kIcon),
+                                .height = static_cast<float>(kIcon), .participatesInLayout = false});
+        if (image->setSourceFile(raw->renderTarget().renderer(), file, kIcon, true)) {
+          m_dragImage->addChild(std::move(image));
+        }
+      }
+    });
+    icon->setSceneRoot(m_dragImage.get());
+    if (icon->initialize()) {
+      m_dragIcon = std::move(icon);
+    }
+  }
+  const std::string path = result.desktopEntryPath;
+  // The shield under the launcher would take the drop: the desktop must see the drag.
+  PanelManager::instance().dropClickShield();
+  const bool started = dnd->startDrag(
+      origin, m_dragSerial,
+      {.mimeTypes = {"text/uri-list", "text/plain;charset=utf-8", "text/plain"},
+       .data = [uris, path](const std::string& mime) { return mime == "text/uri-list" ? uris : path; },
+       .actions = DragAndDrop::Copy,
+       .icon = m_dragIcon != nullptr ? m_dragIcon->wlSurface() : nullptr,
+       .finished =
+           [this](std::uint32_t /*action*/, bool dropped) {
+             kLog.debug("launcher app drag ended dropped {}", dropped);
+             // The compositor may still draw the icon this frame: drop it after. The launcher closes either way
+             // (Launchpad does): its outside-click shield is gone.
+             DeferredCall::callLater([this] {
+               m_dragIcon.reset();
+               m_dragImage.reset();
+               PanelManager::instance().closePanel();
+             });
+           }}
+  );
+  kLog.debug("launcher app drag {} {}", started ? "started" : "failed", path);
+  if (!started) {
+    m_dragIcon.reset();
+    m_dragImage.reset();
+    PanelManager::instance().closePanel();
+  }
 }

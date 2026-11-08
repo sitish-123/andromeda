@@ -13,6 +13,7 @@
 
 class AnimationManager;
 class InputArea;
+struct PointerEvent;
 class Renderer;
 
 class Panel {
@@ -112,6 +113,14 @@ public:
   [[nodiscard]] virtual bool wantsCloseAnimation() const noexcept { return true; }
   [[nodiscard]] virtual bool dismissOnOutsideClick() const { return true; }
   [[nodiscard]] virtual bool ignorePointerEvent() const { return false; }
+  // Sees each pointer event on the panel surface before the scene does (`width` x `height` = the surface). True takes
+  // the event and ends the scene's pointer capture (a drag leaving the panel became a system drag).
+  [[nodiscard]] virtual bool interceptPointerEvent(const PointerEvent& event, float width, float height) {
+    (void)event;
+    (void)width;
+    (void)height;
+    return false;
+  }
   // True to live in PersistentPanelHost instead of PanelManager's single active
   // slot: opening another panel leaves it on screen, and only an explicit toggle
   // or close dismisses it.

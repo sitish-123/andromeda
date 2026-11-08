@@ -33,6 +33,11 @@ struct KeyboardEvent;
 struct PointerEvent;
 struct wl_output;
 struct wl_surface;
+typedef struct _GAppInfo GAppInfo;
+
+namespace sdbus {
+  class IProxy;
+}
 
 // Desktop icons (DL3, .agent/DESIGN.md "Desktop icons", mockup .agent/mockups/desktop-icons.html): ~/Desktop on the
 // wallpaper of the first output, on a bottom-layer surface over the usable area. Icons sit on a 96 x 104 grid 16 from
@@ -54,6 +59,8 @@ public:
   [[nodiscard]] bool ownsSurface(wl_surface* surface) const;
   bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
+  // Copies an app's .desktop file into ~/Desktop as a shortcut (one FileOps1 job, undo with Ctrl+Z).
+  void addShortcut(const std::filesystem::path& desktopEntry);
 
 private:
   struct Slot {
@@ -93,10 +100,23 @@ private:
   void onCellPress(std::size_t index, bool rightButton);
   void activate(const std::vector<std::filesystem::path>& paths);
   void trash(const std::vector<std::filesystem::path>& paths);
-  // Copies (or moves) files into `dir` as one FileOps1 job (undo with Ctrl+Z); the first new file in ~/Desktop takes
-  // `slot` when it is free.
+  // Copies (or moves) files into `dir` as one FileOps1 job (undo with Ctrl+Z); the first new file in ~/Desktop lands
+  // at the surface point `at`.
   void transferIn(const std::vector<std::filesystem::path>& paths, const std::filesystem::path& dir, bool move,
-                  std::optional<Slot> slot = std::nullopt);
+                  std::optional<std::pair<float, float>> at = std::nullopt, bool duplicate = false);
+  // Gives `name` (in ~/Desktop, maybe not listed yet) the place under the surface point: the nearest free grid cell,
+  // or the point itself with Snap to Grid off. Every listed icon keeps its place from then on.
+  void placeAt(const std::string& name, float x, float y);
+  [[nodiscard]] bool freePlacement() const;
+  // Cut and Copy put the files on the clipboard (GNOME copied-files + uri-list); Paste copies (or, after a cut,
+  // moves) the clipboard's files into `dir`, the first at the surface point `at`.
+  // New Folder / New Text Document: made in ~/Desktop at `at` (else the next free cell), then renamed in place.
+  void createNew(bool folder, std::optional<std::pair<float, float>> at);
+  [[nodiscard]] bool canPaste() const;
+  void copyToClipboard(const std::vector<std::filesystem::path>& paths, bool cut);
+  void paste(const std::filesystem::path& dir, std::optional<std::pair<float, float>> at);
+  void openWithApp(GAppInfo* app, const std::vector<std::filesystem::path>& paths);
+  void showProperties(const std::vector<std::filesystem::path>& paths);
   [[nodiscard]] static std::vector<std::filesystem::path> urisToPaths(const std::string& uriList);
   // The files the selection stands for: a selected stack gives all its members.
   [[nodiscard]] std::vector<std::filesystem::path> selectedPaths() const;
@@ -129,6 +149,7 @@ private:
   [[nodiscard]] std::string outputKey() const;
   [[nodiscard]] std::vector<std::size_t> selection() const;
   [[nodiscard]] std::string iconPathFor(const FileInfo& info);
+  [[nodiscard]] std::string labelFor(const FileInfo& info) const;
   [[nodiscard]] std::filesystem::path pathOf(const FileInfo& info) const;
 
   WaylandConnection* m_wayland = nullptr;
@@ -173,6 +194,11 @@ private:
   void glide(InputArea& area, const std::string& name, float x, float y);
   // Saved grid places by file name (DESIGN.md: positions per output, $XDG_STATE_HOME/andromeda/desktop-icons.json).
   std::map<std::string, Slot> m_slots;
+  // Snap to Grid off: the icon's top-left in px, x measured from the start corner's side. Its slot stays the nearest
+  // grid cell, so new files fill around it.
+  std::map<std::string, std::pair<float, float>> m_freeAt;
+  std::optional<bool> m_snapToGrid;
+  mutable std::map<std::string, std::pair<std::int64_t, std::string>> m_labels; // file name -> (mtime ns, app name)
   std::optional<std::size_t> m_pressIndex;
   float m_pressX = 0.0F;
   float m_pressY = 0.0F;
@@ -189,6 +215,11 @@ private:
   std::vector<std::shared_ptr<const FileInfo>> m_singles;
   std::map<StackKind, std::vector<std::shared_ptr<const FileInfo>>> m_groups;
   std::unique_ptr<DesktopFileOps> m_fileOps;
+  SessionBus* m_bus = nullptr;
+  std::unique_ptr<sdbus::IProxy> m_fileManager;
+  // The files this client put on the clipboard (the compositor gives no offer back to the owner).
+  std::vector<std::filesystem::path> m_clipboard;
+  bool m_clipboardCut = false;
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
   // F2: the file being renamed in place, and its field.
   std::optional<std::string> m_renaming;

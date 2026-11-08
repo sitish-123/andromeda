@@ -1338,7 +1338,8 @@
       "pin": "Pin to Launcher",
       "pin-to-dock": "Pin to Dock",
       "unpin": "Unpin from Launcher",
-      "unpin-from-dock": "Unpin from Dock"
+      "unpin-from-dock": "Unpin from Dock",
+      "add-to-desktop": "Add to Desktop"
     },
     "empty": {
       "loading": "Loading results...",
@@ -2699,7 +2700,8 @@
         "workspaces": "Workspaces",
         "focus": "Focus",
         "modifier": "Modifier",
-        "clock": "Clock"
+        "clock": "Clock",
+        "desktop-icons": "Desktop Icons"
       },
       "sections": {
         "accessibility": "Accessibility",
@@ -3539,6 +3541,18 @@
           "button": "Toggle Editor",
           "description": "Add, move, and resize desktop widgets",
           "label": "Widget Editor"
+        },
+        "icons": {
+          "label": "Show Icons on Desktop",
+          "description": "Files, folders and app shortcuts from your Desktop folder"
+        },
+        "icons-start-corner": {
+          "label": "Start From",
+          "description": "The corner the first icon sits in"
+        },
+        "icons-snap-to-grid": {
+          "label": "Snap to Grid",
+          "description": "Icons line up on the grid. Off: an icon stays where you drop it"
         }
       },
       "dock": {
@@ -7677,6 +7691,15 @@
     "stack-presentations": "Presentations",
     "stack-archives": "Archives",
     "stack-other": "Other",
-    "stack-items": "{count} items"
+    "stack-items": "{count} items",
+    "snap-to-grid": "Snap to Grid",
+    "new-document": "New Text Document",
+    "untitled-document": "New Text Document",
+    "paste": "Paste",
+    "paste-into-folder": "Paste into Folder",
+    "cut": "Cut",
+    "copy": "Copy",
+    "open-with": "Open With",
+    "properties": "Properties"
   }
 }
