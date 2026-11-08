@@ -288,7 +288,13 @@ namespace {
   }
 
   // MP4 / MOV / M4A: moov > mvhd (duration), trak > tkhd (size), udta > meta > ilst > ©ART > data (artist).
-  void walkMp4(Bytes b, MediaInfo& info) {
+  // Real files nest moov > trak > … > ilst about 6 deep; a crafted file must not recurse until the stack runs out.
+  constexpr int kMp4MaxDepth = 16;
+
+  void walkMp4(Bytes b, MediaInfo& info, int depth = 0) {
+    if (depth > kMp4MaxDepth) {
+      return;
+    }
     for (std::size_t i = 0; has(b, i, 8);) {
       std::uint64_t size = be32(b, i);
       std::size_t head = 8;
@@ -303,9 +309,9 @@ namespace {
       }
       const Bytes body = b.subspan(i + head, size - head);
       if (tag(b, i + 4, "trak") || tag(b, i + 4, "udta") || tag(b, i + 4, "ilst")) {
-        walkMp4(body, info);
+        walkMp4(body, info, depth + 1);
       } else if (tag(b, i + 4, "meta") && body.size() > 4) {
-        walkMp4(body.subspan(4), info); // a full box: version and flags first
+        walkMp4(body.subspan(4), info, depth + 1); // a full box: version and flags first
       } else if (tag(b, i + 4, "mvhd") && !body.empty()) {
         const bool v1 = body[0] == 1;
         if (has(body, 0, v1 ? 32 : 20)) {
@@ -348,7 +354,8 @@ namespace {
       } else if (size == 0) {
         size = fileSize - at;
       }
-      if (size < head) {
+      // Untrusted: a box must fit in what is left of the file, or `at` could wrap around and the walk never end.
+      if (size < head || size > fileSize - at) {
         return;
       }
       if (tag(h, 4, "moov")) {

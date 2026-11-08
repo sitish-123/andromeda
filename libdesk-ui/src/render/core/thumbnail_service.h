@@ -89,6 +89,9 @@ public:
   // Non-owning lookup used while refreshing an already-acquired thumbnail.
   [[nodiscard]] TextureHandle peek(const std::string& path, int targetPx = kDefaultTargetPx) const;
 
+  // The file at `path` changed: decodes every held size again. The old texture stays until the new one uploads.
+  void reload(const std::string& path);
+
   // Releases one acquire() owner. The texture is unloaded only when the last
   // owner releases it; a request that has not started yet leaves the queue.
   void release(const std::string& path, int targetPx = kDefaultTargetPx);

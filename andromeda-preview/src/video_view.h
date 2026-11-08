@@ -43,7 +43,8 @@ namespace preview {
     VideoView& operator=(const VideoView&) = delete;
 
     // Creates the subsurface on `parent`. False when the compositor lacks a needed global.
-    bool attach(wl_surface* parent);
+    // `above`: over the window (a window that draws an opaque stage under the picture, as the Files Gallery does).
+    bool attach(wl_surface* parent, bool above = false);
     // The box (parent-local, logical) the video fits into, keeping its aspect.
     void place(float x, float y, float width, float height);
     void setVideoSize(std::uint32_t width, std::uint32_t height);
@@ -53,6 +54,9 @@ namespace preview {
     [[nodiscard]] bool contains(float x, float y) const;
     // The picture inside the placed box, window-local logical px (x, y, width, height); zero size before a frame size.
     [[nodiscard]] std::array<float, 4> pictureRect() const noexcept { return {m_x, m_y, m_w, m_h}; }
+    // The helper reported the end and the last frame is on screen.
+    [[nodiscard]] bool finished() const noexcept { return m_ended && m_queue.empty() && m_inFlight == 0; }
+    [[nodiscard]] bool playing() const noexcept { return m_playing; }
     // Stream time of the frame on screen.
     [[nodiscard]] std::chrono::nanoseconds shownPts() const noexcept { return m_shownPts; }
 

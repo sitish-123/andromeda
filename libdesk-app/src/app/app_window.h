@@ -22,6 +22,7 @@ class Label;
 class Renderer;
 class StateStore;
 struct KeyboardEvent;
+struct PinchEvent;
 struct PointerEvent;
 
 // A first-party app window (docs/apps.md §2, rulebook §9.12): the 48 px app header with back / forward, title and
@@ -131,6 +132,7 @@ public:
 
   // The app routes events here only for this window's surface (AppWindows::route*).
   void onPointerEvent(const PointerEvent& event);
+  void onPinchEvent(const PinchEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
 
 private:

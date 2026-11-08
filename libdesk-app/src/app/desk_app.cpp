@@ -142,6 +142,11 @@ int DeskApp::run(int argc, char* argv[]) {
   m_state.load();
   addStandardCommands();
   m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { routePointer(event); });
+  m_loop.wayland().setPinchEventCallback([this](const PinchEvent& event) {
+    if (AppWindow* window = windowFor(event.surface)) {
+      window->onPinchEvent(event);
+    }
+  });
   m_loop.wayland().setKeyboardEventCallback([this](const KeyboardEvent& event) { routeKey(event); });
 
   startup();

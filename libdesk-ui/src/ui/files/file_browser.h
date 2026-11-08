@@ -4,6 +4,7 @@
 #include "core/timer_manager.h"
 #include "render/core/color.h"
 #include "ui/controls/context_menu.h"
+#include "ui/files/file_gallery.h"
 #include "ui/files/type_ahead.h"
 #include "ui/palette.h"
 
@@ -100,6 +101,19 @@ public:
     std::function<void(bool on)> searchMode;
     // Group By Tags: the first tag of a file with its rank in the tag list; nullopt = no tag. Memory only (a cache).
     std::function<std::optional<std::pair<int, std::string>>(const std::filesystem::path&)> tagOf;
+    // Gallery (FileGallery::Host): its action capsule acts on the current photo, which is the selection.
+    std::function<void(std::string_view action, float sceneX, float sceneY)> galleryAction;
+    std::function<bool(const std::filesystem::path&)> starred;
+    std::function<std::string()> phoneName;
+    std::function<void(const std::filesystem::path&, int mapWidth, int mapHeight,
+                       std::function<void(FileGallery::PhotoInfo)> done)>
+        galleryInfo;
+    std::function<void(const std::filesystem::path& video, bool sound, std::array<float, 4> rect)> galleryPlayVideo;
+    std::function<void(std::array<float, 4> rect)> galleryPlaceVideo;
+    std::function<void()> galleryToggleVideo;
+    std::function<void()> galleryStopVideo;
+    std::function<void(const std::filesystem::path& photo, std::function<void(std::filesystem::path)> done)>
+        galleryMotionVideo;
     // A menu of checkable rows at a scene point (the list header's column picker); `activated` gets the entry id.
     std::function<void(std::vector<ContextMenuControlEntry> entries, float sceneX, float sceneY,
                        std::function<void(std::int32_t)> activated)>
@@ -190,7 +204,12 @@ public:
   void setRowMarks(std::map<std::string, ColorSpec> marks);
   [[nodiscard]] bool showHidden() const noexcept { return m_options.showHidden; }
   void setExtraPlaces(std::vector<Place> places);
-  void setEnabledPredicate(std::function<bool(const FileInfo&)> enabled);
+  // The current Gallery photo changed outside (starred, rotated): draw its state again.
+  void refreshGallery();
+  // From the host's Gallery video player.
+  void galleryVideoProgress(bool playing, float progress, const std::string& time);
+  void galleryVideoEnded();
+    void setEnabledPredicate(std::function<bool(const FileInfo&)> enabled);
   // Shows only the items whose name contains `text` (case and accents folded); cleared when the folder changes.
   void setFilter(std::string text);
   enum class SearchScope : std::uint8_t { Folder, Everywhere };
@@ -325,6 +344,7 @@ private:
   void syncColumns();
   void syncGallery();
   void galleryStep(int delta);
+  void galleryAction(std::string_view action, float sceneX, float sceneY);
   void syncCustomPage(Page& page);
   void logGeometry();
   void springLoad();
@@ -351,6 +371,7 @@ private:
   bool m_applyingView = false;             // navigate applies the folder's stored view: nothing to save
   void saveView();
   std::vector<std::filesystem::path> m_galleryItems; // what the Gallery shows, in view order
+  std::shared_ptr<FileGallery::State> m_galleryState = std::make_shared<FileGallery::State>(); // across rebuilds
   std::size_t m_galleryCurrent = 0;
   std::optional<Listing> m_listing;
   std::vector<HistoryEntry> m_back;
@@ -412,6 +433,12 @@ private:
   ColorSpec m_placeCueFill;                      // its fill before the cue (the selected row's tint)
   std::optional<std::string> m_dropItem;         // the folder row with the drop cue
   std::string m_statusSuffix;
+  // The status bar's free space, read off the UI thread (statvfs blocks on a hung network mount); one read at a time.
+  void readFreeSpace();
+  std::filesystem::path m_freeFor;
+  std::optional<std::uint64_t> m_free;
+  std::chrono::steady_clock::time_point m_freeAt{};
+  bool m_freePending = false;
   std::map<std::string, ColorSpec> m_rowMarks;
   bool m_crumbAccent = false;
   struct Spring {

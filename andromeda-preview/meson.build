@@ -53,6 +53,29 @@ preview_client_dep = declare_dependency(
   dependencies: [glycin_dep, gio_dep],
 )
 
+# Media playback for other apps (Files' Gallery plays video in place): the subsurface player and the helper client;
+# audio comes from the andromeda-preview-audio module, loaded on first use, so the app does not link GStreamer.
+_audio_module_path = get_option('prefix') / get_option('libdir') / 'andromeda' / 'andromeda-preview-audio.so'
+shared_module('andromeda-preview-audio',
+  'src/audio_out.cpp', 'src/audio_module.cpp',
+  name_prefix: '',
+  dependencies: [desk_app_dep, dependency('gstreamer-1.0')],
+  gnu_symbol_visibility: 'hidden',
+  install: true,
+  install_dir: get_option('libdir') / 'andromeda',
+)
+_media = static_library('preview_media',
+  'src/video_view.cpp', 'src/audio_player.cpp', _dmabuf_c, _dmabuf_h,
+  dependencies: [desk_app_dep, wayland_client_dep],
+  cpp_args: ['-DANDROMEDA_PREVIEW_AUDIO_PATH="' + _audio_module_path + '"'],
+)
+preview_media_dep = declare_dependency(
+  link_with: [_core, _media],
+  sources: [_dmabuf_h],
+  include_directories: include_directories('src'),
+  dependencies: [gio_dep, wayland_client_dep, dependency('dl', required: false)],
+)
+
 executable('andromeda-preview',
   'src/main.cpp',
   'src/preview_service.cpp',

@@ -130,7 +130,7 @@ void DirectoryWatcher::processEvents() {
         }
         continue;
       }
-      if ((ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) != 0) {
+      if ((ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF | IN_UNMOUNT)) != 0) {
         deliver(ev->wd, Event::Gone, {});
         continue;
       }

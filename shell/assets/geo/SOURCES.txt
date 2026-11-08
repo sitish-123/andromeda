@@ -1,0 +1,3 @@
+land.txt: Natural Earth 1:50m land polygons (public domain), https://www.naturalearthdata.com/ ; one outer ring per line, "lon,lat" pairs.
+borders.txt: Natural Earth 1:50m admin-0 boundary lines on land (public domain); one line per row, "lon,lat" pairs.
+places.tsv: GeoNames cities15000 + countryInfo (CC BY 4.0, https://www.geonames.org/), lat, lon, name, country.

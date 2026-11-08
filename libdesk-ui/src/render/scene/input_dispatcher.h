@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 
+#include "render/scene/input_area.h"
+
 class InputArea;
 class Node;
 class TextInputService;
@@ -51,6 +53,8 @@ public:
       float x, float y, std::uint32_t axis, std::uint32_t axisSource, double value, std::int32_t discrete,
       std::int32_t value120, float lines, std::uint32_t axisGestureSerial = 0
   );
+  // A touchpad pinch goes to the nearest area under (x, y), or its ancestor, that handles pinches.
+  void pointerPinch(float x, float y, const InputArea::PinchData& data);
   void cancelPointerCapture();
 
   // Dispatch keyboard events to the focused area

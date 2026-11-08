@@ -136,6 +136,8 @@ public:
   [[nodiscard]] bool canBack() const noexcept;
   [[nodiscard]] bool canForward() const noexcept;
   [[nodiscard]] bool inTrash() const noexcept;
+  // A real folder, not a listing (Trash, Recents, Search, Tag, Starred, archive): paste and new items land in it.
+  [[nodiscard]] bool inFolder() const;
   [[nodiscard]] const std::filesystem::path& location() const noexcept;
   [[nodiscard]] float scale() const noexcept;
   [[nodiscard]] FileBrowser& browser() noexcept { return *m_browser; }
@@ -172,6 +174,9 @@ public:
   void shareByEmail();
   // The Share rows as a menu at a scene point (the details pane Share button).
   void showShareMenu(float sceneX, float sceneY);
+  void galleryAction(std::string_view action, float sceneX, float sceneY); // the Gallery actions capsule
+  // Send to <phone> in the Gallery: the connected paired phone, else the first paired one.
+  [[nodiscard]] std::optional<LinkShare::Device> galleryPhone() const;
   // View Options (FILES-UI-SPEC §16) under `anchor`, or under the header sort button (Ctrl+J, menus).
   void openViewOptions(const Node* anchor = nullptr);
   // Add to Sidebar / Remove from Sidebar for selected folders (FB3 pins, Finder ⌃⌘T).
@@ -341,6 +346,7 @@ private:
   std::unique_ptr<class DragIconSurface> m_dragIcon;
   std::unique_ptr<Node> m_dragImage;
   std::unique_ptr<desk::ForeignExport> m_export;
+  std::unique_ptr<class GalleryVideo> m_galleryVideo; // created on the first video the Gallery plays
   std::unique_ptr<sdbus::IProxy> m_preview; // org.gnome.NautilusPreviewer2 (andromeda-preview)
   bool m_previewOpen = false;
   void quickLook(const std::filesystem::path& path, bool toggle);

@@ -25,9 +25,9 @@ namespace {
   constexpr float kSummaryWidth = 220.0F; // the footer left of Cancel and "Rename 24"; the conflict line wraps
 } // namespace
 
-BatchRenameSheet::BatchRenameSheet(fs::path folder, std::vector<BatchRenameItem> items, std::set<std::string> existing,
+BatchRenameSheet::BatchRenameSheet(std::vector<fs::path> sources, std::vector<BatchRenameItem> items, std::set<std::string> existing,
                                    Rename rename, std::function<void()> close, std::function<void()> rebuild)
-    : m_folder(std::move(folder)), m_items(std::move(items)), m_existing(std::move(existing)), m_rename(std::move(rename)),
+    : m_sources(std::move(sources)), m_items(std::move(items)), m_existing(std::move(existing)), m_rename(std::move(rename)),
       m_close(std::move(close)), m_rebuild(std::move(rebuild)) {
   m_rule.find.clear();
 }
@@ -279,7 +279,7 @@ void BatchRenameSheet::submit() {
       return;
     }
     if (m_results[i].name != m_items[i].name) {
-      pairs.emplace_back(m_folder / m_items[i].name, m_results[i].name);
+      pairs.emplace_back(m_sources[i], m_results[i].name);
     }
   }
   if (pairs.empty()) {

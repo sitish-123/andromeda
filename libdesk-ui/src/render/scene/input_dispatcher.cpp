@@ -370,6 +370,20 @@ bool InputDispatcher::pointerAxis(
   return consumedAny;
 }
 
+void InputDispatcher::pointerPinch(float x, float y, const InputArea::PinchData& data) {
+  pruneDetachedAreas();
+  for (Node* node = findInputAreaAt(x, y); node != nullptr; node = node->parent()) {
+    auto* area = dynamic_cast<InputArea*>(node);
+    if (area == nullptr || !area->enabled() || !area->handlesPinch()) {
+      continue;
+    }
+    InputArea::PinchData local = data;
+    (void)Node::mapFromScene(area, x, y, local.localX, local.localY);
+    area->dispatchPinch(local);
+    return;
+  }
+}
+
 void InputDispatcher::cancelPointerCapture() {
   m_touchGesture = {};
   if (m_capturedArea == nullptr || m_cancelingPointerCapture) {

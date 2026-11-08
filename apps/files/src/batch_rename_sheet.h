@@ -21,7 +21,8 @@ class BatchRenameSheet {
 public:
   using Rename = std::function<void(std::vector<std::pair<std::filesystem::path, std::string>>)>;
 
-  BatchRenameSheet(std::filesystem::path folder, std::vector<BatchRenameItem> items, std::set<std::string> existing,
+  // `sources` = each item's real path, in item order (rows of a search or tag listing live in many folders).
+  BatchRenameSheet(std::vector<std::filesystem::path> sources, std::vector<BatchRenameItem> items, std::set<std::string> existing,
                    Rename rename, std::function<void()> close, std::function<void()> rebuild);
 
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
@@ -33,7 +34,7 @@ private:
   void updatePreview();
   [[nodiscard]] std::unique_ptr<Node> buildFields(float scale);
 
-  std::filesystem::path m_folder;
+  std::vector<std::filesystem::path> m_sources;
   std::vector<BatchRenameItem> m_items;
   std::set<std::string> m_existing;
   Rename m_rename;

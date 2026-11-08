@@ -25,6 +25,8 @@ if get_option('buildtype') != 'release'
 endif
 
 _desk_app_dep = subproject('libdesk-app').get_variable('desk_app_dep')
+# Gallery video in place: the preview's subsurface player and sandboxed media helper (audio loads lazily).
+_preview_media_dep = subproject('andromeda-preview').get_variable('preview_media_dep')
 _gio_unix_dep = dependency('gio-unix-2.0') # GUnixMountMonitor, GDesktopAppInfo
 _warnings = ['-Wall', '-Wextra', '-Wno-missing-field-initializers', '-Wpedantic', '-Wconversion', '-Wshadow']
 
@@ -37,7 +39,7 @@ _files_lib = static_library('files_core',
 
 executable('andromeda-files',
   sources: files(
-    'src/files_app.cpp',
+    'src/files_app.cpp', 'src/offline_map.cpp', 'src/gallery_video.cpp',
     'src/batch_rename_sheet.cpp',
     'src/tag_manager_sheet.cpp',
     'src/terminal_pane.cpp',
@@ -75,7 +77,7 @@ executable('andromeda-files',
     'src/main.cpp',
   ),
   link_with: _files_lib,
-  dependencies: [_desk_app_dep, _gio_unix_dep, dependency('vterm')],
+  dependencies: [_desk_app_dep, _gio_unix_dep, dependency('vterm'), _preview_media_dep],
   cpp_args: _warnings,
   install: true,
 )

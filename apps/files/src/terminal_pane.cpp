@@ -12,6 +12,7 @@
 #include "ui/palette.h"
 
 #include <algorithm>
+#include <glib.h>
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -217,6 +218,17 @@ void TerminalPane::followFolder(const fs::path& dir) {
   // A running job (vim, a build) owns the terminal: typing a cd into it would do harm.
   if (::tcgetpgrp(m_master) != m_pid) {
     kLog.debug("terminal busy, no cd to {}", dir.string());
+    return;
+  }
+  // The path is typed into the shell: a control byte in a folder name (Ctrl+U, Return) would edit the line and run
+  // what follows it, and invalid UTF-8 can carry C1 controls. Such a folder is not followed.
+  const std::string text = dir.string();
+  const bool control = std::ranges::any_of(text, [](char c) {
+    const auto b = static_cast<unsigned char>(c);
+    return b < 0x20 || b == 0x7f;
+  });
+  if (control || !g_utf8_validate(text.data(), static_cast<gssize>(text.size()), nullptr)) {
+    kLog.warn("terminal does not follow a folder whose name has control characters");
     return;
   }
   m_cwd = dir;

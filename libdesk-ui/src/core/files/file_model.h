@@ -2,10 +2,12 @@
 
 #include "core/files/directory_watcher.h"
 #include "core/files/file_info.h"
+#include "core/timer_manager.h"
 
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <set>
 #include <span>
 #include <string>
 #include <vector>
@@ -67,8 +69,8 @@ private:
   void insertSorted(std::shared_ptr<const FileInfo> info);
   void startWatch();
   void onWatch(DirectoryWatcher::Event event, const std::string& name, const std::string& newName);
-  void upsert(const std::string& name, bool inserted);
-  void erase(const std::string& name);
+  // Applies every name in m_pending in one merge and one notify (an untar of 10k files is one rebuild, not 10k).
+  void flushWatch();
   void notify(const Change& change);
 
   std::filesystem::path m_dir;
@@ -79,13 +81,9 @@ private:
   std::vector<std::shared_ptr<const FileInfo>> m_entries;
   std::vector<std::weak_ptr<Listener>> m_listeners;
   std::uint64_t m_generation = 0; // a listing result for an older reload() is dropped
-  struct QueuedEvent {
-    DirectoryWatcher::Event event;
-    std::string name;
-    std::string newName;
-  };
   bool m_listing = false;
-  std::vector<QueuedEvent> m_queued; // watch events while a listing runs, replayed on its result
+  std::set<std::string> m_pending; // names a watch event touched; held while a listing runs, applied on its result
+  Timer m_flush;
   std::shared_ptr<StatJob> m_statJob;
 };
 

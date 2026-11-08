@@ -30,6 +30,7 @@ struct zxdg_output_manager_v1;
 struct zxdg_output_v1;
 struct xdg_wm_base;
 struct wp_cursor_shape_manager_v1;
+struct zwp_pointer_gestures_v1;
 struct ext_idle_notifier_v1;
 struct ext_idle_notification_v1;
 struct zwp_idle_inhibit_manager_v1;
@@ -149,6 +150,7 @@ public:
   void setOutputChangeCallback(ChangeCallback callback);
   void setOutputLifecycleCallbacks(std::function<void(wl_output*)> added, std::function<void(wl_output*)> removed);
   void setPointerEventCallback(WaylandSeat::PointerEventCallback callback);
+  void setPinchEventCallback(WaylandSeat::PinchEventCallback callback);
   void setKeyboardEventCallback(WaylandSeat::KeyboardEventCallback callback);
   void setKeyboardModifiersCallback(WaylandSeat::KeyboardModifiersCallback callback);
   void setLockKeysChangeCallback(WaylandSeat::LockKeysChangeCallback callback);
@@ -310,6 +312,7 @@ private:
   zxdg_output_manager_v1* m_xdgOutputManager = nullptr;
   xdg_wm_base* m_xdgWmBase = nullptr;
   wp_cursor_shape_manager_v1* m_cursorShapeManager = nullptr;
+  zwp_pointer_gestures_v1* m_pointerGestures = nullptr;
   xdg_activation_v1* m_xdgActivation = nullptr;
   zxdg_decoration_manager_v1* m_decorationManager = nullptr;
   ext_idle_notifier_v1* m_idleNotifier = nullptr;

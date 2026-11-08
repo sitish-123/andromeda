@@ -18,6 +18,8 @@ struct wl_surface;
 struct wl_touch;
 struct wp_cursor_shape_manager_v1;
 struct wp_cursor_shape_device_v1;
+struct zwp_pointer_gestures_v1;
+struct zwp_pointer_gesture_pinch_v1;
 struct xkb_compose_state;
 struct xkb_compose_table;
 struct xkb_context;
@@ -42,6 +44,19 @@ struct PointerEvent {
   float axisLines = 0.0F;
   std::uint32_t axisGestureSerial = 0;
   bool touch = false;
+};
+
+// A touchpad pinch (zwp_pointer_gestures_v1) over the pointer's surface. `scale` is relative to the pinch start.
+struct PinchEvent {
+  enum class Phase : std::uint8_t { Begin, Update, End };
+  Phase phase = Phase::Begin;
+  wl_surface* surface = nullptr;
+  double sx = 0.0;
+  double sy = 0.0;
+  double scale = 1.0;
+  double dx = 0.0;
+  double dy = 0.0;
+  bool cancelled = false;
 };
 
 struct KeyboardEvent {
@@ -72,6 +87,7 @@ public:
   };
 
   using PointerEventCallback = std::function<void(const PointerEvent&)>;
+  using PinchEventCallback = std::function<void(const PinchEvent&)>;
   using KeyboardEventCallback = std::function<void(const KeyboardEvent&)>;
   using KeyboardFocusCallback = std::function<void(wl_surface* surface, bool entered)>;
   using KeyboardModifiersCallback = std::function<void(std::uint32_t modifiers)>;
@@ -81,6 +97,8 @@ public:
   void bind(wl_seat* seat);
   void setCursorShapeManager(wp_cursor_shape_manager_v1* manager);
   void setPointerEventCallback(PointerEventCallback callback);
+  void setPointerGestures(zwp_pointer_gestures_v1* gestures);
+  void setPinchEventCallback(PinchEventCallback callback);
   void setKeyboardEventCallback(KeyboardEventCallback callback);
   void setKeyboardFocusCallback(KeyboardFocusCallback callback);
   void setKeyboardModifiersCallback(KeyboardModifiersCallback callback);
@@ -166,6 +184,8 @@ public:
 
 private:
   void bumpUserActivity() noexcept;
+  void emitPinch(PinchEvent event);
+  void destroyPinch();
 
   using SteadyClock = std::chrono::steady_clock;
 
@@ -173,6 +193,10 @@ private:
   wl_pointer* m_pointer = nullptr;
   wp_cursor_shape_manager_v1* m_cursorShapeManager = nullptr;
   wp_cursor_shape_device_v1* m_cursorShapeDevice = nullptr;
+  zwp_pointer_gestures_v1* m_pointerGestures = nullptr;
+  zwp_pointer_gesture_pinch_v1* m_pinch = nullptr;
+  wl_surface* m_pinchSurface = nullptr;
+  PinchEventCallback m_pinchEventCallback;
   PointerEventCallback m_pointerEventCallback;
   std::vector<PointerEvent> m_pendingPointerEvents;
   std::uint32_t m_pendingAxisSource = 0;

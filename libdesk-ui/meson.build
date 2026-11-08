@@ -102,6 +102,7 @@ foreach _p : [
   ['ext-background-effect-v1', wayland_protos_dir / 'staging/ext-background-effect/ext-background-effect-v1.xml'],
   ['fractional-scale-v1', wayland_protos_dir / 'staging/fractional-scale/fractional-scale-v1.xml'],
   ['viewporter', wayland_protos_dir / 'stable/viewporter/viewporter.xml'],
+  ['pointer-gestures-unstable-v1', wayland_protos_dir / 'unstable/pointer-gestures/pointer-gestures-unstable-v1.xml'],
   ['presentation-time', wayland_protos_dir / 'stable/presentation-time/presentation-time.xml'],
   ['idle-inhibit-unstable-v1', wayland_protos_dir / 'unstable/idle-inhibit/idle-inhibit-unstable-v1.xml'],
   ['keyboard-shortcuts-inhibit-unstable-v1', wayland_protos_dir / 'unstable/keyboard-shortcuts-inhibit/keyboard-shortcuts-inhibit-unstable-v1.xml'],

@@ -33,6 +33,10 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <cctype>
+#include <ctime>
+#include <map>
+#include <set>
 #include <cmath>
 #include <cstdlib>
 #include <format>
@@ -1516,7 +1520,18 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
                                                                  .select = [this](std::size_t i) {
                                                                    galleryStep(static_cast<int>(i) -
                                                                                static_cast<int>(m_galleryCurrent));
-                                                                 }});
+                                                                 },
+                                                                 .action = [this](std::string_view action, float x,
+                                                                                  float y) { galleryAction(action, x, y); },
+                                                                 .starred = m_host.starred,
+                                                                 .phoneName = m_host.phoneName,
+                                                                 .info = m_host.galleryInfo,
+                                                                 .playVideo = m_host.galleryPlayVideo,
+                                                                 .placeVideo = m_host.galleryPlaceVideo,
+                                                                 .toggleVideo = m_host.galleryToggleVideo,
+                                                                 .stopVideo = m_host.galleryStopVideo,
+                                                                 .motionVideo = m_host.galleryMotionVideo},
+                                               m_galleryState);
   gallery->setVisible(m_options.view == View::Gallery);
   gallery->setZIndex(2);
   m_ui->gallery = gallery.get();
@@ -2349,7 +2364,15 @@ void FileBrowser::refreshRows() {
   if (m_searchKind != SearchKind::All && (!m_filter.empty() || m_ui->searchFocused)) {
     std::erase_if(m_rows, [this](const auto& r) { return !matchesKind(*r, m_searchKind); });
   }
-  std::erase_if(m_selected, [this](const std::string& name) { return !indexOf(name).has_value(); });
+  if (!m_selected.empty()) {
+    std::set<std::string> kept;
+    for (const auto& row : m_rows) {
+      if (m_selected.contains(row->name)) {
+        kept.insert(row->name);
+      }
+    }
+    m_selected = std::move(kept);
+  }
   if (!m_filter.empty()) {
     kLog.debug("filter \"{}\" shows {}", m_filter, m_rows.size());
   }
@@ -2662,8 +2685,9 @@ void FileBrowser::refreshChrome() {
     std::string text = m_selected.empty() ? (m_rows.size() == 1 ? std::string("1 item") : std::format("{} items", m_rows.size()))
                                           : std::format("{} of {} selected", m_selected.size(), m_rows.size());
     if (!m_listing.has_value()) {
-      if (const auto free = freeBytes(m_location)) {
-        text += std::format(" · {} free", formatFileSize(*free));
+      readFreeSpace();
+      if (m_freeFor == m_location && m_free.has_value()) {
+        text += std::format(" · {} free", formatFileSize(*m_free));
       }
     }
     if (!m_statusSuffix.empty()) {
@@ -2674,6 +2698,30 @@ void FileBrowser::refreshChrome() {
   if (m_host.invalidate) {
     m_host.invalidate();
   }
+}
+
+void FileBrowser::readFreeSpace() {
+  const auto now = std::chrono::steady_clock::now();
+  if (m_freePending || (m_freeFor == m_location && now - m_freeAt < std::chrono::seconds(5))) {
+    return;
+  }
+  m_freePending = true;
+  std::thread([this, dir = m_location, alive = std::weak_ptr<bool>(m_alive)] {
+    const auto free = freeBytes(dir);
+    DeferredCall::callLater([this, dir, free, alive] {
+      if (alive.expired()) {
+        return;
+      }
+      m_freePending = false;
+      const bool changed = m_freeFor != dir || m_free != free;
+      m_freeFor = dir;
+      m_free = free;
+      m_freeAt = std::chrono::steady_clock::now();
+      if (changed || dir != m_location) {
+        refreshChrome();
+      }
+    });
+  }).detach();
 }
 
 void FileBrowser::setStatusSuffix(std::string suffix) {
@@ -2763,7 +2811,24 @@ void FileBrowser::syncGallery() {
   if (m_options.view != View::Gallery || m_ui->gallery == nullptr) {
     return;
   }
+  const auto lower = [](std::string text) {
+    std::ranges::transform(text, text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return text;
+  };
+  // Live Photos: a video with an image's name (IMG_0412.HEIC + IMG_0412.MOV) is that photo's motion, not an item.
+  std::map<std::string, fs::path> pairedVideo; // lower-case stem -> video
+  std::set<std::string> imageStems;
+  for (const auto& row : m_rows) {
+    const fs::path p = pathOf(*row);
+    if (row->contentType.starts_with("image/")) {
+      imageStems.insert(lower(p.stem().string()));
+    } else if (row->contentType.starts_with("video/")) {
+      pairedVideo.emplace(lower(p.stem().string()), p);
+    }
+  }
+  std::erase_if(pairedVideo, [&](const auto& entry) { return !imageStems.contains(entry.first); });
   std::vector<fs::path> items;
+  std::vector<FileGallery::ItemInfo> info;
   std::size_t current = 0;
   const auto cursor = cursorIndex();
   for (std::size_t i = 0; i < m_rows.size(); ++i) {
@@ -2771,10 +2836,31 @@ void FileBrowser::syncGallery() {
     if (!type.starts_with("image/") && !type.starts_with("video/")) {
       continue;
     }
+    const fs::path p = pathOf(*m_rows[i]);
+    const std::string stem = lower(p.stem().string());
+    if (type.starts_with("video/") && pairedVideo.contains(stem)) {
+      continue;
+    }
     if (cursor == i) {
       current = items.size();
     }
-    items.push_back(pathOf(*m_rows[i]));
+    FileGallery::ItemInfo item;
+    item.video = type.starts_with("video/");
+    const std::time_t t = static_cast<std::time_t>(m_rows[i]->mtimeNs / 1'000'000'000);
+    std::tm local{};
+    if (localtime_r(&t, &local) != nullptr) {
+      item.day = (local.tm_year + 1900) * 1000 + local.tm_yday;
+    }
+    if (const auto video = pairedVideo.find(stem); video != pairedVideo.end()) {
+      item.motion = true;
+      item.motionVideo = video->second;
+    } else if (type == "image/jpeg") {
+      // Google motion photos carry the video inside the JPEG; their names say so (PXL_….MP.jpg, MVIMG_….jpg).
+      const std::string name = lower(p.filename().string());
+      item.motion = name.ends_with(".mp.jpg") || name.starts_with("mvimg_");
+    }
+    items.push_back(p);
+    info.push_back(std::move(item));
   }
   if (items == m_galleryItems && current == m_galleryCurrent) {
     return;
@@ -2782,7 +2868,34 @@ void FileBrowser::syncGallery() {
   m_galleryItems = items;
   m_galleryCurrent = current;
   kLog.debug("gallery {} of {}", items.empty() ? 0 : current + 1, items.size());
-  m_ui->gallery->setItems(std::move(items), current);
+  m_ui->gallery->setItems(std::move(items), current, std::move(info));
+}
+
+// The Gallery shows the cursor photo, which need not be selected: its actions act on the selection, so select it.
+void FileBrowser::galleryAction(std::string_view action, float sceneX, float sceneY) {
+  if (!m_host.galleryAction || m_galleryItems.empty()) {
+    return;
+  }
+  galleryStep(0);
+  m_host.galleryAction(action, sceneX, sceneY);
+}
+
+void FileBrowser::galleryVideoProgress(bool playing, float progress, const std::string& time) {
+  if (m_ui != nullptr && m_ui->gallery != nullptr) {
+    m_ui->gallery->setVideoProgress(playing, progress, time);
+  }
+}
+
+void FileBrowser::galleryVideoEnded() {
+  if (m_ui != nullptr && m_ui->gallery != nullptr) {
+    m_ui->gallery->videoEnded();
+  }
+}
+
+void FileBrowser::refreshGallery() {
+  if (m_ui != nullptr && m_ui->gallery != nullptr) {
+    m_ui->gallery->refresh();
+  }
 }
 
 void FileBrowser::galleryStep(int delta) {
@@ -2833,7 +2946,21 @@ void FileBrowser::setView(View view) {
   }
   const auto own = [](View v) { return v == View::Columns || v == View::Gallery; };
   const bool fromOwn = own(m_options.view);
+  if (m_options.view == View::Gallery) {
+    // Leaving the Gallery ends its video and forgets its zoom, card and slideshow.
+    if (m_host.galleryStopVideo) {
+      m_host.galleryStopVideo();
+    }
+    *m_galleryState = {};
+    if (m_ui != nullptr && m_ui->gallery != nullptr) {
+      m_ui->gallery->detachState();
+    }
+  }
   m_options.view = view;
+  if (view == View::Gallery && m_ui != nullptr && m_ui->gallery != nullptr) {
+    m_ui->gallery->enter(m_galleryState);
+    m_galleryItems.clear(); // the next sync hands the node its items again
+  }
   static constexpr std::array kNames{"icons", "list", "columns", "gallery"};
   kLog.debug("view {}", kNames[static_cast<std::size_t>(view)]);
   if (m_host.viewChanged && !m_searchViewSwitch) {
@@ -3511,6 +3638,18 @@ bool FileBrowser::onKey(const KeyboardEvent& event) {
       m_ui->gallery->toggleChrome();
       return true;
     }
+    if (event.sym == XKB_KEY_space && m_ui->gallery != nullptr) {
+      m_ui->gallery->togglePlay();
+      return true;
+    }
+    if (event.sym == XKB_KEY_i && m_ui->gallery != nullptr) {
+      m_ui->gallery->toggleInfo();
+      return true;
+    }
+    if (event.sym == XKB_KEY_r && m_host.galleryAction) {
+      galleryAction("rotate", 0.0F, 0.0F);
+      return true;
+    }
   }
   if (event.sym == XKB_KEY_t && mods == KeyMod::Ctrl) {
     newTab();
@@ -3726,6 +3865,9 @@ void FileBrowser::logGeometry() {
   }
   if (m_options.view == View::Columns) {
     m_columns->appendGeometry(out);
+  }
+  if (m_options.view == View::Gallery && m_ui->gallery != nullptr) {
+    m_ui->gallery->appendGeometry(out);
   }
   for (const auto& [node, place] : m_ui->sidebarRows) {
     const auto [x, y] = centre(node);

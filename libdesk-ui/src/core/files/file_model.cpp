@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <iterator>
 #include <fcntl.h>
 #include <glib.h>
 #include <map>
@@ -16,6 +17,7 @@
 #include <numeric>
 #include <sys/syscall.h>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <unistd.h>
 
@@ -233,7 +235,7 @@ void FileModel::startWatch() {
 void FileModel::reload() {
   const std::uint64_t generation = ++m_generation;
   m_listing = true;
-  m_queued.clear();
+  m_pending.clear();
   if (m_statJob != nullptr) {
     m_statJob->cancelled = true;
     m_statJob.reset();
@@ -264,10 +266,8 @@ void FileModel::reload() {
       self->m_statJob = job;
       self->m_listing = false;
       self->notify({.type = Change::Type::Reset});
-      // A change that raced the listing may be in it already; upsert and erase are idempotent.
-      for (const QueuedEvent& e : std::exchange(self->m_queued, {})) {
-        self->onWatch(e.event, e.name, e.newName);
-      }
+      // A change that raced the listing may be in it already; a flush stats each name again, so it is idempotent.
+      self->flushWatch();
     });
     if (job == nullptr) {
       return;
@@ -347,59 +347,24 @@ const FileInfo* FileModel::find(std::string_view name) const {
   return it == m_entries.end() ? nullptr : it->get();
 }
 
-void FileModel::upsert(const std::string& name, bool inserted) {
-  auto info = statFile(m_dir / name);
-  if (!info) {
-    erase(name);
-    return;
-  }
-  auto it = std::ranges::find_if(m_entries, [&](const auto& e) { return e->name == name; });
-  if (it == m_entries.end()) {
-    insertSorted(std::make_shared<const FileInfo>(std::move(*info)));
-    notify({.type = Change::Type::Inserted, .name = name});
-    return;
-  }
-  // A Changed for an unchanged stat (IN_CLOSE_WRITE after IN_MODIFY) is no change.
-  if (!inserted && (*it)->size == info->size && (*it)->mtimeNs == info->mtimeNs && (*it)->mode == info->mode) {
-    return;
-  }
-  *it = std::make_shared<const FileInfo>(std::move(*info));
-  notify({.type = Change::Type::Updated, .name = name});
-}
-
-void FileModel::erase(const std::string& name) {
-  if (std::erase_if(m_entries, [&](const auto& e) { return e->name == name; }) > 0) {
-    notify({.type = Change::Type::Removed, .name = name});
-  }
-}
-
 void FileModel::onWatch(DirectoryWatcher::Event event, const std::string& name, const std::string& newName) {
-  if (m_listing && event != DirectoryWatcher::Event::Gone && event != DirectoryWatcher::Event::Overflow) {
-    m_queued.push_back({event, name, newName});
-    return;
-  }
   switch (event) {
   case DirectoryWatcher::Event::Created:
-    upsert(name, true);
-    break;
   case DirectoryWatcher::Event::Changed:
-    upsert(name, false);
-    break;
   case DirectoryWatcher::Event::Deleted:
-    erase(name);
-    break;
-  case DirectoryWatcher::Event::Renamed: {
-    auto info = statFile(m_dir / newName);
-    std::erase_if(m_entries, [&](const auto& e) { return e->name == name || e->name == newName; });
-    if (info) {
-      insertSorted(std::make_shared<const FileInfo>(std::move(*info)));
-      notify({.type = Change::Type::Renamed, .name = name, .newName = newName});
-    } else {
-      notify({.type = Change::Type::Removed, .name = name});
+  case DirectoryWatcher::Event::Renamed:
+    m_pending.insert(name);
+    if (!newName.empty()) {
+      m_pending.insert(newName);
+    }
+    // A fixed window from the first event, not reset by later ones: a steady stream still shows every 50 ms.
+    if (!m_listing && !m_flush.active()) {
+      m_flush.start(std::chrono::milliseconds(50), [this] { flushWatch(); });
     }
     break;
-  }
   case DirectoryWatcher::Event::Gone:
+    m_flush.stop();
+    m_pending.clear();
     m_watcher.unwatch(m_watch);
     m_watch = -1;
     m_entries.clear();
@@ -408,8 +373,52 @@ void FileModel::onWatch(DirectoryWatcher::Event event, const std::string& name, 
     break;
   case DirectoryWatcher::Event::Overflow:
     kLog.info("watch overflow in {}; listing again", m_dir.string());
+    m_flush.stop();
     reload();
     break;
+  }
+}
+
+void FileModel::flushWatch() {
+  m_flush.stop();
+  if (m_listing || m_pending.empty()) {
+    return;
+  }
+  const std::set<std::string> names = std::exchange(m_pending, {});
+  std::unordered_map<std::string, std::shared_ptr<const FileInfo>> old;
+  std::erase_if(m_entries, [&](const auto& e) {
+    if (!names.contains(e->name)) {
+      return false;
+    }
+    old.emplace(e->name, e);
+    return true;
+  });
+  bool changed = false;
+  std::vector<std::shared_ptr<const FileInfo>> fresh;
+  for (const std::string& name : names) {
+    auto info = statFile(m_dir / name);
+    const auto was = old.find(name);
+    if (!info) {
+      changed = changed || was != old.end();
+      continue;
+    }
+    // A Changed for an unchanged stat (IN_CLOSE_WRITE after IN_MODIFY) is no change.
+    if (was != old.end() && was->second->size == info->size && was->second->mtimeNs == info->mtimeNs &&
+        was->second->mode == info->mode) {
+      fresh.push_back(was->second);
+      continue;
+    }
+    changed = true;
+    fresh.push_back(std::make_shared<const FileInfo>(std::move(*info)));
+  }
+  const auto key = [](const auto& p) -> const FileInfo& { return *p; };
+  std::ranges::sort(fresh, nameBefore, key);
+  std::vector<std::shared_ptr<const FileInfo>> merged;
+  merged.reserve(m_entries.size() + fresh.size());
+  std::ranges::merge(m_entries, fresh, std::back_inserter(merged), nameBefore, key, key);
+  m_entries = std::move(merged);
+  if (changed) {
+    notify({.type = Change::Type::Updated});
   }
 }
 

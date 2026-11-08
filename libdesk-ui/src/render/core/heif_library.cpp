@@ -38,6 +38,7 @@ namespace {
   using HeifContextReadFromMemoryWithoutCopyFn = HeifError (*)(HeifContext*, const void*, std::size_t, const void*);
   using HeifContextGetPrimaryImageHandleFn = HeifError (*)(HeifContext*, HeifImageHandle**);
   using HeifImageHandleReleaseFn = void (*)(const HeifImageHandle*);
+  using HeifImageHandleGetSizeFn = int (*)(const HeifImageHandle*);
   using HeifDecodeImageFn = HeifError (*)(const HeifImageHandle*, HeifImage**, int, int, const void*);
   using HeifImageGetPlaneReadonlyFn = const std::uint8_t* (*)(const HeifImage*, int, int*);
   using HeifImageGetWidthFn = int (*)(const HeifImage*, int);
@@ -51,6 +52,8 @@ namespace {
     HeifContextReadFromMemoryWithoutCopyFn contextReadFromMemoryWithoutCopy = nullptr;
     HeifContextGetPrimaryImageHandleFn contextGetPrimaryImageHandle = nullptr;
     HeifImageHandleReleaseFn imageHandleRelease = nullptr;
+    HeifImageHandleGetSizeFn imageHandleWidth = nullptr;
+    HeifImageHandleGetSizeFn imageHandleHeight = nullptr;
     HeifDecodeImageFn decodeImage = nullptr;
     HeifImageGetPlaneReadonlyFn imageGetPlaneReadonly = nullptr;
     HeifImageGetWidthFn imageGetWidth = nullptr;
@@ -89,6 +92,8 @@ namespace {
           )
           || !loadDlsymFunction(library, "heif_context_get_primary_image_handle", api.contextGetPrimaryImageHandle)
           || !loadDlsymFunction(library, "heif_image_handle_release", api.imageHandleRelease)
+          || !loadDlsymFunction(library, "heif_image_handle_get_width", api.imageHandleWidth)
+          || !loadDlsymFunction(library, "heif_image_handle_get_height", api.imageHandleHeight)
           || !loadDlsymFunction(library, "heif_decode_image", api.decodeImage)
           || !loadDlsymFunction(library, "heif_image_get_plane_readonly", api.imageGetPlaneReadonly)
           || !loadDlsymFunction(library, "heif_image_get_width", api.imageGetWidth)
@@ -204,6 +209,12 @@ std::expected<DecodedRasterImage, std::string> decodeHeif(const std::uint8_t* da
     return std::unexpected(heifErrorMessage(err, "no primary image"));
   }
 
+  if (static_cast<std::uint64_t>(std::max(0, api->imageHandleWidth(handle))) *
+          static_cast<std::uint64_t>(std::max(0, api->imageHandleHeight(handle))) > kMaxDecodePixels) {
+    api->imageHandleRelease(handle);
+    api->contextFree(context);
+    return std::unexpected("libheif: image too large");
+  }
   // Null decoding options keep libheif's defaults, which apply the irot/imir/clap transforms.
   HeifImage* image = nullptr;
   err = api->decodeImage(handle, &image, kHeifColorspaceRgb, kHeifChromaInterleavedRgba, nullptr);

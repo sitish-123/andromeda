@@ -3,6 +3,7 @@
 #include "core/log.h"
 #include "core/process/process_fds.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "pointer-gestures-unstable-v1-client-protocol.h"
 #include "dsk-surface-v1-client-protocol.h"
 #include "ext-background-effect-v1-client-protocol.h"
 #include "ext-idle-notify-v1-client-protocol.h"
@@ -782,6 +783,10 @@ void WaylandConnection::notifyIdleCapabilitiesReady() {
   m_idleCapabilitiesReadyCallback();
 }
 
+void WaylandConnection::setPinchEventCallback(WaylandSeat::PinchEventCallback callback) {
+  m_seatHandler.setPinchEventCallback(std::move(callback));
+}
+
 void WaylandConnection::setPointerEventCallback(WaylandSeat::PointerEventCallback callback) {
   m_pointerEventCallback = std::move(callback);
   m_seatHandler.setPointerEventCallback([this](const PointerEvent& event) {
@@ -1392,6 +1397,14 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zwp_pointer_gestures_v1_interface.name) {
+    m_pointerGestures = static_cast<zwp_pointer_gestures_v1*>(
+        wl_registry_bind(registry, name, &zwp_pointer_gestures_v1_interface, 1)
+    );
+    m_seatHandler.setPointerGestures(m_pointerGestures);
+    return;
+  }
+
   if (interfaceName == wp_cursor_shape_manager_v1_interface.name) {
     const auto bindVersion = std::min(version, kCursorShapeManagerVersion);
     m_cursorShapeManager = static_cast<wp_cursor_shape_manager_v1*>(
@@ -1657,6 +1670,10 @@ void WaylandConnection::cleanup() {
   if (m_cursorShapeManager != nullptr) {
     wp_cursor_shape_manager_v1_destroy(m_cursorShapeManager);
     m_cursorShapeManager = nullptr;
+  }
+  if (m_pointerGestures != nullptr) {
+    zwp_pointer_gestures_v1_destroy(m_pointerGestures);
+    m_pointerGestures = nullptr;
   }
 
   if (m_seat != nullptr) {

@@ -29,6 +29,14 @@ namespace {
       (void)imageConfig;
       return wuffs_base__make_pixel_format(WUFFS_BASE__PIXEL_FORMAT__RGBA_NONPREMUL);
     }
+
+    AllocPixbufResult AllocPixbuf(const wuffs_base__image_config& imageConfig, bool allowUninitializedMemory) override {
+      const auto& pix = imageConfig.pixcfg;
+      if (static_cast<std::uint64_t>(pix.width()) * pix.height() > kMaxDecodePixels) {
+        return AllocPixbufResult("image too large");
+      }
+      return DecodeImageCallbacks::AllocPixbuf(imageConfig, allowUninitializedMemory);
+    }
   };
 
   // Returns true if the buffer starts with the RIFF....WEBP signature.
@@ -259,6 +267,9 @@ namespace {
     if (WebPGetFeatures(data, size, &features) != VP8_STATUS_OK) {
       return std::unexpected("libwebp: failed to read WebP header");
     }
+    if (static_cast<std::uint64_t>(features.width) * static_cast<std::uint64_t>(features.height) > kMaxDecodePixels) {
+      return std::unexpected("libwebp: image too large");
+    }
     if (features.has_animation) {
       return decodeWebPFirstFrame(data, size);
     }
@@ -311,6 +322,9 @@ namespace {
         JxlBasicInfo info;
         if (JxlDecoderGetBasicInfo(decoder.get(), &info) != JXL_DEC_SUCCESS) {
           return std::unexpected("libjxl: failed to read image header");
+        }
+        if (static_cast<std::uint64_t>(info.xsize) * info.ysize > kMaxDecodePixels) {
+          return std::unexpected("libjxl: image too large");
         }
         // Orientation is already applied; xsize/ysize are the display dimensions.
         decoded.width = static_cast<int>(info.xsize);

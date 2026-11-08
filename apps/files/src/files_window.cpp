@@ -14,6 +14,8 @@
 #include "select_pattern_sheet.h"
 #include "smart_folder_sheet.h"
 #include "exif_date.h"
+#include "gallery_video.h"
+#include "offline_map.h"
 #include "render/scene/input_area.h"
 #include "ui/controls/input.h"
 #include "terminal.h"
@@ -32,6 +34,7 @@
 #include "core/files/file_info.h"
 #include "core/input/key_modifiers.h"
 #include "ui/files/file_format.h"
+#include "ui/files/file_gallery.h"
 #include "ui/files/type_ahead.h"
 #include "ui/files/this_pc.h"
 #include "core/log.h"
@@ -56,7 +59,11 @@
 #include <utility>
 #include <format>
 #include <sstream>
+#include <cctype>
+#include <fcntl.h>
+#include <fstream>
 #include <thread>
+#include <sys/xattr.h>
 #include <gio/gio.h>
 #include <gio/gdesktopappinfo.h>
 #include <glib.h>
@@ -65,6 +72,143 @@
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace fs = std::filesystem;
+
+namespace {
+  // A Google motion photo keeps an MP4 after the JPEG data (MotionPhoto / MicroVideo). Its start is the last "ftyp"
+  // box with a plausible size and brand; the tail goes to a private runtime file the media helper can open. Blocks:
+  // runs on a worker thread. Empty when the photo has no video.
+  fs::path cutMotionVideo(const fs::path& photo) {
+    constexpr std::uintmax_t kMaxBytes = 64ULL << 20;
+    std::error_code ec;
+    const auto size = fs::file_size(photo, ec);
+    if (ec || size < 64 || size > kMaxBytes) {
+      return {};
+    }
+    std::ifstream in(photo, std::ios::binary);
+    std::string bytes(static_cast<std::size_t>(size), '\0');
+    if (!in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))) {
+      return {};
+    }
+    std::size_t start = std::string::npos;
+    for (std::size_t at = bytes.find("ftyp", 8); at != std::string::npos; at = bytes.find("ftyp", at + 4)) {
+      const auto u8 = [&](std::size_t i) { return static_cast<std::uint32_t>(static_cast<unsigned char>(bytes[i])); };
+      const std::uint32_t box = (u8(at - 4) << 24) | (u8(at - 3) << 16) | (u8(at - 2) << 8) | u8(at - 1);
+      const std::string_view brand = std::string_view(bytes).substr(at + 4, 4);
+      if (box >= 16 && box <= 64 && at + 4 + 4 <= bytes.size() &&
+          (brand == "mp42" || brand == "isom" || brand == "mp41" || brand == "avc1" || brand == "iso5" || brand == "iso6")) {
+        start = at - 4;
+      }
+    }
+    if (start == std::string::npos) {
+      return {};
+    }
+    const char* runtime = std::getenv("XDG_RUNTIME_DIR");
+    const fs::path dir = fs::path(runtime != nullptr && *runtime != '\0' ? runtime : "/tmp") / "andromeda-files";
+    fs::create_directories(dir, ec);
+    fs::permissions(dir, fs::perms::owner_all, ec);
+    // One file per process, replaced by rename: a helper still reading the previous one keeps its inode.
+    const fs::path out = dir / std::format("motion-{}.mp4", ::getpid());
+    const fs::path tmp = dir / std::format("motion-{}.mp4.part", ::getpid());
+    const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+      return {};
+    }
+    const std::string_view video = std::string_view(bytes).substr(start);
+    bool ok = true;
+    for (std::size_t done = 0; ok && done < video.size();) {
+      const ssize_t n = ::write(fd, video.data() + done, video.size() - done);
+      ok = n > 0;
+      done += ok ? static_cast<std::size_t>(n) : 0;
+    }
+    ok = ::close(fd) == 0 && ok;
+    if (!ok || ::rename(tmp.c_str(), out.c_str()) != 0) {
+      ::unlink(tmp.c_str());
+      return {};
+    }
+    return out;
+  }
+
+  // The Gallery Info card content (mockup section 15). Blocks on file reads: runs on a worker thread.
+  FileGallery::PhotoInfo readPhotoInfo(const fs::path& path, int mapW, int mapH, float scale,
+                                       const std::vector<std::string>& tags) {
+    FileGallery::PhotoInfo info;
+    info.name = path.filename().string();
+    std::string ext = path.extension().string();
+    std::ranges::transform(ext, ext.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    if (!ext.empty()) {
+      ext.erase(0, 1);
+    }
+    const bool exifType = ext == "JPG" || ext == "JPEG" || ext == "TIF" || ext == "TIFF";
+    const PhotoExif exif = exifType ? readPhotoExif(path) : PhotoExif{};
+    std::error_code ec;
+    const auto bytes = fs::file_size(path, ec);
+    info.kind = ext == "JPG" ? std::string("JPEG") : ext;
+    if (exif.width > 0 && exif.height > 0) {
+      info.kind += std::format(" · {} × {}", exif.width, exif.height);
+    }
+    if (!ec) {
+      info.kind += " · " + formatFileSize(bytes);
+    }
+    if (!exif.camera.empty()) {
+      info.chips.push_back(exif.camera);
+    }
+    if (exif.fNumber && *exif.fNumber > 0.0) {
+      info.chips.push_back(std::format("ƒ/{:g}", std::round(*exif.fNumber * 10.0) / 10.0));
+    }
+    if (exif.exposureSeconds && *exif.exposureSeconds > 0.0) {
+      const double e = *exif.exposureSeconds;
+      info.chips.push_back(e < 1.0 ? std::format("1/{} s", std::lround(1.0 / e)) : std::format("{:g} s", e));
+    }
+    if (exif.iso) {
+      info.chips.push_back(std::format("ISO {}", *exif.iso));
+    }
+    if (exif.focalMm && *exif.focalMm > 0.0) {
+      info.chips.push_back(std::format("{} mm", std::lround(*exif.focalMm)));
+    }
+    if (exif.gps) {
+      auto map = offline_map::render(exif.gps->first, exif.gps->second, mapW, mapH, scale);
+      info.mapBgra = std::move(map.bgra);
+      info.mapWidth = map.width;
+      info.mapHeight = map.height;
+      info.place = offline_map::placeName(exif.gps->first, exif.gps->second);
+    }
+    if (exif.taken) {
+      // The EXIF wall time comes back as UTC (exif_date.h): show it as written, no zone shift.
+      const auto minute = std::chrono::floor<std::chrono::minutes>(*exif.taken);
+      const std::chrono::year_month_day day{std::chrono::floor<std::chrono::days>(minute)};
+      info.rows.emplace_back("Taken", std::format("{} {:%b %Y, %H:%M}", static_cast<unsigned>(day.day()), minute));
+    }
+    // Browsers record where a download came from (freedesktop user.xdg.origin.url).
+    std::array<char, 2048> origin{};
+    const ssize_t n = ::getxattr(path.c_str(), "user.xdg.origin.url", origin.data(), origin.size() - 1);
+    if (n > 0) {
+      std::string url(origin.data(), static_cast<std::size_t>(n));
+      const auto scheme = url.find("://");
+      const auto host = scheme == std::string::npos ? std::string() : url.substr(scheme + 3, url.find('/', scheme + 3) - scheme - 3);
+      if (!host.empty()) {
+        info.rows.emplace_back("From", host);
+      }
+    }
+    fs::path folder = path.parent_path();
+    std::string where;
+    if (const char* home = std::getenv("HOME"); home != nullptr && folder.string().starts_with(std::string(home) + "/")) {
+      for (const auto& part : folder.lexically_relative(home)) {
+        where += (where.empty() ? "" : " › ") + part.string();
+      }
+    } else {
+      where = folder.string();
+    }
+    info.rows.emplace_back("Folder", where.empty() ? std::string("Home") : where);
+    if (!tags.empty()) {
+      std::string joined;
+      for (const auto& t : tags) {
+        joined += (joined.empty() ? "" : ", ") + t;
+      }
+      info.rows.emplace_back("Tags", joined);
+    }
+    return info;
+  }
+} // namespace
 
 namespace {
   constexpr std::size_t kTagEntryBase = 1000; // menu entry ids of the Tags submenu rows
@@ -613,12 +757,14 @@ void FilesWindow::renameSelection() {
     return;
   }
   std::vector<BatchRenameItem> items;
+  std::vector<fs::path> sources;
   for (const auto& row : rows) {
+    sources.push_back(m_browser->pathOf(*row));
     items.push_back({.name = row->displayName,
                      .modified = std::chrono::system_clock::time_point(
                          std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(row->mtimeNs))),
                      .taken = row->contentType == "image/jpeg" || row->contentType == "image/tiff"
-                                  ? readDateTaken(fs::path(row->name).is_absolute() ? fs::path(row->name) : location() / row->name)
+                                  ? readDateTaken(sources.back())
                                   : std::nullopt});
   }
   std::set<std::string> existing;
@@ -626,7 +772,7 @@ void FilesWindow::renameSelection() {
     existing.insert(row->displayName);
   }
   m_batchRename = std::make_unique<BatchRenameSheet>(
-      location(), std::move(items), std::move(existing),
+      std::move(sources), std::move(items), std::move(existing),
       [this](std::vector<std::pair<fs::path, std::string>> pairs) {
         const std::size_t count = pairs.size();
         startJob("Renaming", count, [&](FileOpsClient& ops, auto done) { ops.renameMany(pairs, done); });
@@ -664,7 +810,7 @@ void FilesWindow::dropData(const fs::path& folder, const std::string& mime, cons
 }
 
 void FilesWindow::newFolder() {
-  if (m_browser->listingId() == "trash" || location().empty()) {
+  if (!inFolder()) {
     return;
   }
   // The name is free now; the daemon picks another one only if something takes it first.
@@ -695,7 +841,7 @@ std::vector<fs::path> FilesWindow::templates() {
 }
 
 void FilesWindow::newFromTemplate(const fs::path& file) {
-  if (m_browser->listingId() == "trash" || location().empty()) {
+  if (!inFolder()) {
     return;
   }
   // "Report.odt" -> "Report.odt", "Report 2.odt", … ; a small file, copied here so the name is known for the rename.
@@ -818,6 +964,7 @@ float FilesWindow::scale() const noexcept { return m_window.uiScale(); }
 bool FilesWindow::canBack() const noexcept { return m_browser->canBack(); }
 bool FilesWindow::canForward() const noexcept { return m_browser->canForward(); }
 bool FilesWindow::inTrash() const noexcept { return m_browser->listingId() == "trash"; }
+bool FilesWindow::inFolder() const { return m_browser->listingId().empty() && !location().empty(); }
 const fs::path& FilesWindow::location() const noexcept { return m_browser->location(); }
 bool FilesWindow::hasSelection() const noexcept { return m_browser->selectionCount() > 0; }
 
@@ -883,6 +1030,55 @@ void FilesWindow::makePane(std::size_t index) {
     // Groups of tags sort by name (rank 0 for all); the walk covers home only.
     const auto& tags = m_app.tags().tagsOf(path);
     return tags.empty() ? std::nullopt : std::optional(std::pair{0, tags.front()});
+  };
+  host.starred = [this](const fs::path& path) { return m_app.starred().contains(path); };
+  host.phoneName = [this] {
+    const auto device = galleryPhone();
+    return device ? device->name : std::string();
+  };
+  host.galleryAction = [this](std::string_view action, float x, float y) { galleryAction(action, x, y); };
+  host.galleryPlayVideo = [this](const fs::path& video, bool sound, std::array<float, 4> rect) {
+    if (m_galleryVideo == nullptr) {
+      m_galleryVideo = std::make_unique<GalleryVideo>(
+          m_app.loop(), m_app.loop().wayland(),
+          GalleryVideo::Callbacks{
+              .parent = [this] { return m_window.wlSurface(); },
+              .redraw = [this] { m_window.invalidate(); },
+              .progress = [this](bool playing, float progress, const std::string& time) {
+                m_browser->galleryVideoProgress(playing, progress, time);
+              },
+              .ended = [this] { m_browser->galleryVideoEnded(); },
+          });
+    }
+    m_galleryVideo->play(video, sound, rect);
+  };
+  host.galleryPlaceVideo = [this](std::array<float, 4> rect) {
+    if (m_galleryVideo != nullptr) {
+      m_galleryVideo->place(rect);
+    }
+  };
+  host.galleryToggleVideo = [this] {
+    if (m_galleryVideo != nullptr) {
+      m_galleryVideo->toggle();
+    }
+  };
+  host.galleryStopVideo = [this] {
+    if (m_galleryVideo != nullptr) {
+      m_galleryVideo->stop();
+    }
+  };
+  host.galleryMotionVideo = [](const fs::path& photo, std::function<void(fs::path)> done) {
+    std::thread([photo, done = std::move(done)]() mutable {
+      fs::path video = cutMotionVideo(photo);
+      DeferredCall::callLater([done = std::move(done), video = std::move(video)]() mutable { done(std::move(video)); });
+    }).detach();
+  };
+  host.galleryInfo = [this](const fs::path& path, int mapW, int mapH, std::function<void(FileGallery::PhotoInfo)> done) {
+    std::thread([path, mapW, mapH, scale = m_window.uiScale(), tags = m_app.tags().tagsOf(path),
+                 done = std::move(done)]() mutable {
+      auto info = readPhotoInfo(path, mapW, mapH, scale, tags);
+      DeferredCall::callLater([done = std::move(done), info = std::move(info)]() mutable { done(std::move(info)); });
+    }).detach();
   };
   host.contextMenu = [this](std::vector<ContextMenuControlEntry> entries, float x, float y,
                             std::function<void(std::int32_t)> activated) {
@@ -2238,6 +2434,47 @@ void FilesWindow::askEmptyTrash() {
       [this] { m_window.dismissSheet(); });
 }
 
+std::optional<LinkShare::Device> FilesWindow::galleryPhone() const {
+  const auto devices = shareDevices();
+  const auto connected = std::ranges::find_if(devices, &LinkShare::Device::connected);
+  if (connected != devices.end()) {
+    return *connected;
+  }
+  return devices.empty() ? std::nullopt : std::optional(devices.front());
+}
+
+void FilesWindow::galleryAction(std::string_view action, float sceneX, float sceneY) {
+  const auto paths = selectedPaths();
+  if (paths.size() != 1) {
+    return;
+  }
+  const fs::path& photo = paths.front();
+  if (action == "favourite") {
+    toggleStar();
+  } else if (action == "rotate") {
+    if (!rotateJpegClockwise(photo)) {
+      showToast(std::format("“{}” cannot be rotated without loss.", photo.filename().string()), false);
+      return;
+    }
+    m_app.thumbnails().reload(photo.string());
+  } else if (action == "markup") {
+    openWith();
+  } else if (action == "phone") {
+    if (const auto device = galleryPhone()) {
+      sendToPhone(device->id, paths);
+    }
+  } else if (action == "share") {
+    showShareMenu(sceneX, sceneY);
+  } else if (action == "more") {
+    const auto& rows = m_browser->rows();
+    const auto hit = std::ranges::find_if(rows, [&](const auto& r) { return m_browser->pathOf(*r) == photo; });
+    if (hit != rows.end()) {
+      showItemMenu(static_cast<std::size_t>(hit - rows.begin()), sceneX, sceneY);
+    }
+  }
+  m_browser->refreshGallery();
+}
+
 std::vector<LinkShare::Device> FilesWindow::shareDevices() const {
   LinkShare* link = m_app.linkShare();
   return link != nullptr ? link->devices() : std::vector<LinkShare::Device>{};
@@ -2600,12 +2837,18 @@ void FilesWindow::importPhotos() {
 
 std::string FilesWindow::formatTarget() const {
   // Removable drives only: Format never offers the system or home drive.
+  // The drive whose mount point holds the location: whole path components only (/run/media/u/USB never matches
+  // /run/media/u/USB1), and the deepest mount wins (a drive mounted inside another).
+  const std::string here = location().lexically_normal().string();
+  const Volume* best = nullptr;
   for (const Volume& v : listVolumes()) {
-    if (v.removable && location().string().starts_with(v.mountPoint.string())) {
-      return Drives::deviceOf(v.mountPoint);
+    const std::string mount = v.mountPoint.lexically_normal().string();
+    const bool inside = here == mount || here.starts_with(mount.ends_with('/') ? mount : mount + "/");
+    if (inside && (best == nullptr || mount.size() > best->mountPoint.lexically_normal().string().size())) {
+      best = &v;
     }
   }
-  return {};
+  return best != nullptr && best->removable ? Drives::deviceOf(best->mountPoint) : std::string();
 }
 
 void FilesWindow::askFormat() {
@@ -3205,7 +3448,7 @@ void FilesWindow::startJob(const char* verb, std::size_t count, std::function<vo
 }
 
 void FilesWindow::paste() {
-  if (inTrash()) {
+  if (!inFolder()) {
     return;
   }
   // Files another app copied come from the system clipboard; our own copy stays in m_app.clipboard().

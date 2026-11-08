@@ -177,6 +177,15 @@ TextureHandle ThumbnailService::peek(const std::string& path, int targetPx) cons
   return it->second.handle;
 }
 
+void ThumbnailService::reload(const std::string& path) {
+  for (auto& [key, entry] : m_entries) {
+    if (key.path == path && entry.refCount > 0) {
+      entry.failed = false;
+      enqueueDecodeIfNeeded(key);
+    }
+  }
+}
+
 void ThumbnailService::release(const std::string& path, int targetPx) {
   const RequestKey key{.path = path, .targetPx = targetPx};
   const auto it = m_entries.find(key);

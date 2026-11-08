@@ -3,6 +3,7 @@
 #include "core/input/shortcut_keysym.h"
 #include "core/log.h"
 #include "cursor-shape-v1-client-protocol.h"
+#include "pointer-gestures-unstable-v1-client-protocol.h"
 
 #include <algorithm>
 #include <clocale>
@@ -77,6 +78,56 @@ double WaylandSeat::userIdleSeconds() const noexcept {
 }
 
 void WaylandSeat::setCursorShapeManager(wp_cursor_shape_manager_v1* manager) { m_cursorShapeManager = manager; }
+
+void WaylandSeat::setPinchEventCallback(PinchEventCallback callback) { m_pinchEventCallback = std::move(callback); }
+
+void WaylandSeat::setPointerGestures(zwp_pointer_gestures_v1* gestures) {
+  m_pointerGestures = gestures;
+  if (m_pointerGestures == nullptr || m_pointer == nullptr || m_pinch != nullptr) {
+    return;
+  }
+  static const zwp_pointer_gesture_pinch_v1_listener kPinchListener = {
+      .begin = [](void* data, zwp_pointer_gesture_pinch_v1*, std::uint32_t, std::uint32_t, wl_surface* surface,
+                  std::uint32_t) {
+        auto* self = static_cast<WaylandSeat*>(data);
+        self->m_pinchSurface = surface;
+        self->emitPinch({.phase = PinchEvent::Phase::Begin});
+      },
+      .update = [](void* data, zwp_pointer_gesture_pinch_v1*, std::uint32_t, wl_fixed_t dx, wl_fixed_t dy,
+                   wl_fixed_t scale, wl_fixed_t) {
+        static_cast<WaylandSeat*>(data)->emitPinch({.phase = PinchEvent::Phase::Update,
+                                                    .scale = wl_fixed_to_double(scale),
+                                                    .dx = wl_fixed_to_double(dx),
+                                                    .dy = wl_fixed_to_double(dy)});
+      },
+      .end = [](void* data, zwp_pointer_gesture_pinch_v1*, std::uint32_t, std::uint32_t, std::int32_t cancelled) {
+        auto* self = static_cast<WaylandSeat*>(data);
+        self->emitPinch({.phase = PinchEvent::Phase::End, .cancelled = cancelled != 0});
+        self->m_pinchSurface = nullptr;
+      },
+  };
+  m_pinch = zwp_pointer_gestures_v1_get_pinch_gesture(m_pointerGestures, m_pointer);
+  zwp_pointer_gesture_pinch_v1_add_listener(m_pinch, &kPinchListener, this);
+}
+
+void WaylandSeat::emitPinch(PinchEvent event) {
+  if (!m_pinchEventCallback || m_pinchSurface == nullptr) {
+    return;
+  }
+  bumpUserActivity();
+  event.surface = m_pinchSurface;
+  event.sx = m_hasPointerPosition ? m_lastPointerX : 0.0;
+  event.sy = m_hasPointerPosition ? m_lastPointerY : 0.0;
+  m_pinchEventCallback(event);
+}
+
+void WaylandSeat::destroyPinch() {
+  if (m_pinch != nullptr) {
+    zwp_pointer_gesture_pinch_v1_destroy(m_pinch);
+    m_pinch = nullptr;
+  }
+  m_pinchSurface = nullptr;
+}
 
 void WaylandSeat::setPointerEventCallback(PointerEventCallback callback) {
   m_pointerEventCallback = std::move(callback);
@@ -165,6 +216,8 @@ void WaylandSeat::cleanup() {
     wp_cursor_shape_device_v1_destroy(m_cursorShapeDevice);
     m_cursorShapeDevice = nullptr;
   }
+  destroyPinch();
+  m_pointerGestures = nullptr;
   if (m_pointer != nullptr) {
     wl_pointer_destroy(m_pointer);
     m_pointer = nullptr;
@@ -231,6 +284,7 @@ void WaylandSeat::handleSeatCapabilities(void* data, wl_seat* seat, std::uint32_
     self->m_pointer = wl_seat_get_pointer(seat);
     wl_pointer_add_listener(self->m_pointer, &kPointerListener, self);
     kLog.info("pointer: bound");
+    self->setPointerGestures(self->m_pointerGestures);
 
     if (self->m_cursorShapeManager != nullptr) {
       self->m_cursorShapeDevice = wp_cursor_shape_manager_v1_get_pointer(self->m_cursorShapeManager, self->m_pointer);
@@ -241,6 +295,7 @@ void WaylandSeat::handleSeatCapabilities(void* data, wl_seat* seat, std::uint32_
       wp_cursor_shape_device_v1_destroy(self->m_cursorShapeDevice);
       self->m_cursorShapeDevice = nullptr;
     }
+    self->destroyPinch();
     wl_pointer_destroy(self->m_pointer);
     self->m_pointer = nullptr;
     kLog.info("pointer: released");

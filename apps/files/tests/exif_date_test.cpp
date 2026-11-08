@@ -2,7 +2,11 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <format>
 #include <optional>
 #include <print>
@@ -76,6 +80,57 @@ namespace {
     return out;
   }
 
+  // IFD0 -> GPS IFD at 26: S 27 42' 30", E 85 19' 12".
+  std::string gpsTiff() {
+    std::string t = "II*";
+    t += '\0';
+    put32(t, 8);
+    put16(t, 1);
+    put16(t, 0x8825);
+    put16(t, 4);
+    put32(t, 1);
+    put32(t, 26);
+    put32(t, 0);
+    put16(t, 4); // GPS IFD: 4 entries, data from 80
+    const auto ref = [&](std::uint16_t tag, char c) {
+      put16(t, tag);
+      put16(t, 2);
+      put32(t, 2);
+      t += c;
+      t += std::string(3, '\0');
+    };
+    const auto rationals = [&](std::uint16_t tag, std::uint32_t at) {
+      put16(t, tag);
+      put16(t, 5);
+      put32(t, 3);
+      put32(t, at);
+    };
+    ref(1, 'S');
+    rationals(2, 80);
+    ref(3, 'E');
+    rationals(4, 104);
+    put32(t, 0);
+    for (const std::uint32_t v : {27U, 1U, 42U, 1U, 30U, 1U, 85U, 1U, 19U, 1U, 12U, 1U}) {
+      put32(t, v);
+    }
+    return t;
+  }
+
+  // IFD0 with Orientation = 1 (SHORT).
+  std::string orientedTiff() {
+    std::string t = "II*";
+    t += '\0';
+    put32(t, 8);
+    put16(t, 1);
+    put16(t, 0x0112);
+    put16(t, 3);
+    put32(t, 1);
+    put16(t, 1);
+    put16(t, 0);
+    put32(t, 0);
+    return t;
+  }
+
   std::string ymd(std::chrono::system_clock::time_point t) {
     return std::format("{:%Y-%m-%d %H:%M:%S}", std::chrono::floor<std::chrono::seconds>(t));
   }
@@ -118,5 +173,28 @@ int main() {
   expect(!guarded(longSegment).has_value(), "a segment length past the end");
   expect(!guarded("\xff\xd8").has_value(), "a JPEG with only its start marker");
   expect(!guarded("").has_value(), "an empty file");
+  const PhotoExif gps = parsePhotoExif(jpeg(gpsTiff()));
+  expect(gps.gps.has_value() && std::abs(gps.gps->first + 27.708333) < 1e-4 && std::abs(gps.gps->second - 85.32) < 1e-4,
+         "GPS degrees, minutes, seconds with S as negative");
+  std::string cutGps = gpsTiff();
+  cutGps.resize(110); // the longitude rationals run past the end
+  expect(!parsePhotoExif(jpeg(cutGps)).gps.has_value(), "GPS rationals past the end give no position");
+
+  // Rotate writes the Orientation tag in place, a quarter turn each time, and never touches a file without one.
+  const std::filesystem::path photo = std::filesystem::temp_directory_path() / std::format("exif-rotate-{}.jpg", ::getpid());
+  const auto writeFile = [&](const std::string& bytes) { std::ofstream(photo, std::ios::binary) << bytes; };
+  const auto orientation = [&] {
+    std::ifstream in(photo, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+    const auto at = jpegOrientationOffset(bytes);
+    return at ? static_cast<int>(static_cast<unsigned char>(bytes[*at])) : 0;
+  };
+  writeFile(jpeg(orientedTiff()));
+  expect(rotateJpegClockwise(photo) && orientation() == 6, "one rotate: Orientation 1 -> 6");
+  expect(rotateJpegClockwise(photo) && rotateJpegClockwise(photo) && rotateJpegClockwise(photo) && orientation() == 1,
+         "four rotates come back to 1");
+  writeFile(good);
+  expect(!rotateJpegClockwise(photo), "a JPEG without an Orientation tag is not rotated");
+  std::filesystem::remove(photo);
   return g_failures == 0 ? 0 : 1;
 }

@@ -67,6 +67,18 @@ public:
     bool preedit = false; // dead key preview (composing in progress)
   };
 
+  // A touchpad pinch; `scale` is relative to its begin. Local point = where the pointer rests.
+  struct PinchData {
+    enum class Phase : std::uint8_t { Begin, Update, End };
+    Phase phase = Phase::Begin;
+    float localX = 0.0F;
+    float localY = 0.0F;
+    double scale = 1.0;
+    double dx = 0.0;
+    double dy = 0.0;
+    bool cancelled = false;
+  };
+  using PinchCallback = std::function<void(const PinchData&)>;
   using PointerCallback = std::function<void(const PointerData&)>;
   using AxisCallback = std::function<bool(const PointerData&)>;
   using KeyCallback = std::function<void(const KeyData&)>;
@@ -97,6 +109,8 @@ public:
   void setOnCancel(VoidCallback callback);
   void setOnAxis(PointerCallback callback);
   void setOnAxisHandler(AxisCallback callback);
+  void setOnPinch(PinchCallback callback) { m_onPinch = std::move(callback); }
+  [[nodiscard]] bool handlesPinch() const noexcept { return static_cast<bool>(m_onPinch); }
 
   // Keyboard / focus
   void setFocusable(bool focusable);
@@ -193,6 +207,11 @@ public:
       std::uint32_t serial = 0, std::uint32_t time = 0
   );
   void dispatchCancel();
+  void dispatchPinch(const PinchData& data) {
+    if (m_onPinch) {
+      m_onPinch(data);
+    }
+  }
   [[nodiscard]] bool dispatchAxis(
       float localX, float localY, std::uint32_t axis, std::uint32_t axisSource, double axisValue,
       std::int32_t axisDiscrete, std::int32_t axisValue120, float axisLines, std::uint32_t axisGestureSerial = 0
@@ -218,6 +237,7 @@ private:
   PointerCallback m_onClick;
   VoidCallback m_onCancel;
   AxisCallback m_onAxis;
+  PinchCallback m_onPinch;
   KeyCallback m_onKeyDown;
   KeyCallback m_onKeyUp;
   VoidCallback m_onFocusGain;

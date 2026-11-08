@@ -676,6 +676,10 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
     list->addChild(m_sidebarBuilder(renderer, sidebarWidth - edgeW, height));
     sidebar->addChild(std::move(list));
     sidebar->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Separator), .width = edgeW}));
+    // Fully hidden, it leaves the layout: a 0 min/max width reads as "no limit" and would show it at full width. It is
+    // still built, so the app's handles to its rows stay valid.
+    sidebar->setVisible(sidebarShown > 0.0F);
+    sidebar->setParticipatesInLayout(sidebarShown > 0.0F);
     body->addChild(std::move(sidebar));
   }
   body->addChild(std::move(main));
@@ -832,6 +836,18 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
   invalidate();
 }
 
+void AppWindow::onPinchEvent(const PinchEvent& event) {
+  if (!isOpen() || (m_menu != nullptr && m_menu->isOpen()) || (m_popover != nullptr && m_popover->isOpen())) {
+    return;
+  }
+  const auto phase = event.phase == PinchEvent::Phase::Begin  ? InputArea::PinchData::Phase::Begin
+                     : event.phase == PinchEvent::Phase::End ? InputArea::PinchData::Phase::End
+                                                              : InputArea::PinchData::Phase::Update;
+  m_input.pointerPinch(static_cast<float>(event.sx), static_cast<float>(event.sy),
+                       {.phase = phase, .scale = event.scale, .dx = event.dx, .dy = event.dy, .cancelled = event.cancelled});
+  invalidate();
+}
+
 bool AppWindow::requestSize(std::uint32_t width, std::uint32_t height) {
   if (m_surface == nullptr) {
     return false;
@@ -856,6 +872,7 @@ void AppWindow::setSidebarVisible(bool visible) {
     return;
   }
   m_sidebarVisible = visible;
+  kLog.debug("sidebar {}", visible ? "shown" : "hidden");
   if (m_surface == nullptr) {
     m_sidebarMix = visible ? 1.0F : 0.0F; // before open: the first frame already has the final layout
     return;
@@ -865,15 +882,21 @@ void AppWindow::setSidebarVisible(bool visible) {
       m_sidebarAnim, m_sidebarMix, visible ? 1.0F : 0.0F, Style::spring(Tokens::springPage),
       [this](float v) {
         m_sidebarMix = std::clamp(v, 0.0F, 1.0F);
-        if (m_sidebarNode != nullptr && m_surface != nullptr) {
-          const float w = m_config.sidebarWidth * m_uiScale * m_sidebarMix;
-          m_sidebarNode->setMinWidth(w);
-          m_sidebarNode->setMaxWidth(w);
-          m_sidebarNode->markLayoutDirty();
-          m_contentRect.x = static_cast<float>(m_surface->margin()) + w;
-          m_contentRect.width = static_cast<float>(m_surface->windowWidth()) - w;
-          m_surface->requestLayout();
+        if (m_surface == nullptr) {
+          return;
         }
+        const float w = m_config.sidebarWidth * m_uiScale * m_sidebarMix;
+        if (m_sidebarNode == nullptr) {
+          return;
+        }
+        m_sidebarNode->setVisible(w > 0.0F);
+        m_sidebarNode->setParticipatesInLayout(w > 0.0F);
+        m_sidebarNode->setMinWidth(w);
+        m_sidebarNode->setMaxWidth(w);
+        m_sidebarNode->markLayoutDirty();
+        m_contentRect.x = static_cast<float>(m_surface->margin()) + w;
+        m_contentRect.width = static_cast<float>(m_surface->windowWidth()) - w;
+        m_surface->requestLayout();
       },
       [this] { m_sidebarAnim = 0; }, nullptr, 0.0F, Threshold::px(m_config.sidebarWidth * m_uiScale), true);
   m_surface->requestLayout(); // the spring ticks on frames; a key press alone asks for none

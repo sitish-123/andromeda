@@ -6,6 +6,9 @@
 #include <string>
 #include <vector>
 
+// The largest image any decoder here allocates: 100 Mpx (400 MB RGBA). A small crafted file can claim far more.
+inline constexpr std::uint64_t kMaxDecodePixels = 100'000'000;
+
 struct DecodedRasterImage {
   std::vector<std::uint8_t> pixels;
   int width = 0;
