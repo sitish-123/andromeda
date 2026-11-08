@@ -27,6 +27,23 @@ namespace settings::page_rows {
   void addValueRow(Flex& card, std::string_view label, std::string_view value, float scale);
   void addEmptyState(Flex& content, std::string_view glyph, std::string_view text, float scale);
 
+  // D6 rows (.agent/mockups/settings-d6.html): grey leading symbol (none when empty), label_1 title, label_2 value.
+  [[nodiscard]] std::unique_ptr<Node> valueText(std::string text, float scale);
+  [[nodiscard]] std::unique_ptr<Flex> labelRow(std::string_view glyph, std::string label, float scale);
+  // A value row; with onOpen the row ends in a chevron that opens it.
+  void addInfoRow(Flex& card, std::string_view glyph, std::string label, std::string value, float scale,
+                  std::function<void()> onOpen = {});
+  void addSwitchRow(Flex& card, std::string_view glyph, std::string label, bool on, float scale,
+                    std::function<void(bool)> onChange);
+  // Two lines (title, label_2 subtitle) at the 56 row height; returns the row for trailing controls.
+  [[nodiscard]] Flex* addTwoLineRow(Flex& card, std::string_view glyph, std::string title, std::string subtitle,
+                                    float scale);
+  // Accent text row ("Add Rule…") aligned with the titles of rows that have a symbol.
+  void addActionRow(Flex& card, std::string text, bool indent, float scale, std::function<void()> onClick);
+  // Footnote under a card of addSettingsGroupCard, inside its group (8 below the card).
+  void addFootnote(Flex& card, std::string text, float scale);
+  [[nodiscard]] std::unique_ptr<Node> chevronButton(std::string tooltip, float scale, std::function<void()> onClick);
+
   struct Hero {
     std::string glyph;
     bool on = false;

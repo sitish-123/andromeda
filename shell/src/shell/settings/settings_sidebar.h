@@ -30,6 +30,10 @@ namespace settings {
 
     // The search field sits above the account card; the window owns it because search drives the content.
     std::unique_ptr<Node> searchField;
+    // Icon rail: symbols only, names in tooltips, no group captions.
+    bool compact = false;
+    // Stack mode: the list fills the window.
+    bool fill = false;
     std::string accountName;
     std::string accountAvatarPath;
     Renderer* renderer = nullptr;

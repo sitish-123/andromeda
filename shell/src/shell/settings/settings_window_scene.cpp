@@ -1163,6 +1163,8 @@ void SettingsWindow::rebuildSettingsContent() {
     addPrivacyContent(scale);
     addPowerContent(scale);
     addAboutContent(scale);
+    addAutomationContent(scale);
+    addServicesContent(scale);
     if (detailOpen) {
       addWorkspacesContent(scale);
     }
@@ -1199,25 +1201,8 @@ void SettingsWindow::rebuildSettingsContent() {
         settings::SettingsPluginsContext{
             .scale = scale,
             .selectedSection = m_selectedSection,
-            .searchQuery = m_pluginSearchQuery,
-            .setSearchQuery =
-                [this](std::string query) {
-                  m_pluginSearchQuery = std::move(query);
-                  m_contentScrollState.offset = 0.0F;
-                  m_pluginSearchDebounceTimer.start(kSearchDebounceInterval, [this] { requestContentRebuild(); });
-                },
             .plugins = m_pluginList,
             .sources = cfg.plugins.sources,
-            .searchActive = !m_searchQuery.empty(),
-            .groupJumpRow = m_groupJumpRow,
-            .scrollContentToTop =
-                [this](const Node& target) {
-                  if (m_contentScrollView != nullptr) {
-                    scrollNodeToScrollViewTop(*m_contentScrollView, target, Style::spaceMd * uiScale());
-                  }
-                },
-            .expandedGroupsByPage = m_expandedSettingGroups,
-            .expandAllGroups = cfg.shell.settingsExpandAllGroups,
             .pluginsLoading = m_pluginListDirty || m_pluginListRefreshInFlight,
             .setEnabled =
                 [this](const std::string& id, bool enable) {
@@ -1230,7 +1215,6 @@ void SettingsWindow::rebuildSettingsContent() {
                   requestSceneRebuild();
                 },
             .isEnabling = [this](const std::string& id) { return m_pluginManager->isEnabling(id); },
-            .requestContentRebuild = [this]() { requestContentRebuild(); },
             .addSource = [this]() { openPluginSourceCreateEditor(); },
             .setSourceEnabled =
                 [this](PluginSourceConfig source, bool enabled) {
@@ -1241,11 +1225,6 @@ void SettingsWindow::rebuildSettingsContent() {
                 },
             .editSource = [this](PluginSourceConfig source) { openPluginSourceCreateEditor(std::move(source)); },
             .updateSource = [this](const std::string& source) { m_pluginManager->update(source); },
-            .refresh =
-                [this] {
-                  markPluginListDirty();
-                  requestSceneRebuild();
-                },
             .autoUpdateMode = cfg.plugins.autoUpdate,
             .setAutoUpdate =
                 [this](PluginAutoUpdateMode mode) {
@@ -1256,39 +1235,7 @@ void SettingsWindow::rebuildSettingsContent() {
             .updateAll = [this] { m_pluginManager->updateAutoUpdateScope(PluginAutoUpdateMode::All); },
             .config = &cfg,
             .onConfigure = [this](std::string id) { openPluginSettingsEditor(std::move(id)); },
-            .onRemove =
-                [this](const std::string& id) {
-                  if (m_pluginManager != nullptr) {
-                    m_pluginManager->remove(id);
-                    markPluginListDirty();
-                    requestSceneRebuild();
-                  }
-                },
             .openStore = [this] { openPluginStore(); },
-            .requestDeleteConfirm =
-                [this, scale](std::string id, std::string name) {
-                  settings::showSettingsAlert(
-                      m_modalHost,
-                      settings::SettingsAlertRequest{
-                          .title = i18n::tr("settings.plugins.plugins.delete-confirm-title", "name", name),
-                          .body = i18n::tr("settings.plugins.plugins.delete-confirm-desc"),
-                          .buttons = {
-                              {.text = i18n::tr("common.actions.cancel")},
-                              {.text = i18n::tr("settings.plugins.plugins.delete"),
-                               .variant = ButtonVariant::Destructive,
-                               .onClick =
-                                   [this, id] {
-                                     if (m_pluginManager != nullptr) {
-                                       m_pluginManager->remove(id);
-                                       markPluginListDirty();
-                                       requestSceneRebuild();
-                                     }
-                                   }},
-                          },
-                          .scale = scale,
-                      }
-                  );
-                },
         }
     );
   }
@@ -1438,14 +1385,43 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
       .fillWidth = true,
       .configure = [scale](Flex& flex) { flex.setPadding(0.0F, Style::spaceSm * scale); },
   });
-  row->addChild(navButton("chevron-left", m_navIndex > 0, -1));
-  row->addChild(navButton("chevron-right", m_navIndex + 1 < m_navHistory.size(), 1));
-  row->addChild(ui::spacer());
-  row->addChild(makeLabel(
-      i18n::tr("settings.window.title"), Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::Label1),
-      FontWeight::Bold
-  ));
-  row->addChild(ui::spacer());
+  using settings::metrics::SidebarMode;
+  const bool stack = m_sidebarMode == SidebarMode::Stack;
+  if (stack && !stackShowsPage()) {
+    // The page list is the stack's root: nothing to go back to.
+  } else if (stack) {
+    // Stack mode: back to the page list, as a phone's Settings does.
+    row->addChild(ui::button({
+        .text = i18n::tr("settings.window.title"),
+        .glyph = "chevron-left",
+        .fontSize = Style::fontSizeBody * scale,
+        .glyphSize = Style::fontSizeTitle * scale,
+        .variant = ButtonVariant::Ghost,
+        .minHeight = Style::controlHeight * scale,
+        .paddingV = Style::spaceXs * scale,
+        .paddingH = Style::spaceXs * scale,
+        .radius = Style::scaledRadiusMd(scale),
+        .onClick = [this] {
+          m_stackShowsPage = false;
+          m_searchQuery.clear();
+          requestSceneRebuild();
+        },
+    }));
+  } else {
+    row->addChild(navButton("chevron-left", m_navIndex > 0, -1));
+    row->addChild(navButton("chevron-right", m_navIndex + 1 < m_navHistory.size(), 1));
+  }
+  // Below 600 px the title and a centred layout do not fit beside the search field, which takes the free width.
+  if (stack) {
+    row->addChild(ui::row({.flexGrow = 1.0F}, buildSearchField(scale)));
+  } else {
+    row->addChild(ui::spacer());
+    row->addChild(makeLabel(
+        i18n::tr("settings.window.title"), Style::fontSizeTitle * scale, colorSpecFromRole(ColorRole::Label1),
+        FontWeight::Bold
+    ));
+    row->addChild(ui::spacer());
+  }
 
   static const bool translatorMode = SysUtils::isEnvFlagOn("NOCTALIA_TRANSLATOR");
   if (translatorMode) {
@@ -1499,6 +1475,9 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
     );
   }
 
+  if (m_sidebarMode == SidebarMode::Rail) {
+    row->addChild(ui::row({.width = settings::metrics::kSearchFieldWidth * scale}, buildSearchField(scale)));
+  }
   row->addChild(
       ui::button({
           .out = &m_actionsMenuButton,
@@ -1560,6 +1539,31 @@ std::unique_ptr<Flex> SettingsWindow::buildStatusRow(float scale) {
   });
 }
 
+void SettingsWindow::applyBackgroundFill(Box& box) const {
+  if (!m_glassSidebar) {
+    box.setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    return;
+  }
+  // A full window of text: never thinner than the Tinted recipe, so Clear still reads over a busy wallpaper.
+  const float tinted = glass::material(glass::Kind::Sheet, 0.5F, false, isLightPalette()).tint;
+  box.setFill(colorSpecFromRole(panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet).tint, tinted)));
+}
+
+void SettingsWindow::onGlassChanged() {
+  if (!isOpen() || m_config == nullptr) {
+    return;
+  }
+  const bool glassWindow = m_config->config().shell.settingsWindowTranslucent && !Style::reduceTransparency();
+  if (glassWindow != m_glassSidebar || m_panelBackground == nullptr) {
+    // Glass on or off changes the sidebar, header and card fills: rebuild.
+    requestSceneRebuild();
+    return;
+  }
+  // A slider drag sends many values: only the window fill follows, no rebuild.
+  applyBackgroundFill(*m_panelBackground);
+  requestRedraw();
+}
+
 std::unique_ptr<Flex> SettingsWindow::buildBody(
     float scale, const Config& cfg, const std::vector<const settings::SettingsPage*>& pages,
     const std::vector<std::string>& availableBars, const std::string& resetPageScope,
@@ -1570,6 +1574,12 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   const auto clearTransientSettingsState = [this]() { this->clearTransientSettingsState(); };
 
   auto body = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
+  using settings::metrics::SidebarMode;
+  const bool rail = m_sidebarMode == SidebarMode::Rail;
+  const bool stack = m_sidebarMode == SidebarMode::Stack;
+  const bool showPage = !stack || stackShowsPage();
+  // The rail and the stack have no room for the search field: it moves into the header (buildHeaderRow).
+  std::unique_ptr<Node> sidebarSearch = rail || stack ? nullptr : buildSearchField(scale);
 
   auto sidebar = settings::buildSettingsSidebar(
       settings::SettingsSidebarContext{
@@ -1581,7 +1591,9 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
           .selectedBarName = m_selectedBarName,
           .creatingBarName = m_creatingBarName,
           .moreExpanded = m_sidebarMoreExpanded,
-          .searchField = buildSearchField(scale),
+          .searchField = std::move(sidebarSearch),
+          .compact = rail,
+          .fill = !showPage,
           .accountName = sessionDisplayName(),
           .accountAvatarPath = shell::avatarDisplayPath(m_accounts, cfg),
           .renderer = &m_surface->renderTarget().renderer(),
@@ -1601,8 +1613,19 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
   if (m_glassSidebar) {
     sidebar->setFill(clearColorSpec());
   }
+  // Stack mode shows one pane at a time: the list (filling the window) until a page is picked or a search runs.
+  if (stack && showPage) {
+    sidebar->setVisible(false);
+    sidebar->setParticipatesInLayout(false);
+  }
   m_sidebarNode = sidebar.get();
   body->addChild(std::move(sidebar));
+  auto outer = ui::column({.align = FlexAlign::Stretch});
+  m_headerRow = outer->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
+  if (!showPage) {
+    outer->addChild(std::move(body));
+    return outer;
+  }
 
   // On glass the window is one surface: a content fill under the header would cut an L shape around the sidebar.
   auto contentColumn = ui::column(
@@ -1610,8 +1633,6 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
        .fill = m_glassSidebar ? clearColorSpec() : colorSpecFromRole(ColorRole::Fill1),
        .flexGrow = 1.0F}
   );
-  auto outer = ui::column({.align = FlexAlign::Stretch});
-  m_headerRow = outer->addChild(buildHeaderRow(scale, resetPageScope, std::move(resetPagePaths)));
   if (m_expertOpen && m_searchQuery.empty()) {
     const auto* page = settings::settingsPageFromId(m_selectedSection);
     std::size_t optionCount = 0;
@@ -1651,7 +1672,7 @@ std::unique_ptr<Flex> SettingsWindow::buildBody(
       .scrollbarVisible = true,
       .scrollbarAutoHide = true,
       .viewportPaddingH = settings::metrics::kPagePadding * scale,
-      .maxContentWidth = settings::metrics::kContentMaxWidth * scale,
+      .maxContentWidth = settings::metrics::liveContentWidth() * scale,
       .viewportPaddingV = Style::spaceXs * scale,
       .flexGrow = 1.0F,
       .onScrollChanged = [this](float /*offset*/) { dismissOpenSelectDropdown(); },
@@ -2428,22 +2449,14 @@ void SettingsWindow::buildScene(std::uint32_t width, std::uint32_t height) {
   auto bg = ui::box({
       .width = w,
       .height = h,
-      .configure = [glassSidebar = m_glassSidebar](Box& box) {
+      .configure = [](Box& box) {
         box.setPanelStyle();
         box.setRadius(0.0F);
         box.setBorder(clearColor(), 0);
         box.setPosition(0.0F, 0.0F);
-        if (!glassSidebar) {
-          box.setFill(colorSpecFromRole(ColorRole::SolidRegular));
-        } else {
-          // A full window of text: never thinner than the Tinted recipe, so Clear still reads over a busy wallpaper.
-          const float tinted = glass::material(glass::Kind::Sheet, 0.5F, false, isLightPalette()).tint;
-          box.setFill(colorSpecFromRole(
-              panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet).tint, tinted)
-          ));
-        }
       },
   });
+  applyBackgroundFill(*bg);
   m_panelBackground = static_cast<Box*>(m_sceneRoot->addChild(std::move(bg)));
   logSettingsProfile("buildScene sceneRoot", phaseProfileWatch);
   phaseProfileWatch.reset();

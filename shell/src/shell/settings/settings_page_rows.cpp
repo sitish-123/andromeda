@@ -89,6 +89,97 @@ namespace settings::page_rows {
     content.addChild(std::move(empty));
   }
 
+  std::unique_ptr<Node> valueText(std::string text, float scale) {
+    return ui::label({.text = std::move(text), .fontSize = Style::fontSizeBody * scale,
+                      .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 1});
+  }
+
+  std::unique_ptr<Flex> labelRow(std::string_view glyph, std::string label, float scale) {
+    auto r = row(scale);
+    r->setGap(Style::spaceMd * scale);
+    if (!glyph.empty()) {
+      r->addChild(symbol(glyph, Tokens::sizeSymbol * scale, ColorRole::Label2));
+    }
+    r->addChild(title(std::move(label), scale));
+    return r;
+  }
+
+  std::unique_ptr<Node> chevronButton(std::string tooltip, float scale, std::function<void()> onClick) {
+    return iconButton("chevron-right", std::move(tooltip), scale, std::move(onClick));
+  }
+
+  void addInfoRow(Flex& card, std::string_view glyph, std::string label, std::string value, float scale,
+                  std::function<void()> onOpen) {
+    auto r = labelRow(glyph, label, scale);
+    if (!value.empty()) {
+      r->addChild(valueText(std::move(value), scale));
+    }
+    if (onOpen) {
+      r->addChild(chevronButton(std::move(label), scale, std::move(onOpen)));
+    }
+    card.addChild(std::move(r));
+  }
+
+  void addSwitchRow(Flex& card, std::string_view glyph, std::string label, bool on, float scale,
+                    std::function<void(bool)> onChange) {
+    auto r = labelRow(glyph, std::move(label), scale);
+    r->addChild(ui::toggle({.checked = on, .scale = scale, .onChange = std::move(onChange)}));
+    card.addChild(std::move(r));
+  }
+
+  Flex* addTwoLineRow(Flex& card, std::string_view glyph, std::string title, std::string subtitle, float scale) {
+    auto r = row(scale);
+    r->setGap(Style::spaceMd * scale);
+    r->setMinHeight(Tokens::sizeRowTwo * scale);
+    if (!glyph.empty()) {
+      r->addChild(symbol(glyph, Tokens::sizeSymbol * scale, ColorRole::Label2));
+    }
+    auto text = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
+    text->addChild(ui::label({.text = std::move(title), .fontSize = Style::fontSizeBody * scale,
+                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1}));
+    if (!subtitle.empty()) {
+      text->addChild(ui::label({.text = std::move(subtitle), .fontSize = Tokens::typeFootnote.size * scale,
+                                .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 1}));
+    }
+    r->addChild(std::move(text));
+    return static_cast<Flex*>(card.addChild(std::move(r)));
+  }
+
+  void addActionRow(Flex& card, std::string text, bool indent, float scale, std::function<void()> onClick) {
+    auto r = row(scale);
+    if (indent) {
+      r->addChild(ui::row({.width = Tokens::sizeSymbol * scale}));
+      r->setGap(Style::spaceMd * scale);
+    }
+    auto button = ui::button({
+        .text = std::move(text),
+        .fontSize = Style::fontSizeBody * scale,
+        .contentAlign = ButtonContentAlign::Start,
+        .variant = ButtonVariant::Ghost,
+        .minHeight = Tokens::sizeControlS * scale,
+        .padding = 0.0F,
+        .onClick = std::move(onClick),
+    });
+    auto palette = Button::defaultPalette(ButtonVariant::Ghost);
+    for (auto* state : {&palette.normal, &palette.hover, &palette.pressed}) {
+      state->label = colorSpecFromRole(ColorRole::AccentText);
+    }
+    button->setCustomPalette(palette);
+    button->setStateFillless(true);
+    r->addChild(std::move(button));
+    card.addChild(std::move(r));
+  }
+
+  void addFootnote(Flex& card, std::string text, float scale) {
+    if (text.empty()) {
+      return;
+    }
+    auto note = ui::row({.align = FlexAlign::Start, .paddingH = Style::spaceLg * scale, .fillWidth = true});
+    note->addChild(ui::label({.text = std::move(text), .fontSize = Tokens::typeFootnote.size * scale,
+                              .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 3, .flexGrow = 1.0F}));
+    static_cast<Flex*>(card.parent())->addChild(std::move(note));
+  }
+
   Flex* addHero(Flex& content, Hero hero, float scale) {
     constexpr float kIcon = 32.0F;
     Flex* card = addCard(content, scale);

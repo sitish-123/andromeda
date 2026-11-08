@@ -8,6 +8,7 @@
 #include "shell/settings/settings_alert.h"
 
 #include "shell/settings/settings_pages.h"
+#include "shell/settings/settings_selection_style.h"
 
 #include "calendar/calendar_service.h"
 #include "compositors/compositor_platform.h"
@@ -71,7 +72,8 @@ namespace {
   constexpr float kGoldenRatio = std::numbers::phi_v<float>;
   constexpr float kWindowWidth = 1280.0F;
   constexpr float kWindowHeight = 600.0F;
-  constexpr float kWindowMinWidth = 1020.0F;
+  // Narrow windows collapse the sidebar to a rail, then to a back-button stack (settings_selection_style.h).
+  constexpr float kWindowMinWidth = 360.0F;
   constexpr float kWindowMinHeight = 500.0F;
 
   // min_size hints are orientation-aware: portrait outputs constrain width, so the hint
@@ -730,8 +732,6 @@ void SettingsWindow::destroyWindow() {
   m_pendingResetPageScope.clear();
   m_pendingResetSettingPaths.clear();
   m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_pluginSearchDebounceTimer.stop();
   m_selectedSection.clear();
   m_selectedBarName.clear();
   m_selectedMonitorOverride.clear();
@@ -791,6 +791,25 @@ void SettingsWindow::prepareFrame(bool needsUpdate, bool needsLayout) {
   const bool needRebuild = firstBuild || m_rebuildRequested;
 
   const float scale = uiScale();
+  // The sidebar's shape changes only when the width crosses a break, so this rebuilds rarely.
+  if (const auto mode = settings::metrics::sidebarModeFor(static_cast<float>(width) / scale); mode != m_sidebarMode) {
+    m_sidebarMode = mode;
+    if (!firstBuild) {
+      requestSceneRebuild();
+    }
+  }
+  // Grow then clamp: the column follows the window at once (layout only); pages with art sized to the column
+  // (charts) rebuild once the size rests, so a window animation causes no rebuild storm.
+  if (const float column = settings::metrics::contentWidthFor(static_cast<float>(width) / scale);
+      column != settings::metrics::liveContentWidth()) {
+    settings::metrics::liveContentWidth() = column;
+    if (m_contentScrollView != nullptr) {
+      m_contentScrollView->setMaxContentWidth(column * scale);
+    }
+    if (!firstBuild) {
+      m_columnRebuildTimer.start(std::chrono::milliseconds(200), [this] { requestContentRebuild(); });
+    }
+  }
   float minWidthF = kWindowMinWidth * scale;
   float minHeightF = kWindowMinHeight * scale;
   wl_output* currentOutput = nullptr;

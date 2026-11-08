@@ -77,16 +77,24 @@ namespace settings {
     }
 
     // A page row: icon tile, label, accent fill when it is the open page.
+    // Compact (icon rail): the symbol alone, the name in a tooltip.
     std::unique_ptr<Button> makePageRow(
-        std::string_view glyph, std::string text, float scale, bool selected, std::function<void()> onClick
+        std::string_view glyph, std::string text, float scale, bool selected, std::function<void()> onClick,
+        bool compact = false
     ) {
+      std::optional<std::string> tooltip;
+      if (compact) {
+        tooltip = std::move(text);
+        text.clear();
+      }
       return ui::button({
           .text = std::move(text),
           .fontSize = Style::fontSizeBody * scale,
-          .contentAlign = ButtonContentAlign::Start,
+          .contentAlign = compact ? ButtonContentAlign::Center : ButtonContentAlign::Start,
           .variant = ButtonVariant::Tab,
           .customPalette = selected ? std::optional{selectedRowPalette(selectionStyle().rowFill, selectionStyle().rowLabel)}
                                     : std::nullopt,
+          .tooltip = std::move(tooltip),
           .minHeight = metrics::kSidebarRowHeight * scale,
           .paddingV = 0.0F,
           .paddingH = metrics::kSidebarRowPaddingH * scale,
@@ -203,6 +211,10 @@ namespace settings {
           .configure = [](Button& card) { card.setTabStop(false); },
       });
       button->addChild(std::move(avatar));
+      if (ctx.compact) {
+        button->setContentAlign(ButtonContentAlign::Center);
+        return button;
+      }
       button->addChild(ui::label({
           .text = ctx.accountName,
           .fontSize = Style::fontSizeBody * scale,
@@ -274,8 +286,8 @@ namespace settings {
         addNavButton(
             *nav,
             makePageRow(
-                open ? "chevron-down" : "chevron-right", i18n::tr(settingsPageGroupLabelKey(PageGroup::More)), scale,
-                false, onMoreClick
+                ctx.compact ? "dots" : open ? "chevron-down" : "chevron-right",
+                i18n::tr(settingsPageGroupLabelKey(PageGroup::More)), scale, false, onMoreClick, ctx.compact
             ),
             onMoreClick
         );
@@ -283,7 +295,7 @@ namespace settings {
       if (page->group == PageGroup::More && !*moreExpanded && !moreHoldsSelection) {
         continue;
       }
-      if (lastGroup.has_value() && *lastGroup != page->group) {
+      if (lastGroup.has_value() && *lastGroup != page->group && !ctx.compact) {
         nav->addChild(ui::column(
             {.align = FlexAlign::Start, .configure = [scale](Flex& header) {
               header.setPadding(
@@ -308,11 +320,13 @@ namespace settings {
       const auto onClick = [navigate, pageId]() { navigate(pageId, {}); };
       addNavButton(
           *nav,
-          makePageRow(page->glyph, i18n::tr(settingsPageLabelKey(*page)), scale, selected && !barRows, onClick),
+          makePageRow(page->glyph, i18n::tr(settingsPageLabelKey(*page)), scale, selected && !barRows, onClick,
+                      ctx.compact),
           onClick
       );
 
-      if (pageId != "bar" || !selected) {
+      // The rail has no room for the per-bar rows; the Bar page lists the bars itself.
+      if (pageId != "bar" || !selected || ctx.compact) {
         continue;
       }
       for (const auto& barName : barRows ? ctx.availableBars : std::vector<std::string>{}) {
@@ -405,9 +419,10 @@ namespace settings {
         .align = FlexAlign::Stretch,
         .gap = Style::spaceSm * scale,
         .fill = colorSpecFromRole(ColorRole::Fill2),
-        .minWidth = metrics::kSidebarWidth * scale,
+        .minWidth = ctx.fill ? std::optional<float>{} : std::optional((ctx.compact ? metrics::kRailWidth : metrics::kSidebarWidth) * scale),
         .fillHeight = true,
-        .width = metrics::kSidebarWidth * scale,
+        .width = ctx.fill ? std::optional<float>{} : std::optional((ctx.compact ? metrics::kRailWidth : metrics::kSidebarWidth) * scale),
+        .flexGrow = ctx.fill ? std::optional(1.0F) : std::nullopt,
         .configure = [scale](Flex& column) {
           column.setPadding(metrics::kSidebarPaddingV * scale, 0.0F, 0.0F, 0.0F);
         },

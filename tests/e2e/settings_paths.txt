@@ -68,6 +68,7 @@ bar.default.thickness
 bar.default.widget_spacing
 bluetooth.connection_notifications
 bluetooth.connect_when_enabled
+brightness.automatic
 brightness.enable_ddcutil
 brightness.minimum_brightness
 brightness.sync_all_monitors
@@ -181,13 +182,21 @@ location.sunrise
 location.sunset
 lockscreen.allow_empty_password
 lockscreen.blur_intensity
+lockscreen.clock_format_24h
+lockscreen.clock_seconds
+lockscreen.clock_size
+lockscreen.clock_style
 lockscreen.enabled
 lockscreen.face
+lockscreen.face_on_request
 lockscreen.fingerprint
 lockscreen.grace_period_seconds
+lockscreen.layout
 lockscreen.lock_before_suspend
 lockscreen.monitors
-lockscreen.style
+lockscreen.notification_content
+lockscreen.owner_message
+lockscreen.theme
 lockscreen.tint_intensity
 lockscreen.wallpaper
 lockscreen_widgets.enabled
@@ -233,6 +242,7 @@ shell.animation.enabled
 shell.animation.speed
 shell.app_icon_color
 shell.app_icon_colorize
+shell.automount_drives
 shell.avatar_path
 shell.button_borders
 shell.card_borders
@@ -244,6 +254,7 @@ shell.clipboard_image_action_command
 shell.clipboard_keep_from_closed_apps
 shell.corner_radius_scale
 shell.date_format
+shell.desktop_layout
 shell.external_ip_enabled
 shell.font_family
 shell.input_borders

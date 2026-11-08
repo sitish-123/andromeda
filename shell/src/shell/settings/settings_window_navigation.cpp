@@ -8,8 +8,6 @@
 void SettingsWindow::applyNavEntry(const NavEntry& entry) {
   clearTransientSettingsState();
   m_searchQuery.clear();
-  m_pluginSearchQuery.clear();
-  m_pluginSearchDebounceTimer.stop();
   m_searchDebounceTimer.stop();
   m_selectedSection = entry.page;
   if (!entry.bar.empty()) {
@@ -39,6 +37,7 @@ void SettingsWindow::navigateTo(
     std::string page, std::string bar, bool expert, std::string highlight, std::string monitor
 ) {
   NavEntry next{.page = std::move(page), .bar = std::move(bar), .monitor = std::move(monitor), .expert = expert};
+  m_stackShowsPage = true;
   applyNavEntry(next);
   m_highlightKey = std::move(highlight);
   pushNavEntry(std::move(next));

@@ -219,7 +219,7 @@ float detachedPanelBackgroundOpacityForTransparencyMode(PanelTransparencyMode mo
   case PanelTransparencyMode::Soft:
     return 0.80F;
   case PanelTransparencyMode::Glass:
-    return 0.55F;
+    return 0.70F; // the bar opacity, so detached sheets (launcher, clipboard) match the attached control center
   }
   return 1.0F;
 }

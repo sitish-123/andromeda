@@ -16,6 +16,9 @@
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_modal_host.h"
 #include "shell/settings/settings_registry.h"
+#include "shell/settings/settings_selection_style.h"
+#include "shell/settings/settings_content_about.h"
+#include "system/app_permissions.h"
 #include "shell/settings/settings_sheet_modal.h"
 #include "shell/settings/widget_add_popup.h"
 #include "system/xkb_layout_catalog.h"
@@ -133,6 +136,8 @@ public:
   [[nodiscard]] bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   void onThemeChanged();
+  // Settings › Glass or Reduce Transparency changed: the window glass follows at once.
+  void onGlassChanged();
   void setResolvedPalette(const noctalia::theme::GeneratedPalette& generated, std::string_view mode);
   void onFontChanged();
   void requestRedraw();
@@ -311,6 +316,9 @@ private:
   void addPowerContent(float scale);
   void addWorkspacesContent(float scale);
   void addAboutContent(float scale);
+  void addAutomationContent(float scale);
+  void addServicesContent(float scale);
+  void openHookRuleEditor(std::optional<std::size_t> hookIndex, std::optional<std::size_t> commandIndex);
   void openDetail(std::string detail);
   void leaveDetail();
   void createNewUser();
@@ -429,6 +437,7 @@ private:
   Box* m_panelBackground = nullptr;
   // Settings window glass (CLAUDE.md): the sidebar shows the glass background; header and content stay solid.
   bool m_glassSidebar = false;
+  void applyBackgroundFill(Box& box) const;
   Node* m_sidebarNode = nullptr;
   // Last blur region sent; nullopt = none.
   std::optional<InputRect> m_sidebarBlurSent;
@@ -478,9 +487,8 @@ private:
   bool m_deferFocusScrollToLayout = false;
   Node* m_pendingContentScrollTarget = nullptr;
   std::string m_searchQuery;
-  std::string m_pluginSearchQuery;
   Timer m_searchDebounceTimer;
-  Timer m_pluginSearchDebounceTimer;
+  Timer m_columnRebuildTimer;
   // Exists only while the Displays section is showing.
   std::unique_ptr<OutputManagement> m_outputManagement;
   std::unique_ptr<MirrorControl> m_mirrorControl;
@@ -573,6 +581,19 @@ private:
   bool m_softwareUpdateRead = false;
   std::vector<std::pair<std::uint32_t, Slider*>> m_soundProgramSliders;
   std::string m_renameError;
+  // About: hostname1 properties (async GetAll, kept current by PropertiesChanged) and hardware read on the worker.
+  settings::AboutFacts m_aboutFacts;
+  bool m_aboutRequested = false;
+  unsigned m_hostnameSignal = 0;
+  // Apps and Services: Background portal grants (via m_permissions) and MPRIS players, reloaded when the page opens.
+  std::vector<AppPermissions::Grant> m_backgroundGrants;
+  bool m_backgroundLoaded = false;
+  // (bus name suffix, Identity) of each running MPRIS player.
+  std::vector<std::pair<std::string, std::string>> m_mediaPlayers;
+  bool m_servicesRequested = false;
+  // Language: (locale id, display name) for every supported locale, built once on the worker.
+  std::vector<std::pair<std::string, std::string>> m_localeNames;
+  bool m_localeNamesRequested = false;
   bool m_userDeleteBusy = false;
   std::unique_ptr<BiometricEnrollment> m_enroll;
   std::string m_privacyStatus;
@@ -600,6 +621,10 @@ private:
   std::function<void()> m_openDesktopWidgetEditor;
   std::function<void()> m_openLockscreenWidgetEditor;
   bool m_sidebarMoreExpanded = false;
+  settings::metrics::SidebarMode m_sidebarMode = settings::metrics::SidebarMode::Full;
+  // Stack mode shows the page list or one page; a page pick shows the page, the back button the list.
+  bool m_stackShowsPage = false;
+  [[nodiscard]] bool stackShowsPage() const noexcept { return m_stackShowsPage || !m_searchQuery.empty(); }
   std::function<void()> m_openWallpaperPanel;
   std::function<void()> m_syncGreeterAppearance;
   std::function<void()> m_resetLauncherUsage;

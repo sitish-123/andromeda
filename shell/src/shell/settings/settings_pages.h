@@ -53,5 +53,8 @@ namespace settings {
   [[nodiscard]] int settingGroupOrder(const SettingEntry& entry);
   // Main rows drop their caption unless the label alone is ambiguous.
   [[nodiscard]] bool settingEntryShowsCaption(const SettingEntry& entry);
+  // A row its page's hand-built content draws (Automation rules, the Date and Time Calendar card): the generated
+  // rows skip it; it stays on its page for search, reset and filters.
+  [[nodiscard]] bool settingEntryDrawnByPage(const SettingEntry& entry);
 
 } // namespace settings

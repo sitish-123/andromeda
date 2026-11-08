@@ -159,7 +159,7 @@ namespace settings {
     const std::size_t count = static_cast<std::size_t>(std::ranges::count_if(registry, [&](const SettingEntry& entry) {
       return settingEntryIsExpert(entry)
           && settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, ctx.selectedMonitorOverride)
-          && (!entry.visibleWhen || entry.visibleWhen(ctx.config));
+          && (!entry.visibleWhen || entry.visibleWhen(ctx.config)) && !settingEntryDrawnByPage(entry);
     }));
     if (count == 0) {
       return;
@@ -1136,6 +1136,16 @@ namespace settings {
           [&](const auto& control) -> std::unique_ptr<Node> {
             using T = std::decay_t<decltype(control)>;
             if constexpr (std::is_same_v<T, ToggleSetting>) {
+              if (control.onChange) {
+                return ui::toggle({
+                    .checked = control.checked,
+                    .enabled = control.enabled,
+                    .scale = scale,
+                    .onChange = [onChange = control.onChange, rebuild = ctx.requestRebuild](bool value) {
+                      onChange(value, rebuild);
+                    },
+                });
+              }
               if (!control.valuePath.empty()) {
                 return ui::toggle({
                     .checked = control.checked,
@@ -1250,7 +1260,7 @@ namespace settings {
 
     const auto entryOnOpenPage = [&](const SettingEntry& entry) -> bool {
       return settingEntryOnPage(entry, ctx.selectedSection, selectedBarName, selectedMonitorMatch)
-          && isEntryVisible(entry);
+          && isEntryVisible(entry) && !settingEntryDrawnByPage(entry);
     };
     const std::size_t expertEntryCount = static_cast<std::size_t>(std::ranges::count_if(
         registry, [&](const SettingEntry& entry) { return settingEntryIsExpert(entry) && entryOnOpenPage(entry); }
@@ -1398,7 +1408,8 @@ namespace settings {
 
     // Pages with custom content (addSettingsPlugins and the window's add*Content) fill the rest of the page.
     const bool customPage = std::ranges::any_of(
-        std::array{"plugins", "displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices"},
+        std::array{"plugins", "displays", "input", "shortcuts", "date-time", "language", "default-apps", "devices",
+                   "hooks", "services"},
         [&](std::string_view sectionId) { return selectedPageShows(ctx.selectedSection, sectionId); }
     ) || settingsPageHasOwnContent(ctx.selectedSection);
     const auto* openPage = settingsPageFromId(ctx.selectedSection);

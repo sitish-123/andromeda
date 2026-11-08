@@ -7,6 +7,7 @@
 #include "core/files/directory_scanner.h"
 #include "core/log.h"
 #include "core/process/process.h"
+#include "dbus/system_interactive_call.h"
 #include "i18n/i18n.h"
 #include "launcher/panel_catalog.h"
 #include "pipewire/sound_player.h"
@@ -25,9 +26,12 @@
 #include "util/string_utils.h"
 #include "compositors/settings_control.h"
 
+#include <gio/gio.h>
+
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <fstream>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -577,6 +581,32 @@ namespace settings {
           sliderFor(cfg.calendar.refreshMinutes, noctalia::config::schema::kRefreshMinutesRange, true), "calendar sync"
       );
       e.visibleWhen = calendarOn;
+      entries.push_back(std::move(e));
+    }
+    {
+      // timedated keeps the RTC mode in /etc/adjtime (third line LOCAL or UTC).
+      std::ifstream adjtime("/etc/adjtime");
+      std::string line;
+      for (int i = 0; i < 3 && std::getline(adjtime, line); ++i) {
+      }
+      auto e = makeEntry(
+          SettingsSection::DateTime, "clock", tr("settings.datetime.local-rtc"),
+          tr("settings.datetime.local-rtc-description"), {},
+          ToggleSetting{
+              .checked = line == "LOCAL",
+              .id = "datetime.local_rtc",
+              .onChange =
+                  [](bool on, std::function<void()> done) {
+                    dbus::callInteractive(
+                        "org.freedesktop.timedate1", "/org/freedesktop/timedate1", "org.freedesktop.timedate1",
+                        "SetLocalRTC", g_variant_new("(bbb)", on, TRUE, TRUE),
+                        [done = std::move(done)](GVariant*, std::string) { done(); }
+                    );
+                  },
+          },
+          "rtc hardware clock local time utc dual boot windows"
+      );
+      e.advanced = true;
       entries.push_back(std::move(e));
     }
 

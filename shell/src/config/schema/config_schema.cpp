@@ -3039,6 +3039,48 @@ namespace noctalia::config::schema {
             )
         );
       }
+      // Only written when a rule is off, so configs without disabled rules keep their shape.
+      fields.push_back(
+          custom<HooksConfig>(
+              "disabled",
+              [](const toml::table& tbl, HooksConfig& out, std::string_view parentPath, Diagnostics& diag) {
+                for (auto& vec : out.disabled) {
+                  vec.clear();
+                }
+                const auto* node = tbl.get("disabled");
+                if (node == nullptr) {
+                  return;
+                }
+                const auto* table = node->as_table();
+                if (table == nullptr) {
+                  warnWrongType(diag, joinPath(parentPath, "disabled"), *node, "a table of string arrays");
+                  return;
+                }
+                for (std::size_t i = 0; i < static_cast<std::size_t>(HookKind::Count); ++i) {
+                  const std::string_view key = hookKindKey(static_cast<HookKind>(i));
+                  if (const auto* arr = table->get_as<toml::array>(key)) {
+                    out.disabled[i] = readStringArray(*arr, joinPath(joinPath(parentPath, "disabled"), key), diag);
+                  }
+                }
+              },
+              [](toml::table& tbl, const HooksConfig& in) {
+                toml::table disabled;
+                for (std::size_t i = 0; i < static_cast<std::size_t>(HookKind::Count); ++i) {
+                  if (in.disabled[i].empty()) {
+                    continue;
+                  }
+                  toml::array arr;
+                  for (const auto& cmd : in.disabled[i]) {
+                    arr.push_back(cmd);
+                  }
+                  disabled.insert_or_assign(hookKindKey(static_cast<HookKind>(i)), std::move(arr));
+                }
+                if (!disabled.empty()) {
+                  tbl.insert_or_assign("disabled", std::move(disabled));
+                }
+              }
+          )
+      );
       return fields;
     }();
     return s;

@@ -98,12 +98,14 @@ namespace noctalia::config {
     date.settings["format"] = std::string("{:%a %d %b}");
     seed("date", std::move(date));
 
-    // Desktop Layouts, Windows: the Start button (the amark line glyph, board section 1) opens the launcher's apps grid.
+    // Desktop Layouts, Windows: the Start button (the amark line glyph, board section 1) opens the launcher's apps grid;
+    // it shares the 28 px icon and 44 px cell of the taskbar apps.
     WidgetConfig start;
     start.type = "launcher";
     start.settings["custom_image"] = paths::assetPath("amark.svg").string();
     start.settings["custom_image_colorize"] = true;
-    start.settings["icon_size"] = std::int64_t{24};
+    start.settings["icon_size"] = std::int64_t{28};
+    start.settings["cell_size"] = std::int64_t{44};
     start.tables["actions"]["left"] = "panel-toggle launcher apps";
     seed("start", std::move(start));
 
@@ -116,6 +118,13 @@ namespace noctalia::config {
     windowsTaskbar.settings["window_previews"] = true;
     windowsTaskbar.settings["combine_apps"] = true;
     seed("windows_taskbar", std::move(windowsTaskbar));
+
+    // Desktop Layouts: the volume in the status cell is the symbol alone, as on the boards.
+    WidgetConfig statusVolume;
+    statusVolume.type = "volume";
+    statusVolume.settings["device"] = std::string("output");
+    statusVolume.settings["show_label"] = false;
+    seed("status_volume", std::move(statusVolume));
 
     // Desktop Layouts: the battery in the status cell is the symbol alone (boards desktop-layouts.html 1 and 7).
     WidgetConfig statusBattery;

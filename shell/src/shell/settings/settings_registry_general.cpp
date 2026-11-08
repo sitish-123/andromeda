@@ -78,7 +78,7 @@ namespace settings {
       };
       select.groupedClears = [now](std::string_view value) { return desktop_layout::clears(value, *now); };
       entries.push_back(makeEntry(
-          SettingsSection::Appearance, "desktop-layout", tr("settings.desktop-layout.label"),
+          SettingsSection::Layout, "desktop-layout", tr("settings.desktop-layout.label"),
           std::string(),
           {"shell", "desktop_layout"}, std::move(select),
           "desktop layout preset macos windows taskbar tiling dock bar look like"

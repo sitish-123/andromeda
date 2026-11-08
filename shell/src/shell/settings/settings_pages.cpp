@@ -96,7 +96,9 @@ namespace settings {
       std::string_view prefix;
       std::string_view page;
     };
-    constexpr std::array<PageRule, 9> kPageRules{{
+    constexpr std::array<PageRule, 11> kPageRules{{
+        {"shell.avatar_path", "users"},
+        {"shell.settings_window_translucent", "appearance"},
         {"lockscreen.", "lock-screen"},
         {"lockscreen_widgets.", "lock-screen"},
         {"nightlight.", "displays"},
@@ -128,7 +130,7 @@ namespace settings {
         "shell.launcher.default_view", "shell.launcher.show_icons", "shell.launcher.app_grid",
         "shell.launcher.categories", "shell.launcher.sort_by_usage", "shell.launcher.track_usage",
         "shell.launcher.pinned",
-        "andromeda.layout.mode", "andromeda.layout.gap", "andromeda.input.focus.follows_mouse",
+        "andromeda.layout.mode", "andromeda.layout.gap", "andromeda.appearance.title_bar.mode", "andromeda.input.focus.follows_mouse",
         "andromeda.input.window_snapping", "andromeda.input.snap_layouts_hover", "andromeda.input.snap_groups",
         "andromeda.layout.scrolling.center_focused",
         "andromeda.layout.scrolling.center_underfull_strip", "andromeda.layout.dwindle.preserve_split",
@@ -147,7 +149,6 @@ namespace settings {
         "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",
         "weather.enabled",
         "calendar.enabled", "calendar.reminders.enabled", "control_center.calendar.show_week_numbers",
-        "shell.time_format", "shell.date_format",
         "shell.screenshot.save_to_file", "shell.screenshot.copy_to_clipboard", "shell.screenshot.directory",
         "shell.screenshot.format", "shell.screenshot.annotate", "shell.screenshot.show_cursor",
         "shell.screenshot.freeze_screen",
@@ -188,6 +189,10 @@ namespace settings {
     });
     // Hooks are scripts the user writes; the whole Automation page is main.
     constexpr std::string_view kHookPrefix = "hooks.";
+    // Rows the Date and Time page draws in its own Calendar card.
+    constexpr auto kHandDrawnRows = std::to_array<std::string_view>(
+        {"calendar.enabled", "calendar.reminders.enabled", "control_center.calendar.show_week_numbers"}
+    );
 
     std::string mainRowKey(const SettingEntry& entry) {
       if (entry.path.empty()) {
@@ -209,6 +214,14 @@ namespace settings {
     if (entry.section == SettingsSection::Security
         && (entry.group == "lock-screen" || entry.group == "~lock" || entry.group == "unlock")) {
       return *settingsPageFromId("lock-screen");
+    }
+    // About shows only the device (.agent/mockups/settings-d6.html §1): clipboard history is a launcher mode, app
+    // priority and background activity are power use.
+    if (entry.section == SettingsSection::Shell && entry.group == "clipboard") {
+      return *settingsPageFromId("launcher");
+    }
+    if (entry.section == SettingsSection::System && entry.group == "performance") {
+      return *settingsPageFromId("power");
     }
     const std::string key = settingEntryKey(entry);
     for (const auto& rule : kPageRules) {
@@ -245,6 +258,13 @@ namespace settings {
 
   bool settingEntryShowsCaption(const SettingEntry& entry) {
     return settingEntryIsExpert(entry);
+  }
+
+  bool settingEntryDrawnByPage(const SettingEntry& entry) {
+    const bool calendarAccount =
+        entry.section == SettingsSection::Calendar && entry.group == "calendar-accounts" && entry.path.empty();
+    return entry.section == SettingsSection::Hooks || calendarAccount
+        || std::ranges::contains(kHandDrawnRows, mainRowKey(entry));
   }
 
   std::span<const SettingsPage> settingsPages() { return kPages; }

@@ -1151,7 +1151,7 @@ struct ShellConfig {
     std::string sessionPosition = "auto";
     std::string polkitPosition = "center";
     std::int32_t floatingOffset = 8; // logical px gap between a floating/detached panel and the bar edge
-    bool openNearClickControlCenter = false;
+    bool openNearClickControlCenter = true;
     bool openNearClickLauncher = false;
     bool openNearClickClipboard = false;
     bool openNearClickWallpaper = false;
@@ -1719,6 +1719,8 @@ static_assert(sizeof(kHookKinds) / sizeof(kHookKinds[0]) == static_cast<std::siz
 
 struct HooksConfig {
   std::array<std::vector<std::string>, static_cast<std::size_t>(HookKind::Count)> commands{};
+  // [hooks.disabled] <event> = [commands]: rules switched off in Settings › Automation; they stay listed, not run.
+  std::array<std::vector<std::string>, static_cast<std::size_t>(HookKind::Count)> disabled{};
 
   bool operator==(const HooksConfig&) const = default;
 };

@@ -28,7 +28,7 @@ dupes=$(uniq -d "$OUT/paths.txt")
 
 # Registry sections (the ids `settings-count --list` prints); several now share one sidebar page.
 sections=(appearance wallpaper text-scale motion dock panels launcher control-center notifications desktop overview
-  windows keybinds services power security location calendar screenshot system shell hooks)
+  windows keybinds services power security location calendar screenshot system shell hooks devices date-time layout)
 # Sidebar pages that need no system service; each must paint differently.
 pages=(appearance wallpaper notifications desktop-dock control-center launcher windows keyboard power privacy
   screenshot services automation about wifi sound)
@@ -44,7 +44,7 @@ printf '[theme]\npure_black_dark = true\n' > "$RUNTIME/home/.local/state/noctali
 aliases="templates:appearance osd:notifications andromeda:windows dock:desktop-dock panels:control-center keybinds:keyboard security:privacy system:about hooks:automation"
 
 with_noctalia '
-  shot() { "$NOCTALIA" msg settings-open "$1" > /dev/null; sleep 1.5; grim -g "0,40 1280x680" "$OUT/$2.png"; }  # real time: repaint; below the bar, whose clock ticks
+  shot() { "$NOCTALIA" msg settings-open "$1" > /dev/null; sleep 1.5; grim -g "0,40 1280x600" "$OUT/$2.png"; }  # real time: repaint; between the bar, whose clock ticks, and the dock, whose state varies
   shot wifi warmup  # the first page opened has no back history, so its back button paints differently
   for page in '"${pages[*]}"'; do shot "$page" "$page"; done
   for pair in '"$aliases"'; do shot "${pair%%:*}" "alias-${pair%%:*}"; done

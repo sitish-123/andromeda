@@ -35,7 +35,12 @@ void HookManager::setUnitRunner(UnitRunner runner, std::filesystem::path dir) {
   m_hookDir = std::move(dir);
 }
 
-void HookManager::reload(const HooksConfig& config) { m_config = config; }
+void HookManager::reload(const HooksConfig& config) {
+  m_config = config;
+  for (std::size_t i = 0; i < m_config.commands.size(); ++i) {
+    std::erase_if(m_config.commands[i], [&](const std::string& cmd) { return std::ranges::contains(config.disabled[i], cmd); });
+  }
+}
 
 void HookManager::fire(HookKind kind) const {
   runDirHooks(kind, {}, {});

@@ -443,7 +443,56 @@ namespace settings {
       if (!current.empty() && !std::ranges::contains(values, current)) {
         values.push_back(current);
       }
-      addChoiceRow(card, config, i18n::tr(labelKey), key, values, handleLabel, current, scale);
+      // The shell takes the power key from logind; its "poweroff" choice opens the power menu (hold shuts down).
+      const auto label = key == "power-key"
+          ? std::function<std::string(const std::string&)>([](const std::string& value) {
+              return value == "poweroff" ? i18n::tr("settings.power.action.power-menu") : handleLabel(value);
+            })
+          : std::function<std::string(const std::string&)>(handleLabel);
+      addChoiceRow(card, config, i18n::tr(labelKey), key, values, label, current, scale);
+    }
+
+    // Shut down later through logind (ScheduleShutdown): the island counts down with Cancel, banners warn at 5 and 1 min.
+    void addScheduleRow(Flex& card, PowerConfigService& config, float scale) {
+      static constexpr int kMinutes[] = {30, 60, 120};
+      const PowerConfigState& state = config.state();
+      std::vector<std::string> labels{i18n::tr("settings.power.schedule-off")};
+      for (const int minutes : kMinutes) {
+        labels.push_back(i18n::tr("settings.power.schedule-in", "duration",
+                                  formatDuration(std::chrono::minutes(minutes))));
+      }
+      std::optional<std::size_t> selected = 0;
+      if (state.scheduledUsec > 0) {
+        // A set time shows as itself; picking a duration replaces it.
+        labels.push_back(i18n::tr("settings.power.schedule-at", "time",
+                                  formatLocalUnixTime(static_cast<std::int64_t>(state.scheduledUsec / 1000000U), "{:%H:%M}")));
+        selected = labels.size() - 1;
+      }
+      auto r = row(scale);
+      r->addChild(title(i18n::tr("settings.power.schedule"), scale));
+      r->addChild(ui::select({
+          .options = std::move(labels),
+          .selectedIndex = selected,
+          .fontSize = Style::fontSizeBody * scale,
+          .controlHeight = Style::controlHeight * scale,
+          .glyphSize = Style::fontSizeBody * scale,
+          .width = metrics::kSelectWidth * scale,
+          .onSelectionChanged =
+              [&config](std::size_t index, std::string_view /*label*/) {
+                if (index == 0) {
+                  config.cancelScheduledShutdown();
+                } else if (index <= std::size(kMinutes)) {
+                  const auto when = std::chrono::system_clock::now() + std::chrono::minutes(kMinutes[index - 1]);
+                  config.scheduleShutdown(
+                      "poweroff",
+                      static_cast<std::uint64_t>(
+                          std::chrono::duration_cast<std::chrono::microseconds>(when.time_since_epoch()).count()
+                      )
+                  );
+                }
+              },
+      }));
+      card.addChild(std::move(r));
     }
 
     void addLidButtonsCard(Flex& content, PowerConfigService& config, float scale) {
@@ -458,6 +507,7 @@ namespace settings {
         addHandleRow(*card, config, "settings.power.lid-docked", "lid-docked", state.lidDocked, false, scale);
       }
       addHandleRow(*card, config, "settings.power.power-key", "power-key", state.powerKey, true, scale);
+      addScheduleRow(*card, config, scale);
     }
 
     std::string gib(std::uint64_t bytes) { return std::format("{:.0f} GB", static_cast<double>(bytes) / (1ULL << 30)); }
@@ -960,7 +1010,7 @@ namespace settings {
     // Level line over charging bands, then screen on / idle bars: 24 bars per hour, or 10 per day.
     void addCharts(Flex& content, const SettingsPowerContext& ctx, bool tenDays) {
       const float scale = ctx.scale;
-      const float width = (metrics::kContentMaxWidth - 4.0F * Style::spaceLg - 32.0F) * scale; // card and body padding, y-axis gutter
+      const float width = (metrics::liveContentWidth() - 4.0F * Style::spaceLg - 32.0F) * scale; // card and body padding, y-axis gutter
       const float levelHeight = 120.0F * scale;
       const float barsHeight = 92.0F * scale;
       const std::int64_t now = unixNow();
@@ -1238,7 +1288,7 @@ namespace settings {
       card->addChild(std::move(top));
 
       // Battery line over the period, and below it one strip of the screen's state.
-      const float width = (metrics::kContentMaxWidth - 4.0F * Style::spaceLg - 32.0F) * scale;
+      const float width = (metrics::liveContentWidth() - 4.0F * Style::spaceLg - 32.0F) * scale;
       const float height = 96.0F * scale;
       const float stripHeight = 10.0F * scale;
       const auto span = static_cast<std::uint32_t>(now - *start);

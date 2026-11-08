@@ -26,29 +26,18 @@ namespace settings {
   struct SettingsPluginsContext {
     float scale = 1.0F;
     std::string_view selectedSection;
-    // In page search query and empty means no filtering. Owned copy so the context
-    // never views a string that a debounced rebuild could observe mid mutation.
-    std::string searchQuery;
-    std::function<void(std::string)> setSearchQuery;
     std::vector<scripting::PluginStatus> plugins;
     std::vector<PluginSourceConfig> sources;
-    bool searchActive = false;
-    Flex* groupJumpRow = nullptr;
-    std::function<void(const Node&)> scrollContentToTop;
-    std::unordered_map<std::string, std::unordered_set<std::string>>& expandedGroupsByPage;
-    bool expandAllGroups = false;
     bool pluginsLoading = false;
 
     std::function<void(std::string id, bool enable)> setEnabled;
     // True while a git-source plugin's runtime export runs in the background; the row
     // shows a spinner in place of the toggle until it lands.
     std::function<bool(const std::string& id)> isEnabling;
-    std::function<void()> requestContentRebuild;
     std::function<void()> addSource;
     std::function<void(PluginSourceConfig source, bool enabled)> setSourceEnabled;
     std::function<void(PluginSourceConfig source)> editSource;
     std::function<void(std::string source)> updateSource;
-    std::function<void()> refresh;
 
     // Background auto-update scope for git sources; drives the "auto-update plugins"
     // dropdown. setAutoUpdate persists the mode for all git sources.
@@ -59,12 +48,9 @@ namespace settings {
 
     // Used to derive current toggle state while async discovery refreshes.
     const Config* config = nullptr;
+    // Opens the plugin page (about, permissions, settings, Remove).
     std::function<void(std::string id)> onConfigure;
-    std::function<void(std::string id)> onRemove;
     std::function<void()> openStore;
-
-    // Opens the delete alert.
-    std::function<void(std::string id, std::string name)> requestDeleteConfirm;
   };
 
   // Render the Plugins section into `content` when ctx.selectedSection == "plugins".

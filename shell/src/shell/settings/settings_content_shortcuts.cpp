@@ -32,7 +32,7 @@ namespace settings {
 
     // The rows pane: the page column less the rail, the gap and the scroll bar.
     float paneWidth(float scale) {
-      return (metrics::kContentMaxWidth - kRailWidth - Style::spaceLg - Style::spaceLg) * scale;
+      return (metrics::liveContentWidth() - kRailWidth - Style::spaceLg - Style::spaceLg) * scale;
     }
 
     constexpr std::array<std::string_view, 7> kCategories{

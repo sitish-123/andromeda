@@ -205,6 +205,7 @@ namespace settings {
           "window arrangement free floating scrolling split tiling main stack master layout mode"
       );
       stepper(Layout, "layout", "layout.gap", 0, 500, 1, "px", "gaps spacing between windows");
+      choice(Layout, "layout", "appearance.title_bar.mode", {"auto", "on", "off"}, true, "title bar titlebar decorations window header");
       if (mode == "floating") {
         toggle(Layout, "layout", "input.window_snapping", "snap tile half quarter edge drag");
         toggle(Layout, "layout", "input.snap_layouts_hover", "snap layouts flyout maximize button hover zones");

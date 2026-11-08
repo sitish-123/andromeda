@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdint>
+
+#include <algorithm>
+#include <cmath>
+
 #include "ui/controls/button.h"
 #include "ui/palette.h"
 
@@ -21,6 +26,7 @@ namespace settings {
     inline constexpr float kAccountAvatar = 24.0F;
     inline constexpr float kNewBarInputWidth = 120.0F;
     inline constexpr float kSearchFieldHeight = 32.0F;
+    inline constexpr float kSearchFieldWidth = 200.0F;
     inline constexpr float kResultTile = 28.0F;
     inline constexpr float kEmptyStateMinHeight = 160.0F;
     inline constexpr float kTitleBarHeight = 40.0F;
@@ -28,7 +34,32 @@ namespace settings {
     inline constexpr float kCardBorderWidth = 0.5F;
     inline constexpr float kCardFillOpacity = 0.4F;
     inline constexpr float kRowSeparatorThickness = 1.0F;
+    // The page column grows with the window from kContentMaxWidth to kContentWideWidth, then stays centred.
     inline constexpr float kContentMaxWidth = 640.0F;
+    inline constexpr const float& kContentWideWidth = Tokens::componentPageColumnWide;
+    // The column width the current pages were built for, in logical px; set by the Settings window before a build.
+    inline float& liveContentWidth() {
+      static float width = kContentMaxWidth;
+      return width;
+    }
+    // Responsive sidebar (CLAUDE.md "grow then clamp"): full list, an icon rail under kRailBreak, a back-button stack
+    // under kStackBreak (logical px of window width).
+    enum class SidebarMode : std::uint8_t { Full, Rail, Stack };
+    inline constexpr float kRailBreak = 900.0F;
+    inline constexpr float kStackBreak = 600.0F;
+    inline constexpr float kRailWidth = kSidebarTile + 2.0F * kSidebarRowPaddingH + 2.0F * kSidebarPaddingH;
+    [[nodiscard]] inline SidebarMode sidebarModeFor(float windowWidth) {
+      return windowWidth >= kRailBreak ? SidebarMode::Full
+          : windowWidth >= kStackBreak ? SidebarMode::Rail
+                                       : SidebarMode::Stack;
+    }
+    // The column width for a window `windowWidth` logical px wide, on the 8 grid; narrow windows go below 640.
+    [[nodiscard]] inline float contentWidthFor(float windowWidth) {
+      const SidebarMode mode = sidebarModeFor(windowWidth);
+      const float sidebar = mode == SidebarMode::Full ? kSidebarWidth : mode == SidebarMode::Rail ? kRailWidth : 0.0F;
+      const float pane = std::max(0.0F, windowWidth - sidebar - 2.0F * kPagePadding);
+      return std::floor(std::clamp(pane, std::min(pane, kContentMaxWidth), kContentWideWidth) / 8.0F) * 8.0F;
+    }
     inline constexpr float kRowHeight = 40.0F;
     inline constexpr float kRowHeightTwoLine = 56.0F;
     inline constexpr float kSelectWidth = 192.0F;

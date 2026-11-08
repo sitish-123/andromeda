@@ -93,6 +93,8 @@ namespace settings {
     std::string onValue;
     std::string offValue;
     std::string id; // stable key of a row without a config path
+    // A row without a config path that commits itself (a system service); it calls `done` once the change landed.
+    std::function<void(bool on, std::function<void()> done)> onChange;
   };
 
   struct SelectOption {

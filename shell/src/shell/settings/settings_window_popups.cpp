@@ -19,6 +19,7 @@
 #include "shell/settings/plugin_store_content.h"
 #include "shell/settings/settings_content.h"
 #include "shell/settings/settings_content_common.h"
+#include "shell/settings/settings_page_rows.h"
 #include "shell/settings/settings_content_plugins.h"
 #include "shell/settings/settings_control_factory.h"
 #include "shell/settings/settings_registry.h"
@@ -2342,7 +2343,8 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
       return;
     }
     const auto* manifest = scripting::PluginRegistry::instance().findManifest(pluginId);
-    if (manifest == nullptr || !settings::pluginHasSettings(*manifest)) {
+    const auto status = std::ranges::find(m_pluginList, pluginId, &scripting::PluginStatus::id);
+    if (manifest == nullptr && status == m_pluginList.end()) {
       return;
     }
 
@@ -2352,19 +2354,107 @@ void SettingsWindow::openPluginSettingsEditor(std::string pluginId) {
     m_pendingDeleteWidgetSettingPath.clear();
     m_editorSheetListPath.clear();
 
-    const std::string title = manifest->name.empty() ? pluginId : manifest->name;
-    openBarWidgetEditorSheet(title, [this, pluginId](Flex& body) {
-      if (m_config == nullptr || m_editorSheetFactory == nullptr) {
-        return;
-      }
-      const auto* currentManifest = scripting::PluginRegistry::instance().findManifest(pluginId);
-      if (currentManifest == nullptr) {
-        return;
-      }
-      settings::buildPluginSettingsEditor(
-          body, m_config->config(), *m_editorSheetFactory, pluginId, *currentManifest, true, uiScale()
-      );
-    });
+    const std::string name = manifest != nullptr && !manifest->name.empty() ? manifest->name
+        : status != m_pluginList.end()                                      ? status->name
+                                                                            : pluginId;
+    const std::string source = status != m_pluginList.end() ? status->source : std::string{};
+    // Plugins of a folder source (and local ones) live in the user's own folder: Settings does not delete them.
+    const bool removable = !source.empty() && source != "local"
+        && !std::ranges::any_of(m_config->config().plugins.sources, [&](const PluginSourceConfig& s) {
+             return s.name == source && s.kind == PluginSourceKind::Path;
+           });
+    std::function<void()> removeAction;
+    if (removable) {
+      removeAction = [this, pluginId, name] {
+        settings::showSettingsAlert(
+            m_modalHost,
+            settings::SettingsAlertRequest{
+                .title = i18n::tr("settings.plugins.plugins.delete-confirm-title", "name", name),
+                .body = i18n::tr("settings.plugins.plugins.delete-confirm-desc"),
+                .buttons = {
+                    {.text = i18n::tr("common.actions.cancel")},
+                    {.text = i18n::tr("settings.plugins.plugins.delete"),
+                     .variant = ButtonVariant::Destructive,
+                     .onClick =
+                         [this, pluginId] {
+                           if (m_editorSheetModal != nullptr) {
+                             m_editorSheetModal->close();
+                           }
+                           if (m_pluginManager != nullptr) {
+                             m_pluginManager->remove(pluginId);
+                             markPluginListDirty();
+                             requestSceneRebuild();
+                           }
+                         }},
+                },
+                .scale = uiScale(),
+            }
+        );
+      };
+    }
+
+    openBarWidgetEditorSheet(
+        name,
+        [this, pluginId, source](Flex& body) {
+          using namespace settings::page_rows;
+          if (m_config == nullptr) {
+            return;
+          }
+          const float scale = uiScale();
+          const auto* current = scripting::PluginRegistry::instance().findManifest(pluginId);
+          const auto listed = std::ranges::find(m_pluginList, pluginId, &scripting::PluginStatus::id);
+
+          Flex* about = settings::addSettingsGroupCard(body, i18n::tr("settings.plugins.page-about"), scale);
+          const std::string version = current != nullptr ? current->version
+              : listed != m_pluginList.end()             ? listed->version
+                                                         : std::string{};
+          addInfoRow(*about, "", i18n::tr("settings.plugins.page-version"), version, scale);
+          addInfoRow(*about, "", i18n::tr("settings.plugins.page-source"), source.empty() ? std::string("local") : source,
+                     scale);
+          if (current != nullptr && !current->author.empty()) {
+            addInfoRow(*about, "", i18n::tr("settings.plugins.page-author"), current->author, scale);
+          }
+          settings::addSettingsRowSeparators(*about, scale);
+          if (current != nullptr && !current->description.empty()) {
+            addFootnote(*about, current->description, scale);
+          }
+
+          Flex* permissions = settings::addSettingsGroupCard(body, i18n::tr("settings.plugins.page-permissions"), scale);
+          if (current == nullptr || current->permissions.empty()) {
+            addInfoRow(*permissions, "", i18n::tr("settings.plugins.page-no-permissions"), {}, scale);
+          } else {
+            const auto& p = current->permissions;
+            const std::pair<bool, std::pair<const char*, const char*>> flags[] = {
+                {p.network, {"world", "settings.plugins.perm-network"}},
+                {p.process, {"terminal-2", "settings.plugins.perm-process"}},
+                {p.clipboardRead, {"clipboard", "settings.plugins.perm-clipboard"}},
+                {p.environment, {"variable", "settings.plugins.perm-environment"}},
+            };
+            for (const auto& [on, meta] : flags) {
+              if (on) {
+                addInfoRow(*permissions, meta.first, i18n::tr(meta.second), {}, scale);
+              }
+            }
+            if (!p.filesRead.empty()) {
+              addInfoRow(*permissions, "folder", i18n::tr("settings.plugins.perm-files-read"),
+                         StringUtils::join(p.filesRead, ", "), scale);
+            }
+            if (!p.filesWrite.empty()) {
+              addInfoRow(*permissions, "folder", i18n::tr("settings.plugins.perm-files-write"),
+                         StringUtils::join(p.filesWrite, ", "), scale);
+            }
+          }
+          settings::addSettingsRowSeparators(*permissions, scale);
+          addFootnote(*permissions, i18n::tr("settings.plugins.page-permissions-footnote"), scale);
+
+          if (current != nullptr && settings::pluginHasSettings(*current) && m_editorSheetFactory != nullptr) {
+            settings::buildPluginSettingsEditor(
+                body, m_config->config(), *m_editorSheetFactory, pluginId, *current, true, scale
+            );
+          }
+        },
+        std::move(removeAction)
+    );
   });
 }
 
