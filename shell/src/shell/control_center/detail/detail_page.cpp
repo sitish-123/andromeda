@@ -506,7 +506,9 @@ namespace control_center {
     });
     if (row.value) {
       if (const std::optional<float> value = row.value(); value.has_value()) {
+        m_syncingSliders = true;
         slider->setValue(*value);
+        m_syncingSliders = false;
       }
       m_sliders.push_back({.slider = raw, .value = row.value});
     }

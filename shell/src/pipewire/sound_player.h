@@ -17,6 +17,7 @@ struct spa_source;
 
 class SoundPlayer {
 public:
+  static constexpr const char* kStreamName = "noctalia-sound";
   static constexpr std::string_view kEventVolumeChange = "audio-volume-change";
   static constexpr std::string_view kEventNotification = "message-new-instant";
   static constexpr std::string_view kEventPowerPlug = "power-plug";

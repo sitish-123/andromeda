@@ -9,6 +9,7 @@
 #include "pipewire/pipewire_context.h"
 #include "pipewire/pipewire_error.h"
 #include "pipewire/privacy_capture_classification.h"
+#include "pipewire/sound_player.h"
 #include "pipewire/wireplumber_mixer.h"
 #include "util/string_utils.h"
 
@@ -780,7 +781,7 @@ namespace {
     if (!isProgramStreamClass(nd.mediaClass) || !nd.streamClassificationReady) {
       return false;
     }
-    if (!nd.linkGroup.empty() || nd.nodePassive) {
+    if (!nd.linkGroup.empty() || nd.nodePassive || nd.name == SoundPlayer::kStreamName) {
       return false;
     }
     if (!nd.targetObject.empty() && !hasProgramStreamIdentity(nd)) {
