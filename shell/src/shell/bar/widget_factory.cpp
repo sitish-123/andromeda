@@ -476,7 +476,8 @@ std::unique_ptr<Widget> WidgetFactory::create(
       .name = name,
       .config = wc,
       .output = output,
-      .contentScale = contentScale,
+      // An internal seed setting: the Desktop Layouts status cell draws its symbols larger than the bar default.
+      .contentScale = contentScale * static_cast<float>(wc != nullptr ? wc->getDouble("scale", 1.0) : 1.0),
       .settingContext = settingContext,
       .barPosition = barPosition,
       .barName = barName,

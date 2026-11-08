@@ -123,6 +123,7 @@ namespace noctalia::config {
     WidgetConfig statusNetwork;
     statusNetwork.type = "network";
     statusNetwork.settings["show_label"] = false;
+    statusNetwork.settings["scale"] = 1.25;
     seed("status_network", std::move(statusNetwork));
 
     // Desktop Layouts: the volume in the status cell is the symbol alone, as on the boards.
@@ -130,6 +131,7 @@ namespace noctalia::config {
     statusVolume.type = "volume";
     statusVolume.settings["device"] = std::string("output");
     statusVolume.settings["show_label"] = false;
+    statusVolume.settings["scale"] = 1.25;
     seed("status_volume", std::move(statusVolume));
 
     // Desktop Layouts: the battery in the status cell is the symbol alone (boards desktop-layouts.html 1 and 7).
@@ -137,6 +139,7 @@ namespace noctalia::config {
     statusBattery.type = "battery";
     statusBattery.settings["display_mode"] = std::string("graphic");
     statusBattery.settings["show_label"] = false;
+    statusBattery.settings["scale"] = 1.25;
     seed("status_battery", std::move(statusBattery));
 
     // Desktop Layouts, Windows: time over date, right-aligned, in the taskbar's trailing group.
@@ -153,6 +156,14 @@ namespace noctalia::config {
     brand.settings["custom_image"] = paths::assetPath("amark.svg").string();
     brand.settings["custom_image_colorize"] = true;
     seed("brand", std::move(brand));
+
+    // Bar islands: the Andromeda mark at the end of the right island opens the Control Center home page; the other
+    // island icons open their own pages.
+    WidgetConfig andromedaMark;
+    andromedaMark.type = "control-center";
+    andromedaMark.settings["custom_image"] = paths::assetPath("amark.svg").string();
+    andromedaMark.settings["custom_image_colorize"] = true;
+    seed("andromeda_mark", std::move(andromedaMark));
 
     WidgetConfig macosApp;
     macosApp.type = "window_menu";
