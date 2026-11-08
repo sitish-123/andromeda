@@ -1330,7 +1330,7 @@ void Application::initWidgetControllersAndCallbacks() {
       .widgets = desktopWidgetServices,
       .lockscreenWidgets = &m_lockscreenWidgetsController,
   });
-  m_desktopIcons.initialize(m_wayland, m_configService, m_renderContext, m_thumbnailService);
+  m_desktopIcons.initialize(m_wayland, m_configService, m_renderContext, m_thumbnailService, m_bus.get());
   m_configService.addReloadCallback([this] { m_desktopIcons.sync(); });
   m_desktopWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
   m_lockscreenWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });

@@ -828,6 +828,7 @@ struct DesktopIconsConfig {
   bool enabled = false;
   DesktopIconsCorner startCorner = DesktopIconsCorner::TopLeft;
   std::int32_t iconSize = 64;
+  bool stacks = false; // Use Stacks: files grouped by kind (FILES-UI-SPEC §20)
 
   bool operator==(const DesktopIconsConfig&) const = default;
 };

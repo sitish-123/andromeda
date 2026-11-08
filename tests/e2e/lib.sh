@@ -35,6 +35,13 @@ CONF
   [[ -S $RUNTIME/andromeda-wayland-0.sock ]] || { echo "andromeda did not start" >&2; exit 1; }
 }
 
+# rm_runtime: deletes $RUNTIME in a cleanup trap. Helpers the private bus started (thumbnailers, previews) can
+# outlive the kill by a moment and write into it, so a failed delete tries again for up to 2 s.
+rm_runtime() {
+  for _ in $(seq 10); do rm -rf "$RUNTIME" 2> /dev/null && return 0; sleep 0.2; done
+  rm -rf "$RUNTIME"
+}
+
 # run CMD...: run inside the session. A private HOME keeps Noctalia's theme templates and gsettings writes out of the
 # real user config.
 run() {

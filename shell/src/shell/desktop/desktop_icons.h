@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -21,6 +22,9 @@ class ConfigService;
 class Input;
 class InputArea;
 class ContextMenuPopup;
+class DragIconSurface;
+class DesktopFileOps;
+class SessionBus;
 class LayerSurface;
 class Node;
 class RenderContext;
@@ -43,7 +47,7 @@ public:
   DesktopIcons& operator=(const DesktopIcons&) = delete;
 
   void initialize(WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext,
-                  ThumbnailService& thumbnails);
+                  ThumbnailService& thumbnails, SessionBus* bus);
   // Follows desktop_icons.enabled and the output set; safe to call again.
   void sync();
   [[nodiscard]] DirectoryWatcher& watcher() noexcept { return m_watcher; }
@@ -57,8 +61,23 @@ private:
     int row = 0;
     bool operator==(const Slot&) const = default;
   };
+  // Use Stacks kinds (FILES-UI-SPEC §20), in grid order.
+  enum class StackKind : std::uint8_t {
+    Images,
+    Movies,
+    Music,
+    Pdfs,
+    Documents,
+    Spreadsheets,
+    Presentations,
+    Archives,
+    Other,
+  };
   struct Cell {
+    // A stack cell shows its newest file; `members` holds every file of the kind.
     std::shared_ptr<const FileInfo> info;
+    std::optional<StackKind> stack;
+    std::vector<std::shared_ptr<const FileInfo>> members;
     Slot slot;
     float x = 0.0F;
     float y = 0.0F;
@@ -72,10 +91,31 @@ private:
   void build();
   void selectOnly(std::size_t index);
   void onCellPress(std::size_t index, bool rightButton);
-  void activate(const std::vector<std::size_t>& indices);
-  void trash(const std::vector<std::size_t>& indices);
-  // Copies dropped files (a text/uri-list) into ~/Desktop.
-  void copyIn(const std::string& uriList);
+  void activate(const std::vector<std::filesystem::path>& paths);
+  void trash(const std::vector<std::filesystem::path>& paths);
+  // Copies (or moves) files into `dir` as one FileOps1 job (undo with Ctrl+Z); the first new file in ~/Desktop takes
+  // `slot` when it is free.
+  void transferIn(const std::vector<std::filesystem::path>& paths, const std::filesystem::path& dir, bool move,
+                  std::optional<Slot> slot = std::nullopt);
+  [[nodiscard]] static std::vector<std::filesystem::path> urisToPaths(const std::string& uriList);
+  // The files the selection stands for: a selected stack gives all its members.
+  [[nodiscard]] std::vector<std::filesystem::path> selectedPaths() const;
+  [[nodiscard]] std::string keyOf(const Cell& cell) const;
+  [[nodiscard]] bool isSelected(const Cell& cell) const;
+  void selectCell(const Cell& cell, bool on);
+  [[nodiscard]] static StackKind stackKindOf(const FileInfo& info);
+  [[nodiscard]] static std::string stackName(StackKind kind);
+  void layoutStacks(int rows);
+  void placeSaved(int rows, int columns);
+  // A drag past the slop becomes a system drag (text/uri-list) so other apps and the dock take it.
+  void startSystemDrag();
+  void endSystemDrag(bool droppedHere);
+  void onDropTarget(float x, float y, std::uint32_t action, const std::string& data);
+  // The folder cell under a surface point that is not part of the selection, if any.
+  [[nodiscard]] std::optional<std::size_t> folderAt(float x, float y) const;
+  [[nodiscard]] Slot slotAt(float x, float y) const;
+  void setDropHighlight(std::optional<std::size_t> index);
+  void resetDraggedCells();
   void openDesktopMenu(float x, float y);
   void openItemMenu(std::size_t index, float x, float y);
   void updateBand(float x, float y);
@@ -111,7 +151,8 @@ private:
   std::vector<Cell> m_cells;
   std::set<std::string> m_selected; // by file name, so a re-list keeps the selection
   std::optional<std::size_t> m_anchor; // Shift extends from here
-  std::optional<std::size_t> m_lastClick;
+  // The file of the last click, by key: an index would pair clicks on different files after the list shifts.
+  std::optional<std::string> m_lastClick;
   std::chrono::steady_clock::time_point m_lastClickAt;
   bool m_banding = false;
   Box* m_band = nullptr;
@@ -136,6 +177,19 @@ private:
   float m_pressX = 0.0F;
   float m_pressY = 0.0F;
   bool m_dragging = false;
+  std::uint32_t m_pressSerial = 0;
+  // A system drag from the desktop runs; drops on the desktop itself move icons instead of copying.
+  bool m_systemDrag = false;
+  std::unique_ptr<DragIconSurface> m_dragIcon;
+  std::unique_ptr<Node> m_dragImage;
+  std::optional<std::size_t> m_dropHighlight;
+  std::set<StackKind> m_expanded;
+  // Use Stacks grouping, kept until the listing or its sort changes (not redone on every rebuild).
+  bool m_groupsStale = true;
+  std::vector<std::shared_ptr<const FileInfo>> m_singles;
+  std::map<StackKind, std::vector<std::shared_ptr<const FileInfo>>> m_groups;
+  std::unique_ptr<DesktopFileOps> m_fileOps;
+  std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
   // F2: the file being renamed in place, and its field.
   std::optional<std::string> m_renaming;
   // The typed name; a rebuild while renaming (thumbnail upload, directory change) recreates the field from it.

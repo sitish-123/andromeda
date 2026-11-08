@@ -23,6 +23,13 @@ CONFIG
 
 with_noctalia '
   fail() { echo "FAIL: $*"; exit 1; }
+  # The headless seat has a keyboard only while a virtual keyboard exists, and the shell binds wl_keyboard when it
+  # appears: a key sent in the same burst as its click was lost while the shell bound it (log: "keyboard: bound" and
+  # "released" around the press, no key). One keyboard held for the whole test keeps it bound.
+  tail -f /dev/null | "'"$POINTER"'" 1280 720 keyboard-only mod none hold > /dev/null &
+  keyboard_bound() { [[ $(grep -c "keyboard: bound" "$OUT/noctalia.log") -gt $(grep -c "keyboard: released" "$OUT/noctalia.log") ]]; }
+  for _ in $(seq 100); do keyboard_bound && break; sleep 0.05; done
+  keyboard_bound || { echo "FAIL: the held keyboard did not bind"; exit 1; }
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim "$OUT/rest.png"
   # Icons: folders first, top-right column from the usable area; the second cell is "Projects" after "Kathmandu trip".

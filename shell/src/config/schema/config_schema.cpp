@@ -3582,6 +3582,7 @@ namespace noctalia::config::schema {
         field(&DesktopIconsConfig::enabled, "enabled"),
         enumField(&DesktopIconsConfig::startCorner, "start_corner", kDesktopIconsCorners),
         field(&DesktopIconsConfig::iconSize, "icon_size", kIconSizes),
+        field(&DesktopIconsConfig::stacks, "stacks"),
     };
     return s;
   }

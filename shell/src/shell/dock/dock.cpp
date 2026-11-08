@@ -8,6 +8,7 @@
 #include "ipc/ipc_service.h"
 #include "render/scene/node.h"
 #include "shell/dock/dock_context_menu.h"
+#include "shell/dock/dock_drop.h"
 #include "render/scene/input_area.h"
 #include "shell/dock/dock_geometry.h"
 #include "shell/dock/dock_instance.h"
@@ -21,6 +22,7 @@
 #include "ui/app_icon_colorization.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
+#include "wayland/drag_and_drop.h"
 #include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
@@ -31,6 +33,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <format>
 #include <optional>
@@ -79,6 +82,84 @@ namespace {
           launch(std::move(options));
         }
     );
+  }
+
+  [[nodiscard]] bool dockPointerHideAllowed(const DockConfig& cfg, const shell::dock::DockInstance& instance) noexcept;
+
+  // File drags over the dock reveal and magnify it like the pointer; a drop on an app that takes files opens them.
+  void attachDropTarget(CompositorPlatform& platform, ConfigService& config, shell::dock::DockInstance& instance) {
+    DragAndDrop* dnd = platform.wayland().dragAndDrop();
+    if (dnd == nullptr || instance.surface == nullptr) {
+      return;
+    }
+    shell::dock::DockInstance* inst = &instance;
+    const auto accepting = [inst](float x, float y) -> std::optional<std::size_t> {
+      const auto index = shell::dock::itemAt(*inst, x, y);
+      if (index.has_value() && *index < inst->snapshot.items.size()
+          && shell::dock::takesFiles(inst->snapshot.items[*index].entry)) {
+        return index;
+      }
+      return std::nullopt;
+    };
+    // An auto-hidden dock keeps an edge strip for input: a drag there shows it, as the pointer does.
+    const auto reveal = [inst](const std::vector<std::string>&) {
+      if (dockPointerHideAllowed(inst->config, *inst) && !inst->overviewSteppedAside && inst->sceneRoot != nullptr
+          && inst->surface != nullptr) {
+        shell::dock::animateDockHide(*inst, 1.0F);
+        // The full surface takes the drag, as on a pointer enter: the strip alone would lose it on the way up.
+        inst->surface->setInputRegion(
+            {InputRect{0, 0, static_cast<int>(inst->surface->width()), static_cast<int>(inst->surface->height())}});
+        inst->surface->requestRedraw();
+        kLog.debug("dock shown for a drag");
+      }
+      return true;
+    };
+    const auto settle = [inst] {
+      inst->hoverPointerValid = false;
+      shell::dock::clearHoverZoom(*inst, inst->snapshot);
+      // A pointer still on the dock after the drop gets its enter from the compositor, which shows the dock again.
+      if (dockPointerHideAllowed(inst->config, *inst)) {
+        shell::dock::startHideFadeOut(*inst);
+        kLog.debug("dock hides after a drag");
+      }
+    };
+    dnd->setTarget(instance.surface->wlSurface(), {
+        .enter = reveal,
+        .motion = [inst, accepting](float x, float y) -> std::uint32_t {
+          if (shell::dock::syncHoverPointerFromScene(*inst, inst->config, x, y) && inst->surface != nullptr) {
+            inst->surface->requestFrameTick();
+            inst->surface->requestRedraw();
+          }
+          return accepting(x, y).has_value() ? DragAndDrop::Copy : DragAndDrop::None;
+        },
+        .leave = settle,
+        .drop =
+            [&platform, &config, inst, accepting, settle](float x, float y, std::uint32_t, const std::string&,
+                                                          std::string data) {
+              settle();
+              const auto index = accepting(x, y);
+              if (!index.has_value()) {
+                return;
+              }
+              const DesktopEntry entry = inst->snapshot.items[*index].entry;
+              kLog.debug("dock drop on {}", entry.id);
+              const auto lines = shell::dock::execLines(entry.exec, data);
+              if (lines.empty()) {
+                return;
+              }
+              // Through desktop_entry_launch, so the systemd-service and custom-command options apply as on a click.
+              launchWithDockToken(platform, config, entry, [entry, lines](auto options) {
+                options.dbusActivatable = false;
+                for (const std::string& line : lines) {
+                  DesktopEntry withFiles = entry;
+                  withFiles.exec = line;
+                  withFiles.dbusActivatable = false;
+                  (void)desktop_entry_launch::launchEntry(withFiles, options);
+                }
+                kLog.debug("dock opened {} launches with {}", lines.size(), entry.id);
+              });
+            },
+    });
   }
 
   template <typename T> void appendOptionalStackPart(std::string& out, const std::optional<T>& value) {
@@ -421,6 +502,11 @@ void Dock::closeAllInstances() {
   }
   m_itemMenu.reset();
   m_lastActiveHandleByAppIdLower.clear();
+  if (DragAndDrop* dnd = m_platform != nullptr ? m_platform->wayland().dragAndDrop() : nullptr) {
+    for (const auto& [surface, inst] : m_surfaceMap) {
+      dnd->clearTarget(surface);
+    }
+  }
   m_surfaceMap.clear();
   m_hoveredInstance = nullptr;
   m_popupOwnerInstance = nullptr;
@@ -462,6 +548,9 @@ void Dock::pruneCachedToplevelHandles() {
 void Dock::detachInstanceState(shell::dock::DockInstance& inst) {
   if (inst.surface != nullptr) {
     if (wl_surface* const wls = inst.surface->wlSurface()) {
+      if (DragAndDrop* dnd = m_platform != nullptr ? m_platform->wayland().dragAndDrop() : nullptr) {
+        dnd->clearTarget(wls);
+      }
       m_surfaceMap.erase(wls);
     }
   }
@@ -875,6 +964,24 @@ void Dock::createInstance(const WaylandOutput& output) {
         },
         needsUpdate, needsLayout
     );
+    // E2E: item rects in surface coordinates, logged when they change.
+    static const bool geometry = std::getenv("DESK_DOCK_GEOMETRY") != nullptr;
+    if (geometry && needsLayout) {
+      for (std::size_t i = 0; i < inst->items.size() && i < inst->snapshot.items.size(); ++i) {
+        if (const InputArea* area = inst->items[i].area; area != nullptr) {
+          float x = 0.0F;
+          float y = 0.0F;
+          Node::absolutePosition(area, x, y);
+          // Where the item rests when shown: without the auto-hide slide.
+          if (inst->slideRoot != nullptr) {
+            x -= inst->slideRoot->x();
+            y -= inst->slideRoot->y();
+          }
+          kLog.debug("dock item {} {} {} {} {}", inst->snapshot.items[i].entry.id, std::lround(x), std::lround(y),
+                     std::lround(area->width()), std::lround(area->height()));
+        }
+      }
+    }
   });
   instance->surface->setFrameTickCallback([this, inst](float deltaMs) {
     if (m_config == nullptr || m_renderContext == nullptr || !inst->config.magnification) {
@@ -893,6 +1000,7 @@ void Dock::createInstance(const WaylandOutput& output) {
   }
 
   m_surfaceMap[instance->surface->wlSurface()] = instance.get();
+  attachDropTarget(*m_platform, *m_config, *instance);
   m_instances.push_back(std::move(instance));
 }
 

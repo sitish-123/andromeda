@@ -1,12 +1,14 @@
 #include "shell/desktop/desktop_icons.h"
 
 #include "config/config_service.h"
+#include "core/deferred_call.h"
 #include "core/log.h"
 #include "i18n/i18n.h"
 #include "net/url_open.h"
 #include "render/render_context.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
+#include "shell/desktop/desktop_file_ops.h"
 #include "shell/panel/panel_manager.h"
 #include "system/desktop_entry.h"
 #include "system/desktop_entry_launch.h"
@@ -20,6 +22,7 @@
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/drag_and_drop.h"
+#include "wayland/drag_icon_surface.h"
 #include "wayland/layer_surface.h"
 #include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
@@ -66,6 +69,7 @@ namespace {
     IconSmall,
     IconMedium,
     IconLarge,
+    UseStacks,
   };
 
   std::string fileUri(const std::filesystem::path& path) {
@@ -95,8 +99,9 @@ DesktopIcons::DesktopIcons() = default;
 DesktopIcons::~DesktopIcons() { close(); }
 
 void DesktopIcons::initialize(WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext,
-                              ThumbnailService& thumbnails) {
+                              ThumbnailService& thumbnails, SessionBus* bus) {
   m_wayland = &wayland;
+  m_fileOps = std::make_unique<DesktopFileOps>(bus);
   m_config = &config;
   m_renderContext = &renderContext;
   m_thumbnails = &thumbnails;
@@ -137,7 +142,10 @@ void DesktopIcons::open() {
   if (m_view == nullptr) {
     m_view = std::make_unique<FileModelView>(FileModel::open(m_dir, m_watcher));
     m_view->setSort({.key = FileSortKey::Name, .foldersFirst = true});
-    m_view->setChangedCallback([this] { rebuildCells(); });
+    m_view->setChangedCallback([this] {
+      m_groupsStale = true;
+      rebuildCells();
+    });
   }
   // Covers the usable area (exclusive zone 0), under windows; the keyboard only after a click on it.
   m_surface = std::make_unique<LayerSurface>(
@@ -169,19 +177,186 @@ void DesktopIcons::open() {
   if (DragAndDrop* dnd = m_wayland->dragAndDrop(); dnd != nullptr && m_surface != nullptr) {
     dnd->setTarget(m_surface->wlSurface(), {
         .enter = {},
-        .motion = [](float, float) -> std::uint32_t { return DragAndDrop::Copy; },
-        .leave = {},
-        .drop = [this](float, float, std::uint32_t, const std::string&, std::string data) { copyIn(data); },
+        .motion = [this](float x, float y) -> std::uint32_t {
+          if (m_systemDrag) {
+            onCellMotion(x, y);
+          }
+          setDropHighlight(folderAt(x, y));
+          return m_systemDrag ? DragAndDrop::Move : DragAndDrop::Copy;
+        },
+        .leave =
+            [this] {
+              setDropHighlight(std::nullopt);
+              if (m_systemDrag) {
+                resetDraggedCells();
+              }
+            },
+        .drop = [this](float x, float y, std::uint32_t action, const std::string&, std::string data) {
+          onDropTarget(x, y, action, data);
+        },
     });
   }
   loadSlots();
 }
 
-void DesktopIcons::copyIn(const std::string& uriList) {
-  std::error_code error;
-  std::filesystem::create_directories(m_dir, error);
+void DesktopIcons::onDropTarget(float x, float y, std::uint32_t action, const std::string& data) {
+  setDropHighlight(std::nullopt);
+  const std::optional<std::size_t> folder = folderAt(x, y);
+  const bool move = action == DragAndDrop::Move;
+  if (m_systemDrag) {
+    // Our own drag: onto a folder the files go in (the negotiated action: move, or copy), elsewhere the icons take
+    // new places.
+    if (folder.has_value()) {
+      const auto paths = selectedPaths();
+      kLog.debug("desktop drop {} {} items into {}", move ? "moves" : "copies", paths.size(), m_cells[*folder].info->name);
+      transferIn(paths, pathOf(*m_cells[*folder].info), move);
+      resetDraggedCells();
+    } else {
+      onCellMotion(x, y);
+      drop();
+    }
+    endSystemDrag(true);
+    return;
+  }
+  if (folder.has_value()) {
+    kLog.debug("desktop drop copies into {}", m_cells[*folder].info->name);
+    transferIn(urisToPaths(data), pathOf(*m_cells[*folder].info), move);
+  } else {
+    const Slot slot = slotAt(x, y);
+    kLog.debug("desktop drop copies in at {},{}", slot.column, slot.row);
+    transferIn(urisToPaths(data), m_dir, false, slot);
+  }
+}
+
+std::optional<std::size_t> DesktopIcons::folderAt(float x, float y) const {
+  for (std::size_t i = 0; i < m_cells.size(); ++i) {
+    const Cell& cell = m_cells[i];
+    if (!cell.stack && cell.info->isDir && !isSelected(cell) && x >= cell.x && x < cell.x + m_cellW && y >= cell.y
+        && y < cell.y + m_cellH) {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+DesktopIcons::Slot DesktopIcons::slotAt(float x, float y) const {
+  const int rows = std::max(1, (static_cast<int>(m_surface->height()) - 2 * kMargin) / m_cellH);
+  const int columns = std::max(1, (static_cast<int>(m_surface->width()) - 2 * kMargin) / m_cellW);
+  const bool fromRight = m_config->config().desktopIcons.startCorner == DesktopIconsCorner::TopRight;
+  const float fromEdge = fromRight ? static_cast<float>(m_surface->width()) - kMargin - x : x - kMargin;
+  return {.column = std::clamp(static_cast<int>(fromEdge / m_cellW), 0, columns - 1),
+          .row = std::clamp(static_cast<int>((y - kMargin) / m_cellH), 0, rows - 1)};
+}
+
+void DesktopIcons::setDropHighlight(std::optional<std::size_t> index) {
+  if (index == m_dropHighlight) {
+    return;
+  }
+  for (const auto i : {m_dropHighlight, index}) {
+    if (i.has_value() && *i < m_cells.size() && m_cells[*i].plate != nullptr) {
+      m_cells[*i].plate->setVisible(i == index || isSelected(m_cells[*i]));
+    }
+  }
+  m_dropHighlight = index;
+  if (m_surface != nullptr) {
+    m_surface->requestRedraw();
+  }
+}
+
+void DesktopIcons::resetDraggedCells() {
+  for (const Cell& cell : m_cells) {
+    if (cell.area != nullptr) {
+      cell.area->setPosition(cell.x, cell.y);
+    }
+  }
+  if (m_surface != nullptr) {
+    m_surface->requestRedraw();
+  }
+}
+
+void DesktopIcons::startSystemDrag() {
+  DragAndDrop* dnd = m_wayland->dragAndDrop();
+  const auto paths = selectedPaths();
+  if (dnd == nullptr || paths.empty() || !m_pressIndex.has_value() || *m_pressIndex >= m_cells.size()) {
+    return;
+  }
+  std::string uris;
+  std::string text;
+  for (const auto& path : paths) {
+    uris += fileUri(path) + "\r\n";
+    text += (text.empty() ? "" : "\n") + path.string();
+  }
+  // Drag image: the pressed icon at icon size.
+  m_dragIcon.reset();
+  m_dragImage.reset();
+  const Cell& pressed = m_cells[*m_pressIndex];
+  const int iconSize = m_config->config().desktopIcons.iconSize;
+  const std::string& type = pressed.info->contentType;
+  const std::string iconFile = !pressed.info->isDir && type.starts_with("image/") ? pathOf(*pressed.info).string()
+                                                                                 : iconPathFor(*pressed.info);
+  const int scale = std::max(1, static_cast<int>(std::ceil(m_surface->effectiveBufferScale())));
+  auto icon = std::make_unique<DragIconSurface>(*m_wayland, iconSize, iconSize, scale);
+  icon->setRenderContext(m_renderContext);
+  m_dragImage = ui::node({});
+  m_dragImage->setSize(static_cast<float>(iconSize), static_cast<float>(iconSize));
+  icon->setPrepareFrameCallback([this, raw = icon.get(), iconFile, iconSize, loaded = false](bool, bool) mutable {
+    m_renderContext->makeCurrent(raw->renderTarget());
+    if (!loaded && m_dragImage != nullptr && !iconFile.empty()) {
+      loaded = true;
+      auto image = ui::image({.fit = ImageFit::Contain, .width = static_cast<float>(iconSize),
+                              .height = static_cast<float>(iconSize), .participatesInLayout = false});
+      if (image->setSourceFile(raw->renderTarget().renderer(), iconFile, iconSize, true)) {
+        m_dragImage->addChild(std::move(image));
+      }
+    }
+  });
+  icon->setSceneRoot(m_dragImage.get());
+  if (icon->initialize()) {
+    m_dragIcon = std::move(icon);
+  }
+  m_input.cancelPointerCapture();
+  m_systemDrag = dnd->startDrag(
+      m_surface->wlSurface(), m_pressSerial,
+      {.mimeTypes = {"text/uri-list", "text/plain;charset=utf-8", "text/plain"},
+       .data = [uris, text](const std::string& mime) { return mime == "text/uri-list" ? uris : text; },
+       .actions = DragAndDrop::Copy | DragAndDrop::Move | DragAndDrop::Ask,
+       .icon = m_dragIcon != nullptr ? m_dragIcon->wlSurface() : nullptr,
+       .finished =
+           [this, alive = std::weak_ptr<bool>(m_alive)](std::uint32_t action, bool dropped) {
+             if (alive.expired()) {
+               return;
+             }
+             kLog.debug("desktop drag ended action {} dropped {}", action, dropped);
+             if (m_systemDrag) {
+               endSystemDrag(false);
+             }
+           }});
+  kLog.debug("desktop drag started with {} items", paths.size());
+  if (!m_systemDrag) {
+    m_dragIcon.reset();
+    m_dragImage.reset();
+  }
+}
+
+void DesktopIcons::endSystemDrag(bool droppedHere) {
+  m_systemDrag = false;
+  m_pressIndex.reset();
+  m_dragging = false;
+  if (!droppedHere) {
+    rebuildCells();
+  }
+  // The compositor may still draw the icon this frame: drop it after.
+  DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+    if (!alive.expired()) {
+      m_dragIcon.reset();
+      m_dragImage.reset();
+    }
+  });
+}
+
+std::vector<std::filesystem::path> DesktopIcons::urisToPaths(const std::string& uriList) {
+  std::vector<std::filesystem::path> out;
   std::istringstream lines(uriList);
-  std::set<std::filesystem::path> picked;
   for (std::string line; std::getline(lines, line);) {
     if (!line.empty() && line.back() == '\r') {
       line.pop_back();
@@ -189,36 +364,158 @@ void DesktopIcons::copyIn(const std::string& uriList) {
     if (line.empty() || line.front() == '#') {
       continue;
     }
-    gchar* file = g_filename_from_uri(line.c_str(), nullptr, nullptr);
-    if (file == nullptr) {
-      continue;
-    }
-    const std::filesystem::path source = file;
-    g_free(file);
-    if (source.parent_path() == m_dir) {
-      continue;
-    }
-    // Finder names a clash "name 2.ext".
-    std::filesystem::path target = m_dir / source.filename();
-    // Copies run async, so a name picked earlier in this drop counts as taken before its file exists.
-    for (int n = 2; std::filesystem::exists(target, error) || picked.contains(target); ++n) {
-      const bool dir = std::filesystem::is_directory(source, error);
-      const std::string stem = dir ? source.filename().string() : source.stem().string();
-      const std::string ext = dir ? std::string{} : source.extension().string();
-      target = m_dir / std::format("{} {}{}", stem, n, ext);
-    }
-    picked.insert(target);
-    // cp runs detached so a large copy never blocks the shell; the directory watcher shows the result.
-    const std::string sourceArg = source.string();
-    const std::string targetArg = target.string();
-    const gchar* argv[] = {"cp", "-r", "--no-target-directory", "--", sourceArg.c_str(), targetArg.c_str(), nullptr};
-    GError* spawnError = nullptr;
-    if (!g_spawn_async(nullptr, const_cast<gchar**>(argv), nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr,
-                       &spawnError)) {
-      kLog.warn("copying {} to the desktop failed: {}", sourceArg, spawnError != nullptr ? spawnError->message : "");
-      g_clear_error(&spawnError);
+    if (gchar* file = g_filename_from_uri(line.c_str(), nullptr, nullptr); file != nullptr) {
+      out.emplace_back(file);
+      g_free(file);
     }
   }
+  return out;
+}
+
+void DesktopIcons::transferIn(const std::vector<std::filesystem::path>& paths, const std::filesystem::path& dir,
+                              bool move, std::optional<Slot> slot) {
+  std::vector<std::filesystem::path> sources;
+  for (const auto& source : paths) {
+    // Nothing into the folder it is already in, and no folder into itself.
+    if (source.parent_path() != dir && dir != source && !dir.string().starts_with(source.string() + "/")) {
+      sources.push_back(source);
+    }
+  }
+  if (sources.empty()) {
+    return;
+  }
+  std::error_code error;
+  if (slot.has_value() && dir == m_dir && !m_config->config().desktopIcons.stacks
+      && !std::filesystem::exists(dir / sources.front().filename(), error)
+      && std::ranges::none_of(m_cells, [&](const Cell& cell) { return cell.slot == *slot; })) {
+    // Every icon keeps its place from now on, so the first new file lands under the pointer.
+    for (const Cell& cell : m_cells) {
+      m_slots.try_emplace(cell.info->name, cell.slot);
+    }
+    m_slots[sources.front().filename().string()] = *slot;
+    saveSlots();
+  }
+  std::filesystem::create_directories(dir, error);
+  if (m_fileOps == nullptr || !m_fileOps->transfer(move, sources, dir)) {
+    kLog.warn("{} {} items into {} failed: no FileOps1", move ? "moving" : "copying", sources.size(), dir.string());
+  }
+}
+
+std::string DesktopIcons::keyOf(const Cell& cell) const {
+  return cell.stack ? std::format("\x1fstack:{}", static_cast<int>(*cell.stack)) : cell.info->name;
+}
+
+// A stack is selected under its own key, so one file picked inside an open stack never stands for the whole stack.
+bool DesktopIcons::isSelected(const Cell& cell) const { return m_selected.contains(keyOf(cell)); }
+
+void DesktopIcons::selectCell(const Cell& cell, bool on) {
+  on ? (void)m_selected.insert(keyOf(cell)) : (void)m_selected.erase(keyOf(cell));
+}
+
+std::vector<std::filesystem::path> DesktopIcons::selectedPaths() const {
+  std::vector<std::filesystem::path> out;
+  std::set<std::string> seen;
+  const auto add = [&](const FileInfo& info) {
+    if (seen.insert(info.name).second) {
+      out.push_back(pathOf(info));
+    }
+  };
+  for (const Cell& cell : m_cells) {
+    if (!isSelected(cell)) {
+      continue;
+    }
+    if (cell.stack) {
+      for (const auto& member : cell.members) {
+        add(*member);
+      }
+    } else {
+      add(*cell.info);
+    }
+  }
+  return out;
+}
+
+DesktopIcons::StackKind DesktopIcons::stackKindOf(const FileInfo& info) {
+  const std::string& type = info.contentType;
+  const auto has = [&](std::string_view part) { return type.find(part) != std::string::npos; };
+  if (type.starts_with("image/")) {
+    return StackKind::Images;
+  }
+  if (type.starts_with("video/")) {
+    return StackKind::Movies;
+  }
+  if (type.starts_with("audio/")) {
+    return StackKind::Music;
+  }
+  if (type == "application/pdf") {
+    return StackKind::Pdfs;
+  }
+  if (has("spreadsheet") || has("excel") || type == "text/csv") {
+    return StackKind::Spreadsheets;
+  }
+  if (has("presentation") || has("powerpoint")) {
+    return StackKind::Presentations;
+  }
+  if (type == "application/zip" || has("7z") || has("x-tar") || has("compressed-tar") || type == "application/gzip"
+      || has("x-xz") || has("zstd") || has("rar") || has("bzip")) {
+    return StackKind::Archives;
+  }
+  if (type.starts_with("text/") || has("document") || has("msword") || has("rtf")) {
+    return StackKind::Documents;
+  }
+  return StackKind::Other;
+}
+
+std::string DesktopIcons::stackName(StackKind kind) {
+  switch (kind) {
+  case StackKind::Images: return i18n::tr("desktop-icons.stack-images");
+  case StackKind::Movies: return i18n::tr("desktop-icons.stack-movies");
+  case StackKind::Music: return i18n::tr("desktop-icons.stack-music");
+  case StackKind::Pdfs: return i18n::tr("desktop-icons.stack-pdfs");
+  case StackKind::Documents: return i18n::tr("desktop-icons.stack-documents");
+  case StackKind::Spreadsheets: return i18n::tr("desktop-icons.stack-spreadsheets");
+  case StackKind::Presentations: return i18n::tr("desktop-icons.stack-presentations");
+  case StackKind::Archives: return i18n::tr("desktop-icons.stack-archives");
+  case StackKind::Other: return i18n::tr("desktop-icons.stack-other");
+  }
+  return {};
+}
+
+void DesktopIcons::layoutStacks(int rows) {
+  // Folders and app shortcuts first (in sort order), then one cell per kind; an expanded stack is followed by its
+  // files, and a kind with one file shows that file.
+  if (m_groupsStale) {
+    m_groupsStale = false;
+    m_singles.clear();
+    m_groups.clear();
+    for (const auto& info : m_view->rows()) {
+      if (info->isDir || info->name.ends_with(".desktop")) {
+        m_singles.push_back(info);
+      } else {
+        m_groups[stackKindOf(*info)].push_back(info);
+      }
+    }
+  }
+  for (const auto& info : m_singles) {
+    m_cells.push_back({.info = info});
+  }
+  for (const auto& [kind, files] : m_groups) {
+    if (files.size() == 1) {
+      m_cells.push_back({.info = files.front()});
+      continue;
+    }
+    const auto newest = std::ranges::max_element(files, {}, [](const auto& f) { return f->mtimeNs; });
+    m_cells.push_back({.info = *newest, .stack = kind, .members = files});
+    if (m_expanded.contains(kind)) {
+      for (const auto& file : files) {
+        m_cells.push_back({.info = file});
+      }
+    }
+  }
+  for (std::size_t i = 0; i < m_cells.size(); ++i) {
+    m_cells[i].slot = {.column = static_cast<int>(i) / rows, .row = static_cast<int>(i) % rows};
+  }
+  kLog.debug("desktop stacks on: {} cells", m_cells.size());
 }
 
 void DesktopIcons::close() {
@@ -239,6 +536,13 @@ void DesktopIcons::close() {
   m_cells.clear();
   m_output = nullptr;
   m_banding = false;
+  // A drag that ends after the surface closed must not rebuild it; its icon goes with the surface.
+  m_systemDrag = false;
+  m_dragging = false;
+  m_pressIndex.reset();
+  m_dragIcon.reset();
+  m_dragImage.reset();
+  m_dropHighlight.reset();
   releaseThumbnails({});
 }
 
@@ -274,6 +578,29 @@ void DesktopIcons::rebuildCells() {
   }
   const int rows = std::max(1, (static_cast<int>(m_surface->height()) - 2 * kMargin) / m_cellH);
   const int columns = std::max(1, (static_cast<int>(m_surface->width()) - 2 * kMargin) / m_cellW);
+  if (m_config->config().desktopIcons.stacks) {
+    layoutStacks(rows);
+  } else {
+    placeSaved(rows, columns);
+  }
+  for (Cell& cell : m_cells) {
+    cell.x = slotX(cell.slot.column);
+    cell.y = slotY(cell.slot.row);
+  }
+  std::set<std::string> present;
+  for (const auto& info : m_view->rows()) {
+    present.insert(info->name);
+  }
+  for (const Cell& cell : m_cells) {
+    present.insert(keyOf(cell));
+  }
+  std::erase_if(m_selected, [&](const std::string& key) { return !present.contains(key); });
+  // Cell indices change with the rebuild.
+  m_dropHighlight.reset();
+  requestBuild();
+}
+
+void DesktopIcons::placeSaved(int rows, int columns) {
   std::set<std::pair<int, int>> taken;
   std::vector<std::shared_ptr<const FileInfo>> unplaced;
   // Saved places first; the rest fill free places column by column from the corner (more than fit go on inward).
@@ -295,14 +622,6 @@ void DesktopIcons::rebuildCells() {
     taken.insert({slot.column, slot.row});
     m_cells.push_back({.info = info, .slot = slot});
   }
-  for (Cell& cell : m_cells) {
-    cell.x = slotX(cell.slot.column);
-    cell.y = slotY(cell.slot.row);
-  }
-  std::erase_if(m_selected, [&](const std::string& name) {
-    return std::ranges::none_of(m_cells, [&](const Cell& cell) { return cell.info->name == name; });
-  });
-  requestBuild();
 }
 
 std::string DesktopIcons::outputKey() const {
@@ -359,7 +678,10 @@ void DesktopIcons::onCellMotion(float sceneX, float sceneY) {
   if (!m_dragging && std::hypot(dx, dy) < kDragSlop) {
     return;
   }
-  m_dragging = true;
+  if (!m_dragging) {
+    m_dragging = true;
+    startSystemDrag();
+  }
   // Moves the selected cells in place: a rebuild now would drop the pressed area and end the drag.
   for (const std::size_t i : selection()) {
     if (m_cells[i].area != nullptr) {
@@ -370,6 +692,11 @@ void DesktopIcons::onCellMotion(float sceneX, float sceneY) {
 }
 
 void DesktopIcons::drop() {
+  // Stacks keep the sorted arrangement, as Finder does.
+  if (m_config->config().desktopIcons.stacks) {
+    rebuildCells();
+    return;
+  }
   const auto selected = selection();
   if (selected.empty() || selected.front() >= m_cells.size() || m_cells[selected.front()].area == nullptr) {
     return;
@@ -459,7 +786,7 @@ std::string DesktopIcons::iconPathFor(const FileInfo& info) {
 std::vector<std::size_t> DesktopIcons::selection() const {
   std::vector<std::size_t> out;
   for (std::size_t i = 0; i < m_cells.size(); ++i) {
-    if (m_selected.contains(m_cells[i].info->name)) {
+    if (isSelected(m_cells[i])) {
       out.push_back(i);
     }
   }
@@ -515,7 +842,7 @@ void DesktopIcons::build() {
           },
   }));
 
-  const auto selected = [&](const Cell& cell) { return m_selected.contains(cell.info->name); };
+  const auto selected = [&](const Cell& cell) { return isSelected(cell); };
   (void)m_thumbnails->uploadPending(renderer.textureManager());
   std::set<std::string> shown;
   for (std::size_t i = 0; i < m_cells.size(); ++i) {
@@ -539,6 +866,13 @@ void DesktopIcons::build() {
                 m_dragging = false;
                 if (dragged) {
                   drop();
+                } else if (i < m_cells.size() && m_cells[i].stack
+                           && (m_wayland->keyboardModifiers() & (KeyMod::Ctrl | KeyMod::Shift)) == 0) {
+                  // A click opens the stack in place; a second click folds it again.
+                  const StackKind kind = *m_cells[i].stack;
+                  m_expanded.erase(kind) == 0 ? (void)m_expanded.insert(kind) : (void)0;
+                  kLog.debug("stack {} {}", stackName(kind), m_expanded.contains(kind) ? "expanded" : "collapsed");
+                  rebuildCells();
                 } else {
                   requestBuild();
                 }
@@ -550,6 +884,7 @@ void DesktopIcons::build() {
                   m_pressIndex = i;
                   m_pressX = data.sceneX;
                   m_pressY = data.sceneY;
+                  m_pressSerial = data.serial;
                 }
                 if (data.button == BTN_RIGHT) {
                   openItemMenu(i, m_cells[i].x + data.localX, m_cells[i].y + data.localY);
@@ -558,7 +893,7 @@ void DesktopIcons::build() {
             },
     }));
     m_cells[i].area = area;
-    glide(*area, cell.info->name, cell.x, cell.y);
+    glide(*area, keyOf(cell), cell.x, cell.y);
     const float plateX = (m_cellW - m_plate) * 0.5F;
     area->addChild(ui::box({
         .out = &m_cells[i].plate,
@@ -571,6 +906,22 @@ void DesktopIcons::build() {
         .configure = [plateX](Box& box) { box.setPosition(plateX, 0.0F); },
     }));
     const int iconSize = m_config->config().desktopIcons.iconSize;
+    if (cell.stack) {
+      // Two cards behind the newest file read as a pile (FILES-UI-SPEC §20).
+      const float card = static_cast<float>(iconSize - 8);
+      for (const auto& [offset, alpha] : {std::pair{6.0F, 0.30F}, std::pair{3.0F, 0.55F}}) {
+        const float cardX = static_cast<float>(m_cellW) * 0.5F - card * 0.5F + offset;
+        const float cardY = static_cast<float>(m_plate) * 0.5F - card * 0.5F - offset;
+        area->addChild(ui::box({
+            .fill = fixedColorSpec(Color{1.0F, 1.0F, 1.0F, alpha}),
+            .radius = static_cast<float>(kPlateRound),
+            .width = card,
+            .height = card,
+            .participatesInLayout = false,
+            .configure = [cardX, cardY](Box& box) { box.setPosition(cardX, cardY); },
+        }));
+      }
+    }
     const std::string& type = cell.info->contentType;
     const bool previewable = !cell.info->isDir
         && (type.starts_with("image/") || type.starts_with("video/") || type == "application/pdf");
@@ -608,7 +959,7 @@ void DesktopIcons::build() {
     }
     // Names: white with a soft shadow on any wallpaper; the accent pill and every line while selected.
     auto name = ui::label({
-        .text = cell.info->displayName,
+        .text = cell.stack ? stackName(*cell.stack) : cell.info->displayName,
         .fontSize = Style::fontSizeCaption,
         .fontWeight = FontWeight::Medium,
         .color = fixedColorSpec(Color{1.0F, 1.0F, 1.0F, 0.92F}),
@@ -633,7 +984,20 @@ void DesktopIcons::build() {
           .configure = [nameX, nameY](Box& box) { box.setPosition(nameX, nameY); },
       }));
     }
-    if (m_renaming == cell.info->name) {
+    if (cell.stack) {
+      auto count = ui::label({
+          .text = i18n::tr("desktop-icons.stack-items", "count", cell.members.size()),
+          .fontSize = Style::fontSizeCaption,
+          .color = fixedColorSpec(Color{1.0F, 1.0F, 1.0F, 0.70F}),
+          .textAlign = TextAlign::Center,
+          .participatesInLayout = false,
+      });
+      count->setShadow(Color{0.0F, 0.0F, 0.0F, 0.6F}, 0.0F, 1.0F);
+      count->measure(renderer);
+      count->setPosition(std::round((static_cast<float>(m_cellW) - count->width()) * 0.5F), nameY + name->height());
+      area->addChild(std::move(count));
+    }
+    if (m_renaming == cell.info->name && !cell.stack) {
       // Inline rename: the field covers the name; the name without its extension starts selected (Finder).
       const std::string current = cell.info->displayName;
       const std::size_t dot = current.rfind('.');
@@ -725,17 +1089,25 @@ void DesktopIcons::updateBand(float x, float y) {
   const float right = std::max(m_bandX0, m_bandX1);
   const float top = std::min(m_bandY0, m_bandY1);
   const float bottom = std::max(m_bandY0, m_bandY1);
+  const auto hit = [&](const Cell& cell) {
+    return cell.x < right && cell.x + m_cellW > left && cell.y < bottom && cell.y + m_cellH > top;
+  };
+  // Clear first, then select: an open stack and its files are separate cells over the same names.
+  if ((m_wayland->keyboardModifiers() & (KeyMod::Ctrl | KeyMod::Shift)) == 0) {
+    for (const Cell& cell : m_cells) {
+      if (!hit(cell)) {
+        selectCell(cell, false);
+      }
+    }
+  }
   for (const Cell& cell : m_cells) {
-    const bool hit = cell.x < right && cell.x + m_cellW > left && cell.y < bottom && cell.y + m_cellH > top;
-    if (hit) {
-      m_selected.insert(cell.info->name);
-    } else if ((m_wayland->keyboardModifiers() & (KeyMod::Ctrl | KeyMod::Shift)) == 0) {
-      m_selected.erase(cell.info->name);
+    if (hit(cell)) {
+      selectCell(cell, true);
     }
   }
   for (const Cell& cell : m_cells) {
     if (cell.plate != nullptr) {
-      cell.plate->setVisible(m_selected.contains(cell.info->name));
+      cell.plate->setVisible(isSelected(cell));
     }
   }
   syncBand();
@@ -752,7 +1124,8 @@ void DesktopIcons::syncBand() {
 }
 
 void DesktopIcons::selectOnly(std::size_t index) {
-  m_selected = {m_cells[index].info->name};
+  m_selected.clear();
+  selectCell(m_cells[index], true);
   m_anchor = index;
 }
 
@@ -760,30 +1133,30 @@ void DesktopIcons::onCellPress(std::size_t index, bool rightButton) {
   if (index >= m_cells.size()) {
     return;
   }
-  const std::string& name = m_cells[index].info->name;
+  const Cell& pressed = m_cells[index];
   const std::uint32_t mods = m_wayland->keyboardModifiers();
+  kLog.debug("desktop press {}", keyOf(pressed));
   if (rightButton) {
-    if (!m_selected.contains(name)) {
+    if (!isSelected(pressed)) {
       selectOnly(index);
     }
   } else if ((mods & KeyMod::Ctrl) != 0) {
-    if (!m_selected.erase(name)) {
-      m_selected.insert(name);
-    }
+    selectCell(pressed, !isSelected(pressed));
     m_anchor = index;
   } else if ((mods & KeyMod::Shift) != 0 && m_anchor.has_value() && *m_anchor < m_cells.size()) {
     const auto [lo, hi] = std::minmax(*m_anchor, index);
     for (std::size_t i = lo; i <= hi; ++i) {
-      m_selected.insert(m_cells[i].info->name);
+      selectCell(m_cells[i], true);
     }
   } else {
     const auto now = std::chrono::steady_clock::now();
-    const bool second = m_lastClick == index && now - m_lastClickAt < kDoubleClick;
-    m_lastClick = second ? std::nullopt : std::optional(index);
+    const bool second = m_lastClick == keyOf(pressed) && now - m_lastClickAt < kDoubleClick;
+    m_lastClick = second ? std::nullopt : std::optional(keyOf(pressed));
     m_lastClickAt = now;
     selectOnly(index);
-    if (second) {
-      activate({index});
+    // A stack opens on click (release), so a double click on it does not open every file.
+    if (second && !pressed.stack) {
+      activate({pathOf(*pressed.info)});
     }
   }
   if (rightButton) {
@@ -793,33 +1166,32 @@ void DesktopIcons::onCellPress(std::size_t index, bool rightButton) {
   // The plates change in place; the name pills follow on release (a rebuild now would end a drag).
   for (const Cell& cell : m_cells) {
     if (cell.plate != nullptr) {
-      cell.plate->setVisible(m_selected.contains(cell.info->name));
+      cell.plate->setVisible(isSelected(cell));
     }
   }
   m_surface->requestRedraw();
 }
 
-void DesktopIcons::activate(const std::vector<std::size_t>& indices) {
-  for (const std::size_t i : indices) {
-    const FileInfo& info = *m_cells[i].info;
-    if (!info.isDir && info.name.ends_with(".desktop")) {
-      if (const auto entry = loadDesktopFile(pathOf(info)); entry.has_value()) {
+void DesktopIcons::activate(const std::vector<std::filesystem::path>& paths) {
+  for (const auto& path : paths) {
+    if (path.extension() == ".desktop" && !std::filesystem::is_directory(path)) {
+      if (const auto entry = loadDesktopFile(path); entry.has_value()) {
         (void)desktop_entry_launch::launchEntry(*entry);
         continue;
       }
     }
-    if (!net::openInBrowser(fileUri(pathOf(info)))) {
-      kLog.warn("opening {} failed", pathOf(info).string());
+    if (!net::openInBrowser(fileUri(path))) {
+      kLog.warn("opening {} failed", path.string());
     }
   }
 }
 
-void DesktopIcons::trash(const std::vector<std::size_t>& indices) {
-  for (const std::size_t i : indices) {
-    GFile* file = g_file_new_for_path(pathOf(*m_cells[i].info).c_str());
+void DesktopIcons::trash(const std::vector<std::filesystem::path>& paths) {
+  for (const auto& path : paths) {
+    GFile* file = g_file_new_for_path(path.c_str());
     GError* error = nullptr;
     if (!g_file_trash(file, nullptr, &error)) {
-      kLog.warn("moving {} to Trash failed: {}", pathOf(*m_cells[i].info).string(), error != nullptr ? error->message : "");
+      kLog.warn("moving {} to Trash failed: {}", path.string(), error != nullptr ? error->message : "");
       g_clear_error(&error);
     }
     g_object_unref(file);
@@ -841,7 +1213,9 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
        .toggleState = key == FileSortKey::Kind ? 1 : 0, .indentLevel = 1},
       {.id = SortDate, .label = i18n::tr("desktop-icons.sort-date"), .radio = true,
        .toggleState = key == FileSortKey::Modified ? 1 : 0, .indentLevel = 1},
-      {.id = CleanUp, .label = i18n::tr("desktop-icons.clean-up")},
+      {.id = UseStacks, .label = i18n::tr("desktop-icons.use-stacks"), .checkmark = true,
+       .toggleState = m_config->config().desktopIcons.stacks ? 1 : 0},
+      {.id = CleanUp, .label = i18n::tr("desktop-icons.clean-up"), .enabled = !m_config->config().desktopIcons.stacks},
       {.separator = true},
       {.label = i18n::tr("desktop-icons.icon-size"), .header = true},
       {.id = IconSmall, .label = i18n::tr("desktop-icons.icon-small"), .radio = true,
@@ -862,6 +1236,7 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
       // Sorting re-arranges every icon, as Finder's Sort By does.
       m_slots.clear();
       saveSlots();
+      m_groupsStale = true;
       m_view->setSort({.key = key, .descending = key == FileSortKey::Modified, .foldersFirst = true});
     };
     switch (entry.id) {
@@ -893,6 +1268,10 @@ void DesktopIcons::openDesktopMenu(float x, float y) {
       (void)m_config->setOverride({"desktop_icons", "icon_size"}, size);
       break;
     }
+    case UseStacks:
+      m_expanded.clear();
+      (void)m_config->setOverride({"desktop_icons", "stacks"}, !m_config->config().desktopIcons.stacks);
+      break;
     case CleanUp:
       // Forgets the arranged places: every icon goes back into sort order from the corner.
       m_slots.clear();
@@ -917,7 +1296,7 @@ void DesktopIcons::openItemMenu(std::size_t index, float x, float y) {
   (void)index;
   std::vector<ContextMenuControlEntry> entries{
       {.id = Open, .label = i18n::tr("desktop-icons.open")},
-      {.id = Rename, .label = i18n::tr("desktop-icons.rename"), .enabled = selection().size() == 1},
+      {.id = Rename, .label = i18n::tr("desktop-icons.rename"), .enabled = selection().size() == 1 && !m_cells[selection().front()].stack},
       {.separator = true},
       {.id = Trash, .label = i18n::tr("desktop-icons.move-to-trash")},
   };
@@ -927,10 +1306,10 @@ void DesktopIcons::openItemMenu(std::size_t index, float x, float y) {
   m_menu->setShadowConfig(m_config->config().shell.shadow);
   m_menu->setOnActivate([this](const ContextMenuControlEntry& entry) {
     if (entry.id == Open) {
-      activate(selection());
+      activate(selectedPaths());
     } else if (entry.id == Trash) {
-      trash(selection());
-    } else if (entry.id == Rename && selection().size() == 1) {
+      trash(selectedPaths());
+    } else if (entry.id == Rename && selection().size() == 1 && !m_cells[selection().front()].stack) {
       m_renaming = m_cells[selection().front()].info->name;
       m_renameText.reset();
       requestBuild();
@@ -994,19 +1373,29 @@ void DesktopIcons::onKeyboardEvent(const KeyboardEvent& event) {
     m_input.keyEvent(event.sym, event.utf32, event.modifiers, event.pressed, event.preedit);
     return;
   }
+  // Ctrl+Z undoes the last desktop copy or move, also when it emptied the desktop.
+  if (event.pressed && (event.sym == XKB_KEY_z || event.sym == XKB_KEY_Z) && (event.modifiers & KeyMod::Ctrl) != 0) {
+    if (m_fileOps != nullptr && !m_fileOps->undo()) {
+      kLog.debug("desktop undo: nothing to undo");
+    }
+    return;
+  }
+  if (event.pressed) {
+    kLog.debug("desktop key {:#x} with {} selected", event.sym, m_selected.size());
+  }
   if (!event.pressed || m_cells.empty()) {
     return;
   }
   switch (event.sym) {
   case XKB_KEY_Return:
   case XKB_KEY_KP_Enter:
-    activate(selection());
+    activate(selectedPaths());
     break;
   case XKB_KEY_Delete:
-    trash(selection());
+    trash(selectedPaths());
     break;
   case XKB_KEY_F2:
-    if (const auto selected = selection(); selected.size() == 1) {
+    if (const auto selected = selection(); selected.size() == 1 && !m_cells[selected.front()].stack) {
       m_renaming = m_cells[selected.front()].info->name;
       m_renameText.reset();
     }
@@ -1018,7 +1407,7 @@ void DesktopIcons::onKeyboardEvent(const KeyboardEvent& event) {
   case XKB_KEY_A:
     if ((event.modifiers & KeyMod::Ctrl) != 0) {
       for (const Cell& cell : m_cells) {
-        m_selected.insert(cell.info->name);
+        selectCell(cell, true);
       }
     }
     break;

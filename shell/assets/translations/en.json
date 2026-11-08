@@ -7407,6 +7407,17 @@
     "icon-small": "Small",
     "icon-medium": "Medium",
     "icon-large": "Large",
-    "rename": "Rename"
+    "rename": "Rename",
+    "use-stacks": "Use Stacks",
+    "stack-images": "Images",
+    "stack-movies": "Movies",
+    "stack-music": "Music",
+    "stack-pdfs": "PDFs",
+    "stack-documents": "Documents",
+    "stack-spreadsheets": "Spreadsheets",
+    "stack-presentations": "Presentations",
+    "stack-archives": "Archives",
+    "stack-other": "Other",
+    "stack-items": "{count} items"
   }
 }
