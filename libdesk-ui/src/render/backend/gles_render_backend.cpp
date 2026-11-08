@@ -77,6 +77,8 @@ void main() {
     return std::format("EGL error 0x{:04x}", static_cast<unsigned>(error));
   }
 
+  bool g_programsPrewarmed = false; // per share group; reset after a GPU reset
+
   bool hasGlExtension(std::string_view name) {
     const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
     if (extensions == nullptr || name.empty()) {
@@ -379,6 +381,21 @@ void GlesRenderBackend::initialize(GlSharedContext& shared) {
 
   verifyRequiredGlCapabilities();
 
+  // Cold shader cache (first launch after an install or a driver update): every first-frame program builds at once
+  // on the driver's threads instead of one after another as the first frame meets them.
+  if (!g_programsPrewarmed) {
+    g_programsPrewarmed = true;
+    if (hasGlExtension("GL_KHR_parallel_shader_compile")) {
+      if (auto threads = reinterpret_cast<void (*)(GLuint)>(eglGetProcAddress("glMaxShaderCompilerThreadsKHR"))) {
+        threads(0xFFFFFFFFU); // as many as the driver likes
+      }
+    }
+    RectProgram::prewarm();
+    ImageProgram::prewarm();
+    GlyphProgram::prewarm();
+    ShaderProgram::prewarm(kFullscreenVertexShader, kFullscreenTextureFragmentShader);
+  }
+
   m_viewportValid = false;
   m_blendMode.reset();
   m_scissorEnabled = false;
@@ -540,6 +557,8 @@ void GlesRenderBackend::abandonAfterGraphicsReset() noexcept {
   // instead of issuing deletes that would run with no context bound.
   m_textureManager.abandonGpuResources();
   abandonGpuObjects();
+  ShaderProgram::abandonPrewarmed();
+  g_programsPrewarmed = false; // the next context's backend prewarms its share group again
 
   if (m_display != EGL_NO_DISPLAY) {
     eglMakeCurrent(m_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

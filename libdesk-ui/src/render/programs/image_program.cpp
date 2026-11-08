@@ -160,6 +160,10 @@ void main() {
 
 } // namespace
 
+void ImageProgram::prewarm() {
+  ShaderProgram::prewarm(kVertexShaderSource, smooth_corner::fragment(kFragmentShaderSource));
+}
+
 void ImageProgram::ensureInitialized() {
   if (m_program.isValid()) {
     return;

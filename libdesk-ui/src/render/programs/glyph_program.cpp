@@ -60,6 +60,8 @@ void main() {
 
 } // namespace
 
+void GlyphProgram::prewarm() { ShaderProgram::prewarm(kVertexShaderSource, kFragmentShaderSource); }
+
 void GlyphProgram::ensureInitialized() {
   if (m_program.isValid()) {
     return;

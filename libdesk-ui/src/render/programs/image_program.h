@@ -19,6 +19,8 @@ public:
   ImageProgram& operator=(const ImageProgram&) = delete;
 
   void ensureInitialized();
+  // Starts this program's shader build on driver threads (ShaderProgram::prewarm), before the first frame needs it.
+  static void prewarm();
   void destroy();
   void abandon() noexcept;
 
