@@ -510,6 +510,8 @@ preview_width = 280.0 # columns view: the preview column
 preview_art = 160.0   # columns view: preview icon or thumbnail
 home_cell_width = 128.0  # This PC folder cell (mockup section 0)
 home_cell_height = 104.0
+drive_card_min = 280.0   # This PC drive cards: as many as fit at this width
+drive_card_max = 360.0   # ... each grows to at most this
 search_width = 240.0     # header search capsule (mockup section 1)
 
 [component.scrollbar]

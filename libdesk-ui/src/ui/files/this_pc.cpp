@@ -31,14 +31,17 @@ namespace {
   const float& kDriveH = Tokens::spaceP64;
   const float& kDriveIcon = Tokens::spaceP40;
   const float& kBar = Tokens::spaceP4;
-  constexpr int kDriveColumns = 3;
+  // Drive cards (Explorer "Devices and drives"): as many columns as fit at 280, each at most 360, so a wide window
+  // gets more cards in a row instead of long stretched bars.
+  const float& kDriveMinW = Tokens::componentFilesDriveCardMin;
+  const float& kDriveMaxW = Tokens::componentFilesDriveCardMax;
   constexpr double kNearlyFull = 0.9;
 
-  // Cells in rows: fixed-width cells as many as fit, or `stretchColumns` equal columns.
+  // Cells in rows, as many as fit at `cellW`; with `maxCellW` set they grow to fill the row up to that width.
   class CellGrid final : public Node {
   public:
-    CellGrid(float cellW, float cellH, float gap, int stretchColumns)
-        : m_cellW(cellW), m_cellH(cellH), m_gap(gap), m_stretch(stretchColumns) {}
+    CellGrid(float cellW, float cellH, float gap, float maxCellW = 0.0F)
+        : m_cellW(cellW), m_cellH(cellH), m_gap(gap), m_maxCellW(maxCellW) {}
 
   protected:
     LayoutSize doMeasure(Renderer& /*renderer*/, const LayoutConstraints& constraints) override {
@@ -50,8 +53,8 @@ namespace {
       setPosition(rect.x, rect.y);
       setSize(rect.width, rect.height);
       const std::size_t cols = columns(rect.width);
-      const float cellW = m_stretch > 0 ? std::floor((rect.width - m_gap * static_cast<float>(cols - 1)) / static_cast<float>(cols))
-                                        : m_cellW;
+      const float fill = std::floor((rect.width - m_gap * static_cast<float>(cols - 1)) / static_cast<float>(cols));
+      const float cellW = m_maxCellW > 0.0F ? std::clamp(fill, std::min(m_cellW, fill), m_maxCellW) : m_cellW;
       for (std::size_t i = 0; i < children().size(); ++i) {
         const auto col = static_cast<float>(i % cols);
         const auto row = static_cast<float>(i / cols);
@@ -63,15 +66,12 @@ namespace {
 
   private:
     [[nodiscard]] std::size_t columns(float width) const {
-      if (m_stretch > 0) {
-        return static_cast<std::size_t>(m_stretch);
-      }
       return std::max<std::size_t>(1, static_cast<std::size_t>((width + m_gap) / (m_cellW + m_gap)));
     }
     float m_cellW;
     float m_cellH;
     float m_gap;
-    int m_stretch;
+    float m_maxCellW;
   };
 
   // A flex cell with an input area over all of it: hover fill_1, click opens.
@@ -217,7 +217,7 @@ std::unique_ptr<Node> buildThisPc(float scale, ThisPcOptions options) {
   content->setPadding(Tokens::spaceP16 * s, 0.0F);
 
   content->addChild(heading("Folders", s));
-  auto folders = std::make_unique<CellGrid>(kFolderCellW * s, kFolderCellH * s, Tokens::spaceP8 * s, 0);
+  auto folders = std::make_unique<CellGrid>(kFolderCellW * s, kFolderCellH * s, Tokens::spaceP8 * s);
   for (const ThisPcPlace& place : shared->folders) {
     auto c = cell(s, opener(place));
     c->setDirection(FlexDirection::Vertical);
@@ -236,7 +236,7 @@ std::unique_ptr<Node> buildThisPc(float scale, ThisPcOptions options) {
   content->addChild(std::move(foldersPad));
 
   content->addChild(heading("Devices and drives", s));
-  auto drives = std::make_unique<CellGrid>(0.0F, kDriveH * s, Tokens::spaceP8 * s, kDriveColumns);
+  auto drives = std::make_unique<CellGrid>(kDriveMinW * s, kDriveH * s, Tokens::spaceP8 * s, kDriveMaxW * s);
   for (const Volume& v : listVolumes()) {
     const double used = v.totalBytes > 0 ? 1.0 - (static_cast<double>(v.freeBytes) / static_cast<double>(v.totalBytes)) : 0.0;
     ThisPcPlace place{.label = v.name,
@@ -284,7 +284,7 @@ std::unique_ptr<Node> buildPlaceSections(float scale, std::vector<PlaceSection> 
     }
     first = false;
     content->addChild(std::move(head));
-    auto grid = std::make_unique<CellGrid>(0.0F, kDriveH * s, Tokens::spaceP8 * s, kDriveColumns);
+    auto grid = std::make_unique<CellGrid>(kDriveMinW * s, kDriveH * s, Tokens::spaceP8 * s, kDriveMaxW * s);
     for (const ThisPcPlace& place : section.places) {
       grid->addChild(driveCell(place, std::nullopt, false, s, [shared, place] {
         if (*shared) {
