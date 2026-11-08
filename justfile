@@ -83,10 +83,10 @@ check: test link system
     cd compositor && just check
     just e2e
 
-package:
-    # -C: a reused build dir keeps old subproject options (default_options apply only on the first configure).
-    # flock: -C wipes pkg/src, so a second session's run waits instead of deleting the first one's sources.
-    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" flock /tmp/andromeda-package.lock makepkg -fC
+# Incremental: pkg/src and its build dirs stay; the PKGBUILD wipes them when a meson file changes. `just package -C` builds clean.
+package *flags:
+    # flock: runs share pkg/src, so a second session's run waits.
+    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" flock /tmp/andromeda-package.lock makepkg -f {{flags}}
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
 

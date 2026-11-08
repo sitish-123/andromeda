@@ -34,6 +34,8 @@ prepare() {
   cargo fetch --locked --manifest-path desktop/link/Cargo.toml
   cargo fetch --locked --manifest-path desktop/system/Cargo.toml
   cargo fetch --locked --manifest-path desktop/andromeda-preview/helper/Cargo.toml
+  # An incremental build reuses src/greetd: makepkg's checkout resets tracked files, clean drops files a patch added.
+  git -C greetd clean -fdq -e target
   local patch
   for patch in desktop/session/greetd/patches/*.patch; do
     patch -d greetd -Np1 < "$patch"
@@ -44,6 +46,13 @@ prepare() {
 build() {
   # The host makepkg.conf (CachyOS) sets -march=native; packages must run on any x86-64 CPU.
   CFLAGS="${CFLAGS//-march=native/-march=x86-64 -mtune=generic}" CXXFLAGS="${CXXFLAGS//-march=native/-march=x86-64 -mtune=generic}"
+  # Incremental: build dirs stay in srcdir between runs. default_options apply only on the first configure, so a
+  # change to any meson file or wrap starts the build dirs over.
+  local stamp
+  stamp=$(git -C desktop ls-files -s -- ':(glob)**/meson.build' ':(glob)**/meson.options' ':(glob)**/meson_options.txt' \
+    ':(glob)**/*.wrap' ':(glob)**/packagefiles/**' | sha256sum)
+  [[ ! -f meson.stamp || $(<meson.stamp) == "$stamp" ]] || rm -rf build-*
+  arch-meson() { if [[ -f $2/build.ninja ]]; then command arch-meson "$@" --reconfigure; else command arch-meson "$@"; fi; }
   # The wlroots and libliftoff wraps carry our patches (compositor/subprojects/packagefiles); libliftoff links into
   # the private libwlroots. --wrap-mode overrides arch-meson's nodownload.
   arch-meson desktop/compositor build-compositor -Dcpp_std=c++23 -Dtests=disabled -Db_lto=true \
@@ -64,6 +73,7 @@ build() {
   meson compile -C build-indexer
   meson compile -C build-preview
   for app in files viewer player; do meson compile -C build-$app; done
+  echo "$stamp" > meson.stamp
   # makepkg's -flto=auto turns ring's C and cxx-qt's C++ objects into GCC LTO bitcode, which the Rust linker cannot read.
   # The Link target dir lives outside srcdir, so makepkg -C keeps it: a full Link build compiles silently for over 15 min.
   local linkcache="${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-pkg/link-target"
