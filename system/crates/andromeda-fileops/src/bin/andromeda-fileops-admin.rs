@@ -5,8 +5,9 @@
 //! andromeda-fileops-admin chmod <mode octal> <mask octal> <0|1 recursive> <path>...
 //! Prints "done <count>" and exits 0, or prints the error and exits 1.
 
-use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use rustix::fs::{chmodat, fstat, openat, AtFlags, Dir, FileType, Mode, OFlags, CWD};
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
@@ -46,22 +47,61 @@ fn checked(path: &str) -> Result<PathBuf, String> {
     Ok(p.to_path_buf())
 }
 
+/// Opens each component from `/` with O_NOFOLLOW, so no link anywhere on the path is followed: a user who can write a
+/// parent folder cannot swap it for a link to /etc between our check and the change.
+fn open_parent(path: &Path) -> Result<(OwnedFd, std::ffi::OsString), String> {
+    let name = path.file_name().ok_or_else(|| format!("{}: no file name", path.display()))?.to_owned();
+    let mut dir = openat(CWD, "/", OFlags::DIRECTORY | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+        .map_err(|e| format!("/: {e}"))?;
+    for part in path.parent().unwrap_or(Path::new("/")).components() {
+        let Component::Normal(part) = part else { continue };
+        dir = openat(&dir, part, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok((dir, name))
+}
+
 fn apply(path: &Path, change: &Change, recursive: bool, count: &mut u64) -> Result<(), String> {
-    let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if meta.file_type().is_symlink() {
+    let (dir, name) = open_parent(path)?;
+    apply_at(&dir, &name, path, change, recursive, count)
+}
+
+/// Every step is relative to an open folder and never follows a link (fstatat, fchmodat with AT_SYMLINK_NOFOLLOW,
+/// openat with O_NOFOLLOW), and a folder is entered only if it is still the one that was stat'ed.
+fn apply_at(dir: &OwnedFd, name: &std::ffi::OsStr, shown: &Path, change: &Change, recursive: bool, count: &mut u64) -> Result<(), String> {
+    let err = |e: rustix::io::Errno| format!("{}: {e}", shown.display());
+    // O_PATH + NOFOLLOW pins the inode; a symlink swapped in later cannot redirect the chmod.
+    let pinned = openat(dir, name, OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).map_err(err)?;
+    let st = fstat(&pinned).map_err(err)?;
+    let kind = FileType::from_raw_mode(st.st_mode);
+    if kind == FileType::Symlink {
         return Ok(());
     }
-    let old = meta.mode() & 0o7777;
-    let new = new_mode(old, change.mode, change.mask, meta.is_dir());
+    let is_dir = kind == FileType::Directory;
+    let old = st.st_mode & 0o7777;
+    let new = new_mode(old, change.mode, change.mask, is_dir);
     if new != old {
-        fs::set_permissions(path, fs::Permissions::from_mode(new)).map_err(|e| format!("{}: {e}", path.display()))?;
+        // fchmod refuses O_PATH fds; /proc/self/fd/N resolves to the pinned inode (glibc's fchmodat fallback does this).
+        let proc = format!("/proc/self/fd/{}", pinned.as_raw_fd());
+        chmodat(CWD, proc.as_str(), Mode::from_raw_mode(new), AtFlags::empty()).map_err(err)?;
     }
     *count += 1;
-    if recursive && meta.is_dir() {
-        let entries = fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        for entry in entries {
-            let entry = entry.map_err(|e| format!("{}: {e}", path.display()))?;
-            apply(&entry.path(), change, true, count)?;
+    if recursive && is_dir {
+        let child = openat(dir, name, OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC, Mode::empty())
+            .map_err(err)?;
+        let now = fstat(&child).map_err(err)?;
+        if now.st_ino != st.st_ino || now.st_dev != st.st_dev {
+            return Err(format!("{}: changed while it was being changed", shown.display()));
+        }
+        let mut entries = Dir::read_from(&child).map_err(err)?;
+        while let Some(entry) = entries.next() {
+            let entry = entry.map_err(err)?;
+            let bytes = entry.file_name().to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            let part = std::ffi::OsStr::from_bytes(bytes);
+            apply_at(&child, part, &shown.join(part), change, true, count)?;
         }
     }
     Ok(())
@@ -115,6 +155,8 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     #[test]
     fn checked_refuses_relative_dotdot_and_kernel_trees() {
