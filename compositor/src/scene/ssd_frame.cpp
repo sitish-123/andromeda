@@ -77,15 +77,15 @@ namespace andromeda {
       std::array<float, 4> background, backgroundUnfocused, text, textUnfocused;
     };
 
-    // Untouched title-bar colours follow the light or dark scheme (rulebook header, label_2); a theme template or the
-    // user's own colours win.
+    // Untouched title-bar colours follow the light or dark scheme (header, label_1, inactive label_3); a theme template or
+    // the user's own colours win.
     Palette palette() {
       const auto& colors = config().colors.titleBar;
       if (!(colors == std::remove_cvref_t<decltype(colors)>{})) {
         return {colors.background, colors.backgroundUnfocused, colors.text, colors.textUnfocused};
       }
       const auto& s = scheme();
-      return {rgba(s.header), rgba(s.header), rgba(s.label2), rgba(s.label3)};
+      return {rgba(s.header), rgba(s.header), rgba(s.label1), rgba(s.label3)};
     }
 
     // A button glyph drawn into `px` device pixels: Windows lines fill the box, macOS marks sit inside the light.
@@ -138,6 +138,7 @@ namespace andromeda {
     }
     const float clear[4]{};
     m_background = wlr_scene_rect_create(m_tree, 1, 1, clear);
+    m_separator = wlr_scene_rect_create(m_tree, 1, 1, clear);
     m_hoverCell = wlr_scene_rect_create(m_tree, 1, 1, clear);
     wlr_scene_node_set_enabled(&m_hoverCell->node, false);
     m_close = wlr_scene_rect_create(m_tree, 1, 1, clear);
@@ -210,12 +211,12 @@ namespace andromeda {
     redraw();
   }
   void SsdFrame::setMaximized(bool maximized) { m_maximized = maximized; }
-  void SsdFrame::setHovered(SsdFramePart part) {
+  void SsdFrame::setHovered(SsdFramePart part, bool fade) {
     if (m_hovered == part)
       return;
     m_hovered = part;
     // P3: the wash comes in on fade_out (quick) and leaves on fade (slower); between two buttons it moves at once.
-    const bool animate = config().animation.enabled && !m_preview && g_titleBarMotion != nullptr;
+    const bool animate = fade && config().animation.enabled && !m_preview && g_titleBarMotion != nullptr;
     if (part != SsdFramePart::None) {
       m_shownHover = part;
     }
@@ -309,8 +310,8 @@ namespace andromeda {
     const auto& background = m_focused ? tones.background : tones.backgroundUnfocused;
     premultiplied(color, background, m_alpha);
     wlr_scene_rect_set_color(m_background, color);
-    const float contrast =
-        background[0] * 0.2126F + background[1] * 0.7152F + background[2] * 0.0722F < 0.5F ? 1.0F : 0.0F;
+    premultiplied(color, rgba(tokens.separator), m_alpha);
+    wlr_scene_rect_set_color(m_separator, color);
     const auto level = static_cast<float>(std::clamp(m_hoverLevel.current(), 0.0, 1.0));
     const bool buttonHovered = level > 0.0F
         && (m_shownHover == SsdFramePart::Close
@@ -322,16 +323,10 @@ namespace andromeda {
         wlr_scene_node_set_enabled(&rect->node, false);
         return;
       }
-      float alpha = !enabled ? 0.35F : (m_shownHover == part ? 0.85F + 0.15F * level : 0.85F);
-      if (style == TitleBarStyle::Macos) {
-        // Traffic lights at full strength; an inactive window shows all three in fill_3.
-        alpha = enabled ? 1.0F : 0.35F;
-        if (!m_focused) {
-          value = rgba(tokens.fill3);
-        }
-      } else if (enabled && m_shownHover == part) {
-        for (size_t i = 0; i < 3; ++i)
-          value[i] += (contrast - value[i]) * 0.2F * level;
+      // Lights at full strength; an inactive window shows all three in fill_3.
+      const float alpha = enabled ? 1.0F : 0.35F;
+      if (!m_focused) {
+        value = rgba(tokens.fill3);
       }
       if (enabled && m_pressed == part) {
         for (size_t i = 0; i < 3; ++i)
@@ -341,11 +336,19 @@ namespace andromeda {
       wlr_scene_rect_set_color(rect, color);
     };
     const bool mac = style == TitleBarStyle::Macos;
-    button(m_close, mac ? rgba(0xff5f57ffU) : colors.close, SsdFramePart::Close, true);
-    button(m_maximize, mac ? rgba(0x28c840ffU) : colors.maximize, SsdFramePart::Maximize, m_maximizeEnabled);
-    button(m_minimize, mac ? rgba(0xfebc2effU) : colors.minimize, SsdFramePart::Minimize, true);
+    // Untouched Andromeda lights: minimize #f5c824, maximize accent, close danger.
+    const bool ownColors = colors == std::remove_cvref_t<decltype(colors)>{};
+    button(m_close, mac ? rgba(0xff5f57ffU) : ownColors ? rgba(tokens.danger) : colors.close, SsdFramePart::Close, true);
+    button(
+        m_maximize, mac ? rgba(0x28c840ffU) : ownColors ? rgba(tokens.accent) : colors.maximize, SsdFramePart::Maximize,
+        m_maximizeEnabled
+    );
+    button(
+        m_minimize, mac ? rgba(0xfebc2effU) : ownColors ? rgba(0xf5c824ffU) : colors.minimize, SsdFramePart::Minimize,
+        true
+    );
 
-    // Glyphs: Windows always (label_1, white on the close fill); macOS over the lights while the group is hovered.
+    // Glyphs: Windows always (label_1, white on the close fill); lights only while the group is hovered.
     const double scale = std::max(1.0, std::ceil(static_cast<double>(m_geometry.scale)));
     constexpr std::array kButtons{TitleBarButton::Minimize, TitleBarButton::Maximize, TitleBarButton::Close};
     constexpr std::array kParts{SsdFramePart::Minimize, SsdFramePart::Maximize, SsdFramePart::Close};
@@ -356,30 +359,31 @@ namespace andromeda {
       }
       const auto& box = m_parts.button(kButtons[i]);
       const bool shown = box.has_value() && m_geometry.titleBarHeight > 0
-          && (style == TitleBarStyle::Windows || (mac && m_focused && buttonHovered));
+          && (style == TitleBarStyle::Windows || (m_focused && buttonHovered));
       wlr_scene_node_set_enabled(&glyph->node, shown);
       if (!shown) {
         continue;
       }
       const bool enabled = kButtons[i] != TitleBarButton::Maximize || m_maximizeEnabled;
-      const std::array<float, 4> ink = mac ? std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.55F}
+      const bool lights = style != TitleBarStyle::Windows;
+      const std::array<float, 4> ink = lights ? std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.6F}
           : !enabled                 ? rgba(tokens.label3)
           : (m_shownHover == SsdFramePart::Close && kParts[i] == SsdFramePart::Close && level > 0.5F)
           ? std::array<float, 4>{1, 1, 1, 1}
                                                                                     : rgba(tokens.label1);
       // Redrawn only when its look changes; fades only change the node's opacity.
       const int px = static_cast<int>(std::lround(box->width * scale));
-      const GlyphKey key{.px = px, .mac = mac, .ink = ink, .scale = scale};
+      const GlyphKey key{.px = px, .mac = lights, .ink = ink, .scale = scale};
       if (m_glyphKeys[static_cast<size_t>(kButtons[i])] != key) {
         m_glyphKeys[static_cast<size_t>(kButtons[i])] = key;
-        wlr_buffer* buffer = glyphBuffer(kButtons[i], mac, px, ink, scale);
+        wlr_buffer* buffer = glyphBuffer(kButtons[i], lights, px, ink, scale);
         wlr_scene_buffer_set_buffer(glyph, buffer);
         if (buffer != nullptr) {
           wlr_buffer_drop(buffer);
         }
       }
-      // macOS glyphs come in with the hover wash; Windows glyphs always show.
-      wlr_scene_buffer_set_opacity(glyph, mac ? m_alpha * level : m_alpha);
+      // Light glyphs come in with the hover wash; Windows glyphs always show.
+      wlr_scene_buffer_set_opacity(glyph, lights ? m_alpha * level : m_alpha);
       wlr_scene_buffer_set_dest_size(glyph, std::max(1, zoomed(box->width)), std::max(1, zoomed(box->height)));
       wlr_scene_node_set_position(&glyph->node, zoomed(box->x), zoomed(box->y - m_geometry.titleBarHeight));
       wlr_scene_node_raise_to_top(&glyph->node);
@@ -461,6 +465,7 @@ namespace andromeda {
       return;
     }
     place(m_background, {0, -h, g.contentWidth, h});
+    place(m_separator, {0, -1, g.contentWidth, 1});
     const int radius = nestedRadius(g.cornerRadius, g.borderInset);
     wlr_scene_rect_set_corner_radii(m_background, corner_radii_new(zoomed(radius), zoomed(radius), 0, 0));
     const auto& style = config().appearance.titleBar;
@@ -549,7 +554,7 @@ namespace andromeda {
         wlr_scene_node_set_position(&copy->node, m_blur->node.x, m_blur->node.y);
       }
     }
-    for (const auto* source : {m_background, m_close, m_maximize, m_minimize}) {
+    for (const auto* source : {m_background, m_separator, m_close, m_maximize, m_minimize}) {
       if (!source->node.enabled)
         continue;
       auto* copy = wlr_scene_rect_create(tree, source->width, source->height, source->color);

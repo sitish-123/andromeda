@@ -15,6 +15,7 @@ corner_radius = 0
 drag_opacity = 0.25
 [appearance.title_bar]
 mode = "forced"
+height = 28
 [appearance.shadow]
 enabled = false
 [colors.title_bar]

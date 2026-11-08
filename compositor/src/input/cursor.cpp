@@ -1681,15 +1681,8 @@ namespace andromeda {
       );
     }
 
-    const auto frameHit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+    const auto frameHit = syncSsdHover();
     View* frameView = frameHit ? frameHit->view : nullptr;
-    if (m_ssdHoverView != frameView && m_ssdHoverView != nullptr && m_ssdHoverView->ssdFrame() != nullptr) {
-      m_ssdHoverView->ssdFrame()->setHovered(SsdFramePart::None);
-    }
-    m_ssdHoverView = frameView;
-    if (frameView != nullptr)
-      frameView->ssdFrame()->setHovered(frameHit->part);
-    updateMaximizeDwell(frameHit && frameHit->part == SsdFramePart::Maximize ? frameView : nullptr);
     if (m_ssdButtonPress.view != nullptr && m_ssdButtonPress.view->ssdFrame() != nullptr) {
       m_ssdButtonPress.view->ssdFrame()->setPressed(
           frameHit && frameView == m_ssdButtonPress.view && frameHit->part == m_ssdButtonPress.part
@@ -2050,10 +2043,9 @@ namespace andromeda {
     if (view == nullptr || self->m_ssdButtonPress.view != nullptr || !std::holds_alternative<PassthroughGrab>(self->m_grab)) {
       return 0;
     }
-    // Rulebook 9.9: the popover hangs 8 below the maximize button, centred on it, clamped to the output.
-    const auto button = view->ssdButtonBox(TitleBarButton::Maximize);
-    const std::pair at = button ? std::pair{button->x + button->width / 2, button->y + button->height + 8}
-                                : std::pair{static_cast<int>(self->m_cursor->x), static_cast<int>(self->m_cursor->y) + 8};
+    const auto at = view->ssdButtonBox(TitleBarButton::Maximize)
+        ? std::nullopt
+        : std::optional{std::pair{static_cast<int>(self->m_cursor->x), static_cast<int>(self->m_cursor->y) + 8}};
     self->m_server->openSnapLayouts(*view, false, at);
     self->m_flyoutFromHover = self->m_server->snapFlyout() != nullptr && self->m_server->snapFlyout()->active();
     return 0;
@@ -2316,6 +2308,23 @@ namespace andromeda {
 
   void Cursor::clearPointerFocusOverridingGrab() { wlr_seat_pointer_clear_focus(m_server->seat()->wlr()); }
 
+  std::optional<SsdFrameHit> Cursor::syncSsdHover(bool fade) {
+    auto frameHit = m_server->ssdFrameAt(m_cursor->x, m_cursor->y);
+    View* frameView = frameHit ? frameHit->view : nullptr;
+    if (m_ssdHoverView != frameView && m_ssdHoverView != nullptr && m_ssdHoverView->ssdFrame() != nullptr) {
+      m_ssdHoverView->ssdFrame()->setHovered(SsdFramePart::None, fade);
+    }
+    m_ssdHoverView = frameView;
+    if (frameView != nullptr)
+      frameView->ssdFrame()->setHovered(frameHit->part, fade);
+    // Only a pointer that moved onto maximize starts the Snap Layouts dwell; a window sliding under it does not.
+    const bool onMaximize = frameHit && frameHit->part == SsdFramePart::Maximize;
+    if (fade || !onMaximize) {
+      updateMaximizeDwell(onMaximize ? frameView : nullptr);
+    }
+    return frameHit;
+  }
+
   void Cursor::refreshPointerFocus() {
     if (InputCapture* capture = m_server->inputCapture(); capture != nullptr && (capture->capabilities() & 2U) != 0) {
       return;
@@ -2388,6 +2397,8 @@ namespace andromeda {
       return false;
     }
 
+    // A window that moved away from (or under) a still pointer updates its title bar hover too.
+    (void)syncSsdHover(false);
     double sx = 0;
     double sy = 0;
     wlr_surface* surface = nullptr;

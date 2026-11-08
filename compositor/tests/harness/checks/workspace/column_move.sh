@@ -255,7 +255,7 @@ assert_transfer_groups() {
     exit 1
   fi
   if [[ $(transfer_state) != "$groups_before" ]]; then
-    echo "transfer changed group selections, bar reserves, or row geometry: $(transfer_state)"
+    echo "transfer changed group selections, bar reserves, or row geometry: before $groups_before, after $(transfer_state)"
     exit 1
   fi
 }

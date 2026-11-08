@@ -16,6 +16,8 @@ readonly SCRATCH="${PREFIX}-foreground"
 readonly CLOSE_SCRATCH="${PREFIX}-close"
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [animation]
 enabled = false

@@ -38,6 +38,7 @@ namespace andromeda {
   class Workspace;
   struct Keybind;
   struct ResizeGrab;
+  struct SsdFrameHit;
 
   class Cursor {
     struct PassthroughGrab {};
@@ -374,6 +375,8 @@ namespace andromeda {
     [[nodiscard]] bool pointerContentsStale(const wlr_surface* surface, double sx, double sy) const;
     // Re-resolve pointer focus against the surface under the cursor.
     void refreshPointerFocus();
+    // Points the title bar hover (and the maximize dwell) at the frame part under the cursor.
+    std::optional<SsdFrameHit> syncSsdHover(bool fade = true);
     void applyClientCursor();
     void handleClientCursorCommit();
     void captureXwaylandCursorImage(wlr_buffer* buffer);

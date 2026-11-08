@@ -16,6 +16,7 @@ outer_border_width = 0
 corner_radius = 0
 [appearance.title_bar]
 mode = "forced"
+height = 28
 [appearance.shadow]
 enabled = false
 [colors.title_bar]

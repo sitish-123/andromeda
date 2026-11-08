@@ -63,9 +63,10 @@ cursor_at() {
     exit 1
   }
 }
+# Red at the close button's centre (where the hover glyph draws) or `$1` pixels above it (dot only, no glyph).
 button_red() {
   grim "$image"
-  "$ANDROMEDA_PIXEL_PROBE" "$image" pixel "$(((close_x - 3) * scale))" "$((button_y * scale))" | awk '{print $1}'
+  "$ANDROMEDA_PIXEL_PROBE" "$image" pixel "$((close_x * scale))" "$(((button_y - ${1:-0}) * scale))" | awk '{print $1}'
 }
 
 for scale in 1 2; do
@@ -90,33 +91,34 @@ for scale in 1 2; do
         read -r x y w < <(title_bar_window "$title" | jq -r '"\(.x) \(.y) \(.w)"')
         empty_x=$((x + w / 2))
         button_y=$((y - 14))
-        close_x=$((x + w - 14)) maximize_x=$((x + w - 36))
+        close_x=$((x + w - 18)) maximize_x=$((x + w - 38))
         if [[ $side == left ]]; then
-          close_x=$((x + 14)) maximize_x=$((x + 36))
+          close_x=$((x + 18)) maximize_x=$((x + 38))
         fi
         cursor_at "$empty_x" "$button_y" 3 "empty title bar"
         normal=$(button_red)
         cursor_at "$close_x" "$button_y" 7 "close button"
         hovered=$(button_red)
-        ((hovered > normal + 30)) || {
-          echo "dark title bar hover was too faint: $normal to $hovered"
+        ((hovered < normal - 30)) || {
+          echo "dark title bar hover showed no glyph: $normal to $hovered"
           exit 1
         }
         cursor_at "$maximize_x" "$button_y" "$([[ $kind == fixed ]] && echo 3 || echo 7)" "$kind maximize"
         cursor_at "$empty_x" "$button_y" 3 "leaving the buttons"
 
-        # Verify the opposite contrast direction on a light bar, then return to the normal palette.
+        # The glyph shows on a light bar too; a press darkens the dot itself.
         sed -i 's/#000000FF/#FFFFFFFF/g' "$ANDROMEDA_CONFIG"
         "$ANDROMEDA" msg config-reload >/dev/null
         normal=$(button_red)
         cursor_at "$close_x" "$button_y" 7 "close button on a light bar"
         hovered=$(button_red)
         ((hovered < normal - 30)) || {
-          echo "light title bar hover was too faint: $normal to $hovered"
+          echo "light title bar hover showed no glyph: $normal to $hovered"
           exit 1
         }
+        hovered=$(button_red 4)
         pointer_hold "$output_w" "$output_h" press 272 -- move "$empty_x" "$button_y" release 272
-        pressed=$(button_red)
+        pressed=$(button_red 4)
         ((pressed < hovered - 10)) || {
           echo "pressed button was indistinguishable from hover"
           exit 1

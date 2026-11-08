@@ -20,6 +20,11 @@ enabled = false
 [appearance.title_bar]
 mode = "$mode"
 height = 28
+# Grey dots: the default danger close dot would match the red tile probe.
+[colors.title_bar]
+close = "#808080FF"
+maximize = "#808080FF"
+minimize = "#808080FF"
 [input.focus]
 follows_mouse = false
 CONFIG

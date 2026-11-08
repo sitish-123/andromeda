@@ -84,7 +84,7 @@ wait_field title_bar true
 id=$(window | jq -r .id)
 
 # Default buttons from the title outward: minimize, maximize, close.
-expect_slots 14=green 36=yellow 58=blue
+expect_slots 18=green 38=yellow 58=blue
 
 # Clicking minimize hides the window; naming it brings it back.
 "$ANDROMEDA_POINTER_CLIENT" 1280 720 move 595 95 click 272
@@ -95,7 +95,7 @@ wait_field minimized false
 # A tiled window cannot minimize, so its bar has no minimize button.
 "$ANDROMEDA" msg window-toggle-floating > /dev/null
 wait_field floating false
-expect_slots 14=green 36=yellow 58=bar
+expect_slots 18=green 38=yellow 58=bar
 
 # A rule keeping only close replaces the configured buttons on reload.
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
@@ -104,6 +104,6 @@ match.title = "^ssd-buttons$"
 title_bar_buttons = ["close"]
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
-expect_slots 14=green 36=bar
+expect_slots 18=green 38=bar
 
 echo "the minimize button minimizes a floating window, tiled bars omit it, and title_bar_buttons rules apply live"

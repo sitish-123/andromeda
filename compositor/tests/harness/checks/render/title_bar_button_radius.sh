@@ -37,10 +37,11 @@ EOF
 title_bar_wait_box ssd-button-radius 240x140+100+100
 image=$ANDROMEDA_RUNTIME_DIR/button-radius.png
 
+# Green buttons; `$1` overrides the expression (overview buttons are unfocused: dark fill_3 over magenta).
 area() {
   "$ANDROMEDA" settle >/dev/null
   grim -o HEADLESS-1 "$image"
-  "$ANDROMEDA_PIXEL_PROBE" "$image" count 'g > 0.8 && r < 0.2 && b < 0.2'
+  "$ANDROMEDA_PIXEL_PROBE" "$image" count "${1:-g > 0.8 && r < 0.2 && b < 0.2}"
 }
 radius() {
   sed -i "s/^button_corner_radius = .*/button_corner_radius = $1/" "$ANDROMEDA_CONFIG"
@@ -50,7 +51,7 @@ radius() {
 overview_area() {
   radius "$1" >/dev/null
   "$ANDROMEDA" msg overview-open >/dev/null
-  area
+  area 'r > 0.95 && b > 0.95 && g > 0.1 && g < 0.25'
   "$ANDROMEDA" msg overview-close >/dev/null
 }
 
@@ -76,7 +77,7 @@ for scale in 1 1.25 2; do
         exit 1
       }
       if [[ $scale != 1.25 ]]; then
-        diameter=$(((height + 1) / 2))
+        diameter=12
         ((square == 2 * diameter * diameter * scale * scale)) || {
           echo "square buttons lost corner pixels"
           exit 1
@@ -106,8 +107,9 @@ preview_square=$(overview_area 0)
 preview_rounded=$(overview_area 3)
 preview_circle=$(overview_area 100)
 preview_inherited=$(overview_area -1)
-((preview_square > preview_rounded && preview_rounded > preview_circle)) || {
-  echo "overview lost button shapes"
+# The 12 px buttons shrink below 6 px in the preview, where radius 3 and a circle draw the same pixels.
+((preview_square > preview_rounded && preview_rounded >= preview_circle)) || {
+  echo "overview lost button shapes: square $preview_square rounded $preview_rounded circle $preview_circle"
   exit 1
 }
 [[ $preview_inherited == "$preview_rounded" ]] || {

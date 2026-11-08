@@ -11,6 +11,8 @@ readonly CLIENT="${ANDROMEDA_FRACTIONAL_CLIENT:-./build-debug/tests/fractional-c
 readonly CLIENT_LOG="$ANDROMEDA_RUNTIME_DIR/float-maximize.log"
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [animation]
 enabled = false

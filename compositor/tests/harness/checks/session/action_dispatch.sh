@@ -3,6 +3,10 @@
 # "unknown action"), and the behaviors that work on a single headless output are asserted by their transitions.
 set -euo pipefail
 
+# The geometry below assumes the old 2 px default border.
+printf '\n[appearance]\nborder_width = 2\n' >> "$ANDROMEDA_CONFIG"
+"$ANDROMEDA" msg config-reload > /dev/null
+
 accepts() {
   if ! out=$("$ANDROMEDA" msg "$1" 2>&1); then
     echo "expected '$1' to be accepted, got: $out"

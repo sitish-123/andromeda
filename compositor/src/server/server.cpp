@@ -262,7 +262,8 @@ namespace andromeda {
           configuredAssignments.empty() ? "" : " && systemctl --user set-environment" + configuredAssignments;
       std::string command =
           "variables='WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE "
-          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET QT_WAYLAND_RECONNECT'; systemd_ready=false; "
+          "XCURSOR_THEME XCURSOR_SIZE ANDROMEDA_SOCKET QT_WAYLAND_RECONNECT GTK_USE_PORTAL QT_QPA_PLATFORMTHEME'; "
+          "systemd_ready=false; "
           "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then "
           "if systemctl --user import-environment $variables";
       command += publishConfigured;
@@ -1675,6 +1676,10 @@ namespace andromeda {
     setenv("XDG_SESSION_TYPE", "wayland", 1);
     // Qt 6.6+ apps reconnect to a restarted compositor and keep their windows (docs/resilience.md §2).
     setenv("QT_WAYLAND_RECONNECT", "1", 0);
+    // Every toolkit uses the portal, so file pickers are ours (mockup files-v2-live §13): GTK 3 and Firefox read
+    // GTK_USE_PORTAL, Qt 5/6 the xdgdesktopportal platform theme. A value the user set wins.
+    setenv("GTK_USE_PORTAL", "1", 0);
+    setenv("QT_QPA_PLATFORMTHEME", "xdgdesktopportal", 0);
 
     // Export cursor settings so X11 clients and toolkit clients pick up the
     // compositor's configured cursor.
@@ -2658,12 +2663,17 @@ namespace andromeda {
       return false;
     }
     // A window whose latest configure is still queued, or not yet acknowledged and committed, has not drawn the state
-    // the compositor asked for.
+    // the compositor asked for. A suspended window gets no frame callbacks, so it may never commit a configure that
+    // only suspends it; a new size still has to land.
     for (const auto& view : m_registry.all()) {
       if (view->effectSelectionPending()) {
         return false;
       }
-      if (view->mapped() && view->configureOutstanding()) {
+      const auto scheduled = view->scheduledSize();
+      const auto current = view->currentSize();
+      const bool sizeLanded = (scheduled.width == 0 || scheduled.width == current.width)
+          && (scheduled.height == 0 || scheduled.height == current.height);
+      if (view->mapped() && !(view->suspended() && sizeLanded) && view->configureOutstanding()) {
         return false;
       }
     }
@@ -2763,7 +2773,12 @@ namespace andromeda {
     }
     const wlr_box usable = view.floatingUsableArea();
     const wlr_box& box = view.presentedBox();
-    const auto [x, y] = at.value_or(std::pair{box.x + box.width / 2, box.y + 8});
+    // Rulebook 9.9: the popover hangs 8 below the maximize button, centred on it, clamped to the output.
+    const auto button = view.ssdButtonBox(TitleBarButton::Maximize);
+    const auto [x, y] = at.value_or(
+        button ? std::pair{button->x + button->width / 2, button->y + button->height + 8}
+               : std::pair{box.x + box.width / 2, box.y + 8}
+    );
     m_snapFlyout->open(view, x, y, usable, keyboard);
   }
 } // namespace andromeda

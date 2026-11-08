@@ -56,7 +56,8 @@ namespace andromeda {
     // The buttons to show, from the title outward.
     void setButtons(std::span<const TitleBarButton> buttons);
     void setMaximized(bool maximized);
-    void setHovered(SsdFramePart part);
+    // `fade` false snaps the wash: the window moved under a still pointer, so nothing reads as a hover.
+    void setHovered(SsdFramePart part, bool fade = true);
     void setPressed(SsdFramePart part);
     void setBlurOptions(const SurfaceBlurOptions& options);
     void setBlurLive(bool live);
@@ -82,6 +83,7 @@ namespace andromeda {
     // Invisible resize bands stay outside the window's animation capture bounds.
     wlr_scene_tree* m_gripTree = nullptr;
     wlr_scene_rect* m_background = nullptr;
+    wlr_scene_rect* m_separator = nullptr;
     wlr_scene_blur* m_blur = nullptr;
     SurfaceBlurOptions m_blurOptions;
     bool m_blurLive = false;

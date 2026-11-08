@@ -29,6 +29,8 @@ wait_for_count() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [overview]
 style = "strip"

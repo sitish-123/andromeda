@@ -44,6 +44,8 @@ drag_stack_to() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [layout]
 mode = "master"

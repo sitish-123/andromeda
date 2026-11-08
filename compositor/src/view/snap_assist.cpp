@@ -1,6 +1,7 @@
 #include "view/snap_assist.h"
 
 #include "config/config.h"
+#include "config/resolve.h"
 #include "design_tokens.h"
 #include "output/output.h"
 #include "overview/app_icons.h"
@@ -21,15 +22,16 @@
 
 namespace andromeda {
   namespace {
-    // Board desktop-layouts.html section 4 (radius set B): the scrim covers the empty zone (inset 8, r 12, padding
-    // 24); cards are thumbnails at window aspect (r 4), up to 3 columns 16 apart, each over an icon 16 and a title.
-    constexpr int kZoneSpacing = 8;
+    // Board desktop-layouts.html section 4 (radius set B): the scrim covers the empty zone as the snapped window would
+    // (r 12); one card is 200 wide in padding 24, more cards sit in padding 16, 8 apart, up to 3 columns. Cards are
+    // thumbnails at window aspect (r 4) over a left-aligned icon 16 and title.
     constexpr int kScrimRadius = 12;
-    constexpr int kPad = 24;
-    constexpr int kGap = 16;
+    constexpr int kSolePad = 24;
+    constexpr int kPad = 16;
+    constexpr int kGap = 8;
     constexpr int kMaxColumns = 3;
     constexpr int kMaxRows = 3;
-    constexpr int kMaxCardW = 280;
+    constexpr int kMaxCardW = 200;
     constexpr int kMinCardW = 96;
     constexpr int kThumbRadius = 4;
     constexpr int kIcon = 16;
@@ -173,7 +175,8 @@ namespace andromeda {
       return false;
     }
     m_zone = *target;
-    m_box = snapZoneBox(anchor->floatingUsableArea(), m_zone, kZoneSpacing);
+    const auto resolved = anchor->workspace() != nullptr ? anchor->workspace()->layoutConfig() : resolveGlobalLayout(config());
+    m_box = snapZoneBox(anchor->floatingMarginArea(anchor->floatingUsableArea(), &resolved), m_zone, resolved.totalGap);
     m_output = wlr_output_layout_output_at(
         m_server.outputLayout(), m_box.x + m_box.width / 2.0, m_box.y + m_box.height / 2.0
     );
@@ -247,8 +250,9 @@ namespace andromeda {
     const wlr_box& zone = m_box;
 
     // Grid: as many cards as fit at kMinCardW or more, up to 3 x 3; slots are 4:3, each thumbnail fits its slot.
-    const int areaW = zone.width - 2 * kPad;
-    const int areaH = zone.height - 2 * kPad;
+    const int pad = m_cards.size() == 1 ? kSolePad : kPad;
+    const int areaW = zone.width - 2 * pad;
+    const int areaH = zone.height - 2 * pad;
     const int rowExtra = kLabelGap + kLabelH;
     size_t count = std::min(m_cards.size(), static_cast<size_t>(kMaxColumns * kMaxRows));
     int columns = 1;
@@ -308,7 +312,7 @@ namespace andromeda {
         }
       }
 
-      // Label: icon 16 and the title (footnote 500, label_1), centred under the slot as one group.
+      // Label: icon 16 and the title (footnote 500, label_1) from the card's leading edge.
       const char* title = view->title();
       const auto text = renderTextBuffer({
           .markup = std::format(
@@ -326,9 +330,7 @@ namespace andromeda {
       if (const char* appId = view->appId(); appId != nullptr) {
         icon = m_icons->get(appId, static_cast<int>(kIcon * scale));
       }
-      const int textW = text.buffer != nullptr ? text.logicalWidth : 0;
-      const int groupW = (icon != nullptr ? kIcon + kIconGap : 0) + textW;
-      int x = card.box.x + (cardW - groupW) / 2;
+      int x = card.box.x;
       const int labelY = card.box.y + slotH + kLabelGap;
       if (icon != nullptr) {
         wlr_scene_buffer* node = wlr_scene_buffer_create(m_content, icon);

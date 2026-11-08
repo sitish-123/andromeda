@@ -7,6 +7,8 @@ readonly OUTPUT_H=720
 readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/pointer-client}"
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 # This check exercises resize constraints, not presentation interpolation.
 # Pointer coordinates must refer to settled windows after the first resize.
 [animation]

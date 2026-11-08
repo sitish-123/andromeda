@@ -57,6 +57,9 @@ cat >> "$ANDROMEDA_CONFIG" <<CONFIG
 [layout.tabs]
 default_display = "tabbed"
 
+[appearance]
+border_width = 2
+
 [appearance.tab_bar]
 position = "left"
 height = $BAR

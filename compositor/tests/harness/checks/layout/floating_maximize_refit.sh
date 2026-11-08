@@ -25,6 +25,8 @@ match.title = "^refit-"
 default_floating = true
 default_floating_size = { width = 0.5, height = 0.5 }
 EOF
+    # The geometry below assumes the old 2 px default border; a step with its own [appearance] sets it there.
+    [[ $1 == *"[appearance]"* ]] || printf '\n[appearance]\nborder_width = 2\n'
     printf '%s\n' "$1"
   } > "$ANDROMEDA_CONFIG"
   "$ANDROMEDA" msg config-reload > /dev/null

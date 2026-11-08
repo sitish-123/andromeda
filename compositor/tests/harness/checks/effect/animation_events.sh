@@ -12,6 +12,8 @@ cp "$ANDROMEDA_CONFIG" "$BASE"
 configure() {
   cat "$BASE" > "$ANDROMEDA_CONFIG"
   cat >> "$ANDROMEDA_CONFIG" <<EOF
+[appearance]
+border_width = 2
 
 [animation]
 duration_ms = 300

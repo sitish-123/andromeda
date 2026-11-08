@@ -42,7 +42,7 @@ readonly EXPECT_W=624
 readonly EXPECT_H=700
 readonly EXPECT_CENTER_X=$(( (1280 - EXPECT_W) / 2 ))
 
-printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\ncenter_focused = "never"\n' >> "$ANDROMEDA_CONFIG"
+printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\ncenter_focused = "never"\n\n[appearance]\nborder_width = 2\n' >> "$ANDROMEDA_CONFIG"
 "$ANDROMEDA" msg config-reload > /dev/null
 
 spawn_client a

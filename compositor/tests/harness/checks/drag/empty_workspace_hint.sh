@@ -16,6 +16,7 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 insert_hint = "#FF0000FF"
 
 [appearance]
+border_width = 2
 drag_opacity = 0.0
 
 [layout]

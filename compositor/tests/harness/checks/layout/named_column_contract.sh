@@ -37,6 +37,8 @@ workspace_of() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [animation]
 duration_ms = 1

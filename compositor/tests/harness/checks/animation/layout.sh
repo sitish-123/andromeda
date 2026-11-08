@@ -19,7 +19,7 @@ declare -A PREDICATE=(
 )
 declare -A CLIENT_PID=()
 
-printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n\n[colors]\nbackdrop = "#000000FF"\n' >> "$ANDROMEDA_CONFIG"
+printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n\n[colors]\nbackdrop = "#000000FF"\n\n[appearance]\nborder_width = 2\n' >> "$ANDROMEDA_CONFIG"
 "$ANDROMEDA" msg config-reload > /dev/null
 "$ANDROMEDA" settle
 # Animation time only moves by clock-advance, and 10 s runs past every default timeline.

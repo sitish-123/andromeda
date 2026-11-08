@@ -9,25 +9,20 @@ extern "C" {
 }
 
 namespace andromeda {
-  int titleBarButtonDiameter(int height) {
-    const int diameter = std::max(8, (height + 1) / 2);
-    if ((height - diameter) % 2 == 0)
-      return diameter;
-    return diameter > 8 ? diameter - 1 : diameter + 1;
-  }
-
   TitleBarLayout titleBarLayout(
       int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown, TitleBarStyle style
   ) {
-    // Windows: line glyphs centred in 46 wide full-height cells. macOS: 12 px traffic lights 8 apart, 12 from the end.
+    // Windows: line glyphs centred in 46 wide full-height cells, title 16 in. Andromeda and macOS: 12 px lights 8 apart,
+    // 12 from the end, title 12 in and 8 clear of the lights.
     const bool cells = style == TitleBarStyle::Windows;
     const bool mac = style == TitleBarStyle::Macos;
-    const int diameter = cells ? std::min(10, height / 2) : mac ? std::min(12, height) : titleBarButtonDiameter(height);
+    const int diameter = cells ? std::min(10, height / 2) : std::min(12, height);
     const int inset = (height - diameter) / 2;
-    const int edge = mac ? 12 : inset;
+    const int edge = 12;
     const int cellWidth = cells ? 46 : diameter + kTitleBarButtonGap;
     const int pitch = cellWidth;
-    TitleBarLayout result{.title = {kTitleBarTitlePadding, 0, 0, height}, .centredTitle = style == TitleBarStyle::Macos};
+    const int padding = cells ? kTitleBarTitlePadding + 4 : kTitleBarTitlePadding;
+    TitleBarLayout result{.title = {padding, 0, 0, height}, .centredTitle = style == TitleBarStyle::Macos};
     // Walk from the edge inward: the last listed button is outermost. `x` is the cell's left edge.
     int x = side == TitleBarButtonSide::Right ? width - (cells ? cellWidth : edge + diameter + kTitleBarButtonGap / 2)
                                               : (cells ? 0 : edge - kTitleBarButtonGap / 2);
@@ -54,15 +49,14 @@ namespace andromeda {
       innermost = side == TitleBarButtonSide::Right ? x : x + cellWidth;
       x += step;
     }
-    const int edgeGap = cells ? kTitleBarTitlePadding : kTitleBarTitlePadding - kTitleBarButtonGap / 2;
+    const int edgeGap = cells ? 0 : kTitleBarButtonGap / 2;
     if (side == TitleBarButtonSide::Right) {
-      result.title.width = std::max(0, innermost.value_or(width + edgeGap - kTitleBarTitlePadding) - edgeGap
-                                           - kTitleBarTitlePadding);
+      result.title.width = std::max(0, innermost.value_or(width + edgeGap - padding) - edgeGap - padding);
     } else {
       if (innermost) {
         result.title.x = *innermost + edgeGap;
       }
-      result.title.width = std::max(0, width - result.title.x - kTitleBarTitlePadding);
+      result.title.width = std::max(0, width - result.title.x - padding);
     }
     if (result.centredTitle) {
       // Equal room on both sides, so the title centres on the bar, not on the space beside the buttons.

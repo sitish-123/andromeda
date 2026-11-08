@@ -9,6 +9,11 @@
 // clang-format on
 
 namespace andromeda {
+  namespace {
+    // Inactive windows keep this share of the shadow strength.
+    constexpr float kInactiveShadow = 0.5F;
+  } // namespace
+
 
   // Borders
   void ViewDecoration::ensureBorders(wlr_scene_tree* parent) {
@@ -51,6 +56,10 @@ namespace andromeda {
   }
 
   void ViewDecoration::setBorderColor(bool focused, float alpha) {
+    if (const float scale = focused ? 1.0F : kInactiveShadow; scale != m_shadowFocusScale) {
+      m_shadowFocusScale = scale;
+      m_shadow.setAlpha(m_decorationAlpha * m_shadowFocusScale);
+    }
     if (m_borderTree == nullptr) {
       return;
     }
@@ -219,7 +228,8 @@ namespace andromeda {
   void ViewDecoration::hideShadow() { m_shadow.hide(); }
 
   void ViewDecoration::setAlpha(float decorationAlpha, float blurAlpha) {
-    m_shadow.setAlpha(decorationAlpha);
+    m_decorationAlpha = decorationAlpha;
+    m_shadow.setAlpha(decorationAlpha * m_shadowFocusScale);
     m_blur.setAlpha(blurAlpha);
   }
 

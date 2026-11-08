@@ -96,6 +96,9 @@ expect_rejected() {
 }
 
 readonly COMMON_CONFIG='
+[appearance]
+border_width = 2
+
 [animation]
 enabled = false
 

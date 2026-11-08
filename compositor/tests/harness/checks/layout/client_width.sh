@@ -34,6 +34,8 @@ wait_for_width() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [[workspace]]
 index = 1

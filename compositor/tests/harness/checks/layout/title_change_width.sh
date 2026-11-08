@@ -31,6 +31,8 @@ wait_for_field() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [[window_rule]]
 match.app_id = "^helium$"

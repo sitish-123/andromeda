@@ -18,47 +18,47 @@ namespace {
 
 ANDROMEDA_TEST(rightButtonsPutLastListedOutermost) {
   const auto parts = titleBarLayout(480, 28, TitleBarButtonSide::Right, kAll);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 459);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->y, 7);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->width, 14);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->height, 14);
-  CHECK_EQ(parts.button(TitleBarButton::Maximize)->x, 437);
-  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 415);
-  CHECK_EQ(parts.title.x, 8);
-  CHECK_EQ(parts.title.width, 399);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 456);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->y, 8);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->width, 12);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->height, 12);
+  CHECK_EQ(parts.button(TitleBarButton::Maximize)->x, 436);
+  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 416);
+  CHECK_EQ(parts.title.x, 12);
+  CHECK_EQ(parts.title.width, 396);
 }
 
 ANDROMEDA_TEST(leftButtonsMirror) {
   const auto parts = titleBarLayout(480, 28, TitleBarButtonSide::Left, kAll);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 7);
-  CHECK_EQ(parts.button(TitleBarButton::Maximize)->x, 29);
-  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 51);
-  CHECK_EQ(parts.title.x, 73);
-  CHECK_EQ(parts.title.width, 399);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 12);
+  CHECK_EQ(parts.button(TitleBarButton::Maximize)->x, 32);
+  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 52);
+  CHECK_EQ(parts.title.x, 72);
+  CHECK_EQ(parts.title.width, 396);
 }
 
 ANDROMEDA_TEST(omittedButtonsLeaveNoGapAndWidenTheTitle) {
   constexpr std::array order{TitleBarButton::Close, TitleBarButton::Minimize};
   const auto parts = titleBarLayout(480, 28, TitleBarButtonSide::Right, order);
-  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 459);
-  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 437);
+  CHECK_EQ(parts.button(TitleBarButton::Minimize)->x, 456);
+  CHECK_EQ(parts.button(TitleBarButton::Close)->x, 436);
   CHECK(!parts.button(TitleBarButton::Maximize).has_value());
-  CHECK_EQ(parts.title.width, 421);
+  CHECK_EQ(parts.title.width, 416);
   for (const auto side : {TitleBarButtonSide::Right, TitleBarButtonSide::Left}) {
     const auto bare = titleBarLayout(480, 28, side, kNone);
     CHECK(!bare.button(TitleBarButton::Close).has_value());
-    CHECK_EQ(bare.title.x, 8);
-    CHECK_EQ(bare.title.width, 464);
+    CHECK_EQ(bare.title.x, 12);
+    CHECK_EQ(bare.title.width, 456);
   }
 }
 
-ANDROMEDA_TEST(buttonsSitOnTheBarCenterAtEveryHeight) {
+ANDROMEDA_TEST(lightsSitOnTheBarCenterTwelveFromTheEdgeAtEveryHeight) {
   for (int height = 16; height <= 128; ++height) {
     const auto parts = titleBarLayout(480, height, TitleBarButtonSide::Right, kAll);
     const wlr_box close = *parts.button(TitleBarButton::Close);
-    CHECK_EQ(2 * close.y + close.height, height);
-    CHECK_EQ(480 - close.x - close.width, close.y);
-    CHECK(close.height >= 8 && close.height <= (height + 1) / 2);
+    CHECK_EQ(close.height, 12);
+    CHECK_EQ(height - (2 * close.y + close.height), height % 2);
+    CHECK_EQ(480 - close.x - close.width, 12);
   }
 }
 

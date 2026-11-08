@@ -752,7 +752,8 @@ namespace andromeda {
         std::vector<TitleBarButton> buttons{TitleBarButton::Minimize, TitleBarButton::Maximize, TitleBarButton::Close};
         bool operator==(const TitleBar&) const = default;
       } titleBar;
-      int borderWidth = 2;
+      // Off: the active window shows by its full shadow and title bar (macOS, Windows 11), not a coloured ring.
+      int borderWidth = 0;
       int outerBorderWidth = 0;
       int cornerRadius = static_cast<int>(Tokens::componentWindowRadius);
       double dragOpacity = 0.75;

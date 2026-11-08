@@ -1399,6 +1399,18 @@ static bool scene_node_update_iterator(
   struct wlr_box box = {.x = lx, .y = ly};
   scene_node_get_size(node, &box.width, &box.height);
 
+  if (node->type == WLR_SCENE_NODE_BLUR && data->calculate_visibility && node->enabled
+      && !blur_samples_cache(wlr_scene_blur_from_node(node))) {
+    // A live blur samples what is under its box, plus the kernel reach: opaque nodes above it (a menu's own rows) must
+    // not cull that content, or the blur reads the last frame's pixels there and smears them back in.
+    const int reach = scene_blur_reach(scene_node_get_root(node));
+    pixman_region32_t sampled;
+    pixman_region32_init_rect(&sampled, box.x - reach, box.y - reach, box.width + 2 * reach, box.height + 2 * reach);
+    pixman_region32_intersect(&sampled, &sampled, data->update_region);
+    pixman_region32_union(data->visible, data->visible, &sampled);
+    pixman_region32_fini(&sampled);
+  }
+
   // Occluders never cull a persistent effect's input, which its program may sample anywhere.
   // A fully covered window with a persistent effect keeps its output membership and frame callbacks.
   struct scene_animation* animation = NULL;

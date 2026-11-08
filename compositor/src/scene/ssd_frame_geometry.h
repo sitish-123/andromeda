@@ -20,7 +20,7 @@ namespace andromeda {
   enum class SsdFramePart : uint8_t { None, TitleBar, Close, Maximize, Minimize, Resize };
 
   constexpr int kTitleBarButtonGap = 8;
-  constexpr int kTitleBarTitlePadding = 8;
+  constexpr int kTitleBarTitlePadding = 12;
   constexpr int kSsdResizeBand = 6;
   constexpr int kSsdResizeCorner = 20;
 
@@ -40,8 +40,6 @@ namespace andromeda {
     uint32_t edges = 0;
   };
 
-  // About half the bar height, with the bar's parity so the margins above and below are whole and equal pixels.
-  [[nodiscard]] int titleBarButtonDiameter(int height);
   // `shown` lists the buttons from the title outward, so the last one sits at the bar's edge on `side`.
   [[nodiscard]] TitleBarLayout
   titleBarLayout(int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown,

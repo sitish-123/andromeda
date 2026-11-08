@@ -33,6 +33,8 @@ wait_for_position() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF2'
+[appearance]
+border_width = 2
 
 [animation]
 enabled = false

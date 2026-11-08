@@ -10,7 +10,7 @@ readonly OUTPUT_W=1280
 readonly OUTPUT_H=720
 readonly POINTER="${ANDROMEDA_POINTER_CLIENT:-./build-debug/tests/pointer-client}"
 
-printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n' >> "$ANDROMEDA_CONFIG"
+printf '\n[layout.scrolling]\ndefault_extent_fraction = 0.5\n\n[appearance]\nborder_width = 2\n' >> "$ANDROMEDA_CONFIG"
 "$ANDROMEDA" msg config-reload > /dev/null
 
 if [[ ! -x $POINTER ]]; then

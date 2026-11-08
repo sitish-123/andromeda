@@ -35,6 +35,8 @@ wait_for_count() {
 }
 
 cat >> "$ANDROMEDA_CONFIG" <<'EOF'
+[appearance]
+border_width = 2
 
 [colors]
 insert_hint = "#FF0000FF"

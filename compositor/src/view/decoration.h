@@ -108,6 +108,9 @@ namespace andromeda {
     std::optional<bool> m_ruleBlur;
     SurfaceBlurOptions m_popupBlurOptions;
     SurfaceShadow m_shadow;
+    // The active window is told apart by its shadow, not a border (macOS, Windows 11): inactive ones draw it lighter.
+    float m_shadowFocusScale = 1.0F;
+    float m_decorationAlpha = 1.0F;
     wlr_scene_tree* m_shadowContainer = nullptr;
     bool m_shadowPooled = false;
   };
