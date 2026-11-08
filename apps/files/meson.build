@@ -108,7 +108,8 @@ configure_file(
 )
 configure_file(
   input: 'data/org.freedesktop.FileManager1.service.in',
-  output: 'org.freedesktop.FileManager1.service',
+  # Own file name, as Dolphin does: nautilus owns org.freedesktop.FileManager1.service.
+  output: 'dev.andromeda.Files.FileManager1.service',
   configuration: {'bindir': get_option('prefix') / get_option('bindir')},
   install_dir: get_option('datadir') / 'dbus-1' / 'services',
 )
