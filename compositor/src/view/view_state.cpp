@@ -294,6 +294,10 @@ namespace andromeda {
     }
     const View* keyboardView = View::fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface);
     const bool heldKeyboard = keyboardView != nullptr && keyboardView->placementRoot() == this;
+    if (minimized) {
+      // The windows_out snapshot plays while the live node hides.
+      (void)beginCloseAnimation();
+    }
     m_minimized = minimized;
     if (minimized) {
       m_minimizeSerial = ++gNextMinimizeSerial;
@@ -305,6 +309,10 @@ namespace andromeda {
     }
     if (m_sceneTree != nullptr) {
       setNodeEnabled(!minimized && m_mapped && m_onActiveWorkspace);
+      if (!minimized && m_mapped && m_onActiveWorkspace) {
+        startOpenAnimation();
+        syncAnimationEffects();
+      }
     }
     if (m_foreign != nullptr) {
       wlr_foreign_toplevel_handle_v1_set_minimized(m_foreign, minimized);

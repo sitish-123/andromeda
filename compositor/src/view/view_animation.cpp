@@ -598,7 +598,12 @@ namespace andromeda {
     if (!m_mapped) {
       return;
     }
+    startOpenAnimation();
+    setNodeEnabled(m_onActiveWorkspace);
+    syncAnimationEffects();
+  }
 
+  void View::startOpenAnimation() {
     const auto& animation = config().animation;
     const auto& open = animation.windowsIn;
     m_customFade =
@@ -621,8 +626,6 @@ namespace andromeda {
       }
       scheduleFrame();
     }
-    setNodeEnabled(m_onActiveWorkspace);
-    syncAnimationEffects();
   }
 
   void View::beginLayoutMotion(float direction) {

@@ -687,6 +687,8 @@ namespace andromeda {
     void watchViewSurface(wlr_surface* surface, wlr_subsurface* attachment);
     void clearViewSurfaceWatches();
     [[nodiscard]] CloseSnapshotId beginCloseAnimation();
+    // The windows_in fade (and popin or zoom scale) from transparent, as at map.
+    void startOpenAnimation();
     void applyPresentedSize();
     // Refresh presentation through whichever owner currently holds the view.
     // Scratchpads are detached from workspaces but still need animated crop
