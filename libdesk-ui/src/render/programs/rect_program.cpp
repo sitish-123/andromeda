@@ -582,11 +582,6 @@ void RectProgram::ensureBatchInitialized() {
   glUniform1i(glGetUniformLocation(id, "u_shadow_exclusion"), 0);
 }
 
-void RectProgram::prewarm() {
-  ShaderProgram::prewarm(kVertexShaderSource, smooth_corner::fragment(kFragmentShaderSource));
-  ShaderProgram::prewarm(kBatchVertexShaderSource, batchFragmentSource());
-}
-
 void RectProgram::ensureInitialized() {
   if (m_program.isValid()) {
     return;
