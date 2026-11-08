@@ -136,6 +136,7 @@ void FingerprintAuthenticator::requestDevice() {
           if (e.has_value()) {
             kLog.info("no fprintd device available: {}", e->what());
             m_verifying = false;
+            setAvailable(false);
             return;
           }
           if (m_device != nullptr || !createDeviceProxy(path)) {
@@ -153,6 +154,7 @@ void FingerprintAuthenticator::requestDevice() {
     m_requestingDevice = false;
     m_verifying = false;
     kLog.info("no fprintd device available: {}", e.what());
+    setAvailable(false);
   }
 }
 
@@ -212,6 +214,7 @@ void FingerprintAuthenticator::claimDevice() {
         if (e.has_value()) {
           kLog.info("could not claim fingerprint device: {}", e->what());
           m_verifying = false;
+          setAvailable(false);
           return;
         }
         kLog.info("claimed fingerprint device");
@@ -253,16 +256,28 @@ void FingerprintAuthenticator::startVerify(bool isRetry) {
             });
             return;
           }
+          setAvailable(false);
           emitStatus({}, false); // issue loading: drop the status message
           return;
         }
         kLog.debug("fingerprint verification started");
+        setAvailable(true);
         m_reclaimAttempted = false;
         if (isRetry) {
           m_retries++;
         }
         emitStatus(i18n::tr("auth.fingerprint.ready"), false);
       });
+}
+
+void FingerprintAuthenticator::setAvailable(bool available) {
+  if (available == m_available) {
+    return;
+  }
+  m_available = available;
+  if (m_onAvailability) {
+    m_onAvailability();
+  }
 }
 
 void FingerprintAuthenticator::stopVerify() {

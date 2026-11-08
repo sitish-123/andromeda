@@ -18,6 +18,7 @@ class FaceAuthenticator {
 public:
   using AuthenticatedCallback = std::function<void()>;
   using StatusCallback = std::function<void(const std::string& message, bool isError)>;
+  using AvailabilityCallback = std::function<void()>;
 
   FaceAuthenticator(SystemBus& bus, std::string user);
   ~FaceAuthenticator();
@@ -27,6 +28,11 @@ public:
 
   void setAuthenticatedCallback(AuthenticatedCallback callback);
   void setStatusCallback(StatusCallback callback);
+  void setAvailabilityCallback(AvailabilityCallback callback) { m_onAvailability = std::move(callback); }
+  // Asks gazed whether the user has a face enrolled; the camera stays off.
+  void probe();
+  // gazed runs and the user has a face enrolled (false until a probe or a scan answers).
+  [[nodiscard]] bool available() const noexcept { return m_enrolled && !m_unavailable; }
 
   // start() begins a new lock and resets the miss count; resume() re-arms after a wrong password without it.
   void start();
@@ -56,6 +62,7 @@ private:
   void handleVerifyStatus(const std::string& result, bool judged, const std::string& rgb, const std::string& ir);
   void handleDaemonGone();
   void emitStatus(const std::string& message, bool isError);
+  void setEnrolled(bool enrolled);
 
   SystemBus& m_bus;
   std::string m_user;
@@ -65,6 +72,7 @@ private:
 
   AuthenticatedCallback m_onAuthenticated;
   StatusCallback m_onStatus;
+  AvailabilityCallback m_onAvailability;
 
   Timer m_retryTimer;
 
@@ -77,4 +85,5 @@ private:
   int m_misses = 0;
   // No gazed or no enrolled face: asked once per start(), not again on every key.
   bool m_unavailable = false;
+  bool m_enrolled = false;
 };

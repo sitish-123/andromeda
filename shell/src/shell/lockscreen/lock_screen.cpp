@@ -147,7 +147,9 @@ bool LockScreen::initialize(
     m_fingerprint->setStatusCallback([this](const std::string& message, bool isError) {
       handleBiometricStatus(message, isError);
     });
+    m_fingerprint->setAvailabilityCallback([this] { updatePromptOnSurfaces(); });
     m_face = std::make_unique<FaceAuthenticator>(*m_systemBus, m_user);
+    m_face->setAvailabilityCallback([this] { updatePromptOnSurfaces(); });
     m_face->setAuthenticatedCallback([this]() {
       if (m_passwordOnly) {
         return;
@@ -1548,9 +1550,9 @@ void LockScreen::updatePromptOnSurfaces() {
       .failDelay = m_failDelayTimer.active(),
       .failures = m_failDelay.failures(),
       .rejected = m_lastRejected,
-      .face = m_face != nullptr && faceEnabled(),
+      .face = m_face != nullptr && faceEnabled() && m_face->available(),
       .faceOnRequest = faceOnRequest(),
-      .fingerprint = m_fingerprint != nullptr && !m_passwordOnly
+      .fingerprint = m_fingerprint != nullptr && !m_passwordOnly && m_fingerprint->available()
           && (m_configService == nullptr || m_configService->config().lockscreen.fingerprint),
   };
   for (auto& instance : m_instances) {
@@ -1779,7 +1781,9 @@ bool LockScreen::faceOnRequest() const {
 void LockScreen::startFace() {
   if (m_face != nullptr && faceEnabled()) {
     m_face->setOnRequest(faceOnRequest());
-    if (!faceOnRequest()) {
+    if (faceOnRequest()) {
+      m_face->probe();
+    } else {
       m_face->start();
     }
   }

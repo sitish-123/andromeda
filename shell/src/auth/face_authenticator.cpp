@@ -210,6 +210,7 @@ void FaceAuthenticator::arm() {
             .onInterface(kGazeInterface)
             .withArguments(m_user)
             .uponReplyInvoke([this](std::optional<sdbus::Error> e, bool enrolled) {
+              setEnrolled(!e.has_value() && enrolled);
               if (e.has_value()) {
                 m_pending = false;
                 m_unavailable = true;
@@ -230,6 +231,33 @@ void FaceAuthenticator::arm() {
             });
       })) {
     m_pending = false;
+  }
+}
+
+void FaceAuthenticator::probe() {
+  if (!ensureProxy()) {
+    setEnrolled(false);
+    return;
+  }
+  if (!tryCall("HasEnrolledFaces", [&]() {
+        m_gaze->callMethodAsync("HasEnrolledFaces")
+            .onInterface(kGazeInterface)
+            .withArguments(m_user)
+            .uponReplyInvoke([this](std::optional<sdbus::Error> e, bool enrolled) {
+              setEnrolled(!e.has_value() && enrolled);
+            });
+      })) {
+    setEnrolled(false);
+  }
+}
+
+void FaceAuthenticator::setEnrolled(bool enrolled) {
+  if (enrolled == m_enrolled) {
+    return;
+  }
+  m_enrolled = enrolled;
+  if (m_onAvailability) {
+    m_onAvailability();
   }
 }
 

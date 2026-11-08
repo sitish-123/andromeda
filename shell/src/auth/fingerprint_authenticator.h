@@ -16,6 +16,7 @@ class FingerprintAuthenticator {
 public:
   using AuthenticatedCallback = std::function<void()>;
   using StatusCallback = std::function<void(const std::string& message, bool isError)>;
+  using AvailabilityCallback = std::function<void()>;
 
   explicit FingerprintAuthenticator(SystemBus& bus);
   ~FingerprintAuthenticator();
@@ -25,11 +26,15 @@ public:
 
   void setAuthenticatedCallback(AuthenticatedCallback callback);
   void setStatusCallback(StatusCallback callback);
+  void setAvailabilityCallback(AvailabilityCallback callback) { m_onAvailability = std::move(callback); }
+  // A sensor is claimed and verifying, so a finger is enrolled (false until fprintd answers).
+  [[nodiscard]] bool available() const noexcept { return m_available; }
 
   void start();
   void stop();
 
 private:
+  void setAvailable(bool available);
   // Asks fprintd for its default device without blocking; on the reply it sets up m_device and claims it.
   void requestDevice();
   bool createDeviceProxy(const std::string& path);
@@ -51,6 +56,8 @@ private:
   Timer m_retryTimer;
 
   bool m_active = false;
+  bool m_available = false;
+  AvailabilityCallback m_onAvailability;
   bool m_verifying = false;
   bool m_claiming = false;
   bool m_requestingDevice = false;
