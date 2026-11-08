@@ -247,6 +247,29 @@ run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_D
 wait_log "$m" "view gallery" 200 || fail "Photos did not open the photo in the Gallery"
 wait_log "$m" "gallery [0-9]+ of " || fail "Photos opened the Gallery without the photo"
 
+# Photos on its own (no file): every image under Pictures, subfolders included, in a window of its own app id; it
+# leaves the place Files reopens alone.
+mkdir -p "$HOME_DIR/.config" "$HOME_DIR/Pictures/Camera" "$HOME_DIR/Pictures/Screenshots"
+printf 'XDG_PICTURES_DIR="$HOME/Pictures"\n' > "$HOME_DIR/.config/user-dirs.dirs"
+cp "$SRC/IMG_01.png" "$SRC/IMG_02.png" "$HOME_DIR/Pictures/Camera/"
+cp "$SRC/IMG_03.png" "$HOME_DIR/Pictures/Screenshots/"
+state=$HOME_DIR/.local/state/andromeda/dev.andromeda.Files/state.json
+place_before=$(jq -r '.files.last_place // ""' "$state" 2> /dev/null || true)
+m=$(mark)
+run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
+  XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache" LC_ALL=C.UTF-8 \
+  "$FILES" --action=gallery > /dev/null 2>&1 || fail "the plain Photos launch did not forward"
+wait_log "$m" "photos: 3 images" 200 || fail "Photos did not show the 3 images in the Pictures subfolders"
+for _ in $(seq 100); do
+  [[ -n $(run "$ANDROMEDA" windows --json | jq -r '.. | objects | select(.app_id? == "dev.andromeda.Photos") | .app_id') ]] && break
+  sleep 0.05
+done
+[[ -n $(run "$ANDROMEDA" windows --json | jq -r '.. | objects | select(.app_id? == "dev.andromeda.Photos") | .app_id') ]] \
+  || fail "the Photos window does not have its own app id"
+place_after=$(jq -r '.files.last_place // ""' "$state" 2> /dev/null || true)
+[[ $place_after == "$place_before" ]] || fail "Photos changed the place Files reopens: $place_before -> $place_after"
+echo "PASS Photos library in its own window"
+
 echo "hide missed frames ${hide_missed:-0}, show missed frames ${show_missed:-0}"
 [[ ${hide_missed:-0} -eq 0 && ${show_missed:-0} -eq 0 ]] || fail "the chrome motion missed frames"
 echo "pass files_gallery"

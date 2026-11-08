@@ -774,7 +774,8 @@ impl Manager {
     }
 
     /// Scans `root` (one file system) as a job: its Result is JSON {root, total, categories [[name, bytes]],
-    /// largest [[path, bytes]], trash, caches, old_downloads, old_download_items [[path, bytes]], scanned_at}. A scan
+    /// largest [[path, bytes]], trash, caches, old_downloads, old_download_items [[path, bytes]], scanned_at,
+    /// cached (read from disk after a daemon restart)}. A scan
     /// younger than 10 min is reused unless `fresh`.
     async fn storage_scan(
         &mut self,

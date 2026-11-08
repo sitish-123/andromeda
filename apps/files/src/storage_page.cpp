@@ -76,6 +76,8 @@ std::optional<StoragePage::Summary> StoragePage::parse(const std::string& json) 
   out.trash = doc.value("trash", std::uint64_t{0});
   out.caches = doc.value("caches", std::uint64_t{0});
   out.oldDownloads = doc.value("old_downloads", std::uint64_t{0});
+  out.scannedAt = doc.value("scanned_at", std::uint64_t{0});
+  out.cached = doc.value("cached", false);
   for (const auto& c : doc.value("categories", nlohmann::json::array())) {
     out.categories.emplace_back(c.at(0).get<std::string>(), c.at(1).get<std::uint64_t>());
   }
@@ -122,7 +124,7 @@ void StoragePage::scan(bool fresh) {
     });
   }).detach();
   const auto start = std::chrono::steady_clock::now();
-  m_ops->storageScan(m_root, fresh, {}, [weak, start](const std::string& json, const std::string& error) {
+  m_ops->storageScan(m_root, fresh, {}, [weak, start, fresh](const std::string& json, const std::string& error) {
     auto self = weak.lock();
     if (self == nullptr) {
       return;
@@ -140,6 +142,14 @@ void StoragePage::scan(bool fresh) {
       self->drill(*self->m_drill);
     }
     self->m_actions.rebuild();
+    // The daemon answered with a scan kept from before (a restart): show it, then walk again for current numbers.
+    constexpr std::uint64_t kStaleSeconds = 600;
+    const auto now = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+    if (!fresh && self->m_summary && (self->m_summary->cached || self->m_summary->scannedAt + kStaleSeconds < now)) {
+      kLog.debug("storage scan from {} s ago: scanning again", now - self->m_summary->scannedAt);
+      self->scan(true);
+    }
   });
   m_actions.rebuild();
 }

@@ -698,7 +698,8 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
       header->addChild(ui::button({
           .out = &m_navButtons[slot++],
           .glyph = std::string(glyph),
-          .glyphSize = Tokens::sizeSymbol * s,
+          // A thin chevron reads small at 16 next to the toolbar symbols: back and forward use the large symbol.
+          .glyphSize = Tokens::sizeSymbolL * s,
           .enabled = m_commands.isEnabled(command),
           .variant = ButtonVariant::Ghost,
           .customPalette = nav,

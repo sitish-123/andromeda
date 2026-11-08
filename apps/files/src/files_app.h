@@ -105,6 +105,8 @@ private:
   std::map<AppWindow*, std::unique_ptr<FilesWindow>> m_windows;
   std::filesystem::path m_nextLocation;
   bool m_picker = false;
+  // The next window is a Photos window (action gallery): its own app id, title and saved size.
+  bool m_nextPhotos = false;
   std::unique_ptr<PickerPortal> m_portal;
   std::unique_ptr<AppChooserPortal> m_chooserPortal;
   std::unique_ptr<SystemPortals> m_systemPortals;

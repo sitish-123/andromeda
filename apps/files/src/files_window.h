@@ -55,7 +55,8 @@ public:
   static constexpr std::uint32_t kPickerWidth = 800; // the expanded picker (logical px before ui scale)
   static constexpr std::uint32_t kPickerHeight = 520;
 
-  FilesWindow(FilesApp& app, AppWindow& window, std::filesystem::path location);
+  // photos: a Photos window (dev.andromeda.Photos): it keeps no last place, tabs or folder views for Files.
+  FilesWindow(FilesApp& app, AppWindow& window, std::filesystem::path location, bool photos = false);
   ~FilesWindow();
 
   FilesWindow(const FilesWindow&) = delete;
@@ -95,6 +96,9 @@ public:
   void editSmartFolder();
   void removeSmartFolder();
   void goSmart(const std::string& name);
+  // Photos (dev.andromeda.Photos.desktop): every image under Pictures, subfolders included, newest first, in the
+  // Gallery view; a search kept as a listing (not saved as a sidebar place).
+  void showPhotos();
   [[nodiscard]] bool inSmartFolder() const;
   [[nodiscard]] bool canSaveSearch() const;
   [[nodiscard]] class SmartFolderSheet* smartSheet() const;
@@ -273,6 +277,7 @@ private:
   std::string m_lastPattern = "*";
   bool m_lastPatternRegex = false;
   bool m_compareOn = false;
+  bool m_photos = false;
   std::shared_ptr<class SmartFolderSheet> m_smartSheet;
   std::string m_smartShown;
   void presentSmartSheet(struct SmartFolder folder, std::string original);

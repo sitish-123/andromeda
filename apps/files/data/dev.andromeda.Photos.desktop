@@ -8,4 +8,4 @@ Terminal=false
 Categories=Graphics;Viewer;Photography;
 Keywords=gallery;pictures;images;viewer;
 MimeType=image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/jxl;image/tiff;image/bmp;image/svg+xml;
-StartupWMClass=dev.andromeda.Files
+StartupWMClass=dev.andromeda.Photos

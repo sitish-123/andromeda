@@ -5,10 +5,11 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ops::{Control, OpError, OpResult};
 
@@ -19,6 +20,8 @@ const LARGEST: usize = 10;
 const DOMINANT: f64 = 0.6;
 const OLD_DOWNLOAD: Duration = Duration::from_secs(90 * 24 * 3600);
 const MAX_OLD_ITEMS: usize = 500;
+/// How often the scan reports progress and looks for a cancel.
+const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Category {
@@ -75,7 +78,7 @@ pub fn category(path: &Path, home: &Path) -> Category {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Summary {
     pub root: PathBuf,
     pub total: u64,
@@ -88,6 +91,9 @@ pub struct Summary {
     /// Downloads not changed for 90 days, largest first (at most 500).
     pub old_download_items: Vec<(PathBuf, u64)>,
     pub scanned_at: u64,
+    /// Read back from the disk cache of an earlier daemon run: the page shows it and asks for a fresh scan.
+    #[serde(default)]
+    pub cached: bool,
 }
 
 struct Cache {
@@ -116,71 +122,201 @@ pub fn scan(root: &Path, fresh: bool, ctl: &dyn Control) -> OpResult<Summary> {
     {
         return Ok(cache.summary.clone());
     }
+    // After a restart the last scan from disk answers at once; it is older than CACHE_AGE, so the page asks for a
+    // fresh walk next (Summary::scanned_at).
+    if !fresh
+        && !CACHE.lock().unwrap_or_else(PoisonError::into_inner).contains_key(root)
+        && let Some(saved) = load(root)
+    {
+        return Ok(saved);
+    }
     scan_rooted(root, &home(), ctl)
 }
 
 /// The walk behind `scan`, with the home folder that decides caches, app data, Trash and Downloads.
+/// One walker's counts; the walkers' parts add up after the walk.
+#[derive(Default)]
+struct Part {
+    /// Bytes of the files directly in each folder (every folder walked has an entry).
+    direct: HashMap<PathBuf, u64>,
+    per_category: HashMap<Category, u64>,
+    old_items: Vec<(PathBuf, u64)>,
+    total: u64,
+    trash: u64,
+    caches: u64,
+    old: u64,
+    files: u64,
+}
+
+/// Folders waiting to be read, and how many walkers are reading one now.
+struct Queue {
+    todo: Vec<PathBuf>,
+    busy: usize,
+}
+
+struct Walk<'a> {
+    root: &'a Path,
+    home: &'a Path,
+    device: u64,
+    now: SystemTime,
+    downloads: PathBuf,
+    trash: PathBuf,
+    caches: PathBuf,
+    queue: Mutex<Queue>,
+    wake: Condvar,
+    stop: AtomicBool,
+    files: AtomicU64,
+    bytes: AtomicU64,
+    /// Inodes with more than one link, so a hard link counts once.
+    seen: Mutex<HashSet<(u64, u64)>>,
+}
+
+impl Walk<'_> {
+    fn next(&self) -> Option<PathBuf> {
+        let mut q = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.stop.load(Ordering::Relaxed) {
+                return None;
+            }
+            if let Some(dir) = q.todo.pop() {
+                q.busy += 1;
+                return Some(dir);
+            }
+            if q.busy == 0 {
+                return None;
+            }
+            q = self.wake.wait(q).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    fn done(&self, found: Vec<PathBuf>) {
+        let mut q = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        q.busy -= 1;
+        let last = q.busy == 0 && q.todo.is_empty() && found.is_empty();
+        let more = found.len();
+        q.todo.extend(found);
+        drop(q);
+        // New folders wake that many idle walkers; the last folder read wakes them all to finish.
+        if last || more > 1 {
+            self.wake.notify_all();
+        } else if more == 1 {
+            self.wake.notify_one();
+        }
+    }
+
+    fn walker(&self) -> Part {
+        let mut part = Part::default();
+        let mut counted = 0u64;
+        while let Some(dir) = self.next() {
+            let mut found = Vec::new();
+            let mut here = 0u64;
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    // DirEntry::metadata does not follow links (fstatat on the open folder).
+                    let Ok(meta) = entry.metadata() else { continue };
+                    if meta.dev() != self.device {
+                        continue;
+                    }
+                    if meta.is_dir() {
+                        found.push(entry.path());
+                        continue;
+                    }
+                    if meta.nlink() > 1
+                        && !self.seen.lock().unwrap_or_else(PoisonError::into_inner).insert((meta.dev(), meta.ino()))
+                    {
+                        continue;
+                    }
+                    let bytes = on_disk(&meta);
+                    let path = entry.path();
+                    here += bytes;
+                    part.files += 1;
+                    *part.per_category.entry(category(&path, self.home)).or_default() += bytes;
+                    if path.starts_with(&self.trash) {
+                        part.trash += bytes;
+                    } else if path.starts_with(&self.caches) {
+                        part.caches += bytes;
+                    } else if path.starts_with(&self.downloads)
+                        && meta.modified().is_ok_and(|m| self.now.duration_since(m).is_ok_and(|age| age > OLD_DOWNLOAD))
+                    {
+                        part.old += bytes;
+                        part.old_items.push((path, bytes));
+                    }
+                }
+            }
+            part.total += here;
+            self.files.fetch_add(part.files - counted, Ordering::Relaxed);
+            counted = part.files;
+            self.bytes.fetch_add(here, Ordering::Relaxed);
+            part.direct.insert(dir, here);
+            self.done(found);
+        }
+        part
+    }
+}
+
+/// The walk behind `scan`, with the home folder that decides caches, app data, Trash and Downloads. Folders are read
+/// by one walker per core; each folder's size is summed once from its files and subfolders after the walk.
 fn scan_rooted(root: &Path, home: &Path, ctl: &dyn Control) -> OpResult<Summary> {
     let root_meta = fs::symlink_metadata(root).map_err(|e| OpError::Io(root.to_path_buf(), e))?;
-    let device = root_meta.dev();
-    let now = SystemTime::now();
-    let downloads = home.join("Downloads");
-    let trash = home.join(".local/share/Trash");
-    let caches = home.join(".cache");
+    let walk = Walk {
+        root,
+        home,
+        device: root_meta.dev(),
+        now: SystemTime::now(),
+        downloads: home.join("Downloads"),
+        trash: home.join(".local/share/Trash"),
+        caches: home.join(".cache"),
+        queue: Mutex::new(Queue { todo: vec![root.to_path_buf()], busy: 0 }),
+        wake: Condvar::new(),
+        stop: AtomicBool::new(false),
+        files: AtomicU64::new(0),
+        bytes: AtomicU64::new(0),
+        seen: Mutex::new(HashSet::new()),
+    };
+    let walkers = std::thread::available_parallelism().map_or(4, |n| n.get().clamp(2, 16));
+    let parts: Vec<Part> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..walkers).map(|_| scope.spawn(|| walk.walker())).collect();
+        // Control is not shared with the walkers: this thread reports progress and passes on a cancel.
+        while handles.iter().any(|h| !h.is_finished()) {
+            if ctl.cancelled() {
+                walk.stop.store(true, Ordering::Relaxed);
+                walk.wake.notify_all();
+            }
+            ctl.progress(walk.files.load(Ordering::Relaxed), walk.bytes.load(Ordering::Relaxed), walk.root);
+            std::thread::sleep(PROGRESS_TICK);
+        }
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    if walk.stop.load(Ordering::Relaxed) {
+        return Err(OpError::Cancelled);
+    }
 
     let mut dirs: HashMap<PathBuf, u64> = HashMap::new();
     let mut per_category: HashMap<Category, u64> = HashMap::new();
-    let mut seen: HashSet<(u64, u64)> = HashSet::new();
     let mut old_items = Vec::new();
     let (mut total, mut trash_bytes, mut cache_bytes, mut old_bytes, mut files) = (0u64, 0u64, 0u64, 0u64, 0u64);
-    let mut todo = vec![root.to_path_buf()];
-    dirs.insert(root.to_path_buf(), 0);
-    while let Some(dir) = todo.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else { continue };
-        for entry in entries.flatten() {
-            if ctl.cancelled() {
-                return Err(OpError::Cancelled);
-            }
-            let path = entry.path();
-            let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-            if meta.dev() != device {
-                continue;
-            }
-            if meta.is_dir() {
-                dirs.insert(path.clone(), 0);
-                todo.push(path);
-                continue;
-            }
-            if meta.nlink() > 1 && !seen.insert((meta.dev(), meta.ino())) {
-                continue;
-            }
-            let bytes = on_disk(&meta);
-            total += bytes;
-            files += 1;
-            *per_category.entry(category(&path, home)).or_default() += bytes;
-            if path.starts_with(&trash) {
-                trash_bytes += bytes;
-            } else if path.starts_with(&caches) {
-                cache_bytes += bytes;
-            } else if path.starts_with(&downloads)
-                && meta.modified().is_ok_and(|m| now.duration_since(m).is_ok_and(|age| age > OLD_DOWNLOAD))
-            {
-                old_bytes += bytes;
-                old_items.push((path.clone(), bytes));
-            }
-            for up in path.ancestors().skip(1) {
-                if let Some(size) = dirs.get_mut(up) {
-                    *size += bytes;
-                }
-                if up == root {
-                    break;
-                }
-            }
-            if files.is_multiple_of(4096) {
-                ctl.progress(files, total, &dir);
-            }
+    for part in parts {
+        dirs.extend(part.direct);
+        for (category, bytes) in part.per_category {
+            *per_category.entry(category).or_default() += bytes;
+        }
+        old_items.extend(part.old_items);
+        total += part.total;
+        trash_bytes += part.trash;
+        cache_bytes += part.caches;
+        old_bytes += part.old;
+        files += part.files;
+    }
+    // Deepest folders first, each adds its sum to its parent: every folder then holds all bytes under it.
+    let mut order: Vec<PathBuf> = dirs.keys().filter(|p| p.as_path() != root).cloned().collect();
+    order.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    for dir in order {
+        let size = dirs.get(&dir).copied().unwrap_or(0);
+        if let Some(parent) = dir.parent().and_then(|p| dirs.get_mut(p)) {
+            *parent += size;
         }
     }
+
     let mut categories: Vec<(String, u64)> = Category::ALL
         .iter()
         .filter_map(|c| per_category.get(c).filter(|&&b| b > 0).map(|&b| (c.name().to_owned(), b)))
@@ -197,14 +333,42 @@ fn scan_rooted(root: &Path, home: &Path, ctl: &dyn Control) -> OpResult<Summary>
         caches: cache_bytes,
         old_downloads: old_bytes,
         old_download_items: old_items,
-        scanned_at: now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+        scanned_at: walk.now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
+        cached: false,
     };
     ctl.progress(files, total, root);
+    save(&summary);
     CACHE
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .insert(root.to_path_buf(), Cache { at: now, summary: summary.clone(), dirs });
+        .insert(root.to_path_buf(), Cache { at: walk.now, summary: summary.clone(), dirs });
     Ok(summary)
+}
+
+/// The last scan of `root` on disk ($XDG_CACHE_HOME/andromeda/storage), so the page shows numbers at once after a
+/// restart while a fresh walk runs.
+fn saved_path(root: &Path) -> PathBuf {
+    let base = std::env::var_os("XDG_CACHE_HOME").map_or_else(|| home().join(".cache"), PathBuf::from);
+    let name: String = root.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    base.join("andromeda/storage").join(format!("{name}.json"))
+}
+
+fn save(summary: &Summary) {
+    let path = saved_path(&summary.root);
+    let Ok(json) = serde_json::to_vec(summary) else { return };
+    let tmp = path.with_extension("json.tmp");
+    let written = path.parent().is_some_and(|dir| fs::create_dir_all(dir).is_ok())
+        && fs::write(&tmp, json).is_ok()
+        && fs::rename(&tmp, &path).is_ok();
+    if !written {
+        log::warn!("storage: cannot keep the scan of {} in {}", summary.root.display(), path.display());
+    }
+}
+
+fn load(root: &Path) -> Option<Summary> {
+    let mut summary: Summary = serde_json::from_slice(&fs::read(saved_path(root)).ok()?).ok()?;
+    summary.cached = true;
+    (summary.root == root).then_some(summary)
 }
 
 fn children<'a>(dir: &Path, dirs: &'a HashMap<PathBuf, u64>) -> Vec<(&'a PathBuf, u64)> {

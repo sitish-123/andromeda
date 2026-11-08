@@ -34,6 +34,8 @@ public:
     std::uint64_t caches = 0;
     std::uint64_t oldDownloads = 0;
     std::vector<std::filesystem::path> oldDownloadItems;
+    std::uint64_t scannedAt = 0; // seconds since the epoch
+    bool cached = false;         // from the daemon's disk cache: may predate changes made while it was down
   };
   [[nodiscard]] static std::optional<Summary> parse(const std::string& json);
 

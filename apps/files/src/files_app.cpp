@@ -411,9 +411,12 @@ void FilesApp::unmounted(const std::filesystem::path& mount, const std::string& 
 }
 
 AppWindow& FilesApp::createWindow() {
+  // Photos shares this process but is its own app: its own dock icon and window, nothing saved into Files.
+  const bool photos = std::exchange(m_nextPhotos, false);
   AppWindow& window = addWindow({
-      .appId = info().id,
-      .title = info().name,
+      .appId = photos ? std::string("dev.andromeda.Photos") : info().id,
+      .title = photos ? std::string("Photos") : info().name,
+      .stateKey = photos ? std::string("photos") : std::string("main"),
       .navigation = true,
       .sidebarWidth = 240.0F,
       .moreMenu = true,
@@ -424,7 +427,7 @@ AppWindow& FilesApp::createWindow() {
   const bool lastFolder = last.starts_with('/') && fs::is_directory(last, ec);
   fs::path location = !m_nextLocation.empty() ? m_nextLocation : lastFolder ? fs::path(last) : fs::path(g_get_home_dir());
   m_nextLocation.clear();
-  auto& files = m_windows[&window] = std::make_unique<FilesWindow>(*this, window, std::move(location));
+  auto& files = m_windows[&window] = std::make_unique<FilesWindow>(*this, window, std::move(location), photos);
   if (!lastFolder && !last.empty()) {
     files->reopenPlace(last);
   }
@@ -542,10 +545,14 @@ void FilesApp::action(const std::string& name, const std::vector<std::string>& p
   if (name == "gallery") { // Photos (dev.andromeda.Photos.desktop): a photo in the Gallery, else Pictures as a Gallery
     fs::path photo = parameter.empty() ? fs::path() : pathFromUri(parameter.front());
     std::error_code ec;
-    if (photo.empty() || fs::is_directory(photo, ec)) {
+    m_nextPhotos = true;
+    if (photo.empty()) {
+      // Photos opened on its own: the whole photo library, not the few files at the top of Pictures.
       const char* pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
-      const fs::path folder = !photo.empty() ? photo : fs::path(pictures != nullptr ? pictures : g_get_home_dir());
-      FilesWindow& w = openWindow(folder);
+      FilesWindow& w = openWindow(pictures != nullptr ? fs::path(pictures) : fs::path(g_get_home_dir()) / "Pictures");
+      w.showPhotos();
+    } else if (fs::is_directory(photo, ec)) {
+      FilesWindow& w = openWindow(photo);
       w.setView(FileBrowser::View::Gallery);
     } else {
       FilesWindow& w = openWindow(photo.parent_path());

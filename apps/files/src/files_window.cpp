@@ -356,7 +356,8 @@ namespace {
   }
 } // namespace
 
-FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : m_app(app), m_window(window) {
+FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location, bool photos)
+    : m_app(app), m_window(window), m_photos(photos) {
   FileBrowser::Host host{
       .invalidate = [this] { m_window.invalidate(); },
       .rebuild = [this] { m_window.requestRebuild(); },
@@ -1087,7 +1088,8 @@ void FilesWindow::rememberPlace() {
   // A plain launch reopens the last place (folder, This PC, Recents or Starred); other listings fall back to home.
   const std::string& id = m_browser->listingId();
   std::string place = id.empty() ? location().string() : id;
-  if (m_picker.has_value() || (!id.empty() && id != "recents" && id != "starred" && id != "this-pc") || place.empty()) {
+  if (m_photos || m_picker.has_value() || (!id.empty() && id != "recents" && id != "starred" && id != "this-pc")
+      || place.empty()) {
     return;
   }
   if (m_app.state().get<std::string>("/files/last_place", "") != place) {
@@ -1180,7 +1182,10 @@ void FilesWindow::makePane(std::size_t index) {
   host.viewFor = [](const fs::path& folder) -> std::optional<FileBrowserViewState> {
     return view_store::forFolder(folder);
   };
-  host.viewSaved = [](const fs::path& folder, const FileBrowserViewState& view) {
+  host.viewSaved = [this](const fs::path& folder, const FileBrowserViewState& view) {
+    if (m_photos) {
+      return; // the Gallery of Photos is not the folder's view in Files
+    }
     view_store::write(folder, view_store::encode(view));
     kLog.debug("view saved {} {}", folder.string(), view_store::encode(view));
   };
@@ -2384,6 +2389,21 @@ void FilesWindow::removeSmartFolder() {
   m_smartShown.clear();
   m_app.tags().configChanged();
   go(fs::path(g_get_home_dir()));
+}
+
+void FilesWindow::showPhotos() {
+  const char* pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
+  const SmartFolder photos{.name = "Photos", .text = {}, .kind = "image", .days = 0,
+                           .folder = pictures != nullptr ? fs::path(pictures) : fs::path(g_get_home_dir()) / "Pictures"};
+  const std::string id = "photos:";
+  m_browser->showListing({.id = id, .title = photos.name, .rows = {}, .activatable = true});
+  m_browser->setView(FileBrowser::View::Gallery);
+  smart_folders::run(photos, &m_app.index(), m_alive, [this, id](smart_folders::Rows rows) {
+    kLog.info("photos: {} images", rows.size());
+    if (m_browser->listingId() == id) {
+      m_browser->showListing({.id = id, .title = "Photos", .rows = std::move(rows), .activatable = true});
+    }
+  });
 }
 
 void FilesWindow::goSmart(const std::string& name) {
