@@ -1,5 +1,7 @@
 #include "config/widget_config.h"
 
+#include "core/files/resource_paths.h"
+
 #include "ui/style.h"
 
 #include <optional>
@@ -96,10 +98,12 @@ namespace noctalia::config {
     date.settings["format"] = std::string("{:%a %d %b}");
     seed("date", std::move(date));
 
-    // Desktop Layouts, Windows: the Start button opens the launcher's apps grid.
+    // Desktop Layouts, Windows: the Start button (the amark line glyph, board section 1) opens the launcher's apps grid.
     WidgetConfig start;
     start.type = "launcher";
-    start.settings["glyph"] = std::string("layout-grid");
+    start.settings["custom_image"] = paths::assetPath("amark.svg").string();
+    start.settings["custom_image_colorize"] = true;
+    start.settings["icon_size"] = std::int64_t{24};
     start.tables["actions"]["left"] = "panel-toggle launcher apps";
     seed("start", std::move(start));
 
@@ -111,6 +115,36 @@ namespace noctalia::config {
     windowsTaskbar.settings["running_bar"] = true;
     windowsTaskbar.settings["window_previews"] = true;
     seed("windows_taskbar", std::move(windowsTaskbar));
+
+    // Desktop Layouts: the battery in the status cell is the symbol alone (boards desktop-layouts.html 1 and 7).
+    WidgetConfig statusBattery;
+    statusBattery.type = "battery";
+    statusBattery.settings["display_mode"] = std::string("graphic");
+    statusBattery.settings["show_label"] = false;
+    seed("status_battery", std::move(statusBattery));
+
+    // Desktop Layouts, Windows: time over date, right-aligned, in the taskbar's trailing group.
+    WidgetConfig windowsClock;
+    windowsClock.type = "clock";
+    windowsClock.settings["format"] = std::string("{:%H:%M}\n{:%d/%m/%Y}");
+    seed("windows_clock", std::move(windowsClock));
+
+    // Desktop Layouts, macOS: the brand menu (session actions under the Andromeda mark), the bold app name, and the
+    // one-line date and time.
+    WidgetConfig brand;
+    brand.type = "session";
+    brand.settings["custom_image"] = paths::assetPath("amark.svg").string();
+    brand.settings["custom_image_colorize"] = true;
+    seed("brand", std::move(brand));
+
+    WidgetConfig macosApp;
+    macosApp.type = "window_menu";
+    seed("macos_app", std::move(macosApp));
+
+    WidgetConfig macosClock;
+    macosClock.type = "clock";
+    macosClock.settings["format"] = std::string("{:%a %-d %b %H:%M}");
+    seed("macos_clock", std::move(macosClock));
 
     WidgetConfig activeWindow;
     activeWindow.type = "active_window";

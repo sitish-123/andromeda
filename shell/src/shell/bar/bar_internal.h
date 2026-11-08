@@ -6,12 +6,20 @@
 #include "config/config_service.h"
 #include "wayland/wayland_connection.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+
+#include "ui/style.h"
+
+// The bar body's tint alpha: the fixed solid_opacity when set, else glass at background_opacity.
+[[nodiscard]] inline float barBodyTint(const BarConfig& bar) {
+  return bar.solidOpacity.value_or(Style::glassTint(glass::Kind::Shape, std::clamp(bar.backgroundOpacity, 0.0F, 1.0F)));
+}
 #include <vector>
 #include <wayland-client-protocol.h>
 

@@ -4,6 +4,7 @@
 #include "compositors/workspace_backend.h"
 #include "compositors/shell_wayland_connection.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -153,6 +154,15 @@ public:
   // Focused window's ext-foreign-toplevel identifier. Separate from focusedCompositorWindowId(),
   // whose values drive focus/close actions and the taskbar's active-window match.
   [[nodiscard]] std::optional<std::string> focusedExtToplevelIdentifier() const;
+  struct SnapGroupMember {
+    ToplevelInfo window;
+    // Zone as fractions of the work area (x, y, w, h).
+    std::array<float, 4> zone{};
+  };
+  // The snap group of the first window in `windows` that has one (Andromeda only), members in zone order; empty when none.
+  [[nodiscard]] std::vector<SnapGroupMember> snapGroupFor(const std::vector<ToplevelInfo>& windows) const;
+  // The menu address the focused window exported (Andromeda only).
+  [[nodiscard]] std::optional<WindowAppMenu> focusedWindowAppMenu() const;
   // True when the focused window can be named exactly, so a failed lookup means the join is
   // still pending rather than that the title fallback should be tried.
   [[nodiscard]] bool hasExactExtToplevelIdentity() const noexcept;

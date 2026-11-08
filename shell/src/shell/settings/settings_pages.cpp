@@ -161,7 +161,7 @@ namespace settings {
     };
     constexpr auto kGroupRules = std::to_array<GroupRule>({
         {"theme.mode", "~mode"},
-        {"shell.desktop_layout", "~layout"},
+        {"shell.desktop_layout", "desktop-layout"},
         {"theme.builtin", "~colour"},
         {"theme.from_wallpaper", "~colour"},
         {"andromeda.appearance.reduce_transparency", "~colour"},

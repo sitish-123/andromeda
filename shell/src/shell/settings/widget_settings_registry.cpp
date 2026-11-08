@@ -260,6 +260,7 @@ namespace settings {
         {.type = "volume", .labelKey = "settings.widgets.types.volume", .glyph = "volume-high"},
         {.type = "wallpaper", .labelKey = "settings.widgets.types.wallpaper", .glyph = "wallpaper-selector"},
         {.type = "weather", .labelKey = "settings.widgets.types.weather", .glyph = "weather-cloud"},
+        {.type = "window_menu", .labelKey = "settings.widgets.types.window-menu", .glyph = "app-window"},
         {.type = "workspaces", .labelKey = "settings.widgets.types.workspaces", .glyph = "layout-grid"},
     };
 

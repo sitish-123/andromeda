@@ -2,6 +2,7 @@
 
 #include "shell/bar/widget.h"
 
+class Box;
 class Node;
 
 // Show Desktop: a narrow strip at the bar's far end behind a hairline (Desktop Layouts, Windows); a click minimizes
@@ -18,5 +19,6 @@ public:
 private:
   void doLayout(Renderer& renderer, float containerWidth, float containerHeight) override;
   Node* m_hairline = nullptr;
+  Box* m_hover = nullptr;
   bool m_verticalBar = false;
 };

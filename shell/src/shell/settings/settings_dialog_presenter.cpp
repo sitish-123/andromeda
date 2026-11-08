@@ -280,7 +280,7 @@ namespace settings {
     }
     const float dialogScale = scale();
     const float padding = Tokens::spaceP24 * dialogScale; // rulebook 9.10
-    m_fileDialog = std::make_unique<FileDialogView>(m_thumbnails);
+    m_fileDialog = std::make_unique<FileDialogSheet>(m_thumbnails);
     m_fileDialog->setHost(this);
     m_fileDialog->setAnimationManager(m_animations);
     m_fileDialog->setContentScale(dialogScale);
@@ -321,10 +321,7 @@ namespace settings {
             .initialFocusArea = [this] { return m_fileDialog != nullptr ? m_fileDialog->initialFocusArea() : nullptr; },
             .preDispatchKeyboard =
                 [this](const KeyboardEvent& event) {
-                  return m_fileDialog != nullptr
-                      && m_fileDialog->handleGlobalKey(
-                          event.sym, event.modifiers, event.pressed, event.preedit, event.repeat
-                      );
+                  return m_fileDialog != nullptr && m_fileDialog->handleKey(event);
                 },
             .requestClose =
                 [this, aliveGuard] {

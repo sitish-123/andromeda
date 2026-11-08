@@ -1349,9 +1349,14 @@ namespace settings {
       } else if (const auto* filters = std::get_if<NotificationFiltersSetting>(&entry.control)) {
         makeNotificationFiltersInlineBlock(*activeGroupBody, entry, *filters);
       } else if (const auto* tiles = std::get_if<SelectSetting>(&entry.control);
-                 tiles != nullptr && tiles->tiles && entry.path.back() == "mode") {
+                 tiles != nullptr && tiles->tiles
+                 && (entry.path.back() == "mode" || entry.path.back() == "desktop_layout")) {
+        // Board section 6: the layout gallery sits under its caption, inset 16 / 24, from the leading edge.
+        const bool gallery = entry.path.back() == "desktop_layout";
         activeGroupBody->addChild(ui::column(
-            {.align = FlexAlign::Stretch, .paddingV = Style::spaceSm * scale, .paddingH = Style::spaceSm * scale},
+            {.align = gallery ? FlexAlign::Start : FlexAlign::Stretch,
+             .paddingV = (gallery ? Style::spaceLg : Style::spaceSm) * scale,
+             .paddingH = (gallery ? Tokens::spaceP24 : Style::spaceSm) * scale},
             factory.makeSelect(*tiles, entry.path)
         ));
       } else if (const auto* picker = std::get_if<SearchPickerSetting>(&entry.control)) {

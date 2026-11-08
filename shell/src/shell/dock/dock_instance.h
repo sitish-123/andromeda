@@ -125,6 +125,8 @@ namespace shell::dock {
     std::function<bool(DockInstance&)> syncModel;
     std::function<void(DockInstance&)> rebuildItems;
     std::function<void(DockInstance&)> updateVisuals;
+    // The hovered input area changed (nullptr when none).
+    std::function<void(DockInstance&, InputArea*)> itemHover;
   };
 
   void prepareFrame(

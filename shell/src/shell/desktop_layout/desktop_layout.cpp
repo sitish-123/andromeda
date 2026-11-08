@@ -1,6 +1,7 @@
 #include "shell/desktop_layout/desktop_layout.h"
 
 #include "compositors/settings_control.h"
+#include "i18n/i18n.h"
 #include "render/scene/rect_node.h"
 #include "ui/builders.h"
 #include "shell/settings/settings_selection_style.h"
@@ -8,6 +9,8 @@
 #include "ui/palette.h"
 
 #include <algorithm>
+#include <cctype>
+#include <optional>
 #include <span>
 
 namespace desktop_layout {
@@ -46,30 +49,74 @@ namespace desktop_layout {
       return nullptr;
     }
 
-    // Windows (prototype .tbar2): a 48 px row with Start and the window buttons centred; tray, clock and Show Desktop
-    // trail.
-    constexpr std::array<std::string_view, 2> kTaskbarCenter = {"start", "windows_taskbar"};
-    // The row's own geometry: flush to the screen edge and both ends, square, with Show Desktop at the very end.
+    // A preset's own full-width bar row (board desktop-layouts.html sections 1 and 7): its lanes and thickness; the
+    // row is flush to the screen edge and both ends, square.
+    struct BarRow {
+      std::vector<std::string_view> start;
+      std::vector<std::string_view> center;
+      std::vector<std::string_view> end;
+      std::int64_t thickness;
+      std::optional<double> solidOpacity; // bar solid_opacity; unset keeps glass
+      std::int64_t padding;       // the leading end
+      std::int64_t paddingEnd;    // the trailing end
+      std::int64_t widgetSpacing; // between widgets in a lane
+    };
     struct RowInt {
       std::string_view key;
       std::int32_t BarConfig::* member;
-      std::int64_t taskbar;
+      std::int64_t value; // thickness, padding and widget_spacing take the BarRow's value instead
     };
-    constexpr std::array<RowInt, 8> kTaskbarGeometry{{
-        {"thickness", &BarConfig::thickness, 48},
+    constexpr std::array<RowInt, 10> kRowGeometry{{
+        {"thickness", &BarConfig::thickness, 0},
         {"margin_ends", &BarConfig::marginEnds, 0},
         {"margin_edge", &BarConfig::marginEdge, 0},
         {"padding", &BarConfig::padding, 0},
+        {"padding_end", &BarConfig::paddingEnd, 0},
         {"radius_top_left", &BarConfig::radiusTopLeft, 0},
         {"radius_top_right", &BarConfig::radiusTopRight, 0},
         {"radius_bottom_left", &BarConfig::radiusBottomLeft, 0},
         {"radius_bottom_right", &BarConfig::radiusBottomRight, 0},
+        {"widget_spacing", &BarConfig::widgetSpacing, 0},
     }};
-    constexpr std::array<std::string_view, 6> kTaskbarEnd = {"tray", "network", "output_volume", "battery", "clock", "show_desktop"};
 
-    bool isTaskbarRow(const BarConfig& bar) {
-      return bar.startWidgets.empty() && std::ranges::equal(bar.centerWidgets, kTaskbarCenter)
-          && std::ranges::equal(bar.endWidgets, kTaskbarEnd);
+    // Windows: Start and the window buttons centred; tray, one hover cell for Wi-Fi + volume + battery, the two-line
+    // clock, the notifications bell, the Show Desktop sliver. macOS: brand menu and the bold app name leading, the
+    // same status cell and the clock trailing. Insets and gaps: Windows lanes 4 apart with Show Desktop flush right;
+    // macOS 12 from the leading edge, 16 from the trailing edge and between items.
+    const BarRow* rowFor(std::string_view preset) {
+      static const BarRow windows{
+          {}, {"start", "windows_taskbar"}, {"tray", "group:status", "windows_clock", "notifications", "show_desktop"}, 48,
+          0.86, 0, 0, 4
+      };
+      static const BarRow macos{
+          {"brand", "macos_app"}, {}, {"group:status", "macos_clock"}, 32, std::nullopt, 12, 16, 16
+      };
+      return preset == "windows" ? &windows : preset == "macos" ? &macos : nullptr;
+    }
+
+    BarCapsuleGroupStyle statusGroup() {
+      BarCapsuleGroupStyle group;
+      group.id = "status";
+      group.members = {"network", "output_volume", "status_battery"};
+      group.fill = clearColorSpec();
+      group.radius = Style::spaceSm;
+      group.hoverAsOne = true;
+      return group;
+    }
+
+    bool isRow(const BarConfig& bar, const BarRow& row) {
+      return std::ranges::equal(bar.startWidgets, row.start) && std::ranges::equal(bar.centerWidgets, row.center)
+          && std::ranges::equal(bar.endWidgets, row.end);
+    }
+
+    // The preset row the bar is set up as, if any.
+    const BarRow* currentRow(const BarConfig& bar) {
+      for (const std::string_view name : {"windows", "macos"}) {
+        if (isRow(bar, *rowFor(name))) {
+          return rowFor(name);
+        }
+      }
+      return nullptr;
     }
 
     std::vector<std::pair<std::string, std::string_view>> compositorParts(const Preset& p) {
@@ -92,13 +139,16 @@ namespace desktop_layout {
       return path;
     }
 
+    // macOS and Windows show desktop icons, from their own corner (DESIGN.md "Desktop icons").
+    bool hasDesktopIcons(std::string_view name) { return name == "macos" || name == "windows"; }
+
     bool matches(std::string_view name, const Preset& p, const Config& cfg, const SettingsControl* compositor) {
-      if (!cfg.bars.empty() && isTaskbarRow(cfg.bars.front()) != (name == "windows")) {
+      if (!cfg.bars.empty() && currentRow(cfg.bars.front()) != rowFor(name)) {
         return false;
       }
       const bool bars = std::ranges::all_of(cfg.bars, [&](const BarConfig& bar) { return bar.islands == p.islands; })
           && (cfg.bars.empty() || cfg.bars.front().position == p.barPosition);
-      if (!bars || cfg.dock.enabled != p.dock) {
+      if (!bars || cfg.dock.enabled != p.dock || cfg.desktopIcons.enabled != hasDesktopIcons(name)) {
         return false;
       }
       return std::ranges::all_of(compositorParts(p), [&](const auto& part) {
@@ -108,31 +158,88 @@ namespace desktop_layout {
 
   } // namespace
 
+  namespace {
+    Snapshot& customMix() {
+      static Snapshot mix;
+      return mix;
+    }
+  } // namespace
+
+  void setCustomMix(const Snapshot& now) { customMix() = now; }
+
+  std::string customMixLabel() {
+    const Snapshot& mix = customMix();
+    std::vector<std::string> parts;
+    const auto add = [&parts](std::string part) {
+      if (std::ranges::find(parts, part) == parts.end()) {
+        parts.push_back(std::move(part));
+      }
+    };
+    for (const BarConfig& bar : mix.bars) {
+      const BarRow* row = currentRow(bar);
+      add(i18n::tr(
+          row == rowFor("windows") ? "settings.desktop-layout.mix.taskbar"
+              : row == rowFor("macos") ? "settings.desktop-layout.mix.top-bar"
+              : bar.islands            ? "settings.desktop-layout.mix.islands"
+                                       : "settings.desktop-layout.mix.bar"
+      ));
+    }
+    if (mix.dock) {
+      add(i18n::tr("settings.desktop-layout.mix.dock"));
+    }
+    std::string label;
+    for (const std::string& part : parts) {
+      label += (label.empty() ? "" : " + ") + part;
+    }
+    if (!label.empty()) {
+      label[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(label[0])));
+    }
+    return label;
+  }
+
   std::unique_ptr<Node> preview(std::string_view preset, float width, float height, float scale) {
-    // Grid units: 64 x 40. Glass = white over the wallpaper; windows are light app windows.
-    enum class Kind : std::uint8_t { Glass, Window, Faint };
+    // Board desktop-layouts.html section 6 pics, in its 200 x 124 px: glass shapes over the wallpaper, app windows.
+    enum class Kind : std::uint8_t { Glass, Window };
     struct Shape {
-      float x, y, w, h;
+      float x, y, w, h, r;
       Kind kind;
     };
     std::vector<Shape> shapes;
+    const auto island = [](float x, float y) { return Shape{x, y, 36, 8, 4, Kind::Glass}; };
     if (preset == "andromeda") {
-      shapes = {{3, 2, 10, 3, Kind::Glass},   {25, 2, 14, 3, Kind::Glass},  {51, 2, 10, 3, Kind::Glass},
-                {-10, 8, 14, 24, Kind::Faint}, {8, 8, 23, 24, Kind::Window}, {34, 8, 23, 24, Kind::Window},
-                {22, 35, 20, 3, Kind::Glass}};
+      shapes = {island(8, 6), {76, 6, 48, 8, 4, Kind::Glass}, island(156, 6), {24, 24, 72, 68, 4, Kind::Window},
+                {104, 24, 72, 68, 4, Kind::Window}, {68, 102, 64, 16, 6, Kind::Glass}};
     } else if (preset == "macos") {
-      shapes = {{0, 0, 64, 3, Kind::Glass}, {8, 8, 30, 20, Kind::Window}, {25, 13, 31, 18, Kind::Window},
-                {18, 35, 28, 3, Kind::Glass}};
+      shapes = {{0, 0, 200, 8, 0, Kind::Glass},     {28, 20, 96, 64, 4, Kind::Window}, {84, 40, 88, 56, 4, Kind::Window},
+                {52, 102, 96, 16, 6, Kind::Glass}, {180, 16, 12, 12, 4, Kind::Glass}};
     } else if (preset == "windows") {
-      shapes = {{8, 5, 30, 21, Kind::Window}, {24, 10, 32, 20, Kind::Window}, {0, 36, 64, 4, Kind::Glass}};
+      shapes = {{24, 16, 100, 68, 4, Kind::Window}, {84, 36, 92, 60, 4, Kind::Window}, {0, 112, 200, 12, 0, Kind::Glass},
+                {8, 8, 12, 12, 4, Kind::Glass}};
+    } else if (preset == kCustom) {
+      const Snapshot& mix = customMix();
+      const BarConfig* bar = mix.bars.empty() ? nullptr : &mix.bars.front();
+      const bool bottom = bar != nullptr && bar->position == "bottom";
+      shapes = {{24, 16, 100, 68, 4, Kind::Window}, {84, 36, 92, 60, 4, Kind::Window}};
+      if (bar != nullptr && bar->islands) {
+        const float y = bottom ? 110 : 6;
+        shapes.push_back(island(8, y));
+        shapes.push_back({76, y, 48, 8, 4, Kind::Glass});
+        shapes.push_back(island(156, y));
+      } else if (bar != nullptr) {
+        shapes.push_back(bottom ? Shape{0, 112, 200, 12, 0, Kind::Glass} : Shape{0, 0, 200, 8, 0, Kind::Glass});
+      }
+      if (mix.dock) {
+        shapes.push_back({68, bottom ? 88.0F : 102.0F, 64, 16, 6, Kind::Glass});
+      }
     } else if (preset == "tiling") {
-      shapes = {{3, 2, 10, 3, Kind::Glass},     {25, 2, 14, 3, Kind::Glass},     {51, 2, 10, 3, Kind::Glass},
-                {4, 7, 26, 30, Kind::Window}, {33, 7, 26, 30, Kind::Window}, {62, 7, 12, 30, Kind::Faint}};
+      shapes = {island(8, 6), island(156, 6), {8, 20, 88, 96, 4, Kind::Window}, {104, 20, 88, 44, 4, Kind::Window},
+                {104, 72, 88, 44, 4, Kind::Window}};
     }
-    // Concentric with the picker's accent ring; windows round at half that, glass shapes are capsules.
+    const bool light = isLightPalette();
+    // Concentric with the picker's accent ring.
     const float cardRadius = (settings::metrics::kPickerRadius - Style::focusRingWidth - Style::focusRingGap) * scale;
     auto card = ui::column({.radius = cardRadius, .clipChildren = true, .width = width, .height = height});
-    // The default wallpaper's night blue to teal, as a horizontal sweep.
+    // The default wallpaper's night blue to teal, as a horizontal sweep, under a 0.5 px tokens.css --edge hairline.
     const Color night = rgbHex(0x0D1630);
     const Color teal = rgbHex(0x14455A);
     auto wallpaper = std::make_unique<RectNode>();
@@ -140,31 +247,49 @@ namespace desktop_layout {
     wallpaper->setFrameSize(width, height);
     wallpaper->setStyle(RoundedRectStyle{
         .fill = night,
-        .border = clearColor(),
+        .border = Color{1.0F, 1.0F, 1.0F, light ? 0.749F : 0.122F},
         .fillMode = FillMode::LinearGradient,
         .gradientDirection = GradientDirection::Horizontal,
         .gradientStops = {GradientStop{0.0F, night}, GradientStop{0.55F, teal}, GradientStop{1.0F, night}},
         .radius = cardRadius,
         .softness = 1.0F,
-        .borderWidth = 0.0F,
+        .borderWidth = 0.5F * scale,
     });
     card->addChild(std::move(wallpaper));
-    const float sx = width / 64.0F;
-    const float sy = height / 40.0F;
+    const float sx = width / 200.0F;
+    const float sy = height / 124.0F;
+    const Color glass = light ? Color{1.0F, 1.0F, 1.0F, 0.62F} : Color{60 / 255.0F, 60 / 255.0F, 68 / 255.0F, 0.78F};
+    const Color window = light ? Color{1.0F, 1.0F, 1.0F, 0.92F} : Color{48 / 255.0F, 48 / 255.0F, 54 / 255.0F, 0.95F};
     for (const Shape& shape : shapes) {
+      const float x = shape.x * sx;
+      const float y = shape.y * sy;
+      const float w = shape.w * sx;
+      const float h = shape.h * sy;
+      if (shape.kind == Kind::Window) {
+        // Board shadow 0 2 6 black 25 %.
+        auto shadow = std::make_unique<RectNode>();
+        shadow->setParticipatesInLayout(false);
+        shadow->setPosition(x, y + 2.0F * sy);
+        shadow->setFrameSize(w, h);
+        shadow->setStyle(RoundedRectStyle{
+            .fill = Color{0.0F, 0.0F, 0.0F, 0.25F},
+            .border = clearColor(),
+            .radius = shape.r * sx,
+            .softness = 6.0F * sx,
+            .borderWidth = 0.0F,
+        });
+        card->addChild(std::move(shadow));
+      }
       auto part = std::make_unique<RectNode>();
       part->setParticipatesInLayout(false);
-      part->setPosition(shape.x * sx, shape.y * sy);
-      part->setFrameSize(shape.w * sx, shape.h * sy);
-      const Color fill = shape.kind == Kind::Glass ? Color{1.0F, 1.0F, 1.0F, 0.42F}
-          : shape.kind == Kind::Window           ? rgbHex(0xF2F2F6)
-                                                 : Color{0.949F, 0.949F, 0.965F, 0.35F};
+      part->setPosition(x, y);
+      part->setFrameSize(w, h);
       part->setStyle(RoundedRectStyle{
-          .fill = fill,
-          .border = shape.kind == Kind::Glass ? Color{1.0F, 1.0F, 1.0F, 0.5F} : clearColor(),
-          .radius = shape.kind == Kind::Glass ? std::min(shape.h * sy, shape.w * sx) / 2 : cardRadius / 2,
+          .fill = shape.kind == Kind::Glass ? glass : window,
+          .border = clearColor(),
+          .radius = shape.r * sx,
           .softness = 1.0F,
-          .borderWidth = shape.kind == Kind::Glass ? 0.5F * scale : 0.0F,
+          .borderWidth = 0.0F,
       });
       card->addChild(std::move(part));
     }
@@ -172,7 +297,7 @@ namespace desktop_layout {
   }
 
   Snapshot snapshot(const Config& cfg, const SettingsControl* compositor) {
-    Snapshot now{.bars = cfg.bars};
+    Snapshot now{.bars = cfg.bars, .dock = cfg.dock.enabled};
     if (compositor != nullptr && compositor->ready()) {
       now.cornerRadius = compositor->value("appearance.corner_radius");
       for (const auto& [key, setting] : compositor->settings()) {
@@ -196,19 +321,32 @@ namespace desktop_layout {
     if (!now.bars.empty()) {
       const std::string& first = now.bars.front().name;
       out.emplace_back(Path{"bar", first, "position"}, std::string(p->barPosition));
-      if (preset == "windows") {
+      if (const BarRow* row = rowFor(preset)) {
         const auto list = [](std::span<const std::string_view> names) {
           return std::vector<std::string>(names.begin(), names.end());
         };
-        out.emplace_back(Path{"bar", first, "start"}, std::vector<std::string>{});
-        out.emplace_back(Path{"bar", first, "center"}, list(kTaskbarCenter));
-        out.emplace_back(Path{"bar", first, "end"}, list(kTaskbarEnd));
-        for (const RowInt& field : kTaskbarGeometry) {
-          out.emplace_back(Path{"bar", first, std::string(field.key)}, field.taskbar);
+        out.emplace_back(Path{"bar", first, "start"}, list(row->start));
+        out.emplace_back(Path{"bar", first, "center"}, list(row->center));
+        out.emplace_back(Path{"bar", first, "end"}, list(row->end));
+        out.emplace_back(Path{"bar", first, "capsule_group"}, std::vector<BarCapsuleGroupStyle>{statusGroup()});
+        if (row->solidOpacity) {
+          out.emplace_back(Path{"bar", first, "solid_opacity"}, *row->solidOpacity);
+        }
+        for (const RowInt& field : kRowGeometry) {
+          const std::int64_t value = field.key == "thickness" ? row->thickness
+              : field.key == "padding"                    ? row->padding
+              : field.key == "padding_end"                ? row->paddingEnd
+              : field.key == "widget_spacing"             ? row->widgetSpacing
+                                                          : field.value;
+          out.emplace_back(Path{"bar", first, std::string(field.key)}, value);
         }
       }
     }
     out.emplace_back(Path{"dock", "enabled"}, p->dock);
+    if (hasDesktopIcons(preset)) {
+      out.emplace_back(Path{"desktop_icons", "enabled"}, true);
+      out.emplace_back(Path{"desktop_icons", "start_corner"}, std::string(preset == "macos" ? "top_right" : "top_left"));
+    }
     for (const auto& [key, value] : compositorParts(*p)) {
       out.emplace_back(compositorPath(key), std::string(value));
     }
@@ -227,19 +365,23 @@ namespace desktop_layout {
     for (const std::string& key : now.workspaceModes) {
       out.push_back(compositorPath(key));
     }
-    if (preset != "windows") {
-      if (!now.bars.empty() && isTaskbarRow(now.bars.front())) {
-        const std::string& first = now.bars.front().name;
-        for (const std::string_view key : {"start", "center", "end"}) {
-          out.push_back(Path{"bar", first, std::string(key)});
-        }
-        for (const RowInt& field : kTaskbarGeometry) {
-          out.push_back(Path{"bar", first, std::string(field.key)});
-        }
+    // Leaving a preset row (to another preset or to none) takes its lanes, group and geometry away.
+    const BarRow* row = now.bars.empty() ? nullptr : currentRow(now.bars.front());
+    if (row != nullptr && row != rowFor(preset)) {
+      const std::string& first = now.bars.front().name;
+      for (const std::string_view key : {"start", "center", "end", "capsule_group", "solid_opacity"}) {
+        out.push_back(Path{"bar", first, std::string(key)});
       }
-      if (now.cornerRadius == find("windows")->radius) {
-        out.push_back(compositorPath("appearance.corner_radius"));
+      for (const RowInt& field : kRowGeometry) {
+        out.push_back(Path{"bar", first, std::string(field.key)});
       }
+    }
+    if (!hasDesktopIcons(preset)) {
+      out.push_back(Path{"desktop_icons", "enabled"});
+      out.push_back(Path{"desktop_icons", "start_corner"});
+    }
+    if (preset != "windows" && now.cornerRadius == find("windows")->radius) {
+      out.push_back(compositorPath("appearance.corner_radius"));
     }
     return out;
   }

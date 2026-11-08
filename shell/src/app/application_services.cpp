@@ -1061,6 +1061,7 @@ void Application::reconcileOutputSurfaces() {
   m_bar.onOutputChange();
   m_dock.onOutputChange();
   m_desktopWidgetsController.onOutputChange();
+  m_desktopIcons.sync();
   m_lockscreenWidgetsController.onOutputChange();
   m_screenCorners.onOutputChange();
   m_hotCorners.onOutputChange();

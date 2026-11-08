@@ -579,6 +579,9 @@ void Application::initInputDispatch() {
     if (m_desktopWidgetsController.onPointerEvent(event)) {
       return;
     }
+    if (m_desktopIcons.onPointerEvent(event)) {
+      return;
+    }
     if (m_wallpaper.onPointerEvent(event)) {
       return;
     }
@@ -703,6 +706,10 @@ void Application::initInputDispatch() {
       return;
     }
     if (m_pluginLayerHost.onKeyboardEvent(event)) {
+      return;
+    }
+    if (m_desktopIcons.ownsSurface(m_wayland.lastKeyboardSurface())) {
+      m_desktopIcons.onKeyboardEvent(event);
       return;
     }
     if (m_settingsWindow.ownsKeyboardSurface(m_wayland.lastKeyboardSurface())) {
@@ -1175,6 +1182,7 @@ void Application::initBarDockAndLayout() {
       .fileWatcher = &m_fileWatcher,
       .screenshots = &m_screenshotService,
       .scriptApi = &m_scriptApi,
+      .bus = m_bus.get(),
   });
   m_idleInhibitor.setAnchorSurfacesProvider([this] { return m_bar.caffeineAnchorSurfaces(); });
   m_panelManager.setOpenWidgetSettingsCallback([this](std::string barName, std::string widgetName) {
@@ -1322,6 +1330,8 @@ void Application::initWidgetControllersAndCallbacks() {
       .widgets = desktopWidgetServices,
       .lockscreenWidgets = &m_lockscreenWidgetsController,
   });
+  m_desktopIcons.initialize(m_wayland, m_configService, m_renderContext, m_thumbnailService);
+  m_configService.addReloadCallback([this] { m_desktopIcons.sync(); });
   m_desktopWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
   m_lockscreenWidgetsController.setOnEnterEditCallback([this] { m_settingsWindow.closeForWidgetEditor(); });
   // The editor is a full-screen preview on the overlay layer: the island must not draw over its top bar.

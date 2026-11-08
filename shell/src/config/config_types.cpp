@@ -527,6 +527,7 @@ WidgetBarCapsuleSpec capsuleSpecFromGroup(const BarConfig& bar, const BarCapsule
   }
   spec.opacity = group.opacity;
   spec.accordion = group.accordion;
+  spec.hoverAsOne = group.hoverAsOne;
   spec.accordionDirection = group.accordionDirection;
   spec.accordionDelayMs = group.accordionDelayMs.has_value()
       ? std::optional<float>{static_cast<float>(*group.accordionDelayMs)}

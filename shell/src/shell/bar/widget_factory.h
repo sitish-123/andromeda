@@ -90,4 +90,5 @@ private:
   RenderContext* m_renderContext = nullptr;
   AsyncTextureCache* m_asyncTextures = nullptr;
   scripting::ScriptApiContext* m_scriptApi = nullptr;
+  SessionBus* m_bus = nullptr;
 };

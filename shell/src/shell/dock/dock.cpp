@@ -15,10 +15,12 @@
 #include "shell/dock/dock_model.h"
 #include "shell/dock/pinned_apps.h"
 #include "shell/panel/panel_manager.h"
+#include "shell/tooltip/tooltip_manager.h"
 #include "system/desktop_entry.h"
 #include "system/desktop_entry_launch.h"
 #include "ui/app_icon_colorization.h"
 #include "ui/style.h"
+#include "util/string_utils.h"
 #include "wayland/dsk_surface_client.h"
 #include "wayland/layer_surface.h"
 #include "wayland/surface.h"
@@ -412,6 +414,11 @@ void Dock::show() {
 }
 
 void Dock::closeAllInstances() {
+  m_previewOpenTimer.stop();
+  m_previewCloseTimer.stop();
+  if (m_preview != nullptr) {
+    m_preview->closeNow();
+  }
   m_itemMenu.reset();
   m_lastActiveHandleByAppIdLower.clear();
   m_surfaceMap.clear();
@@ -464,6 +471,15 @@ void Dock::detachInstanceState(shell::dock::DockInstance& inst) {
   if (m_popupOwnerInstance == &inst) {
     m_itemMenu.reset();
     m_popupOwnerInstance = nullptr;
+  }
+  // The preview is a child of this instance's surface, and open() compares its parent pointer.
+  if (m_previewInstance == &inst) {
+    m_previewOpenTimer.stop();
+    m_previewCloseTimer.stop();
+    if (m_preview != nullptr) {
+      m_preview->closeNow();
+    }
+    m_previewInstance = nullptr;
   }
 }
 
@@ -523,6 +539,9 @@ void Dock::requestLayout() {
 // ── Input ─────────────────────────────────────────────────────────────────────
 
 bool Dock::onPointerEvent(const PointerEvent& event) {
+  if (m_preview != nullptr && m_preview->isOpen() && m_preview->onPointerEvent(event)) {
+    return true;
+  }
   // Route open popups first. Unconsumed presses dismiss the menu; only continue to
   // dock hit-testing when the press is on the dock itself.
   if (m_itemMenu != nullptr) {
@@ -851,6 +870,8 @@ void Dock::createInstance(const WaylandOutput& output) {
                 [this](shell::dock::DockInstance& callbackInstance) { return syncInstanceModel(callbackInstance); },
             .rebuildItems = [this](shell::dock::DockInstance& callbackInstance) { rebuildItems(callbackInstance); },
             .updateVisuals = [this](shell::dock::DockInstance& callbackInstance) { updateVisuals(callbackInstance); },
+            .itemHover = [this](shell::dock::DockInstance& callbackInstance,
+                                InputArea* area) { onItemHover(callbackInstance, area); },
         },
         needsUpdate, needsLayout
     );
@@ -1401,5 +1422,112 @@ void Dock::registerIpc(IpcService& ipc) {
   ipc.bind(noctalia::cli::msg::dockReload, [this](const std::string&) -> std::string {
     reload();
     return "ok\n";
+  });
+}
+
+void Dock::onItemHover(shell::dock::DockInstance& instance, InputArea* area) {
+  const auto item = std::ranges::find_if(instance.items, [&](const auto& view) { return area != nullptr && view.area == area; });
+  const auto index = static_cast<std::size_t>(item - instance.items.begin());
+  if (item != instance.items.end() && index < instance.snapshot.items.size() && instance.snapshot.items[index].running) {
+    m_previewCloseTimer.stop();
+    const std::string idLower = instance.snapshot.items[index].idLower;
+    // An open popover follows the pointer to the next app at once; the first one waits 400 ms.
+    if (m_preview != nullptr && m_preview->isOpen()) {
+      openItemPreview(&instance, idLower);
+      return;
+    }
+    m_previewOpenTimer.start(std::chrono::milliseconds(400), [this, inst = &instance, idLower] {
+      openItemPreview(inst, idLower);
+    });
+    return;
+  }
+  m_previewOpenTimer.stop();
+  if (m_preview != nullptr && m_preview->isOpen()) {
+    m_previewCloseTimer.start(std::chrono::milliseconds(300), [this] {
+      if (m_preview != nullptr && !m_preview->pointerInside()) {
+        m_preview->close();
+      }
+    });
+  }
+}
+
+void Dock::openItemPreview(shell::dock::DockInstance* instance, const std::string& idLower) {
+  const bool live = std::ranges::any_of(m_instances, [&](const auto& owned) { return owned.get() == instance; });
+  if (!live || instance->surface == nullptr || m_renderContext == nullptr || m_config == nullptr) {
+    return;
+  }
+  const auto& models = instance->snapshot.items;
+  const auto model = std::ranges::find_if(models, [&](const auto& m) { return m.idLower == idLower; });
+  const auto index = static_cast<std::size_t>(model - models.begin());
+  if (model == models.end() || index >= instance->items.size() || instance->items[index].area == nullptr) {
+    return;
+  }
+  const std::string key = "dock|" + idLower;
+  if (m_preview != nullptr && m_preview->isOpen() && m_preview->key() == key) {
+    return;
+  }
+  auto* layerSurface = m_platform->layerSurfaceFor(instance->surface->wlSurface());
+  auto windows = shell::dock::windowsForDockItem(
+      *m_platform, *model, shell::dock::dockFilterOutput(instance->config, instance->output)
+  );
+  if (layerSurface == nullptr || windows.empty()) {
+    return;
+  }
+  m_previewInstance = instance;
+  if (m_preview == nullptr) {
+    m_preview = std::make_unique<TaskbarPreview>(*m_platform, *m_config, *m_renderContext);
+    m_preview->setOnPointerLeave([this] {
+      m_previewCloseTimer.start(std::chrono::milliseconds(300), [this] {
+        if (m_preview != nullptr && !m_preview->pointerInside()) {
+          m_preview->close();
+        }
+      });
+    });
+  }
+  TooltipManager::instance().onHoverChange(nullptr, static_cast<zwlr_layer_surface_v1*>(nullptr), nullptr);
+  const InputArea& area = *instance->items[index].area;
+  float x = 0.0F;
+  float y = 0.0F;
+  Node::absolutePosition(&area, x, y);
+  constexpr int kIcon = 16;
+  const auto describe = [this, models](const std::string& appId) {
+    const std::string lower = StringUtils::toLower(appId);
+    const auto owner = std::ranges::find_if(models, [&](const auto& m) {
+      return m.idLower == lower || m.windowLookupIdLower == lower;
+    });
+    if (owner == models.end()) {
+      return std::pair<ResolvedIcon, std::string>{{.path = m_iconResolver.resolve(appId, kIcon)}, appId};
+    }
+    return std::pair<ResolvedIcon, std::string>{
+        {.path = m_iconResolver.resolve(owner->entry.icon, kIcon)}, owner->entry.name.empty() ? appId : owner->entry.name
+    };
+  };
+  const char* edge = "bottom";
+  switch (instance->config.position) {
+  case DockEdge::Top:
+    edge = "top";
+    break;
+  case DockEdge::Left:
+    edge = "left";
+    break;
+  case DockEdge::Right:
+    edge = "right";
+    break;
+  default:
+    break;
+  }
+  m_preview->open({
+      .parent = layerSurface,
+      .output = instance->output,
+      .anchor = {.x = static_cast<std::int32_t>(std::lround(x)),
+                 .y = static_cast<std::int32_t>(std::lround(y)),
+                 .width = static_cast<std::int32_t>(std::lround(area.width())),
+                 .height = static_cast<std::int32_t>(std::lround(area.height()))},
+      .barPosition = edge,
+      .key = key,
+      .windows = std::move(windows),
+      .icon = {.path = m_iconResolver.resolve(model->entry.icon, kIcon)},
+      .describeApp = describe,
+      .contentScale = 1.0F,
   });
 }

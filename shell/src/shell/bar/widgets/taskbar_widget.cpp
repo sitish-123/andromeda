@@ -40,9 +40,23 @@
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <wayland-client-protocol.h>
 
 namespace {
+
+  // Runs `run` once, deferred, when the last copy goes.
+  struct PinnedWrite {
+    std::function<void()> run;
+    PinnedWrite() = default;
+    PinnedWrite(const PinnedWrite&) = delete;
+    PinnedWrite& operator=(const PinnedWrite&) = delete;
+    ~PinnedWrite() {
+      if (run) {
+        DeferredCall::callLater(std::move(run));
+      }
+    }
+  };
 
   constexpr auto kDragHoldDelay = std::chrono::milliseconds(300);
   // Lifts the dragged tile above the rest of the strip while it follows the pointer.
@@ -268,6 +282,19 @@ void TaskbarWidget::syncWorkspaceGroupingCapability() {
 
 TaskbarWidget::~TaskbarWidget() { m_aliveGuard.reset(); }
 
+void TaskbarWidget::styleRunningBar(Box& bar, Box* cell, bool active, float tileSize) const {
+  const float w = std::round((active ? Style::spaceLg : Style::spaceXs + Tokens::spaceP2) * m_contentScale);
+  const float h = std::round(Style::spaceXs * m_contentScale);
+  bar.setFill(active ? m_activeIndicatorColor : colorSpecFromRole(ColorRole::Label3));
+  bar.setRadius(h * 0.5F);
+  bar.setSize(w, h);
+  bar.setHitTestVisible(false);
+  bar.setPosition(std::round((tileSize - w) * 0.5F), tileSize - h - std::round(Tokens::spaceP2 * m_contentScale));
+  if (cell != nullptr) {
+    cell->setVisible(active);
+  }
+}
+
 void TaskbarWidget::hoverTaskPreview(TaskRef ref, InputArea& area, bool entered) {
   if (!m_configOptions.windowPreviews) {
     return;
@@ -324,14 +351,24 @@ void TaskbarWidget::openTaskPreview(TaskRef ref, PopupAnchorRect anchor) {
       });
     });
   }
+  auto windows = m_platform.enrichedWindowsForApp(task->idLower, task->startupWmClassLower, toplevelOutputFilter());
   m_preview->open({
       .parent = layerSurface,
       .output = m_output,
       .anchor = anchor,
       .barPosition = m_barPosition,
       .key = key,
-      .windows = m_platform.enrichedWindowsForApp(task->idLower, task->startupWmClassLower, toplevelOutputFilter()),
+      .windows = std::move(windows),
       .icon = task->icon,
+      .describeApp =
+          [this](const std::string& appId) {
+            const std::string appIdLower = StringUtils::toLower(appId);
+            const auto owner = std::ranges::find_if(m_tasks, [&](const TaskModel& t) { return t.appIdLower == appIdLower; });
+            if (owner == m_tasks.end()) {
+              return std::pair<ResolvedIcon, std::string>{resolveIcon(appId, {}), appId};
+            }
+            return std::pair<ResolvedIcon, std::string>{owner->icon, owner->displayName.empty() ? appId : owner->displayName};
+          },
       .contentScale = m_contentScale,
   });
 }
@@ -469,12 +506,8 @@ bool TaskbarWidget::commitDragReorder() {
   pinned.erase(pinned.begin() + static_cast<std::ptrdiff_t>(m_drag.sourceIndex));
   pinned.insert(pinned.begin() + static_cast<std::ptrdiff_t>(m_drag.targetIndex), std::move(moved));
 
-  // Writing config rebuilds the taskbar, which can destroy the InputArea whose handler we are
-  // inside — defer so the write happens after this event finishes dispatching.
-  ConfigService* config = &m_configService;
-  DeferredCall::callLater([config, widgetName = m_widgetName, pinned = std::move(pinned)] mutable {
-    (void)config->setOverride({"widget", widgetName, "pinned"}, std::move(pinned));
-  });
+  // endDrag writes it once the dropped tile has glided into its gap.
+  m_pendingPinned = std::move(pinned);
   return true;
 }
 
@@ -539,32 +572,52 @@ void TaskbarWidget::endDrag(bool commit) {
     m_suppressTileClick = true;
   }
   const bool reordered = wasActive && commit && commitDragReorder();
-  if (reordered && m_drag.area != nullptr && m_dragSpacer != nullptr) {
-    // Park the tile in the gap so the strip looks settled while the deferred write lands.
-    m_drag.area->setPosition(m_dragSpacer->x(), m_dragSpacer->y());
-  }
+  InputArea* const dropped = wasActive ? m_drag.area : nullptr;
   // m_dragFloatTile and m_dragSpacer deliberately survive this reset: applyDragLayout() restores
   // the tile and drops the spacer on the next layout pass, whichever path ended the gesture.
   m_drag = {};
   if (!wasActive) {
     return;
   }
-  if (!reordered) {
-    requestDragLayout();
-    return;
-  }
-  // Restoring now would put the tile back in the pre-write order for a frame, so it visibly jumps
-  // to an edge before the reordered strip appears. Deferred calls run FIFO, so this lands after
-  // the write — which normally destroys this widget outright, because a `widget.*` config change
-  // reloads the bar. It therefore only runs when the write failed or changed nothing.
+  // The tile stays parked while it glides into its gap. Restoring before the write would put it back in
+  // the pre-write order for a frame. The write normally destroys this widget outright, because a
+  // `widget.*` config change reloads the bar; the unpark only runs without a write, or when the write
+  // failed or changed nothing. It runs once, when the glide settles or is cancelled (the last copy of
+  // `write` goes), and always after this event finishes dispatching.
   m_dragParked = true;
-  DeferredCall::callLater([this, alive = std::weak_ptr<void>(m_aliveGuard)] {
+  auto write = std::make_shared<PinnedWrite>();
+  write->run = [this, alive = std::weak_ptr<void>(m_aliveGuard), config = &m_configService, widgetName = m_widgetName,
+                reordered, pinned = std::exchange(m_pendingPinned, {})] mutable {
+    if (reordered) {
+      (void)config->setOverride({"widget", widgetName, "pinned"}, std::move(pinned));
+    }
     if (alive.expired()) {
       return;
     }
     m_dragParked = false;
     requestDragLayout();
-  });
+  };
+  if (m_animations == nullptr || dropped == nullptr || m_dragSpacer == nullptr) {
+    return;
+  }
+  // The dropped tile glides into its gap on the move spring (P13); the gap may still be opening, so the target is read
+  // each frame.
+  const float startX = dropped->x();
+  const float startY = dropped->y();
+  m_animations->animateSpatial(
+      0.0F, 1.0F, Style::spring(Tokens::springMove),
+      [this, dropped, startX, startY, write](float p) {
+        if (m_dragSpacer == nullptr) {
+          return;
+        }
+        dropped->setPosition(
+            std::round(startX + (m_dragSpacer->x() - startX) * p), std::round(startY + (m_dragSpacer->y() - startY) * p)
+        );
+        requestRedraw();
+      },
+      [write] {}, dropped, 0.0F, Unit::Progress
+  );
+  requestFrameTick();
 }
 
 void TaskbarWidget::applyDragLayout() {
@@ -585,6 +638,9 @@ void TaskbarWidget::applyDragLayout() {
     if (m_dragSpacer != nullptr) {
       m_taskStrip->removeChild(m_dragSpacer);
       m_dragSpacer = nullptr;
+    }
+    for (Box* leaving : std::exchange(m_leavingSpacers, {})) {
+      m_taskStrip->removeChild(leaving);
     }
     return;
   }
@@ -610,12 +666,114 @@ void TaskbarWidget::applyDragLayout() {
     );
     return;
   }
-  // Re-seating the spacer dirties the strip, so only move it when the slot actually changed.
+  // List change (P13): the old gap closes and the new one opens on the move spring, so the neighbours glide. Slots
+  // count tiles only; closing gaps sit between them until they finish.
   const auto& children = m_taskStrip->children();
-  const auto it = std::ranges::find_if(children, [this](const auto& child) { return child.get() == m_dragSpacer; });
-  if (it != children.end() && static_cast<std::size_t>(std::distance(children.begin(), it)) != insertAt) {
-    m_taskStrip->insertChildAt(insertAt, m_taskStrip->removeChild(m_dragSpacer));
+  const auto isSpacer = [this](const Node* node) {
+    return node == m_dragSpacer || std::ranges::find(m_leavingSpacers, node) != m_leavingSpacers.end();
+  };
+  std::size_t tiles = 0;
+  std::size_t spacerSlot = static_cast<std::size_t>(-1);
+  std::size_t at = children.size();
+  for (std::size_t i = 0; i < children.size(); ++i) {
+    const Node* child = children[i].get();
+    if (child == m_dragSpacer) {
+      spacerSlot = tiles;
+    }
+    if (isSpacer(child)) {
+      continue;
+    }
+    if (tiles == insertAt && at == children.size()) {
+      at = i;
+    }
+    ++tiles;
   }
+  if (spacerSlot == insertAt) {
+    return;
+  }
+  const float full = m_vertical ? floatTile->height() : floatTile->width();
+  Box* leaving = m_dragSpacer;
+  m_leavingSpacers.push_back(leaving);
+  glideSpacer(leaving, full, 0.0F, true);
+  m_taskStrip->insertChildAt(
+      at,
+      ui::box({
+          .out = &m_dragSpacer,
+          .fill = clearColorSpec(),
+          .width = m_vertical ? floatTile->width() : 0.0F,
+          .height = m_vertical ? 0.0F : floatTile->height(),
+          .configure = [](Box& box) { box.setHitTestVisible(false); },
+      })
+  );
+  glideSpacer(m_dragSpacer, 0.0F, full, false);
+}
+
+void TaskbarWidget::glideSpacer(Box* spacer, float from, float to, bool leaving) {
+  const auto setMain = [this](Box* box, float v) {
+    if (m_vertical) {
+      box->setSize(box->width(), v);
+    } else {
+      box->setSize(v, box->height());
+    }
+  };
+  const auto finish = [this, spacer, leaving, alive = std::weak_ptr<void>(m_aliveGuard)] {
+    if (!leaving) {
+      return;
+    }
+    // Not inside the tick that owns this node's spring.
+    DeferredCall::callLater([this, spacer, alive] {
+      if (alive.expired()) {
+        return;
+      }
+      const auto it = std::ranges::find(m_leavingSpacers, spacer);
+      if (it == m_leavingSpacers.end()) {
+        return;
+      }
+      m_leavingSpacers.erase(it);
+      if (m_taskStrip != nullptr) {
+        m_taskStrip->removeChild(spacer);
+      }
+      requestDragLayout();
+    });
+  };
+  if (m_animations == nullptr) {
+    setMain(spacer, to);
+    finish();
+    return;
+  }
+  setMain(spacer, from);
+  m_animations->animateSpatial(
+      from, to, Style::spring(Tokens::springMove),
+      [this, spacer, setMain](float v) {
+        setMain(spacer, std::max(0.0F, v));
+        requestDragLayout();
+      },
+      finish, spacer, 0.0F, Unit::Px
+  );
+  requestDragLayout();
+  requestFrameTick();
+}
+
+// Press (P2): 0.96 up to 96 px, 0.98 up to 240 px, none above; down on press, back on release.
+void TaskbarWidget::pressTile(InputArea& tile, bool pressed) {
+  const float s = m_contentScale;
+  const float size = std::max(tile.width(), tile.height());
+  const float depth = size <= 96.0F * s ? 0.96F : size <= 240.0F * s ? 0.98F : 1.0F;
+  if (m_animations == nullptr || depth == 1.0F) {
+    return;
+  }
+  tile.setTransformOrigin(tile.width() * 0.5F, tile.height() * 0.5F);
+  InputArea* node = &tile;
+  m_animations->cancelForOwner(node);
+  m_animations->animateSpatial(
+      tile.scale(), pressed ? depth : 1.0F, Style::spring(pressed ? Tokens::springPress : Tokens::springRelease),
+      [this, node](float v) {
+        node->setScale(v);
+        requestRedraw();
+      },
+      {}, node
+  );
+  requestFrameTick();
 }
 
 bool TaskbarWidget::taskMatchesDesktopEntry(const TaskModel& task, const DesktopEntry& entry) {
@@ -919,6 +1077,7 @@ void TaskbarWidget::rebuild(Renderer& renderer) {
   m_drag = {};
   m_dragFloatTile = nullptr;
   m_dragSpacer = nullptr;
+  m_leavingSpacers.clear();
   m_dragParked = false;
   clearChildren(m_taskStrip);
   buildTaskButtons(renderer);
@@ -992,8 +1151,10 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
   const float tileWidthWithTitle = tileSize + (showWindowTitle ? windowTitleWidth + windowTitleGap : 0.0F);
 
   auto attachHover = [this](InputArea& area, float width, float height, std::function<void(bool)> onHover = nullptr) {
+    // Running-bar mode (board 1) uses r 8 cells with a fill_2 hover; the default keeps the bar capsule shape.
+    const bool cells = m_configOptions.runningBar;
     auto hoverBox = ui::box({
-        .radius = resolvedBarCapsuleRadius(width, height),
+        .radius = cells ? Style::spaceSm * m_contentScale : resolvedBarCapsuleRadius(width, height),
         .width = width,
         .height = height,
         .configure = [](Box& box) { box.setZIndex(-1); },
@@ -1003,21 +1164,21 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     auto* hoverBoxPtr = static_cast<Box*>(area.addChild(std::move(hoverBox)));
 
     auto progress = std::make_shared<float>(0.0F);
-    area.setOnEnter([this, hoverBoxPtr, progress, onHover](const InputArea::PointerData&) {
+    area.setOnEnter([this, hoverBoxPtr, progress, onHover, cells](const InputArea::PointerData&) {
       if (onHover) {
         onHover(true);
       }
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
+      const ColorSpec fill = cells ? colorSpecFromRole(ColorRole::Fill2) : widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
       m_animations->animateSpring(
           *progress, 1.0F, Style::spring(Tokens::springFadeOut),
-          [this, hoverBoxPtr, fill, progress](float p) {
+          [this, hoverBoxPtr, fill, progress, cells](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);
             ColorSpec c = fill;
-            c.alpha = 0.1F * p;
+            c.alpha = (cells ? 1.0F : 0.1F) * p;
             hoverBoxPtr->setFill(c);
             requestRedraw();
           },
@@ -1025,21 +1186,21 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       );
       requestFrameTick();
     });
-    area.setOnLeave([this, hoverBoxPtr, progress, onHover] {
+    area.setOnLeave([this, hoverBoxPtr, progress, onHover, cells] {
       if (onHover) {
         onHover(false);
       }
       if (m_animations == nullptr)
         return;
       m_animations->cancelForOwner(hoverBoxPtr);
-      const ColorSpec fill = widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
+      const ColorSpec fill = cells ? colorSpecFromRole(ColorRole::Fill2) : widgetForegroundOr(colorSpecFromRole(ColorRole::Label1));
       m_animations->animateSpring(
           *progress, 0.0F, Style::spring(Tokens::springFade),
-          [this, hoverBoxPtr, fill, progress](float p) {
+          [this, hoverBoxPtr, fill, progress, cells](float p) {
             *progress = p;
             hoverBoxPtr->setVisible(p > 0.001F);
             ColorSpec c = fill;
-            c.alpha = 0.1F * p;
+            c.alpha = (cells ? 1.0F : 0.1F) * p;
             hoverBoxPtr->setFill(c);
             requestRedraw();
           },
@@ -1047,6 +1208,7 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
       );
       requestFrameTick();
     });
+    return hoverBoxPtr;
   };
 
   // Only elements of m_tasks have a meaningful position; any other TaskModel would yield a
@@ -1093,7 +1255,16 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     area->setAcceptedButtons(InputArea::buttonMask({BTN_LEFT, BTN_RIGHT, BTN_MIDDLE}));
     auto* dragArea = area.get();
     const bool tileDraggable = taskRef.index < draggableTileCount;
-    area->setOnPress([this, dragArea, taskRef, tileDraggable](const InputArea::PointerData& data) {
+    // Running-bar cells darken to fill_3 while the left button is down (board 1).
+    auto pressBox = std::make_shared<Box*>(nullptr);
+    area->setOnPress([this, dragArea, taskRef, tileDraggable, pressBox](const InputArea::PointerData& data) {
+      if (*pressBox != nullptr && data.button == BTN_LEFT) {
+        (*pressBox)->setFill(colorSpecFromRole(data.pressed ? ColorRole::Fill3 : ColorRole::Fill2));
+        requestRedraw();
+      }
+      if (data.button == BTN_LEFT) {
+        pressTile(*dragArea, data.pressed);
+      }
       // m_drag.area is set on press and cleared when the gesture ends, so pointer identity alone
       // says whether this tile owns the live gesture.
       const bool ownsGesture = m_drag.area == dragArea;
@@ -1386,18 +1557,15 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
     }
 
     Box* indicatorPtr = nullptr;
+    Box* activeCellPtr = nullptr;
     if (m_configOptions.runningBar && task.running) {
-      const float barW = std::round(Style::baseGlyphSize * m_contentScale);
-      const float barH = std::max(1.0F, std::round(3.0F * m_contentScale));
-      auto indicator = ui::box({
-          .fill = task.active ? m_activeIndicatorColor : colorSpecFromRole(ColorRole::Label3),
-          .radius = barH * 0.5F,
-          .width = barW,
-          .height = barH,
-      });
-      indicatorPtr = indicator.get();
-      indicator->setPosition(std::round((tileSize - barW) * 0.5F), tileSize - barH);
-      area->addChild(std::move(indicator));
+      auto cell = ui::box({.fill = colorSpecFromRole(ColorRole::Fill1), .radius = Style::spaceSm * m_contentScale,
+                           .width = tileSize, .height = tileSize});
+      cell->setHitTestVisible(false);
+      cell->setZIndex(-2);
+      activeCellPtr = static_cast<Box*>(area->addChild(std::move(cell)));
+      indicatorPtr = static_cast<Box*>(area->addChild(ui::box({})));
+      styleRunningBar(*indicatorPtr, activeCellPtr, task.active, tileSize);
     } else if (m_showActiveIndicator && !m_configOptions.runningBar) {
       const float d = std::max(4.0F, std::round(Style::baseGlyphSize * 0.32F * m_contentScale));
       const float groupedCapsuleInset =
@@ -1455,12 +1623,16 @@ void TaskbarWidget::buildTaskButtons(Renderer& renderer) {
         .area = area.get(),
         .titleLabel = titleLabelPtr,
         .activeIndicator = indicatorPtr,
+        .activeCell = activeCellPtr,
         .minimizeIndicator = minimizeIndicatorPtr,
     });
     InputArea* hoverArea = area.get();
-    attachHover(*area, tileWidthWithTitle, tileSize, [this, taskRef, hoverArea](bool entered) {
+    Box* hoverBox = attachHover(*area, tileWidthWithTitle, tileSize, [this, taskRef, hoverArea](bool entered) {
       hoverTaskPreview(taskRef, *hoverArea, entered);
     });
+    if (m_configOptions.runningBar) {
+      *pressBox = hoverBox;
+    }
     return area;
   };
 
@@ -3056,9 +3228,7 @@ void TaskbarWidget::updateModels() {
             tile.area->setOpacity(opacity);
           }
           if (tile.activeIndicator != nullptr && m_configOptions.runningBar) {
-            tile.activeIndicator->setFill(
-                task.active ? m_activeIndicatorColor : colorSpecFromRole(ColorRole::Label3)
-            );
+            styleRunningBar(*tile.activeIndicator, tile.activeCell, task.active, tile.activeIndicator->parent() != nullptr ? tile.activeIndicator->parent()->width() : 0.0F);
           } else if (tile.activeIndicator != nullptr) {
             tile.activeIndicator->setVisible(task.active);
           }

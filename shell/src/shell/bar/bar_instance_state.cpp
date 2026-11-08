@@ -388,7 +388,7 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
-  const Color material = colorForRole(materialRole(), Style::glassTint(glass::Kind::Shape, instance.barConfig.backgroundOpacity));
+  const Color material = colorForRole(materialRole(), barBodyTint(instance.barConfig));
   // Islands are small shapes: liquid glass with the launcher pill's clear tint.
   const bool liquid = syncIslandLiquid(instance);
   const Color islandMaterial = instance.compositorTint ? rgba(0.0F, 0.0F, 0.0F, 0.0F)

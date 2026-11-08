@@ -47,6 +47,7 @@
 #include "shell/bar/widgets/privacy_widget.h"
 #include "shell/bar/widgets/privacy_widget_definition.h"
 #include "shell/bar/widgets/screenshot_widget.h"
+#include "shell/bar/widgets/window_menu_widget.h"
 #include "shell/bar/widgets/screenshot_widget_definition.h"
 #include "shell/bar/widgets/session_widget.h"
 #include "shell/bar/widgets/session_widget_definition.h"
@@ -111,7 +112,7 @@ WidgetFactory::WidgetFactory(const BarServices& services)
       m_nightLight(services.nightLight), m_themeService(services.theme), m_bluetooth(services.bluetooth),
       m_link(services.link), m_brightness(services.brightness), m_lockKeys(services.lockKeys),
       m_clipboard(services.clipboard), m_fileWatcher(services.fileWatcher), m_screenshots(services.screenshots),
-      m_renderContext(services.renderContext), m_asyncTextures(services.asyncTextures), m_scriptApi(services.scriptApi) {
+      m_renderContext(services.renderContext), m_asyncTextures(services.asyncTextures), m_scriptApi(services.scriptApi), m_bus(services.bus) {
   scripting::PluginRegistry::instance().ensureScanned();
 }
 
@@ -174,6 +175,24 @@ std::unique_ptr<Widget> WidgetFactory::create(
             // leaves and returns with the title on one spring.
             options.leadingInset = Tokens::componentIslandGroupGap * context.contentScale + Tokens::componentIslandGap;
             return createWidget<ActiveWindowWidget>(context.contentScale, f.m_configService, f.m_platform, options);
+          }},
+      // Desktop Layouts, macOS: the focused app's name, text only (board desktop-layouts.html section 7).
+      {"app_name", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            auto options = activeWindowWidgetDefinition().resolve(context.config, context.settingContext);
+            options.appName = true;
+            options.displayMode = ActiveWindowDisplayMode::TextOnly;
+            options.minWidth = 0;
+            return createWidget<ActiveWindowWidget>(context.contentScale, f.m_configService, f.m_platform, options);
+          }},
+      // Desktop Layouts, macOS: bold app name + the compositor-owned Window menu (board desktop-menus.html A3).
+      {"window_menu", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
+            if (f.m_renderContext == nullptr) {
+              return std::unique_ptr<Widget>{};
+            }
+            return createWidget<WindowMenuWidget>(
+                context.contentScale, context.output, f.m_configService, f.m_platform, *f.m_renderContext,
+                context.barPosition, f.m_bus
+            );
           }},
       {"island_battery", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             auto options = batteryWidgetDefinition().resolve(

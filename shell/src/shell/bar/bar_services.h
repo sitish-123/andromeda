@@ -35,6 +35,8 @@ namespace scripting {
   class ScriptApiContext;
 }
 
+class SessionBus;
+
 struct BarServices {
   CompositorPlatform& platform;
   ConfigService& config;
@@ -66,4 +68,6 @@ struct BarServices {
   FileWatcher* fileWatcher = nullptr;
   ScreenshotService* screenshots = nullptr;
   scripting::ScriptApiContext* scriptApi = nullptr;
+  // Session bus for widgets that read other apps' D-Bus objects (the macOS-layout app menus).
+  SessionBus* bus = nullptr;
 };

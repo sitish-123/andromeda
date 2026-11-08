@@ -273,7 +273,8 @@ namespace bar_detail {
   }
 
   float barMainPaddingEnd(const BarConfig& config) {
-    return config.islands ? barIslandInsets(config, 2).end : static_cast<float>(config.padding);
+    return config.islands ? barIslandInsets(config, 2).end
+                          : static_cast<float>(config.paddingEnd >= 0 ? config.paddingEnd : config.padding);
   }
 
   // Each island spans the bar's thickness and its section's extent plus an inset of 0.3 x thickness.

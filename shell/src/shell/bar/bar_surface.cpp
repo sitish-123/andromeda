@@ -77,6 +77,17 @@ namespace {
     const float shellCross = isVertical ? shellW : shellH;
     const float contentMain = isVertical ? contentY : contentX;
     const float crossExtent = std::max(0.0F, shellCross - 2.0F * crossInset);
+    if (run.spec.hoverAsOne) {
+      // Every member's overlay covers the whole capsule, so the hovered one lights the group.
+      for (Box* box : run.hoverBoxes) {
+        if (box != nullptr) {
+          box->setPosition(0.0F, 0.0F);
+          box->setSize(shellW, shellH);
+          box->setRadius(capsuleRadius);
+        }
+      }
+      return;
+    }
     for (std::size_t i = 0; i < run.widgets.size() && i < run.hoverBoxes.size(); ++i) {
       // outerNode(), not root(): the outer gesture area is what the run container lays out, so it
       // carries the member's position; root() sits at (0,0) inside it.
@@ -458,7 +469,7 @@ namespace bar_detail {
       instance.shadow->setVisible(false);
       instance.islandShadowOffset = shadowDirectionOffset(shadowConfig.direction);
       instance.islandShadowStyle = ui::surface_shadow::style(
-          shadowConfig, Style::glassTint(glass::Kind::Shape, std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F)),
+          shadowConfig, barBodyTint(instance.barConfig),
           ui::surface_shadow::Shape{}
       );
       return;
@@ -473,7 +484,7 @@ namespace bar_detail {
     // the concave inset into the visual rect, so concave spikes cast a matching shadow.
     const float barAreaW = barVisual.width + concave.logicalInset.left + concave.logicalInset.right;
     const float barAreaH = barVisual.height + concave.logicalInset.top + concave.logicalInset.bottom;
-    const float bgOpacity = Style::glassTint(glass::Kind::Shape, std::clamp(instance.barConfig.backgroundOpacity, 0.0F, 1.0F));
+    const float bgOpacity = barBodyTint(instance.barConfig);
     const auto shadowOff = shadowDirectionOffset(shadowConfig.direction);
     const float shadowX = barVisual.x - concave.logicalInset.left + static_cast<float>(shadowOff.x);
     const float shadowY = barVisual.y - concave.logicalInset.top + static_cast<float>(shadowOff.y);
@@ -1182,7 +1193,7 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     // In islands mode the island pills carry the material; the bar body stays unpainted.
     const bool paintBody = !instance.barConfig.islands;
     const RoundedRectStyle bgStyle{
-        .fill = paintBody ? colorForRole(materialRole(), Style::glassTint(glass::Kind::Shape, instance.barConfig.backgroundOpacity))
+        .fill = paintBody ? colorForRole(materialRole(), barBodyTint(instance.barConfig))
                           : rgba(0.0F, 0.0F, 0.0F, 0.0F),
         .border = resolveColorSpec(instance.barConfig.border),
         .fillMode = FillMode::Solid,

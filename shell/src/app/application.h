@@ -51,6 +51,7 @@
 #include "security/storage_key_provider.h"
 #include "shell/backdrop/backdrop.h"
 #include "shell/bar/bar.h"
+#include "shell/desktop/desktop_icons.h"
 #include "shell/desktop/desktop_widgets_controller.h"
 #include "shell/dock/dock.h"
 #include "shell/hot_corners/hot_corners.h"
@@ -492,6 +493,7 @@ private:
   Bar m_bar;
   Dock m_dock;
   DesktopWidgetsController m_desktopWidgetsController;
+  DesktopIcons m_desktopIcons;
   LockScreen m_lockScreen;
   LockscreenWidgetsController m_lockscreenWidgetsController;
   SessionActionRunner m_sessionActionRunner{m_compositorPlatform, m_lockScreen};

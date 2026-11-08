@@ -14,6 +14,8 @@
 #include "pipewire/wireplumber_mixer.h"
 #include "system/brightness_poll_source.h"
 #include "system/memory_pressure_poll_source.h"
+#include "ui/dialogs/file_dialog_sheet.h"
+#include "core/files/directory_watcher.h"
 
 std::vector<PollSource*> Application::currentPollSources() {
   std::vector<PollSource*> sources;
@@ -31,6 +33,8 @@ std::vector<PollSource*> Application::currentPollSources() {
   sources.push_back(&m_notificationPollSource);
   sources.push_back(&m_secretStore);
   sources.push_back(&m_deferredCallPollSource);
+  sources.push_back(&m_desktopIcons.watcher());
+  sources.push_back(&FileDialogSheet::watcher());
   sources.push_back(&m_processPollSource);
   if (m_screenRecorder != nullptr) {
     sources.push_back(m_screenRecorder.get());

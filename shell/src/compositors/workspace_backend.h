@@ -2,6 +2,7 @@
 
 #include "system/window_state.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -26,6 +27,16 @@ struct Workspace {
   bool occupied = false;
 };
 
+// Where a window's menus live on the session bus (Andromeda IPC "app_menu").
+struct WindowAppMenu {
+  bool gtk = false; // org.gtk.Menus + org.gtk.Actions; else com.canonical.dbusmenu
+  std::string service;
+  std::string path;
+  std::string applicationPath;
+  std::string windowPath;
+  bool operator==(const WindowAppMenu&) const = default;
+};
+
 struct WorkspaceWindow {
   std::string windowId;
   std::string workspaceKey;
@@ -36,6 +47,10 @@ struct WorkspaceWindow {
   std::string outputName;
   std::optional<WindowMinimizeState> minimizeState;
   std::int32_t pid = 0; // 0 when the backend does not report it
+  std::optional<std::uint32_t> snapGroup;
+  // The window's snap zone as fractions of the work area (x, y, w, h); set only with snapGroup.
+  std::array<float, 4> snapZone{};
+  std::optional<WindowAppMenu> appMenu;
 };
 
 struct WorkspaceWindowAssignment {

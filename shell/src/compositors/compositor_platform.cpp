@@ -1215,6 +1215,13 @@ std::optional<std::string> CompositorPlatform::compositorWindowIdForToplevelInfo
       return id;
     }
   }
+  // Without the Hyprland mapping (Andromeda), an exact ext-toplevel identifier is the compositor window id, as
+  // extHandleForCompositorWindowId assumes in the other direction.
+  if (!info.identifier.empty() && hasExactExtToplevelIdentity()
+      && (info.exactIdentity
+          || (info.extHandle != nullptr && m_wayland.extHandleForIdentifier(info.identifier) == info.extHandle))) {
+    return info.identifier;
+  }
   return std::nullopt;
 }
 
@@ -2031,6 +2038,59 @@ bool CompositorPlatform::sameWorkspaceModelSnapshot(
     }
   }
   return true;
+}
+
+std::vector<CompositorPlatform::SnapGroupMember>
+CompositorPlatform::snapGroupFor(const std::vector<ToplevelInfo>& windows) const {
+  std::vector<SnapGroupMember> members;
+  if (m_workspaceMetadataBackend == nullptr) {
+    return members;
+  }
+  const auto rows = m_workspaceMetadataBackend->workspaceWindows();
+  std::optional<std::uint32_t> group;
+  for (const ToplevelInfo& window : windows) {
+    const auto id = compositorWindowIdForToplevelInfo(window);
+    const auto row = std::ranges::find_if(rows, [&](const auto& r) { return id && r.windowId == *id; });
+    if (row != rows.end() && row->snapGroup.has_value()) {
+      group = row->snapGroup;
+      break;
+    }
+  }
+  if (!group.has_value()) {
+    return members;
+  }
+  for (const auto& row : rows) {
+    if (row.snapGroup != group) {
+      continue;
+    }
+    members.push_back({
+        .window = {.title = row.title,
+                   .appId = row.appId,
+                   .identifier = row.windowId,
+                   .handle = toplevelHandleForCompositorWindowId(row.windowId),
+                   .extHandle = extHandleForCompositorWindowId(row.windowId),
+                   .exactIdentity = true,
+                   .minimizeState = row.minimizeState},
+        .zone = row.snapZone,
+    });
+  }
+  std::ranges::sort(members, [](const SnapGroupMember& a, const SnapGroupMember& b) {
+    return std::pair(a.zone[0], a.zone[1]) < std::pair(b.zone[0], b.zone[1]);
+  });
+  return members;
+}
+
+std::optional<WindowAppMenu> CompositorPlatform::focusedWindowAppMenu() const {
+  const auto id = focusedCompositorWindowId();
+  if (m_workspaceMetadataBackend == nullptr || !id.has_value()) {
+    return std::nullopt;
+  }
+  for (const auto& row : m_workspaceMetadataBackend->workspaceWindows()) {
+    if (row.windowId == *id) {
+      return row.appMenu;
+    }
+  }
+  return std::nullopt;
 }
 
 std::vector<std::pair<int, std::string>> CompositorPlatform::windowPids() const {

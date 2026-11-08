@@ -62,18 +62,24 @@ namespace settings {
       for (const std::string_view preset : desktop_layout::kPresets) {
         options.push_back(SelectOption{std::string(preset), tr("settings.desktop-layout.options." + std::string(preset))});
       }
-      SelectSetting select{std::move(options), current};
-      select.tiles = true;
       const auto now = std::make_shared<const desktop_layout::Snapshot>(
           desktop_layout::snapshot(cfg, env.compositorSettings)
       );
+      // Board section 6: after a later change no preset is selected and a fifth card shows the current mix.
+      if (current == desktop_layout::kCustom) {
+        desktop_layout::setCustomMix(*now);
+        options.push_back(SelectOption{std::string(desktop_layout::kCustom), tr("settings.desktop-layout.custom")});
+      }
+      SelectSetting select{std::move(options), current};
+      select.tiles = true;
       select.groupedCommit = [now](std::string_view value, const std::vector<std::string>& /*primaryPath*/) {
+        // The custom card is the current state: picking it changes nothing.
         return desktop_layout::writes(value, *now);
       };
       select.groupedClears = [now](std::string_view value) { return desktop_layout::clears(value, *now); };
       entries.push_back(makeEntry(
           SettingsSection::Appearance, "desktop-layout", tr("settings.desktop-layout.label"),
-          current == desktop_layout::kCustom ? tr("settings.desktop-layout.custom") : std::string(),
+          std::string(),
           {"shell", "desktop_layout"}, std::move(select),
           "desktop layout preset macos windows taskbar tiling dock bar look like"
       ));

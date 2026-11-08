@@ -2,7 +2,7 @@
 
 #include "shell/settings/settings_modal_host.h"
 #include "ui/dialogs/color_picker_dialog.h"
-#include "ui/dialogs/file_dialog_view.h"
+#include "ui/dialogs/file_dialog_sheet.h"
 #include "ui/dialogs/glyph_picker_dialog.h"
 
 #include <functional>
@@ -90,7 +90,7 @@ namespace settings {
     std::optional<SettingsModalHost::ModalId> m_fileModal;
     ColorPickerSheet* m_colorSheet = nullptr;
     GlyphPicker* m_glyphSheet = nullptr;
-    std::unique_ptr<FileDialogView> m_fileDialog;
+    std::unique_ptr<FileDialogSheet> m_fileDialog;
   };
 
 } // namespace settings

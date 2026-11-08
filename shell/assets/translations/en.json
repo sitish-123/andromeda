@@ -341,6 +341,16 @@
           "wind": "Wind"
         }
       }
+    },
+    "window-menu": {
+      "window": "Window",
+      "minimize": "Minimize",
+      "zoom": "Zoom",
+      "fullscreen": "Fullscreen",
+      "move-to": "Move to",
+      "workspace": "Workspace {index}",
+      "close": "Close Window",
+      "quit": "Quit {app}"
     }
   },
   "calendar": {
@@ -2430,6 +2440,7 @@
         "authentication": "Authentication",
         "removable-media": "Removable Media",
         "desktop": "Desktop",
+        "desktop-layout": "Desktop Layout",
         "automation": "Automation",
         "backdrop": "Backdrop",
         "background": "Background",
@@ -2827,6 +2838,10 @@
         "medium-dark": "Medium Dark",
         "medium-light": "Medium Light",
         "none": "Default (Yellow)"
+      },
+      "corner": {
+        "top-left": "Top left",
+        "top-right": "Top right"
       }
     },
     "palette-inspector": {
@@ -6701,6 +6716,7 @@
         "volume": "Volume",
         "wallpaper": "Wallpaper",
         "weather": "Weather",
+        "window-menu": "App Menus",
         "workspaces": "Workspaces"
       }
     },
@@ -7009,6 +7025,13 @@
     "desktop-layout": {
       "label": "Desktop Layout",
       "custom": "Custom",
+      "mix": {
+        "taskbar": "Windows taskbar",
+        "top-bar": "macOS top bar",
+        "islands": "bar islands",
+        "bar": "full-width bar",
+        "dock": "dock"
+      },
       "options": {
         "andromeda": "Andromeda",
         "macos": "macOS",
@@ -7365,5 +7388,22 @@
     "choose-device": "Choose a nearby device",
     "looking": "Looking for nearby devices…",
     "cancel": "Cancel"
+  },
+  "desktop-icons": {
+    "new-folder": "New Folder",
+    "sort-by": "Sort By",
+    "sort-name": "Name",
+    "sort-kind": "Kind",
+    "sort-date": "Date Modified",
+    "change-wallpaper": "Change Wallpaper…",
+    "open": "Open",
+    "move-to-trash": "Move to Trash",
+    "untitled-folder": "untitled folder",
+    "clean-up": "Clean Up",
+    "icon-size": "Icon Size",
+    "icon-small": "Small",
+    "icon-medium": "Medium",
+    "icon-large": "Large",
+    "rename": "Rename"
   }
 }

@@ -246,6 +246,9 @@ namespace settings {
     // colours; auto splits all three down the middle. 116 x 74 at r 10 (R7 inside the 12 tile with its 2 + 2 ring).
     constexpr float kModeThumbWidth = 116.0F;
     constexpr float kModeThumbHeight = 74.0F;
+    // Desktop Layout gallery cards (board desktop-layouts.html section 6): 200 x 124 pictures.
+    constexpr int kLayoutCardW = 200;
+    constexpr int kLayoutCardH = 124;
     constexpr float kModeThumbGap = 22.0F;
 
     std::unique_ptr<RectNode> modeLayer(float x, float y, float w, float h, float radius, std::array<Color, 3> stops,
@@ -642,14 +645,27 @@ namespace settings {
           return option.value == "auto" ? 0 : option.value == "light" ? 1 : 2;
         });
       }
+      // Layout cards move the accent ring in place on the click (the button crosses it on fade, P3), before the write
+      // rebuilds the page with the same ring, so the selection never jumps.
+      auto layoutTiles = std::make_shared<std::vector<std::pair<Button*, std::string>>>();
+      std::vector<std::unique_ptr<Node>> cells;
       for (const auto& opt : ordered) {
         const bool selected = opt.value == setting.selectedValue;
+        Button* tileButton = nullptr;
         auto tile = ui::button({
+            .out = &tileButton,
             .variant = ButtonVariant::Ghost,
             .customPalette = ringed(selected, colorSpecFromRole(layoutPicker ? ColorRole::Accent : ColorRole::Label1)),
             .padding = (Style::focusRingWidth + Style::focusRingGap) * scale,
             .radius = metrics::kPickerRadius * scale,
-            .onClick = [commit, value = opt.value] { commit(value); },
+            .onClick = [commit, value = opt.value, layoutPicker, layoutTiles, ringed] {
+              if (layoutPicker) {
+                for (const auto& [button, tileValue] : *layoutTiles) {
+                  button->setCustomPalette(ringed(tileValue == value, colorSpecFromRole(ColorRole::Accent)));
+                }
+              }
+              commit(value);
+            },
             .configure = [value = opt.value, label = opt.label, scale, selected, arrangement, layoutPicker](Button& button) {
               // The arrangement picks are the page's main control, so they take keyboard focus and read as radios.
               button.setTabStop(arrangement);
@@ -661,31 +677,65 @@ namespace settings {
               button.setFlexGrow(0.0F);
               if (layoutPicker) {
                 button.addChild(desktop_layout::preview(
-                    value, (kModeThumbWidth - 2.0F * Style::focusRingWidth) * scale,
-                    (kModeThumbHeight - 2.0F * Style::focusRingWidth) * scale, scale
+                    value, static_cast<float>(kLayoutCardW) * scale, static_cast<float>(kLayoutCardH) * scale, scale
                 ));
               } else {
                 button.addChild(arrangement ? makeArrangementPreview(value, scale) : makeModePreview(value, scale));
               }
-              // macOS marks the mode by an accent ring alone; a badge would cover the bar pill.
-              button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
-                                   colorSpecFromRole(ColorRole::Accent));
+              // macOS marks the mode by an accent ring alone; a badge would cover the bar pill. Layout cards draw the
+              // ring as the palette border, which fades when the click moves it.
+              if (!layoutPicker) {
+                button.setCheckBadge(selected, scale, metrics::kPickerRadius * scale, /*badge=*/false,
+                                     colorSpecFromRole(ColorRole::Accent));
+              }
             },
         });
-        strip->addChild(ui::column(
-            {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
-            std::move(tile),
-            ui::row(
+        if (layoutPicker) {
+          layoutTiles->emplace_back(tileButton, opt.value);
+        }
+        auto name = ui::row(
                 {.justify = FlexJustify::Center},
-                makeLabel(
-                    opt.label, Style::fontSizeCaption * scale,
-                    colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
-                    selected ? (layoutPicker ? FontWeight::SemiBold : FontWeight::Bold) : FontWeight::Medium
-                )
-            )
-        ));
+                layoutPicker ? makeLabel(
+                                   opt.label, Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::Label1),
+                                   selected ? FontWeight::SemiBold : FontWeight::Normal
+                               )
+                             : makeLabel(
+                                   opt.label, Style::fontSizeCaption * scale,
+                                   colorSpecFromRole(selected ? ColorRole::Label1 : ColorRole::Label2),
+                                   selected ? FontWeight::Bold : FontWeight::Medium
+                               )
+        );
+        // Board section 6: the Custom card names the mix it draws in a 12/500 label_2 line, 4 below the name.
+        if (layoutPicker && opt.value == desktop_layout::kCustom) {
+          name = ui::column(
+              {.align = FlexAlign::Center, .gap = Style::spaceXs * scale}, std::move(name),
+              makeLabel(
+                  desktop_layout::customMixLabel(), Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2),
+                  FontWeight::Medium
+              )
+          );
+        }
+        auto cell = ui::column({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, std::move(tile), std::move(name));
+        cells.push_back(std::move(cell));
       }
-      return strip;
+      if (!layoutPicker) {
+        for (auto& cell : cells) {
+          strip->addChild(std::move(cell));
+        }
+        return strip;
+      }
+      // Board section 6: a 2-column grid of 200 x 124 cards, the Custom card fifth.
+      // Board section 6: rows 16 apart, columns 24 apart.
+      auto grid = ui::column({.align = FlexAlign::Start, .gap = Style::spaceLg * scale});
+      for (std::size_t i = 0; i < cells.size(); i += 2) {
+        auto row = ui::row({.align = FlexAlign::Start, .gap = Tokens::spaceP24 * scale});
+        row->addChild(std::move(cells[i]));
+        if (i + 1 < cells.size()) {
+          row->addChild(std::move(cells[i + 1]));
+        }
+        grid->addChild(std::move(row));
+      }
+      return grid;
     }
     if (setting.segmented) {
       const auto& options = setting.options;

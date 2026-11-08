@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +69,9 @@ struct DesktopEntry {
 };
 
 std::vector<DesktopEntry> scanDesktopEntries(std::string_view language = {});
+
+// One .desktop file (an app shortcut on the desktop); empty when it does not parse as an application.
+std::optional<DesktopEntry> loadDesktopFile(const std::filesystem::path& path, std::string_view language = {});
 
 const std::vector<DesktopEntry>& desktopEntries();
 

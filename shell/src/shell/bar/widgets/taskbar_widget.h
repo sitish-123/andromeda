@@ -171,6 +171,8 @@ private:
     Label* titleLabel = nullptr;
     // Present when m_showActiveIndicator; visibility tracks task.active.
     Box* activeIndicator = nullptr;
+    // Running-bar mode: the fill_1 cell behind the focused app's button.
+    Box* activeCell = nullptr;
     Box* minimizeIndicator = nullptr;
   };
 
@@ -218,6 +220,8 @@ private:
   // The pointer entered or left a task button: opens, moves or closes the window previews.
   void hoverTaskPreview(TaskRef ref, InputArea& area, bool entered);
   void openTaskPreview(TaskRef ref, PopupAnchorRect anchor);
+  // Running-bar mode (board desktop-layouts.html section 1): 6 x 4 label_3 bar, focused 16 x 4 accent on a fill_1 cell.
+  void styleRunningBar(Box& bar, Box* cell, bool active, float tileSize) const;
   void activateAdjacentWorkspace(int direction);
   void activateAdjacentTask(int direction);
   [[nodiscard]] bool activeWorkspaceIndex(std::size_t& index) const;
@@ -255,6 +259,8 @@ private:
   void moveDragTile();
   void endDrag(bool commit);
   void applyDragLayout();
+  void glideSpacer(Box* spacer, float from, float to, bool leaving);
+  void pressTile(InputArea& tile, bool pressed);
   void requestDragLayout();
   [[nodiscard]] static bool taskMatchesDesktopEntry(const TaskModel& task, const DesktopEntry& entry);
   void setEntryPinned(const DesktopEntry& entry, bool pinned);
@@ -299,6 +305,10 @@ private:
   // out of the flow, and the placeholder holding its drop gap open (the strip owns the node).
   InputArea* m_dragFloatTile = nullptr;
   Box* m_dragSpacer = nullptr;
+  // Gaps closing on the move spring after the drop slot moved on; removed when they settle.
+  std::vector<Box*> m_leavingSpacers;
+  // The reordered pin list, written when the drop glide ends.
+  std::vector<std::string> m_pendingPinned;
   // Set by a committed drop: layout must hold the tile parked in its target gap until the deferred
   // pin-list write lands, otherwise it snaps back to the pre-write order for a frame.
   bool m_dragParked = false;

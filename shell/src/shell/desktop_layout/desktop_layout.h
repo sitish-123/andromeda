@@ -32,7 +32,12 @@ namespace desktop_layout {
     std::vector<BarConfig> bars;
     std::string cornerRadius;            // compositor appearance.corner_radius as set now
     std::vector<std::string> workspaceModes; // compositor "workspace.<N>.layout.mode" keys that hold a value
+    bool dock = false;
   };
+  // The parts the "custom" card draws (board section 6: after a later change it shows the current mix).
+  void setCustomMix(const Snapshot& now);
+  // The custom card's footnote: its parts joined by " + " ("Windows taskbar + dock").
+  [[nodiscard]] std::string customMixLabel();
   [[nodiscard]] Snapshot snapshot(const Config& cfg, const SettingsControl* compositor);
 
   // The values that apply `preset`; empty for an unknown name. The first bar moves edge and, for Windows, becomes

@@ -10,7 +10,8 @@
 
 LauncherWidget::LauncherWidget(wl_output* /*output*/, Options options)
     : m_barGlyphId(std::move(options.glyph)),
-      m_customImage(widget_custom_image::fromConfig(options.customImage, options.customImageColorize)) {}
+      m_customImage(widget_custom_image::fromConfig(options.customImage, options.customImageColorize)),
+      m_iconSize(options.iconSize) {}
 
 void LauncherWidget::create() {
   auto area = ui::inputArea({});
@@ -38,12 +39,13 @@ void LauncherWidget::doLayout(Renderer& renderer, float /*containerWidth*/, floa
   }
 
   if (m_image != nullptr) {
-    widget_custom_image::sync(
-        *m_image, renderer, m_customImage, m_contentScale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1))
-    );
+    // The image draws at baseGlyphSize x scale: icon_size rescales it.
+    const float scale = m_iconSize > 0 ? m_contentScale * static_cast<float>(m_iconSize) / Style::baseGlyphSize
+                                       : m_contentScale;
+    widget_custom_image::sync(*m_image, renderer, m_customImage, scale, widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     node->setSize(m_image->width(), m_image->height());
   } else if (m_glyph != nullptr) {
-    m_glyph->setGlyphSize(Style::baseGlyphSize * m_contentScale);
+    m_glyph->setGlyphSize((m_iconSize > 0 ? static_cast<float>(m_iconSize) : Style::baseGlyphSize) * m_contentScale);
     m_glyph->setColor(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
     m_glyph->measure(renderer);
     node->setSize(m_glyph->width(), m_glyph->height());

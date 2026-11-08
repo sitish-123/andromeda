@@ -3455,6 +3455,7 @@ namespace noctalia::config::schema {
           optionalFloatField(&BarCapsuleGroupStyle::radius, "radius", kBarCapsuleRadiusRangeF),
           field(&BarCapsuleGroupStyle::opacity, "opacity", kBarOpacityRange),
           field(&BarCapsuleGroupStyle::accordion, "accordion"),
+          field(&BarCapsuleGroupStyle::hoverAsOne, "hover_as_one"),
           enumField(&BarCapsuleGroupStyle::accordionDirection, "accordion_direction", kBarAccordionDirections),
           // Retired key: read and dropped so old configs load without a warning.
           custom<BarCapsuleGroupStyle>(
@@ -3574,6 +3575,16 @@ namespace noctalia::config::schema {
       return s;
     }
   } // namespace
+
+  const Schema<DesktopIconsConfig>& desktopIconsSchema() {
+    static constexpr Range<std::int64_t> kIconSizes{48, 80, 16};
+    static const Schema<DesktopIconsConfig> s = {
+        field(&DesktopIconsConfig::enabled, "enabled"),
+        enumField(&DesktopIconsConfig::startCorner, "start_corner", kDesktopIconsCorners),
+        field(&DesktopIconsConfig::iconSize, "icon_size", kIconSizes),
+    };
+    return s;
+  }
 
   const Schema<DockConfig>& dockSchema() {
     static const Schema<DockConfig> s = {
@@ -3774,6 +3785,7 @@ namespace noctalia::config::schema {
             }
         ),
         field(&BarConfig::backgroundOpacity, "background_opacity", kBarOpacityRange),
+        optionalFloatField(&BarConfig::solidOpacity, "solid_opacity", kUnitRange),
         field(&BarConfig::compositorBlur, "compositor_blur"),
         field(
             &BarConfig::islands, "islands",
@@ -3790,6 +3802,7 @@ namespace noctalia::config::schema {
         field(&BarConfig::marginEnds, "margin_ends"),
         field(&BarConfig::marginEdge, "margin_edge"),
         field(&BarConfig::marginOppositeEdge, "margin_opposite_edge"),
+        field(&BarConfig::paddingEnd, "padding_end"),
         field(
             &BarConfig::padding, "padding", std::nullopt,
             RowSpec{

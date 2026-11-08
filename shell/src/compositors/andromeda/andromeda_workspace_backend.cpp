@@ -174,6 +174,9 @@ std::vector<WorkspaceWindow> AndromedaWorkspaceBackend::workspaceWindows(const s
             .outputName = {},
             .minimizeState = window.minimizeState,
             .pid = window.pid,
+            .snapGroup = window.snapGroup,
+            .snapZone = window.snapZone,
+            .appMenu = window.appMenu,
         }
     );
   }
@@ -259,6 +262,23 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
       window.y = entry.value("y", 0);
       window.pid = entry.value("pid", 0);
       window.minimizeState = parseMinimizeState(entry);
+      if (const auto menu = entry.find("app_menu"); menu != entry.end() && menu->is_object()) {
+        window.appMenu = WindowAppMenu{
+            .gtk = jsonString(*menu, "kind") == "gtk",
+            .service = jsonString(*menu, "service"),
+            .path = jsonString(*menu, "path"),
+            .applicationPath = jsonString(*menu, "application_path"),
+            .windowPath = jsonString(*menu, "window_path"),
+        };
+      }
+      if (const auto group = entry.find("snap_group"); group != entry.end() && group->is_number_unsigned()) {
+        window.snapGroup = group->get<std::uint32_t>();
+        if (const auto zone = entry.find("snap_zone_rect"); zone != entry.end() && zone->is_array() && zone->size() == 4) {
+          for (std::size_t i = 0; i < 4; ++i) {
+            window.snapZone[i] = (*zone)[i].is_number() ? (*zone)[i].get<float>() : 0.0F;
+          }
+        }
+      }
       if (window.active && !focused.has_value()) {
         focused = id;
       }

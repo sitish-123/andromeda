@@ -3,6 +3,7 @@
 #include "compositors/andromeda/andromeda_event_handler.h"
 #include "compositors/workspace_backend.h"
 
+#include <array>
 #include <cstdint>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -65,6 +66,9 @@ private:
     std::int32_t y = 0;
     std::int32_t pid = 0;
     std::optional<WindowMinimizeState> minimizeState;
+    std::optional<std::uint32_t> snapGroup;
+    std::array<float, 4> snapZone{};
+    std::optional<WindowAppMenu> appMenu;
 
     bool operator==(const Window&) const = default;
   };

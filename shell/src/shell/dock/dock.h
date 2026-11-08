@@ -1,6 +1,8 @@
 #pragma once
 
 #include "config/config_types.h"
+#include "core/timer_manager.h"
+#include "shell/bar/widgets/taskbar_preview.h"
 #include "system/desktop_entry.h"
 #include "system/icon_resolver.h"
 #include "ui/signal.h"
@@ -17,6 +19,7 @@ struct wl_output;
 
 class CompositorPlatform;
 class ConfigService;
+class InputArea;
 class IpcService;
 class NotificationManager;
 class RenderContext;
@@ -102,7 +105,14 @@ private:
   std::unordered_map<wl_surface*, shell::dock::DockInstance*> m_surfaceMap;
   shell::dock::DockInstance* m_hoveredInstance = nullptr;
   shell::dock::DockInstance* m_popupOwnerInstance = nullptr; // instance that owns the current open popup
+  shell::dock::DockInstance* m_previewInstance = nullptr;    // instance whose layer surface parents m_preview
   std::unique_ptr<shell::dock::DockPopup> m_itemMenu;        // right-click context menu
+  // Window previews on hover (board desktop-menus.html B), shared with the taskbar.
+  void onItemHover(shell::dock::DockInstance& instance, InputArea* area);
+  void openItemPreview(shell::dock::DockInstance* instance, const std::string& idLower);
+  std::unique_ptr<TaskbarPreview> m_preview;
+  Timer m_previewOpenTimer;
+  Timer m_previewCloseTimer;
   Signal<>::ScopedConnection m_appIconColorizeConn;
   bool m_overlayDisplaySuppressed = false;
   bool m_hadInstancesBeforeOverlaySuppress = false;

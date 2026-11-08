@@ -7,7 +7,12 @@ const noctalia::bar::WidgetDefinition<LauncherWidget::Options>& launcherWidgetDe
 
   static const noctalia::bar::WidgetDefinition<Options> definition{
       .type = "launcher",
-      .fields = noctalia::bar::glyphButtonFields<Options>(),
+      .fields = noctalia::bar::glyphButtonFields<Options>(noctalia::bar::field<&Options::iconSize>({
+          .key = "icon_size",
+          .minValue = 0.0,
+          .maxValue = 64.0,
+          .step = 4.0,
+      })),
       .glyph = [](const Options& options) { return options.glyph; },
   };
   return definition;

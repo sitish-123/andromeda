@@ -49,6 +49,8 @@ struct BarCapsuleGroupStyle {
   BarAccordionDirection accordionDirection = BarAccordionDirection::End;
   // Hover time in milliseconds before unfolding starts; unset/0 reacts at once.
   std::optional<std::int32_t> accordionDelayMs;
+  // Hovering any member lights the whole capsule (Windows 11 quick-settings group), not only that member.
+  bool hoverAsOne = false;
   // Gap between members inside the capsule, in logical pixels; unset inherits the bar's widget_spacing.
   std::optional<std::int32_t> widgetSpacing;
 
@@ -156,6 +158,9 @@ struct BarConfig {
   std::string layer = "top"; // top | overlay; attached panels use the same layer
   std::int32_t thickness = static_cast<std::int32_t>(Style::barThicknessDefault);
   float backgroundOpacity = 0.70F; // tint_regular token alpha (0xb3)
+  // A fixed body alpha that ignores the glass slider (board desktop-layouts.html section 1: the near-opaque Windows
+  // taskbar); unset = glass at background_opacity.
+  std::optional<float> solidOpacity;
   bool compositorBlur = true;
   bool islands = true; // one floating pill per section instead of one full-length background
   // Inside outline for the bar background; attached panels inherit the resolved values.
@@ -171,6 +176,7 @@ struct BarConfig {
   std::int32_t marginEdge = 8;         // distance from the nearest screen edge (floats the bar when > 0)
   std::int32_t marginOppositeEdge = 0; // extra reserved space on the inward side of the bar
   std::int32_t padding = 14;           // main-axis padding from bar edges to start/end sections
+  std::int32_t paddingEnd = -1;        // padding at the trailing end; -1 uses `padding`
   std::int32_t widgetSpacing = 6;      // gap between widgets within a section
   bool shadow = true;                  // use the global shell shadow
   bool contactShadow = false;          // dark gradient between attached panel and bar
@@ -399,6 +405,7 @@ struct WidgetBarCapsuleSpec {
   // Capsule background opacity multiplier (0.0–1.0).
   float opacity = 1.0F;
   bool hoverHighlight = true;
+  bool hoverAsOne = false;
   // Accordion mode (capsule groups only): collapse to the first member; hover expands.
   bool accordion = false;
   BarAccordionDirection accordionDirection = BarAccordionDirection::End;
@@ -806,6 +813,23 @@ struct DesktopWidgetState {
   std::unordered_map<std::string, WidgetSettingValue> settings;
 
   bool operator==(const DesktopWidgetState&) const = default;
+};
+
+enum class DesktopIconsCorner : std::uint8_t { TopLeft, TopRight };
+
+constexpr EnumOption<DesktopIconsCorner> kDesktopIconsCorners[] = {
+    {DesktopIconsCorner::TopLeft, "top_left", "settings.options.corner.top-left"},
+    {DesktopIconsCorner::TopRight, "top_right", "settings.options.corner.top-right"},
+};
+
+// Desktop icons (DL3, .agent/DESIGN.md "Desktop icons"): ~/Desktop on the wallpaper. The macOS and Windows desktop
+// layouts turn them on; the column starts at their corner.
+struct DesktopIconsConfig {
+  bool enabled = false;
+  DesktopIconsCorner startCorner = DesktopIconsCorner::TopLeft;
+  std::int32_t iconSize = 64;
+
+  bool operator==(const DesktopIconsConfig&) const = default;
 };
 
 struct DesktopWidgetsConfig {
@@ -1982,6 +2006,7 @@ struct Config {
   LockscreenWidgetsConfig lockscreenWidgets;
   DockConfig dock;
   DesktopWidgetsConfig desktopWidgets;
+  DesktopIconsConfig desktopIcons;
   HotCornersConfig hotCorners;
   StorageConfig storage;
   ShellConfig shell;

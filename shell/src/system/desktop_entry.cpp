@@ -774,6 +774,15 @@ namespace {
 
 } // namespace
 
+std::optional<DesktopEntry> loadDesktopFile(const std::filesystem::path& path, std::string_view language) {
+  std::vector<DesktopEntry> entries;
+  parseDesktopFile(path, language, entries);
+  if (entries.empty()) {
+    return std::nullopt;
+  }
+  return std::move(entries.front());
+}
+
 std::vector<DesktopEntry> scanDesktopEntries(std::string_view language) {
   return scanApplicationDirectories(language, nullptr);
 }

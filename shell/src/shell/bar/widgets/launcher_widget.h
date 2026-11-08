@@ -16,6 +16,8 @@ public:
     std::string glyph = "search";
     std::string customImage;
     bool customImageColorize = false;
+    // Logical px; 0 = the bar glyph size. The Windows taskbar Start button is 24 (board section 1).
+    int iconSize = 0;
   };
 
   LauncherWidget(wl_output* output, Options options);
@@ -26,6 +28,7 @@ private:
   void doLayout(Renderer& renderer, float containerWidth, float containerHeight) override;
   std::string m_barGlyphId;
   WidgetCustomImage m_customImage;
+  int m_iconSize = 0;
   Glyph* m_glyph = nullptr;
   Image* m_image = nullptr;
 };
