@@ -429,6 +429,13 @@ void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>&
   read("Error", job.error);
   read("Undoable", job.undoable);
   read("Result", job.result);
+  if (const auto it = props.find("Moves"); it != props.end()) {
+    job.moves.clear();
+    for (const auto& pair : it->second.get<std::vector<sdbus::Struct<Bytes, Bytes>>>()) {
+      const auto& [from, to] = pair;
+      job.moves.emplace_back(pathFrom(from), pathFrom(to));
+    }
+  }
   if (const auto it = props.find("Current"); it != props.end()) {
     job.current = pathFrom(it->second.get<Bytes>());
   }

@@ -345,6 +345,7 @@ private:
   void syncGallery();
   void galleryStep(int delta);
   void galleryAction(std::string_view action, float sceneX, float sceneY);
+  void leaveGallery(); // Esc or the back button: the view the Gallery was opened from
   void syncCustomPage(Page& page);
   void logGeometry();
   void springLoad();
@@ -373,11 +374,15 @@ private:
   std::vector<std::filesystem::path> m_galleryItems; // what the Gallery shows, in view order
   std::shared_ptr<FileGallery::State> m_galleryState = std::make_shared<FileGallery::State>(); // across rebuilds
   std::size_t m_galleryCurrent = 0;
+  View m_beforeGallery = View::Icons;
   std::optional<Listing> m_listing;
   std::vector<HistoryEntry> m_back;
   std::vector<HistoryEntry> m_forward;
   std::shared_ptr<FileModel> m_model;
   std::unique_ptr<FileModelView> m_modelView;
+  std::shared_ptr<void> m_modelEdits; // FileModel subscription: an edited file's preview decodes again
+  std::set<std::string> m_staleThumbs; // edited files whose previews reload once they are quiet
+  Timer m_staleTimer;
   FileSort m_sort;
   std::vector<std::shared_ptr<const FileInfo>> m_rows; // what the current page shows
 
@@ -434,7 +439,17 @@ private:
   std::optional<std::string> m_dropItem;         // the folder row with the drop cue
   std::string m_statusSuffix;
   // The status bar's free space, read off the UI thread (statvfs blocks on a hung network mount); one read at a time.
+  void startMediaWorker();
   void readFreeSpace();
+
+public:
+  // The location's free space as last read off the UI thread (empty until known); asks for a fresh read when stale.
+  [[nodiscard]] std::optional<std::uint64_t> freeSpace() {
+    readFreeSpace();
+    return m_freeFor == m_location ? m_free : std::nullopt;
+  }
+
+private:
   std::filesystem::path m_freeFor;
   std::optional<std::uint64_t> m_free;
   std::chrono::steady_clock::time_point m_freeAt{};
@@ -485,6 +500,7 @@ private:
   std::set<std::string> m_mediaPending;
   std::vector<std::string> m_mediaWanted;
   bool m_mediaPosted = false;
+  bool m_mediaRunning = false;
   void wantMedia(const std::string& path);
   void groupRows(); // Group By: orders m_rows by group, keeps the sort inside each, fills Page::groups
   void columnsMenu(float sceneX, float sceneY);

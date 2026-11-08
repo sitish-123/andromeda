@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <dirent.h>
@@ -171,6 +172,11 @@ namespace {
       if (auto it = g_peeks.find(path); it != g_peeks.end() && it->second.mtimeNs == mtimeNs) {
         return it->second.peeks;
       }
+      // Bounded: a long session browses many folders; dropped entries are read again when shown.
+      constexpr std::size_t kMaxPeeks = 4096;
+      if (g_peeks.size() >= kMaxPeeks) {
+        std::erase_if(g_peeks, [](const auto& e) { return e.second.ready; });
+      }
       g_peeks[path] = PeekEntry{.mtimeNs = mtimeNs};
     }
     enqueuePeek([path, mtimeNs] {
@@ -200,8 +206,11 @@ namespace {
           entry.ready = true;
         }
       }
-      if (changed) {
+      // One rebind per loop turn for every peek that landed in it, not one per folder.
+      static std::atomic<bool> posted{false};
+      if (changed && !posted.exchange(true)) {
         DeferredCall::callLater([] {
+          posted = false;
           const auto listeners = g_peekListeners;
           for (const auto& [id, fn] : listeners) {
             fn();

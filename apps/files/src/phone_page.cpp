@@ -1,5 +1,6 @@
 #include "phone_page.h"
 
+#include "state_file.h"
 #include "cursor-shape-v1-client-protocol.h"
 
 #include "core/deferred_call.h"
@@ -204,9 +205,7 @@ void PhonePage::saveImported() const {
   if (!m_destination.empty()) {
     doc["dest:" + m_deviceId] = m_destination.string();
   }
-  const fs::path tmp = file.string() + ".tmp";
-  std::ofstream(tmp) << doc.dump();
-  fs::rename(tmp, file, ec);
+  writeStateFile(file, doc.dump());
 }
 
 void PhonePage::load() {

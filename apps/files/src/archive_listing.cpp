@@ -85,7 +85,8 @@ ArchiveListing::ArchiveListing(fs::path archive, const std::vector<FileOpsClient
   };
   for (const FileOpsClient::ArchiveEntry& entry : entries) {
     const fs::path inner = entry.path.lexically_normal();
-    if (inner.empty() || inner == "." || inner.is_absolute()) {
+    // The daemon checks entry paths; a name that still climbs out ("../x") never becomes a row here either.
+    if (inner.empty() || inner == "." || inner.is_absolute() || *inner.begin() == "..") {
       continue;
     }
     ++m_items;

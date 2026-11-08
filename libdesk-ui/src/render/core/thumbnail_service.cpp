@@ -8,6 +8,8 @@
 #include <chrono>
 #include <cerrno>
 #include <cstdint>
+#include <mutex>
+#include <thread>
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include <utility>
@@ -58,6 +60,8 @@ ThumbnailService::ThumbnailService(Resolver resolver, std::size_t workers)
     : m_resolver(resolver ? std::move(resolver) : [](const std::string& path, int targetPx) {
         return thumbnail_pipeline::resolve(path, targetPx, thumbnail_pipeline::generate);
       }) {
+  static std::once_flag pruned;
+  std::call_once(pruned, [] { std::thread([] { thumbnail_pipeline::pruneCache(); }).detach(); });
   m_eventFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (m_eventFd < 0) {
     kLog.warn("failed to create eventfd; thumbnail wakeups will be disabled");
@@ -163,8 +167,8 @@ TextureHandle ThumbnailService::acquire(const std::string& path, int targetPx, P
 void ThumbnailService::prioritize(const std::string& path, int targetPx) {
   const RequestKey key{.path = path, .targetPx = targetPx};
   std::scoped_lock lock(m_queueMutex);
-  if (const auto it = std::ranges::find(m_prefetchQueue, key); it != m_prefetchQueue.end()) {
-    m_prefetchQueue.erase(it);
+  // A second copy at the front; the worker runs whichever it meets first and skips the other (m_running).
+  if (m_inFlight.contains(key) && !m_running.contains(key)) {
     m_prefetchQueue.push_front(key);
   }
 }
@@ -211,29 +215,28 @@ void ThumbnailService::release(const std::string& path, int targetPx) {
   if (!m_inFlight.contains(key)) {
     return;
   }
-  for (auto* queue : {&m_jobQueue, &m_prefetchQueue}) {
-    if (const auto queued = std::ranges::find(*queue, key); queued != queue->end()) {
-      queue->erase(queued);
-      m_inFlight.erase(key);
-      return;
-    }
+  // Queued: its queue copy goes stale and the worker skips it. Running: its result is dropped.
+  if (m_running.contains(key)) {
+    m_canceled.insert(key);
+  } else {
+    m_inFlight.erase(key);
   }
-  m_canceled.insert(key);
 }
 
 void ThumbnailService::enqueueDecodeIfNeeded(const RequestKey& key, Priority priority) {
   std::scoped_lock lock(m_queueMutex);
   m_canceled.erase(key);
   if (m_inFlight.contains(key)) {
-    if (priority == Priority::Visible) {
-      if (const auto it = std::ranges::find(m_prefetchQueue, key); it != m_prefetchQueue.end()) {
-        m_prefetchQueue.erase(it);
-        m_jobQueue.push_back(key);
-      }
+    if (priority == Priority::Visible && !m_running.contains(key) && m_visibleQueued.insert(key).second) {
+      m_jobQueue.push_back(key); // promoted: the prefetch copy goes stale
+      m_queueCv.notify_one();
     }
     return;
   }
   m_inFlight.insert(key);
+  if (priority == Priority::Visible) {
+    m_visibleQueued.insert(key);
+  }
   (priority == Priority::Visible ? m_jobQueue : m_prefetchQueue).push_back(key);
   m_workers->spawn([this](std::size_t slot) { workerLoop(slot); });
   m_queueCv.notify_one();
@@ -272,6 +275,7 @@ bool ThumbnailService::uploadPending(TextureManager& textures) {
     {
       std::scoped_lock lock(m_queueMutex);
       m_inFlight.erase(job.key);
+      m_running.erase(job.key);
       if (auto c = m_canceled.find(job.key); c != m_canceled.end()) {
         m_canceled.erase(c);
         dropped = true;
@@ -443,9 +447,21 @@ void ThumbnailService::workerLoop(std::size_t slot) {
       if (m_shutdown.load()) {
         return;
       }
-      auto& queue = m_jobQueue.empty() ? m_prefetchQueue : m_jobQueue;
-      key = std::move(queue.front());
-      queue.pop_front();
+      // Copies of released, finished or already started keys are stale: skip them.
+      bool found = false;
+      while (!found && (!m_jobQueue.empty() || !m_prefetchQueue.empty())) {
+        auto& queue = m_jobQueue.empty() ? m_prefetchQueue : m_jobQueue;
+        const bool visible = &queue == &m_jobQueue;
+        key = std::move(queue.front());
+        queue.pop_front();
+        if (visible) {
+          m_visibleQueued.erase(key);
+        }
+        found = m_inFlight.contains(key) && m_running.insert(key).second;
+      }
+      if (!found) {
+        continue;
+      }
     }
 
     DecodedJob result;

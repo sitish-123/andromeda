@@ -2,12 +2,17 @@
 
 #include <array>
 #include <cmath>
-#include <utility>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 #include <string>
+#include <string_view>
+#include <sys/stat.h>
+#include <sys/xattr.h>
+#include <utility>
 
 namespace {
   constexpr std::size_t kReadLimit = 128 * 1024;
@@ -266,11 +271,86 @@ std::optional<std::size_t> jpegOrientationOffset(std::string_view bytes) {
   return block->first + where->first;
 }
 
+namespace {
+  // A JPEG with no EXIF (screenshots, edited exports): a new APP1 holding only Orientation goes after SOI and any
+  // JFIF APP0, written to a temp file and renamed over the original, keeping its mode.
+  bool addOrientation(const std::filesystem::path& file, std::string_view head, std::uint8_t orientation) {
+    static constexpr std::array<std::uint8_t, 36> kApp1{
+        0xff, 0xe1, 0x00, 0x22, 'E', 'x', 'i', 'f', 0, 0,          // marker, length 34, "Exif\0\0"
+        'I', 'I', 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,              // little-endian TIFF, IFD0 at 8
+        0x01, 0x00,                                                // one entry
+        0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Orientation, SHORT, 1, value
+        0x00, 0x00, 0x00, 0x00};                                   // no next IFD
+    std::array<std::uint8_t, 36> app1 = kApp1;
+    app1[28] = orientation; // the SHORT value: tag 20, type 22, count 24, value 28
+    std::size_t keep = 2;
+    if (static_cast<std::uint8_t>(head[2]) == 0xff && static_cast<std::uint8_t>(head[3]) == 0xe0 && head.size() >= 6) {
+      keep += 2 + ((std::size_t{static_cast<std::uint8_t>(head[4])} << 8) | static_cast<std::uint8_t>(head[5]));
+    }
+    std::string bytes;
+    {
+      std::ifstream in(file, std::ios::binary);
+      bytes.assign(std::istreambuf_iterator<char>(in), {});
+      if (!in.good() && !in.eof()) {
+        return false;
+      }
+    }
+    if (bytes.size() < keep) {
+      return false;
+    }
+    bytes.insert(keep, reinterpret_cast<const char*>(app1.data()), app1.size());
+    struct stat st{};
+    if (::stat(file.c_str(), &st) != 0) {
+      return false;
+    }
+    if (st.st_nlink > 1) {
+      // Hard links share the inode: only an in-place write keeps them one file.
+      std::ofstream out(file, std::ios::binary | std::ios::in | std::ios::out);
+      out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+      return static_cast<bool>(out.flush());
+    }
+    const std::filesystem::path tmp = file.string() + ".rotate.part";
+    {
+      std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+      out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+      if (!out.flush()) {
+        std::error_code ec;
+        std::filesystem::remove(tmp, ec);
+        return false;
+      }
+    }
+    // The new file keeps the old one's mode and its user attributes (Files tags live in user.xdg.tags).
+    ::chmod(tmp.c_str(), st.st_mode & 07777);
+    std::array<char, 4096> names{};
+    const ssize_t n = ::listxattr(file.c_str(), names.data(), names.size());
+    for (ssize_t at = 0; n > 0 && at < n; at += static_cast<ssize_t>(std::strlen(names.data() + at)) + 1) {
+      const char* name = names.data() + at;
+      std::array<char, 4096> value{};
+      if (std::string_view(name).starts_with("user.")) {
+        if (const ssize_t len = ::getxattr(file.c_str(), name, value.data(), value.size()); len >= 0) {
+          ::setxattr(tmp.c_str(), name, value.data(), static_cast<std::size_t>(len), 0);
+        }
+      }
+    }
+    std::error_code ec;
+    std::filesystem::rename(tmp, file, ec);
+    if (ec) {
+      std::filesystem::remove(tmp, ec);
+      return false;
+    }
+    return true;
+  }
+} // namespace
+
 bool rotateJpegClockwise(const std::filesystem::path& file) {
   const std::string head = readHead(file);
   const auto at = jpegOrientationOffset(head);
+  if (!at && !jpegTiff(head) && head.size() >= 4 && static_cast<std::uint8_t>(head[0]) == 0xff &&
+      static_cast<std::uint8_t>(head[1]) == 0xd8) {
+    return addOrientation(file, head, 6);
+  }
   if (!at) {
-    return false;
+    return false; // EXIF without an Orientation entry: adding one means rewriting its IFD
   }
   const bool little = head[jpegTiff(head)->first] == 'I';
   const auto b0 = static_cast<std::uint8_t>(head[*at]);

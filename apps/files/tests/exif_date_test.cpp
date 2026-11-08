@@ -1,17 +1,19 @@
 #include "exif_date.h"
 
+#include <array>
 #include <chrono>
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
-#include <format>
 #include <optional>
 #include <print>
 #include <string>
 #include <sys/mman.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 namespace {
@@ -195,6 +197,21 @@ int main() {
          "four rotates come back to 1");
   writeFile(good);
   expect(!rotateJpegClockwise(photo), "a JPEG without an Orientation tag is not rotated");
+  // No EXIF at all (a screenshot): rotate adds an APP1 with Orientation 6 after the JFIF APP0, image bytes unchanged.
+  const std::string app0("\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00", 20);
+  const std::string scan("\xff\xda\x00\x02pixels\xff\xd9", 12);
+  writeFile(app0 + scan);
+  ::setxattr(photo.c_str(), "user.xdg.tags", "Work", 4, 0);
+  expect(rotateJpegClockwise(photo) && orientation() == 6, "a JPEG with no EXIF gains Orientation 6");
+  expect(rotateJpegClockwise(photo) && orientation() == 3, "a second rotate turns the added tag to 3 (no second APP1)");
+  std::array<char, 16> tag{};
+  expect(::getxattr(photo.c_str(), "user.xdg.tags", tag.data(), tag.size()) == 4, "the file keeps its Files tags");
+  {
+    std::ifstream in(photo, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(in)), {});
+    expect(bytes.starts_with(app0) && bytes.ends_with(scan) && bytes.size() == app0.size() + 36 + scan.size(),
+           "JFIF header and image data stay as they were, one APP1 added");
+  }
   std::filesystem::remove(photo);
   return g_failures == 0 ? 0 : 1;
 }

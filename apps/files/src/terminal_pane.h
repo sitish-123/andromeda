@@ -34,6 +34,8 @@ public:
   [[nodiscard]] bool running() const noexcept { return m_pid > 0; }
   [[nodiscard]] std::unique_ptr<Node> build(Renderer& renderer, float scale, float width);
   void focus();
+  // The pane left the scene (F4 hid it): its input area is gone.
+  void detach();
   [[nodiscard]] bool focused() const;
   // The view moved to `dir`: cd there unless a job runs in the shell or it is there already.
   void followFolder(const std::filesystem::path& dir);
@@ -78,6 +80,7 @@ private:
   float m_scale = 1.0F;
   float m_cellWidth = 7.0F; // logical px of one monospace cell
   Flex* m_rows = nullptr;
-  InputArea* m_area = nullptr;
+  InputArea* m_area = nullptr; // m_rows and m_area are null while the pane is hidden: its nodes are gone
+  bool m_focusWanted = false;
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };

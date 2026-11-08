@@ -98,11 +98,15 @@ private:
   std::string m_compare;
 
   // Folder walk, updated from the worker.
-  std::atomic<std::uint64_t> m_countBytes{0};
-  std::atomic<std::uint64_t> m_countItems{0};
-  std::atomic<bool> m_countDone{false};
-  std::atomic<bool> m_countPosted{false};
-  std::jthread m_counter;
+  // The folder walk's tally. The walk runs detached (a hung mount must not block closing the sheet) and owns a share.
+  struct Count {
+    std::atomic<std::uint64_t> bytes{0};
+    std::atomic<std::uint64_t> items{0};
+    std::atomic<bool> done{false};
+    std::atomic<bool> posted{false};
+    std::atomic<bool> stop{false};
+  };
+  std::shared_ptr<Count> m_count = std::make_shared<Count>();
   Label* m_size = nullptr;
   Label* m_compareResult = nullptr;
   void updateCompare();

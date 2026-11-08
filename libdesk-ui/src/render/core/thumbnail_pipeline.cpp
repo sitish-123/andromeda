@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -195,6 +196,8 @@ namespace thumbnail_pipeline {
       auto bytes = FileUtils::readBinaryFile(cachePath->string());
       if (!bytes.empty()) {
         if (auto cached = decodeRasterImage(bytes.data(), bytes.size())) {
+          std::error_code touch;
+          std::filesystem::last_write_time(*cachePath, std::filesystem::file_time_type::clock::now(), touch); // LRU
           return Pixels{.rgba = std::move(cached->pixels), .width = cached->width, .height = cached->height};
         }
         std::error_code ec;
@@ -242,6 +245,48 @@ namespace thumbnail_pipeline {
     }
     out.rgba = rgbToRgba(*rgb);
     return out;
+  }
+
+  void pruneCache() {
+    namespace fs = std::filesystem;
+    constexpr std::uintmax_t kMaxBytes = 1ULL << 30;
+    constexpr std::uintmax_t kTargetBytes = 768ULL << 20;
+    const auto cutoff = fs::file_time_type::clock::now() - std::chrono::days(90);
+    struct Entry {
+      fs::path path;
+      fs::file_time_type used;
+      std::uintmax_t bytes;
+    };
+    std::vector<Entry> kept;
+    std::uintmax_t total = 0;
+    std::error_code ec;
+    for (fs::directory_iterator it(thumbnailCacheDir(), ec), end; !ec && it != end; it.increment(ec)) {
+      std::error_code e2;
+      const auto used = it->last_write_time(e2);
+      const auto bytes = it->file_size(e2);
+      if (e2) {
+        continue;
+      }
+      if (used < cutoff) {
+        fs::remove(it->path(), e2);
+        continue;
+      }
+      kept.push_back({it->path(), used, bytes});
+      total += bytes;
+    }
+    if (total <= kMaxBytes) {
+      return;
+    }
+    std::ranges::sort(kept, {}, &Entry::used);
+    for (const Entry& e : kept) {
+      if (total <= kTargetBytes) {
+        break;
+      }
+      std::error_code e2;
+      if (fs::remove(e.path, e2)) {
+        total -= e.bytes;
+      }
+    }
   }
 
 } // namespace thumbnail_pipeline

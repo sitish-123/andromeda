@@ -1,5 +1,6 @@
 #include "smart_folders.h"
 
+#include "state_file.h"
 #include "core/deferred_call.h"
 #include "core/files/file_info.h"
 #include "index_search.h"
@@ -129,19 +130,7 @@ namespace smart_folders {
     for (const auto& f : folders) {
       doc.push_back({{"name", f.name}, {"text", f.text}, {"kind", f.kind}, {"days", f.days}, {"folder", f.folder.string()}});
     }
-    const fs::path path = configPath();
-    std::error_code ec;
-    fs::create_directories(path.parent_path(), ec);
-    const fs::path tmp = path.string() + ".tmp";
-    {
-      std::ofstream out(tmp, std::ios::trunc);
-      out << doc.dump(2) << '\n';
-      if (!out) {
-        return false;
-      }
-    }
-    fs::rename(tmp, path, ec);
-    return !ec;
+    return writeStateFile(configPath(), doc.dump(2) + '\n');
   }
 
   void run(const SmartFolder& folder, IndexSearch* index, std::weak_ptr<bool> alive, std::function<void(Rows)> done) {

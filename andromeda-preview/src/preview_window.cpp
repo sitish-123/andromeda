@@ -343,7 +343,10 @@ namespace preview {
     m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { onPointer(event); });
   }
 
-  PreviewWindow::~PreviewWindow() { close(); }
+  PreviewWindow::~PreviewWindow() {
+    close();
+    m_live->store(0); // a folder walk still running drops its result without touching this window
+  }
 
   void PreviewWindow::show(const std::string& path, const std::string& windowHandle, bool closeIfShown) {
     if (isOpen() && path == m_path && closeIfShown) {
@@ -360,7 +363,7 @@ namespace preview {
   }
 
   void PreviewWindow::load(const std::string& path) {
-    ++m_generation;
+    m_live->store(++m_generation);
     m_decoder.cancel();
     m_pendingUploads.clear();
     dropHelper();
@@ -440,7 +443,7 @@ namespace preview {
       break;
     case FileKind::Folder:
       // Names and sizes only (no file contents), off the main thread; the result comes back on the main loop.
-      std::thread([this, generation, path] {
+      std::thread([this, generation, path, live = m_live] {
         namespace fs = std::filesystem;
         constexpr std::size_t kMaxWalk = 200000;
         std::size_t items = 0;
@@ -448,8 +451,11 @@ namespace preview {
         std::uint64_t bytes = 0;
         std::vector<std::pair<fs::file_time_type, std::string>> newest;
         std::error_code ec;
-        for (fs::directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
-             it.increment(ec)) {
+        const auto current = [&] { return live->load() == generation; };
+        struct stat root{};
+        const bool rootKnown = ::stat(path.c_str(), &root) == 0;
+        for (fs::directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end && current(); it.increment(ec)) {
           const auto& entry = *it;
           if (entry.path().filename().string().starts_with('.')) {
             continue; // hidden items are not counted, as the Files views hide them
@@ -460,10 +466,16 @@ namespace preview {
         }
         std::ranges::sort(newest, std::greater{}, &decltype(newest)::value_type::first);
         newest.resize(std::min<std::size_t>(newest.size(), 4));
+        // Stops when the preview moves on; stays on this file system (a mount inside is not this folder's size).
         for (fs::recursive_directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
-             !ec && it != end && walked < kMaxWalk; it.increment(ec), ++walked) {
+             !ec && it != end && walked < kMaxWalk && current(); it.increment(ec), ++walked) {
           std::error_code e2;
-          if (it->is_regular_file(e2) && !it->is_symlink(e2)) {
+          if (it->is_directory(e2) && !it->is_symlink(e2)) {
+            struct stat st{};
+            if (rootKnown && ::lstat(it->path().c_str(), &st) == 0 && st.st_dev != root.st_dev) {
+              it.disable_recursion_pending();
+            }
+          } else if (it->is_regular_file(e2) && !it->is_symlink(e2)) {
             bytes += it->file_size(e2);
           }
         }
@@ -471,8 +483,8 @@ namespace preview {
         for (auto& [time, name] : newest) {
           peek.push_back(std::move(name));
         }
-        DeferredCall::callLater([this, generation, items, bytes, cut = walked >= kMaxWalk, peek = std::move(peek)] {
-          if (generation != m_generation) {
+        DeferredCall::callLater([this, live, generation, items, bytes, cut = walked >= kMaxWalk, peek = std::move(peek)] {
+          if (live->load() != generation) {
             return;
           }
           m_loading = false;
@@ -1150,7 +1162,7 @@ namespace preview {
     if (!m_surface->initialize(output, config)) {
       kLog.warn("cannot create the preview window");
       m_surface.reset();
-      ++m_generation;
+      m_live->store(++m_generation);
       m_decoder.cancel();
       dropHelper();
       if (m_callbacks.closed) {
@@ -1166,7 +1178,7 @@ namespace preview {
     if (!m_surface) {
       return;
     }
-    ++m_generation;
+    m_live->store(++m_generation);
     dropHelper();
     m_input.pointerLeave();
     m_input.setSceneRoot(nullptr);

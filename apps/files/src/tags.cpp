@@ -1,5 +1,6 @@
 #include "tags.h"
 
+#include "state_file.h"
 #include "core/deferred_call.h"
 #include "core/files/file_info.h"
 
@@ -120,19 +121,7 @@ bool saveTagConfig(const std::vector<TagDef>& tags) {
   for (const auto& t : tags) {
     doc.push_back({{"name", t.name}, {"color", hexOf(t.rgb)}, {"sidebar", t.sidebar}});
   }
-  const fs::path path = tagConfigPath();
-  std::error_code ec;
-  fs::create_directories(path.parent_path(), ec);
-  const fs::path tmp = path.string() + ".tmp";
-  {
-    std::ofstream out(tmp, std::ios::trunc);
-    out << doc.dump(2) << '\n';
-    if (!out) {
-      return false;
-    }
-  }
-  fs::rename(tmp, path, ec);
-  return !ec;
+  return writeStateFile(tagConfigPath(), doc.dump(2) + '\n');
 }
 
 TagIndex::TagIndex(std::function<void()> changed, fs::path root)

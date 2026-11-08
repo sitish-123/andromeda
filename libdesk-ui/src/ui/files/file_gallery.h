@@ -42,6 +42,7 @@ public:
 
   struct Host {
     std::function<void()> invalidate;
+    std::function<void()> back; // the title capsule's back button
     std::function<void(std::size_t index)> select; // a filmstrip item or an arrow picked another photo
     // An action capsule button on the current photo: "favourite", "rotate", "markup", "phone", "share" or "more";
     // the scene point is where a menu opens.
@@ -88,6 +89,7 @@ public:
   // Per item: the local calendar day (a filmstrip divider marks a new one) and its motion video, if any.
   struct ItemInfo {
     std::int32_t day = 0;
+    std::int64_t time = 0;               // Unix seconds, shown in the title capsule; 0 = none
     bool video = false;
     bool motion = false;                 // a motion photo: a dot in the filmstrip, plays once on open
     std::filesystem::path motionVideo;   // a paired video file (Live Photo); empty: the video is inside the JPEG
@@ -159,6 +161,7 @@ private:
   bool m_loggedThumb = true; // true until a photo is asked for: a rebuilt node never times its carried-over photo
   bool m_loggedFull = true;
   Image* m_photo = nullptr;
+  Box* m_photoShadow = nullptr; // mockup .photo: 0 24 64 black 50 %
   Flex* m_title = nullptr;
   Label* m_name = nullptr;
   Label* m_position = nullptr;
@@ -193,6 +196,7 @@ private:
   int m_photoTexW = 0;
   float m_pinchStartZoom = 1.0F;
   bool m_wantHundred = false; // a double-click asked for 100 % before the full-size decode told the photo's size
+  float m_hundredSteps = 1.0F; // wheel zoom since that double-click, kept on top of the true 100 %
   bool m_dragging = false;
   float m_dragX = 0.0F;
   float m_dragY = 0.0F;

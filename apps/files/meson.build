@@ -32,7 +32,7 @@ _warnings = ['-Wall', '-Wextra', '-Wno-missing-field-initializers', '-Wpedantic'
 
 _files_lib = static_library('files_core',
   sources: files('src/trash.cpp', 'src/archive_listing.cpp', 'src/permission_access.cpp', 'src/server_url.cpp',
-    'src/tags.cpp', 'src/exif_date.cpp'),
+    'src/tags.cpp', 'src/exif_date.cpp', 'src/state_file.cpp'),
   dependencies: _desk_app_dep,
   cpp_args: _warnings,
 )
@@ -90,6 +90,8 @@ test('server_url', executable('server_url_test', 'tests/server_url_test.cpp', li
   dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
 test('exif_date', executable('exif_date_test', 'tests/exif_date_test.cpp', link_with: _files_lib,
   dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
+test('safe_regex', executable('safe_regex_test', 'tests/safe_regex_test.cpp', dependencies: _desk_app_dep,
+  cpp_args: _warnings))
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
 

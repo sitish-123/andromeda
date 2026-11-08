@@ -33,6 +33,7 @@ public:
     Type type = Type::Reset;
     std::string name;    // Inserted, Removed, Updated, Renamed (old name); empty Updated = a batch of stat results
     std::string newName; // Renamed
+    std::vector<std::string> modified; // a batch: names that were there before and changed (their previews are stale)
   };
   using Listener = std::function<void(const Change& change)>;
 
@@ -45,6 +46,8 @@ public:
 
   [[nodiscard]] const std::filesystem::path& directory() const noexcept { return m_dir; }
   [[nodiscard]] Status status() const noexcept { return m_status; }
+  // False when the folder could not be watched (the inotify watch limit, a file system without it): no live updates.
+  [[nodiscard]] bool live() const noexcept { return m_watch >= 0; }
   [[nodiscard]] const std::string& error() const noexcept { return m_error; }
   // In name order (collateKey, then name bytes). An update replaces the pointer, so a view's old row stays valid until
   // it rebuilds.

@@ -1,5 +1,6 @@
 #include "drives.h"
 
+#include "state_file.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
 
@@ -481,9 +482,7 @@ void PhotoImport::remember(const std::vector<fs::path>& files) {
 
 void PhotoImport::save() const {
   const fs::path file = fs::path(g_get_user_data_dir()) / "andromeda" / "files" / m_file;
-  std::error_code ec;
-  fs::create_directories(file.parent_path(), ec);
-  std::ofstream(file) << nlohmann::json(m_done).dump();
+  writeStateFile(file, nlohmann::json(m_done).dump());
 }
 
 fs::path PhotoImport::destination() {

@@ -17,6 +17,7 @@
 #include <glib.h>
 #include <nlohmann/json.hpp>
 #include <sys/statvfs.h>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -105,6 +106,21 @@ void StoragePage::scan(bool fresh) {
   m_scanning = true;
   m_error.clear();
   std::weak_ptr<StoragePage> weak = weak_from_this();
+  std::thread([weak, root = m_root] {
+    struct statvfs fsInfo{};
+    std::string usage;
+    if (::statvfs(root.c_str(), &fsInfo) == 0) {
+      const std::uint64_t capacity = static_cast<std::uint64_t>(fsInfo.f_blocks) * fsInfo.f_frsize;
+      const std::uint64_t free = static_cast<std::uint64_t>(fsInfo.f_bavail) * fsInfo.f_frsize;
+      usage = std::format("{} used of {}", formatFileSize(capacity - free), formatFileSize(capacity));
+    }
+    DeferredCall::callLater([weak, usage = std::move(usage)]() mutable {
+      if (auto self = weak.lock()) {
+        self->m_usage = std::move(usage);
+        self->m_actions.rebuild();
+      }
+    });
+  }).detach();
   const auto start = std::chrono::steady_clock::now();
   m_ops->storageScan(m_root, fresh, {}, [weak, start](const std::string& json, const std::string& error) {
     auto self = weak.lock();
@@ -157,14 +173,7 @@ std::unique_ptr<Node> StoragePage::build(float scale) {
   auto header = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s});
   header->addChild(ui::label({.text = std::string("Storage"), .fontSize = Tokens::typeTitle3.size * s,
                               .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1)}));
-  struct statvfs fsInfo{};
-  std::string usage;
-  if (::statvfs(m_root.c_str(), &fsInfo) == 0) {
-    const std::uint64_t capacity = static_cast<std::uint64_t>(fsInfo.f_blocks) * fsInfo.f_frsize;
-    const std::uint64_t free = static_cast<std::uint64_t>(fsInfo.f_bavail) * fsInfo.f_frsize;
-    usage = std::format("{} used of {}", formatFileSize(capacity - free), formatFileSize(capacity));
-  }
-  header->addChild(text(std::move(usage), Style::fontSizeBody * s, ColorRole::Label2, 1.0F));
+  header->addChild(text(m_usage, Style::fontSizeBody * s, ColorRole::Label2, 1.0F));
   header->addChild(ui::button({.text = std::string(m_scanning ? "Scanning…" : "Scan Again"), .enabled = !m_scanning,
                                .variant = ButtonVariant::Default, .onClick = [this] { later([this] { scan(true); }); }}));
   page->addChild(std::move(header));

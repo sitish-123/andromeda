@@ -194,6 +194,7 @@ public:
   void mountDrive(const std::string& id);
   [[nodiscard]] std::filesystem::path importSource() const;
   void importPhotos();
+  void importFiles(const std::filesystem::path& dcim, std::vector<std::filesystem::path> files);
   [[nodiscard]] std::string formatTarget() const;
   void askFormat();
   void eraseDrive(); // the Erase button of the open Format sheet
@@ -328,10 +329,15 @@ private:
   bool m_detailsOpen = false;
   std::string m_pathText;  // Go to Folder field
   std::string m_pathError;
-  static constexpr std::size_t kPathMatchScan = 4096; // entries read per completion at most
+  static constexpr std::size_t kPathMatchScan = 4096; // subfolders kept per completion; 16 times as many entries read at most
   static constexpr std::size_t kPathMatchesShown = 8;
   [[nodiscard]] std::string absolutePathText() const;
   [[nodiscard]] std::vector<std::string> pathMatches() const;
+  // Go to Folder completion: the typed folder's subfolder names, listed on a worker (a hung mount must not freeze
+  // typing); the sheet rebuilds when they are in.
+  mutable std::filesystem::path m_pathListDir;
+  mutable std::vector<std::string> m_pathListNames;
+  mutable std::filesystem::path m_pathListAsked; // the newest folder asked for; a hung older listing is ignored
   void completePath();
   void submitPath();
   [[nodiscard]] std::unique_ptr<Node> buildPathSheet(float scale);

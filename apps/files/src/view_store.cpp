@@ -1,5 +1,6 @@
 #include "view_store.h"
 
+#include "state_file.h"
 #include "ui/files/file_cells.h"
 
 #include <algorithm>
@@ -55,16 +56,11 @@ namespace {
   }
 
   void writeFallback(const std::vector<std::pair<std::string, std::string>>& rows) {
-    std::error_code ec;
-    fs::create_directories(stateDir(), ec);
-    const fs::path tmp = fallbackFile().string() + ".tmp";
-    {
-      std::ofstream out(tmp, std::ios::trunc);
-      for (const auto& [path, value] : rows) {
-        out << escape(path) << '\t' << value << '\n';
-      }
+    std::string text;
+    for (const auto& [path, value] : rows) {
+      text += escape(path) + '\t' + value + '\n';
     }
-    fs::rename(tmp, fallbackFile(), ec);
+    writeStateFile(fallbackFile(), text);
   }
 } // namespace
 

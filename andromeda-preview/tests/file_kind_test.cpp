@@ -20,6 +20,7 @@ int main() {
   expect("video/mp4", FileKind::Video);
   expect("audio/flac", FileKind::Audio);
   expect("inode/directory", FileKind::Folder);
-  expect("application/zip", FileKind::Other);
+  expect("application/zip", FileKind::Archive);
+  expect("application/octet-stream", FileKind::Other);
   return failures == 0 ? 0 : 1;
 }

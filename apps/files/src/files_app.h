@@ -24,6 +24,8 @@
 #include <gio/gunixmounts.h>
 #include <map>
 #include <memory>
+#include <set>
+#include <string>
 #include <vector>
 
 class FilesWindow;
@@ -144,4 +146,5 @@ private:
   std::unique_ptr<Drives> m_drives;
   Timer m_drivesStart;
   GUnixMountMonitor* m_mounts = nullptr; // mounts-changed refreshes the sidebar drives
+  std::set<std::string> m_movesApplied; // jobs whose moves the starred and pinned paths already followed
 };

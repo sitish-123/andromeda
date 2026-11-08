@@ -9,11 +9,48 @@
 #include <gio/gunixmounts.h>
 #include <glib.h>
 #include <nlohmann/json.hpp>
+#include <csignal>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
 
 namespace {
+  // The gocryptfs process of this user that serves `mount` (its last argument).
+  pid_t fuseDaemon(const fs::path& mount) {
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+      const std::string pid = entry.path().filename().string();
+      struct stat st {};
+      if (pid.find_first_not_of("0123456789") != std::string::npos || ::stat(entry.path().c_str(), &st) != 0 ||
+          st.st_uid != ::getuid()) {
+        continue;
+      }
+      std::ifstream in(entry.path() / "cmdline", std::ios::binary);
+      std::vector<std::string> argv;
+      for (std::string arg; std::getline(in, arg, '\0');) {
+        argv.push_back(std::move(arg));
+      }
+      if (argv.size() >= 2 && fs::path(argv.front()).filename() == "gocryptfs" && fs::path(argv.back()) == mount) {
+        return static_cast<pid_t>(std::stol(pid));
+      }
+    }
+    return -1;
+  }
+
+  int fusermount(const fs::path& mount, bool lazy) {
+    std::vector<const char*> argv{"fusermount3", "-u"};
+    if (lazy) {
+      argv.push_back("-z");
+    }
+    argv.push_back(mount.c_str());
+    argv.push_back(nullptr);
+    gint status = -1;
+    g_spawn_sync(nullptr, const_cast<gchar**>(argv.data()), nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr,
+                 nullptr, &status, nullptr);
+    return status;
+  }
+
   constexpr Logger kLog("files-vault");
   constexpr const char* kIdle = "10m";
   constexpr int kWrongPassword = 12; // gocryptfs exit code
@@ -242,10 +279,14 @@ int Vaults::guard(const fs::path& mount) {
         if (!start) {
           return;
         }
-        const char* argv[] = {"fusermount3", "-u", "-z", st.mount.c_str(), nullptr};
-        gint status = -1;
-        g_spawn_sync(nullptr, const_cast<gchar**>(argv), nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr,
-                     nullptr, &status, nullptr);
+        // A busy vault: a lazy unmount alone keeps open files readable, so the decrypting process goes first and
+        // every open handle fails from then on.
+        if (fusermount(st.mount, false) != 0) {
+          if (const pid_t daemon = fuseDaemon(st.mount); daemon > 0) {
+            ::kill(daemon, SIGKILL);
+          }
+          fusermount(st.mount, true);
+        }
         kLog.info("vault guard: locked {} before sleep", st.mount.string());
         if (st.inhibit >= 0) {
           ::close(st.inhibit);

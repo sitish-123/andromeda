@@ -1,5 +1,7 @@
 #include "select_pattern_sheet.h"
 
+#include "util/safe_regex.h"
+
 #include "core/deferred_call.h"
 #include "core/log.h"
 #include "ui/builders.h"
@@ -13,7 +15,6 @@
 #include <algorithm>
 #include <fnmatch.h>
 #include <format>
-#include <regex>
 
 namespace {
   constexpr Logger kLog("files");
@@ -46,16 +47,20 @@ std::vector<std::string> SelectPatternSheet::match(const std::vector<std::string
     return out;
   }
   if (mode == Mode::Regex) {
-    std::regex re;
-    try {
-      re = std::regex(pattern, std::regex::ECMAScript | std::regex::icase);
-    } catch (const std::regex_error&) {
+    const auto re = SafeRegex::compile(pattern, true);
+    if (!re) {
       if (error != nullptr) {
         *error = "This regular expression is not valid.";
       }
       return out;
     }
-    std::ranges::copy_if(names, std::back_inserter(out), [&](const std::string& n) { return std::regex_search(n, re); });
+    std::ranges::copy_if(names, std::back_inserter(out), [&](const std::string& n) { return re->search(n); });
+    if (re->exhausted()) {
+      out.clear();
+      if (error != nullptr) {
+        *error = "This regular expression takes too long. Make it simpler.";
+      }
+    }
     return out;
   }
   // "*.jpg | *.png": any of the "|" parts, case-insensitive, matched against the whole name (Dolphin).

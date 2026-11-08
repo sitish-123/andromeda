@@ -9,13 +9,16 @@
 #include "select_pattern_sheet.h"
 #include "smart_folder_sheet.h"
 
-#include <chrono>
 #include <algorithm>
+#include <array>
 #include <charconv>
+#include <chrono>
+#include <cstdlib>
 #include <gio/gio.h>
-#include <sys/stat.h>
 #include <gio/gunixmounts.h>
 #include <glib.h>
+#include <string_view>
+#include <sys/stat.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
 
 namespace fs = std::filesystem;
@@ -515,6 +518,17 @@ void FilesApp::open(const std::vector<std::string>& uris, const std::string& act
 }
 
 void FilesApp::action(const std::string& name, const std::vector<std::string>& parameter, const std::string& activationToken) {
+  // These answer sheets and dialogs or type into a terminal for E2E scripts; any session client can call
+  // ActivateAction, so they need the test environment.
+  static const bool testHooks = std::getenv("DESK_FILES_TEST") != nullptr;
+  static constexpr std::array<std::string_view, 7> kTestOnly{"sheet.password", "drive.erase", "terminal.type",
+                                                             "terminal.dump", "chooser.", "portal.", "access."};
+  if (!testHooks && std::ranges::any_of(kTestOnly, [&](std::string_view p) {
+        return p.ends_with('.') ? name.starts_with(p) : name == p;
+      })) {
+    kLog.warn("action {} is for tests only (DESK_FILES_TEST)", name);
+    return;
+  }
   FilesWindow* window = activeFilesWindow();
   if (name == "go" && window != nullptr && !parameter.empty()) {
     window->go(pathFromUri(parameter.front()));
@@ -661,6 +675,12 @@ void FilesApp::dialogAction(const std::string& name, const std::vector<std::stri
 }
 
 void FilesApp::onJobChanged(const FileOpsClient::Job& job) {
+  // Every rename and move (inline, batch, drag, cut and paste, undo) moves the starred and pinned paths with it.
+  // Once per job: the finished state can arrive again with later property changes.
+  if (job.finished() && !job.moves.empty() && m_movesApplied.insert(job.path).second) {
+    starred().moved(job.moves);
+    pins().moved(job.moves);
+  }
   for (auto& [appWindow, window] : m_windows) {
     window->onJobChanged(job);
   }

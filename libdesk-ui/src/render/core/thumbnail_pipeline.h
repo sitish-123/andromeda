@@ -32,4 +32,8 @@ namespace thumbnail_pipeline {
   // generateWith Thumbnailer1 (andromeda-thumbnailer, sandboxed), unless it failed on this version of the file.
   [[nodiscard]] std::optional<Pixels> generate(const std::string& path, int targetPx);
 
+  // Keeps the in-process cache bounded: drops entries unused for 90 days, then the least recently used past 1 GiB
+  // (down to 768 MiB). Blocking: run it off the UI thread.
+  void pruneCache();
+
 } // namespace thumbnail_pipeline

@@ -391,13 +391,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
                 return;
               }
               m_jobs.insert(job);
-              m_renameDone[job] = [this, done, from = path, to = path.parent_path() / name](const std::string& err) {
-                if (err.empty()) {
-                  m_app.starred().moved(from, to);
-                  m_app.pins().moved(from, to);
-                }
-                done(err);
-              };
+              m_renameDone[job] = [done](const std::string& err) { done(err); };
             });
           },
       .quickLook = [this](const fs::path& path) { quickLook(path, true); },
@@ -795,14 +789,15 @@ void FilesWindow::dropData(const fs::path& folder, const std::string& mime, cons
     name = std::format("{} {}{}", stem, n, ext);
   }
   FILE* out = std::fopen((folder / name).c_str(), "wbx");
-  if (out == nullptr || std::fwrite(data.data(), 1, data.size(), out) != data.size()) {
+  const bool written = out != nullptr && std::fwrite(data.data(), 1, data.size(), out) == data.size();
+  const bool closed = out != nullptr && std::fclose(out) == 0;
+  if (!written || !closed) {
     if (out != nullptr) {
-      std::fclose(out);
+      fs::remove(folder / name, ec); // ours (wbx made it): a short write leaves no half file behind
     }
     showToast(std::format("Can’t save the dropped {}", image ? "image" : "text"), false);
     return;
   }
-  std::fclose(out);
   kLog.debug("dropped data {}", (folder / name).string());
   if (folder == location()) {
     m_browser->renameWhenListed(name);
@@ -884,6 +879,7 @@ std::unique_ptr<Node> FilesWindow::buildContent(Renderer& renderer, float width,
                                                                           .share = [this](float x, float y) {
                                                                             showShareMenu(x, y);
                                                                           },
+                                                                          .changed = [this] { m_window.invalidate(); },
                                                                       });
     }
     auto split = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
@@ -1149,11 +1145,10 @@ void FilesWindow::refreshSplitStatus() {
   if (m_panes[1] == nullptr) {
     return;
   }
-  const FileBrowser& other = *m_panes[m_activePane == 0 ? 1 : 0];
+  FileBrowser& other = *m_panes[m_activePane == 0 ? 1 : 0];
   std::string suffix = std::format("{} pane: {}", m_activePane == 0 ? "Right" : "Left", other.title());
-  struct statvfs st {};
-  if (!other.location().empty() && ::statvfs(other.location().c_str(), &st) == 0) {
-    suffix += std::format(" · {} free", formatFileSize(static_cast<std::uint64_t>(st.f_bavail) * st.f_frsize));
+  if (const auto free = other.freeSpace()) {
+    suffix += std::format(" · {} free", formatFileSize(*free));
   }
   m_browser->setStatusSuffix(std::move(suffix));
   m_panes[m_activePane == 0 ? 1 : 0]->setStatusSuffix({});
@@ -1483,9 +1478,12 @@ void FilesWindow::unmounted(const fs::path& mount, const std::string& error) {
     showToast(std::format("“{}” can’t be ejected: {}", mount.filename().string(), error), false);
     return;
   }
-  const std::string at = location().string();
-  if (at == mount.string() || at.starts_with(mount.string() + "/")) {
-    go(g_get_home_dir());
+  // Every pane on the drive leaves it, not only the active one.
+  for (const auto& pane : m_panes) {
+    const std::string at = pane != nullptr ? pane->location().string() : std::string();
+    if (!at.empty() && (at == mount.string() || at.starts_with(mount.string() + "/"))) {
+      pane->go(g_get_home_dir());
+    }
   }
   loadTrash();
 }
@@ -1951,6 +1949,9 @@ void FilesWindow::toggleTerminal() {
   if (m_terminalOpen) {
     m_terminalOpen = false;
     kLog.debug("terminal pane off");
+    if (m_terminal != nullptr) {
+      m_terminal->detach();
+    }
     m_window.requestRebuild();
     return;
   }
@@ -2047,9 +2048,14 @@ void FilesWindow::syncCompare() {
   if (!m_compareOn || m_panes[1] == nullptr) {
     return;
   }
+  // The lists hold paths relative to the folders that were compared; a pane that moved on since must not count.
+  if (m_comparedDirs != std::pair{m_panes[0]->location(), m_panes[1]->location()}) {
+    refreshCompare();
+    return;
+  }
   const std::size_t from = m_activePane;
-  const fs::path source = m_panes[from]->location();
-  const fs::path destination = m_panes[from == 0 ? 1 : 0]->location();
+  const fs::path source = from == 0 ? m_comparedDirs.first : m_comparedDirs.second;
+  const fs::path destination = from == 0 ? m_comparedDirs.second : m_comparedDirs.first;
   // One copy job per destination folder: the daemon copies many sources into one folder.
   std::map<fs::path, std::vector<fs::path>> byFolder;
   for (const fs::path& rel : from == 0 ? m_compare.sendLeft : m_compare.sendRight) {
@@ -2814,7 +2820,18 @@ void FilesWindow::importPhotos() {
   if (dcim.empty()) {
     return;
   }
-  std::vector<fs::path> files = m_app.imports().pending(dcim);
+  // A card of thousands of photos takes a while to walk, and a slow card longer: the scan runs on a worker.
+  std::thread([this, dcim, imports = m_app.imports(), alive = std::weak_ptr<bool>(m_alive)] {
+    std::vector<fs::path> files = imports.pending(dcim);
+    DeferredCall::callLater([this, dcim, files = std::move(files), alive]() mutable {
+      if (!alive.expired()) {
+        importFiles(dcim, std::move(files));
+      }
+    });
+  }).detach();
+}
+
+void FilesWindow::importFiles(const fs::path& dcim, std::vector<fs::path> files) {
   kLog.debug("import {} new files from {}", files.size(), dcim.string());
   if (files.empty()) {
     showToast("All photos on this drive are imported", false);
@@ -2827,10 +2844,28 @@ void FilesWindow::importPhotos() {
       "Importing", files.size(), [&](FileOpsClient& ops, auto done) { ops.copy(files, dest, done); },
       [this, files, dest](const std::string& job) {
         m_renameDone[job] = [this, files, dest](const std::string& error) {
-          if (error.empty()) {
-            m_app.imports().remember(files);
-            kLog.debug("imported {} files to {}", files.size(), dest.string());
+          if (!error.empty()) {
+            return;
           }
+          // A conflict the user skipped copied nothing: only a photo that is now in the destination counts as
+          // imported (same name and size), so a skipped one is offered again next time.
+          std::thread([this, files, dest, alive = std::weak_ptr<bool>(m_alive)] {
+            std::vector<fs::path> done;
+            for (const fs::path& f : files) {
+              std::error_code a;
+              std::error_code b;
+              const auto size = fs::file_size(f, a);
+              if (!a && fs::file_size(dest / f.filename(), b) == size && !b) {
+                done.push_back(f);
+              }
+            }
+            DeferredCall::callLater([this, done = std::move(done), dest, alive] {
+              if (!alive.expired()) {
+                m_app.imports().remember(done);
+                kLog.debug("imported {} files to {}", done.size(), dest.string());
+              }
+            });
+          }).detach();
         };
       });
 }
@@ -2840,11 +2875,14 @@ std::string FilesWindow::formatTarget() const {
   // The drive whose mount point holds the location: whole path components only (/run/media/u/USB never matches
   // /run/media/u/USB1), and the deepest mount wins (a drive mounted inside another).
   const std::string here = location().lexically_normal().string();
+  const std::vector<Volume> volumes = listVolumes(); // `best` points into it
   const Volume* best = nullptr;
-  for (const Volume& v : listVolumes()) {
+  for (const Volume& v : volumes) {
     const std::string mount = v.mountPoint.lexically_normal().string();
     const bool inside = here == mount || here.starts_with(mount.ends_with('/') ? mount : mount + "/");
-    if (inside && (best == nullptr || mount.size() > best->mountPoint.lexically_normal().string().size())) {
+    // At the same mount (an encrypted drive lists its device and its unlocked mapper), the removable one counts.
+    const std::size_t bestSize = best != nullptr ? best->mountPoint.lexically_normal().string().size() : 0;
+    if (inside && (best == nullptr || mount.size() > bestSize || (mount.size() == bestSize && v.removable))) {
       best = &v;
     }
   }
@@ -3144,19 +3182,37 @@ std::vector<std::string> FilesWindow::pathMatches() const {
   }
   const fs::path dir = text.substr(0, slash + 1);
   const std::string prefix = TypeAhead::fold(text.substr(slash + 1));
+  // One listing per folder typed: a folder on a hung mount blocks only its own worker, never the next folder.
+  if (dir != m_pathListDir && dir != m_pathListAsked) {
+    m_pathListAsked = dir;
+    std::thread([this, dir, alive = std::weak_ptr<bool>(m_alive)] {
+      std::vector<std::string> names;
+      std::error_code ec;
+      std::size_t read = 0;
+      for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
+           !ec && it != end && names.size() < kPathMatchScan && read++ < 16 * kPathMatchScan; it.increment(ec)) {
+        std::error_code entry; // its own code: a broken link must not end the walk
+        if (it->is_directory(entry)) {
+          names.push_back(it->path().filename().string());
+        }
+      }
+      DeferredCall::callLater([this, dir, names = std::move(names), alive]() mutable {
+        if (alive.expired() || dir != m_pathListAsked) {
+          return;
+        }
+        m_pathListDir = dir;
+        m_pathListNames = std::move(names);
+        m_window.requestRebuild();
+      });
+    }).detach();
+  }
   std::vector<std::string> out;
-  std::error_code ec;
-  for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
-       it.increment(ec)) {
-    const std::string name = it->path().filename().string();
-    if ((name.starts_with('.') && !prefix.starts_with('.')) || !it->is_directory(ec)) {
-      continue;
-    }
-    if (TypeAhead::fold(name).starts_with(prefix)) {
+  if (dir != m_pathListDir) {
+    return out;
+  }
+  for (const std::string& name : m_pathListNames) {
+    if (!(name.starts_with('.') && !prefix.starts_with('.')) && TypeAhead::fold(name).starts_with(prefix)) {
       out.push_back((dir / name).string() + "/");
-    }
-    if (out.size() > kPathMatchScan) {
-      break;
     }
   }
   std::ranges::sort(out);

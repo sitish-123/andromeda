@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "file_kind.h"
 #include "helper_client.h"
 #include "audio_out.h"
@@ -119,6 +121,8 @@ namespace preview {
     std::string m_openWith; // the default app's name for this type; empty = none
     FileKind m_kind = FileKind::Other;
     std::uint64_t m_generation = 0;
+    // m_generation for worker threads: they read it without touching the window (0 once the window is gone).
+    std::shared_ptr<std::atomic<std::uint64_t>> m_live = std::make_shared<std::atomic<std::uint64_t>>(0);
     std::unique_ptr<HelperClient> m_helper;
     // Declared after m_helper: it uses the helper, so it goes first.
     std::unique_ptr<VideoView> m_video;

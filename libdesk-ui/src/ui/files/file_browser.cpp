@@ -434,6 +434,9 @@ struct FileBrowser::Ui {
   InputArea* focus = nullptr;
   FillNode* stage = nullptr;
   Flex* pathRow = nullptr;
+  Node* pathBar = nullptr;  // the rule and the bar: hidden in the immersive Gallery (mockup section 15)
+  Node* pathRule = nullptr;
+  bool pathBarWanted = false;
   Flex* crumbRow = nullptr; // split pane only
   Label* status = nullptr;
   std::array<Button*, 4> viewButtons{};
@@ -1517,6 +1520,7 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
                                                                      m_host.invalidate();
                                                                    }
                                                                  },
+                                                                 .back = [this] { leaveGallery(); },
                                                                  .select = [this](std::size_t i) {
                                                                    galleryStep(static_cast<int>(i) -
                                                                                static_cast<int>(m_galleryCurrent));
@@ -1606,8 +1610,9 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
   refreshTabs();
 
   auto rule = ui::separator({.gradientEdges = false});
-  rule->setVisible(pathBar);
-  content->addChild(std::move(rule));
+  m_ui->pathBarWanted = pathBar;
+  rule->setVisible(pathBar && m_options.view != View::Gallery);
+  m_ui->pathRule = content->addChild(std::move(rule));
   // Mockup .pbar: padding 0 16, gap 4, 500 12 label_2, last segment label_1; status, then the icon-size slider.
   auto path = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s, .paddingH = Tokens::spaceP16 * s,
                        .height = kPathBar * s});
@@ -1629,8 +1634,8 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
       .onValueChanged = [this](double v) { setIconSize(static_cast<float>(v)); },
   }));
   m_ui->zoom->accessibleState().name = "Icon size";
-  path->setVisible(pathBar);
-  content->addChild(std::move(path));
+  path->setVisible(pathBar && m_options.view != View::Gallery);
+  m_ui->pathBar = content->addChild(std::move(path));
 
   // The old nodes owned the running springs, and their completions were dropped with them: settle at the targets.
   ++m_presentGen;
@@ -1975,6 +1980,7 @@ void FileBrowser::navigate(HistoryEntry target, Motion motion, std::vector<std::
 
 void FileBrowser::attachModel() {
   m_modelView.reset();
+  m_modelEdits.reset();
   m_model.reset();
   if (m_listing.has_value()) {
     present(m_pendingMotion);
@@ -1985,6 +1991,21 @@ void FileBrowser::attachModel() {
   m_modelView->setSort(m_sort);
   m_modelView->setShowHidden(m_options.showHidden);
   m_modelView->setChangedCallback([this] { onModelChanged(); });
+  // A file still being written (a download, a recording) changes every batch: its preview decodes once it has been
+  // quiet for a second, not on every change.
+  m_modelEdits = m_model->subscribe([this, dir = m_location](const FileModel::Change& change) {
+    if (m_options.thumbnails == nullptr || change.modified.empty()) {
+      return;
+    }
+    for (const std::string& name : change.modified) {
+      m_staleThumbs.insert((dir / name).string());
+    }
+    m_staleTimer.start(std::chrono::seconds(1), [this] {
+      for (const std::string& path : std::exchange(m_staleThumbs, {})) {
+        m_options.thumbnails->reload(path);
+      }
+    });
+  });
   if (m_model->status() != FileModel::Status::Loading) {
     present(m_pendingMotion);
     return;
@@ -2689,6 +2710,9 @@ void FileBrowser::refreshChrome() {
       if (m_freeFor == m_location && m_free.has_value()) {
         text += std::format(" · {} free", formatFileSize(*m_free));
       }
+      if (m_model != nullptr && m_model->status() == FileModel::Status::Ready && !m_model->live()) {
+        text += " · Not updating live";
+      }
     }
     if (!m_statusSuffix.empty()) {
       text += "   " + m_statusSuffix;
@@ -2850,6 +2874,7 @@ void FileBrowser::syncGallery() {
     std::tm local{};
     if (localtime_r(&t, &local) != nullptr) {
       item.day = (local.tm_year + 1900) * 1000 + local.tm_yday;
+      item.time = t;
     }
     if (const auto video = pairedVideo.find(stem); video != pairedVideo.end()) {
       item.motion = true;
@@ -2879,6 +2904,8 @@ void FileBrowser::galleryAction(std::string_view action, float sceneX, float sce
   galleryStep(0);
   m_host.galleryAction(action, sceneX, sceneY);
 }
+
+void FileBrowser::leaveGallery() { setView(m_beforeGallery == View::Gallery ? View::Icons : m_beforeGallery); }
 
 void FileBrowser::galleryVideoProgress(bool playing, float progress, const std::string& time) {
   if (m_ui != nullptr && m_ui->gallery != nullptr) {
@@ -2956,6 +2983,9 @@ void FileBrowser::setView(View view) {
       m_ui->gallery->detachState();
     }
   }
+  if (view == View::Gallery) {
+    m_beforeGallery = m_options.view;
+  }
   m_options.view = view;
   if (view == View::Gallery && m_ui != nullptr && m_ui->gallery != nullptr) {
     m_ui->gallery->enter(m_galleryState);
@@ -2974,6 +3004,8 @@ void FileBrowser::setView(View view) {
     }
     m_ui->viewMix = 1.0F;
     m_ui->cur().root->setVisible(!own(view));
+    m_ui->pathBar->setVisible(m_ui->pathBarWanted && view != View::Gallery);
+    m_ui->pathRule->setVisible(m_ui->pathBarWanted && view != View::Gallery);
     syncColumns();
     syncGallery();
     refreshRows();
@@ -3098,43 +3130,56 @@ void FileBrowser::wantMedia(const std::string& path) {
   m_mediaPosted = true;
   // The rows bound in one frame are the viewport: one worker reads their headers, then the rows rebind once.
   DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
-    if (alive.expired()) {
-      return;
+    if (!alive.expired()) {
+      m_mediaPosted = false;
+      startMediaWorker();
     }
-    m_mediaPosted = false;
-    std::thread([this, paths = std::exchange(m_mediaWanted, {}), alive] {
-      std::vector<std::pair<std::string, MediaText>> out;
-      out.reserve(paths.size());
-      for (const std::string& path : paths) {
-        const MediaInfo info = readMediaInfo(path);
-        MediaText text;
-        if (info.size) {
-          text.dimensions = std::format("{} × {}", info.size->first, info.size->second);
-        }
-        if (info.seconds) {
-          text.duration = formatDuration(*info.seconds);
-        }
-        text.artist = info.artist;
-        out.emplace_back(path, std::move(text));
-      }
-      // `this` is only touched on the main loop, after the alive check.
-      DeferredCall::callLater([this, alive, out = std::move(out)]() mutable {
-        if (alive.expired()) {
-          return;
-        }
-        constexpr std::size_t kMaxCached = 8192;
-        if (m_media.size() + out.size() > kMaxCached) {
-          m_media.clear();
-        }
-        for (auto& [path, text] : out) {
-          kLog.debug("media {} {}", fs::path(path).filename().string(), text.dimensions);
-          m_mediaPending.erase(path);
-          m_media.insert_or_assign(std::move(path), std::move(text));
-        }
-        rebindPages();
-      });
-    }).detach();
   });
+}
+
+void FileBrowser::startMediaWorker() {
+  // One worker at a time: a fast scroll queues paths for the next batch instead of starting thread after thread.
+  if (m_mediaRunning || m_mediaWanted.empty()) {
+    return;
+  }
+  m_mediaRunning = true;
+  std::thread([this, paths = std::exchange(m_mediaWanted, {}), alive = std::weak_ptr<bool>(m_alive)] {
+    std::vector<std::pair<std::string, MediaText>> out;
+    out.reserve(paths.size());
+    for (const std::string& path : paths) {
+      if (alive.expired()) {
+        return; // the browser is gone: the rest is read for no one
+      }
+      const MediaInfo info = readMediaInfo(path);
+      MediaText text;
+      if (info.size) {
+        text.dimensions = std::format("{} × {}", info.size->first, info.size->second);
+      }
+      if (info.seconds) {
+        text.duration = formatDuration(*info.seconds);
+      }
+      text.artist = info.artist;
+      out.emplace_back(path, std::move(text));
+    }
+    // `this` is only touched on the main loop, after the alive check.
+    DeferredCall::callLater([this, alive, out = std::move(out)]() mutable {
+      if (alive.expired()) {
+        return;
+      }
+      m_mediaRunning = false;
+      constexpr std::size_t kMaxCached = 8192;
+      if (m_media.size() + out.size() > kMaxCached) {
+        m_media.clear();
+      }
+      for (auto& [path, text] : out) {
+        kLog.debug("media {} {}", fs::path(path).filename().string(), text.dimensions);
+        m_mediaPending.erase(path);
+        m_media.insert_or_assign(std::move(path), std::move(text));
+      }
+      rebindPages();
+      startMediaWorker();
+    });
+  }).detach();
 }
 
 const Node* FileBrowser::viewOptionsAnchor() const { return m_ui->sortButton; }
@@ -3631,7 +3676,7 @@ bool FileBrowser::onKey(const KeyboardEvent& event) {
       return true;
     }
     if (event.sym == XKB_KEY_Escape) {
-      setView(View::Icons);
+      leaveGallery();
       return true;
     }
     if (event.sym == XKB_KEY_f && m_ui->gallery != nullptr) {

@@ -1,5 +1,6 @@
 #include "details_pane.h"
 
+#include "core/deferred_call.h"
 #include "core/files/file_info.h"
 #include "core/files/media_info.h"
 #include "core/log.h"
@@ -21,6 +22,7 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -67,8 +69,58 @@ namespace {
   }
 } // namespace
 
+struct DetailsPane::Facts {
+  fs::path folder;
+  std::vector<fs::path> selection;
+  std::optional<FileInfo> info; // the selected item, or the folder
+  std::uint64_t total = 0;      // several selected: their file bytes
+  std::size_t count = 0;        // a folder: its entries
+  std::optional<std::uint64_t> free;
+  MediaInfo media;
+  std::int64_t born = 0;
+  std::vector<std::string> tags;
+  std::vector<TagDef> tagDefs;
+
+  static Facts read(fs::path folder, std::vector<fs::path> selection) {
+    Facts f{.folder = std::move(folder), .selection = std::move(selection)};
+    if (f.selection.size() > 1) {
+      for (const fs::path& p : f.selection) {
+        if (const auto info = statFile(p); info && !info->isDir) {
+          f.total += info->size;
+        }
+      }
+      f.info = statFile(f.selection.front());
+      return f;
+    }
+    const fs::path path = f.selection.empty() ? f.folder : f.selection.front();
+    f.info = statFile(path);
+    if (f.info && f.info->isDir) {
+      std::error_code ec;
+      for (auto it = fs::directory_iterator(path, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        ++f.count;
+      }
+      if (struct statvfs v{}; f.selection.empty() && ::statvfs(path.c_str(), &v) == 0) {
+        f.free = static_cast<std::uint64_t>(v.f_bavail) * v.f_frsize;
+      }
+    } else if (f.info) {
+      const std::string& type = f.info->contentType;
+      if (type.starts_with("image/") || type.starts_with("video/") || type.starts_with("audio/")) {
+        f.media = readMediaInfo(path);
+      }
+    }
+    f.born = birthNs(path);
+    f.tags = readTags(path);
+    if (!f.tags.empty()) {
+      f.tagDefs = loadTagConfig();
+    }
+    return f;
+  }
+};
+
 DetailsPane::DetailsPane(ThumbnailService* thumbnails, Actions actions)
     : m_thumbnails(thumbnails), m_actions(std::move(actions)) {}
+
+DetailsPane::~DetailsPane() { *m_alive = false; }
 
 std::unique_ptr<Node> DetailsPane::build(float scale) {
   m_scale = scale;
@@ -88,7 +140,34 @@ void DetailsPane::update(const fs::path& folder, std::vector<fs::path> selection
   }
   m_folder = folder;
   m_selection = std::move(selection);
-  fill();
+  read();
+}
+
+void DetailsPane::read() {
+  // One reader at a time: a held arrow key reads the newest selection once the current read is in, and a hung
+  // network mount blocks one thread, not one per key press. The old content stays until the new facts are read.
+  if (m_reading) {
+    return;
+  }
+  m_reading = true;
+  std::thread([this, folder = m_folder, selection = m_selection, alive = std::weak_ptr<bool>(m_alive)] {
+    auto facts = std::make_shared<const Facts>(Facts::read(folder, selection));
+    DeferredCall::callLater([this, facts = std::move(facts), alive] {
+      if (alive.expired()) {
+        return;
+      }
+      m_reading = false;
+      if (facts->folder != m_folder || facts->selection != m_selection) {
+        read(); // the selection moved on while this one was read
+        return;
+      }
+      m_facts = facts;
+      fill();
+      if (m_actions.changed) {
+        m_actions.changed();
+      }
+    });
+  }).detach();
 }
 
 void DetailsPane::fill() {
@@ -129,72 +208,60 @@ void DetailsPane::fill() {
     m_root->addChild(std::move(card));
   };
 
+  if (m_facts == nullptr || m_facts->folder != m_folder || m_facts->selection != m_selection) {
+    m_root->markLayoutDirty();
+    return; // read on a worker; fill() runs again when it is in
+  }
+  const Facts& f = *m_facts;
   if (m_selection.size() > 1) {
-    std::uint64_t total = 0;
-    for (const fs::path& p : m_selection) {
-      if (const auto info = statFile(p); info && !info->isDir) {
-        total += info->size;
-      }
-    }
-    preview(m_selection.front(), statFile(m_selection.front()));
+    preview(m_selection.front(), f.info);
     m_root->addChild(text(std::format("{} items", m_selection.size()), Tokens::typeHeadline.size * s,
                           FontWeight::SemiBold, ColorRole::Label1, 1));
-    m_root->addChild(text(formatFileSize(total), Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2, 1));
+    m_root->addChild(text(formatFileSize(f.total), Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2, 1));
   } else {
     const fs::path path = m_selection.empty() ? m_folder : m_selection.front();
-    const auto info = statFile(path);
+    const auto& info = f.info;
     preview(path, info);
     auto names = ui::column({.align = FlexAlign::Stretch});
     names->addChild(text(info ? info->displayName : path.filename().string(), Tokens::typeTitle3.size * s,
                          FontWeight::SemiBold, ColorRole::Label1, 2));
     std::string detail = info ? fileKindLabel(*info) : std::string();
     if (info && info->isDir) {
-      std::error_code ec;
-      std::size_t count = 0;
-      for (auto it = fs::directory_iterator(path, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
-        ++count;
-      }
-      detail += std::format(" · {} item{}", count, count == 1 ? "" : "s");
-      if (struct statvfs v{}; m_selection.empty() && ::statvfs(path.c_str(), &v) == 0) {
-        detail += std::format(" · {} free", formatFileSize(static_cast<std::uint64_t>(v.f_bavail) * v.f_frsize));
+      detail += std::format(" · {} item{}", f.count, f.count == 1 ? "" : "s");
+      if (f.free) {
+        detail += std::format(" · {} free", formatFileSize(*f.free));
       }
     } else if (info) {
       detail += " · " + formatFileSize(info->size);
     }
     names->addChild(text(detail, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2, 2));
     m_root->addChild(std::move(names));
-    if (info && !info->isDir) {
-      const std::string& type = info->contentType;
-      if (type.starts_with("image/") || type.starts_with("video/") || type.starts_with("audio/")) {
-        const MediaInfo media = readMediaInfo(path);
-        if (media.size) {
-          kv("Dimensions", std::format("{} × {}", media.size->first, media.size->second));
-          kLog.debug("details {} {}x{}", path.filename().string(), media.size->first, media.size->second);
-        }
-        if (media.seconds) {
-          kv("Duration", formatDuration(*media.seconds));
-        }
-        if (!media.artist.empty()) {
-          kv("Artist", media.artist);
-        }
-      }
+    const MediaInfo& media = f.media;
+    if (media.size) {
+      kv("Dimensions", std::format("{} × {}", media.size->first, media.size->second));
+      kLog.debug("details {} {}x{}", path.filename().string(), media.size->first, media.size->second);
     }
-    if (const std::int64_t born = birthNs(path); born != 0) {
-      kv("Created", formatFileDate(born));
+    if (media.seconds) {
+      kv("Duration", formatDuration(*media.seconds));
+    }
+    if (!media.artist.empty()) {
+      kv("Artist", media.artist);
+    }
+    if (f.born != 0) {
+      kv("Created", formatFileDate(f.born));
     }
     if (info) {
       kv("Modified", formatFileDate(info->mtimeNs));
     }
     kv("Where", path.parent_path().parent_path().filename().string() + " › " + path.parent_path().filename().string());
-    if (const auto tags = readTags(path); !tags.empty()) {
-      const auto defs = loadTagConfig();
+    if (!f.tags.empty()) {
       auto row = ui::row({.align = FlexAlign::Center});
       row->addChild(ui::label({.text = std::string("Tags"), .fontSize = Style::fontSizeCaption * s,
                                .color = colorSpecFromRole(ColorRole::Label2), .minWidth = kKeyWidth * s, .maxWidth = kKeyWidth * s}));
       auto dots = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s});
-      for (const std::string& tag : tags) {
+      for (const std::string& tag : f.tags) {
         std::uint32_t rgb = 0x8E8E93; // an unknown tag shows grey
-        for (const TagDef& d : defs) {
+        for (const TagDef& d : f.tagDefs) {
           rgb = d.name == tag ? d.rgb : rgb;
         }
         dots->addChild(ui::column({.fill = ColorSpec{.role = std::nullopt, .fixed = rgbHex(rgb), .alpha = 1.0F}, .radius = Tokens::spaceP4 * s, .width = Tokens::spaceP8 * s,
@@ -215,7 +282,7 @@ void DetailsPane::fill() {
                          .height = Tokens::sizeControlM * s, .onClick = std::move(onClick)});
     };
     buttons->addChild(button("Open", ButtonVariant::Primary, [this] { m_actions.open(); }));
-    if (m_selection.size() == 1 && !fs::is_directory(m_selection.front())) {
+    if (m_selection.size() == 1 && !(f.info && f.info->isDir)) {
       buttons->addChild(button("Open With…", ButtonVariant::Default, [this] { m_actions.openWith(); }));
     }
     if (m_actions.share) {

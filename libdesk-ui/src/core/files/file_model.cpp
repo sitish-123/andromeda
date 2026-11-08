@@ -394,6 +394,7 @@ void FileModel::flushWatch() {
     return true;
   });
   bool changed = false;
+  std::vector<std::string> modified;
   std::vector<std::shared_ptr<const FileInfo>> fresh;
   for (const std::string& name : names) {
     auto info = statFile(m_dir / name);
@@ -409,6 +410,9 @@ void FileModel::flushWatch() {
       continue;
     }
     changed = true;
+    if (was != old.end()) {
+      modified.push_back(name);
+    }
     fresh.push_back(std::make_shared<const FileInfo>(std::move(*info)));
   }
   const auto key = [](const auto& p) -> const FileInfo& { return *p; };
@@ -418,7 +422,7 @@ void FileModel::flushWatch() {
   std::ranges::merge(m_entries, fresh, std::back_inserter(merged), nameBefore, key, key);
   m_entries = std::move(merged);
   if (changed) {
-    notify({.type = Change::Type::Updated});
+    notify({.type = Change::Type::Updated, .modified = std::move(modified)});
   }
 }
 

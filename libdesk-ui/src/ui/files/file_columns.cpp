@@ -163,7 +163,12 @@ std::unique_ptr<FileColumns::Column> FileColumns::makeColumn(const fs::path& dir
       const std::string name = rows[index]->name;
       const fs::path dir = c->dir;
       kLog.debug("column press {} in {}", name, dir.string());
-      DeferredCall::callLater([goSelect = m_host.goSelect, dir, name] { goSelect(dir, name); });
+      // goSelect reaches the browser: skip it when the columns (and their browser) went in the same loop turn.
+      DeferredCall::callLater([goSelect = m_host.goSelect, dir, name, alive = std::weak_ptr<bool>(m_alive)] {
+        if (!alive.expired()) {
+          goSelect(dir, name);
+        }
+      });
     };
     c->adapter.activate = [](std::size_t) {};
   }

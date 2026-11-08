@@ -42,6 +42,7 @@ public:
     };
     std::optional<FolderClash> folderClash;
     bool undoable = false;
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> moves; // finished: what moved, from -> to
     std::string result; // a checksum job's hex digest
 
     [[nodiscard]] bool finished() const noexcept { return state == "done" || state == "failed" || state == "cancelled"; }

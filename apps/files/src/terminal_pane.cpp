@@ -451,13 +451,30 @@ std::unique_ptr<Node> TerminalPane::build(Renderer& renderer, float scale, float
       std::move(frame));
   auto outer = ui::column({.align = FlexAlign::Stretch, .padding = kMargin * s, .height = kHeight * s});
   outer->addChild(std::move(area));
+  if (m_focusWanted) {
+    m_focusWanted = false;
+    // After this build is in the scene: the dispatcher tracks only attached areas.
+    DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+      if (!alive.expired() && m_area != nullptr && m_host.focus) {
+        m_host.focus(m_area);
+      }
+    });
+  }
   return outer;
 }
 
 void TerminalPane::focus() {
   if (m_area != nullptr && m_host.focus) {
     m_host.focus(m_area);
+  } else {
+    m_focusWanted = true; // hidden or not built yet: the next build takes the keys
   }
+}
+
+void TerminalPane::detach() {
+  m_area = nullptr;
+  m_rows = nullptr;
+  m_focusWanted = false;
 }
 
 bool TerminalPane::focused() const { return m_area != nullptr && m_area->focused(); }

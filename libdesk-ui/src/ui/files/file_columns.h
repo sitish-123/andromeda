@@ -90,4 +90,5 @@ private:
   std::uint32_t m_scrollAnim = 0;
   bool m_scrollPending = false;
   Renderer* m_renderer = nullptr;
+  std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };

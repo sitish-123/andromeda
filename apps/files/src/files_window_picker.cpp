@@ -1,4 +1,5 @@
 #include "app/app_window.h"
+#include "state_file.h"
 #include "core/log.h"
 #include "files_app.h"
 #include "files_window.h"
@@ -156,14 +157,7 @@ void FilesWindow::rememberPickerFolder() const {
     list.push_back(folder.string());
   }
   state[m_picker->request.appId] = {{"last", location().string()}, {"recent", list}};
-  std::error_code ec;
-  fs::create_directories(pickerStatePath().parent_path(), ec);
-  const fs::path tmp = pickerStatePath().string() + ".tmp";
-  {
-    std::ofstream out(tmp, std::ios::trunc);
-    out << state.dump(2);
-  }
-  fs::rename(tmp, pickerStatePath(), ec);
+  writeStateFile(pickerStatePath(), state.dump(2));
 }
 
 std::string FilesWindow::pickerPrimaryLabel() const {

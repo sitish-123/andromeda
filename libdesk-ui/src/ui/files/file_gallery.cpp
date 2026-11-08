@@ -28,7 +28,10 @@ namespace fs = std::filesystem;
 
 namespace {
   constexpr Logger kLog("file-gallery");
-  // The Gallery follows the scheme: window background stage, popover capsules with a stroke, label text.
+  // The Gallery follows the scheme: window background stage, popover glass capsules with a stroke, label text.
+  // Mockup .gcap 56 %, .ginfo 64 %: the wash under them is already blurred, so a see-through fill reads as glass.
+  constexpr float kCapsuleAlpha = 0.56F;
+  constexpr float kCardAlpha = 0.64F;
   ColorSpec role(ColorRole r) { return colorSpecFromRole(r); }
   constexpr float kAmbientOpacity = 0.56F;
   constexpr int kAmbientPx = 64; // DESIGN.md: the cached 64 px thumbnail, scaled up
@@ -93,7 +96,7 @@ namespace {
     auto c = std::make_unique<Capsule>();
     c->setDirection(FlexDirection::Horizontal);
     c->setAlign(FlexAlign::Center);
-    c->setFill(role(ColorRole::Popover));
+    c->setFill(colorSpecFromRole(ColorRole::Popover, kCapsuleAlpha));
     c->setBorder(role(ColorRole::Stroke), std::max(1.0F, s / 2.0F));
     c->setRadius(radius);
     return c;
@@ -164,6 +167,10 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
   m_ambient = static_cast<Image*>(addChild(std::make_unique<Image>()));
   m_ambient->setFit(ImageFit::Cover);
   m_ambient->setOpacity(kAmbientOpacity);
+  m_photoShadow = static_cast<Box*>(addChild(ui::box(
+      {.fill = role(ColorRole::Shadow), .radius = Style::scaledRadius(Tokens::radiusR8, s), .visible = false})));
+  m_photoShadow->setFill(colorSpecFromRole(ColorRole::Shadow, isResolvedLightTheme() ? 0.24F : 0.5F));
+  m_photoShadow->setSoftness(Tokens::spaceP64 * s);
   m_photo = static_cast<Image*>(addChild(std::make_unique<Image>()));
   m_photo->setFit(ImageFit::Contain);
   m_photo->setRadius(Style::scaledRadius(Tokens::radiusR8, s));
@@ -202,6 +209,7 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
       if (now - m_lastClickAt < kDoubleClick) {
         m_lastClickAt = {};
         m_wantHundred = m_zoom <= 1.01F;
+        m_hundredSteps = 1.0F;
         zoomAt(data.localX, data.localY, m_zoom > 1.01F ? 1.0F : std::max(zoom100(), kZoomStep));
         return;
       }
@@ -239,7 +247,11 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
       return false;
     }
     const float steps = data.axisLines != 0.0F ? data.axisLines : static_cast<float>(data.axisValue) / 10.0F;
-    zoomAt(data.localX, data.localY, m_zoom * std::pow(kZoomStep, -steps));
+    const float factor = std::pow(kZoomStep, -steps);
+    if (m_wantHundred) {
+      m_hundredSteps *= factor; // applied again on the true 100 % once the full decode tells the size
+    }
+    zoomAt(data.localX, data.localY, m_zoom * factor);
     return true;
   });
   hover->setOnPinch([this](const InputArea::PinchData& data) {
@@ -259,17 +271,25 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
   });
   m_hover = static_cast<InputArea*>(addChild(std::move(hover)));
 
+  // Mockup .gcap: padding 0 4, a 32 back button, then place or name over "12 of 86 · date" (.gt: padding 0 8).
   auto title = capsule(s, kCapsuleH * s / 2.0F);
-  title->setDirection(FlexDirection::Vertical);
-  title->setAlign(FlexAlign::Start);
-  title->setJustify(FlexJustify::Center);
-  title->setPadding(0.0F, Tokens::spaceP16 * s);
+  title->setPadding(0.0F, Tokens::spaceP12 * s, 0.0F, Tokens::spaceP4 * s);
   title->setMinHeight(kCapsuleH * s);
   title->setMaxHeight(kCapsuleH * s);
-  title->addChild(ui::label({.out = &m_name, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::SemiBold,
+  title->addChild(actionButton("chevron-left", s, nullptr, [this](float, float) {
+    if (m_host.back) {
+      m_host.back();
+    }
+  }));
+  auto text = std::make_unique<Flex>();
+  text->setDirection(FlexDirection::Vertical);
+  text->setJustify(FlexJustify::Center);
+  text->setPadding(0.0F, Tokens::spaceP8 * s);
+  text->addChild(ui::label({.out = &m_name, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::SemiBold,
                              .color = role(ColorRole::Label1), .maxLines = 1, .ellipsize = TextEllipsize::Middle}));
-  title->addChild(ui::label({.out = &m_position, .fontSize = Style::fontSizeCaption * s, .color = role(ColorRole::Label2),
-                             .maxLines = 1}));
+  text->addChild(ui::label({.out = &m_position, .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
+                            .color = role(ColorRole::Label2), .maxLines = 1}));
+  title->addChild(std::move(text));
   m_title = static_cast<Flex*>(addChild(std::move(title)));
 
   const auto step = [this](int delta) {
@@ -313,6 +333,7 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
 
   // The Info card (mockup .ginfo): 280 wide, 20 radius, 16 padding, 12 gap; filled by buildInfoCard.
   auto card = capsule(s, Style::scaledRadius(Tokens::radiusR20, s));
+  card->setFill(colorSpecFromRole(ColorRole::Popover, kCardAlpha));
   card->setDirection(FlexDirection::Vertical);
   card->setAlign(FlexAlign::Stretch);
   card->setGap(Tokens::spaceP12 * s);
@@ -861,6 +882,7 @@ void FileGallery::doLayout(Renderer& renderer) {
   m_zoomChip->setVisible(false);
   if (!any) {
     m_photo->setVisible(false);
+    m_photoShadow->setVisible(false);
     m_ambient->setVisible(false);
     releaseAll(m_held);
     return;
@@ -894,7 +916,8 @@ void FileGallery::doLayout(Renderer& renderer) {
     if (m_wantHundred) {
       // The full decode gave the real size: settle the double-click on true 100 %, the view centre kept.
       m_wantHundred = false;
-      zoomAt(m_stageCx, m_stageCy, std::max(zoom100(), kZoomStep));
+      zoomAt(m_stageCx, m_stageCy, std::max(zoom100(), kZoomStep) * m_hundredSteps);
+      m_hundredSteps = 1.0F;
     }
   } else if (photo.id != 0 && m_photoTexW < photo.width) {
     m_photoTexW = photo.width; // until the full decode tells the real size
@@ -953,13 +976,15 @@ void FileGallery::doLayout(Renderer& renderer) {
   }
   // Zoomed, the fit ignores the chrome: its fade must not resize a photo the user is looking into.
   const float side = zoomed ? kEdge * s : mix(kEdge * s, inset);
-  const float top = zoomed ? kEdge * s : mix(kEdge * s, inset);
+  // Mockup .photo top 96: the title row plus a 40 gap.
+  const float top = zoomed ? kEdge * s : mix(kEdge * s, (kEdge + kCapsuleH + Tokens::spaceP40) * s);
   const float bottom = zoomed ? kEdge * s : mix(kEdge * s, (kFilmH + kEdge + kEdge) * s);
   // The open Info card takes the right edge: the photo centres in what is left (mockup section 15).
   const float card = m_infoOpen ? (kInfoW + kEdge) * s : 0.0F;
   const float availW = std::max(1.0F, w - side - side - card);
   const float availH = std::max(1.0F, h - top - bottom);
   m_photo->setVisible(photo.id != 0);
+  m_photoShadow->setVisible(photo.id != 0);
   if (photo.id == 0 && m_videoActive && m_host.placeVideo) {
     // A video with no poster frame yet: it fits the free stage, keeping its own aspect.
     float vx = 0.0F;
@@ -990,6 +1015,8 @@ void FileGallery::doLayout(Renderer& renderer) {
     m_photo->setPosition(std::round(m_stageCx + m_panX - zw / 2.0F), std::round(m_stageCy + m_panY - zh / 2.0F));
     m_photo->setSize(std::round(zw), std::round(zh));
     m_photo->layout(renderer);
+    m_photoShadow->setPosition(m_photo->x(), m_photo->y() + Tokens::spaceP24 * s);
+    m_photoShadow->setSize(m_photo->width(), m_photo->height());
     if (m_videoActive && m_host.placeVideo) {
       // The video subsurface covers the photo exactly; its first placement starts it.
       float vx = 0.0F;
@@ -1033,8 +1060,18 @@ void FileGallery::doLayout(Renderer& renderer) {
     }
   }
 
-  m_name->setText(m_items[m_current].filename().string());
-  m_position->setText(std::format("{} of {}", m_current + 1, m_items.size()));
+  // Mockup .gt: the place once the Info read found one, else the file name.
+  const bool placed = m_infoFor == m_items[m_current] && !m_info.place.empty();
+  m_name->setText(placed ? m_info.place : m_items[m_current].filename().string());
+  std::string position = std::format("{} of {}", m_current + 1, m_items.size());
+  if (const auto t = static_cast<std::time_t>(m_current < m_itemInfo.size() ? m_itemInfo[m_current].time : 0); t != 0) {
+    std::tm local{};
+    std::array<char, 32> date{};
+    if (localtime_r(&t, &local) != nullptr && std::strftime(date.data(), date.size(), "%-d %b %Y, %H:%M", &local) > 0) {
+      position += std::format(" · {}", date.data());
+    }
+  }
+  m_position->setText(position);
   m_name->setMaxWidth(w / 2.0F);
   const LayoutSize titleSize = m_title->measure(renderer, LayoutConstraints::available(w / 2.0F, kCapsuleH * s));
   m_title->arrange(renderer, LayoutRect{.x = kEdge * s, .y = kEdge * s, .width = titleSize.width, .height = kCapsuleH * s});

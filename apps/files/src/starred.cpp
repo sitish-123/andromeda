@@ -1,5 +1,6 @@
 #include "starred.h"
 
+#include "state_file.h"
 #include "core/log.h"
 
 #include <algorithm>
@@ -43,13 +44,20 @@ bool Starred::toggle(const std::vector<fs::path>& paths) {
   return star;
 }
 
-void Starred::moved(const fs::path& from, const fs::path& to) {
+void Starred::moved(const std::vector<std::pair<fs::path, fs::path>>& moves) {
   bool changed = false;
   for (fs::path& p : m_paths) {
-    // The item itself or anything inside a moved folder.
-    const auto rel = p.lexically_relative(from);
-    if (p == from || (!rel.empty() && *rel.begin() != "..")) {
-      p = p == from ? to : to / rel;
+    // The deepest move that holds this path wins: the item itself, or the folder it is in.
+    const std::pair<fs::path, fs::path>* best = nullptr;
+    for (const auto& move : moves) {
+      const auto rel = p.lexically_relative(move.first);
+      const bool inside = p == move.first || (!rel.empty() && *rel.begin() != "..");
+      if (inside && (best == nullptr || move.first.native().size() > best->first.native().size())) {
+        best = &move;
+      }
+    }
+    if (best != nullptr) {
+      p = p == best->first ? best->second : best->second / p.lexically_relative(best->first);
       changed = true;
     }
   }
@@ -63,13 +71,5 @@ void Starred::save() const {
   for (const fs::path& p : m_paths) {
     list.push_back(p.string());
   }
-  const fs::path file = storePath();
-  std::error_code ec;
-  fs::create_directories(file.parent_path(), ec);
-  const fs::path tmp = file.string() + ".tmp";
-  std::ofstream(tmp) << list.dump(1);
-  fs::rename(tmp, file, ec);
-  if (ec) {
-    kLog.warn("save {}: {}", file.string(), ec.message());
-  }
+  writeStateFile(storePath(), list.dump(1));
 }

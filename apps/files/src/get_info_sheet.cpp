@@ -22,7 +22,9 @@
 #include <gio/gio.h>
 #include <grp.h>
 #include <pwd.h>
+#include <set>
 #include <sys/stat.h>
+#include <thread>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -91,7 +93,7 @@ GetInfoSheet::GetInfoSheet(std::vector<fs::path> items, FileOpsClient* ops, std:
 
 GetInfoSheet::~GetInfoSheet() {
   *m_alive = false;
-  m_counter.request_stop();
+  m_count->stop = true;
   if (m_ops != nullptr) {
     for (const Sum* sum : {&m_sha, &m_md5}) {
       if (sum->state == Sum::State::Running && !sum->job.empty()) {
@@ -139,41 +141,54 @@ void GetInfoSheet::startCount() {
     }
   }
   if (dirs.empty()) {
-    m_countDone = true;
+    m_count->done = true;
     return;
   }
-  m_counter = std::jthread([this, dirs = std::move(dirs), alive = std::weak_ptr<bool>(m_alive)](std::stop_token stop) {
+  // Each file once (hard links share an inode) and this file system only (a mount inside is not part of the folder).
+  std::thread([this, count = m_count, dirs = std::move(dirs), alive = std::weak_ptr<bool>(m_alive)] {
     const auto post = [&] {
-      if (!m_countPosted.exchange(true)) {
-        later([this] {
-          m_countPosted = false;
-          updateSize();
+      if (!count->posted.exchange(true)) {
+        DeferredCall::callLater([this, count, alive] {
+          count->posted = false;
+          if (auto a = alive.lock(); a && *a) {
+            updateSize();
+          }
         });
       }
     };
+    std::set<std::pair<dev_t, ino_t>> linked;
     for (const fs::path& dir : dirs) {
+      struct stat root{};
+      if (::stat(dir.c_str(), &root) != 0) {
+        continue;
+      }
       std::error_code ec;
       for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
            !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
-        if (stop.stop_requested()) {
+        if (count->stop) {
           return;
         }
-        const auto status = it->symlink_status(ec);
-        if (!ec && fs::is_regular_file(status)) {
-          m_countBytes += it->file_size(ec);
+        struct stat st{};
+        if (::lstat(it->path().c_str(), &st) != 0) {
+          continue;
         }
-        if (++m_countItems % kCountPostEvery == 0) {
+        if (S_ISDIR(st.st_mode) && st.st_dev != root.st_dev) {
+          it.disable_recursion_pending();
+        } else if (S_ISREG(st.st_mode) && (st.st_nlink < 2 || linked.emplace(st.st_dev, st.st_ino).second)) {
+          count->bytes += static_cast<std::uint64_t>(st.st_size);
+        }
+        if (++count->items % kCountPostEvery == 0) {
           post();
         }
       }
     }
-    m_countDone = true;
+    count->done = true;
     post();
-  });
+  }).detach();
 }
 
 std::string GetInfoSheet::sizeText() const {
-  std::uint64_t bytes = m_countBytes;
+  std::uint64_t bytes = m_count->bytes;
   for (const Item& item : m_items) {
     bytes += item.size;
   }
@@ -181,9 +196,9 @@ std::string GetInfoSheet::sizeText() const {
   if (!dirs) {
     return formatFileSize(bytes);
   }
-  const std::uint64_t items = m_countItems;
+  const std::uint64_t items = m_count->items;
   std::string text = std::format("{} · {} {}", formatFileSize(bytes), items, items == 1 ? "item" : "items");
-  return m_countDone ? text : "Counting… " + text;
+  return m_count->done ? text : "Counting… " + text;
 }
 
 void GetInfoSheet::updateSize() {

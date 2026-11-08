@@ -1,10 +1,10 @@
 #include "ui/files/batch_rename.h"
+#include "util/safe_regex.h"
 
 #include <algorithm>
 #include <format>
 #include <glib.h>
 #include <map>
-#include <regex>
 
 namespace {
   std::pair<std::string, std::string> splitExtension(const std::string& name) {
@@ -109,12 +109,11 @@ namespace {
 std::vector<BatchRenameResult> applyBatchRename(const BatchRenameRule& rule, const std::vector<BatchRenameItem>& items,
                                                 const std::set<std::string>& existing) {
   std::vector<BatchRenameResult> results(items.size());
-  std::optional<std::regex> pattern;
+  std::optional<SafeRegex> pattern;
   std::string patternError;
   if (rule.mode == BatchRenameRule::Mode::Regex) {
-    try {
-      pattern.emplace(rule.find, std::regex::ECMAScript);
-    } catch (const std::regex_error&) {
+    pattern = SafeRegex::compile(rule.find, false);
+    if (!pattern) {
       patternError = "The pattern is not valid.";
     }
   }
@@ -138,13 +137,15 @@ std::vector<BatchRenameResult> applyBatchRename(const BatchRenameRule& rule, con
                                                                  : titleCase(stem);
       break;
     case BatchRenameRule::Mode::Regex:
-      next = pattern.has_value() ? std::regex_replace(stem, *pattern, rule.replacement) : stem;
+      next = pattern.has_value() ? pattern->replace(stem, rule.replacement) : stem;
       break;
     }
     BatchRenameResult& r = results[i];
     r.name = next + ext;
     if (!patternError.empty()) {
       r.error = patternError;
+    } else if (pattern.has_value() && pattern->exhausted()) {
+      r.error = "The pattern takes too long. Make it simpler.";
     } else if (next.empty() || r.name == "." || r.name == "..") {
       r.error = "The name would be empty.";
     } else if (r.name.find('/') != std::string::npos || r.name.find('\0') != std::string::npos) {

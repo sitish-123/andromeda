@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Starred files and folders (GNOME Files' Starred, Ctrl+D): $XDG_DATA_HOME/andromeda/files/starred.json, a list of
@@ -15,8 +16,9 @@ public:
   [[nodiscard]] bool contains(const std::filesystem::path& path) const;
   // Stars every path when one of them is not starred, else unstars them all; true = they are starred now.
   bool toggle(const std::vector<std::filesystem::path>& paths);
-  // Follows a rename or move done in Files. Missing paths stay: they may be on a drive that is not mounted now.
-  void moved(const std::filesystem::path& from, const std::filesystem::path& to);
+  // Follows the moves and renames of one finished job, all at once: a swap (a -> b, b -> a) maps each path through
+  // the original names. Missing paths stay: they may be on a drive that is not mounted now.
+  void moved(const std::vector<std::pair<std::filesystem::path, std::filesystem::path>>& moves);
 
   [[nodiscard]] std::filesystem::path storePath() const;
 

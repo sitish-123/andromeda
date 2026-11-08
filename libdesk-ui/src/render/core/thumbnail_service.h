@@ -165,6 +165,8 @@ private:
   // Queued and running requests; m_canceled holds running ones released before their result arrived.
   std::unordered_set<RequestKey, RequestKeyHash> m_inFlight;
   std::unordered_set<RequestKey, RequestKeyHash> m_canceled;
+  std::unordered_set<RequestKey, RequestKeyHash> m_running; // popped by a worker, result not yet taken
+  std::unordered_set<RequestKey, RequestKeyHash> m_visibleQueued; // keys with a copy in m_jobQueue
 
   mutable std::mutex m_resultMutex;
   std::deque<DecodedJob> m_results;

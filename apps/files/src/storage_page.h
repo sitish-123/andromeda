@@ -61,6 +61,7 @@ private:
   std::filesystem::path m_root;
   Actions m_actions;
   bool m_scanning = false;
+  std::string m_usage; // "120 GB used of 500 GB", read with each scan off the UI thread
   std::string m_error;
   std::optional<Summary> m_summary;
   std::optional<std::filesystem::path> m_drill;

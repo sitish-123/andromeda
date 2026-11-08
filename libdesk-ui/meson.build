@@ -311,6 +311,7 @@ _desk_ui_sources = files(
   'src/ui/visuals/fancy_audio_visualizer.cpp',
   'src/util/clamp.cpp',
   'src/util/fuzzy_match.cpp',
+  'src/util/safe_regex.cpp',
   'src/util/string_utils.cpp',
   'src/wayland/dsk_surface_client.cpp',
   'src/wayland/hyprland/focus_grab_service.cpp',
