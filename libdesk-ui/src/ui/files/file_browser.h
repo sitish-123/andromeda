@@ -176,6 +176,7 @@ public:
   void setView(View view);
   // Tabs (FB4, mockup §1): the strip shows with 2 or more. A new tab opens the current folder (Finder).
   void newTab();
+  void openInNewTab(std::size_t index); // a folder row; files are ignored
   // False with one tab left: the host closes the window (Ctrl+W).
   bool closeTab();
   void selectTab(std::size_t index);
@@ -243,6 +244,10 @@ public:
   void selectNames(const std::vector<std::string>& names);
   // Opens the file's folder with the file selected (Go to Folder on a file path, Show in Folder).
   void reveal(const std::filesystem::path& file) { goSelecting(file.parent_path(), {file.filename().string()}); }
+  // Shows a listed photo in the Gallery without making it the folder's view; false for other files.
+  bool openInGallery(const std::filesystem::path& file);
+  // The same for a file of this folder that may not be listed yet: it opens once the listing lands.
+  void showInGallery(const std::string& name);
   void selectAll();
   // Moves the cursor and the selection by `delta` items in view order (Quick Look walk, FILES-UX 3.6).
   void walk(int delta);
@@ -263,7 +268,7 @@ public:
   void dragEnded();
   [[nodiscard]] const std::vector<std::filesystem::path>& draggedPaths() const noexcept { return m_dragPaths; }
   // The drag image (mockup §22): the first 3 dragged items stacked, a count badge for 2 or more. Size: dragImageSize().
-  [[nodiscard]] std::unique_ptr<Node> buildDragImage() const;
+  [[nodiscard]] std::unique_ptr<Node> buildDragImage(Renderer& renderer) const;
   [[nodiscard]] float dragImageSize() const noexcept;
 
   // Inline rename (FILES-UX §2.5): F2 selects the stem, F2 again all; Enter commits, Escape cancels, Tab commits and
@@ -369,6 +374,8 @@ private:
   std::vector<std::shared_ptr<const FileInfo>> m_searchRows;
   std::optional<View> m_viewBeforeSearch; // the view This PC results replaced with the list
   bool m_searchViewSwitch = false;         // setView for search: the host does not save it
+  std::string m_pendingGallery;
+  bool m_galleryTransient = false; // the Gallery opened on one photo: leaving it restores the view, nothing is saved
   bool m_applyingView = false;             // navigate applies the folder's stored view: nothing to save
   void saveView();
   std::vector<std::filesystem::path> m_galleryItems; // what the Gallery shows, in view order

@@ -30,7 +30,7 @@ query() { # desktop, mime
 
 declare -A want=(
   [inode/directory]=dev.andromeda.Files.desktop
-  [image/png]=dev.andromeda.Viewer.desktop [image/jpeg]=dev.andromeda.Viewer.desktop
+  [image/png]=dev.andromeda.Photos.desktop [image/jpeg]=dev.andromeda.Photos.desktop
   [application/pdf]=dev.andromeda.Viewer.desktop
   [audio/mpeg]=dev.andromeda.Player.desktop [audio/flac]=dev.andromeda.Player.desktop
   [video/mp4]=dev.andromeda.Player.desktop [video/x-matroska]=dev.andromeda.Player.desktop

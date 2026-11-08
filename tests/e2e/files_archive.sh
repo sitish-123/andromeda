@@ -84,7 +84,7 @@ shot 2-docs
 
 m=$(mark); keys mod alt tap 105 mod none        # Alt+Left: the archive top again
 wait_log "$m" "location archive:" || fail "Alt+Left did not go back to the archive top"
-wait_log "$m" "settle files.page.under" || fail "the slide back to the archive top did not settle"
+wait_log "$m" "settle files.page" || fail "going back to the archive top did not settle"
 sleep 0.1 # the geometry after the last settle
 wait_log "$m" "geometry banner-action 1 " || fail "the archive bar has no Extract All button"
 

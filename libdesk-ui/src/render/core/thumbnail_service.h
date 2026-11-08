@@ -75,7 +75,8 @@ public:
   subscribeReady(const std::string& path, ReadyCallback callback, int targetPx = kDefaultTargetPx);
 
   // Visible requests run before Prefetch ones (rows just outside the view).
-  enum class Priority { Visible, Prefetch };
+  // Now jumps ahead of every queued request (the Gallery photo the user is looking at).
+  enum class Priority { Now, Visible, Prefetch };
 
   // Returns the uploaded handle if already decoded, or {0} if a decode is
   // pending. Each acquire must be paired with a release() using the same

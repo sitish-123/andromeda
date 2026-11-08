@@ -227,6 +227,12 @@ void ThumbnailService::enqueueDecodeIfNeeded(const RequestKey& key, Priority pri
   std::scoped_lock lock(m_queueMutex);
   m_canceled.erase(key);
   if (m_inFlight.contains(key)) {
+    if (priority == Priority::Now && !m_running.contains(key)) {
+      m_visibleQueued.insert(key);
+      m_jobQueue.push_front(key); // a second copy at the front; the worker skips the stale one
+      m_queueCv.notify_one();
+      return;
+    }
     if (priority == Priority::Visible && !m_running.contains(key) && m_visibleQueued.insert(key).second) {
       m_jobQueue.push_back(key); // promoted: the prefetch copy goes stale
       m_queueCv.notify_one();
@@ -234,10 +240,14 @@ void ThumbnailService::enqueueDecodeIfNeeded(const RequestKey& key, Priority pri
     return;
   }
   m_inFlight.insert(key);
-  if (priority == Priority::Visible) {
+  if (priority != Priority::Prefetch) {
     m_visibleQueued.insert(key);
   }
-  (priority == Priority::Visible ? m_jobQueue : m_prefetchQueue).push_back(key);
+  if (priority == Priority::Now) {
+    m_jobQueue.push_front(key);
+  } else {
+    (priority == Priority::Visible ? m_jobQueue : m_prefetchQueue).push_back(key);
+  }
   m_workers->spawn([this](std::size_t slot) { workerLoop(slot); });
   m_queueCv.notify_one();
 }

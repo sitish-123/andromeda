@@ -78,6 +78,7 @@ private:
   std::string m_openArtist;
   bool m_lastHasVideo = false;
   std::string m_nowPlayingPath;
+  bool m_volumeRestored = false;
   AppWindow* m_pip = nullptr; // the picture-in-picture window while the video is in it
   zwp_idle_inhibitor_v1* m_inhibitor = nullptr;
   std::string m_pending;           // a file opened before the window exists

@@ -25,6 +25,7 @@ namespace thumbnail_pipeline {
   namespace {
 
     constexpr float kThumbnailWebPQuality = 82.0F;
+    constexpr int kMaxCachedPx = 512;
     constexpr std::string_view kThumbnailCacheVersion = "thumbnail-service-v3";
     constexpr Logger kLog("thumbnail");
     constexpr std::array<std::string_view, 5> kWuffsExtensions = {".png", ".jpg", ".jpeg", ".gif", ".bmp"};
@@ -234,7 +235,8 @@ namespace thumbnail_pipeline {
         return std::nullopt;
       }
     }
-    if (const auto cachePath = cachePathForSource(path, targetPx)) {
+    // Only thumbnail sizes go to the disk cache: encoding a stage-size (Gallery) decode costs more than decoding again.
+    if (const auto cachePath = targetPx <= kMaxCachedPx ? cachePathForSource(path, targetPx) : std::nullopt) {
       std::uint8_t* encoded = nullptr;
       const std::size_t encodedSize =
           WebPEncodeRGB(rgb->data(), out.width, out.height, out.width * 3, kThumbnailWebPQuality, &encoded);

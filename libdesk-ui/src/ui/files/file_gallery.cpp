@@ -332,7 +332,7 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationMan
   m_actions = static_cast<Flex*>(addChild(std::move(actions)));
 
   // The Info card (mockup .ginfo): 280 wide, 20 radius, 16 padding, 12 gap; filled by buildInfoCard.
-  auto card = capsule(s, Style::scaledRadius(Tokens::radiusR20, s));
+  auto card = capsule(s, Style::scaledRadius(Tokens::componentPopoverRadius, s));
   card->setFill(colorSpecFromRole(ColorRole::Popover, kCardAlpha));
   card->setDirection(FlexDirection::Vertical);
   card->setAlign(FlexAlign::Stretch);
@@ -766,11 +766,11 @@ void FileGallery::setItems(std::vector<fs::path> items, std::size_t current, std
   }
 }
 
-void FileGallery::hold(const std::string& path, int px, std::vector<Held>& next) {
+void FileGallery::hold(const std::string& path, int px, std::vector<Held>& next, bool now) {
   if (m_thumbs == nullptr) {
     return;
   }
-  (void)m_thumbs->acquire(path, px);
+  (void)m_thumbs->acquire(path, px, now ? ThumbnailService::Priority::Now : ThumbnailService::Priority::Visible);
   next.push_back({.path = path, .px = px});
 }
 
@@ -892,11 +892,12 @@ void FileGallery::doLayout(Renderer& renderer) {
   std::vector<Held> next;
   const std::string current = m_items[m_current].string();
   const int photoPx = photoBucket(std::ceil(std::max(w, h) * s));
-  hold(current, photoPx, next);
+  hold(current, photoPx, next, true);
   if (zoomed) {
-    hold(current, kZoomPx, next); // full resolution while zoomed; the stage-size one shows until it is ready
+    hold(current, kZoomPx, next, true); // full resolution while zoomed; the stage-size one shows until it is ready
   }
   hold(current, kAmbientPx, next);
+  hold(current, kFilmPx, next, true); // the stand-in while the stage size decodes
   if (!m_oldWashPath.empty()) {
     hold(m_oldWashPath, kAmbientPx, next); // until the cross-fade ends
   }
@@ -922,7 +923,13 @@ void FileGallery::doLayout(Renderer& renderer) {
   } else if (photo.id != 0 && m_photoTexW < photo.width) {
     m_photoTexW = photo.width; // until the full decode tells the real size
   }
-  const TextureHandle wash = texture(current, kAmbientPx);
+  // The filmstrip already shows this photo's 96 px crop: it stands in for the wash and the photo until their own
+  // decodes land, so a large photo never opens on an empty stage.
+  const TextureHandle film = texture(current, kFilmPx);
+  TextureHandle wash = texture(current, kAmbientPx);
+  if (wash.id == 0) {
+    wash = film;
+  }
   if (photo.id == 0) {
     photo = wash; // the cached small one at once, the full size swaps in (DESIGN.md speed)
   }
@@ -957,7 +964,10 @@ void FileGallery::doLayout(Renderer& renderer) {
   m_ambientOld->setVisible(oldWash.id != 0 && m_washFade < 1.0F);
   if (m_ambientOld->visible()) {
     m_ambientOld->setExternalTexture(renderer, oldWash);
-    m_ambientOld->setOpacity(kAmbientOpacity * (1.0F - m_washFade));
+    // Under the new wash (alpha a·f) the old one keeps the total coverage at a, so the stage shows no dip mid-fade:
+    // 1 - (1 - a·f)(1 - o) = a  =>  o = a(1 - f) / (1 - a·f).
+    const float newAlpha = kAmbientOpacity * m_washFade;
+    m_ambientOld->setOpacity(kAmbientOpacity * (1.0F - m_washFade) / std::max(1e-3F, 1.0F - newAlpha));
     m_ambientOld->setPosition(-inset, -inset);
     m_ambientOld->setSize(w + inset + inset, h + inset + inset);
     m_ambientOld->layout(renderer);

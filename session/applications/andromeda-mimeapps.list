@@ -1,18 +1,18 @@
-# Andromeda's own apps open folders, images, PDFs, audio and video in an Andromeda session (XDG_CURRENT_DESKTOP=andromeda).
+# Andromeda's own apps open folders, images (Photos = the Files Gallery), PDFs, audio and video in an Andromeda session (XDG_CURRENT_DESKTOP=andromeda).
 # The user's ~/.config/mimeapps.list wins over it.
 [Default Applications]
 inode/directory=dev.andromeda.Files.desktop
 application/pdf=dev.andromeda.Viewer.desktop
-image/png=dev.andromeda.Viewer.desktop
-image/jpeg=dev.andromeda.Viewer.desktop
-image/webp=dev.andromeda.Viewer.desktop
-image/gif=dev.andromeda.Viewer.desktop
-image/avif=dev.andromeda.Viewer.desktop
-image/heif=dev.andromeda.Viewer.desktop
-image/jxl=dev.andromeda.Viewer.desktop
-image/tiff=dev.andromeda.Viewer.desktop
-image/bmp=dev.andromeda.Viewer.desktop
-image/svg+xml=dev.andromeda.Viewer.desktop
+image/png=dev.andromeda.Photos.desktop
+image/jpeg=dev.andromeda.Photos.desktop
+image/webp=dev.andromeda.Photos.desktop
+image/gif=dev.andromeda.Photos.desktop
+image/avif=dev.andromeda.Photos.desktop
+image/heif=dev.andromeda.Photos.desktop
+image/jxl=dev.andromeda.Photos.desktop
+image/tiff=dev.andromeda.Photos.desktop
+image/bmp=dev.andromeda.Photos.desktop
+image/svg+xml=dev.andromeda.Photos.desktop
 audio/mpeg=dev.andromeda.Player.desktop
 audio/mp4=dev.andromeda.Player.desktop
 audio/aac=dev.andromeda.Player.desktop

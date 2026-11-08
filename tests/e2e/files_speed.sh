@@ -87,7 +87,7 @@ report "$COUNT stats read" "$(num 'statted [0-9]+ in' 'in [0-9.]+ ms')" 1000 ms
 
 # List view, then a fast wheel scroll over it: no missed frames, p99 CPU per frame under one 60 Hz frame.
 m=$(mark); keys mod control tap 3 mod none
-wait_log "$m" "settle files.view " || fail "Ctrl+2 did not switch to the list"
+wait_log "$m" "view list" || fail "Ctrl+2 did not switch to the list"
 cx=$((WX + WW * 2 / 3)); cy=$((WY + WH / 2))
 m=$(mark)
 scroll=(move "$cx" "$cy")

@@ -50,6 +50,7 @@
 #include "wayland/drag_and_drop.h"
 #include "wayland/drag_icon_surface.h"
 #include "wayland/wayland_connection.h"
+#include "wayland/toplevel_surface.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
@@ -314,6 +315,9 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
               openArchive(path); // archives open like folders (mockup section 8)
               return;
             }
+            if (m_browser->openInGallery(path)) {
+              return;
+            }
             GError* error = nullptr;
             if (!g_app_info_launch_default_for_uri(uriFor(path).c_str(), nullptr, &error)) {
               showToast(std::format("Can’t open “{}”", path.filename().string()), false);
@@ -339,7 +343,10 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
               text += (text.empty() ? "" : "\n") + p.string();
             }
             m_dragIcon.reset();
-            m_dragImage = m_browser->buildDragImage();
+            if (m_window.surface() == nullptr) {
+              return false;
+            }
+            m_dragImage = m_browser->buildDragImage(m_window.surface()->renderTarget().renderer());
             const auto size = static_cast<std::uint32_t>(std::ceil(m_browser->dragImageSize()));
             auto icon = std::make_unique<DragIconSurface>(m_app.loop().wayland(), size, size,
                                                           std::max(1, static_cast<int>(std::ceil(m_window.uiScale()))));
@@ -501,6 +508,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
     return accessory;
   });
   m_window.setContentBuilder([this](Renderer& renderer, float w, float h) { return buildContent(renderer, w, h); });
+  m_window.setTitleClick([this] { openPathField(""); });
   m_window.setKeyHandler([this](const KeyboardEvent& event) {
     // "/" or "~" typed in the list starts a path (Finder, GTK); search and rename fields take the key before this.
     if (event.pressed && (event.utf32 == '/' || event.utf32 == '~') && (event.modifiers & (KeyMod::Ctrl | KeyMod::Alt)) == 0 &&
@@ -975,6 +983,7 @@ void FilesWindow::onBrowserChanged() {
   m_window.setTitle(m_browser->title());
   m_window.refreshNavigation();
   refreshSplitStatus();
+  rememberPlace();
   if (m_terminalOpen && m_terminal != nullptr && m_browser->listingId().empty()) {
     m_terminal->followFolder(location());
   }
@@ -985,6 +994,28 @@ void FilesWindow::onBrowserChanged() {
   if (m_details != nullptr && m_detailsOpen) {
     m_details->update(location(), selectedPaths());
     m_window.invalidate();
+  }
+}
+
+void FilesWindow::rememberPlace() {
+  // A plain launch reopens the last place (folder, This PC, Recents or Starred); other listings fall back to home.
+  const std::string& id = m_browser->listingId();
+  std::string place = id.empty() ? location().string() : id;
+  if (m_picker.has_value() || (!id.empty() && id != "recents" && id != "starred" && id != "this-pc") || place.empty()) {
+    return;
+  }
+  if (m_app.state().get<std::string>("/files/last_place", "") != place) {
+    m_app.state().set("/files/last_place", std::move(place));
+  }
+}
+
+void FilesWindow::reopenPlace(const std::string& place) {
+  if (place == "recents") {
+    goRecents();
+  } else if (place == "starred") {
+    goStarred();
+  } else if (place == "this-pc") {
+    goThisPc();
   }
 }
 
@@ -3321,6 +3352,8 @@ void FilesWindow::forward() { m_browser->forward(); }
 void FilesWindow::up() { m_browser->up(); }
 void FilesWindow::selectAll() { m_browser->selectAll(); }
 void FilesWindow::selectNames(const std::vector<std::string>& names) { m_browser->selectNames(names); }
+void FilesWindow::showInGallery(const std::string& name) { m_browser->showInGallery(name); }
+void FilesWindow::setView(FileBrowser::View view) { m_browser->setView(view); }
 void FilesWindow::toggleHidden() { m_browser->setShowHidden(!m_browser->showHidden()); }
 
 void FilesWindow::groupBy(FileGroupBy group) {

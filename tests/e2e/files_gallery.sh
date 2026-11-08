@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Files FB-GALLERY chrome (DESIGN.md "Files v2 immersive Gallery"): the capsules fade 2 s after the last pointer move,
 # a move brings them back, F hides and shows them; the photo grows into the freed space. Fails when:
+#   - opening a photo does not show it in the Gallery, or saves the Gallery as the folder's view,
+#   - a Photos launch (--action=gallery) does not open the photo in the Gallery of a new window,
 #   - Ctrl+4 does not open the Gallery,
 #   - the chrome does not hide 2 s after the pointer stops, or a move or F does not bring it back,
 #   - a hide or show reports missed frames (DESK_FRAME_STATS),
@@ -126,6 +128,18 @@ wait_log 0 "first frame at" 200 || fail "the window drew no first frame"
 wait_log 0 "listed [0-9]+ in" 200 || fail "the folder did not list"
 run "$ANDROMEDA" settle > /dev/null
 
+# Opening a photo from the icons shows it in the Gallery; Escape returns to the icons and the folder keeps its view.
+m=$(mark); keys tap 23 tap 50 tap 34 pause 100 tap 28   # "img", Enter
+wait_log "$m" "view gallery" || fail "opening a photo did not show it in the Gallery"
+wait_log "$m" "gallery [0-9]+ of " || fail "the Gallery did not open on the photo"
+grep -q "view saved" < <(tail -n +"$((m + 1))" "$OUT/files.log") && fail "opening a photo saved the Gallery as the folder's view"
+m=$(mark); keys tap 1
+wait_log "$m" "view icons" || fail "Escape did not return from the opened photo to the icons"
+m=$(mark); keys tap 102                          # Home: the cursor back on the first photo for the steps below
+wait_log "$m" "cursor A_kathmandu.jpg" || fail "Home did not move the cursor to the first photo"
+run "$ANDROMEDA" settle > /dev/null
+
+speed_from=$(mark) # the speed numbers start here: the photo-open step above warms other photos first
 m=$(mark); keys mod control tap 5 mod none   # Ctrl+4
 wait_log "$m" "view gallery" || fail "Ctrl+4 did not open the Gallery"
 run "$POINTER" 1280 720 move 640 360 pause 50 move 650 370 > /dev/null
@@ -209,9 +223,18 @@ m=$(mark); keys tap 57
 wait_log "$m" "gallery slideshow off" || fail "a second Space did not stop the slideshow"
 
 # Speed (DESIGN.md "Files v2" Gallery budgets, release): next photo from its cached thumbnail, full size.
-shown=$(grep -oE "gallery photo shown in [0-9.]+" "$OUT/files.log" | tail -n +2 | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
-full=$(grep -oE "gallery photo full size in [0-9.]+" "$OUT/files.log" | tail -n +2 | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
+shown=$(tail -n +"$((speed_from + 1))" "$OUT/files.log" | grep -oE "gallery photo shown in [0-9.]+" | tail -n +2 | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
+full=$(tail -n +"$((speed_from + 1))" "$OUT/files.log" | grep -oE "gallery photo full size in [0-9.]+" | tail -n +2 | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
 echo "next photo shown (worst) ${shown:-?} ms, budget 16 ms; full size (worst) ${full:-?} ms, budget 150 ms (release budgets)"
+
+# Photos (dev.andromeda.Photos.desktop: andromeda-files --action=gallery %U): a second launch forwards to the running
+# Files, which opens a window on that photo's folder with the photo in the Gallery.
+m=$(mark)
+run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
+  XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache" LC_ALL=C.UTF-8 \
+  "$FILES" --action=gallery "$SRC/IMG_05.png" > /dev/null 2>&1 || fail "the Photos launch did not forward"
+wait_log "$m" "view gallery" 200 || fail "Photos did not open the photo in the Gallery"
+wait_log "$m" "gallery [0-9]+ of " || fail "Photos opened the Gallery without the photo"
 
 echo "hide missed frames ${hide_missed:-0}, show missed frames ${show_missed:-0}"
 [[ ${hide_missed:-0} -eq 0 && ${show_missed:-0} -eq 0 ]] || fail "the chrome motion missed frames"

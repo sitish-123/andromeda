@@ -146,12 +146,11 @@ namespace {
 
   constexpr Logger kLog("file-browser");
   constexpr auto kSkeletonDelay = std::chrono::milliseconds(200);
-  constexpr auto kSkeletonHold = std::chrono::milliseconds(400);
+  constexpr auto kSkeletonHold = std::chrono::milliseconds(0); // content replaces the skeleton the moment it lands
   constexpr auto kDoubleClick = std::chrono::milliseconds(400);
   constexpr auto kSpringLoad = std::chrono::milliseconds(700); // FILES-UX §2.3
-  const float& kSlideGap = Tokens::spaceP32; // P12: incoming and outgoing 32 apart
-  constexpr float kParallax = 0.30F;          // the page underneath moves 30 %
-  constexpr float kUnderDim = 0.90F;          // and dims 10 %
+  constexpr float kZoomIn = 0.96F;            // a folder's page grows from this scale as it opens
+  constexpr float kZoomOut = 1.04F;           // the parent's page shrinks from this one on Back
   const float& kSidebarRow = Tokens::componentSidebarRow;
   const float& kPathBar = Tokens::sizeRowCompact; // FILES-UX §0.2: compact row, not 28
   const float& kListHeader = Tokens::componentListTableHeader;
@@ -326,10 +325,6 @@ public:
     if (m_live && index.has_value() && m_pressIndex == index) {
       m_browser.onItemRelease(*index);
     }
-    if (m_live && index.has_value() && m_activate == index) {
-      result.activateIndex = index;
-    }
-    m_activate.reset();
     m_pressIndex.reset();
     return result;
   }
@@ -348,6 +343,11 @@ public:
       m_browser.onItemActivate(index);
     }
   }
+  void onMiddleActivate(std::size_t index) override {
+    if (m_live) {
+      m_browser.openInNewTab(index);
+    }
+  }
   void onSecondaryActivate(std::size_t index, float x, float y) override {
     if (m_live && m_menu) {
       m_menu(index, x, y);
@@ -358,7 +358,6 @@ public:
       m_browser.backgroundMenu(x, y);
     }
   }
-  void armActivate(std::size_t index) { m_activate = index; }
   void setMenu(std::function<void(std::size_t, float, float)> menu) { m_menu = std::move(menu); }
   [[nodiscard]] std::string itemTooltip(std::size_t index) const override {
     return m_rows != nullptr && index < m_rows->size() ? (*m_rows)[index]->displayName : std::string();
@@ -384,7 +383,6 @@ private:
   const std::vector<std::pair<std::size_t, std::string>>* m_groups = nullptr;
   std::function<FileCellState(const FileInfo&, std::size_t)> m_state;
   std::function<void(std::size_t, float, float)> m_menu;
-  std::optional<std::size_t> m_activate;
   std::optional<std::size_t> m_pressIndex; // a press on an item that may become a drag
   bool m_band = false;
 };
@@ -417,8 +415,13 @@ struct FileBrowser::Page {
   Button* whereHeader = nullptr; // search results (mockup §5): Where after Name
   std::array<Button*, 3> extraHeaders{}; // Dimensions, Duration, Artist (View Options columns)
 
+  // The page is opaque, so the incoming page hides the outgoing one; node opacity multiplies into each draw, so a
+  // page without its own fill would show the other page's cells through its own.
+  Box* background = nullptr;
   float x = 0.0F; // slide offset
   float opacity = 1.0F;
+  float scale = 1.0F; // folder zoom
+  AnimationManager::Id scaleAnim = 0;
   AnimationManager::Id xAnim = 0;
   AnimationManager::Id fadeAnim = 0;
 };
@@ -610,14 +613,147 @@ InputArea* FileBrowser::focusArea() const noexcept { return m_ui->focus; }
 
 // ---- builds -------------------------------------------------------------------------------------------------------
 
+namespace {
+  // The header accessory: the tools (view switch, circles, sort) fold away when they and the search at its minimum do
+  // not fit, so a narrow window never draws them over the More button; they stay in the More menu and on the keys.
+  // The header tools fold one at a time as the window narrows (rulebook 9.12, Finder toolbar): first the host circles
+  // after the first one (they are in the More menu too), then sort, then the search capsule becomes a magnifier circle,
+  // then the first host circle (the job pill when a job runs), and the view switch last.
+  class HeaderAccessory final : public Flex {
+  public:
+    std::function<bool()> searchMode;
+    Flex** tools = nullptr;
+    Flex** search = nullptr;
+    Input** searchField = nullptr;
+    InputArea* searchHit = nullptr; // over the collapsed capsule: a click opens the search
+    float searchMin = 0.0F;
+    float searchMax = 0.0F;
+    float iconWidth = 0.0F;
+    std::size_t hostBegin = 1; // tools children [hostBegin, hostEnd) are the host's; the last child is sort
+    std::size_t hostEnd = 1;
+
+    void setCollapsed(bool collapsed) {
+      if (search == nullptr || *search == nullptr || collapsed == m_collapsed) {
+        return;
+      }
+      m_collapsed = collapsed;
+      Flex* capsule = *search;
+      capsule->setMinWidth(collapsed ? iconWidth : searchMin);
+      capsule->setMaxWidth(collapsed ? iconWidth : searchMax);
+      capsule->setJustify(collapsed ? FlexJustify::Center : FlexJustify::Start);
+      if (searchField != nullptr && *searchField != nullptr) {
+        (*searchField)->setVisible(!collapsed);
+        (*searchField)->setParticipatesInLayout(!collapsed);
+      }
+      if (searchHit != nullptr) {
+        searchHit->setVisible(collapsed);
+      }
+      capsule->markLayoutDirty();
+    }
+
+  protected:
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      if (tools != nullptr && *tools != nullptr && searchMode) {
+        fold(renderer, rect.width);
+      }
+      Flex::doArrange(renderer, rect);
+      if (searchHit != nullptr && search != nullptr && *search != nullptr) {
+        searchHit->setSize((*search)->width(), (*search)->height());
+      }
+    }
+
+  private:
+    void fold(Renderer& renderer, float width) {
+      Flex* t = *tools;
+      const auto& kids = t->children();
+      const auto show = [](Node* node, bool visible) {
+        node->setVisible(visible);
+        node->setParticipatesInLayout(visible);
+      };
+      if (searchMode()) {
+        setCollapsed(false);
+        show(t, false);
+        if (search != nullptr && *search != nullptr) {
+          show(*search, true);
+        }
+        return;
+      }
+      show(t, true);
+      std::vector<float> widths(kids.size(), 0.0F);
+      std::vector<bool> shown(kids.size(), true);
+      for (std::size_t i = 0; i < kids.size(); ++i) {
+        show(kids[i].get(), true);
+        widths[i] = kids[i]->measure(renderer, {}).width;
+      }
+      bool collapsed = false;
+      const auto total = [&] {
+        float sum = 0.0F;
+        int n = 0;
+        for (std::size_t i = 0; i < kids.size(); ++i) {
+          if (shown[i]) {
+            sum += widths[i];
+            ++n;
+          }
+        }
+        sum += t->gap() * static_cast<float>(std::max(0, n - 1));
+        return sum + (n > 0 ? gap() : 0.0F) + (collapsed ? iconWidth : searchMin);
+      };
+      constexpr std::size_t kSearch = static_cast<std::size_t>(-1);
+      std::vector<std::size_t> order;
+      for (std::size_t i = hostEnd; i-- > hostBegin + 1;) {
+        order.push_back(i);
+      }
+      if (kids.size() > hostEnd) {
+        order.push_back(kids.size() - 1); // sort
+      }
+      order.push_back(kSearch);
+      if (hostEnd > hostBegin) {
+        order.push_back(hostBegin);
+      }
+      order.push_back(0); // the view switch
+      for (const std::size_t step : order) {
+        if (total() <= width) {
+          break;
+        }
+        if (step == kSearch) {
+          collapsed = true;
+        } else if (step < kids.size()) {
+          shown[step] = false;
+        }
+      }
+      for (std::size_t i = 0; i < kids.size(); ++i) {
+        show(kids[i].get(), shown[i]);
+      }
+      show(t, std::ranges::any_of(shown, [](bool b) { return b; }));
+      setCollapsed(collapsed);
+      if (search != nullptr && *search != nullptr) {
+        show(*search, total() <= width); // too narrow even for the circle: Ctrl+F still opens the search
+      }
+    }
+
+    bool m_collapsed = false;
+  };
+} // namespace
+
 std::unique_ptr<Node> FileBrowser::buildHeaderAccessory() {
   const float s = m_ui->scale;
   // Right-aligned in the header; its minimum keeps the search at search_width_min (the header ellipsizes the title
-  // only past that).
-  const float viewsW = (Tokens::componentFilesViewItemWidth * 4.0F + Tokens::componentFilesViewPadding * 5.0F) * s;
+  // only past that). The tools fold away first (HeaderAccessory).
   const float gap = Tokens::spaceP8 * s;
-  auto row = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .gap = gap,
-                      .minWidth = viewsW + Tokens::sizeControlM * s + Tokens::componentFilesSearchWidthMin * s + gap * 2.0F});
+  auto row = std::make_unique<HeaderAccessory>();
+  row->setDirection(FlexDirection::Horizontal);
+  row->setAlign(FlexAlign::Center);
+  row->setJustify(FlexJustify::End);
+  row->setGap(gap);
+  // The header ellipsizes the title before the view switch and the search circle fold.
+  row->setMinWidth(4.0F * Tokens::componentFilesViewItemWidth * s + 5.0F * Tokens::componentFilesViewPadding * s + gap +
+                   Tokens::sizeControlM * s);
+  row->searchMin = Tokens::componentFilesSearchWidthMin * s;
+  row->searchMax = Tokens::componentFilesSearchWidth * s;
+  row->iconWidth = Tokens::sizeControlM * s;
+  row->tools = &m_ui->tools;
+  row->search = &m_ui->search;
+  row->searchMode = [this] { return m_ui->searchMode; };
   auto tools = ui::row({.out = &m_ui->tools, .align = FlexAlign::Center, .gap = gap});
   // Mockup .seg: 32 high r16 fill_1, padding 2, gap 2; items 36 x 28 r14; the current one = lens + 0.5 stroke.
   const float itemH = Tokens::componentFilesViewItemHeight * s;
@@ -678,9 +814,11 @@ std::unique_ptr<Node> FileBrowser::buildHeaderAccessory() {
   }
   tools->addChild(std::move(views));
   refreshViewButtons();
+  row->hostBegin = tools->children().size();
   if (m_host.headerButtons) {
     m_host.headerButtons(*tools, s);
   }
+  row->hostEnd = tools->children().size();
   const Button::ButtonStateColors circle{.bg = clearColorSpec(), .border = clearColorSpec(),
                                          .label = colorSpecFromRole(ColorRole::Label1)};
   Button::ButtonStateColors circleHover = circle;
@@ -789,6 +927,15 @@ std::unique_ptr<Node> FileBrowser::buildHeaderAccessory() {
             focusSearch();
           },
   }));
+  auto hit = ui::inputArea({.cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER, .participatesInLayout = false});
+  hit->setVisible(false);
+  hit->setOnClick([this, accessory = row.get()](const InputArea::PointerData&) {
+    accessory->setCollapsed(false);
+    focusSearch();
+  });
+  row->searchHit = hit.get();
+  row->searchField = &m_ui->searchField;
+  search->addChild(std::move(hit));
   // Letters belong to the field, not to the window's type-ahead.
   m_ui->searchField->inputArea()->setCapturesAllKeys(true);
   m_ui->searchField->setTextColorOverride(std::nullopt, colorForRole(ColorRole::Label2));
@@ -1103,8 +1250,16 @@ void FileBrowser::refreshSidebar() {
   m_ui->sidebarRows.clear();
   m_placeCue = nullptr;
   // Mockup .ghd: 600 11/16 label_2, padding 16 8 4 (12 on top for the first); the last group has no caption.
+  // A narrow window gives an icon rail (AppWindow compact width): icons only, groups split by space.
+  const bool rail = m_ui->sidebarWidth < 120.0F * s;
   const auto caption = [&](const char* text) {
     const bool first = list->children().empty();
+    if (rail) {
+      if (!first) {
+        list->addChild(ui::row({.height = Tokens::spaceP12 * s}));
+      }
+      return;
+    }
     auto head = ui::row({.align = FlexAlign::Center});
     const float top = first ? Tokens::spaceP12 : Tokens::componentSidebarGroupTop;
     head->setPadding(top * s, Tokens::spaceP8 * s, Tokens::componentSidebarGroupBottom * s, Tokens::spaceP8 * s);
@@ -1130,6 +1285,9 @@ void FileBrowser::refreshSidebar() {
     flex->setAlign(FlexAlign::Center);
     flex->setGap(Tokens::spaceP8 * s);
     flex->setPadding(0.0F, Tokens::spaceP8 * s);
+    if (rail) {
+      flex->setJustify(FlexJustify::Center);
+    }
     flex->setFill(current ? colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F) : clearColorSpec());
     flex->setRadius(Style::scaledRadius(Tokens::radiusR8, s));
     flex->setMinHeight(kSidebarRow * s);
@@ -1137,6 +1295,9 @@ void FileBrowser::refreshSidebar() {
     auto areaOwned = ui::inputArea({.cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT, .participatesInLayout = false});
     InputArea* area = areaOwned.get();
     flex->area = area;
+    if (rail) {
+      area->setTooltip(place.label); // the rail shows no labels
+    }
     if (place.dot.has_value()) {
       // Tags: a 12 px dot centred in the 20 px icon slot.
       auto slot = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::Center, .width = Tokens::spaceP20 * s,
@@ -1150,14 +1311,16 @@ void FileBrowser::refreshSidebar() {
       flex->addChild(ui::glyph({.glyph = place.glyph, .glyphSize = Tokens::sizeSymbol * s,
                                 .color = colorSpecFromRole(current ? ColorRole::Label1 : ColorRole::AccentText)}));
     }
-    flex->addChild(ui::label({.text = place.label, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::Medium,
-                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
-                              .ellipsize = TextEllipsize::End, .flexGrow = 1.0F}));
-    if (!place.caption.empty()) {
+    if (!rail) {
+      flex->addChild(ui::label({.text = place.label, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::Medium,
+                                .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
+                                .ellipsize = TextEllipsize::End, .flexGrow = 1.0F}));
+    }
+    if (!place.caption.empty() && !rail) {
       flex->addChild(ui::label({.text = place.caption, .fontSize = Style::fontSizeCaption * s,
                                 .color = colorSpecFromRole(ColorRole::Label3)}));
     }
-    if (place.usage.has_value()) {
+    if (place.usage.has_value() && !rail) {
       // Mockup .use: 40 x 4 r2 fill_2 track, accent level.
       const float useW = Tokens::componentFilesUsageWidth * s;
       const float useH = Tokens::componentFilesUsageHeight * s;
@@ -1168,7 +1331,7 @@ void FileBrowser::refreshSidebar() {
       flex->addChild(std::move(track));
     }
     Button* eject = nullptr;
-    if (place.eject && place.onEject) {
+    if (place.eject && place.onEject && !rail) {
       flex->addChild(ui::button({
           .out = &eject,
           .glyph = std::string("player-eject"),
@@ -1329,6 +1492,8 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
     Page& page = m_ui->pages[i];
     auto root = ui::node({.clipChildren = true});
     page.root = root.get();
+    root->addChild(ui::box({.out = &page.background, .fill = colorSpecFromRole(ColorRole::SolidRegular),
+                            .participatesInLayout = false}));
     page.custom = nullptr;
     page.customId.clear();
     page.banner = nullptr;
@@ -1561,6 +1726,7 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
       page.root->setPosition(page.x, 0.0F);
       page.root->setSize(w, h);
       page.root->setOpacity(page.opacity);
+      page.background->setSize(w, h);
       const bool icons = m_options.view == View::Icons;
       if (page.custom != nullptr) {
         page.icons->setVisible(false);
@@ -1642,7 +1808,8 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
   for (std::size_t i = 0; i < 2; ++i) {
     Page& page = m_ui->pages[i];
     const bool current = i == m_ui->current;
-    page.xAnim = page.fadeAnim = 0;
+    page.xAnim = page.fadeAnim = page.scaleAnim = 0;
+    page.scale = 1.0F;
     page.x = 0.0F;
     page.opacity = 1.0F;
     page.root->setVisible(current);
@@ -1707,8 +1874,17 @@ void FileBrowser::newTab() {
   kLog.debug("tab new {} of {}", m_tab + 1, m_tabs.size());
   m_back.clear();
   m_forward.clear();
-  navigate(current(), Motion::Fade);
+  navigate(current(), Motion::None);
   refreshTabs();
+}
+
+void FileBrowser::openInNewTab(std::size_t index) {
+  if (m_waiting || index >= m_rows.size() || !m_rows[index]->isDir || !rowEnabled(*m_rows[index])) {
+    return;
+  }
+  const fs::path dir = pathOf(*m_rows[index]);
+  newTab();
+  jump(dir);
 }
 
 bool FileBrowser::closeTab() {
@@ -1721,7 +1897,7 @@ bool FileBrowser::closeTab() {
   Tab next = std::move(m_tabs[m_tab]);
   m_back = std::move(next.back);
   m_forward = std::move(next.forward);
-  navigate(std::move(next.entry), Motion::Fade, std::move(next.selected));
+  navigate(std::move(next.entry), Motion::None, std::move(next.selected));
   refreshTabs();
   return true;
 }
@@ -1737,7 +1913,7 @@ void FileBrowser::selectTab(std::size_t index) {
   Tab next = std::move(m_tabs[m_tab]);
   m_back = std::move(next.back);
   m_forward = std::move(next.forward);
-  navigate(std::move(next.entry), Motion::Fade, std::move(next.selected));
+  navigate(std::move(next.entry), Motion::None, std::move(next.selected));
   refreshTabs();
 }
 
@@ -1869,7 +2045,8 @@ void FileBrowser::goSelecting(const fs::path& dir, std::vector<std::string> sele
   }
   const bool deeper = !m_location.empty() && dir.parent_path() == m_location;
   const bool shallower = !m_location.empty() && m_location.string().starts_with(dir.string() + "/");
-  const Motion motion = deeper ? Motion::Deeper : shallower ? Motion::Back : Motion::Fade;
+  // Only a step down or up the tree slides; any other jump (sidebar, path, search) switches at once, as Finder does.
+  const Motion motion = deeper ? Motion::Deeper : shallower ? Motion::Back : Motion::None;
   navigate({.path = dir}, pushHistory() ? motion : Motion::None, std::move(select));
 }
 
@@ -1877,7 +2054,8 @@ void FileBrowser::jump(const fs::path& dir) {
   if (!m_listing.has_value() && dir == m_location) {
     return;
   }
-  navigate({.path = dir}, pushHistory() ? Motion::Fade : Motion::None);
+  pushHistory();
+  navigate({.path = dir}, Motion::None);
 }
 
 void FileBrowser::showListing(Listing listing) {
@@ -1886,8 +2064,8 @@ void FileBrowser::showListing(Listing listing) {
     refreshRows();
     return;
   }
-  const bool moved = pushHistory();
-  navigate({.path = m_location, .listing = std::move(listing)}, moved ? Motion::Fade : Motion::None);
+  pushHistory();
+  navigate({.path = m_location, .listing = std::move(listing)}, Motion::None);
 }
 
 void FileBrowser::back() {
@@ -2123,31 +2301,7 @@ void FileBrowser::present(Motion motion) {
 
   Page& out = ui.other();
   const float w = ui.stageWidth;
-  const float gap = kSlideGap * ui.scale;
   const std::uint64_t gen = ++m_presentGen;
-  // fresh: the page shows a new listing, so it starts at `from`; otherwise it retargets from where it is.
-  const auto animateX = [this](Page& page, float from, float to, std::string_view label, bool fresh,
-                               std::function<void()> done) {
-    if (fresh) {
-      m_animations.cancel(page.xAnim);
-      page.xAnim = 0;
-      page.x = from;
-      if (page.root != nullptr) {
-        page.root->setPosition(from, 0.0F);
-      }
-    }
-    MotionTraceLabel trace(label);
-    page.xAnim = m_animations.drive(
-        page.xAnim, from, to, Style::spring(Tokens::springPage),
-        [this, &page](float v) {
-          page.x = v;
-          if (page.root != nullptr) {
-            page.root->setPosition(v, 0.0F);
-          }
-        },
-        std::move(done), page.root, 0.0F, Unit::Px, true
-    );
-  };
   const auto animateOpacity = [this](Page& page, float from, float to, const Tokens::Spring& spring,
                                      std::string_view label, std::function<void()> done) {
     page.opacity = from;
@@ -2163,12 +2317,21 @@ void FileBrowser::present(Motion motion) {
         std::move(done), page.root
     );
   };
+  const auto resetZoom = [this](Page& page) {
+    m_animations.cancel(page.scaleAnim);
+    page.scaleAnim = 0;
+    page.scale = 1.0F;
+    if (page.root != nullptr) {
+      page.root->setScale(1.0F);
+    }
+  };
   // Only the latest navigation hides its outgoing page: an older one's callback would hit a page in use.
-  const auto hideOut = [this, gen] {
+  const auto hideOut = [this, gen, resetZoom] {
     if (gen != m_presentGen) {
       return;
     }
     Page& gone = m_ui->other();
+    resetZoom(gone);
     m_animations.cancel(gone.xAnim);
     m_animations.cancel(gone.fadeAnim);
     gone.xAnim = gone.fadeAnim = 0;
@@ -2201,6 +2364,7 @@ void FileBrowser::present(Motion motion) {
     in.xAnim = in.fadeAnim = 0;
     in.x = 0.0F;
     in.opacity = 1.0F;
+    resetZoom(in);
     if (in.root != nullptr) {
       in.root->setPosition(0.0F, 0.0F);
       in.root->setOpacity(1.0F);
@@ -2213,28 +2377,35 @@ void FileBrowser::present(Motion motion) {
     in.xAnim = 0;
     in.x = 0.0F;
     in.root->setPosition(0.0F, 0.0F);
+    resetZoom(in);
+    // The opaque incoming page fades in over the outgoing one, which stays as it is: one picture blends into the next.
     out.root->setZIndex(0);
-    animateOpacity(out, out.opacity, 0.0F, Tokens::springFadeOut, "files.page.out", {});
     animateOpacity(in, 0.0F, 1.0F, Tokens::springFade, "files.page.in", hideOut);
   } else {
+    // Into a folder the new page grows from 96 %, back it shrinks from 104 %, fading in over the old page, which stays
+    // still: one page moves, for one short spring, where a full-width slide moved both across the window.
     const bool deeper = motion == Motion::Deeper;
-    // Deeper: the new page enters from the trailing edge over the old one, which drifts 30 % and dims 10 %.
-    out.root->setZIndex(deeper ? 0 : 2);
-    in.root->setZIndex(deeper ? 2 : 0);
-    // The outgoing page leaves the scene once the incoming one is home.
-    if (deeper) {
-      m_animations.cancel(in.fadeAnim);
-      in.fadeAnim = 0;
-      in.opacity = 1.0F;
-      in.root->setOpacity(1.0F);
-      animateX(in, w + gap, 0.0F, "files.page", true, hideOut);
-      animateX(out, out.x, -w * kParallax, "files.page.under", false, {});
-      animateOpacity(out, out.opacity, kUnderDim, Tokens::springPage, "files.page.dim", {});
-    } else {
-      animateX(in, -w * kParallax, 0.0F, "files.page.under", true, hideOut);
-      animateOpacity(in, kUnderDim, 1.0F, Tokens::springPage, "files.page.dim", {});
-      animateX(out, out.x, w + gap, "files.page", false, {});
-    }
+    m_animations.cancel(in.xAnim);
+    in.xAnim = 0;
+    in.x = 0.0F;
+    in.root->setPosition(0.0F, 0.0F);
+    resetZoom(in);
+    out.root->setZIndex(0);
+    in.root->setZIndex(1);
+    const float h = ui.stage->height();
+    in.root->setTransformOrigin(w / 2.0F, h / 2.0F);
+    MotionTraceLabel trace("files.page.zoom");
+    in.scaleAnim = m_animations.drive(
+        in.scaleAnim, deeper ? kZoomIn : kZoomOut, 1.0F, Style::spring(Tokens::springFade),
+        [&in](float v) {
+          in.scale = v;
+          if (in.root != nullptr) {
+            in.root->setScale(v);
+          }
+        },
+        {}, in.root
+    );
+    animateOpacity(in, 0.0F, 1.0F, Tokens::springFade, "files.page", hideOut);
   }
   refreshChrome();
   notifyChanged();
@@ -2463,6 +2634,9 @@ void FileBrowser::refreshRows() {
   if (!m_pendingSelect.empty() && st != FileModel::Status::Loading) {
     const auto names = std::exchange(m_pendingSelect, {});
     selectNames(names);
+    if (const auto photo = std::exchange(m_pendingGallery, {}); !photo.empty()) {
+      (void)openInGallery(m_location / photo);
+    }
     return;
   }
   refreshChrome();
@@ -2905,6 +3079,33 @@ void FileBrowser::galleryAction(std::string_view action, float sceneX, float sce
   m_host.galleryAction(action, sceneX, sceneY);
 }
 
+void FileBrowser::showInGallery(const std::string& name) {
+  if (status() == FileModel::Status::Loading || m_waiting) {
+    m_pendingGallery = name;
+    selectNames({name});
+    return;
+  }
+  selectNames({name});
+  (void)openInGallery(m_location / name);
+}
+
+bool FileBrowser::openInGallery(const fs::path& file) {
+  if (m_options.view == View::Gallery || m_listing.has_value() || file.parent_path() != m_location) {
+    return false;
+  }
+  const auto index = indexOf(file.filename().string());
+  if (!index.has_value()) {
+    return false;
+  }
+  if (!m_rows[*index]->contentType.starts_with("image/")) {
+    return false; // videos open in the Player
+  }
+  select(*index, 0);
+  m_galleryTransient = true;
+  setView(View::Gallery);
+  return true;
+}
+
 void FileBrowser::leaveGallery() { setView(m_beforeGallery == View::Gallery ? View::Icons : m_beforeGallery); }
 
 void FileBrowser::galleryVideoProgress(bool playing, float progress, const std::string& time) {
@@ -2985,6 +3186,8 @@ void FileBrowser::setView(View view) {
   }
   if (view == View::Gallery) {
     m_beforeGallery = m_options.view;
+  } else {
+    m_galleryTransient = false;
   }
   m_options.view = view;
   if (view == View::Gallery && m_ui != nullptr && m_ui->gallery != nullptr) {
@@ -2995,6 +3198,11 @@ void FileBrowser::setView(View view) {
   kLog.debug("view {}", kNames[static_cast<std::size_t>(view)]);
   if (m_host.viewChanged && !m_searchViewSwitch) {
     m_host.viewChanged(view);
+  }
+  // Before buildContent (a window applying the folder's saved view): the content is built in this view.
+  if (m_ui == nullptr || m_ui->stage == nullptr) {
+    saveView();
+    return;
   }
   // The columns view and the Gallery are their own surfaces: they switch at once (no crossfade between unlike layouts).
   if (own(view) || fromOwn) {
@@ -3016,24 +3224,13 @@ void FileBrowser::setView(View view) {
     }
     return;
   }
+  // Icons and List switch at once too (Finder): a crossfade shows both layouts through each other.
   saveView();
-  Ui& ui = *m_ui;
-  MotionTraceLabel trace("files.view");
-  ui.viewMix = 0.0F;
-  ui.viewAnim = m_animations.drive(
-      ui.viewAnim, 0.0F, 1.0F, Style::spring(Tokens::springFade),
-      [this](float v) {
-        m_ui->viewMix = v;
-        applyViewMix();
-      },
-      [this] {
-        m_ui->viewAnim = 0;
-        m_ui->viewMix = 1.0F;
-        applyViewMix();
-        refreshRows();
-      },
-      m_ui->stage
-  );
+  if (m_ui->viewAnim != 0) {
+    m_animations.cancel(m_ui->viewAnim);
+    m_ui->viewAnim = 0;
+  }
+  m_ui->viewMix = 1.0F;
   refreshRows();
   applyViewMix();
   if (const auto c = cursorIndex()) {
@@ -3187,7 +3384,7 @@ const Node* FileBrowser::viewOptionsAnchor() const { return m_ui->sortButton; }
 bool FileBrowser::searchMode() const noexcept { return m_ui->searchMode; }
 
 void FileBrowser::saveView() {
-  if (m_applyingView || m_searchViewSwitch || m_viewBeforeSearch.has_value() || m_listing.has_value() ||
+  if (m_applyingView || m_galleryTransient || m_searchViewSwitch || m_viewBeforeSearch.has_value() || m_listing.has_value() ||
       m_location.empty() || !m_host.viewSaved) {
     return;
   }
@@ -3398,9 +3595,19 @@ void FileBrowser::onItemPress(std::size_t index) {
   } else if (!second || !m_selected.contains(name)) {
     select(index, mods);
   }
+  // The second press opens, as Finder and Explorer do: waiting for its release adds the click's hold time.
   if (second) {
-    Page& page = m_ui->cur();
-    (m_options.view == View::Icons ? page.iconsAdapter : page.listAdapter)->armActivate(index);
+    DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive), name] {
+      if (alive.expired() || m_waiting) {
+        return;
+      }
+      for (std::size_t i = 0; i < m_rows.size(); ++i) {
+        if (m_rows[i]->name == name) {
+          onItemActivate(i);
+          return;
+        }
+      }
+    });
   }
 }
 
@@ -4277,7 +4484,7 @@ float FileBrowser::dragImageSize() const noexcept {
   return (Tokens::componentGridIcon + Tokens::spaceP24) * m_ui->scale;
 }
 
-std::unique_ptr<Node> FileBrowser::buildDragImage() const {
+std::unique_ptr<Node> FileBrowser::buildDragImage(Renderer& renderer) const {
   const float s = m_ui->scale;
   const float plate = (Tokens::componentGridIcon + Tokens::spaceP8) * s;
   const float step = Tokens::spaceP4 * s;
@@ -4285,6 +4492,7 @@ std::unique_ptr<Node> FileBrowser::buildDragImage() const {
   root->setSize(dragImageSize(), dragImageSize());
   const auto paths = m_dragPaths.empty() ? selectedPaths() : m_dragPaths;
   const std::size_t shown = std::min<std::size_t>(paths.size(), 3);
+  // The items' own icons (folder peeks, thumbnails), stacked as Finder does.
   for (std::size_t i = shown; i-- > 0;) {
     std::shared_ptr<const FileInfo> info;
     for (const auto& row : m_rows) {
@@ -4293,18 +4501,16 @@ std::unique_ptr<Node> FileBrowser::buildDragImage() const {
         break;
       }
     }
-    auto box = ui::box({.fill = colorSpecFromRole(ColorRole::Popover), .radius = Style::scaledRadius(Tokens::radiusR8, s)});
+    FileInfo fallback;
+    if (info == nullptr) {
+      fallback.name = paths[i].filename().string();
+    }
+    auto icon = std::make_unique<FileIcon>(Tokens::componentGridIcon * s);
+    icon->bind(renderer, info != nullptr ? *info : fallback, paths[i], m_options.thumbnails);
     const float offset = static_cast<float>(i) * step;
-    box->setPosition(offset, Tokens::spaceP12 * s + offset);
-    box->setSize(plate, plate);
-    box->setOpacity(i == 0 ? 1.0F : 0.88F);
-    auto glyph = ui::glyph({.glyph = info != nullptr ? fileTypeGlyph(*info) : std::string("file"),
-                            .glyphSize = Tokens::spaceP48 * s,
-                            .color = colorSpecFromRole(info != nullptr && info->isDir ? ColorRole::AccentText
-                                                                                       : ColorRole::Label2)});
-    glyph->setPosition((plate - Tokens::spaceP48 * s) / 2.0F, (plate - Tokens::spaceP48 * s) / 2.0F);
-    box->addChild(std::move(glyph));
-    root->addChild(std::move(box));
+    icon->setPosition(offset + (plate - icon->width()) / 2.0F, Tokens::spaceP12 * s + offset + (plate - icon->height()) / 2.0F);
+    icon->setOpacity(i == 0 ? 1.0F : 0.88F);
+    root->addChild(std::move(icon));
   }
   if (paths.size() > 1) {
     const float badge = Tokens::spaceP24 * s;

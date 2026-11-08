@@ -67,7 +67,7 @@ wait_log "$m" "cursor Résumé.pdf " || fail "a repeated r did not wrap around t
 sleep 1.1
 m=$(mark); keys tap 30 tap 28                   # a, Enter: open Andromeda
 wait_log "$m" "location $SRC/Andromeda\$" || fail "Enter did not open Andromeda"
-wait_log "$m" "motion files.page page" || fail "opening a folder did not slide on spring.page"
+wait_log "$m" "motion files.page" || fail "opening a folder did not animate"
 wait_log "$m" "settle files.page " || fail "the folder slide did not settle"
 
 m=$(mark); keys mod alt tap 105 mod none        # Alt+Left: back
@@ -81,8 +81,8 @@ wait_log "$m" "location $SRC\$" || fail "Backspace did not go to the parent"
 wait_log "$m" "settle files.page" || fail "the parent slide did not settle"
 
 m=$(mark); keys mod control tap 3 mod none       # Ctrl+2: list
-wait_log "$m" "motion files.view fade" || fail "Ctrl+2 did not crossfade the view"
-wait_log "$m" "settle files.view " || fail "the view crossfade did not settle"
+wait_log "$m" "view list" || fail "Ctrl+2 did not switch to the list"
+grep -q "motion files.view" < <(tail -n +"$((m + 1))" "$OUT/files.log") && fail "the view switch animated: it switches at once"
 shot 2-list
 
 m=$(mark); keys mod control tap 33 mod none tap 19 tap 24 tap 30 tap 32   # Ctrl+F, r o a d

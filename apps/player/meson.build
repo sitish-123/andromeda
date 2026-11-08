@@ -55,3 +55,4 @@ executable('andromeda-player',
 )
 
 install_data('data/dev.andromeda.Player.desktop', install_dir: get_option('datadir') / 'applications')
+install_data('data/icons/dev.andromeda.Player.svg', install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps')

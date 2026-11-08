@@ -92,10 +92,13 @@ test('exif_date', executable('exif_date_test', 'tests/exif_date_test.cpp', link_
   dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
 test('safe_regex', executable('safe_regex_test', 'tests/safe_regex_test.cpp', dependencies: _desk_app_dep,
   cpp_args: _warnings))
+test('picker_match', executable('picker_match_test', 'tests/picker_match_test.cpp', 'src/picker_portal.cpp',
+  dependencies: [_desk_app_dep, _gio_unix_dep], include_directories: include_directories('src'), cpp_args: _warnings))
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
 
-install_data('data/dev.andromeda.Files.desktop', install_dir: get_option('datadir') / 'applications')
+install_data('data/dev.andromeda.Files.desktop', 'data/dev.andromeda.Photos.desktop',
+  install_dir: get_option('datadir') / 'applications')
 install_data('data/andromeda-files.portal', install_dir: get_option('datadir') / 'xdg-desktop-portal' / 'portals')
 configure_file(
   input: 'data/org.freedesktop.impl.portal.desktop.andromeda.Files.service.in',
@@ -115,3 +118,4 @@ configure_file(
   configuration: {'bindir': get_option('prefix') / get_option('bindir')},
   install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
 )
+install_data('data/icons/dev.andromeda.Files.svg', 'data/icons/dev.andromeda.Photos.svg', install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps')

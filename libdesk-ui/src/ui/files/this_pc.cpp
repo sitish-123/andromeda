@@ -152,6 +152,7 @@ namespace {
     c->setRadius(Style::scaledRadius(Tokens::radiusR8, s));
     auto areaOwned = ui::inputArea({.cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT, .participatesInLayout = false});
     c->area = areaOwned.get();
+    c->area->setZIndex(1); // above the icon and labels added after it: the whole cell hovers, not only the text
     Cell* body = c.get();
     c->area->setOnEnter([body](const InputArea::PointerData&) { body->setFill(colorSpecFromRole(ColorRole::Fill1)); });
     c->area->setOnLeave([body] { body->setFill(body->baseFill); });

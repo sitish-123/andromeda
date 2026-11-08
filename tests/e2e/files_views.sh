@@ -90,7 +90,7 @@ shot 1b-gallery
 m=$(mark); keys tap 1                            # Escape: back to icons
 wait_log "$m" "view icons" || fail "Escape did not leave the Gallery"
 m=$(mark); keys mod control tap 3 mod none      # Ctrl+2: list
-wait_log "$m" "settle files.view " || fail "Ctrl+2 did not switch to the list"
+wait_log "$m" "view list" || fail "Ctrl+2 did not switch to the list"
 shot 2-list
 # FB2 disclosure: Right expands Alpha in place (its child row lands right under it), Left collapses it.
 m=$(mark); keys tap 30 tap 38                    # "al": type-ahead to Alpha

@@ -4,6 +4,7 @@
 #include "core/log.h"
 #include "dbus/session_bus.h"
 
+#include <fnmatch.h>
 #include <gio/gio.h>
 #include <glib.h>
 #include <sdbus-c++/sdbus-c++.h>
@@ -214,7 +215,8 @@ bool PickerPortal::matches(const Filter& filter, const std::string& name, const 
     if (kind == 0) {
       gchar* lowerName = g_utf8_strdown(name.c_str(), -1);
       gchar* lowerPattern = g_utf8_strdown(pattern.c_str(), -1);
-      const bool hit = g_pattern_match_simple(lowerPattern, lowerName) != 0;
+      // fnmatch, not g_pattern_match_simple: Chromium and Firefox send bracket classes such as "*.[pP][nN][gG]".
+      const bool hit = ::fnmatch(lowerPattern, lowerName, 0) == 0;
       g_free(lowerName);
       g_free(lowerPattern);
       if (hit) {

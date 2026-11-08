@@ -81,6 +81,7 @@ public:
   void openWith(); // Open With sheet for the selected files (one content type)
   void toggleDetails(); // the details pane at the right edge (Alt+P)
   void goStarred();
+  void reopenPlace(const std::string& place); // a listing id saved by rememberPlace
   void toggleStar(); // Ctrl+D on the selection
   [[nodiscard]] bool selectionStarred() const;
   void openTerminalHere(); // the selected folder, else the current one
@@ -136,6 +137,7 @@ public:
   [[nodiscard]] bool canBack() const noexcept;
   [[nodiscard]] bool canForward() const noexcept;
   [[nodiscard]] bool inTrash() const noexcept;
+  void rememberPlace();
   // A real folder, not a listing (Trash, Recents, Search, Tag, Starred, archive): paste and new items land in it.
   [[nodiscard]] bool inFolder() const;
   [[nodiscard]] const std::filesystem::path& location() const noexcept;
@@ -206,6 +208,8 @@ public:
   void selectAll();
   // Selects the rows with these names (E2E).
   void selectNames(const std::vector<std::string>& names);
+  void showInGallery(const std::string& name);
+  void setView(FileBrowser::View view);
   void toggleHidden();
   void groupBy(FileGroupBy group); // Tags first asks the tag index for a fresh walk
   void reload();

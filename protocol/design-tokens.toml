@@ -532,14 +532,14 @@ max_width = 320.0
 submenu_delay_ms = 200
 
 [component.popover]
-radius = 20.0
+radius = 12.0  # radius set B (user, 2026-11-08)
 padding = 12.0
 offset = 8.0
 
 [component.dialog]  # 9.10
 alert_width = 320.0
 width = 480.0
-radius = 24.0
+radius = 12.0  # radius set B (user, 2026-11-08)
 padding = 24.0
 header = 56.0
 
@@ -560,7 +560,7 @@ stack_offset = 8.0
 stack_scale = 0.96
 
 [component.window]  # 9.12
-radius = 20.0
+radius = 12.0  # radius set B (user, 2026-11-08)
 title_bar = 40.0
 header = 48.0
 button = 24.0

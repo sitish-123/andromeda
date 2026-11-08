@@ -768,6 +768,8 @@ void AuthColumn::applySheet() {
   const float w = sheet.w * k;
   const float h = sheet.h * k;
   m_sheet->setVisible(t > 0.0F);
+  // The sheet fades in at twice the column's pace: it covers the glance layer before the column shows on it.
+  m_sheet->setOpacity(std::min(1.0F, 2.0F * t));
   m_sheet->setPosition(std::round(sheet.x + (sheet.w - w) * 0.5F), std::round(sheet.y + (sheet.h - h) * 0.5F));
   m_sheet->setSize(std::round(w), std::round(h));
   const float s = sheet.w / 360.0F;

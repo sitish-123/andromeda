@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Photos
+Comment=View your photos
+Exec=andromeda-files --action=gallery %U
+Icon=dev.andromeda.Photos
+Terminal=false
+Categories=Graphics;Viewer;Photography;
+Keywords=gallery;pictures;images;viewer;
+MimeType=image/png;image/jpeg;image/webp;image/gif;image/avif;image/heif;image/jxl;image/tiff;image/bmp;image/svg+xml;
+StartupWMClass=dev.andromeda.Files

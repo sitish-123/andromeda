@@ -96,6 +96,13 @@ void PlayerApp::startup() {
   commands().add({.id = "player.forward", .label = "Forward 10 Seconds", .group = "Playback",
                   .shortcut = KeyChord{.sym = XKB_KEY_Right, .modifiers = 0}, .enabled = {},
                   .run = [this] { m_mpv.seekBy(10.0); }});
+  // mpv volume-max is 130; the level is saved across launches (onPlayerChanged).
+  commands().add({.id = "player.volume-up", .label = "Volume Up", .group = "Playback",
+                  .shortcut = KeyChord{.sym = XKB_KEY_Up, .modifiers = 0}, .enabled = {},
+                  .run = [this] { m_mpv.setVolume(std::min(130.0, m_mpv.state().volume + 5.0)); }});
+  commands().add({.id = "player.volume-down", .label = "Volume Down", .group = "Playback",
+                  .shortcut = KeyChord{.sym = XKB_KEY_Down, .modifiers = 0}, .enabled = {},
+                  .run = [this] { m_mpv.setVolume(std::max(0.0, m_mpv.state().volume - 5.0)); }});
   commands().add({.id = "player.back", .label = "Back 10 Seconds", .group = "Playback",
                   .shortcut = KeyChord{.sym = XKB_KEY_Left, .modifiers = 0}, .enabled = {},
                   .run = [this] { m_mpv.seekBy(-10.0); }});
@@ -305,6 +312,10 @@ void PlayerApp::play(const std::string& path) {
     kLog.warn("libmpv is not available");
     return;
   }
+  if (!m_volumeRestored) {
+    m_volumeRestored = true;
+    m_mpv.setVolume(std::clamp(state().get<double>("/player/volume", 100.0), 0.0, 130.0));
+  }
   saveResume();
   m_resume = {};
   const double start = state().get<double>(resumeKey(path) + "/pos", 0.0);
@@ -360,6 +371,9 @@ void PlayerApp::onPlayerChanged(bool seeked) {
   const MpvPlayer::State& s = m_mpv.state();
   if (!s.idle && !s.path.empty() && s.duration > 0.0) {
     m_resume = {.path = s.path, .position = s.position, .duration = s.duration, .eof = s.eof};
+  }
+  if (m_volumeRestored && std::abs(state().get<double>("/player/volume", 100.0) - s.volume) > 0.5) {
+    state().set("/player/volume", s.volume);
   }
   if (!s.idle && s.path != m_nowPlayingPath) {
     m_nowPlayingPath = s.path;

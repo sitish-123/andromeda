@@ -418,9 +418,15 @@ AppWindow& FilesApp::createWindow() {
       .sidebarWidth = 240.0F,
       .moreMenu = true,
   });
-  fs::path location = m_nextLocation.empty() ? fs::path(g_get_home_dir()) : m_nextLocation;
+  std::string last = m_nextLocation.empty() && !m_picker ? state().get<std::string>("/files/last_place", "") : "";
+  std::error_code ec;
+  const bool lastFolder = last.starts_with('/') && fs::is_directory(last, ec);
+  fs::path location = !m_nextLocation.empty() ? m_nextLocation : lastFolder ? fs::path(last) : fs::path(g_get_home_dir());
   m_nextLocation.clear();
-  m_windows[&window] = std::make_unique<FilesWindow>(*this, window, std::move(location));
+  auto& files = m_windows[&window] = std::make_unique<FilesWindow>(*this, window, std::move(location));
+  if (!lastFolder && !last.empty()) {
+    files->reopenPlace(last);
+  }
   return window;
 }
 
@@ -527,6 +533,23 @@ void FilesApp::action(const std::string& name, const std::vector<std::string>& p
         return p.ends_with('.') ? name.starts_with(p) : name == p;
       })) {
     kLog.warn("action {} is for tests only (DESK_FILES_TEST)", name);
+    return;
+  }
+  if (name == "gallery") { // Photos (dev.andromeda.Photos.desktop): a photo in the Gallery, else Pictures as a Gallery
+    fs::path photo = parameter.empty() ? fs::path() : pathFromUri(parameter.front());
+    std::error_code ec;
+    if (photo.empty() || fs::is_directory(photo, ec)) {
+      const char* pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
+      const fs::path folder = !photo.empty() ? photo : fs::path(pictures != nullptr ? pictures : g_get_home_dir());
+      FilesWindow& w = openWindow(folder);
+      w.setView(FileBrowser::View::Gallery);
+    } else {
+      FilesWindow& w = openWindow(photo.parent_path());
+      w.showInGallery(photo.filename().string());
+    }
+    if (!windows().empty() && windows().back()->isOpen()) {
+      windows().back()->activate(activationToken);
+    }
     return;
   }
   FilesWindow* window = activeFilesWindow();
@@ -802,8 +825,8 @@ void FilesApp::addCommands() {
        [](const FilesWindow& w) { return !w.isPicker(); }, [](FilesWindow& w) { w.openViewOptions(); }},
       {"view.details", "Show Details", "View", chord(XKB_KEY_p, KeyMod::Alt), [](const FilesWindow& w) { return !w.isPicker(); },
        [](FilesWindow& w) { w.toggleDetails(); }},
-      // Ctrl+T and Ctrl+(Shift+)Tab live in FileBrowser::onKey; these entries put the tabs in the More menu.
-      {"file.new-tab", "New Tab", "File", std::nullopt, [](const FilesWindow& w) { return !w.isPicker(); },
+      // Ctrl+(Shift+)Tab lives in FileBrowser::onKey (pickers have no commands); these entries put the tabs in the More menu.
+      {"file.new-tab", "New Tab", "File", chord(XKB_KEY_t, KeyMod::Ctrl), [](const FilesWindow& w) { return !w.isPicker(); },
        [](FilesWindow& w) { w.newTab(); }},
       {"view.next-tab", "Show Next Tab", "View", std::nullopt, [](const FilesWindow& w) { return w.tabCount() > 1; },
        [](FilesWindow& w) { w.stepTab(1); }},

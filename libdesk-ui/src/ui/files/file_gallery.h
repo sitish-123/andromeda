@@ -125,7 +125,7 @@ private:
     std::string path;
     int px = 0;
   };
-  void hold(const std::string& path, int px, std::vector<Held>& next);
+  void hold(const std::string& path, int px, std::vector<Held>& next, bool now = false);
   void releaseAll(std::vector<Held>& held);
   void rebuildFilm();
   void showChrome();
