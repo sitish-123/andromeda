@@ -40,7 +40,8 @@ namespace {
   };
 
   // Reads a pipe the source writes from its own loop, off the main thread; gives up after kReadTimeoutMs of silence.
-  std::string readPipe(int fd) {
+  // Past `maxBytes` the read stops and gives nothing: a partial clipboard is worse than none.
+  std::string readPipe(int fd, std::size_t maxBytes = static_cast<std::size_t>(-1)) {
     std::string bytes;
     char buf[4096];
     while (true) {
@@ -61,6 +62,10 @@ namespace {
         break;
       }
       bytes.append(buf, static_cast<std::size_t>(n));
+      if (bytes.size() > maxBytes) {
+        bytes.clear();
+        break;
+      }
     }
     ::close(fd);
     return bytes;
@@ -200,6 +205,9 @@ void DragAndDrop::onSelection(wl_data_offer* offer) {
     releaseOffer(m_selectionOffer);
   }
   m_selectionOffer = offer != m_offer ? offer : nullptr;
+  if (m_selectionChanged) {
+    m_selectionChanged();
+  }
 }
 
 bool DragAndDrop::setSelection(std::uint32_t serial, Selection selection) {
@@ -241,7 +249,8 @@ std::vector<std::string> DragAndDrop::selectionTypes() const {
 }
 
 void DragAndDrop::readSelection(const std::vector<std::string>& accepted,
-                                std::function<void(const std::string& mime, std::string bytes)> done) {
+                                std::function<void(const std::string& mime, std::string bytes)> done,
+                                std::size_t maxBytes) {
   const std::vector<std::string> offered = selectionTypes();
   const auto mime = std::ranges::find_if(accepted, [&](const std::string& m) { return std::ranges::contains(offered, m); });
   int fds[2];
@@ -252,8 +261,8 @@ void DragAndDrop::readSelection(const std::vector<std::string>& accepted,
   wl_data_offer_receive(m_selectionOffer, mime->c_str(), fds[1]);
   ::close(fds[1]);
   wl_display_flush(m_connection.display());
-  std::thread([fd = fds[0], mime = *mime, done = std::move(done), alive = std::weak_ptr<bool>(m_alive)]() mutable {
-    std::string bytes = readPipe(fd);
+  std::thread([fd = fds[0], mime = *mime, done = std::move(done), alive = std::weak_ptr<bool>(m_alive), maxBytes]() mutable {
+    std::string bytes = readPipe(fd, maxBytes);
     DeferredCall::callLater([mime, done = std::move(done), alive, bytes = std::move(bytes)]() mutable {
       if (!alive.expired()) {
         done(mime, std::move(bytes));

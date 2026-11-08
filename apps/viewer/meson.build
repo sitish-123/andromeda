@@ -29,7 +29,6 @@ _preview_dep = subproject('andromeda-preview').get_variable('preview_client_dep'
 
 executable('andromeda-viewer',
   'src/annotations.cpp',
-  'src/clipboard_source.cpp',
   'src/main.cpp',
   'src/viewer_app.cpp',
   'src/viewer_window.cpp',
@@ -47,3 +46,4 @@ configure_file(
   configuration: {'bindir': get_option('prefix') / get_option('bindir')},
   install_dir: get_option('datadir') / 'dbus-1' / 'services',
 )
+install_data('data/icons/dev.andromeda.Viewer.svg', install_dir: get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps')

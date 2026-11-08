@@ -1,6 +1,5 @@
-#include "shell/tooltip/tooltip_manager.h"
+#include "ui/tooltip/tooltip_manager.h"
 
-#include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
 #include "core/ui_phase.h"
@@ -99,12 +98,14 @@ namespace {
     return widths;
   }
 
-  PopupSurfaceConfig buildTooltipAnchorConfig(const InputArea* area) {
+  PopupSurfaceConfig buildTooltipAnchorConfig(const InputArea* area, float originX, float originY) {
     const Node* anchorNode = area->tooltipAnchorNode();
     const Node* boundsNode = anchorNode != nullptr ? anchorNode : area;
     float absX = 0.0F;
     float absY = 0.0F;
     Node::absolutePosition(boundsNode, absX, absY);
+    absX -= originX;
+    absY -= originY;
 
     TooltipAnchorInsets inset{};
     if (area->hasTooltipAnchorInsets()) {
@@ -197,9 +198,9 @@ TooltipManager& TooltipManager::instance() {
   return inst;
 }
 
-void TooltipManager::initialize(WaylandConnection& wayland, ConfigService* config, RenderContext* renderContext) {
+void TooltipManager::initialize(WaylandConnection& wayland, std::function<float()> uiScale, RenderContext* renderContext) {
   m_wayland = &wayland;
-  m_config = config;
+  m_uiScale = std::move(uiScale);
   m_renderContext = renderContext;
 }
 
@@ -226,12 +227,14 @@ void TooltipManager::shutdown() {
   forceDestroy();
   m_suppressedBarTooltipPanels.clear();
   m_wayland = nullptr;
-  m_config = nullptr;
+  m_uiScale = nullptr;
   m_renderContext = nullptr;
 }
 
 void TooltipManager::onHoverChange(InputArea* area, zwlr_layer_surface_v1* parentLayerSurface, wl_output* output) {
   if (area != nullptr && area->hasTooltip() && parentLayerSurface != nullptr && output != nullptr) {
+    m_originX = 0.0F;
+    m_originY = 0.0F;
     m_pendingContent = area->tooltipContent();
     m_pendingLayerParent = parentLayerSurface;
     m_pendingXdgParent = nullptr;
@@ -243,8 +246,11 @@ void TooltipManager::onHoverChange(InputArea* area, zwlr_layer_surface_v1* paren
   dismissPopup();
 }
 
-void TooltipManager::onHoverChange(InputArea* area, xdg_surface* parentXdgSurface, wl_output* output) {
+void TooltipManager::onHoverChange(InputArea* area, xdg_surface* parentXdgSurface, wl_output* output, float originX,
+                                   float originY) {
   if (area != nullptr && area->hasTooltip() && parentXdgSurface != nullptr && output != nullptr) {
+    m_originX = originX;
+    m_originY = originY;
     m_pendingContent = area->tooltipContent();
     m_pendingLayerParent = nullptr;
     m_pendingXdgParent = parentXdgSurface;
@@ -373,7 +379,7 @@ void TooltipManager::syncAnchor(InputArea* area) {
     return;
   }
 
-  auto anchorConfig = buildTooltipAnchorConfig(area);
+  auto anchorConfig = buildTooltipAnchorConfig(area, m_originX, m_originY);
   anchorConfig.width = m_surface->width();
   anchorConfig.height = m_surface->height();
   m_surface->repositionAnchor(anchorConfig);
@@ -403,7 +409,7 @@ void TooltipManager::showPopup() {
     return;
   }
 
-  auto config = buildTooltipAnchorConfig(m_pendingArea);
+  auto config = buildTooltipAnchorConfig(m_pendingArea, m_originX, m_originY);
   config.width = contentW;
   config.height = contentH;
   config.grab = false;
@@ -595,7 +601,7 @@ void TooltipManager::refreshPopupContent() {
     return;
   }
 
-  auto anchorConfig = buildTooltipAnchorConfig(m_pendingArea);
+  auto anchorConfig = buildTooltipAnchorConfig(m_pendingArea, m_originX, m_originY);
   anchorConfig.width = contentW;
   anchorConfig.height = contentH;
   // Leave the new size and position pending on the surface. Committing them now, while the
@@ -643,7 +649,7 @@ TooltipManager::Size TooltipManager::measureContent(Renderer& renderer, const To
     return {};
   }
 
-  const float scale = (m_config != nullptr) ? std::max(0.1F, m_config->config().accessibility.uiScale) : 1.0F;
+  const float scale = m_uiScale ? std::max(0.1F, m_uiScale()) : 1.0F;
   const float maxContentWidth = kMaxContentWidth * scale;
   const float fontSize = Style::fontSizeCaption * scale;
   const float padH = kPadH * scale;
@@ -694,7 +700,7 @@ void TooltipManager::buildScene(const TooltipContent& content, float w, float h,
   m_sceneRoot->setHitTestVisible(false);
   m_surface->setSceneRoot(m_sceneRoot.get());
 
-  const float scale = (m_config != nullptr) ? std::max(0.1F, m_config->config().accessibility.uiScale) : 1.0F;
+  const float scale = m_uiScale ? std::max(0.1F, m_uiScale()) : 1.0F;
   const float radius = Style::scaledRadius(Tokens::componentTooltipRadius, scale);
   m_sceneRoot->addChild(
       ui::box({

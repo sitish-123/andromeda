@@ -91,6 +91,8 @@ public:
   // Runs when the compositor activates or deactivates the window (xdg_toplevel activated state).
   void setActiveCallback(std::function<void(bool active)> callback) { m_onActive = std::move(callback); }
   void setTitle(std::string title);
+  // A click on the header title (Files: type a location, as Dolphin's editable path). Applies from the next rebuild.
+  void setTitleClick(std::function<void()> click) { m_titleClick = std::move(click); }
   // Search mode (Files): the header hides back / forward, the title and More; the accessory takes the row.
   void setHeaderSearchMode(bool on);
   void requestRebuild();
@@ -159,6 +161,9 @@ private:
   std::function<std::unique_ptr<Node>(float)> m_sheetBuilder;
   std::function<void()> m_sheetCancel;
   Node* m_sheetCard = nullptr;
+  Node* m_sheetShade = nullptr;
+  class InputArea* m_sheetScrim = nullptr;
+  bool m_sheetHandoff = false; // dismissed this turn: a sheet presented now replaces it in place, without a new fade
   float m_sheetMix = 1.0F; // open motion: card opacity, scale 0.96 -> 1 (M31)
   std::uint32_t m_sheetAnim = 0;
   std::function<void()> m_onClosed;
@@ -170,6 +175,9 @@ private:
   std::unique_ptr<desk::ForeignParent> m_foreignParent;
   std::unique_ptr<Node> m_root;
   Label* m_titleLabel = nullptr;
+  std::function<void()> m_titleClick;
+  bool m_compact = false; // narrow window: icon-rail sidebar
+  void swapSidebar(Renderer& renderer, float height);
   Node* m_titleRow = nullptr;
   bool m_headerSearch = false;
   bool m_buildingHeader = false;
@@ -181,6 +189,7 @@ private:
   bool m_sidebarVisible = true;
   std::uint32_t m_sidebarAnim = 0;
   std::unique_ptr<ContextMenuPopup> m_menu;
+  std::unique_ptr<class SelectDropdownPopup> m_select;
   std::unique_ptr<class AppPopover> m_popover;
   AnimationManager m_animations;
   InputDispatcher m_input;

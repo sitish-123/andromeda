@@ -280,8 +280,41 @@ void ContextMenuPopup::open(ContextMenuPopupRequest request) {
   s_openMenu = this;
 }
 
+void ContextMenuPopup::fadeOut(std::function<void()> then) {
+  if (m_opacity <= 0.01F || m_surface == nullptr) {
+    // Already out (a submenu's activation reaches its faded parent): no spring would run to call `then`.
+    if (then) {
+      DeferredCall::callLater(std::move(then));
+    }
+    return;
+  }
+  m_animations.cancel(m_scaleAnim);
+  m_animations.cancel(m_opacityAnim);
+  m_scaleAnim = 0;
+  // Held here, not only in the spring: a dismiss during the fade (close) still runs it.
+  m_pendingAction = std::move(then);
+  m_opacityAnim = m_animations.animateSpring(
+      m_opacity, 0.0F, Style::spring(Tokens::springFadeOut),
+      [this](float v) {
+        m_opacity = v;
+        applyTransform();
+      },
+      [this] {
+        m_opacityAnim = 0;
+        if (auto then = std::exchange(m_pendingAction, {})) {
+          DeferredCall::callLater(std::move(then)); // out of the animation tick: the action may close this popup
+        }
+      }
+  );
+  m_surface->requestRedraw(); // an idle popup has no frame loop running: the spring ticks on frames
+}
+
 void ContextMenuPopup::close() {
   const bool wasOpen = m_surface != nullptr;
+  m_closing = false;
+  if (auto then = std::exchange(m_pendingAction, {})) {
+    DeferredCall::callLater(std::move(then)); // chosen before the dismiss: it still runs
+  }
   m_animations.cancelAll();
   m_scaleAnim = m_opacityAnim = 0;
   // xdg_popup: the topmost popup goes first.
@@ -318,7 +351,32 @@ void ContextMenuPopup::deferActivation(ContextMenuControlEntry entry) {
   auto* self = this;
   const std::weak_ptr<bool> alive = m_alive;
   auto onActivate = m_onActivate;
-  DeferredCall::callLater([self, alive, onActivate = std::move(onActivate), entry = std::move(entry)] {
+  // A submenu's activation passing up the chain: the leaf already faded, so close and run at once.
+  if (m_closing) {
+    DeferredCall::callLater([self, alive, onActivate = std::move(onActivate), entry = std::move(entry)] {
+      const auto token = alive.lock();
+      if (token == nullptr || !*token) {
+        return;
+      }
+      self->close();
+      if (onActivate) {
+        onActivate(entry);
+      }
+    });
+    return;
+  }
+  // The menu chain fades out (spring.fade_out) and takes no input meanwhile; then it closes and the action runs.
+  ContextMenuPopup* root = this;
+  while (root->m_parentMenu != nullptr && root->m_parentMenu->isOpen()) {
+    root = root->m_parentMenu;
+  }
+  for (ContextMenuPopup* menu = root; menu != nullptr && menu->isOpen(); menu = menu->m_child.get()) {
+    menu->m_closing = true;
+    if (menu != this) {
+      menu->fadeOut({});
+    }
+  }
+  fadeOut([self, alive, onActivate = std::move(onActivate), entry = std::move(entry)] {
     const auto token = alive.lock();
     if (token == nullptr || !*token) {
       return;
@@ -366,6 +424,9 @@ void ContextMenuPopup::setShadowConfig(const ShadowStyle& shadow) {
 bool ContextMenuPopup::onPointerEvent(const PointerEvent& event) {
   if (!isOpen()) {
     return false;
+  }
+  if (m_closing) {
+    return true;
   }
   if (m_child != nullptr && m_child->isOpen() && m_child->onPointerEvent(event)) {
     return true;
@@ -470,7 +531,7 @@ bool ContextMenuPopup::onPointerEvent(const PointerEvent& event) {
 }
 
 void ContextMenuPopup::onKeyboardEvent(const KeyboardEvent& event) {
-  if (!isOpen() || !event.pressed || event.preedit) {
+  if (!isOpen() || !event.pressed || event.preedit || m_closing) {
     return;
   }
 
@@ -642,6 +703,11 @@ bool ContextMenuPopup::dispatchKeyboardEvent(const KeyboardEvent& event) {
 }
 
 wl_surface* ContextMenuPopup::wlSurface() const noexcept { return m_wlSurface; }
+
+bool ContextMenuPopup::ownsSurface(wl_surface* surface) const noexcept {
+  return surface != nullptr && isOpen() &&
+         (surface == m_wlSurface || (m_child != nullptr && m_child->ownsSurface(surface)));
+}
 
 xdg_surface* ContextMenuPopup::xdgSurface() const noexcept {
   return m_surface != nullptr ? m_surface->xdgSurface() : nullptr;

@@ -2,7 +2,8 @@
 
 #include "app/app_loop.h"
 #include "app/app_window.h"
-#include "clipboard_source.h"
+#include "core/text_clipboard.h"
+#include "ui/controls/input.h"
 #include "core/deferred_call.h"
 #include "core/files/directory_scanner.h"
 #include "core/input/key_modifiers.h"
@@ -87,8 +88,7 @@ namespace viewer {
     }
   } // namespace
 
-  ViewerWindow::ViewerWindow(AppLoop& loop, AppWindow& window, ClipboardSource& clipboard)
-      : m_loop(loop), m_window(window), m_clipboard(clipboard) {
+  ViewerWindow::ViewerWindow(AppLoop& loop, AppWindow& window) : m_loop(loop), m_window(window) {
     m_window.setContentBuilder([this](Renderer& renderer, float width, float height) {
       return build(renderer, width, height);
     });
@@ -440,7 +440,9 @@ namespace viewer {
   }
 
   void ViewerWindow::copySelection() {
-    if (m_selection && !m_selection->text.empty() && m_clipboard.setText(m_selection->text)) {
+    TextClipboard* clipboard = Input::textClipboard();
+    if (m_selection && !m_selection->text.empty() && clipboard != nullptr) {
+      clipboard->setClipboardText(m_selection->text);
       kLog.info("copied {} bytes", m_selection->text.size());
     }
   }

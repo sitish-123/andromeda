@@ -77,6 +77,8 @@ public:
   bool onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] wl_surface* wlSurface() const noexcept;
+  // This menu's surface or an open submenu's, at any depth: pointer events on either belong to this menu.
+  [[nodiscard]] bool ownsSurface(wl_surface* surface) const noexcept;
   [[nodiscard]] xdg_surface* xdgSurface() const noexcept;
   [[nodiscard]] std::uint32_t width() const noexcept;
   [[nodiscard]] std::uint32_t height() const noexcept;
@@ -100,6 +102,8 @@ private:
   wl_surface* m_wlSurface = nullptr;
   wl_surface* m_pointerParentSurface = nullptr;
   bool m_pointerInside = false;
+  bool m_closing = false; // fading out after an activation: input is ignored
+  std::function<void()> m_pendingAction; // runs when the fade ends or the menu closes first
 
   void restoreParentKeyboardInteractivity();
   // Opens the children of row `index` in a nested grab popup beside the row; closes any other submenu first.
@@ -108,6 +112,7 @@ private:
   void ensureHighlightedVisible();
   void requestVisualUpdate();
   void deferActivation(ContextMenuControlEntry entry);
+  void fadeOut(std::function<void()> then);
   // Grab popups close at once: during a fade the grab would keep the keys and block a second grabbing popup.
   void deferClose();
   void applyTransform();

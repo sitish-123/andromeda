@@ -53,7 +53,7 @@ std::string SingleInstance::objectPathFor(std::string_view appId) {
   return path;
 }
 
-SingleInstance::Role SingleInstance::claim(const std::vector<std::string>& uris, Handlers handlers) {
+SingleInstance::Role SingleInstance::claim(const std::vector<std::string>& uris, Handlers handlers, const std::string& action) {
   if (m_bus == nullptr) {
     return Role::Alone;
   }
@@ -61,7 +61,7 @@ SingleInstance::Role SingleInstance::claim(const std::vector<std::string>& uris,
   try {
     m_bus->connection().requestName(sdbus::ServiceName{m_appId});
   } catch (const sdbus::Error& e) {
-    if (forward(uris)) {
+    if (forward(uris, action)) {
       return Role::Forwarded;
     }
     // The owner holds the name but did not answer: it hangs or quits. Run alone rather than not at all.
@@ -72,13 +72,19 @@ SingleInstance::Role SingleInstance::claim(const std::vector<std::string>& uris,
   return Role::Primary;
 }
 
-bool SingleInstance::forward(const std::vector<std::string>& uris) {
+bool SingleInstance::forward(const std::vector<std::string>& uris, const std::string& action) {
   try {
     auto proxy = sdbus::createProxy(
         m_bus->connection(), sdbus::ServiceName{m_appId}, sdbus::ObjectPath{objectPathFor(m_appId)}
     );
     const PlatformData data = launchPlatformData();
-    if (uris.empty()) {
+    if (!action.empty()) {
+      std::vector<sdbus::Variant> parameter;
+      if (!uris.empty()) {
+        parameter.emplace_back(uris);
+      }
+      proxy->callMethod("ActivateAction").onInterface(kInterface).withTimeout(kForwardTimeoutUs).withArguments(action, parameter, data);
+    } else if (uris.empty()) {
       proxy->callMethod("Activate").onInterface(kInterface).withTimeout(kForwardTimeoutUs).withArguments(data);
     } else {
       proxy->callMethod("Open").onInterface(kInterface).withTimeout(kForwardTimeoutUs).withArguments(uris, data);

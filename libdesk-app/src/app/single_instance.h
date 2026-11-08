@@ -36,14 +36,15 @@ public:
   SingleInstance(const SingleInstance&) = delete;
   SingleInstance& operator=(const SingleInstance&) = delete;
 
-  // uris empty = Activate. The launch's XDG_ACTIVATION_TOKEN goes along as platform data.
-  Role claim(const std::vector<std::string>& uris, Handlers handlers);
+  // uris empty = Activate; a non-empty `action` forwards ActivateAction(action, uris) instead. The launch's
+  // XDG_ACTIVATION_TOKEN goes along as platform data.
+  Role claim(const std::vector<std::string>& uris, Handlers handlers, const std::string& action = {});
 
   // "/dev/andromeda/Files" for "dev.andromeda.Files", as the freedesktop spec maps an app id to a path.
   [[nodiscard]] static std::string objectPathFor(std::string_view appId);
 
 private:
-  bool forward(const std::vector<std::string>& uris);
+  bool forward(const std::vector<std::string>& uris, const std::string& action);
   void serve();
 
   SessionBus* m_bus = nullptr;

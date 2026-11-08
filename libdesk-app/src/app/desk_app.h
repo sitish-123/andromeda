@@ -1,10 +1,12 @@
 #pragma once
 
+#include "app/app_clipboard.h"
 #include "app/app_loop.h"
 #include "app/app_window.h"
 #include "app/command_table.h"
 #include "app/single_instance.h"
 #include "app/state_store.h"
+#include "core/timer_manager.h"
 
 #include <memory>
 #include <string>
@@ -82,9 +84,13 @@ private:
   std::unique_ptr<Appearance> m_appearance; // after the bus: it uses it
   std::unique_ptr<PollSource> m_signals;
   std::unique_ptr<GlibSource> m_glib; // GIO async calls complete in the app loop
+  std::unique_ptr<class AtspiPollSource> m_atspi;
   std::unique_ptr<SingleInstance> m_instance;
+  std::unique_ptr<AppClipboard> m_clipboard;
+  std::unique_ptr<class TextInputService> m_textInput;
   StateStore m_state;
   CommandTable m_commands;
   std::vector<std::unique_ptr<AppWindow>> m_windows;
+  Timer m_serviceQuit; // a D-Bus activation start whose request never came
   wl_surface* m_pointerSurface = nullptr;
 };

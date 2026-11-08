@@ -1021,7 +1021,9 @@ void Application::initNotificationAndOsd() {
     }
   }
 
-  TooltipManager::instance().initialize(m_wayland, &m_configService, &m_renderContext);
+  TooltipManager::instance().initialize(
+      m_wayland, [this] { return m_configService.config().accessibility.uiScale; }, &m_renderContext
+  );
   m_osdOverlay.initialize(m_wayland, m_compositorPlatform, &m_configService, &m_renderContext);
   m_liveActivity.initialize(m_wayland, &m_configService, &m_renderContext);
   m_liveActivity.setVisibilityCallback([this](wl_output* output, bool visible) { m_bar.setCenterIslandHidden(output, visible); });

@@ -28,7 +28,6 @@ namespace viewer {
   ViewerApp::~ViewerApp() = default;
 
   void ViewerApp::startup() {
-    m_clipboard = std::make_unique<ClipboardSource>(loop().wayland());
     addCommands();
   }
 
@@ -62,7 +61,7 @@ namespace viewer {
 
   AppWindow& ViewerApp::createWindow() {
     AppWindow& window = addWindow({.appId = info().id, .title = info().name, .width = 900, .height = 760});
-    m_windows[&window] = std::make_unique<ViewerWindow>(loop(), window, *m_clipboard);
+    m_windows[&window] = std::make_unique<ViewerWindow>(loop(), window);
     return window;
   }
 

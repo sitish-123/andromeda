@@ -1,7 +1,6 @@
 #pragma once
 
 #include "app/desk_app.h"
-#include "clipboard_source.h"
 
 #include <filesystem>
 #include <map>
@@ -29,7 +28,6 @@ namespace viewer {
     void addCommands();
     [[nodiscard]] ViewerWindow* active() const;
 
-    std::unique_ptr<ClipboardSource> m_clipboard;
     std::map<AppWindow*, std::unique_ptr<ViewerWindow>> m_windows;
   };
 

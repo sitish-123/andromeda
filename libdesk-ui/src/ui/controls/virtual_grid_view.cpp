@@ -65,7 +65,7 @@ VirtualGridView::VirtualGridView() {
   auto inputArea = std::make_unique<InputArea>();
   inputArea->setZIndex(50);
   inputArea->setFocusable(true);
-  inputArea->setAcceptedButtons(InputArea::buttonMask({BTN_LEFT, BTN_RIGHT}));
+  inputArea->setAcceptedButtons(InputArea::buttonMask({BTN_LEFT, BTN_RIGHT, BTN_MIDDLE}));
   inputArea->setOnEnter([this](const InputArea::PointerData& data) { onPointerEnter(data.localX, data.localY); });
   inputArea->setOnMotion([this](const InputArea::PointerData& data) { onPointerMotion(data.localX, data.localY); });
   inputArea->setOnLeave([this] { onPointerLeave(); });
@@ -78,6 +78,10 @@ VirtualGridView::VirtualGridView() {
       }
     } else if (data.pressed && data.button == BTN_RIGHT) {
       onSecondaryPointerPress(data.localX, data.localY);
+    } else if (data.pressed && data.button == BTN_MIDDLE && m_adapter != nullptr) {
+      if (const auto idx = indexAt(data.localX, data.localY)) {
+        m_adapter->onMiddleActivate(*idx);
+      }
     }
   });
   inputArea->setOnCancel([this] {

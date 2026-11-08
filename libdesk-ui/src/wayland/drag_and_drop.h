@@ -65,7 +65,10 @@ public:
   // Reads the clipboard as the first of `accepted` it offers, off the main thread; `done` runs on the main loop with
   // the type and bytes ("" and "" when nothing matched or the source did not answer).
   void readSelection(const std::vector<std::string>& accepted,
-                     std::function<void(const std::string& mime, std::string bytes)> done);
+                     std::function<void(const std::string& mime, std::string bytes)> done,
+                     std::size_t maxBytes = static_cast<std::size_t>(-1));
+  // Runs after each clipboard change, ours included (the compositor sends it while a surface has keyboard focus).
+  void setSelectionChanged(std::function<void()> changed) { m_selectionChanged = std::move(changed); }
 
   // wl listener entry points.
   void onSelectionSend(const char* mime, int fd);
@@ -113,5 +116,6 @@ private:
   wl_data_source* m_selectionSource = nullptr;
   Selection m_selection;
   wl_data_offer* m_selectionOffer = nullptr; // the clipboard of another client
+  std::function<void()> m_selectionChanged;
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true);
 };

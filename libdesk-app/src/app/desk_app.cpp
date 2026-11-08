@@ -1,5 +1,8 @@
 #include "app/desk_app.h"
 
+#include "a11y/atspi_bridge.h"
+#include "a11y/atspi_poll_source.h"
+
 #include "app/appearance.h"
 #include "app/glib_source.h"
 
@@ -8,8 +11,13 @@
 #include "core/log.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
+#include "ui/controls/input.h"
+#include "ui/tooltip/tooltip_manager.h"
+#include "wayland/text_input_service.h"
+#include "wayland/wayland_connection.h"
 #include "wayland/wayland_seat.h"
 
+#include <string_view>
 #include <csignal>
 #include <fcntl.h>
 #include <unistd.h>
@@ -81,19 +89,35 @@ namespace {
 DeskApp::DeskApp(Info info) : m_info(std::move(info)), m_state(StateStore::pathFor(m_info.id)) {}
 
 DeskApp::~DeskApp() {
+  TooltipManager::instance().forceDestroy();
   m_windows.clear();
+  TooltipManager::instance().shutdown();
+  Input::setTextClipboard(nullptr);
+  if (m_textInput != nullptr) {
+    m_loop.wayland().setTextInputService(nullptr);
+  }
   m_state.flush();
   m_loop.removeSource(m_busSource.get());
   if (m_glib != nullptr) {
     m_loop.removeSource(m_glib.get());
   }
   m_loop.removeSource(m_signals.get());
+  if (m_atspi != nullptr) {
+    m_loop.removeSource(m_atspi.get());
+    AtspiBridge::instance().stop();
+  }
 }
 
 int DeskApp::run(int argc, char* argv[]) {
   initLogLevelFromEnvironment();
   std::vector<std::string> uris;
+  bool serviceStart = false; // D-Bus activation: the Activate or Open call that started us makes the window
+  std::string startAction;   // --action=<name>: the files go to action(name, uris) instead of open()
   for (int i = 1; i < argc; ++i) {
+    serviceStart = serviceStart || std::string_view(argv[i]) == "--gapplication-service";
+    if (const std::string_view arg = argv[i]; arg.starts_with("--action=")) {
+      startAction = arg.substr(std::string_view("--action=").size());
+    }
     if (argv[i][0] != '-') {
       uris.push_back(toUri(argv[i]));
     }
@@ -116,7 +140,8 @@ int DeskApp::run(int argc, char* argv[]) {
                 .open = [this](const std::vector<std::string>& u, const std::string& token) { open(u, token); },
                 .action = [this](const std::string& name, const std::vector<std::string>& parameter,
                                  const std::string& token) { action(name, parameter, token); },
-            }
+            },
+      startAction
   );
   if (role == SingleInstance::Role::Forwarded) {
     return 0;
@@ -138,8 +163,21 @@ int DeskApp::run(int argc, char* argv[]) {
   m_loop.addSource(m_signals.get());
   m_glib = std::make_unique<GlibSource>();
   m_loop.addSource(m_glib.get());
+  if (m_bus != nullptr) {
+    // Screen readers (Orca) see the app's windows: AppWindow surfaces add their scene roots.
+    AtspiBridge::instance().start(m_bus->connection(), m_info.name);
+    m_atspi = std::make_unique<AtspiPollSource>();
+    m_loop.addSource(m_atspi.get());
+  }
 
   m_state.load();
+  m_textInput = std::make_unique<TextInputService>();
+  m_loop.wayland().setTextInputService(m_textInput.get());
+  m_clipboard = std::make_unique<AppClipboard>(m_loop.wayland());
+  TooltipManager::instance().initialize(
+      m_loop.wayland(), [this] { return m_windows.empty() ? 1.0F : m_windows.front()->uiScale(); }, &m_loop.renderContext()
+  );
+  Input::setTextClipboard(m_clipboard.get());
   addStandardCommands();
   m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { routePointer(event); });
   m_loop.wayland().setPinchEventCallback([this](const PinchEvent& event) {
@@ -153,12 +191,20 @@ int DeskApp::run(int argc, char* argv[]) {
   const char* token = std::getenv("XDG_ACTIVATION_TOKEN");
   const std::string launchToken = token != nullptr ? token : "";
   unsetenv("XDG_ACTIVATION_TOKEN");
-  if (uris.empty()) {
+  if (serviceStart && uris.empty()) {
+    m_serviceQuit.start(std::chrono::seconds(30), [this] {
+      if (m_windows.empty() && quitWithLastWindow()) {
+        m_loop.quit(0);
+      }
+    });
+  } else if (!startAction.empty()) {
+    action(startAction, uris, launchToken);
+  } else if (uris.empty()) {
     activate(launchToken);
   } else {
     open(uris, launchToken);
   }
-  if (m_windows.empty() && quitWithLastWindow()) {
+  if (!serviceStart && m_windows.empty() && quitWithLastWindow()) {
     kLog.error("{} opened no window", m_info.id);
     return 1;
   }

@@ -160,7 +160,10 @@ bool PopupSurface::initialize(zwlr_layer_surface_v1* parentLayerSurface, wl_outp
     return false;
   }
   if (roundtripResult < 0) {
-    kLog.warn("popup: initial roundtrip failed (compositor protocol error)");
+    const wl_interface* iface = nullptr;
+    std::uint32_t objectId = 0;
+    const std::uint32_t code = wl_display_get_protocol_error(m_connection.display(), &iface, &objectId);
+    kLog.warn("popup: initial roundtrip failed: {}#{} code {}", iface != nullptr ? iface->name : "?", objectId, code);
     unenrollFromGrabHost();
     destroyRoleObjects();
     destroySurface();
@@ -255,6 +258,7 @@ void PopupSurface::handlePopupConfigure(
     void* data, xdg_popup* /*popup*/, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height
 ) {
   auto* self = static_cast<PopupSurface*>(data);
+  kLog.debug("{} configured {} {} {}x{}", self->m_config.grab ? "popup" : "tooltip", x, y, width, height); // E2E: tests/e2e/files_submenu.sh
   self->m_configuredX = x;
   self->m_configuredY = y;
   if (width > 0) {
@@ -347,7 +351,10 @@ bool PopupSurface::initializeAsChild(xdg_surface* parentXdgSurface, wl_output* o
     return false;
   }
   if (roundtripResult < 0) {
-    kLog.warn("submenu popup: initial roundtrip failed (compositor protocol error)");
+    const wl_interface* iface = nullptr;
+    std::uint32_t objectId = 0;
+    const std::uint32_t code = wl_display_get_protocol_error(m_connection.display(), &iface, &objectId);
+    kLog.warn("submenu popup: initial roundtrip failed: {}#{} code {}", iface != nullptr ? iface->name : "?", objectId, code);
     unenrollFromGrabHost();
     destroyRoleObjects();
     destroySurface();

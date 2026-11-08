@@ -16,6 +16,8 @@
 #include "ui/controls/button.h"
 #include "app/app_popover.h"
 #include "ui/controls/context_menu_popup.h"
+#include "ui/controls/select_dropdown_popup.h"
+#include "ui/tooltip/tooltip_manager.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/label.h"
 #include "ui/palette.h"
@@ -25,10 +27,13 @@
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <format>
 #include <linux/input-event-codes.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
+#include <xkbcommon/xkbcommon.h>
 
 namespace {
   constexpr float kContextMenuMinWidth = 240.0F; // logical px: labels and their shortcut column fit
@@ -36,6 +41,8 @@ namespace {
 
   // Rulebook §9.12 app header.
   constexpr float kHeaderHeight = 48.0F;
+  constexpr float kCompactWidth = 760.0F; // logical px of window body under which the sidebar is a rail
+  constexpr float kRailWidth = 56.0F;
   constexpr float kNavButton = 32.0F;
   constexpr float kNavInset = 8.0F;
   constexpr float kHeaderGap = 8.0F;
@@ -89,7 +96,10 @@ namespace {
   public:
     Label* title = nullptr;
     Flex* titleRow = nullptr;
+    InputArea* titleArea = nullptr; // over the whole title row when the app takes title clicks
     Node* accessory = nullptr;
+    float accessoryMin = 0.0F; // the accessory's own minimum; fit() lowers it so the row never overflows
+    float titleMin = 0.0F;     // the title keeps this much (or its natural width) before the accessory folds more
 
   protected:
     void doLayout(Renderer& renderer) override {
@@ -99,15 +109,54 @@ namespace {
     void doArrange(Renderer& renderer, const LayoutRect& rect) override {
       fit(renderer, rect.width);
       Flex::doArrange(renderer, rect);
+      if (titleArea != nullptr) {
+        titleArea->setSize(titleRow->width(), titleRow->height());
+      }
+      logParts();
     }
 
   private:
+    // E2E (DESK_FILES_GEOMETRY=1, tests/e2e/files_layout.sh): each visible header part's scene x and width on one line,
+    // the accessory split into its own parts, so a script can check that no two overlap.
+    void logParts() const {
+      static const bool enabled = std::getenv("DESK_FILES_GEOMETRY") != nullptr;
+      if (!enabled) {
+        return;
+      }
+      std::string out;
+      const auto add = [&out](const std::string& name, const Node* node) {
+        float x = 0.0F;
+        float y = 0.0F;
+        Node::mapToScene(node, 0.0F, 0.0F, x, y);
+        out += std::format(" {}:{}:{}", name, static_cast<int>(x), static_cast<int>(node->width()));
+      };
+      int part = 0;
+      for (const auto& child : children()) {
+        if (!child->visible() || !child->participatesInLayout()) {
+          continue;
+        }
+        if (child.get() == accessory) {
+          int k = 0;
+          for (const auto& inner : accessory->children()) {
+            if (inner->visible() && inner->participatesInLayout()) {
+              add(std::format("accessory{}", k++), inner.get());
+            }
+          }
+        } else {
+          add(child.get() == titleRow ? std::string("title") : std::format("part{}", part), child.get());
+        }
+        ++part;
+      }
+      kLog.debug("geometry header-row{}", out);
+    }
+
     void fit(Renderer& renderer, float w) {
       if (title == nullptr || w <= 0.0F) {
         return;
       }
       float used = paddingLeft() + paddingRight();
       int shown = 0;
+      auto* flex = dynamic_cast<Flex*>(accessory);
       for (const auto& child : children()) {
         if (!child->visible() || !child->participatesInLayout()) {
           continue;
@@ -115,16 +164,44 @@ namespace {
         ++shown;
         if (child.get() == titleRow) {
           used += titleRow->paddingLeft();
-        } else if (child.get() == accessory) {
-          auto* flex = dynamic_cast<Flex*>(accessory);
-          used += flex != nullptr ? flex->minWidth() : child->measure(renderer, {}).width;
-        } else {
+        } else if (child.get() != accessory) {
+          used += child->measure(renderer, {}).width;
+        } else if (flex == nullptr) {
           used += child->measure(renderer, {}).width;
         }
       }
       used += gap() * static_cast<float>(std::max(0, shown - 1));
-      title->setMaxWidth(std::max(1.0F, w - used));
+      // Narrow windows: the accessory gives up room down to nothing before the title drops under its minimum, and
+      // the window buttons never leave the row.
+      float allowed = 0.0F;
+      if (flex != nullptr) {
+        title->setMaxWidth(0.0F);
+        const float natural = static_cast<Node*>(title)->measure(renderer, {}).width;
+        const float keep = std::min(natural, titleMin);
+        allowed = std::clamp(w - used - keep, 0.0F, accessoryMin);
+        flex->setMinWidth(allowed);
+      }
+      title->setMaxWidth(std::max(1.0F, w - used - allowed));
     }
+  };
+
+  // Select dropdowns of the window's controls: scene coordinates include the shadow margin, xdg anchors do not.
+  class WindowSelectPopup final : public SelectDropdownPopup {
+  public:
+    WindowSelectPopup(WaylandConnection& wayland, RenderContext& context, std::function<int()> margin,
+                      std::function<void(WindowSelectPopup&)> reparent)
+        : SelectDropdownPopup(wayland, context), m_margin(std::move(margin)), m_reparent(std::move(reparent)) {}
+    void openSelectDropdown(const DropdownRequest& request, DropdownCallbacks callbacks) override {
+      m_reparent(*this); // the window's current output: the dropdown renders at its scale
+      DropdownRequest local = request;
+      local.anchorX -= m_margin();
+      local.anchorY -= m_margin();
+      SelectDropdownPopup::openSelectDropdown(local, std::move(callbacks));
+    }
+
+  private:
+    std::function<int()> m_margin;
+    std::function<void(WindowSelectPopup&)> m_reparent;
   };
 
   Button::ButtonPalette windowButtonPalette(bool close) {
@@ -153,7 +230,8 @@ wl_surface* AppWindow::wlSurface() const noexcept { return m_surface != nullptr 
 
 bool AppWindow::ownsSurface(wl_surface* surface) const noexcept {
   return surface != nullptr &&
-         (surface == wlSurface() || (m_menu != nullptr && m_menu->isOpen() && m_menu->wlSurface() == surface) ||
+         (surface == wlSurface() || (m_menu != nullptr && m_menu->ownsSurface(surface)) ||
+          (m_select != nullptr && m_select->isSelectDropdownOpen() && m_select->wlSurface() == surface) ||
           (m_popover != nullptr && m_popover->isOpen() && m_popover->wlSurface() == surface));
 }
 
@@ -219,6 +297,7 @@ void AppWindow::openMoreMenu() {
   float y = 0.0F;
   Node::absolutePosition(m_moreButton, x, y);
   const auto margin = static_cast<float>(m_surface->margin());
+  TooltipManager::instance().onHoverChange(nullptr, static_cast<xdg_surface*>(nullptr), nullptr);
   m_menu->open(ContextMenuPopupRequest{
       .entries = std::move(entries),
       .contentScale = m_uiScale,
@@ -247,6 +326,7 @@ void AppWindow::openContextMenu(std::vector<ContextMenuControlEntry> entries, fl
     });
   });
   const auto margin = static_cast<float>(m_surface->margin());
+  TooltipManager::instance().onHoverChange(nullptr, static_cast<xdg_surface*>(nullptr), nullptr);
   m_menu->open(ContextMenuPopupRequest{
       .entries = std::move(entries),
       .minMenuWidth = kContextMenuMinWidth * m_uiScale,
@@ -366,6 +446,21 @@ bool AppWindow::open() {
   m_input.setCursorShapeCallback([this](std::uint32_t serial, std::uint32_t shape) {
     m_loop.wayland().setCursorShape(serial, shape);
   });
+  // Input methods (fcitx5, IBus): preedit and commits reach the focused text field.
+  m_input.setTextInputContext(m_surface->wlSurface(), wayland.textInputService());
+  m_input.setHoverChangeCallback([this](InputArea* /*old*/, InputArea* next) {
+    if (m_surface == nullptr) {
+      return;
+    }
+    // No tooltip over an open menu, popover or dropdown.
+    if ((m_menu != nullptr && m_menu->isOpen()) || (m_popover != nullptr && m_popover->isOpen()) ||
+        (m_select != nullptr && m_select->isSelectDropdownOpen())) {
+      next = nullptr;
+    }
+    const auto margin = static_cast<float>(m_surface->margin());
+    TooltipManager::instance().onHoverChange(next, m_surface->xdgSurface(),
+                                             m_loop.wayland().outputForSurface(m_surface->wlSurface()), margin, margin);
+  });
   m_rebuild = true;
   return true;
 }
@@ -375,10 +470,14 @@ void AppWindow::close() {
     return;
   }
   m_state.flush();
+  m_input.setTextInputContext(nullptr, nullptr);
+  m_input.setHoverChangeCallback({});
+  TooltipManager::instance().forceDestroy(); // a tooltip popup must go before its parent surface
   m_input.setSceneRoot(nullptr);
   m_surface->setSceneRoot(nullptr);
   m_foreignParent.reset();
   m_menu.reset();
+  m_select.reset();
   m_popover.reset();
   // Nodes unload their textures through the surface's renderer: they go first.
   m_root.reset();
@@ -470,10 +569,19 @@ void AppWindow::prepareFrame(bool needsLayout) {
   m_loop.renderContext().makeCurrent(m_surface->renderTarget());
   Renderer& renderer = m_surface->renderTarget().renderer();
   // A rebuild drops the pressed area: hold it until the button is released, so no click or drag is lost.
+  // Crossing the compact width swaps the sidebar between its full list and the icon rail, in place: a full rebuild
+  // would tear down the whole file grid (thousands of nodes, 50-80 ms).
+  const bool compact = width - 2.0F * static_cast<float>(m_surface->margin()) < kCompactWidth * m_uiScale;
   if (m_root == nullptr || (m_rebuild && !m_buttonDown)) {
     m_rebuild = false;
+    m_compact = compact;
     buildScene(renderer, width, height);
     return;
+  }
+  if (compact != m_compact) {
+    m_compact = compact;
+    swapSidebar(renderer, height - 2.0F * static_cast<float>(m_surface->margin()));
+    needsLayout = true;
   }
   if (needsLayout || m_root->width() != width || m_root->height() != height) {
     const auto margin = static_cast<float>(m_surface->margin());
@@ -484,6 +592,24 @@ void AppWindow::prepareFrame(bool needsLayout) {
     }
     m_root->layout(renderer);
   }
+}
+
+void AppWindow::swapSidebar(Renderer& renderer, float height) {
+  if (m_sidebarNode == nullptr || !m_sidebarBuilder || m_sidebarNode->children().empty()) {
+    return;
+  }
+  const float edgeW = 0.5F * m_uiScale;
+  const float full = (m_compact ? kRailWidth : m_config.sidebarWidth) * m_uiScale;
+  const float shown = full * m_sidebarMix;
+  m_sidebarNode->setMinWidth(shown);
+  m_sidebarNode->setMaxWidth(shown);
+  auto list = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .width = full - edgeW});
+  list->addChild(m_sidebarBuilder(renderer, full - edgeW, height));
+  m_sidebarNode->removeChild(m_sidebarNode->children().front().get());
+  m_sidebarNode->insertChildAt(0, std::move(list));
+  m_sidebarNode->markLayoutDirty();
+  m_contentRect.x = static_cast<float>(m_surface->margin()) + shown;
+  m_contentRect.width = static_cast<float>(m_surface->windowWidth()) - shown;
 }
 
 void AppWindow::refreshNavigation() {
@@ -546,12 +672,48 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
       .ellipsize = TextEllipsize::Middle,
   }));
   header->title = m_titleLabel;
+  header->titleMin = 96.0F * s;
+  if (m_titleClick) {
+    auto area = ui::inputArea({.cursorShape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT, .participatesInLayout = false});
+    // A drag on the title still moves the window (the header's own drag needs an empty spot); a click edits.
+    struct Press {
+      bool down = false;
+      bool moved = false;
+      std::uint32_t serial = 0;
+      float x = 0.0F;
+      float y = 0.0F;
+    };
+    auto press = std::make_shared<Press>();
+    area->setOnPress([press](const InputArea::PointerData& data) {
+      if (data.button == BTN_LEFT) {
+        *press = {.down = data.pressed, .moved = false, .serial = data.serial, .x = data.localX, .y = data.localY};
+      }
+    });
+    area->setOnMotion([this, press, s](const InputArea::PointerData& data) {
+      if (press->down && !press->moved && std::hypot(data.localX - press->x, data.localY - press->y) > 4.0F * s) {
+        press->moved = true;
+        press->down = false;
+        m_buttonDown = false;
+        m_surface->beginMove(press->serial);
+      }
+    });
+    area->setOnClick([this, press](const InputArea::PointerData& data) {
+      if (data.button == BTN_LEFT && !press->moved && m_titleClick) {
+        m_titleClick();
+      }
+    });
+    header->titleArea = area.get();
+    title->addChild(std::move(area));
+  }
   header->addChild(std::move(title));
   if (m_headerAccessory) {
     // The accessory takes the free room (its search grows up to its maximum, then it right-aligns).
     auto accessory = m_headerAccessory();
     accessory->setFlexGrow(1.0F);
     header->accessory = accessory.get();
+    if (auto* flex = dynamic_cast<Flex*>(accessory.get())) {
+      header->accessoryMin = flex->minWidth();
+    }
     header->addChild(std::move(accessory));
   } else {
     header->addChild(ui::row({.flexGrow = 1.0F}));
@@ -626,12 +788,26 @@ void AppWindow::applyHeaderSearchMode() {
 }
 
 void AppWindow::buildScene(Renderer& renderer, float width, float height) {
+  // A rebuild runs inside a frame: each part's cost is logged so a slow one shows by name.
+  const auto since = [](std::chrono::steady_clock::time_point t) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+  };
+  const auto buildStart = std::chrono::steady_clock::now();
+  double contentMs = 0.0;
+  double sidebarMs = 0.0;
+  double sheetMs = 0.0;
+  double headerMs = 0.0;
+  double layoutMs = 0.0;
+  double hookMs = 0.0;
   m_input.setSceneRoot(nullptr);
   m_titleLabel = nullptr;
   m_titleRow = nullptr;
   m_maximizeButton = nullptr;
   m_navButtons = {};
   m_sidebarNode = nullptr;
+  const auto teardownStart = std::chrono::steady_clock::now();
+  m_root.reset();
+  const double teardownMs = since(teardownStart);
   m_root = ui::node({});
   m_root->setSize(width, height);
   m_root->setAnimationManager(&m_animations);
@@ -640,13 +816,16 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   width -= 2.0F * margin;
   height -= 2.0F * margin;
 
-  const float sidebarWidth = m_sidebarBuilder ? m_config.sidebarWidth * m_uiScale : 0.0F;
+  // Responsive (user, 2026-11-08): narrow windows show the sidebar as an icon rail.
+  const float sidebarWidth = !m_sidebarBuilder ? 0.0F : (m_compact ? kRailWidth : m_config.sidebarWidth) * m_uiScale;
   const float sidebarShown = sidebarWidth * m_sidebarMix;
   const float mainWidth = std::max(0.0F, width - sidebarShown);
   auto main = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
   const bool header = m_config.header && (m_config.headerWhenFullscreen || !fullscreen());
   if (header) {
+    const auto headerStart = std::chrono::steady_clock::now();
     auto bar = buildHeader();
+    headerMs = since(headerStart);
     if (m_config.transparentContent) {
       bar->setFill(colorSpecFromRole(ColorRole::SolidRegular));
     }
@@ -659,7 +838,9 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   const float contentHeight = std::max(0.0F, height - headerHeight);
   m_contentRect = {.x = margin + sidebarShown, .y = margin + headerHeight,
                    .width = mainWidth, .height = contentHeight};
+  auto partStart = std::chrono::steady_clock::now();
   std::unique_ptr<Node> content = m_builder ? m_builder(renderer, mainWidth, contentHeight) : ui::node({});
+  contentMs = since(partStart);
   auto holder = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .flexGrow = 1.0F});
   holder->addChild(std::move(content));
   main->addChild(std::move(holder));
@@ -673,7 +854,9 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
                             .maxWidth = sidebarShown, .clipChildren = true, .width = sidebarShown});
     sidebar->setFill(colorSpecFromRole(ColorRole::SolidThin));
     auto list = ui::column({.align = FlexAlign::Stretch, .clipChildren = true, .width = sidebarWidth - edgeW});
+    partStart = std::chrono::steady_clock::now();
     list->addChild(m_sidebarBuilder(renderer, sidebarWidth - edgeW, height));
+    sidebarMs = since(partStart);
     sidebar->addChild(std::move(list));
     sidebar->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Separator), .width = edgeW}));
     // Fully hidden, it leaves the layout: a 0 min/max width reads as "no limit" and would show it at full width. It is
@@ -685,21 +868,30 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   body->addChild(std::move(main));
   body->setSize(width, height);
   body->setPosition(margin, margin);
+  const auto layoutStart = std::chrono::steady_clock::now();
   body->layout(renderer);
+  layoutMs = since(layoutStart);
   m_root->addChild(std::move(body));
   m_sheetCard = nullptr;
+  m_sheetShade = nullptr;
+  m_sheetScrim = nullptr;
   if (m_sheetBuilder) {
     const float s = m_uiScale;
     auto scrim = ui::inputArea({});
+    m_sheetScrim = scrim.get();
     scrim->setPosition(margin, margin);
     scrim->setSize(width, height);
     auto shade = ui::box({.fill = colorSpecFromRole(ColorRole::Shadow, isResolvedLightTheme() ? 0.20F : 0.40F),
                           .radius = Style::scaledRadius(Tokens::componentWindowRadius, s)});
     shade->setSize(width, height);
+    shade->setOpacity(m_sheetMix); // the dim fades in with the card
+    m_sheetShade = shade.get();
     scrim->addChild(std::move(shade));
     auto card = ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Popover),
                             .radius = Style::scaledRadius(Tokens::componentDialogRadius, s), .clipChildren = true});
+    partStart = std::chrono::steady_clock::now();
     card->addChild(m_sheetBuilder(s));
+    sheetMs = since(partStart);
     card->layout(renderer);
     card->setPosition(std::round((width - card->width()) / 2.0F), std::round((height - card->height()) / 2.0F));
     card->setTransformOrigin(card->width() / 2.0F, card->height() / 2.0F);
@@ -710,11 +902,26 @@ void AppWindow::buildScene(Renderer& renderer, float width, float height) {
     m_root->addChild(std::move(scrim));
   }
 
+  if (m_select == nullptr) {
+    m_select = std::make_unique<WindowSelectPopup>(
+        m_loop.wayland(), m_loop.renderContext(),
+        [this] { return m_surface != nullptr ? static_cast<int>(m_surface->margin()) : 0; },
+        [this](WindowSelectPopup& popup) {
+          popup.setParent(m_surface->xdgSurface(), m_surface->wlSurface(),
+                          m_loop.wayland().outputForSurface(m_surface->wlSurface()));
+        });
+  }
+  m_root->setPopupContext(m_select.get());
   m_input.setSceneRoot(m_root.get());
   m_surface->setSceneRoot(m_root.get());
   if (m_onLayout) {
+    const auto hookStart = std::chrono::steady_clock::now();
     m_onLayout();
+    hookMs = since(hookStart);
   }
+  kLog.debug("rebuild {:.1f} ms (teardown {:.1f}, content {:.1f}, sidebar {:.1f}, sheet {:.1f}, header {:.1f}, layout {:.1f}, "
+             "on-layout {:.1f})",
+             since(buildStart), teardownMs, contentMs, sidebarMs, sheetMs, headerMs, layoutMs, hookMs);
 }
 
 std::uint32_t AppWindow::resizeEdgesAt(float x, float y) const {
@@ -755,6 +962,14 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
   }
   if (m_popover != nullptr && m_popover->isOpen() && m_popover->onPointerEvent(event)) {
     return;
+  }
+  if (m_select != nullptr && m_select->isSelectDropdownOpen()) {
+    if (m_select->onPointerEvent(event)) {
+      return;
+    }
+    if (event.type == PointerEvent::Type::Button && event.pressed) {
+      m_select->closeSelectDropdown();
+    }
   }
   if (m_menu != nullptr && m_menu->isOpen()) {
     if (m_menu->onPointerEvent(event)) {
@@ -807,6 +1022,15 @@ void AppWindow::onPointerEvent(const PointerEvent& event) {
     m_input.pointerMotion(x, y, event.serial);
     break;
   case PointerEvent::Type::Button: {
+    if (m_config.navigation && !hasSheet() &&
+        (event.button == BTN_SIDE || event.button == BTN_EXTRA || event.button == BTN_BACK || event.button == BTN_FORWARD)) {
+      // Mouse back / forward buttons, as in every browser and file manager.
+      const char* command = event.button == BTN_SIDE || event.button == BTN_BACK ? "go.back" : "go.forward";
+      if (event.pressed && m_commands.isEnabled(command)) {
+        m_commands.run(command);
+      }
+      break;
+    }
     m_buttonDown = event.pressed;
     if (!event.pressed && m_rebuild) {
       m_surface->requestLayout();
@@ -885,7 +1109,7 @@ void AppWindow::setSidebarVisible(bool visible) {
         if (m_surface == nullptr) {
           return;
         }
-        const float w = m_config.sidebarWidth * m_uiScale * m_sidebarMix;
+        const float w = (m_compact ? kRailWidth : m_config.sidebarWidth) * m_uiScale * m_sidebarMix;
         if (m_sidebarNode == nullptr) {
           return;
         }
@@ -898,22 +1122,32 @@ void AppWindow::setSidebarVisible(bool visible) {
         m_contentRect.width = static_cast<float>(m_surface->windowWidth()) - w;
         m_surface->requestLayout();
       },
-      [this] { m_sidebarAnim = 0; }, nullptr, 0.0F, Threshold::px(m_config.sidebarWidth * m_uiScale), true);
+      [this] { m_sidebarAnim = 0; }, nullptr, 0.0F, Threshold::px((m_compact ? kRailWidth : m_config.sidebarWidth) * m_uiScale), true);
   m_surface->requestLayout(); // the spring ticks on frames; a key press alone asks for none
 }
 
 void AppWindow::presentSheet(std::function<std::unique_ptr<Node>(float)> builder, std::function<void()> onCancel) {
+  const bool replacing = static_cast<bool>(m_sheetBuilder);
   m_sheetBuilder = std::move(builder);
   m_sheetCancel = std::move(onCancel);
-  m_sheetMix = 0.0F;
+  if ((std::exchange(m_sheetHandoff, false) || replacing) && m_sheetAnim == 0) {
+    m_sheetMix = 1.0F; // one sheet hands over to the next: the dim and the card stay up
+    requestRebuild();
+    return;
+  }
+  const float from = m_sheetAnim != 0 ? m_sheetMix : 0.0F;
+  m_sheetMix = from;
   MotionTraceLabel trace("window.sheet");
   m_sheetAnim = m_animations.drive(
-      m_sheetAnim, 0.0F, 1.0F, Style::spring(Tokens::springOpen),
+      m_sheetAnim, from, 1.0F, Style::spring(Tokens::springOpen),
       [this](float v) {
         m_sheetMix = v;
         if (m_sheetCard != nullptr) {
           m_sheetCard->setOpacity(v);
           m_sheetCard->setScale(0.96F + 0.04F * v);
+        }
+        if (m_sheetShade != nullptr) {
+          m_sheetShade->setOpacity(v);
         }
         invalidate();
       },
@@ -936,13 +1170,63 @@ void AppWindow::dismissSheet() {
   }
   m_sheetBuilder = {};
   m_sheetCancel = {};
-  m_sheetMix = 1.0F;
-  m_sheetCard = nullptr;
-  requestRebuild();
+  m_sheetHandoff = true;
+  // The next sheet may come in the same turn (a hand-off): only when none does, the card leaves on spring.close and
+  // the scene drops it after.
+  DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+    if (alive.expired()) {
+      return;
+    }
+    m_sheetHandoff = false;
+    if (m_sheetBuilder) {
+      return;
+    }
+    if (m_sheetCard == nullptr || m_sheetShade == nullptr) {
+      m_sheetMix = 1.0F;
+      requestRebuild();
+      return;
+    }
+    // The window under a leaving sheet takes clicks again, and the card's buttons cannot run twice.
+    for (Node* part : {static_cast<Node*>(m_sheetScrim), m_sheetShade, m_sheetCard}) {
+      if (part != nullptr) {
+        part->setHitTestVisible(false);
+      }
+    }
+    m_input.setFocus(nullptr); // keys must not reach the leaving sheet's field (Enter twice = submit twice)
+    MotionTraceLabel trace("window.sheet.close");
+    m_sheetAnim = m_animations.drive(
+        m_sheetAnim, m_sheetMix, 0.0F, Style::spring(Tokens::springClose),
+        [this](float v) {
+          m_sheetMix = v;
+          if (m_sheetCard != nullptr) {
+            m_sheetCard->setOpacity(v);
+            m_sheetCard->setScale(0.96F + 0.04F * v);
+          }
+          if (m_sheetShade != nullptr) {
+            m_sheetShade->setOpacity(v);
+          }
+          invalidate();
+        },
+        [this] {
+          m_sheetAnim = 0;
+          m_sheetMix = 1.0F;
+          m_sheetCard = nullptr;
+          m_sheetShade = nullptr;
+          m_sheetScrim = nullptr;
+          requestRebuild();
+        },
+        nullptr
+    );
+    m_surface->requestRedraw(); // the spring ticks on frames: an idle window has none running
+  });
 }
 
 void AppWindow::onKeyboardEvent(const KeyboardEvent& event) {
   if (!isOpen()) {
+    return;
+  }
+  if (m_select != nullptr && m_select->isSelectDropdownOpen()) {
+    m_select->onKeyboardEvent(event);
     return;
   }
   if (m_menu != nullptr && m_menu->isOpen()) {
@@ -970,9 +1254,23 @@ void AppWindow::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   }
   const InputArea* focused = m_input.focusedArea();
-  const bool typing = focused != nullptr && focused->capturesAllKeys();
-  // A focused text field owns plain keys; commands with Ctrl or Alt still run (Ctrl+W closes while typing).
-  const bool commandKey = (event.modifiers & (KeyMod::Ctrl | KeyMod::Alt)) != 0 || !typing;
+  const bool typing = focused != nullptr && (focused->capturesAllKeys() || focused->textInputClient() != nullptr);
+  // A focused text field owns plain keys and its editing chords (Ctrl+A/C/X/V/Z/Y, Shift+Insert); other commands
+  // with Ctrl or Alt still run (Ctrl+W closes while typing).
+  const auto editChord = [&event] {
+    const std::uint32_t mods = event.modifiers & (KeyMod::Ctrl | KeyMod::Alt | KeyMod::Shift);
+    const xkb_keysym_t sym = xkb_keysym_to_lower(event.sym);
+    if (mods == KeyMod::Shift && (sym == XKB_KEY_Insert || sym == XKB_KEY_Delete)) {
+      return true;
+    }
+    if ((mods & ~KeyMod::Shift) != KeyMod::Ctrl) {
+      return false;
+    }
+    return sym == XKB_KEY_a || sym == XKB_KEY_c || sym == XKB_KEY_x || sym == XKB_KEY_v || sym == XKB_KEY_z ||
+           sym == XKB_KEY_y || sym == XKB_KEY_Insert || sym == XKB_KEY_Left || sym == XKB_KEY_Right ||
+           sym == XKB_KEY_BackSpace || sym == XKB_KEY_Delete || sym == XKB_KEY_Home || sym == XKB_KEY_End;
+  };
+  const bool commandKey = !typing || ((event.modifiers & (KeyMod::Ctrl | KeyMod::Alt)) != 0 && !editChord());
   if (event.pressed && !event.preedit && commandKey && m_commands.handleKey(event.sym, event.modifiers)) {
     return;
   }

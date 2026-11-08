@@ -23,7 +23,6 @@ struct KeyboardEvent;
 
 namespace viewer {
 
-  class ClipboardSource;
 
   // One Viewer window (.agent/DESIGN-viewer.md): a PDF with thumbnails, search and text selection, or an image with
   // its folder neighbours.
@@ -31,7 +30,7 @@ namespace viewer {
   public:
     enum class Tool : std::uint8_t { Select, Highlight, Note, Draw, Sign };
 
-    ViewerWindow(AppLoop& loop, AppWindow& window, ClipboardSource& clipboard);
+    ViewerWindow(AppLoop& loop, AppWindow& window);
     ~ViewerWindow();
     ViewerWindow(const ViewerWindow&) = delete;
     ViewerWindow& operator=(const ViewerWindow&) = delete;
@@ -104,7 +103,6 @@ namespace viewer {
 
     AppLoop& m_loop;
     AppWindow& m_window;
-    ClipboardSource& m_clipboard;
     Mode m_mode = Mode::Empty;
     std::filesystem::path m_path;
     std::string m_error;

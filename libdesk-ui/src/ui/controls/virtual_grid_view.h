@@ -102,6 +102,8 @@ public:
   // Optional: secondary button press (e.g. context menu). Anchor coordinates are in the panel scene graph
   // (surface-local).
   virtual void onSecondaryActivate(std::size_t /*index*/, float /*anchorX*/, float /*anchorY*/) {}
+  // Optional: middle button press on an item (Files: open a folder in a new tab).
+  virtual void onMiddleActivate(std::size_t /*index*/) {}
   // Optional: secondary button press on empty space (a background menu), same coordinates.
   virtual void onSecondaryEmpty(float /*anchorX*/, float /*anchorY*/) {}
 
