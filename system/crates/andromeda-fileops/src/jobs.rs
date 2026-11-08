@@ -66,7 +66,7 @@ const ANSWER_POLL: Duration = Duration::from_millis(250);
 /// Set on SIGTERM: every job stops at its next check, also one that waits for a conflict answer.
 pub static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Running,
     /// Pause asked: the worker waits at its next pause point (between chunks and items).
@@ -342,7 +342,7 @@ enum Request {
     /// Archive, inner paths (empty = all), destination folder, password.
     Extract(PathBuf, Vec<PathBuf>, PathBuf, String),
     /// Sources, archive path, format, password.
-    Compress(Vec<PathBuf>, PathBuf, archive::OutFormat, String),
+    Compress(Vec<PathBuf>, PathBuf, archive::OutFormat, String, u64),
     /// Paths, mode, mask, recursive.
     SetPermissions(Vec<PathBuf>, u32, u32, bool),
     /// Path, algorithm.
@@ -386,7 +386,9 @@ fn run(request: Request, shared: &Shared) {
             shared.changed.notify_one();
             archive::extract(&path, &inner, &dir, &password, shared)
         }
-        Request::Compress(sources, path, format, password) => archive::compress(&sources, &path, format, &password, shared),
+        Request::Compress(sources, path, format, password, volume) => {
+            archive::compress(&sources, &path, format, &password, volume, shared)
+        },
         Request::SetPermissions(paths, mode, mask, recursive) => info::set_permissions(&paths, mode, mask, recursive, shared),
         Request::Checksum(path, algorithm) => match info::checksum(&path, &algorithm, shared) {
             Ok(hex) => {
@@ -430,6 +432,9 @@ async fn publish(conn: Connection, path: OwnedObjectPath, shared: Arc<Shared>, a
     let Ok(iface) = iface else { return };
     loop {
         shared.changed.notified().await;
+        // Read before the emits: a job that ends after state_changed read "running" must loop once more, else
+        // its final State is never sent.
+        let finished = matches!(lock(&shared.status).state, State::Done | State::Failed | State::Cancelled);
         let job = iface.get().await;
         let emitter = iface.signal_emitter();
         let _ = job.state_changed(emitter).await;
@@ -441,7 +446,6 @@ async fn publish(conn: Connection, path: OwnedObjectPath, shared: Arc<Shared>, a
         let _ = job.conflict_changed(emitter).await;
         let _ = job.conflict_progress_changed(emitter).await;
         let _ = job.folder_clash_changed(emitter).await;
-        let finished = matches!(lock(&shared.status).state, State::Done | State::Failed | State::Cancelled);
         if finished {
             let _ = job.error_changed(emitter).await;
             let _ = job.undoable_changed(emitter).await;
@@ -515,7 +519,24 @@ impl Manager {
         lock(&self.activity).0 += 1;
         tokio::spawn(publish(conn.clone(), path.clone(), shared.clone(), self.activity.clone()));
         let worker = shared.clone();
-        tokio::task::spawn_blocking(move || run(request, &worker));
+        tokio::task::spawn_blocking(move || {
+            // A panic must end the job as failed: else it stays "running" and the app waits for good.
+            if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(request, &worker))) {
+                let message = panic
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                    .unwrap_or_default();
+                log::error!("{kind} job {n} panicked: {message}");
+                let mut status = lock(&worker.status);
+                status.state = State::Failed;
+                status.error = format!("internal error: {message}");
+                drop(status);
+                worker.changed.notify_one();
+            } else {
+                log::info!("{kind} job {n} finished: {:?}", lock(&worker.status).state);
+            }
+        });
         self.jobs.push((path.clone(), shared));
         log::info!("{kind} job {n} started");
         Ok(path)
@@ -711,7 +732,7 @@ impl Manager {
         Ok(job)
     }
 
-    /// Changes tags in `user.xdg.tags`: mode set (exactly these), add or remove. Undo puts back each old value.
+    /// Changes tags in `user.xdg.tags`: mode set (exactly these), add, remove or rename ([old, new]). Undo puts back each old value.
     async fn set_tags(
         &mut self,
         targets: Vec<Vec<u8>>,
@@ -723,6 +744,9 @@ impl Manager {
         let mode = tags::Mode::parse(&mode).ok_or_else(|| zbus::fdo::Error::InvalidArgs(format!("unknown mode '{mode}'")))?;
         if let Some(bad) = tags.iter().find(|t| !tags::valid_tag(t)) {
             return Err(zbus::fdo::Error::InvalidArgs(format!("bad tag '{bad}'")));
+        }
+        if mode == tags::Mode::Rename && tags.len() != 2 {
+            return Err(zbus::fdo::Error::InvalidArgs("rename takes [old, new]".into()));
         }
         let paths = paths(targets)?;
         if paths.is_empty() {
@@ -795,13 +819,14 @@ impl Manager {
     }
 
     /// Writes `sources` into the new archive `destination`; format zip, 7z, tar.gz, tar.xz or tar.zst. Only zip and
-    /// 7z take a password.
+    /// 7z take a password. A `volume_size` above 0 splits a larger archive into destination.001, .002, …
     async fn compress(
         &mut self,
         sources: Vec<Vec<u8>>,
         destination: Vec<u8>,
         format: String,
         password: String,
+        volume_size: u64,
         #[zbus(connection)] conn: &Connection,
         #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
     ) -> zbus::fdo::Result<OwnedObjectPath> {
@@ -815,7 +840,7 @@ impl Manager {
             return Err(zbus::fdo::Error::InvalidArgs("nothing to compress".into()));
         }
         let target = paths(vec![destination])?.remove(0);
-        let job = self.start(conn, "compress", Request::Compress(sources, target, format, password)).await?;
+        let job = self.start(conn, "compress", Request::Compress(sources, target, format, password, volume_size)).await?;
         self.jobs_changed(&emitter).await?;
         Ok(job)
     }

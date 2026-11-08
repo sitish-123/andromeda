@@ -19,7 +19,7 @@ wait_for() { local what=$1; shift; for _ in $(seq 150); do "$@" && return; sleep
 subject=$$
 # The shell under test tells gazed to send markers to polkit-1; take that back so the user's own agent does not get them.
 trap 'busctl --system call com.gundulabs.Gaze /com/gundulabs/Gaze com.gundulabs.Gaze RemovePamInternal s polkit-1 \
-  > /dev/null 2>&1 || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+  > /dev/null 2>&1 || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 
 printf '[shell]\npolkit_agent = true\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
 # A private session bus keeps this shell off the user's notification and MPRIS names; the system bus stays real.

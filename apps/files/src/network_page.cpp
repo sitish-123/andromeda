@@ -63,6 +63,7 @@ struct NetworkPage::MountJob {
   std::string user;
   std::string password;
   bool remember = false;
+  bool reconnect = false;
   bool fromSheet = false;     // started by the Connect sheet, which shows the error text
   bool answer = false;        // reply to a question with its first choice
   bool sentPassword = false;  // a second password request means the password was wrong
@@ -113,7 +114,7 @@ std::vector<NetworkPage::Server> NetworkPage::loadServers() {
     const std::string uri = s.is_object() ? s.value("uri", "") : "";
     // Only addresses Connect would take: a hand-edited file cannot inject a password or a scheme we do not mount.
     if (const auto url = parseServerUrl(uri); url.has_value()) {
-      out.push_back({.name = s.value("name", url->label()), .uri = url->uri()});
+      out.push_back({.name = s.value("name", url->label()), .uri = url->uri(), .reconnect = s.value("reconnect", false)});
     }
   }
   return out;
@@ -128,7 +129,7 @@ void NetworkPage::saveServer(const Server& server) {
   }
   nlohmann::json doc = nlohmann::json::array();
   for (const Server& s : all) {
-    doc.push_back({{"name", s.name}, {"uri", s.uri}});
+    doc.push_back({{"name", s.name}, {"uri", s.uri}, {"reconnect", s.reconnect}});
   }
   const fs::path path = serversPath();
   std::error_code ec;
@@ -298,13 +299,14 @@ void NetworkPage::openPlace(const ThisPcPlace& place) {
 void NetworkPage::forgetQuestion() { m_questionKey.clear(); }
 
 void NetworkPage::mount(const ServerUrl& url, const std::string& user, const std::string& password, bool remember,
-                        MountDone done) {
-  startMount(url, user, password, remember, std::move(done), true);
+                        MountDone done, bool reconnect) {
+  startMount(url, user, password, remember, std::move(done), true, reconnect);
 }
 
 void NetworkPage::startMount(const ServerUrl& url, const std::string& user, const std::string& password,
-                             bool remember, MountDone done, bool fromSheet) {
+                             bool remember, MountDone done, bool fromSheet, bool reconnect) {
   auto* job = new MountJob;
+  job->reconnect = reconnect;
   job->page = weak_from_this();
   // A gvfs browse target keeps its own URI (openPlace puts it in host).
   job->uri = url.host.find("://") != std::string::npos ? url.host : url.uri();
@@ -375,7 +377,12 @@ void NetworkPage::onMounted(void* source, void* result, void* data) {
       message = "The server is connected, but Files cannot open it: gvfs-fuse is not running.";
     } else if (page) {
       page->m_offline.erase(serverKey(job->uri));
-      saveServer({.name = job->label, .uri = job->uri});
+      // A later mount from the sheet keeps an earlier "connect at login" unless the sheet set it now.
+      bool reconnect = job->reconnect;
+      for (const Server& s : loadServers()) {
+        reconnect = reconnect || (s.uri == job->uri && s.reconnect);
+      }
+      saveServer({.name = job->label, .uri = job->uri, .reconnect = reconnect});
       page->m_saved = loadServers();
       if (page->m_actions.open) {
         page->m_actions.open(fs::path(path));
@@ -406,5 +413,48 @@ void NetworkPage::onMounted(void* source, void* result, void* data) {
   }
   if (job->done) {
     job->done(message, needsPassword);
+  }
+}
+
+void NetworkPage::reconnectSaved(std::function<void(int mounted, int failed)> done) {
+  struct State {
+    int left = 0;
+    int mounted = 0;
+    int failed = 0;
+    std::function<void(int, int)> done;
+  };
+  auto* state = new State{.done = std::move(done)};
+  std::vector<Server> servers = loadServers();
+  std::erase_if(servers, [](const Server& s) { return !s.reconnect; });
+  state->left = static_cast<int>(servers.size());
+  if (servers.empty()) {
+    state->done(0, 0);
+    delete state;
+    return;
+  }
+  for (const Server& server : servers) {
+    GFile* file = g_file_new_for_uri(server.uri.c_str());
+    // No mount operation: gvfs takes the password the keyring holds; a server that needs a prompt fails here.
+    g_file_mount_enclosing_volume(
+        file, G_MOUNT_MOUNT_NONE, nullptr, nullptr,
+        [](GObject* source, GAsyncResult* result, gpointer data) {
+          auto* st = static_cast<State*>(data);
+          GError* error = nullptr;
+          const bool ok = g_file_mount_enclosing_volume_finish(G_FILE(source), result, &error) ||
+                          g_error_matches(error, G_IO_ERROR, G_IO_ERROR_ALREADY_MOUNTED);
+          gchar* uri = g_file_get_uri(G_FILE(source));
+          kLog.info("reconnect {}: {}", uri, ok ? "mounted" : (error != nullptr ? error->message : "failed"));
+          g_free(uri);
+          if (error != nullptr) {
+            g_error_free(error);
+          }
+          (ok ? st->mounted : st->failed)++;
+          g_object_unref(source);
+          if (--st->left == 0) {
+            st->done(st->mounted, st->failed);
+            delete st;
+          }
+        },
+        state);
   }
 }

@@ -32,6 +32,8 @@ public:
 
   void setState(State state) { m_state = state; }
   void setDestination(std::filesystem::path folder) { m_destination = std::move(folder); }
+  void setPassword(std::string password) { m_request.password = std::move(password); } // E2E
+  [[nodiscard]] State state() const noexcept { return m_state; }
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
   void submit();
   // "The archive has one top folder, …": the note under the destination.

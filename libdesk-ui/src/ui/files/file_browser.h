@@ -3,7 +3,9 @@
 #include "core/files/file_model.h"
 #include "core/timer_manager.h"
 #include "render/core/color.h"
+#include "ui/controls/context_menu.h"
 #include "ui/files/type_ahead.h"
+#include "ui/palette.h"
 
 #include <array>
 #include <cstdint>
@@ -29,6 +31,18 @@ struct KeyboardEvent;
 // sort, selection and keys. The Files window, the FileChooser portal sheets and shell file dialogs host it. A host
 // places buildSidebar(), buildHeaderAccessory() and buildContent(); each call builds fresh nodes (the host rebuilds on
 // resize or scale), and the browser keeps its state across builds and updates the latest nodes in place.
+// What a folder keeps of its view (FILES-UI-SPEC §16).
+enum class FileGroupBy : std::uint8_t { None, Kind, Date, Size, Tags };
+struct FileBrowserViewState {
+  std::uint8_t view = 0;  // FileBrowser::View
+  float iconSize = 0.0F;  // 0 = component.grid.icon
+  FileSort sort{};
+  bool showHidden = false;
+  FileGroupBy group = FileGroupBy::None;
+  bool extensions = true; // false: names show without their extension (folders keep theirs)
+  std::uint8_t columns = 0; // file_columns bits (file_cells.h)
+};
+
 class FileBrowser {
 public:
   enum class View : std::uint8_t { Icons, List, Columns, Gallery };
@@ -48,6 +62,7 @@ public:
     std::optional<float> usage; // set: a 40 x 4 usage bar, 0..1 used (This PC)
     bool eject = false;         // a hover-only eject button that runs onEject
     std::function<void()> onEject;
+    bool dropFiles = false;     // a host place that takes dropped files (a phone): DropTarget::place = id
   };
 
   struct Host {
@@ -76,6 +91,19 @@ public:
     std::function<void(const std::string& text, std::string_view kind)> search;
     // A pointer press on an item or on empty space in the view (split view: the pane under it becomes active).
     std::function<void()> pressed;
+    // Per-folder views (FILES-UI-SPEC §16): the view a folder opens with (nullopt = keep the current one), and the
+    // view to keep after the user changes it there. Folders only: listings (Trash, Recents, search) never ask.
+    std::function<std::optional<struct FileBrowserViewState>(const std::filesystem::path&)> viewFor;
+    std::function<void(const std::filesystem::path&, const struct FileBrowserViewState&)> viewSaved;
+    std::function<void(const Node* anchor)> viewOptions; // set: the header sort button opens View Options here
+    // Search mode starts (field focused or text) or ends: the window hides or shows its own header items.
+    std::function<void(bool on)> searchMode;
+    // Group By Tags: the first tag of a file with its rank in the tag list; nullopt = no tag. Memory only (a cache).
+    std::function<std::optional<std::pair<int, std::string>>(const std::filesystem::path&)> tagOf;
+    // A menu of checkable rows at a scene point (the list header's column picker); `activated` gets the entry id.
+    std::function<void(std::vector<ContextMenuControlEntry> entries, float sceneX, float sceneY,
+                       std::function<void(std::int32_t)> activated)>
+        contextMenu;
   };
 
   struct Options {
@@ -145,7 +173,21 @@ public:
   // The window is active: selections draw the accent tint; inactive windows draw them fill_2.
   void setActive(bool active);
   void setSort(FileSortKey key); // the current key again flips the direction
+  void setSortOrder(FileSort sort);
+  [[nodiscard]] FileSort sortOrder() const noexcept { return m_sort; }
+  [[nodiscard]] struct FileBrowserViewState viewState() const;
+  [[nodiscard]] bool searchMode() const noexcept; // the search field has focus or text: the header shows only search
+  [[nodiscard]] const Node* viewOptionsAnchor() const; // the header sort button; null before the header is built
   void setShowHidden(bool show);
+  void setGroupBy(FileGroupBy group);
+  [[nodiscard]] FileGroupBy groupBy() const noexcept { return m_group; }
+  void regroup(); // the host's tags changed: Group By Tags orders the rows again
+  void setShowExtensions(bool show);
+  [[nodiscard]] bool showExtensions() const noexcept { return m_extensions; }
+  void setListColumns(std::uint8_t columns); // file_columns bits
+  [[nodiscard]] std::uint8_t listColumns() const noexcept { return m_listColumns; }
+  // Coloured bars on rows by name (split-view folder compare); an empty map clears them, and so does a location change.
+  void setRowMarks(std::map<std::string, ColorSpec> marks);
   [[nodiscard]] bool showHidden() const noexcept { return m_options.showHidden; }
   void setExtraPlaces(std::vector<Place> places);
   void setEnabledPredicate(std::function<bool(const FileInfo&)> enabled);
@@ -155,6 +197,13 @@ public:
   enum class SearchKind : std::uint8_t { All, Pdf, Image, Doc, Sheet, Recent };
   void setSearchScope(SearchScope scope);
   void setSearchKind(SearchKind kind);
+  struct SearchState {
+    std::string text;
+    SearchScope scope = SearchScope::Folder;
+    SearchKind kind = SearchKind::All; // Recent = changed in the last 30 days
+  };
+  // The search the header shows now (Save Search); nullopt while no search runs.
+  [[nodiscard]] std::optional<SearchState> searchState() const;
   // The host's index answer for `text`; rows have absolute names. An answer for an older text is dropped.
   void setSearchResults(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows);
   void focusSearch(); // Ctrl+F
@@ -184,8 +233,9 @@ public:
   // Drag and drop (FILES-UX §2.3). A drag over the browser at a scene point updates the drop cue and spring-load and
   // returns where a drop there goes; nullopt = no drop (a dragged item, a descendant, a file, a read-only folder).
   struct DropTarget {
-    std::filesystem::path folder; // empty for the Trash
+    std::filesystem::path folder; // empty for the Trash and a host place
     bool trash = false;
+    std::string place;            // a Place::dropFiles row's id
     bool operator==(const DropTarget&) const = default;
   };
   std::optional<DropTarget> dragOver(float sceneX, float sceneY);
@@ -249,9 +299,12 @@ private:
   void moveCursor(std::ptrdiff_t delta, std::uint32_t modifiers);
   void setCursor(std::size_t index, bool scroll);
   void refreshChrome();
+  void syncListHeader(); // the list header columns follow the stage width, as FileListRow does
   void refreshViewButtons();
   void refreshTabs();
-  void widenSearch(bool focused);
+  void setSearchFocused(bool focused);
+  void syncSearchMode();
+  void closeSearch(); // clears the text and leaves search mode
   [[nodiscard]] bool searchingEverywhere() const;
   void refreshChips();
   void showChips();
@@ -267,6 +320,7 @@ private:
   [[nodiscard]] HistoryEntry current() const;
   [[nodiscard]] std::size_t columns() const;
   void setDropCue(std::optional<std::string> item);
+  void setPlaceCue(Node* row);
   [[nodiscard]] class VirtualGridView* activeGrid() const;
   void syncColumns();
   void syncGallery();
@@ -294,6 +348,8 @@ private:
   std::vector<std::shared_ptr<const FileInfo>> m_searchRows;
   std::optional<View> m_viewBeforeSearch; // the view This PC results replaced with the list
   bool m_searchViewSwitch = false;         // setView for search: the host does not save it
+  bool m_applyingView = false;             // navigate applies the folder's stored view: nothing to save
+  void saveView();
   std::vector<std::filesystem::path> m_galleryItems; // what the Gallery shows, in view order
   std::size_t m_galleryCurrent = 0;
   std::optional<Listing> m_listing;
@@ -338,7 +394,6 @@ private:
   std::string m_pressName;
   float m_pressScale = 1.0F;
   std::uint32_t m_pressAnim = 0;
-  std::uint32_t m_searchAnim = 0;
   bool m_keyboardCursor = false; // the focus ring shows after a key moved the cursor, not after a click
   std::chrono::steady_clock::time_point m_lastPressAt{};
   std::chrono::steady_clock::time_point m_navigateAt{}; // DESK speed log: the folder listing started
@@ -353,8 +408,11 @@ private:
   bool m_skeletonHeld = false;
 
   std::vector<std::filesystem::path> m_dragPaths; // our own drag; empty for other apps' drags
+  Node* m_placeCue = nullptr;                    // the Place::dropFiles row with the drop cue
+  ColorSpec m_placeCueFill;                      // its fill before the cue (the selected row's tint)
   std::optional<std::string> m_dropItem;         // the folder row with the drop cue
   std::string m_statusSuffix;
+  std::map<std::string, ColorSpec> m_rowMarks;
   bool m_crumbAccent = false;
   struct Spring {
     DropTarget target;
@@ -387,6 +445,23 @@ private:
   std::shared_ptr<void> m_thumbWake; // ThumbnailService::Subscription
   std::vector<std::shared_ptr<const FileInfo>> m_statWanted;
   bool m_statPosted = false;
+  FileGroupBy m_group = FileGroupBy::None;
+  bool m_extensions = true;
+  std::uint8_t m_listColumns = 0;
+  // Optional list columns: header facts per absolute path, read off the main thread (wantMedia).
+  struct MediaText {
+    std::string dimensions;
+    std::string duration;
+    std::string artist;
+  };
+  std::map<std::string, MediaText> m_media;
+  std::set<std::string> m_mediaPending;
+  std::vector<std::string> m_mediaWanted;
+  bool m_mediaPosted = false;
+  void wantMedia(const std::string& path);
+  void groupRows(); // Group By: orders m_rows by group, keeps the sort inside each, fills Page::groups
+  void columnsMenu(float sceneX, float sceneY);
+  [[nodiscard]] std::ptrdiff_t rowStep(int rows, std::ptrdiff_t columns) const; // Up/Down in item indexes
   std::chrono::steady_clock::time_point m_statHoldSince{};
 
   std::unique_ptr<class FileColumns> m_columns;

@@ -40,6 +40,8 @@ namespace {
       return "skip";
     case FileOpsClient::Resolution::KeepBoth:
       return "keep_both";
+    case FileOpsClient::Resolution::Merge:
+      return "merge";
     }
     return "skip";
   }
@@ -180,8 +182,8 @@ void FileOpsClient::extract(const std::filesystem::path& archive, const std::vec
 }
 
 void FileOpsClient::compress(const std::vector<std::filesystem::path>& sources, const std::filesystem::path& archive,
-                             const std::string& format, const std::string& password, Started done) {
-  start("Compress", [&](auto& c) { c.withArguments(bytesList(sources), bytes(archive), format, password); },
+                             const std::string& format, const std::string& password, std::uint64_t volumeSize, Started done) {
+  start("Compress", [&](auto& c) { c.withArguments(bytesList(sources), bytes(archive), format, password, volumeSize); },
         std::move(done));
 }
 

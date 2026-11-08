@@ -280,7 +280,9 @@ const STATUS_FD: i32 = 3;
 
 fn bwrap(args: &[OsString], input: &Path, work: &Path, status_fd: Option<i32>) -> Command {
     let mut c = Command::new("systemd-run");
-    c.args(["--user", "--scope", "--quiet", "--collect", "--slice=background.slice", "--"]);
+    c.args(["--user", "--scope", "--quiet", "--collect", "--slice=background.slice"]);
+    // A hostile file can make a decoder balloon or fork: cap memory (no swap) and tasks per thumbnail.
+    c.args(["-p", "MemoryMax=512M", "-p", "MemorySwapMax=0", "-p", "TasksMax=32", "--"]);
     c.args(["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]);
     if let Some(fd) = status_fd {
         c.args(["--json-status-fd", &fd.to_string()]);

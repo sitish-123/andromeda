@@ -1,0 +1,8 @@
+[Unit]
+Description=Mount the saved network servers marked "Connect again at login"
+PartOf=andromeda-session.target
+After=andromeda-session.target
+
+[Service]
+Type=oneshot
+ExecStart=@bindir@/andromeda-files --reconnect

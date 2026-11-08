@@ -108,9 +108,13 @@ namespace {
   }
 
   // Folder peeks: up to 3 visible entries per folder, read on a worker, cached by path + mtime.
+  struct PeekItem {
+    FileIcon::Peek kind;
+    std::string name;
+  };
   struct PeekEntry {
     std::int64_t mtimeNs = 0;
-    std::vector<FileIcon::Peek> peeks;
+    std::vector<PeekItem> peeks;
     bool ready = false;
   };
   std::mutex g_peekMutex;
@@ -120,28 +124,33 @@ namespace {
 
   // One worker reads every folder peek in order: a fast scroll through 1000 folders queues work, not 1000 threads.
   void enqueuePeek(std::function<void()> job) {
-    static std::mutex mutex;
-    static std::condition_variable wake;
-    static std::deque<std::function<void()>> queue;
-    static bool started = false;
-    std::scoped_lock lock(mutex);
-    queue.push_back(std::move(job));
-    if (!started) {
-      started = true;
+    struct Queue {
+      std::mutex mutex;
+      std::condition_variable wake;
+      std::deque<std::function<void()>> jobs;
+      bool started = false;
+    };
+    // Never destroyed: the detached worker waits on it until the process ends, and a condition_variable destroyed
+    // at exit while a thread waits on it blocks exit() forever (pthread_cond_destroy).
+    static auto* q = new Queue;
+    std::scoped_lock lock(q->mutex);
+    q->jobs.push_back(std::move(job));
+    if (!q->started) {
+      q->started = true;
       std::thread([] {
         while (true) {
           std::function<void()> next;
           {
-            std::unique_lock wait(mutex);
-            wake.wait(wait, [] { return !queue.empty(); });
-            next = std::move(queue.front());
-            queue.pop_front();
+            std::unique_lock wait(q->mutex);
+            q->wake.wait(wait, [] { return !q->jobs.empty(); });
+            next = std::move(q->jobs.front());
+            q->jobs.pop_front();
           }
           next();
         }
       }).detach();
     }
-    wake.notify_one();
+    q->wake.notify_one();
   }
 
   FileIcon::Peek peekKind(const std::string& name) {
@@ -156,7 +165,7 @@ namespace {
     return ext == "pdf" ? FileIcon::Peek::Pdf : FileIcon::Peek::Page;
   }
 
-  std::vector<FileIcon::Peek> peekFolder(const std::string& path, std::int64_t mtimeNs) {
+  std::vector<PeekItem> peekFolder(const std::string& path, std::int64_t mtimeNs) {
     {
       std::scoped_lock lock(g_peekMutex);
       if (auto it = g_peeks.find(path); it != g_peeks.end() && it->second.mtimeNs == mtimeNs) {
@@ -165,7 +174,7 @@ namespace {
       g_peeks[path] = PeekEntry{.mtimeNs = mtimeNs};
     }
     enqueuePeek([path, mtimeNs] {
-      std::vector<FileIcon::Peek> peeks;
+      std::vector<PeekItem> peeks;
       if (DIR* dir = ::opendir(path.c_str())) {
         // Bounded: a huge or slow folder costs at most this many records.
         constexpr int kScanLimit = 64;
@@ -177,7 +186,7 @@ namespace {
           if (e->d_name[0] == '.' || e->d_type == DT_DIR) {
             continue;
           }
-          peeks.push_back(peekKind(e->d_name));
+          peeks.push_back({peekKind(e->d_name), e->d_name});
         }
         ::closedir(dir);
       }
@@ -222,6 +231,8 @@ FileIcon::FileIcon(float size) : m_size(size) {
       line = static_cast<Box*>(mini->addChild(ui::box({})));
     }
     m_miniLines.push_back(lines);
+    m_miniThumbs[static_cast<std::size_t>(i)] = static_cast<Image*>(mini->addChild(std::make_unique<Image>()));
+    m_miniThumbs[static_cast<std::size_t>(i)]->setFit(ImageFit::Cover);
   }
   m_front = static_cast<Image*>(addChild(std::make_unique<Image>()));
   m_emblem = static_cast<Image*>(addChild(std::make_unique<Image>()));
@@ -239,10 +250,25 @@ FileIcon::FileIcon(float size) : m_size(size) {
   m_playGlyph = static_cast<Glyph*>(m_play->addChild(std::make_unique<Glyph>()));
   m_playGlyph->setGlyph("media-play");
   m_playGlyph->setColor(rgbHex(0xffffff));
+  m_duration = static_cast<Box*>(addChild(ui::box({})));
+  m_durationText = static_cast<Label*>(m_duration->addChild(ui::label({.fontWeight = FontWeight::SemiBold, .maxLines = 1})));
+  m_durationText->setColor(rgbHex(0xffffff));
   setSize(size, size);
 }
 
-FileIcon::~FileIcon() { releaseThumb(); }
+FileIcon::~FileIcon() {
+  releaseThumb();
+  releaseMiniThumbs();
+}
+
+void FileIcon::releaseMiniThumbs() {
+  for (std::string& path : m_miniThumbPaths) {
+    if (m_thumbs != nullptr && !path.empty()) {
+      m_thumbs->release(path, m_miniThumbPx);
+    }
+    path.clear();
+  }
+}
 
 void FileIcon::releaseThumb() {
   if (m_thumbs != nullptr && !m_thumbPath.empty()) {
@@ -298,7 +324,7 @@ bool FileIcon::bindThumb(Renderer& renderer, const fs::path& path, ThumbnailServ
 }
 
 void FileIcon::hideAll() {
-  for (Node* n : std::initializer_list<Node*>{m_back, m_front, m_emblem, m_page, m_thumb, m_play}) {
+  for (Node* n : std::initializer_list<Node*>{m_back, m_front, m_emblem, m_page, m_thumb, m_play, m_duration}) {
     n->setVisible(false);
   }
   for (Box* b : m_minis) {
@@ -309,13 +335,15 @@ void FileIcon::hideAll() {
 void FileIcon::doLayout(Renderer& renderer) {
   if (m_boundInfo.has_value() && renderer.renderScale() != m_boundScale) {
     const FileInfo info = *m_boundInfo;
-    bind(renderer, info, m_boundPath, m_boundThumbs);
+    bind(renderer, info, m_boundPath, m_boundThumbs, m_boundDuration);
   }
   Node::doLayout(renderer);
 }
 
-void FileIcon::bind(Renderer& renderer, const FileInfo& info, const fs::path& path, ThumbnailService* thumbnails) {
+void FileIcon::bind(Renderer& renderer, const FileInfo& info, const fs::path& path, ThumbnailService* thumbnails,
+                    std::string_view duration) {
   m_boundInfo = info;
+  m_boundDuration = duration;
   m_boundPath = path;
   m_boundThumbs = thumbnails;
   m_boundScale = renderer.renderScale();
@@ -323,13 +351,18 @@ void FileIcon::bind(Renderer& renderer, const FileInfo& info, const fs::path& pa
   hideAll();
   if (info.isDir) {
     releaseThumb();
+    m_thumbs = thumbnails;
     bindFolder(renderer, path, info.mtimeNs);
     return;
   }
+  releaseMiniThumbs();
   const std::string& type = info.contentType;
   const bool image = type.starts_with("image/");
   const bool video = type.starts_with("video/");
   if ((image || video || type == "application/pdf") && bindThumb(renderer, path, thumbnails, video)) {
+    if (video) {
+      showDuration(renderer, m_thumb->x() + m_thumb->width(), m_thumb->y() + m_thumb->height());
+    }
     return;
   }
   if (!image && !video && type != "application/pdf") {
@@ -339,6 +372,7 @@ void FileIcon::bind(Renderer& renderer, const FileInfo& info, const fs::path& pa
     bindArt(renderer, "pictures", 0.875F);
   } else if (video) {
     bindVideoCard();
+    showDuration(renderer, m_page->x() + m_page->width(), m_page->y() + m_page->height());
   } else if (type.starts_with("audio/")) {
     bindArt(renderer, "music", 0.875F);
   } else {
@@ -361,6 +395,25 @@ void FileIcon::layoutPlay(float d) {
   m_playGlyph->setGlyphSize(g);
   m_playGlyph->setSize(g, g);
   m_playGlyph->setPosition(std::round((d - g) / 2.0F), std::round((d - g) / 2.0F));
+}
+
+void FileIcon::showDuration(Renderer& renderer, float right, float bottom) {
+  // mockup .dur: 600 8/12 white on black 55 %, padding 0 2, r 2, 2 in from the picture's lower right corner.
+  const float u = m_size / kGrid;
+  if (m_boundDuration.empty() || m_size < kGrid / 2.0F) {
+    return;
+  }
+  m_durationText->setText(m_boundDuration);
+  m_durationText->setFontSize(grid(8, u));
+  m_durationText->layout(renderer);
+  const float h = grid(12, u);
+  const float w = std::round(m_durationText->width() + 4.0F * u);
+  m_duration->setSize(w, h);
+  m_duration->setRadius(grid(2, u));
+  m_duration->setFill(rgbaHex(0x0000008c));
+  m_duration->setPosition(std::round(right - w - 2.0F * u), std::round(bottom - h - 2.0F * u));
+  m_durationText->setPosition(std::round(2.0F * u), std::round((h - m_durationText->height()) / 2.0F));
+  m_duration->setVisible(true);
 }
 
 void FileIcon::bindVideoCard() {
@@ -419,18 +472,37 @@ void FileIcon::bindFolder(Renderer& renderer, const fs::path& path, std::int64_t
   m_back->setPosition(0.0F, 0.0F);
   m_back->setSize(m_size, m_size);
   m_back->setVisible(true);
-  // Contents ride inside: the rear item highest, only their tops show above the front flap (mockup fold()).
-  const auto peeks = m_size >= kGrid / 2.0F ? peekFolder(path.string(), mtimeNs) : std::vector<Peek>{};
+  // Contents ride inside: the rear item highest, only their tops show above the front flap (mockup fold()). DESIGN
+  // "Files v2 icons and previews": 3 from 64 px up, 1 at 48, none below (small tiles are unreadable).
+  const std::size_t most = m_size >= kGrid ? 3 : m_size >= 48.0F ? 1 : 0;
+  const auto peeks = most > 0 ? peekFolder(path.string(), mtimeNs) : std::vector<PeekItem>{};
   static constexpr std::array<std::array<std::array<float, 3>, 3>, 4> kPos{{
       {},
       {{{10, 12, 0}}},
       {{{14, 10, 4}, {8, 14, -3}}},
       {{{14, 6, 5}, {6, 10, -4}, {10, 14, 0}}},
   }};
-  const std::size_t n = std::min<std::size_t>(peeks.size(), 3);
+  const std::size_t n = std::min(peeks.size(), most);
+  const int thumbPx = static_cast<int>(std::ceil(44.0F * u * renderer.renderScale()));
+  std::array<std::string, 3> wanted;
+  for (std::size_t i = 0; i < n; ++i) {
+    if (peeks[i].kind == Peek::Image && m_thumbs != nullptr) {
+      wanted[i] = (path / peeks[i].name).string();
+    }
+  }
+  if (wanted != m_miniThumbPaths || thumbPx != m_miniThumbPx) {
+    releaseMiniThumbs();
+    m_miniThumbPx = thumbPx;
+    for (std::size_t i = 0; i < wanted.size(); ++i) {
+      if (!wanted[i].empty()) {
+        (void)m_thumbs->acquire(wanted[i], thumbPx);
+      }
+    }
+    m_miniThumbPaths = wanted;
+  }
   for (std::size_t i = 0; i < n; ++i) {
     Box* mini = m_minis[i];
-    const bool image = peeks[i] == Peek::Image;
+    const bool image = peeks[i].kind == Peek::Image;
     const float w = (image ? 44.0F : 36.0F) * u;
     const float h = (image ? 32.0F : 44.0F) * u;
     const auto& [x, y, deg] = kPos[n][i];
@@ -441,7 +513,7 @@ void FileIcon::bindFolder(Renderer& renderer, const fs::path& path, std::int64_t
     mini->setBorder(rgbaHex(0x00000033), 0.5F * u);
     // mockup mini(): a page = coloured head (red for a PDF, blue otherwise) over 5 grey lines; a sheet = green
     // header over 5 dashed rows; a picture shows its own colour.
-    const bool sheet = peeks[i] == Peek::Sheet;
+    const bool sheet = peeks[i].kind == Peek::Sheet;
     for (std::size_t k = 0; k < m_miniLines[i].size(); ++k) {
       Box* line = m_miniLines[i][k];
       line->setVisible(!image);
@@ -458,8 +530,17 @@ void FileIcon::bindFolder(Renderer& renderer, const fs::path& path, std::int64_t
         line->setPosition(grid(6, u), std::round((head ? 4.0F : 9.0F + 4.0F * static_cast<float>(k - 1)) * u));
         line->setSize(head ? std::round(w * 0.6F - grid(6, u)) : w - grid(12, u), grid(2, u));
         line->setRadii(Radii(0.0F));
-        line->setFill(rgbHex(head ? (peeks[i] == Peek::Pdf ? 0xd93025 : 0x2a6fd8) : 0xc3c8d2));
+        line->setFill(rgbHex(head ? (peeks[i].kind == Peek::Pdf ? 0xd93025 : 0x2a6fd8) : 0xc3c8d2));
       }
+    }
+    Image* picture = m_miniThumbs[i];
+    const TextureHandle handle = m_miniThumbPaths[i].empty() ? TextureHandle{} : m_thumbs->peek(m_miniThumbPaths[i], thumbPx);
+    picture->setVisible(handle.id != 0);
+    if (handle.id != 0) {
+      picture->setExternalTexture(renderer, handle);
+      picture->setPosition(0.0F, 0.0F);
+      picture->setSize(w, h);
+      picture->setRadius(grid(3, u));
     }
     mini->setTransformOrigin(w / 2.0F, h / 2.0F);
     mini->setRotation(deg * static_cast<float>(M_PI) / 180.0F);

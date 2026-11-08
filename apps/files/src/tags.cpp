@@ -156,9 +156,35 @@ void TagIndex::refresh(bool fresh) {
   walk();
 }
 
+void TagIndex::walkThen(std::function<void()> then) {
+  m_afterWalk.emplace_back(m_walks + 1, std::move(then));
+  refresh(true);
+}
+
+std::vector<fs::path> TagIndex::paths(const std::string& tag) const {
+  const auto it = m_byTag.find(tag);
+  return it == m_byTag.end() ? std::vector<fs::path>{} : it->second;
+}
+
+std::size_t TagIndex::count(const std::string& tag) const {
+  const auto it = m_byTag.find(tag);
+  return it == m_byTag.end() ? 0 : it->second.size();
+}
+
+std::vector<std::string> TagIndex::unlisted(const std::vector<TagDef>& config) const {
+  std::vector<std::string> out;
+  for (const auto& [name, list] : m_byTag) {
+    if (std::ranges::none_of(config, [&](const TagDef& t) { return t.name == name; })) {
+      out.push_back(name);
+    }
+  }
+  return out;
+}
+
 void TagIndex::walk() {
   m_walking = true;
-  std::thread([weak = weak_from_this(), root = m_root, stop = m_stop] {
+  const std::uint64_t walkNumber = ++m_walks;
+  std::thread([weak = weak_from_this(), root = m_root, stop = m_stop, walkNumber] {
     std::map<std::string, std::vector<fs::path>> found;
     std::error_code ec;
     // One file system only: a network or removable mount under home could hang the walk or take hours. Mount points
@@ -189,9 +215,10 @@ void TagIndex::walk() {
         found[std::move(tag)].push_back(it->path());
       }
     }
-    DeferredCall::callLater([weak, found = std::move(found)]() mutable {
+    DeferredCall::callLater([weak, found = std::move(found), walkNumber]() mutable {
       if (auto self = weak.lock()) {
         self->m_byTag = std::move(found);
+        self->m_byPathStale = true;
         self->m_walkedAt = nowNs();
         self->m_walking = false;
         self->m_ready = true;
@@ -201,6 +228,17 @@ void TagIndex::walk() {
           self->reread(during);
         } else if (self->m_changed) {
           self->m_changed();
+        }
+        std::vector<std::function<void()>> due;
+        std::erase_if(self->m_afterWalk, [&](auto& entry) {
+          if (entry.first > walkNumber) {
+            return false;
+          }
+          due.push_back(std::move(entry.second));
+          return true;
+        });
+        for (auto& then : due) {
+          then();
         }
         if (std::exchange(self->m_walkAgain, false)) {
           self->walk();
@@ -223,9 +261,25 @@ void TagIndex::reread(const std::vector<fs::path>& paths) {
     }
   }
   std::erase_if(m_byTag, [](const auto& kv) { return kv.second.empty(); });
+  m_byPathStale = true;
   if (m_changed) {
     m_changed();
   }
+}
+
+const std::vector<std::string>& TagIndex::tagsOf(const fs::path& path) const {
+  if (m_byPathStale) {
+    m_byPath.clear();
+    for (const auto& [tag, list] : m_byTag) {
+      for (const auto& p : list) {
+        m_byPath[p.string()].push_back(tag);
+      }
+    }
+    m_byPathStale = false;
+  }
+  static const std::vector<std::string> kNone;
+  const auto it = m_byPath.find(path.string());
+  return it == m_byPath.end() ? kNone : it->second;
 }
 
 std::vector<SidebarTag> TagIndex::sidebar() const {

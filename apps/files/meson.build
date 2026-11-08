@@ -30,7 +30,7 @@ _warnings = ['-Wall', '-Wextra', '-Wno-missing-field-initializers', '-Wpedantic'
 
 _files_lib = static_library('files_core',
   sources: files('src/trash.cpp', 'src/archive_listing.cpp', 'src/permission_access.cpp', 'src/server_url.cpp',
-    'src/tags.cpp'),
+    'src/tags.cpp', 'src/exif_date.cpp'),
   dependencies: _desk_app_dep,
   cpp_args: _warnings,
 )
@@ -39,19 +39,33 @@ executable('andromeda-files',
   sources: files(
     'src/files_app.cpp',
     'src/batch_rename_sheet.cpp',
+    'src/tag_manager_sheet.cpp',
+    'src/terminal_pane.cpp',
+    'src/select_pattern_sheet.cpp',
+    'src/folder_compare.cpp',
+    'src/smart_folders.cpp',
+    'src/smart_folder_sheet.cpp',
     'src/compress_sheet.cpp',
     'src/extract_sheet.cpp',
     'src/get_info_sheet.cpp',
     'src/starred.cpp',
     'src/terminal.cpp',
     'src/index_search.cpp',
+    'src/file_manager1.cpp',
+    'src/link_share.cpp',
+    'src/phone_page.cpp',
     'src/storage_page.cpp',
+    'src/vaults.cpp',
+    'src/vault_sheet.cpp',
+    'src/drives.cpp',
     'src/network_page.cpp',
     'src/conflict_sheet.cpp',
     'src/connect_sheet.cpp',
     'src/details_pane.cpp',
     'src/job_pill.cpp',
     'src/files_window.cpp',
+    'src/view_store.cpp',
+    'src/service_menus.cpp',
     'src/files_window_picker.cpp',
     'src/app_chooser_portal.cpp',
     'src/app_chooser_sheet.cpp',
@@ -61,7 +75,7 @@ executable('andromeda-files',
     'src/main.cpp',
   ),
   link_with: _files_lib,
-  dependencies: [_desk_app_dep, _gio_unix_dep],
+  dependencies: [_desk_app_dep, _gio_unix_dep, dependency('vterm')],
   cpp_args: _warnings,
   install: true,
 )
@@ -71,6 +85,8 @@ test('permission_access', executable('permission_access_test', 'tests/permission
 test('archive_listing', executable('archive_listing_test', 'tests/archive_listing_test.cpp', link_with: _files_lib,
   dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
 test('server_url', executable('server_url_test', 'tests/server_url_test.cpp', link_with: _files_lib,
+  dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
+test('exif_date', executable('exif_date_test', 'tests/exif_date_test.cpp', link_with: _files_lib,
   dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
@@ -82,4 +98,16 @@ configure_file(
   output: 'org.freedesktop.impl.portal.desktop.andromeda.Files.service',
   configuration: {'bindir': get_option('prefix') / get_option('bindir')},
   install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
+configure_file(
+  input: 'data/org.freedesktop.FileManager1.service.in',
+  output: 'org.freedesktop.FileManager1.service',
+  configuration: {'bindir': get_option('prefix') / get_option('bindir')},
+  install_dir: get_option('datadir') / 'dbus-1' / 'services',
+)
+configure_file(
+  input: 'data/andromeda-files-reconnect.service.in',
+  output: 'andromeda-files-reconnect.service',
+  configuration: {'bindir': get_option('prefix') / get_option('bindir')},
+  install_dir: get_option('prefix') / 'lib' / 'systemd' / 'user',
 )

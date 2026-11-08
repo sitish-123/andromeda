@@ -22,7 +22,7 @@ printf '1\n00:00:00,000 --> 00:01:00,000\nHello from the subtitle file\n' > "$HO
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 
 wait_for() { # description, test command...
   local what=$1; shift

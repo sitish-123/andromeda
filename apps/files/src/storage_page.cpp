@@ -1,6 +1,7 @@
 #include "storage_page.h"
 
 #include "core/deferred_call.h"
+#include "core/log.h"
 #include "files/file_ops_client.h"
 #include "ui/builders.h"
 #include "ui/controls/button.h"
@@ -11,6 +12,7 @@
 #include "ui/style.h"
 
 #include <array>
+#include <chrono>
 #include <format>
 #include <glib.h>
 #include <nlohmann/json.hpp>
@@ -19,6 +21,7 @@
 namespace fs = std::filesystem;
 
 namespace {
+  constexpr Logger kLog("files-storage");
   // Category -> bar colour; categories not listed use the last entry.
   struct Swatch {
     const char* name;
@@ -102,13 +105,20 @@ void StoragePage::scan(bool fresh) {
   m_scanning = true;
   m_error.clear();
   std::weak_ptr<StoragePage> weak = weak_from_this();
-  m_ops->storageScan(m_root, fresh, {}, [weak](const std::string& json, const std::string& error) {
+  const auto start = std::chrono::steady_clock::now();
+  m_ops->storageScan(m_root, fresh, {}, [weak, start](const std::string& json, const std::string& error) {
     auto self = weak.lock();
     if (self == nullptr) {
       return;
     }
     self->m_scanning = false;
     self->m_summary = json.empty() ? std::nullopt : parse(json);
+    const Summary empty;
+    const Summary& sum = self->m_summary ? *self->m_summary : empty;
+    kLog.debug("storage scan {} categories, trash {}, caches {}, old downloads {} in {} ms", sum.categories.size(),
+               sum.trash, sum.caches, sum.oldDownloadItems.size(),
+               std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
+    kLog.debug("storage total {}", sum.total);
     self->m_error = self->m_summary ? std::string() : error.empty() ? std::string("The scan gave no result.") : error;
     if (self->m_drill) {
       self->drill(*self->m_drill);

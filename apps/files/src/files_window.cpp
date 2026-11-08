@@ -3,12 +3,22 @@
 #include "app_chooser_sheet.h"
 #include "conflict_sheet.h"
 #include "connect_sheet.h"
+#include "vault_sheet.h"
 #include "core/input/key_chord.h"
 #include "details_pane.h"
 #include "job_pill.h"
 #include "ui/controls/countdown_ring.h"
 #include "tags.h"
+#include "tag_manager_sheet.h"
+#include "terminal_pane.h"
+#include "select_pattern_sheet.h"
+#include "smart_folder_sheet.h"
+#include "exif_date.h"
+#include "render/scene/input_area.h"
+#include "ui/controls/input.h"
 #include "terminal.h"
+#include "service_menus.h"
+#include "view_store.h"
 #include "network_page.h"
 
 #include "core/files/volumes.h"
@@ -40,11 +50,13 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <cstdio>
 #include <utility>
 #include <format>
 #include <sstream>
+#include <thread>
 #include <gio/gio.h>
 #include <gio/gdesktopappinfo.h>
 #include <glib.h>
@@ -56,6 +68,42 @@ namespace fs = std::filesystem;
 
 namespace {
   constexpr std::size_t kTagEntryBase = 1000; // menu entry ids of the Tags submenu rows
+
+  // A template's menu symbol by its file kind.
+  std::string templateGlyph(const fs::path& file) {
+    gboolean uncertain = FALSE;
+    gchar* type = g_content_type_guess(file.c_str(), nullptr, 0, &uncertain);
+    const std::string mime = type != nullptr ? type : "";
+    g_free(type);
+    if (mime.find("spreadsheet") != std::string::npos) {
+      return "table";
+    }
+    if (mime.find("presentation") != std::string::npos) {
+      return "presentation";
+    }
+    if (mime.starts_with("image/")) {
+      return "photo";
+    }
+    if (mime.starts_with("text/") || mime.find("document") != std::string::npos) {
+      return "file-text";
+    }
+    return "file";
+  }
+
+  // Mockup §4 .mi .k: "Ctrl I", "⏎", "Del" (keys spaced, no "+").
+  std::string menuShortcut(const KeyChord& chord) {
+    std::string text = keyChordDisplayLabel(chord);
+    for (std::size_t at = text.find(" + "); at != std::string::npos; at = text.find(" + ", at)) {
+      text.replace(at, 3, " ");
+    }
+    if (text == "Enter" || text == "Return") {
+      return "⏎";
+    }
+    if (const auto at = text.rfind("Delete"); at != std::string::npos && at + 6 == text.size()) {
+      text.replace(at, 6, "Del");
+    }
+    return text;
+  }
   constexpr float kDetailsMinWidth = 560.0F; // FILES-UI-SPEC §10 Narrow: the pane closes below this
   constexpr std::size_t kRecentsMax = 200; // recently-used.xbel from other tools can hold thousands
   bool isDir(const fs::path& path) {
@@ -134,11 +182,12 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
       .menu = [this](std::size_t index, float x, float y) { showItemMenu(index, x, y); },
       .backgroundMenu = [this](float x, float y) { showBackgroundMenu(x, y); },
       .startDrag =
-          [this](const std::vector<fs::path>& paths) {
+          [this](const std::vector<fs::path>& dragged) {
             DragAndDrop* dnd = m_app.loop().wayland().dragAndDrop();
             if (dnd == nullptr || m_window.wlSurface() == nullptr) {
               return false;
             }
+            const std::vector<fs::path> paths = dragOutOfArchive(dragged);
             std::string uris;
             std::string text;
             for (const fs::path& p : paths) {
@@ -201,6 +250,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
               m_renameDone[job] = [this, done, from = path, to = path.parent_path() / name](const std::string& err) {
                 if (err.empty()) {
                   m_app.starred().moved(from, to);
+                  m_app.pins().moved(from, to);
                 }
                 done(err);
               };
@@ -252,6 +302,40 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
                   }
                 }); },
             }));
+            if (m_panes[1] != nullptr) {
+              row.addChild(ui::button({
+                  .glyph = std::string("arrows-diff"),
+                  .glyphSize = Tokens::sizeSymbol * s,
+                  .variant = ButtonVariant::Ghost,
+                  .customPalette = Button::ButtonPalette{.normal = m_compareOn ? on : off, .hover = on,
+                                                         .pressed = pressed, .disabled = off},
+                  .tooltip = std::string("Compare Folders"),
+                  .radius = Tokens::sizeControlM * s / 2.0F,
+                  .width = Tokens::sizeControlM * s,
+                  .height = Tokens::sizeControlM * s,
+                  .onClick = [this] { toggleCompare(); },
+              }));
+              if (m_compareOn) {
+                // Mockup §16: "Sync Left → Right" on the side the copy goes to; here it follows the active pane.
+                row.addChild(ui::button({
+                    .text = std::string(m_activePane == 0 ? "Sync Left → Right" : "Sync Right → Left"),
+                    .variant = ButtonVariant::Default,
+                    .onClick = [this] { syncCompare(); },
+                }));
+              }
+            }
+            row.addChild(ui::button({
+                .glyph = std::string("terminal-2"),
+                .glyphSize = Tokens::sizeSymbol * s,
+                .variant = ButtonVariant::Ghost,
+                .customPalette = Button::ButtonPalette{.normal = m_terminalOpen ? on : off, .hover = on,
+                                                       .pressed = pressed, .disabled = off},
+                .tooltip = std::string("Terminal (F4)"),
+                .radius = Tokens::sizeControlM * s / 2.0F,
+                .width = Tokens::sizeControlM * s,
+                .height = Tokens::sizeControlM * s,
+                .onClick = [this] { toggleTerminal(); },
+            }));
             const Button::ButtonStateColors& rest = m_detailsOpen ? on : off;
             row.addChild(ui::button({
                 .glyph = std::string("info-circle"),
@@ -273,7 +357,11 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
     m_browser->setScale(m_window.uiScale());
     return m_browser->buildSidebar(width);
   });
-  m_window.setHeaderAccessoryBuilder([this] { return m_browser->buildHeaderAccessory(); });
+  m_window.setHeaderAccessoryBuilder([this] {
+    auto accessory = m_browser->buildHeaderAccessory();
+    m_window.setHeaderSearchMode(m_browser->searchMode());
+    return accessory;
+  });
   m_window.setContentBuilder([this](Renderer& renderer, float w, float h) { return buildContent(renderer, w, h); });
   m_window.setKeyHandler([this](const KeyboardEvent& event) {
     // "/" or "~" typed in the list starts a path (Finder, GTK); search and rename fields take the key before this.
@@ -304,15 +392,19 @@ void FilesWindow::registerDropTarget() {
   m_dropSurface = surface;
   dnd->setAcceptedTypes({"text/uri-list", "image/png", "text/plain;charset=utf-8", "text/plain"});
   dnd->setTarget(surface, {
-      .enter = {},
+      .enter =
+          [this](const std::vector<std::string>& mimes) {
+            m_dragHasUris = std::ranges::contains(mimes, std::string("text/uri-list"));
+            return true;
+          },
       .motion =
           [this](float x, float y) -> std::uint32_t {
             if (m_picker.has_value()) {
               return DragAndDrop::None;
             }
             const auto target = dragOver(x, y);
-            if (!target.has_value()) {
-              return DragAndDrop::None;
+            if (!target.has_value() || (!target->place.empty() && !m_dragHasUris)) {
+              return DragAndDrop::None; // a phone takes files only
             }
             // The drop reads its data after the release, when the keys may be up: keep what the cue showed.
             m_dragMods = m_app.loop().wayland().keyboardModifiers();
@@ -340,7 +432,7 @@ void FilesWindow::registerDropTarget() {
             const auto target = dragOver(x, y);
             if (target.has_value() && mime == "text/uri-list") {
               drop(*target, data, action);
-            } else if (target.has_value() && !target->trash) {
+            } else if (target.has_value() && !target->trash && target->place.empty()) {
               dropData(target->folder, mime, data);
             }
             for (const auto& pane : m_panes) {
@@ -357,6 +449,9 @@ FilesWindow::DropOp FilesWindow::dropOp(const FileBrowser::DropTarget& target, c
   if (target.trash) {
     return DropOp::Trash;
   }
+  if (!target.place.empty()) {
+    return DropOp::Copy; // a phone gets a copy
+  }
   const std::uint32_t mods = modifiers & (KeyMod::Ctrl | KeyMod::Shift);
   if (mods == (KeyMod::Ctrl | KeyMod::Shift)) {
     return DropOp::Link;
@@ -371,9 +466,69 @@ FilesWindow::DropOp FilesWindow::dropOp(const FileBrowser::DropTarget& target, c
   return !sources.empty() && sameDevice(sources.front(), target.folder) ? DropOp::Move : DropOp::Copy;
 }
 
+std::vector<fs::path> FilesWindow::dragOutOfArchive(const std::vector<fs::path>& dragged) {
+  if (m_archive == nullptr || !ArchiveListing::isArchiveId(m_browser->listingId())) {
+    return dragged;
+  }
+  std::vector<fs::path> inner;
+  for (const fs::path& p : dragged) {
+    if (auto in = m_archive->innerOf(p)) {
+      inner.push_back(*in);
+    }
+  }
+  if (inner.empty() || m_app.fileOps() == nullptr) {
+    return dragged;
+  }
+  // Ark's drag-out: the items extract into a cache folder at drag start and the drag offers those files. A drop in
+  // this window waits for the job; another app gets the paths at once (small items are there before the drop).
+  std::error_code ec;
+  if (m_dragExtract.has_value() && m_dragExtract->done) {
+    fs::remove_all(m_dragExtract->dir, ec);
+  }
+  const char* cache = std::getenv("XDG_CACHE_HOME");
+  const char* home = std::getenv("HOME");
+  const fs::path base = cache != nullptr && *cache != '\0' ? fs::path(cache) : fs::path(home != nullptr ? home : "/tmp") / ".cache";
+  const fs::path dir = base / "andromeda" / "files" / "drag-out" /
+                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  fs::create_directories(dir, ec);
+  m_dragExtract = DragExtract{.dir = dir, .done = false, .waiting = {}};
+  const fs::path archive = m_archive->archive();
+  kLog.debug("drag out {} items from {} via {}", inner.size(), archive.filename().string(), dir.string());
+  startJob(
+      "Extracting", inner.size(),
+      [&](FileOpsClient& ops, auto done) { ops.extract(archive, inner, dir, m_archivePassword, done); },
+      [this, dir](const std::string& job) {
+        m_renameDone[job] = [this, dir](const std::string&) {
+          if (m_dragExtract.has_value() && m_dragExtract->dir == dir) {
+            m_dragExtract->done = true;
+            for (auto& then : std::exchange(m_dragExtract->waiting, {})) {
+              then();
+            }
+          }
+        };
+      });
+  std::vector<fs::path> out;
+  for (const fs::path& in : inner) {
+    out.push_back(dir / in.filename());
+  }
+  return out;
+}
+
 void FilesWindow::drop(const FileBrowser::DropTarget& target, const std::string& uriList, std::uint32_t action) {
   const std::vector<fs::path> sources = parseUriList(uriList);
   if (sources.empty()) {
+    return;
+  }
+  if (m_dragExtract.has_value() && !m_dragExtract->done && std::ranges::any_of(sources, [&](const fs::path& s) {
+        return s.parent_path() == m_dragExtract->dir;
+      })) {
+    kLog.debug("drop waits for the drag-out extract");
+    m_dragExtract->waiting.push_back([this, target, uriList, action] { drop(target, uriList, action); });
+    return;
+  }
+  if (target.place.starts_with("phone:")) {
+    kLog.debug("drop {} items onto {}", sources.size(), target.place);
+    sendToPhone(target.place.substr(6), sources);
     return;
   }
   // The negotiated action is what the cursor showed; recomputing with the now-known sources could turn Copy into Move.
@@ -462,7 +617,9 @@ void FilesWindow::renameSelection() {
     items.push_back({.name = row->displayName,
                      .modified = std::chrono::system_clock::time_point(
                          std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(row->mtimeNs))),
-                     .taken = std::nullopt});
+                     .taken = row->contentType == "image/jpeg" || row->contentType == "image/tiff"
+                                  ? readDateTaken(fs::path(row->name).is_absolute() ? fs::path(row->name) : location() / row->name)
+                                  : std::nullopt});
   }
   std::set<std::string> existing;
   for (const auto& row : m_browser->rows()) {
@@ -520,8 +677,52 @@ void FilesWindow::newFolder() {
   startJob("Creating", 1, [&](FileOpsClient& ops, auto done) { ops.newFolder(location(), name, done); });
 }
 
+std::vector<fs::path> FilesWindow::templates() {
+  // XDG_TEMPLATES_DIR (~/Templates): each regular file is a "New Document" kind (GNOME, KDE, Windows ShellNew).
+  std::vector<fs::path> out;
+  const char* dir = g_get_user_special_dir(G_USER_DIRECTORY_TEMPLATES);
+  std::error_code ec;
+  if (dir == nullptr || fs::path(dir) == fs::path(g_get_home_dir())) {
+    return out;
+  }
+  for (const auto& entry : fs::directory_iterator(dir, ec)) {
+    if (entry.is_regular_file(ec) && !entry.path().filename().string().starts_with('.')) {
+      out.push_back(entry.path());
+    }
+  }
+  std::ranges::sort(out);
+  return out;
+}
+
+void FilesWindow::newFromTemplate(const fs::path& file) {
+  if (m_browser->listingId() == "trash" || location().empty()) {
+    return;
+  }
+  // "Report.odt" -> "Report.odt", "Report 2.odt", … ; a small file, copied here so the name is known for the rename.
+  const std::string stem = file.stem().string();
+  const std::string ext = file.extension().string();
+  std::string name = file.filename().string();
+  std::error_code ec;
+  for (int n = 2; fs::exists(location() / name, ec); ++n) {
+    name = std::format("{} {}{}", stem, n, ext);
+  }
+  if (!fs::copy_file(file, location() / name, ec)) {
+    showToast(std::format("Could not create “{}”: {}", name, ec.message()), false);
+    return;
+  }
+  kLog.debug("new from template {}", name);
+  m_browser->renameWhenListed(name);
+}
+
 std::unique_ptr<Node> FilesWindow::buildContent(Renderer& renderer, float width, float height) {
   m_pickerPrimary = nullptr; // the old footer goes with this rebuild
+  if (m_retiredPane != nullptr) { // the old scene, with the closed pane's nodes, is replaced when this returns
+    DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+      if (!alive.expired()) {
+        m_retiredPane.reset();
+      }
+    });
+  }
   registerDropTarget();
   const float s = m_window.uiScale();
   m_browser->setScale(s);
@@ -534,6 +735,9 @@ std::unique_ptr<Node> FilesWindow::buildContent(Renderer& renderer, float width,
       m_details = std::make_unique<DetailsPane>(&m_app.thumbnails(), DetailsPane::Actions{
                                                                           .open = [this] { openSelection(); },
                                                                           .openWith = [this] { openWith(); },
+                                                                          .share = [this](float x, float y) {
+                                                                            showShareMenu(x, y);
+                                                                          },
                                                                       });
     }
     auto split = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
@@ -545,6 +749,9 @@ std::unique_ptr<Node> FilesWindow::buildContent(Renderer& renderer, float width,
     content->addChild(std::move(split));
   } else {
     content->addChild(buildPanes(s));
+  }
+  if (m_terminalOpen && m_terminal != nullptr && !m_picker.has_value()) {
+    content->addChild(m_terminal->build(renderer, s, width));
   }
   if (m_picker.has_value()) {
     content->addChild(ui::separator({}));
@@ -625,6 +832,13 @@ void FilesWindow::onBrowserChanged() {
   m_window.setTitle(m_browser->title());
   m_window.refreshNavigation();
   refreshSplitStatus();
+  if (m_terminalOpen && m_terminal != nullptr && m_browser->listingId().empty()) {
+    m_terminal->followFolder(location());
+  }
+  // A pane's location change clears its marks; selection changes keep them.
+  if (m_compareOn && (m_panes[1] == nullptr || m_comparedDirs != std::pair{m_panes[0]->location(), m_panes[1]->location()})) {
+    refreshCompare();
+  }
   if (m_details != nullptr && m_detailsOpen) {
     m_details->update(location(), selectedPaths());
     m_window.invalidate();
@@ -651,15 +865,41 @@ void FilesWindow::makePane(std::size_t index) {
   // pane finds its slot by address: closing the left pane moves the right one to slot 0.
   auto self = std::make_shared<FileBrowser*>(nullptr);
   if (!m_picker.has_value() && IndexSearch::available()) {
-    host.search = [this](const std::string& text, std::string_view kind) { m_app.index().query(text, kind); };
+    host.search = [this](const std::string& text, std::string_view kind) {
+      m_app.index().query(text, kind, [app = &m_app](const std::string& t, std::vector<std::shared_ptr<const FileInfo>> rows) {
+        app->searchAnswered(t, std::move(rows));
+      });
+    };
   }
+  host.viewFor = [](const fs::path& folder) -> std::optional<FileBrowserViewState> {
+    return view_store::forFolder(folder);
+  };
+  host.viewSaved = [](const fs::path& folder, const FileBrowserViewState& view) {
+    view_store::write(folder, view_store::encode(view));
+    kLog.debug("view saved {} {}", folder.string(), view_store::encode(view));
+  };
+  host.viewOptions = [this](const Node* anchor) { openViewOptions(anchor); };
+  host.tagOf = [this](const fs::path& path) -> std::optional<std::pair<int, std::string>> {
+    // Groups of tags sort by name (rank 0 for all); the walk covers home only.
+    const auto& tags = m_app.tags().tagsOf(path);
+    return tags.empty() ? std::nullopt : std::optional(std::pair{0, tags.front()});
+  };
+  host.contextMenu = [this](std::vector<ContextMenuControlEntry> entries, float x, float y,
+                            std::function<void(std::int32_t)> activated) {
+    m_window.openContextMenu(std::move(entries), x, y, std::move(activated));
+  };
+  host.searchMode = [this, self](bool on) {
+    if (*self == m_browser) {
+      m_window.setHeaderSearchMode(on);
+    }
+  };
   host.pressed = [this, self] {
     if (m_panes[1] != nullptr && *self != m_browser) {
       setActivePane(*self == m_panes[0].get() ? 0 : 1);
     }
   };
   m_panes[index] = std::make_unique<FileBrowser>(m_app.watcher(), m_window.animations(), std::move(host),
-                                                 FileBrowser::Options{.scale = m_window.uiScale()});
+                                                 FileBrowser::Options{.scale = m_window.uiScale(), .thumbnails = &m_app.thumbnails()});
   *self = m_panes[index].get();
 }
 
@@ -680,13 +920,16 @@ void FilesWindow::toggleSplit() {
   if (m_activePane == 1) {
     std::swap(m_panes[0], m_panes[1]);
   }
-  // The scene holds the closed pane's nodes until the rebuild: it lives until the next close.
+  // The scene holds the closed pane's nodes until the rebuild; buildContent frees the pane once that scene is gone,
+  // so its listeners (folder peeks, thumbnails) never reach the freed nodes.
   m_retiredPane = std::move(m_panes[1]);
   m_activePane = 0;
   m_browser = m_panes[0].get();
   m_browser->setStatusSuffix({});
   m_browser->setCrumbAccent(false);
   kLog.debug("split view off");
+  m_compareOn = false;
+  m_panes[0]->setRowMarks({});
   m_window.requestRebuild();
 }
 
@@ -725,16 +968,34 @@ std::unique_ptr<Node> FilesWindow::buildPanes(float scale) {
     return m_browser->buildContent();
   }
   // Spec §13: two panes, flex 1 each, a 0.5 px hairline between; only the active pane has the path bar.
+  // The active pane's status bar (its last two children: rule, bar) spans both panes (mockup §2 .pbar).
   auto row = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
+  std::vector<std::unique_ptr<Node>> bar;
   for (std::size_t i = 0; i < m_panes.size(); ++i) {
     if (i > 0) {
       row->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Separator), .width = 0.5F * scale}));
     }
     auto pane = m_panes[i]->buildContent(i == m_activePane, true);
     pane->setFlexGrow(1.0F);
+    if (i == m_activePane && pane->children().size() >= 2) {
+      Node* rule = pane->children()[pane->children().size() - 2].get();
+      Node* status = pane->children().back().get();
+      // The crumbs above each pane show the path, so the bar shows only the status (mockup .pbar).
+      if (!status->children().empty()) {
+        status->children().front()->setVisible(false);
+        status->children().front()->setParticipatesInLayout(false);
+      }
+      bar.push_back(pane->removeChild(rule));
+      bar.push_back(pane->removeChild(status));
+    }
     row->addChild(std::move(pane));
   }
-  return row;
+  auto column = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
+  column->addChild(std::move(row));
+  for (auto& node : bar) {
+    column->addChild(std::move(node));
+  }
+  return column;
 }
 
 std::optional<FileBrowser::DropTarget> FilesWindow::dragOver(float x, float y) {
@@ -801,6 +1062,14 @@ void FilesWindow::loadTrash() {
                                           .group = FileBrowser::Place::Group::Favourites},
                                          {.label = "This PC", .glyph = "device-desktop", .path = {}, .caption = {},
                                           .onClick = [this] { goThisPc(); }, .id = "this-pc", .art = "computer"}};
+  // Folders the user added to the sidebar (Add to Sidebar), after Recents and Starred; gone ones stay hidden.
+  for (const fs::path& pin : m_app.pins().paths()) {
+    std::error_code ec;
+    if (fs::is_directory(pin, ec)) {
+      places.push_back({.label = pin.filename().string(), .glyph = "folder", .path = pin, .id = "pin:" + pin.string(),
+                        .art = "folder", .group = FileBrowser::Place::Group::Favourites});
+    }
+  }
   // Sidebar Locations (mockup §1): the root drive's usage on This PC, then each removable drive with eject.
   for (const Volume& v : listVolumes()) {
     const float used = v.totalBytes > 0
@@ -813,13 +1082,60 @@ void FilesWindow::loadTrash() {
                         .onEject = [this, mount = v.mountPoint] { eject(mount); }});
     }
   }
+  // Vaults (mockup §17): a locked one opens the Unlock sheet; an unlocked one opens its folder and locks by eject.
+  for (const Vaults::Vault& vault : m_app.vaults().list()) {
+    const bool open = Vaults::unlocked(vault);
+    places.push_back({.label = vault.name, .glyph = open ? "lock-open" : "lock",
+                      .path = open ? vault.mount : fs::path(), .caption = {},
+                      .onClick = open ? std::function<void()>() : [this, name = vault.name] { askUnlockVault(name); },
+                      .id = "vault:" + vault.name, .art = "vault", .eject = open,
+                      .onEject = [this, name = vault.name] { lockVault(name); }});
+  }
+  // Drives not mounted yet, and phones and cameras (no /dev mount): a click mounts and opens them.
+  if (Drives* drives = m_app.drives()) {
+    for (const Drives::Drive& d : drives->list()) {
+      kLog.debug("sidebar drive:{}{}", d.id, d.encrypted ? " locked" : "");
+      const char* glyph = d.kind == Drives::Kind::Phone    ? "device-mobile"
+                          : d.kind == Drives::Kind::Camera ? "camera"
+                          : d.encrypted                    ? "lock"
+                                                           : "usb";
+      places.push_back({.label = d.name, .glyph = glyph, .path = d.mounted ? d.root : fs::path(),
+                        .caption = d.encrypted ? std::string("Locked") : std::string(),
+                        .onClick = d.mounted ? std::function<void()>() : [this, id = d.id] { mountDrive(id); },
+                        .id = "drive:" + d.id,
+                        .art = d.kind == Drives::Kind::Usb ? "usb" : d.kind == Drives::Kind::Drive ? "drive" : "",
+                        .eject = d.mounted, .onEject = [this, root = d.root] { eject(root); }});
+    }
+  }
+  // Paired Link phones (FILES-UI-SPEC §20): battery as the caption, "away" while not connected.
+  if (LinkShare* link = m_app.linkShare(); link != nullptr && !isPicker()) {
+    for (const LinkShare::Device& d : link->devices()) {
+      kLog.debug("sidebar phone:{} {}", d.id, d.connected ? std::to_string(d.battery) : std::string("away"));
+      places.push_back({.label = d.name, .glyph = "device-mobile",
+                        .caption = !d.connected ? std::string("away")
+                                   : d.battery >= 0 ? std::format("{} %", d.battery)
+                                                    : std::string(),
+                        .onClick = [this, id = d.id] { showPhone(id); }, .id = "phone:" + d.id, .art = "phone",
+                        .dropFiles = d.connected});
+    }
+  }
   // Network closes the Locations group, after the drives (mockup §1).
   places.push_back({.label = "Network", .glyph = "network", .onClick = [this] { goNetwork(); }, .id = "network",
                     .art = "network"});
+  std::string smartNames;
+  for (const SmartFolder& smart : smart_folders::load()) {
+    smartNames += (smartNames.empty() ? std::string() : std::string(",")) + smart.name;
+    places.push_back({.label = smart.name, .glyph = "folder-search", .onClick = [this, name = smart.name] { goSmart(name); },
+                      .id = "smart:" + smart.name, .group = FileBrowser::Place::Group::Favourites});
+  }
+  kLog.debug("sidebar smart [{}]", smartNames);
+  std::string tagNames;
   for (const SidebarTag& tag : m_app.tags().sidebar()) {
+    tagNames += (tagNames.empty() ? std::string() : std::string(",")) + tag.name;
     places.push_back({.label = tag.name, .glyph = "tag", .onClick = [this, name = tag.name] { goTag(name); },
                       .id = "tag:" + tag.name, .group = FileBrowser::Place::Group::Tags, .dot = rgbHex(tag.rgb)});
   }
+  kLog.debug("sidebar tags [{}]", tagNames);
   places.push_back({.label = "Trash", .glyph = count > 0 ? "trash-x" : "trash", .path = {},
                     .caption = count > 0 ? std::to_string(count) : std::string(), .onClick = [this] { goTrash(); },
                     .id = "trash", .dropTrash = true, .art = "trash", .group = FileBrowser::Place::Group::Last});
@@ -845,9 +1161,88 @@ void FilesWindow::goTag(const std::string& tag) {
 
 void FilesWindow::tagsChanged() {
   loadTrash();
+  for (const auto& pane : m_panes) {
+    if (pane != nullptr && pane->groupBy() == FileGroupBy::Tags) {
+      pane->regroup();
+    }
+  }
   if (!m_tagShown.empty() && m_browser->listingId() == "tag:" + m_tagShown) {
     m_browser->showListing(m_app.tags().listing(m_tagShown));
   }
+  if (m_tagManager != nullptr && m_window.hasSheet()) {
+    m_tagManager->indexChanged();
+  }
+}
+
+TagManagerSheet* FilesWindow::tagManager() const { return m_window.hasSheet() ? m_tagManager.get() : nullptr; }
+
+void FilesWindow::openTagManager() {
+  m_app.tags().refresh();
+  m_tagManager = std::make_shared<TagManagerSheet>(TagManagerSheet::Host{
+      .count = [this](const std::string& tag) { return m_app.tags().count(tag); },
+      .unlisted = [this](const std::vector<TagDef>& config) { return m_app.tags().unlisted(config); },
+      .renameOnFiles =
+          [this](const std::string& old, const std::string& now) {
+            m_tagOps.push_back({.tag = old, .tags = {old, now}, .mode = "rename"});
+            runTagOps();
+          },
+      .removeFromFiles =
+          [this](const std::string& tag) {
+            m_tagOps.push_back({.tag = tag, .tags = {tag}, .mode = "remove"});
+            runTagOps();
+          },
+      .configChanged = [this] { m_app.tags().configChanged(); },
+      .close = [this] { m_window.dismissSheet(); },
+      .rebuild = [this] { m_window.requestRebuild(); },
+      .focus = [this](Input& input) { m_window.input().setFocus(input.inputArea()); },
+  });
+  m_window.presentSheet([sheet = m_tagManager](float scale) { return sheet->build(scale); },
+                        [this] { m_tagManager->done(); });
+}
+
+void FilesWindow::runTagOps() {
+  if (m_tagOpRunning || m_tagOps.empty()) {
+    return;
+  }
+  m_tagOpRunning = true;
+  TagFileOp op = std::move(m_tagOps.front());
+  m_tagOps.pop_front();
+  const auto next = [this] {
+    m_tagOpRunning = false;
+    DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+      if (!alive.expired()) {
+        runTagOps();
+      }
+    });
+  };
+  m_app.tags().walkThen([this, alive = std::weak_ptr<bool>(m_alive), op = std::move(op), next] {
+    if (alive.expired()) {
+      return;
+    }
+    const auto paths = m_app.tags().paths(op.tag);
+    kLog.debug("tag {} {} on {} files", op.mode, op.tag, paths.size());
+    if (paths.empty() || m_app.fileOps() == nullptr) {
+      next();
+      return;
+    }
+    startJob(
+        op.mode == "rename" ? "Renaming the tag on" : "Removing the tag from", paths.size(),
+        [&](FileOpsClient& ops, auto done) {
+          ops.setTags(paths, op.tags, op.mode, [done, next](const std::string& job, const std::string& error) {
+            if (job.empty()) {
+              next();
+            }
+            done(job, error);
+          });
+        },
+        [this, paths, next](const std::string& job) {
+          m_app.tags().addJob(job);
+          m_renameDone[job] = [this, paths, next](const std::string&) {
+            m_app.tags().reread(paths);
+            next();
+          };
+        });
+  });
 }
 
 void FilesWindow::eject(const fs::path& mount) {
@@ -943,7 +1338,41 @@ void FilesWindow::goRecents() {
     }
   }
   g_bookmark_file_free(bookmarks);
-  m_browser->showListing(std::move(listing));
+  if (m_picker.has_value() || !IndexSearch::available()) {
+    m_browser->showListing(std::move(listing));
+    return;
+  }
+  // Files changed in the last 30 days that no app reported (FB3): the index's newest documents, PDFs, images, sheets
+  // and slides join the list. One show once every kind answered, so the page does not change under the pointer.
+  struct Pending {
+    FileBrowser::Listing listing;
+    int left = 0;
+    fs::path from; // where the browser was: a move before the answers cancels the show
+    std::string fromListing;
+  };
+  static constexpr std::array<std::string_view, 5> kKinds{"doc", "pdf", "image", "sheet", "slides"};
+  static constexpr int kRecentDays = 30;
+  auto pending = std::make_shared<Pending>(Pending{.listing = std::move(listing), .left = static_cast<int>(kKinds.size()),
+                                                          .from = m_browser->location(), .fromListing = m_browser->listingId()});
+  const auto cutoff = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                          (std::chrono::system_clock::now() - std::chrono::days(kRecentDays)).time_since_epoch()).count();
+  for (const std::string_view kind : kKinds) {
+    m_app.index().query({}, kind, [this, pending, cutoff, alive = std::weak_ptr<bool>(m_alive)](
+                                      const std::string&, std::vector<std::shared_ptr<const FileInfo>> rows) {
+      for (auto& row : rows) {
+        auto& have = pending->listing.rows;
+        if (row->mtimeNs >= cutoff && have.size() < kRecentsMax &&
+            std::ranges::none_of(have, [&](const auto& r) { return r->name == row->name; })) {
+          have.push_back(std::move(row));
+        }
+      }
+      if (--pending->left == 0 && !alive.expired() && m_browser->location() == pending->from &&
+          m_browser->listingId() == pending->fromListing) {
+        kLog.debug("recents {} rows", pending->listing.rows.size());
+        m_browser->showListing(std::move(pending->listing));
+      }
+    });
+  }
 }
 
 void FilesWindow::goStarred() {
@@ -977,6 +1406,29 @@ void FilesWindow::toggleStar() {
   }
 }
 
+bool FilesWindow::selectionPinned() const {
+  const auto paths = selectedPaths();
+  return !paths.empty() && std::ranges::all_of(paths, [this](const fs::path& p) { return m_app.pins().contains(p); });
+}
+
+bool FilesWindow::selectionIsFolders() const {
+  const auto paths = selectedPaths();
+  return !paths.empty() && std::ranges::all_of(paths, [](const fs::path& p) {
+    std::error_code ec;
+    return fs::is_directory(p, ec);
+  });
+}
+
+void FilesWindow::togglePin() {
+  const auto paths = selectedPaths();
+  if (!selectionIsFolders() || inTrash()) {
+    return;
+  }
+  const bool pinned = m_app.pins().toggle(paths);
+  kLog.debug("{} {} folders", pinned ? "pinned" : "unpinned", paths.size());
+  m_app.refreshPlaces();
+}
+
 void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
   if (m_picker.has_value() || index >= m_browser->rows().size()) {
     return;
@@ -994,7 +1446,7 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
   CommandTable& commands = m_app.commands();
   std::vector<std::string> ids; // entry id - 1 -> command id
   std::vector<ContextMenuControlEntry> entries;
-  const auto add = [&](const char* command, std::string label = {}) {
+  const auto add = [&](const char* command, std::string label = {}, std::string glyph = {}) {
     const AppCommand* c = commands.find(command);
     if (c == nullptr || (c->enabled && !c->enabled())) {
       return;
@@ -1002,7 +1454,8 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
     ids.emplace_back(command);
     entries.push_back({.id = static_cast<std::int32_t>(ids.size()),
                        .label = label.empty() ? c->label : std::move(label),
-                       .shortcut = c->shortcut ? keyChordDisplayLabel(*c->shortcut) : std::string()});
+                       .shortcut = c->shortcut ? menuShortcut(*c->shortcut) : std::string(),
+                       .glyph = std::move(glyph)});
   };
   const auto separator = [&] {
     if (!entries.empty() && !entries.back().separator) {
@@ -1015,35 +1468,59 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
     separator();
     add("file.info");
   } else {
+    // Mockup §4 .menu: Finder order, 16 symbols on the actions that have one, the tag dots, Trash in red.
     add("file.open");
-    add("file.open-with");
+    if (const AppCommand* c = commands.find("file.open-with"); c != nullptr && (!c->enabled || c->enabled())) {
+      entries.push_back(openWithEntry(paths, ids));
+    }
     separator();
-    add("file.info");
+    add("file.info", {}, "info-circle");
     add("file.rename");
-    add("file.compress", name.empty() ? std::format("Compress {} Items", paths.size()) : std::format("Compress “{}”", name));
+    add("file.compress", name.empty() ? std::format("Compress {} Items", paths.size()) : std::format("Compress “{}”", name),
+        "file-zip");
     add("file.extract-here");
-    add("edit.copy");
-    add("edit.cut");
+    add("edit.copy", {}, "copy");
+    add("edit.cut", {}, "scissors");
     add("edit.copy-location");
     separator();
-    add("file.star", selectionStarred() ? "Remove from Starred" : "Add to Starred");
-    add("file.open-terminal");
-    // Tags: each one checks when every selected item has it; a click adds or removes it on all of them.
+    entries.push_back(shareEntry(ids));
+    add("file.star", selectionStarred() ? "Remove from Starred" : "Add to Starred", "star");
+    add("file.pin", selectionPinned() ? "Remove from Sidebar" : "Add to Sidebar");
+    add("file.open-terminal", {}, "terminal-2");
+    // Actions ›: KDE service menus that cover the selection, X-KDE-Submenu groups as their own submenus.
+    m_serviceActions = service_menus::forItems(paths);
+    if (!m_serviceActions.empty()) {
+      ContextMenuControlEntry actions{.label = "Actions", .hasSubmenu = true};
+      for (std::size_t i = 0; i < m_serviceActions.size(); ++i) {
+        const auto& action = m_serviceActions[i];
+        ids.push_back(std::format("service:{}", i));
+        ContextMenuControlEntry row{.id = static_cast<std::int32_t>(ids.size()), .label = action.name};
+        if (action.submenu.empty()) {
+          actions.children.push_back(std::move(row));
+          continue;
+        }
+        auto group = std::ranges::find_if(actions.children, [&](const auto& e) { return e.hasSubmenu && e.label == action.submenu; });
+        if (group == actions.children.end()) {
+          actions.children.push_back({.label = action.submenu, .hasSubmenu = true});
+          group = actions.children.end() - 1;
+        }
+        group->children.push_back(std::move(row));
+      }
+      entries.push_back(std::move(actions));
+    }
+    // Tags: a click on a dot adds the tag to every selected item, or removes it when all have it.
     const auto defs = loadTagConfig();
     if (!defs.empty() && m_app.fileOps() != nullptr) {
-      ContextMenuControlEntry tags{.id = 0, .label = "Tags", .hasSubmenu = true};
+      ContextMenuControlEntry tags{.label = "Tags"};
       for (std::size_t t = 0; t < defs.size(); ++t) {
-        const bool all = std::ranges::all_of(paths, [&](const fs::path& p) {
-          return std::ranges::contains(readTags(p), defs[t].name);
-        });
-        tags.children.push_back({.id = static_cast<std::int32_t>(kTagEntryBase + t), .label = defs[t].name,
-                                 .checkmark = true, .toggleState = all ? 1 : 0,
-                                 .indicatorColor = ColorSpec{.role = std::nullopt, .fixed = rgbHex(defs[t].rgb), .alpha = 1.0F}});
+        tags.dots.push_back({.id = static_cast<std::int32_t>(kTagEntryBase + t),
+                             .color = ColorSpec{.role = std::nullopt, .fixed = rgbHex(defs[t].rgb), .alpha = 1.0F}});
       }
       entries.push_back(std::move(tags));
     }
     separator();
-    add("edit.trash");
+    add("edit.trash", {}, "trash");
+    entries.back().danger = !ids.empty() && ids.back() == "edit.trash";
   }
   m_window.openContextMenu(std::move(entries), sceneX, sceneY,
                            [this, ids, paths, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
@@ -1057,13 +1534,123 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
                                  const bool all = std::ranges::all_of(paths, [&](const fs::path& p) {
                                    return std::ranges::contains(readTags(p), defs[t].name);
                                  });
-                                 m_app.fileOps()->setTags(paths, {defs[t].name}, all ? "remove" : "add");
+                                 m_app.fileOps()->setTags(
+                                     paths, {defs[t].name}, all ? "remove" : "add",
+                                     [this, paths, alive](const std::string& job, const std::string&) {
+                                       if (job.empty() || alive.expired()) {
+                                         return;
+                                       }
+                                       // The sidebar counts and a shown tag listing follow once the job lands.
+                                       m_jobs.insert(job);
+                                       m_app.tags().addJob(job);
+                                       m_renameDone[job] = [this, paths](const std::string&) {
+                                         m_app.tags().reread(paths);
+                                       };
+                                     });
                                }
                                return;
                              }
                              if (id > 0 && static_cast<std::size_t>(id) <= ids.size()) {
-                               kLog.debug("menu {}", ids[static_cast<std::size_t>(id) - 1]);
-                               m_app.commands().run(ids[static_cast<std::size_t>(id) - 1]);
+                               runMenuCommand(ids[static_cast<std::size_t>(id) - 1], paths);
+                             }
+                           });
+}
+
+void FilesWindow::runMenuCommand(const std::string& command, const std::vector<fs::path>& paths) {
+  kLog.debug("menu {}", command);
+  if (command.starts_with("share.device:")) {
+    shareTo(command.substr(std::string_view("share.device:").size()));
+  } else if (command == "share.email") {
+    shareByEmail();
+  } else if (command.starts_with("open.app:")) {
+    launchWith(command.substr(std::string_view("open.app:").size()), paths);
+  } else if (command.starts_with("service:")) {
+    const std::size_t i = std::stoul(command.substr(std::string_view("service:").size()));
+    if (i < m_serviceActions.size()) {
+      const bool ok = service_menus::run(m_serviceActions[i], paths, location());
+      kLog.info("service action {} on {} items{}", m_serviceActions[i].name, paths.size(), ok ? "" : " failed");
+    }
+  } else {
+    m_app.commands().run(command);
+  }
+}
+
+ContextMenuControlEntry FilesWindow::shareEntry(std::vector<std::string>& ids) {
+  // Share ›: paired phones (Link), then Email and Copy Location; ids are command-like strings for the menu log.
+  // The row names the phones (mockup §4 "Share › Pixel 9, Link…").
+  ContextMenuControlEntry share{.label = "Share", .hasSubmenu = true, .glyph = "share"};
+  const auto child = [&](std::string id, std::string label, std::string glyph, bool enabled, std::string caption) {
+    ids.push_back(std::move(id));
+    share.children.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = std::move(label),
+                              .shortcut = std::move(caption), .enabled = enabled, .glyph = std::move(glyph)});
+  };
+  std::string names;
+  for (const LinkShare::Device& device : shareDevices()) {
+    child("share.device:" + device.id, device.name, "device-mobile", device.connected,
+          device.connected ? std::string() : std::string("Not connected"));
+    names += (names.empty() ? "" : ", ") + device.name;
+  }
+  if (!share.children.empty()) {
+    share.children.push_back({.separator = true});
+    share.shortcut = names + ", Link…";
+  }
+  child("share.email", "Email…", "mail", true, {});
+  if (const AppCommand* c = m_app.commands().find("edit.copy-location"); c != nullptr && (!c->enabled || c->enabled())) {
+    child("edit.copy-location", c->label, {}, true, {});
+  }
+  return share;
+}
+
+ContextMenuControlEntry FilesWindow::openWithEntry(const std::vector<fs::path>& paths, std::vector<std::string>& ids) {
+  // Open With ›: the apps for the first item's type, the default first (Finder), then the full chooser.
+  constexpr std::size_t kMaxApps = 8;
+  ContextMenuControlEntry entry{.label = "Open With", .hasSubmenu = true};
+  const auto info = statFile(paths.front());
+  if (info && !info->contentType.empty()) {
+    std::string def;
+    if (GAppInfo* d = g_app_info_get_default_for_type(info->contentType.c_str(), FALSE)) {
+      def = g_app_info_get_id(d) != nullptr ? g_app_info_get_id(d) : "";
+      g_object_unref(d);
+    }
+    std::vector<std::pair<std::string, std::string>> apps; // desktop id, name
+    GList* list = g_app_info_get_all_for_type(info->contentType.c_str());
+    for (GList* l = list; l != nullptr; l = l->next) {
+      auto* app = G_APP_INFO(l->data);
+      const char* id = g_app_info_get_id(app);
+      const char* name = g_app_info_get_display_name(app);
+      if (id != nullptr && name != nullptr && g_app_info_should_show(app) &&
+          std::ranges::none_of(apps, [&](const auto& a) { return a.second == name; })) {
+        apps.emplace_back(id, name);
+      }
+    }
+    g_list_free_full(list, g_object_unref);
+    std::ranges::stable_partition(apps, [&](const auto& a) { return a.first == def; });
+    apps.resize(std::min(apps.size(), kMaxApps));
+    for (const auto& [id, name] : apps) {
+      std::string bare = id.ends_with(".desktop") ? id.substr(0, id.size() - 8) : id;
+      ids.push_back("open.app:" + bare);
+      entry.children.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = name,
+                                .shortcut = id == def ? std::string("Default") : std::string()});
+    }
+    if (!entry.children.empty()) {
+      entry.children.push_back({.separator = true});
+    }
+  }
+  ids.emplace_back("file.open-with");
+  entry.children.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = "Other Application…"});
+  return entry;
+}
+
+void FilesWindow::showShareMenu(float sceneX, float sceneY) {
+  const auto paths = selectedPaths();
+  if (paths.empty()) {
+    return;
+  }
+  std::vector<std::string> ids;
+  m_window.openContextMenu(shareEntry(ids).children, sceneX, sceneY,
+                           [this, ids, paths, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
+                             if (!alive.expired() && id > 0 && static_cast<std::size_t>(id) <= ids.size()) {
+                               runMenuCommand(ids[static_cast<std::size_t>(id) - 1], paths);
                              }
                            });
 }
@@ -1077,22 +1664,36 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
   constexpr std::int32_t kSortBase = 2000;
   constexpr std::int32_t kViewBase = 2100;
   constexpr std::int32_t kFolderInfo = 2200;
+  constexpr std::int32_t kTemplateBase = 2300;
+  const auto templateFiles = templates();
   CommandTable& commands = m_app.commands();
   std::vector<std::string> ids;
   std::vector<ContextMenuControlEntry> entries;
-  const auto add = [&](const char* command) {
+  const auto add = [&](const char* command, std::string glyph = {}) {
     const AppCommand* c = commands.find(command);
     if (c == nullptr || (c->enabled && !c->enabled())) {
       return;
     }
     ids.emplace_back(command);
     entries.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = c->label,
-                       .shortcut = c->shortcut ? keyChordDisplayLabel(*c->shortcut) : std::string()});
+                       .shortcut = c->shortcut ? menuShortcut(*c->shortcut) : std::string(), .glyph = std::move(glyph)});
   };
   const bool folder = !location().empty() && m_browser->listingId().empty();
   if (folder) {
-    add("file.new-folder");
-    add("edit.paste");
+    add("file.new-folder", "folder-plus");
+    // New Document ›: the ~/Templates files; none = the submenu says why in one disabled row (the long reason
+    // on the row itself would set the menu width).
+    ContextMenuControlEntry doc{.label = "New Document", .hasSubmenu = true, .glyph = "file-plus"};
+    if (templateFiles.empty()) {
+      doc.children.push_back({.label = "No templates in ~/Templates", .enabled = false});
+    }
+    for (std::size_t i = 0; i < templateFiles.size(); ++i) {
+      doc.children.push_back({.id = kTemplateBase + static_cast<std::int32_t>(i),
+                              .label = templateFiles[i].stem().string(),
+                              .glyph = templateGlyph(templateFiles[i])});
+    }
+    entries.push_back(std::move(doc));
+    add("edit.paste", "clipboard");
     entries.push_back({.separator = true});
   }
   static constexpr std::array kSorts{std::pair{FileSortKey::Name, "Name"}, std::pair{FileSortKey::Modified, "Date Modified"},
@@ -1113,16 +1714,17 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
   if (const AppCommand* hidden = commands.find("view.hidden")) {
     ids.emplace_back("view.hidden");
     entries.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = hidden->label,
-                       .shortcut = hidden->shortcut ? keyChordDisplayLabel(*hidden->shortcut) : std::string(),
+                       .shortcut = hidden->shortcut ? menuShortcut(*hidden->shortcut) : std::string(),
                        .checkmark = true, .toggleState = m_browser->showHidden() ? 1 : 0});
   }
+  add("view.options");
   if (folder) {
     entries.push_back({.separator = true});
-    add("file.open-terminal");
-    entries.push_back({.id = kFolderInfo, .label = "Get Info"});
+    add("file.open-terminal", "terminal-2");
+    entries.push_back({.id = kFolderInfo, .label = "Get Info", .glyph = "info-circle"});
   }
   m_window.openContextMenu(std::move(entries), sceneX, sceneY,
-                           [this, ids, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
+                           [this, ids, templateFiles, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
                              if (alive.expired()) {
                                return;
                              }
@@ -1139,12 +1741,299 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
                              } else if (id == kFolderInfo) {
                                kLog.debug("menu folder info");
                                getInfo();
+                             } else if (id >= kTemplateBase &&
+                                        id < kTemplateBase + static_cast<std::int32_t>(templateFiles.size())) {
+                               newFromTemplate(templateFiles[static_cast<std::size_t>(id - kTemplateBase)]);
                              } else if (id > 0 && static_cast<std::size_t>(id) <= ids.size()) {
                                kLog.debug("menu {}", ids[static_cast<std::size_t>(id) - 1]);
                                m_app.commands().run(ids[static_cast<std::size_t>(id) - 1]);
                              }
                            });
 }
+
+void FilesWindow::toggleTerminal() {
+  if (m_terminalOpen) {
+    m_terminalOpen = false;
+    kLog.debug("terminal pane off");
+    m_window.requestRebuild();
+    return;
+  }
+  if (m_terminal == nullptr || !m_terminal->running()) {
+    const fs::path dir = m_browser->listingId().empty() ? location() : fs::path(g_get_home_dir());
+    m_terminal = std::make_unique<TerminalPane>(
+        dir, TerminalPane::Host{
+                 .invalidate = [this] { m_window.invalidate(); },
+                 .cwdChanged =
+                     [this](const fs::path& cwd) {
+                       if (cwd != location()) {
+                         go(cwd);
+                       }
+                     },
+                 .exited =
+                     [this] {
+                       m_terminalOpen = false;
+                       m_terminal.reset();
+                       m_window.requestRebuild();
+                     },
+                 .focus = [this](InputArea* area) { m_window.input().setFocus(area); },
+             });
+    if (!m_terminal->running()) {
+      m_terminal.reset();
+      showToast("The terminal could not start", false);
+      return;
+    }
+  }
+  m_terminalOpen = true;
+  kLog.debug("terminal pane on");
+  m_window.requestRebuild();
+  // The pane takes the keys once it is built (Dolphin focuses its terminal on F4).
+  DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+    if (!alive.expired() && m_terminal != nullptr && m_terminalOpen) {
+      m_terminal->focus();
+    }
+  });
+}
+
+void FilesWindow::toggleCompare() {
+  m_compareOn = m_panes[1] != nullptr && !m_compareOn;
+  kLog.debug("compare {}", m_compareOn ? "on" : "off");
+  refreshCompare();
+  m_window.requestRebuild();
+}
+
+void FilesWindow::refreshCompare() {
+  if (m_panes[1] == nullptr) {
+    m_compareOn = false;
+  }
+  const auto marksOf = [](const std::map<std::string, folder_compare::Mark>& marks) {
+    std::map<std::string, ColorSpec> out;
+    for (const auto& [name, mark] : marks) {
+      switch (mark) {
+      case folder_compare::Mark::Same: break;
+      case folder_compare::Mark::Newer: out[name] = colorSpecFromRole(ColorRole::Accent); break;
+      case folder_compare::Mark::Older: out[name] = colorSpecFromRole(ColorRole::Label3); break;
+      case folder_compare::Mark::OnlyLeft: out[name] = colorSpecFromRole(ColorRole::Success); break;
+      case folder_compare::Mark::OnlyRight: out[name] = colorSpecFromRole(ColorRole::Warning); break;
+      }
+    }
+    return out;
+  };
+  ++m_compareRun;
+  if (!m_compareOn || !m_panes[0]->listingId().empty() || !m_panes[1]->listingId().empty()) {
+    m_compare = {};
+    for (const auto& pane : m_panes) {
+      if (pane != nullptr) {
+        pane->setRowMarks({});
+      }
+    }
+    return;
+  }
+  m_comparedDirs = {m_panes[0]->location(), m_panes[1]->location()};
+  // Nested folders are walked to the bottom: on a worker, the marks land when it is done.
+  std::thread([left = m_comparedDirs.first, right = m_comparedDirs.second, hidden = m_browser->showHidden(),
+               run = m_compareRun, alive = std::weak_ptr<bool>(m_alive), this, marksOf] {
+    auto r = folder_compare::compare(left, right, hidden);
+    DeferredCall::callLater([this, alive, run, marksOf, r = std::move(r)]() mutable {
+      if (alive.expired() || run != m_compareRun || m_panes[1] == nullptr) {
+        return;
+      }
+      kLog.debug("compare same {} differ {} only-left {} only-right {}{}", r.same, r.differ, r.onlyLeft, r.onlyRight,
+                 r.truncated ? " (truncated)" : "");
+      m_panes[0]->setRowMarks(marksOf(r.left));
+      m_panes[1]->setRowMarks(marksOf(r.right));
+      m_compare = std::move(r);
+      m_window.invalidate();
+    });
+  }).detach();
+}
+
+void FilesWindow::syncCompare() {
+  if (!m_compareOn || m_panes[1] == nullptr) {
+    return;
+  }
+  const std::size_t from = m_activePane;
+  const fs::path source = m_panes[from]->location();
+  const fs::path destination = m_panes[from == 0 ? 1 : 0]->location();
+  // One copy job per destination folder: the daemon copies many sources into one folder.
+  std::map<fs::path, std::vector<fs::path>> byFolder;
+  for (const fs::path& rel : from == 0 ? m_compare.sendLeft : m_compare.sendRight) {
+    byFolder[rel.parent_path()].push_back(source / rel);
+  }
+  kLog.debug("sync {} items in {} folders {} -> {}", (from == 0 ? m_compare.sendLeft : m_compare.sendRight).size(),
+             byFolder.size(), source.string(), destination.string());
+  if (byFolder.empty()) {
+    showToast("The folders are already in sync", false);
+    return;
+  }
+  // One job at a time: the window shows one conflict sheet, so a second job's question would wait unseen.
+  for (auto& [folder, sources] : byFolder) {
+    m_syncQueue.emplace_back(destination / folder, std::move(sources));
+  }
+  runSyncQueue();
+}
+
+void FilesWindow::runSyncQueue() {
+  if (m_syncQueue.empty()) {
+    refreshCompare();
+    return;
+  }
+  auto [into, sources] = std::move(m_syncQueue.front());
+  m_syncQueue.pop_front();
+  const auto next = [this, alive = std::weak_ptr<bool>(m_alive)] {
+    DeferredCall::callLater([this, alive] {
+      if (!alive.expired()) {
+        runSyncQueue();
+      }
+    });
+  };
+  startJob(
+      "Syncing", sources.size(),
+      [&](FileOpsClient& ops, auto done) {
+        ops.copy(sources, into, [this, done, next](const std::string& job, const std::string& error) {
+          if (job.empty()) {
+            m_syncQueue.clear(); // the daemon refused: the rest would fail the same way
+            next();
+          }
+          done(job, error);
+        });
+      },
+      [this, next](const std::string& job) { m_renameDone[job] = [next](const std::string&) { next(); }; });
+}
+
+CompressSheet* FilesWindow::compressSheet() const { return m_window.hasSheet() ? m_compress.get() : nullptr; }
+
+ExtractSheet* FilesWindow::extractSheet() const { return m_window.hasSheet() ? m_extract.get() : nullptr; }
+
+BatchRenameSheet* FilesWindow::batchRenameSheet() const { return m_window.hasSheet() ? m_batchRename.get() : nullptr; }
+
+SmartFolderSheet* FilesWindow::smartSheet() const { return m_window.hasSheet() ? m_smartSheet.get() : nullptr; }
+
+bool FilesWindow::inSmartFolder() const { return m_browser->listingId().starts_with("smart:"); }
+
+bool FilesWindow::canSaveSearch() const {
+  const auto state = m_browser->searchState();
+  return state.has_value() && (!state->text.empty() || state->kind != FileBrowser::SearchKind::All);
+}
+
+void FilesWindow::presentSmartSheet(SmartFolder folder, std::string original) {
+  const fs::path here = m_browser->listingId().empty() ? location() : fs::path();
+  m_smartSheet = std::make_shared<SmartFolderSheet>(
+      std::move(folder), here, std::move(original),
+      [this](const SmartFolder& saved, const std::string& was) {
+        auto all = smart_folders::load();
+        const auto it = std::ranges::find(all, was.empty() ? saved.name : was, &SmartFolder::name);
+        if (it != all.end()) {
+          *it = saved;
+        } else {
+          all.push_back(saved);
+        }
+        smart_folders::save(all);
+        kLog.info("smart folder saved {}: {}", saved.name, saved.sentence());
+        m_app.tags().configChanged(); // every window's sidebar
+        goSmart(saved.name);
+      },
+      [this] { m_window.dismissSheet(); }, [this] { m_window.requestRebuild(); });
+  m_window.presentSheet([sheet = m_smartSheet](float scale) { return sheet->build(scale); },
+                        [this] { m_window.dismissSheet(); });
+}
+
+void FilesWindow::newSmartFolder(bool fromSearch) {
+  SmartFolder folder{.name = "", .text = "", .kind = "", .days = 0, .folder = {}};
+  if (const auto state = m_browser->searchState(); fromSearch && state.has_value()) {
+    using Kind = FileBrowser::SearchKind;
+    folder.text = state->text;
+    folder.kind = state->kind == Kind::Pdf     ? "pdf"
+                  : state->kind == Kind::Image ? "image"
+                  : state->kind == Kind::Doc   ? "doc"
+                  : state->kind == Kind::Sheet ? "sheet"
+                                               : "";
+    folder.days = state->kind == Kind::Recent ? 30 : 0;
+    if (state->scope == FileBrowser::SearchScope::Folder && m_browser->listingId().empty()) {
+      folder.folder = location();
+    }
+    folder.name = !folder.text.empty() ? folder.text : "Saved Search";
+  }
+  presentSmartSheet(std::move(folder), {});
+}
+
+void FilesWindow::editSmartFolder() {
+  const auto all = smart_folders::load();
+  const auto it = std::ranges::find(all, m_smartShown, &SmartFolder::name);
+  if (inSmartFolder() && it != all.end()) {
+    presentSmartSheet(*it, it->name);
+  }
+}
+
+void FilesWindow::removeSmartFolder() {
+  if (!inSmartFolder()) {
+    return;
+  }
+  auto all = smart_folders::load();
+  std::erase_if(all, [&](const SmartFolder& f) { return f.name == m_smartShown; });
+  smart_folders::save(all);
+  kLog.info("smart folder removed {}", m_smartShown);
+  m_smartShown.clear();
+  m_app.tags().configChanged();
+  go(fs::path(g_get_home_dir()));
+}
+
+void FilesWindow::goSmart(const std::string& name) {
+  const auto all = smart_folders::load();
+  const auto it = std::ranges::find(all, name, &SmartFolder::name);
+  if (it == all.end()) {
+    return;
+  }
+  m_smartShown = name;
+  const std::string id = "smart:" + name;
+  // The title shows at once; the rows land when the search answers (a walk can take a moment).
+  if (m_browser->listingId() != id) {
+    m_browser->showListing({.id = id, .title = name, .rows = {}, .activatable = true});
+  }
+  smart_folders::run(*it, &m_app.index(), m_alive, [this, id, name](smart_folders::Rows rows) {
+    kLog.info("smart folder {}: {} results", name, rows.size());
+    if (m_browser->listingId() == id) {
+      m_browser->showListing({.id = id, .title = name, .rows = std::move(rows), .activatable = true});
+    }
+  });
+}
+
+SelectPatternSheet* FilesWindow::patternSheet() const { return m_window.hasSheet() ? m_patternSheet.get() : nullptr; }
+
+void FilesWindow::selectByPattern() {
+  std::vector<std::string> names;
+  for (const auto& row : m_browser->rows()) {
+    names.push_back(row->name);
+  }
+  m_patternSheet = std::make_shared<SelectPatternSheet>(
+      std::move(names), m_lastPattern,
+      m_lastPatternRegex ? SelectPatternSheet::Mode::Regex : SelectPatternSheet::Mode::Wildcard,
+      [this](const std::vector<std::string>& matches, bool select) {
+        m_lastPattern = m_patternSheet->pattern();
+        m_lastPatternRegex = m_patternSheet->mode() == SelectPatternSheet::Mode::Regex;
+        std::vector<std::string> now;
+        for (const auto& row : m_browser->selectedRows()) {
+          now.push_back(row->name);
+        }
+        if (select) {
+          for (const std::string& m : matches) {
+            if (!std::ranges::contains(now, m)) {
+              now.push_back(m);
+            }
+          }
+        } else {
+          std::erase_if(now, [&](const std::string& n) { return std::ranges::contains(matches, n); });
+        }
+        kLog.debug("pattern {} {} matches", select ? "select" : "deselect", matches.size());
+        m_browser->selectNames(now);
+      },
+      [this] { m_window.dismissSheet(); }, [this] { m_window.requestRebuild(); },
+      [this](Input& input) { m_window.input().setFocus(input.inputArea()); });
+  kLog.debug("pattern sheet open");
+  m_window.presentSheet([sheet = m_patternSheet](float scale) { return sheet->build(scale); },
+                        [this] { m_window.dismissSheet(); });
+}
+
+bool FilesWindow::terminalFocused() const { return m_terminalOpen && m_terminal != nullptr && m_terminal->focused(); }
 
 void FilesWindow::openTerminalHere() {
   const auto paths = selectedPaths();
@@ -1224,6 +2113,7 @@ void FilesWindow::openExtractSheet(const fs::path& archive, ExtractSheet::State 
       },
       ExtractSheet::ChooseFolder{}, [this] { m_window.dismissSheet(); }, [this] { m_window.requestRebuild(); });
   m_extract->setState(state);
+  kLog.debug("extract sheet {}", state == ExtractSheet::State::Normal ? "normal" : "password");
   for (const auto& [job, pending] : m_extracts) {
     if (pending.archive == archive) {
       m_extract->setDestination(pending.request.destination);
@@ -1233,6 +2123,9 @@ void FilesWindow::openExtractSheet(const fs::path& archive, ExtractSheet::State 
 }
 
 void FilesWindow::startExtract(const fs::path& archive, ExtractSheet::Request request) {
+  if (!request.password.empty()) {
+    m_archivePassword = request.password;
+  }
   startJob(
       "Extracting", 1,
       [&](FileOpsClient& ops, auto done) { ops.extract(archive, {}, request.destination, request.password, done); },
@@ -1264,8 +2157,10 @@ void FilesWindow::extractSelection(bool here) {
   }
 }
 
-void FilesWindow::getInfo() {
-  auto paths = selectedPaths();
+void FilesWindow::getInfo(std::vector<fs::path> paths) {
+  if (paths.empty()) {
+    paths = selectedPaths();
+  }
   // No selection: the folder itself (Finder; the background menu).
   if (paths.empty() && !location().empty() && m_browser->listingId().empty()) {
     paths.push_back(location());
@@ -1273,9 +2168,21 @@ void FilesWindow::getInfo() {
   if (paths.empty()) {
     return;
   }
+  kLog.debug("get info {} items", paths.size());
   m_info = std::make_unique<GetInfoSheet>(
       paths, m_app.fileOps(), [this] { m_window.dismissSheet(); }, [this] { m_window.requestRebuild(); },
       [this] { m_window.invalidate(); });
+  m_info->setRestore([this](const fs::path& version, const fs::path& folder) {
+    // After the click returns: dismissing the sheet destroys the button that called this.
+    DeferredCall::callLater([this, version, folder, alive = std::weak_ptr<bool>(m_alive)] {
+      if (alive.expired()) {
+        return;
+      }
+      m_window.dismissSheet();
+      // Same name in the folder: the conflict sheet asks Replace or Keep Both.
+      startJob("Restoring", 1, [&](FileOpsClient& ops, auto done) { ops.copy({version}, folder, done); });
+    });
+  });
   m_window.presentSheet([this](float scale) { return m_info->build(scale); }, [this] { m_window.dismissSheet(); });
 }
 
@@ -1331,6 +2238,516 @@ void FilesWindow::askEmptyTrash() {
       [this] { m_window.dismissSheet(); });
 }
 
+std::vector<LinkShare::Device> FilesWindow::shareDevices() const {
+  LinkShare* link = m_app.linkShare();
+  return link != nullptr ? link->devices() : std::vector<LinkShare::Device>{};
+}
+
+void FilesWindow::shareTo(const std::string& deviceId) { sendToPhone(deviceId, m_browser->selectedPaths()); }
+
+void FilesWindow::sendToPhone(const std::string& deviceId, std::vector<fs::path> paths) {
+  LinkShare* link = m_app.linkShare();
+  std::erase_if(paths, [](const fs::path& p) {
+    std::error_code ec;
+    return !fs::is_regular_file(p, ec); // folders do not go to a phone
+  });
+  if (link == nullptr) {
+    return;
+  }
+  if (paths.empty()) {
+    showToast("Only files can go to a phone, not folders.", false);
+    return;
+  }
+  std::string name = deviceId;
+  for (const auto& d : link->devices()) {
+    if (d.id == deviceId) {
+      name = d.name;
+    }
+  }
+  std::uint64_t bytes = 0;
+  for (const fs::path& p : paths) {
+    std::error_code ec;
+    bytes += fs::file_size(p, ec);
+  }
+  link->send(deviceId, paths, [this, link, name, count = paths.size(), bytes, alive = std::weak_ptr<bool>(m_alive)](
+                                  const std::string& transferId, const std::string& error) {
+    if (alive.expired()) {
+      return;
+    }
+    kLog.debug("share result {}", error.empty() ? "sent" : error);
+    showToast(error.empty() ? std::format("Sending {} to {}", noun(count), name)
+                            : std::format("Could not send to {}: {}", name, error),
+              false);
+    if (error.empty() && !transferId.empty()) {
+      const std::string key = "link:" + transferId;
+      m_phoneJobs[key] = FileOpsClient::Job{.path = key, .kind = "send", .state = "running", .totalFiles = count,
+                                            .totalBytes = bytes, .destination = fs::path(name)};
+      updateJobPill();
+      // The phone may decline or have no space: the end of the transfer gets its own toast.
+      link->watch(transferId, {.progress = [this, alive, key](std::uint64_t done, std::uint64_t total) {
+                                 if (alive.expired()) {
+                                   return;
+                                 }
+                                 if (auto it = m_phoneJobs.find(key); it != m_phoneJobs.end()) {
+                                   it->second.doneBytes = done;
+                                   it->second.totalBytes = total;
+                                   updateJobPill();
+                                 }
+                               },
+                               .finished = [this, alive, name, count, key](const std::string& status,
+                                                                           const std::string&) {
+                                 if (alive.expired()) {
+                                   return;
+                                 }
+                                 m_phoneJobs.erase(key);
+                                 updateJobPill();
+                                 kLog.debug("share finished {}", status);
+                                 const std::string why = LinkShare::outcome(status, name);
+                                 showToast(why.empty() ? std::format("Sent {} to {}", noun(count), name) : why, false);
+                               }});
+    }
+  });
+}
+
+void FilesWindow::showPhone(const std::string& deviceId) {
+  LinkShare* link = m_app.linkShare();
+  if (link == nullptr) {
+    return;
+  }
+  if (m_phone == nullptr || m_phone->deviceId() != deviceId) {
+    const auto alive = std::weak_ptr<bool>(m_alive);
+    m_phone = std::make_shared<PhonePage>(
+        *link, deviceId,
+        PhonePage::Actions{
+            .rebuild = [this] { m_window.requestRebuild(); },
+            .open =
+                [this](const fs::path& path) {
+                  std::error_code ec;
+                  if (fs::is_directory(path, ec)) {
+                    m_browser->jump(path);
+                  } else {
+                    m_browser->jump(path.parent_path());
+                  }
+                },
+            .quickLook = [this](const fs::path& path) { quickLook(path, false); },
+            .sendFiles =
+                [this, alive, deviceId] {
+                  m_app.pickFiles("Send Files", "Send", [this, alive, deviceId](std::vector<fs::path> files) {
+                    if (!alive.expired() && !files.empty()) {
+                      sendToPhone(deviceId, std::move(files));
+                    }
+                  });
+                },
+            .showImport = [this](std::shared_ptr<PhonePage> page) { showPhoneImport(std::move(page)); },
+            .toast = [this](const std::string& text) { showToast(text, false); },
+            .chooseFolder =
+                [this, alive](std::function<void(const fs::path&)> chosen) {
+                  m_app.pickFiles("Import To", "Choose", [alive, chosen = std::move(chosen)](std::vector<fs::path> picked) {
+                    if (!alive.expired() && !picked.empty()) {
+                      chosen(picked.front());
+                    }
+                  }, true);
+                },
+        });
+  }
+  m_phone->load();
+  const LinkShare::Device* d = link->device(deviceId);
+  kLog.info("phone page {}", deviceId);
+  m_browser->showListing({.id = "phone:" + deviceId, .title = d != nullptr ? d->name : std::string("Phone"), .rows = {},
+                          .activatable = false, .page = [page = m_phone](float scale) { return page->build(scale); }});
+}
+
+void FilesWindow::showPhoneImport(std::shared_ptr<PhonePage> page) {
+  if (page != nullptr) {
+    m_phone = std::move(page); // the page that asked: Back may show an older phone's page
+  }
+  if (m_phone == nullptr) {
+    return;
+  }
+  kLog.info("phone import view {}", m_phone->deviceId());
+  m_browser->showListing({.id = "phone-import:" + m_phone->deviceId(), .title = "Import", .rows = {}, .activatable = false,
+                          .page = [page = m_phone](float scale) { return page->buildImport(scale); }});
+}
+
+void FilesWindow::phonePick(std::size_t index) {
+  if (m_phone != nullptr) {
+    m_phone->pick(index);
+  }
+}
+
+void FilesWindow::phoneImport(bool all) {
+  if (m_phone != nullptr) {
+    m_phone->import(all);
+  }
+}
+
+void FilesWindow::shareByEmail() {
+  // xdg-email opens the user's mail app with the files attached.
+  std::vector<std::string> args{"xdg-email"};
+  for (const auto& path : m_browser->selectedPaths()) {
+    std::error_code ec;
+    if (fs::is_regular_file(path, ec)) {
+      args.push_back("--attach");
+      args.push_back(path.string());
+    }
+  }
+  if (args.size() == 1) {
+    return;
+  }
+  std::vector<char*> argv;
+  for (auto& a : args) {
+    argv.push_back(a.data());
+  }
+  argv.push_back(nullptr);
+  GError* error = nullptr;
+  if (!g_spawn_async(nullptr, argv.data(), nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr, &error)) {
+    showToast(std::format("Could not open the mail app: {}", error->message), false);
+    g_error_free(error);
+    return;
+  }
+  kLog.debug("share by email {} files", (args.size() - 1) / 2);
+}
+
+void FilesWindow::askNewVault(const std::string& name) { presentVaultSheet(VaultSheet::Mode::Create, name); }
+
+void FilesWindow::askUnlockVault(const std::string& name) {
+  const Vaults::Vault* vault = m_app.vaults().find(name);
+  if (vault == nullptr) {
+    return;
+  }
+  if (Vaults::unlocked(*vault)) {
+    go(vault->mount);
+    return;
+  }
+  presentVaultSheet(VaultSheet::Mode::Unlock, name);
+}
+
+void FilesWindow::presentVaultSheet(VaultSheet::Mode mode, const std::string& name) {
+  const auto close = [this, alive = std::weak_ptr<bool>(m_alive)] {
+    m_window.dismissSheet();
+    DeferredCall::callLater([this, alive] {
+      if (!alive.expired()) {
+        m_vaultSheet.reset();
+      }
+    });
+  };
+  // gocryptfs answers after the sheet may be gone: the result finds it through a weak pointer.
+  auto self = std::make_shared<std::weak_ptr<VaultSheet>>();
+  auto sheet = std::make_shared<VaultSheet>(
+      mode, name,
+      [this, mode, self, alive = std::weak_ptr<bool>(m_alive)](const std::string& vaultName,
+                                                                const std::string& password) {
+        auto done = [this, self, alive, vaultName](const std::string& error) {
+          if (alive.expired()) {
+            return;
+          }
+          auto live = self->lock();
+          if (!error.empty()) {
+            if (live != nullptr) {
+              live->setError(error);
+            }
+            return;
+          }
+          if (live != nullptr && live == m_vaultSheet) {
+            m_window.dismissSheet();
+            m_vaultSheet.reset();
+          }
+          loadTrash(); // the sidebar shows the vault open
+          if (const Vaults::Vault* vault = m_app.vaults().find(vaultName)) {
+            go(vault->mount);
+          }
+        };
+        if (mode == VaultSheet::Mode::Create) {
+          m_app.vaults().create(vaultName, password, std::move(done));
+        } else if (const Vaults::Vault* vault = m_app.vaults().find(vaultName)) {
+          m_app.vaults().unlock(*vault, password, std::move(done));
+        }
+      },
+      close, [this] { m_window.requestRebuild(); }, &m_window.input());
+  *self = sheet;
+  m_vaultSheet = sheet;
+  m_window.presentSheet([sheet](float scale) { return sheet->build(scale); }, close);
+}
+
+void FilesWindow::mountDrive(const std::string& id) {
+  Drives* drives = m_app.drives();
+  if (drives == nullptr) {
+    return;
+  }
+  auto alive = std::weak_ptr<bool>(m_alive);
+  const std::vector<Drives::Drive> list = drives->list();
+  const auto drive = std::ranges::find(list, id, &Drives::Drive::id);
+  if (drive != list.end() && drive->encrypted && !drive->device.empty()) {
+    // The passphrase first, then udisks unlocks and mounts; a wrong one stays in the sheet with its error.
+    kLog.debug("drive asks password for {}", drive->name);
+    auto self = std::make_shared<std::weak_ptr<VaultSheet>>();
+    const auto close = [this] {
+      m_window.dismissSheet();
+      DeferredCall::callLater([this] { m_vaultSheet.reset(); });
+    };
+    auto sheet = std::make_shared<VaultSheet>(
+        VaultSheet::Mode::Unlock, drive->name,
+        [this, alive, self, device = drive->device](const std::string&, const std::string& password) {
+          Drives::unlock(device, password, [this, alive, self](const fs::path& root, const std::string& error) {
+            if (alive.expired()) {
+              return;
+            }
+            auto live = self->lock();
+            if (!error.empty()) {
+              if (live != nullptr) {
+                live->setError(error);
+              } else {
+                showToast(std::format("Can’t open the drive: {}", error), false);
+              }
+              return;
+            }
+            if (live != nullptr && live == m_vaultSheet) {
+              m_window.dismissSheet();
+              m_vaultSheet.reset();
+            }
+            refreshPlaces();
+            go(root);
+          });
+        },
+        close, [this] { m_window.requestRebuild(); }, &m_window.input());
+    *self = sheet;
+    m_vaultSheet = sheet;
+    m_window.presentSheet([sheet](float scale) { return sheet->build(scale); }, close);
+    return;
+  }
+  drives->mount(
+      id,
+      // An encrypted drive asks for its passphrase in the Unlock sheet; Cancel answers no password.
+      [this, alive](const std::string& name, const std::string&, std::function<void(const std::string*)> answer) {
+        if (alive.expired()) {
+          answer(nullptr);
+          return;
+        }
+        auto reply = std::make_shared<std::function<void(const std::string*)>>(std::move(answer));
+        const auto close = [this, reply] {
+          if (*reply) {
+            (*reply)(nullptr);
+            *reply = nullptr;
+          }
+          m_window.dismissSheet();
+          DeferredCall::callLater([this] { m_vaultSheet.reset(); });
+        };
+        m_vaultSheet = std::make_shared<VaultSheet>(
+            VaultSheet::Mode::Unlock, name,
+            [this, reply](const std::string&, const std::string& password) {
+              if (*reply) {
+                (*reply)(&password);
+                *reply = nullptr;
+              }
+              m_window.dismissSheet();
+              DeferredCall::callLater([this] { m_vaultSheet.reset(); });
+            },
+            close, [this] { m_window.requestRebuild(); }, &m_window.input());
+        m_window.presentSheet([sheet = m_vaultSheet](float scale) { return sheet->build(scale); }, close);
+      },
+      [this, alive](const fs::path& root, const std::string& error) {
+        if (alive.expired() || error == "cancelled") {
+          return;
+        }
+        if (!error.empty()) {
+          showToast(std::format("Can’t open the drive: {}", error), false);
+          return;
+        }
+        refreshPlaces();
+        go(root);
+      });
+}
+
+fs::path FilesWindow::importSource() const {
+  // The DCIM folder of the drive shown now: at the location, under it, or above it.
+  const fs::path here = location();
+  for (fs::path p = here; !p.empty(); p = p.parent_path()) {
+    if (p.filename() == "DCIM") {
+      return p;
+    }
+    if (p == p.root_path()) {
+      break;
+    }
+  }
+  return PhotoImport::dcim(here);
+}
+
+void FilesWindow::importPhotos() {
+  const fs::path dcim = importSource();
+  if (dcim.empty()) {
+    return;
+  }
+  std::vector<fs::path> files = m_app.imports().pending(dcim);
+  kLog.debug("import {} new files from {}", files.size(), dcim.string());
+  if (files.empty()) {
+    showToast("All photos on this drive are imported", false);
+    return;
+  }
+  const fs::path dest = PhotoImport::destination();
+  std::error_code ec;
+  fs::create_directories(dest, ec);
+  startJob(
+      "Importing", files.size(), [&](FileOpsClient& ops, auto done) { ops.copy(files, dest, done); },
+      [this, files, dest](const std::string& job) {
+        m_renameDone[job] = [this, files, dest](const std::string& error) {
+          if (error.empty()) {
+            m_app.imports().remember(files);
+            kLog.debug("imported {} files to {}", files.size(), dest.string());
+          }
+        };
+      });
+}
+
+std::string FilesWindow::formatTarget() const {
+  // Removable drives only: Format never offers the system or home drive.
+  for (const Volume& v : listVolumes()) {
+    if (v.removable && location().string().starts_with(v.mountPoint.string())) {
+      return Drives::deviceOf(v.mountPoint);
+    }
+  }
+  return {};
+}
+
+void FilesWindow::askFormat() {
+  const std::string device = formatTarget();
+  if (device.empty()) {
+    return;
+  }
+  const std::vector<std::string> types = Drives::formats();
+  if (types.empty()) {
+    showToast("No formatting tools are installed", false);
+    return;
+  }
+  m_formatName = location().filename().string();
+  m_formatDevice = device;
+  m_formatTypes = types;
+  m_formatType = 0;
+  m_formatError.clear();
+  m_formatBusy = false;
+  static const std::map<std::string, std::string> kLabels{{"exfat", "ExFAT (all computers)"},
+                                                          {"vfat", "FAT32 (old devices, 4 GB file limit)"},
+                                                          {"ntfs", "NTFS (Windows)"},
+                                                          {"ext4", "ext4 (Linux)"}};
+  m_window.presentSheet(
+      [this, device, types](float s) {
+        auto sheet = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP12 * s,
+                                 .padding = Tokens::componentDialogPadding * s,
+                                 .width = Tokens::componentDialogWidth * s});
+        sheet->addChild(ui::label({.text = std::format("Erase “{}”?", m_formatName),
+                                   .fontSize = Tokens::typeTitle3.size * s, .fontWeight = FontWeight::SemiBold,
+                                   .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
+                                   .ellipsize = TextEllipsize::Middle}));
+        sheet->addChild(ui::label({.text = std::format("Everything on {} is deleted for good.", device),
+                                   .fontSize = Style::fontSizeCaption * s, .color = colorSpecFromRole(ColorRole::Label2),
+                                   .maxLines = 2}));
+        sheet->addChild(ui::input({.value = m_formatName, .placeholder = std::string("Name"),
+                                   .fontSize = Style::fontSizeBody * s, .controlHeight = Style::controlHeight * s,
+                                   .onChange = [this](const std::string& v) { m_formatName = v; }}));
+        std::vector<std::string> options;
+        for (const std::string& t : types) {
+          options.push_back(kLabels.contains(t) ? kLabels.at(t) : t);
+        }
+        sheet->addChild(ui::select({.options = options, .selectedIndex = m_formatType,
+                                    .fontSize = Style::fontSizeBody * s, .controlHeight = Style::controlHeight * s,
+                                    .onSelectionChanged = [this](std::size_t i, std::string_view) { m_formatType = i; }}));
+        if (!m_formatError.empty()) {
+          sheet->addChild(ui::label({.text = m_formatError, .fontSize = Style::fontSizeCaption * s,
+                                     .color = colorSpecFromRole(ColorRole::DangerText), .maxLines = 3}));
+        }
+        auto footer = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .gap = Tokens::spaceP8 * s});
+        footer->addChild(ui::button({.text = std::string("Cancel"), .variant = ButtonVariant::Default,
+                                     .onClick = [this] { DeferredCall::callLater([this] { m_window.dismissSheet(); }); }}));
+        footer->addChild(ui::button({.text = std::string(m_formatBusy ? "Erasing…" : "Erase"), .enabled = !m_formatBusy,
+                                     .variant = ButtonVariant::Destructive, .onClick = [this] { eraseDrive(); }}));
+        sheet->addChild(std::move(footer));
+        return sheet;
+      },
+      [this] { m_window.dismissSheet(); });
+}
+
+void FilesWindow::eraseDrive() {
+  if (m_formatBusy || m_formatDevice.empty() || m_formatTypes.empty()) {
+    return;
+  }
+  m_formatBusy = true;
+  m_window.requestRebuild();
+  go(g_get_home_dir()); // the window's own folder watch would keep the drive busy
+  Drives::format(m_formatDevice, m_formatTypes[std::min(m_formatType, m_formatTypes.size() - 1)], m_formatName,
+                 [this, alive = std::weak_ptr<bool>(m_alive)](const std::string& error) {
+                   if (alive.expired()) {
+                     return;
+                   }
+                   m_formatBusy = false;
+                   if (error.empty()) {
+                     m_formatDevice.clear();
+                     m_window.dismissSheet();
+                     showToast(std::format("“{}” is erased", m_formatName), false);
+                     refreshPlaces();
+                   } else {
+                     m_formatError = error;
+                     m_window.requestRebuild();
+                   }
+                 });
+}
+
+void FilesWindow::submitSheetPassword(const std::string& password) {
+  if (m_vaultSheet != nullptr) {
+    m_vaultSheet->submitPassword(password);
+  }
+}
+
+void FilesWindow::lockVault(const std::string& name) {
+  const Vaults::Vault* vault = m_app.vaults().find(name);
+  if (vault == nullptr) {
+    return;
+  }
+  // Out of the vault first: the window's own folder watch would keep the mount busy.
+  if (location().string().starts_with(vault->mount.string())) {
+    go(g_get_home_dir());
+  }
+  m_app.vaults().lock(*vault, [this, alive = std::weak_ptr<bool>(m_alive), name](const std::string& error) {
+    if (alive.expired()) {
+      return;
+    }
+    if (!error.empty()) {
+      showToast(std::format("Can’t lock “{}”: {}", name, error), false);
+    }
+    loadTrash();
+  });
+}
+
+void FilesWindow::askDeleteSelection() {
+  auto paths = m_browser->selectedPaths();
+  if (paths.empty()) {
+    return;
+  }
+  const std::string what = paths.size() == 1 ? std::format("“{}”", paths.front().filename().string()) : noun(paths.size());
+  kLog.debug("ask delete {} items", paths.size());
+  m_window.presentSheet(
+      [this, paths, what](float s) {
+        auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP12 * s, .padding = Tokens::spaceP20 * s,
+                               .width = Tokens::componentFilesNameField * s});
+        box->addChild(ui::label({.text = std::format("Delete {} immediately?", what),
+                                 .fontSize = Tokens::typeTitle3.size * s, .fontWeight = FontWeight::SemiBold,
+                                 .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 2}));
+        box->addChild(ui::label({.text = std::string("It does not go to the Trash. You can’t undo this."),
+                                 .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label2),
+                                 .maxLines = 3}));
+        auto buttons = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .gap = Tokens::spaceP8 * s});
+        buttons->addChild(ui::button({.text = std::string("Cancel"), .fontSize = Style::fontSizeBody * s,
+                                      .variant = ButtonVariant::Default, .onClick = [this] { m_window.dismissSheet(); }}));
+        buttons->addChild(ui::button({.text = std::string("Delete"), .fontSize = Style::fontSizeBody * s,
+                                      .variant = ButtonVariant::Destructive, .onClick = [this, paths] {
+                                        m_window.dismissSheet();
+                                        startJob("Deleting", paths.size(),
+                                                 [&](FileOpsClient& ops, auto done) { ops.remove(paths, done); });
+                                      }}));
+        box->addChild(std::move(buttons));
+        return box;
+      },
+      [this] { m_window.dismissSheet(); });
+}
+
 void FilesWindow::emptyTrash() {
   // Each item and its .trashinfo go for good (the user confirmed); no undo. Read again: "empty" means what is there now.
   loadTrash();
@@ -1352,10 +2769,11 @@ void FilesWindow::compressSelection() {
   }
   m_compress = std::make_unique<CompressSheet>(
       paths,
-      [this, paths](const fs::path& destination, const std::string& format, const std::string& password) {
+      [this, paths](const fs::path& destination, const std::string& format, const std::string& password,
+                    std::uint64_t volumeSize) {
         m_window.dismissSheet();
         startJob("Compressing", paths.size(), [&](FileOpsClient& ops, auto done) {
-          ops.compress(paths, destination, format, password, done);
+          ops.compress(paths, destination, format, password, volumeSize, done);
         });
       },
       [this] { m_window.dismissSheet(); }, [this] { m_window.requestRebuild(); });
@@ -1433,7 +2851,7 @@ void FilesWindow::openConnect(const std::string& address) {
   auto sheet = std::make_shared<ConnectSheet>(
       address,
       [this, net = m_network, self](const ServerUrl& url, const std::string& user, const std::string& password,
-                                    bool remember) {
+                                    bool remember, bool reconnect) {
         net->mount(url, user, password, remember, [this, self, user, net](const std::string& error, bool needsPassword) {
           auto live = self->lock();
           if (live == nullptr || live != m_connect) {
@@ -1449,7 +2867,7 @@ void FilesWindow::openConnect(const std::string& address) {
           } else {
             live->setError(error);
           }
-        });
+        }, reconnect);
       },
       close, [this] { m_window.requestRebuild(); });
   *self = sheet;
@@ -1606,9 +3024,18 @@ void FilesWindow::selectAll() { m_browser->selectAll(); }
 void FilesWindow::selectNames(const std::vector<std::string>& names) { m_browser->selectNames(names); }
 void FilesWindow::toggleHidden() { m_browser->setShowHidden(!m_browser->showHidden()); }
 
+void FilesWindow::groupBy(FileGroupBy group) {
+  if (group == FileGroupBy::Tags) {
+    m_app.tags().refresh(); // the walk answers through tagsChanged
+  }
+  m_browser->setGroupBy(group);
+}
+
 void FilesWindow::reload() {
   if (inTrash()) {
     loadTrash();
+  } else if (inSmartFolder()) {
+    goSmart(m_smartShown);
   } else {
     m_browser->reload();
   }
@@ -1868,13 +3295,19 @@ void FilesWindow::undo() {
   const std::string job = stack.back();
   stack.pop_back();
   kLog.debug("undo {}", job);
-  startJob("Undoing", 1, [&](FileOpsClient& c, auto done) { c.undo(job, done); });
+  startJob("Undoing", 1, [&](FileOpsClient& c, auto done) { c.undo(job, done); },
+           [this, tagJob = m_app.tags().ownsJob(job)](const std::string& undoJob) {
+             if (tagJob) {
+               m_renameDone[undoJob] = [this](const std::string&) { m_app.tags().refresh(true); };
+             }
+           });
 }
 
 bool FilesWindow::canUndo() const noexcept { return !m_app.undoStack().empty(); }
 
 void FilesWindow::showConflict(const FileOpsClient::Job& job) {
   const auto& [source, target] = *job.conflict;
+  kLog.debug("conflict sheet {}", job.folderClash.has_value() ? "merge" : "file");
   m_conflict = std::make_shared<ConflictSheet>(
       ConflictSheet::Info{.verb = job.kind == "move" ? "Moving" : "Copying", .source = source, .target = target,
                           .totalFiles = job.totalFiles, .conflictIndex = job.conflictIndex,
@@ -1894,6 +3327,9 @@ void FilesWindow::showConflict(const FileOpsClient::Job& job) {
           break;
         case ConflictSheet::Choice::KeepBoth:
           resolveConflict(FileOpsClient::Resolution::KeepBoth);
+          break;
+        case ConflictSheet::Choice::Merge:
+          resolveConflict(FileOpsClient::Resolution::Merge);
           break;
         case ConflictSheet::Choice::Stop:
           if (m_conflictJob.has_value() && m_app.fileOps() != nullptr) {
@@ -1931,6 +3367,7 @@ void FilesWindow::resolveConflict(FileOpsClient::Resolution resolution) {
   if (!m_conflictJob.has_value() || m_app.fileOps() == nullptr) {
     return;
   }
+  kLog.debug("conflict resolve {} {}", static_cast<int>(resolution), *m_conflictJob);
   m_app.fileOps()->resolveConflict(*m_conflictJob, resolution, m_applyToAll);
   closeConflict();
   rebuild();
@@ -1946,6 +3383,9 @@ std::vector<FileOpsClient::Job> FilesWindow::pillJobs() const {
     if (job != nullptr && !job->finished() && started != m_jobStarted.end() && now - started->second >= kPillDelay) {
       out.push_back(*job);
     }
+  }
+  for (const auto& [path, job] : m_phoneJobs) {
+    out.push_back(job);
   }
   return out;
 }
@@ -2017,6 +3457,131 @@ void FilesWindow::updateJobPill() {
   }
 }
 
+void FilesWindow::openViewOptions(const Node* anchor) {
+  if (m_picker.has_value()) {
+    return;
+  }
+  // FILES-UI-SPEC §16: 340 wide (five sort segments + the direction circle), padding 16, gap 12; captions 500 12
+  // label_2 over their controls. The height is the sum of the rows; the icon size row shows in the icons view only.
+  constexpr float kWidth = 340.0F;
+  constexpr float kBaseHeight = 400.0F;
+  constexpr float kIconRow = 60.0F;
+  const float kHeight = kBaseHeight + (m_browser->view() == FileBrowser::View::Icons ? kIconRow : 0.0F);
+  const Node* at = anchor != nullptr ? anchor : m_browser->viewOptionsAnchor();
+  if (at == nullptr) {
+    return;
+  }
+  kLog.debug("view options");
+  m_window.openPopover(at, kWidth, kHeight, [this](float s) {
+    FileBrowser& b = *m_browser;
+    const FileBrowserViewState v = b.viewState();
+    auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP12 * s, .padding = Tokens::spaceP16 * s});
+    auto head = ui::column({.align = FlexAlign::Start});
+    head->addChild(ui::label({.text = b.title(), .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::SemiBold,
+                              .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
+                              .ellipsize = TextEllipsize::Middle}));
+    const bool own = b.listingId().empty() && !location().empty();
+    head->addChild(ui::label({.text = own ? "Saved for this folder" : "Applies here until you leave",
+                              .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
+                              .color = colorSpecFromRole(ColorRole::Label2)}));
+    box->addChild(std::move(head));
+    const auto caption = [&](const char* text) {
+      return ui::label({.text = std::string(text), .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
+                        .color = colorSpecFromRole(ColorRole::Label2)});
+    };
+    const auto group = [&](const char* text, std::unique_ptr<Node> control) {
+      auto g = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s});
+      g->addChild(caption(text));
+      g->addChild(std::move(control));
+      box->addChild(std::move(g));
+    };
+    group("View", ui::segmented({.options = std::vector<ui::SegmentedOption>{{.glyph = "layout-grid", .tooltip = "Icons"},
+                                                                             {.glyph = "list", .tooltip = "List"},
+                                                                             {.glyph = "columns-3", .tooltip = "Columns"},
+                                                                             {.glyph = "photo", .tooltip = "Gallery"}},
+                                 .selectedIndex = v.view, .scale = s, .equalSegmentWidths = true,
+                                 .height = Tokens::sizeControlM * s,
+                                 .onChange = [this](std::size_t i) {
+                                   m_browser->setView(static_cast<FileBrowser::View>(i));
+                                   openViewOptions(); // the icon size row comes or goes: the popover resizes
+                                 }}));
+    if (static_cast<FileBrowser::View>(v.view) == FileBrowser::View::Icons) {
+      group("Icon Size", ui::slider({.minValue = Tokens::componentFilesIconMin, .maxValue = Tokens::componentFilesIconMax,
+                                     .step = Tokens::spaceP16, .value = b.iconSize(),
+                                     .controlHeight = Tokens::sizeControlS * s,
+                                     .onValueChanged = [this](double value) { m_browser->setIconSize(static_cast<float>(value)); }}));
+    }
+    static constexpr std::array<std::pair<const char*, FileSortKey>, 5> kKeys{{{"Name", FileSortKey::Name},
+                                                                               {"Modified", FileSortKey::Modified},
+                                                                               {"Added", FileSortKey::Added},
+                                                                               {"Size", FileSortKey::Size},
+                                                                               {"Kind", FileSortKey::Kind}}};
+    std::vector<ui::SegmentedOption> sorts;
+    std::size_t current = 0;
+    for (std::size_t i = 0; i < kKeys.size(); ++i) {
+      sorts.push_back({.label = kKeys[i].first});
+      current = kKeys[i].second == v.sort.key ? i : current;
+    }
+    auto sortRow = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
+    sortRow->addChild(ui::segmented({.options = std::move(sorts), .selectedIndex = current, .fontSize = Style::fontSizeCaption * s,
+                                     .scale = s, .compact = true, .height = Tokens::sizeControlM * s, .flexGrow = 1.0F,
+                                     .onChange = [this](std::size_t i) {
+                                       FileSort sort = m_browser->sortOrder();
+                                       if (sort.key != kKeys[i].second) {
+                                         m_browser->setSort(kKeys[i].second);
+                                       }
+                                       m_window.refreshPopover();
+                                     }}));
+    Button::ButtonPalette plain = Button::defaultPalette(ButtonVariant::Default);
+    plain.borderWidth = 0.0F;
+    const float circle = Tokens::sizeControlM * s;
+    sortRow->addChild(ui::button({.glyph = std::string(v.sort.descending ? "sort-descending" : "sort-ascending"),
+                                  .glyphSize = Tokens::sizeSymbol * s, .variant = ButtonVariant::Default,
+                                  .customPalette = plain, .tooltip = std::string(v.sort.descending ? "Descending" : "Ascending"),
+                                  .radius = circle / 2.0F, .width = circle, .height = circle, .onClick = [this] {
+                                    FileSort sort = m_browser->sortOrder();
+                                    sort.descending = !sort.descending;
+                                    m_browser->setSortOrder(sort);
+                                    m_window.refreshPopover();
+                                  }}));
+    group("Sort By", std::move(sortRow));
+    static constexpr std::array<std::pair<const char*, FileGroupBy>, 5> kGroups{{{"None", FileGroupBy::None},
+                                                                                 {"Kind", FileGroupBy::Kind},
+                                                                                 {"Date", FileGroupBy::Date},
+                                                                                 {"Size", FileGroupBy::Size},
+                                                                                 {"Tags", FileGroupBy::Tags}}};
+    std::vector<ui::SegmentedOption> groups;
+    std::size_t groupNow = 0;
+    for (std::size_t i = 0; i < kGroups.size(); ++i) {
+      groups.push_back({.label = kGroups[i].first});
+      groupNow = kGroups[i].second == v.group ? i : groupNow;
+    }
+    group("Group By", ui::segmented({.options = std::move(groups), .selectedIndex = groupNow,
+                                     .fontSize = Style::fontSizeCaption * s, .scale = s, .compact = true,
+                                     .equalSegmentWidths = true, .height = Tokens::sizeControlM * s,
+                                     .onChange = [this](std::size_t i) { groupBy(kGroups[i].second); }}));
+    const auto toggleRow = [&](const char* text, bool on, std::function<void(bool)> change) {
+      auto row = ui::row({.align = FlexAlign::Center, .height = Tokens::sizeRow * s});
+      row->addChild(ui::label({.text = std::string(text), .fontSize = Style::fontSizeBody * s,
+                               .color = colorSpecFromRole(ColorRole::Label1), .flexGrow = 1.0F}));
+      row->addChild(ui::toggle({.checked = on, .scale = s, .onChange = std::move(change)}));
+      return row;
+    };
+    auto shows = ui::column({.align = FlexAlign::Stretch});
+    shows->addChild(toggleRow("Show Hidden Files", v.showHidden, [this](bool on) { m_browser->setShowHidden(on); }));
+    shows->addChild(toggleRow("Show File Extensions", v.extensions, [this](bool on) { m_browser->setShowExtensions(on); }));
+    box->addChild(std::move(shows));
+    box->addChild(ui::button({.text = std::string("Use as Defaults"), .fontSize = Style::fontSizeBody * s,
+                              .variant = ButtonVariant::Default, .customPalette = plain, .paddingH = Tokens::spaceP12 * s,
+                              .radius = Tokens::radiusR8 * s, .height = Tokens::sizeControlM * s, .onClick = [this] {
+                                view_store::writeDefault(view_store::encode(m_browser->viewState()));
+                                kLog.debug("view default {}", view_store::encode(m_browser->viewState()));
+                                m_window.closePopover();
+                              }}));
+    return box;
+  });
+}
+
 void FilesWindow::openJobsPopover() {
   const auto jobs = pillJobs();
   if (m_pillAnchor == nullptr || jobs.empty()) {
@@ -2030,7 +3595,11 @@ void FilesWindow::openJobsPopover() {
         now, s, [this](const std::string& path) { return jobRate(path); },
         [this](const std::string& path) {
           kLog.debug("job cancel {}", path);
-          if (FileOpsClient* ops = m_app.fileOps()) {
+          if (path.starts_with("link:")) {
+            if (LinkShare* link = m_app.linkShare()) {
+              link->cancel(path.substr(5));
+            }
+          } else if (FileOpsClient* ops = m_app.fileOps()) {
             ops->cancel(path);
           }
         },
@@ -2069,7 +3638,9 @@ void FilesWindow::onJobChanged(const FileOpsClient::Job& job) {
   }
   if (job.state == "conflict" && job.conflict.has_value()) {
     // The same job's next question (k moved on) gets a fresh sheet too.
-    if (m_conflictJob != job.path || m_conflict == nullptr || job.conflictIndex != m_conflictShownIndex) {
+    // FolderClash can arrive in a later PropertiesChanged than the conflict: the Merge sheet then replaces the file one.
+    if (m_conflictJob != job.path || m_conflict == nullptr || job.conflictIndex != m_conflictShownIndex ||
+        (job.folderClash.has_value() && !m_conflict->isMerge())) {
       m_conflictJob = job.path;
       m_conflictShownIndex = job.conflictIndex;
       showConflict(job);
@@ -2104,6 +3675,7 @@ void FilesWindow::onJobChanged(const FileOpsClient::Job& job) {
         : job.kind == "link"                    ? "Linked"
         : job.kind == "extract"                 ? "Extracted"
         : job.kind == "compress"                ? "Compressed"
+        : job.kind == "tags"                    ? "Tagged"
                                                 : "Done";
     showToast(std::format("{} {}", what, noun(job.doneFiles > 0 ? job.doneFiles : 1)), undoable);
   } else if (job.state == "failed" && job.kind == "extract" && m_extracts.contains(job.path) &&

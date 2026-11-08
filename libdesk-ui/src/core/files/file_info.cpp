@@ -40,10 +40,18 @@ namespace {
 } // namespace
 
 bool fillStat(int dirFd, FileInfo& info) {
-  struct stat link{};
-  if (::fstatat(dirFd, info.name.c_str(), &link, AT_SYMLINK_NOFOLLOW) != 0) {
+  // statx for the birth time (Date Added); the same cost as fstatat.
+  struct statx sx{};
+  if (::statx(dirFd, info.name.c_str(), AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS | STATX_BTIME, &sx) != 0) {
     return false;
   }
+  struct stat link{};
+  link.st_mode = sx.stx_mode;
+  link.st_size = static_cast<off_t>(sx.stx_size);
+  link.st_ino = sx.stx_ino;
+  link.st_mtim = {.tv_sec = sx.stx_mtime.tv_sec, .tv_nsec = sx.stx_mtime.tv_nsec};
+  const auto& added = (sx.stx_mask & STATX_BTIME) != 0 ? sx.stx_btime : sx.stx_ctime;
+  info.addedNs = static_cast<std::int64_t>(added.tv_sec) * 1'000'000'000 + added.tv_nsec;
   struct stat target = link;
   info.kind = FileKind::File;
   if (S_ISLNK(link.st_mode)) {

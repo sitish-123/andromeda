@@ -26,6 +26,24 @@
 namespace fs = std::filesystem;
 
 namespace {
+  constexpr float kSheetWidth = 416.0F; // mockup §4 .dlg
+  constexpr std::size_t kAllRowsShown = 4; // rows of the All apps card before it scrolls
+
+  // An InputArea that measures and arranges as its one child (a plain InputArea measures zero, so rows collapse).
+  class RowArea final : public InputArea {
+  protected:
+    LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints) override {
+      return children().empty() ? LayoutSize{} : children().front()->measure(renderer, constraints);
+    }
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      setPosition(rect.x, rect.y);
+      setSize(rect.width, rect.height);
+      if (!children().empty()) {
+        children().front()->arrange(renderer, LayoutRect{.x = 0.0F, .y = 0.0F, .width = rect.width, .height = rect.height});
+      }
+    }
+  };
+
   // An app icon from a file path: it loads at the first layout, when a renderer is there (like PlaceIcon).
   class AppIconNode final : public Node {
   public:
@@ -135,6 +153,20 @@ std::string iconFileFor(const std::string& icon) {
   return {};
 }
 
+namespace {
+  void dedupeByName(std::vector<AppChooserSheet::App>& apps) {
+    std::vector<std::string> seen;
+    std::erase_if(apps, [&](const AppChooserSheet::App& a) {
+      const std::string key = TypeAhead::fold(a.name);
+      if (std::ranges::contains(seen, key)) {
+        return true;
+      }
+      seen.push_back(key);
+      return false;
+    });
+  }
+} // namespace
+
 std::vector<AppChooserSheet::App> AppChooserSheet::allApps() {
   std::vector<App> out;
   GList* list = g_app_info_get_all();
@@ -146,6 +178,7 @@ std::vector<AppChooserSheet::App> AppChooserSheet::allApps() {
   }
   g_list_free_full(list, g_object_unref);
   std::ranges::sort(out, [](const App& a, const App& b) { return TypeAhead::fold(a.name) < TypeAhead::fold(b.name); });
+  dedupeByName(out);
   return out;
 }
 
@@ -182,8 +215,9 @@ void AppChooserSheet::reloadRecommended() {
     }
     g_list_free_full(list, g_object_unref);
   }
-  // The default first.
+  // The default first; one row per app name (Chrome ships two desktop files for one app).
   std::ranges::stable_partition(m_recommended, [this](const App& a) { return a.id == m_default; });
+  dedupeByName(m_recommended);
 }
 
 void AppChooserSheet::updateChoices(const std::vector<std::string>& choices) {
@@ -224,31 +258,48 @@ void AppChooserSheet::open() {
 }
 
 std::unique_ptr<Node> AppChooserSheet::build(float s) {
-  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP12 * s, .padding = Tokens::spaceP20 * s,
-                         .flexGrow = 1.0F});
+  // Mockup §4 .dlg: 416 wide, padding 24, gap 16; .gcard lists of 40 .arow rows with 24 icons.
+  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * s, .padding = Tokens::spaceP24 * s,
+                         .width = kSheetWidth * s, .flexGrow = 1.0F});
   const std::string title = m_request.filename.empty() ? std::string("Open With")
                                                        : std::format("Open “{}” with", m_request.filename);
   box->addChild(ui::label({.text = title, .fontSize = Tokens::typeTitle3.size * s, .fontWeight = FontWeight::SemiBold,
                            .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
                            .ellipsize = TextEllipsize::Middle}));
-  const float rowH = Tokens::sizeRowCompact * s + Tokens::spaceP8 * s;
-  const auto card = [&](const std::vector<App>& apps, bool markDefault) {
-    auto list = ui::column({.align = FlexAlign::Stretch, .padding = Tokens::spaceP4 * s,
-                            .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR8 * s});
+  const float rowH = Tokens::sizeRow * s;
+  // Mockup .gcard: glass card r8 (set B), padding 4, hairline edge.
+  const auto frame = [&] {
+    return ui::column({.align = FlexAlign::Stretch, .padding = Tokens::spaceP4 * s,
+                       .fill = colorSpecFromRole(ColorRole::GlassCard), .radius = Tokens::radiusR8 * s,
+                       .border = colorSpecFromRole(ColorRole::GlassCardEdge),
+                       .borderWidth = std::max(1.0F, 0.5F * s), .fillWidth = true});
+  };
+  const auto card = [&](const std::vector<App>& apps, bool markDefault, bool framed) {
+    auto list = framed ? frame() : ui::column({.align = FlexAlign::Stretch, .fillWidth = true});
     for (const App& app : apps) {
       const bool selected = app.id == m_selected;
-      auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s, .paddingH = Tokens::spaceP8 * s,
+      auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s, .paddingH = Tokens::spaceP12 * s,
                           .fill = selected ? colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F) : ColorSpec{},
-                          .radius = Tokens::radiusR8 * s, .height = rowH});
-      row->addChild(std::make_unique<AppIconNode>(app.icon, Tokens::spaceP24 * s));
+                          .radius = Tokens::radiusR4 * s, .height = rowH});
+      if (app.icon.empty()) { // no art in hicolor or pixmaps: a neutral app tile
+        auto tile = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center,
+                                .fill = colorSpecFromRole(ColorRole::Fill2), .radius = Tokens::radiusR4 * s,
+                                .width = Tokens::spaceP24 * s, .height = Tokens::spaceP24 * s});
+        tile->addChild(ui::glyph({.glyph = std::string("app-window"), .glyphSize = Tokens::sizeSymbolInline * s,
+                                  .color = colorSpecFromRole(ColorRole::Label2)}));
+        row->addChild(std::move(tile));
+      } else {
+        row->addChild(std::make_unique<AppIconNode>(app.icon, Tokens::spaceP24 * s));
+      }
       row->addChild(ui::label({.text = app.name, .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::Medium,
                                .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
                                .ellipsize = TextEllipsize::End, .flexGrow = 1.0F}));
       if (markDefault && app.id == m_default) {
         row->addChild(ui::label({.text = std::string("Default"), .fontSize = Style::fontSizeCaption * s,
-                                 .color = colorSpecFromRole(ColorRole::Label2)}));
+                                 .fontWeight = FontWeight::Medium, .color = colorSpecFromRole(ColorRole::Label3)}));
       }
-      auto area = ui::inputArea({.onClick = [this, id = app.id](const InputArea::PointerData& p) {
+      auto area = std::make_unique<RowArea>();
+      area->setOnClick([this, id = app.id](const InputArea::PointerData& p) {
                                    // A second click on the same row within the double-click time opens it.
                                    const bool twice = m_selected == id && p.time - m_lastClickTime < kDoubleClickMs;
                                    m_lastClickTime = p.time;
@@ -260,7 +311,7 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
                                    if (m_rebuild) {
                                      m_rebuild();
                                    }
-                                 }});
+                                 });
       area->addChild(std::move(row));
       list->addChild(std::move(area));
     }
@@ -268,13 +319,22 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
   };
   if (!m_recommended.empty()) {
     box->addChild(ui::label({.text = std::string("Recommended"), .fontSize = Style::fontSizeCaption * s,
-                             .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label2)}));
-    box->addChild(card(m_recommended, true));
+                             .fontWeight = FontWeight::Medium, .color = colorSpecFromRole(ColorRole::Label2)}));
+    box->addChild(card(m_recommended, true, true));
   }
-  box->addChild(ui::input({
+  const float searchH = Tokens::sizeControlM * s;
+  auto search = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s, .paddingH = Tokens::spaceP12 * s,
+                         .fill = colorSpecFromRole(ColorRole::Fill2), .radius = searchH / 2.0F, .height = searchH});
+  search->addChild(ui::glyph({.glyph = std::string("search"), .glyphSize = Tokens::sizeSymbol * s,
+                              .color = colorSpecFromRole(ColorRole::Label2)}));
+  search->addChild(ui::input({
       .value = m_search,
       .placeholder = std::string("All apps"),
       .fontSize = Style::fontSizeBody * s,
+      .controlHeight = searchH,
+      .horizontalPadding = 0.0F,
+      .frameVisible = false,
+      .flexGrow = 1.0F,
       .onChange =
           [this](const std::string& text) {
             m_search = text;
@@ -284,6 +344,7 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
           },
       .onSubmit = [this](const std::string&) { open(); },
   }));
+  box->addChild(std::move(search));
   std::vector<App> rest;
   const std::string needle = TypeAhead::fold(m_search);
   for (const App& app : m_all) {
@@ -295,9 +356,14 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
   if (rest.size() > kAllAppsShown) {
     rest.resize(kAllAppsShown);
   }
-  auto scroll = ui::scrollView({.flexGrow = 1.0F});
-  scroll->content()->addChild(card(rest, false));
-  box->addChild(std::move(scroll));
+  // A sheet hugs its content, so the scroll gets a height; the portal window may grow it. The card frames the
+  // scroll, so it is as wide as the Recommended card and its rounded bottom is never clipped.
+  auto scroll = ui::scrollView({.height = std::min(rest.size(), kAllRowsShown) * rowH, .flexGrow = 1.0F});
+  scroll->content()->addChild(card(rest, false, false));
+  auto all = frame();
+  all->setFlexGrow(1.0F);
+  all->addChild(std::move(scroll));
+  box->addChild(std::move(all));
   if (m_recommended.empty() && rest.empty()) {
     box->addChild(ui::label({.text = std::string("No app can open this file"), .fontSize = Style::fontSizeBody * s,
                              .color = colorSpecFromRole(ColorRole::Label2)}));
@@ -320,8 +386,13 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
     box->addChild(std::move(row));
   }
   auto buttons = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::End, .gap = Tokens::spaceP8 * s});
+  // Mockup .dlg .btn: 32 high capsules, fill_2 with no outline.
+  Button::ButtonPalette plain = Button::defaultPalette(ButtonVariant::Default);
+  plain.borderWidth = 0.0F;
+  const float btnH = Tokens::sizeControlM * s;
   buttons->addChild(ui::button({.text = std::string("Cancel"), .fontSize = Style::fontSizeBody * s,
-                                .variant = ButtonVariant::Default, .onClick = [this] {
+                                .variant = ButtonVariant::Default, .customPalette = plain,
+                                .paddingH = Tokens::spaceP16 * s, .radius = btnH / 2.0F, .height = btnH, .onClick = [this] {
                                   if (!m_answered) {
                                     m_answered = true;
                                     m_answer(1, {});
@@ -329,6 +400,7 @@ std::unique_ptr<Node> AppChooserSheet::build(float s) {
                                 }}));
   buttons->addChild(ui::button({.text = std::string("Open"), .fontSize = Style::fontSizeBody * s,
                                 .enabled = !m_selected.empty(), .variant = ButtonVariant::Primary,
+                                .paddingH = Tokens::spaceP16 * s, .radius = btnH / 2.0F, .height = btnH,
                                 .onClick = [this] { open(); }}));
   box->addChild(std::move(buttons));
   return box;

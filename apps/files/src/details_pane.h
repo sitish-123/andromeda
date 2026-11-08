@@ -20,6 +20,7 @@ public:
   struct Actions {
     std::function<void()> open;
     std::function<void()> openWith;
+    std::function<void(float sceneX, float sceneY)> share; // set: a Share button opens the Share rows there
   };
 
   DetailsPane(ThumbnailService* thumbnails, Actions actions);
@@ -28,8 +29,6 @@ public:
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
   void update(const std::filesystem::path& folder, std::vector<std::filesystem::path> selection);
 
-  // Pixel size from the image header (PNG, JPEG, GIF, WebP), without decoding; nullopt for other files.
-  [[nodiscard]] static std::optional<std::pair<std::uint32_t, std::uint32_t>> imageSize(const std::filesystem::path& file);
 
 private:
   void fill();

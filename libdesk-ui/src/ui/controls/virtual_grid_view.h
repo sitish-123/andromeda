@@ -104,6 +104,10 @@ public:
   virtual void onSecondaryActivate(std::size_t /*index*/, float /*anchorX*/, float /*anchorY*/) {}
   // Optional: secondary button press on empty space (a background menu), same coordinates.
   virtual void onSecondaryEmpty(float /*anchorX*/, float /*anchorY*/) {}
+
+  // Section headers (VirtualGridView::setSections): one pooled node per visible section, bound to section `section`.
+  [[nodiscard]] virtual std::unique_ptr<Node> createSectionHeader() { return nullptr; }
+  virtual void bindSectionHeader(Node& /*header*/, std::size_t /*section*/, float /*width*/, float /*height*/) {}
 };
 
 class VirtualGridView : public Flex {
@@ -133,6 +137,12 @@ public:
   void setColumnGap(float gap);
   void setRowGap(float gap);
   void setOverscanRows(std::size_t rows);
+  // Groups (scrolling mode only): each section starts on a new row under a header `headerHeight` tall that the
+  // adapter draws. `starts` = first item of each section, ascending, starts[0] = 0; empty = no sections.
+  void setSections(std::vector<std::size_t> starts, float headerHeight);
+  // The item one row up (-1) or down (+1) in the same column, or the row's last item when that row is shorter;
+  // nullopt past the first or last row.
+  [[nodiscard]] std::optional<std::size_t> indexInNextRow(std::size_t index, int rowDelta) const;
   // wp_cursor_shape value applied while the pointer is over a cell (0 = inherit).
   void setItemCursorShape(std::uint32_t shape);
   // Content scale of the hosting surface: sets the scrollbar geometry scale and the pointer
@@ -198,6 +208,15 @@ private:
     return Style::rtl() ? m_layoutColumns - 1 - col : col;
   }
   void setOverlayHoveredForIndex(std::size_t index, bool hovered);
+  // Section geometry for `columns` (one section from 0 without setSections); returns the row count.
+  std::size_t layoutSections(std::size_t columns);
+  [[nodiscard]] std::size_t sectionOfRow(std::size_t row) const noexcept;
+  [[nodiscard]] std::size_t sectionEnd(std::size_t section) const noexcept;
+  [[nodiscard]] float sectionTop(std::size_t section) const noexcept;
+  [[nodiscard]] float rowTop(std::size_t row) const noexcept;
+  [[nodiscard]] std::size_t rowAtY(float y) const noexcept;
+  [[nodiscard]] std::pair<std::size_t, std::size_t> rowColOf(std::size_t index) const noexcept;
+  [[nodiscard]] std::optional<std::size_t> indexAtRowCol(std::size_t row, std::size_t col) const noexcept;
   void updateTooltipAnchor(std::size_t slot, std::size_t index, bool overlayHovered);
 
   ScrollView* m_scroll = nullptr;
@@ -222,6 +241,13 @@ private:
   float m_columnGap = 4.0F;
   float m_rowGap = 4.0F;
   std::size_t m_overscanRows = 2;
+  std::vector<std::size_t> m_sectionWanted{0};  // as set
+  std::vector<std::size_t> m_sectionStarts{0};  // the non-empty ones of the last layout
+  float m_sectionHeaderH = 0.0F;
+  std::vector<std::size_t> m_sectionFirstRow{0}; // per section, for m_layoutColumns
+  std::size_t m_rowCount = 0;
+  std::vector<Node*> m_headerPool;
+  std::vector<std::optional<std::size_t>> m_headerBound; // section bound to each header node
   std::uint32_t m_itemCursorShape = 0;
   float m_scale = 1.0F;
 

@@ -29,7 +29,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
   libcairo2-dev libpango1.0-dev libfreetype-dev libfontconfig-dev libharfbuzz-dev librsvg2-dev libglib2.0-dev \
   libgtk-4-dev libsdbus-c++-dev libpipewire-0.3-dev libwireplumber-0.5-dev libgstreamer1.0-dev \
   libgstreamer-plugins-base1.0-dev libavformat-dev libavutil-dev libcurl4-gnutls-dev libstb-dev libical-dev libjxl-dev \
-  libqalculate-dev libqrencode-dev libsecret-1-dev libsodium-dev libwebp-dev libxml2-dev libzip-dev libmd4c-dev \
+  libqalculate-dev libqrencode-dev libsecret-1-dev libsodium-dev libwebp-dev libxml2-dev libzip-dev libvterm-dev libmd4c-dev \
   libmpv-dev nlohmann-json3-dev libpolkit-agent-1-dev libpolkit-gobject-1-dev libpoppler-glib-dev libsndfile1-dev \
   libsqlite3-dev libtag-dev libtomlplusplus-dev libexiv2-dev libcrypt-dev libglycin-2-dev libpam0g-dev \
   libalpm-dev libdbus-1-dev libssl-dev

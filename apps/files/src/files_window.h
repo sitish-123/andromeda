@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vault_sheet.h"
+
 #include "core/files/file_model.h"
 #include "files/file_ops_client.h"
 #include "picker_portal.h"
@@ -7,9 +9,13 @@
 #include "archive_listing.h"
 #include "batch_rename_sheet.h"
 #include "compress_sheet.h"
+#include "folder_compare.h"
 #include "extract_sheet.h"
 #include "get_info_sheet.h"
 #include "job_pill.h"
+#include "link_share.h"
+#include "service_menus.h"
+#include "phone_page.h"
 #include "storage_page.h"
 #include "ui/files/file_browser.h"
 
@@ -60,6 +66,8 @@ public:
   void searchAnswered(const std::string& text, const std::vector<std::shared_ptr<const FileInfo>>& rows);
   void tagsChanged();
   void goTag(const std::string& tag);
+  void openTagManager(); // the Tags sheet (mockup §17)
+  [[nodiscard]] class TagManagerSheet* tagManager() const;
   void eject(const std::filesystem::path& mount);
   // After an eject or unmount: an error shows as a toast; success leaves the drive and refreshes the sidebar.
   void unmounted(const std::filesystem::path& mount, const std::string& error);
@@ -76,8 +84,41 @@ public:
   void toggleStar(); // Ctrl+D on the selection
   [[nodiscard]] bool selectionStarred() const;
   void openTerminalHere(); // the selected folder, else the current one
+  void toggleTerminal(); // F4: the terminal pane under the view (mockup §16)
+  void selectByPattern(); // Ctrl+S sheet (mockup §16)
+  // Smart folders (mockup §16): saved searches as sidebar places, run again on each visit.
+  void newSmartFolder(bool fromSearch); // fromSearch: the current search fills the criteria (Save Search)
+  void editSmartFolder();
+  void removeSmartFolder();
+  void goSmart(const std::string& name);
+  [[nodiscard]] bool inSmartFolder() const;
+  [[nodiscard]] bool canSaveSearch() const;
+  [[nodiscard]] class SmartFolderSheet* smartSheet() const;
+  [[nodiscard]] BatchRenameSheet* batchRenameSheet() const;
+  [[nodiscard]] CompressSheet* compressSheet() const;
+  [[nodiscard]] ExtractSheet* extractSheet() const;
+  // Folder compare in split view (mockup §16): marks on both panes; Sync copies the active side's only-here and newer
+  // items to the other pane through one copy job (conflicts ask as usual).
+  void toggleCompare();
+  void toggleSplitView() { toggleSplit(); } // F3
+  void activatePane(std::size_t index) {
+    if (m_panes[1] != nullptr && index < m_panes.size()) {
+      setActivePane(index);
+    }
+  }
+  void syncCompare();
+  [[nodiscard]] bool canCompare() const noexcept { return m_panes[1] != nullptr; }
+  [[nodiscard]] bool comparing() const noexcept { return m_compareOn; }
+  [[nodiscard]] class SelectPatternSheet* patternSheet() const;
+  [[nodiscard]] bool terminalFocused() const;
+  [[nodiscard]] class TerminalPane* terminal() const { return m_terminal.get(); }
   void copyLocation(); // the selected paths, else the folder, as text on the clipboard
   void showItemMenu(std::size_t index, float sceneX, float sceneY); // right click on an item (mockup §4)
+  // A menu row id: share.device:<id>, share.email, open.app:<desktop id>, or a command id.
+  void runMenuCommand(const std::string& command, const std::vector<std::filesystem::path>& paths);
+  [[nodiscard]] struct ContextMenuControlEntry shareEntry(std::vector<std::string>& ids);
+  [[nodiscard]] struct ContextMenuControlEntry openWithEntry(const std::vector<std::filesystem::path>& paths,
+                                                             std::vector<std::string>& ids);
   void showBackgroundMenu(float sceneX, float sceneY);              // right click on empty view space
   [[nodiscard]] bool detailsOpen() const noexcept { return m_detailsOpen; }
   [[nodiscard]] bool canOpenWith() const;
@@ -112,10 +153,46 @@ public:
   void renameSelection();
   void focusSearch();
   void compressSelection();
-  void getInfo();
+  void getInfo(std::vector<std::filesystem::path> paths = {}); // empty = the selection, else the folder
   void showStorage();
   void emptyTrash();    // no question: the caller confirmed
   void askEmptyTrash(); // the confirm sheet, then emptyTrash()
+  // New › Document templates (~/Templates) and making a file from one, then renaming it.
+  [[nodiscard]] static std::vector<std::filesystem::path> templates();
+  void newFromTemplate(const std::filesystem::path& file);
+  // Share › (mockup §4): each paired Link phone, Email…; the selection goes.
+  [[nodiscard]] std::vector<LinkShare::Device> shareDevices() const;
+  void shareTo(const std::string& deviceId);
+  void sendToPhone(const std::string& deviceId, std::vector<std::filesystem::path> paths);
+  // Phone page (FILES-UI-SPEC §20) for a paired Link phone, and its Import view.
+  void showPhone(const std::string& deviceId);
+  void showPhoneImport(std::shared_ptr<PhonePage> page = nullptr);
+  void phonePick(std::size_t index);
+  void phoneImport(bool all);
+  void shareByEmail();
+  // The Share rows as a menu at a scene point (the details pane Share button).
+  void showShareMenu(float sceneX, float sceneY);
+  // View Options (FILES-UI-SPEC §16) under `anchor`, or under the header sort button (Ctrl+J, menus).
+  void openViewOptions(const Node* anchor = nullptr);
+  // Add to Sidebar / Remove from Sidebar for selected folders (FB3 pins, Finder ⌃⌘T).
+  void togglePin();
+  [[nodiscard]] bool selectionPinned() const;
+  [[nodiscard]] bool selectionIsFolders() const;
+  // Vaults (FB-VAULT): New Vault sheet, Unlock sheet for a locked vault, Lock from the sidebar eject button.
+  void askNewVault(const std::string& name = {});
+  void askUnlockVault(const std::string& name);
+  void lockVault(const std::string& name);
+  void submitSheetPassword(const std::string& password); // sheet.password: the open Unlock/New Vault sheet
+  void presentVaultSheet(VaultSheet::Mode mode, const std::string& name);
+  // Drives (FB-BASICS): mount an unmounted drive (password sheet for an encrypted one), Import Photos from a DCIM
+  // tree, Format a removable drive.
+  void mountDrive(const std::string& id);
+  [[nodiscard]] std::filesystem::path importSource() const;
+  void importPhotos();
+  [[nodiscard]] std::string formatTarget() const;
+  void askFormat();
+  void eraseDrive(); // the Erase button of the open Format sheet
+  void askDeleteSelection(); // Shift+Del: delete for good after a confirm, no Trash, no undo
   [[nodiscard]] bool trashHasItems() const noexcept { return !m_trash.empty(); }
   void extractSelection(bool here);
   [[nodiscard]] bool canExtract() const;
@@ -124,6 +201,7 @@ public:
   // Selects the rows with these names (E2E).
   void selectNames(const std::vector<std::string>& names);
   void toggleHidden();
+  void groupBy(FileGroupBy group); // Tags first asks the tag index for a fresh walk
   void reload();
   void resolveConflict(FileOpsClient::Resolution resolution);
   void showConflict(const FileOpsClient::Job& job);
@@ -166,6 +244,31 @@ private:
 
   FilesApp& m_app;
   std::string m_tagShown; // the tag whose listing shows, re-listed when the index walks again
+  std::shared_ptr<class TagManagerSheet> m_tagManager;
+  std::unique_ptr<class TerminalPane> m_terminal; // kept while hidden, as Dolphin keeps its session
+  // Tag renames and deletes on files run one at a time, each after a fresh walk, so a second edit sees the first.
+  struct TagFileOp {
+    std::string tag;
+    std::vector<std::string> tags;
+    std::string mode;
+  };
+  std::deque<TagFileOp> m_tagOps;
+  bool m_tagOpRunning = false;
+  bool m_terminalOpen = false;
+  std::shared_ptr<class SelectPatternSheet> m_patternSheet;
+  std::string m_lastPattern = "*";
+  bool m_lastPatternRegex = false;
+  bool m_compareOn = false;
+  std::shared_ptr<class SmartFolderSheet> m_smartSheet;
+  std::string m_smartShown;
+  void presentSmartSheet(struct SmartFolder folder, std::string original);
+  folder_compare::Result m_compare; // the last compare that landed
+  std::uint64_t m_compareRun = 0;   // a newer run drops older answers
+  std::deque<std::pair<std::filesystem::path, std::vector<std::filesystem::path>>> m_syncQueue; // into, sources
+  void runSyncQueue();
+  void refreshCompare();
+  std::pair<std::filesystem::path, std::filesystem::path> m_comparedDirs; // the panes' folders at the last compare
+  void runTagOps();
   AppWindow& m_window;
   // Split view (F3, FILES-UI-SPEC §13): pane 1 exists only while split. m_browser is the active pane: it takes the
   // keys, the header accessory, the title, the path bar and the status.
@@ -184,8 +287,10 @@ private:
   [[nodiscard]] const std::vector<std::filesystem::path>& draggedPaths() const;
   std::vector<TrashItem> m_trash;
   FileBrowser::Listing m_trashListing; // built by loadTrash() while another folder shows
+  std::vector<service_menus::Action> m_serviceActions; // the last item menu's Actions rows
   std::shared_ptr<bool> m_alive = std::make_shared<bool>(true); // D-Bus replies skip a closed window
   std::set<std::string> m_jobs; // started by this window, not finished
+  std::map<std::string, FileOpsClient::Job> m_phoneJobs; // Link transfers this window started, by "link:<id>"
   std::set<std::string> m_trashReloaded; // other windows' finished jobs the Trash view reloaded for
   std::map<std::string, std::function<void(const std::string&)>> m_renameDone; // rename job -> its inline field
   struct wl_surface* m_dropSurface = nullptr;
@@ -194,9 +299,24 @@ private:
   std::unique_ptr<ArchiveListing> m_archive; // the archive open as a listing
   std::unique_ptr<CompressSheet> m_compress;
   std::unique_ptr<ExtractSheet> m_extract;
+  std::string m_archivePassword; // the last password an extract was started with: a drag-out from it uses it
+  struct DragExtract {
+    std::filesystem::path dir;
+    bool done = false;
+    std::vector<std::function<void()>> waiting; // drops in this window wait for the extract
+  };
+  std::optional<DragExtract> m_dragExtract;
+  [[nodiscard]] std::vector<std::filesystem::path> dragOutOfArchive(const std::vector<std::filesystem::path>& dragged);
   std::unique_ptr<GetInfoSheet> m_info;
   std::shared_ptr<class NetworkPage> m_network; // made on the first Network visit; discovery keeps running after
   std::shared_ptr<class ConnectSheet> m_connect;
+  std::shared_ptr<class VaultSheet> m_vaultSheet;
+  std::string m_formatName;
+  std::string m_formatDevice; // set while the Format sheet is open
+  std::vector<std::string> m_formatTypes;
+  std::size_t m_formatType = 0;
+  std::string m_formatError;
+  bool m_formatBusy = false;
   std::shared_ptr<class AppChooserSheet> m_openWith;
   std::shared_ptr<class ConflictSheet> m_conflict;
   std::unique_ptr<class DetailsPane> m_details;
@@ -211,6 +331,8 @@ private:
   void submitPath();
   [[nodiscard]] std::unique_ptr<Node> buildPathSheet(float scale);
   std::shared_ptr<StoragePage> m_storage;
+  std::shared_ptr<PhonePage> m_phone;
+  bool m_dragHasUris = false; // the drag over this window offers text/uri-list
   struct PendingExtract {
     std::filesystem::path archive;
     ExtractSheet::Request request;

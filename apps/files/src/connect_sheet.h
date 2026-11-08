@@ -15,9 +15,9 @@ class Node;
 // state until the host closes it.
 class ConnectSheet {
 public:
-  // remember: the password goes to the Secret Service keyring (gvfs stores it).
+  // remember: the password goes to the Secret Service keyring (gvfs stores it); reconnect: mount again at login.
   using Connect = std::function<void(const ServerUrl& url, const std::string& user, const std::string& password,
-                                     bool remember)>;
+                                     bool remember, bool reconnect)>;
 
   ConnectSheet(std::string address, Connect connect, std::function<void()> close, std::function<void()> rebuild);
 
@@ -38,6 +38,7 @@ private:
   std::string m_user;
   std::string m_password;
   bool m_remember = false;
+  bool m_reconnect = false;
   bool m_showPassword = false;
   bool m_busy = false;
   std::string m_error;

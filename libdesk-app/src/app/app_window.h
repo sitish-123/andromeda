@@ -90,6 +90,8 @@ public:
   // Runs when the compositor activates or deactivates the window (xdg_toplevel activated state).
   void setActiveCallback(std::function<void(bool active)> callback) { m_onActive = std::move(callback); }
   void setTitle(std::string title);
+  // Search mode (Files): the header hides back / forward, the title and More; the accessory takes the row.
+  void setHeaderSearchMode(bool on);
   void requestRebuild();
   // Updates the back / forward buttons from their commands without a rebuild.
   void refreshNavigation();
@@ -141,6 +143,7 @@ private:
   void onClosedByCompositor();
   [[nodiscard]] std::string key(const char* field) const;
   void openMoreMenu();
+  void applyHeaderSearchMode();
 
   AppLoop& m_loop;
   CommandTable& m_commands;
@@ -165,6 +168,9 @@ private:
   std::unique_ptr<desk::ForeignParent> m_foreignParent;
   std::unique_ptr<Node> m_root;
   Label* m_titleLabel = nullptr;
+  Node* m_titleRow = nullptr;
+  bool m_headerSearch = false;
+  bool m_buildingHeader = false;
   Button* m_maximizeButton = nullptr;
   std::array<Button*, 2> m_navButtons{};
   Button* m_moreButton = nullptr;

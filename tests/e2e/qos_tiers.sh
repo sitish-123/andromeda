@@ -20,7 +20,7 @@ mkdir -p "$RUNTIME/power/BAT0"
 echo Battery > "$RUNTIME/power/BAT0/type"
 echo Charging > "$RUNTIME/power/BAT0/status"
 export ANDROMEDA_QOS_TEST_DELAYS_MS=1000,1500 ANDROMEDA_QOS_TEST_POWER_SUPPLY=$RUNTIME/power
-trap 'systemctl --user thaw "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "app-andromeda-${ADOPTED:-0}.scope" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'systemctl --user thaw "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "app-andromeda-${ADOPTED:-0}.scope" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 # Spawned by the compositor without a scope (no scopes required here): it must get its own app scope.
 AUTOSTART="\"$CLIENT qos-adopt\""
 boot_headless 1

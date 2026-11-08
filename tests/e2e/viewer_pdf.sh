@@ -27,7 +27,7 @@ PY
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" ANDROMEDA_PREVIEW_HELPER="$PREVIEW_HELPER" NOCTALIA_LOG_LEVEL=debug \
   "$VIEWER" "$RUNTIME/files/sample.pdf" > "$OUT/viewer.log" 2>&1 &
 

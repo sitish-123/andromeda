@@ -66,12 +66,14 @@
       <arg name="job" type="o" direction="out" />
     </method>
     <!-- destination: the archive file (a taken name gets a "(copy)" name). format: zip, 7z, tar.gz, tar.xz,
-         tar.zst; only zip (AES-256) and 7z take a password (names stay readable). -->
+         tar.zst; only zip (AES-256) and 7z take a password (names stay readable). volume_size: bytes per volume;
+         above 0, a larger archive becomes destination.001, .002, … (7-Zip split volumes; extract opens .001). -->
     <method name="Compress">
       <arg name="sources" type="aay" direction="in" />
       <arg name="destination" type="ay" direction="in" />
       <arg name="format" type="s" direction="in" />
       <arg name="password" type="s" direction="in" />
+      <arg name="volume_size" type="t" direction="in" />
       <arg name="job" type="o" direction="out" />
     </method>
     <!-- Bits: mode where mask is set; on folders, open (x) follows read. recursive: also everything inside
@@ -83,7 +85,7 @@
       <arg name="recursive" type="b" direction="in" />
       <arg name="job" type="o" direction="out" />
     </method>
-    <!-- Tags in the xattr user.xdg.tags. mode: set (exactly these), add or remove. A tag has no comma. Undo restores each old value. -->
+    <!-- Tags in the xattr user.xdg.tags. mode: set (exactly these), add, remove, or rename (tags = [old, new]). A tag has no comma. Undo restores each old value. -->
     <method name="SetTags">
       <arg name="targets" type="aay" direction="in" />
       <arg name="tags" type="as" direction="in" />
@@ -122,7 +124,8 @@
     <method name="Pause" />
     <!-- Only a paused job resumes. -->
     <method name="Resume" />
-    <!-- resolution: replace (files: old one to the trash; folders: merge), skip, keep_both -->
+    <!-- resolution: replace (the old one, file or folder, to the trash), merge (a folder onto a folder: copy into it;
+         on a file it is replace), skip, keep_both -->
     <method name="ResolveConflict">
       <arg name="resolution" type="s" direction="in" />
       <arg name="apply_to_all" type="b" direction="in" />

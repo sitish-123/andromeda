@@ -1,5 +1,7 @@
 #include "conflict_sheet.h"
 
+#include "core/files/media_info.h"
+
 #include "core/files/file_info.h"
 #include "design_tokens.h"
 #include "details_pane.h"
@@ -26,6 +28,8 @@ namespace {
   constexpr float kPreviewHeight = 136.0F; // mockup .cf-card .pv
   constexpr float kThumb = 40.0F;          // mockup .cf-head .thumb
   constexpr float kBadgeHeight = 20.0F;
+  constexpr float kSheetWidth = 576.0F; // mockup .cf
+  constexpr float kMergeWidth = 456.0F; // mockup .cf-merge
   constexpr std::int64_t kNsPerDay = 86'400'000'000'000;
 
   // A file icon bound at the first layout, when the renderer is there.
@@ -53,6 +57,57 @@ namespace {
     FileIcon* m_icon = nullptr;
     bool m_bound = false;
   };
+
+  // A click area the size of its one child: a plain InputArea measures as zero, so a row would give it no height.
+  // The preview (child 0) with a badge (child 1) pinned to its bottom-right corner, `inset` in from both edges.
+  class Pinned final : public Node {
+  public:
+    explicit Pinned(float inset) : m_inset(inset) {}
+
+  protected:
+    LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints) override {
+      return children().empty() ? LayoutSize{} : children().front()->measure(renderer, constraints);
+    }
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      setPosition(rect.x, rect.y);
+      setSize(rect.width, rect.height);
+      if (children().size() < 2) {
+        return;
+      }
+      children()[0]->arrange(renderer, LayoutRect{.x = 0.0F, .y = 0.0F, .width = rect.width, .height = rect.height});
+      const LayoutSize badge = children()[1]->measure(renderer, LayoutConstraints{});
+      children()[1]->arrange(renderer, LayoutRect{.x = rect.width - badge.width - m_inset,
+                                                  .y = rect.height - badge.height - m_inset,
+                                                  .width = badge.width, .height = badge.height});
+    }
+
+  private:
+    float m_inset;
+  };
+
+  class CardArea final : public InputArea {
+  protected:
+    LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints) override {
+      return children().empty() ? LayoutSize{} : children().front()->measure(renderer, constraints);
+    }
+    void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+      setPosition(rect.x, rect.y);
+      setSize(rect.width, rect.height);
+      if (!children().empty()) {
+        children().front()->arrange(renderer, LayoutRect{.x = 0.0F, .y = 0.0F, .width = rect.width, .height = rect.height});
+      }
+    }
+  };
+
+  // Mockup .dlg .btn: 32 high capsules, fill_2 with no outline (the accent one for the primary action).
+  std::unique_ptr<Node> capsule(const char* text, ButtonVariant variant, float s, std::function<void()> onClick) {
+    Button::ButtonPalette palette = Button::defaultPalette(variant);
+    palette.borderWidth = 0.0F;
+    return ui::button({.text = std::string(text), .fontSize = Style::fontSizeBody * s, .variant = variant,
+                       .customPalette = palette,
+                       .radius = Tokens::sizeControlM * s / 2.0F, .height = Tokens::sizeControlM * s,
+                       .onClick = std::move(onClick)});
+  }
 
   std::string ageWords(std::int64_t ns) {
     const std::int64_t days = ns / kNsPerDay;
@@ -85,7 +140,8 @@ std::string ConflictSheet::keepBothName(const fs::path& target) {
 }
 
 std::string ConflictSheet::difference(std::uint64_t newSize, std::int64_t newTimeNs, std::uint64_t oldSize,
-                                      std::int64_t oldTimeNs) {
+                                      std::int64_t oldTimeNs, std::optional<double> newSeconds,
+                                      std::optional<double> oldSeconds) {
   std::vector<std::string> parts;
   if (newSize != oldSize) {
     parts.push_back(std::format("{} {}", formatFileSize(newSize > oldSize ? newSize - oldSize : oldSize - newSize),
@@ -94,10 +150,19 @@ std::string ConflictSheet::difference(std::uint64_t newSize, std::int64_t newTim
   if (std::llabs(newTimeNs - oldTimeNs) >= kNsPerDay / 24) {
     parts.push_back(std::format("{} {}", ageWords(std::llabs(newTimeNs - oldTimeNs)), newTimeNs > oldTimeNs ? "newer" : "older"));
   }
+  if (newSeconds && oldSeconds && std::abs(*newSeconds - *oldSeconds) >= 1.0) {
+    const double d = std::abs(*newSeconds - *oldSeconds);
+    parts.push_back(std::format("{} {}", d < 60.0 ? std::format("{} s", std::lround(d)) : formatDuration(d),
+                                *newSeconds > *oldSeconds ? "longer" : "shorter"));
+  }
   if (parts.empty()) {
     return "Both files have the same size and date.";
   }
-  return std::format("The copy is {}.", parts.size() == 1 ? parts[0] : parts[0] + " and " + parts[1]);
+  std::string text = parts.front();
+  for (std::size_t i = 1; i < parts.size(); ++i) {
+    text += (i + 1 == parts.size() ? " and " : ", ") + parts[i];
+  }
+  return std::format("The copy is {}.", text);
 }
 
 ConflictSheet::ConflictSheet(Info info, ThumbnailService* thumbnails, std::function<void(Choice, bool)> answer,
@@ -113,24 +178,31 @@ void ConflictSheet::choose(Choice choice) {
 
 std::unique_ptr<Node> ConflictSheet::buildMerge(float s) {
   const auto& clash = *m_info.folderClash;
-  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * s, .padding = Tokens::spaceP24 * s});
-  auto titles = ui::column({.align = FlexAlign::Stretch});
+  // Mockup §5 .cf-merge: 456 wide, padding 24, gap 16.
+  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * s, .padding = Tokens::spaceP24 * s,
+                         .width = kMergeWidth * s});
+  auto head = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s});
+  if (const auto folder = statFile(m_info.target)) {
+    head->addChild(std::make_unique<IconNode>(*folder, m_info.target, m_thumbnails, kThumb * s));
+  }
+  auto titles = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
   titles->addChild(ui::label({.text = std::format("A folder “{}” is already in {}", m_info.target.filename().string(),
                                                   m_info.target.parent_path().filename().string()),
-                              .fontSize = Tokens::typeHeadline.size * s, .fontWeight = FontWeight::SemiBold,
+                              .fontSize = Tokens::typeTitle3.size * s, .fontWeight = FontWeight::SemiBold,
                               .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 2,
                               .ellipsize = TextEllipsize::Middle}));
   titles->addChild(ui::label({.text = std::format("{} 1 folder · {} files", m_info.verb,
                                                   clash.newFiles + clash.sameFiles + clash.differentFiles),
                               .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
                               .color = colorSpecFromRole(ColorRole::Label2)}));
-  box->addChild(std::move(titles));
-  // Mockup .cf-merge: three count cards; "different" in orange.
+  head->addChild(std::move(titles));
+  box->addChild(std::move(head));
+  // Three count cards (r12, 600 17/24 + 500 12 label_2); "different" in the warning colour.
   auto counts = ui::row({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s});
   const auto count = [&](std::uint64_t n, const char* what, bool warn) {
     auto c = ui::column({.align = FlexAlign::Start, .paddingV = Tokens::spaceP8 * s, .paddingH = Tokens::spaceP12 * s,
-                         .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR8 * s, .flexGrow = 1.0F});
-    c->addChild(ui::label({.text = std::to_string(n), .fontSize = Tokens::typeTitle3.size * s,
+                         .fill = colorSpecFromRole(ColorRole::GlassCard), .radius = Tokens::radiusR12 * s, .flexGrow = 1.0F});
+    c->addChild(ui::label({.text = std::to_string(n), .fontSize = Tokens::typeTitle2.size * s,
                            .fontWeight = FontWeight::SemiBold,
                            .color = colorSpecFromRole(warn && n > 0 ? ColorRole::Warning : ColorRole::Label1)}));
     c->addChild(ui::label({.text = std::string(what), .fontSize = Style::fontSizeCaption * s,
@@ -143,13 +215,17 @@ std::unique_ptr<Node> ConflictSheet::buildMerge(float s) {
   box->addChild(std::move(counts));
   if (!clash.different.empty()) {
     auto list = ui::column({.align = FlexAlign::Stretch, .padding = Tokens::spaceP4 * s,
-                            .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR8 * s});
+                            .fill = colorSpecFromRole(ColorRole::GlassCard), .radius = Tokens::radiusR8 * s});
     for (const auto& [path, hint] : clash.different) {
+      // Mockup .trow: 32 high r8, padding 0 8, a 20 icon slot, 400 13 name.
       auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s, .paddingH = Tokens::spaceP8 * s,
-                          .height = Tokens::sizeRowCompact * s});
-      row->addChild(ui::label({.text = path.string(), .fontSize = Style::fontSizeBody * s,
-                               .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
-                               .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
+                          .height = Tokens::sizeControlM * s});
+      const fs::path inside = m_info.target / path;
+      if (const auto info = statFile(inside)) {
+        row->addChild(std::make_unique<IconNode>(*info, inside, m_thumbnails, Tokens::spaceP20 * s));
+      }
+      row->addChild(ui::label({.text = path.string(), .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label1),
+                               .maxLines = 1, .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
       row->addChild(ui::label({.text = hint, .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
                                .color = colorSpecFromRole(ColorRole::Label2)}));
       list->addChild(std::move(row));
@@ -164,15 +240,12 @@ std::unique_ptr<Node> ConflictSheet::buildMerge(float s) {
                            .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
                            .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 3}));
   auto buttons = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
-  const auto button = [&](const char* text, ButtonVariant variant, Choice choice) {
-    buttons->addChild(ui::button({.text = std::string(text), .fontSize = Style::fontSizeBody * s, .variant = variant,
-                                  .onClick = [this, choice] { choose(choice); }}));
-  };
-  button("Stop", ButtonVariant::Default, Choice::Stop);
+  buttons->addChild(capsule("Stop", ButtonVariant::Default, s, [this] { choose(Choice::Stop); }));
   buttons->addChild(ui::node({.flexGrow = 1.0F}));
-  button("Keep Both", ButtonVariant::Default, Choice::KeepBoth);
-  // Replace on a folder merges (FileOps1 ResolveConflict), so Merge is the one action for it.
-  button("Merge", ButtonVariant::Primary, Choice::Replace);
+  buttons->addChild(capsule("Keep Both", ButtonVariant::Default, s, [this] { choose(Choice::KeepBoth); }));
+  // Replace swaps the whole folder (the old one to the trash); Merge copies into it.
+  buttons->addChild(capsule("Replace", ButtonVariant::Default, s, [this] { choose(Choice::Replace); }));
+  buttons->addChild(capsule("Merge", ButtonVariant::Primary, s, [this] { choose(Choice::Merge); }));
   box->addChild(std::move(buttons));
   return box;
 }
@@ -183,7 +256,8 @@ std::unique_ptr<Node> ConflictSheet::build(float s) {
   }
   const auto source = statFile(m_info.source);
   const auto target = statFile(m_info.target);
-  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * s, .padding = Tokens::spaceP24 * s});
+  auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP16 * s, .padding = Tokens::spaceP24 * s,
+                         .width = kSheetWidth * s});
 
   // Head: thumbnail, "“name” is already in <folder>", the job line.
   auto head = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * s});
@@ -193,7 +267,7 @@ std::unique_ptr<Node> ConflictSheet::build(float s) {
   auto titles = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
   titles->addChild(ui::label({.text = std::format("“{}” is already in {}", m_info.target.filename().string(),
                                                   m_info.target.parent_path().filename().string()),
-                              .fontSize = Tokens::typeHeadline.size * s, .fontWeight = FontWeight::SemiBold,
+                              .fontSize = Tokens::typeTitle3.size * s, .fontWeight = FontWeight::SemiBold,
                               .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 2,
                               .ellipsize = TextEllipsize::Middle}));
   titles->addChild(ui::label({.text = std::format("{} {} item{} to {}{}", m_info.verb, m_info.totalFiles,
@@ -212,54 +286,93 @@ std::unique_ptr<Node> ConflictSheet::build(float s) {
   const auto card = [&](const std::optional<FileInfo>& info, const fs::path& path, bool isNew) {
     const bool on = m_keepNew == isNew;
     auto c = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s, .padding = Tokens::spaceP8 * s,
-                         .fill = on ? colorSpecFromRole(ColorRole::Accent, 0.12F) : colorSpecFromRole(ColorRole::Fill1),
+                         .fill = on ? colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F)
+                                    : colorSpecFromRole(ColorRole::GlassCard),
                          .radius = Tokens::radiusR8 * 2.0F * s,
-                         .border = on ? colorSpecFromRole(ColorRole::Accent) : colorSpecFromRole(ColorRole::Separator),
+                         .border = on ? colorSpecFromRole(ColorRole::Accent) : colorSpecFromRole(ColorRole::GlassCardEdge),
                          .borderWidth = on ? 2.0F * s : std::max(1.0F, 0.5F * s)});
     const bool image = info && info->contentType.starts_with("image/");
+    const bool media = info && (image || info->contentType.starts_with("video/") || info->contentType.starts_with("audio/"));
+    const MediaInfo mediaInfo = media ? readMediaInfo(path) : MediaInfo{};
     if (image) {
       c->addChild(pictureNode(path.string(), 0.0F, kPreviewHeight * s, Tokens::radiusR8 * s));
     } else {
       auto pv = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center,
                             .fill = colorSpecFromRole(ColorRole::Fill2), .radius = Tokens::radiusR8 * s,
-                            .height = kPreviewHeight * s});
+                            .clipChildren = true, .height = kPreviewHeight * s});
       if (info) {
-        pv->addChild(std::make_unique<IconNode>(*info, path, m_thumbnails, Tokens::spaceP64 * s));
+        // Videos and documents show their thumbnail as large as the preview allows.
+        pv->addChild(std::make_unique<IconNode>(*info, path, m_thumbnails, (kPreviewHeight - Tokens::spaceP16) * s));
       }
-      c->addChild(std::move(pv));
+      if (mediaInfo.seconds) {
+        // Mockup .cf-card .pv .dur (600 10; caption 11 is the smallest type token): white on black 55 %, padding 2 4, r4, 4 in from the corner.
+        auto pinned = std::make_unique<Pinned>(Tokens::spaceP4 * s);
+        pinned->addChild(std::move(pv));
+        auto dur = ui::row({.align = FlexAlign::Center, .paddingH = Tokens::spaceP4 * s,
+                            .fill = ColorSpec{.role = std::nullopt, .fixed = rgbHex(0x000000), .alpha = 0.55F},
+                            .radius = Tokens::radiusR4 * s});
+        dur->setPadding(Tokens::spaceP2 * s, Tokens::spaceP4 * s);
+        dur->addChild(ui::label({.text = formatDuration(*mediaInfo.seconds), .fontSize = Style::fontSizeMini * s,
+                                 .fontWeight = FontWeight::SemiBold,
+                                 .color = ColorSpec{.role = std::nullopt, .fixed = rgbHex(0xFFFFFF), .alpha = 1.0F}}));
+        pinned->addChild(std::move(dur));
+        c->addChild(std::move(pinned));
+      } else {
+        c->addChild(std::move(pv));
+      }
     }
     auto cap = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4 * s});
-    cap->addChild(ui::label({.text = std::string(isNew ? "COPYING" : "ALREADY THERE"), .fontSize = Style::fontSizeCaption * s,
+    cap->addChild(ui::label({.text = std::string(isNew ? "COPYING" : "ALREADY THERE"), .fontSize = Style::fontSizeMini * s,
                              .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label2),
                              .flexGrow = 1.0F}));
     if (source && target) {
       const auto& mine = isNew ? *source : *target;
       const auto& other = isNew ? *target : *source;
-      const char* badge = mine.mtimeNs > other.mtimeNs + kNsPerDay / 24 ? "Newer"
-                          : mine.size > other.size                    ? "Larger"
+      const char* badge = mine.mtimeNs > other.mtimeNs + kNsPerDay / 24 ? "NEWER"
+                          : mine.size > other.size                    ? "LARGER"
                                                                       : nullptr;
       if (badge != nullptr) {
         auto b = ui::row({.align = FlexAlign::Center, .paddingH = Tokens::spaceP8 * s,
                           .fill = colorSpecFromRole(ColorRole::Success, 0.16F), .radius = kBadgeHeight / 2.0F * s,
                           .height = kBadgeHeight * s});
-        b->addChild(ui::label({.text = std::string(badge), .fontSize = Style::fontSizeCaption * s,
+        b->addChild(ui::label({.text = std::string(badge),
+                               .fontSize = Style::fontSizeMini * s,
                                .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Success)}));
         cap->addChild(std::move(b));
       }
     }
     c->addChild(std::move(cap));
     if (info) {
-      std::string meta = std::format("{} · {}", formatFileSize(info->size), formatFileDate(info->mtimeNs));
-      if (const auto size = image ? DetailsPane::imageSize(path) : std::nullopt) {
-        meta += std::format("\n{} × {}", size->first, size->second);
+      // Mockup .cf-meta: "<b>1.9 GB</b> · Today, 09:12", then "W × H" for images.
+      auto meta = ui::row({.align = FlexAlign::Center});
+      meta->addChild(ui::label({.text = formatFileSize(info->size), .fontSize = Style::fontSizeCaption * s,
+                                .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1)}));
+      meta->addChild(ui::label({.text = " · " + formatFileDate(info->mtimeNs), .fontSize = Style::fontSizeCaption * s,
+                                .fontWeight = FontWeight::Medium, .color = colorSpecFromRole(ColorRole::Label2),
+                                .maxLines = 1, .ellipsize = TextEllipsize::End}));
+      auto lines = ui::column({.align = FlexAlign::Start});
+      lines->addChild(std::move(meta));
+      // Line 2: "W × H · 0:42" for images, video and audio.
+      std::vector<std::string> facts;
+      if (mediaInfo.size) {
+        facts.push_back(std::format("{} × {}", mediaInfo.size->first, mediaInfo.size->second));
       }
-      c->addChild(ui::label({.text = meta, .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
-                             .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 2}));
+      if (mediaInfo.seconds) {
+        facts.push_back(formatDuration(*mediaInfo.seconds));
+      }
+      if (!facts.empty()) {
+        lines->addChild(ui::label({.text = facts.size() == 1 ? facts[0] : facts[0] + " · " + facts[1],
+                                   .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
+                                   .color = colorSpecFromRole(ColorRole::Label2)}));
+      }
+      c->addChild(std::move(lines));
     }
-    auto area = ui::inputArea({.flexGrow = 1.0F, .onClick = [this, isNew](const InputArea::PointerData&) {
-                                 m_keepNew = isNew;
-                                 m_rebuild();
-                               }});
+    auto area = std::make_unique<CardArea>();
+    area->setFlexGrow(1.0F);
+    area->setOnClick([this, isNew](const InputArea::PointerData&) {
+      m_keepNew = isNew;
+      m_rebuild();
+    });
     area->addChild(std::move(c));
     return area;
   };
@@ -273,7 +386,12 @@ std::unique_ptr<Node> ConflictSheet::build(float s) {
   box->addChild(std::move(pair));
 
   if (source && target) {
-    box->addChild(ui::label({.text = difference(source->size, source->mtimeNs, target->size, target->mtimeNs),
+    const auto seconds = [](const FileInfo& f, const fs::path& p) {
+      const bool media = f.contentType.starts_with("video/") || f.contentType.starts_with("audio/");
+      return media ? readMediaInfo(p).seconds : std::nullopt;
+    };
+    box->addChild(ui::label({.text = difference(source->size, source->mtimeNs, target->size, target->mtimeNs,
+                                                seconds(*source, m_info.source), seconds(*target, m_info.target)),
                              .fontSize = Style::fontSizeCaption * s, .fontWeight = FontWeight::Medium,
                              .color = colorSpecFromRole(ColorRole::Label2), .textAlign = TextAlign::Center}));
   }
@@ -297,16 +415,14 @@ std::unique_ptr<Node> ConflictSheet::build(float s) {
   box->addChild(std::move(opt));
 
   auto buttons = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
-  const auto button = [&](const char* text, ButtonVariant variant, Choice choice) {
-    buttons->addChild(ui::button({.text = std::string(text), .fontSize = Style::fontSizeBody * s, .variant = variant,
-                                  .onClick = [this, choice] { choose(choice); }}));
-  };
-  button("Stop", ButtonVariant::Default, Choice::Stop);
+  buttons->addChild(capsule("Stop", ButtonVariant::Default, s, [this] { choose(Choice::Stop); }));
   buttons->addChild(ui::node({.flexGrow = 1.0F}));
   // The primary follows the selected card: keep the copy = Replace, keep the one there = Skip.
-  button("Skip", m_keepNew ? ButtonVariant::Default : ButtonVariant::Primary, Choice::Skip);
-  button("Keep Both", ButtonVariant::Default, Choice::KeepBoth);
-  button("Replace", m_keepNew ? ButtonVariant::Primary : ButtonVariant::Default, Choice::Replace);
+  buttons->addChild(capsule("Skip", m_keepNew ? ButtonVariant::Default : ButtonVariant::Primary, s,
+                            [this] { choose(Choice::Skip); }));
+  buttons->addChild(capsule("Keep Both", ButtonVariant::Default, s, [this] { choose(Choice::KeepBoth); }));
+  buttons->addChild(capsule("Replace", m_keepNew ? ButtonVariant::Primary : ButtonVariant::Default, s,
+                            [this] { choose(Choice::Replace); }));
   box->addChild(std::move(buttons));
   return box;
 }

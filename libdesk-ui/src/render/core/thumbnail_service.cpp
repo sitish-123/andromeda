@@ -5,6 +5,7 @@
 #include "render/core/thumbnail_pipeline.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstdint>
 #include <sys/eventfd.h>
@@ -242,8 +243,22 @@ bool ThumbnailService::uploadPending(TextureManager& textures) {
     return false;
   }
 
+  const auto start = std::chrono::steady_clock::now();
+  std::size_t uploaded = 0;
   bool changed = false;
-  for (auto& job : jobs) {
+  // Uploads past this time wait for the next frame, so a burst of decodes during a scroll never costs one frame more
+  // than the budget.
+  constexpr auto kFrameBudget = std::chrono::microseconds(3000);
+  for (auto it = jobs.begin(); it != jobs.end(); ++it) {
+    if (uploaded > 0 && std::chrono::steady_clock::now() - start >= kFrameBudget) {
+      {
+        std::scoped_lock lock(m_resultMutex);
+        m_results.insert(m_results.begin(), std::make_move_iterator(it), std::make_move_iterator(jobs.end()));
+      }
+      signalMain();
+      break;
+    }
+    auto& job = *it;
     bool dropped = false;
     {
       std::scoped_lock lock(m_queueMutex);
@@ -281,7 +296,12 @@ bool ThumbnailService::uploadPending(TextureManager& textures) {
     entryIt->second.handle = handle;
     entryIt->second.failed = false;
     changed = true;
+    ++uploaded;
     notifyReady(job.key, handle);
+  }
+  if (uploaded > 0) {
+    kLog.debug("thumbnails uploaded {} in {:.2f} ms", uploaded,
+               std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
   }
   return changed;
 }

@@ -19,7 +19,7 @@ ln -s "$REAL/pipewire-0" "$RUNTIME/pipewire-0"
 # On AC (an empty power-supply dir): a hidden silent app stops at T2.
 mkdir -p "$RUNTIME/power"
 export ANDROMEDA_QOS_TEST_DELAYS_MS=1000,1500 ANDROMEDA_QOS_TEST_POWER_SUPPLY=$RUNTIME/power
-trap 'systemctl --user stop "$UNIT" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'systemctl --user stop "$UNIT" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 boot_headless 1
 
 fail() {

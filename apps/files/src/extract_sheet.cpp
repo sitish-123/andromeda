@@ -16,9 +16,12 @@ namespace fs = std::filesystem;
 namespace {
   const float& kFieldLabel = Tokens::componentFilesFieldLabel;
 
-  // "photos" for photos.tar.gz, as FileOps1 names the folder.
+  // "photos" for photos.tar.gz and photos.zip.001, as FileOps1 names the folder.
   std::string archiveStem(const fs::path& archive) {
     std::string name = archive.filename().string();
+    if (name.size() > 4 && name.ends_with(".001")) {
+      name.resize(name.size() - 4);
+    }
     for (const char* ext : {".tar.gz", ".tar.xz", ".tar.zst", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar"}) {
       const std::string_view e(ext);
       if (name.size() > e.size() && name.ends_with(e)) {

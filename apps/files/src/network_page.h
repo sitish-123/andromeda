@@ -31,6 +31,7 @@ public:
   struct Server {
     std::string name;
     std::string uri;
+    bool reconnect = false; // mount again at login (andromeda-files --reconnect)
   };
 
   explicit NetworkPage(Actions actions);
@@ -46,7 +47,11 @@ public:
   // a question (an unknown SSH host key) fails with the question as the error; the next mount() of the same address,
   // with no other mount between, answers it with the first choice. Only the Connect sheet calls mount(), so the user
   // has read the question in the sheet before it is accepted.
-  void mount(const ServerUrl& url, const std::string& user, const std::string& password, bool remember, MountDone done);
+  void mount(const ServerUrl& url, const std::string& user, const std::string& password, bool remember, MountDone done,
+             bool reconnect = false);
+  // `andromeda-files --reconnect` at login: mounts every saved server marked reconnect with the keyring password,
+  // then calls done(mounted, failed). No window, no questions: a server that asks one counts as failed.
+  static void reconnectSaved(std::function<void(int mounted, int failed)> done);
   // A new Connect sheet opens: a question an earlier sheet showed is not accepted from this one.
   void forgetQuestion();
   // The last mount() failed with a question (its error is the question text): the sheet asks Accept.
@@ -62,7 +67,7 @@ private:
   void enumerate();
   void openPlace(const ThisPcPlace& place);
   void startMount(const ServerUrl& url, const std::string& user, const std::string& password, bool remember,
-                  MountDone done, bool fromSheet);
+                  MountDone done, bool fromSheet, bool reconnect = false);
   static void onMounted(void* source, void* result, void* data);
 
   Actions m_actions;

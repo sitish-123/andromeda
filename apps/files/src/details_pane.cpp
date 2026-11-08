@@ -1,6 +1,7 @@
 #include "details_pane.h"
 
 #include "core/files/file_info.h"
+#include "core/files/media_info.h"
 #include "core/log.h"
 #include "design_tokens.h"
 #include "portal_sheets.h"
@@ -29,7 +30,6 @@ namespace {
   constexpr float kPreviewHeight = 160.0F;
   constexpr float kKeyWidth = 88.0F;    // mockup .kv span:first-child
   constexpr float kPreviewIcon = 96.0F;
-  constexpr std::size_t kHeaderBytes = 256 * 1024; // a JPEG's SOF can follow a large EXIF block
 
   // A file icon bound at the first layout, when the renderer is there.
   class IconNode final : public Node {
@@ -57,10 +57,6 @@ namespace {
     bool m_bound = false;
   };
 
-  std::uint32_t be16(const unsigned char* p) { return (std::uint32_t{p[0]} << 8U) | p[1]; }
-  std::uint32_t be32(const unsigned char* p) { return (be16(p) << 16U) | be16(p + 2); }
-  std::uint32_t le16(const unsigned char* p) { return p[0] | (std::uint32_t{p[1]} << 8U); }
-  std::uint32_t le24(const unsigned char* p) { return le16(p) | (std::uint32_t{p[2]} << 16U); }
 
   std::int64_t birthNs(const fs::path& path) {
     struct statx st{};
@@ -70,45 +66,6 @@ namespace {
     return static_cast<std::int64_t>(st.stx_btime.tv_sec) * 1'000'000'000 + st.stx_btime.tv_nsec;
   }
 } // namespace
-
-std::optional<std::pair<std::uint32_t, std::uint32_t>> DetailsPane::imageSize(const fs::path& file) {
-  std::ifstream in(file, std::ios::binary);
-  std::vector<unsigned char> b(kHeaderBytes);
-  in.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(b.size()));
-  const auto n = static_cast<std::size_t>(in.gcount());
-  const auto at = [&](std::size_t i, std::size_t len) { return i + len <= n; };
-  if (at(0, 24) && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') {
-    return std::pair{be32(&b[16]), be32(&b[20])};
-  }
-  if (at(0, 10) && b[0] == 'G' && b[1] == 'I' && b[2] == 'F') {
-    return std::pair{le16(&b[6]), le16(&b[8])};
-  }
-  if (at(0, 30) && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[12] == 'V' &&
-      b[13] == 'P' && b[14] == '8') {
-    if (b[15] == ' ') {
-      return std::pair{le16(&b[26]) & 0x3FFFU, le16(&b[28]) & 0x3FFFU};
-    }
-    if (b[15] == 'L') {
-      const std::uint32_t v = b[21] | (std::uint32_t{b[22]} << 8U) | (std::uint32_t{b[23]} << 16U) | (static_cast<std::uint32_t>(b[24]) << 24U);
-      return std::pair{(v & 0x3FFFU) + 1, ((v >> 14U) & 0x3FFFU) + 1};
-    }
-    if (b[15] == 'X') {
-      return std::pair{le24(&b[24]) + 1, le24(&b[27]) + 1};
-    }
-  }
-  if (at(0, 4) && b[0] == 0xFF && b[1] == 0xD8) {
-    std::size_t i = 2;
-    while (at(i, 9) && b[i] == 0xFF) {
-      const unsigned char marker = b[i + 1];
-      // SOF0-SOF15 carry the size, except DHT (C4), JPG (C8) and DAC (CC).
-      if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
-        return std::pair{be16(&b[i + 7]), be16(&b[i + 5])};
-      }
-      i += 2 + be16(&b[i + 2]);
-    }
-  }
-  return std::nullopt;
-}
 
 DetailsPane::DetailsPane(ThumbnailService* thumbnails, Actions actions)
     : m_thumbnails(thumbnails), m_actions(std::move(actions)) {}
@@ -147,11 +104,12 @@ void DetailsPane::fill() {
                       .maxLines = lines, .ellipsize = TextEllipsize::Middle});
   };
   const auto kv = [&](const char* key, std::string value) {
-    auto row = ui::row({.align = FlexAlign::Start});
+    // Mockup .kv: 12/16 type, so rows sit 28 apart with the 12 gap.
+    auto row = ui::row({.align = FlexAlign::Center, .minHeight = Tokens::spaceP16 * s});
     row->addChild(ui::label({.text = std::string(key), .fontSize = Style::fontSizeCaption * s,
                              .color = colorSpecFromRole(ColorRole::Label2), .minWidth = kKeyWidth * s, .maxWidth = kKeyWidth * s}));
     row->addChild(ui::label({.text = std::move(value), .fontSize = Style::fontSizeCaption * s,
-                             .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 2,
+                             .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
                              .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
     m_root->addChild(std::move(row));
   };
@@ -159,11 +117,11 @@ void DetailsPane::fill() {
   const auto preview = [&](const fs::path& path, const std::optional<FileInfo>& info) {
     const bool image = info && info->contentType.starts_with("image/");
     if (image) {
-      m_root->addChild(pictureNode(path.string(), previewW, kPreviewHeight * s, Tokens::radiusR8 * s));
+      m_root->addChild(pictureNode(path.string(), previewW, kPreviewHeight * s, Tokens::radiusR12 * s)); // mockup .info .prev
       return;
     }
     auto card = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center,
-                            .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR8 * s,
+                            .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR12 * s,
                             .height = kPreviewHeight * s});
     if (info) {
       card->addChild(std::make_unique<IconNode>(*info, path, m_thumbnails, kPreviewIcon * s));
@@ -187,7 +145,7 @@ void DetailsPane::fill() {
     const auto info = statFile(path);
     preview(path, info);
     auto names = ui::column({.align = FlexAlign::Stretch});
-    names->addChild(text(info ? info->displayName : path.filename().string(), Tokens::typeHeadline.size * s,
+    names->addChild(text(info ? info->displayName : path.filename().string(), Tokens::typeTitle3.size * s,
                          FontWeight::SemiBold, ColorRole::Label1, 2));
     std::string detail = info ? fileKindLabel(*info) : std::string();
     if (info && info->isDir) {
@@ -206,9 +164,19 @@ void DetailsPane::fill() {
     names->addChild(text(detail, Style::fontSizeCaption * s, FontWeight::Medium, ColorRole::Label2, 2));
     m_root->addChild(std::move(names));
     if (info && !info->isDir) {
-      if (const auto size = info->contentType.starts_with("image/") ? imageSize(path) : std::nullopt) {
-        kv("Dimensions", std::format("{} × {}", size->first, size->second));
-        kLog.debug("details {} {}x{}", path.filename().string(), size->first, size->second);
+      const std::string& type = info->contentType;
+      if (type.starts_with("image/") || type.starts_with("video/") || type.starts_with("audio/")) {
+        const MediaInfo media = readMediaInfo(path);
+        if (media.size) {
+          kv("Dimensions", std::format("{} × {}", media.size->first, media.size->second));
+          kLog.debug("details {} {}x{}", path.filename().string(), media.size->first, media.size->second);
+        }
+        if (media.seconds) {
+          kv("Duration", formatDuration(*media.seconds));
+        }
+        if (!media.artist.empty()) {
+          kv("Artist", media.artist);
+        }
       }
     }
     if (const std::int64_t born = birthNs(path); born != 0) {
@@ -217,7 +185,7 @@ void DetailsPane::fill() {
     if (info) {
       kv("Modified", formatFileDate(info->mtimeNs));
     }
-    kv("Where", path.parent_path().filename().string() + " › " + path.filename().string());
+    kv("Where", path.parent_path().parent_path().filename().string() + " › " + path.parent_path().filename().string());
     if (const auto tags = readTags(path); !tags.empty()) {
       const auto defs = loadTagConfig();
       auto row = ui::row({.align = FlexAlign::Center});
@@ -238,11 +206,32 @@ void DetailsPane::fill() {
   }
   if (!m_selection.empty()) {
     auto buttons = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
-    buttons->addChild(ui::button({.text = std::string("Open"), .fontSize = Style::fontSizeBody * s,
-                                  .variant = ButtonVariant::Primary, .onClick = [this] { m_actions.open(); }}));
+    // Mockup .btn: 32 high r8 rectangles, fill_2 with no outline, Open in the accent.
+    const auto button = [&](const char* label, ButtonVariant variant, std::function<void()> onClick) {
+      Button::ButtonPalette palette = Button::defaultPalette(variant);
+      palette.borderWidth = 0.0F;
+      return ui::button({.text = std::string(label), .fontSize = Style::fontSizeBody * s, .variant = variant,
+                         .customPalette = palette, .paddingH = Tokens::spaceP12 * s, .radius = Tokens::radiusR8 * s,
+                         .height = Tokens::sizeControlM * s, .onClick = std::move(onClick)});
+    };
+    buttons->addChild(button("Open", ButtonVariant::Primary, [this] { m_actions.open(); }));
     if (m_selection.size() == 1 && !fs::is_directory(m_selection.front())) {
-      buttons->addChild(ui::button({.text = std::string("Open With…"), .fontSize = Style::fontSizeBody * s,
-                                    .variant = ButtonVariant::Default, .onClick = [this] { m_actions.openWith(); }}));
+      buttons->addChild(button("Open With…", ButtonVariant::Default, [this] { m_actions.openWith(); }));
+    }
+    if (m_actions.share) {
+      Button::ButtonPalette palette = Button::defaultPalette(ButtonVariant::Default);
+      palette.borderWidth = 0.0F;
+      Button* share = nullptr;
+      buttons->addChild(ui::button({.out = &share, .glyph = std::string("share"), .glyphSize = Tokens::sizeSymbol * s,
+                                    .variant = ButtonVariant::Default, .customPalette = palette,
+                                    .paddingH = Tokens::spaceP12 * s, .radius = Tokens::radiusR8 * s, // mockup .btn
+                                    .height = Tokens::sizeControlM * s}));
+      share->setOnClick([this, share] {
+        float x = 0.0F;
+        float y = 0.0F;
+        Node::mapToScene(share, 0.0F, share->height(), x, y);
+        m_actions.share(x, y);
+      });
     }
     m_root->addChild(std::move(buttons));
   }

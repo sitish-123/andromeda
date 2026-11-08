@@ -506,6 +506,7 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
   header->setFillWidth(true);
   header->setMinHeight(kHeaderHeight * s);
   header->setMaxHeight(kHeaderHeight * s);
+  m_buildingHeader = true;
   if (m_config.navigation) {
     std::size_t slot = 0;
     // Mockup .ib: 32 circles, label_1, disabled label_3.
@@ -533,6 +534,7 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
   // Mockup .title: 600 17/24, 4 after the arrows; it ellipsizes in the middle only when the header is full.
   auto title = ui::row({.align = FlexAlign::Center, .clipChildren = true});
   header->titleRow = title.get();
+  m_titleRow = title.get();
   title->setPadding(0.0F, 0.0F, 0.0F, m_config.navigation ? kTitleExtra * s : 0.0F);
   title->addChild(ui::label({
       .out = &m_titleLabel,
@@ -599,12 +601,34 @@ std::unique_ptr<Flex> AppWindow::buildHeader() {
   add(maximized ? "minimize" : "square", "window.maximize", false, &m_maximizeButton);
   add("x", "window.close", true, nullptr);
   header->addChild(std::move(buttons));
+  m_buildingHeader = false;
+  applyHeaderSearchMode();
   return header;
+}
+
+void AppWindow::setHeaderSearchMode(bool on) {
+  m_headerSearch = on;
+  // While the header builds, its old nodes are gone and the new ones not all made: buildHeader applies the mode.
+  if (m_root != nullptr && !m_buildingHeader) {
+    applyHeaderSearchMode();
+    invalidate();
+  }
+}
+
+void AppWindow::applyHeaderSearchMode() {
+  for (Node* node : {static_cast<Node*>(m_navButtons[0]), static_cast<Node*>(m_navButtons[1]), static_cast<Node*>(m_titleRow),
+                     static_cast<Node*>(m_moreButton)}) {
+    if (node != nullptr) {
+      node->setVisible(!m_headerSearch);
+      node->setParticipatesInLayout(!m_headerSearch);
+    }
+  }
 }
 
 void AppWindow::buildScene(Renderer& renderer, float width, float height) {
   m_input.setSceneRoot(nullptr);
   m_titleLabel = nullptr;
+  m_titleRow = nullptr;
   m_maximizeButton = nullptr;
   m_navButtons = {};
   m_sidebarNode = nullptr;
@@ -851,7 +875,8 @@ void AppWindow::setSidebarVisible(bool visible) {
           m_surface->requestLayout();
         }
       },
-      [this] { m_sidebarAnim = 0; }, nullptr, 0.0F, Unit::Px, true);
+      [this] { m_sidebarAnim = 0; }, nullptr, 0.0F, Threshold::px(m_config.sidebarWidth * m_uiScale), true);
+  m_surface->requestLayout(); // the spring ticks on frames; a key press alone asks for none
 }
 
 void AppWindow::presentSheet(std::function<std::unique_ptr<Node>(float)> builder, std::function<void()> onCancel) {
@@ -898,7 +923,10 @@ void AppWindow::onKeyboardEvent(const KeyboardEvent& event) {
     return;
   }
   if (m_menu != nullptr && m_menu->isOpen()) {
-    m_menu->onKeyboardEvent(event);
+    // The topmost open menu takes the keys, so an open submenu gets Up, Down and Enter.
+    if (!ContextMenuPopup::dispatchKeyboardEvent(event)) {
+      m_menu->onKeyboardEvent(event);
+    }
     return;
   }
   if (m_popover != nullptr && m_popover->isOpen()) {

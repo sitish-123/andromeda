@@ -170,11 +170,14 @@ namespace job_pill {
     auto box = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8 * s, .padding = Tokens::spaceP12 * s});
     std::uint64_t items = 0;
     bool moving = !jobs.empty();
+    bool sending = !jobs.empty(); // Link transfers to a phone (FILES-UI-SPEC §20)
     for (const auto& j : jobs) {
       items += j.totalFiles;
       moving = moving && j.kind == "move";
+      sending = sending && j.kind == "send";
     }
-    box->addChild(ui::label({.text = std::format("{} {} item{}", moving ? "Moving" : "Copying", items, items == 1 ? "" : "s"),
+    box->addChild(ui::label({.text = std::format("{} {} item{}", sending ? "Sending" : moving ? "Moving" : "Copying", items,
+                                                 items == 1 ? "" : "s"),
                              .fontSize = Style::fontSizeBody * s, .fontWeight = FontWeight::SemiBold,
                              .color = colorSpecFromRole(ColorRole::Label1)}));
     if (rows != nullptr) {

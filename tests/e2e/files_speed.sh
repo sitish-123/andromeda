@@ -35,7 +35,7 @@ PY
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
   XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug DESK_FRAME_STATS=1 DESK_MOTION_TRACE=1 \
   DESK_FILES_GEOMETRY=1 "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
@@ -74,8 +74,8 @@ run "$ANDROMEDA" settle > /dev/null
 report "window first frame" "$(num 'first frame at' 'at [0-9]+ ms')" 120 ms
 # The listing result waits behind the first frame on the main thread, so its GL program build adds to both numbers.
 report "  of it: GL program build" "$(num 'first frame at' 'built in [0-9.]+ ms')" 120 ms
-report "10 000 names listed" "$(num 'listed [0-9]+ in' 'in [0-9.]+ ms')" 150 ms
-report "10 000 stats read" "$(num 'statted [0-9]+ in' 'in [0-9.]+ ms')" 1000 ms
+report "$COUNT names listed" "$(num 'listed [0-9]+ in' 'in [0-9.]+ ms')" 150 ms
+report "$COUNT stats read" "$(num 'statted [0-9]+ in' 'in [0-9.]+ ms')" 1000 ms
 
 # List view, then a fast wheel scroll over it: no missed frames, p99 CPU per frame under one 60 Hz frame.
 m=$(mark); keys mod control tap 3 mod none
@@ -109,7 +109,7 @@ for key in Size Name; do
   wait_log "$m" "sort took" || fail "a press on the $key header did not sort"
 done
 sort_ms=$(grep -oE "sort took [0-9.]+" "$OUT/files.log" | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
-report "sort 10 000 (worst)" "$sort_ms" 16 ms
+report "sort $COUNT (worst)" "$sort_ms" 16 ms
 
 grep -E "anim .* missed [1-9]" "$OUT/files.log" && echo "WARN: an animation missed frames (debug build)"
 echo "pass files_speed"

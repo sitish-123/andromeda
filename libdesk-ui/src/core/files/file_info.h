@@ -18,6 +18,7 @@ struct FileInfo {
   bool hidden = false;           // a dot file
   std::uint64_t size = 0;        // bytes; 0 for directories
   std::int64_t mtimeNs = 0;      // CLOCK_REALTIME ns
+  std::int64_t addedNs = 0;      // when the entry landed here: birth time, or the change time without one
   std::uint32_t mode = 0;
   std::uint64_t inode = 0;
   bool pendingStat = false;      // listed by name only: size, mtimeNs, mode and inode are not read yet

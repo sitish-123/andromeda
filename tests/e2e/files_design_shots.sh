@@ -26,6 +26,10 @@ D=$H/Documents
 mkdir -p "$D/Work" "$D/Taxes 2026" "$D/Andromeda" "$D/Old"
 for f in "Work/brief.pdf" "Work/plan.md" "Taxes 2026/receipts.pdf" "Andromeda/logo.png" "report.pdf" "budget.ods" \
   "notes.md" "slides.odp" "contract.docx" "holiday.mov" "archive.zip"; do echo x > "$D/$f"; done
+# A real 42 s clip when ffmpeg is there: the icon shows its frame and the duration chip (DESIGN "Files v2 icons").
+if command -v ffmpeg > /dev/null; then
+  ffmpeg -loglevel error -y -f lavfi -i "color=c=0x3b6fd8:s=320x200:d=42:r=1" -c:v libx264 -pix_fmt yuv420p "$D/holiday.mov"
+fi
 python3 -I - "$D" <<'PY'
 import sys, zlib, struct
 def png(path, w, h, a, b):

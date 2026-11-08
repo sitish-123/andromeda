@@ -2,6 +2,7 @@
 
 #include "core/deferred_call.h"
 #include "core/files/file_info.h"
+#include "core/log.h"
 #include "core/text_clipboard.h"
 #include "files/file_ops_client.h"
 #include "permission_access.h"
@@ -27,6 +28,8 @@
 namespace fs = std::filesystem;
 
 namespace {
+  constexpr Logger kLog("files-info");
+  std::unique_ptr<Flex> section(const char* caption, float s);
   const float& kFieldLabel = Tokens::componentFilesFieldLabel;
   constexpr std::uint64_t kCountPostEvery = 4096; // entries between live size updates
 
@@ -107,6 +110,10 @@ void GetInfoSheet::later(std::function<void()> fn) {
 }
 
 void GetInfoSheet::load() {
+  m_versions = m_items.size() == 1 ? previousVersions(m_items.front().path) : std::vector<Version>{};
+  if (!m_versions.empty()) {
+    kLog.debug("previous versions {}", m_versions.size());
+  }
   for (Item& item : m_items) {
     struct statx st{};
     if (::statx(AT_FDCWD, item.path.c_str(), AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS | STATX_BTIME, &st) != 0) {
@@ -214,10 +221,17 @@ std::unique_ptr<Node> GetInfoSheet::build(float scale) {
   body->addChild(buildPermissions(s));
   if (m_items.size() == 1 && m_items.front().isRegular) {
     body->addChild(buildChecksums(s));
+    if (!m_versions.empty()) {
+      body->addChild(buildVersions(s));
+    }
   }
   if (!m_error.empty()) {
     body->addChild(ui::label({.text = m_error, .fontSize = Style::fontSizeCaption * s,
-                              .color = colorSpecFromRole(ColorRole::DangerText)}));
+                              .color = colorSpecFromRole(ColorRole::DangerText), .maxLines = 3}));
+  }
+  if (m_admin.has_value()) {
+    body->addChild(ui::button({.text = std::string("Change as Administrator…"), .variant = ButtonVariant::Default,
+                               .onClick = [this] { DeferredCall::callLater([this] { changeAsAdmin(); }); }}));
   }
   sheet->addChild(std::move(body));
 
@@ -228,6 +242,145 @@ std::unique_ptr<Node> GetInfoSheet::build(float scale) {
                                }}));
   sheet->addChild(std::move(footer));
   return sheet;
+}
+
+std::vector<GetInfoSheet::Version> GetInfoSheet::previousVersions(const fs::path& file) {
+  constexpr std::size_t kMaxVersions = 10;
+  std::vector<Version> out;
+  struct stat now{};
+  if (::stat(file.c_str(), &now) != 0) {
+    return out;
+  }
+  const auto nsOf = [](const struct stat& st) {
+    return static_cast<std::int64_t>(st.st_mtim.tv_sec) * 1'000'000'000 + st.st_mtim.tv_nsec;
+  };
+  std::error_code ec;
+  for (fs::path dir = file.parent_path(); !dir.empty(); dir = dir.parent_path()) {
+    struct stat st{};
+    if (::stat(dir.c_str(), &st) != 0 || st.st_dev != now.st_dev) {
+      break; // snapper keeps .snapshots at the root of the subvolume: past the device boundary is another one
+    }
+    const fs::path snapshots = dir / ".snapshots";
+    if (fs::is_directory(snapshots, ec)) {
+      const fs::path rel = file.lexically_relative(dir);
+      for (const auto& entry : fs::directory_iterator(snapshots, ec)) {
+        const fs::path candidate = entry.path() / "snapshot" / rel;
+        struct stat old{};
+        if (::stat(candidate.c_str(), &old) == 0 && S_ISREG(old.st_mode) &&
+            (nsOf(old) != nsOf(now) || old.st_size != now.st_size)) {
+          out.push_back({.path = candidate, .modifiedNs = nsOf(old), .size = static_cast<std::uint64_t>(old.st_size)});
+        }
+      }
+    }
+    if (dir == dir.root_path()) {
+      break;
+    }
+  }
+  std::ranges::sort(out, std::greater<>{}, &Version::modifiedNs);
+  // The same version kept in several snapshots shows once.
+  const auto [first, last] = std::ranges::unique(out, [](const Version& a, const Version& b) {
+    return a.modifiedNs == b.modifiedNs && a.size == b.size;
+  });
+  out.erase(first, last);
+  if (out.size() > kMaxVersions) {
+    out.resize(kMaxVersions);
+  }
+  return out;
+}
+
+std::unique_ptr<Node> GetInfoSheet::buildVersions(float s) {
+  auto box = section("Previous Versions", s);
+  for (const Version& v : m_versions) {
+    auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
+    row->addChild(ui::label({.text = std::format("{} · {}", formatFileDate(v.modifiedNs), formatFileSize(v.size)),
+                             .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label1),
+                             .flexGrow = 1.0F}));
+    row->addChild(ui::button({.text = std::string("Open"), .variant = ButtonVariant::Default, .onClick = [path = v.path] {
+                                gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
+                                if (uri != nullptr) {
+                                  g_app_info_launch_default_for_uri(uri, nullptr, nullptr);
+                                  g_free(uri);
+                                }
+                              }}));
+    row->addChild(ui::button({.text = std::string("Restore"), .variant = ButtonVariant::Default,
+                              .onClick = [this, path = v.path] {
+                                if (m_restore && !m_items.empty()) {
+                                  kLog.debug("restore version {}", path.string());
+                                  m_restore(path, m_items.front().path.parent_path());
+                                }
+                              }}));
+    box->addChild(std::move(row));
+  }
+  return box;
+}
+
+void GetInfoSheet::failed(const std::string& error, AdminChange change) {
+  m_error = error;
+  // EPERM: the items belong to another user; root can make the change after polkit asks.
+  if (error.find("Operation not permitted") != std::string::npos || error.find("os error 1)") != std::string::npos) {
+    m_admin = std::move(change);
+    m_error = "These items belong to another user.";
+  }
+  load();
+  later(m_rebuild);
+}
+
+void GetInfoSheet::changeAsAdmin() {
+  if (!m_admin.has_value()) {
+    return;
+  }
+  const char* override = std::getenv("ANDROMEDA_FILEOPS_ADMIN"); // tests point this at a stand-in
+  const std::string helper = override != nullptr && *override != '\0' ? override : "/usr/lib/andromeda/andromeda-fileops-admin";
+  std::vector<std::string> args{"pkexec", helper, "chmod", std::format("{:o}", m_admin->mode),
+                                std::format("{:o}", m_admin->mask), m_admin->recursive ? "1" : "0"};
+  for (const auto& p : m_admin->paths) {
+    args.push_back(p.string());
+  }
+  std::vector<const char*> argv;
+  for (const auto& a : args) {
+    argv.push_back(a.c_str());
+  }
+  argv.push_back(nullptr);
+  GError* error = nullptr;
+  GSubprocess* proc = g_subprocess_newv(argv.data(), static_cast<GSubprocessFlags>(G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE), &error);
+  if (proc == nullptr) {
+    m_error = std::format("Could not ask for the administrator password: {}", error->message);
+    g_error_free(error);
+    later(m_rebuild);
+    return;
+  }
+  m_error = "Waiting for the administrator password…";
+  later(m_rebuild);
+  struct Ctx {
+    GetInfoSheet* self;
+    std::weak_ptr<bool> alive;
+  };
+  g_subprocess_communicate_utf8_async(
+      proc, nullptr, nullptr,
+      [](GObject* source, GAsyncResult* result, gpointer data) {
+        std::unique_ptr<Ctx> ctx(static_cast<Ctx*>(data));
+        auto* p = G_SUBPROCESS(source);
+        gchar* out = nullptr;
+        gchar* err = nullptr;
+        const bool ran = g_subprocess_communicate_utf8_finish(p, result, &out, &err, nullptr) != FALSE;
+        const bool ok = ran && g_subprocess_get_if_exited(p) && g_subprocess_get_exit_status(p) == 0;
+        if (!ctx->alive.expired()) {
+          GetInfoSheet* self = ctx->self;
+          // pkexec exits 126 when the user dismissed the password dialog.
+          const bool dismissed = ran && g_subprocess_get_if_exited(p) && g_subprocess_get_exit_status(p) == 126;
+          self->m_error = ok ? std::string() : dismissed ? std::string("No change: the password was not given.")
+                                                         : std::string(err != nullptr && *err != '\0' ? err : "The change failed.");
+          if (ok) {
+            self->m_admin.reset();
+          }
+          self->load();
+          self->later(self->m_rebuild);
+        }
+        g_free(out);
+        g_free(err);
+        g_object_unref(p);
+      },
+      new Ctx{.self = this, .alive = m_alive});
 }
 
 namespace {
@@ -347,13 +500,13 @@ void GetInfoSheet::setAccess(int cls, int access) {
     paths.push_back(item.path);
     item.mode = (item.mode & ~mask) | (mode & mask);
   }
-  m_ops->setPermissions(paths, mode, mask, m_recursive, [this](const std::string&, const std::string& error) {
-    if (!error.empty()) {
-      m_error = error;
-      load();
-      later(m_rebuild);
-    }
-  });
+  m_ops->setPermissions(paths, mode, mask, m_recursive,
+                        [this, change = AdminChange{.paths = paths, .mode = mode, .mask = mask, .recursive = m_recursive}](
+                            const std::string&, const std::string& error) {
+                          if (!error.empty()) {
+                            failed(error, change);
+                          }
+                        });
   later(m_rebuild);
 }
 
@@ -365,13 +518,13 @@ void GetInfoSheet::setRun(bool allow) {
   for (Item& item : m_items) {
     const auto [mode, mask] = runBits(item.mode, allow);
     item.mode = (item.mode & ~mask) | (mode & mask);
-    m_ops->setPermissions({item.path}, mode, mask, false, [this](const std::string&, const std::string& error) {
-      if (!error.empty()) {
-        m_error = error;
-        load();
-        later(m_rebuild);
-      }
-    });
+    m_ops->setPermissions({item.path}, mode, mask, false,
+                          [this, change = AdminChange{.paths = {item.path}, .mode = mode, .mask = mask}](
+                              const std::string&, const std::string& error) {
+                            if (!error.empty()) {
+                              failed(error, change);
+                            }
+                          });
   }
   later(m_rebuild);
 }

@@ -25,8 +25,6 @@ namespace {
 
 } // namespace
 
-IndexSearch::IndexSearch(Answer answer) : m_answer(std::move(answer)) {}
-
 IndexSearch::~IndexSearch() { disconnect(); }
 
 bool IndexSearch::available() {
@@ -70,16 +68,16 @@ void IndexSearch::disconnect() {
   m_rows.clear();
 }
 
-void IndexSearch::query(const std::string& text, std::string_view kind) {
+void IndexSearch::query(const std::string& text, std::string_view kind, Answer done) {
   if (!connect()) {
-    m_answer(text, {});
+    done(text, {});
     return;
   }
   // The protocol is one line per request: no newlines in the text.
   std::string words = text;
   std::ranges::replace(words, '\n', ' ');
   m_out += std::format("query {} {}{}{}\n", kLimit, words, kind.empty() ? "" : " kind:", kind);
-  m_asked.push_back(text);
+  m_asked.emplace_back(text, std::move(done));
   flush();
 }
 
@@ -117,10 +115,10 @@ void IndexSearch::dispatch(const std::vector<pollfd>& fds, std::size_t startIdx)
       continue;
     }
     if (n == 0 || (errno != EAGAIN && errno != EINTR)) {
-      const auto asked = m_asked;
+      auto asked = std::move(m_asked);
       disconnect();
-      for (const std::string& text : asked) {
-        m_answer(text, {});
+      for (auto& [text, done] : asked) {
+        done(text, {});
       }
       return;
     }
@@ -132,9 +130,9 @@ void IndexSearch::dispatch(const std::vector<pollfd>& fds, std::size_t startIdx)
     start = nl + 1;
     if (line.empty()) { // the end of one answer
       if (!m_asked.empty()) {
-        const std::string text = std::move(m_asked.front());
+        auto [text, done] = std::move(m_asked.front());
         m_asked.pop_front();
-        m_answer(text, std::move(m_rows));
+        done(text, std::move(m_rows));
       }
       m_rows.clear();
       continue;

@@ -26,6 +26,8 @@ public:
 
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
   void submit();
+  // E2E: mode (replace, add, format, case, pattern), find, replace, text, format, start, digits; the sheet rebuilds.
+  void set(const std::string& field, const std::string& value);
 
 private:
   void updatePreview();

@@ -60,6 +60,7 @@ public:
   // An illustration fill (a wallpaper in a preview); setFill returns to a solid fill.
   void setFillGradient(GradientDirection direction, const std::array<GradientStop, 4>& stops);
   void clearFill();
+  [[nodiscard]] const ColorSpec& fill() const noexcept { return m_fill; }
   void setRadius(float radius);
   void setRadii(const Radii& radii);
   void setBorder(const ColorSpec& color, float width);

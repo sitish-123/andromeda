@@ -7,10 +7,14 @@
 #include "files/file_ops_client.h"
 #include "app_chooser_portal.h"
 #include "app_chooser_sheet.h"
+#include "file_manager1.h"
 #include "index_search.h"
+#include "link_share.h"
 #include "picker_portal.h"
 #include "portal_sheets.h"
 #include "starred.h"
+#include "vaults.h"
+#include "drives.h"
 #include "system_portals.h"
 #include "tags.h"
 
@@ -34,7 +38,8 @@ public:
   };
 
   // picker: `andromeda-files --picker`, the FileChooser portal service (app id dev.andromeda.Files.Picker).
-  explicit FilesApp(bool picker);
+  // service: started by D-Bus activation of org.freedesktop.FileManager1; it opens no window of its own.
+  FilesApp(bool picker, bool service = false);
   ~FilesApp() override;
 
   [[nodiscard]] DirectoryWatcher& watcher() noexcept { return m_watcher; }
@@ -55,9 +60,17 @@ public:
   void unmounted(const std::filesystem::path& mount, const std::string& error);
   [[nodiscard]] TagIndex& tags() { return *m_tags; }
   [[nodiscard]] Starred& starred() noexcept { return m_starred; }
+  [[nodiscard]] Starred& pins() noexcept { return m_pins; } // folders added to the sidebar
+  [[nodiscard]] Vaults& vaults() noexcept { return m_vaults; }
+  [[nodiscard]] Drives* drives() noexcept { return m_drives.get(); } // null until shortly after the first window
+  [[nodiscard]] PhotoImport& imports() noexcept { return m_imports; }
   // Search This PC: every window pane gets the answer (FILES-UI-SPEC §15).
   [[nodiscard]] IndexSearch& index() noexcept { return m_index; }
+  [[nodiscard]] LinkShare* linkShare() noexcept { return m_linkShare.get(); } // null without a session bus
   void pickerAnswered(std::uint64_t id, const PickerPortal::Answer& answer);
+  // An Open picker window of this app (not the portal): done gets the chosen files, empty when cancelled.
+  void pickFiles(std::string title, std::string acceptLabel,
+                 std::function<void(std::vector<std::filesystem::path>)> done, bool directory = false);
   void searchAnswered(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows);
 
 protected:
@@ -67,7 +80,8 @@ protected:
   void action(const std::string& name, const std::vector<std::string>& parameter, const std::string& activationToken) override;
   AppWindow& createWindow() override;
   void windowClosed(AppWindow& window) override;
-  [[nodiscard]] bool quitWithLastWindow() const override { return !m_picker; }
+  // A service start quits with its last window once it opened one (idle quit covers a start with no request).
+  [[nodiscard]] bool quitWithLastWindow() const override { return !m_picker && (!m_service || m_hadWindow); }
 
 private:
   void addCommands();
@@ -78,6 +92,7 @@ private:
   void openAccess(std::uint64_t id, const AppChooserPortal::AccessRequest& request);
   void openPortalSheet(std::uint64_t id, const SystemPortals::Request& request);
   void dialogAction(const std::string& name, const std::vector<std::string>& parameter);
+  void tagAction(FilesWindow& window, const std::string& name, const std::vector<std::string>& parameter);
   void scheduleIdleQuit();
 
   DirectoryWatcher m_watcher;
@@ -91,9 +106,15 @@ private:
   std::unique_ptr<PickerPortal> m_portal;
   std::unique_ptr<AppChooserPortal> m_chooserPortal;
   std::unique_ptr<SystemPortals> m_systemPortals;
-  IndexSearch m_index{[this](const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows) {
-    searchAnswered(text, std::move(rows));
-  }};
+  IndexSearch m_index;
+  std::unique_ptr<FileManager1> m_fileManager;
+  std::unique_ptr<LinkShare> m_linkShare;
+  bool m_service = false;
+  bool m_hadWindow = false;
+  // pickFiles requests by id; ids start high so they never meet a portal request id.
+  std::map<std::uint64_t, std::function<void(std::vector<std::filesystem::path>)>> m_localPicks;
+  std::uint64_t m_nextLocalPick = std::uint64_t{1} << 62;
+  void showFromFileManager(FileManager1::Show show, const std::vector<std::string>& uris, const std::string& startupId);
   struct Dialog { // an Open With or Access window and its portal request
     std::uint64_t id = 0;
     std::unique_ptr<AppChooserSheet> chooser;
@@ -117,5 +138,10 @@ private:
   static constexpr auto kTagWaitTime = std::chrono::minutes(2);
   std::shared_ptr<TagIndex> m_tags; // shared_from_this: the walk outlives a closed window
   Starred m_starred;
+  Starred m_pins{"pins.json"};
+  Vaults m_vaults;
+  PhotoImport m_imports;
+  std::unique_ptr<Drives> m_drives;
+  Timer m_drivesStart;
   GUnixMountMonitor* m_mounts = nullptr; // mounts-changed refreshes the sidebar drives
 };

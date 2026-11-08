@@ -38,6 +38,15 @@ struct ContextMenuControlEntry {
   std::optional<ColorSpec> indicatorColor;
   ColorSwatchPreview swatchPreview;
   TextEllipsize ellipsize = TextEllipsize::End;
+  // A leading 16 symbol. When any row has one, every row keeps the symbol column and check/radio marks draw in it.
+  std::string glyph;
+  bool danger = false; // a destructive action: label and symbol in the danger colour
+  // A row of colour dots instead of a label (Files tag row); a click on a dot activates the entry with that id.
+  struct Dot {
+    std::int32_t id = 0;
+    ColorSpec color;
+  };
+  std::vector<Dot> dots;
 };
 
 class ContextMenuControl : public Node {

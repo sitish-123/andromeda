@@ -2,6 +2,7 @@
 
 #include "cursor-shape-v1-client-protocol.h"
 
+#include "core/log.h"
 #include "render/core/renderer.h"
 #include "render/core/thumbnail_service.h"
 #include "render/scene/input_area.h"
@@ -14,6 +15,7 @@
 #include "ui/style.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <linux/input-event-codes.h>
@@ -21,6 +23,7 @@
 namespace fs = std::filesystem;
 
 namespace {
+  constexpr Logger kLog("file-gallery");
   // The Gallery follows the scheme: window background stage, popover capsules with a stroke, label text.
   ColorSpec role(ColorRole r) { return colorSpecFromRole(r); }
   constexpr float kAmbientOpacity = 0.56F;
@@ -28,6 +31,7 @@ namespace {
   constexpr int kFilmPx = 96;
   constexpr int kPhotoMaxPx = 2048;
   constexpr std::size_t kFilmSide = 7; // neighbours shown on each side of the current photo
+  constexpr auto kChromeIdle = std::chrono::seconds(2);
 
   const float& kCapsuleH = Tokens::spaceP40;
   const float& kFilmH = Tokens::spaceP64;
@@ -91,8 +95,8 @@ namespace {
   }
 } // namespace
 
-FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, Host host)
-    : m_scale(scale), m_thumbs(thumbnails), m_host(std::move(host)) {
+FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, AnimationManager& animations, Host host)
+    : m_scale(scale), m_thumbs(thumbnails), m_host(std::move(host)), m_animations(animations) {
   const float s = scale;
   m_bg = static_cast<Box*>(addChild(ui::box({.fill = role(ColorRole::SolidRegular)})));
   m_ambient = static_cast<Image*>(addChild(std::make_unique<Image>()));
@@ -101,6 +105,13 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, Host host)
   m_photo = static_cast<Image*>(addChild(std::make_unique<Image>()));
   m_photo->setFit(ImageFit::Contain);
   m_photo->setRadius(Style::scaledRadius(Tokens::radiusR8, s));
+  // Under the capsules: a move anywhere brings the chrome back and restarts its idle time.
+  auto hover = ui::inputArea({.participatesInLayout = false});
+  hover->setOnEnter([this](const InputArea::PointerData&) { showChrome(); });
+  hover->setOnMotion([this](const InputArea::PointerData&) { showChrome(); });
+  hover->setAcceptedButtons(0); // presses and wheel steps go on to the stage (menus, zoom)
+  hover->setAcceptedScrollDirections(0);
+  m_hover = static_cast<InputArea*>(addChild(std::move(hover)));
 
   auto title = capsule(s, kCapsuleH * s / 2.0F);
   title->setDirection(FlexDirection::Vertical);
@@ -139,12 +150,51 @@ FileGallery::FileGallery(float scale, ThumbnailService* thumbnails, Host host)
   m_filmRing->setHitTestVisible(false);
 }
 
-FileGallery::~FileGallery() { releaseAll(m_held); }
+FileGallery::~FileGallery() {
+  m_animations.cancel(m_chromeAnim);
+  releaseAll(m_held);
+}
+
+void FileGallery::showChrome() {
+  driveChrome(1.0F);
+  m_hideTimer.start(kChromeIdle, [this] { driveChrome(0.0F); });
+}
+
+void FileGallery::toggleChrome() {
+  if (m_chromeTarget > 0.5F) {
+    m_hideTimer.stop();
+    driveChrome(0.0F);
+  } else {
+    showChrome();
+  }
+}
+
+void FileGallery::driveChrome(float target) {
+  if (target == m_chromeTarget) {
+    return;
+  }
+  m_chromeTarget = target;
+  kLog.debug("gallery chrome {}", target > 0.5F ? "shown" : "hidden"); // tests/e2e/files_gallery.sh
+  // spring.follow: the photo grows into the space the capsules free (DESIGN.md "Files v2 immersive Gallery").
+  m_chromeAnim = m_animations.drive(m_chromeAnim, m_chrome, target, Style::spring(Tokens::springFollow), [this](float v) {
+    m_chrome = v;
+    markLayoutDirty();
+    if (m_host.invalidate) {
+      m_host.invalidate();
+    }
+  }, {}, this);
+  // The spring ticks on frames; from the idle timer nothing else asks for one.
+  markLayoutDirty();
+  if (m_host.invalidate) {
+    m_host.invalidate();
+  }
+}
 
 void FileGallery::setItems(std::vector<fs::path> items, std::size_t current) {
   m_items = std::move(items);
   m_current = m_items.empty() ? 0 : std::min(current, m_items.size() - 1);
   m_filmDirty = true; // the filmstrip window moves with the current photo
+  showChrome();
   markLayoutDirty();
   if (m_host.invalidate) {
     m_host.invalidate();
@@ -214,15 +264,23 @@ void FileGallery::doLayout(Renderer& renderer) {
   const float w = width();
   const float h = height();
   m_bg->setSize(w, h);
+  m_hover->setPosition(0.0F, 0.0F);
+  m_hover->setSize(w, h);
   if (m_filmDirty) {
     rebuildFilm();
   }
   const bool any = !m_items.empty();
-  for (Node* n : {static_cast<Node*>(m_title), static_cast<Node*>(m_film), static_cast<Node*>(m_filmRing)}) {
-    n->setVisible(any);
+  // Hidden chrome takes no input: a click on the photo where a capsule was must not pick a neighbour.
+  const bool chrome = m_chrome > 0.01F;
+  for (Node* n : {static_cast<Node*>(m_title), static_cast<Node*>(m_film), static_cast<Node*>(m_filmRing),
+                  static_cast<Node*>(m_prev), static_cast<Node*>(m_next)}) {
+    n->setOpacity(m_chrome);
   }
-  m_prev->setVisible(any && m_current > 0);
-  m_next->setVisible(any && m_current + 1 < m_items.size());
+  for (Node* n : {static_cast<Node*>(m_title), static_cast<Node*>(m_film), static_cast<Node*>(m_filmRing)}) {
+    n->setVisible(any && chrome);
+  }
+  m_prev->setVisible(any && chrome && m_current > 0);
+  m_next->setVisible(any && chrome && m_current + 1 < m_items.size());
   if (!any) {
     m_photo->setVisible(false);
     m_ambient->setVisible(false);
@@ -252,6 +310,7 @@ void FileGallery::doLayout(Renderer& renderer) {
   }
 
   const float inset = Tokens::spaceP64 * s;
+  const auto mix = [this](float hidden, float shown) { return hidden + (shown - hidden) * m_chrome; };
   m_ambient->setVisible(wash.id != 0);
   if (wash.id != 0) {
     m_ambient->setExternalTexture(renderer, wash);
@@ -261,8 +320,11 @@ void FileGallery::doLayout(Renderer& renderer) {
   }
   m_photo->setVisible(photo.id != 0);
   if (photo.id != 0) {
-    const float availW = std::max(1.0F, w - inset - inset);
-    const float availH = std::max(1.0F, h - inset - (kFilmH + kEdge + kEdge) * s);
+    const float side = mix(kEdge * s, inset);
+    const float top = mix(kEdge * s, inset);
+    const float bottom = mix(kEdge * s, (kFilmH + kEdge + kEdge) * s);
+    const float availW = std::max(1.0F, w - side - side);
+    const float availH = std::max(1.0F, h - top - bottom);
     const float aspect = static_cast<float>(photo.width) / static_cast<float>(std::max(1, photo.height));
     float pw = availW;
     float ph = pw / aspect;
@@ -271,7 +333,7 @@ void FileGallery::doLayout(Renderer& renderer) {
       pw = ph * aspect;
     }
     m_photo->setExternalTexture(renderer, photo);
-    m_photo->setPosition(std::round((w - pw) / 2.0F), std::round(inset + (availH - ph) / 2.0F));
+    m_photo->setPosition(std::round((w - pw) / 2.0F), std::round(top + (availH - ph) / 2.0F));
     m_photo->setSize(std::round(pw), std::round(ph));
     m_photo->layout(renderer);
   }

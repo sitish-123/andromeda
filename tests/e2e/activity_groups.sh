@@ -14,7 +14,7 @@ BG="act-test-bg-$$.service"
 cleanup_units() {
   XDG_RUNTIME_DIR=$REAL_RUNTIME systemctl --user stop "$SCOPE" "$BG" > /dev/null 2>&1 || true
 }
-trap 'cleanup_units; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'cleanup_units; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 boot_headless 1
 
 XDG_RUNTIME_DIR=$REAL_RUNTIME systemd-run --user --quiet --unit="$BG" --slice=background.slice sleep 300

@@ -15,7 +15,7 @@ APPS=("$ANDROMEDA_COMPOSITOR_BUS_NAME" /org/andromeda/Compositor1/Apps org.andro
 
 # The compositor's private runtime dir reaches the real user bus through this link.
 ln -s "$USER_BUS" "$RUNTIME/bus"
-trap 'systemctl --user thaw "$UNIT" 2>/dev/null; systemctl --user stop "$UNIT" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'systemctl --user thaw "$UNIT" 2>/dev/null; systemctl --user stop "$UNIT" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 boot_headless 1
 
 fail() {

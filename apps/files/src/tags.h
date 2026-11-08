@@ -8,6 +8,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -47,6 +48,22 @@ public:
   // Updates the cache after a SetTags job on these paths, without a walk.
   void reread(const std::vector<std::filesystem::path>& paths);
   [[nodiscard]] bool ready() const { return m_ready; }
+  // Runs `then` on the main loop after a walk that started after this call (tag rename and delete need every file).
+  void walkThen(std::function<void()> then);
+  [[nodiscard]] std::vector<std::filesystem::path> paths(const std::string& tag) const;
+  [[nodiscard]] std::size_t count(const std::string& tag) const;
+  // The tags of one file as of the last walk (memory only; Group By Tags asks per row).
+  [[nodiscard]] const std::vector<std::string>& tagsOf(const std::filesystem::path& path) const;
+  void configChanged() {
+    if (m_changed) {
+      m_changed();
+    }
+  }
+  // Tag jobs whose undo needs a fresh walk.
+  void addJob(std::string job) { m_jobs.insert(std::move(job)); }
+  [[nodiscard]] bool ownsJob(const std::string& job) const { return m_jobs.contains(job); }
+  // Tags on files that the config does not name.
+  [[nodiscard]] std::vector<std::string> unlisted(const std::vector<TagDef>& config) const;
 
   // Config order first (sidebar = true), then tags found on files that the config does not name (grey).
   [[nodiscard]] std::vector<SidebarTag> sidebar() const;
@@ -59,10 +76,15 @@ private:
   std::function<void()> m_changed;
   std::filesystem::path m_root;
   std::map<std::string, std::vector<std::filesystem::path>> m_byTag;
+  mutable std::map<std::string, std::vector<std::string>> m_byPath; // built from m_byTag on demand
+  mutable bool m_byPathStale = true;
   std::shared_ptr<std::atomic<bool>> m_stop = std::make_shared<std::atomic<bool>>(false);
   std::int64_t m_walkedAt = 0;
   bool m_walking = false;
   bool m_walkAgain = false;
   std::vector<std::filesystem::path> m_rereadDuringWalk;
   bool m_ready = false;
+  std::set<std::string> m_jobs;
+  std::uint64_t m_walks = 0; // walks started
+  std::vector<std::pair<std::uint64_t, std::function<void()>>> m_afterWalk; // runs once that walk has landed
 };

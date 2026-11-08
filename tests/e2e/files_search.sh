@@ -6,7 +6,8 @@
 #   - the chips row does not show while searching, or This PC is missing with the index running,
 #   - This PC does not list the hits outside the folder, or the PDFs chip keeps non-PDF hits,
 #   - This PC results do not show as a list, or This Folder does not bring the icons view back,
-#   - a query with no hits does not show the no-results state.
+#   - a query with no hits does not show the no-results state,
+#   - Recents does not add the files the index saw change in the last 30 days.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/files-search}
 source "$(dirname "$0")/lib.sh"
@@ -30,7 +31,7 @@ printf '\x89PNG\r\n\x1a\n' > "$HOME_DIR/Pictures/invoice-scan.png"
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 env XDG_RUNTIME_DIR="$RUNTIME" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" "$INDEX" serve \
   > "$OUT/index.log" 2>&1 &
 for _ in $(seq 200); do grep -q watching "$OUT/index.log" && break; sleep 0.05; done
@@ -98,4 +99,9 @@ shot 4-no-results
 m=$(mark); ptr move $(at "chip This Folder") click 272
 wait_log "$m" "search scope folder" || fail "the This Folder chip did not switch the scope back"
 wait_log "$m" "view icons" || fail "leaving This PC did not bring the folder's icons view back"
+# Recents: no app reported these files (no recently-used.xbel); the index adds the ones changed in the last 30 days.
+m=$(mark); ptr move $(at "place Recents") click 272
+wait_log "$m" "recents [3-9] rows" || fail "Recents did not add the index's recent files"
+wait_log "$m" "geometry item invoice-march.pdf" || fail "Recents did not list invoice-march.pdf"
+shot 5-recents
 echo "pass files_search"

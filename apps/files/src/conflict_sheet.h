@@ -16,7 +16,7 @@ class ThumbnailService;
 // difference, apply-to-all, Stop · Skip · Keep Both · Replace. A click on a card picks the file to keep.
 class ConflictSheet {
 public:
-  enum class Choice : std::uint8_t { Replace, Skip, KeepBoth, Stop };
+  enum class Choice : std::uint8_t { Replace, Skip, KeepBoth, Stop, Merge };
 
   struct Info {
     std::string verb; // "Copying", "Moving"
@@ -32,13 +32,15 @@ public:
                 std::function<void()> rebuild);
 
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
+  [[nodiscard]] bool isMerge() const noexcept { return m_info.folderClash.has_value(); }
   void choose(Choice choice);
 
   // The name Keep Both saves, by the daemon's rule (ops.rs free_name): "name (copy).ext", "name (copy 2).ext", …
   [[nodiscard]] static std::string keepBothName(const std::filesystem::path& target);
-  // "The copy is 200 MB larger and 5 weeks newer." from both sizes and times.
+  // "The copy is 200 MB larger, 5 weeks newer and 4 s longer." from both sizes, times and (media) durations.
   [[nodiscard]] static std::string difference(std::uint64_t newSize, std::int64_t newTimeNs, std::uint64_t oldSize,
-                                              std::int64_t oldTimeNs);
+                                              std::int64_t oldTimeNs, std::optional<double> newSeconds = std::nullopt,
+                                              std::optional<double> oldSeconds = std::nullopt);
 
 private:
   [[nodiscard]] std::unique_ptr<Node> buildMerge(float scale);

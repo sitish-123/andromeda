@@ -110,7 +110,11 @@ ArchiveListing::ArchiveListing(fs::path archive, const std::vector<FileOpsClient
 }
 
 bool ArchiveListing::isArchive(const fs::path& path) {
-  const std::string name = lower(path.filename().string());
+  std::string name = lower(path.filename().string());
+  // Split volumes open from part 1: photos.zip.001.
+  if (name.ends_with(".001")) {
+    name.resize(name.size() - 4);
+  }
   return std::ranges::any_of(kExtensions, [&](std::string_view ext) { return name.size() > ext.size() && name.ends_with(ext); });
 }
 

@@ -471,6 +471,9 @@ bool FileModelView::before(const FileInfo& a, const FileInfo& b, const FileSort&
   case FileSortKey::Kind:
     cmp = a.contentType.compare(b.contentType);
     break;
+  case FileSortKey::Added:
+    cmp = a.addedNs < b.addedNs ? -1 : a.addedNs > b.addedNs ? 1 : 0;
+    break;
   }
   // Ties fall back to the name, then the raw bytes, so the order is total and stable across rebuilds.
   if (cmp == 0) {

@@ -1676,9 +1676,11 @@ namespace andromeda {
     setenv("XDG_SESSION_TYPE", "wayland", 1);
     // Qt 6.6+ apps reconnect to a restarted compositor and keep their windows (docs/resilience.md §2).
     setenv("QT_WAYLAND_RECONNECT", "1", 0);
-    // Every toolkit uses the portal, so file pickers are ours (mockup files-v2-live §13): GTK 3 and Firefox read
-    // GTK_USE_PORTAL, Qt 5/6 the xdgdesktopportal platform theme. A value the user set wins.
+    // Every toolkit uses the portal, so file pickers are ours (mockup files-v2-live §13): GTK 3, Firefox and Electron
+    // read GTK_USE_PORTAL, GTK 4 GDK_DEBUG=portals, Qt 5/6 the xdgdesktopportal platform theme; Chromium uses the
+    // FileChooser portal on its own when the portal is there. A value the user set wins.
     setenv("GTK_USE_PORTAL", "1", 0);
+    setenv("GDK_DEBUG", "portals", 0);
     setenv("QT_QPA_PLATFORMTHEME", "xdgdesktopportal", 0);
 
     // Export cursor settings so X11 clients and toolkit clients pick up the

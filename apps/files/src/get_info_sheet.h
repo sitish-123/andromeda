@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <functional>
 #include <memory>
 #include <string>
@@ -25,6 +26,19 @@ public:
   GetInfoSheet& operator=(const GetInfoSheet&) = delete;
 
   [[nodiscard]] std::unique_ptr<Node> build(float scale);
+  // Restore copies a previous version back into the file's folder; the host runs it as a job (conflict sheet).
+  void setRestore(std::function<void(const std::filesystem::path& version, const std::filesystem::path& folder)> restore) {
+    m_restore = std::move(restore);
+  }
+
+  // Previous Versions (FB-INFO): the file in btrfs snapshots (snapper layout <dir>/.snapshots/<n>/snapshot/<rel>,
+  // looked up in each ancestor on the same device), newest first, only versions that differ from the file.
+  struct Version {
+    std::filesystem::path path;
+    std::int64_t modifiedNs = 0;
+    std::uint64_t size = 0;
+  };
+  [[nodiscard]] static std::vector<Version> previousVersions(const std::filesystem::path& file);
 
 private:
   struct Item {
@@ -57,7 +71,17 @@ private:
   [[nodiscard]] std::unique_ptr<Node> buildGeneral(float s);
   [[nodiscard]] std::unique_ptr<Node> buildPermissions(float s);
   [[nodiscard]] std::unique_ptr<Node> buildChecksums(float s);
+  [[nodiscard]] std::unique_ptr<Node> buildVersions(float s);
   void later(std::function<void()> fn);
+  // A mode change the daemon could not make (items of another user): the root helper through pkexec.
+  struct AdminChange {
+    std::vector<std::filesystem::path> paths;
+    std::uint32_t mode = 0;
+    std::uint32_t mask = 0;
+    bool recursive = false;
+  };
+  void failed(const std::string& error, AdminChange change);
+  void changeAsAdmin();
 
   std::vector<Item> m_items;
   FileOpsClient* m_ops;
@@ -66,6 +90,9 @@ private:
   std::function<void()> m_invalidate;
   bool m_recursive = false;
   std::string m_error;
+  std::optional<AdminChange> m_admin; // set: the error offers "Change as Administrator…"
+  std::function<void(const std::filesystem::path&, const std::filesystem::path&)> m_restore;
+  std::vector<Version> m_versions;
   Sum m_sha;
   Sum m_md5;
   std::string m_compare;

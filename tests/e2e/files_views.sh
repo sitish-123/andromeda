@@ -45,7 +45,7 @@ rm -f "$OUT/terminal-cwd"
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
   XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug DESK_MOTION_TRACE=1 DESK_FRAME_STATS=1 \
   DESK_FILES_GEOMETRY=1 TERMINAL="$RUNTIME/fake-terminal" "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
@@ -218,15 +218,18 @@ m=$(mark); run "$POINTER" 1280 720 move $(at "place This PC") click 272 > /dev/n
 wait_log "$m" "location this-pc" || fail "the This PC place did not open This PC"
 shot 4-this-pc
 
-# Background menu: a right click on empty view space opens the folder menu (New Folder, Paste, …); Down, Enter runs
-# Paste.
+# Background menu: a right click on empty view space opens the folder menu (New Folder, New Document ›, Paste, …);
+# Down, Down, Enter runs Paste.
 m=$(mark); files_action go "[<'file://$SRC'>]"
 wait_log "$m" "location $SRC\$" || fail "go did not open Work"
+# Work kept the columns view from the step above (per-folder views, FILES-UI-SPEC §16): Ctrl+1 brings the icons back.
+m=$(mark); keys mod control tap 2 mod none
+wait_log "$m" "view icons" || fail "Ctrl+1 did not show the icons view in Work"
 # No wait for the page slide: a press during it must reach the incoming page, not the outgoing This PC page on top.
 wait_log "$m" "geometry view " || fail "no geometry for the view after going to Work"
 m=$(mark); run "$POINTER" 1280 720 move $(at view) click 273 > /dev/null
 run "$ANDROMEDA" settle > /dev/null
 shot 5-background-menu
-m=$(mark); keys tap 108 tap 28                   # Down, Enter
+m=$(mark); keys tap 108 tap 108 tap 28           # Down past New Document ›, Down, Enter
 wait_log "$m" "menu edit.paste" || fail "Down + Enter in the background menu did not run Paste"
 echo "pass files_views"

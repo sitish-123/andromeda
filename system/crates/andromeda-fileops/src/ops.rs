@@ -15,8 +15,10 @@ const CHUNK: usize = 8 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Resolution {
-    /// Files: the old target goes to the trash (undo brings it back). Folders: merge.
+    /// The old target goes to the trash (undo brings it back); a folder is replaced as a whole.
     Replace,
+    /// A folder onto a folder: copy into it, asking about each clash inside. On a file it is Replace.
+    Merge,
     Skip,
     KeepBoth,
 }
@@ -25,6 +27,7 @@ impl Resolution {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "replace" => Some(Self::Replace),
+            "merge" => Some(Self::Merge),
             "skip" => Some(Self::Skip),
             "keep_both" => Some(Self::KeepBoth),
             _ => None,
@@ -282,7 +285,7 @@ impl<'a> Run<'a> {
     }
 
     /// Where `source` lands in `dir`, after asking about a conflict; `None` = skip. A folder onto a folder with
-    /// Replace merges into it.
+    /// Merge goes into it.
     /// `duplicate`: a copy onto itself gets a new name; a move onto itself is skipped.
     fn target_for(&mut self, source: &Path, dir: &Path, duplicate: bool) -> OpResult<Option<(PathBuf, bool)>> {
         let name = source.file_name().ok_or_else(|| OpError::Io(source.into(), io::ErrorKind::InvalidInput.into()))?;
@@ -297,9 +300,9 @@ impl<'a> Run<'a> {
         match self.resolve(source, &target)? {
             Resolution::Skip => Ok(None),
             Resolution::KeepBoth => Ok(Some((free_name(&target), false))),
-            Resolution::Replace => {
+            resolution @ (Resolution::Replace | Resolution::Merge) => {
                 let source_is_dir = fs::symlink_metadata(source).is_ok_and(|m| m.is_dir());
-                if source_is_dir && existing.is_dir() {
+                if resolution == Resolution::Merge && source_is_dir && existing.is_dir() {
                     return Ok(Some((target, true)));
                 }
                 self.set_aside(source, &target)?;
@@ -746,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn folder_replace_merges_and_apply_to_all_asks_once() {
+    fn folder_merge_merges_and_apply_to_all_asks_once() {
         let root = tempfile::tempdir().expect("tmp");
         let (src, dst) = (root.path().join("src"), root.path().join("dst"));
         write(&src.join("d/x"), "x2");
@@ -754,7 +757,7 @@ mod tests {
         write(&src.join("d/z"), "z");
         write(&dst.join("d/x"), "x1");
         write(&dst.join("d/y"), "y1");
-        let ctl = Answers::new(&[(Resolution::Replace, false), (Resolution::Skip, true)]);
+        let ctl = Answers::new(&[(Resolution::Merge, false), (Resolution::Skip, true)]);
         let (_, result) = copy(&[src.join("d")], &dst, &ctl);
         assert!(result.is_ok());
         assert_eq!(ctl.asked.borrow().len(), 2);
@@ -893,6 +896,24 @@ mod tests {
     }
 
     #[test]
+    fn folder_replace_swaps_the_whole_folder_and_undo_brings_it_back() {
+        let root = tempfile::tempdir().expect("tmp");
+        let (src, dst) = (root.path().join("src"), root.path().join("dst"));
+        write(&src.join("d/x"), "x2");
+        write(&dst.join("d/x"), "x1");
+        write(&dst.join("d/old"), "o");
+        let ctl = Answers::new(&[(Resolution::Replace, false)]);
+        let (steps, result) = copy(&[src.join("d")], &dst, &ctl);
+        assert!(result.is_ok());
+        assert_eq!(ctl.asked.borrow().len(), 1, "a replaced folder asks nothing inside");
+        assert_eq!(read(&dst.join("d/x")), "x2");
+        assert!(!dst.join("d/old").exists());
+        let (_, result, _) = undo(&steps, &ctl);
+        assert!(result.is_ok());
+        assert_eq!(read(&dst.join("d/old")), "o");
+    }
+
+    #[test]
     fn count_conflicts_matches_the_questions_a_merge_asks() {
         let root = tempfile::tempdir().expect("tmp");
         let (src, dst) = (root.path().join("src"), root.path().join("dst"));
@@ -905,7 +926,7 @@ mod tests {
         write(&dst.join("top.txt"), "t1");
         let sources = [src.join("d"), src.join("top.txt")];
         let total = count_conflicts(&sources, &dst).expect("counted");
-        let ctl = Answers::new(&[(Resolution::Replace, false); 8]);
+        let ctl = Answers::new(&[(Resolution::Merge, false); 8]);
         let (_, result) = copy(&sources, &dst, &ctl);
         assert!(result.is_ok());
         // d, d/x, d/sub, d/sub/y, top.txt

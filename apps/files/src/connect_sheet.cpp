@@ -82,6 +82,14 @@ std::unique_ptr<Node> ConnectSheet::build(float scale) {
                                 .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label1)}));
   body->addChild(std::move(remember));
 
+  auto reconnect = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8 * s});
+  reconnect->addChild(ui::row({.width = kFieldLabel * s}));
+  reconnect->addChild(ui::checkbox({.checked = m_reconnect, .scale = s,
+                                    .onChange = [this](bool on) { m_reconnect = on; }}));
+  reconnect->addChild(ui::label({.text = std::string("Connect again at login"),
+                                 .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label1)}));
+  body->addChild(std::move(reconnect));
+
   body->addChild(ui::label({.out = &m_questionNote, .text = m_question, .fontSize = Style::fontSizeCaption * s,
                             .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 8}));
   body->addChild(ui::label({.out = &m_note, .fontSize = Style::fontSizeCaption * s,
@@ -130,7 +138,7 @@ void ConnectSheet::submit() {
   m_busy = true;
   m_error.clear();
   m_question.clear();
-  m_connect(*url, m_user.empty() ? url->user : m_user, m_password, m_remember);
+  m_connect(*url, m_user.empty() ? url->user : m_user, m_password, m_remember, m_reconnect);
   if (m_rebuild) {
     m_rebuild();
   }

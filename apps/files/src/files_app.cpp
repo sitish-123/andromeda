@@ -4,8 +4,14 @@
 #include "core/log.h"
 #include "dbus/session_bus.h"
 #include "files_window.h"
+#include "tag_manager_sheet.h"
+#include "terminal_pane.h"
+#include "select_pattern_sheet.h"
+#include "smart_folder_sheet.h"
 
+#include <chrono>
 #include <algorithm>
+#include <charconv>
 #include <gio/gio.h>
 #include <sys/stat.h>
 #include <gio/gunixmounts.h>
@@ -22,7 +28,7 @@ namespace {
   constexpr std::uint32_t kSaveWidth = 456;
   constexpr std::uint32_t kSaveHeight = 272;
   // Open With (mockup §4) and the Access dialog (FILES-UI-SPEC §11).
-  constexpr std::uint32_t kChooserWidth = 520;
+  constexpr std::uint32_t kChooserWidth = 416;
   constexpr std::uint32_t kChooserHeight = 560;
   constexpr std::uint32_t kAccessWidth = 400;
   constexpr std::uint32_t kAccessHeight = 280;
@@ -49,8 +55,33 @@ namespace {
   }
 } // namespace
 
-FilesApp::FilesApp(bool picker)
-    : DeskApp({.id = picker ? "dev.andromeda.Files.Picker" : "dev.andromeda.Files", .name = "Files"}), m_picker(picker) {}
+FilesApp::FilesApp(bool picker, bool service)
+    : DeskApp({.id = picker ? "dev.andromeda.Files.Picker" : "dev.andromeda.Files", .name = "Files"}), m_picker(picker),
+      m_service(service) {}
+
+void FilesApp::showFromFileManager(FileManager1::Show show, const std::vector<std::string>& uris,
+                                   const std::string& startupId) {
+  kLog.debug("FileManager1 show {} {} items", static_cast<int>(show), uris.size());
+  if (show == FileManager1::Show::Folders) {
+    open(uris, startupId);
+    return;
+  }
+  // ShowItems and ShowItemProperties reveal each item in its folder, folders too.
+  for (const std::string& uri : uris) {
+    const fs::path path = pathFromUri(uri);
+    if (path.empty() || !path.has_parent_path()) {
+      continue;
+    }
+    FilesWindow& w = openWindow(path.parent_path());
+    w.selectNames({path.filename().string()});
+    if (show == FileManager1::Show::Properties) {
+      w.getInfo({path});
+    }
+    if (windows().back()->isOpen()) {
+      windows().back()->activate(startupId);
+    }
+  }
+}
 
 void FilesApp::searchAnswered(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows) {
   for (auto& [window, files] : m_windows) {
@@ -131,6 +162,22 @@ void FilesApp::startup() {
             },
     });
     scheduleIdleQuit();
+    return;
+  }
+  if (bus() != nullptr) {
+    m_linkShare = std::make_unique<LinkShare>(*bus());
+    m_linkShare->setChanged([this] { refreshPlaces(); });
+    m_fileManager = std::make_unique<FileManager1>(
+        *bus(), [this](FileManager1::Show show, const std::vector<std::string>& uris, const std::string& startupId) {
+          showFromFileManager(show, uris, startupId);
+        });
+  }
+  if (m_service) {
+    m_idleQuit.start(std::chrono::minutes(2), [this] {
+      if (windows().empty()) {
+        quit();
+      }
+    });
   }
 }
 
@@ -271,7 +318,32 @@ void FilesApp::closePicker(std::uint64_t id) {
   }
 }
 
+void FilesApp::pickFiles(std::string title, std::string acceptLabel,
+                         std::function<void(std::vector<fs::path>)> done, bool directory) {
+  const std::uint64_t id = m_nextLocalPick++;
+  m_localPicks.emplace(id, std::move(done));
+  PickerPortal::Request request;
+  request.title = std::move(title);
+  request.acceptLabel = std::move(acceptLabel);
+  request.multiple = !directory;
+  request.directory = directory;
+  openPicker(id, request);
+}
+
 void FilesApp::pickerAnswered(std::uint64_t id, const PickerPortal::Answer& answer) {
+  if (auto it = m_localPicks.find(id); it != m_localPicks.end()) {
+    auto done = std::move(it->second);
+    m_localPicks.erase(it);
+    std::vector<fs::path> files;
+    for (const std::string& uri : answer.response == 0 ? answer.uris : std::vector<std::string>{}) {
+      if (gchar* path = g_filename_from_uri(uri.c_str(), nullptr, nullptr)) {
+        files.emplace_back(path);
+        g_free(path);
+      }
+    }
+    done(std::move(files));
+    return;
+  }
   if (m_portal != nullptr) {
     m_portal->answer(id, answer);
   }
@@ -381,6 +453,16 @@ void FilesApp::windowClosed(AppWindow& window) {
 
 FilesWindow& FilesApp::openWindow(const fs::path& location) {
   m_nextLocation = location;
+  m_hadWindow = true;
+  // GVolumeMonitor starts the gvfs monitors over D-Bus: after the first frame, never in the picker.
+  if (!m_picker && m_drives == nullptr) {
+    m_drivesStart.start(std::chrono::milliseconds(300), [this] {
+      if (m_drives == nullptr) {
+        m_drives = std::make_unique<Drives>([this] { refreshPlaces(); });
+        refreshPlaces();
+      }
+    });
+  }
   AppWindow& window = createWindow();
   window.open();
   return *m_windows.at(&window);
@@ -396,6 +478,9 @@ FilesWindow* FilesApp::activeFilesWindow() const {
 }
 
 void FilesApp::activate(const std::string& activationToken) {
+  if (m_service && !m_hadWindow) { // the activation start itself; the request that started us opens the window
+    return;
+  }
   if (!m_picker) {
     DeskApp::activate(activationToken);
   }
@@ -435,6 +520,67 @@ void FilesApp::action(const std::string& name, const std::vector<std::string>& p
     window->go(pathFromUri(parameter.front()));
   } else if (name == "trash" && window != nullptr && !window->isPicker()) {
     window->goTrash();
+  } else if (name == "storage" && window != nullptr && !window->isPicker()) {
+    window->showStorage();
+  } else if (name == "vault.new" && window != nullptr && !window->isPicker() && !parameter.empty()) {
+    window->askNewVault(parameter.front());
+  } else if (name == "sheet.password" && window != nullptr && !parameter.empty()) {
+    window->submitSheetPassword(parameter.front());
+  } else if (name == "drive.erase" && window != nullptr) {
+    window->eraseDrive();
+  } else if (name == "phone.open" && window != nullptr && !window->isPicker() && !parameter.empty()) {
+    window->showPhone(parameter.front());
+  } else if (name == "phone.import-view" && window != nullptr) {
+    window->showPhoneImport();
+  } else if (name == "phone.pick" && window != nullptr && !parameter.empty()) {
+    std::size_t index = 0;
+    if (std::from_chars(parameter.front().data(), parameter.front().data() + parameter.front().size(), index).ec ==
+        std::errc{}) {
+      window->phonePick(index);
+    }
+  } else if (name == "phone.import" && window != nullptr) {
+    window->phoneImport(!parameter.empty() && parameter.front() == "all");
+  } else if (name == "drive.mount" && window != nullptr && !window->isPicker() && !parameter.empty()) {
+    window->mountDrive(parameter.front());
+  } else if (name == "vault.unlock" && window != nullptr && !window->isPicker() && !parameter.empty()) {
+    window->askUnlockVault(parameter.front());
+  } else if (name == "vault.lock" && window != nullptr && !parameter.empty()) {
+    window->lockVault(parameter.front());
+  } else if (name.starts_with("pattern.") && window != nullptr && window->patternSheet() != nullptr) {
+    SelectPatternSheet* sheet = window->patternSheet();
+    if (name == "pattern.text" && !parameter.empty()) {
+      sheet->setPattern(parameter.front(), true);
+    } else if (name == "pattern.mode" && !parameter.empty()) {
+      sheet->setMode(parameter.front() == "regex" ? SelectPatternSheet::Mode::Regex : SelectPatternSheet::Mode::Wildcard);
+    } else if (name == "pattern.select" || name == "pattern.deselect") {
+      sheet->apply(name == "pattern.select");
+    }
+  } else if (name == "compress.set" && window != nullptr && window->compressSheet() != nullptr && parameter.size() >= 2) {
+    window->compressSheet()->set(parameter[0], parameter[1]);
+  } else if (name == "compress.submit" && window != nullptr && window->compressSheet() != nullptr) {
+    window->compressSheet()->submit();
+  } else if (name == "extract.password" && window != nullptr && window->extractSheet() != nullptr && !parameter.empty()) {
+    window->extractSheet()->setPassword(parameter.front());
+  } else if (name == "extract.submit" && window != nullptr && window->extractSheet() != nullptr) {
+    window->extractSheet()->submit();
+  } else if (name == "rename.set" && window != nullptr && window->batchRenameSheet() != nullptr && parameter.size() >= 2) {
+    window->batchRenameSheet()->set(parameter[0], parameter[1]);
+  } else if (name == "rename.submit" && window != nullptr && window->batchRenameSheet() != nullptr) {
+    window->batchRenameSheet()->submit();
+  } else if (name == "smart.set" && window != nullptr && window->smartSheet() != nullptr && parameter.size() >= 2) {
+    window->smartSheet()->set(parameter[0], parameter[1]);
+  } else if (name == "smart.save" && window != nullptr && window->smartSheet() != nullptr) {
+    window->smartSheet()->submit();
+  } else if (name == "smart.go" && window != nullptr && !parameter.empty()) {
+    window->goSmart(parameter.front());
+  } else if (name == "pane.activate" && window != nullptr && !parameter.empty()) {
+    window->activatePane(parameter.front() == "1" ? 1 : 0);
+  } else if (name == "terminal.type" && window != nullptr && window->terminal() != nullptr && !parameter.empty()) {
+    window->terminal()->sendText(parameter.front());
+  } else if (name == "terminal.dump" && window != nullptr && window->terminal() != nullptr) {
+    kLog.info("terminal screen:\n{}", window->terminal()->screenText());
+  } else if (name.starts_with("tags.") && window != nullptr) {
+    tagAction(*window, name, parameter);
   } else if (name == "select" && window != nullptr) {
     window->selectNames(parameter);
   } else if (name == "picker.name" && window != nullptr && !parameter.empty()) {
@@ -448,6 +594,33 @@ void FilesApp::action(const std::string& name, const std::vector<std::string>& p
   }
   if (AppWindow* w = activeWindow()) {
     w->activate(activationToken);
+  }
+}
+
+void FilesApp::tagAction(FilesWindow& window, const std::string& name, const std::vector<std::string>& parameter) {
+  // E2E: tags.<edit> with [tag, value] on the open Tags sheet.
+  TagManagerSheet* sheet = window.tagManager();
+  if (sheet == nullptr) {
+    return;
+  }
+  const std::string tag = parameter.empty() ? std::string() : parameter[0];
+  const std::string value = parameter.size() > 1 ? parameter[1] : std::string();
+  if (name == "tags.select") {
+    sheet->select(tag);
+  } else if (name == "tags.rename") {
+    sheet->rename(tag, value);
+  } else if (name == "tags.move") {
+    sheet->move(tag, value == "up" ? -1 : 1);
+  } else if (name == "tags.sidebar") {
+    sheet->setSidebar(tag, value == "on");
+  } else if (name == "tags.color" && value.size() == 7 && value[0] == '#') {
+    sheet->setColor(tag, static_cast<std::uint32_t>(std::stoul(value.substr(1), nullptr, 16)));
+  } else if (name == "tags.delete") {
+    sheet->remove(tag);
+  } else if (name == "tags.new") {
+    sheet->addTag();
+  } else if (name == "tags.done") {
+    sheet->done();
   }
 }
 
@@ -519,11 +692,41 @@ void FilesApp::addCommands() {
       {"file.open", "Open", "File", chord(XKB_KEY_Return, 0), selection, [](FilesWindow& w) { w.openSelection(); }},
       {"file.open-with", "Open With…", "File", std::nullopt, [](const FilesWindow& w) { return w.canOpenWith(); },
        [](FilesWindow& w) { w.openWith(); }},
+      {"file.import", "Import Photos…", "File", std::nullopt,
+       [](const FilesWindow& w) { return !w.isPicker() && !w.importSource().empty(); },
+       [](FilesWindow& w) { w.importPhotos(); }},
+      {"drive.format", "Erase Drive…", "File", std::nullopt,
+       [](const FilesWindow& w) { return !w.isPicker() && !w.formatTarget().empty(); },
+       [](FilesWindow& w) { w.askFormat(); }},
+      {"file.new-vault", "New Vault…", "File", std::nullopt,
+       [](const FilesWindow& w) { return !w.isPicker() && Vaults::available(); },
+       [](FilesWindow& w) { w.askNewVault(); }},
+      {"file.pin", "Add to Sidebar", "File", std::nullopt,
+       [](const FilesWindow& w) { return !w.isPicker() && !w.inTrash() && w.selectionIsFolders(); },
+       [](FilesWindow& w) { w.togglePin(); }},
       {"file.star", "Add to Starred", "File", chord(XKB_KEY_d, KeyMod::Ctrl),
        [](const FilesWindow& w) { return !w.isPicker() && !w.inTrash() && w.hasSelection(); },
        [](FilesWindow& w) { w.toggleStar(); }},
       {"edit.copy-location", "Copy Location", "Edit", chord(XKB_KEY_c, KeyMod::Ctrl | KeyMod::Alt),
        [](const FilesWindow& w) { return !w.isPicker(); }, [](FilesWindow& w) { w.copyLocation(); }},
+      {"edit.select-pattern", "Select by Pattern…", "Edit", chord(XKB_KEY_s, KeyMod::Ctrl),
+       [](const FilesWindow& w) { return !w.inTrash() || w.trashHasItems(); }, [](FilesWindow& w) { w.selectByPattern(); }},
+      {"file.new-smart-folder", "New Smart Folder…", "File", std::nullopt, [](const FilesWindow& w) { return !w.isPicker(); },
+       [](FilesWindow& w) { w.newSmartFolder(false); }},
+      {"edit.save-search", "Save Search…", "Edit", std::nullopt, [](const FilesWindow& w) { return w.canSaveSearch(); },
+       [](FilesWindow& w) { w.newSmartFolder(true); }},
+      {"file.edit-smart-folder", "Edit Smart Folder…", "File", std::nullopt,
+       [](const FilesWindow& w) { return w.inSmartFolder(); }, [](FilesWindow& w) { w.editSmartFolder(); }},
+      {"file.remove-smart-folder", "Remove Smart Folder", "File", std::nullopt,
+       [](const FilesWindow& w) { return w.inSmartFolder(); }, [](FilesWindow& w) { w.removeSmartFolder(); }},
+      {"view.split", "Split View", "View", std::nullopt, [](const FilesWindow& w) { return !w.isPicker(); },
+       [](FilesWindow& w) { w.toggleSplitView(); }},
+      {"view.compare", "Compare Folders", "View", std::nullopt, [](const FilesWindow& w) { return w.canCompare(); },
+       [](FilesWindow& w) { w.toggleCompare(); }},
+      {"view.sync", "Sync Folders", "View", std::nullopt, [](const FilesWindow& w) { return w.comparing(); },
+       [](FilesWindow& w) { w.syncCompare(); }},
+      {"view.terminal", "Show Terminal", "View", chord(XKB_KEY_F4, 0), [](const FilesWindow& w) { return !w.isPicker(); },
+       [](FilesWindow& w) { w.toggleTerminal(); }},
       {"file.open-terminal", "Open Terminal Here", "File", chord(XKB_KEY_F4, KeyMod::Shift),
        [](const FilesWindow& w) { return !w.isPicker() && !w.inTrash(); }, [](FilesWindow& w) { w.openTerminalHere(); }},
       {"file.restore", "Put Back", "File", std::nullopt,
@@ -539,6 +742,8 @@ void FilesApp::addCommands() {
        [](FilesWindow& w) { w.getInfo(); }},
       {"trash.empty", "Empty Trash…", "File", chord(XKB_KEY_Delete, KeyMod::Ctrl | KeyMod::Shift),
        [](const FilesWindow& w) { return w.trashHasItems(); }, [](FilesWindow& w) { w.askEmptyTrash(); }},
+      {"file.tags", "Edit Tags…", "File", std::nullopt, [](const FilesWindow& w) { return !w.isPicker(); },
+       [](FilesWindow& w) { w.openTagManager(); }},
       {"file.compress", "Compress…", "File", std::nullopt, [](const FilesWindow& w) { return !w.inTrash() && w.hasSelection(); },
        [](FilesWindow& w) { w.compressSelection(); }},
       {"file.extract-here", "Extract Here", "File", std::nullopt, [](const FilesWindow& w) { return w.canExtract(); },
@@ -553,12 +758,28 @@ void FilesApp::addCommands() {
        [](FilesWindow& w) { w.paste(); }},
       {"edit.trash", "Move to Trash", "Edit", chord(XKB_KEY_Delete, 0),
        [](const FilesWindow& w) { return !w.inTrash() && w.hasSelection(); }, [](FilesWindow& w) { w.trashSelection(); }},
+      {"edit.delete", "Delete Immediately…", "Edit", chord(XKB_KEY_Delete, KeyMod::Shift),
+       [](const FilesWindow& w) { return !w.inTrash() && w.hasSelection(); }, [](FilesWindow& w) { w.askDeleteSelection(); }},
       {"edit.undo", "Undo", "Edit", chord(XKB_KEY_z, KeyMod::Ctrl), [](const FilesWindow& w) { return w.canUndo(); },
        [](FilesWindow& w) { w.undo(); }},
       {"edit.select-all", "Select All", "Edit", chord(XKB_KEY_a, KeyMod::Ctrl), always, [](FilesWindow& w) { w.selectAll(); }},
       {"view.hidden", "Show Hidden Files", "View", chord(XKB_KEY_h, KeyMod::Ctrl), always,
        [](FilesWindow& w) { w.toggleHidden(); }},
       {"view.reload", "Reload", "View", chord(XKB_KEY_F5, 0), always, [](FilesWindow& w) { w.reload(); }},
+      {"view.extensions", "Show File Extensions", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.browser().setShowExtensions(!w.browser().showExtensions()); }},
+      {"view.group-none", "Don’t Group", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.groupBy(FileGroupBy::None); }},
+      {"view.group-kind", "Group by Kind", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.groupBy(FileGroupBy::Kind); }},
+      {"view.group-date", "Group by Date", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.groupBy(FileGroupBy::Date); }},
+      {"view.group-size", "Group by Size", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.groupBy(FileGroupBy::Size); }},
+      {"view.group-tags", "Group by Tags", "View", std::nullopt, always,
+       [](FilesWindow& w) { w.groupBy(FileGroupBy::Tags); }},
+      {"view.options", "View Options…", "View", chord(XKB_KEY_j, KeyMod::Ctrl),
+       [](const FilesWindow& w) { return !w.isPicker(); }, [](FilesWindow& w) { w.openViewOptions(); }},
       {"view.details", "Show Details", "View", chord(XKB_KEY_p, KeyMod::Alt), [](const FilesWindow& w) { return !w.isPicker(); },
        [](FilesWindow& w) { w.toggleDetails(); }},
       // Ctrl+T and Ctrl+(Shift+)Tab live in FileBrowser::onKey; these entries put the tabs in the More menu.
@@ -588,10 +809,14 @@ void FilesApp::addCommands() {
         .group = spec.group,
         .shortcut = spec.shortcut,
         .enabled = [this, enabled = spec.enabled, chooser = allowedInPicker(spec.id),
-                    edit = std::string_view(spec.group) == "Edit"] {
+                    edit = std::string_view(spec.group) == "Edit",
+                    ctrlKey = spec.shortcut.has_value() && (spec.shortcut->modifiers & KeyMod::Ctrl) != 0 &&
+                              (spec.shortcut->modifiers & KeyMod::Alt) == 0] {
           const FilesWindow* w = activeFilesWindow();
-          // The inline rename field keeps Ctrl+A/C/X/V/Z for its text.
-          return w != nullptr && (chooser || !w->isPicker()) && !(edit && w->renaming()) && enabled(*w);
+          // The inline rename field keeps Ctrl+A/C/X/V/Z for its text; the terminal pane keeps every Ctrl key
+          // (Ctrl+C is SIGINT there).
+          return w != nullptr && (chooser || !w->isPicker()) && !(edit && w->renaming()) &&
+                 !(ctrlKey && w->terminalFocused()) && enabled(*w);
         },
         .run = [this, run = spec.run] {
           if (FilesWindow* w = activeFilesWindow()) {

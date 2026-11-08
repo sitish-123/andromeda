@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/timer_manager.h"
+#include "render/animation/animation_manager.h"
 #include "render/scene/node.h"
 
 #include <cstddef>
@@ -24,7 +26,7 @@ public:
     std::function<void(std::size_t index)> select; // a filmstrip item or an arrow picked another photo
   };
 
-  FileGallery(float scale, ThumbnailService* thumbnails, Host host);
+  FileGallery(float scale, ThumbnailService* thumbnails, AnimationManager& animations, Host host);
   ~FileGallery() override;
   FileGallery(const FileGallery&) = delete;
   FileGallery& operator=(const FileGallery&) = delete;
@@ -33,6 +35,8 @@ public:
   void setItems(std::vector<std::filesystem::path> items, std::size_t current);
   [[nodiscard]] std::size_t current() const noexcept { return m_current; }
   [[nodiscard]] std::size_t count() const noexcept { return m_items.size(); }
+  // F: hides the chrome at once, or shows it again (DESIGN.md: chrome fades 2 s after the last pointer move).
+  void toggleChrome();
 
 protected:
   void doLayout(Renderer& renderer) override;
@@ -46,6 +50,8 @@ private:
   void hold(const std::string& path, int px, std::vector<Held>& next);
   void releaseAll(std::vector<Held>& held);
   void rebuildFilm();
+  void showChrome();
+  void driveChrome(float target);
 
   float m_scale;
   ThumbnailService* m_thumbs;
@@ -67,4 +73,11 @@ private:
   std::vector<std::size_t> m_filmIndex;
   Box* m_filmRing = nullptr;
   bool m_filmDirty = true;
+
+  AnimationManager& m_animations;
+  AnimationManager::Id m_chromeAnim = 0;
+  float m_chrome = 1.0F;       // 1 = capsules shown; 0 = hidden, the photo fills the freed space
+  float m_chromeTarget = 1.0F;
+  Timer m_hideTimer;
+  InputArea* m_hover = nullptr; // the whole view: a pointer move brings the chrome back
 };

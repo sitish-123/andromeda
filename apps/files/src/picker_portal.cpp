@@ -171,7 +171,12 @@ PickerPortal::PickerPortal(SessionBus& bus, RequestHandler onRequest, CloseHandl
 PickerPortal::~PickerPortal() {
   for (auto& [id, pending] : m_pending) {
     if (pending->result) {
-      pending->result->returnResults(std::uint32_t{2}, Options{});
+      // At exit the bus may be closed already; a destructor must not throw (std::terminate).
+      try {
+        pending->result->returnResults(std::uint32_t{2}, Options{});
+      } catch (const sdbus::Error& e) {
+        kLog.debug("picker {} not answered at exit: {}", id, e.getMessage());
+      }
     }
   }
 }

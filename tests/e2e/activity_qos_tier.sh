@@ -16,7 +16,7 @@ fail() { echo "FAIL: $*"; exit 1; }
 
 bus_info=$(dbus-daemon --session --fork --address="unix:path=$RUNTIME/bus" --print-pid=1)
 BUS="unix:path=$RUNTIME/bus"
-trap 'XDG_RUNTIME_DIR=$REAL_RUNTIME systemctl --user stop "$SCOPE" > /dev/null 2>&1 || true; kill '"$bus_info"' $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'XDG_RUNTIME_DIR=$REAL_RUNTIME systemctl --user stop "$SCOPE" > /dev/null 2>&1 || true; kill '"$bus_info"' $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 export ANDROMEDA_QOS_TEST_DELAYS_MS=1000,1500
 boot_headless 1
 

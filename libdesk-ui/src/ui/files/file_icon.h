@@ -10,6 +10,7 @@
 #include <optional>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class Box;
@@ -29,8 +30,10 @@ public:
 
   explicit FileIcon(float size);
   ~FileIcon() override;
-  // `thumbnails` (may be null) supplies image and video previews; the drawn art shows until one is ready.
-  void bind(Renderer& renderer, const FileInfo& info, const std::filesystem::path& path, ThumbnailService* thumbnails);
+  // `thumbnails` (may be null) supplies image and video previews, also for pictures inside folders; the drawn art
+  // shows until one is ready. `duration` ("0:42", "" while unknown) labels a video.
+  void bind(Renderer& renderer, const FileInfo& info, const std::filesystem::path& path, ThumbnailService* thumbnails,
+            std::string_view duration = {});
 
   // `changed` runs on the main thread when a folder's peek finishes reading; remove it before its owner dies.
   static int addPeekListener(std::function<void()> changed);
@@ -44,6 +47,8 @@ private:
   void bindPage(Renderer& renderer, const FileInfo& info);
   void bindArt(Renderer& renderer, const char* asset, float fraction);
   void bindVideoCard();
+  void showDuration(Renderer& renderer, float right, float bottom);
+  void releaseMiniThumbs();
   void layoutPlay(float d);
   void hideAll();
   void releaseThumb();
@@ -53,6 +58,9 @@ private:
   Image* m_back = nullptr;   // folder rear, or the whole art for single-picture kinds
   std::vector<Box*> m_minis; // up to 3 items inside a folder
   std::vector<std::array<Box*, 6>> m_miniLines; // per mini: a coloured head (or sheet header), then 5 text lines
+  std::array<Image*, 3> m_miniThumbs{}; // per mini: the picture's own thumbnail
+  std::array<std::string, 3> m_miniThumbPaths; // acquired from m_thumbs; released on rebind
+  int m_miniThumbPx = 0;
   Image* m_front = nullptr;  // folder front flap
   Image* m_emblem = nullptr; // user folder emblem
   Box* m_page = nullptr;
@@ -63,6 +71,8 @@ private:
   Image* m_thumb = nullptr;
   Box* m_play = nullptr;
   Glyph* m_playGlyph = nullptr;
+  Box* m_duration = nullptr;
+  Label* m_durationText = nullptr;
   ThumbnailService* m_thumbs = nullptr;
   std::string m_thumbPath; // acquired from m_thumbs; released on rebind
   int m_thumbPx = 0;
@@ -70,6 +80,7 @@ private:
   std::optional<FileInfo> m_boundInfo;
   std::filesystem::path m_boundPath;
   ThumbnailService* m_boundThumbs = nullptr;
+  std::string m_boundDuration;
   float m_boundScale = 0.0F;
 };
 

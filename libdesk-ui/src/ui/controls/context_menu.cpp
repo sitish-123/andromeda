@@ -14,7 +14,7 @@
 
 namespace {
 
-  constexpr float kMenuPadding = 6.0F;
+  TOKENS_LIVE(kMenuPadding, Tokens::spaceP4); // rulebook 9.9: p 4, so item text sits 12 from the menu edge
   TOKENS_LIVE(kItemHeight, Tokens::componentMenuItem);
   constexpr float kSeparatorHeight = 10.0F;
   constexpr float kItemGap = 0.0F;
@@ -34,7 +34,21 @@ namespace {
   bool hasToggle(const ContextMenuControlEntry& entry) { return entry.checkmark || entry.radio; }
 
   bool isInteractive(const ContextMenuControlEntry& entry) {
-    return entry.enabled && !entry.separator && !entry.header;
+    return entry.enabled && !entry.separator && !entry.header && entry.dots.empty();
+  }
+  // Mockup files-v2 .mi: a 16 symbol, then the 8 gap; rows without one keep the column empty.
+  TOKENS_LIVE(kSymbolGap, Tokens::spaceP8);
+  constexpr float kDotCell = 24.0F; // .qtags .tagd: 24 cells, 12 dots
+  constexpr float kDot = 12.0F;
+  bool hasSymbolColumn(const std::vector<ContextMenuControlEntry>& entries) {
+    return std::ranges::any_of(entries, [](const ContextMenuControlEntry& e) { return !e.glyph.empty(); });
+  }
+  float symbolSlot(float scale) { return (Tokens::sizeSymbol + kSymbolGap) * scale; }
+  ColorSpec itemColor(const ContextMenuControlEntry& entry, bool interactive) {
+    if (entry.danger) {
+      return colorSpecFromRole(ColorRole::Danger, interactive ? 1.0F : 0.55F);
+    }
+    return interactive ? enabledItemColor() : disabledItemColor();
   }
   float entryIndent(const ContextMenuControlEntry& entry, float scale) {
     return static_cast<float>(entry.indentLevel) * Style::spaceMd * scale;
@@ -226,11 +240,18 @@ float ContextMenuControl::preferredWidth(
 ) {
   scale = safeScale(scale);
   float maxRowWidth = 0.0F;
+  const bool symbols = hasSymbolColumn(entries);
   for (const ContextMenuControlEntry& entry : entries) {
+    if (!entry.dots.empty()) {
+      maxRowWidth = std::max(maxRowWidth, static_cast<float>(entry.dots.size()) * kDotCell * scale);
+      continue;
+    }
     if (entry.separator || entry.label.empty()) {
       continue;
     }
-    const float toggleSlot = (reserveToggleSpace || hasToggle(entry)) ? kToggleSlot * scale : 0.0F;
+    const float toggleSlot = symbols ? symbolSlot(scale)
+                             : (reserveToggleSpace || hasToggle(entry)) ? kToggleSlot * scale
+                                                                        : 0.0F;
     const FontWeight weight = entry.header ? FontWeight::Bold : FontWeight::Normal;
     const float textWidth = std::ceil(renderer.measureText(entry.label, kMenuFontSize * scale, {weight}).width);
     // Mirrors rebuildRows: 8px label inset each side, 30px right when a chevron is drawn.
@@ -300,6 +321,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
   float currentY = menuPadding;
   m_rows.clear();
   m_rows.reserve(visibleItems);
+  const bool symbols = hasSymbolColumn(m_entries);
 
   for (std::size_t i = 0; i < visibleItems; ++i) {
     const ContextMenuControlEntry& entry = m_entries[i];
@@ -347,7 +369,28 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
       }
     });
 
-    if (!entry.separator) {
+    if (!entry.dots.empty()) {
+      for (std::size_t d = 0; d < entry.dots.size(); ++d) {
+        auto cell = std::make_unique<InputArea>();
+        cell->setFrameSize(kDotCell * scale, rowHeight);
+        cell->setPosition(static_cast<float>(d) * kDotCell * scale, 0.0F);
+        auto dot = std::make_unique<Box>();
+        dot->setFill(entry.dots[d].color);
+        dot->setFrameSize(kDot * scale, kDot * scale);
+        dot->setRadius(kDot * scale * 0.5F);
+        dot->setPosition((kDotCell - kDot) * 0.5F * scale, std::round((rowHeight - kDot * scale) * 0.5F));
+        cell->addChild(std::move(dot));
+        cell->setOnClick([this, entry, id = entry.dots[d].id](const InputArea::PointerData& data) {
+          if (data.button != BTN_LEFT || !m_onActivate) {
+            return;
+          }
+          ContextMenuControlEntry picked = entry;
+          picked.id = id;
+          m_onActivate(picked);
+        });
+        row->addChild(std::move(cell));
+      }
+    } else if (!entry.separator) {
       row->addChild(
           ui::box({
               .out = &rowBgPtr,
@@ -358,18 +401,25 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
           })
       );
 
-      const float toggleSlot = (m_reserveToggleSpace || hasToggle(entry)) ? kToggleSlot * scale : 0.0F;
+      const float toggleSlot = symbols                                    ? symbolSlot(scale)
+                               : (m_reserveToggleSpace || hasToggle(entry)) ? kToggleSlot * scale
+                                                                            : 0.0F;
       const float indent = entryIndent(entry, scale);
       const std::string_view toggleGlyph = toggleGlyphName(entry);
-      if (!toggleGlyph.empty()) {
+      const std::string leadingGlyph = !entry.glyph.empty() ? entry.glyph : std::string(toggleGlyph);
+      if (!leadingGlyph.empty()) {
+        // In the symbol column a check mark centres on the 16 cell.
+        const float size = !entry.glyph.empty() ? Tokens::sizeSymbol * scale : kMenuGlyphSize * scale;
         auto glyph = ui::glyph({
             .out = &togglePtr,
-            .glyph = std::string(toggleGlyph),
-            .glyphSize = kMenuGlyphSize * scale,
-            .color = entry.enabled ? enabledItemColor() : disabledItemColor(),
+            .glyph = leadingGlyph,
+            .glyphSize = size,
+            .color = itemColor(entry, entry.enabled),
         });
         glyph->measure(renderer);
-        glyph->setPosition(8.0F * scale + indent, (rowHeight - glyph->height()) * 0.5F);
+        const float x = symbols ? 8.0F * scale + indent + (Tokens::sizeSymbol * scale - glyph->width()) * 0.5F
+                                : 8.0F * scale + indent;
+        glyph->setPosition(std::round(x), (rowHeight - glyph->height()) * 0.5F);
         row->addChild(std::move(glyph));
       }
 
@@ -415,9 +465,7 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
           .text = entry.label,
           .fontSize = kMenuFontSize * scale,
           .fontWeight = entry.header ? FontWeight::Bold : FontWeight::Normal,
-          .color = entry.header ? colorSpecFromRole(ColorRole::Label2)
-              : entry.enabled   ? enabledItemColor()
-                                : disabledItemColor(),
+          .color = entry.header ? colorSpecFromRole(ColorRole::Label2) : itemColor(entry, entry.enabled),
           .maxWidth = entry.hasSubmenu ? (rowWidth - 30.0F * scale - indent - toggleSlot - leadingSlot - shortcutSlot)
                                        : (rowWidth - 16.0F * scale - indent - toggleSlot - leadingSlot - shortcutSlot),
           .maxLines = 1,
@@ -480,21 +528,19 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
     };
     if (rowBgPtr != nullptr && labelPtr != nullptr) {
       visual.apply = [rowBgPtr, labelPtr, togglePtr, chevronPtr, interactive, separator,
-                      header = entry.header](bool highlighted) {
+                      header = entry.header, danger = entry.danger](bool highlighted) {
         rowBgPtr->setFill(highlighted ? colorSpecFromRole(ColorRole::Fill3) : clearColorSpec());
+        const ColorSpec ink = danger ? colorSpecFromRole(ColorRole::Danger, interactive ? 1.0F : 0.55F)
+                              : highlighted ? colorSpecFromRole(ColorRole::Label1)
+                              : interactive ? enabledItemColor()
+                                            : disabledItemColor();
         if (separator || header) {
           labelPtr->setColor(colorSpecFromRole(ColorRole::Label2));
         } else {
-          labelPtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::Label1)
-                          : (interactive ? enabledItemColor() : disabledItemColor())
-          );
+          labelPtr->setColor(ink);
         }
         if (togglePtr != nullptr) {
-          togglePtr->setColor(
-              highlighted ? colorSpecFromRole(ColorRole::Label1)
-                          : (interactive ? enabledItemColor() : disabledItemColor())
-          );
+          togglePtr->setColor(ink);
         }
         if (chevronPtr != nullptr) {
           chevronPtr->setColor(

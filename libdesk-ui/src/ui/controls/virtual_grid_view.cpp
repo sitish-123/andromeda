@@ -128,6 +128,7 @@ void VirtualGridView::setAdapter(VirtualGridAdapter* adapter) {
 void VirtualGridView::notifyDataChanged() {
   // Force every visible slot to rebind on the next layout.
   std::ranges::fill(m_slotBoundIndex, std::nullopt);
+  std::ranges::fill(m_headerBound, std::nullopt);
   markLayoutDirty();
 }
 
@@ -189,6 +190,108 @@ void VirtualGridView::setRowGap(float gap) {
 void VirtualGridView::setOverscanRows(std::size_t rows) {
   m_overscanRows = rows;
   markLayoutDirty();
+}
+
+void VirtualGridView::setSections(std::vector<std::size_t> starts, float headerHeight) {
+  if (starts.empty()) {
+    headerHeight = 0.0F;
+  }
+  if (starts.empty() || starts.front() != 0) {
+    starts.insert(starts.begin(), 0);
+  }
+  if (starts == m_sectionWanted && std::abs(headerHeight - m_sectionHeaderH) < 0.001F) {
+    return;
+  }
+  m_sectionWanted = std::move(starts);
+  m_sectionHeaderH = std::max(0.0F, headerHeight);
+  m_rowCount = layoutSections(m_layoutColumns);
+  notifyDataChanged();
+}
+
+std::size_t VirtualGridView::layoutSections(std::size_t columns) {
+  columns = std::max<std::size_t>(1, columns);
+  // Only non-empty sections count: starts past the items (the adapter shrank before new sections came) or repeated.
+  m_sectionStarts.assign(1, 0);
+  for (const std::size_t start : m_sectionWanted) {
+    if (start > m_sectionStarts.back() && start < m_itemCount) {
+      m_sectionStarts.push_back(start);
+    }
+  }
+  m_sectionFirstRow.resize(m_sectionStarts.size());
+  std::size_t row = 0;
+  for (std::size_t k = 0; k < m_sectionStarts.size(); ++k) {
+    m_sectionFirstRow[k] = row;
+    const std::size_t count = sectionEnd(k) - m_sectionStarts[k];
+    row += (count + columns - 1) / columns;
+  }
+  return row;
+}
+
+std::size_t VirtualGridView::sectionEnd(std::size_t section) const noexcept {
+  return section + 1 < m_sectionStarts.size() ? m_sectionStarts[section + 1] : m_itemCount;
+}
+
+std::size_t VirtualGridView::sectionOfRow(std::size_t row) const noexcept {
+  const auto it = std::ranges::upper_bound(m_sectionFirstRow, row);
+  return it == m_sectionFirstRow.begin() ? 0 : static_cast<std::size_t>(it - m_sectionFirstRow.begin()) - 1;
+}
+
+float VirtualGridView::sectionTop(std::size_t section) const noexcept {
+  const float stride = m_cellHeightResolved + m_rowGap;
+  return static_cast<float>(m_sectionFirstRow[section]) * stride + static_cast<float>(section) * m_sectionHeaderH;
+}
+
+float VirtualGridView::rowTop(std::size_t row) const noexcept {
+  const std::size_t k = sectionOfRow(row);
+  const float stride = m_cellHeightResolved + m_rowGap;
+  return static_cast<float>(row) * stride + static_cast<float>(k + 1) * m_sectionHeaderH;
+}
+
+std::size_t VirtualGridView::rowAtY(float y) const noexcept {
+  if (m_rowCount == 0) {
+    return 0;
+  }
+  std::size_t lo = 0;
+  std::size_t hi = m_sectionFirstRow.size();
+  while (hi - lo > 1) { // last section whose top is at or above y
+    const std::size_t mid = (lo + hi) / 2;
+    (sectionTop(mid) <= y ? lo : hi) = mid;
+  }
+  const float stride = m_cellHeightResolved + m_rowGap;
+  const float inside = std::max(0.0F, y - sectionTop(lo) - m_sectionHeaderH);
+  const std::size_t last = lo + 1 < m_sectionFirstRow.size() ? m_sectionFirstRow[lo + 1] - 1 : m_rowCount - 1;
+  const auto row = m_sectionFirstRow[lo] + static_cast<std::size_t>(stride > 0.0F ? std::floor(inside / stride) : 0.0F);
+  return std::min(std::max(row, m_sectionFirstRow[lo]), last);
+}
+
+std::pair<std::size_t, std::size_t> VirtualGridView::rowColOf(std::size_t index) const noexcept {
+  const auto it = std::ranges::upper_bound(m_sectionStarts, index);
+  const std::size_t k = it == m_sectionStarts.begin() ? 0 : static_cast<std::size_t>(it - m_sectionStarts.begin()) - 1;
+  const std::size_t columns = std::max<std::size_t>(1, m_layoutColumns);
+  const std::size_t local = index - m_sectionStarts[k];
+  return {m_sectionFirstRow[k] + local / columns, local % columns};
+}
+
+std::optional<std::size_t> VirtualGridView::indexAtRowCol(std::size_t row, std::size_t col) const noexcept {
+  const std::size_t k = sectionOfRow(row);
+  const std::size_t index = m_sectionStarts[k] + (row - m_sectionFirstRow[k]) * m_layoutColumns + col;
+  return index < sectionEnd(k) ? std::optional(index) : std::nullopt;
+}
+
+std::optional<std::size_t> VirtualGridView::indexInNextRow(std::size_t index, int rowDelta) const {
+  if (index >= m_itemCount || m_layoutColumns == 0 || m_sectionFirstRow.size() != m_sectionStarts.size()) {
+    return std::nullopt;
+  }
+  const auto [row, col] = rowColOf(index);
+  const auto target = static_cast<std::ptrdiff_t>(row) + rowDelta;
+  if (target < 0 || target >= static_cast<std::ptrdiff_t>(m_rowCount)) {
+    return std::nullopt;
+  }
+  const auto r = static_cast<std::size_t>(target);
+  if (const auto hit = indexAtRowCol(r, col)) {
+    return hit;
+  }
+  return sectionEnd(sectionOfRow(r)) - 1;
 }
 
 void VirtualGridView::setScale(float scale) {
@@ -297,13 +400,17 @@ void VirtualGridView::notifyPageChanged() {
 }
 
 void VirtualGridView::cellOrigin(std::size_t index, float& x, float& y) const noexcept {
+  if (m_pageRows == 0) {
+    const auto [row, col] = rowColOf(index);
+    x = static_cast<float>(visualCol(col)) * (m_cellWidth + m_columnGap);
+    y = rowTop(row);
+    return;
+  }
   const std::size_t col = index % m_layoutColumns;
   std::size_t row = index / m_layoutColumns;
   x = static_cast<float>(visualCol(col)) * (m_cellWidth + m_columnGap);
-  if (m_pageRows > 0) {
-    x += static_cast<float>(row / m_pageRows) * m_pageStride;
-    row %= m_pageRows;
-  }
+  x += static_cast<float>(row / m_pageRows) * m_pageStride;
+  row %= m_pageRows;
   y = static_cast<float>(row) * (m_cellHeightResolved + m_rowGap);
 }
 
@@ -330,15 +437,18 @@ std::vector<std::size_t> VirtualGridView::indicesInRect(float x0, float y0, floa
   }
   const auto [left, right] = std::minmax(x0, x1);
   const auto [top, bottom] = std::minmax(y0, y1);
-  const float rowStride = m_cellHeightResolved + m_rowGap;
-  const auto firstRow = static_cast<std::size_t>(std::max(0.0F, std::floor(top / rowStride)));
-  const auto lastRow = static_cast<std::size_t>(std::max(0.0F, std::floor(bottom / rowStride)));
+  if (m_rowCount == 0) {
+    return out;
+  }
+  const std::size_t firstRow = rowAtY(top);
+  const std::size_t lastRow = rowAtY(bottom);
   for (std::size_t row = firstRow; row <= lastRow; ++row) {
     for (std::size_t col = 0; col < m_layoutColumns; ++col) {
-      const std::size_t index = row * m_layoutColumns + col;
-      if (index >= m_itemCount) {
-        return out;
+      const auto hit = indexAtRowCol(row, col);
+      if (!hit.has_value()) {
+        break;
       }
+      const std::size_t index = *hit;
       float x = 0.0F;
       float y = 0.0F;
       cellOrigin(index, x, y);
@@ -429,10 +539,13 @@ void VirtualGridView::doLayout(Renderer& renderer) {
         ? m_minCellWidth
         : std::max(0.0F, (availableW - (columnsF - 1.0F) * m_columnGap) / std::max(1.0F, columnsF));
     metrics.cellH = m_squareCells ? metrics.cellW : m_cellHeight;
-    metrics.rowCount = (m_itemCount + metrics.columns - 1) / metrics.columns;
+    metrics.rowCount = m_pageRows > 0 ? (m_itemCount + metrics.columns - 1) / metrics.columns : layoutSections(metrics.columns);
     metrics.virtualHeight = metrics.rowCount == 0
         ? 0.0F
         : (static_cast<float>(metrics.rowCount) * metrics.cellH + static_cast<float>(metrics.rowCount - 1) * m_rowGap);
+    if (m_pageRows == 0 && metrics.rowCount > 0) {
+      metrics.virtualHeight += static_cast<float>(m_sectionStarts.size()) * m_sectionHeaderH;
+    }
     return metrics;
   };
 
@@ -465,6 +578,10 @@ void VirtualGridView::doLayout(Renderer& renderer) {
   m_layoutColumns = columns;
   m_cellWidth = cellW;
   m_cellHeightResolved = cellH;
+  m_rowCount = rowCount;
+  if (!paged) {
+    (void)layoutSections(columns); // the second resolveMetrics pass may have used another column count
+  }
   m_virtualWidth = virtualWidth;
   m_virtualHeight = virtualHeight;
 
@@ -484,9 +601,12 @@ void VirtualGridView::doLayout(Renderer& renderer) {
         m_pendingPage = m_pendingScrollIndex / (columns * m_pageRows);
       }
     } else if (m_pendingScrollIndex < m_itemCount && columns > 0) {
-      const std::size_t row = m_pendingScrollIndex / columns;
-      const float rowTop = static_cast<float>(row) * (cellH + m_rowGap);
-      const float rowBottom = rowTop + cellH;
+      const std::size_t row = rowColOf(m_pendingScrollIndex).first;
+      const std::size_t section = sectionOfRow(row);
+      // The first row of a section brings its header along.
+      const float top = row == m_sectionFirstRow[section] ? sectionTop(section) : this->rowTop(row);
+      const float rowBottom = this->rowTop(row) + cellH;
+      const float rowTop = top;
       const float visibleTop = m_scroll->scrollOffset();
       const float visibleBottom = visibleTop + viewportH;
       if (rowTop < visibleTop) {
@@ -519,11 +639,11 @@ void VirtualGridView::doLayout(Renderer& renderer) {
     firstRow = std::min(firstPage * m_pageRows, rowCount - 1);
     lastRow = std::min((lastPage + 1) * m_pageRows - 1, rowCount - 1);
   } else if (!paged && rowStride > 0.0F && rowCount > 0) {
-    const long firstRaw = static_cast<long>(std::floor(scrollY / rowStride)) - static_cast<long>(m_overscanRows);
-    const long lastRaw =
-        static_cast<long>(std::ceil((scrollY + viewportH) / rowStride)) + static_cast<long>(m_overscanRows);
-    firstRow = static_cast<std::size_t>(std::max<long>(0, firstRaw));
-    lastRow = static_cast<std::size_t>(std::max<long>(0, std::min<long>(lastRaw, static_cast<long>(rowCount) - 1)));
+    const auto top = static_cast<long>(rowAtY(std::max(0.0F, scrollY)));
+    const auto bottom = static_cast<long>(rowAtY(std::max(0.0F, scrollY + viewportH)));
+    firstRow = static_cast<std::size_t>(std::max<long>(0, top - static_cast<long>(m_overscanRows)));
+    lastRow = static_cast<std::size_t>(
+        std::min<long>(bottom + static_cast<long>(m_overscanRows), static_cast<long>(rowCount) - 1));
   }
   const std::size_t visibleRowCount = (rowCount == 0 || lastRow < firstRow) ? 0 : (lastRow - firstRow + 1);
   const std::size_t desiredPoolSize = visibleRowCount * columns;
@@ -594,10 +714,11 @@ void VirtualGridView::doLayout(Renderer& renderer) {
         if (slot >= m_pool.size()) {
           continue;
         }
-        const std::size_t logicalIndex = row * columns + col;
-        if (logicalIndex >= m_itemCount) {
+        const auto hit = paged ? std::optional(row * columns + col) : indexAtRowCol(row, col);
+        if (!hit.has_value() || *hit >= m_itemCount) {
           continue;
         }
+        const std::size_t logicalIndex = *hit;
         Node* tile = m_pool[slot];
         if (tile == nullptr) {
           continue;
@@ -650,6 +771,38 @@ void VirtualGridView::doLayout(Renderer& renderer) {
       }
       m_slotBoundOverlayHovered[slot] = false;
     }
+  }
+
+  // Section headers over the visible rows, one pooled node each.
+  std::size_t headersUsed = 0;
+  if (!paged && m_sectionHeaderH > 0.0F && visibleRowCount > 0) {
+    for (std::size_t k = sectionOfRow(firstRow); k <= sectionOfRow(lastRow); ++k) {
+      if (headersUsed == m_headerPool.size()) {
+        auto header = m_adapter->createSectionHeader();
+        if (header == nullptr) {
+          break;
+        }
+        header->setParticipatesInLayout(false);
+        m_headerPool.push_back(m_canvas->addChild(std::move(header)));
+        m_headerBound.emplace_back();
+      }
+      Node* header = m_headerPool[headersUsed];
+      const float top = sectionTop(k);
+      header->setPosition(0.0F, top);
+      const bool resized = std::abs(header->width() - virtualWidth) > 0.5F;
+      header->setSize(virtualWidth, m_sectionHeaderH);
+      if (m_headerBound[headersUsed] != k || resized) {
+        m_adapter->bindSectionHeader(*header, k, virtualWidth, m_sectionHeaderH);
+        m_headerBound[headersUsed] = k;
+        header->layout(renderer);
+      }
+      header->setVisible(true);
+      ++headersUsed;
+    }
+  }
+  for (std::size_t i = headersUsed; i < m_headerPool.size(); ++i) {
+    m_headerPool[i]->setVisible(false);
+    m_headerBound[i].reset();
   }
 
   // Step 5: position the input overlay across the entire virtual canvas.
@@ -928,14 +1081,25 @@ std::optional<std::size_t> VirtualGridView::indexAt(float localX, float localY) 
     pageRowBase = page * m_pageRows;
   }
   const auto colF = localX / colStride;
-  const auto rowF = localY / rowStride;
   const auto col = static_cast<std::size_t>(std::floor(colF));
-  const auto row = static_cast<std::size_t>(std::floor(rowF));
   if (col >= m_layoutColumns) {
     return std::nullopt;
   }
-  // Reject the gutter region between cells.
   const float cellLocalX = localX - static_cast<float>(col) * colStride;
+  if (m_pageRows == 0) {
+    if (m_rowCount == 0) {
+      return std::nullopt;
+    }
+    const std::size_t row = rowAtY(localY);
+    const float cellLocalY = localY - rowTop(row);
+    // Gutters, section headers and the space past the last row hold no item.
+    if (cellLocalX > m_cellWidth || cellLocalY < 0.0F || cellLocalY > m_cellHeightResolved) {
+      return std::nullopt;
+    }
+    return indexAtRowCol(row, visualCol(col));
+  }
+  const auto row = static_cast<std::size_t>(std::floor(localY / rowStride));
+  // Reject the gutter region between cells.
   const float cellLocalY = localY - static_cast<float>(row) * rowStride;
   if (cellLocalX > m_cellWidth || cellLocalY > m_cellHeightResolved) {
     return std::nullopt;

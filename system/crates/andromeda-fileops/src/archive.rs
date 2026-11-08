@@ -215,9 +215,69 @@ impl OutFormat {
     }
 }
 
+/// "photos.zip.002" for part 2 of "photos.zip" (the 7-Zip volume names, read by 7-Zip, PeaZip and Ark).
+fn volume_name(base: &Path, part: usize) -> PathBuf {
+    let mut name = base.as_os_str().to_os_string();
+    name.push(format!(".{part:03}"));
+    PathBuf::from(name)
+}
+
+/// One archive file, or the volumes name.001, name.002, … read back to back as one file.
+struct Volumes {
+    parts: Vec<(File, u64)>,
+    len: u64,
+    pos: u64,
+}
+
+impl Volumes {
+    fn open(path: &Path) -> io::Result<Self> {
+        let first = File::open(path)?;
+        let mut parts = vec![(first.metadata()?.len(), first)];
+        if let Some(base) = path.as_os_str().as_bytes().strip_suffix(b".001") {
+            let base = Path::new(std::ffi::OsStr::from_bytes(base));
+            for part in 2.. {
+                let Ok(file) = File::open(volume_name(base, part)) else { break };
+                parts.push((file.metadata()?.len(), file));
+            }
+        }
+        let len = parts.iter().map(|(len, _)| len).sum();
+        Ok(Self { parts: parts.into_iter().map(|(len, file)| (file, len)).collect(), len, pos: 0 })
+    }
+}
+
+impl Read for Volumes {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        use std::os::unix::fs::FileExt;
+        let mut start = 0;
+        for (file, len) in &self.parts {
+            if self.pos < start + len {
+                let at = self.pos - start;
+                let want = usize::try_from((len - at).min(buf.len() as u64)).unwrap_or(buf.len());
+                let n = file.read_at(&mut buf[..want], at)?;
+                self.pos += n as u64;
+                return Ok(n);
+            }
+            start += len;
+        }
+        Ok(0)
+    }
+}
+
+impl io::Seek for Volumes {
+    fn seek(&mut self, to: io::SeekFrom) -> io::Result<u64> {
+        let pos = match to {
+            io::SeekFrom::Start(n) => Some(n),
+            io::SeekFrom::End(d) => self.len.checked_add_signed(d),
+            io::SeekFrom::Current(d) => self.pos.checked_add_signed(d),
+        };
+        self.pos = pos.ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        Ok(self.pos)
+    }
+}
+
 fn detect(path: &Path) -> Result<Format, ArchiveError> {
     let mut head = [0u8; 512];
-    let mut file = File::open(path)?;
+    let mut file = Volumes::open(path)?;
     let mut n = 0;
     while n < head.len() {
         let got = file.read(&mut head[n..])?;
@@ -306,7 +366,7 @@ fn walk_zip(
     with_data: bool,
     each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
 ) -> Result<(), ArchiveError> {
-    let mut zip = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
+    let mut zip = zip::ZipArchive::new(BufReader::new(Volumes::open(path)?))?;
     for i in 0..zip.len() {
         let mut file = if !with_data {
             zip.by_index_raw(i)?
@@ -351,7 +411,7 @@ fn walk_7z(
     each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
 ) -> Result<(), ArchiveError> {
     let password = if password.is_empty() { sevenz_rust2::Password::empty() } else { password.into() };
-    let mut reader = sevenz_rust2::ArchiveReader::open(path, password)?;
+    let mut reader = sevenz_rust2::ArchiveReader::new(Volumes::open(path)?, password)?;
     let item = |e: &sevenz_rust2::ArchiveEntry| -> Result<Option<Entry>, ArchiveError> {
         let Some(inner) = checked_path(&e.name().replace('\\', "/").into_bytes())? else { return Ok(None) };
         let kind = if e.is_directory() { Kind::Dir } else { Kind::File };
@@ -395,7 +455,7 @@ fn walk_7z(
 }
 
 fn tar_stream(path: &Path, codec: Codec) -> Result<Box<dyn Read>, ArchiveError> {
-    let file = BufReader::new(File::open(path)?);
+    let file = BufReader::new(Volumes::open(path)?);
 
     Ok(match codec {
         Codec::Plain => Box::new(file),
@@ -464,7 +524,10 @@ pub fn totals(path: &Path) -> (u64, u64) {
 
 /// "photos" for photos.tar.gz, photos.zip, photos.7z.
 fn stem(archive: &Path) -> std::ffi::OsString {
-    let name = archive.file_name().map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+    let mut name = archive.file_name().map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+    if name.len() > 4 && name.ends_with(b".001") {
+        name.truncate(name.len() - 4);
+    }
     let lower = name.to_ascii_lowercase();
     let cut = [".tar.gz", ".tar.xz", ".tar.zst", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar"]
         .iter()
@@ -845,7 +908,15 @@ fn gather(sources: &[PathBuf]) -> io::Result<Vec<(PathBuf, String, fs::Metadata)
 
 /// Writes `sources` into a new archive at `destination` (a taken name gets a "(copy)" name). The archive is written
 /// to a hidden part file and renamed at the end, so a cancel or error leaves nothing. Undo removes the archive.
-pub fn compress(sources: &[PathBuf], destination: &Path, format: OutFormat, password: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+/// A `volume` size above 0 cuts an archive larger than it into destination.001, .002, … of that size.
+pub fn compress(
+    sources: &[PathBuf],
+    destination: &Path,
+    format: OutFormat,
+    password: &str,
+    volume: u64,
+    ctl: &dyn Control,
+) -> (Vec<UndoStep>, OpResult<()>) {
     let parent = destination.parent().unwrap_or(Path::new("/"));
     let n = STAGING.fetch_add(1, Ordering::Relaxed);
     let part = parent.join(format!(".andromeda-compress-{}-{n}.part", std::process::id()));
@@ -883,6 +954,32 @@ pub fn compress(sources: &[PathBuf], destination: &Path, format: OutFormat, pass
         let e = if ctl.cancelled() { OpError::Cancelled } else { OpError::Io(destination.to_path_buf(), e) };
         return (Vec::new(), Err(e));
     }
+    let volumes = match split_part(&part, volume, ctl) {
+        Ok(volumes) => volumes,
+        Err(e) => {
+            let e = if ctl.cancelled() { OpError::Cancelled } else { OpError::Io(destination.to_path_buf(), e) };
+            return (Vec::new(), Err(e));
+        }
+    };
+    if !volumes.is_empty() {
+        let staged: Vec<PathBuf> = std::iter::once(part.clone()).chain(volumes.iter().map(|v| v.0.clone())).collect();
+        let name = destination.file_name().unwrap_or_default();
+        for attempt in 0..100 {
+            let base = if attempt == 0 { destination.to_path_buf() } else { parent.join(free_pick_name(name, attempt)) };
+            let finals: Vec<PathBuf> = (1..=staged.len()).map(|k| volume_name(&base, k)).collect();
+            match rename_all(&staged, &finals) {
+                Ok(()) => {
+                    std::mem::forget(guard);
+                    volumes.into_iter().for_each(std::mem::forget);
+                    ctl.progress(1, bytes.get(), &finals[0]);
+                    return (finals.into_iter().map(UndoStep::Created).collect(), Ok(()));
+                }
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return (Vec::new(), Err(OpError::Io(finals[0].clone(), e))),
+            }
+        }
+        return (Vec::new(), Err(OpError::Io(destination.to_path_buf(), io::ErrorKind::AlreadyExists.into())));
+    }
     // NOREPLACE: a file made at the target meanwhile is never replaced; the archive takes the next free name.
     let mut target = destination.to_path_buf();
     for _ in 0..100 {
@@ -898,6 +995,47 @@ pub fn compress(sources: &[PathBuf], destination: &Path, format: OutFormat, pass
     std::mem::forget(guard);
     ctl.progress(1, bytes.get(), &target);
     (vec![UndoStep::Created(target)], Ok(()))
+}
+
+/// Cuts the finished archive `part` into `size` volumes from its end, so the disk holds at most one volume more than
+/// the archive. Returns the staged parts 2..n in order; `part` keeps part 1. An archive that fits stays whole.
+fn split_part(part: &Path, size: u64, ctl: &dyn Control) -> io::Result<Vec<Staging>> {
+    use std::io::Seek;
+    let file = OpenOptions::new().read(true).write(true).open(part)?;
+    let len = file.metadata()?.len();
+    if size == 0 || len <= size {
+        return Ok(Vec::new());
+    }
+    let mut staged = Vec::new();
+    for k in (1..len.div_ceil(size)).rev() {
+        if ctl.cancelled() {
+            return Err(io::Error::other("cancelled"));
+        }
+        let path = volume_name(part, usize::try_from(k + 1).unwrap_or(usize::MAX));
+        let guard = Staging(path.clone());
+        let mut out = OpenOptions::new().write(true).create_new(true).mode(0o644).open(&path)?;
+        let mut from = &file;
+        from.seek(io::SeekFrom::Start(k * size))?;
+        io::copy(&mut from.take(len.min((k + 1) * size) - k * size), &mut out)?;
+        file.set_len(k * size)?;
+        staged.push(guard);
+    }
+    staged.reverse();
+    Ok(staged)
+}
+
+/// Renames every `from` to its `to` without replacing anything; on a taken name the done ones go back.
+fn rename_all(from: &[PathBuf], to: &[PathBuf]) -> io::Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    for (i, (a, b)) in from.iter().zip(to).enumerate() {
+        if let Err(e) = renameat_with(CWD, a, CWD, b, RenameFlags::NOREPLACE) {
+            for (a, b) in from[..i].iter().zip(&to[..i]) {
+                let _ = renameat_with(CWD, b, CWD, a, RenameFlags::NOREPLACE);
+            }
+            return Err(e.into());
+        }
+    }
+    Ok(())
 }
 
 fn zip_time(meta: &fs::Metadata) -> zip::DateTime {
@@ -1085,7 +1223,7 @@ mod tests {
         fs::write(src.join("one.txt"), "1").expect("write");
         fs::write(src.join("d/two.txt"), "2").expect("write");
         let archive = root.path().join("bundle.tar.gz");
-        let (_, result) = compress(&[src.join("one.txt"), src.join("d")], &archive, OutFormat::TarGz, "", &Quietly);
+        let (_, result) = compress(&[src.join("one.txt"), src.join("d")], &archive, OutFormat::TarGz, "", 0, &Quietly);
         result.expect("compress");
         let dest = root.path().join("out");
         fs::create_dir(&dest).expect("mkdir");
@@ -1274,7 +1412,7 @@ mod tests {
             (OutFormat::TarZst, "tar.zst", ""),
         ] {
             let archive = root.path().join(format!("project.{ext}"));
-            let (undo, result) = compress(&[src.clone()], &archive, format, password, &Quietly);
+            let (undo, result) = compress(&[src.clone()], &archive, format, password, 0, &Quietly);
             result.unwrap_or_else(|e| panic!("{ext}: {e}"));
             assert!(matches!(&undo[..], [UndoStep::Created(p)] if *p == archive));
             let mut names: Vec<_> = list(&archive).unwrap_or_else(|e| panic!("{ext}: {e}")).into_iter().map(|e| e.path).collect();
@@ -1284,6 +1422,40 @@ mod tests {
             fs::create_dir(&dest).expect("mkdir");
             extract(&archive, &[], &dest, password, &Quietly).1.unwrap_or_else(|e| panic!("{ext}: {e}"));
             assert_eq!(fs::read_to_string(dest.join("project/lib/code.rs")).expect("code"), "fn main() {}", "{ext}");
+        }
+        assert_eq!(fs::read_dir(root.path()).expect("ls").flatten().filter(|e| e.file_name().as_bytes().starts_with(b".")).count(), 0, "no part file is left");
+    }
+
+    #[test]
+    fn split_volumes_extract_back_in_every_format() {
+        let root = tempfile::tempdir().expect("tmp");
+        let src = root.path().join("big");
+        fs::create_dir(&src).expect("mkdir");
+        // Incompressible bytes, so every format needs several volumes.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let data: Vec<u8> = (0..300_000)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                state.to_le_bytes()[0]
+            })
+            .collect();
+        fs::write(src.join("noise.bin"), &data).expect("write");
+        for (format, ext, password) in [(OutFormat::Zip, "zip", "pw"), (OutFormat::SevenZ, "7z", "pw"), (OutFormat::TarZst, "tar.zst", "")] {
+            let archive = root.path().join(format!("big.{ext}"));
+            fs::write(volume_name(&archive, 1), "taken").expect("write");
+            let (undo, result) = compress(&[src.clone()], &archive, format, password, 100_000, &Quietly);
+            result.unwrap_or_else(|e| panic!("{ext}: {e}"));
+            let taken = root.path().join(free_pick_name(archive.file_name().expect("name"), 1));
+            let volumes: Vec<PathBuf> = (1..=undo.len()).map(|k| volume_name(&taken, k)).collect();
+            assert!(undo.len() >= 3, "{ext}: {} volumes", undo.len());
+            assert!(undo.iter().zip(&volumes).all(|(step, path)| matches!(step, UndoStep::Created(p) if p == path)), "{ext}");
+            assert!(volumes[..volumes.len() - 1].iter().all(|v| fs::metadata(v).expect("vol").len() == 100_000), "{ext}");
+            let dest = root.path().join(format!("out-{ext}"));
+            fs::create_dir(&dest).expect("mkdir");
+            extract(&volumes[0], &[], &dest, password, &Quietly).1.unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert!(fs::read(dest.join("big/noise.bin")).expect("noise") == data, "{ext}");
         }
         assert_eq!(fs::read_dir(root.path()).expect("ls").flatten().filter(|e| e.file_name().as_bytes().starts_with(b".")).count(), 0, "no part file is left");
     }

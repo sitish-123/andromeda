@@ -46,7 +46,7 @@ public:
 
     [[nodiscard]] bool finished() const noexcept { return state == "done" || state == "failed" || state == "cancelled"; }
   };
-  enum class Resolution : std::uint8_t { Replace, Skip, KeepBoth };
+  enum class Resolution : std::uint8_t { Replace, Skip, KeepBoth, Merge }; // Merge: a folder onto a folder
   // jobPath empty on error.
   using Started = std::function<void(const std::string& jobPath, const std::string& error)>;
   using JobChanged = std::function<void(const Job& job)>;
@@ -86,7 +86,7 @@ public:
   // Bits `mode` where `mask` is set; folders open where they read. recursive: also everything inside folders.
   void setPermissions(const std::vector<std::filesystem::path>& targets, std::uint32_t mode, std::uint32_t mask,
                       bool recursive, Started done = {});
-  // mode "set" (exactly these), "add" or "remove"; tags in user.xdg.tags, no comma in a tag.
+  // mode "set" (exactly these), "add", "remove" or "rename" (tags = {old, new}); tags in user.xdg.tags, no comma in a tag.
   void setTags(const std::vector<std::filesystem::path>& targets, const std::vector<std::string>& tags,
                const std::string& mode, Started done = {});
   // algorithm "sha256" or "md5". finished gets the hex digest, or "" and the error (also "cancelled").
@@ -104,7 +104,7 @@ public:
   // Folders (sizes from the last scan) and files in `folder`, largest first.
   void storageFolder(const std::filesystem::path& folder, FolderSizes done);
   void compress(const std::vector<std::filesystem::path>& sources, const std::filesystem::path& archive,
-                const std::string& format, const std::string& password, Started done = {});
+                const std::string& format, const std::string& password, std::uint64_t volumeSize, Started done = {});
   void cancel(const std::string& jobPath);
   // Only a running job pauses (state "paused" at once) and only a paused one resumes.
   void pause(const std::string& jobPath);

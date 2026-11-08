@@ -13,9 +13,9 @@ namespace {
   constexpr Logger kLog("starred");
 }
 
-fs::path Starred::storePath() { return fs::path(g_get_user_data_dir()) / "andromeda" / "files" / "starred.json"; }
+fs::path Starred::storePath() const { return fs::path(g_get_user_data_dir()) / "andromeda" / "files" / m_file; }
 
-Starred::Starred() {
+Starred::Starred(std::string file) : m_file(std::move(file)) {
   std::ifstream in(storePath());
   const nlohmann::json list = nlohmann::json::parse(in, nullptr, false);
   if (!list.is_array()) {

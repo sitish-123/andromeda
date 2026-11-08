@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-enum class FileSortKey : std::uint8_t { Name, Size, Modified, Kind };
+enum class FileSortKey : std::uint8_t { Name, Size, Modified, Kind, Added };
 
 struct FileSort {
   FileSortKey key = FileSortKey::Name;

@@ -20,6 +20,10 @@ boot_headless 1
 # SCALE=2: a 2560x1440 mode at scale 2, for 1:1 crops against the mockup at device scale 2.
 if [[ ${SCALE:-1} == 2 ]]; then
   printf '\n[output.HEADLESS-1]\nmode = "2560x1440@60"\nscale = 2\n' >> "$RUNTIME/andromeda.toml"
+  # The compositor read its config at boot: reload, and wait until the output runs at scale 2.
+  run "$ANDROMEDA" msg config-reload > /dev/null
+  for _ in $(seq 100); do run "$ANDROMEDA" outputs --json | jq -e ".[0].scale == 2" > /dev/null && break; sleep 0.05; done
+  run "$ANDROMEDA" outputs --json | jq -e ".[0].scale == 2" > /dev/null || { echo "FAIL: the output did not switch to scale 2"; exit 1; }
 fi
 
 fail() { echo "FAIL: $*"; exit 1; }
@@ -30,7 +34,7 @@ echo old > "$DST/a.txt"
 bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
-trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm -rf "$RUNTIME"' EXIT
+trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config")
 
