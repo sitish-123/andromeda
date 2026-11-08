@@ -219,7 +219,20 @@ namespace andromeda {
     animation.windowsOut.style = "fade";
     animation.windowsMove.enabled = false;
     animation.windowsResize.enabled = false;
-    animation.workspaces.enabled = false;
+    // A workspace switch crossfades in place instead of sliding (rulebook 7.8): both workspaces stay live while the
+    // incoming one fades over the outgoing one.
+    constexpr std::string_view kCrossfade = "andromeda-reduce-motion-crossfade";
+    if (findEffectPreset(config.effects, kCrossfade) == nullptr) {
+      config.effects.presets.push_back(EffectPreset{
+          .name = std::string(kCrossfade),
+          .kind = EffectKind::Animation,
+          .shader = {.code = "vec4 animation(vec2 uv) {\n"
+                             "  return mix(andromeda_sample(uv), andromeda_sample_incoming(uv), andromeda_clamped_progress);\n"
+                             "}\n"},
+      });
+    }
+    animation.workspaces.style = "reveal";
+    animation.workspaces.effect = std::string(kCrossfade);
     animation.overview.enabled = false;
     animation.scratchpad.enabled = false;
   }

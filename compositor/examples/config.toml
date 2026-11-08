@@ -173,9 +173,13 @@ numlock_toggle = true
 "Alt+Tab" = "shell:window-switcher"
 "Mod+Tab" = "shell:window-switcher"
 "Mod+L" = { action = "shell:session lock", repeat = false }
-"Mod+Shift+L" = { action = "shell:panel-toggle session", repeat = false }
+"Mod+Shift+L" = { action = "shell:panel-toggle control-center session", repeat = false }
 "Mod+Q" = { action = "window-close", repeat = false }
-"Mod+Escape" = "session-quit"
+"Mod+Escape" = { action = "shell:panel-toggle control-center session", repeat = false }
+"Ctrl+Alt+Delete" = { action = "shell:power-overlay", repeat = false }
+# The shell holds logind's handle-power-key block: a press opens the power menu (or the Settings › Power choice),
+# holding fills the shut-down ring, the release cancels it.
+"XF86PowerOff" = { action = "shell:power-overlay key-down", release_action = "shell:power-overlay key-up", repeat = false, allow_when_locked = true }
 "Mod+Shift+Escape" = { action = "shortcuts-inhibit-toggle", allow_when_inhibited = true, repeat = false }
 
 # Media, volume and brightness keys from any input device, routed through the
@@ -317,7 +321,8 @@ blur = true
 
 [[window_rule]]
 match.app_id = "^dev.noctalia.Noctalia$"
-default_floating = true
+# Settings is an app window: a 1020 px column when scrolling, 1020 x 900 when it floats.
+default_scrolling_extent_px = 1020
 default_floating_size_px = { width = 1020, height = 900 }
 
 [[window_rule]]

@@ -95,8 +95,11 @@ namespace andromeda {
     void hideEffects();
 
   private:
+    void setHairlineAlpha(float alpha);
     wlr_scene_tree* m_borderTree = nullptr;
     wlr_scene_border* m_border = nullptr;
+    // A 1 px edge just inside the window's corner shape, so a black window keeps its outline on a dark backdrop.
+    wlr_scene_rect* m_hairline = nullptr;
     Config::Colors::Border m_borderColors = config().colors.border;
     int m_borderWidth = config().appearance.borderWidth;
     int m_outerBorderWidth = config().appearance.outerBorderWidth;

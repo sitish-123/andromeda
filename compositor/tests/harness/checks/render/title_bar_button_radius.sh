@@ -77,7 +77,9 @@ for scale in 1 1.25 2; do
         exit 1
       }
       if [[ $scale != 1.25 ]]; then
-        diameter=12
+        # Andromeda buttons: 12 px up to a 30 px bar, 16 at 40 (ssd_frame_geometry.cpp).
+        d=$((height * 2 / 5 / 2 * 2))
+        diameter=$((d < 12 ? 12 : d > 16 ? 16 : d))
         ((square == 2 * diameter * diameter * scale * scale)) || {
           echo "square buttons lost corner pixels"
           exit 1

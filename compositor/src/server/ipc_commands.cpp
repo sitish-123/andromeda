@@ -693,6 +693,7 @@ namespace andromeda {
       entry["tab_hidden"] = view.tabHidden();
       entry["minimizable"] = view.minimizable();
       entry["minimized"] = view.minimized();
+      entry["not_responding"] = view.notResponding();
       entry["snap"] = view.snapSpot() ? nlohmann::json(snapSpotName(*view.snapSpot())) : nlohmann::json(nullptr);
       // Snap group (snap assist) and the member's zone as fractions of the work area, for the dock and taskbar
       // group card (board desktop-menus.html B).

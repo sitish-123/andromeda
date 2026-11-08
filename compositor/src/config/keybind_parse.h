@@ -342,6 +342,8 @@ namespace andromeda {
     KeybindPayload payload;
     // Optional layer transition after the primary action is dispatched.
     std::optional<SubmapArg> submapAfter;
+    // Action text (as parseAction reads it) run when the key whose press fired this bind comes up; empty = none.
+    std::string releaseAction;
 
     bool operator==(const Keybind&) const = default;
   };

@@ -18,6 +18,8 @@ focused = "#FF0000"
 unfocused = "#FF0000"
 
 [appearance]
+# The window highlight tints the edge pixel; this check reads exact client content there.
+window_edge = false
 border_width = 1
 outer_border_width = 0
 corner_radius = 24

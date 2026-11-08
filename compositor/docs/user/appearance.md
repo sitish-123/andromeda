@@ -103,6 +103,7 @@ opaque_fullscreen = true
 | `prefer_no_csd`      | `true`  | Advertise a preference for server decorations. The optional title bar is configured separately. |
 | `border_width`       | `2`     | Inner border width in logical pixels.                                                           |
 | `outer_border_width` | `0`     | Outer ring width in logical pixels.                                                             |
+| `window_edge`        | `true`  | Highlight just inside each window: white 12 % on top, fading to 3 % at the bottom.             |
 | `corner_radius`      | `10`    | Radius of the complete decorated window.                                                        |
 | `drag_opacity`       | `0.75`  | Opacity while dragging a window.                                                                |
 | `opaque_fullscreen`  | `true`  | Draw fullscreen windows over the backdrop and ignore window rule `opacity`.                     |

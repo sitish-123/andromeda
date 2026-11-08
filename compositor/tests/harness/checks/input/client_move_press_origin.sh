@@ -10,6 +10,8 @@ border_width = 0
 outer_border_width = 0
 corner_radius = 0
 drag_opacity = 1.0
+[appearance.title_bar]
+mode = "off"
 [appearance.shadow]
 enabled = false
 [input.focus]

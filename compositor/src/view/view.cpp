@@ -233,6 +233,8 @@ namespace andromeda {
       wl_signal_add(&m_toplevel->events.set_app_id, &m_setAppId);
       m_configure.notify = onConfigure;
       wl_signal_add(&m_toplevel->base->events.configure, &m_configure);
+      m_pingTimeout.notify = onPingTimeout;
+      wl_signal_add(&m_toplevel->base->events.ping_timeout, &m_pingTimeout);
       // wlroots prepares the first capabilities event before exposing the toplevel. Adjust that pending event directly,
       // because the public setter schedules a configure and the surface is not initialized until its initial commit.
       m_toplevel->scheduled.wm_capabilities &= ~WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE;
@@ -324,7 +326,7 @@ namespace andromeda {
     }
     for (wl_listener* listener :
          {&m_map, &m_unmap, &m_commit, &m_destroy, &m_requestMove, &m_requestResize, &m_requestMaximize,
-          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_configure, &m_xRequestConfigure,
+          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_configure, &m_pingTimeout, &m_xRequestConfigure,
           &m_xRequestActivate, &m_xSetHints, &m_xShapeChanged, &m_setDecorations}) {
       removeListener(*listener);
     }
@@ -915,6 +917,11 @@ namespace andromeda {
     if (self->suspended()) {
       self->m_server->armBackgroundFrameTimer();
     }
+  }
+
+  void View::onPingTimeout(wl_listener* listener, void* /*data*/) {
+    View* self = wl_container_of(listener, self, m_pingTimeout);
+    self->m_notResponding = true;
   }
 
   void View::onSetAppId(wl_listener* listener, void* /*data*/) {

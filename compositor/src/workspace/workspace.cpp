@@ -1013,7 +1013,31 @@ namespace andromeda {
         || usable.y != m_lastArrangeUsable.y
         || usable.width != m_lastArrangeUsable.width
         || usable.height != m_lastArrangeUsable.height;
+    const wlr_box previousUsable = m_lastArrangeUsable;
     m_lastArrangeUsable = usable;
+    // A float that sat fully inside the old area stays fully inside the new one, so a bar that reserves its space
+    // after the window mapped (a session start) never hides the window's edge; other floats only stay grabbable.
+    const auto keepInside = [&](View* view) {
+      const wlr_box& geo = view->geometryBox();
+      const int x = view->layoutTargetX();
+      const int y = view->layoutTargetY();
+      const auto inside = [&](const wlr_box& area) {
+        return x >= area.x && y >= area.y && x + geo.width <= area.x + area.width
+            && y + geo.height <= area.y + area.height;
+      };
+      if (previousUsable.width <= 0 || !inside(previousUsable) || inside(usable) || geo.width > usable.width
+          || geo.height > usable.height) {
+        return false;
+      }
+      const int nx = std::clamp(x, usable.x, usable.x + usable.width - geo.width);
+      const int ny = std::clamp(y, usable.y, usable.y + usable.height - geo.height);
+      if (animate) {
+        view->animateTo(nx, ny);
+      } else {
+        view->setPosition(nx, ny);
+      }
+      return true;
+    };
 
     // Fullscreen and floating views position themselves. Established tiled members share windows_move below, while an
     // opening tiled lifecycle view is presented directly at its final slot.
@@ -1042,7 +1066,7 @@ namespace andromeda {
 
       if (m_layout->columnOf(view) < 0) {
         // Floating (non-fullscreen): clip + enable against the home output.
-        if (usableChanged) {
+        if (usableChanged && !keepInside(view)) {
           view->clampFloatingPosition();
         }
         syncViewPresentation(view);
@@ -2530,6 +2554,10 @@ namespace andromeda {
           view->setFloating(false, false);
         }
       }
+    }
+    // A Free desktop can turn title bars on (View::titleBarModeFor).
+    for (View* view : allViews()) {
+      view->refreshTitleBar();
     }
     // Restore previous extents
     if (isMovingToScroll) {

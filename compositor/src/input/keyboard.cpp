@@ -636,6 +636,14 @@ namespace andromeda {
       }
       if (matched.has_value()) {
         armRepeat(*matched, event->keycode);
+        if (!matched->releaseAction.empty()) {
+          Keybind release;
+          release.allowWhenLocked = matched->allowWhenLocked;
+          release.allowWhenInhibited = matched->allowWhenInhibited;
+          if (parseAction(matched->releaseAction, release)) {
+            m_releaseBinds.insert_or_assign(event->keycode, std::move(release));
+          }
+        }
       }
       // Unbound plain keys drive overview navigation instead of reaching clients, unless a layer surface (launcher,
       // panel) holds the keyboard: its Escape/arrows belong to it, not to the filmstrip.
@@ -669,6 +677,7 @@ namespace andromeda {
       }
       modifierTap = m_server->releaseModifierTap(this, event->keycode);
       handled = m_consumedKeycodes.erase(event->keycode) > 0;
+      runReleaseBind(event->keycode);
     }
 
     return handled ? KeyResult::Consume : KeyResult::Pass;
@@ -715,7 +724,29 @@ namespace andromeda {
     m_key.link.next = nullptr;
     m_destroy.link.next = nullptr;
     m_server->cancelModifierTap();
+    // An unplugged device never sends the release: end each held action now.
+    while (!m_releaseBinds.empty()) {
+      runReleaseBind(m_releaseBinds.begin()->first);
+    }
     m_server->removeKeyboard(this);
+  }
+
+  void Keyboard::forgetConsumedKeycodes() {
+    m_consumedKeycodes.clear();
+    // A power-key hold must not shut down after its release went to another VT.
+    while (!m_releaseBinds.empty()) {
+      runReleaseBind(m_releaseBinds.begin()->first);
+    }
+  }
+
+  void Keyboard::runReleaseBind(uint32_t keycode) {
+    const auto it = m_releaseBinds.find(keycode);
+    if (it == m_releaseBinds.end()) {
+      return;
+    }
+    const Keybind bind = std::move(it->second);
+    m_releaseBinds.erase(it);
+    m_server->executeKeybindAction(bind);
   }
 
   void Keyboard::armRepeat(const Keybind& bind, uint32_t keycode) {

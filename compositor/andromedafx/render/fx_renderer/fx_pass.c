@@ -2461,6 +2461,9 @@ void fx_render_pass_add_rounded_rect(
 
   struct fx_corner_fradii corners = fx_options->corners;
   uniform_corner_radii_set(&shader.radius, &corners);
+  glUniform1f(shader.fade, fx_options->fade);
+  glUniform2f(shader.fade_from, fx_options->fade_from[0], fx_options->fade_from[1]);
+  glUniform2f(shader.fade_to, fx_options->fade_to[0], fx_options->fade_to[1]);
 
   render(&box, &clip_region, renderer->shaders.quad_round.pos_attrib);
   pixman_region32_fini(&clip_region);

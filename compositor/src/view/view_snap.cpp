@@ -26,7 +26,7 @@ namespace andromeda {
                                             : resolveGlobalLayout(config());
     const wlr_box tile = snapSpotBox(floatingMarginArea(usable, &resolved), spot, resolved.totalGap);
     // Snapping leaves maximize-to-edges, which makes the title bar visible again.
-    const int bar = wantsTitleBar(m_titleBarMode.value_or(config().appearance.titleBar.mode))
+    const int bar = wantsTitleBar(titleBarModeFor(m_titleBarMode, m_workspace))
         ? config().appearance.titleBar.height
         : 0;
     if (tile.width <= 0 || tile.height <= bar) {

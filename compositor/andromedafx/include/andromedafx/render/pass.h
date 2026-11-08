@@ -161,6 +161,10 @@ struct fx_render_rounded_rect_options {
   struct wlr_render_rect_options base;
   struct fx_corner_fradii corners;
   struct clipped_fregion clipped_region;
+  // Alpha fall-off from fade_from to fade_to (render coords): 0 flat, 1 clear at fade_to; steepest near fade_from.
+  float fade;
+  float fade_from[2];
+  float fade_to[2];
 };
 
 struct fx_render_border_options {

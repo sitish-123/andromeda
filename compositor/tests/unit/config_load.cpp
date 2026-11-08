@@ -1159,7 +1159,7 @@ ANDROMEDA_TEST(overviewWorkspaceCurveLoadsAndFallsBackToItsSpring) {
   file.write("[animation.overview]\nduration_ms = 300\n");
   CHECK(store.reload().success);
   CHECK(store.config().animation.overview.workspaceCurve.easing == andromeda::Easing::Spring);
-  CHECK_EQ(store.config().animation.overview.workspaceCurve.spring.stiffness, 1000.0);
+  CHECK_EQ(store.config().animation.overview.workspaceCurve.spring.stiffness, 386.0);
 }
 
 ANDROMEDA_TEST(durationBesideASpringCurveIsReportedAsInert) {
@@ -3316,7 +3316,7 @@ blur = true
   CHECK(animation.overview.curve.easing == andromeda::Easing::CustomBezier);
   // The shared curve reaches every duration-based event, but the filmstrip settle keeps its spring until asked.
   CHECK(animation.overview.workspaceCurve.easing == andromeda::Easing::Spring);
-  CHECK_EQ(animation.overview.workspaceCurve.spring.stiffness, 1000.0);
+  CHECK_EQ(animation.overview.workspaceCurve.spring.stiffness, 386.0);
   CHECK_EQ(animation.windowsMove.durationMs, 320);
   CHECK_EQ(animation.scratchpad.dim, 0.4);
   CHECK(animation.scratchpad.blur);
@@ -4644,7 +4644,7 @@ button_corner_radius = 500
   auto& store = andromeda::configStore();
   store.setRootPath(file.path(), true);
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Auto);
   CHECK_EQ(store.config().appearance.titleBar.height, 128);
   CHECK_EQ(store.config().appearance.titleBar.buttonPosition, andromeda::TitleBarButtonSide::Right);
   CHECK_EQ(store.config().appearance.titleBar.buttonCornerRadius, 100);
@@ -4689,30 +4689,31 @@ ANDROMEDA_TEST(titleBarModesUseStrictVocabulary) {
   store.setRootPath(file.path(), true);
   file.write("");
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Auto);
   for (const auto& [name, mode] :
        {std::pair{"forced", andromeda::TitleBarMode::Forced}, std::pair{"on", andromeda::TitleBarMode::On},
-        std::pair{"off", andromeda::TitleBarMode::Off}, std::pair{"negotiated", andromeda::TitleBarMode::Negotiated}}) {
+        std::pair{"off", andromeda::TitleBarMode::Off}, std::pair{"negotiated", andromeda::TitleBarMode::Negotiated},
+        std::pair{"auto", andromeda::TitleBarMode::Auto}}) {
     file.write(std::string("[appearance.title_bar]\nmode = \"") + name + "\"\n");
     CHECK(store.reload().success);
     CHECK(store.diagnostics().empty());
     CHECK_EQ(store.config().appearance.titleBar.mode, mode);
   }
-  for (const auto name : {"auto", "force", "on-demand"}) {
+  for (const auto name : {"force", "on-demand"}) {
     file.write(std::string("[appearance.title_bar]\nmode = \"") + name + "\"\n");
     CHECK(store.reload().success);
-    CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+    CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Auto);
     CHECK(containsDiagnostic(store, "appearance.title_bar.mode"));
     CHECK(!containsDiagnostic(store, "unknown key"));
   }
   file.write("[appearance.title_bar]\nmode = true\n");
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Auto);
   CHECK(containsDiagnostic(store, "appearance.title_bar.mode"));
   CHECK(!containsDiagnostic(store, "unknown key"));
   file.write("[appearance.title_bar]\nenabled = true\n");
   CHECK(store.reload().success);
-  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Off);
+  CHECK_EQ(store.config().appearance.titleBar.mode, andromeda::TitleBarMode::Auto);
   CHECK(containsDiagnostic(store, "unknown key appearance.title_bar.enabled"));
 }
 

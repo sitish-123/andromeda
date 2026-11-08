@@ -2,6 +2,7 @@
 
 #include "check.h"
 
+#include <algorithm>
 #include <array>
 #include <span>
 
@@ -56,7 +57,8 @@ ANDROMEDA_TEST(lightsSitOnTheBarCenterTwelveFromTheEdgeAtEveryHeight) {
   for (int height = 16; height <= 128; ++height) {
     const auto parts = titleBarLayout(480, height, TitleBarButtonSide::Right, kAll);
     const wlr_box close = *parts.button(TitleBarButton::Close);
-    CHECK_EQ(close.height, 12);
+    const int expected = std::clamp(height * 2 / 5 / 2 * 2, 12, 16);
+    CHECK_EQ(close.height, expected);
     CHECK_EQ(height - (2 * close.y + close.height), height % 2);
     CHECK_EQ(480 - close.x - close.width, 12);
   }

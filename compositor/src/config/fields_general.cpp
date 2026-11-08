@@ -85,7 +85,8 @@ namespace andromeda {
               {{"forced", TitleBarMode::Forced},
                {"off", TitleBarMode::Off},
                {"on", TitleBarMode::On},
-               {"negotiated", TitleBarMode::Negotiated}}
+               {"negotiated", TitleBarMode::Negotiated},
+               {"auto", TitleBarMode::Auto}}
           ),
           integer("height", 16, 128, &A::TitleBar::height),
           integer("button_corner_radius", -1, 100, &A::TitleBar::buttonCornerRadius),
@@ -173,6 +174,7 @@ namespace andromeda {
       static const registry::Fields<A> fields{
           integer("border_width", 0, 100, &A::borderWidth),
           integer("outer_border_width", 0, 100, &A::outerBorderWidth),
+          boolean("window_edge", &A::windowEdge),
           integer("corner_radius", 0, 100, &A::cornerRadius),
           real("drag_opacity", 0.0, 1.0, &A::dragOpacity),
           boolean("prefer_no_csd", &A::preferNoCsd),

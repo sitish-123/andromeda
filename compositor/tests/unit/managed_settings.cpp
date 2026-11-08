@@ -23,7 +23,7 @@ namespace {
   bool accepts(std::string_view key, std::string_view text) { return parseManagedSetting(key, text).value.has_value(); }
 
   // Values chosen to differ from every default, so a round trip proves the write took effect.
-  constexpr std::array<std::string_view, 22> kSamples = {
+  constexpr std::array<std::string_view, 23> kSamples = {
       "false",       "37",          "3",
       "0.5",         "flat",        "pinned",
       "window",      "clickfinger", "left_middle_right",
@@ -31,7 +31,7 @@ namespace {
       "right",       "zoom",        "overview-toggle",
       "Alt",         "light",       "#4a80ffff",
       "sticky",      "strip",       "hover",
-      "macos",
+      "macos",       "negotiated",
   };
 
   // The config reader compiles the keymap, so XKB keys need names XKB knows.
@@ -167,7 +167,7 @@ ANDROMEDA_TEST(volatileKeysStayOutOfTheFileSet) {
 }
 
 // The live appearance keys govern the compositor's own settings: an accent recolors the focus accent, and reduce motion
-// turns window opening into a fade and stops workspace slides.
+// turns window opening into a fade and workspace slides into an in-place crossfade.
 ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
   andromeda::Config config;
   config.appearance.accent = std::array<float, 4>{1.0F, 0.0F, 0.5F, 1.0F};
@@ -175,7 +175,10 @@ ANDROMEDA_TEST(liveAppearanceAppliesAccentAndReduceMotion) {
   andromeda::applyLiveAppearance(config);
   CHECK(config.colors.accentPrimary == (std::array<float, 4>{1.0F, 0.0F, 0.5F, 1.0F}));
   CHECK(config.animation.windowsIn.style == "fade");
-  CHECK(!config.animation.workspaces.enabled);
+  CHECK(config.animation.workspaces.enabled);
+  CHECK(config.animation.workspaces.style == "reveal");
+  const auto* crossfade = andromeda::findEffectPreset(config.effects, config.animation.workspaces.effect);
+  CHECK(crossfade != nullptr && !crossfade->inert());
 }
 
 // Settings > Battery app rules: one [[window_rule]] per app in the settings file; a new choice replaces it, "normal"

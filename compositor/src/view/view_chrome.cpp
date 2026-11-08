@@ -27,12 +27,24 @@ extern "C" {
 
 namespace andromeda {
   int View::titleBarHeight() const {
-    if (!wantsTitleBar(m_titleBarMode.value_or(config().appearance.titleBar.mode))
+    if (!wantsTitleBar(titleBarModeFor(m_titleBarMode, m_workspace))
         || scheduledFullscreen()
         || (m_tiled && m_workspace != nullptr && m_workspace->inTabGroup(this))) {
       return 0;
     }
     return config().appearance.titleBar.height;
+  }
+
+  TitleBarMode View::titleBarModeFor(std::optional<TitleBarMode> rule, const Workspace* workspace) {
+    if (rule.has_value()) {
+      return *rule;
+    }
+    const TitleBarMode global = config().appearance.titleBar.mode;
+    if (global == TitleBarMode::Auto) {
+      return workspace != nullptr && workspace->layoutMode() == LayoutMode::Floating ? TitleBarMode::On
+                                                                                     : TitleBarMode::Off;
+    }
+    return global;
   }
 
   bool View::wantsTitleBar(TitleBarMode mode) const {

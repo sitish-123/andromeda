@@ -325,6 +325,10 @@ int main(int argc, char** argv) {
       if (command != "key-press") {
         zwp_virtual_keyboard_v1_key(keyboard.protocol, nextTime(), key, WL_KEYBOARD_KEY_STATE_RELEASED);
       }
+      // A held key must reach the compositor before a following pause, not with the next request.
+      if (command != "tap") {
+        wl_display_roundtrip(display);
+      }
     } else if (command == "mark") {
       needs(1);
       std::println("{}", args[i + 1]);

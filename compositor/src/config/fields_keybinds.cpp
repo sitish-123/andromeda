@@ -28,6 +28,7 @@ namespace andromeda {
       bool allowWhenInhibited = false;
       int cooldownMs = 0;
       std::string submap;
+      std::string releaseAction;
     };
 
     const registry::Fields<KeybindOptions>& keybindFields() {
@@ -45,6 +46,7 @@ namespace andromeda {
           registry::boolean("allow_when_inhibited", &K::allowWhenInhibited),
           registry::integer("cooldown_ms", 0, 3600000, &K::cooldownMs),
           registry::text("submap", &K::submap),
+          registry::text("release_action", &K::releaseAction),
       };
       return fields;
     }
@@ -106,6 +108,13 @@ namespace andromeda {
         if (!parseAction(*options.action, binding)) {
           warnAt(key.source(), "ignoring keybind '{}' (unknown action '{}')", chord, *options.action);
           continue;
+        }
+        if (!options.releaseAction.empty()) {
+          if (Keybind probe; !parseAction(options.releaseAction, probe)) {
+            warnAt(key.source(), "ignoring keybind '{}' (unknown release_action '{}')", chord, options.releaseAction);
+            continue;
+          }
+          binding.releaseAction = std::move(options.releaseAction);
         }
 
         if (const auto invalid =

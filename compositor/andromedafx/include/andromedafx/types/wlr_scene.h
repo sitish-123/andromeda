@@ -209,6 +209,10 @@ struct wlr_scene_rect {
   struct clipped_region clipped_region;
   // Skip the draw while opaque content in the siblings above covers the rect.
   bool skip_when_covered;
+  // Visual top-to-bottom alpha fall-off, 0 (flat) to 1 (clear at the bottom); steepest near the top.
+  float fade;
+  // Draw only a ring this many render (device) pixels wide inside the rounded shape; 0 = the clipped region applies.
+  int ring;
 };
 
 /** A scene-graph node displaying a two-color rounded border in one pass */
@@ -861,6 +865,18 @@ void wlr_scene_rect_set_corner_radii(struct wlr_scene_rect* rect, struct fx_corn
  * NOTE: The positioning is node-relative.
  */
 void wlr_scene_rect_set_clipped_region(struct wlr_scene_rect* rect, struct clipped_region clipped_region);
+
+/**
+ * Fade a rounded rect from its full colour at the visual top to (1 - fade) of it at the bottom, so it reads as light
+ * from above. Only rects with corner radii use it.
+ */
+void wlr_scene_rect_set_fade(struct wlr_scene_rect* rect, float fade);
+
+/**
+ * Draw only a ring `pixels` render pixels wide just inside the rect's rounded shape, the same width at every output
+ * scale (a hairline). 0 restores the clipped region.
+ */
+void wlr_scene_rect_set_ring(struct wlr_scene_rect* rect, int pixels);
 
 /**
  * Change the color of an existing rectangle node.

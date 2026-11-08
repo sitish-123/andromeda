@@ -12,11 +12,14 @@ namespace andromeda {
   TitleBarLayout titleBarLayout(
       int width, int height, TitleBarButtonSide side, std::span<const TitleBarButton> shown, TitleBarStyle style
   ) {
-    // Windows: line glyphs centred in 46 wide full-height cells, title 16 in. Andromeda and macOS: 12 px lights 8 apart,
+    // Windows: line glyphs centred in 46 wide full-height cells, title 16 in. Andromeda and macOS: 12 px lights (Andromeda up to 16) 8 apart,
     // 12 from the end, title 12 in and 8 clear of the lights.
     const bool cells = style == TitleBarStyle::Windows;
     const bool mac = style == TitleBarStyle::Macos;
-    const int diameter = cells ? std::min(10, height / 2) : std::min(12, height);
+    // Andromeda grows its buttons with the bar, on even sizes so they centre: 12 up to a 34 px bar, 16 at the default 40.
+    const int diameter = cells ? std::min(10, height / 2)
+        : mac                  ? std::min(12, height)
+                               : std::clamp(height * 2 / 5 / 2 * 2, std::min(12, height), 16);
     const int inset = (height - diameter) / 2;
     const int edge = 12;
     const int cellWidth = cells ? 46 : diameter + kTitleBarButtonGap;

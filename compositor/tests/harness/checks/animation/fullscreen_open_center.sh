@@ -13,6 +13,8 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 backdrop = "#000000FF"
 
 [appearance]
+# The window highlight lightens the edge pixels this check measures.
+window_edge = false
 border_width = 0
 outer_border_width = 0
 corner_radius = 0

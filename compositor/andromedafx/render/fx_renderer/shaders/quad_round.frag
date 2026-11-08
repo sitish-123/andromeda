@@ -17,6 +17,10 @@ uniform float clip_radius_top_right;
 uniform float clip_radius_bottom_left;
 uniform float clip_radius_bottom_right;
 
+uniform float fade;
+uniform vec2 fade_from;
+uniform vec2 fade_to;
+
 float corner_alpha(
     vec2 size, vec2 position, bool is_cutout, float radius_tl, float radius_tr, float radius_bl, float radius_br
 );
@@ -32,5 +36,14 @@ void main() {
       clip_radius_bottom_right
   );
 
-  gl_FragColor = v_color * quad_corner_alpha * clip_corner_alpha;
+  float fade_alpha = 1.0;
+  if (fade > 0.0) {
+    vec2 axis = fade_to - fade_from;
+    float t = clamp(dot(gl_FragCoord.xy - fade_from, axis) / max(dot(axis, axis), 1.0), 0.0, 1.0);
+    // Light from above: full on the top edge, mostly gone a third of the way down the sides.
+    float s = 1.0 - t;
+    fade_alpha = 1.0 - fade * (1.0 - s * s * s * s);
+  }
+
+  gl_FragColor = v_color * quad_corner_alpha * clip_corner_alpha * fade_alpha;
 }

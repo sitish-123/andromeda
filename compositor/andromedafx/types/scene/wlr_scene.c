@@ -2451,6 +2451,22 @@ void wlr_scene_rect_set_skip_when_covered(struct wlr_scene_rect* rect, bool skip
   scene_node_update(&rect->node, NULL);
 }
 
+void wlr_scene_rect_set_ring(struct wlr_scene_rect* rect, int pixels) {
+  if (rect->ring == pixels) {
+    return;
+  }
+  rect->ring = pixels;
+  scene_node_update(&rect->node, NULL);
+}
+
+void wlr_scene_rect_set_fade(struct wlr_scene_rect* rect, float fade) {
+  if (rect->fade == fade) {
+    return;
+  }
+  rect->fade = fade;
+  scene_node_update(&rect->node, NULL);
+}
+
 void wlr_scene_rect_set_clipped_region(struct wlr_scene_rect* rect, struct clipped_region clipped_region) {
   if (fx_corner_radii_eq(rect->clipped_region.corners, clipped_region.corners)
       && wlr_box_equal(&rect->clipped_region.area, &clipped_region.area)) {
@@ -3759,13 +3775,40 @@ static void scene_entry_render(struct render_list_entry* entry, const struct ren
         },
     };
 
+    if (scene_rect->ring > 0) {
+      // The hole is the shape inset by `ring` render pixels, so the ring stays one device pixel at any scale.
+      const int ring = scene_rect->ring;
+      const struct fx_corner_fradii outer = fx_corner_radii_scale(rect_corners, data->scale);
+      rect_options.clipped_region.area = (struct wlr_box){
+          .x = dst_box.x + ring, .y = dst_box.y + ring, .width = dst_box.width - 2 * ring,
+          .height = dst_box.height - 2 * ring,
+      };
+      rect_options.clipped_region.corners = (struct fx_corner_fradii){
+          .top_left = fmaxf(0.0F, outer.top_left - (float)ring),
+          .top_right = fmaxf(0.0F, outer.top_right - (float)ring),
+          .bottom_right = fmaxf(0.0F, outer.bottom_right - (float)ring),
+          .bottom_left = fmaxf(0.0F, outer.bottom_left - (float)ring),
+      };
+    }
     // TODO: Use the base wlr_render_pass_add_rect as a fast-path in the future
     if (!fx_corner_radii_is_empty(&rect_corners)) {
       struct fx_render_rounded_rect_options rounded_rect_options = {
           .base = rect_options.base,
           .corners = fx_corner_radii_scale(rect_corners, data->scale),
           .clipped_region = rect_options.clipped_region,
+          .fade = scene_rect->fade,
       };
+      if (scene_rect->fade > 0.0F) {
+        // The visual top and bottom centres in render coords, so rotated outputs still fade downward.
+        struct wlr_box top = {.x = x + scene_rect->width / 2, .y = y, .width = 1, .height = 1};
+        struct wlr_box bottom = {.x = top.x, .y = y + scene_rect->height - 1, .width = 1, .height = 1};
+        transform_output_box(&top, data);
+        transform_output_box(&bottom, data);
+        rounded_rect_options.fade_from[0] = (float)top.x + (float)top.width * 0.5F;
+        rounded_rect_options.fade_from[1] = (float)top.y + (float)top.height * 0.5F;
+        rounded_rect_options.fade_to[0] = (float)bottom.x + (float)bottom.width * 0.5F;
+        rounded_rect_options.fade_to[1] = (float)bottom.y + (float)bottom.height * 0.5F;
+      }
       fx_render_pass_add_rounded_rect(fx_pass, &rounded_rect_options);
     } else {
       fx_render_pass_add_rect(fx_pass, &rect_options);

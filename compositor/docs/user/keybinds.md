@@ -129,6 +129,14 @@ When the client already has an allowed shortcuts inhibitor, the toggle activates
 "Mod+WheelDown" = { action = "workspace-next", cooldown_ms = 150 }
 ```
 
+## Release action
+
+`release_action` runs a second action when the key whose press fired the bind comes up. It is skipped for mouse and wheel binds. A VT switch while the key is down runs it at once.
+
+```toml
+"XF86PowerOff" = { action = "shell:power-overlay key-down", release_action = "shell:power-overlay key-up", repeat = false }
+```
+
 ## Submaps
 
 Submaps are temporary keybind layers. Enter one with `submap:<name>` and leave one level with `submap:reset`.

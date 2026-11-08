@@ -3,6 +3,9 @@
 #include "config/config.h"
 #include "scene/border_rect.h"
 #include "scene/color.h"
+#include "view/border_ring.h"
+
+#include <algorithm>
 
 // clang-format off
 #include "wlr.h"
@@ -12,6 +15,10 @@ namespace andromeda {
   namespace {
     // Inactive windows keep this share of the shadow strength.
     constexpr float kInactiveShadow = 0.5F;
+    // The window edge is a highlight, never a border: white at 12 % on the top edge, falling to 2 % at the bottom, in
+    // both schemes, like light catching the edge. Black windows keep an edge on black; light ones rely on the shadow.
+    constexpr float kHairlineAlpha = 0.12F;
+    constexpr float kHairlineFade = 0.85F;
   } // namespace
 
 
@@ -26,6 +33,13 @@ namespace andromeda {
     premultiplied(innerColor, config().colors.border.unfocused, 1.0F);
     premultiplied(outerColor, config().colors.border.outer, 1.0F);
     m_border = wlr_scene_border_create(m_borderTree, innerColor, outerColor);
+    const float none[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    m_hairline = wlr_scene_rect_create(m_borderTree, 0, 0, none);
+    // It sits above the client edge, so clicks on the window's outer pixel must reach the window.
+    m_hairline->accepts_input = false;
+    wlr_scene_rect_set_fade(m_hairline, kHairlineFade);
+    wlr_scene_rect_set_ring(m_hairline, 1);
+    setHairlineAlpha(1.0F);
     // The punched hole protects client content, so keep the border above the
     // toplevel surface that would otherwise cover its outermost pixels.
     wlr_scene_node_raise_to_top(&m_borderTree->node);
@@ -45,6 +59,22 @@ namespace andromeda {
     }
 
     wlr_scene_node_set_position(&m_borderTree->node, 0, -topExtension);
+    if (m_hairline != nullptr) {
+      const int width = contentWidth;
+      const int height = contentHeight + topExtension;
+      // The content corner, as View::surfaceRadius rounds it.
+      const int radius = nestedRadius(m_cornerRadius, totalBorderWidth());
+      const int inner = std::max(0, radius - 1);
+      wlr_scene_rect_set_size(m_hairline, width, height);
+      wlr_scene_rect_set_corner_radius(m_hairline, radius);
+      wlr_scene_rect_set_clipped_region(
+          m_hairline,
+          clipped_region{
+              .area = {1, 1, std::max(0, width - 2), std::max(0, height - 2)},
+              .corners = corner_radii_new(inner, inner, inner, inner),
+          }
+      );
+    }
     applyBorderGeometry(
         m_border,
         makeBorderRing(
@@ -75,6 +105,17 @@ namespace andromeda {
     premultiplied(innerColor, baseColor, alpha);
     premultiplied(outerColor, m_borderColors.outer, alpha);
     wlr_scene_border_set_colors(m_border, innerColor, outerColor);
+    setHairlineAlpha(alpha);
+  }
+
+  void ViewDecoration::setHairlineAlpha(float alpha) {
+    if (m_hairline == nullptr) {
+      return;
+    }
+    const float a = kHairlineAlpha * alpha;
+    wlr_scene_node_set_enabled(&m_hairline->node, config().appearance.windowEdge && a > 0.0F);
+    const float color[4] = {a, a, a, a};
+    wlr_scene_rect_set_color(m_hairline, color);
   }
 
   bool ViewDecoration::borderGeometryStale(int contentWidth, int contentHeight, int topExtension) const {

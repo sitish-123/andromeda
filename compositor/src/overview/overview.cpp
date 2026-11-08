@@ -1040,6 +1040,10 @@ namespace andromeda {
   }
 
   void Overview::startAnimation(double target, bool closing, double releaseVelocity) {
+    // A zoom already in flight hands on its speed, so a reversed toggle retargets instead of restarting (7.1.5).
+    if (releaseVelocity == 0.0 && m_zoomAnim.animating()) {
+      releaseVelocity = m_zoomAnim.velocity() * (m_targetProgress - m_progressFrom);
+    }
     m_closing = closing;
     m_server->notifyOverviewChanged();
     m_targetProgress = target;
@@ -1284,21 +1288,58 @@ namespace andromeda {
   // -: gesture
 
   void Overview::gestureUpdate(double progress) {
+    bool opened = false;
     if (!m_active) {
       if (progress <= 0.0 || !beginPresentation()) {
         return;
       }
       m_gestureOpenedHere = true;
+      opened = true;
+      m_progress = 0.0;
     }
-    m_zoomAnim.snap(0.0);
     for (const auto& state : m_outputs) {
       state->rowScroll.snap(state->rowScroll.current());
     }
     m_closing = false;
     m_server->notifyOverviewChanged();
-    m_progress = std::min(progress, 1.0);
+    // Past the open state the swipe meets resistance instead of a wall (rulebook 7.7 rubber band, iOS constants): the
+    // overscroll approaches kOverscroll and gestureEnd springs it back to 1.
+    constexpr double kOverscroll = 0.12;
+    constexpr double kResistance = 0.55;
+    const double beyond = progress - 1.0;
+    const double target =
+        beyond <= 0.0 ? progress : 1.0 + (1.0 - 1.0 / (beyond * kResistance / kOverscroll + 1.0)) * kOverscroll;
+    // Opening builds every card before the first frame, and the events queued meanwhile can already reach the end:
+    // when the finger is more than a step ahead of what is drawn, the zoom chases it on the frame clock, keeping its
+    // speed across events, so a long or fast swipe still shows the motion (rulebook 7.7).
+    constexpr double kMaxStep = 0.08;
+    const bool chasing = m_zoomAnim.animating();
+    if (opened || chasing || std::abs(target - m_progress) > kMaxStep) {
+      const double span = target - m_progress;
+      if (std::abs(span) < 1e-4) {
+        m_zoomAnim.snap(0.0);
+        m_progress = target;
+        m_targetProgress = target;
+        applyProgress();
+        return;
+      }
+      const double progressPerSec = chasing ? m_zoomAnim.velocity() * (m_targetProgress - m_progressFrom) : 0.0;
+      m_progressFrom = m_progress;
+      m_targetProgress = target;
+      m_zoomAnim.snap(0.0);
+      const auto& overview = config().animation.overview;
+      if (config().animation.enabled && overview.enabled && overview.curve.easing == Easing::Spring) {
+        m_zoomAnim.settleSpring(1.0, overview.curve.spring, progressPerSec / span);
+        applyProgress();
+        return;
+      }
+    }
+    m_zoomAnim.snap(0.0);
+    m_progress = target;
     m_targetProgress = m_progress;
-    applyProgress();
+    // Touchpads report faster than the display: lay the cards out once on the next frame, not per event.
+    m_cardPresentationDirty = true;
+    scheduleFrames();
   }
 
   void Overview::gestureEnd(int stop, double releaseVelocity) {

@@ -318,6 +318,7 @@ namespace andromeda {
     // Minimized: hidden, but keeping its workspace, floating box, stacking slot, and taskbar entries. Focusing the
     // window shows it again.
     [[nodiscard]] bool minimized() const { return m_minimized; }
+    [[nodiscard]] bool notResponding() const noexcept { return m_notResponding; }
     // Only a mapped, unattached floating window on a workspace can be minimized; tiled, pinned, and scratchpad
     // windows cannot.
     [[nodiscard]] bool minimizable() const;
@@ -608,6 +609,7 @@ namespace andromeda {
     static void onDialogDestroy(wl_listener* listener, void* data);
     static void onSetTitle(wl_listener* listener, void* data);
     static void onConfigure(wl_listener* listener, void* data);
+    static void onPingTimeout(wl_listener* listener, void* data);
     static void onSetAppId(wl_listener* listener, void* data);
     static void onForeignActivate(wl_listener* listener, void* data);
     static void onForeignClose(wl_listener* listener, void* data);
@@ -966,6 +968,8 @@ namespace andromeda {
     std::optional<bool> m_legacyDecorationPreference;
     std::optional<TitleBarMode> m_titleBarMode;
     [[nodiscard]] bool wantsTitleBar(TitleBarMode mode) const;
+    // A window rule's mode, else the global one, with Auto resolved for `workspace`.
+    [[nodiscard]] static TitleBarMode titleBarModeFor(std::optional<TitleBarMode> rule, const Workspace* workspace);
     void refreshTitleBar();
     // A window rule's title_bar_buttons, which replaces [appearance.title_bar] buttons.
     std::optional<std::vector<TitleBarButton>> m_titleBarButtons;
@@ -1127,6 +1131,9 @@ namespace andromeda {
     wl_listener m_setParent{};
     wl_listener m_setTitle{};
     wl_listener m_configure{};
+    wl_listener m_pingTimeout{};
+    // The client missed the ping sent with a close request (xdg_wm_base ping timeout); a later close pings again.
+    bool m_notResponding = false;
     wl_listener m_setAppId{};
     wl_listener m_foreignActivate{};
     wl_listener m_foreignClose{};

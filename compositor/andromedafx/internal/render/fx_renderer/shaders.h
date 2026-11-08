@@ -83,6 +83,10 @@ struct quad_round_shader {
   GLint clip_position;
   struct shader_corner_radii clip_radius;
 
+  GLint fade;
+  GLint fade_from;
+  GLint fade_to;
+
   GLint border_width;
   GLint border_inner_width;
   GLint border_inner_color;

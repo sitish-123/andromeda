@@ -18,6 +18,10 @@ workspace_wallpaper = false
 
 [animation.overview]
 enabled = false
+
+# A Free desktop shows automatic title bars; their light title text is not overview chrome.
+[appearance.title_bar]
+mode = "off"
 EOF2
 "$ANDROMEDA" msg config-reload > /dev/null
 

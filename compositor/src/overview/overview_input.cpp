@@ -291,9 +291,12 @@ namespace andromeda {
       if (!tab.has_value() || group == nullptr) {
         continue;
       }
-      // The + tab adds a workspace at the end; the row follows the selection (onWorkspaceActivated).
-      Workspace* workspace = *tab < group->workspaceCount() ? group->workspaceAt(*tab)
-                                                           : group->insertDynamicWorkspace(group->workspaceCount());
+      // The + tab adds a workspace at the end, or goes to an empty last one, which already is the new desktop (a
+      // second empty one would be dropped again at once); the row follows the selection (onWorkspaceActivated).
+      Workspace* last = group->workspaceCount() > 0 ? group->workspaceAt(group->workspaceCount() - 1) : nullptr;
+      Workspace* workspace = *tab < group->workspaceCount()     ? group->workspaceAt(*tab)
+          : last != nullptr && !last->hasViews()                           ? last
+                                                                 : group->insertDynamicWorkspace(group->workspaceCount());
       if (workspace != nullptr) {
         group->select(workspace);
       }

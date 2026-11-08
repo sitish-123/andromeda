@@ -6,6 +6,7 @@
 #include <string>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <wayland-server-core.h>
 #include <xkbcommon/xkbcommon.h>
@@ -47,7 +48,8 @@ namespace andromeda {
     [[nodiscard]] const std::unordered_set<uint32_t>& consumedKeycodes() const { return m_consumedKeycodes; }
     // Forget consumed keys whose release will never arrive, for example after a
     // VT switch. Otherwise the stale entry swallows a later, unrelated release.
-    void forgetConsumedKeycodes() { m_consumedKeycodes.clear(); }
+    // The releases land elsewhere (another VT, an inactive session): forget the pressed keys and end each held action.
+    void forgetConsumedKeycodes();
     void prepareInputCapture(bool ending);
     // Runs a key through the pipeline after the bindings stage, as dsk_shell_v1 key and insert_text need. The key is
     // the one in the current layout whose base level (insert_text) or lowest level (key) yields `keysym`; a key above
@@ -112,6 +114,9 @@ namespace andromeda {
     bool m_repeatArmed = false;
     // Keycodes whose press a keybind consumed, so the release is withheld from the focused client too.
     std::unordered_set<uint32_t> m_consumedKeycodes;
+    // Release actions of binds whose key is still down, by keycode.
+    std::unordered_map<uint32_t, Keybind> m_releaseBinds;
+    void runReleaseBind(uint32_t keycode);
   };
 
 } // namespace andromeda

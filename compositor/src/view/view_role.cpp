@@ -148,6 +148,9 @@ namespace andromeda {
 
   void View::requestClose() {
     if (m_toplevel != nullptr) {
+      // A client that misses this ping is "not responding" (session end blocker reason, windows --json).
+      m_notResponding = false;
+      wlr_xdg_surface_ping(m_toplevel->base);
       wlr_xdg_toplevel_send_close(m_toplevel);
     } else {
       wlr_xwayland_surface_close(m_xsurface);

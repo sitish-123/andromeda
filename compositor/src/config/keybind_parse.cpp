@@ -1099,6 +1099,16 @@ namespace andromeda {
     }
     add(KeybindAction::WindowSnapLayouts, XKB_KEY_z).repeat = false;
     add(KeybindAction::WorkspaceToggleShowDesktop, XKB_KEY_d).repeat = false;
+    {
+      // The shell holds logind's handle-power-key block, so the key must reach it with no user setup.
+      Keybind power;
+      power.keysym = XKB_KEY_XF86PowerOff;
+      power.repeat = false;
+      power.allowWhenLocked = true;
+      parseAction("shell:power-overlay key-down", power);
+      power.releaseAction = "shell:power-overlay key-up";
+      keybinds.push_back(std::move(power));
+    }
 
     return keybinds;
   }

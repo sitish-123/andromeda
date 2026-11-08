@@ -20,6 +20,10 @@ cat >> "$ANDROMEDA_CONFIG" <<'EOF'
 
 [animation]
 enabled = false
+
+[appearance]
+# The window highlight tints the edge pixel; this check reads exact client content there.
+window_edge = false
 EOF
 "$ANDROMEDA" msg config-reload > /dev/null
 

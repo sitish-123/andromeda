@@ -29,6 +29,8 @@ enabled = false
 backdrop = "#000000FF"
 
 [appearance]
+# The window highlight tints the edge pixel; this check reads exact client content there.
+window_edge = false
 border_width = 0
 outer_border_width = 0
 corner_radius = 0

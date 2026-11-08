@@ -34,7 +34,8 @@ namespace andromeda {
     Horizontal,
   };
 
-  enum class TitleBarMode : uint8_t { On, Negotiated, Forced, Off };
+  // Auto: on for a Free (floating) desktop, off elsewhere. Window rules never use it.
+  enum class TitleBarMode : uint8_t { On, Negotiated, Forced, Off, Auto };
 
   enum class ModifierKey {
     Super,
@@ -741,7 +742,7 @@ namespace andromeda {
 
     struct Appearance {
       struct TitleBar {
-        TitleBarMode mode = TitleBarMode::Off;
+        TitleBarMode mode = TitleBarMode::Auto;
         // Board desktop-layouts.html section 5: 40 high (as the Settings title bar), title 13 px semibold.
         int height = 40;
         std::string font = "sans Semi-Bold 9.75";
@@ -755,6 +756,8 @@ namespace andromeda {
       // Off: the active window shows by its full shadow and title bar (macOS, Windows 11), not a coloured ring.
       int borderWidth = 0;
       int outerBorderWidth = 0;
+      // A faint scheme-stroke hairline just inside each decorated window, so black windows keep an edge on black.
+      bool windowEdge = true;
       int cornerRadius = static_cast<int>(Tokens::componentWindowRadius);
       double dragOpacity = 0.75;
       // Fullscreen windows ignore window rule opacity and draw over the backdrop. When false, a fullscreen window with
@@ -857,7 +860,8 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 800.0}};
+        // Rulebook spring `move` (k 322, z 0.90, ~310 ms).
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.9, .stiffness = 322.0}};
         bool operator==(const WindowsMove&) const = default;
       } windowsMove;
 
@@ -865,7 +869,7 @@ namespace andromeda {
       struct WindowsResize {
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 900.0}};
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.9, .stiffness = 322.0}};
         bool operator==(const WindowsResize&) const = default;
       } windowsResize;
 
@@ -874,7 +878,8 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 800.0}};
+        // Rulebook spring `page` (k 386, z 0.95, ~330 ms, carries release velocity).
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.95, .stiffness = 386.0}};
         bool operator==(const Workspaces&) const = default;
       } workspaces;
 
@@ -882,11 +887,11 @@ namespace andromeda {
         std::string effect;
         bool enabled = true;
         int durationMs = 250;
-        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 800.0}};
+        AnimationCurve curve{.easing = Easing::Spring, .spring = {.damping = 0.95, .stiffness = 386.0}};
         // Filmstrip movement between workspace previews, for the wheel, the keyboard and touchpad releases alike. A
         // spring curve settles from the current position and carries the release velocity of a gesture; any other
         // curve runs over duration_ms and ignores it.
-        AnimationCurve workspaceCurve{.easing = Easing::Spring, .spring = {.damping = 1.0, .stiffness = 1000.0}};
+        AnimationCurve workspaceCurve{.easing = Easing::Spring, .spring = {.damping = 0.95, .stiffness = 386.0}};
         bool operator==(const Overview&) const = default;
       } overview;
 

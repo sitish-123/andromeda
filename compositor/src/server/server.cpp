@@ -577,6 +577,7 @@ namespace andromeda {
       self->startSessionShutdown();
     }
     if (!self->m_session->active) {
+      self->forgetConsumedKeycodes();
       if (self->m_inputCapture != nullptr) {
         self->m_inputCapture->suspend();
       }
@@ -835,6 +836,8 @@ namespace andromeda {
     // Version 6 adds the suspended state hidden tabs are given. The window-manager capabilities version 5 sends default
     // to every capability, which is what a client assumed before, so no client sees a change in what it may ask for.
     m_xdgShell = wlr_xdg_shell_create(m_display, 6);
+    // Under the session end's 5 s close wait, so its blocker list already knows which windows hang.
+    m_xdgShell->ping_timeout = 4000;
     m_newXdgToplevel.notify = onNewXdgToplevel;
     wl_signal_add(&m_xdgShell->events.new_toplevel, &m_newXdgToplevel);
     m_newXdgPopup.notify = onNewXdgPopup;

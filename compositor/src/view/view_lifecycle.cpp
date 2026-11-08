@@ -999,7 +999,7 @@ namespace andromeda {
         const bool opensTabbed = openingLayout.tabs.defaultDisplay == ColumnDisplay::Tabbed
             || rule.defaultColumnDisplay.value_or(ColumnDisplay::Normal) == ColumnDisplay::Tabbed;
         if (!wantMaximizeToEdges
-            && wantsTitleBar(rule.titleBar.value_or(config().appearance.titleBar.mode))
+            && wantsTitleBar(titleBarModeFor(rule.titleBar, target))
             && !opensTabbed) {
           initial.height = std::max(1, initial.height - config().appearance.titleBar.height);
         }
@@ -1159,7 +1159,7 @@ namespace andromeda {
 
     for (wl_listener* listener :
          {&m_map, &m_unmap, &m_commit, &m_destroy, &m_requestMove, &m_requestResize, &m_requestMaximize,
-          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_configure, &m_xRequestConfigure,
+          &m_requestMinimize, &m_requestFullscreen, &m_setParent, &m_setTitle, &m_setAppId, &m_configure, &m_pingTimeout, &m_xRequestConfigure,
           &m_xRequestActivate, &m_xSetHints, &m_xShapeChanged, &m_setDecorations}) {
       removeListener(*listener);
     }
