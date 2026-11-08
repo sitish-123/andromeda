@@ -33,13 +33,13 @@ BEFORE_NOCTALIA='
     grim "$OUT/update-news-$mode.png"
   done
   # Positions on the 1280x720 headless output (screenshots in $OUT show them).
-  "$POINTER" 1280 720 move 1003 170 click 272 > /dev/null   # I Have Read This
+  "$POINTER" 1280 720 move 940 170 click 272 > /dev/null    # I Have Read This
   wait_calls HelperMarkNewsRead 1
   wait_calls "^MarkNewsRead" 1
   wait_calls GetAll 2
   sleep 0.5
   grim "$OUT/update-available-dark.png"
-  "$POINTER" 1280 720 move 1010 173 click 272 > /dev/null   # Update Now
+  "$POINTER" 1280 720 move 954 172 click 272 > /dev/null    # Update Now
   wait_calls "^Upgrade False" 1
   wait_calls "^flatpak update --noninteractive -y" 1
   wait_calls "^Check" 1

@@ -36,7 +36,8 @@ img = {n: Image.open(f"{out}/{n}.png").convert("RGB") for n in ("before", "after
 changed = ImageChops.difference(img["before"], img["after"]).getbbox() is not None
 kept = ImageChops.difference(img["after"], img["invalid"]).getbbox() is None
 left = (0, 0, 200, 60)  # the left island has no clock
-reverted = ImageChops.difference(img["before"].crop(left), img["deleted"].crop(left)).getbbox() is None
+# The glass density eases from its backdrop sample, so a revert may differ by a level or two.
+reverted = ImageChops.difference(img["before"].crop(left), img["deleted"].crop(left)).point(lambda v: 255 if v > 3 else 0).getbbox() is None
 print(f"reload_changed={changed} invalid_keeps_last_good={kept} deleted_keys_revert={reverted}")
 sys.exit(0 if changed and kept and reverted else 1)
 PY

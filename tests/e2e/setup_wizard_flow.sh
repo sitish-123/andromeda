@@ -37,6 +37,8 @@ with_noctalia '
   later() { click $((right - 160 * pct / 100)); }
 
   wait_page welcome
+  # The page line comes before the first frame; a click before the panel maps is lost.
+  for _ in $(seq 100); do grep -q "panel \"setup-wizard\" open to first frame" "$OUT/noctalia.log" && break; sleep 0.1; done
   sleep 1
   grim "$OUT/welcome.png"
   # The 640 x 560 sheet sits centred in the panel layer (the rest is its shadow); footer buttons are 24 in, 32 high.
@@ -65,6 +67,7 @@ with_noctalia '
     fail "expected page $target, log has: page $page"
   }
   primary; wait_page appearance
+  reach primary layout
   reach primary keyboard
   reach primary search
   reach lead keyboard

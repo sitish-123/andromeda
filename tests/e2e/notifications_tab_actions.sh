@@ -26,18 +26,20 @@ with_noctalia '
   "$NOCTALIA" msg panel-open control-center notifications > /dev/null
   settle
   cp "$OUT/now.png" "$OUT/1-tab.png"
-  # The row button (not the banner): the Notifications row sits under the filter, its action fills the card bottom.
-  "$POINTER" 1280 720 move 1009 271 > /dev/null
-  "$POINTER" 1280 720 move 1009 271 click 272 > /dev/null
+  # The row button (not the banner): the first action sits at the right end of the row.
+  "$POINTER" 1280 720 move 1148 183 > /dev/null
+  "$POINTER" 1280 720 move 1148 183 click 272 > /dev/null
   invoked() { grep -q "reply" "$OUT/invoked.txt"; }
   wait_for 5 invoked || fail "the row action did not reach the app (invoked.txt: $(cat "$OUT/invoked.txt"))"
-  # The newest card sits on top, in the same place: a click on its summary line runs "default".
+  # The action closed the panel and dismissed its notification, so the new one fills the same row: a click on
+  # its summary line runs "default".
   notify-send -w -t 0 -a "$tag-d" -A "default=Open" "Open $tag" "body" > "$OUT/default.txt" 2>&1 &
   "$POINTER" 1280 720 move 5 715 > /dev/null
+  "$NOCTALIA" msg panel-open control-center notifications > /dev/null
   settle
   cp "$OUT/now.png" "$OUT/2-default.png"
-  "$POINTER" 1280 720 move 1150 213 > /dev/null
-  "$POINTER" 1280 720 move 1150 213 click 272 > /dev/null
+  "$POINTER" 1280 720 move 986 183 > /dev/null
+  "$POINTER" 1280 720 move 986 183 click 272 > /dev/null
   defaulted() { grep -q "default" "$OUT/default.txt"; }
   wait_for 5 defaulted || fail "a card body click did not send default (default.txt: $(cat "$OUT/default.txt"))"
   echo PASS

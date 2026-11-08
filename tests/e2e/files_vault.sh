@@ -16,7 +16,7 @@ NAME=Private
 PASSWORD=correct-horse-9
 mkdir -p "$OUT" "$HOME_DIR"
 fail() { echo "FAIL: $*"; exit 1; }
-command -v gocryptfs > /dev/null || fail "gocryptfs is not installed (sudo pacman -S gocryptfs)"
+command -v gocryptfs > /dev/null || { echo "SKIP: gocryptfs is not installed (sudo pacman -S gocryptfs)"; exit 77; }
 boot_headless 1
 
 bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)

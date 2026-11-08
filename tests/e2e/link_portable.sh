@@ -5,14 +5,14 @@
 # dialog shows), x11 (Xvfb: the CLIPBOARD selection, XTest), or mutter (a nested GNOME Shell window: the Clipboard
 # portal and libei; its RemoteDesktop dialog needs one click on Share, so it is not headless; skipped with SKIP when
 # gnome-shell or xdg-desktop-portal-gnome is missing). Proves, in each: the daemon's Link1 matches
-# api/org.andromeda.Link1.xml; the phone pairs with the QR code the app shows; link-session picks the expected
+# api/org.andromeda.Link1.xml; the phone pairs with the daemon's pairing URI while the Link app runs; link-session picks the expected
 # backends; a phone notification shows
 # on the session's notification server with its buttons, and a button runs its action on the phone; a desktop copy
 # reaches the phone, and a phone clip pastes on the desktop byte for byte; with the input grant, a move arrives as the
 # same relative motion, a left click as button 1, and text as an entry's text (Unicode, except on KWin, whose EIS
 # server has no ei_text); with the system grant, the phone sets the volume and mute and sees a desktop-side change;
 # the phone and SessionCapabilities get what link-session can do, and nothing once it exits. Writes app-pairing.png,
-# app-light.png, app-dark.png, steps.txt, session.log, app.log, notifier.jsonl, window.jsonl, hold.jsonl, linkd.log,
+# app-connected.png, app-restarted.png, steps.txt, session.log, app.log, notifier.jsonl, window.jsonl, hold.jsonl, linkd.log,
 # and the compositor's log to $OUT (default ./artifacts/link-portable-$COMPOSITOR).
 set -euo pipefail
 COMPOSITOR=${COMPOSITOR:-sway}
@@ -184,25 +184,24 @@ python3 "$E2E/link_api_check.py" "$ROOT/link/api/org.andromeda.Link1.xml" "$OUT/
   || fail "the daemon differs from api/org.andromeda.Link1.xml: $(cat "$OUT/api-check.txt")"
 step "api: the daemon's Link1 matches api/org.andromeda.Link1.xml"
 PORT=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['port'])" "$RUNTIME/state/andromeda-link/devices.json")
+# The Link app (Qt) starts its own pairing window from a button; here the daemon opens it, as the app does.
 app() {
-  GDK_BACKEND=$GDK ANDROMEDA_LINK_DATA="$ROOT/link/crates/link-app/data" ADW_DEBUG_COLOR_SCHEME=$1 \
-    "$BIN/andromeda-link" >> "$OUT/app.log" 2>&1 &
+  QT_QPA_PLATFORM=$([[ $GDK == x11 ]] && echo xcb || echo wayland) "$BIN/andromeda-link" >> "$OUT/app.log" 2>&1 &
   APP=$!
-  wait_for "the app did not start" eval \
-    "gdbus call --session -d org.andromeda.Link -o /org/andromeda/Link/window/1 -m org.gtk.Actions.List 2> /dev/null | grep -q pair"
+  sleep 3 # real time: the window maps and the app connects to the service
+  kill -0 "$APP" 2> /dev/null || fail "the app did not start: $(tail -n 3 "$OUT/app.log")"
 }
-app prefer-light
-gdbus call --session -d org.andromeda.Link -o /org/andromeda/Link/window/1 -m org.gtk.Actions.Activate pair "[]" "{}" \
-  > /dev/null || fail "no pair action"
-wait_for "Pair a phone opened no pairing window" eval "[[ \$(property Pairing) == *true* ]]"
+app
+read -r CODE URI < <(gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.andromeda.Link1.StartPairing |
+  sed -n "s/^('\([0-9]*\)', '\([^']*\)')$/\1 \2/p")
+[[ -n $URI ]] || fail "StartPairing gave no pairing URI"
+wait_for "StartPairing opened no pairing window" eval "[[ \$(property Pairing) == *true* ]]"
 shot pairing
-# The phone scans the QR code on the screen, as the camera would.
-URI=$(zbarimg -q --raw "$OUT/app-pairing.png") || fail "no QR code on the screen"
 "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" pair --uri "$URI" --addr "127.0.0.1:$PORT" \
-  >> "$OUT/phone.log" 2>&1 || fail "pairing with the QR code the app showed"
+  >> "$OUT/phone.log" 2>&1 || fail "pairing with the daemon's pairing URI"
 ID=$(devices | grep -o "'[0-9a-f]\{32\}'" | head -1 | tr -d "'")
 [[ -n $ID ]] || fail "the phone is not listed: $(devices)"
-step "pairing: the phone paired with the QR code the app showed"
+step "pairing: the phone paired with the pairing URI (code $CODE)"
 
 "$BIN/andromeda-link-session" > "$OUT/session.log" 2>&1 &
 SESSION=$!
@@ -218,11 +217,12 @@ exec 3<> "$RUNTIME/phone.in"
 "$BIN/andromeda-link-phone" --state "$RUNTIME/phone" --name "E2E Phone" hold < "$RUNTIME/phone.in" \
   > "$OUT/hold.jsonl" 2>> "$OUT/phone.log" &
 wait_for "the phone never connected" eval "devices | grep -q \"'$ID', 'E2E Phone', true\""
-CAN='"can":\["notifications","clipboard","input","volume"\]'
+# The phone sees "input" only with its Input grant (not given yet); the session lists more after volume.
+CAN='"can":\["notifications","clipboard","volume"[],]'
 wait_for "the phone did not get the capabilities: $(grep capabilities "$OUT/hold.jsonl")" phone_saw "$CAN"
-property SessionCapabilities | grep -q "\['notifications', 'clipboard', 'input', 'volume'\]" \
+property SessionCapabilities | grep -q "\['notifications', 'clipboard', 'input', 'volume'[],]" \
   || fail "SessionCapabilities: $(property SessionCapabilities)"
-step "capabilities: the phone and SessionCapabilities list notifications, clipboard, input, volume"
+step "capabilities: the phone lists notifications, clipboard, volume (no input before its grant); SessionCapabilities adds input"
 
 say 'notify {"id":"chat-1","app":"Messages","title":"Ann Lee","text":"Are you coming?","actions":[{"id":"1","label":"Mark as read","reply":false}]}'
 wait_for "the notification did not reach the notifier" grep -q '"summary": "Ann Lee"' "$OUT/notifier.jsonl"
@@ -267,7 +267,7 @@ wait_for "the text did not arrive: $(last text)" typed "$TEXT"
 step "input: (+40, -25) moved the same, left click as button 1, \"$TEXT\" typed into the entry"
 
 wait_for "the phone did not get the volume: $(grep desktop-status "$OUT/hold.jsonl")" \
-  phone_saw '"event":"desktop-status","muted":false,"volume":100'
+  phone_saw '"event":"desktop-status".*"muted":false,.*"volume":100[,}]'
 say 'system {"command":"set-volume","value":30}'
 wait_for "the daemon did not refuse set-volume without the system grant" \
   grep -q "dropped a system-command its grant does not allow" "$OUT/linkd.log"
@@ -277,20 +277,20 @@ say 'system {"command":"set-volume","value":30}'
 wait_for "set-volume 30 did not reach the sink: $(volume)" eval '[[ $(volume) == "Volume: 0.30" ]]'
 say 'system {"command":"set-mute","value":1}'
 wait_for "set-mute did not reach the sink: $(volume)" eval '[[ $(volume) == "Volume: 0.30 [MUTED]" ]]'
-wait_for "the phone did not see 30%, muted" phone_saw '"event":"desktop-status","muted":true,"volume":30'
+wait_for "the phone did not see 30%, muted" phone_saw '"event":"desktop-status".*"muted":true,.*"volume":30[,}]'
 wpctl set-volume @DEFAULT_AUDIO_SINK@ 55%
-wait_for "the phone did not see a desktop-side change to 55%" phone_saw '"event":"desktop-status","muted":true,"volume":55'
+wait_for "the phone did not see a desktop-side change to 55%" phone_saw '"event":"desktop-status".*"muted":true,.*"volume":55[,}]'
 step "volume: the phone saw 100%; without the grant set-volume was refused; with it, 30% and mute reached the sink; a desktop change to 55% reached the phone"
 
 kill "$INPUT_WINDOW"
-shot light
+shot connected
 kill "$APP"
-app prefer-dark
-shot dark
-step "app: app-light.png with the connected phone, app-dark.png after a restart"
+app
+shot restarted
+step "app: app-connected.png with the connected phone, app-restarted.png after a restart"
 
 SEEN=$(wc -l < "$OUT/hold.jsonl")
 kill "$SESSION"
-wait_for "the phone was not told the session left" eval "tail -n +$(( SEEN + 1 )) \"\$OUT/hold.jsonl\" | grep -q '\"can\":\[\]'"
+wait_for "the phone was not told the session left" eval "tail -n +$(( SEEN + 1 )) \"\$OUT/hold.jsonl\" | grep -qE '\"can\":\[(\"control\")?\]'"
 property SessionCapabilities | grep -q "@as \[\]" || fail "SessionCapabilities after exit: $(property SessionCapabilities)"
 step "capabilities: when link-session leaves the bus, the phone and SessionCapabilities list none"

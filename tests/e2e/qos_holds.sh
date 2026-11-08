@@ -96,7 +96,8 @@ REPAINT_ON_STDIN=1 env WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RU
 exec 4> "$RUNTIME/paced.fifo"
 for _ in $(seq 100); do run "$ANDROMEDA" windows --json 2> /dev/null | grep -q '"paced"' && break; sleep 0.05; done
 run "$ANDROMEDA" msg workspace-switch:3 > /dev/null
-sleep 0.3
+# Mid-slide the outputs still draw the window and send its callbacks.
+run "$ANDROMEDA" settle > /dev/null
 # Milliseconds for ten frame callbacks one after another.
 ten_frames() {
   local start=$(ms) before

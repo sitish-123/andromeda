@@ -117,11 +117,12 @@ with_noctalia '
   say "clip $RUNTIME/src/shot.png image/png"
   wait_for "no ClipboardOffered for the phone image" eval "(( \$(offered_to_desktop) > $BEFORE + 1 ))"
   sleep 0.5 # real time: the shell takes the selection
-  [[ $(count clip-data) == "$DATA_AFTER" ]] || fail "the image moved before the paste"
+  # Clipboard history keeps phone images too (dfb709cef), so the shell reads the image once before any paste.
+  [[ $(count clip-data) == $((DATA_AFTER + 1)) ]] || fail "the image moved $(( $(count clip-data) - DATA_AFTER )) times before the paste, want 1 (history)"
   wl-paste -t image/png > "$RUNTIME/pasted.png"
   cmp -s "$RUNTIME/src/shot.png" "$RUNTIME/pasted.png" || fail "the pasted image differs"
   IMAGE_BYTES=$(stat -c %s "$RUNTIME/pasted.png")
-  step "phone image pulled on paste: $IMAGE_BYTES bytes, identical"
+  step "phone image read once by history, pasted: $IMAGE_BYTES bytes, identical"
 
   printf "plain on the phone" > "$RUNTIME/src/rich.txt"
   printf "<b>bold</b> on the phone" > "$RUNTIME/src/rich.html"

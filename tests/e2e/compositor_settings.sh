@@ -33,14 +33,15 @@ cp "$RUNTIME/settings.toml" "$OUT/settings.toml"
 with_noctalia '
   shot() { "$NOCTALIA" msg settings-open "$1" > /dev/null; sleep 1.5; grim -g "0,40 1280x680" "$OUT/$1.png"; }  # real time: repaint; below the bar
   shot window-style  # first, while Settings opens and the compositor settings are still arriving
-  for page in appearance motion layout overview windows; do shot "$page"; done
+  for page in appearance motion windows; do shot "$page"; done
 '
 
 step appearance.border_width "" 6
 grep -q '^border_width' "$RUNTIME/settings.toml" && { echo "FAIL: clearing left border_width in settings.toml" >&2; exit 1; }
 ! grep -q "^FAIL" "$OUT/settings-set.txt" || { echo "FAIL: see $OUT/settings-set.txt" >&2; exit 1; }
 
-pages=(window-style appearance motion layout overview windows)
+# IA v2: window-style opens Appearance, layout and overview open Windows.
+pages=(appearance motion windows)
 for page in "${pages[@]}"; do
   [[ -s $OUT/$page.png ]] || { echo "FAIL: no screenshot for $page" >&2; exit 1; }
 done

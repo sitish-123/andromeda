@@ -26,9 +26,9 @@ BEFORE_NOCTALIA='
   sleep 0.5
   grim "$OUT/privacy-main.png"
   # Positions on the 1280x720 headless output (screenshots in $OUT show them).
-  click 1052 252   # Face Unlock chevron
+  click 989 251    # Face Unlock chevron (only the chevron opens the page; the window may open narrow)
   grim "$OUT/privacy-face.png"
-  click 1029 252   # Remove on "With glasses"
+  click 969 250    # Remove on "With glasses"
   grim "$OUT/privacy-remove-alert.png"
   click 709 366    # alert Remove
   wait_calls "^DeleteFace .* With glasses" 1

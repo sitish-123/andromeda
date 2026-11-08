@@ -87,8 +87,11 @@ with_noctalia '
   say "notify {\"id\":\"n2\",\"app\":\"Messages\",\"title\":\"Ana\",\"text\":\"Parked outside\"}"
   wait_for "no held notification in NotificationCounts" eval "prop NotificationCounts | grep -qF \"'"'"'$ID'"'"': uint32 2\""
   shot lock-screen-held
-  magick "$OUT/lock-screen-held.png" -resize 200% png:- | tesseract - - 2> /dev/null | grep -q "2 phone notifications" \
-    || fail "the lock screen does not count the held notification"
+  # The notifications chip (after "<phone> · 42%") counts desktop and phone notices together: holding one raises it.
+  chip() { magick "$OUT/$1.png" -crop 500x60+390+270 -resize 300% png:- | tesseract - - 2> /dev/null | sed -n "s/.*% *\([0-9][0-9]*\).*/\1/p" | head -n 1; }
+  before=$(chip lock-screen) held=$(chip lock-screen-held)
+  [[ -n $before && -n $held ]] && ((held > before)) \
+    || fail "the lock screen does not count the held notification (chip ${before:-none} -> ${held:-none})"
   step "screenshots: bar, popover, quick-settings, lock-screen; held while locked: $(prop NotificationCounts)"
 
   kill "$hold"

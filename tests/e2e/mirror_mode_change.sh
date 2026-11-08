@@ -16,8 +16,8 @@ echo 0 > "$RUNTIME/fail-count"
 LD_PRELOAD=$RUNTIME/commit-fail.so FAIL_COMMIT_OUTPUT=HEADLESS-1 FAIL_COMMIT_FILE=$RUNTIME/fail-count boot_headless 2
 SRC=$ROOT/shell
 BUILD=$SRC/build-debug
-gcc -c -o "$RUNTIME/proto.o" "$BUILD/wlr-output-management-unstable-v1-client-protocol.c"
-g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -I"$BUILD" -o "$RUNTIME/output-transform" \
+gcc -c -o "$RUNTIME/proto.o" "$BUILD/subprojects/libdesk-ui/wlr-output-management-unstable-v1-client-protocol.c"
+g++ -std=c++23 -I"$SRC/src" -I"$ROOT/libdesk-ui/src" -I"$BUILD" -I"$BUILD/subprojects/libdesk-ui" -o "$RUNTIME/output-transform" \
   "$(dirname "$0")/output_transform.cpp" "$SRC/src/compositors/output_management.cpp" "$RUNTIME/proto.o" -lwayland-client
 : > "$OUT/mode.txt"
 commits() { run "$ANDROMEDA" output-commits --json | jq ".\"${1:-HEADLESS-2}\""; }

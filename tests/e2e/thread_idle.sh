@@ -6,7 +6,8 @@
 # (default ./artifacts/thread-idle); threads-early.txt holds the first answer.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/thread-idle}
-ALLOWED=${ALLOWED:-}
+# dsk-log: the permanent log writer, asleep on its queue (no wakeups at idle).
+export ALLOWED=${ALLOWED:-dsk-log}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
@@ -14,7 +15,7 @@ with_noctalia '
   for _ in $(seq 100); do "$NOCTALIA" msg debug-threads > /dev/null 2>&1 && break; sleep 0.1; done
   "$NOCTALIA" msg debug-threads > "$OUT/threads-early.txt"
   for _ in $(seq 120); do
-    now=$("$NOCTALIA" msg debug-threads)
+    now=$("$NOCTALIA" msg debug-threads | tail -n +2 | grep -vxcE "${ALLOWED:-^$}" || true)
     [[ "$now" == "0" ]] && break
     sleep 0.5
   done

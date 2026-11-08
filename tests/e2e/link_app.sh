@@ -53,8 +53,14 @@ with_noctalia '
   # -s: wtype waits after its keymap upload, else the compositor drops the first key.
   key() { wtype -s 300 "$@"; }
   app() { GTK_A11Y=none ANDROMEDA_LINK_DATA=$DATA ADW_DEBUG_COLOR_SCHEME=$1 "$BIN/andromeda-link" >> "$OUT/app.log" 2>&1 & app_pid=$!; }
-  view() { gdbus call --session --dest org.andromeda.Link --object-path /org/andromeda/Link/window/1 \
-    --method org.gtk.Actions.Activate view "[<\"$1\">]" "{}" > /dev/null || fail "no view action"; }
+  click() { "'"$ROOT"'/compositor/build-debug/tests/pointer-client" 1280 720 move "$1" "$2" click 272 > /dev/null; }
+  # The sidebar rows of the Qt app, 1280x720 points.
+  view() {
+    case $1 in
+      home) click 140 172 ;; messages) click 140 211 ;; calls) click 140 251 ;; photos) click 140 292 ;;
+      files) click 140 332 ;; screen) click 140 371 ;; settings) click 115 652 ;; *) fail "no view $1" ;;
+    esac
+  }
   clips() { grep -c "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" || true; }
 
   app prefer-light
@@ -70,7 +76,8 @@ with_noctalia '
   step "empty: the service runs and no phone is paired"
 
   prop() { gdbus call --session -d org.andromeda.Link1 -o /org/andromeda/Link1 -m org.freedesktop.DBus.Properties.Get org.andromeda.Link1 "$1"; }
-  key -k Return
+  # Pair a phone on the Home card (no button has keyboard focus at start), 1280x720 points.
+  click 397 247
   wait_for "Pair a phone opened no pairing window" eval "[[ \$(prop Pairing) == *true* ]]"
   shot pairing
   # The phone scans the QR code on the screen, as the camera would.
@@ -117,18 +124,21 @@ with_noctalia '
   head -c 4200000 /dev/urandom > "$RUNTIME/src/IMG_2201.jpg"
   say "send $RUNTIME/src/IMG_2201.jpg"
 
-  sleep 1 # real time: the app gives the composer the focus when the phone connects
+  # Reply on the WhatsApp notification (Home, right column) opens its inline field with the focus.
+  sleep 1 # real time: the notification row paints
+  click 897 196
+  sleep 0.5 # real time: the field takes the focus
   key "See you at 6"
   key -k Return
-  wait_for "the phone never got the composer text" grep -q "\"event\":\"received\".*\"text\":\"See you at 6\"" "$OUT/hold.jsonl"
-  step "composer: $(grep "\"event\":\"received\"" "$OUT/hold.jsonl" | tail -1)"
+  wait_for "the phone never got the reply" grep -q "\"event\":\"notification-action\".*\"reply_text\":\"See you at 6\"" "$OUT/hold.jsonl"
+  step "reply: $(grep "\"event\":\"notification-action\"" "$OUT/hold.jsonl" | tail -1)"
 
   printf "INV-2026-1043, Rs 13,000" | wl-copy
   wait_for "link-session never synced the copy" eval "(( \$(clips) >= 1 ))"
   before=$(clips)
-  # GTK does not match wtype modifiers to shortcuts, so Send clipboard runs through GTK actions on D-Bus.
-  gdbus call --session --dest org.andromeda.Link --object-path /org/andromeda/Link/window/1 \
-    --method org.gtk.Actions.Activate send-clipboard "[]" "{}" > /dev/null || fail "no send-clipboard action"
+  # Send clipboard on the Home card.
+  view home
+  click 544 334
   wait_for "Send clipboard did not reach the phone" eval "(( \$(clips) > before ))"
   grep "\"event\":\"clip-offered\"" "$OUT/hold.jsonl" | tail -1 | grep -q "INV-2026-1043" || fail "the clip had other text"
   step "send clipboard: $(clips) offers, the last from the button"

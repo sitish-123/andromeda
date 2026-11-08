@@ -20,7 +20,7 @@ mkdir -p "$RUNTIME/power/BAT0"
 echo Battery > "$RUNTIME/power/BAT0/type"
 echo Charging > "$RUNTIME/power/BAT0/status"
 export ANDROMEDA_QOS_TEST_DELAYS_MS=1000,1500 ANDROMEDA_QOS_TEST_POWER_SUPPLY=$RUNTIME/power
-trap 'systemctl --user thaw "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "app-andromeda-${ADOPTED:-0}.scope" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
+trap 'systemctl --user thaw "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "$UNIT" "$OWN_UNIT" 2>/dev/null; systemctl --user stop "${ADOPTED_UNIT:-none.scope}" 2>/dev/null; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 # Spawned by the compositor without a scope (no scopes required here): it must get its own app scope.
 AUTOSTART="\"$CLIENT qos-adopt\""
 boot_headless 1
@@ -82,7 +82,8 @@ EFFICIENCY=$(sed -n 's/.*efficiency CPUs for hidden apps: //p' "$OUT/andromeda.l
 for _ in $(seq 100); do ADOPTED=$(pgrep -P "$COMPOSITOR" -fx "$CLIENT qos-adopt" || true); [[ -n $ADOPTED ]] && break; sleep 0.05; done
 [[ -n $ADOPTED ]] || fail "autostart client never started"
 scope_of() { sed -n 's|^0::.*/||p' "/proc/$ADOPTED/cgroup"; }
-await "unscoped app: own scope" "app-andromeda-$ADOPTED.scope" 3000 scope_of
+ADOPTED_UNIT="app-andromeda-$ADOPTED-$(sed 's/.*) //' "/proc/$ADOPTED/stat" | cut -d" " -f20).scope"
+await "unscoped app: own scope" "$ADOPTED_UNIT" 3000 scope_of
 
 systemd-run --user --scope --quiet --unit="$UNIT" \
   env FORK_CHILD=1 WAYLAND_DISPLAY="$RUNTIME/wayland-0" XDG_RUNTIME_DIR="$RUNTIME" "$CLIENT" qos-freeze > "$OUT/client.log" 2>&1 &

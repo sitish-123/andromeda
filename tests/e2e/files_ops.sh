@@ -140,7 +140,8 @@ echo "PASS clipboard"
 
 # Job pill (FILES-UI-SPEC §14): a slow copy (the daemon runs at 3 % CPU) shows the header pill; a click opens the
 # popover; while progress arrives, its Pause circle pauses the copy, Resume runs it again, and Stop cancels it.
-truncate -s 1G "$SRC/big.bin"
+# Real data: the copy skips the holes of a sparse file and ends before the pill shows.
+head -c 512M /dev/zero > "$SRC/big.bin"
 select_names "$SRC" 1 "['big.bin']"
 action edit.copy
 action go "[<'$DST'>]"

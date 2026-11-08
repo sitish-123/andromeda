@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # dsk_shell_v1 end to end: a compositor `shell:` action opens a shell panel without starting a process, Caps Lock
-# typed on a virtual keyboard reaches the shell as compositor lock-key state, and the idle shell's wakeups are counted
+# set as compositor lock state (harness command) reaches the shell over dsk_shell_v1, and the idle shell's wakeups are counted
 # with the lock-keys OSD enabled (it polled LEDs every 200 ms before). Writes result.txt to $OUT (default
 # ./artifacts/shell-protocol).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/shell-protocol}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
-KEYS=${KEYS:-$ROOT/compositor/build-debug/tests/pointer-client}
 
 with_noctalia '
   layer_present() { "$ANDROMEDA" layers | grep -q "$1"; }
@@ -25,9 +24,16 @@ with_noctalia '
   echo "idle shell wakeups/s: $idle" | tee "$OUT/result.txt"
   ((idle <= 10)) || { echo "FAIL: idle shell woke $idle times per second"; exit 1; }
 
-  # A virtual keyboard sets lock state with its modifiers request; wlroots does not update it from a key.
-  '"$KEYS"' 1280 720 lock caps > /dev/null
-  for _ in $(seq 50); do layer_present noctalia-osd && break; sleep 0.1; done
-  layer_present noctalia-osd || { echo "FAIL: Caps Lock did not reach the shell"; exit 1; }
+  # Lock state comes from physical keyboards only, and headless has none: the harness command sets it.
+  # The OSD shows in the center island (noctalia-osd is only the fallback for outputs without one).
+  grim -g "440,0 400x64" "$OUT/island-before.png"
+  "$ANDROMEDA" lock-keys-test caps > /dev/null
+  shown=0
+  for _ in $(seq 50); do
+    sleep 0.1
+    grim -g "440,0 400x64" "$OUT/island-caps.png"
+    cmp -s "$OUT/island-before.png" "$OUT/island-caps.png" || { shown=1; break; }
+  done
+  ((shown)) || layer_present noctalia-osd || { echo "FAIL: Caps Lock did not reach the shell"; exit 1; }
 '
 echo "PASS; artifacts: $OUT"

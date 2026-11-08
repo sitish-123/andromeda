@@ -25,7 +25,8 @@ with_noctalia '
     for _ in $(seq 100); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  ocr() { magick "$1" -resize 200% png:- | tesseract - - 2> /dev/null; }
+  # Grey caption text on the light sheet needs the threshold to read.
+  ocr() { magick "$1" -colorspace Gray -resize 300% -threshold 55% png:- | tesseract - - 2> /dev/null; }
 
   XDG_STATE_HOME=$RUNTIME/linkd "$BIN/andromeda-linkd" > "$OUT/linkd.log" 2>&1 &
   wait_for "shell never saw Quick Share" eval "[[ \$(msg quickshare-visible) == off ]]"
@@ -53,6 +54,8 @@ with_noctalia '
   grim "$OUT/received.png"
   ocr "$OUT/received.png" | grep -q "Files from Test Phone" || fail "no received notification"
   step "accepted and saved; result notification shown"
+  # The island shows one toast at a time, and the result toast with actions stays until it is cleared.
+  msg notification-clear-active > /dev/null
 
   mkdir -p "$RUNTIME/nearby-in"
   "$BIN/andromeda-quickshare" --name "Nearby Phone" receive --dir "$RUNTIME/nearby-in" --port 47310 --consent accept \
@@ -63,9 +66,8 @@ with_noctalia '
   [[ $(msg quickshare-send "$PEER" "$RUNTIME/photo.jpg") == ok ]] || fail "quickshare-send refused"
   wait_for "the nearby phone did not get the file" test -f "$RUNTIME/nearby-in/photo.jpg"
   cmp -s "$RUNTIME/photo.jpg" "$RUNTIME/nearby-in/photo.jpg" || fail "the sent file differs"
-  sleep 1 # real time: the sent toast maps and paints
-  grim "$OUT/sent.png"
-  ocr "$OUT/sent.png" | grep -q "Sent to Nearby Phone" || fail "no sent notification"
+  sent_shown() { grim "$OUT/sent.png" && ocr "$OUT/sent.png" | grep -q "Sent to Nearby Phone"; }
+  wait_for "no sent notification" sent_shown
   msg quickshare-nearby off > /dev/null
   step "sent to a nearby receiver found by discovery; sent notification shown"
 '

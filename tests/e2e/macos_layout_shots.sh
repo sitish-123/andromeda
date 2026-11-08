@@ -87,10 +87,11 @@ with_noctalia '
   "$NOCTALIA" msg power-overlay > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   stable_grim "$OUT/power-overlay.png"
-  "'"$POINTER"'" 1280 720 tap 106 > /dev/null # Right
+  # Pause first: the shell binds the per-run virtual keyboard after its first key.
+  "'"$POINTER"'" 1280 720 tap 119 pause 100 tap 106 > /dev/null # Right
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim "$OUT/power-overlay-right.png"
-  "'"$POINTER"'" 1280 720 tap 1 > /dev/null # Escape
+  "'"$POINTER"'" 1280 720 tap 119 pause 100 tap 1 > /dev/null # Escape
   for _ in $(seq 40); do
     [[ $("$ANDROMEDA" layers --json | jq "[.[] | select(.namespace == \"noctalia-power-overlay\")] | length") -eq 0 ]] && break
     sleep 0.05
@@ -107,7 +108,7 @@ with_noctalia '
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   "'"$POINTER"'" 1280 720 move 64 16 click 272 > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
-  "'"$POINTER"'" 1280 720 tap 106 > /dev/null # Right
+  "'"$POINTER"'" 1280 720 tap 119 pause 100 tap 106 > /dev/null # Right
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim "$OUT/file-menu.png"
 '

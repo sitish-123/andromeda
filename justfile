@@ -72,9 +72,15 @@ e2e-run +scripts:
     # failed.txt keeps the failures of the last full run; a pass removes its name, a failure adds it.
     d=/tmp/andromeda-e2e; mkdir -p "$d"; touch "$d/failed.txt"; bad=0
     for t in {{scripts}}; do
-      n=$(basename "$t" .sh); case $n in lib|mirror) echo "skip $n: a helper, not a test"; continue ;; esac
+      n=$(basename "$t" .sh); case $n in lib|mirror|activity_click) echo "skip $n: a helper, not a test"; continue ;; esac
       sed -i "/^$n\$/d" "$d/failed.txt"
-      if bash "$t" > "$d/$n.log" 2>&1; then echo "pass $n"; else echo "FAIL $n: $d/$n.log"; echo "$n" >> "$d/failed.txt"; bad=1; fi
+      # Exit 77: the machine lacks a tool or device the test needs; its last line says which.
+      bash "$t" > "$d/$n.log" 2>&1; rc=$?
+      case $rc in
+        0) echo "pass $n" ;;
+        77) echo "skip $n: $(tail -n 1 "$d/$n.log")" ;;
+        *) echo "FAIL $n: $d/$n.log"; echo "$n" >> "$d/failed.txt"; bad=1 ;;
+      esac
     done
     if [ -s "$d/failed.txt" ]; then echo "still failing: $(tr '\n' ' ' < "$d/failed.txt")"; fi
     exit $bad

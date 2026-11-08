@@ -35,7 +35,7 @@ with_noctalia '
   unlocked() { msg status | grep -q "\"locked\": false"; }
   lock() { : > "$OUT/calls.txt"; [[ $(msg session lock) == ok ]] || fail "lock refused"; wait_for "did not lock" locked; }
   face_unlock() {
-    wtype -k Escape
+    wtype -k Return # face on request: Enter with an empty field starts one scan
     wait_for "$1: a key press did not arm face unlock" verifying
     gaze /com/gundulabs/Gaze dsk.test.Gaze Finish sssb verify-match usable usable true
     wait_for "$1: verify-match did not unlock" unlocked
@@ -82,6 +82,7 @@ with_noctalia '
   lock
   say "call {\"state\":\"ringing\",\"number\":\"+1 555 0199\"}"
   wait_for "the second call never reached the shell" activity_has "555 0199"
+  sleep 2 # real time: the enter transition ends (the surface takes no input before)
   face_unlock plain
   sleep 1 # real time: a stray decline would reach the phone well within this
   [[ $(declines) == 1 ]] || fail "an unlock without Decline declined the call"
