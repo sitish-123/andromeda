@@ -11,6 +11,12 @@ RowIdentity identityFor(const ActivityRow& row) {
     if (auto entry = app_identity::findDesktopEntry(row.appId, desktopEntries()); entry.has_value()) {
       return {.name = entry->name.empty() ? row.appId : entry->name, .icon = entry->icon};
     }
+    // Launchers name the unit after the entry's icon when it differs from the file name (zen-browser -> zen.desktop).
+    const auto& entries = desktopEntries();
+    if (std::ranges::count(entries, row.appId, &DesktopEntry::icon) == 1) {
+      const auto it = std::ranges::find(entries, row.appId, &DesktopEntry::icon);
+      return {.name = it->name.empty() ? row.appId : it->name, .icon = it->icon};
+    }
     return {.name = row.appId, .icon = row.appId};
   }
   std::string name = row.key;

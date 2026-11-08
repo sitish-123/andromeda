@@ -1,6 +1,7 @@
 #include "system/background_activity_monitor.h"
 
 #include "core/log.h"
+#include "core/shared_worker.h"
 #include "i18n/i18n.h"
 #include "notification/notification_manager.h"
 #include "system/activity_actions.h"
@@ -219,6 +220,81 @@ std::map<std::string, BackgroundActivityMonitor::RowState> BackgroundActivityMon
     };
   }
   return states;
+}
+
+void BackgroundActivityMonitor::classifyRowsAsync(
+    std::weak_ptr<void> alive, std::function<void(std::map<std::string, RowState>)> done
+) const {
+  BackgroundContext context;
+  context.nowUsec = nowRealtimeUsec();
+  context.cpuCount = m_activity.activity().cpuCount();
+  if (m_hooks.thresholds) {
+    context.thresholds = m_hooks.thresholds();
+  }
+  if (const char* home = std::getenv("HOME"); home != nullptr) {
+    context.homeDir = home;
+  }
+  if (m_hooks.enabledFeatures) {
+    context.enabledFeatures = m_hooks.enabledFeatures();
+  }
+  struct Input {
+    ActivityRow row;
+    SystemdUnit unit;
+    std::vector<std::string> groups; // control groups of every unit of the row
+    bool ignored = false;
+  };
+  std::vector<Input> inputs;
+  const auto& units = m_activity.userUnits().units();
+  for (const auto& row : m_activity.activity().rows()) {
+    if (row.units.empty()) {
+      continue;
+    }
+    const auto unit = std::ranges::find(units, row.units.front(), &SystemdUnit::name);
+    if (unit == units.end()) {
+      continue;
+    }
+    Input input{.row = row, .unit = *unit, .ignored = m_state.ignored(row.key)};
+    for (const auto& name : row.units) {
+      if (const auto it = std::ranges::find(units, name, &SystemdUnit::name); it != units.end()) {
+        input.groups.push_back(it->controlGroup);
+      }
+    }
+    inputs.push_back(std::move(input));
+  }
+  using States = std::map<std::string, RowState>;
+  SharedWorker::instance().post<States>(
+      std::move(alive),
+      [context = std::move(context), inputs = std::move(inputs), root = m_activity.activity().cgroupRoot(),
+       trayPids = m_hooks.trayPids ? m_hooks.trayPids() : std::vector<int>{}]() mutable {
+        for (const int pid : trayPids) {
+          if (std::string unit = unitForPid(pid); !unit.empty()) {
+            context.trayUnits.insert(std::move(unit));
+          }
+        }
+        std::map<std::string, const std::vector<std::string>*> groups;
+        for (const auto& input : inputs) {
+          groups[input.row.key] = &input.groups;
+        }
+        context.hasTerminal = [&groups, &root](const ActivityRow& row) {
+          const auto it = groups.find(row.key);
+          return it != groups.end() && std::ranges::any_of(*it->second, [&](const std::string& group) {
+                   return cgroupHasTerminal(root, group);
+                 });
+        };
+        const auto autostart = autostartEntries();
+        States states;
+        for (const auto& input : inputs) {
+          states[input.row.key] = RowState{
+              .verdict = classifyBackground(input.row, input.unit.fragmentPath, input.unit.unitFilePreset, context),
+              .ignored = input.ignored,
+              .atLogin = input.unit.unitFileState == "enabled"
+                  || std::ranges::contains(autostart, input.unit.name, &AutostartEntry::unitName),
+          };
+        }
+        return states;
+      },
+      std::move(done)
+  );
 }
 
 void BackgroundActivityMonitor::disableAtLogin(

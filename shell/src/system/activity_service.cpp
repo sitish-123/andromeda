@@ -82,6 +82,7 @@ void ActivityService::sampleAsync(std::chrono::steady_clock::time_point now, std
 }
 
 void ActivityService::apply(std::chrono::steady_clock::time_point now, Readings readings) {
+  m_sampled = true;
   for (auto& [name, reading] : readings) {
     auto& history = m_history[name];
     history.push_back({now, std::move(reading)});

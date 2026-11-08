@@ -5,7 +5,8 @@
 #   - the act-test row (tcp_chatter.py, about 2.5 MB/s over localhost) reports no TCP rate (net_bps) in the dump,
 #   - the selected act-test row does not reach the dump,
 #   - Delete while typing in the search field (Ctrl+F) quits the selected app,
-#   - Delete (Quit on the selected row) does not stop the scope and close the foot window.
+#   - Delete (Quit… on the selected row) stops the scope before Enter confirms it,
+#   - Delete then Enter does not stop the scope and close the foot window.
 # Writes window.png (for the mockup crop at UI_SCALE, default 1) to $OUT (default ./artifacts/activity-window[-<scale>]).
 set -euo pipefail
 UI_SCALE=${UI_SCALE:-1}
@@ -73,7 +74,13 @@ with_noctalia '
   alive || { echo "FAIL: foot exited while typing in search"; exit 1; }
   "$POINTER" 1280 720 tap 1 > /dev/null # Escape: leave the search field
 
-  "$POINTER" 1280 720 tap 111 > /dev/null # Delete: Quit the selected row
+  "$POINTER" 1280 720 tap 111 > /dev/null # Delete: Quit… on the selected row asks first
+  for _ in $(seq 10); do
+    ! grep -qF "StopUnit $SCOPE" "$OUT/calls.txt" || { echo "FAIL: Delete quit the app without asking"; exit 1; }
+    sleep 0.1
+  done
+  grim "$OUT/confirm.png"
+  "$POINTER" 1280 720 tap 28 > /dev/null # Enter confirms the Quit
   for _ in $(seq 50); do alive || break; sleep 0.1; done
   ! alive || { echo "FAIL: Quit did not close the foot window"; exit 1; }
   grep -qF "StopUnit $SCOPE" "$OUT/calls.txt" || { echo "FAIL: no StopUnit for $SCOPE"; exit 1; }

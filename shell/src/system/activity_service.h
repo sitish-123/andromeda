@@ -59,6 +59,8 @@ public:
   [[nodiscard]] int cpuCount() const noexcept { return m_cpuCount; }
   // Sorted by memory, largest first.
   [[nodiscard]] const std::vector<ActivityRow>& rows() const noexcept { return m_rows; }
+  // True once one sample has been applied: until then the window shows "Loading", after it the empty text.
+  [[nodiscard]] bool sampled() const noexcept { return m_sampled; }
 
 private:
   struct Timed {
@@ -77,6 +79,7 @@ private:
   std::map<std::string, std::string> m_windowAppIdByUnit;
   std::map<std::string, std::string> m_tierByUnit;
   std::map<std::string, std::deque<Timed>> m_history; // by unit name, oldest first
+  bool m_sampled = false;
   std::vector<ActivityRow> m_rows;
   bool m_reading = false;
   std::vector<std::function<void()>> m_readWaiters;

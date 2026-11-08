@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -49,6 +50,9 @@ public:
   // Classifies every current row with the same rules as the warning (no notified/ignored filter). Costs one bus call
   // per tray item and /proc reads for flag candidates: call it on demand, not every frame.
   [[nodiscard]] std::map<std::string, RowState> classifyRows() const;
+  // classifyRows() with its /proc, cgroup and autostart reads on the SharedWorker; `done` runs on the main loop
+  // while `alive` lives. Tray PIDs and the ignore list are read on the main loop first.
+  void classifyRowsAsync(std::weak_ptr<void> alive, std::function<void(std::map<std::string, RowState>)> done) const;
   // Row actions for the Activity window; replies run on the main loop.
   void disableAtLogin(const std::string& rowKey, std::function<void(const ActivityActionResult&)> reply);
   void setIgnored(const std::string& rowKey, bool ignored);
