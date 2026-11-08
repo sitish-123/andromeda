@@ -662,7 +662,33 @@ namespace andromeda {
     return seat->pointer_state.grab_button;
   }
 
+  bool Cursor::titleBarDoubleClick(View* target, uint32_t timeMsec, double x, double y) {
+    const double dx = x - m_lastTitleBarClick.x;
+    const double dy = y - m_lastTitleBarClick.y;
+    if (m_lastTitleBarClick.view != target
+        || timeMsec - m_lastTitleBarClick.timeMsec > kDoubleClickMsec
+        || dx * dx + dy * dy > kDoubleClickSlop * kDoubleClickSlop) {
+      m_lastTitleBarClick = {timeMsec, x, y, target};
+      return false;
+    }
+    m_lastTitleBarClick = {};
+    if (target->scheduledFullscreen()) {
+      target->toggleFullscreen();
+      return true;
+    }
+    const bool maximized = target->maximizedToEdges() || target->scheduledMaximized() || target->floatingMaximized();
+    target->setMaximizedLikeClientRequest(!maximized);
+    return true;
+  }
+
   void Cursor::beginClientMove(View* view, wlr_seat_client* seatClient, uint32_t serial) {
+    // Client-drawn headers ask for a move on each press: two in a row are a title-bar double-click. The request can
+    // arrive after the release, so the press counts by its serial before the grab checks below.
+    if (m_lastClientPress
+        && m_lastClientPress->serial == serial
+        && titleBarDoubleClick(view, m_lastClientPress->timeMsec, m_lastClientPress->x, m_lastClientPress->y)) {
+      return;
+    }
     const std::optional<uint32_t> button = clientPointerGrabButton(view, seatClient, serial);
     if (!button.has_value()
         || *button == 0
@@ -1232,20 +1258,8 @@ namespace andromeda {
             return;
         } else if (button == BTN_LEFT && hit->part == SsdFramePart::TitleBar) {
           m_server->focusView(target, FocusReason::PointerPress);
-          const double dx = m_cursor->x - m_lastTitleBarClick.x;
-          const double dy = m_cursor->y - m_lastTitleBarClick.y;
-          if (m_lastTitleBarClick.view == target
-              && timeMsec - m_lastTitleBarClick.timeMsec <= kDoubleClickMsec
-              && dx * dx + dy * dy <= kDoubleClickSlop * kDoubleClickSlop) {
-            m_lastTitleBarClick = {};
-            const bool maximized =
-                target->maximizedToEdges() || target->scheduledMaximized() || target->floatingMaximized();
-            target->setMaximizedLikeClientRequest(!maximized);
-          } else {
-            m_lastTitleBarClick = {timeMsec, m_cursor->x, m_cursor->y, target};
-            if (beginMove(target, button, true))
-              return;
-          }
+          if (!titleBarDoubleClick(target, timeMsec, m_cursor->x, m_cursor->y) && beginMove(target, button, true))
+            return;
         } else if (
             button == BTN_LEFT
             && !target->blocked()
@@ -1350,7 +1364,9 @@ namespace andromeda {
     m_server->seat()->notifyPointerModifiers();
     const uint32_t serial = wlr_seat_pointer_notify_button(seat, timeMsec, button, state);
     if (state == WL_POINTER_BUTTON_STATE_PRESSED && serial != 0 && seat->pointer_state.button_count == 1) {
-      m_clientPointerPress = ClientPointerPress{.button = button, .serial = serial, .x = m_cursor->x, .y = m_cursor->y};
+      m_clientPointerPress =
+          ClientPointerPress{.button = button, .serial = serial, .timeMsec = timeMsec, .x = m_cursor->x, .y = m_cursor->y};
+      m_lastClientPress = m_clientPointerPress;
     }
     if (layer != nullptr) {
       if (!isXdgPopupSurface(surface)) {

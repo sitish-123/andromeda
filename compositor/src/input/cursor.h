@@ -201,6 +201,8 @@ namespace andromeda {
     bool beginResize(View* view, uint32_t edges, uint32_t button);
     // A null seat client is an X11 move/resize request, which carries no serial.
     void beginClientMove(View* view, wlr_seat_client* seatClient, uint32_t serial);
+    // A second title-bar press within the double-click time: exits fullscreen or toggles maximize.
+    bool titleBarDoubleClick(View* target, uint32_t timeMsec, double x, double y);
     void beginClientResize(View* view, wlr_seat_client* seatClient, uint32_t serial, uint32_t edges);
     void resetMode();
     // Warp the cursor to a layout position and run the motion pipeline (pointer focus, xcursor, pointer-output
@@ -437,10 +439,13 @@ namespace andromeda {
     struct ClientPointerPress {
       uint32_t button;
       uint32_t serial;
+      uint32_t timeMsec;
       double x;
       double y;
     };
     std::optional<ClientPointerPress> m_clientPointerPress;
+    // The latest such press, kept past its release: a move request may arrive after the button is up.
+    std::optional<ClientPointerPress> m_lastClientPress;
     // A left press on a dsk_tracker_v1 drag region (fingers 0). The client gets the press; past kTrackerDragSlop px
     // along the tracker's axis the compositor claims the drag and the client gets a pointer leave.
     struct TrackerDrag {
