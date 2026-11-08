@@ -401,6 +401,8 @@ namespace {
         && a.backdrop == b.backdrop
         && a.lockscreen == b.lockscreen
         && a.dock == b.dock
+        && a.desktopIcons == b.desktopIcons
+        && a.storage == b.storage
         && a.shell == b.shell
         && a.osd == b.osd
         && a.notification == b.notification

@@ -351,7 +351,6 @@ namespace desktop_layout {
     }
     out.emplace_back(Path{"dock", "enabled"}, p->dock);
     if (hasDesktopIcons(preset)) {
-      out.emplace_back(Path{"desktop_icons", "enabled"}, true);
       out.emplace_back(Path{"desktop_icons", "start_corner"}, std::string(preset == "macos" ? "top_right" : "top_left"));
     }
     for (const auto& [key, value] : compositorParts(*p)) {
@@ -385,7 +384,6 @@ namespace desktop_layout {
       out.push_back(Path{"shell", "panel", "control_center_placement"});
     }
     if (!hasDesktopIcons(preset)) {
-      out.push_back(Path{"desktop_icons", "enabled"});
       out.push_back(Path{"desktop_icons", "start_corner"});
     }
     if (preset != "windows" && now.cornerRadius == find("windows")->radius) {

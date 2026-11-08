@@ -140,6 +140,7 @@ private:
   void openItemMenu(std::size_t index, float x, float y);
   void updateBand(float x, float y);
   void onCellMotion(float sceneX, float sceneY);
+  void moveSelected(float dx, float dy);
   void drop();
   [[nodiscard]] float slotX(int column) const;
   [[nodiscard]] float slotY(int row) const;

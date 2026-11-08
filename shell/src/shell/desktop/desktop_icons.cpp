@@ -56,6 +56,7 @@ namespace {
   constexpr int kBandRound = 4;
   constexpr int kMenuW = 220;
   constexpr float kDragSlop = 8.0F; // rulebook 7.7
+  constexpr float kDraggedOpacity = 0.5F;
   constexpr auto kDoubleClick = std::chrono::milliseconds(400);
 
   enum MenuId : std::int32_t {
@@ -230,7 +231,7 @@ void DesktopIcons::onDropTarget(float x, float y, std::uint32_t action, const st
       transferIn(paths, pathOf(*m_cells[*folder].info), move);
       resetDraggedCells();
     } else {
-      onCellMotion(x, y);
+      moveSelected(x - m_pressX, y - m_pressY);
       drop();
     }
     endSystemDrag(true);
@@ -358,6 +359,11 @@ void DesktopIcons::startSystemDrag() {
 
 void DesktopIcons::endSystemDrag(bool droppedHere) {
   m_systemDrag = false;
+  for (const Cell& cell : m_cells) {
+    if (cell.area != nullptr) {
+      cell.area->setOpacity(1.0F);
+    }
+  }
   m_pressIndex.reset();
   m_dragging = false;
   if (!droppedHere) {
@@ -900,6 +906,20 @@ void DesktopIcons::onCellMotion(float sceneX, float sceneY) {
     m_dragging = true;
     startSystemDrag();
   }
+  if (m_systemDrag) {
+    // The compositor draws the drag image at the pointer; the originals stay dimmed in place until the drop.
+    for (const std::size_t i : selection()) {
+      if (m_cells[i].area != nullptr) {
+        m_cells[i].area->setOpacity(kDraggedOpacity);
+      }
+    }
+    m_surface->requestRedraw();
+    return;
+  }
+  moveSelected(dx, dy);
+}
+
+void DesktopIcons::moveSelected(float dx, float dy) {
   // Moves the selected cells in place: a rebuild now would drop the pressed area and end the drag.
   for (const std::size_t i : selection()) {
     if (m_cells[i].area != nullptr) {

@@ -825,7 +825,7 @@ constexpr EnumOption<DesktopIconsCorner> kDesktopIconsCorners[] = {
 // Desktop icons (DL3, .agent/DESIGN.md "Desktop icons"): ~/Desktop on the wallpaper. The macOS and Windows desktop
 // layouts turn them on; the column starts at their corner.
 struct DesktopIconsConfig {
-  bool enabled = false;
+  bool enabled = true;
   DesktopIconsCorner startCorner = DesktopIconsCorner::TopLeft;
   std::int32_t iconSize = 64;
   bool stacks = false; // Use Stacks: files grouped by kind (FILES-UI-SPEC §20)
