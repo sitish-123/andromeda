@@ -173,6 +173,15 @@ run_mode() {
     kill "$p1" "$p2" 2>/dev/null
   }
 
+  # The overview held open over two scrolling terminals (two live cards); its open and close are not timed.
+  s_overview_open() {
+    local a=(env XDG_RUNTIME_DIR="$R" ANDROMEDA_SOCKET="$R/andromeda-wayland-0.sock" "$ANDROMEDA")
+    local p1 p2; p1=$(busy); p2=$(busy); sleep 1
+    "${a[@]}" msg overview-open > /dev/null; sleep "$SECONDS_PER"
+    "${a[@]}" msg overview-close > /dev/null; sleep 0.5
+    kill "$p1" "$p2" 2>/dev/null
+  }
+
   # Two terminals on each of two workspaces; the switch slides them past the bar islands and the dock.
   # Setup runs outside the scenario window: a terminal's first frame is a window-open cost, not a switch cost.
   ws_pids=()
@@ -201,6 +210,7 @@ run_mode() {
   scenario window_open_close s_window_open_close
   scenario launcher_typing s_launcher_typing
   scenario worst s_worst
+  scenario overview_open s_overview_open
   selected workspace_switch && ws_setup
   scenario workspace_switch s_workspace_switch
   ((${#ws_pids[@]})) && kill "${ws_pids[@]}" 2>/dev/null
