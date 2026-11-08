@@ -226,6 +226,15 @@ namespace andromeda {
       Workspace* workspace = m_pressWorkspace.get();
       m_pressCard = nullptr;
       m_pressWorkspace = nullptr;
+      // A tap on another desktop's thumbnail switches the shown desktop and keeps the overview open.
+      WorkspaceGroup* thumbGroup = m_pressThumb && workspace != nullptr ? workspace->group() : nullptr;
+      if (thumbGroup != nullptr && thumbGroup->active() != workspace && thumbGroup->output() != nullptr) {
+        thumbGroup->select(workspace);
+        if (OutputState* state = stateFor(thumbGroup->output())) {
+          animateRow(*state, static_cast<double>(workspace->index()), 0.0);
+        }
+        return true;
+      }
       if (card != nullptr && card->view != nullptr && card->view->mapped()) {
         closeToWorkspace(card->view->workspace(), card->view);
       } else if (workspace != nullptr) {
