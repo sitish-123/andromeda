@@ -1,0 +1,231 @@
+From 71ed788164e3005f5cc7518259036387547a7b02 Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sat, 7 Nov 2026 23:34:23 +0545
+Subject: [PATCH] server, context: a stop never waits on a VT switch; leftover
+ greeter sessions end
+
+The main loop raced its step against SIGTERM only between steps, so a greeter start that waited on its VT left
+SIGTERM unhandled until systemd's 30 s kill, and the failed unit started the display-manager fallback. The stop now
+races every step, VT waits end after 10 s, and the greeter's logind sessions left on its VT are killed through their
+scope's cgroup.kill before a greeter starts and after one retires (dbus-run-session leaves its dbus-daemon behind on
+SIGTERM, which kept each session closing on the VT).
+---
+ greetd/src/context.rs        | 43 ++++++++++++++++++++++++++-
+ greetd/src/server.rs         | 57 +++++++++++++++++++++---------------
+ greetd/src/terminal/ioctl.rs |  2 --
+ greetd/src/terminal/mod.rs   | 21 ++++++-------
+ 4 files changed, 87 insertions(+), 36 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 359910a..8cf80de 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -168,6 +168,9 @@ impl Context {
+     }
+ 
+     async fn start_greeter_on(&self, term_mode: &TerminalMode, mut env: Vec<String>) -> Result<SessionChild, Error> {
++        if let TerminalMode::Terminal { vt, .. } = term_mode {
++            end_greeter_sessions(*vt).await;
++        }
+         // The greeter stays up after its client finishes until the session reports its first frame.
+         if self.handoff {
+             env.push("GREETD_HANDOFF=1".to_string());
+@@ -522,7 +525,10 @@ impl Context {
+                 Ok(WaitStatus::Exited(pid, ..)) | Ok(WaitStatus::Signaled(pid, ..)) => {
+                     let mut inner = self.inner.write().await;
+                     if inner.outgoing.as_ref().is_some_and(|g| g.child.owns_pid(pid)) {
+-                        inner.outgoing = None;
++                        let was_greeter = inner.outgoing.take().is_some_and(|g| g.is_greeter);
++                        if let (true, TerminalMode::Terminal { vt, .. }) = (was_greeter, &self.term_mode) {
++                            tokio::task::spawn_local(end_greeter_sessions(*vt));
++                        }
+                         // The incoming session ended before its hand-off finished: the greeter starts only now, so
+                         // two greeters never share the greeter VT.
+                         if inner.current.is_none() && inner.scheduled.is_none() {
+@@ -620,6 +626,41 @@ impl Context {
+     }
+ }
+ 
++/// Ends the logind greeter sessions left on `vt` by killing their scopes. A process that outlives the greeter keeps
++/// its session closing on the VT: dbus-run-session leaves its dbus-daemon behind when it gets SIGTERM. No child
++/// process: check_children reaps every child, so a spawned helper's exit status would be lost.
++async fn end_greeter_sessions(vt: usize) {
++    let _ = tokio::task::spawn_blocking(move || {
++        for (id, cgroup) in greeter_sessions(vt) {
++            eprintln!("ending greeter session {id} left on VT {vt}");
++            if let Err(e) = std::fs::write(format!("{cgroup}/cgroup.kill"), "1") {
++                eprintln!("unable to end greeter session {id}: {e}");
++            }
++        }
++    })
++    .await;
++}
++
++/// The logind sessions of class greeter on `vt`, with their scope cgroups (logind's /run/systemd/sessions files).
++fn greeter_sessions(vt: usize) -> Vec<(String, String)> {
++    let Ok(dir) = std::fs::read_dir("/run/systemd/sessions") else {
++        return Vec::new();
++    };
++    dir.filter_map(Result::ok)
++        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_file()))
++        .filter_map(|entry| {
++            let id = entry.file_name().to_string_lossy().into_owned();
++            let text = std::fs::read_to_string(entry.path()).ok()?;
++            let field = |key: &str| text.lines().find_map(|l| l.strip_prefix(key)?.strip_prefix('='));
++            if field("CLASS")? != "greeter" || field("VTNR")? != vt.to_string() {
++                return None;
++            }
++            let cgroup = format!("/sys/fs/cgroup/user.slice/user-{}.slice/{}", field("UID")?, field("SCOPE")?);
++            Some((id, cgroup))
++        })
++        .collect()
++}
++
+ /// Opens every DRM card node read-only; failures are skipped (no card, no hold needed).
+ fn hold_drm_cards() -> Vec<File> {
+     std::fs::read_dir("/dev/dri")
+diff --git a/greetd/src/server.rs b/greetd/src/server.rs
+index 9e82ea8..2972376 100644
+--- a/greetd/src/server.rs
++++ b/greetd/src/server.rs
+@@ -280,35 +280,46 @@ pub async fn main(config: Config) -> Result<(), Error> {
+     let mut term = signal(SignalKind::terminate()).expect("unable to listen for SIGTERM");
+     let mut int = signal(SignalKind::interrupt()).expect("unable to listen for SIGINT");
+ 
+-    loop {
++    // A stop wins over any step in progress: a greeter start can wait on its VT, and an unhandled SIGTERM ends in
++    // systemd's kill and a failed unit.
++    let mut stop = std::pin::pin!(async {
+         tokio::select! {
+-            _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {e}"))?,
+-            _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {e}"))?,
+-            _ = ctx.logout_requested() => {
+-                if let Err(e) = ctx.logout().await {
+-                    eprintln!("logout hand-off failed: {e}");
++            _ = term.recv() => (),
++            _ = int.recv() => (),
++        }
++    });
++
++    loop {
++        let step = async {
++            tokio::select! {
++                _ = child.recv() => ctx.check_children().await.map_err(|e| format!("check_children: {e}"))?,
++                _ = alarm.recv() => ctx.alarm().await.map_err(|e| format!("alarm: {e}"))?,
++                _ = ctx.logout_requested() => {
++                    if let Err(e) = ctx.logout().await {
++                        eprintln!("logout hand-off failed: {e}");
++                    }
++                }
++                stream = listener.0.accept() => match stream {
++                    Ok((stream, _)) => {
++                        let client_ctx = ctx.clone();
++                        task::spawn_local(async move {
++                            if let Err(e) = client_handler(&client_ctx, stream).await {
++                                client_ctx.cancel().await.expect("unable to cancel session");
++                                eprintln!("client loop failed: {e}");
++                            }
++                        });
++                    },
++                    Err(err) => return Err(Error::from(format!("accept: {err}"))),
+                 }
+             }
+-            _ = term.recv() => {
+-                ctx.terminate().await.map_err(|e| format!("terminate: {e}"))?;
+-                break;
+-            }
+-            _ = int.recv() => {
++            Ok(())
++        };
++        tokio::select! {
++            _ = &mut stop => {
+                 ctx.terminate().await.map_err(|e| format!("terminate: {e}"))?;
+                 break;
+             }
+-            stream = listener.0.accept() => match stream {
+-                Ok((stream, _)) => {
+-                    let client_ctx = ctx.clone();
+-                    task::spawn_local(async move {
+-                        if let Err(e) = client_handler(&client_ctx, stream).await {
+-                            client_ctx.cancel().await.expect("unable to cancel session");
+-                            eprintln!("client loop failed: {e}");
+-                        }
+-                    });
+-                },
+-                Err(err) => return Err(format!("accept: {err}").into()),
+-            }
++            res = step => res?,
+         }
+     }
+ 
+diff --git a/greetd/src/terminal/ioctl.rs b/greetd/src/terminal/ioctl.rs
+index 8e35014..8900266 100644
+--- a/greetd/src/terminal/ioctl.rs
++++ b/greetd/src/terminal/ioctl.rs
+@@ -7,14 +7,12 @@ pub const VT_OPENQRY: u16 = 0x5600;
+ pub const VT_SETMODE: u16 = 0x5602;
+ pub const VT_GETSTATE: u16 = 0x5603;
+ pub const VT_ACTIVATE: u16 = 0x5606;
+-pub const VT_WAITACTIVE: u16 = 0x5607;
+ pub const VT_SETACTIVATE: u16 = 0x560F;
+ pub const VT_AUTO: u8 = 0;
+ pub const TIOCSCTTY: u16 = 0x540E;
+ 
+ ioctl_write_int_bad!(kd_setmode, KDSETMODE);
+ ioctl_write_int_bad!(vt_activate, VT_ACTIVATE);
+-ioctl_write_int_bad!(vt_waitactive, VT_WAITACTIVE);
+ ioctl_write_ptr_bad!(vt_setmode, VT_SETMODE, vt_mode);
+ ioctl_write_ptr_bad!(vt_setactivate, VT_SETACTIVATE, vt_setactivate);
+ ioctl_read_bad!(vt_openqry, VT_OPENQRY, i64);
+diff --git a/greetd/src/terminal/mod.rs b/greetd/src/terminal/mod.rs
+index b9a7734..8cc0300 100644
+--- a/greetd/src/terminal/mod.rs
++++ b/greetd/src/terminal/mod.rs
+@@ -9,6 +9,7 @@ use nix::{
+ use std::{
+     ffi::CStr,
+     os::unix::io::{BorrowedFd, RawFd},
++    time::{Duration, Instant},
+ };
+ 
+ #[allow(dead_code)]
+@@ -104,16 +105,18 @@ impl Terminal {
+         if let Err(v) = unsafe { ioctl::vt_activate(self.fd, target_vt as i32) } {
+             return Err(format!("terminal: unable to activate: {v}").into());
+         }
+-        if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
+-            return Err(format!("terminal: unable to wait for activation: {v}").into());
+-        }
+-        Ok(())
++        self.vt_waitactive(target_vt)
+     }
+ 
+-    /// Waits for specified VT to become active.
++    /// Waits up to 10 s for the VT to become active. VT_WAITACTIVE has no timeout: a VT_PROCESS owner that never
++    /// releases the VT would block the caller forever.
+     pub fn vt_waitactive(&self, target_vt: usize) -> Result<(), Error> {
+-        if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
+-            return Err(format!("terminal: unable to wait for activation: {v}").into());
++        let deadline = Instant::now() + Duration::from_secs(10);
++        while self.vt_get_current()? != target_vt {
++            if Instant::now() >= deadline {
++                return Err(format!("terminal: VT {target_vt} not active after 10 s").into());
++            }
++            std::thread::sleep(Duration::from_millis(20));
+         }
+         Ok(())
+     }
+@@ -156,9 +159,7 @@ impl Terminal {
+             if let Err(v) = unsafe { ioctl::vt_setactivate(self.fd, &arg) } {
+                 return Err(format!("terminal: unable to setactivate: {v}").into());
+             }
+-            if let Err(v) = unsafe { ioctl::vt_waitactive(self.fd, target_vt as i32) } {
+-                return Err(format!("terminal: unable to wait for activation: {v}").into());
+-            }
++            self.vt_waitactive(target_vt)?;
+         } else {
+             self.vt_mode_clean()?;
+             self.vt_activate(target_vt)?;
+-- 
+2.56.0
+
