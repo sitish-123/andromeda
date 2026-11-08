@@ -734,7 +734,7 @@ namespace settings {
       const float ringPad = Style::focusRingWidth + Style::focusRingGap;
       auto grid = ui::column({.align = FlexAlign::Start, .gap = (Style::spaceLg - ringPad) * scale});
       for (std::size_t i = 0; i < cells.size(); i += 2) {
-        auto row = ui::row({.align = FlexAlign::Start, .gap = (Tokens::spaceP24 - 2.0F * ringPad) * scale});
+        auto row = ui::row({.align = FlexAlign::Start, .gap = (Tokens::spaceP24 - ringPad - ringPad) * scale});
         row->addChild(std::move(cells[i]));
         if (i + 1 < cells.size()) {
           row->addChild(std::move(cells[i + 1]));
