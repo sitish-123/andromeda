@@ -132,7 +132,8 @@ void TaskbarPreview::open(Request request) {
         return;
       }
       m_renderContext.makeCurrent(m_surface->renderTarget());
-      if (m_sceneRoot == nullptr || needsLayout || m_dirty) {
+      // A rebuild replaces the card areas and cancels a press on them, so it waits for the release.
+      if (m_sceneRoot == nullptr || ((needsLayout || m_dirty) && !m_buttonHeld)) {
         build();
       }
     });
@@ -655,6 +656,7 @@ bool TaskbarPreview::onPointerEvent(const PointerEvent& event) {
       return;
     }
     m_pointerInside = false;
+    m_buttonHeld = false;
     m_input.pointerLeave();
     if (m_hasHover) {
       m_hasHover = false;
@@ -690,6 +692,10 @@ bool TaskbarPreview::onPointerEvent(const PointerEvent& event) {
         static_cast<float>(event.sx), static_cast<float>(event.sy), event.button, event.pressed, event.serial,
         event.time, event.touch
     );
+    m_buttonHeld = event.pressed;
+    if (!m_buttonHeld && m_dirty) {
+      requestRebuild();
+    }
     return true;
   case PointerEvent::Type::Axis:
     return onPopup;

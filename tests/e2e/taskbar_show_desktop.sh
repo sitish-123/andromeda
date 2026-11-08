@@ -24,7 +24,6 @@ margin_ends = 0
 margin_edge = 0
 padding = 0
 widget_spacing = 4
-solid_opacity = 0.86
 radius_top_left = 0
 radius_top_right = 0
 radius_bottom_left = 0

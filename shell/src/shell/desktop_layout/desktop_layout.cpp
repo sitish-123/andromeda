@@ -86,7 +86,7 @@ namespace desktop_layout {
     const BarRow* rowFor(std::string_view preset) {
       static const BarRow windows{
           {}, {"start", "windows_taskbar"}, {"tray", "group:status", "windows_clock", "notifications", "show_desktop"}, 48,
-          0.86, 0, 0, 4
+          std::nullopt, 0, 0, 4
       };
       static const BarRow macos{
           {"brand", "macos_app"}, {}, {"group:status", "macos_clock"}, 32, std::nullopt, 12, 16, 16

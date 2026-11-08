@@ -118,7 +118,6 @@ with_noctalia '
   "$NOCTALIA" msg config-set bar.default.margin_edge 0 > /dev/null
   "$NOCTALIA" msg config-set bar.default.padding 0 > /dev/null
   "$NOCTALIA" msg config-set bar.default.widget_spacing 4 > /dev/null
-  "$NOCTALIA" msg config-set bar.default.solid_opacity 0.86 > /dev/null
   "$NOCTALIA" msg config-set bar.default.radius_top_left 0 > /dev/null
   "$NOCTALIA" msg config-set bar.default.radius_top_right 0 > /dev/null
   "$NOCTALIA" msg config-set bar.default.radius_bottom_left 0 > /dev/null

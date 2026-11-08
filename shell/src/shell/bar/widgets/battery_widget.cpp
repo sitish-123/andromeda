@@ -547,6 +547,10 @@ void BatteryWidget::syncState(Renderer& renderer) {
     if (m_overlayGlyph != nullptr) {
       m_overlayGlyph->setVisible(stateGlyph != nullptr);
     }
+    // The outlined symbol draws the state glyph inside the body, where the level fill would hide it.
+    if (m_islandStyle && !m_isVertical) {
+      m_fillRect->setVisible(stateGlyph == nullptr);
+    }
   } else if (m_displayMode == BatteryDisplayMode::Glyph) {
     const ColorSpec iconColor = isWarning ? m_warningColor : widgetIconColorOr(colorSpecFromRole(ColorRole::Label1));
     const ColorSpec labelColor =

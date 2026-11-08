@@ -120,6 +120,7 @@ private:
   bool m_pointerInside = false;
   bool m_hasHover = false;
   bool m_dirty = false;
+  bool m_buttonHeld = false;
   // Grow / Return (P10) on the scene root, and the lens edges (P1); kept across scene rebuilds.
   AnimationManager m_animations;
   AnimationManager::Id m_scaleAnim = 0;

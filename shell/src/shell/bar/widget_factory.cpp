@@ -253,16 +253,16 @@ std::unique_ptr<Widget> WidgetFactory::create(
             );
           }},
       {"battery", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
-            return createWidget<BatteryWidget>(
-                context.contentScale, f.m_upower,
-                batteryWidgetDefinition().resolve(
-                    context.config, context.settingContext,
-                    BatteryWidgetDefinitionContext{
-                        .batteryConfig = &f.m_config.battery,
-                        .upower = f.m_upower,
-                    }
-                )
+            auto options = batteryWidgetDefinition().resolve(
+                context.config, context.settingContext,
+                BatteryWidgetDefinitionContext{
+                    .batteryConfig = &f.m_config.battery,
+                    .upower = f.m_upower,
+                }
             );
+            // The unlabelled battery symbol is the outlined reference icon, as in the islands.
+            options.islandStyle = options.displayMode == BatteryDisplayMode::Graphic && !options.showLabel;
+            return createWidget<BatteryWidget>(context.contentScale, f.m_upower, options);
           }},
       {"bluetooth", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<BluetoothWidget>(
