@@ -2,8 +2,12 @@
 //! survives a closed window and all windows show the same jobs (docs/architecture-v2.md §12b). D-Bus activated;
 //! exits after 10 min with no running job, and the undo history goes with it.
 
+mod archive;
+mod info;
 mod jobs;
 mod ops;
+mod storage;
+mod tags;
 mod trash;
 
 use std::sync::{Arc, Mutex};

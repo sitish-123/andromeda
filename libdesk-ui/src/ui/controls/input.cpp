@@ -688,6 +688,15 @@ void Input::selectAll() {
   markPaintDirty();
 }
 
+void Input::selectRange(std::size_t start, std::size_t end) {
+  resetUndoCoalescing();
+  m_selectionAnchor = std::min(start, m_value.size());
+  m_cursorPos = std::min(end, m_value.size());
+  updateInteractiveGeometry();
+  notifyTextInputStateChanged(TextInputChangeCause::Other);
+  markPaintDirty();
+}
+
 void Input::moveCaretLeft(bool shift) {
   resetUndoCoalescing();
   if (!shift && hasSelection()) {
@@ -1180,7 +1189,9 @@ void Input::handleKey(std::uint32_t sym, std::uint32_t utf32, std::uint32_t modi
   const std::weak_ptr<int> alive = m_aliveToken;
   clampEditState();
 
-  const bool validateMatch = g_validateKeyMatcher && g_validateKeyMatcher(sym, modifiers);
+  // Apps without a keybind config (libdesk-app) validate with a plain Enter.
+  const bool validateMatch = g_validateKeyMatcher ? g_validateKeyMatcher(sym, modifiers)
+                                                  : KeySymbol::isEnter(sym) && (modifiers & (KeyMod::Ctrl | KeyMod::Alt)) == 0;
   const bool shift = (modifiers & KeyMod::Shift) != 0;
   const bool ctrl = (modifiers & KeyMod::Ctrl) != 0;
   const bool plainPrintableText = isPlainPrintableKey(utf32, modifiers, preedit);

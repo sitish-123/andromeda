@@ -3,6 +3,7 @@
 #include "core/timer_manager.h"
 #include "helper_client.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -50,6 +51,10 @@ namespace preview {
     // Paces frames on this clock (stream time) while it has a value, else on steady_clock.
     void setClock(std::function<std::optional<std::chrono::nanoseconds>()> clock) { m_clock = std::move(clock); }
     [[nodiscard]] bool contains(float x, float y) const;
+    // The picture inside the placed box, window-local logical px (x, y, width, height); zero size before a frame size.
+    [[nodiscard]] std::array<float, 4> pictureRect() const noexcept { return {m_x, m_y, m_w, m_h}; }
+    // Stream time of the frame on screen.
+    [[nodiscard]] std::chrono::nanoseconds shownPts() const noexcept { return m_shownPts; }
 
   private:
     struct Frame {
@@ -94,6 +99,7 @@ namespace preview {
     std::vector<std::unique_ptr<Buffer>> m_buffers;
 
     std::deque<Frame> m_queue;
+    std::chrono::nanoseconds m_shownPts{0};
     std::uint32_t m_inFlight = 0;
     bool m_busy = false;
     bool m_ended = false;

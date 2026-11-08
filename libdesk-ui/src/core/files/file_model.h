@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -17,7 +18,8 @@ struct FileSort {
   bool foldersFirst = true;
 };
 
-// The entries of one directory, listed off the main thread and kept current by inotify. One model per directory
+// The entries of one directory, listed off the main thread and kept current by inotify. The listing has two phases:
+// names first (Ready, entries may have pendingStat), then stat on worker threads, rows asked by prioritizeStat first. One model per directory
 // per process (FileModel::open), shared by every window and the picker; views keep their own sort and filter
 // through FileModelView.
 class FileModel : public std::enable_shared_from_this<FileModel> {
@@ -27,7 +29,7 @@ public:
   struct Change {
     enum class Type : std::uint8_t { Reset, Inserted, Removed, Updated, Renamed };
     Type type = Type::Reset;
-    std::string name;    // Inserted, Removed, Updated, Renamed (old name)
+    std::string name;    // Inserted, Removed, Updated, Renamed (old name); empty Updated = a batch of stat results
     std::string newName; // Renamed
   };
   using Listener = std::function<void(const Change& change)>;
@@ -42,7 +44,8 @@ public:
   [[nodiscard]] const std::filesystem::path& directory() const noexcept { return m_dir; }
   [[nodiscard]] Status status() const noexcept { return m_status; }
   [[nodiscard]] const std::string& error() const noexcept { return m_error; }
-  // Unordered; FileModelView sorts. An update replaces the pointer, so a view's old row stays valid until it rebuilds.
+  // In name order (collateKey, then name bytes). An update replaces the pointer, so a view's old row stays valid until
+  // it rebuilds.
   [[nodiscard]] const std::vector<std::shared_ptr<const FileInfo>>& entries() const noexcept { return m_entries; }
   [[nodiscard]] const FileInfo* find(std::string_view name) const;
 
@@ -50,9 +53,18 @@ public:
   [[nodiscard]] std::shared_ptr<void> subscribe(Listener listener);
   // Lists the directory again (after a watch overflow, or on F5).
   void reload();
+  // Stats these rows (the visible ones) before the others; replaces the previous request.
+  void prioritizeStat(std::span<const std::shared_ptr<const FileInfo>> rows);
+  // True until every entry of the current listing has its stat fields.
+  [[nodiscard]] bool statPending() const noexcept { return m_statJob != nullptr; }
 
 private:
+  struct StatJob;
+  friend struct StatJob;
+
   FileModel(std::filesystem::path dir, DirectoryWatcher& watcher);
+  void applyStats(StatJob& job);
+  void insertSorted(std::shared_ptr<const FileInfo> info);
   void startWatch();
   void onWatch(DirectoryWatcher::Event event, const std::string& name, const std::string& newName);
   void upsert(const std::string& name, bool inserted);
@@ -74,6 +86,7 @@ private:
   };
   bool m_listing = false;
   std::vector<QueuedEvent> m_queued; // watch events while a listing runs, replayed on its result
+  std::shared_ptr<StatJob> m_statJob;
 };
 
 // A sorted, filtered row list over a FileModel, for one view.

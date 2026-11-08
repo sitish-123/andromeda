@@ -1,5 +1,8 @@
 #include "app/desk_app.h"
 
+#include "app/appearance.h"
+#include "app/glib_source.h"
+
 #include "core/deferred_call.h"
 #include "core/input/key_modifiers.h"
 #include "core/log.h"
@@ -81,6 +84,9 @@ DeskApp::~DeskApp() {
   m_windows.clear();
   m_state.flush();
   m_loop.removeSource(m_busSource.get());
+  if (m_glib != nullptr) {
+    m_loop.removeSource(m_glib.get());
+  }
   m_loop.removeSource(m_signals.get());
 }
 
@@ -122,9 +128,16 @@ int DeskApp::run(int argc, char* argv[]) {
   if (m_bus != nullptr) {
     m_busSource = std::make_unique<SessionBusPollSource>(*m_bus);
     m_loop.addSource(m_busSource.get());
+    m_appearance = std::make_unique<Appearance>(*m_bus, [this] {
+      for (const auto& w : m_windows) {
+        w->requestRebuild(); // colours resolve at build time in places, so every node gets the new scheme
+      }
+    });
   }
   m_signals = std::make_unique<SignalSource>(m_loop);
   m_loop.addSource(m_signals.get());
+  m_glib = std::make_unique<GlibSource>();
+  m_loop.addSource(m_glib.get());
 
   m_state.load();
   addStandardCommands();
@@ -190,7 +203,7 @@ AppWindow* DeskApp::windowFor(wl_surface* surface) const {
     return nullptr;
   }
   for (const auto& w : m_windows) {
-    if (w->wlSurface() == surface) {
+    if (w->ownsSurface(surface)) {
       return w.get();
     }
   }

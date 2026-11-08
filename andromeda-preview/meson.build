@@ -103,13 +103,15 @@ thumbnailer_bin = custom_target('andromeda-thumbnailer',
   install_dir: get_option('libexecdir') / 'andromeda',
 )
 
-# PDF thumbnails for Thumbnailer1 (and any freedesktop thumbnailer host) from the sandboxed helper.
-configure_file(
-  input: 'data/andromeda-pdf.thumbnailer.in',
-  output: 'andromeda-pdf.thumbnailer',
-  configuration: {'helper': helper_path},
-  install_dir: get_option('datadir') / 'thumbnailers',
-)
+# PDF, video and font thumbnails for Thumbnailer1 (and any freedesktop thumbnailer host) from the sandboxed helper.
+foreach kind : ['pdf', 'video', 'font']
+  configure_file(
+    input: 'data/andromeda-' + kind + '.thumbnailer.in',
+    output: 'andromeda-' + kind + '.thumbnailer',
+    configuration: {'helper': helper_path},
+    install_dir: get_option('datadir') / 'thumbnailers',
+  )
+endforeach
 
 configure_file(
   input: 'data/org.freedesktop.thumbnails.Thumbnailer1.service.in',

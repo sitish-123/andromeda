@@ -3,6 +3,7 @@
 
 pub mod annotate;
 pub mod decode;
+pub mod font;
 pub mod media;
 pub mod proto;
 pub mod sandbox;
@@ -17,6 +18,7 @@ pub enum Source {
     Text(File),
     Pdf(decode::Pdf),
     Media(media::Media),
+    Font(font::Font),
 }
 
 /// Answers requests until the window closes the socket.
@@ -29,6 +31,10 @@ pub fn serve(sock: BorrowedFd<'_>, mut source: Source) -> std::io::Result<()> {
             match req.op {
                 OP_AUDIO => match m.start_audio(req_fd) {
                     Ok(msg) => proto::send(sock, &msg, None)?,
+                    Err(code) => proto::send(sock, &Msg::error(code), None)?,
+                },
+                proto::OP_PEAKS => match m.peaks(req.a) {
+                    Ok((msg, fd)) => proto::send(sock, &msg, Some(fd.as_fd()))?,
                     Err(code) => proto::send(sock, &Msg::error(code), None)?,
                 },
                 OP_TAGS | OP_COVER => match if req.op == OP_TAGS { m.tag_text() } else { m.cover() } {
@@ -58,6 +64,7 @@ pub fn serve(sock: BorrowedFd<'_>, mut source: Source) -> std::io::Result<()> {
             (Source::Pdf(pdf), OP_SELECT) => pdf.select(req.a, req.b, &payload),
             (Source::Pdf(pdf), OP_ANNOT_ADD) => pdf.annotate(req.a, req.b, req.c, req_fd).map(|m| (m, None)),
             (Source::Pdf(pdf), OP_ANNOT_REMOVE) => pdf.remove_annot(req.b).map(|m| (m, None)),
+            (Source::Font(font), OP_RENDER) => font.specimen(req.b, req.c, req.d, req.e).map(|(m, fd)| (m, Some(fd))),
             (Source::Pdf(pdf), OP_SAVE) => pdf.save(req_fd).map(|m| (m, None)),
             _ => Err(ERR_BAD_REQUEST),
         };

@@ -78,6 +78,8 @@ action edit.copy
 action go "[<'$DST'>]"
 action edit.paste
 wait_for "pasting a.txt into dst raised no conflict" in_conflict
+# The app hears the conflict a moment after the daemon: Keep Both is enabled only then.
+wait_for "the window did not show the conflict" grep -q "job copy conflict" "$OUT/files.log"
 action conflict.keep-both
 wait_for "Keep Both did not add 'a (copy).txt'" test -f "$DST/a (copy).txt"
 [[ $(cat "$DST/a (copy).txt") == new && $(cat "$DST/a.txt") == old ]] || fail "Keep Both changed the wrong file"
@@ -102,3 +104,25 @@ wait_for "Put Back did not return dst/a.txt" test -f "$DST/a.txt"
 [[ $(cat "$DST/a.txt") == old ]] || fail "Put Back returned different content"
 [[ ! -e $TRASH/info/a.txt.trashinfo ]] || fail "the trashinfo file is still there"
 echo "PASS restore"
+
+# The system clipboard: Copy offers the files to other apps, Copy Location offers the path as text, and Paste takes
+# files another app copied (wl-copy stands in for it). Real keys: the compositor takes a clipboard only with the
+# serial of an input event.
+POINTER=${POINTER:-$ROOT/compositor/build-debug/tests/pointer-client}
+keys() { run "$POINTER" 1280 720 keyboard-only tap 119 pause 100 "$@" > /dev/null; }
+action go "[<'$DST'>]"
+select_names "$DST" 1 "['a.txt']"
+keys mod control tap 46 mod none                 # Ctrl+C (KEY_C)
+clip_has() { [[ $(run wl-paste -n -t "$1" 2> /dev/null) == "$2" ]]; }
+wait_for "Copy did not put the file on the clipboard" clip_has text/uri-list "$(printf 'file://%s/a.txt\r' "$DST")"
+wait_for "Copy did not offer GNOME's copied-files type" clip_has x-special/gnome-copied-files "$(printf 'copy\nfile://%s/a.txt' "$DST")"
+keys mod control+alt tap 46 mod none             # Ctrl+Alt+C: Copy Location
+wait_for "Copy Location did not put the path on the clipboard" clip_has text/plain "$DST/a.txt"
+echo outside > "$HOME_DIR/outside.txt"
+run wl-copy -t text/uri-list "file://$HOME_DIR/outside.txt"
+action go "[<'$SRC'>]"
+keys mod control tap 47 mod none                 # Ctrl+V (KEY_V)
+wait_for "Paste did not copy the file another app put on the clipboard" test -f "$SRC/outside.txt"
+[[ $(cat "$SRC/outside.txt") == outside ]] || fail "the pasted file has other content"
+run wl-copy --clear # ends the wl-copy daemon, which would outlive the test
+echo "PASS clipboard"

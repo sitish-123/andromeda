@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 # Quick Look over D-Bus: ShowFile on org.gnome.NautilusPreviewer2 opens an `andromeda-preview` window for a PNG,
-# a PDF, a text file, an H.264 MP4 and a tagged FLAC; Close removes it. Fails when no preview window maps, a file is not decoded and shown
+# a PDF, a code file, a zip (listed by andromeda-fileops), a file with no preview, an H.264 MP4 and a tagged FLAC;
+# Close removes it. Fails when no preview window maps, a file is not decoded and shown
 # ("shown <kind>" in the previewer log) within 5 s, the FLAC has no PipeWire stream, or the window stays after Close.
 # k pauses and resumes the MP4; ANDROMEDA_PREVIEW_MEDIA=sw plays it again on the software path.
-# Writes preview-{png,pdf,rs,mp4,flac,mp4-sw}.png and preview.log to $OUT (default ./artifacts/preview-show).
+# Writes preview-{png,pdf,rs,zip,bin,ttf,dir,mp4,flac,mp4-sw}.png and preview.log to $OUT (default ./artifacts/preview-show).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/preview-show}
 PREVIEW=${PREVIEW:-$(cd "$(dirname "$0")/../.." && pwd)/andromeda-preview/build-debug/andromeda-preview}
 PREVIEW_HELPER=${PREVIEW_HELPER:-$(cd "$(dirname "$0")/../.." && pwd)/andromeda-preview/build-debug/andromeda-preview-helper}
+FILEOPS=${FILEOPS:-$(cd "$(dirname "$0")/../.." && pwd)/system/target/debug/andromeda-fileops}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
+# SCALE=2: a 2560x1440 mode at scale 2, pixels 1:1 with the mockup rendered at device scale 2.
+if [[ ${SCALE:-1} == 2 ]]; then
+  printf '\n[output.HEADLESS-1]\nmode = "2560x1440@60"\nscale = 2\n' >> "$RUNTIME/andromeda.toml"
+fi
 
 # The previewer plays sound on the host PipeWire.
 ln -s "$XDG_RUNTIME_DIR/pipewire-0" "$RUNTIME/pipewire-0"
@@ -29,20 +35,31 @@ ffmpeg -loglevel error -f lavfi -i testsrc2=size=640x360:rate=30 -f lavfi -i 'si
 # Quiet: the tone plays on the host's real output.
 ffmpeg -loglevel error -f lavfi -i 'sine=frequency=440:duration=5,volume=0.05' -metadata title=Tone \
   -metadata artist=Tester -c:a flac "$RUNTIME/files/sample.flac"
-printf 'fn main() {\n    println!("hello from quick look");\n}\n' > "$RUNTIME/files/sample.rs"
+printf '// Quick Look\nfn main() {\n    let n = 42; /* answer */\n    println!("hello from quick look");\n}\n' \
+  > "$RUNTIME/files/sample.rs"
+# An archive (listed by andromeda-fileops ListArchive) and a type with no preview.
+mkdir -p "$RUNTIME/zipsrc/docs"
+printf 'notes' > "$RUNTIME/zipsrc/docs/notes.txt"; printf 'readme' > "$RUNTIME/zipsrc/README"
+(cd "$RUNTIME/zipsrc" && python3 -I -m zipfile -c "$RUNTIME/files/sample.zip" docs README)
+head -c 4096 /dev/urandom > "$RUNTIME/files/sample.bin"
+# A font (the specimen runs FreeType in the helper) and a folder (count, size, newest items).
+cp "$(fc-match -f '%{file}' 'sans:fontformat=TrueType')" "$RUNTIME/files/sample.ttf"
+cp -r "$RUNTIME/zipsrc" "$RUNTIME/files/sample.dir"
 
 with_noctalia '
   wait_for() { for _ in $(seq 100); do eval "$2" && return 0; sleep 0.05; done; echo "FAIL: $1"; exit 1; }
   previews() { "$ANDROMEDA" windows --json | jq "[.[] | select(.app_id == \"andromeda-preview\")] | length"; }
   call() { gdbus call --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer \
     --method org.gnome.NautilusPreviewer2.$1 "${@:2}" > /dev/null; }
+  '"$FILEOPS"' > "$OUT/fileops.log" 2>&1 &
   GST_DEBUG=va*:4 ANDROMEDA_PREVIEW_HELPER='"$PREVIEW_HELPER"' '"$PREVIEW"' > "$OUT/preview.log" 2>&1 &
   previewer=$!
   wait_for "previewer did not take its bus name" "gdbus introspect --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer > /dev/null 2>&1"
   shown() { grep -c "shown $1" "$OUT/preview.log" || true; }
   # One keyboard for the whole run: a wtype per key alone adds and removes the device, and keys get dropped.
   wtype -s 3600000 &
-  for pair in png:image pdf:pdf rs:text mp4:video flac:"audio Tone"; do
+  for pair in png:image pdf:pdf rs:text zip:"archive [0-9]* entries" bin:"unsupported" ttf:"font" dir:"folder 2 items" \
+      mp4:video flac:"audio Tone"; do
     kind=${pair%%:*} what=${pair##*:}
     call ShowFile "file://$RUNTIME/files/sample.$kind" "" false
     wait_for "no preview window for $kind" "(( \$(previews) == 1 ))"
@@ -55,7 +72,10 @@ with_noctalia '
       wait_for "k did not resume the video" "grep -q \"playback playing\" \"$OUT/preview.log\""
     fi
   done
-  wait_for "no PipeWire stream for the FLAC" "pw-dump 2>/dev/null | grep -q \"\\\"Quick Look\\\"\""
+  wait_for "no waveform for the FLAC" "grep -q \"waveform [0-9]* bars\" \"$OUT/preview.log\""
+  grim "$OUT/preview-flac.png"
+  # grep reads all of pw-dump: under pipefail, grep -q exits at the match and the SIGPIPE to pw-dump fails the check.
+  wait_for "no PipeWire stream for the FLAC" "pw-dump 2>/dev/null | grep \"\\\"Quick Look\\\"\" > /dev/null"
 
   # The helper log names the decoder; a host without VA-API decodes in software.
   grep -o "vah264dec" "$OUT/preview.log" | head -n 1 || echo "decoder: software"

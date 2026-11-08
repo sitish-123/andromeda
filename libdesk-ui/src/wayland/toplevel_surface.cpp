@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "wayland/wayland_connection.h"
+#include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
 #include <algorithm>
@@ -73,6 +74,11 @@ bool ToplevelSurface::initialize(wl_output* output, const ToplevelSurfaceConfig&
   }
 
   xdg_toplevel_add_listener(m_toplevel, &kToplevelListener, this);
+  // The window draws its own header, so the compositor must not add a title bar.
+  if (auto* manager = m_connection.decorationManager(); manager != nullptr) {
+    m_decoration = zxdg_decoration_manager_v1_get_toplevel_decoration(manager, m_toplevel);
+    zxdg_toplevel_decoration_v1_set_mode(m_decoration, ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE);
+  }
   xdg_toplevel_set_title(m_toplevel, config.title.empty() ? "Noctalia" : config.title.c_str());
   setAccessibleTitle(config.title);
   xdg_toplevel_set_app_id(m_toplevel, config.appId != nullptr ? config.appId : "dev.noctalia.Noctalia");
@@ -151,6 +157,25 @@ void ToplevelSurface::showWindowMenu(std::uint32_t serial, std::int32_t x, std::
   if (m_toplevel != nullptr) {
     xdg_toplevel_show_window_menu(m_toplevel, m_connection.seat(), serial, x, y);
   }
+}
+
+bool ToplevelSurface::requestWindowSize(std::uint32_t width, std::uint32_t height) {
+  if (m_xdgSurface == nullptr || m_windowWidth == 0 || m_state.maximized || m_state.fullscreen ||
+      m_lastToplevelWidth > 0 || m_lastToplevelHeight > 0) {
+    return false;
+  }
+  width = std::max<std::uint32_t>(1, width);
+  height = std::max<std::uint32_t>(1, height);
+  m_floatingWidth = width;
+  m_floatingHeight = height;
+  m_windowWidth = width;
+  m_windowHeight = height;
+  if (m_resizeMargin > 0) {
+    const auto m = static_cast<std::int32_t>(m_margin);
+    xdg_surface_set_window_geometry(m_xdgSurface, m, m, static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
+  }
+  Surface::onConfigure(width + 2 * m_margin, height + 2 * m_margin);
+  return true;
 }
 
 void ToplevelSurface::handleXdgSurfaceConfigure(void* data, xdg_surface* surface, std::uint32_t serial) {
@@ -255,6 +280,10 @@ void ToplevelSurface::
     handleToplevelWmCapabilities(void* /*data*/, xdg_toplevel* /*toplevel*/, wl_array* /*capabilities*/) {}
 
 void ToplevelSurface::destroyRoleObjects() {
+  if (m_decoration != nullptr) {
+    zxdg_toplevel_decoration_v1_destroy(m_decoration);
+    m_decoration = nullptr;
+  }
   if (m_toplevel != nullptr) {
     xdg_toplevel_destroy(m_toplevel);
     m_toplevel = nullptr;

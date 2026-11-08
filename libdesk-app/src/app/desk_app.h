@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+class Appearance;
+class GlibSource;
 class SessionBus;
 class SessionBusPollSource;
 
@@ -77,7 +79,9 @@ private:
   AppLoop m_loop;
   std::unique_ptr<SessionBus> m_bus;
   std::unique_ptr<SessionBusPollSource> m_busSource;
+  std::unique_ptr<Appearance> m_appearance; // after the bus: it uses it
   std::unique_ptr<PollSource> m_signals;
+  std::unique_ptr<GlibSource> m_glib; // GIO async calls complete in the app loop
   std::unique_ptr<SingleInstance> m_instance;
   StateStore m_state;
   CommandTable m_commands;

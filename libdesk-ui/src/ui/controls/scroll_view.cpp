@@ -510,12 +510,16 @@ void ScrollView::doLayout(Renderer& renderer) {
 
     LayoutConstraints contentConstraints;
     contentConstraints.setExactWidth(contentWidth);
+    // A sized view gives its content the full viewport height (columns of lists fill it); unsized, the content's own.
+    const float sizedViewportH = height() > 0.0F ? std::max(0.0F, height() - insetV * 2.0F - gutter) : 0.0F;
+    if (sizedViewportH > 0.0F) {
+      contentConstraints.setExactHeight(sizedViewportH);
+    }
     contentSize = m_content->measure(renderer, contentConstraints);
     m_content->arrange(
         renderer,
-        LayoutRect{
-            .x = viewportPaddingH(), .y = m_viewportPaddingV, .width = contentWidth, .height = contentSize.height
-        }
+        LayoutRect{.x = viewportPaddingH(), .y = m_viewportPaddingV, .width = contentWidth,
+                   .height = std::max(contentSize.height, sizedViewportH)}
     );
 
     const float naturalH = contentSize.height + insetV * 2.0F + gutter;

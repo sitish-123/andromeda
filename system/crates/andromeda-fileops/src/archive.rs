@@ -1,0 +1,1290 @@
+//! Archives: list, extract and compress zip, 7z and tar (plain, .gz, .xz, .zst, .bz2). Archives are untrusted input,
+//! so every decoder is pure Rust, every entry path is checked before anything is written, and extraction goes to a
+//! hidden staging folder in the destination first: a refused or cancelled archive leaves nothing behind.
+
+use std::cell::Cell;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, symlink};
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::ops::{self, Control, OpError, OpResult, UndoStep};
+
+/// More entries than this is taken for a bomb.
+pub const MAX_ENTRIES: u64 = 1_000_000;
+/// Free space kept on the destination file system; an archive that would expand into it is a bomb.
+const FREE_SPACE_RESERVE: u64 = 256 << 20;
+const CHUNK: usize = 1 << 20;
+const MAX_LINK_TARGET: u64 = 4096;
+/// `ListArchive` reads a tar to its end: past this many decoded bytes or this time it gives up (`TooLarge`).
+const LIST_MAX_BYTES: u64 = 16 << 30;
+const LIST_MAX_TIME: Duration = Duration::from_secs(30);
+
+/// When a walk stops early: the caller cancelled, or the decoded bytes or time ran out.
+struct Limits<'a> {
+    stop: &'a dyn Fn() -> bool,
+    max_bytes: u64,
+    deadline: Option<Instant>,
+}
+
+impl Limits<'_> {
+    fn check(&self, read: u64) -> Result<(), ArchiveError> {
+        if (self.stop)() {
+            return Err(ArchiveError::Io(io::Error::from(io::ErrorKind::Interrupted)));
+        }
+        if read > self.max_bytes || self.deadline.is_some_and(|d| Instant::now() > d) {
+            return Err(ArchiveError::TooLarge);
+        }
+        Ok(())
+    }
+}
+
+/// Marks an `io::Error` a `Guard` raised, so the walk can turn it back into the `ArchiveError`.
+#[derive(Debug)]
+struct Stopped(bool); // true: too large
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", if self.0 { "too large" } else { "stopped" })
+    }
+}
+
+impl std::error::Error for Stopped {}
+
+/// Checks the limits on every read of a decoded stream, also while a decoder skips entries no one reads.
+struct Guard<'a, R> {
+    inner: R,
+    limits: &'a Limits<'a>,
+    read: u64,
+}
+
+impl<R: Read> Read for Guard<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self.limits.check(self.read) {
+            Ok(()) => {}
+            Err(ArchiveError::TooLarge) => return Err(io::Error::other(Stopped(true))),
+            Err(_) => return Err(io::Error::other(Stopped(false))),
+        }
+        let n = self.inner.read(buf)?;
+        self.read += n as u64;
+        Ok(n)
+    }
+}
+
+/// An `io::Error` from a `Guard` back to what stopped it.
+fn unguard(e: ArchiveError) -> ArchiveError {
+    let stopped = match &e {
+        ArchiveError::Io(io) => io.get_ref().and_then(|inner| inner.downcast_ref::<Stopped>()).map(|s| s.0),
+        _ => None,
+    };
+    match stopped {
+        Some(true) => ArchiveError::TooLarge,
+        Some(false) => ArchiveError::Io(io::Error::from(io::ErrorKind::Interrupted)),
+        None => e,
+    }
+}
+
+static STAGING: AtomicU32 = AtomicU32::new(0);
+
+#[derive(Debug)]
+pub enum ArchiveError {
+    PasswordNeeded,
+    WrongPassword,
+    Unsupported,
+    /// An entry path that leaves the destination (absolute, "..") or runs through a link.
+    Unsafe(String),
+    TooLarge,
+    Corrupt(String),
+    Io(io::Error),
+}
+
+impl std::fmt::Display for ArchiveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PasswordNeeded => write!(f, "password needed"),
+            Self::WrongPassword => write!(f, "wrong password"),
+            Self::Unsupported => write!(f, "not a supported archive"),
+            Self::Unsafe(path) => write!(f, "unsafe path in archive: {path}"),
+            Self::TooLarge => write!(f, "the archive expands to too many files or more than the free space"),
+            Self::Corrupt(why) => write!(f, "damaged archive: {why}"),
+            Self::Io(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl From<io::Error> for ArchiveError {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<zip::result::ZipError> for ArchiveError {
+    fn from(e: zip::result::ZipError) -> Self {
+        use zip::result::ZipError;
+        match e {
+            ZipError::Io(e) => Self::Io(e),
+            ZipError::InvalidPassword => Self::WrongPassword,
+            ZipError::UnsupportedArchive(ZipError::PASSWORD_REQUIRED) => Self::PasswordNeeded,
+            other => Self::Corrupt(other.to_string()),
+        }
+    }
+}
+
+impl From<sevenz_rust2::Error> for ArchiveError {
+    fn from(e: sevenz_rust2::Error) -> Self {
+        use sevenz_rust2::Error;
+        match e {
+            Error::PasswordRequired => Self::PasswordNeeded,
+            Error::MaybeBadPassword(_) => Self::WrongPassword,
+            Error::Io(e, _) => Self::Io(e),
+            other => Self::Corrupt(other.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    File,
+    Dir,
+    Link,
+}
+
+impl Kind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Dir => "dir",
+            Self::Link => "link",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Entry {
+    /// Relative, checked: no root, no "." or "..".
+    pub path: PathBuf,
+    pub kind: Kind,
+    pub size: u64,
+    /// Seconds since 1970.
+    pub mtime: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Codec {
+    Plain,
+    Gz,
+    Xz,
+    Zst,
+    Bz2,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Format {
+    Zip,
+    SevenZ,
+    Tar(Codec),
+}
+
+/// What Compress writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutFormat {
+    Zip,
+    SevenZ,
+    TarGz,
+    TarXz,
+    TarZst,
+}
+
+impl OutFormat {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "zip" => Some(Self::Zip),
+            "7z" => Some(Self::SevenZ),
+            "tar.gz" => Some(Self::TarGz),
+            "tar.xz" => Some(Self::TarXz),
+            "tar.zst" => Some(Self::TarZst),
+            _ => None,
+        }
+    }
+
+    pub fn takes_password(self) -> bool {
+        matches!(self, Self::Zip | Self::SevenZ)
+    }
+}
+
+fn detect(path: &Path) -> Result<Format, ArchiveError> {
+    let mut head = [0u8; 512];
+    let mut file = File::open(path)?;
+    let mut n = 0;
+    while n < head.len() {
+        let got = file.read(&mut head[n..])?;
+        if got == 0 {
+            break;
+        }
+        n += got;
+    }
+    let head = &head[..n];
+    Ok(if head.starts_with(b"PK\x03\x04") || head.starts_with(b"PK\x05\x06") || head.starts_with(b"PK\x07\x08") {
+        Format::Zip
+    } else if head.starts_with(&[0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c]) {
+        Format::SevenZ
+    } else if head.starts_with(&[0x1f, 0x8b]) {
+        Format::Tar(Codec::Gz)
+    } else if head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]) {
+        Format::Tar(Codec::Xz)
+    } else if head.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]) {
+        Format::Tar(Codec::Zst)
+    } else if head.starts_with(b"BZh") {
+        Format::Tar(Codec::Bz2)
+    } else if head.len() >= 262 && &head[257..262] == b"ustar" {
+        Format::Tar(Codec::Plain)
+    } else {
+        return Err(ArchiveError::Unsupported);
+    })
+}
+
+/// A relative path with no root, "." or ".." parts; `None` for the archive root itself ("./").
+pub fn checked_path(raw: &[u8]) -> Result<Option<PathBuf>, ArchiveError> {
+    let unsafe_path = || ArchiveError::Unsafe(String::from_utf8_lossy(raw).into_owned());
+    if raw.first() == Some(&b'/') || raw.contains(&0) {
+        return Err(unsafe_path());
+    }
+    let mut out = PathBuf::new();
+    for part in raw.split(|&b| b == b'/') {
+        match part {
+            b"" | b"." => {}
+            b".." => return Err(unsafe_path()),
+            name => out.push(std::ffi::OsStr::from_bytes(name)),
+        }
+    }
+    Ok((!out.as_os_str().is_empty()).then_some(out))
+}
+
+fn unix_seconds(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+fn zip_mtime(dt: Option<zip::DateTime>) -> u64 {
+    let Some(dt) = dt else { return 0 };
+    chrono::NaiveDate::from_ymd_opt(i32::from(dt.year()), u32::from(dt.month()), u32::from(dt.day()))
+        .and_then(|d| d.and_hms_opt(u32::from(dt.hour()), u32::from(dt.minute()), u32::from(dt.second())))
+        .map_or(0, |t| u64::try_from(t.and_utc().timestamp()).unwrap_or(0))
+}
+
+/// One archive entry while walking, with its data when the walk asked for it.
+struct Item<'a> {
+    entry: Entry,
+    mode: u32,
+    /// Symlink target, or the earlier entry a tar hard link names.
+    link: Option<Vec<u8>>,
+    hard_link: bool,
+    data: &'a mut dyn Read,
+}
+
+/// Calls `each` per entry in archive order; `each` returns false to stop. Without `with_data` the readers are empty.
+fn walk(
+    path: &Path,
+    password: &str,
+    with_data: bool,
+    limits: &Limits<'_>,
+    each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
+) -> Result<(), ArchiveError> {
+    let result = match detect(path)? {
+        Format::Zip => walk_zip(path, password, with_data, each),
+        Format::SevenZ => walk_7z(path, password, with_data, limits, each),
+        Format::Tar(codec) => walk_tar(path, codec, limits, each),
+    };
+    result.map_err(unguard)
+}
+
+fn walk_zip(
+    path: &Path,
+    password: &str,
+    with_data: bool,
+    each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
+) -> Result<(), ArchiveError> {
+    let mut zip = zip::ZipArchive::new(BufReader::new(File::open(path)?))?;
+    for i in 0..zip.len() {
+        let mut file = if !with_data {
+            zip.by_index_raw(i)?
+        } else if password.is_empty() {
+            zip.by_index(i)?
+        } else {
+            zip.by_index_decrypt(i, password.as_bytes())?
+        };
+        // Some Windows tools write "\\" separators; reading them as "/" also catches "..\\" escapes.
+        let raw: Vec<u8> = file.name_raw().iter().map(|&b| if b == b'\\' { b'/' } else { b }).collect();
+        let Some(inner) = checked_path(&raw)? else { continue };
+        let kind = if file.is_dir() {
+            Kind::Dir
+        } else if file.is_symlink() {
+            Kind::Link
+        } else {
+            Kind::File
+        };
+        let entry = Entry { path: inner, kind, size: file.size(), mtime: zip_mtime(file.last_modified()) };
+        let mode = file.unix_mode().unwrap_or(0);
+        let link = if kind == Kind::Link && with_data {
+            let mut target = Vec::new();
+            (&mut file).take(MAX_LINK_TARGET).read_to_end(&mut target)?;
+            Some(target)
+        } else {
+            None
+        };
+        let mut empty = io::empty();
+        let data: &mut dyn Read = if with_data && kind == Kind::File { &mut file } else { &mut empty };
+        if !each(Item { entry, mode, link, hard_link: false, data })? {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn walk_7z(
+    path: &Path,
+    password: &str,
+    with_data: bool,
+    limits: &Limits<'_>,
+    each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
+) -> Result<(), ArchiveError> {
+    let password = if password.is_empty() { sevenz_rust2::Password::empty() } else { password.into() };
+    let mut reader = sevenz_rust2::ArchiveReader::open(path, password)?;
+    let item = |e: &sevenz_rust2::ArchiveEntry| -> Result<Option<Entry>, ArchiveError> {
+        let Some(inner) = checked_path(&e.name().replace('\\', "/").into_bytes())? else { return Ok(None) };
+        let kind = if e.is_directory() { Kind::Dir } else { Kind::File };
+        let mtime = unix_seconds(SystemTime::from(e.last_modified_date()));
+        Ok(Some(Entry { path: inner, kind, size: e.size(), mtime }))
+    };
+    if !with_data {
+        for e in &reader.archive().files {
+            if let Some(entry) = item(e)?
+                && !each(Item { entry, mode: 0, link: None, hard_link: false, data: &mut io::empty() })?
+            {
+                break;
+            }
+        }
+        return Ok(());
+    }
+    let mut failure = None;
+    reader.for_each_entries(|e, data| {
+        let result = limits.check(0).and_then(|()| item(e)).and_then(|entry| match entry {
+            Some(entry) => each(Item { entry, mode: 0, link: None, hard_link: false, data: &mut *data }),
+            None => Ok(true),
+        });
+        // Solid blocks decode in order: an entry left unread would leak into the next one. The drain stops at the
+        // limits, and a stopped walk does not drain at all.
+        let result = result.and_then(|go_on| {
+            if go_on {
+                let mut guard = Guard { inner: data, limits, read: 0 };
+                io::copy(&mut guard, &mut io::sink()).map_err(|e| unguard(ArchiveError::Io(e)))?;
+            }
+            Ok(go_on)
+        });
+        match result {
+            Ok(go_on) => Ok(go_on),
+            Err(e) => {
+                failure = Some(e);
+                Ok(false)
+            }
+        }
+    })?;
+    failure.map_or(Ok(()), Err)
+}
+
+fn tar_stream(path: &Path, codec: Codec) -> Result<Box<dyn Read>, ArchiveError> {
+    let file = BufReader::new(File::open(path)?);
+
+    Ok(match codec {
+        Codec::Plain => Box::new(file),
+        Codec::Gz => Box::new(flate2::read::MultiGzDecoder::new(file)),
+        Codec::Xz => Box::new(lzma_rust2::XzReader::new(file, true)),
+        Codec::Zst => Box::new(
+            ruzstd::decoding::StreamingDecoder::new(file).map_err(|e| ArchiveError::Corrupt(e.to_string()))?,
+        ),
+        Codec::Bz2 => Box::new(bzip2::read::MultiBzDecoder::new(file)),
+    })
+}
+
+fn walk_tar(
+    path: &Path,
+    codec: Codec,
+    limits: &Limits<'_>,
+    each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
+) -> Result<(), ArchiveError> {
+    let mut tar = tar::Archive::new(Guard { inner: tar_stream(path, codec)?, limits, read: 0 });
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        let Some(inner) = checked_path(&entry.path_bytes())? else { continue };
+        let header = entry.header();
+        let (kind, hard_link) = match header.entry_type() {
+            tar::EntryType::Regular | tar::EntryType::Continuous => (Kind::File, false),
+            tar::EntryType::Directory => (Kind::Dir, false),
+            tar::EntryType::Symlink => (Kind::Link, false),
+            tar::EntryType::Link => (Kind::File, true),
+            _ => continue,
+        };
+        let mode = header.mode().unwrap_or(0);
+        let mtime = header.mtime().unwrap_or(0);
+        let link = entry.link_name_bytes().map(std::borrow::Cow::into_owned);
+        let size = entry.size();
+        let item = Item { entry: Entry { path: inner, kind, size, mtime }, mode, link, hard_link, data: &mut entry };
+        if !each(item)? {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Every entry, in archive order. An encrypted 7z header without the password is `PasswordNeeded`.
+pub fn list(path: &Path) -> Result<Vec<Entry>, ArchiveError> {
+    let mut out = Vec::new();
+    let limits = Limits { stop: &|| false, max_bytes: LIST_MAX_BYTES, deadline: Some(Instant::now() + LIST_MAX_TIME) };
+    walk(path, "", false, &limits, &mut |item| {
+        out.push(item.entry);
+        if out.len() as u64 > MAX_ENTRIES {
+            return Err(ArchiveError::TooLarge);
+        }
+        Ok(true)
+    })?;
+    Ok(out)
+}
+
+/// (files, bytes) for the progress total, when the archive has a cheap index (zip, 7z); tar would need a full read.
+pub fn totals(path: &Path) -> (u64, u64) {
+    if !matches!(detect(path), Ok(Format::Zip | Format::SevenZ)) {
+        return (0, 0);
+    }
+    list(path).map_or((0, 0), |entries| {
+        (entries.len() as u64, entries.iter().filter(|e| e.kind == Kind::File).map(|e| e.size).sum())
+    })
+}
+
+/// "photos" for photos.tar.gz, photos.zip, photos.7z.
+fn stem(archive: &Path) -> std::ffi::OsString {
+    let name = archive.file_name().map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+    let lower = name.to_ascii_lowercase();
+    let cut = [".tar.gz", ".tar.xz", ".tar.zst", ".tar.bz2", ".tgz", ".txz", ".tbz2", ".zip", ".7z", ".tar"]
+        .iter()
+        .find(|ext| lower.ends_with(ext.as_bytes()) && lower.len() > ext.len())
+        .map_or(name.len(), |ext| name.len() - ext.len());
+    std::ffi::OsString::from_vec(name[..cut].to_vec())
+}
+
+/// Removes the staging folder on every way out.
+struct Staging(PathBuf);
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        if fs::symlink_metadata(&self.0).is_ok_and(|m| m.is_dir()) {
+            let _ = fs::remove_dir_all(&self.0);
+        } else {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+}
+
+struct Writer<'a> {
+    root: PathBuf,
+    ctl: &'a dyn Control,
+    files: u64,
+    bytes: u64,
+    entries: u64,
+    budget: u64,
+    /// Links wait until every file and folder is written; then each is checked against the final tree.
+    links: Vec<(PathBuf, Vec<u8>)>,
+}
+
+fn io_err(e: ArchiveError) -> io::Error {
+    match e {
+        ArchiveError::Io(e) => e,
+        other => io::Error::other(other.to_string()),
+    }
+}
+
+impl Writer<'_> {
+    fn check(&self) -> Result<(), ArchiveError> {
+        if self.ctl.cancelled() { Err(ArchiveError::Io(io::Error::from(io::ErrorKind::Interrupted))) } else { Ok(()) }
+    }
+
+    /// Makes every folder of `rel` under the root; an existing file or link on the way is refused.
+    fn folders(&self, rel: &Path) -> Result<PathBuf, ArchiveError> {
+        let mut at = self.root.clone();
+        for part in rel.components() {
+            let Component::Normal(name) = part else { return Err(ArchiveError::Unsafe(rel.display().to_string())) };
+            at.push(name);
+            match fs::symlink_metadata(&at) {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(_) => return Err(ArchiveError::Unsafe(rel.display().to_string())),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => fs::create_dir(&at)?,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(at)
+    }
+
+    /// The place for `rel`, its folders made and any earlier entry of the same name removed.
+    fn slot(&self, rel: &Path) -> Result<PathBuf, ArchiveError> {
+        let parent = self.folders(rel.parent().unwrap_or(Path::new("")))?;
+        let target = parent.join(rel.file_name().ok_or_else(|| ArchiveError::Unsafe(rel.display().to_string()))?);
+        match fs::symlink_metadata(&target) {
+            Ok(meta) if meta.is_dir() => Err(ArchiveError::Unsafe(rel.display().to_string())),
+            Ok(_) => Ok(fs::remove_file(&target).map(|()| target)?),
+            Err(_) => Ok(target),
+        }
+    }
+
+    fn write(&mut self, rel: &Path, item: Item<'_>) -> Result<(), ArchiveError> {
+        self.check()?;
+        self.entries += 1;
+        if self.entries > MAX_ENTRIES {
+            return Err(ArchiveError::TooLarge);
+        }
+        match item.entry.kind {
+            Kind::Dir => {
+                self.folders(rel)?;
+            }
+            Kind::Link => {
+                self.links.push((rel.to_path_buf(), item.link.unwrap_or_default()));
+                return Ok(());
+            }
+            Kind::File if item.hard_link => {
+                // The caller maps the source like `rel`; one not extracted, or reached through a link, is left out.
+                let Some(source) = item.link.as_deref().and_then(|raw| checked_path(raw).ok().flatten()) else {
+                    return Ok(());
+                };
+                if !self.is_real_file(&source) {
+                    return Ok(());
+                }
+                let slot = self.slot(rel)?;
+                let mut from = OpenOptions::new()
+                    .read(true)
+                    .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
+                    .open(self.root.join(&source))?;
+                self.copy_out(&mut from, &slot, 0o644, item.entry.mtime)?;
+            }
+            Kind::File => {
+                let slot = self.slot(rel)?;
+                self.copy_out(item.data, &slot, item.mode, item.entry.mtime)?;
+            }
+        }
+        self.files += 1;
+        self.ctl.progress(self.files, self.bytes, rel);
+        Ok(())
+    }
+
+    /// `rel` is a regular file reached through real folders only (no link on the way).
+    fn is_real_file(&self, rel: &Path) -> bool {
+        let mut at = self.root.clone();
+        let parts: Vec<_> = rel.components().collect();
+        for (i, part) in parts.iter().enumerate() {
+            let Component::Normal(name) = part else { return false };
+            at.push(name);
+            let Ok(meta) = fs::symlink_metadata(&at) else { return false };
+            let last = i + 1 == parts.len();
+            if (last && !meta.is_file()) || (!last && !meta.is_dir()) {
+                return false;
+            }
+        }
+        !parts.is_empty()
+    }
+
+    /// Makes the waiting links. `separate`: top-level items move on their own, so a link must stay inside its own
+    /// top-level item. A target is walked part by part on the written tree: every part before the last must be a
+    /// real folder, never a link, so a chain of links cannot climb out.
+    fn make_links(&mut self, separate: bool) -> Result<(), ArchiveError> {
+        for (rel, target) in std::mem::take(&mut self.links) {
+            self.check()?;
+            if !self.link_stays_inside(&rel, &target, separate) {
+                log::warn!("archive link {} -> {} leaves the folder; left out", rel.display(), String::from_utf8_lossy(&target));
+                continue;
+            }
+            let slot = self.slot(&rel)?;
+            symlink(std::ffi::OsStr::from_bytes(&target), slot)?;
+            self.files += 1;
+            self.ctl.progress(self.files, self.bytes, &rel);
+        }
+        Ok(())
+    }
+
+    fn link_stays_inside(&self, rel: &Path, target: &[u8], separate: bool) -> bool {
+        if target.is_empty() || target.first() == Some(&b'/') || target.contains(&0) {
+            return false;
+        }
+        let top = rel.components().next();
+        let mut stack: Vec<std::ffi::OsString> =
+            rel.parent().map(|p| p.components().map(|c| c.as_os_str().to_owned()).collect()).unwrap_or_default();
+        let parts: Vec<&[u8]> = target.split(|&b| b == b'/').filter(|p| !p.is_empty() && *p != b".").collect();
+        for (i, part) in parts.iter().enumerate() {
+            if *part == b".." {
+                if stack.pop().is_none() {
+                    return false;
+                }
+            } else {
+                stack.push(std::ffi::OsStr::from_bytes(part).to_owned());
+            }
+            if separate && (stack.is_empty() || top.is_none_or(|t| t.as_os_str() != stack[0])) {
+                return false;
+            }
+            if i + 1 < parts.len() && !stack.is_empty() {
+                let at: PathBuf = stack.iter().fold(self.root.clone(), |p, n| p.join(n));
+                if !fs::symlink_metadata(&at).is_ok_and(|m| m.is_dir()) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn copy_out(&mut self, data: &mut dyn Read, slot: &Path, mode: u32, mtime: u64) -> Result<(), ArchiveError> {
+        let perm = if mode & 0o777 == 0 { 0o644 } else { mode & 0o777 };
+        let mut out = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(perm)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits().cast_signed())
+            .open(slot)?;
+        let mut buf = vec![0u8; CHUNK];
+        loop {
+            self.check()?;
+            let n = data.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            self.bytes += n as u64;
+            if self.bytes > self.budget {
+                return Err(ArchiveError::TooLarge);
+            }
+            out.write_all(&buf[..n])?;
+        }
+        if mtime > 0 {
+            let _ = out.set_modified(UNIX_EPOCH + Duration::from_secs(mtime));
+        }
+        Ok(())
+    }
+}
+
+fn free_space(dir: &Path) -> u64 {
+    rustix::fs::statvfs(dir).map_or(u64::MAX, |s| s.f_bavail.saturating_mul(s.f_frsize))
+}
+
+fn to_op(path: &Path, e: ArchiveError, ctl: &dyn Control) -> OpError {
+    if ctl.cancelled() {
+        return OpError::Cancelled;
+    }
+    OpError::Io(path.to_path_buf(), io_err(e))
+}
+
+/// Extracts `inner` (all when empty) into the folder `dest`. All: one top-level item lands as it is, more go into a
+/// folder named after the archive. Picked items land by their own name. Name clashes ask like a copy; undo removes
+/// what was made.
+pub fn extract(archive: &Path, inner: &[PathBuf], dest: &Path, password: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let n = STAGING.fetch_add(1, Ordering::Relaxed);
+    let staging = dest.join(format!(".andromeda-extract-{}-{n}", std::process::id()));
+    if let Err(e) = fs::create_dir(&staging) {
+        return (Vec::new(), Err(OpError::Io(staging, e)));
+    }
+    let staging = Staging(staging);
+    let all = inner.is_empty();
+    let root = if all { staging.0.join(stem(archive)) } else { staging.0.clone() };
+    if let Err(e) = fs::create_dir_all(&root) {
+        return (Vec::new(), Err(OpError::Io(root, e)));
+    }
+    let mut writer = Writer {
+        root: root.clone(),
+        ctl,
+        files: 0,
+        bytes: 0,
+        entries: 0,
+        budget: free_space(dest).saturating_sub(FREE_SPACE_RESERVE),
+        links: Vec::new(),
+    };
+    // Each pick lands under its own name; two picks with one name get a "(copy)" name.
+    let mut picks: Vec<(&Path, PathBuf)> = Vec::new();
+    for pick in inner {
+        let Some(name) = pick.file_name() else { continue };
+        let mut landed = PathBuf::from(name);
+        for n in 1..u32::MAX {
+            if !picks.iter().any(|(_, used)| *used == landed) {
+                break;
+            }
+            landed = free_pick_name(name, n);
+        }
+        picks.push((pick, landed));
+    }
+    let map = |path: &Path| -> Option<PathBuf> {
+        if all {
+            return Some(path.to_path_buf());
+        }
+        picks.iter().find_map(|(pick, landed)| path.strip_prefix(pick).ok().map(|rest| landed.join(rest)))
+    };
+    let limits = Limits { stop: &|| ctl.cancelled(), max_bytes: u64::MAX, deadline: None };
+    let result = walk(archive, password, true, &limits, &mut |mut item| {
+        writer.check()?;
+        let Some(rel) = map(&item.entry.path) else { return Ok(true) };
+        if item.hard_link {
+            let source = item.link.as_deref().and_then(|raw| checked_path(raw).ok().flatten()).and_then(|p| map(&p));
+            let Some(source) = source else { return Ok(true) };
+            item.link = Some(source.into_os_string().into_vec());
+        }
+        writer.write(&rel, item)?;
+        Ok(true)
+    })
+    .and_then(|()| {
+        // Top-level items move on their own unless several go into the folder named after the archive.
+        let mut tops: std::collections::BTreeSet<std::ffi::OsString> =
+            fs::read_dir(&root)?.flatten().map(|e| e.file_name()).collect();
+        tops.extend(writer.links.iter().filter_map(|(rel, _)| rel.components().next()).map(|c| c.as_os_str().to_owned()));
+        writer.make_links(!all || tops.len() == 1)
+    });
+    if let Err(e) = result {
+        return (Vec::new(), Err(to_op(archive, e, ctl)));
+    }
+    let sources: Vec<PathBuf> = match fs::read_dir(&root) {
+        Ok(items) => items.flatten().map(|e| e.path()).collect(),
+        Err(e) => return (Vec::new(), Err(OpError::Io(root, e))),
+    };
+    let sources = if all && sources.len() != 1 { vec![root] } else { sources };
+    let (steps, result) = ops::move_to(&sources, dest, ctl);
+    let undo = steps
+        .into_iter()
+        .map(|step| match step {
+            UndoStep::Moved { to, .. } => UndoStep::Created(to),
+            other => other,
+        })
+        .collect();
+    (undo, result)
+}
+
+/// "x (copy).txt", "x (copy 2).txt" for the n-th clash of a picked name.
+fn free_pick_name(name: &std::ffi::OsStr, n: u32) -> PathBuf {
+    let text = name.to_string_lossy();
+    let (stem, ext) = match text.rfind('.') {
+        Some(dot) if dot > 0 => (&text[..dot], &text[dot..]),
+        _ => (&text[..], ""),
+    };
+    let suffix = if n == 1 { " (copy)".to_owned() } else { format!(" (copy {n})") };
+    PathBuf::from(format!("{stem}{suffix}{ext}"))
+}
+
+/// Counts progress and stops at cancel while a compressor reads a file.
+struct Feed<'a, R> {
+    inner: R,
+    ctl: &'a dyn Control,
+    bytes: &'a Cell<u64>,
+}
+
+impl<R: Read> Read for Feed<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.ctl.cancelled() {
+            return Err(io::Error::other("cancelled"));
+        }
+        let n = self.inner.read(buf)?;
+        self.bytes.set(self.bytes.get() + n as u64);
+        Ok(n)
+    }
+}
+
+/// ruzstd's encoder unwraps I/O results; these keep its source and drain infallible and keep the first error.
+struct Quiet<T> {
+    inner: T,
+    error: Option<io::Error>,
+}
+
+impl<R: Read> Read for Quiet<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.error.is_some() {
+            return Ok(0);
+        }
+        self.inner.read(buf).or_else(|e| {
+            self.error = Some(e);
+            Ok(0)
+        })
+    }
+}
+
+impl<W: Write> Write for Quiet<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.error.is_none()
+            && let Err(e) = self.inner.write_all(buf)
+        {
+            self.error = Some(e);
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Every path under `sources` (links not followed), with its name in the archive: relative to its source's folder.
+fn gather(sources: &[PathBuf]) -> io::Result<Vec<(PathBuf, String, fs::Metadata)>> {
+    fn walk_dir(path: &Path, name: &str, out: &mut Vec<(PathBuf, String, fs::Metadata)>) -> io::Result<()> {
+        let meta = fs::symlink_metadata(path)?;
+        let is_dir = meta.is_dir();
+        out.push((path.to_path_buf(), name.to_owned(), meta));
+        if is_dir {
+            let mut children: Vec<_> = fs::read_dir(path)?.flatten().map(|e| e.path()).collect();
+            children.sort();
+            for child in children {
+                let child_name = format!("{name}/{}", child.file_name().unwrap_or_default().to_string_lossy());
+                walk_dir(&child, &child_name, out)?;
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for source in sources {
+        let name = source.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        walk_dir(source, &name.to_string_lossy(), &mut out)?;
+    }
+    Ok(out)
+}
+
+/// Writes `sources` into a new archive at `destination` (a taken name gets a "(copy)" name). The archive is written
+/// to a hidden part file and renamed at the end, so a cancel or error leaves nothing. Undo removes the archive.
+pub fn compress(sources: &[PathBuf], destination: &Path, format: OutFormat, password: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let parent = destination.parent().unwrap_or(Path::new("/"));
+    let n = STAGING.fetch_add(1, Ordering::Relaxed);
+    let part = parent.join(format!(".andromeda-compress-{}-{n}.part", std::process::id()));
+    let guard = Staging(part.clone());
+    let bytes = Cell::new(0u64);
+    let result = gather(sources).and_then(|items| {
+        let out = BufWriter::new(OpenOptions::new().write(true).create_new(true).mode(0o644).open(&part)?);
+        match format {
+            OutFormat::Zip => write_zip(out, &items, password, ctl, &bytes),
+            OutFormat::SevenZ => write_7z(out, &items, password, ctl, &bytes),
+            OutFormat::TarGz => {
+                let gz = flate2::write::GzEncoder::new(out, flate2::Compression::default());
+                write_tar(gz, &items, ctl, &bytes)?.finish()?.flush()
+            }
+            OutFormat::TarXz => {
+                let xz = lzma_rust2::XzWriter::new(out, lzma_rust2::XzOptions::with_preset(6))?;
+                write_tar(xz, &items, ctl, &bytes)?.finish()?.flush()
+            }
+            OutFormat::TarZst => {
+                let tar_part = part.with_extension("tar");
+                let tar_guard = Staging(tar_part.clone());
+                let plain = BufWriter::new(File::create(&tar_part)?);
+                write_tar(plain, &items, ctl, &bytes)?.flush()?;
+                let mut source = Quiet { inner: BufReader::new(File::open(&tar_guard.0)?), error: None };
+                let mut drain = Quiet { inner: out, error: None };
+                ruzstd::encoding::compress(&mut source, &mut drain, ruzstd::encoding::CompressionLevel::Fastest);
+                if let Some(e) = source.error.or(drain.error) {
+                    return Err(e);
+                }
+                drain.inner.flush()
+            }
+        }
+    });
+    if let Err(e) = result {
+        let e = if ctl.cancelled() { OpError::Cancelled } else { OpError::Io(destination.to_path_buf(), e) };
+        return (Vec::new(), Err(e));
+    }
+    // NOREPLACE: a file made at the target meanwhile is never replaced; the archive takes the next free name.
+    let mut target = destination.to_path_buf();
+    for _ in 0..100 {
+        match rustix::fs::renameat_with(rustix::fs::CWD, &part, rustix::fs::CWD, &target, rustix::fs::RenameFlags::NOREPLACE) {
+            Ok(()) => break,
+            Err(rustix::io::Errno::EXIST) => target = ops::free_name(destination),
+            Err(e) => return (Vec::new(), Err(OpError::Io(target, e.into()))),
+        }
+    }
+    if fs::symlink_metadata(&part).is_ok() {
+        return (Vec::new(), Err(OpError::Io(target, io::ErrorKind::AlreadyExists.into())));
+    }
+    std::mem::forget(guard);
+    ctl.progress(1, bytes.get(), &target);
+    (vec![UndoStep::Created(target)], Ok(()))
+}
+
+fn zip_time(meta: &fs::Metadata) -> zip::DateTime {
+    use chrono::{Datelike, Timelike};
+    chrono::DateTime::from_timestamp(meta.mtime(), 0)
+        .and_then(|t| {
+            let (date, time) = (t.date_naive(), t.time());
+            zip::DateTime::from_date_and_time(
+                u16::try_from(date.year()).ok()?,
+                u8::try_from(date.month()).ok()?,
+                u8::try_from(date.day()).ok()?,
+                u8::try_from(time.hour()).ok()?,
+                u8::try_from(time.minute()).ok()?,
+                u8::try_from(time.second()).ok()?,
+            )
+            .ok()
+        })
+        .unwrap_or_default()
+}
+
+fn write_zip<W: Write + io::Seek>(
+    out: W,
+    items: &[(PathBuf, String, fs::Metadata)],
+    password: &str,
+    ctl: &dyn Control,
+    bytes: &Cell<u64>,
+) -> io::Result<()> {
+    use zip::write::SimpleFileOptions;
+    let mut zip = zip::ZipWriter::new(out);
+    for (i, (path, name, meta)) in items.iter().enumerate() {
+        let mut options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(meta.mode() & 0o777)
+            .last_modified_time(zip_time(meta))
+            .large_file(meta.len() >= u64::from(u32::MAX));
+        if !password.is_empty() {
+            options = options.with_aes_encryption(zip::AesMode::Aes256, password);
+        }
+        if meta.is_dir() {
+            zip.add_directory(format!("{name}/"), options)?;
+        } else if meta.is_symlink() {
+            zip.add_symlink(name.clone(), fs::read_link(path)?.to_string_lossy(), options)?;
+        } else if meta.is_file() {
+            zip.start_file(name.clone(), options)?;
+            io::copy(&mut Feed { inner: File::open(path)?, ctl, bytes }, &mut zip)?;
+        }
+        ctl.progress(i as u64 + 1, bytes.get(), path);
+    }
+    zip.finish()?.flush()
+}
+
+fn write_7z<W: Write + io::Seek>(
+    out: W,
+    items: &[(PathBuf, String, fs::Metadata)],
+    password: &str,
+    ctl: &dyn Control,
+    bytes: &Cell<u64>,
+) -> io::Result<()> {
+    use sevenz_rust2::encoder_options::AesEncoderOptions;
+    use sevenz_rust2::{ArchiveEntry, ArchiveWriter, EncoderMethod};
+    let to_io = |e: sevenz_rust2::Error| io::Error::other(e.to_string());
+    let mut sz = ArchiveWriter::new(out).map_err(to_io)?;
+    if !password.is_empty() {
+        sz.set_content_methods(vec![
+            AesEncoderOptions::new(sevenz_rust2::Password::new(password)).into(),
+            EncoderMethod::LZMA2.into(),
+        ]);
+        // ListArchive takes no password, so names stay readable as in a password zip.
+        sz.set_encrypt_header(false);
+    }
+    for (i, (path, name, meta)) in items.iter().enumerate() {
+        // 7z has no portable symlink entry; links are left out.
+        if meta.is_dir() {
+            sz.push_archive_entry::<File>(ArchiveEntry::from_path(path, name.clone()), None).map_err(to_io)?;
+        } else if meta.is_file() {
+            let feed = Feed { inner: File::open(path)?, ctl, bytes };
+            sz.push_archive_entry(ArchiveEntry::from_path(path, name.clone()), Some(feed)).map_err(to_io)?;
+        }
+        if ctl.cancelled() {
+            return Err(io::Error::other("cancelled"));
+        }
+        ctl.progress(i as u64 + 1, bytes.get(), path);
+    }
+    sz.finish()?.flush()
+}
+
+fn write_tar<W: Write>(out: W, items: &[(PathBuf, String, fs::Metadata)], ctl: &dyn Control, bytes: &Cell<u64>) -> io::Result<W> {
+    let mut tar = tar::Builder::new(out);
+    tar.follow_symlinks(false);
+    for (i, (path, name, meta)) in items.iter().enumerate() {
+        let mut header = tar::Header::new_gnu();
+        header.set_metadata(meta);
+        if meta.is_dir() {
+            header.set_size(0);
+            tar.append_data(&mut header, name, io::empty())?;
+        } else if meta.is_symlink() {
+            header.set_size(0);
+            tar.append_link(&mut header, name, fs::read_link(path)?)?;
+        } else if meta.is_file() {
+            tar.append_data(&mut header, name, Feed { inner: File::open(path)?, ctl, bytes })?;
+        }
+        ctl.progress(i as u64 + 1, bytes.get(), path);
+    }
+    tar.into_inner()
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    struct Quietly;
+
+    impl Control for Quietly {
+        fn cancelled(&self) -> bool {
+            false
+        }
+        fn progress(&self, _: u64, _: u64, _: &Path) {}
+        fn conflict(&self, _: &Path, _: &Path) -> Option<(ops::Resolution, bool)> {
+            Some((ops::Resolution::KeepBoth, false))
+        }
+    }
+
+    fn tree(root: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for item in gather(&[root.to_path_buf()]).expect("walk") {
+            out.push(item.0.strip_prefix(root).expect("inside").to_path_buf());
+        }
+        out.sort();
+        out
+    }
+
+    /// docs/a.txt, docs/sub/b.txt
+    fn sample_zip(path: &Path, password: Option<&str>) {
+        use zip::write::SimpleFileOptions;
+        let mut zip = zip::ZipWriter::new(File::create(path).expect("create"));
+        let mut options = SimpleFileOptions::default();
+        if let Some(pw) = password {
+            options = options.with_aes_encryption(zip::AesMode::Aes256, pw);
+        }
+        zip.add_directory("docs/", options).expect("dir");
+        zip.start_file("docs/a.txt", options).expect("a");
+        zip.write_all(b"alpha").expect("write");
+        zip.start_file("docs/sub/b.txt", options).expect("b");
+        zip.write_all(b"beta").expect("write");
+        zip.finish().expect("finish");
+    }
+
+    #[test]
+    fn list_shows_every_entry() {
+        let root = tempfile::tempdir().expect("tmp");
+        let zip = root.path().join("docs.zip");
+        sample_zip(&zip, None);
+        let entries = list(&zip).expect("list");
+        let names: Vec<_> = entries.iter().map(|e| (e.path.clone(), e.kind, e.size)).collect();
+        assert_eq!(
+            names,
+            vec![
+                (PathBuf::from("docs"), Kind::Dir, 0),
+                (PathBuf::from("docs/a.txt"), Kind::File, 5),
+                (PathBuf::from("docs/sub/b.txt"), Kind::File, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn extract_all_with_one_top_folder_lands_as_is_and_undo_removes_it() {
+        let root = tempfile::tempdir().expect("tmp");
+        let zip = root.path().join("docs.zip");
+        sample_zip(&zip, None);
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        let (undo, result) = extract(&zip, &[], &dest, "", &Quietly);
+        result.expect("extract");
+        assert_eq!(fs::read_to_string(dest.join("docs/sub/b.txt")).expect("b"), "beta");
+        assert_eq!(fs::read_dir(&dest).expect("ls").count(), 1, "no staging folder is left");
+        assert!(matches!(&undo[..], [UndoStep::Created(p)] if *p == dest.join("docs")));
+    }
+
+    #[test]
+    fn extract_all_with_many_top_items_goes_into_a_folder_named_after_the_archive() {
+        let root = tempfile::tempdir().expect("tmp");
+        let src = root.path().join("src");
+        fs::create_dir_all(src.join("d")).expect("mkdir");
+        fs::write(src.join("one.txt"), "1").expect("write");
+        fs::write(src.join("d/two.txt"), "2").expect("write");
+        let archive = root.path().join("bundle.tar.gz");
+        let (_, result) = compress(&[src.join("one.txt"), src.join("d")], &archive, OutFormat::TarGz, "", &Quietly);
+        result.expect("compress");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        extract(&archive, &[], &dest, "", &Quietly).1.expect("extract");
+        assert_eq!(tree(&dest.join("bundle")), vec![PathBuf::new(), "d".into(), "d/two.txt".into(), "one.txt".into()]);
+    }
+
+    #[test]
+    fn extract_one_lands_by_its_own_name() {
+        let root = tempfile::tempdir().expect("tmp");
+        let zip = root.path().join("docs.zip");
+        sample_zip(&zip, None);
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        extract(&zip, &[PathBuf::from("docs/sub/b.txt")], &dest, "", &Quietly).1.expect("extract");
+        assert_eq!(tree(&dest), vec![PathBuf::new(), "b.txt".into()]);
+    }
+
+    #[test]
+    fn a_zip_slip_entry_is_refused_and_nothing_is_written() {
+        use zip::write::SimpleFileOptions;
+        let root = tempfile::tempdir().expect("tmp");
+        let zip_path = root.path().join("evil.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&zip_path).expect("create"));
+        zip.start_file("good.txt", SimpleFileOptions::default()).expect("good");
+        zip.write_all(b"ok").expect("write");
+        zip.start_file("../escaped.txt", SimpleFileOptions::default()).expect("evil");
+        zip.write_all(b"pwned").expect("write");
+        zip.finish().expect("finish");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        let (undo, result) = extract(&zip_path, &[], &dest, "", &Quietly);
+        assert!(result.is_err(), "the archive is refused");
+        assert!(undo.is_empty());
+        assert!(!root.path().join("escaped.txt").exists());
+        assert_eq!(fs::read_dir(&dest).expect("ls").count(), 0, "nothing lands, no staging folder is left");
+        assert!(matches!(list(&zip_path), Err(ArchiveError::Unsafe(_))));
+    }
+
+    struct CancelledNow;
+
+    impl Control for CancelledNow {
+        fn cancelled(&self) -> bool {
+            true
+        }
+        fn progress(&self, _: u64, _: u64, _: &Path) {}
+        fn conflict(&self, _: &Path, _: &Path) -> Option<(ops::Resolution, bool)> {
+            None
+        }
+    }
+
+    fn tar_link(tar: &mut tar::Builder<File>, kind: tar::EntryType, name: &str, target: &str) {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(kind);
+        header.set_size(0);
+        header.set_mode(0o777);
+        tar.append_link(&mut header, name, target).expect("link");
+    }
+
+    /// Every path under `dir`, links not followed.
+    fn all_under(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let mut todo = vec![dir.to_path_buf()];
+        while let Some(at) = todo.pop() {
+            for entry in fs::read_dir(&at).expect("ls").flatten() {
+                if entry.file_type().expect("type").is_dir() {
+                    todo.push(entry.path());
+                }
+                out.push(entry.path());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_chain_of_links_cannot_climb_out_or_leak_a_file() {
+        let root = tempfile::tempdir().expect("tmp");
+        fs::write(root.path().join("secret.txt"), "top secret").expect("write");
+        let archive = root.path().join("evil.tar");
+        let mut tar = tar::Builder::new(File::create(&archive).expect("create"));
+        let mut dir = tar::Header::new_gnu();
+        dir.set_entry_type(tar::EntryType::Directory);
+        dir.set_size(0);
+        dir.set_mode(0o755);
+        tar.append_data(&mut dir, "a/b/c", io::empty()).expect("dir");
+        // Each target reads as inside; together they reach the folder above the destination.
+        tar_link(&mut tar, tar::EntryType::Symlink, "a/b/c/up", "../..");
+        tar_link(&mut tar, tar::EntryType::Symlink, "esc", "a/b/c/up/../../../..");
+        tar_link(&mut tar, tar::EntryType::Link, "stolen", "esc/secret.txt");
+        tar.into_inner().expect("finish");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        let _ = extract(&archive, &[], &dest, "", &Quietly);
+        let dest_real = fs::canonicalize(&dest).expect("dest");
+        for path in all_under(&dest) {
+            if let Ok(real) = fs::canonicalize(&path) {
+                assert!(real.starts_with(&dest_real), "{} resolves outside: {}", path.display(), real.display());
+            }
+            assert_ne!(fs::read_to_string(&path).ok().as_deref(), Some("top secret"), "{} leaks the file", path.display());
+        }
+    }
+
+    #[test]
+    fn a_link_to_a_sibling_is_left_out_when_the_top_item_moves_alone() {
+        let root = tempfile::tempdir().expect("tmp");
+        let archive = root.path().join("one.tar");
+        let mut tar = tar::Builder::new(File::create(&archive).expect("create"));
+        let mut file = tar::Header::new_gnu();
+        file.set_size(2);
+        file.set_mode(0o644);
+        tar.append_data(&mut file, "docs/a.txt", &b"hi"[..]).expect("file");
+        tar_link(&mut tar, tar::EntryType::Symlink, "docs/inside", "a.txt");
+        tar_link(&mut tar, tar::EntryType::Symlink, "docs/l", "../x");
+        tar.into_inner().expect("finish");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        extract(&archive, &[], &dest, "", &Quietly).1.expect("extract");
+        assert_eq!(fs::read_to_string(dest.join("docs/inside")).expect("inside link"), "hi");
+        assert!(fs::symlink_metadata(dest.join("docs/l")).is_err(), "a link to dest/x is left out");
+    }
+
+    #[test]
+    fn a_cancel_during_a_big_7z_entry_ends_quickly() {
+        use sevenz_rust2::{ArchiveEntry, ArchiveWriter, EncoderMethod};
+        let root = tempfile::tempdir().expect("tmp");
+        let archive = root.path().join("big.7z");
+        let mut sz = ArchiveWriter::new(File::create(&archive).expect("create")).expect("writer");
+        sz.set_content_methods(vec![EncoderMethod::COPY.into()]);
+        sz.push_archive_entry(ArchiveEntry::new_file("big.bin"), Some(io::repeat(0).take(256 << 20))).expect("big");
+        sz.push_archive_entry(ArchiveEntry::new_file("small.txt"), Some(&b"x"[..])).expect("small");
+        sz.finish().expect("finish");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        let started = Instant::now();
+        let (_, result) = extract(&archive, &[PathBuf::from("small.txt")], &dest, "", &CancelledNow);
+        assert!(matches!(result, Err(OpError::Cancelled)));
+        assert!(started.elapsed() < Duration::from_millis(300), "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn two_picks_with_one_name_both_land() {
+        use zip::write::SimpleFileOptions;
+        let root = tempfile::tempdir().expect("tmp");
+        let zip_path = root.path().join("two.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&zip_path).expect("create"));
+        zip.start_file("a/x.txt", SimpleFileOptions::default()).expect("a");
+        zip.write_all(b"from a").expect("write");
+        zip.start_file("b/x.txt", SimpleFileOptions::default()).expect("b");
+        zip.write_all(b"from b").expect("write");
+        zip.finish().expect("finish");
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        extract(&zip_path, &[PathBuf::from("a/x.txt"), PathBuf::from("b/x.txt")], &dest, "", &Quietly).1.expect("extract");
+        assert_eq!(fs::read_to_string(dest.join("x.txt")).expect("first"), "from a");
+        assert_eq!(fs::read_to_string(dest.join("x (copy).txt")).expect("second"), "from b");
+    }
+
+    #[test]
+    fn a_password_zip_needs_the_right_password() {
+        let root = tempfile::tempdir().expect("tmp");
+        let zip = root.path().join("secret.zip");
+        sample_zip(&zip, Some("hunter2"));
+        assert_eq!(list(&zip).expect("names list without the password").len(), 3);
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).expect("mkdir");
+        let (_, result) = extract(&zip, &[], &dest, "", &Quietly);
+        assert!(result.is_err_and(|e| e.to_string().ends_with("password needed")));
+        let (_, result) = extract(&zip, &[], &dest, "wrong", &Quietly);
+        assert!(result.is_err_and(|e| e.to_string().ends_with("wrong password")));
+        extract(&zip, &[], &dest, "hunter2", &Quietly).1.expect("extract");
+        assert_eq!(fs::read_to_string(dest.join("docs/a.txt")).expect("a"), "alpha");
+    }
+
+    #[test]
+    fn compress_then_list_again_in_every_format() {
+        let root = tempfile::tempdir().expect("tmp");
+        let src = root.path().join("project");
+        fs::create_dir_all(src.join("lib")).expect("mkdir");
+        fs::write(src.join("readme.txt"), "hello").expect("write");
+        fs::write(src.join("lib/code.rs"), "fn main() {}").expect("write");
+        for (format, ext, password) in [
+            (OutFormat::Zip, "zip", "pw"),
+            (OutFormat::SevenZ, "7z", "pw"),
+            (OutFormat::TarGz, "tar.gz", ""),
+            (OutFormat::TarXz, "tar.xz", ""),
+            (OutFormat::TarZst, "tar.zst", ""),
+        ] {
+            let archive = root.path().join(format!("project.{ext}"));
+            let (undo, result) = compress(&[src.clone()], &archive, format, password, &Quietly);
+            result.unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert!(matches!(&undo[..], [UndoStep::Created(p)] if *p == archive));
+            let mut names: Vec<_> = list(&archive).unwrap_or_else(|e| panic!("{ext}: {e}")).into_iter().map(|e| e.path).collect();
+            names.sort();
+            assert_eq!(names, vec![PathBuf::from("project"), "project/lib".into(), "project/lib/code.rs".into(), "project/readme.txt".into()], "{ext}");
+            let dest = root.path().join(format!("out-{ext}"));
+            fs::create_dir(&dest).expect("mkdir");
+            extract(&archive, &[], &dest, password, &Quietly).1.unwrap_or_else(|e| panic!("{ext}: {e}"));
+            assert_eq!(fs::read_to_string(dest.join("project/lib/code.rs")).expect("code"), "fn main() {}", "{ext}");
+        }
+        assert_eq!(fs::read_dir(root.path()).expect("ls").flatten().filter(|e| e.file_name().as_bytes().starts_with(b".")).count(), 0, "no part file is left");
+    }
+}

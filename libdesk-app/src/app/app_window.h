@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/controls/context_menu.h"
+
 #include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "render/scene/node.h"
@@ -13,6 +15,7 @@
 
 class AppLoop;
 class Button;
+class ContextMenuPopup;
 class CommandTable;
 class Flex;
 class Label;
@@ -44,6 +47,7 @@ public:
     bool transparentContent = false; // the content area shows what lies below the window surface (a video subsurface)
     bool headerWhenFullscreen = true;
     bool header = true; // false: a chromeless window (picture in picture); the content is the whole window
+    bool moreMenu = false; // a More (…) circle before the window buttons: the commands by group (File, Edit, View, Go)
   };
 
   // Builds the content under the header; called on open, on requestRebuild() and when the scale changes.
@@ -70,7 +74,21 @@ public:
   [[nodiscard]] AnimationManager& animations() noexcept { return m_animations; }
   // Keys no command took and no text field owns (type-ahead, arrows in a list). True = handled.
   void setKeyHandler(std::function<bool(const KeyboardEvent&)> handler) { m_keyHandler = std::move(handler); }
+  // A window-modal sheet (rulebook 9.10): a scrim over the window and the card centred on it. The builder runs on
+  // each scene build; Escape calls onCancel. Window keys and commands wait while it shows.
+  void presentSheet(std::function<std::unique_ptr<Node>(float scale)> builder, std::function<void()> onCancel);
+  void dismissSheet();
+  // Collapses or restores the sidebar on spring.page (the Files Gallery is full-bleed); the header stays in place.
+  void setSidebarVisible(bool visible);
+  // Asks for a new window size (logical px before ui scale). False when the compositor sizes the window: then the
+  // size becomes the minimum, so the compositor grows it.
+  bool requestSize(std::uint32_t width, std::uint32_t height);
+  // Saves the current geometry under the old key, then remembers size and state under this one.
+  void setStateKey(std::string stateKey);
+  [[nodiscard]] bool hasSheet() const noexcept { return static_cast<bool>(m_sheetBuilder); }
   void setClosedCallback(std::function<void()> callback) { m_onClosed = std::move(callback); }
+  // Runs when the compositor activates or deactivates the window (xdg_toplevel activated state).
+  void setActiveCallback(std::function<void(bool active)> callback) { m_onActive = std::move(callback); }
   void setTitle(std::string title);
   void requestRebuild();
   // Updates the back / forward buttons from their commands without a rebuild.
@@ -79,6 +97,14 @@ public:
   void invalidate();
   // Raises the window for a launch that carried an xdg-activation token.
   void activate(const std::string& token);
+  // A context menu at a point in window (scene) coordinates; `activated` gets the entry id, after the menu closed.
+  void openContextMenu(std::vector<ContextMenuControlEntry> entries, float sceneX, float sceneY,
+                       std::function<void(std::int32_t id)> activated);
+  // A popover under `anchor` (a node of this window), `width` x `height` logical px before ui scale.
+  void openPopover(const Node* anchor, float width, float height, std::function<std::unique_ptr<Node>(float scale)> content);
+  void refreshPopover();
+  void closePopover();
+  [[nodiscard]] bool popoverOpen() const noexcept;
   void toggleMaximized();
   void toggleFullscreen();
   [[nodiscard]] bool fullscreen() const noexcept;
@@ -94,6 +120,8 @@ public:
   void setLayoutCallback(std::function<void()> callback) { m_onLayout = std::move(callback); }
 
   [[nodiscard]] wl_surface* wlSurface() const noexcept;
+  // This window's surface or its open menu popup: the app routes that surface's events here.
+  [[nodiscard]] bool ownsSurface(wl_surface* surface) const noexcept;
   [[nodiscard]] float uiScale() const noexcept { return m_uiScale; }
   [[nodiscard]] InputDispatcher& input() noexcept { return m_input; }
   [[nodiscard]] ToplevelSurface* surface() noexcept { return m_surface.get(); }
@@ -111,6 +139,7 @@ private:
   [[nodiscard]] std::uint32_t resizeEdgesAt(float x, float y) const;
   void onClosedByCompositor();
   [[nodiscard]] std::string key(const char* field) const;
+  void openMoreMenu();
 
   AppLoop& m_loop;
   CommandTable& m_commands;
@@ -120,6 +149,12 @@ private:
   SidebarBuilder m_sidebarBuilder;
   std::function<std::unique_ptr<Node>()> m_headerAccessory;
   std::function<bool(const KeyboardEvent&)> m_keyHandler;
+  std::function<void(bool)> m_onActive;
+  std::function<std::unique_ptr<Node>(float)> m_sheetBuilder;
+  std::function<void()> m_sheetCancel;
+  Node* m_sheetCard = nullptr;
+  float m_sheetMix = 1.0F; // open motion: card opacity, scale 0.96 -> 1 (M31)
+  std::uint32_t m_sheetAnim = 0;
   std::function<void()> m_onClosed;
   std::function<void()> m_onLayout;
   Rect m_contentRect;
@@ -131,6 +166,13 @@ private:
   Label* m_titleLabel = nullptr;
   Button* m_maximizeButton = nullptr;
   std::array<Button*, 2> m_navButtons{};
+  Button* m_moreButton = nullptr;
+  Flex* m_sidebarNode = nullptr;
+  float m_sidebarMix = 1.0F; // 0 = collapsed
+  bool m_sidebarVisible = true;
+  std::uint32_t m_sidebarAnim = 0;
+  std::unique_ptr<ContextMenuPopup> m_menu;
+  std::unique_ptr<class AppPopover> m_popover;
   AnimationManager m_animations;
   InputDispatcher m_input;
   bool m_rebuild = true;

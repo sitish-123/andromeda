@@ -35,6 +35,9 @@ impl Resolution {
 /// What a running operation needs from its job: progress, cancellation and conflict answers.
 pub trait Control {
     fn cancelled(&self) -> bool;
+    /// Blocks while the job is paused; returns at once when it is not (or when it is cancelled). Operations call
+    /// it between chunks and items.
+    fn pause_point(&self) {}
     fn progress(&self, files: u64, bytes: u64, current: &Path);
     /// `None` cancels the job. The bool is "apply to all".
     fn conflict(&self, source: &Path, target: &Path) -> Option<(Resolution, bool)>;
@@ -49,6 +52,10 @@ pub enum UndoStep {
     Moved { from: PathBuf, to: PathBuf },
     /// Sent to the trash (by the operation, or replaced by it).
     Trashed(Trashed),
+    /// Permission bits before a change (`SetPermissions`).
+    Mode { path: PathBuf, mode: u32 },
+    /// The `user.xdg.tags` value before a change (`None`: there was none).
+    Tags { path: PathBuf, raw: Option<Vec<u8>> },
 }
 
 #[derive(Debug)]
@@ -98,6 +105,129 @@ pub fn measure(paths: &[PathBuf]) -> (u64, u64) {
     totals
 }
 
+/// Entries a count or comparison walks before it gives up (the answer is then unknown, or a lower bound).
+const WALK_CAP: usize = 100_000;
+
+/// How many conflict questions a copy or move of `sources` into `dir` asks when every folder clash merges:
+/// one per clashing name, plus the clashes inside merged folders. `None` past `WALK_CAP` entries.
+#[must_use]
+pub fn count_conflicts(sources: &[PathBuf], dir: &Path) -> Option<u64> {
+    fn walk(source: &Path, dir: &Path, count: &mut u64, seen: &mut usize) -> bool {
+        *seen += 1;
+        if *seen > WALK_CAP {
+            return false;
+        }
+        let Some(name) = source.file_name() else { return true };
+        let target = dir.join(name);
+        let Ok(existing) = fs::symlink_metadata(&target) else { return true };
+        if same_file(source, &target) {
+            return true;
+        }
+        *count += 1;
+        if existing.is_dir() && fs::symlink_metadata(source).is_ok_and(|m| m.is_dir()) {
+            let Ok(entries) = fs::read_dir(source) else { return true };
+            for entry in entries.flatten() {
+                if !walk(&entry.path(), &target, count, seen) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    let (mut count, mut seen) = (0, 0);
+    for source in sources {
+        if !walk(source, dir, &mut count, &mut seen) {
+            return None;
+        }
+    }
+    Some(count)
+}
+
+/// A folder dropped onto a folder of the same name (FILES-UI-SPEC §14): what a merge would do with its files.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FolderClash {
+    /// Files only in the dropped folder.
+    pub new: u64,
+    /// Files in both with the same size and modification time.
+    pub same: u64,
+    /// Files in both that differ.
+    pub different: u64,
+    /// Up to `MAX_CLASH_NAMES` differing files: the path inside the folder and a hint ("newer here, larger there").
+    pub names: Vec<(PathBuf, String)>,
+}
+
+pub const MAX_CLASH_NAMES: usize = 20;
+
+/// Compares the files under `source` with those under `target` (both folders); `None` when either is not a folder.
+/// Past `WALK_CAP` entries the counts cover what was walked.
+#[must_use]
+pub fn folder_clash(source: &Path, target: &Path) -> Option<FolderClash> {
+    fn hint(here: &fs::Metadata, there: &fs::Metadata) -> String {
+        let mut parts = Vec::new();
+        let (a, b) = ((here.mtime(), here.mtime_nsec()), (there.mtime(), there.mtime_nsec()));
+        if a != b {
+            parts.push(if a > b { "newer here" } else { "newer there" });
+        }
+        if here.len() != there.len() {
+            parts.push(if here.len() > there.len() { "larger here" } else { "larger there" });
+        }
+        if parts.is_empty() {
+            parts.push("different kind");
+        }
+        parts.join(", ")
+    }
+    fn walk(source: &Path, target: &Path, inner: &Path, clash: &mut FolderClash, seen: &mut usize) {
+        let Ok(entries) = fs::read_dir(source) else { return };
+        for entry in entries.flatten() {
+            *seen += 1;
+            if *seen > WALK_CAP {
+                return;
+            }
+            let name = entry.file_name();
+            let Ok(here) = fs::symlink_metadata(entry.path()) else { continue };
+            let there = fs::symlink_metadata(target.join(&name));
+            if here.is_dir() {
+                match there {
+                    Ok(there) if there.is_dir() => walk(&entry.path(), &target.join(&name), &inner.join(&name), clash, seen),
+                    // A folder that is new here brings all its files as new.
+                    Err(_) => clash.new += measure(&[entry.path()]).0.saturating_sub(1),
+                    Ok(there) => {
+                        clash.different += 1;
+                        if clash.names.len() < MAX_CLASH_NAMES {
+                            clash.names.push((inner.join(&name), hint(&here, &there)));
+                        }
+                    }
+                }
+                continue;
+            }
+            match there {
+                Err(_) => clash.new += 1,
+                Ok(there)
+                    if there.file_type() == here.file_type()
+                        && there.len() == here.len()
+                        && (there.mtime(), there.mtime_nsec()) == (here.mtime(), here.mtime_nsec()) =>
+                {
+                    clash.same += 1;
+                }
+                Ok(there) => {
+                    clash.different += 1;
+                    if clash.names.len() < MAX_CLASH_NAMES {
+                        clash.names.push((inner.join(&name), hint(&here, &there)));
+                    }
+                }
+            }
+        }
+    }
+    let both = fs::symlink_metadata(source).is_ok_and(|m| m.is_dir()) && fs::symlink_metadata(target).is_ok_and(|m| m.is_dir());
+    if !both {
+        return None;
+    }
+    let mut clash = FolderClash::default();
+    let mut seen = 0;
+    walk(source, target, Path::new(""), &mut clash, &mut seen);
+    Some(clash)
+}
+
 /// `name (copy).ext`, `name (copy 2).ext`, ...: the first free name next to `target`.
 pub fn free_name(target: &Path) -> PathBuf {
     let parent = target.parent().unwrap_or(Path::new("/"));
@@ -130,6 +260,7 @@ impl<'a> Run<'a> {
     }
 
     fn check(&self) -> OpResult<()> {
+        self.ctl.pause_point();
         if self.ctl.cancelled() { Err(OpError::Cancelled) } else { Ok(()) }
     }
 
@@ -361,6 +492,106 @@ pub fn trash_all(paths: &[PathBuf], ctl: &dyn Control) -> (Vec<UndoStep>, OpResu
     (run.undo, result)
 }
 
+/// A valid single file name: not empty, not "." or "..", no "/" or NUL.
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\0'])
+}
+
+/// Renames `path` in its folder. Fails, writing nothing, when the new name is taken.
+pub fn rename(path: &Path, name: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let mut run = Run::new(ctl);
+    let parent = path.parent().unwrap_or(Path::new("/"));
+    let target = parent.join(name);
+    let result = renameat_with(CWD, path, CWD, &target, RenameFlags::NOREPLACE).map_err(errno_at(&target));
+    if result.is_ok() {
+        run.undo.push(UndoStep::Moved { from: path.to_path_buf(), to: target.clone() });
+        run.tick(1, 0, &target);
+    }
+    (run.undo, result)
+}
+
+/// Renames many items as one step (batch rename). Each item first takes a hidden temporary name, so swaps and
+/// chains (a -> b, b -> c) work; a failure puts every item back and writes nothing.
+pub fn rename_many(items: &[(PathBuf, String)], ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let mut run = Run::new(ctl);
+    let temp_of = |i: usize, path: &Path| {
+        path.parent().unwrap_or(Path::new("/")).join(format!(".andromeda-rename-{}-{i}", std::process::id()))
+    };
+    let mut parked: Vec<usize> = Vec::new();
+    let mut result = Ok(());
+    for (i, (path, _)) in items.iter().enumerate() {
+        let temp = temp_of(i, path);
+        if let Err(e) = renameat_with(CWD, path, CWD, &temp, RenameFlags::NOREPLACE) {
+            result = Err(OpError::Io(path.clone(), e.into()));
+            break;
+        }
+        parked.push(i);
+    }
+    let mut placed: Vec<usize> = Vec::new();
+    if result.is_ok() {
+        for &i in &parked {
+            let (path, name) = &items[i];
+            let target = path.parent().unwrap_or(Path::new("/")).join(name);
+            if let Err(e) = renameat_with(CWD, temp_of(i, path), CWD, &target, RenameFlags::NOREPLACE) {
+                result = Err(OpError::Io(target, e.into()));
+                break;
+            }
+            placed.push(i);
+        }
+    }
+    if result.is_err() {
+        // Back out: placed items go back to their temporary names, then every parked item to its old name.
+        for &i in placed.iter().rev() {
+            let (path, name) = &items[i];
+            let target = path.parent().unwrap_or(Path::new("/")).join(name);
+            let _ = renameat_with(CWD, &target, CWD, temp_of(i, path), RenameFlags::NOREPLACE);
+        }
+        for &i in parked.iter().rev() {
+            let _ = renameat_with(CWD, temp_of(i, &items[i].0), CWD, &items[i].0, RenameFlags::NOREPLACE);
+        }
+        return (Vec::new(), result);
+    }
+    for (path, name) in items {
+        let target = path.parent().unwrap_or(Path::new("/")).join(name);
+        run.undo.push(UndoStep::Moved { from: path.clone(), to: target.clone() });
+        run.tick(1, 0, &target);
+    }
+    (run.undo, result)
+}
+
+/// Makes the folder `dir/name`, or `name (copy)` and so on when the name is taken.
+pub fn new_folder(dir: &Path, name: &str, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let mut run = Run::new(ctl);
+    let mut target = dir.join(name);
+    if fs::symlink_metadata(&target).is_ok() {
+        target = free_name(&target);
+    }
+    let result = fs::create_dir(&target).map_err(io_at(&target));
+    if result.is_ok() {
+        run.undo.push(UndoStep::Created(target.clone()));
+        run.tick(1, 0, &target);
+    }
+    (run.undo, result)
+}
+
+/// Puts a symbolic link to each source into `dir`, named as the source (a free name when taken).
+pub fn link(sources: &[PathBuf], dir: &Path, ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<()>) {
+    let mut run = Run::new(ctl);
+    let result = sources.iter().try_for_each(|source| {
+        run.check()?;
+        let name = source.file_name().ok_or_else(|| OpError::Io(source.clone(), io::ErrorKind::InvalidInput.into()))?;
+        let mut target = dir.join(name);
+        if fs::symlink_metadata(&target).is_ok() {
+            target = free_name(&target);
+        }
+        symlink(source, &target).map_err(io_at(&target))?;
+        run.undo.push(UndoStep::Created(target.clone()));
+        run.tick(1, 0, &target);
+        Ok(())
+    });
+    (run.undo, result)
+}
+
 /// Deletes for good: nothing to undo.
 pub fn delete(paths: &[PathBuf], ctl: &dyn Control) -> OpResult<()> {
     let mut run = Run::new(ctl);
@@ -396,6 +627,18 @@ pub fn undo(steps: &[UndoStep], ctl: &dyn Control) -> (Vec<UndoStep>, OpResult<(
             UndoStep::Trashed(trashed) => {
                 let restored = trash::restore(trashed).map_err(io_at(&trashed.original))?;
                 run.undo.push(UndoStep::Created(restored));
+            }
+            UndoStep::Tags { path, raw } => {
+                let now = crate::tags::read_raw(path).map_err(io_at(path))?;
+                crate::tags::write_raw(path, raw.as_deref()).map_err(io_at(path))?;
+                run.undo.push(UndoStep::Tags { path: path.clone(), raw: now });
+            }
+            UndoStep::Mode { path, mode } => {
+                let meta = fs::symlink_metadata(path).map_err(io_at(path))?;
+                if !meta.is_symlink() {
+                    fs::set_permissions(path, fs::Permissions::from_mode(*mode)).map_err(io_at(path))?;
+                    run.undo.push(UndoStep::Mode { path: path.clone(), mode: meta.mode() & 0o7777 });
+                }
             }
         }
         run.tick(1, 0, Path::new(""));
@@ -582,6 +825,59 @@ mod tests {
     }
 
     #[test]
+    fn rename_many_swaps_names_and_backs_out_on_a_taken_name() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let p = |n: &str| dir.path().join(n);
+        write(&p("a.txt"), "a");
+        write(&p("b.txt"), "b");
+        write(&p("c.txt"), "c");
+        let ctl = Answers::new(&[]);
+        let (steps, ok) = rename_many(&[(p("a.txt"), "b.txt".into()), (p("b.txt"), "a.txt".into())], &ctl);
+        assert!(ok.is_ok());
+        assert_eq!((read(&p("a.txt")), read(&p("b.txt"))), ("b".to_string(), "a".to_string()));
+        assert_eq!(steps.len(), 2);
+        let (_, taken) = rename_many(&[(p("a.txt"), "x.txt".into()), (p("b.txt"), "c.txt".into())], &ctl);
+        assert!(taken.is_err());
+        assert_eq!(read(&p("a.txt")), "b");
+        assert_eq!(read(&p("b.txt")), "a");
+        assert!(!p("x.txt").exists());
+    }
+
+    #[test]
+    fn rename_refuses_a_taken_name_and_undo_puts_the_old_name_back() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write(&dir.path().join("a.txt"), "a");
+        write(&dir.path().join("b.txt"), "b");
+        let ctl = Answers::new(&[]);
+        let (_, taken) = rename(&dir.path().join("a.txt"), "b.txt", &ctl);
+        assert!(taken.is_err());
+        assert_eq!(read(&dir.path().join("b.txt")), "b");
+        let (steps, ok) = rename(&dir.path().join("a.txt"), "c.txt", &ctl);
+        assert!(ok.is_ok());
+        assert_eq!(read(&dir.path().join("c.txt")), "a");
+        let (_, undone, _) = undo(&steps, &ctl);
+        assert!(undone.is_ok());
+        assert_eq!(read(&dir.path().join("a.txt")), "a");
+        assert!(!dir.path().join("c.txt").exists());
+    }
+
+    #[test]
+    fn new_folder_takes_a_free_name_and_link_points_at_the_source() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let ctl = Answers::new(&[]);
+        assert!(new_folder(dir.path(), "untitled folder", &ctl).1.is_ok());
+        assert!(new_folder(dir.path(), "untitled folder", &ctl).1.is_ok());
+        assert!(dir.path().join("untitled folder (copy)").is_dir());
+        write(&dir.path().join("a.txt"), "a");
+        let (steps, ok) = link(&[dir.path().join("a.txt")], &dir.path().join("untitled folder"), &ctl);
+        assert!(ok.is_ok());
+        assert_eq!(read(&dir.path().join("untitled folder/a.txt")), "a");
+        let _ = &*TRASH;
+        assert!(undo(&steps, &ctl).1.is_ok());
+        assert!(fs::symlink_metadata(dir.path().join("untitled folder/a.txt")).is_err());
+    }
+
+    #[test]
     fn redo_of_an_undone_trash_trashes_again() {
         let root = tempfile::tempdir().expect("tmp");
         let file = root.path().join("r.txt");
@@ -594,5 +890,51 @@ mod tests {
         assert!(result.is_ok());
         assert!(!file.exists());
         assert!(!root.path().join("r (copy).txt").exists());
+    }
+
+    #[test]
+    fn count_conflicts_matches_the_questions_a_merge_asks() {
+        let root = tempfile::tempdir().expect("tmp");
+        let (src, dst) = (root.path().join("src"), root.path().join("dst"));
+        write(&src.join("d/x"), "x2");
+        write(&src.join("d/sub/y"), "y2");
+        write(&src.join("d/new"), "n");
+        write(&src.join("top.txt"), "t2");
+        write(&dst.join("d/x"), "x1");
+        write(&dst.join("d/sub/y"), "y1");
+        write(&dst.join("top.txt"), "t1");
+        let sources = [src.join("d"), src.join("top.txt")];
+        let total = count_conflicts(&sources, &dst).expect("counted");
+        let ctl = Answers::new(&[(Resolution::Replace, false); 8]);
+        let (_, result) = copy(&sources, &dst, &ctl);
+        assert!(result.is_ok());
+        // d, d/x, d/sub, d/sub/y, top.txt
+        assert_eq!(ctl.asked.borrow().len() as u64, total);
+        assert_eq!(total, 5);
+    }
+
+    #[test]
+    fn folder_clash_counts_new_same_and_different_with_hints() {
+        let root = tempfile::tempdir().expect("tmp");
+        let (src, dst) = (root.path().join("src/d"), root.path().join("dst/d"));
+        write(&src.join("same.txt"), "same");
+        write(&dst.join("same.txt"), "same");
+        let when = fs::metadata(src.join("same.txt")).expect("meta").modified().expect("mtime");
+        File::options().write(true).open(dst.join("same.txt")).expect("open").set_modified(when).expect("touch");
+        write(&src.join("big.txt"), "larger here");
+        write(&dst.join("big.txt"), "small");
+        File::options()
+            .write(true)
+            .open(dst.join("big.txt"))
+            .expect("open")
+            .set_modified(when - std::time::Duration::from_secs(60))
+            .expect("touch");
+        File::options().write(true).open(src.join("big.txt")).expect("open").set_modified(when).expect("touch");
+        write(&src.join("only/a"), "a");
+        write(&src.join("only/b"), "b");
+        let clash = folder_clash(&src, &dst).expect("both folders");
+        assert_eq!((clash.new, clash.same, clash.different), (2, 1, 1));
+        assert_eq!(clash.names, vec![(PathBuf::from("big.txt"), "newer here, larger here".to_string())]);
+        assert!(folder_clash(&src.join("same.txt"), &dst).is_none());
     }
 }

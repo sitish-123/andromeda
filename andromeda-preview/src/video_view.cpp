@@ -131,6 +131,8 @@ namespace preview {
     m_subsurface = wl_subcompositor_get_subsurface(m_wayland.subcompositor(), m_surface, parent);
     m_viewport = wp_viewporter_get_viewport(m_wayland.viewporter(), m_surface);
     wl_subsurface_set_desync(m_subsurface);
+    // Under the window: the window leaves a hole for the picture and draws its r12 corner masks over the edge.
+    wl_subsurface_place_below(m_subsurface, parent);
     // Clicks fall through to the window, which owns play and pause.
     wl_region* empty = wl_compositor_create_region(m_wayland.compositor());
     wl_surface_set_input_region(m_surface, empty);
@@ -305,6 +307,7 @@ namespace preview {
       fail();
       return;
     }
+    m_shownPts = frame.pts;
     auto entry = std::make_unique<Buffer>(Buffer{.view = this, .buffer = buffer, .id = frame.reply.msg.e});
     static constexpr wl_buffer_listener kListener{.release = &VideoView::onBufferRelease};
     wl_buffer_add_listener(buffer, &kListener, entry.get());

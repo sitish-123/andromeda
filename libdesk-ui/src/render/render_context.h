@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/timer_manager.h"
+#include "design_tokens.h"
 #include "render/backend/render_backend.h"
 #include "render/core/damage_region.h"
 #include "render/core/renderer.h"
@@ -113,7 +114,7 @@ private:
   std::unique_ptr<RenderBackend> m_backend;
   CairoTextRenderer m_textRenderer;
   CairoGlyphRenderer m_glyphRenderer;
-  std::string m_textFontFamily = "sans-serif";
+  std::string m_textFontFamily{Tokens::fontFamily}; // the design font; the shell overrides it from its config
   bool m_textBaseDirRtl = false;
   std::uint64_t m_textMetricsGeneration = 1;
   float m_textScale = 1.0F;

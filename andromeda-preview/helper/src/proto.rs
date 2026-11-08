@@ -33,6 +33,10 @@ pub const OP_AUDIO: u32 = 11;
 pub const OP_TAGS: u32 = 12;
 /// Reply `OP_COVER_REPLY`, or `ERR_RANGE` without a cover.
 pub const OP_COVER: u32 = 13;
+/// a = bucket count (1..=`MAX_PEAKS`): decodes the whole audio stream as fast as it can. Reply `OP_PEAKS_REPLY`.
+/// The window asks a helper of its own for it, so playback in the other helper never waits on it.
+pub const OP_PEAKS: u32 = 14;
+pub const MAX_PEAKS: u32 = 1024;
 pub const SELECT_GLYPH: u32 = 0;
 pub const SELECT_WORD: u32 = 1;
 pub const SELECT_LINE: u32 = 2;
@@ -59,6 +63,8 @@ pub const OP_SAVED: u32 = 0x89;
 pub const OP_AUDIO_REPLY: u32 = 0x8a;
 /// a = byte length; fd = the encoded image.
 pub const OP_COVER_REPLY: u32 = 0x8b;
+/// a = bucket count; fd = one u8 per bucket, the loudest absolute sample in it scaled to 0..=255.
+pub const OP_PEAKS_REPLY: u32 = 0x8c;
 /// a = ERR_*.
 pub const OP_ERROR: u32 = 0xff;
 

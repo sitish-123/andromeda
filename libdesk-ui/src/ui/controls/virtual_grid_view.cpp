@@ -1,6 +1,8 @@
 #include "ui/controls/virtual_grid_view.h"
 
 #include "render/scene/input_area.h"
+#include "ui/controls/box.h"
+#include "ui/palette.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/style.h"
 
@@ -152,6 +154,11 @@ void VirtualGridView::setMinCellWidth(float width) {
   notifyDataChanged();
 }
 
+void VirtualGridView::setFixedCellWidth(bool fixed) {
+  m_fixedCellWidth = fixed;
+  notifyDataChanged();
+}
+
 void VirtualGridView::setCellHeight(float height) {
   const float next = std::max(1.0F, height);
   if (std::abs(m_cellHeight - next) < 0.001F) {
@@ -300,6 +307,71 @@ void VirtualGridView::cellOrigin(std::size_t index, float& x, float& y) const no
   y = static_cast<float>(row) * (m_cellHeightResolved + m_rowGap);
 }
 
+bool VirtualGridView::containsScene(float sceneX, float sceneY) const {
+  float x = 0.0F;
+  float y = 0.0F;
+  return visible() && Node::mapFromScene(this, sceneX, sceneY, x, y);
+}
+
+std::optional<std::size_t> VirtualGridView::indexAtScene(float sceneX, float sceneY) const {
+  if (!containsScene(sceneX, sceneY) || m_canvas == nullptr) {
+    return std::nullopt;
+  }
+  float x = 0.0F;
+  float y = 0.0F;
+  (void)Node::mapFromScene(m_canvas, sceneX, sceneY, x, y);
+  return indexAt(x, y);
+}
+
+std::vector<std::size_t> VirtualGridView::indicesInRect(float x0, float y0, float x1, float y1) const {
+  std::vector<std::size_t> out;
+  if (m_layoutColumns == 0 || m_cellWidth <= 0.0F || m_cellHeightResolved <= 0.0F || m_pageRows > 0) {
+    return out;
+  }
+  const auto [left, right] = std::minmax(x0, x1);
+  const auto [top, bottom] = std::minmax(y0, y1);
+  const float rowStride = m_cellHeightResolved + m_rowGap;
+  const auto firstRow = static_cast<std::size_t>(std::max(0.0F, std::floor(top / rowStride)));
+  const auto lastRow = static_cast<std::size_t>(std::max(0.0F, std::floor(bottom / rowStride)));
+  for (std::size_t row = firstRow; row <= lastRow; ++row) {
+    for (std::size_t col = 0; col < m_layoutColumns; ++col) {
+      const std::size_t index = row * m_layoutColumns + col;
+      if (index >= m_itemCount) {
+        return out;
+      }
+      float x = 0.0F;
+      float y = 0.0F;
+      cellOrigin(index, x, y);
+      if (x < right && x + m_cellWidth > left && y < bottom && y + m_cellHeightResolved > top) {
+        out.push_back(index);
+      }
+    }
+  }
+  return out;
+}
+
+void VirtualGridView::setBandRect(std::optional<LayoutRect> rect) {
+  if (!rect.has_value()) {
+    if (m_band != nullptr) {
+      m_band->setVisible(false);
+    }
+    return;
+  }
+  if (m_band == nullptr) {
+    // FILES-UX §0.2: accent 16 % fill, 1 px accent stroke at 56 %, r 4.
+    auto band = std::make_unique<Box>();
+    band->setFill(colorSpecFromRole(ColorRole::Accent, 0.16F));
+    band->setBorder(colorSpecFromRole(ColorRole::Accent, 0.56F), Style::borderWidth);
+    band->setRadius(Style::scaledRadius(Tokens::radiusR4, m_scale));
+    band->setZIndex(40);
+    band->setHitTestVisible(false);
+    m_band = m_canvas->addChild(std::move(band));
+  }
+  m_band->setVisible(true);
+  m_band->setPosition(rect->x, rect->y);
+  m_band->setSize(rect->width, rect->height);
+}
+
 std::size_t VirtualGridView::pageItemStride() const noexcept {
   if (m_pageRows > 0) {
     return std::max<std::size_t>(1, m_layoutColumns * m_pageRows);
@@ -353,7 +425,9 @@ void VirtualGridView::doLayout(Renderer& renderer) {
               )
           );
     const auto columnsF = static_cast<float>(metrics.columns);
-    metrics.cellW = std::max(0.0F, (availableW - (columnsF - 1.0F) * m_columnGap) / std::max(1.0F, columnsF));
+    metrics.cellW = m_fixedCellWidth && m_columns == 0
+        ? m_minCellWidth
+        : std::max(0.0F, (availableW - (columnsF - 1.0F) * m_columnGap) / std::max(1.0F, columnsF));
     metrics.cellH = m_squareCells ? metrics.cellW : m_cellHeight;
     metrics.rowCount = (m_itemCount + metrics.columns - 1) / metrics.columns;
     metrics.virtualHeight = metrics.rowCount == 0
@@ -394,7 +468,10 @@ void VirtualGridView::doLayout(Renderer& renderer) {
   m_virtualWidth = virtualWidth;
   m_virtualHeight = virtualHeight;
 
-  m_canvas->setVirtualSize(virtualWidth, virtualHeight);
+  // The canvas fills at least the viewport, so a press below the last row still reaches the input overlay
+  // (rubber band, click to clear).
+  m_canvasHeight = paged ? virtualHeight : std::max(virtualHeight, viewportH);
+  m_canvas->setVirtualSize(virtualWidth, m_canvasHeight);
 
   // Apply any pending scrollToIndex now that we know cell geometry. Keep the
   // current viewport stable when the target row is already fully visible; this
@@ -577,7 +654,7 @@ void VirtualGridView::doLayout(Renderer& renderer) {
 
   // Step 5: position the input overlay across the entire virtual canvas.
   m_inputArea->setPosition(0.0F, 0.0F);
-  m_inputArea->setFrameSize(virtualWidth, virtualHeight);
+  m_inputArea->setFrameSize(virtualWidth, m_canvasHeight);
   notifyPageChanged();
 }
 
@@ -713,6 +790,12 @@ void VirtualGridView::onPointerPress(float localX, float localY) {
     m_swipePressViewX = localX - m_scroll->scrollOffset();
   }
   if (!idx.has_value()) {
+    if (m_adapter != nullptr && m_pageRows == 0 && m_adapter->onEmptyPointerPress(localX, localY)) {
+      m_adapterPointerCapture = true;
+      m_pressLocalX = localX;
+      m_pressLocalY = localY;
+      m_dragThresholdPassed = false;
+    }
     return;
   }
   setSelectedIndex(idx, false);

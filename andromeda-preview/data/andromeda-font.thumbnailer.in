@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=@helper@
+Exec=@helper@ thumbnail-font %s %i %o
+MimeType=font/ttf;font/otf;font/collection;font/woff;font/woff2;application/x-font-ttf;application/x-font-otf;application/vnd.ms-opentype;application/x-font-type1;application/x-font-pcf;

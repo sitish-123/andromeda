@@ -57,8 +57,12 @@ _foreign = [
 desk_app_lib = static_library('desk_app',
   _foreign,
   sources: files(
+    'src/app/foreign_export.cpp',
     'src/app/foreign_parent.cpp',
     'src/app/app_loop.cpp',
+    'src/app/appearance.cpp',
+    'src/app/glib_source.cpp',
+    'src/app/app_popover.cpp',
     'src/app/app_window.cpp',
     'src/app/command_table.cpp',
     'src/app/desk_app.cpp',
@@ -87,7 +91,7 @@ executable('desk-app-sample', 'examples/sample_app.cpp',
 )
 
 _dbus_run_session = find_program('dbus-run-session')
-foreach _t : ['command_table', 'state_store', 'file_model', 'type_ahead']
+foreach _t : ['command_table', 'state_store', 'file_model', 'type_ahead', 'thumbnail_pipeline', 'batch_rename', 'file_model_bench', 'thumbnail_service']
   test(_t, executable(_t + '_test', 'tests/' + _t + '_test.cpp', dependencies: desk_app_dep, cpp_args: _warnings))
 endforeach
 test('single_instance', _dbus_run_session,

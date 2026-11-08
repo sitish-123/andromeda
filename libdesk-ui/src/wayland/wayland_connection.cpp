@@ -14,12 +14,14 @@
 #include "util/string_utils.h"
 #include "viewporter-client-protocol.h"
 #include "presentation-time-client-protocol.h"
+#include "wayland/drag_and_drop.h"
 #include "wayland/hyprland/focus_grab_service.h"
 #include "wayland/layer_surface.h"
 #include "wayland/text_input_service.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 #include "xdg-activation-v1-client-protocol.h"
+#include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
 
@@ -1399,6 +1401,13 @@ void WaylandConnection::bindGlobal(
     return;
   }
 
+  if (interfaceName == zxdg_decoration_manager_v1_interface.name) {
+    m_decorationManager = static_cast<zxdg_decoration_manager_v1*>(
+        wl_registry_bind(registry, name, &zxdg_decoration_manager_v1_interface, 1)
+    );
+    return;
+  }
+
   if (interfaceName == xdg_activation_v1_interface.name) {
     const auto bindVersion = std::min(version, kXdgActivationVersion);
     m_xdgActivation =
@@ -1451,6 +1460,12 @@ void WaylandConnection::bindGlobal(
     m_fractionalScaleManager = static_cast<wp_fractional_scale_manager_v1*>(
         wl_registry_bind(registry, name, &wp_fractional_scale_manager_v1_interface, bindVersion)
     );
+    return;
+  }
+
+  if (interfaceName == wl_data_device_manager_interface.name) {
+    m_dataDeviceManager = static_cast<wl_data_device_manager*>(
+        wl_registry_bind(registry, name, &wl_data_device_manager_interface, std::min(version, 3U)));
     return;
   }
 
@@ -1564,6 +1579,11 @@ void WaylandConnection::cleanup() {
 
   m_seatHandler.cleanup();
 
+  if (m_decorationManager != nullptr) {
+    zxdg_decoration_manager_v1_destroy(m_decorationManager);
+    m_decorationManager = nullptr;
+  }
+
   if (m_xdgActivation != nullptr) {
     xdg_activation_v1_destroy(m_xdgActivation);
     m_xdgActivation = nullptr;
@@ -1614,6 +1634,11 @@ void WaylandConnection::cleanup() {
     m_outputManager = nullptr;
   }
 
+  m_dragAndDrop.reset();
+  if (m_dataDeviceManager != nullptr) {
+    wl_data_device_manager_destroy(m_dataDeviceManager);
+    m_dataDeviceManager = nullptr;
+  }
   if (m_presentation != nullptr) {
     wp_presentation_destroy(m_presentation);
     m_presentation = nullptr;
@@ -1711,4 +1736,11 @@ void WaylandConnection::logStartupSummary() const {
       );
     }
   }
+}
+
+DragAndDrop* WaylandConnection::dragAndDrop() {
+  if (m_dragAndDrop == nullptr && m_dataDeviceManager != nullptr && seat() != nullptr) {
+    m_dragAndDrop = DragAndDrop::create(*this, m_dataDeviceManager);
+  }
+  return m_dragAndDrop.get();
 }

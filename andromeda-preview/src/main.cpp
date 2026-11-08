@@ -3,6 +3,7 @@
 #include "core/timer_manager.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
+#include "files/file_ops_client.h"
 #include "app/foreign_parent.h"
 #include "preview_service.h"
 #include "preview_window.h"
@@ -35,6 +36,7 @@ int main(int argc, char* argv[]) {
   SessionBus bus;
   SessionBusPollSource busSource(bus);
   loop.addSource(&busSource);
+  FileOpsClient fileOps(bus);
 
   Timer idleExit;
   auto armIdleExit = [&] { idleExit.start(kIdleExit, [&] { loop.quit(0); }); };
@@ -42,7 +44,7 @@ int main(int argc, char* argv[]) {
   desk::ForeignParent parent(loop.wayland().display());
   preview::PreviewService* servicePtr = nullptr;
   preview::PreviewWindow window(
-      loop, parent,
+      loop, parent, fileOps,
       {.closed = [&] { armIdleExit(); },
        .selection = [&](std::int32_t direction) {
          if (servicePtr != nullptr) {

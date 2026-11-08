@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/shadow_style.h"
+#include "render/animation/animation_manager.h"
 #include "render/scene/input_dispatcher.h"
 #include "ui/controls/context_menu.h"
 #include "ui/controls/scroll_view.h"
@@ -54,6 +55,8 @@ struct ContextMenuPopupRequest {
   // callers retain the previous last-input-serial behavior.
   std::optional<std::uint32_t> inputSerial = std::nullopt;
   std::optional<ContextMenuPopupPlacement> placement = std::nullopt;
+  // Grow from the anchor (P10). False when a menu bar switches menus while tracking: they swap at once, as on macOS.
+  bool grow = true;
 };
 
 class ContextMenuPopup {
@@ -67,6 +70,8 @@ public:
 
   void setOnActivate(std::function<void(const ContextMenuControlEntry&)> callback);
   void setOnDismissed(std::function<void()> callback);
+  // Left (-1) / Right (+1) while open, for menu bars that move to the next menu; runs after the key handler returns.
+  void setOnNavigate(std::function<void(int)> callback);
   void setShadowConfig(const ShadowStyle& shadow);
 
   bool onPointerEvent(const PointerEvent& event);
@@ -97,13 +102,27 @@ private:
   bool m_pointerInside = false;
 
   void restoreParentKeyboardInteractivity();
+  // Opens the children of row `index` in a nested grab popup beside the row; closes any other submenu first.
+  void openSubmenu(std::size_t index);
+  void closeSubmenu();
   void ensureHighlightedVisible();
   void requestVisualUpdate();
   void deferActivation(ContextMenuControlEntry entry);
+  // Grab popups close at once: during a fade the grab would keep the keys and block a second grabbing popup.
   void deferClose();
+  void applyTransform();
+
+  AnimationManager m_animations;
+  AnimationManager::Id m_scaleAnim = 0;
+  AnimationManager::Id m_opacityAnim = 0;
+  float m_scale = 1.0F;
+  float m_opacity = 1.0F;
+  float m_originX = 0.0F;
+  float m_originY = 0.0F;
 
   std::function<void(const ContextMenuControlEntry&)> m_onActivate;
   std::function<void()> m_onDismissed;
+  std::function<void(int)> m_onNavigate;
   ShadowStyle m_shadowConfig;
   // Deferred popup callbacks must not dereference this after an owner (for
   // example, a plugin panel being unregistered) destroys the popup.
@@ -114,6 +133,16 @@ private:
   // focus, then restored to None on close.
   zwlr_layer_surface_v1* m_keyboardParentLayerSurface = nullptr;
   wl_surface* m_keyboardParentWlSurface = nullptr;
+
+  std::vector<ContextMenuControlEntry> m_entries;
+  float m_contentScale = 1.0F;
+  float m_contentX = 0.0F;
+  float m_contentY = 0.0F;
+  float m_contentWidth = 0.0F;
+  wl_output* m_output = nullptr;
+  std::unique_ptr<ContextMenuPopup> m_child;
+  std::size_t m_childIndex = static_cast<std::size_t>(-1);
+  ContextMenuPopup* m_parentMenu = nullptr;
 
   static ContextMenuPopup* s_openMenu;
 };

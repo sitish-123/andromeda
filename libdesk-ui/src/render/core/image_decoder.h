@@ -15,6 +15,15 @@ struct DecodedRasterImage {
 [[nodiscard]] std::expected<DecodedRasterImage, std::string>
 decodeRasterImage(const std::uint8_t* data, std::size_t size);
 
+// Memory-safe formats only (wuffs: PNG, JPEG, GIF, BMP), EXIF orientation applied; for untrusted files decoded in
+// process.
+[[nodiscard]] std::expected<DecodedRasterImage, std::string>
+decodeWuffsImage(const std::uint8_t* data, std::size_t size);
+
+// WebP only (libwebp), EXIF orientation applied; any other format is an error.
+[[nodiscard]] std::expected<DecodedRasterImage, std::string>
+decodeWebPImage(const std::uint8_t* data, std::size_t size);
+
 struct DecodedRasterFrame {
   std::vector<std::uint8_t> rgba; // canvas-size, RGBA8 non-premul
   std::uint32_t durationMs = 0;

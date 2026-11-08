@@ -48,6 +48,8 @@ namespace preview {
     inline constexpr std::uint32_t Tags = 12;
     // -> CoverReply, data = the embedded image as stored (a = bytes).
     inline constexpr std::uint32_t Cover = 13;
+    // a = bucket count (<= 1024): a full decode with no clock -> PeaksReply, data = one u8 per bucket.
+    inline constexpr std::uint32_t Peaks = 14;
     inline constexpr std::uint32_t InfoReply = 0x81;
     inline constexpr std::uint32_t Page = 0x82;
     inline constexpr std::uint32_t TextReply = 0x83;
@@ -65,6 +67,7 @@ namespace preview {
     // a = sample rate, b = channels.
     inline constexpr std::uint32_t AudioReply = 0x8a;
     inline constexpr std::uint32_t CoverReply = 0x8b;
+    inline constexpr std::uint32_t PeaksReply = 0x8c;
     inline constexpr std::uint32_t Error = 0xff;
   } // namespace op
 
@@ -76,7 +79,7 @@ namespace preview {
   inline constexpr std::uint32_t kAnnotInk = 3;
   inline constexpr std::uint32_t kAnnotStamp = 4;
 
-  enum class HelperKind : std::uint8_t { Text, Pdf, Media, MediaSoftware };
+  enum class HelperKind : std::uint8_t { Text, Pdf, Media, MediaSoftware, Font };
 
   // Closes the fd when the last copy goes away.
   class SharedFd {

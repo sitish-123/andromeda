@@ -7,22 +7,42 @@
 #include "preview_service.h"
 #include "render/core/texture_manager.h"
 #include "ui/builders.h"
+#include "core/files/file_info.h"
 #include "ui/controls/image.h"
 #include "ui/controls/progress_bar.h"
 #include "ui/controls/scroll_view.h"
+#include "ui/controls/flex.h"
+#include "ui/controls/label.h"
+#include "render/core/render_styles.h"
+#include "ui/controls/screen_corner.h"
+#include "ui/controls/spinner.h"
+#include "ui/controls/virtual_list_view.h"
+#include "files/file_ops_client.h"
+#include "ui/files/file_format.h"
+#include "ui/files/file_icon.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/toplevel_surface.h"
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <thread>
+#include <cstdio>
+#include <filesystem>
+#include <sys/stat.h>
+#include <unordered_map>
+#include <array>
+#include <cctype>
+#include <optional>
 #include <cmath>
 #include <cstdlib>
 #include <fcntl.h>
 #include <format>
 #include <gio/gio.h>
 #include <linux/input-event-codes.h>
+#include <span>
 #include <string_view>
+#include <vector>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon-keysyms.h>
@@ -34,6 +54,10 @@ namespace preview {
     constexpr float kHeaderHeight = 40.0F;
     constexpr float kDocumentWidth = 720.0F;
     constexpr float kPageGap = 12.0F;
+    constexpr float kStripWidth = 40.0F;      // mockup §15 page strip
+    constexpr float kStripPageHeight = 52.0F;
+    constexpr std::size_t kPeakCount = 64; // waveform bars
+    constexpr float kWaveHeight = 36.0F;   // mockup .wave tallest bar
     constexpr float kCoverSize = 160.0F;
     // Decoded at 2x for HiDPI outputs.
     constexpr std::uint32_t kCoverBox = 320;
@@ -56,14 +80,262 @@ namespace preview {
       return type;
     }
 
+    // The app that opens this type, for "Open With <App>"; empty when none is set.
+    std::string defaultAppName(const std::string& contentType) {
+      if (contentType.empty()) {
+        return {};
+      }
+      GAppInfo* app = g_app_info_get_default_for_type(contentType.c_str(), FALSE);
+      if (app == nullptr) {
+        return {};
+      }
+      std::string name = g_app_info_get_display_name(app) != nullptr ? g_app_info_get_display_name(app) : "";
+      g_object_unref(app);
+      return name;
+    }
+
+    const char* kindGlyph(FileKind kind) {
+      switch (kind) {
+      case FileKind::Image:
+        return "photo";
+      case FileKind::Pdf:
+        return "file-type-pdf";
+      case FileKind::Text:
+        return "file-code";
+      case FileKind::Video:
+        return "movie";
+      case FileKind::Audio:
+        return "music";
+      case FileKind::Archive:
+        return "file-zip";
+      case FileKind::Font:
+        return "typography";
+      case FileKind::Folder:
+        return "folder";
+      default:
+        return "file";
+      }
+    }
+
+    // Box-filters a BGRA page down to the strip's pixel size, so the strip never holds full-size page textures.
+    struct Scaled {
+      std::vector<std::uint8_t> bytes;
+      int width = 0;
+      int height = 0;
+    };
+    Scaled shrinkPage(std::span<const std::uint8_t> src, int width, int height, int stride, int maxHeight) {
+      const int step = std::max(1, height / std::max(1, maxHeight));
+      Scaled out{.width = std::max(1, width / step), .height = std::max(1, height / step)};
+      out.bytes.resize(static_cast<std::size_t>(out.width) * out.height * 4);
+      for (int y = 0; y < out.height; ++y) {
+        for (int x = 0; x < out.width; ++x) {
+          std::uint32_t sum[4] = {};
+          for (int dy = 0; dy < step; ++dy) {
+            const std::uint8_t* row = src.data() + static_cast<std::size_t>(y * step + dy) * stride + x * step * 4;
+            for (int dx = 0; dx < step; ++dx) {
+              for (int c = 0; c < 4; ++c) {
+                sum[c] += row[dx * 4 + c];
+              }
+            }
+          }
+          std::uint8_t* dst = out.bytes.data() + (static_cast<std::size_t>(y) * out.width + x) * 4;
+          for (int c = 0; c < 4; ++c) {
+            dst[c] = static_cast<std::uint8_t>(sum[c] / static_cast<std::uint32_t>(step * step));
+          }
+        }
+      }
+      return out;
+    }
+
+    void setStripPage(Image& image, Renderer& renderer, std::span<const std::uint8_t> src, std::uint32_t width,
+                      std::uint32_t height, std::uint32_t stride, float bufferScale) {
+      const auto px = static_cast<int>(std::lround(kStripPageHeight * bufferScale));
+      const Scaled s = shrinkPage(src, static_cast<int>(width), static_cast<int>(height), static_cast<int>(stride), px);
+      image.setSourceRaw(renderer, s.bytes.data(), s.bytes.size(), s.width, s.height, s.width * 4, PixmapFormat::BGRA);
+    }
+
     std::string baseName(const std::string& path) {
       const auto slash = path.rfind('/');
       return slash == std::string::npos ? path : path.substr(slash + 1);
     }
   } // namespace
 
-  PreviewWindow::PreviewWindow(AppLoop& loop, desk::ForeignParent& parent, Callbacks callbacks)
-      : m_loop(loop), m_parent(parent), m_callbacks(std::move(callbacks)) {
+  namespace {
+    // A token scan, not a parser (spec §10): comments, strings and keywords of the common languages by extension.
+    struct Syntax {
+      std::string_view lineComment; // empty = none
+      bool blockComments = false;   // /* … */
+    };
+
+    std::optional<Syntax> syntaxFor(const std::string& path) {
+      const auto dot = path.rfind('.');
+      const std::string ext = dot == std::string::npos ? std::string() : path.substr(dot + 1);
+      static constexpr std::array kSlash = {"c", "h", "cc", "cpp", "cxx", "hpp", "hh", "rs", "js", "mjs", "ts",
+                                            "tsx", "jsx", "java", "kt", "go", "swift", "cs", "dart", "scala",
+                                            "glsl", "frag", "vert", "qml", "css", "scss", "json", "jsonc", "zig"};
+      static constexpr std::array kHash = {"py", "sh", "bash", "zsh", "fish", "rb", "pl", "toml", "yaml", "yml",
+                                           "conf", "ini", "cmake", "nix", "r", "jl", "build"};
+      static constexpr std::array kDash = {"lua", "luau", "sql", "hs"};
+      if (std::ranges::find(kSlash, ext) != kSlash.end()) {
+        return Syntax{.lineComment = "//", .blockComments = true};
+      }
+      if (std::ranges::find(kHash, ext) != kHash.end() || path.ends_with("/meson.build")) {
+        return Syntax{.lineComment = "#"};
+      }
+      if (std::ranges::find(kDash, ext) != kDash.end()) {
+        return Syntax{.lineComment = "--"};
+      }
+      return std::nullopt;
+    }
+
+    bool isKeyword(std::string_view word) {
+      static constexpr std::array<std::string_view, 72> kWords = {
+          "auto", "break", "case", "catch", "class", "const", "constexpr", "continue", "def", "default", "delete",
+          "do", "elif", "else", "enum", "export", "extern", "false", "fn", "for", "from", "func", "function", "if",
+          "impl", "import", "in", "include", "inline", "interface", "let", "local", "loop", "match", "mod", "mut",
+          "namespace", "new", "nil", "None", "null", "nullptr", "operator", "override", "package", "private",
+          "protected", "pub", "public", "return", "self", "static", "struct", "super", "switch", "template", "then",
+          "this", "throw", "trait", "true", "True", "False", "try", "type", "typename", "use", "using", "var",
+          "virtual", "void", "while"};
+      return std::ranges::find(kWords, word) != kWords.end();
+    }
+
+    struct Token {
+      std::string_view text;
+      ColorRole role;
+    };
+
+    // Scans one line; `inBlock` carries an open /* comment from line to line.
+    std::vector<Token> scanLine(std::string_view line, const Syntax& syntax, bool& inBlock) {
+      std::vector<Token> out;
+      std::size_t plainStart = 0;
+      std::size_t i = 0;
+      const auto flush = [&](std::size_t end) {
+        if (end > plainStart) {
+          out.push_back({line.substr(plainStart, end - plainStart), ColorRole::Label1});
+        }
+      };
+      const auto emit = [&](std::size_t start, std::size_t end, ColorRole role) {
+        flush(start);
+        out.push_back({line.substr(start, end - start), role});
+        plainStart = end;
+        i = end;
+      };
+      if (inBlock) {
+        const auto close = line.find("*/");
+        if (close == std::string_view::npos) {
+          return {{line, ColorRole::Label3}};
+        }
+        inBlock = false;
+        emit(0, close + 2, ColorRole::Label3);
+      }
+      while (i < line.size()) {
+        const std::string_view rest = line.substr(i);
+        const char c = line[i];
+        if (!syntax.lineComment.empty() && rest.starts_with(syntax.lineComment)) {
+          emit(i, line.size(), ColorRole::Label3);
+        } else if (syntax.blockComments && rest.starts_with("/*")) {
+          const auto close = line.find("*/", i + 2);
+          inBlock = close == std::string_view::npos;
+          emit(i, inBlock ? line.size() : close + 2, ColorRole::Label3);
+        } else if (c == '"' || c == '\'') {
+          std::size_t end = i + 1;
+          while (end < line.size() && line[end] != c) {
+            end += line[end] == '\\' ? 2 : 1;
+          }
+          emit(i, std::min(end + 1, line.size()), ColorRole::Success);
+        } else if (std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_') {
+          std::size_t end = i;
+          while (end < line.size() && (std::isalnum(static_cast<unsigned char>(line[end])) != 0 || line[end] == '_')) {
+            ++end;
+          }
+          if (isKeyword(line.substr(i, end - i))) {
+            emit(i, end, ColorRole::Accent);
+          } else {
+            i = end;
+          }
+        } else {
+          ++i;
+        }
+      }
+      flush(line.size());
+      return out;
+    }
+  } // namespace
+
+  // One row per line (VirtualListView builds only the visible ones): the number in label_3, then the tokens.
+  class CodeLines final : public VirtualListAdapter {
+  public:
+    // Syntax lives in this file's anonymous namespace, so the class keeps its two fields, not the struct.
+    CodeLines(const std::string& text, std::string_view lineComment, bool blockComments)
+        : m_lineComment(lineComment), m_blockComments(blockComments) {
+      const Syntax syntax{.lineComment = m_lineComment, .blockComments = m_blockComments};
+      constexpr std::size_t kMaxColumns = 400;
+      std::size_t start = 0;
+      // A final newline ends the last line; it does not start an empty one.
+      while (start < text.size() || (start == 0 && text.empty())) {
+        auto end = text.find('\n', start);
+        if (end == std::string::npos) {
+          end = text.size();
+        }
+        std::string line;
+        for (std::size_t i = start; i < end && line.size() < kMaxColumns; ++i) {
+          if (text[i] == '\t') {
+            line.append(4 - line.size() % 4, ' ');
+          } else if (text[i] != '\r') {
+            line.push_back(text[i]);
+          }
+        }
+        m_lines.push_back(std::move(line));
+        start = end + 1;
+      }
+      // The /* state at each line start, so a row can be scanned alone.
+      bool inBlock = false;
+      m_blockAtStart.reserve(m_lines.size());
+      for (const std::string& line : m_lines) {
+        m_blockAtStart.push_back(inBlock);
+        if (syntax.blockComments) {
+          (void)scanLine(line, syntax, inBlock);
+        }
+      }
+      m_numberWidth = static_cast<float>(std::to_string(m_lines.size()).size()) * kDigitWidth;
+    }
+
+    [[nodiscard]] std::size_t itemCount() const override { return m_lines.size(); }
+    [[nodiscard]] float measureItem(Renderer&, std::size_t, float) override { return Tokens::spaceP16; }
+    [[nodiscard]] std::unique_ptr<Node> createItem() override {
+      auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12, .height = Tokens::spaceP16});
+      row->addChild(ui::label({.fontSize = Style::fontSizeCaption, .fontFamily = kMonospace,
+                               .color = colorSpecFromRole(ColorRole::Label3), .width = m_numberWidth,
+                               .textAlign = TextAlign::End}));
+      row->addChild(ui::row({.align = FlexAlign::Center, .clipChildren = true, .flexGrow = 1.0F}));
+      return row;
+    }
+    void bindItem(Renderer&, Node& item, std::size_t index, float, bool) override {
+      static_cast<Label*>(item.children()[0].get())->setText(std::to_string(index + 1));
+      auto* tokens = static_cast<Flex*>(item.children()[1].get());
+      while (!tokens->children().empty()) {
+        (void)tokens->removeChild(tokens->children().back().get());
+      }
+      bool inBlock = m_blockAtStart[index];
+      const Syntax syntax{.lineComment = m_lineComment, .blockComments = m_blockComments};
+      for (const Token& token : scanLine(m_lines[index], syntax, inBlock)) {
+        tokens->addChild(ui::label({.text = std::string(token.text), .fontSize = Style::fontSizeCaption,
+                                    .fontFamily = kMonospace, .color = colorSpecFromRole(token.role)}));
+      }
+    }
+
+  private:
+    static constexpr float kDigitWidth = 8.0F; // one mono 12 digit, rounded up
+    std::string_view m_lineComment; // a literal from syntaxFor()
+    bool m_blockComments = false;
+    std::vector<std::string> m_lines;
+    std::vector<bool> m_blockAtStart;
+    float m_numberWidth = 0.0F;
+  };
+
+  PreviewWindow::PreviewWindow(AppLoop& loop, desk::ForeignParent& parent, FileOpsClient& fileOps, Callbacks callbacks)
+      : m_loop(loop), m_parent(parent), m_fileOps(fileOps), m_callbacks(std::move(callbacks)) {
     m_loop.wayland().setKeyboardEventCallback([this](const KeyboardEvent& event) { onKeyboard(event); });
     m_loop.wayland().setPointerEventCallback([this](const PointerEvent& event) { onPointer(event); });
   }
@@ -92,14 +364,31 @@ namespace preview {
     m_path = path;
     m_contentType = guessContentType(path);
     m_kind = kindForContentType(m_contentType);
+    m_openWith = defaultAppName(m_contentType);
     m_image = {};
     m_pages.clear();
     m_text.clear();
     m_textTruncated = false;
+    m_archive.clear();
+    m_archiveTotal = 0;
+    m_fontPage = {};
+    m_fontRequested = false;
+    m_folderItems = 0;
+    m_folderBytes = 0;
+    m_folderCut = false;
+    m_folderPeek.clear();
+    m_currentPage = 0;
     m_failed = false;
     m_loading = true;
     m_dirty = true;
     const auto generation = m_generation;
+    m_spinner = false;
+    m_spinnerTimer.start(std::chrono::milliseconds(200), [this, generation] {
+      if (generation == m_generation && m_loading) {
+        m_spinner = true;
+        invalidate();
+      }
+    });
 
     switch (m_kind) {
     case FileKind::Image:
@@ -143,6 +432,83 @@ namespace preview {
         invalidate();
       });
       break;
+    case FileKind::Folder:
+      // Names and sizes only (no file contents), off the main thread; the result comes back on the main loop.
+      std::thread([this, generation, path] {
+        namespace fs = std::filesystem;
+        constexpr std::size_t kMaxWalk = 200000;
+        std::size_t items = 0;
+        std::size_t walked = 0;
+        std::uint64_t bytes = 0;
+        std::vector<std::pair<fs::file_time_type, std::string>> newest;
+        std::error_code ec;
+        for (fs::directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
+             it.increment(ec)) {
+          const auto& entry = *it;
+          if (entry.path().filename().string().starts_with('.')) {
+            continue; // hidden items are not counted, as the Files views hide them
+          }
+          ++items;
+          std::error_code e2;
+          newest.emplace_back(entry.last_write_time(e2), entry.path().string());
+        }
+        std::ranges::sort(newest, std::greater{}, &decltype(newest)::value_type::first);
+        newest.resize(std::min<std::size_t>(newest.size(), 4));
+        for (fs::recursive_directory_iterator it(path, fs::directory_options::skip_permission_denied, ec), end;
+             !ec && it != end && walked < kMaxWalk; it.increment(ec), ++walked) {
+          std::error_code e2;
+          if (it->is_regular_file(e2) && !it->is_symlink(e2)) {
+            bytes += it->file_size(e2);
+          }
+        }
+        std::vector<std::string> peek;
+        for (auto& [time, name] : newest) {
+          peek.push_back(std::move(name));
+        }
+        DeferredCall::callLater([this, generation, items, bytes, cut = walked >= kMaxWalk, peek = std::move(peek)] {
+          if (generation != m_generation) {
+            return;
+          }
+          m_loading = false;
+          m_folderItems = items;
+          m_folderBytes = bytes;
+          m_folderCut = cut;
+          m_folderPeek = peek;
+          m_shownNote = std::format("shown folder {} items", items);
+          invalidate();
+        });
+      }).detach();
+      break;
+    case FileKind::Font:
+      // The specimen is requested at the first build, once the body width is known (requestFont).
+      m_helper = HelperClient::start(HelperKind::Font, path);
+      if (!m_helper) {
+        m_loading = false;
+        m_failed = true;
+        break;
+      }
+      m_loop.addSource(m_helper.get());
+      break;
+    case FileKind::Archive:
+      m_fileOps.listArchive(path, [this, generation](std::vector<FileOpsClient::ArchiveEntry> entries,
+                                                     const std::string& error, bool) {
+        if (generation != m_generation) {
+          return;
+        }
+        m_loading = false;
+        m_failed = !error.empty();
+        m_archiveTotal = entries.size();
+        // A long archive shows its first rows and a count; the window builds no node per entry beyond them.
+        constexpr std::size_t kRows = 500;
+        for (std::size_t i = 0; i < entries.size() && i < kRows; ++i) {
+          m_archive.push_back({.path = entries[i].path.string(), .size = entries[i].size, .isDir = entries[i].isDir});
+        }
+        if (!m_failed) {
+          m_shownNote = std::format("shown archive {} entries", m_archiveTotal);
+        }
+        invalidate();
+      });
+      break;
     case FileKind::Video:
     case FileKind::Audio: {
       // ANDROMEDA_PREVIEW_MEDIA=sw starts on the software path the window falls back to when dmabuf import fails.
@@ -152,6 +518,7 @@ namespace preview {
     }
     default:
       m_loading = false;
+      m_shownNote = "shown unsupported";
       break;
     }
   }
@@ -186,9 +553,17 @@ namespace preview {
   void PreviewWindow::dropHelper() {
     m_video.reset();
     m_videoBox = nullptr;
+    m_videoCorners = {};
+    m_letterbox = {};
     m_audio.reset();
     m_progressTimer.stop();
     m_progress = nullptr;
+    m_time = nullptr;
+    m_peaks.clear();
+    if (m_peaksHelper) {
+      m_loop.removeSource(m_peaksHelper.get());
+      m_peaksHelper.reset();
+    }
     m_audioOnly = false;
     m_paused = false;
     m_durationMs = 0;
@@ -274,8 +649,148 @@ namespace preview {
         return;
       }
       m_loading = false;
+      startProgress();
       invalidate();
     });
+  }
+
+  void PreviewWindow::startProgress() {
+    m_progressTimer.startRepeating(std::chrono::milliseconds(250), [this] { updateProgress(); });
+  }
+
+  void PreviewWindow::updateProgress() {
+    if (!m_surface) {
+      return;
+    }
+    std::chrono::nanoseconds position{0};
+    if (m_audio) {
+      position = m_audio->position().value_or(position);
+    } else if (m_video) {
+      position = m_video->shownPts();
+    }
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(position).count();
+    const auto clock = [](std::int64_t t) { return std::format("{}:{:02}", t / 60000, (t / 1000) % 60); };
+    if (m_progress != nullptr && m_durationMs > 0) {
+      m_progress->setProgress(std::clamp(static_cast<float>(ms) / static_cast<float>(m_durationMs), 0.0F, 1.0F));
+    }
+    if (m_time != nullptr
+        && m_time->setText(m_durationMs > 0 ? clock(ms) + " / " + clock(m_durationMs) : clock(ms))) {
+      m_surface->requestLayout();
+    }
+    m_surface->requestRedraw();
+  }
+
+  // Mockup .vbar: play/pause 12, a 4 px progress capsule (fill_2 track, accent level), "0:17 / 0:42" 500 12 label_2.
+  // Display only: the helper cannot seek.
+  std::unique_ptr<Node> PreviewWindow::buildMediaBar() {
+    auto bar = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8, .height = Tokens::spaceP24});
+    bar->addChild(ui::button({.glyph = std::string(m_paused ? "player-play" : "player-pause"), .glyphSize = 12.0F,
+                              .variant = ButtonVariant::Ghost, .tooltip = std::string(m_paused ? "Play (K)" : "Pause (K)"),
+                              .radius = Tokens::spaceP24 / 2.0F, .width = Tokens::spaceP24, .height = Tokens::spaceP24,
+                              .onClick = [this] { togglePlayback(); }}));
+    bar->addChild(ui::progressBar({.out = &m_progress, .fill = colorSpecFromRole(ColorRole::Accent),
+                                   .track = colorSpecFromRole(ColorRole::Fill2), .radius = 2.0F, .progress = 0.0F,
+                                   .height = 4.0F, .flexGrow = 1.0F}));
+    bar->addChild(ui::label({.out = &m_time, .text = std::string("0:00"), .fontSize = Style::fontSizeCaption,
+                             .fontWeight = FontWeight::Medium, .color = colorSpecFromRole(ColorRole::Label2)}));
+    return bar;
+  }
+
+  void PreviewWindow::requestPeaks() {
+    // Cached per path and mtime: in memory while the previewer runs, on disk across runs.
+    struct stat st{};
+    if (::stat(m_path.c_str(), &st) != 0) {
+      return;
+    }
+    const std::string key = std::format("{}\n{}.{}", m_path, st.st_mtim.tv_sec, st.st_mtim.tv_nsec);
+    static std::unordered_map<std::string, std::vector<std::uint8_t>> memory;
+    if (const auto hit = memory.find(key); hit != memory.end()) {
+      m_peaks = hit->second;
+      return;
+    }
+    const char* cacheHome = std::getenv("XDG_CACHE_HOME");
+    const char* home = std::getenv("HOME");
+    const std::filesystem::path dir = cacheHome != nullptr && *cacheHome != '\0'
+        ? std::filesystem::path(cacheHome) / "andromeda" / "peaks"
+        : std::filesystem::path(home != nullptr ? home : "/tmp") / ".cache" / "andromeda" / "peaks";
+    const auto file = dir / std::format("{:016x}", std::hash<std::string>{}(key));
+    if (std::FILE* in = std::fopen(file.c_str(), "rb"); in != nullptr) {
+      std::vector<std::uint8_t> bytes(kPeakCount);
+      const bool whole = std::fread(bytes.data(), 1, bytes.size(), in) == bytes.size();
+      std::fclose(in);
+      if (whole) {
+        memory[key] = bytes;
+        m_peaks = std::move(bytes);
+        return;
+      }
+    }
+    m_peaksHelper = HelperClient::start(HelperKind::Media, m_path);
+    if (!m_peaksHelper) {
+      return;
+    }
+    m_loop.addSource(m_peaksHelper.get());
+    m_peaksHelper->request(
+        {.op = op::Peaks, .a = static_cast<std::uint32_t>(kPeakCount)},
+        [this, generation = m_generation, key, dir, file](const HelperReply& reply) {
+          if (generation != m_generation) {
+            return;
+          }
+          // Runs inside the peaks helper's own callback: drop it after it returns.
+          DeferredCall::callLater([this, generation] {
+            if (generation == m_generation && m_peaksHelper) {
+              m_loop.removeSource(m_peaksHelper.get());
+              m_peaksHelper.reset();
+            }
+          });
+          if (reply.msg.op != op::PeaksReply || reply.data == nullptr || reply.msg.a != kPeakCount
+              || reply.data->bytes().size() < kPeakCount) {
+            return;
+          }
+          const auto bytes = reply.data->bytes();
+          m_peaks.assign(bytes.begin(), bytes.begin() + kPeakCount);
+          memory[key] = m_peaks;
+          std::error_code ec;
+          std::filesystem::create_directories(dir, ec);
+          if (std::FILE* out = std::fopen(file.c_str(), "wb"); out != nullptr) {
+            std::fwrite(m_peaks.data(), 1, m_peaks.size(), out);
+            std::fclose(out);
+          }
+          kLog.info("waveform {} bars", m_peaks.size());
+          invalidate();
+        }
+    );
+  }
+
+  void PreviewWindow::requestFont(float width) {
+    if (!m_helper || !m_surface) {
+      return;
+    }
+    m_fontRequested = true;
+    const float scale = m_surface->effectiveBufferScale();
+    const auto px = static_cast<std::uint32_t>(std::lround(std::max(1.0F, width - 2 * Tokens::spaceP24) * scale));
+    const Color& ink = colorForRole(ColorRole::Label1);
+    const auto channel = [](float v) { return static_cast<std::uint32_t>(std::lround(std::clamp(v, 0.0F, 1.0F) * 255.0F)); };
+    const std::uint32_t rgb = (channel(ink.r) << 16) | (channel(ink.g) << 8) | channel(ink.b);
+    m_helper->request(
+        {.op = op::Render, .a = 0, .b = px, .c = 4096, .d = rgb, .e = static_cast<std::uint32_t>(std::lround(scale * 100.0F))},
+        [this, generation = m_generation](const HelperReply& reply) {
+          if (generation != m_generation) {
+            return;
+          }
+          const auto& m = reply.msg;
+          // Untrusted sizes, checked as for PDF pages.
+          const bool valid = m.op == op::Page && reply.data != nullptr && m.b > 0 && m.c > 0 && m.b <= 8192
+              && m.c <= 4096 && m.b <= m.d / 4 && static_cast<std::uint64_t>(m.d) * m.c <= reply.data->bytes().size();
+          if (!valid) {
+            helperFailed();
+            return;
+          }
+          m_fontPage = {m.b, m.c, m.d, reply.data, true};
+          m_loading = false;
+          m_shownNote = std::format("shown font {}x{}", m.b, m.c);
+          invalidate();
+        }
+    );
   }
 
   void PreviewWindow::startAudio(bool withVideo) {
@@ -298,6 +813,7 @@ namespace preview {
     if (withVideo) {
       return;
     }
+    requestPeaks();
     const auto generation = m_generation;
     m_helper->request({.op = op::Tags}, [this, generation](const HelperReply& reply) {
       if (generation != m_generation) {
@@ -315,15 +831,7 @@ namespace preview {
       }
       m_loading = false;
       m_shownNote = std::format("shown audio {}", m_title.empty() ? baseName(m_path) : m_title);
-      m_progressTimer.startRepeating(std::chrono::milliseconds(250), [this] {
-        if (m_progress != nullptr && m_audio && m_durationMs > 0) {
-          const auto position = m_audio->position().value_or(std::chrono::nanoseconds(0));
-          const float done = static_cast<float>(std::chrono::duration_cast<std::chrono::milliseconds>(position).count())
-              / static_cast<float>(m_durationMs);
-          m_progress->setProgress(std::clamp(done, 0.0F, 1.0F));
-          m_surface->requestRedraw();
-        }
-      });
+      startProgress();
       invalidate();
     });
     m_helper->request({.op = op::Cover}, [this, generation](const HelperReply& reply) {
@@ -363,6 +871,7 @@ namespace preview {
     if (m_audio) {
       m_audio->setPlaying(!m_paused);
     }
+    invalidate(); // the bar's play/pause glyph
   }
 
   std::unique_ptr<Node> PreviewWindow::buildAudio(Renderer& renderer, float width) {
@@ -386,8 +895,22 @@ namespace preview {
                                .color = colorSpecFromRole(ColorRole::Label2), .maxWidth = width - 2 * Style::spaceLg,
                                .maxLines = 1}));
     }
-    box->addChild(ui::progressBar({.out = &m_progress, .progress = 0.0F, .width = kCoverSize, .height = 4.0F}));
-    return box;
+    auto column = ui::column({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8, .flexGrow = 1.0F});
+    column->addChild(std::move(box));
+    if (!m_peaks.empty()) {
+      // Mockup .wave: accent bars, radius 2, gap 4, tallest 36.
+      auto wave = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP4, .height = kWaveHeight});
+      // Scaled to the loudest bar, so a quiet recording still shows its shape.
+      const float loudest = std::max<float>(1.0F, *std::ranges::max_element(m_peaks));
+      for (const std::uint8_t peak : m_peaks) {
+        const float h = std::max(Tokens::spaceP4, kWaveHeight * static_cast<float>(peak) / loudest);
+        wave->addChild(ui::column({.fill = colorSpecFromRole(ColorRole::Accent), .radius = 2.0F, .height = h,
+                                   .flexGrow = 1.0F}));
+      }
+      column->addChild(std::move(wave));
+    }
+    column->addChild(buildMediaBar());
+    return column;
   }
 
   void PreviewWindow::requestPage(std::size_t index) {
@@ -457,6 +980,7 @@ namespace preview {
       }
       const Page& page = m_pages[index];
       if (page.pixels == nullptr) {
+        // The strip keeps its scaled page: it costs a texture, not the full-size mapping.
         m_pageImages[index]->clear(renderer);
         continue;
       }
@@ -464,6 +988,10 @@ namespace preview {
       m_pageImages[index]->setSourceRaw(renderer, bytes.data(), bytes.size(), static_cast<int>(page.width),
                                         static_cast<int>(page.height), static_cast<int>(page.stride),
                                         PixmapFormat::BGRA);
+      if (index < m_stripImages.size() && !m_stripImages[index]->hasImage()) {
+        setStripPage(*m_stripImages[index], renderer, bytes, page.width, page.height, page.stride,
+                     m_surface->effectiveBufferScale());
+      }
     }
     m_pendingUploads.clear();
   }
@@ -498,14 +1026,24 @@ namespace preview {
     std::pair<float, float> size{480.0F, 320.0F};
     switch (m_kind) {
     case FileKind::Image:
+      size = {kDocumentWidth + 2 * (Style::spaceLg + Tokens::spaceP16), 760.0F};
+      break;
     case FileKind::Pdf:
-      size = {kDocumentWidth + 2 * Style::spaceLg, 760.0F};
+      size = {kDocumentWidth + 2 * (Style::spaceLg + Tokens::spaceP16) + kStripWidth + Tokens::spaceP8, 760.0F};
       break;
     case FileKind::Text:
       size = {720.0F, 560.0F};
       break;
-    case FileKind::Video:
-      size = {854.0F, 480.0F + kHeaderHeight + 1.0F};
+    case FileKind::Archive:
+    case FileKind::Folder:
+      size = {560.0F, 480.0F};
+      break;
+    case FileKind::Font:
+      size = {560.0F, 320.0F};
+      break;
+    case FileKind::Video: // a 16:9 picture inside the 16 inset, its bar (24 + gap 8), the header and the footer
+      size = {854.0F, (854.0F - 2 * Tokens::spaceP16) * 9.0F / 16.0F + Tokens::spaceP24 + Tokens::spaceP8
+                          + 2 * kHeaderHeight};
       break;
     default:
       break;
@@ -572,6 +1110,7 @@ namespace preview {
     m_pendingUploads.clear();
     m_decoder.cancel();
     m_root.reset();
+    m_code.reset();
     m_parent.clear();
     m_surface.reset();
     m_pages.clear();
@@ -616,6 +1155,33 @@ namespace preview {
       float y = 0.0F;
       Node::absolutePosition(m_videoBox, x, y);
       m_video->place(x, y, m_videoBox->width(), m_videoBox->height());
+      // The picture rect in box coordinates: the letterbox covers the rest of the hole, the masks its corners.
+      const auto pic = m_video->pictureRect();
+      const float bw = m_videoBox->width();
+      const float bh = m_videoBox->height();
+      const float px = pic[2] > 0.0F ? pic[0] - x : 0.0F;
+      const float py = pic[3] > 0.0F ? pic[1] - y : 0.0F;
+      const float pw = pic[2] > 0.0F ? pic[2] : 0.0F;
+      const float ph = pic[3] > 0.0F ? pic[3] : 0.0F;
+      const std::array<std::array<float, 4>, 4> bars{{{0.0F, 0.0F, bw, py},
+                                                      {0.0F, py + ph, bw, bh - py - ph},
+                                                      {0.0F, py, px, ph},
+                                                      {px + pw, py, bw - px - pw, ph}}};
+      for (std::size_t i = 0; i < m_letterbox.size(); ++i) {
+        if (m_letterbox[i] != nullptr) {
+          m_letterbox[i]->setPosition(bars[i][0], bars[i][1]);
+          m_letterbox[i]->setSize(std::max(0.0F, bars[i][2]), std::max(0.0F, bars[i][3]));
+        }
+      }
+      const float r = std::min({Tokens::radiusR12, pw / 2.0F, ph / 2.0F});
+      const std::array<std::pair<float, float>, 4> at{
+          {{px, py}, {px + pw - r, py}, {px + pw - r, py + ph - r}, {px, py + ph - r}}};
+      for (std::size_t i = 0; i < m_videoCorners.size(); ++i) {
+        if (m_videoCorners[i] != nullptr) {
+          m_videoCorners[i]->setPosition(at[i].first, at[i].second);
+          m_videoCorners[i]->setSize(r, r);
+        }
+      }
     }
     // Logged once the decoded content is on screen (the E2E waits for it before its screenshot).
     if (!m_shownNote.empty()) {
@@ -626,24 +1192,101 @@ namespace preview {
 
   void PreviewWindow::buildScene(Renderer& renderer, float width, float height) {
     const float offset = m_scroll != nullptr ? m_scroll->scrollOffset() : 0.0F;
+    // The old tree's code list points at the old adapter: it goes only after the tree is replaced.
+    const std::unique_ptr<CodeLines> retired = std::move(m_code);
     m_input.setSceneRoot(nullptr);
     m_scroll = nullptr;
     m_videoBox = nullptr;
+    m_videoCorners = {};
+    m_letterbox = {};
     m_progress = nullptr;
+    m_time = nullptr;
     m_pageImages.clear();
+    m_stripFrames.clear();
+    m_stripImages.clear();
+    m_pageLabel = nullptr;
     m_pendingUploads.clear();
+    // Mockup .ql (files-v2-live §3): thick sheet; header 40 (padding 0 8 0 16, gap 8, 600 13), the content inset 16
+    // in a radius-12 clip, a 40 hint footer.
     auto root = ui::column({.align = FlexAlign::Stretch, .width = width, .height = height});
-    root->setFill(colorSpecFromRole(ColorRole::SolidRegular));
+    // A video plays in a subsurface under the window: every part but the picture paints the window colour, so the
+    // picture shows through a hole whose corners the masks round.
+    const bool hole = m_video != nullptr && !m_audioOnly && !m_loading && !m_failed;
+    const ColorSpec sheet = colorSpecFromRole(ColorRole::Popover);
+    if (!hole) {
+      root->setFill(sheet);
+    }
 
-    auto header = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm, .paddingH = Style::spaceMd,
-                           .height = kHeaderHeight});
+    auto header = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8, .height = kHeaderHeight});
+    header->setPadding(0.0F, Tokens::spaceP8, 0.0F, Tokens::spaceP16);
+    header->addChild(ui::glyph({.glyph = kindGlyph(m_kind), .glyphSize = Tokens::sizeSymbol,
+                                .color = colorSpecFromRole(ColorRole::Label2)}));
     header->addChild(ui::label({.text = baseName(m_path), .fontSize = Style::fontSizeBody,
-                                .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
-                                .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
-    header->addChild(ui::button({.text = "Open", .onClick = [this] { openInDefaultApp(); }}));
+                                .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1),
+                                .maxLines = 1, .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
+    if (m_kind == FileKind::Pdf && !m_pages.empty()) {
+      header->addChild(ui::label({.out = &m_pageLabel, .text = std::format("Page {} of {}", m_currentPage + 1, m_pages.size()),
+                                  .fontSize = Style::fontSizeCaption, .fontWeight = FontWeight::Medium,
+                                  .color = colorSpecFromRole(ColorRole::Label2)}));
+    }
+    // Mockup §15 header detail: a code file's line count, a song's length.
+    std::string detail;
+    if (m_kind == FileKind::Text && !m_loading && !m_failed && syntaxFor(m_path).has_value()) {
+      const auto lines = std::ranges::count(m_text, '\n') + (m_text.empty() || m_text.ends_with('\n') ? 0 : 1);
+      detail = std::format("{} lines{}", lines, m_textTruncated ? "+" : "");
+    } else if (m_audioOnly && m_durationMs > 0) {
+      detail = std::format("{}:{:02}", m_durationMs / 60000, (m_durationMs / 1000) % 60);
+    }
+    if (!detail.empty()) {
+      header->addChild(ui::label({.text = detail, .fontSize = Style::fontSizeCaption, .fontWeight = FontWeight::Medium,
+                                  .color = colorSpecFromRole(ColorRole::Label2)}));
+    }
+    if (!m_openWith.empty()) {
+      header->addChild(ui::button({.text = "Open With " + m_openWith, .fontSize = Style::fontSizeBody,
+                                   .variant = ButtonVariant::Default, .radius = Tokens::radiusR8,
+                                   .height = Tokens::sizeControlM, .onClick = [this] { openInDefaultApp(); }}));
+    }
+    header->addChild(ui::button({.glyph = std::string("x"), .glyphSize = Tokens::sizeSymbol,
+                                 .variant = ButtonVariant::Ghost, .tooltip = std::string("Close (Space)"),
+                                 .radius = Tokens::sizeControlM / 2.0F, .width = Tokens::sizeControlM,
+                                 .height = Tokens::sizeControlM,
+                                 .onClick = [this] { DeferredCall::callLater([this] { close(); }); }}));
+    if (hole) {
+      header->setFill(sheet);
+    }
     root->addChild(std::move(header));
-    root->addChild(ui::separator({}));
-    root->addChild(buildBody(renderer, width));
+    auto body = ui::column({.align = FlexAlign::Stretch, .radius = Tokens::radiusR12, .clipChildren = true,
+                            .flexGrow = 1.0F});
+    body->addChild(buildBody(renderer, width - 2.0F * Tokens::spaceP16));
+    auto inset = ui::row({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
+    // The side insets paint only over the hole: else the root fill already covers them (a translucent sheet twice
+    // would read darker).
+    const std::optional<ColorSpec> sideFill = hole ? std::optional<ColorSpec>(sheet) : std::nullopt;
+    inset->addChild(ui::column({.fill = sideFill, .width = Tokens::spaceP16}));
+    body->setFlexGrow(1.0F);
+    inset->addChild(std::move(body));
+    inset->addChild(ui::column({.fill = sideFill, .width = Tokens::spaceP16}));
+    root->addChild(std::move(inset));
+
+    auto footer = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Tokens::spaceP16,
+                           .height = kHeaderHeight});
+    const ColorSpec hint = colorSpecFromRole(ColorRole::Label2);
+    footer->addChild(ui::button({.glyph = std::string("chevron-left"), .glyphSize = Tokens::sizeSymbol,
+                                 .variant = ButtonVariant::Ghost, .tooltip = std::string("Previous file (←)"),
+                                 .radius = Tokens::sizeControlS / 2.0F, .width = Tokens::sizeControlS,
+                                 .height = Tokens::sizeControlS,
+                                 .onClick = [this] { m_callbacks.selection(direction::Left); }}));
+    footer->addChild(ui::label({.text = std::string("← → next file · Space closes"), .fontSize = Style::fontSizeCaption,
+                                .fontWeight = FontWeight::Medium, .color = hint}));
+    footer->addChild(ui::button({.glyph = std::string("chevron-right"), .glyphSize = Tokens::sizeSymbol,
+                                 .variant = ButtonVariant::Ghost, .tooltip = std::string("Next file (→)"),
+                                 .radius = Tokens::sizeControlS / 2.0F, .width = Tokens::sizeControlS,
+                                 .height = Tokens::sizeControlS,
+                                 .onClick = [this] { m_callbacks.selection(direction::Right); }}));
+    if (hole) {
+      footer->setFill(sheet);
+    }
+    root->addChild(std::move(footer));
 
     root->setSize(width, height);
     root->layout(renderer);
@@ -656,6 +1299,30 @@ namespace preview {
     });
     m_input.setSceneRoot(m_root.get());
     m_surface->setSceneRoot(m_root.get());
+    markCurrentPage();
+    if (m_time != nullptr) {
+      updateProgress();
+    }
+  }
+
+  void PreviewWindow::markCurrentPage() {
+    if (m_scroll == nullptr || m_stripFrames.empty() || m_pageStep <= 0.0F) {
+      return;
+    }
+    const auto current = std::min(static_cast<std::size_t>(std::lround(m_scroll->scrollOffset() / m_pageStep)),
+                                  m_stripFrames.size() - 1);
+    for (std::size_t i = 0; i < m_stripFrames.size(); ++i) {
+      if (i == current) {
+        m_stripFrames[i]->setBorder(colorSpecFromRole(ColorRole::Accent), 2.0F);
+      } else {
+        m_stripFrames[i]->setBorder(clearColorSpec(), 0.0F);
+      }
+    }
+    if (m_pageLabel != nullptr && current != m_currentPage) {
+      m_pageLabel->setText(std::format("Page {} of {}", current + 1, m_pages.size()));
+      m_surface->requestLayout();
+    }
+    m_currentPage = current;
   }
 
   std::unique_ptr<Node> PreviewWindow::buildBody(Renderer& renderer, float width) {
@@ -669,11 +1336,41 @@ namespace preview {
                                .color = colorSpecFromRole(ColorRole::Label2)}));
       return box;
     };
+    // Mockup §24: the file's page art, one line, and Open With; with no default app the line says so instead.
+    auto state = [&](const std::string& text) {
+      auto box = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .gap = Tokens::spaceP12,
+                             .flexGrow = 1.0F});
+      auto icon = std::make_unique<FileIcon>(Tokens::componentFilesPreviewArt / 2.0F);
+      if (const auto info = statFile(std::filesystem::path(m_path)); info.has_value()) {
+        icon->bind(renderer, *info, m_path, nullptr);
+      }
+      box->addChild(std::move(icon));
+      box->addChild(ui::label({.text = text, .fontSize = Style::fontSizeCaption, .fontWeight = FontWeight::Medium,
+                               .color = colorSpecFromRole(ColorRole::Label2), .maxWidth = width - 2 * Tokens::spaceP16,
+                               .maxLines = 2, .textAlign = TextAlign::Center}));
+      if (m_openWith.empty()) {
+        box->addChild(ui::label({.text = std::string("No app is set to open this kind of file"),
+                                 .fontSize = Style::fontSizeCaption, .color = colorSpecFromRole(ColorRole::Label2)}));
+      } else {
+        box->addChild(ui::button({.text = "Open With " + m_openWith, .fontSize = Style::fontSizeBody,
+                                  .variant = ButtonVariant::Default, .radius = Tokens::radiusR8,
+                                  .height = Tokens::sizeControlM, .onClick = [this] { openInDefaultApp(); }}));
+      }
+      return box;
+    };
     if (m_loading) {
-      return message("Loading…");
+      if (m_kind == FileKind::Font && !m_fontRequested) {
+        requestFont(width);
+      }
+      auto box = ui::column({.align = FlexAlign::Center, .justify = FlexJustify::Center, .flexGrow = 1.0F});
+      if (m_spinner) {
+        box->addChild(ui::spinner({.color = colorSpecFromRole(ColorRole::Label2), .spinnerSize = Tokens::sizeControlS,
+                                   .spinning = true}));
+      }
+      return box;
     }
     if (m_failed) {
-      return message("This file cannot be previewed");
+      return state("This file cannot be previewed");
     }
     switch (m_kind) {
     case FileKind::Image: {
@@ -683,11 +1380,47 @@ namespace preview {
       return image;
     }
     case FileKind::Pdf: {
+      auto split = ui::row({.align = FlexAlign::Stretch, .gap = Tokens::spaceP8, .flexGrow = 1.0F});
+      auto strip = ui::scrollView({.scrollbarVisible = false, .viewportPaddingV = Tokens::spaceP8,
+                                   .width = kStripWidth});
+      strip->content()->setGap(Tokens::spaceP8);
+      strip->content()->setAlign(FlexAlign::Center);
+      const float thumbWidth = kStripPageHeight / m_pageAspect;
+      for (std::size_t i = 0; i < m_pages.size(); ++i) {
+        const Page& page = m_pages[i];
+        // A page not rendered yet shows as a grey sheet (mockup §15).
+        auto frame = ui::column({.fill = colorSpecFromRole(ColorRole::Label3), .radius = Tokens::radiusR4,
+                                 .clipChildren = true, .width = thumbWidth, .height = kStripPageHeight});
+        auto image = ui::image({.fit = ImageFit::Contain, .width = thumbWidth, .height = kStripPageHeight});
+        if (page.pixels != nullptr) {
+          setStripPage(*image, renderer, page.pixels->bytes(), page.width, page.height, page.stride,
+                       m_surface->effectiveBufferScale());
+        }
+        m_stripImages.push_back(image.get());
+        frame->addChild(std::move(image));
+        // The current-page ring draws over the page: a Flex border paints under its children.
+        auto ring = ui::column({.radius = Tokens::radiusR4, .width = thumbWidth, .height = kStripPageHeight,
+                                .participatesInLayout = false});
+        m_stripFrames.push_back(ring.get());
+        frame->addChild(std::move(ring));
+        auto hit = ui::inputArea({.tooltip = std::format("Page {}", i + 1), .width = thumbWidth,
+                                  .height = kStripPageHeight,
+                                  .onClick = [this, i](const InputArea::PointerData&) {
+                                    if (m_scroll != nullptr) {
+                                      m_scroll->scrollBy(static_cast<float>(i) * m_pageStep - m_scroll->scrollOffset());
+                                    }
+                                  }});
+        hit->addChild(std::move(frame));
+        strip->content()->addChild(std::move(hit));
+      }
+      split->addChild(std::move(strip));
+
       auto scroll = ui::scrollView({.viewportPaddingH = Style::spaceLg, .viewportPaddingV = Style::spaceLg});
       scroll->setFlexGrow(1.0F);
       scroll->content()->setGap(kPageGap);
       scroll->content()->setAlign(FlexAlign::Center);
-      const float pageWidth = std::min(kDocumentWidth, width - 2 * Style::spaceLg);
+      const float pageWidth = std::min(kDocumentWidth, width - kStripWidth - Tokens::spaceP8 - 2 * Style::spaceLg);
+      m_pageStep = pageWidth * m_pageAspect + kPageGap;
       for (const Page& page : m_pages) {
         const float pageHeight = page.pixels != nullptr
             ? pageWidth * static_cast<float>(page.height) / static_cast<float>(page.width)
@@ -704,11 +1437,26 @@ namespace preview {
         sheet->addChild(std::move(image));
         scroll->content()->addChild(std::move(sheet));
       }
-      scroll->setOnScrollChanged([this](float) { requestVisiblePages(); });
+      scroll->setOnScrollChanged([this](float) {
+        requestVisiblePages();
+        markCurrentPage();
+      });
       m_scroll = scroll.get();
-      return scroll;
+      split->addChild(std::move(scroll));
+      return split;
     }
     case FileKind::Text: {
+      if (const auto syntax = syntaxFor(m_path); syntax.has_value()) {
+        m_code = std::make_unique<CodeLines>(m_textTruncated ? m_text + "\n…" : m_text, syntax->lineComment,
+                                             syntax->blockComments);
+        auto list = ui::virtualListView({.adapter = m_code.get(), .flexGrow = 1.0F});
+        // Mockup §15 code card: the lines sit on a fill_1 panel, radius 8.
+        auto box = ui::column({.align = FlexAlign::Stretch, .padding = Tokens::spaceP12,
+                               .fill = colorSpecFromRole(ColorRole::Fill1), .radius = Tokens::radiusR8,
+                               .clipChildren = true, .flexGrow = 1.0F});
+        box->addChild(std::move(list));
+        return box;
+      }
       auto scroll = ui::scrollView({.viewportPaddingH = Style::spaceLg, .viewportPaddingV = Style::spaceMd});
       scroll->setFlexGrow(1.0F);
       std::string text = m_text;
@@ -721,6 +1469,69 @@ namespace preview {
       m_scroll = scroll.get();
       return scroll;
     }
+    case FileKind::Folder: {
+      // Mockup §15 folder card: "12 items · 48 MB", then the newest items as their icons.
+      auto box = ui::column({.align = FlexAlign::Start, .gap = Tokens::spaceP12, .padding = Tokens::spaceP24,
+                             .flexGrow = 1.0F});
+      box->addChild(ui::label({.text = std::format("{} {} · {}{}", m_folderItems, m_folderItems == 1 ? "item" : "items",
+                                                   m_folderCut ? "at least " : "", formatFileSize(m_folderBytes)),
+                               .fontSize = Style::fontSizeBody, .color = colorSpecFromRole(ColorRole::Label2)}));
+      auto icons = ui::row({.align = FlexAlign::Start, .gap = Tokens::spaceP12});
+      for (const std::string& item : m_folderPeek) {
+        auto icon = std::make_unique<FileIcon>(Tokens::componentFilesIconMin);
+        if (const auto info = statFile(std::filesystem::path(item)); info.has_value()) {
+          icon->bind(renderer, *info, item, nullptr);
+        }
+        icons->addChild(std::move(icon));
+      }
+      box->addChild(std::move(icons));
+      return box;
+    }
+    case FileKind::Font: {
+      // Mockup §15 font card: "Aa Bb Cc", the pangram and the digits, drawn by the helper in label_1.
+      auto box = ui::column({.align = FlexAlign::Start, .padding = Tokens::spaceP24, .flexGrow = 1.0F});
+      if (m_fontPage.pixels != nullptr) {
+        const float scale = m_surface->effectiveBufferScale();
+        auto image = ui::image({.fit = ImageFit::Contain, .width = static_cast<float>(m_fontPage.width) / scale,
+                                .height = static_cast<float>(m_fontPage.height) / scale});
+        const auto bytes = m_fontPage.pixels->bytes();
+        image->setSourceRaw(renderer, bytes.data(), bytes.size(), static_cast<int>(m_fontPage.width),
+                            static_cast<int>(m_fontPage.height), static_cast<int>(m_fontPage.stride), PixmapFormat::BGRA);
+        box->addChild(std::move(image));
+      }
+      return box;
+    }
+    case FileKind::Archive: {
+      // Spec §10: the daemon's entry list, name and size; folders first as the archive orders them.
+      auto scroll = ui::scrollView({.viewportPaddingH = Tokens::spaceP8, .viewportPaddingV = Tokens::spaceP8});
+      scroll->setFlexGrow(1.0F);
+      scroll->content()->setAlign(FlexAlign::Stretch);
+      for (const ArchiveRow& entry : m_archive) {
+        auto row = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP8, .paddingH = Tokens::spaceP8,
+                            .height = Tokens::sizeControlS});
+        row->addChild(ui::glyph({.glyph = entry.isDir ? "folder" : "file", .glyphSize = Tokens::sizeSymbol,
+                                 .color = colorSpecFromRole(ColorRole::Label2)}));
+        row->addChild(ui::label({.text = entry.path, .fontSize = Style::fontSizeBody,
+                                 .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1,
+                                 .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
+        if (!entry.isDir) {
+          row->addChild(ui::label({.text = formatFileSize(static_cast<std::uint64_t>(std::max<std::int64_t>(entry.size, 0))),
+                                   .fontSize = Style::fontSizeCaption, .color = colorSpecFromRole(ColorRole::Label2)}));
+        }
+        scroll->content()->addChild(std::move(row));
+      }
+      if (m_archiveTotal > m_archive.size()) {
+        scroll->content()->addChild(ui::label({.text = std::format("and {} more", m_archiveTotal - m_archive.size()),
+                                               .fontSize = Style::fontSizeCaption,
+                                               .color = colorSpecFromRole(ColorRole::Label2)}));
+      } else if (m_archive.empty()) {
+        scroll->content()->addChild(ui::label({.text = std::string("This archive is empty"),
+                                               .fontSize = Style::fontSizeCaption,
+                                               .color = colorSpecFromRole(ColorRole::Label2)}));
+      }
+      m_scroll = scroll.get();
+      return scroll;
+    }
     case FileKind::Video:
     case FileKind::Audio:
       if (m_audioOnly) {
@@ -728,13 +1539,35 @@ namespace preview {
       }
       if (m_video) {
         // The video subsurface covers this box; the window draws only the letterbox.
+        auto column = ui::column({.align = FlexAlign::Stretch, .flexGrow = 1.0F});
         auto box = ui::column({.flexGrow = 1.0F});
         m_videoBox = box.get();
-        return box;
+        const Color sheet = colorForRole(ColorRole::Popover);
+        for (Node*& bar : m_letterbox) {
+          auto fill = ui::column({.fill = colorSpecFromRole(ColorRole::Popover), .participatesInLayout = false});
+          bar = fill.get();
+          box->addChild(std::move(fill));
+        }
+        for (std::size_t i = 0; i < m_videoCorners.size(); ++i) {
+          auto corner = std::make_unique<ScreenCorner>();
+          corner->setColor(sheet);
+          corner->setCorner(static_cast<ScreenCornerPosition>(i)); // TopLeft, TopRight, BottomRight, BottomLeft
+          corner->setExponent(2.0F);                                // a circular arc, as every r12 shape
+          corner->setParticipatesInLayout(false);
+          m_videoCorners[i] = corner.get();
+          box->addChild(std::move(corner));
+        }
+        column->addChild(std::move(box));
+        // The bar sits on the window colour: under it is the hole's edge, not the picture.
+        auto bar = ui::column({.align = FlexAlign::Stretch, .fill = colorSpecFromRole(ColorRole::Popover)});
+        bar->setPadding(Tokens::spaceP8, 0.0F, 0.0F, 0.0F);
+        bar->addChild(buildMediaBar());
+        column->addChild(std::move(bar));
+        return column;
       }
       return message("Video");
     default:
-      return message(m_contentType.empty() ? "File" : std::string(g_content_type_get_description(m_contentType.c_str())));
+      return state("No preview for “" + baseName(m_path) + "”");
     }
   }
 

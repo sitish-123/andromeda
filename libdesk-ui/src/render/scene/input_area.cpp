@@ -233,7 +233,11 @@ void InputArea::dispatchLeave() {
 
 void InputArea::dispatchMotion(float localX, float localY) {
   if (m_onMotion) {
-    m_onMotion({.localX = localX, .localY = localY});
+    PointerData data{.localX = localX, .localY = localY};
+    Node::absolutePosition(this, data.sceneX, data.sceneY);
+    data.sceneX += localX;
+    data.sceneY += localY;
+    m_onMotion(data);
   }
 }
 

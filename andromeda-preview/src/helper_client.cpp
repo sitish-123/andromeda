@@ -100,6 +100,7 @@ namespace preview {
     const std::string helper = helperPath();
     const std::string kindArg = kind == HelperKind::Pdf ? "pdf" : kind == HelperKind::Media ? "media"
         : kind == HelperKind::MediaSoftware                         ? "media-sw"
+        : kind == HelperKind::Font                                  ? "font"
                                                                     : "text";
     std::vector<std::string> envStrings;
     // GST_DEBUG lets a test see which decoder the helper picked.

@@ -2,7 +2,7 @@
 
 #include "ui/dialogs/dialog_popup_host.h"
 #include "ui/dialogs/file_dialog.h"
-#include "ui/dialogs/file_dialog_view.h"
+#include "ui/dialogs/file_dialog_sheet.h"
 
 #include <filesystem>
 #include <memory>
@@ -47,5 +47,5 @@ protected:
 
 private:
   ThumbnailService* m_thumbnails = nullptr;
-  std::unique_ptr<FileDialogView> m_dialog;
+  std::unique_ptr<FileDialogSheet> m_dialog;
 };

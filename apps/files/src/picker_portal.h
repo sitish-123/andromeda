@@ -25,6 +25,14 @@ public:
     std::vector<std::pair<std::uint32_t, std::string>> patterns; // 0 = glob, 1 = MIME type
   };
 
+  // A portal "choices" entry: a pop of options, or a check box when `options` is empty (value "true"/"false").
+  struct Choice {
+    std::string id;
+    std::string label;
+    std::vector<std::pair<std::string, std::string>> options; // id, label
+    std::string value;                                        // the chosen option id (default from the caller)
+  };
+
   struct Request {
     enum class Kind : std::uint8_t { Open, Save, SaveFiles };
     Kind kind = Kind::Open;
@@ -41,12 +49,14 @@ public:
     std::filesystem::path currentFolder;
     std::filesystem::path currentFile;
     std::vector<std::filesystem::path> files; // SaveFiles: names to save into the chosen folder
+    std::vector<Choice> choices;
   };
 
   struct Answer {
     std::uint32_t response = 1; // 0 success, 1 cancelled, 2 other
     std::vector<std::string> uris;
     std::optional<std::size_t> filter;
+    std::vector<Choice> choices; // returned as results["choices"] (id, value)
   };
 
   using RequestHandler = std::function<void(std::uint64_t id, const Request& request)>;

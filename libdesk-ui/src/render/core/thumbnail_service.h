@@ -3,6 +3,7 @@
 #include "core/poll_source.h"
 #include "core/idle_worker_slots.h"
 #include "render/core/texture_handle.h"
+#include "render/core/thumbnail_pipeline.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -19,11 +21,10 @@
 
 class TextureManager;
 
-// Shared async thumbnail loader for image-backed UI. Worker threads decode and
-// downsample images off the main thread; the main loop uploads finished
+// Shared async thumbnail loader. Worker threads run thumbnail_pipeline (cache
+// first, then a decode or Thumbnailer1); the main loop uploads finished
 // pixmaps through TextureManager via uploadPending(). The service keeps
-// explicit in-memory acquire/release ownership while persisting resized WebP
-// files in the on-disk thumbnail cache.
+// explicit in-memory acquire/release ownership.
 class ThumbnailService : public PollSource {
 public:
   using PendingUploadCallback = std::function<void()>;
@@ -55,7 +56,12 @@ public:
     std::function<void()> m_disconnect;
   };
 
+  // The blocking work of one request; the default is thumbnail_pipeline (cache, then decode or Thumbnailer1).
+  using Resolver = std::function<std::optional<thumbnail_pipeline::Pixels>(const std::string& path, int targetPx)>;
+
   ThumbnailService();
+  // workers 0 = by core count.
+  ThumbnailService(Resolver resolver, std::size_t workers);
   ~ThumbnailService() override;
 
   ThumbnailService(const ThumbnailService&) = delete;
@@ -68,16 +74,23 @@ public:
   [[nodiscard]] Subscription
   subscribeReady(const std::string& path, ReadyCallback callback, int targetPx = kDefaultTargetPx);
 
+  // Visible requests run before Prefetch ones (rows just outside the view).
+  enum class Priority { Visible, Prefetch };
+
   // Returns the uploaded handle if already decoded, or {0} if a decode is
   // pending. Each acquire must be paired with a release() using the same
   // (path, targetPx).
-  [[nodiscard]] TextureHandle acquire(const std::string& path, int targetPx = kDefaultTargetPx);
+  [[nodiscard]] TextureHandle
+  acquire(const std::string& path, int targetPx = kDefaultTargetPx, Priority priority = Priority::Visible);
+
+  // Moves a queued Prefetch request ahead of other Prefetch requests, behind the queued Visible ones.
+  void prioritize(const std::string& path, int targetPx = kDefaultTargetPx);
 
   // Non-owning lookup used while refreshing an already-acquired thumbnail.
   [[nodiscard]] TextureHandle peek(const std::string& path, int targetPx = kDefaultTargetPx) const;
 
   // Releases one acquire() owner. The texture is unloaded only when the last
-  // owner releases it.
+  // owner releases it; a request that has not started yet leaves the queue.
   void release(const std::string& path, int targetPx = kDefaultTargetPx);
 
   // Uploads decoded pixmaps to textures. Must run on the main thread with the
@@ -120,7 +133,7 @@ private:
   void deleteAllTextures();
   void notifyPendingUpload();
   void notifyReady(const RequestKey& key, TextureHandle handle);
-  void enqueueDecodeIfNeeded(const RequestKey& key);
+  void enqueueDecodeIfNeeded(const RequestKey& key, Priority priority = Priority::Visible);
 
   struct CacheEntry {
     TextureHandle handle;
@@ -137,6 +150,7 @@ private:
     ReadyCallback callback;
   };
 
+  const Resolver m_resolver;
   int m_eventFd = -1;
   std::unique_ptr<IdleWorkerSlots> m_workers; // guarded by m_queueMutex
   std::atomic<bool> m_shutdown{false};
@@ -144,6 +158,8 @@ private:
   mutable std::mutex m_queueMutex;
   std::condition_variable m_queueCv;
   std::deque<RequestKey> m_jobQueue;
+  std::deque<RequestKey> m_prefetchQueue;
+  // Queued and running requests; m_canceled holds running ones released before their result arrived.
   std::unordered_set<RequestKey, RequestKeyHash> m_inFlight;
   std::unordered_set<RequestKey, RequestKeyHash> m_canceled;
 

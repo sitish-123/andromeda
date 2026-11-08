@@ -1,0 +1,4 @@
+[Thumbnailer Entry]
+TryExec=@helper@
+Exec=@helper@ thumbnail-video %s %i %o
+MimeType=video/mp4;video/x-m4v;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/mpeg;video/ogg;video/x-ogm+ogg;video/3gpp;video/3gpp2;video/x-flv;video/mp2t;video/x-ms-wmv;

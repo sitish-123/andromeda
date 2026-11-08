@@ -38,17 +38,20 @@ struct zwp_keyboard_shortcuts_inhibitor_v1;
 struct ext_background_effect_manager_v1;
 struct dsk_surface_manager_v1;
 struct xdg_activation_v1;
+struct zxdg_decoration_manager_v1;
 struct zwp_text_input_manager_v3;
 struct hyprland_focus_grab_manager_v1;
 struct wp_fractional_scale_manager_v1;
 struct wp_viewporter;
 struct wp_presentation;
+struct wl_data_device_manager;
 struct zwlr_output_manager_v1;
 struct zwlr_output_head_v1;
 struct zwlr_output_mode_v1;
 class LayerSurface;
 class FocusGrabService;
 class TextInputService;
+class DragAndDrop;
 
 struct WaylandOutput {
   std::uint32_t name = 0;
@@ -180,6 +183,9 @@ public:
   [[nodiscard]] TextInputService* textInputService() const noexcept { return m_textInputService; }
   [[nodiscard]] wp_viewporter* viewporter() const noexcept;
   [[nodiscard]] wp_presentation* presentation() const noexcept { return m_presentation; }
+  [[nodiscard]] wl_data_device_manager* dataDeviceManager() const noexcept { return m_dataDeviceManager; }
+  // Created on first use; nullptr without a data device manager or seat.
+  [[nodiscard]] DragAndDrop* dragAndDrop();
   [[nodiscard]] wl_display* display() const noexcept;
   [[nodiscard]] wl_registry* registry() const noexcept { return m_registry; }
   /// Registry name and bound version of zwlr_output_manager_v1, 0 when absent.
@@ -194,6 +200,7 @@ public:
   [[nodiscard]] wl_subcompositor* subcompositor() const noexcept;
   [[nodiscard]] zwlr_layer_shell_v1* layerShell() const noexcept;
   [[nodiscard]] xdg_wm_base* xdgWmBase() const noexcept;
+  [[nodiscard]] zxdg_decoration_manager_v1* decorationManager() const noexcept { return m_decorationManager; }
   [[nodiscard]] ext_idle_notifier_v1* idleNotifier() const noexcept;
   /// Inhibitor-aware idle notification (`get_idle_notification`); honors `zwp_idle_inhibitor_v1`.
   [[nodiscard]] ext_idle_notification_v1* createIdleNotification(std::uint32_t timeoutMs) const;
@@ -304,6 +311,7 @@ private:
   xdg_wm_base* m_xdgWmBase = nullptr;
   wp_cursor_shape_manager_v1* m_cursorShapeManager = nullptr;
   xdg_activation_v1* m_xdgActivation = nullptr;
+  zxdg_decoration_manager_v1* m_decorationManager = nullptr;
   ext_idle_notifier_v1* m_idleNotifier = nullptr;
   zwp_idle_inhibit_manager_v1* m_idleInhibitManager = nullptr;
   zwp_keyboard_shortcuts_inhibit_manager_v1* m_shortcutsInhibitManager = nullptr;
@@ -317,8 +325,10 @@ private:
   std::unordered_map<zwlr_output_head_v1*, WaylandOutputHeadInfo> m_outputHeads;
   std::unordered_set<zwlr_output_mode_v1*> m_outputModes;
   std::unique_ptr<FocusGrabService> m_focusGrabService;
+  std::unique_ptr<DragAndDrop> m_dragAndDrop;
   wp_viewporter* m_viewporter = nullptr;
   wp_presentation* m_presentation = nullptr;
+  wl_data_device_manager* m_dataDeviceManager = nullptr;
   bool m_backgroundEffectBlurSupported = false;
   zwp_text_input_manager_v3* m_textInputManager = nullptr;
   TextInputService* m_textInputService = nullptr;

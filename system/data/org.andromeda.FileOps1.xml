@@ -17,6 +17,28 @@
       <arg name="destination" type="ay" direction="in" />
       <arg name="job" type="o" direction="out" />
     </method>
+    <!-- One file name, no "/"; a taken name fails the job. Undo puts the old name back. -->
+    <!-- Batch rename: all or none, one undo step. -->
+    <method name="RenameMany">
+      <arg name="items" type="a(ays)" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <method name="Rename">
+      <arg name="path" type="ay" direction="in" />
+      <arg name="name" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- A taken name gets a "(copy)" name. -->
+    <method name="NewFolder">
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="name" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <method name="Link">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
     <!-- items: (trash folder, name in its files/) -->
     <method name="Restore">
       <arg name="items" type="a(ays)" direction="in" />
@@ -25,6 +47,67 @@
     <method name="Trash">
       <arg name="sources" type="aay" direction="in" />
       <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- zip, 7z, tar, tar.gz, tar.xz, tar.zst, tar.bz2. entries: (inner path, kind file|dir|link, size, mtime in s,
+         is_dir). Errors: org.andromeda.FileOps1.Error.PasswordNeeded (7z with encrypted names), .Unsupported,
+         .Unsafe (an entry leaves the folder), .Failed. Not a job. -->
+    <method name="ListArchive">
+      <arg name="path" type="ay" direction="in" />
+      <arg name="entries" type="a(aysxtb)" direction="out" />
+    </method>
+    <!-- inner_paths are relative (empty = all). All: one top-level item lands as is, more go into a folder named
+         after the archive; picked items land by their own name. Clashes ask like Copy; undo removes what was made.
+         A job Error ending in "password needed" or "wrong password" asks for the password. -->
+    <method name="Extract">
+      <arg name="archive" type="ay" direction="in" />
+      <arg name="inner_paths" type="aay" direction="in" />
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="password" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- destination: the archive file (a taken name gets a "(copy)" name). format: zip, 7z, tar.gz, tar.xz,
+         tar.zst; only zip (AES-256) and 7z take a password (names stay readable). -->
+    <method name="Compress">
+      <arg name="sources" type="aay" direction="in" />
+      <arg name="destination" type="ay" direction="in" />
+      <arg name="format" type="s" direction="in" />
+      <arg name="password" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- Bits: mode where mask is set; on folders, open (x) follows read. recursive: also everything inside
+         folders. Links are left alone. Undo puts the old bits back. -->
+    <method name="SetPermissions">
+      <arg name="targets" type="aay" direction="in" />
+      <arg name="mode" type="u" direction="in" />
+      <arg name="mask" type="u" direction="in" />
+      <arg name="recursive" type="b" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- Tags in the xattr user.xdg.tags. mode: set (exactly these), add or remove. A tag has no comma. Undo restores each old value. -->
+    <method name="SetTags">
+      <arg name="targets" type="aay" direction="in" />
+      <arg name="tags" type="as" direction="in" />
+      <arg name="mode" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- algorithm: sha256 or md5. A job (DoneBytes, Cancel); the hex digest lands in the job's Result. -->
+    <method name="Checksum">
+      <arg name="path" type="ay" direction="in" />
+      <arg name="algorithm" type="s" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- A job on one file system; its Result is JSON: root, total, categories [[name, bytes]], largest
+         [[path, bytes]], trash, caches, old_downloads, old_download_items [[path, bytes]], scanned_at. A scan younger
+         than 10 min is reused unless fresh. Bytes are on disk; hard links count once. -->
+    <method name="StorageScan">
+      <arg name="root" type="ay" direction="in" />
+      <arg name="fresh" type="b" direction="in" />
+      <arg name="job" type="o" direction="out" />
+    </method>
+    <!-- (path, bytes, is_dir) in path, largest first; folder sizes from the last StorageScan covering it. -->
+    <method name="StorageFolder">
+      <arg name="path" type="ay" direction="in" />
+      <arg name="items" type="a(aytb)" direction="out" />
     </method>
     <!-- A finished job undoes once; the undo job can be undone (redo). -->
     <method name="Undo">
@@ -35,6 +118,10 @@
   </interface>
   <interface name="org.andromeda.FileOps1.Job">
     <method name="Cancel" />
+    <!-- Only a running job pauses: State becomes paused at once, the work stops at its next chunk or item. -->
+    <method name="Pause" />
+    <!-- Only a paused job resumes. -->
+    <method name="Resume" />
     <!-- resolution: replace (files: old one to the trash; folders: merge), skip, keep_both -->
     <method name="ResolveConflict">
       <arg name="resolution" type="s" direction="in" />
@@ -42,16 +129,24 @@
     </method>
     <!-- (source, existing target) while State = conflict -->
     <property name="Conflict" type="(ayay)" access="read" />
+    <!-- (k, m): the conflict question asked now (1-based, 0 before the first) and how many the job asks when every
+         folder clash merges (0 = unknown) -->
+    <property name="ConflictProgress" type="(tt)" access="read" />
+    <!-- While a folder clashes with a folder: (new, same, different, up to 20 differing (path inside, hint)); same =
+         equal size and mtime; a hint reads like "newer here, larger there". All empty otherwise. -->
+    <property name="FolderClash" type="(ttta(ays))" access="read" />
     <property name="Current" type="ay" access="read" />
     <property name="DoneBytes" type="t" access="read" />
     <property name="DoneFiles" type="t" access="read" />
     <property name="Error" type="s" access="read" />
-    <!-- copy, move, trash, delete, restore, undo -->
+    <!-- copy, move, trash, delete, restore, undo, rename, new_folder, link, extract, compress, permissions, tags, checksum, storage_scan -->
     <property name="Kind" type="s" access="read" />
-    <!-- running, conflict, done, failed, cancelled -->
+    <!-- running, paused, conflict, done, failed, cancelled -->
     <property name="State" type="s" access="read" />
     <property name="TotalBytes" type="t" access="read" />
     <property name="TotalFiles" type="t" access="read" />
     <property name="Undoable" type="b" access="read" />
+    <!-- A finished checksum job: the hex digest. Empty for other jobs. -->
+    <property name="Result" type="s" access="read" />
   </interface>
 </node>

@@ -25,10 +25,12 @@ if get_option('buildtype') != 'release'
 endif
 
 _desk_app_dep = subproject('libdesk-app').get_variable('desk_app_dep')
+_gio_unix_dep = dependency('gio-unix-2.0') # GUnixMountMonitor, GDesktopAppInfo
 _warnings = ['-Wall', '-Wextra', '-Wno-missing-field-initializers', '-Wpedantic', '-Wconversion', '-Wshadow']
 
 _files_lib = static_library('files_core',
-  sources: files('src/trash.cpp'),
+  sources: files('src/trash.cpp', 'src/archive_listing.cpp', 'src/permission_access.cpp', 'src/server_url.cpp',
+    'src/tags.cpp'),
   dependencies: _desk_app_dep,
   cpp_args: _warnings,
 )
@@ -36,17 +38,39 @@ _files_lib = static_library('files_core',
 executable('andromeda-files',
   sources: files(
     'src/files_app.cpp',
+    'src/batch_rename_sheet.cpp',
+    'src/compress_sheet.cpp',
+    'src/extract_sheet.cpp',
+    'src/get_info_sheet.cpp',
+    'src/starred.cpp',
+    'src/terminal.cpp',
+    'src/storage_page.cpp',
+    'src/network_page.cpp',
+    'src/conflict_sheet.cpp',
+    'src/connect_sheet.cpp',
+    'src/details_pane.cpp',
+    'src/job_pill.cpp',
     'src/files_window.cpp',
     'src/files_window_picker.cpp',
+    'src/app_chooser_portal.cpp',
+    'src/app_chooser_sheet.cpp',
     'src/picker_portal.cpp',
+    'src/portal_sheets.cpp',
+    'src/system_portals.cpp',
     'src/main.cpp',
   ),
   link_with: _files_lib,
-  dependencies: _desk_app_dep,
+  dependencies: [_desk_app_dep, _gio_unix_dep],
   cpp_args: _warnings,
   install: true,
 )
 
+test('permission_access', executable('permission_access_test', 'tests/permission_access_test.cpp',
+  link_with: _files_lib, dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
+test('archive_listing', executable('archive_listing_test', 'tests/archive_listing_test.cpp', link_with: _files_lib,
+  dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
+test('server_url', executable('server_url_test', 'tests/server_url_test.cpp', link_with: _files_lib,
+  dependencies: _desk_app_dep, include_directories: include_directories('src'), cpp_args: _warnings))
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
 

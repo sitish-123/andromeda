@@ -89,6 +89,27 @@ action picker.accept
 wait_for "the picker window stayed open after Save" unmapped
 echo "PASS save"
 
+# Portal choices come back as chosen (a pop keeps its default, a check its value), and a Save with no folder from the
+# caller starts where this app saved last.
+impl() { # name, method, app id, [folder]
+  local name=$1; shift
+  run "${env_all[@]}" python3 "$ROOT/tests/e2e/filechooser_impl_call.py" "$@" > "$OUT/client-$name.log" 2>&1 &
+  wait_for "the picker window did not map ($name)" mapped
+  run "$ANDROMEDA" settle > /dev/null
+}
+impl choices1 SaveFile org.test.Editor "$DOCS"
+action picker.name "[<'one.txt'>]"
+action picker.accept
+[[ $(result choices1) == "RESULT 0 file://$DOCS/one.txt quality=low,readonly=true" ]] \
+  || fail "choices came back as: $(result choices1)"
+wait_for "the picker window stayed open after the choices Save" unmapped
+impl remembered SaveFile org.test.Editor
+action picker.name "[<'two.txt'>]"
+action picker.accept
+[[ $(result remembered) == "RESULT 0 file://$DOCS/two.txt quality=low,readonly=true" ]] \
+  || fail "a Save with no folder did not start in the app's last folder: $(result remembered)"
+echo "PASS choices + last folder per app"
+
 client cancel open "$DOCS"
 action picker.cancel
 [[ $(result cancel) == CANCELLED* ]] || fail "Cancel returned: $(result cancel)"

@@ -54,6 +54,10 @@ public:
     return std::nullopt;
   }
 
+  // A primary press on empty space (canvas coordinates, scroll included). Return true to capture the press: the
+  // drag then reaches onPointerDrag and the release onPointerRelease (rubber-band selection).
+  virtual bool onEmptyPointerPress(float /*localX*/, float /*localY*/) { return false; }
+
   // Return true when an overlay consumed the press.
   virtual bool onPointerPress(
       std::size_t /*index*/, float /*cellLocalX*/, float /*cellLocalY*/, float /*cellWidth*/, float /*cellHeight*/
@@ -118,6 +122,8 @@ public:
 
   void setColumns(std::size_t columns); // 0 = auto from minCellWidth.
   void setMinCellWidth(float width);    // Used when columns == 0.
+  // Auto columns keep minCellWidth wide and pack from the leading edge; the rest of the row stays empty.
+  void setFixedCellWidth(bool fixed);
   // Columns of the last layout (auto or fixed); keyboard navigation moves by this many per row.
   [[nodiscard]] std::size_t layoutColumns() const noexcept { return m_layoutColumns; }
   void setCellHeight(float height);     // Required unless squareCells is set.
@@ -140,6 +146,13 @@ public:
   [[nodiscard]] bool absoluteAnchorForIndex(std::size_t index, float& outX, float& outY) const noexcept;
   // The pooled cell node bound to item `index`; nullptr while the item is not on screen.
   [[nodiscard]] Node* nodeForIndex(std::size_t index) const noexcept;
+  // Items whose cells intersect the rectangle (canvas coordinates, scroll included), in index order.
+  [[nodiscard]] std::vector<std::size_t> indicesInRect(float x0, float y0, float x1, float y1) const;
+  // A rubber band drawn over the cells (canvas coordinates); nullopt hides it.
+  void setBandRect(std::optional<LayoutRect> rect);
+  // The item under a scene point; nullopt over a gap, past the items or outside the view.
+  [[nodiscard]] std::optional<std::size_t> indexAtScene(float sceneX, float sceneY) const;
+  [[nodiscard]] bool containsScene(float sceneX, float sceneY) const;
   // Items to move for a Page Up/Down step (one viewport of rows, at least one item).
   [[nodiscard]] std::size_t pageItemStride() const noexcept;
   // Column count from the most recent layout pass (for keyboard navigation).
@@ -187,6 +200,8 @@ private:
 
   ScrollView* m_scroll = nullptr;
   Canvas* m_canvas = nullptr;
+  float m_canvasHeight = 0.0F; // max(content, viewport) unless paged
+  Node* m_band = nullptr;
   InputArea* m_inputArea = nullptr;
 
   VirtualGridAdapter* m_adapter = nullptr;
@@ -199,6 +214,7 @@ private:
 
   std::size_t m_columns = 0;
   float m_minCellWidth = 96.0F;
+  bool m_fixedCellWidth = false;
   float m_cellHeight = 96.0F;
   bool m_squareCells = true;
   float m_columnGap = 4.0F;

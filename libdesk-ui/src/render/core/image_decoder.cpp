@@ -394,6 +394,28 @@ std::expected<DecodedRasterImage, std::string> decodeRasterImage(const std::uint
   return decoded;
 }
 
+std::expected<DecodedRasterImage, std::string> decodeWebPImage(const std::uint8_t* data, std::size_t size) {
+  if ((data == nullptr) || !isWebP(data, size)) {
+    return std::unexpected("not a WebP image");
+  }
+  auto decoded = decodeWebP(data, size);
+  if (decoded) {
+    applyImageOrientation(decoded->pixels, decoded->width, decoded->height, exifOrientation(data, size));
+  }
+  return decoded;
+}
+
+std::expected<DecodedRasterImage, std::string> decodeWuffsImage(const std::uint8_t* data, std::size_t size) {
+  if ((data == nullptr) || (size == 0)) {
+    return std::unexpected("empty image buffer");
+  }
+  auto decoded = decodeWuffs(data, size);
+  if (decoded) {
+    applyImageOrientation(decoded->pixels, decoded->width, decoded->height, exifOrientation(data, size));
+  }
+  return decoded;
+}
+
 namespace {
 
   bool isGif(const std::uint8_t* data, std::size_t size) {

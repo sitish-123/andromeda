@@ -122,6 +122,147 @@ void FileOpsClient::move(const std::vector<std::filesystem::path>& sources, cons
   start("Move", [&](auto& c) { c.withArguments(bytesList(sources), bytes(destDir)); }, std::move(done));
 }
 
+void FileOpsClient::rename(const std::filesystem::path& path, const std::string& name, Started done) {
+  start("Rename", [&](auto& c) { c.withArguments(bytes(path), name); }, std::move(done));
+}
+
+void FileOpsClient::renameMany(const std::vector<std::pair<std::filesystem::path, std::string>>& items, Started done) {
+  std::vector<sdbus::Struct<Bytes, std::string>> args;
+  for (const auto& [path, name] : items) {
+    args.emplace_back(bytes(path), name);
+  }
+  start("RenameMany", [&](auto& c) { c.withArguments(args); }, std::move(done));
+}
+
+void FileOpsClient::newFolder(const std::filesystem::path& destDir, const std::string& name, Started done) {
+  start("NewFolder", [&](auto& c) { c.withArguments(bytes(destDir), name); }, std::move(done));
+}
+
+void FileOpsClient::link(const std::vector<std::filesystem::path>& sources, const std::filesystem::path& destDir, Started done) {
+  start("Link", [&](auto& c) { c.withArguments(bytesList(sources), bytes(destDir)); }, std::move(done));
+}
+
+void FileOpsClient::listArchive(const std::filesystem::path& archive, ArchiveListed done) {
+  std::weak_ptr<bool> alive = m_alive;
+  try {
+    m_manager->callMethodAsync("ListArchive")
+        .onInterface(kInterface)
+        .withArguments(bytes(archive))
+        .uponReplyInvoke([alive, done = std::move(done)](
+                             std::optional<sdbus::Error> error,
+                             std::vector<sdbus::Struct<Bytes, std::string, std::int64_t, std::uint64_t, bool>> raw
+                         ) {
+          if (alive.expired() || !done) {
+            return;
+          }
+          if (error.has_value()) {
+            done({}, error->getMessage(), error->getName() == "org.andromeda.FileOps1.Error.PasswordNeeded");
+            return;
+          }
+          std::vector<ArchiveEntry> entries;
+          entries.reserve(raw.size());
+          for (const auto& [path, kind, size, mtime, isDir] : raw) {
+            entries.push_back({.path = pathFrom(path), .kind = kind, .size = size, .mtime = mtime, .isDir = isDir});
+          }
+          done(std::move(entries), {}, false);
+        });
+  } catch (const sdbus::Error& e) {
+    if (done) {
+      done({}, e.getMessage(), false);
+    }
+  }
+}
+
+void FileOpsClient::extract(const std::filesystem::path& archive, const std::vector<std::filesystem::path>& innerPaths,
+                            const std::filesystem::path& destDir, const std::string& password, Started done) {
+  start("Extract", [&](auto& c) { c.withArguments(bytes(archive), bytesList(innerPaths), bytes(destDir), password); },
+        std::move(done));
+}
+
+void FileOpsClient::compress(const std::vector<std::filesystem::path>& sources, const std::filesystem::path& archive,
+                             const std::string& format, const std::string& password, Started done) {
+  start("Compress", [&](auto& c) { c.withArguments(bytesList(sources), bytes(archive), format, password); },
+        std::move(done));
+}
+
+void FileOpsClient::setPermissions(const std::vector<std::filesystem::path>& targets, std::uint32_t mode,
+                                   std::uint32_t mask, bool recursive, Started done) {
+  start("SetPermissions", [&](auto& c) { c.withArguments(bytesList(targets), mode, mask, recursive); }, std::move(done));
+}
+
+void FileOpsClient::setTags(const std::vector<std::filesystem::path>& targets, const std::vector<std::string>& tags,
+                            const std::string& mode, Started done) {
+  start("SetTags", [&](auto& c) { c.withArguments(bytesList(targets), tags, mode); }, std::move(done));
+}
+
+void FileOpsClient::checksum(const std::filesystem::path& path, const std::string& algorithm, Started started,
+                             std::function<void(const std::string& hex, const std::string& error)> finished) {
+  startWithResult("Checksum", [&](auto& c) { c.withArguments(bytes(path), algorithm); }, std::move(started),
+                  std::move(finished));
+}
+
+void FileOpsClient::storageScan(const std::filesystem::path& root, bool fresh, Started started,
+                                std::function<void(const std::string& json, const std::string& error)> finished) {
+  startWithResult("StorageScan", [&](auto& c) { c.withArguments(bytes(root), fresh); }, std::move(started),
+                  std::move(finished));
+}
+
+void FileOpsClient::storageFolder(const std::filesystem::path& folder, FolderSizes done) {
+  std::weak_ptr<bool> alive = m_alive;
+  try {
+    m_manager->callMethodAsync("StorageFolder")
+        .onInterface(kInterface)
+        .withArguments(bytes(folder))
+        .uponReplyInvoke([alive, done = std::move(done)](std::optional<sdbus::Error> error,
+                                                         std::vector<sdbus::Struct<Bytes, std::uint64_t, bool>> raw) {
+          if (alive.expired() || !done) {
+            return;
+          }
+          if (error.has_value()) {
+            done({}, error->getMessage());
+            return;
+          }
+          std::vector<SizedPath> items;
+          items.reserve(raw.size());
+          for (const auto& [path, size, isDir] : raw) {
+            items.push_back({.path = pathFrom(path), .bytes = size, .isDir = isDir});
+          }
+          done(std::move(items), {});
+        });
+  } catch (const sdbus::Error& e) {
+    if (done) {
+      done({}, e.getMessage());
+    }
+  }
+}
+
+void FileOpsClient::startWithResult(const char* method, std::function<void(sdbus::AsyncMethodInvoker&)> args,
+                                    Started started,
+                                    std::function<void(const std::string& result, const std::string& error)> finished) {
+  start(
+      method, std::move(args),
+      [this, started = std::move(started), finished = std::move(finished)](const std::string& job, const std::string& error) {
+        if (started) {
+          started(job, error);
+        }
+        if (job.empty()) {
+          if (finished) {
+            finished({}, error);
+          }
+          return;
+        }
+        m_finishWaiters[job] = [finished](const Job& j) {
+          if (finished) {
+            finished(j.state == "done" ? j.result : std::string(), j.state == "done" ? std::string() : j.error.empty() ? j.state : j.error);
+          }
+        };
+        // The job may have settled before this reply came back.
+        if (const Job* j = this->job(job); j != nullptr && j->finished() && !m_settling.contains(job)) {
+          notify(*j);
+        }
+      });
+}
+
 void FileOpsClient::trash(const std::vector<std::filesystem::path>& sources, Started done) {
   start("Trash", [&](auto& c) { c.withArguments(bytesList(sources)); }, std::move(done));
 }
@@ -145,6 +286,26 @@ void FileOpsClient::undo(const std::string& jobPath, Started done) {
 void FileOpsClient::cancel(const std::string& jobPath) {
   if (const auto it = m_jobProxies.find(jobPath); it != m_jobProxies.end()) {
     it->second->callMethodAsync("Cancel").onInterface(kJobInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
+  }
+}
+
+void FileOpsClient::pause(const std::string& jobPath) {
+  if (const auto it = m_jobProxies.find(jobPath); it != m_jobProxies.end()) {
+    it->second->callMethodAsync("Pause").onInterface(kJobInterface).uponReplyInvoke([jobPath](std::optional<sdbus::Error> error) {
+      if (error.has_value()) {
+        kLog.warn("Pause on {} failed: {}", jobPath, error->getMessage());
+      }
+    });
+  }
+}
+
+void FileOpsClient::resume(const std::string& jobPath) {
+  if (const auto it = m_jobProxies.find(jobPath); it != m_jobProxies.end()) {
+    it->second->callMethodAsync("Resume").onInterface(kJobInterface).uponReplyInvoke([jobPath](std::optional<sdbus::Error> error) {
+      if (error.has_value()) {
+        kLog.warn("Resume on {} failed: {}", jobPath, error->getMessage());
+      }
+    });
   }
 }
 
@@ -236,6 +397,13 @@ void FileOpsClient::refresh(const std::string& path) {
 }
 
 void FileOpsClient::notify(const Job& job) {
+  if (job.finished() && !m_settling.contains(job.path)) {
+    if (auto it = m_finishWaiters.find(job.path); it != m_finishWaiters.end()) {
+      auto waiter = std::move(it->second);
+      m_finishWaiters.erase(it);
+      waiter(job);
+    }
+  }
   if (m_onJobChanged) {
     m_onJobChanged(job);
   }
@@ -258,6 +426,7 @@ void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>&
   read("DoneBytes", job.doneBytes);
   read("Error", job.error);
   read("Undoable", job.undoable);
+  read("Result", job.result);
   if (const auto it = props.find("Current"); it != props.end()) {
     job.current = pathFrom(it->second.get<Bytes>());
   }
@@ -266,6 +435,30 @@ void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>&
     const auto& [source, target] = pair;
     job.conflict = source.empty() ? std::nullopt
                                   : std::optional{std::pair{pathFrom(source), pathFrom(target)}};
+  }
+  if (const auto it = props.find("ConflictProgress"); it != props.end()) {
+    try {
+      const auto [index, total] = it->second.get<sdbus::Struct<std::uint64_t, std::uint64_t>>();
+      job.conflictIndex = index;
+      job.conflictTotal = total;
+    } catch (const sdbus::Error&) {
+    }
+  }
+  if (const auto it = props.find("FolderClash"); it != props.end()) {
+    try {
+      const auto clash =
+          it->second.get<sdbus::Struct<std::uint64_t, std::uint64_t, std::uint64_t, std::vector<sdbus::Struct<Bytes, std::string>>>>();
+      const auto& [fresh, same, different, names] = clash;
+      job.folderClash.reset();
+      if (fresh + same + different > 0) {
+        Job::FolderClash out{.newFiles = fresh, .sameFiles = same, .differentFiles = different, .different = {}};
+        for (const auto& [path, hint] : names) {
+          out.different.emplace_back(pathFrom(path), hint);
+        }
+        job.folderClash = std::move(out);
+      }
+    } catch (const sdbus::Error&) {
+    }
   }
   if (notifyChange) {
     notify(job);

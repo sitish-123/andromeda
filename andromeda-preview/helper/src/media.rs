@@ -448,6 +448,114 @@ impl Media {
     pub fn release(&mut self, id: u32) {
         self.held.remove(&id);
     }
+
+    /// A frame at 10 % of the video fitted in a `size` x `size` box, as PNG (the freedesktop thumbnailer contract).
+    /// The pipeline was prepared without VA, so the frame is BGRx in memory.
+    ///
+    /// # Errors
+    /// `ERR_DECODE` without a video stream or a frame, `ERR_TOO_LARGE` over `MAX_THUMBNAIL`.
+    pub fn thumbnail_png(&mut self, size: u32, out: &mut impl std::io::Write) -> Result<(), u32> {
+        if size == 0 || size > crate::decode::MAX_THUMBNAIL {
+            return Err(crate::proto::ERR_TOO_LARGE);
+        }
+        let sink = self.sink.clone().ok_or(ERR_DECODE)?;
+        if let Some(duration) = self.pipeline.query_duration::<gst::ClockTime>()
+            && duration > gst::ClockTime::ZERO
+        {
+            // Accurate: a key-unit seek lands on the first keyframe, often the title or black frame at 0.
+            let _ = self.pipeline.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, duration / 10);
+            let _ = self.pipeline.state(gst::ClockTime::from_seconds(5));
+        }
+        let sample = sink.try_pull_preroll(gst::ClockTime::from_seconds(5)).ok_or(ERR_DECODE)?;
+        let info = gstreamer_video::VideoInfo::from_caps(sample.caps().ok_or(ERR_DECODE)?).map_err(|_| ERR_DECODE)?;
+        if info.format() != gstreamer_video::VideoFormat::Bgrx {
+            return Err(ERR_DECODE);
+        }
+        let map = sample.buffer().ok_or(ERR_DECODE)?.map_readable().map_err(|_| ERR_DECODE)?;
+        let (w, h) = (i32::try_from(info.width()).map_err(|_| ERR_DECODE)?, i32::try_from(info.height()).map_err(|_| ERR_DECODE)?);
+        let stride = info.stride()[0];
+        let needed = usize::try_from(stride).map_err(|_| ERR_DECODE)? * usize::try_from(h).map_err(|_| ERR_DECODE)?;
+        if w <= 0 || h <= 0 || stride < w * 4 || map.len() < needed {
+            return Err(ERR_DECODE);
+        }
+        // BGRx in little-endian memory is cairo's RGB24.
+        let frame = cairo::ImageSurface::create_for_data(map.as_slice()[..needed].to_vec(), cairo::Format::Rgb24, w, h, stride)
+            .map_err(|_| ERR_DECODE)?;
+        let scale = f64::from(size) / f64::from(w.max(h));
+        #[allow(clippy::cast_possible_truncation)]
+        let (tw, th) = (((f64::from(w) * scale).round() as i32).max(1), ((f64::from(h) * scale).round() as i32).max(1));
+        let thumb = cairo::ImageSurface::create(cairo::Format::Rgb24, tw, th).map_err(|_| ERR_DECODE)?;
+        {
+            let cr = cairo::Context::new(&thumb).map_err(|_| ERR_DECODE)?;
+            cr.scale(scale, scale);
+            cr.set_source_surface(&frame, 0.0, 0.0).map_err(|_| ERR_DECODE)?;
+            cr.source().set_filter(cairo::Filter::Good);
+            cr.paint().map_err(|_| ERR_DECODE)?;
+        }
+        thumb.write_to_png(out).map_err(|_| ERR_DECODE)
+    }
+
+    /// The waveform: `count` buckets of the loudest sample, from a full decode with no clock (sync off).
+    ///
+    /// # Errors
+    /// `ERR_BAD_REQUEST` without audio, after playback started, or for a count out of range; `ERR_DECODE` when
+    /// the stream stalls.
+    pub fn peaks(&mut self, count: u32) -> Result<(Msg, OwnedFd), u32> {
+        let (Some(sink), None) = (self.audio.clone(), self.audio_thread.as_ref()) else {
+            return Err(ERR_BAD_REQUEST);
+        };
+        if count == 0 || count > crate::proto::MAX_PEAKS || self.playing {
+            return Err(ERR_BAD_REQUEST);
+        }
+        // One maximum per block of frames first: the length is known only at the end of the stream.
+        const BLOCK: usize = 1024;
+        // 6 hours of 48 kHz audio; a longer file shows its first 6 hours.
+        const MAX_BLOCKS: usize = 6 * 3600 * 48_000 / BLOCK;
+        let mut blocks: Vec<f32> = Vec::new();
+        let (mut current, mut in_block) = (0.0f32, 0usize);
+        sink.set_property("drop", false);
+        self.play()?;
+        loop {
+            let Some(sample) = sink.try_pull_sample(gst::ClockTime::from_seconds(5)) else {
+                if sink.is_eos() {
+                    break;
+                }
+                return Err(ERR_DECODE);
+            };
+            let Some(buffer) = sample.buffer() else { continue };
+            let Ok(map) = buffer.map_readable() else { continue };
+            // F32LE stereo: 8 bytes a frame.
+            for frame in map.as_slice().chunks_exact(8) {
+                let l = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]).abs();
+                let r = f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]).abs();
+                current = current.max(l.max(r));
+                in_block += 1;
+                if in_block == BLOCK {
+                    blocks.push(current);
+                    (current, in_block) = (0.0, 0);
+                }
+            }
+            if blocks.len() >= MAX_BLOCKS {
+                break;
+            }
+        }
+        if in_block > 0 {
+            blocks.push(current);
+        }
+        let n = count as usize;
+        let mut out = vec![0u8; n];
+        if !blocks.is_empty() {
+            for (i, peak) in out.iter_mut().enumerate() {
+                let (from, to) = (i * blocks.len() / n, ((i + 1) * blocks.len() / n).max(i * blocks.len() / n + 1));
+                let loud = blocks[from.min(blocks.len() - 1)..to.min(blocks.len())].iter().copied().fold(0.0f32, f32::max);
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                {
+                    *peak = (loud.clamp(0.0, 1.0) * 255.0).round() as u8;
+                }
+            }
+        }
+        Ok((Msg::new(crate::proto::OP_PEAKS_REPLY, count, 0, 0, 0), crate::decode::sealed("preview-peaks", &out)?))
+    }
 }
 
 #[allow(unsafe_code)]

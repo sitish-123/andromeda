@@ -18,7 +18,9 @@ namespace {
   TOKENS_LIVE(kItemHeight, Tokens::componentMenuItem);
   constexpr float kSeparatorHeight = 10.0F;
   constexpr float kItemGap = 0.0F;
-  TOKENS_LIVE(kMenuFontSize, Style::fontSizeCaption);
+  // Rulebook 9.9: items in body type, shortcuts one step down in footnote.
+  TOKENS_LIVE(kMenuFontSize, Style::fontSizeBody);
+  TOKENS_LIVE(kShortcutFontSize, Style::fontSizeCaption);
   TOKENS_LIVE(kMenuGlyphSize, Style::fontSizeCaption - 1.0F);
   // Leading check/radio column: the glyph plus a small gap before the label (or leading visual).
   TOKENS_LIVE(kToggleSlot, kMenuGlyphSize + Style::spaceXs);
@@ -233,8 +235,14 @@ float ContextMenuControl::preferredWidth(
     const float textWidth = std::ceil(renderer.measureText(entry.label, kMenuFontSize * scale, {weight}).width);
     // Mirrors rebuildRows: 8px label inset each side, 30px right when a chevron is drawn.
     const float sidePadding = (entry.hasSubmenu ? 30.0F : 16.0F) * scale;
+    const float shortcutSlot = entry.shortcut.empty() || entry.header
+        ? 0.0F
+        : std::ceil(renderer.measureText(entry.shortcut, kShortcutFontSize * scale, {FontWeight::Normal}).width)
+            + Style::spaceLg * scale;
     maxRowWidth = std::max(
-        maxRowWidth, textWidth + entryIndent(entry, scale) + toggleSlot + leadingVisualSlot(entry, scale) + sidePadding
+        maxRowWidth,
+        textWidth + entryIndent(entry, scale) + toggleSlot + leadingVisualSlot(entry, scale) + shortcutSlot
+            + sidePadding
     );
   }
   return maxRowWidth + kMenuPadding * scale * 2.0F;
@@ -365,6 +373,23 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
         row->addChild(std::move(glyph));
       }
 
+      float shortcutSlot = 0.0F;
+      if (!entry.shortcut.empty() && !entry.header) {
+        auto shortcut = ui::label({
+            .text = entry.shortcut,
+            .fontSize = kShortcutFontSize * scale,
+            .color = colorSpecFromRole(ColorRole::Label3),
+            .maxLines = 1,
+        });
+        shortcut->measure(renderer);
+        const float trailing = (entry.hasSubmenu ? 30.0F : 8.0F) * scale;
+        shortcut->setPosition(
+            std::round(rowWidth - trailing - shortcut->width()), (rowHeight - shortcut->height()) * 0.5F
+        );
+        shortcutSlot = shortcut->width() + Style::spaceLg * scale;
+        row->addChild(std::move(shortcut));
+      }
+
       const float leadingSlot = leadingVisualSlot(entry, scale);
       if (!entry.swatchPreview.empty()) {
         auto strip = std::make_unique<ColorSwatchPreviewStrip>();
@@ -393,8 +418,8 @@ void ContextMenuControl::rebuildRows(Renderer& renderer) {
           .color = entry.header ? colorSpecFromRole(ColorRole::Label2)
               : entry.enabled   ? enabledItemColor()
                                 : disabledItemColor(),
-          .maxWidth = entry.hasSubmenu ? (rowWidth - 30.0F * scale - indent - toggleSlot - leadingSlot)
-                                       : (rowWidth - 16.0F * scale - indent - toggleSlot - leadingSlot),
+          .maxWidth = entry.hasSubmenu ? (rowWidth - 30.0F * scale - indent - toggleSlot - leadingSlot - shortcutSlot)
+                                       : (rowWidth - 16.0F * scale - indent - toggleSlot - leadingSlot - shortcutSlot),
           .maxLines = 1,
           .ellipsize = entry.ellipsize,
       });

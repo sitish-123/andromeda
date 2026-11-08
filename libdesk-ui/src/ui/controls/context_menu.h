@@ -20,11 +20,15 @@ enum class ContextSubmenuDirection : std::uint8_t {
 struct ContextMenuControlEntry {
   std::int32_t id = 0;
   std::string label;
+  // Trailing key text in label_3 ("Ctrl+Shift+Z").
+  std::string shortcut;
   bool enabled = true;
   bool separator = false;
   // Non-interactive group heading; entries below it read as members of the group.
   bool header = false;
   bool hasSubmenu = false;
+  // Rows of a submenu ContextMenuPopup opens itself beside this row (with hasSubmenu).
+  std::vector<ContextMenuControlEntry> children;
   bool checkmark = false;
   bool radio = false;
   std::int32_t toggleState = -1;

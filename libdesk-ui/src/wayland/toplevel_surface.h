@@ -10,6 +10,7 @@ struct wl_array;
 struct wl_output;
 struct xdg_surface;
 struct xdg_toplevel;
+struct zxdg_toplevel_decoration_v1;
 
 struct ToplevelSurfaceConfig {
   std::uint32_t width = 720;
@@ -50,6 +51,9 @@ public:
   // On the output the compositor picks.
   void setFullscreen(bool fullscreen);
   void setMinimized();
+  // A floating window picks its own size (xdg-shell lets the client choose while the compositor sends 0 x 0). False
+  // when the compositor sizes the window (maximized, fullscreen, tiled with a size) or before the first configure.
+  bool requestWindowSize(std::uint32_t width, std::uint32_t height);
   void showWindowMenu(std::uint32_t serial, std::int32_t x, std::int32_t y);
   // Called after a configure whose states differ from the last one.
   void setStateCallback(std::function<void(const ToplevelState&)> callback) { m_stateCallback = std::move(callback); }
@@ -75,6 +79,7 @@ private:
 
   xdg_surface* m_xdgSurface = nullptr;
   xdg_toplevel* m_toplevel = nullptr;
+  zxdg_toplevel_decoration_v1* m_decoration = nullptr;
   std::function<void()> m_closedCallback;
   std::function<void(const ToplevelState&)> m_stateCallback;
   ToplevelState m_state;

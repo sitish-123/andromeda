@@ -213,7 +213,7 @@ void DialogPopupHost::destroyPopup() {
   m_inputDispatcher.setTextInputContext(nullptr, nullptr);
   m_inputDispatcher.setSceneRoot(nullptr);
   // onSheetClose hook fires before scene tear-down so subclasses can run
-  // any sheet-specific cleanup (e.g. FileDialogView::onClose()) while their
+  // any sheet-specific cleanup (e.g. FileDialogSheet::onClose()) while their
   // sheet pointer is still wired into the scene.
   if (m_sceneRoot != nullptr || m_surface != nullptr) {
     onSheetClose();

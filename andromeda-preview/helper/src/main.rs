@@ -1,7 +1,8 @@
-//! `andromeda-preview-helper <pdf|text|media|media-sw> <path>`, started by `andromeda-preview` with a `SOCK_SEQPACKET` socket
+//! `andromeda-preview-helper <pdf|text|font|media|media-sw> <path>`, started by `andromeda-preview` with a `SOCK_SEQPACKET` socket
 //! on fd 3, an empty environment apart from HOME and `XDG_CACHE_HOME`, and no other fds.
-//! `andromeda-preview-helper thumbnail <size> <input.pdf> <output.png>`: a freedesktop thumbnailer for PDFs
-//! (data/andromeda-pdf.thumbnailer), sandboxed the same way once both files are open.
+//! `andromeda-preview-helper thumbnail[-video|-font] <size> <input> <output.png>`: freedesktop thumbnailers for PDFs,
+//! videos (a frame at 10 %) and fonts (data/andromeda-{pdf,video,font}.thumbnailer), sandboxed the same way once both
+//! files are open.
 
 use andromeda_preview_helper::{Source, decode, sandbox, serve};
 use std::os::fd::{FromRawFd, OwnedFd};
@@ -15,14 +16,32 @@ fn socket() -> OwnedFd {
     unsafe { OwnedFd::from_raw_fd(SOCKET_FD) }
 }
 
-fn thumbnail(size: &str, input: &str, output: &str) -> ExitCode {
+/// What a thumbnail mode makes: the PDF first page, a video frame, or a font's "Aa".
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Thumb {
+    Pdf,
+    Video,
+    Font,
+}
+
+fn thumbnail(kind: Thumb, size: &str, input: &str, output: &str) -> ExitCode {
     let Ok(size) = size.parse::<u32>() else { return ExitCode::from(2) };
-    let file = match std::fs::File::open(input) {
+    let mut file = match std::fs::File::open(input) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("andromeda-preview-helper: open: {e}");
             return ExitCode::from(1);
         }
+    };
+    // Before the sandbox: the font bytes (no reads after it), the GStreamer registry and pipeline.
+    let font_bytes = if kind == Thumb::Font { andromeda_preview_helper::font::Font::read(&mut file).ok() } else { None };
+    let pipeline = if kind == Thumb::Video {
+        if andromeda_preview_helper::media::init().is_err() {
+            return ExitCode::from(1);
+        }
+        Some(andromeda_preview_helper::media::Media::prepare(false))
+    } else {
+        None
     };
     // create_new: never write through a file or link already at the output path.
     let mut out = match std::fs::OpenOptions::new().write(true).create_new(true).open(output) {
@@ -32,11 +51,22 @@ fn thumbnail(size: &str, input: &str, output: &str) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    if let Err(e) = sandbox::enter(sandbox::Profile::Document) {
+    let profile = if kind == Thumb::Video { sandbox::Profile::Media } else { sandbox::Profile::Document };
+    if let Err(e) = sandbox::enter(profile) {
         eprintln!("andromeda-preview-helper: sandbox: {e}");
         return ExitCode::from(1);
     }
-    let made = decode::Pdf::open(file).and_then(|pdf| pdf.thumbnail_png(size, &mut out));
+    let made = match kind {
+        Thumb::Pdf => decode::Pdf::open(file).and_then(|pdf| pdf.thumbnail_png(size, &mut out)),
+        Thumb::Font => font_bytes
+            .ok_or(0)
+            .and_then(andromeda_preview_helper::font::Font::open)
+            .and_then(|font| font.thumbnail_png(size, &mut out)),
+        Thumb::Video => pipeline
+            .ok_or(0)
+            .and_then(|p| andromeda_preview_helper::media::Media::open(p, file))
+            .and_then(|mut media| media.thumbnail_png(size, &mut out)),
+    };
     match made.and_then(|()| std::io::Write::flush(&mut out).map_err(|_| 0)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(code) => {
@@ -48,13 +78,19 @@ fn thumbnail(size: &str, input: &str, output: &str) -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if let [_, mode, size, input, output] = args.as_slice()
-        && mode == "thumbnail"
-    {
-        return thumbnail(size, input, output);
+    if let [_, mode, size, input, output] = args.as_slice() {
+        let kind = match mode.as_str() {
+            "thumbnail" => Some(Thumb::Pdf),
+            "thumbnail-video" => Some(Thumb::Video),
+            "thumbnail-font" => Some(Thumb::Font),
+            _ => None,
+        };
+        if let Some(kind) = kind {
+            return thumbnail(kind, size, input, output);
+        }
     }
     let [_, kind, path] = args.as_slice() else {
-        eprintln!("usage: andromeda-preview-helper <pdf|text|media|media-sw> <path>");
+        eprintln!("usage: andromeda-preview-helper <pdf|text|font|media|media-sw> <path>");
         return ExitCode::from(2);
     };
     let sock = socket();
@@ -64,13 +100,15 @@ fn main() -> ExitCode {
         eprintln!("andromeda-preview-helper: no socket on fd 3");
         return ExitCode::from(2);
     }
-    let file = match std::fs::File::open(path) {
+    let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("andromeda-preview-helper: open: {e}");
             return ExitCode::from(1);
         }
     };
+    // A font is read whole before the sandbox; FreeType parses it after.
+    let font_bytes = if kind == "font" { andromeda_preview_helper::font::Font::read(&mut file).ok() } else { None };
     let profile = if kind == "media" || kind == "media-sw" { sandbox::Profile::Media } else { sandbox::Profile::Document };
     let mut pipeline = None;
     if profile == sandbox::Profile::Media {
@@ -86,6 +124,13 @@ fn main() -> ExitCode {
     }
     let source = match kind.as_str() {
         "text" => Source::Text(file),
+        "font" => match font_bytes.ok_or(0).and_then(andromeda_preview_helper::font::Font::open) {
+            Ok(font) => Source::Font(font),
+            Err(_) => {
+                eprintln!("andromeda-preview-helper: not a readable font");
+                return ExitCode::from(1);
+            }
+        },
         "pdf" => if let Ok(pdf) = decode::Pdf::open(file) { Source::Pdf(pdf) } else {
             eprintln!("andromeda-preview-helper: not a readable PDF");
             return ExitCode::from(1);

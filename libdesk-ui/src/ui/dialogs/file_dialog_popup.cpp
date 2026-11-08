@@ -22,10 +22,10 @@ bool FileDialogPopup::openFileDialog() {
     return false;
   }
 
-  // FileDialogView is constructed before openPopup so we can query its
+  // FileDialogSheet is constructed before openPopup so we can query its
   // preferred size and so that buildScene -> populateContent has a live
   // m_dialog to plug into the scene.
-  auto dialog = std::make_unique<FileDialogView>(m_thumbnails);
+  auto dialog = std::make_unique<FileDialogSheet>(m_thumbnails);
   dialog->setHost(this);
   dialog->setContentScale(uiScale());
 
@@ -66,10 +66,8 @@ void FileDialogPopup::cancelToFacade() { FileDialog::cancelIfPending(); }
 InputArea* FileDialogPopup::initialFocusArea() { return m_dialog != nullptr ? m_dialog->initialFocusArea() : nullptr; }
 
 float FileDialogPopup::computePadding(float /*scale*/) const {
-  // Track the dialog's own contentScale to match prior behavior; this
-  // happens to equal uiScale() in practice (set in openFileDialog) but
-  // staying consistent with FileDialogView's view of the world.
-  return m_dialog != nullptr ? m_dialog->contentScale() * 12.0F : 0.0F;
+  // The sheet draws its own sidebar to the edge.
+  return 0.0F;
 }
 
 void FileDialogPopup::runUpdatePhase() {
@@ -82,7 +80,7 @@ bool FileDialogPopup::preDispatchKeyboard(const KeyboardEvent& event) {
   if (m_dialog == nullptr) {
     return false;
   }
-  return m_dialog->handleGlobalKey(event.sym, event.modifiers, event.pressed, event.preedit, event.repeat);
+  return m_dialog->handleKey(event);
 }
 
 void FileDialogPopup::onSheetClose() {

@@ -129,6 +129,27 @@ int main() {
   auto missing = FileModel::open(root / "nope", watcher);
   expect(pump(watcher, [&] { return missing->status() == FileModel::Status::Missing; }), "a folder that never existed is missing");
 
+  // Over the inline-stat limit the stat runs after the names; a reload and a drop mid-stat must stay safe.
+  const fs::path big = root / "big";
+  fs::create_directories(big);
+  for (int i = 0; i < 1500; ++i) {
+    std::ofstream(big / ("f" + std::to_string(i)));
+  }
+  auto bigModel = FileModel::open(big, watcher);
+  expect(pump(watcher, [&] { return bigModel->status() == FileModel::Status::Ready; }), "the big listing finishes");
+  int resets = 0;
+  auto resetToken = bigModel->subscribe([&](const FileModel::Change& c) { resets += c.type == FileModel::Change::Type::Reset ? 1 : 0; });
+  bigModel->reload();
+  expect(pump(watcher, [&] { return resets == 1; }), "the reload publishes its names");
+  expect(bigModel->entries().size() == 1500, "the reload lists every file");
+  resetToken.reset();
+  bigModel.reset();
+  auto again = FileModel::open(big, watcher);
+  expect(pump(watcher, [&] { return again->status() == FileModel::Status::Ready && !again->statPending(); }),
+         "a new model of the folder finishes after the old one was dropped mid-stat");
+  expect(std::ranges::none_of(again->entries(), [](const auto& e) { return e->pendingStat; }), "every entry has its stat");
+  again.reset();
+
   fs::remove_all(root);
   return g_failures == 0 ? 0 : 1;
 }

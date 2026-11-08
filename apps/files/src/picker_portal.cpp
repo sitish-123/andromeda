@@ -18,6 +18,8 @@ namespace {
   using Options = std::map<std::string, sdbus::Variant>;
   using Pattern = sdbus::Struct<std::uint32_t, std::string>;
   using FilterStruct = sdbus::Struct<std::string, std::vector<Pattern>>;
+  using ChoiceOption = sdbus::Struct<std::string, std::string>;
+  using ChoiceStruct = sdbus::Struct<std::string, std::string, std::vector<ChoiceOption>, std::string>;
 
   // Portal byte strings carry a trailing NUL.
   std::filesystem::path fromBytes(const std::vector<std::uint8_t>& bytes) {
@@ -102,6 +104,16 @@ PickerPortal::PickerPortal(SessionBus& bus, RequestHandler onRequest, CloseHandl
       for (const auto& bytes : option<std::vector<std::vector<std::uint8_t>>>(options, "files").value_or({})) {
         r.files.push_back(fromBytes(bytes));
       }
+      for (const ChoiceStruct& c : option<std::vector<ChoiceStruct>>(options, "choices").value_or({})) {
+        Choice choice{.id = c.get<0>(), .label = c.get<1>(), .options = {}, .value = c.get<3>()};
+        for (const ChoiceOption& o : c.get<2>()) {
+          choice.options.emplace_back(o.get<0>(), o.get<1>());
+        }
+        if (choice.value.empty()) {
+          choice.value = choice.options.empty() ? "false" : choice.options.front().first;
+        }
+        r.choices.push_back(std::move(choice));
+      }
       if (r.currentName.empty() && !r.currentFile.empty()) {
         r.currentName = r.currentFile.filename().string();
       }
@@ -179,6 +191,13 @@ void PickerPortal::answer(std::uint64_t id, const Answer& answer) {
     results["uris"] = sdbus::Variant(answer.uris);
     if (answer.filter.has_value() && *answer.filter < pending->request.filters.size()) {
       results["current_filter"] = sdbus::Variant(toStruct(pending->request.filters[*answer.filter]));
+    }
+    if (!answer.choices.empty()) {
+      std::vector<ChoiceOption> chosen;
+      for (const Choice& c : answer.choices) {
+        chosen.emplace_back(c.id, c.value);
+      }
+      results["choices"] = sdbus::Variant(chosen);
     }
   }
   kLog.info("answer {} with {} uris", answer.response, answer.uris.size());
