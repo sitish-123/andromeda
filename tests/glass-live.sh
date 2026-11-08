@@ -100,6 +100,22 @@ s_cc_over_video() {
   while ((SECONDS < end)); do msg panel-open control-center; sleep 2; msg panel-close control-center; sleep 0.7; done
   kill "$v"
 }
+# Real use: typing over a still desktop, and over a playing video.
+s_launcher_typing() {
+  edges
+  msg panel-open launcher; sleep 0.5
+  local end=$((SECONDS + SECONDS_PER))
+  while ((SECONDS < end)); do type_text 60 "firefox settings terminal"; backspaces 25; done
+  msg panel-close launcher
+}
+s_launcher_typing_over_video() {
+  local v; v=$(video); edges
+  msg panel-open launcher; sleep 0.5
+  local end=$((SECONDS + SECONDS_PER))
+  while ((SECONDS < end)); do type_text 60 "firefox settings terminal"; backspaces 25; done
+  msg panel-close launcher; kill "$v"
+}
+# Stress, not budgeted: nobody types while the page behind scrolls; the backdrop changes every frame.
 s_launcher_typing_over_scroll() {
   local f; f=$(scroller); edges
   msg panel-open launcher; sleep 0.5
@@ -145,8 +161,8 @@ s_worst() {
 set_reduce "$([[ $REDUCE == 1 ]] && echo true || echo false)"; sleep 1
 rec=
 if [[ $RECORD == 1 ]]; then wf-recorder -f "$OUT/run.mp4" > "$OUT/wf-recorder.log" 2>&1 & rec=$!; sleep 1; fi
-for s in ${SCENARIOS:-idle bar_dock_over_video video_full cc_over_video launcher_typing_over_scroll notifications_over_video \
-  slider_sweep_over_video scheme_flip_over_scroll worst}; do
+for s in ${SCENARIOS:-idle bar_dock_over_video video_full cc_over_video launcher_typing launcher_typing_over_video \
+  notifications_over_video slider_sweep_over_video scheme_flip_over_scroll launcher_typing_over_scroll worst}; do
   scenario "$s" "s_$s"
   sleep 1
 done
@@ -189,3 +205,4 @@ while read -r name t0 t1 e0 e1 c0 c1 s0 s1 crss srss; do
 done < "$OUT/scenarios.txt"
 cat "$OUT/scanout.txt" 2> /dev/null | tee -a "$OUT/report.txt"
 echo "budget: p99 GPU <= 4.17 ms (25 % of a 60 Hz frame); missed frames should be 0 outside idle" | tee -a "$OUT/report.txt"
+echo "stress rows, reported but not budgeted: launcher_typing_over_scroll, worst" | tee -a "$OUT/report.txt"
