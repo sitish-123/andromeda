@@ -4,3 +4,4 @@ Comment=Andromeda Wayland Compositor
 Exec=start-andromeda
 Type=Application
 DesktopNames=Andromeda
+X-Greetd-Handoff=true

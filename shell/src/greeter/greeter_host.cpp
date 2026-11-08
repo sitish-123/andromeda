@@ -246,6 +246,7 @@ namespace {
       std::string desktopNames;
       std::string name;
       bool hidden = false;
+      bool handoff = false;
       bool inEntry = false;
       for (std::string line; std::getline(in, line);) {
         if (line.starts_with('[')) {
@@ -262,6 +263,8 @@ namespace {
           name = line.substr(5);
         } else if (line == "Hidden=true" || line == "NoDisplay=true") {
           hidden = true;
+        } else if (line == "X-Greetd-Handoff=true") {
+          handoff = true;
         }
       }
       if (hidden || (!tryExec.empty() && !onPath(tryExec))) {
@@ -285,6 +288,10 @@ namespace {
         session.command.environment.push_back({"XDG_CURRENT_DESKTOP", desktopNames});
       }
       session.command.environment.push_back({"XDG_SESSION_DESKTOP", session.id});
+      // greetd waits for the VT switch request only from a session that sends it.
+      if (handoff) {
+        session.command.environment.push_back({"GREETD_HANDOFF_SESSION", "1"});
+      }
       sessions.push_back(std::move(session));
     }
     return sessions;

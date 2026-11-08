@@ -1,0 +1,76 @@
+From 9989b1405580ba55a62898de5b71ce36bd79f0df Mon Sep 17 00:00:00 2001
+From: sitish <sitishjayaswal12@gmail.com>
+Date: Sun, 8 Nov 2026 20:59:01 +0545
+Subject: [PATCH] context: a session without GREETD_HANDOFF_SESSION=1 gets its
+ VT at once
+
+Hyprland and GNOME never send the switch request. greetd waited 8 s, so
+Hyprland aborted without an active session and the greeter came back.
+---
+ greetd/src/context.rs | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/greetd/src/context.rs b/greetd/src/context.rs
+index 8cf80de..a15c6cc 100644
+--- a/greetd/src/context.rs
++++ b/greetd/src/context.rs
+@@ -237,7 +237,7 @@ impl Context {
+         };
+         user.time = Instant::now();
+         // The user session ends itself: its compositor runs its shutdown once the greeter took the VT.
+-        inner.handoff_task = Some(serve_handoff(socket, Some(*vt), None, None));
++        inner.handoff_task = Some(serve_handoff(socket, Some(*vt), None, None, true));
+         inner.outgoing = Some(user);
+         Ok(())
+     }
+@@ -402,6 +402,9 @@ impl Context {
+             Some(s) => match s.session.get_state().await? {
+                 SessionState::Ready => {
+                     // Send our arguments to the session.
++                    // Only a session whose compositor asks for the VT switch waits for it: Hyprland, GNOME and others
++                    // need an active session at start (Hyprland aborts after about 5 s).
++                    let asks_switch = env.iter().any(|e| e == "GREETD_HANDOFF_SESSION=1");
+                     s.session.send_args(cmd, env).await?;
+ 
+                     if self.handoff {
+@@ -427,7 +430,7 @@ impl Context {
+                         });
+                         let outgoing = greeter.as_ref().map(|g| g.child.sub_task);
+                         inner.handoff_task =
+-                            Some(serve_handoff(socket, s.vt, outgoing, Some(self.logout_tx.clone())));
++                            Some(serve_handoff(socket, s.vt, outgoing, Some(self.logout_tx.clone()), asks_switch));
+                         if let Some(mut g) = greeter {
+                             g.time = Instant::now();
+                             inner.outgoing = Some(g);
+@@ -706,13 +709,15 @@ fn bind_handoff(user: &str) -> Option<(tokio::net::UnixListener, String)> {
+ /// pauses the outgoing session's devices and resumes the incoming ones in one step, so the kernel never gets a moment
+ /// without a DRM master to restore its console. After its first frame the compositor sends `ready` and `outgoing`
+ /// gets SIGTERM. A connection that closes without a line is `ready` from a compositor that predates `switch`.
+-/// Without `switch` greetd switches after 8 s; without `ready` the alarm fallback retires an outgoing greeter after 15 s.
++/// A session started without GREETD_HANDOFF_SESSION=1 gets its VT at once. Without `switch` greetd switches after
++/// 8 s; without `ready` the alarm fallback retires an outgoing greeter after 15 s.
+ /// With `logout`, the socket stays for the whole session: its `logout` request starts the logout hand-off.
+ fn serve_handoff(
+     socket: Option<(tokio::net::UnixListener, String)>,
+     vt: Option<usize>,
+     outgoing: Option<nix::unistd::Pid>,
+     logout: Option<mpsc::UnboundedSender<()>>,
++    asks_switch: bool,
+ ) -> tokio::task::AbortHandle {
+     let Some((listener, path)) = socket else {
+         return tokio::task::spawn_local(async move {
+@@ -729,6 +734,11 @@ fn serve_handoff(
+         let switch_deadline = start + Duration::from_secs(8);
+         let ready_deadline = start + Duration::from_secs(15);
+         let mut pending_vt = vt;
++        if !asks_switch {
++            if let Some(vt) = pending_vt.take() {
++                activate_vt(vt).await;
++            }
++        }
+         let mut retired = false;
+         'accept: loop {
+             let until = match (pending_vt.is_some(), retired) {
+-- 
+2.56.0
+
