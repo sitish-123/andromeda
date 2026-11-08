@@ -5,6 +5,8 @@
 #include "connect_sheet.h"
 #include "core/input/key_chord.h"
 #include "details_pane.h"
+#include "job_pill.h"
+#include "ui/controls/countdown_ring.h"
 #include "tags.h"
 #include "terminal.h"
 #include "network_page.h"
@@ -130,6 +132,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
       .changed = [this] { onBrowserChanged(); },
       .modifiers = [this] { return m_app.loop().wayland().keyboardModifiers(); },
       .menu = [this](std::size_t index, float x, float y) { showItemMenu(index, x, y); },
+      .backgroundMenu = [this](float x, float y) { showBackgroundMenu(x, y); },
       .startDrag =
           [this](const std::vector<fs::path>& paths) {
             DragAndDrop* dnd = m_app.loop().wayland().dragAndDrop();
@@ -208,8 +211,22 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
       .viewChanged = [this](FileBrowser::View view) { m_window.setSidebarVisible(view != FileBrowser::View::Gallery); },
       .headerButtons =
           [this](Flex& row, float s) {
+            m_pillAnchor = nullptr;
+            m_pillRing = nullptr;
             if (m_picker.has_value()) {
               return;
+            }
+            if (const auto jobs = pillJobs(); !jobs.empty()) {
+              row.addChild(job_pill::pill(
+                  jobs, s,
+                  [this, alive = std::weak_ptr<bool>(m_alive)] {
+                    DeferredCall::callLater([this, alive] {
+                      if (!alive.expired()) {
+                        openJobsPopover();
+                      }
+                    });
+                  },
+                  &m_pillAnchor, &m_pillRing));
             }
             // Mockup .ib.fill: a 32 circle, fill_1 while the pane shows.
             const Button::ButtonStateColors off{.bg = clearColorSpec(), .border = clearColorSpec(),
@@ -620,11 +637,22 @@ void FilesWindow::toggleDetails() {
   m_window.requestRebuild();
 }
 
+void FilesWindow::searchAnswered(const std::string& text, const std::vector<std::shared_ptr<const FileInfo>>& rows) {
+  for (const auto& pane : m_panes) {
+    if (pane != nullptr) {
+      pane->setSearchResults(text, rows);
+    }
+  }
+}
+
 void FilesWindow::makePane(std::size_t index) {
   FileBrowser::Host host = m_host;
   // A press in the other pane makes it active before the press acts (menu, drag, open use the active pane). The
   // pane finds its slot by address: closing the left pane moves the right one to slot 0.
   auto self = std::make_shared<FileBrowser*>(nullptr);
+  if (!m_picker.has_value() && IndexSearch::available()) {
+    host.search = [this](const std::string& text, std::string_view kind) { m_app.index().query(text, kind); };
+  }
   host.pressed = [this, self] {
     if (m_panes[1] != nullptr && *self != m_browser) {
       setActivePane(*self == m_panes[0].get() ? 0 : 1);
@@ -1040,6 +1068,84 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
                            });
 }
 
+void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
+  if (m_picker.has_value()) {
+    return;
+  }
+  kLog.debug("menu background");
+  // Entry ids: 1..n commands, then the Sort By and View rows, then the folder's Get Info.
+  constexpr std::int32_t kSortBase = 2000;
+  constexpr std::int32_t kViewBase = 2100;
+  constexpr std::int32_t kFolderInfo = 2200;
+  CommandTable& commands = m_app.commands();
+  std::vector<std::string> ids;
+  std::vector<ContextMenuControlEntry> entries;
+  const auto add = [&](const char* command) {
+    const AppCommand* c = commands.find(command);
+    if (c == nullptr || (c->enabled && !c->enabled())) {
+      return;
+    }
+    ids.emplace_back(command);
+    entries.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = c->label,
+                       .shortcut = c->shortcut ? keyChordDisplayLabel(*c->shortcut) : std::string()});
+  };
+  const bool folder = !location().empty() && m_browser->listingId().empty();
+  if (folder) {
+    add("file.new-folder");
+    add("edit.paste");
+    entries.push_back({.separator = true});
+  }
+  static constexpr std::array kSorts{std::pair{FileSortKey::Name, "Name"}, std::pair{FileSortKey::Modified, "Date Modified"},
+                                     std::pair{FileSortKey::Size, "Size"}, std::pair{FileSortKey::Kind, "Kind"}};
+  ContextMenuControlEntry sort{.label = "Sort By", .hasSubmenu = true};
+  for (std::size_t i = 0; i < kSorts.size(); ++i) {
+    sort.children.push_back({.id = kSortBase + static_cast<std::int32_t>(i), .label = kSorts[i].second, .radio = true,
+                             .toggleState = m_browser->sortKey() == kSorts[i].first ? 1 : 0});
+  }
+  entries.push_back(std::move(sort));
+  static constexpr std::array kViews{"Icons", "List", "Columns", "Gallery"};
+  ContextMenuControlEntry view{.label = "View", .hasSubmenu = true};
+  for (std::size_t i = 0; i < kViews.size(); ++i) {
+    view.children.push_back({.id = kViewBase + static_cast<std::int32_t>(i), .label = kViews[i], .radio = true,
+                             .toggleState = static_cast<std::size_t>(m_browser->view()) == i ? 1 : 0});
+  }
+  entries.push_back(std::move(view));
+  if (const AppCommand* hidden = commands.find("view.hidden")) {
+    ids.emplace_back("view.hidden");
+    entries.push_back({.id = static_cast<std::int32_t>(ids.size()), .label = hidden->label,
+                       .shortcut = hidden->shortcut ? keyChordDisplayLabel(*hidden->shortcut) : std::string(),
+                       .checkmark = true, .toggleState = m_browser->showHidden() ? 1 : 0});
+  }
+  if (folder) {
+    entries.push_back({.separator = true});
+    add("file.open-terminal");
+    entries.push_back({.id = kFolderInfo, .label = "Get Info"});
+  }
+  m_window.openContextMenu(std::move(entries), sceneX, sceneY,
+                           [this, ids, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
+                             if (alive.expired()) {
+                               return;
+                             }
+                             if (id >= kSortBase && id < kSortBase + static_cast<std::int32_t>(kSorts.size())) {
+                               kLog.debug("menu sort {}", kSorts[static_cast<std::size_t>(id - kSortBase)].second);
+                               // setSort flips the direction on the current key; the menu only picks the key.
+                               if (const FileSortKey key = kSorts[static_cast<std::size_t>(id - kSortBase)].first;
+                                   key != m_browser->sortKey()) {
+                                 m_browser->setSort(key);
+                               }
+                             } else if (id >= kViewBase && id < kViewBase + static_cast<std::int32_t>(kViews.size())) {
+                               kLog.debug("menu view {}", kViews[static_cast<std::size_t>(id - kViewBase)]);
+                               m_browser->setView(static_cast<FileBrowser::View>(id - kViewBase));
+                             } else if (id == kFolderInfo) {
+                               kLog.debug("menu folder info");
+                               getInfo();
+                             } else if (id > 0 && static_cast<std::size_t>(id) <= ids.size()) {
+                               kLog.debug("menu {}", ids[static_cast<std::size_t>(id) - 1]);
+                               m_app.commands().run(ids[static_cast<std::size_t>(id) - 1]);
+                             }
+                           });
+}
+
 void FilesWindow::openTerminalHere() {
   const auto paths = selectedPaths();
   const fs::path dir = paths.size() == 1 && isDir(paths.front()) ? paths.front() : location();
@@ -1159,7 +1265,11 @@ void FilesWindow::extractSelection(bool here) {
 }
 
 void FilesWindow::getInfo() {
-  const auto paths = selectedPaths();
+  auto paths = selectedPaths();
+  // No selection: the folder itself (Finder; the background menu).
+  if (paths.empty() && !location().empty() && m_browser->listingId().empty()) {
+    paths.push_back(location());
+  }
   if (paths.empty()) {
     return;
   }
@@ -1826,9 +1936,127 @@ void FilesWindow::resolveConflict(FileOpsClient::Resolution resolution) {
   rebuild();
 }
 
+std::vector<FileOpsClient::Job> FilesWindow::pillJobs() const {
+  std::vector<FileOpsClient::Job> out;
+  const FileOpsClient* ops = m_app.fileOps();
+  const auto now = std::chrono::steady_clock::now();
+  for (const std::string& path : m_jobs) {
+    const FileOpsClient::Job* job = ops != nullptr ? ops->job(path) : nullptr;
+    const auto started = m_jobStarted.find(path);
+    if (job != nullptr && !job->finished() && started != m_jobStarted.end() && now - started->second >= kPillDelay) {
+      out.push_back(*job);
+    }
+  }
+  return out;
+}
+
+void FilesWindow::armPillTimer() {
+  // The earliest job still waiting for its kPillDelay decides when the pill looks again.
+  const auto now = std::chrono::steady_clock::now();
+  std::optional<std::chrono::steady_clock::duration> next;
+  for (const auto& [path, started] : m_jobStarted) {
+    if (const auto left = started + kPillDelay - now; left > std::chrono::steady_clock::duration::zero()) {
+      next = next.has_value() ? std::min(*next, left) : left;
+    }
+  }
+  if (next.has_value()) {
+    m_pillTimer.start(std::chrono::duration_cast<std::chrono::milliseconds>(*next) + std::chrono::milliseconds(1), [this] {
+      updateJobPill();
+      armPillTimer();
+    });
+  }
+}
+
+double FilesWindow::jobRate(const std::string& path) const {
+  const auto it = m_rateSamples.find(path);
+  if (it == m_rateSamples.end() || it->second.size() < 2) {
+    return 0.0;
+  }
+  const auto& [t0, b0] = it->second.front();
+  const auto& [t1, b1] = it->second.back();
+  const double seconds = std::chrono::duration<double>(t1 - t0).count();
+  return seconds > 0.0 && b1 >= b0 ? static_cast<double>(b1 - b0) / seconds : 0.0;
+}
+
+void FilesWindow::sampleRate(const FileOpsClient::Job& job) {
+  auto& samples = m_rateSamples[job.path];
+  if (job.state != "running") {
+    samples.clear(); // paused or asking: the time does not count
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  samples.emplace_back(now, job.doneBytes);
+  while (samples.size() > 2 && now - samples.front().first > kRateWindow) {
+    samples.pop_front();
+  }
+}
+
+void FilesWindow::updateJobPill() {
+  const auto jobs = pillJobs();
+  if (jobs.size() != m_pillShown) {
+    m_pillShown = jobs.size();
+    kLog.debug("job pill {}", jobs.size());
+    // The popover's height is fixed at open: a new or finished job closes it.
+    m_window.closePopover();
+    m_window.requestRebuild();
+    return;
+  }
+  if (m_pillRing != nullptr) {
+    m_pillRing->setProgress(job_pill::combined(jobs));
+    m_window.invalidate();
+  }
+  if (!m_window.popoverOpen()) {
+    return;
+  }
+  // A rebuild between press and release drops the click: rebuild only when the rows' circles change.
+  if (job_pill::layoutKey(jobs) != m_popoverKey) {
+    m_window.refreshPopover();
+  } else {
+    job_pill::update(m_popoverRows, jobs, [this](const std::string& path) { return jobRate(path); });
+    m_window.invalidatePopover();
+  }
+}
+
+void FilesWindow::openJobsPopover() {
+  const auto jobs = pillJobs();
+  if (m_pillAnchor == nullptr || jobs.empty()) {
+    return;
+  }
+  kLog.debug("job popover open");
+  m_window.openPopover(m_pillAnchor, job_pill::kPopoverWidth, job_pill::popoverHeight(jobs.size()), [this](float s) {
+    const auto now = pillJobs();
+    m_popoverKey = job_pill::layoutKey(now);
+    return job_pill::popover(
+        now, s, [this](const std::string& path) { return jobRate(path); },
+        [this](const std::string& path) {
+          kLog.debug("job cancel {}", path);
+          if (FileOpsClient* ops = m_app.fileOps()) {
+            ops->cancel(path);
+          }
+        },
+        [this](const std::string& path, bool pause) {
+          kLog.debug("job {} {}", pause ? "pause" : "resume", path);
+          if (FileOpsClient* ops = m_app.fileOps()) {
+            pause ? ops->pause(path) : ops->resume(path);
+          }
+        },
+        &m_popoverRows);
+  });
+}
+
 void FilesWindow::onJobChanged(const FileOpsClient::Job& job) {
   if (m_jobs.contains(job.path)) {
     kLog.debug("job {} {} {}", job.kind, job.state, job.path);
+    if (m_jobStarted.emplace(job.path, std::chrono::steady_clock::now()).second) {
+      // Short jobs (rename, new folder) finish before the pill would show.
+      armPillTimer();
+    }
+    sampleRate(job);
+    if (job.finished()) {
+      m_jobStarted.erase(job.path);
+      m_rateSamples.erase(job.path);
+    }
+    updateJobPill();
   }
   if (!m_jobs.contains(job.path)) {
     // Another window's job can change the Trash, which has no watcher.
@@ -1849,10 +2077,7 @@ void FilesWindow::onJobChanged(const FileOpsClient::Job& job) {
     return;
   }
   if (!job.finished()) {
-    if (job.totalFiles > 1) {
-      showToast(std::format("{} of {}…", job.doneFiles, job.totalFiles), false);
-    }
-    return;
+    return; // the job pill shows the progress
   }
   m_jobs.erase(job.path);
   if (auto it = m_renameDone.find(job.path); it != m_renameDone.end()) {

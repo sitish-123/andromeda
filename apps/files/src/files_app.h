@@ -7,6 +7,7 @@
 #include "files/file_ops_client.h"
 #include "app_chooser_portal.h"
 #include "app_chooser_sheet.h"
+#include "index_search.h"
 #include "picker_portal.h"
 #include "portal_sheets.h"
 #include "starred.h"
@@ -54,7 +55,10 @@ public:
   void unmounted(const std::filesystem::path& mount, const std::string& error);
   [[nodiscard]] TagIndex& tags() { return *m_tags; }
   [[nodiscard]] Starred& starred() noexcept { return m_starred; }
+  // Search This PC: every window pane gets the answer (FILES-UI-SPEC §15).
+  [[nodiscard]] IndexSearch& index() noexcept { return m_index; }
   void pickerAnswered(std::uint64_t id, const PickerPortal::Answer& answer);
+  void searchAnswered(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows);
 
 protected:
   void startup() override;
@@ -87,6 +91,9 @@ private:
   std::unique_ptr<PickerPortal> m_portal;
   std::unique_ptr<AppChooserPortal> m_chooserPortal;
   std::unique_ptr<SystemPortals> m_systemPortals;
+  IndexSearch m_index{[this](const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows) {
+    searchAnswered(text, std::move(rows));
+  }};
   struct Dialog { // an Open With or Access window and its portal request
     std::uint64_t id = 0;
     std::unique_ptr<AppChooserSheet> chooser;

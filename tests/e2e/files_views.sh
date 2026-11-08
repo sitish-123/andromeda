@@ -217,4 +217,16 @@ run "$ANDROMEDA" settle > /dev/null
 m=$(mark); run "$POINTER" 1280 720 move $(at "place This PC") click 272 > /dev/null
 wait_log "$m" "location this-pc" || fail "the This PC place did not open This PC"
 shot 4-this-pc
+
+# Background menu: a right click on empty view space opens the folder menu (New Folder, Paste, …); Down, Enter runs
+# Paste.
+m=$(mark); files_action go "[<'file://$SRC'>]"
+wait_log "$m" "location $SRC\$" || fail "go did not open Work"
+# No wait for the page slide: a press during it must reach the incoming page, not the outgoing This PC page on top.
+wait_log "$m" "geometry view " || fail "no geometry for the view after going to Work"
+m=$(mark); run "$POINTER" 1280 720 move $(at view) click 273 > /dev/null
+run "$ANDROMEDA" settle > /dev/null
+shot 5-background-menu
+m=$(mark); keys tap 108 tap 28                   # Down, Enter
+wait_log "$m" "menu edit.paste" || fail "Down + Enter in the background menu did not run Paste"
 echo "pass files_views"

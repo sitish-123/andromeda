@@ -48,6 +48,10 @@ protected:
   void cancelToFacade() override {}
   [[nodiscard]] InputArea* initialFocusArea() override { return nullptr; }
   [[nodiscard]] float computePadding(float /*scale*/) const override { return 0.0F; }
+  // The card's right edge lines up with the control's (the positioner anchors bottom-right, gravity bottom-left).
+  [[nodiscard]] popup_chrome::Attachment chromeAttachment() const override {
+    return {.horizontal = popup_chrome::HorizontalAttachment::Right, .vertical = popup_chrome::VerticalAttachment::Center};
+  }
   void onSheetClose() override;
 
 private:

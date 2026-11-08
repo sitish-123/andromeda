@@ -43,6 +43,8 @@
 namespace fs = std::filesystem;
 
 namespace {
+  std::string whereLabel(const fs::path& dir);
+  bool matchesKind(const FileInfo& info, FileBrowser::SearchKind kind);
   constexpr Logger kLog("file-browser");
   constexpr auto kSkeletonDelay = std::chrono::milliseconds(200);
   constexpr auto kSkeletonHold = std::chrono::milliseconds(400);
@@ -251,6 +253,11 @@ public:
       m_menu(index, x, y);
     }
   }
+  void onSecondaryEmpty(float x, float y) override {
+    if (m_live) {
+      m_browser.backgroundMenu(x, y);
+    }
+  }
   void armActivate(std::size_t index) { m_activate = index; }
   void setMenu(std::function<void(std::size_t, float, float)> menu) { m_menu = std::move(menu); }
   [[nodiscard]] std::string itemTooltip(std::size_t index) const override {
@@ -293,7 +300,9 @@ struct FileBrowser::Page {
   Glyph* emptyGlyph = nullptr;
   Label* emptyTitle = nullptr;
   Label* emptyBody = nullptr;
+  Button* emptyAction = nullptr; // "Search This PC" under no results
   std::array<Button*, 4> sortButtons{};
+  Button* whereHeader = nullptr; // search results (mockup §5): Where after Name
 
   float x = 0.0F; // slide offset
   float opacity = 1.0F;
@@ -328,9 +337,12 @@ struct FileBrowser::Ui {
   Node* renameBox = nullptr;
   Node* columnsNode = nullptr;
   Flex* tabStrip = nullptr;
+  Flex* chips = nullptr; // search scope + kind chips (FILES-UI-SPEC §15)
+  std::vector<std::pair<Node*, std::string>> chipNodes;
   FileGallery* gallery = nullptr;
   Input* renameField = nullptr;
   Input* searchField = nullptr;
+  Button* searchClear = nullptr; // the field's × while it has text (mockup §5)
   Label* renameError = nullptr;
 
   Page& cur() { return pages[current]; }
@@ -358,6 +370,9 @@ FileBrowser::FileBrowser(DirectoryWatcher& watcher, AnimationManager& animations
         state.thumbnails = m_options.thumbnails;
         state.inactive = !m_active;
         state.iconSize = m_iconSize;
+        if (searchingEverywhere()) {
+          state.where = whereLabel(pathOf(info).parent_path());
+        }
         if (expandable()) {
           state.depth = static_cast<int>(std::ranges::count(info.name, '/'));
           state.disclosure = !info.isDir                    ? FileCellState::Disclosure::Leaf
@@ -586,6 +601,24 @@ std::unique_ptr<Node> FileBrowser::buildHeaderAccessory() {
             return false;
           },
   }));
+  search->addChild(ui::button({
+      .out = &m_ui->searchClear,
+      .glyph = std::string("x"),
+      .glyphSize = Tokens::sizeSymbolInline * s,
+      .variant = ButtonVariant::Ghost,
+      .tooltip = std::string("Clear"),
+      .radius = Tokens::spaceP20 * s / 2.0F,
+      .width = Tokens::spaceP20 * s,
+      .height = Tokens::spaceP20 * s,
+      .visible = !m_filter.empty(),
+      .onClick =
+          [this] {
+            if (m_ui->searchField != nullptr) {
+              m_ui->searchField->setValue({});
+            }
+            setFilter({});
+          },
+  }));
   // Letters belong to the field, not to the window's type-ahead.
   m_ui->searchField->inputArea()->setCapturesAllKeys(true);
   m_ui->searchField->setTextColorOverride(std::nullopt, colorForRole(ColorRole::Label2));
@@ -635,6 +668,7 @@ void FileBrowser::refreshViewButtons() {
 
 void FileBrowser::widenSearch(bool focused) {
   m_ui->searchFocused = focused;
+  showChips();
   const float s = m_ui->scale;
   const float from = m_ui->search != nullptr ? m_ui->search->width() : 0.0F;
   const float to = (focused ? Tokens::componentFilesSearchWidthFocus : Tokens::componentFilesSearchWidth) * s;
@@ -662,17 +696,157 @@ void FileBrowser::widenSearch(bool focused) {
       [this] { m_searchAnim = 0; }, m_ui->search, 0.0F, Unit::Px, true);
 }
 
+bool FileBrowser::searchingEverywhere() const {
+  return m_searchScope == SearchScope::Everywhere && m_host.search && !m_filter.empty();
+}
+
+void FileBrowser::setSearchScope(SearchScope scope) {
+  if (scope == m_searchScope) {
+    return;
+  }
+  m_searchScope = scope;
+  kLog.debug("search scope {}", scope == SearchScope::Everywhere ? "pc" : "folder");
+  refreshChips();
+  querySearch();
+  if (m_modelView != nullptr && !m_listing.has_value()) {
+    m_modelView->setFilter(scope == SearchScope::Everywhere ? std::string() : m_filter);
+  }
+  refreshRows();
+  refreshChrome();
+  syncSearchView();
+}
+
+void FileBrowser::setSearchKind(SearchKind kind) {
+  if (kind == m_searchKind) {
+    return;
+  }
+  m_searchKind = kind;
+  static constexpr std::array kNames{"all", "pdf", "image", "doc", "sheet", "recent"};
+  kLog.debug("search kind {}", kNames[static_cast<std::size_t>(kind)]);
+  refreshChips();
+  querySearch();
+  refreshRows();
+}
+
+void FileBrowser::setSearchResults(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows) {
+  if (text != m_filter) {
+    return;
+  }
+  m_searchText = text;
+  m_searchRows = std::move(rows);
+  kLog.debug("search results {}", m_searchRows.size());
+  if (searchingEverywhere()) {
+    refreshRows();
+    refreshChrome();
+  }
+}
+
+void FileBrowser::syncSearchView() {
+  // This PC results are a list with a Where column (mockup §5); the folder's own view comes back after.
+  m_searchViewSwitch = true;
+  if (searchingEverywhere() && !m_viewBeforeSearch.has_value()) {
+    m_viewBeforeSearch = m_options.view;
+    setView(View::List);
+  } else if (!searchingEverywhere() && m_viewBeforeSearch.has_value()) {
+    const View back = *m_viewBeforeSearch;
+    m_viewBeforeSearch.reset();
+    setView(back);
+  }
+  m_searchViewSwitch = false;
+}
+
+void FileBrowser::querySearch() {
+  if (!searchingEverywhere()) {
+    return;
+  }
+  static constexpr std::array<std::string_view, 6> kWords{"", "pdf", "image", "doc", "sheet", ""};
+  m_host.search(m_filter, kWords[static_cast<std::size_t>(m_searchKind)]);
+}
+
+void FileBrowser::showChips() {
+  Flex* chips = m_ui->chips;
+  const bool show = m_ui->searchFocused || !m_filter.empty();
+  if (chips == nullptr || chips->visible() == show) {
+    return;
+  }
+  chips->setVisible(show);
+  chips->setParticipatesInLayout(show);
+  if (m_host.invalidate) {
+    m_host.invalidate();
+  }
+}
+
+// Rebuilds the chips for a new scope or kind; a focus change only shows or hides them (showChips), so a press on a
+// chip that takes focus from the field keeps its button.
+void FileBrowser::refreshChips() {
+  Flex* chips = m_ui->chips;
+  if (chips == nullptr) {
+    return;
+  }
+  chips->setVisible(false);
+  showChips();
+  while (!chips->children().empty()) {
+    (void)chips->removeChild(chips->children().back().get());
+  }
+  m_ui->chipNodes.clear();
+  const float s = m_ui->scale;
+  const auto chip = [&](std::string text, bool on, std::function<void()> click) {
+    // Mockup .chip: 24 high r12, padding 0 10, 500 12; off fill_1 label_2, on the selection tint label_1.
+    const ColorSpec bg = on ? colorSpecFromRole(ColorRole::Accent, isResolvedLightTheme() ? 0.32F : 0.24F)
+                            : colorSpecFromRole(ColorRole::Fill1);
+    const Button::ButtonStateColors colors{.bg = bg, .border = clearColorSpec(),
+                                           .label = colorSpecFromRole(on ? ColorRole::Label1 : ColorRole::Label2)};
+    Button* button = nullptr;
+    chips->addChild(ui::button({
+        .out = &button,
+        .text = std::move(text),
+        .fontSize = Style::fontSizeCaption * s,
+        .customPalette = Button::ButtonPalette{.normal = colors, .hover = colors, .pressed = colors, .disabled = colors},
+        .paddingH = Tokens::spaceP8 * s + 2.0F * s,
+        .radius = Tokens::spaceP12 * s,
+        .height = Tokens::spaceP24 * s,
+        .onClick = std::move(click),
+    }));
+    if (Label* label = button->label(); label != nullptr) {
+      label->setFontWeight(FontWeight::Medium);
+    }
+    m_ui->chipNodes.emplace_back(button, button->label() != nullptr ? button->label()->text() : std::string());
+  };
+  if (m_host.search) {
+    chip("This Folder", m_searchScope == SearchScope::Folder, [this] { setSearchScope(SearchScope::Folder); });
+    chip("This PC", m_searchScope == SearchScope::Everywhere, [this] { setSearchScope(SearchScope::Everywhere); });
+    chips->addChild(ui::node({.width = Tokens::spaceP8 * s}));
+  }
+  static constexpr std::array<std::pair<const char*, SearchKind>, 6> kKinds{
+      {{"All", SearchKind::All}, {"PDFs", SearchKind::Pdf}, {"Images", SearchKind::Image}, {"Docs", SearchKind::Doc},
+       {"Sheets", SearchKind::Sheet}, {"Last 30 days", SearchKind::Recent}}};
+  for (const auto& [name, kind] : kKinds) {
+    chip(name, m_searchKind == kind, [this, kind] { setSearchKind(kind); });
+  }
+  if (m_host.invalidate) {
+    m_host.invalidate();
+  }
+}
+
 void FileBrowser::setFilter(std::string text) {
   if (text == m_filter) {
     return;
   }
   m_filter = std::move(text);
+  if (m_ui->searchClear != nullptr) {
+    m_ui->searchClear->setVisible(!m_filter.empty());
+  }
+  showChips();
+  querySearch();
   const auto start = std::chrono::steady_clock::now();
   if (m_modelView != nullptr && !m_listing.has_value()) {
-    m_modelView->setFilter(m_filter);
-  } else {
-    refreshRows();
+    m_modelView->setFilter(searchingEverywhere() ? std::string() : m_filter);
   }
+  if (m_modelView == nullptr || m_listing.has_value() || m_host.search || m_searchKind != SearchKind::All) {
+    refreshRows();
+    refreshChrome();
+  }
+  syncSearchView();
   kLog.debug("filter took {:.2f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 }
 
@@ -707,6 +881,7 @@ void FileBrowser::releaseChrome() {
   m_ui->sortButton = nullptr;
   m_ui->search = nullptr;
   m_ui->searchField = nullptr;
+  m_ui->searchClear = nullptr;
 }
 
 void FileBrowser::refreshSidebar() {
@@ -927,6 +1102,11 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
                              .padding = Tokens::spaceP4 * s, .minHeight = Tokens::spaceP40 * s,
                              .maxHeight = Tokens::spaceP40 * s, .visible = false}));
   m_ui->tabStrip->setPadding(Tokens::spaceP4 * s, Tokens::spaceP8 * s);
+  // Mockup .chips: padding 0 16 8, gap 8; shown while the search field has focus or text.
+  content->addChild(ui::row({.out = &m_ui->chips, .align = FlexAlign::Center, .gap = Tokens::spaceP8 * s,
+                             .paddingH = Tokens::spaceP16 * s, .visible = false}));
+  m_ui->chips->setPadding(0.0F, Tokens::spaceP16 * s, Tokens::spaceP8 * s, Tokens::spaceP16 * s);
+  refreshChips();
 
   auto focus = ui::inputArea({.out = &m_ui->focus, .focusable = true, .participatesInLayout = false});
   focus->setVisible(false);
@@ -988,6 +1168,23 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
       if (Label* text = page.sortButtons[c]->label(); text != nullptr) {
         text->setFontWeight(FontWeight::Medium);
       }
+      if (c == 0) {
+        header->addChild(ui::button({
+            .out = &page.whereHeader,
+            .text = std::string("Where"),
+            .fontSize = Style::fontSizeCaption * s,
+            .contentAlign = ButtonContentAlign::Start,
+            .variant = ButtonVariant::Ghost,
+            .customPalette = Button::ButtonPalette{.normal = colors, .hover = colors, .pressed = colors, .disabled = colors},
+            .paddingH = 0.0F,
+            .height = kListHeader * s,
+            .visible = false,
+            .participatesInLayout = false,
+        }));
+        if (Label* text = page.whereHeader->label(); text != nullptr) {
+          text->setFontWeight(FontWeight::Medium);
+        }
+      }
     }
     listBox->addChild(std::move(header));
     listBox->addChild(ui::separator({.gradientEdges = false}));
@@ -1028,6 +1225,9 @@ std::unique_ptr<Node> FileBrowser::buildContent(bool pathBar, bool crumbs) {
     empty->addChild(ui::label({.out = &page.emptyBody, .fontSize = Style::fontSizeBody * s,
                                .color = colorSpecFromRole(ColorRole::Label2), .maxLines = 3,
                                .textAlign = TextAlign::Center}));
+    empty->addChild(ui::button({.out = &page.emptyAction, .text = std::string("Search This PC"),
+                                .variant = ButtonVariant::Default, .visible = false,
+                                .onClick = [this] { setSearchScope(SearchScope::Everywhere); }}));
     root->addChild(std::move(empty));
     stage->addChild(std::move(root));
   }
@@ -1470,8 +1670,17 @@ void FileBrowser::up() {
 }
 
 void FileBrowser::navigate(HistoryEntry target, Motion motion, std::vector<std::string> select) {
+  if (m_viewBeforeSearch.has_value()) { // leaving This PC results: the folder view comes back first
+    m_searchViewSwitch = true;
+    const View back = *m_viewBeforeSearch;
+    m_viewBeforeSearch.reset();
+    setView(back);
+    m_searchViewSwitch = false;
+  }
   m_location = std::move(target.path);
   m_listing = std::move(target.listing);
+  m_searchRows.clear();
+  m_searchText.clear();
   if (!m_filter.empty()) { // a filter belongs to the folder it was typed in
     m_filter.clear();
     if (m_ui->searchField != nullptr) {
@@ -1694,7 +1903,12 @@ void FileBrowser::present(Motion motion) {
 
   if (in.root != nullptr) {
     in.root->setVisible(true);
+    in.root->setHitTestVisible(true);
     in.root->setZIndex(1);
+  }
+  // The outgoing page stays drawn until its motion ends but takes no input from now: a back slide keeps it on top.
+  if (out.root != nullptr && &out != &in) {
+    out.root->setHitTestVisible(false);
   }
   if (motion == Motion::None || out.root == nullptr || in.root == nullptr) {
     m_animations.cancel(in.xAnim);
@@ -1880,6 +2094,12 @@ void FileBrowser::refreshRows() {
       }
     }
   }
+  if (searchingEverywhere()) {
+    m_rows = m_searchText == m_filter ? m_searchRows : std::vector<std::shared_ptr<const FileInfo>>{};
+  }
+  if (m_searchKind != SearchKind::All && (!m_filter.empty() || m_ui->searchFocused)) {
+    std::erase_if(m_rows, [this](const auto& r) { return !matchesKind(*r, m_searchKind); });
+  }
   std::erase_if(m_selected, [this](const std::string& name) { return !indexOf(name).has_value(); });
   if (!m_filter.empty()) {
     kLog.debug("filter \"{}\" shows {}", m_filter, m_rows.size());
@@ -1910,7 +2130,12 @@ void FileBrowser::refreshRows() {
       page.emptyTitle->setText(title);
       page.emptyBody->setText(body);
     };
-    if (page.status == "empty") {
+    page.emptyAction->setVisible(false);
+    if (page.status == "empty" && !m_filter.empty()) {
+      setEmpty("search", std::format("No results for “{}”", m_filter),
+               searchingEverywhere() ? std::string("Searched This PC.") : std::format("Searched {}.", title()));
+      page.emptyAction->setVisible(m_host.search && !searchingEverywhere());
+    } else if (page.status == "empty") {
       setEmpty(m_listingId == "trash" ? "trash" : "folder", m_listingId == "trash" ? "Trash is empty" : "Folder is empty",
                m_listing.has_value() ? std::string() : std::string("Drop files here or press Ctrl+V."));
     } else if (page.status == "denied") {
@@ -2005,8 +2230,15 @@ void FileBrowser::refreshChrome() {
   Page& page = ui.cur();
   static constexpr std::array kKeys{FileSortKey::Name, FileSortKey::Modified, FileSortKey::Size, FileSortKey::Kind};
   static constexpr std::array kNames{"Name", "Date Modified", "Size", "Kind"};
-  const FileListRow::Columns cols = FileListRow::columnsFor(ui.stageWidth > 0.0F ? ui.stageWidth : 1000.0F, s);
+  const bool where = searchingEverywhere();
+  const FileListRow::Columns cols = FileListRow::columnsFor(ui.stageWidth > 0.0F ? ui.stageWidth : 1000.0F, s, where);
   const std::array<float, 4> widths{0.0F, cols.date, cols.size, cols.kind};
+  if (page.whereHeader != nullptr) {
+    page.whereHeader->setVisible(where);
+    page.whereHeader->setParticipatesInLayout(where);
+    page.whereHeader->setMinWidth(cols.where);
+    page.whereHeader->setMaxWidth(cols.where);
+  }
   for (std::size_t c = 0; c < kKeys.size(); ++c) {
     Button* b = page.sortButtons[c];
     if (b == nullptr) {
@@ -2273,7 +2505,7 @@ void FileBrowser::setView(View view) {
   m_options.view = view;
   static constexpr std::array kNames{"icons", "list", "columns", "gallery"};
   kLog.debug("view {}", kNames[static_cast<std::size_t>(view)]);
-  if (m_host.viewChanged) {
+  if (m_host.viewChanged && !m_searchViewSwitch) {
     m_host.viewChanged(view);
   }
   // The columns view and the Gallery are their own surfaces: they switch at once (no crossfade between unlike layouts).
@@ -2643,6 +2875,17 @@ void FileBrowser::onBandStart(bool icons, float x, float y) {
                 .mods = m_host.modifiers ? m_host.modifiers() : 0U, .before = m_selected};
 }
 
+void FileBrowser::backgroundMenu(float sceneX, float sceneY) {
+  if (m_host.pressed) {
+    m_host.pressed();
+  }
+  // Finder: the menu is about the folder, so the selection goes.
+  clearSelection();
+  if (m_host.backgroundMenu) {
+    m_host.backgroundMenu(sceneX, sceneY);
+  }
+}
+
 void FileBrowser::onBandMove(bool icons, float x, float y) {
   if (!m_band.has_value() || m_band->icons != icons) {
     return;
@@ -2996,6 +3239,12 @@ void FileBrowser::logGeometry() {
     const auto [x, y] = centre(node);
     out += std::format("place {} {} {}\n", place.label, x, y);
   }
+  for (const auto& [node, name] : m_ui->chipNodes) {
+    if (node->visible() && m_ui->chips->visible()) {
+      const auto [x, y] = centre(node);
+      out += std::format("chip {} {} {}\n", name, x, y);
+    }
+  }
   if (grid != nullptr && expandable()) {
     float gx = 0.0F;
     float gy = 0.0F;
@@ -3104,6 +3353,47 @@ namespace {
   }
 
   bool writable(const fs::path& dir) { return ::access(dir.c_str(), W_OK | X_OK) == 0; }
+
+  // The Where column of a search result: the folder, the home part as ~.
+  std::string whereLabel(const fs::path& dir) {
+    const char* home = std::getenv("HOME");
+    const std::string d = dir.string();
+    if (home != nullptr && *home != '\0') {
+      const std::string h(home);
+      if (d == h) {
+        return "~";
+      }
+      if (d.starts_with(h + "/")) {
+        return "~" + d.substr(h.size());
+      }
+    }
+    return d;
+  }
+
+  bool matchesKind(const FileInfo& info, FileBrowser::SearchKind kind) {
+    const std::string_view t = info.contentType;
+    const auto has = [&](std::string_view part) { return t.find(part) != std::string_view::npos; };
+    switch (kind) {
+    case FileBrowser::SearchKind::All:
+      return true;
+    case FileBrowser::SearchKind::Pdf:
+      return t == "application/pdf";
+    case FileBrowser::SearchKind::Image:
+      return t.starts_with("image/");
+    case FileBrowser::SearchKind::Doc:
+      return !info.isDir && ((t.starts_with("text/") && t != "text/csv") || has("msword") || has("wordprocessing") ||
+                             has("opendocument.text") || t == "application/rtf");
+    case FileBrowser::SearchKind::Sheet:
+      return t == "text/csv" || has("spreadsheet") || has("ms-excel");
+    case FileBrowser::SearchKind::Recent: {
+      constexpr std::int64_t kThirtyDaysNs = 30LL * 24 * 3600 * 1000000000LL;
+      const auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::system_clock::now().time_since_epoch()).count();
+      return info.mtimeNs >= now - kThirtyDaysNs;
+    }
+    }
+    return true;
+  }
 
   bool contains(const Node* node, float sceneX, float sceneY) {
     float x = 0.0F;

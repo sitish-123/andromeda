@@ -139,9 +139,16 @@ std::pair<float, float> FileListRow::disclosureSpan(int depth, float scale) {
   return {x - Tokens::spaceP4 * scale, x + (Tokens::sizeSymbolInline + Tokens::spaceP4) * scale};
 }
 
-FileListRow::Columns FileListRow::columnsFor(float width, float scale) {
+FileListRow::Columns FileListRow::columnsFor(float width, float scale, bool where) {
   // Row insets and paddings, then Name >= 120; drop Kind, then Date.
   const float fixed = 2.0F * textInset(scale);
+  if (where) {
+    Columns c{.date = kDateWidth * scale, .where = Tokens::componentFilesColumnWhere * scale};
+    if (fixed + kNameMin * scale + c.date + c.where > width) {
+      c.date = 0.0F;
+    }
+    return c;
+  }
   Columns c{.date = kDateWidth * scale, .size = kSizeWidth * scale, .kind = kKindWidth * scale};
   const auto used = [&] { return fixed + kNameMin * scale + c.date + c.size + c.kind; };
   if (used() > width) {
@@ -179,6 +186,7 @@ FileListRow::FileListRow(float scale) : m_scale(scale) {
         .ellipsize = TextEllipsize::End,
     })));
   };
+  m_where = column(m_row, TextAlign::Start, "");
   m_date = column(m_row, TextAlign::Start, "");
   m_size = column(m_row, TextAlign::End, "tnum");
   m_kindBox = static_cast<Flex*>(m_row->addChild(ui::row({.align = FlexAlign::Center})));
@@ -196,7 +204,7 @@ void FileListRow::bind(Renderer& renderer, const FileInfo& info, float width, Fi
   const float h = std::ceil(Tokens::sizeRowCompact * s);
   setSize(width, h);
   setOpacity(itemOpacity(state));
-  const Columns cols = state.nameOnly ? Columns{} : columnsFor(width, s);
+  const Columns cols = state.nameOnly ? Columns{} : columnsFor(width, s, !state.where.empty());
 
   m_icon->bind(renderer, info, state.path, state.thumbnails);
   m_name->setText(info.displayName);
@@ -230,6 +238,7 @@ void FileListRow::bind(Renderer& renderer, const FileInfo& info, float width, Fi
   // Until the background stat reaches this row, Date and Size stay blank (FB-SPEED).
   setColumn(m_date, m_date, cols.date, info.pendingStat ? std::string() : formatFileDate(info.mtimeNs));
   setColumn(m_size, m_size, cols.size, info.isDir ? std::string("—") : info.pendingStat ? std::string() : formatFileSize(info.size));
+  setColumn(m_where, m_where, cols.where, state.where);
   setColumn(m_kindBox, m_kind, cols.kind, fileKindLabel(info));
   m_kind->setMaxWidth(std::max(0.0F, cols.kind - kKindPad * s));
   const bool chevron = state.nameOnly && info.isDir;

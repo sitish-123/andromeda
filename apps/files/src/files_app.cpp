@@ -52,6 +52,12 @@ namespace {
 FilesApp::FilesApp(bool picker)
     : DeskApp({.id = picker ? "dev.andromeda.Files.Picker" : "dev.andromeda.Files", .name = "Files"}), m_picker(picker) {}
 
+void FilesApp::searchAnswered(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows) {
+  for (auto& [window, files] : m_windows) {
+    files->searchAnswered(text, rows);
+  }
+}
+
 FilesApp::~FilesApp() {
   if (m_mounts != nullptr) {
     g_signal_handlers_disconnect_by_data(m_mounts, this);
@@ -68,6 +74,7 @@ void FilesApp::startup() {
     kLog.warn("no session bus: file operations are off");
   }
   loop().addSource(&m_thumbnails);
+  loop().addSource(&m_index);
   m_tags = std::make_shared<TagIndex>([this] {
     for (auto& [window, files] : m_windows) {
       files->tagsChanged();

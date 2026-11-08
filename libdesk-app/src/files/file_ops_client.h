@@ -27,6 +27,7 @@ public:
     std::uint64_t totalBytes = 0;
     std::uint64_t doneBytes = 0;
     std::filesystem::path current;
+    std::filesystem::path destination; // copy, move, link, extract; empty for other jobs
     std::string error;
     std::optional<std::pair<std::filesystem::path, std::filesystem::path>> conflict; // source, existing target
     // Conflict k of m: the question asked now (1-based, 0 before the first); m = 0 when unknown.

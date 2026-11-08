@@ -14,6 +14,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class Flex;
@@ -56,6 +57,7 @@ public:
     std::function<void()> changed;                              // location, selection or status changed
     std::function<std::uint32_t()> modifiers;                   // KeyMod mask held now
     std::function<void(std::size_t index, float sceneX, float sceneY)> menu; // secondary click (FB4)
+    std::function<void(float sceneX, float sceneY)> backgroundMenu;           // secondary click on empty space
     // Starts a system drag of these paths; false when the platform has none. The host calls dragEnded() after.
     std::function<bool(const std::vector<std::filesystem::path>&)> startDrag;
     std::function<void(InputArea*)> focus;
@@ -69,6 +71,9 @@ public:
     std::function<void(View)> viewChanged;
     // Adds the host's circles after the view switch (mockup .ahdr: split, info).
     std::function<void(Flex& row, float scale)> headerButtons;
+    // Set: search offers the This PC scope (FILES-UI-SPEC §15). The host queries its index for `text` with an index
+    // kind word ("" = any, "pdf", "image", "doc", "sheet") and answers with setSearchResults.
+    std::function<void(const std::string& text, std::string_view kind)> search;
     // A pointer press on an item or on empty space in the view (split view: the pane under it becomes active).
     std::function<void()> pressed;
   };
@@ -146,6 +151,12 @@ public:
   void setEnabledPredicate(std::function<bool(const FileInfo&)> enabled);
   // Shows only the items whose name contains `text` (case and accents folded); cleared when the folder changes.
   void setFilter(std::string text);
+  enum class SearchScope : std::uint8_t { Folder, Everywhere };
+  enum class SearchKind : std::uint8_t { All, Pdf, Image, Doc, Sheet, Recent };
+  void setSearchScope(SearchScope scope);
+  void setSearchKind(SearchKind kind);
+  // The host's index answer for `text`; rows have absolute names. An answer for an older text is dropped.
+  void setSearchResults(const std::string& text, std::vector<std::shared_ptr<const FileInfo>> rows);
   void focusSearch(); // Ctrl+F
   void focusList();
   void reload();
@@ -154,6 +165,7 @@ public:
   [[nodiscard]] const std::string& listingId() const noexcept { return m_listingId; }
   [[nodiscard]] std::string title() const;
   [[nodiscard]] View view() const noexcept { return m_options.view; }
+  [[nodiscard]] FileSortKey sortKey() const noexcept { return m_sort.key; }
   [[nodiscard]] FileModel::Status status() const;
   [[nodiscard]] const std::vector<std::shared_ptr<const FileInfo>>& rows() const noexcept { return m_rows; }
   [[nodiscard]] std::vector<std::filesystem::path> selectedPaths() const;
@@ -205,6 +217,7 @@ public:
   // A bound cell shows a row whose stat is not read yet (FB-SPEED).
   void wantStat(const std::shared_ptr<const FileInfo>& row);
   void onBandStart(bool icons, float x, float y);
+  void backgroundMenu(float sceneX, float sceneY); // clears the selection, then the host's background menu
   void onBandMove(bool icons, float x, float y);
   void onBandEnd(bool icons);
   // Icons view press feedback: the pressed cell runs to 0.98 and back on spring.press.
@@ -239,6 +252,11 @@ private:
   void refreshViewButtons();
   void refreshTabs();
   void widenSearch(bool focused);
+  [[nodiscard]] bool searchingEverywhere() const;
+  void refreshChips();
+  void showChips();
+  void querySearch();
+  void syncSearchView();
   void refreshSidebar();
   void showSkeleton(bool show);
   void applyViewMix();
@@ -270,6 +288,12 @@ private:
   std::filesystem::path m_location;
   std::string m_listingId;
   std::string m_filter; // the header search text
+  SearchScope m_searchScope = SearchScope::Folder;
+  SearchKind m_searchKind = SearchKind::All;
+  std::string m_searchText; // the text m_searchRows answer
+  std::vector<std::shared_ptr<const FileInfo>> m_searchRows;
+  std::optional<View> m_viewBeforeSearch; // the view This PC results replaced with the list
+  bool m_searchViewSwitch = false;         // setView for search: the host does not save it
   std::vector<std::filesystem::path> m_galleryItems; // what the Gallery shows, in view order
   std::size_t m_galleryCurrent = 0;
   std::optional<Listing> m_listing;

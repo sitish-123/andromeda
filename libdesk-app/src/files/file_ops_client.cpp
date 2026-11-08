@@ -430,6 +430,9 @@ void FileOpsClient::apply(Job& job, const std::map<std::string, sdbus::Variant>&
   if (const auto it = props.find("Current"); it != props.end()) {
     job.current = pathFrom(it->second.get<Bytes>());
   }
+  if (const auto it = props.find("Destination"); it != props.end()) {
+    job.destination = pathFrom(it->second.get<Bytes>());
+  }
   if (const auto it = props.find("Conflict"); it != props.end()) {
     const auto pair = it->second.get<sdbus::Struct<Bytes, Bytes>>();
     const auto& [source, target] = pair;

@@ -17,6 +17,10 @@ SRC=$HOME_DIR/src
 DST=$HOME_DIR/dst
 TRASH=$HOME_DIR/.local/share/Trash
 boot_headless 1
+# SCALE=2: a 2560x1440 mode at scale 2, for 1:1 crops against the mockup at device scale 2.
+if [[ ${SCALE:-1} == 2 ]]; then
+  printf '\n[output.HEADLESS-1]\nmode = "2560x1440@60"\nscale = 2\n' >> "$RUNTIME/andromeda.toml"
+fi
 
 fail() { echo "FAIL: $*"; exit 1; }
 mkdir -p "$SRC" "$DST"
@@ -30,8 +34,11 @@ trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true
 env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config")
 
-run "${env_app[@]}" "$FILEOPS" > "$OUT/fileops.log" 2>&1 &
-run "${env_app[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
+# The daemon gets 3 % of a CPU, so the 1 GB copy of the job pill step runs for seconds and emits progress while the
+# test clicks; the small steps before it do not notice.
+systemd-run --user --scope --quiet -p CPUQuota=3% "${env_app[@]}" XDG_RUNTIME_DIR="$RUNTIME" "$FILEOPS" \
+  > "$OUT/fileops.log" 2>&1 &
+run "${env_app[@]}" NOCTALIA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 for _ in $(seq 100); do
@@ -126,3 +133,42 @@ wait_for "Paste did not copy the file another app put on the clipboard" test -f 
 [[ $(cat "$SRC/outside.txt") == outside ]] || fail "the pasted file has other content"
 run wl-copy --clear # ends the wl-copy daemon, which would outlive the test
 echo "PASS clipboard"
+
+# Job pill (FILES-UI-SPEC §14): a slow copy (the daemon runs at 3 % CPU) shows the header pill; a click opens the
+# popover; while progress arrives, its Pause circle pauses the copy, Resume runs it again, and Stop cancels it.
+truncate -s 1G "$SRC/big.bin"
+select_names "$SRC" 1 "['big.bin']"
+action edit.copy
+action go "[<'$DST'>]"
+action edit.paste
+wait_for "the pill did not show for the running copy" grep -q "job pill 1" "$OUT/files.log"
+job=$(grep -oE "job copy running /org/andromeda/FileOps1/Job/[0-9]+" "$OUT/files.log" | tail -n 1 | awk '{print $NF}')
+[[ -n $job ]] || fail "the copy logged no running state"
+run "$ANDROMEDA" settle > /dev/null
+wait_for "the pill logged no geometry" grep -q "geometry pill " "$OUT/files.log"
+read -r px py pw ph <<< "$(grep -E "geometry pill " "$OUT/files.log" | tail -n 1 | awk '{print $(NF-3), $(NF-2), $(NF-1), $NF}')"
+WX=$(jq .x <<< "$w")
+WY=$(jq .y <<< "$w")
+run "$POINTER" 1280 720 move $((WX + px + pw / 2)) $((WY + py + ph / 2)) click 272 > /dev/null
+wait_for "a click on the pill did not open the popover" grep -q "job popover open" "$OUT/files.log"
+run "$ANDROMEDA" settle > /dev/null
+run grim "$OUT/pill-popover.png"
+# The card hangs under the pill, right edges lined up. First row: Stop 12 in from the right, Pause 8 left of it.
+stop_x=$((WX + px + pw - 24))
+pause_x=$((WX + px + pw - 56))
+row_y=$((WY + py + ph + 61))
+progress_after() { tail -n +"$(($1 + 1))" "$OUT/files.log" | grep -q "job copy running $job"; }
+m=$(wc -l < "$OUT/files.log")
+wait_for "no progress arrived while the popover was open" progress_after "$m"
+run "$POINTER" 1280 720 move "$pause_x" "$row_y" click 272 > /dev/null
+wait_for "the Pause circle did not pause the copy" grep -q "job pause $job" "$OUT/files.log"
+wait_for "the copy did not reach paused" grep -q "job copy paused $job" "$OUT/files.log"
+run "$POINTER" 1280 720 move "$pause_x" "$row_y" click 272 > /dev/null
+wait_for "the Resume circle did not resume the copy" grep -q "job resume $job" "$OUT/files.log"
+m=$(wc -l < "$OUT/files.log")
+wait_for "no progress arrived after Resume" progress_after "$m"
+run "$POINTER" 1280 720 move "$stop_x" "$row_y" click 272 > /dev/null
+wait_for "the Stop circle did not cancel the copy" grep -q "job cancel $job" "$OUT/files.log"
+wait_for "the copy did not end cancelled" grep -q "job copy cancelled" "$OUT/files.log"
+wait_for "the pill did not go when the copy ended" grep -q "job pill 0" "$OUT/files.log"
+echo "PASS job pill"

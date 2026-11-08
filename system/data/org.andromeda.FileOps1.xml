@@ -136,6 +136,8 @@
          equal size and mtime; a hint reads like "newer here, larger there". All empty otherwise. -->
     <property name="FolderClash" type="(ttta(ays))" access="read" />
     <property name="Current" type="ay" access="read" />
+    <!-- The folder a copy, move, link or extract writes into; empty for other jobs. -->
+    <property name="Destination" type="ay" access="read" />
     <property name="DoneBytes" type="t" access="read" />
     <property name="DoneFiles" type="t" access="read" />
     <property name="Error" type="s" access="read" />

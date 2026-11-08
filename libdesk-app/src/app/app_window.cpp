@@ -284,6 +284,12 @@ void AppWindow::refreshPopover() {
   }
 }
 
+void AppWindow::invalidatePopover() {
+  if (m_popover != nullptr && m_popover->isOpen()) {
+    m_popover->requestLayout();
+  }
+}
+
 void AppWindow::closePopover() {
   if (m_popover != nullptr) {
     m_popover->close();

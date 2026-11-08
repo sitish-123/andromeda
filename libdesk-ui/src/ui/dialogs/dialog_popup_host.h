@@ -167,6 +167,10 @@ protected:
   [[nodiscard]] virtual InputArea* initialFocusArea() = 0;
 
   [[nodiscard]] virtual float computePadding(float scale) const { return scale * 12.0F; }
+  // Which edge of the visible card the positioner lines up; the shadow margin is taken off that side.
+  [[nodiscard]] virtual popup_chrome::Attachment chromeAttachment() const {
+    return {.horizontal = popup_chrome::HorizontalAttachment::Center, .vertical = popup_chrome::VerticalAttachment::Center};
+  }
   virtual void runUpdatePhase() {}
   [[nodiscard]] virtual bool preDispatchKeyboard(const KeyboardEvent& /*event*/) { return false; }
   virtual void onSheetClose() {}

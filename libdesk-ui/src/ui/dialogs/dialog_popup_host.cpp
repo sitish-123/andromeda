@@ -168,12 +168,7 @@ bool DialogPopupHost::openPopupAsChild(PopupSurfaceConfig config, const XdgPopup
       static_cast<float>(config.width), static_cast<float>(config.height), shadowStyle(),
       Style::popupShadowsEnabled()
   );
-  popup_chrome::applyToConfig(
-      config, m_chrome,
-      popup_chrome::Attachment{
-          .horizontal = popup_chrome::HorizontalAttachment::Center, .vertical = popup_chrome::VerticalAttachment::Center
-      }
-  );
+  popup_chrome::applyToConfig(config, m_chrome, chromeAttachment());
 
   m_surface = std::move(surface);
   m_openInProgress = true;

@@ -852,17 +852,20 @@ void VirtualGridView::onPointerRelease(float localX, float localY) {
 
 void VirtualGridView::onSecondaryPointerPress(float localX, float localY) {
   const auto idx = indexAt(localX, localY);
-  if (!idx.has_value()) {
-    return;
+  if (idx.has_value()) {
+    setSelectedIndex(idx, false);
   }
-  setSelectedIndex(idx, false);
   if (m_adapter != nullptr) {
     float wx = 0.0F;
     float wy = 0.0F;
     Node::absolutePosition(m_inputArea, wx, wy);
     wx += localX;
     wy += localY;
-    m_adapter->onSecondaryActivate(*idx, wx, wy);
+    if (idx.has_value()) {
+      m_adapter->onSecondaryActivate(*idx, wx, wy);
+    } else {
+      m_adapter->onSecondaryEmpty(wx, wy);
+    }
   }
 }
 

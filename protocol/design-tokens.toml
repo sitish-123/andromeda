@@ -477,6 +477,7 @@ gap = 8.0
 column_date = 112.0
 column_size = 72.0
 column_kind = 112.0  # includes column_kind_pad
+column_where = 200.0  # search results: the folder of each hit (mockup section 5)
 column_kind_pad = 16.0
 name_min = 120.0     # Name keeps this before Kind, then Date drop
 row_inset = 8.0      # list rows: 8 from the pane edge, 4 above the first row

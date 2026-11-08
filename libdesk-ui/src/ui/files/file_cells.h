@@ -29,6 +29,7 @@ struct FileCellState {
   int depth = 0;           // list view: expanded-in-place level, indented 16 per level
   enum class Disclosure : std::uint8_t { None, Leaf, Collapsed, Expanded } disclosure = Disclosure::None; // list view
   std::filesystem::path path; // the item's full path: folder contents and user-folder emblems in its icon
+  std::string where; // list view: shown in the Kind column (search results: the parent folder)
   ThumbnailService* thumbnails = nullptr; // image, video and PDF previews; null = drawn art only
 };
 
@@ -65,8 +66,9 @@ public:
     float date = 0.0F; // 0 = hidden
     float size = 0.0F;
     float kind = 0.0F;
+    float where = 0.0F; // search results: Where after Name, no Size or Kind (mockup §5)
   };
-  [[nodiscard]] static Columns columnsFor(float width, float scale);
+  [[nodiscard]] static Columns columnsFor(float width, float scale, bool where = false);
   // Space between the pane edge and the row's text: row inset + row padding (the header uses it too).
   [[nodiscard]] static float textInset(float scale);
   // The disclosure triangle's x range in a row of this depth (press there toggles the folder).
@@ -88,5 +90,6 @@ private:
   Label* m_size = nullptr;
   Flex* m_kindBox = nullptr;
   Label* m_kind = nullptr;
+  Label* m_where = nullptr;
   Glyph* m_chevron = nullptr;
 };

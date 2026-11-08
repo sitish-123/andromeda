@@ -108,6 +108,8 @@ type Answer = Option<(Resolution, bool)>;
 
 struct Shared {
     kind: &'static str,
+    /// The folder a copy, move, link or extract writes into; empty for other jobs.
+    destination: PathBuf,
     /// Set at start; an Extract sets them on its worker thread (reading the archive index blocks).
     total_files: AtomicU64,
     total_bytes: AtomicU64,
@@ -252,6 +254,10 @@ impl Job {
     #[zbus(property)]
     fn current(&self) -> Vec<u8> {
         bytes(&lock(&self.shared.status).current)
+    }
+    #[zbus(property)]
+    fn destination(&self) -> Vec<u8> {
+        bytes(&self.shared.destination)
     }
     #[zbus(property)]
     fn error(&self) -> String {
@@ -475,8 +481,13 @@ impl Manager {
             Request::Copy(sources, dir) | Request::Move(sources, dir) => ops::count_conflicts(sources, dir).unwrap_or(0),
             _ => 0,
         };
+        let destination = match &request {
+            Request::Copy(_, dir) | Request::Move(_, dir) | Request::Link(_, dir) | Request::Extract(_, _, dir, _) => dir.clone(),
+            _ => PathBuf::new(),
+        };
         let shared = Arc::new(Shared {
             kind,
+            destination,
             total_files: AtomicU64::new(total_files),
             total_bytes: AtomicU64::new(total_bytes),
             status: Mutex::new(Status {
@@ -848,6 +859,7 @@ mod tests {
     fn shared(total: u64) -> Arc<Shared> {
         Arc::new(Shared {
             kind: "copy",
+            destination: PathBuf::new(),
             total_files: AtomicU64::new(0),
             total_bytes: AtomicU64::new(0),
             status: Mutex::new(Status {

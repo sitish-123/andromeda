@@ -103,6 +103,7 @@ public:
   // A popover under `anchor` (a node of this window), `width` x `height` logical px before ui scale.
   void openPopover(const Node* anchor, float width, float height, std::function<std::unique_ptr<Node>(float scale)> content);
   void refreshPopover();
+  void invalidatePopover(); // its nodes changed in place: relayout and repaint, no rebuild
   void closePopover();
   [[nodiscard]] bool popoverOpen() const noexcept;
   void toggleMaximized();

@@ -9,11 +9,13 @@
 #include "compress_sheet.h"
 #include "extract_sheet.h"
 #include "get_info_sheet.h"
+#include "job_pill.h"
 #include "storage_page.h"
 #include "ui/files/file_browser.h"
 
 #include <array>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -55,6 +57,7 @@ public:
   void goTrash();
   void goThisPc();
   void refreshPlaces() { loadTrash(); }
+  void searchAnswered(const std::string& text, const std::vector<std::shared_ptr<const FileInfo>>& rows);
   void tagsChanged();
   void goTag(const std::string& tag);
   void eject(const std::filesystem::path& mount);
@@ -75,6 +78,7 @@ public:
   void openTerminalHere(); // the selected folder, else the current one
   void copyLocation(); // the selected paths, else the folder, as text on the clipboard
   void showItemMenu(std::size_t index, float sceneX, float sceneY); // right click on an item (mockup §4)
+  void showBackgroundMenu(float sceneX, float sceneY);              // right click on empty view space
   [[nodiscard]] bool detailsOpen() const noexcept { return m_detailsOpen; }
   [[nodiscard]] bool canOpenWith() const;
   [[nodiscard]] AppChooserSheet* openWithSheet() const noexcept { return m_openWith.get(); }
@@ -224,6 +228,24 @@ private:
   std::string m_toast;
   bool m_toastUndo = false;
   Timer m_toastTimer;
+  // Job pill (FILES-UI-SPEC §14): this window's unfinished jobs older than kPillDelay.
+  static constexpr auto kPillDelay = std::chrono::milliseconds(500);
+  std::map<std::string, std::chrono::steady_clock::time_point> m_jobStarted;
+  Timer m_pillTimer;
+  Node* m_pillAnchor = nullptr;
+  class CountdownRing* m_pillRing = nullptr;
+  std::size_t m_pillShown = 0;
+  [[nodiscard]] std::vector<FileOpsClient::Job> pillJobs() const;
+  void updateJobPill();
+  void openJobsPopover();
+  void armPillTimer();
+  // Speed: bytes done over the last kRateWindow of Running samples; paused time and adopted progress do not count.
+  static constexpr auto kRateWindow = std::chrono::seconds(3);
+  std::map<std::string, std::deque<std::pair<std::chrono::steady_clock::time_point, std::uint64_t>>> m_rateSamples;
+  [[nodiscard]] double jobRate(const std::string& path) const;
+  void sampleRate(const FileOpsClient::Job& job);
+  std::string m_popoverKey; // job_pill::layoutKey of the open popover's rows
+  std::vector<job_pill::RowNodes> m_popoverRows;
   struct Picker {
     std::uint64_t id = 0;
     PickerPortal::Request request;
