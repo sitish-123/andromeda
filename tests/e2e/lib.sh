@@ -9,8 +9,10 @@ trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' 
 # boot_headless OUTPUTS: start Andromeda with that many headless outputs; its log goes to $OUT/andromeda.log.
 boot_headless() {
   mkdir -p "$OUT" "$RUNTIME/home/.config/noctalia"
-  # No first-run wizard: it takes the keyboard from the window under test.
-  printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n' > "$RUNTIME/home/.config/noctalia/config.toml"
+  # No first-run wizard: it takes the keyboard from the window under test. No greeter sync: it runs pkexec and
+  # writes the test's look into the real greeter of this machine.
+  printf '[plugins]\nauto_update = "none"\n\n[shell]\nsetup_wizard_enabled = false\n\n[shell.greeter_sync]\nauto_sync = false\n' \
+    > "$RUNTIME/home/.config/noctalia/config.toml"
   # AUTOSTART: TOML string items, for a test that needs a client the compositor spawns itself.
   printf '[general]\nautostart = [%s]\n' "${AUTOSTART:-}" > "$RUNTIME/andromeda.toml"
   # No service directories, so the private bus never activates a keyring prompt or dconf.
