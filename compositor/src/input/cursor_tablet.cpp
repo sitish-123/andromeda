@@ -1,3 +1,4 @@
+#include "server/focus_grab.h"
 #include "input/cursor.h"
 #include "input/cursor_internal.h"
 
@@ -150,6 +151,9 @@ namespace andromeda {
       wlr_surface* surface = nullptr;
       LayerSurface* layer = nullptr;
       View* view = m_server->viewAt(m_cursor->x, m_cursor->y, &surface, &sx, &sy, &layer);
+      if (m_server->focusGrabs() != nullptr) {
+        m_server->focusGrabs()->press(surface);
+      }
       if (layer != nullptr) {
         if (!isXdgPopupSurface(surface)) {
           layer->focus();

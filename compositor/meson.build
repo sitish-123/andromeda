@@ -529,6 +529,19 @@ dsk_surface_server_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+focus_grab_server_h = custom_target(
+  'hyprland-focus-grab-v1-protocol.h',
+  input: 'protocols/hyprland-focus-grab-v1.xml',
+  output: 'hyprland-focus-grab-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+focus_grab_server_c = custom_target(
+  'hyprland-focus-grab-v1-protocol.c',
+  input: 'protocols/hyprland-focus-grab-v1.xml',
+  output: 'hyprland-focus-grab-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 kde_appmenu_server_h = custom_target(
   'kde-appmenu-protocol.h',
   input: 'protocols/kde-appmenu.xml',
@@ -962,6 +975,7 @@ core_sources = files(
   'src/server/greeter_mode.cpp',
   'src/server/tracker_motion.cpp',
   'src/server/app_menu.cpp',
+  'src/server/focus_grab.cpp',
   'src/server/fifo.cpp',
   'src/server/commit_timing.cpp',
   'src/server/allocator.cpp',
@@ -1099,6 +1113,8 @@ andromeda_core = static_library(
     dsk_surface_server_c,
     kde_appmenu_server_h,
     kde_appmenu_server_c,
+    focus_grab_server_h,
+    focus_grab_server_c,
     gtk_shell_server_h,
     gtk_shell_server_c,
     xdg_output_server_h,

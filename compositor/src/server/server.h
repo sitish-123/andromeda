@@ -154,6 +154,7 @@ namespace andromeda {
   class GreeterChild;
   class FifoManager;
   class AppMenuRegistry;
+  class FocusGrabManager;
   struct InputDeviceInfo;
   class InputMethodRelay;
   class Gestures;
@@ -440,7 +441,7 @@ namespace andromeda {
 
     // Focus lives in FocusManager; these forward so call sites that already
     // hold a Server do not need a second reference.
-    void focusView(View* view, FocusReason reason) { m_focus.focusView(view, reason); }
+    void focusView(View* view, FocusReason reason);
     void xwaylandHintsChanged(View* view) { m_focus.xwaylandHintsChanged(view); }
     void restoreActivatedViewKeyboardFocus() { m_focus.restoreActivatedViewKeyboardFocus(); }
     View* viewAt(double lx, double ly, wlr_surface** surface, double* sx, double* sy, LayerSurface** layer = nullptr) {
@@ -490,6 +491,7 @@ namespace andromeda {
     [[nodiscard]] DskSurfaceManager* dskSurfaces() const { return m_dskSurfaces.get(); }
     [[nodiscard]] FifoManager* fifoManager() const { return m_fifoManager.get(); }
     [[nodiscard]] AppMenuRegistry* appMenus() const { return m_appMenus.get(); }
+    [[nodiscard]] FocusGrabManager* focusGrabs() const { return m_focusGrabs.get(); }
     [[nodiscard]] DesktopSettingsManager* desktopSettingsManager() const { return m_desktopSettingsManager.get(); }
     // Physical keyboards, mice, touchpads, touchscreens, and tablets; virtual devices are left out.
     [[nodiscard]] std::vector<InputDeviceInfo> inputDevices() const;
@@ -1217,6 +1219,7 @@ namespace andromeda {
     std::unique_ptr<BackgroundEffectManager> m_backgroundEffects;
     std::unique_ptr<FifoManager> m_fifoManager;
     std::unique_ptr<AppMenuRegistry> m_appMenus;
+    std::unique_ptr<FocusGrabManager> m_focusGrabs;
     TeardownStep m_stepClients{this, &Server::destroyClients};
     std::unique_ptr<DesktopShell> m_desktopShell;
     std::unique_ptr<DesktopOutputManager> m_desktopOutputManager;

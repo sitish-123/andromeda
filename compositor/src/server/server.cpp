@@ -50,6 +50,7 @@
 #include "server/dsk_surface.h"
 #include "server/greeter_mode.h"
 #include "server/app_menu.h"
+#include "server/focus_grab.h"
 #include "server/fifo.h"
 #include "server/ipc.h"
 #include "server/syncobj_acquire_barrier.h"
@@ -751,6 +752,7 @@ namespace andromeda {
     });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
     m_appMenus = std::make_unique<AppMenuRegistry>(m_display, [this] { scheduleIpcWindowsEvent(); });
+    m_focusGrabs = std::make_unique<FocusGrabManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
     if (wlr_single_pixel_buffer_manager_v1_create(m_display) == nullptr) {
       throw std::runtime_error("failed to create single-pixel-buffer manager");
@@ -2786,4 +2788,17 @@ namespace andromeda {
     );
     m_snapFlyout->open(view, x, y, usable, keyboard);
   }
+} // namespace andromeda
+
+namespace andromeda {
+
+  void Server::focusView(View* view, FocusReason reason) {
+    // An open shell panel keeps the keyboard while the pointer passes over windows (focus grab, as on Hyprland); a
+    // press outside clears the grab first, so click-to-focus still works.
+    if (reason == FocusReason::PointerHover && m_focusGrabs != nullptr && m_focusGrabs->active()) {
+      return;
+    }
+    m_focus.focusView(view, reason);
+  }
+
 } // namespace andromeda

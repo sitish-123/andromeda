@@ -1,3 +1,4 @@
+#include "server/focus_grab.h"
 #include "input/cursor.h"
 
 #include "input/event_time.h"
@@ -996,6 +997,11 @@ namespace andromeda {
       // click still reaches whatever it hit.
       if (QuitConfirm* confirm = m_server->quitConfirm(); confirm != nullptr && confirm->visible()) {
         m_server->dismissConfirmation();
+      }
+      // A press outside an open shell panel closes it and still reaches what it hit.
+      const wlr_seat_pointer_state& pointer = m_server->seat()->wlr()->pointer_state;
+      if (m_server->focusGrabs() != nullptr && pointer.button_count == 0) {
+        m_server->focusGrabs()->press(pointer.focused_surface);
       }
     }
 

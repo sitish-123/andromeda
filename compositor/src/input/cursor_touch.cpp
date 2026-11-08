@@ -1,3 +1,4 @@
+#include "server/focus_grab.h"
 #include "input/cursor.h"
 #include "input/cursor_internal.h"
 
@@ -97,6 +98,9 @@ namespace andromeda {
       }
     }
 
+    if (m_server->focusGrabs() != nullptr) {
+      m_server->focusGrabs()->press(surface);
+    }
     if (surface != nullptr) {
       // Focus the touched view (click-to-focus equivalent).
       if (!m_server->sessionLocked() && m_server->exclusiveKeyboardLayer() == nullptr) {
