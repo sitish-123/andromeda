@@ -18,7 +18,6 @@ mode = "scrolling"
 [overview]
 style = "spaces"
 [appearance.title_bar]
-mode = "forced"
 style = "andromeda"
 button_position = "right"
 CONFIG
@@ -35,6 +34,16 @@ CONFIG
 export UNMAP POINTER
 with_noctalia '
   fail() { echo "FAIL: $*"; exit 1; }
+  # The theme change fades; a shot is taken once two grabs 0.2 s apart are identical.
+  stable_grim() {
+    local g=()
+    [[ $1 == -g ]] && { g=(-g "$2"); shift 2; }
+    for _ in $(seq 25); do
+      grim "${g[@]}" "$1.prev"; sleep 0.2; grim "${g[@]}" "$1"
+      cmp -s "$1.prev" "$1" && { rm -f "$1.prev"; return 0; }
+    done
+    fail "the screen did not settle for $1"
+  }
   window() { "$ANDROMEDA" windows --json | jq -c ".[] | select(.title == \"$1\")"; }
   settings_up() { [[ -n $("$ANDROMEDA" windows --json | jq -r ".[] | select(.app_id == \"dev.noctalia.Noctalia\") | .id") ]]; }
 
@@ -46,7 +55,7 @@ with_noctalia '
   grim "$OUT/gallery-light.png"
   "$NOCTALIA" msg theme-mode-set dark > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
-  grim "$OUT/gallery-dark.png"
+  stable_grim "$OUT/gallery-dark.png"
   "$NOCTALIA" msg theme-mode-set light > /dev/null
   "$NOCTALIA" msg config-set dock.enabled false > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
@@ -97,7 +106,7 @@ with_noctalia '
 
   # 4. Scale 1.5: a macOS title bar on desk-a and the Windows taskbar row.
   printf "\n[output.HEADLESS-1]\nscale = 1.5\n" >> "$RUNTIME/andromeda.toml"
-  sed -i "s/^style = \"andromeda\"/style = \"macos\"/; s/^button_position = .*/button_position = \"left\"/" "$RUNTIME/andromeda.toml"
+  sed -i "s/^style = \"andromeda\"/mode = \"forced\"\nstyle = \"macos\"/; s/^button_position = .*/button_position = \"left\"/" "$RUNTIME/andromeda.toml"
   "$ANDROMEDA" msg config-reload > /dev/null
   for _ in $(seq 100); do [[ $("$ANDROMEDA" outputs --json | jq -r ".[0].scale") == 1.5 ]] && break; sleep 0.05; done
   [[ $("$ANDROMEDA" outputs --json | jq -r ".[0].scale") == 1.5 ]] || fail "the output did not take scale 1.5"

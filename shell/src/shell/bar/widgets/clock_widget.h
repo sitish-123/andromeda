@@ -15,6 +15,8 @@ public:
     std::string verticalFormat;
     std::string tooltipFormat;
     std::string timezone;
+    // "compact": a smaller second line, both centred. "even": both lines footnote size, aligned to the trailing edge.
+    std::string stackStyle = "compact";
   };
 
   ClockWidget(wl_output* output, Options options);
@@ -36,6 +38,7 @@ private:
   bool m_labelShowsSeconds = false;
   bool m_tooltipShowsSeconds = false;
   bool m_isVertical = false;
+  bool m_stackEven = false;
   Label* m_label = nullptr;
   Label* m_secondaryLabel = nullptr;
   std::string m_lastText;

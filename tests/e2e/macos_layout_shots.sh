@@ -48,6 +48,14 @@ mkdir -p "$RUNTIME/home/Desktop/Projects"
 cp "$ROOT/shell/assets/andromeda-wallpaper.png" "$RUNTIME/home/Desktop/Wallpaper photo.png"
 
 with_noctalia '
+  # The theme change fades; a shot is taken once two grabs 0.2 s apart are identical.
+  stable_grim() {
+    for _ in $(seq 25); do
+      grim "$1.prev"; sleep 0.2; grim "$1"
+      cmp -s "$1.prev" "$1" && { rm -f "$1.prev"; return 0; }
+    done
+    echo "FAIL: the screen did not settle for $1"; exit 1
+  }
   APP_ID=macos-a FILL_COLOR=0xFFF2F2F6 "'"$UNMAP"'" macos-a 640 400 > "$OUT/client.log" 2>&1 &
   for _ in $(seq 100); do
     [[ $("$ANDROMEDA" windows --json | jq -r ".[] | select(.title == \"macos-a\") | .title") == macos-a ]] && break
@@ -57,7 +65,7 @@ with_noctalia '
   grim "$OUT/light.png"
   "$NOCTALIA" msg theme-mode-set dark > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
-  grim "$OUT/dark.png"
+  stable_grim "$OUT/dark.png"
   # Window menu fallback (board desktop-menus.html A3): a click on the bold app name, right of the brand mark.
   "'"$POINTER"'" 1280 720 move 64 16 click 272 > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null

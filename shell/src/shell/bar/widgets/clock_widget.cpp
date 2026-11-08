@@ -28,7 +28,7 @@ namespace {
 
 ClockWidget::ClockWidget(wl_output* /*output*/, Options options)
     : m_format(std::move(options.format)), m_verticalFormat(std::move(options.verticalFormat)),
-      m_tooltipFormat(std::move(options.tooltipFormat)), m_timezone(std::move(options.timezone)),
+      m_tooltipFormat(std::move(options.tooltipFormat)), m_timezone(std::move(options.timezone)), m_stackEven(options.stackStyle == "even"),
       m_labelShowsSeconds(formatShowsSeconds(m_format) || formatShowsSeconds(m_verticalFormat)),
       m_tooltipShowsSeconds(formatShowsSeconds(m_tooltipFormat)) {}
 
@@ -139,6 +139,10 @@ void ClockWidget::doLayout(Renderer& renderer, float containerWidth, float conta
   const float stackedSecondaryScale = noCapsule ? kStackedSecondaryScaleNoCapsule : kStackedSecondaryScale;
   float primaryFontSize = Style::fontSizeBody * fontScale() * (showSecondary ? stackedPrimaryScale : 1.0F);
   float secondaryFontSize = Style::fontSizeBody * fontScale() * stackedSecondaryScale;
+  if (m_stackEven && showSecondary) {
+    primaryFontSize = Style::fontSizeCaption * fontScale();
+    secondaryFontSize = primaryFontSize;
+  }
   const FontWeight fontWeight = labelFontWeight();
 
   // Horizontal clocks use single-line metrics unless the configured format
@@ -183,11 +187,16 @@ void ClockWidget::doLayout(Renderer& renderer, float containerWidth, float conta
     const float primaryInkWidth = std::max(0.0F, primaryMetrics.inkRight - primaryMetrics.inkLeft);
     const float secondaryInkWidth = std::max(0.0F, secondaryMetrics.inkRight - secondaryMetrics.inkLeft);
     width = std::max({width, primaryInkWidth, secondaryInkWidth});
-    const float centerX = width * 0.5F;
-    const float primaryInkCenterX = (primaryMetrics.inkLeft + primaryMetrics.inkRight) * 0.5F;
-    const float secondaryInkCenterX = (secondaryMetrics.inkLeft + secondaryMetrics.inkRight) * 0.5F;
-    m_label->setPosition(std::round(centerX - primaryInkCenterX), 0.0F);
-    m_secondaryLabel->setPosition(std::round(centerX - secondaryInkCenterX), m_label->height());
+    if (m_stackEven) {
+      m_label->setPosition(std::round(width - primaryMetrics.inkRight), 0.0F);
+      m_secondaryLabel->setPosition(std::round(width - secondaryMetrics.inkRight), m_label->height());
+    } else {
+      const float centerX = width * 0.5F;
+      const float primaryInkCenterX = (primaryMetrics.inkLeft + primaryMetrics.inkRight) * 0.5F;
+      const float secondaryInkCenterX = (secondaryMetrics.inkLeft + secondaryMetrics.inkRight) * 0.5F;
+      m_label->setPosition(std::round(centerX - primaryInkCenterX), 0.0F);
+      m_secondaryLabel->setPosition(std::round(centerX - secondaryInkCenterX), m_label->height());
+    }
   } else {
     m_label->setPosition(0.0F, 0.0F);
   }

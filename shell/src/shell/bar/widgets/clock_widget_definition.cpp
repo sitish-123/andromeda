@@ -19,6 +19,9 @@ const noctalia::bar::WidgetDefinition<ClockWidget::Options>& clockWidgetDefiniti
           field<&Options::timezone>({
               .key = "timezone",
           }),
+          field<&Options::stackStyle>({
+              .key = "stack_style",
+          }),
       },
   };
   return definition;

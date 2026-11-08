@@ -715,7 +715,11 @@ namespace settings {
               )
           );
         }
-        auto cell = ui::column({.align = FlexAlign::Center, .gap = Style::spaceSm * scale}, std::move(tile), std::move(name));
+        // Layout cards: the board measures gaps from the picture; the tile pads it by the ring and its gap.
+        const float ringPad = layoutPicker ? Style::focusRingWidth + Style::focusRingGap : 0.0F;
+        auto cell = ui::column(
+            {.align = FlexAlign::Center, .gap = (Style::spaceSm - ringPad) * scale}, std::move(tile), std::move(name)
+        );
         cells.push_back(std::move(cell));
       }
       if (!layoutPicker) {
@@ -726,9 +730,11 @@ namespace settings {
       }
       // Board section 6: a 2-column grid of 200 x 124 cards, the Custom card fifth.
       // Board section 6: rows 16 apart, columns 24 apart.
-      auto grid = ui::column({.align = FlexAlign::Start, .gap = Style::spaceLg * scale});
+      // Columns lose the ring padding of both pictures, rows only that of the picture under the gap.
+      const float ringPad = Style::focusRingWidth + Style::focusRingGap;
+      auto grid = ui::column({.align = FlexAlign::Start, .gap = (Style::spaceLg - ringPad) * scale});
       for (std::size_t i = 0; i < cells.size(); i += 2) {
-        auto row = ui::row({.align = FlexAlign::Start, .gap = Tokens::spaceP24 * scale});
+        auto row = ui::row({.align = FlexAlign::Start, .gap = (Tokens::spaceP24 - 2.0F * ringPad) * scale});
         row->addChild(std::move(cells[i]));
         if (i + 1 < cells.size()) {
           row->addChild(std::move(cells[i + 1]));

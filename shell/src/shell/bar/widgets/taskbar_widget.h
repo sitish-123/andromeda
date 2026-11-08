@@ -80,6 +80,8 @@ struct TaskbarWidgetOptions {
   bool runningBar = false;
   // Hovering a running button for 400 ms shows its windows' previews instead of a tooltip.
   bool windowPreviews = false;
+  // One button per app (Windows 11 "combine"): it marks the app focused when any of its windows is.
+  bool combineApps = false;
 };
 
 struct TaskbarWidgetContext {

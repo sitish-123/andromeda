@@ -160,6 +160,10 @@ const noctalia::bar::WidgetDefinition<TaskbarWidgetOptions>& taskbarWidgetDefini
                               .key = "window_previews",
                               .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
                           }),
+                          field<&Options::combineApps>({
+                              .key = "combine_apps",
+                              .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),
+                          }),
                           field<&Options::runningBar>({
                               .key = "running_bar",
                               .presentation = presentation("taskbar.windows", matches("group_by_workspace", {"false"})),

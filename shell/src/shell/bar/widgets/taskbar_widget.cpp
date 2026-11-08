@@ -2230,9 +2230,18 @@ void TaskbarWidget::updateModels() {
     const std::string nameLower = !run.entry.nameLower.empty() ? run.entry.nameLower : run.runningLower;
 
     const auto windows = m_platform.enrichedWindowsForApp(idLower, startupLower, topFilter);
+    std::optional<std::size_t> appTask;
     for (const auto& window : windows) {
       const auto handleKey = taskHandleKey(window);
       if (handleKey == 0 || !processedHandles.insert(handleKey).second) {
+        continue;
+      }
+      if (appTask.has_value()) {
+        TaskModel& combined = nextTasks[*appTask];
+        if (activeHandle != nullptr && activeHandle == window.handle) {
+          combined.active = true;
+          combined.firstHandle = window.handle;
+        }
         continue;
       }
 
@@ -2257,6 +2266,9 @@ void TaskbarWidget::updateModels() {
       task.icon = resolveIcon(run.runningAppId, run.entry.icon);
       task.workspaceKey = {};
       nextTasks.push_back(std::move(task));
+      if (m_configOptions.combineApps) {
+        appTask = nextTasks.size() - 1;
+      }
     }
   }
 

@@ -13,6 +13,7 @@ Displays the current time.
 | `vertical_format` | string | `""`       | Format used when the bar is vertical. When empty, falls back to `format` with `:` replaced by line breaks. Supports the same syntax as `format`.                                                                            |
 | `tooltip_format`  | string | `""`       | Optional format shown when mouse is hovered over the clock widget. This utilizes the same [date format tokens](/noctalia/configuration/date-format-tokens/) as format.                                                      |
 | `timezone`        | string | `""`       | Optional timezone identifier (e.g. `Europe/Berlin`, `UTC`) to use for this clock. If empty, uses the system's local time.                                                                                                   |
+| `stack_style`     | string | `"compact"` | For a two-line format: `compact` shows a smaller second line, both centred; `even` shows both lines at 12 px, aligned to the trailing edge (the Windows taskbar clock). |
 
 ```toml
 [widget.clock]

@@ -43,6 +43,16 @@ CONFIG
 
 with_noctalia '
   fail() { echo "FAIL: $*"; exit 1; }
+  # The theme change fades; a shot is taken once two grabs 0.2 s apart are identical.
+  stable_grim() {
+    local g=()
+    [[ $1 == -g ]] && { g=(-g "$2"); shift 2; }
+    for _ in $(seq 25); do
+      grim "${g[@]}" "$1.prev"; sleep 0.2; grim "${g[@]}" "$1"
+      cmp -s "$1.prev" "$1" && { rm -f "$1.prev"; return 0; }
+    done
+    fail "the screen did not settle for $1"
+  }
   minimized() { "$ANDROMEDA" windows --json | jq -r ".[] | select(.title == \"desk-a\") | .minimized"; }
   wait_minimized() { for _ in $(seq 60); do [[ $(minimized) == "$1" ]] && return 0; sleep 0.05; done; return 1; }
   APP_ID=desk-a FILL_COLOR=0xFF3060C0 "'"$UNMAP"'" desk-a 600 400 > "$OUT/client.log" 2>&1 &
@@ -78,8 +88,8 @@ with_noctalia '
   sleep 0.9
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim "$OUT/preview.png"
-  # Three windows of one app: 160 wide cards (pad 8, gap 8) centred on the button; the pointer rests on the
-  # close button of the middle card (24, 4 in from the card edge, in the 24 header).
+  # Three windows of one app share one button (combine_apps); the pointer rests on the close button of the middle
+  # card (24, 4 in from the card edge, in the 24 header).
   "'"$POINTER"'" 1280 720 move 900 200 > /dev/null
   APP_ID=desk-a FILL_COLOR=0xFFC06030 "'"$UNMAP"'" desk-a2 600 400 > "$OUT/client-a2.log" 2>&1 &
   a2=$!
@@ -90,8 +100,9 @@ with_noctalia '
   "'"$POINTER"'" 1280 720 move 651 "$y" > /dev/null
   sleep 0.9
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
-  top=$(( area - 8 - 152 ))
-  "'"$POINTER"'" 1280 720 move 651 $(( top + 76 )) move 715 $(( top + 24 )) > /dev/null
+  # Three cards on the one desk-a button: 632 wide centred on x 651, 180 high, 8 above the 40 cell (4 above the row).
+  top=$(( area - 4 - 180 ))
+  "'"$POINTER"'" 1280 720 move 651 $(( top + 76 )) move 735 $(( top + 24 )) > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim "$OUT/preview-3-close.png"
   "'"$POINTER"'" 1280 720 move 900 200 > /dev/null
@@ -125,7 +136,7 @@ with_noctalia '
   "'"$POINTER"'" 1280 720 move 900 200 > /dev/null
   "$NOCTALIA" msg theme-mode-set dark > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
-  grim -g "$row" "$OUT/taskbar-dark.png"
+  stable_grim -g "$row" "$OUT/taskbar-dark.png"
   "'"$POINTER"'" 1280 720 move 640 "$y" > /dev/null
   "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null
   grim -g "$row" "$OUT/hover-app-dark.png"

@@ -229,8 +229,12 @@ void DesktopIcons::close() {
     dnd->clearTarget(m_surface->wlSurface());
   }
   m_input.setSceneRoot(nullptr);
-  m_surface.reset();
+  // The scene first: its images unload their textures through the surface's renderer.
+  if (m_surface != nullptr) {
+    m_surface->setSceneRoot(nullptr);
+  }
   m_sceneRoot.reset();
+  m_surface.reset();
   m_band = nullptr;
   m_cells.clear();
   m_output = nullptr;

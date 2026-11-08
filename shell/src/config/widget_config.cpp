@@ -114,6 +114,7 @@ namespace noctalia::config {
     windowsTaskbar.settings["cell_size"] = std::int64_t{40};
     windowsTaskbar.settings["running_bar"] = true;
     windowsTaskbar.settings["window_previews"] = true;
+    windowsTaskbar.settings["combine_apps"] = true;
     seed("windows_taskbar", std::move(windowsTaskbar));
 
     // Desktop Layouts: the battery in the status cell is the symbol alone (boards desktop-layouts.html 1 and 7).
@@ -127,6 +128,7 @@ namespace noctalia::config {
     WidgetConfig windowsClock;
     windowsClock.type = "clock";
     windowsClock.settings["format"] = std::string("{:%H:%M}\n{:%d/%m/%Y}");
+    windowsClock.settings["stack_style"] = std::string("even");
     seed("windows_clock", std::move(windowsClock));
 
     // Desktop Layouts, macOS: the brand menu (session actions under the Andromeda mark), the bold app name, and the
