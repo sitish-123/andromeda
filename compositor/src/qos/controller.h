@@ -101,7 +101,7 @@ namespace andromeda::qos {
     wl_event_source* m_timer = nullptr;
     wl_event_source* m_idle = nullptr;
     std::unordered_map<pid_t, Cgroup> m_pids;
-    std::unordered_set<pid_t> m_adopting; // a scope request is out, or it failed: never asked twice
+    std::unordered_set<pid_t> m_adopting; // a scope request is out, or it failed: not asked again while its window lives
     std::string m_ownCgroup;
     std::string m_ownUnit;
     bool m_pinsBackground = false;

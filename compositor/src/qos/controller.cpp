@@ -75,6 +75,21 @@ namespace andromeda::qos {
       return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
     }
 
+    // Field 22 of /proc/<pid>/stat (clock ticks since boot): with the pid it names one process, even after pid reuse.
+    std::string processStartTime(pid_t pid) {
+      const std::string stat = readFile(std::format("/proc/{}/stat", pid));
+      const std::size_t comm = stat.rfind(')');
+      if (comm == std::string::npos) {
+        return {};
+      }
+      std::istringstream fields(stat.substr(comm + 1));
+      std::string field;
+      // After the comm: state is field 3, so start time is the 20th field from here.
+      for (int i = 0; i < 20 && fields >> field; ++i) {
+      }
+      return fields ? field : std::string{};
+    }
+
     // The direct children of `pid`, from every thread (a child belongs to the thread that forked it).
     std::vector<pid_t> childrenOf(pid_t pid) {
       std::vector<pid_t> children;
@@ -208,15 +223,20 @@ namespace andromeda::qos {
   }
 
   void Controller::adopt(pid_t pid) {
-    if (!m_adopting.insert(pid).second) {
+    if (m_adopting.contains(pid)) {
       return;
     }
-    const std::string unit = std::format("app-andromeda-{}.scope", pid);
+    const std::string started = processStartTime(pid);
+    if (started.empty()) {
+      return;
+    }
+    // Named per process, so a unit left by an earlier process with this pid never collides.
+    const std::string unit = std::format("app-andromeda-{}-{}.scope", pid, started);
+    m_adopting.insert(pid);
     kLog.debug("pid {} has no app scope: moving it to {}", pid, unit);
     m_units.startScope(unit, pid, [this, pid](bool ok) {
-      // A failed move is tried again at the next evaluate; a kept entry would block a reused pid for good.
-      m_adopting.erase(pid);
       if (ok) {
+        m_adopting.erase(pid);
         m_pids.erase(pid);
         schedule();
       }
@@ -268,6 +288,10 @@ namespace andromeda::qos {
     std::unordered_map<pid_t, Cgroup> seen;
     // One /proc children walk per pid: a browser's windows share one.
     std::unordered_map<pid_t, std::vector<pid_t>> children;
+    // A failed move is never asked again while its window lives; a pid whose windows are gone may be reused.
+    std::erase_if(m_adopting, [&snapshot](pid_t pid) {
+      return std::ranges::none_of(snapshot.windows, [pid](const Snapshot::Window& window) { return window.pid == pid; });
+    });
     for (const Snapshot::Window& window : snapshot.windows) {
       const Cgroup& cgroup = cgroupOf(window.pid, seen);
       if (cgroup.unit.empty()) {

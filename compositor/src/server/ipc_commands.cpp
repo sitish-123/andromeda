@@ -10,6 +10,7 @@
 #include "output/output.h"
 #include "scene/effect_registry.h"
 #include "scene/effect_selection.h"
+#include "server/desktop_shell.h"
 #include "server/focus.h"
 #include "server/server.h"
 #include "view/view.h"
@@ -1397,6 +1398,18 @@ namespace andromeda {
     return nlohmann::json{{"ok", nullptr}};
   }
 
+  nlohmann::json IpcCommands::lockKeysForTest(Server& server, std::string_view arg) {
+    if (arg != "caps" && arg != "none") {
+      return nlohmann::json{{"err", "expected caps or none"}};
+    }
+    DesktopShell* shell = server.desktopShell();
+    if (shell == nullptr) {
+      return nlohmann::json{{"err", "no desktop shell"}};
+    }
+    shell->setLockKeys(arg == "caps", false, false);
+    return nlohmann::json{{"ok", nullptr}};
+  }
+
   nlohmann::json IpcCommands::blurCompositeSplit(Server& server, std::string_view arg) {
     if (arg != "on" && arg != "off") {
       return nlohmann::json{{"err", "expected on or off"}};
@@ -1554,6 +1567,8 @@ namespace andromeda {
        IpcCommandGroup::Harness, true, &IpcCommands::pinchForTest, nullptr},
       {"animation-capture-fail", "<on|off>", "inject animation capture failure (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::animationCaptureFail, nullptr},
+      {"lock-keys-test", "<caps|none>", "set the lock-key state sent to the shell, as a physical keyboard would (harness only)",
+       IpcCommandGroup::Harness, true, &IpcCommands::lockKeysForTest, nullptr},
       {"blur-composite-split", "<on|off>",
        "composite backdrop blur through an effect buffer and wait until every output has drawn it (harness only)",
        IpcCommandGroup::Harness, true, &IpcCommands::blurCompositeSplit, nullptr, 35},
