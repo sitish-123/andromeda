@@ -5,8 +5,10 @@
 #include "file_kind.h"
 #include "helper_client.h"
 #include "image_loader.h"
+#include "render/animation/animation_manager.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -114,6 +116,9 @@ namespace viewer {
     std::vector<Page> m_pages;
     bool m_sidebar = true;
     ScrollView* m_scroll = nullptr;
+    float m_zoomFrom = 1.0F; // the next page column starts at this scale and springs to 1
+    AnimationManager::Id m_zoomAnim = 0;
+    void zoomTo(const std::function<void()>& apply);
     float m_scrollOffset = 0.0F;
     bool m_restoreScroll = false;
     Input* m_searchInput = nullptr;

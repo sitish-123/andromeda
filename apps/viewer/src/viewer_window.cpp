@@ -460,18 +460,27 @@ namespace viewer {
     }
   }
 
-  void ViewerWindow::zoomIn() {
-    m_model.zoomBy(1.25F);
-    rebuild();
-  }
+  void ViewerWindow::zoomIn() { zoomTo([this] { m_model.zoomBy(1.25F); }); }
 
-  void ViewerWindow::zoomOut() {
-    m_model.zoomBy(0.8F);
-    rebuild();
-  }
+  void ViewerWindow::zoomOut() { zoomTo([this] { m_model.zoomBy(0.8F); }); }
 
-  void ViewerWindow::zoomFit() {
-    m_model.fitWidth();
+  void ViewerWindow::zoomFit() { zoomTo([this] { m_model.fitWidth(); }); }
+
+  void ViewerWindow::zoomTo(const std::function<void()>& apply) {
+    // The pages re-render at the new zoom; the column then springs from the old size to the new one around the
+    // middle of the view, and the scroll keeps that middle in place.
+    const float before = m_model.zoom();
+    apply();
+    const float after = m_model.zoom();
+    if (after <= 0.0F || before == after) {
+      return;
+    }
+    const float f = after / before;
+    if (m_scroll != nullptr) {
+      const float half = m_scroll->height() / 2.0F;
+      m_scrollOffset = std::max(0.0F, (m_scroll->scrollOffset() + half) * f - half);
+    }
+    m_zoomFrom = 1.0F / f;
     rebuild();
   }
 
@@ -709,6 +718,22 @@ namespace viewer {
     });
     m_scroll = scroll.get();
     m_restoreScroll = m_scrollOffset > 0.0F;
+    if (m_zoomFrom != 1.0F) {
+      Node* column = scroll->content();
+      const AppWindow::Rect view = m_window.contentRect(); // the scroll view is not laid out yet
+      column->setTransformOrigin(view.width / 2.0F, m_scrollOffset + view.height / 2.0F);
+      column->setScale(m_zoomFrom);
+      m_zoomAnim = m_window.animations().drive(
+          m_zoomAnim, m_zoomFrom, 1.0F, Style::spring(Tokens::springMove),
+          [this, column](float v) {
+            if (m_scroll != nullptr && m_scroll->content() == column) {
+              column->setScale(v);
+              m_window.invalidate();
+            }
+          },
+          [this] { m_zoomAnim = 0; }, nullptr);
+      m_zoomFrom = 1.0F;
+    }
     return scroll;
   }
 

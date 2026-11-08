@@ -17,6 +17,7 @@ class ThumbnailService;
 // properties, tags and actions for the selection; the folder when nothing is selected. Alt+P shows and hides it.
 class DetailsPane {
 public:
+  static constexpr float kPaneWidth = 280.0F; // mockup .info, logical px
   struct Actions {
     std::function<void()> open;
     std::function<void()> openWith;

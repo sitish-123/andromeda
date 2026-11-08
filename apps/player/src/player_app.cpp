@@ -491,6 +491,11 @@ void PlayerApp::showControls() {
     m_controlsVisible = true;
     if (AppWindow* host = videoHost()) {
       host->requestRebuild();
+      fadeControls(*host, true);
+    }
+  } else if (m_controlsMix < 1.0F) {
+    if (AppWindow* host = videoHost()) {
+      fadeControls(*host, true); // moved again while they fade out: they come back
     }
   }
   if (!hideLater) {
@@ -500,10 +505,38 @@ void PlayerApp::showControls() {
   m_hideControls.start(kControlsTimeout, [this] {
     AppWindow* host = videoHost();
     if (host != nullptr && (host == m_pip || host->fullscreen()) && !m_mpv.state().paused) {
-      m_controlsVisible = false;
-      host->requestRebuild();
+      fadeControls(*host, false);
     }
   });
+}
+
+void PlayerApp::fadeControls(AppWindow& host, bool in) {
+  if (!in && m_controlsMix <= 0.0F) {
+    return;
+  }
+  if (in && m_controlsAnim == 0 && m_controlsMix >= 1.0F) {
+    return;
+  }
+  AppWindow* target = &host;
+  m_controlsAnim = host.animations().drive(
+      m_controlsAnim, m_controlsMix, in ? 1.0F : 0.0F, Style::spring(in ? Tokens::springFade : Tokens::springFadeOut),
+      [this, target](float v) {
+        m_controlsMix = v;
+        if (m_controlsBar != nullptr) {
+          m_controlsBar->setOpacity(v);
+        }
+        target->invalidate();
+      },
+      [this, target, in] {
+        m_controlsAnim = 0;
+        if (!in) {
+          // Out of the layout only once invisible: the video then grows into the bar's room.
+          m_controlsVisible = false;
+          target->requestRebuild();
+        }
+      },
+      nullptr);
+  target->invalidate();
 }
 
 bool PlayerApp::libraryShown() const {
@@ -934,12 +967,15 @@ std::unique_ptr<Node> PlayerApp::buildContent(Renderer& renderer, float width, f
   }
   area->addChild(std::move(pane));
   content->addChild(std::move(area));
+  m_controlsBar = nullptr;
   if (st.idle || !m_controlsVisible) {
     return content;
   }
 
   auto bar = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * s, .paddingH = Style::spaceMd * s,
                       .height = kBarHeight * s});
+  m_controlsBar = bar.get();
+  bar->setOpacity(m_controlsMix);
   bar->setFill(colorSpecFromRole(ColorRole::SolidRegular));
   const bool queue = st.queueCount > 1;
   if (queue) {

@@ -51,6 +51,13 @@ namespace viewer {
     add("edit.undo", "Undo", "Edit", XKB_KEY_z, KeyMod::Ctrl, &ViewerWindow::undo);
     add("file.save", "Save", "File", XKB_KEY_s, KeyMod::Ctrl, &ViewerWindow::save);
     add("view.toggle-sidebar", "Show Sidebar", "View", 0, 0, &ViewerWindow::toggleSidebar);
+    commands().add({.id = "view.fullscreen", .label = "Full Screen", .group = "View",
+                    .shortcut = KeyChord{.sym = XKB_KEY_F11, .modifiers = 0}, .enabled = {},
+                    .run = [this] {
+                      if (AppWindow* window = activeWindow()) {
+                        window->toggleFullscreen();
+                      }
+                    }});
   }
 
   ViewerWindow* ViewerApp::active() const {

@@ -418,7 +418,8 @@ AppWindow& FilesApp::createWindow() {
       .sidebarWidth = 240.0F,
       .moreMenu = true,
   });
-  std::string last = m_nextLocation.empty() && !m_picker ? state().get<std::string>("/files/last_place", "") : "";
+  const bool plainLaunch = m_nextLocation.empty() && !m_picker;
+  std::string last = plainLaunch ? state().get<std::string>("/files/last_place", "") : "";
   std::error_code ec;
   const bool lastFolder = last.starts_with('/') && fs::is_directory(last, ec);
   fs::path location = !m_nextLocation.empty() ? m_nextLocation : lastFolder ? fs::path(last) : fs::path(g_get_home_dir());
@@ -426,6 +427,9 @@ AppWindow& FilesApp::createWindow() {
   auto& files = m_windows[&window] = std::make_unique<FilesWindow>(*this, window, std::move(location));
   if (!lastFolder && !last.empty()) {
     files->reopenPlace(last);
+  }
+  if (plainLaunch) {
+    files->restoreTabs(state().get<nlohmann::json>("/files/tabs", nlohmann::json{}));
   }
   return window;
 }

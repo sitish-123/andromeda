@@ -83,7 +83,7 @@ m=$(mark); ptr move $(at "chip This PC") click 272
 wait_log "$m" "search scope pc" || fail "the This PC chip did not switch the scope"
 wait_log "$m" "search results [4-9]" || fail "the index did not answer with the home hits"
 wait_log "$m" "view list" || fail "This PC results did not switch to the list with the Where column"
-wait_log "$m" "settle files\.view" || fail "the switch to the list did not settle"
+run "$ANDROMEDA" settle > /dev/null # the view switch is instant (no files.view spring)
 wait_log "$m" "geometry item invoice-march.pdf" || fail "This PC did not list invoice-march.pdf"
 shot 2-this-pc
 

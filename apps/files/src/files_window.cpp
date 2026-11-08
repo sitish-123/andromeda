@@ -74,7 +74,62 @@
 
 namespace fs = std::filesystem;
 
+// A fixed-size clip whose one child sits shifted by a slide offset: a pane moves on its spring with no relayout
+// (the content beside it reflows once, at the start of an open and at the end of a close).
+class SlideClip final : public Flex {
+public:
+  void setSlide(float x, float y) {
+    m_slideX = x;
+    m_slideY = y;
+    place();
+    markPaintDirty();
+  }
+
+protected:
+  void doLayout(Renderer& renderer) override {
+    Flex::doLayout(renderer);
+    takeBase();
+  }
+  void doArrange(Renderer& renderer, const LayoutRect& rect) override {
+    Flex::doArrange(renderer, rect);
+    takeBase();
+  }
+
+private:
+  void takeBase() {
+    if (!children().empty()) {
+      m_baseX = children().front()->x();
+      m_baseY = children().front()->y();
+    }
+    place();
+  }
+  void place() {
+    if (!children().empty()) {
+      children().front()->setPosition(m_baseX + m_slideX, m_baseY + m_slideY);
+    }
+  }
+  float m_baseX = 0.0F;
+  float m_baseY = 0.0F;
+  float m_slideX = 0.0F;
+  float m_slideY = 0.0F;
+};
+
 namespace {
+  std::unique_ptr<SlideClip> slideClip(FlexDirection direction, float width, float height) {
+    auto clip = std::make_unique<SlideClip>();
+    clip->setDirection(direction);
+    clip->setAlign(FlexAlign::Stretch);
+    clip->setClipChildren(true);
+    if (width > 0.0F) {
+      clip->setMinWidth(width);
+      clip->setMaxWidth(width);
+    }
+    if (height > 0.0F) {
+      clip->setMinHeight(height);
+      clip->setMaxHeight(height);
+    }
+    return clip;
+  }
   // A Google motion photo keeps an MP4 after the JPEG data (MotionPhoto / MicroVideo). Its start is the last "ftyp"
   // box with a plausible size and brand; the tail goes to a private runtime file the media helper can open. Blocks:
   // runs on a worker thread. Empty when the photo has no video.
@@ -381,6 +436,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
                                        }});
           },
       .focus = [this](InputArea* area) { m_window.input().setFocus(area); },
+      .modal = [this] { return m_window.hasSheet(); },
       .rename =
           [this](const fs::path& path, const std::string& name, std::function<void(const std::string&)> done) {
             FileOpsClient* ops = m_app.fileOps();
@@ -508,6 +564,17 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
     return accessory;
   });
   m_window.setContentBuilder([this](Renderer& renderer, float w, float h) { return buildContent(renderer, w, h); });
+  m_window.setLayoutCallback([this] {
+    if (std::exchange(m_resizeJobs, false)) {
+      // Out of the rebuild; the new pill has its place and width by now.
+      DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
+        const auto jobs = pillJobs();
+        if (!alive.expired() && m_pillAnchor != nullptr && m_window.popoverOpen() && !jobs.empty()) {
+          m_window.resizePopover(m_pillAnchor, job_pill::kPopoverWidth, job_pill::popoverHeight(jobs.size()));
+        }
+      });
+    }
+  });
   m_window.setTitleClick([this] { openPathField(""); });
   m_window.setKeyHandler([this](const KeyboardEvent& event) {
     // "/" or "~" typed in the list starts a path (Finder, GTK); search and rename fields take the key before this.
@@ -519,6 +586,11 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location) : 
     if (event.pressed && !event.repeat && event.sym == XKB_KEY_F3 && (event.modifiers & (KeyMod::Ctrl | KeyMod::Alt | KeyMod::Shift)) == 0) {
       toggleSplit();
       return true;
+    }
+    // Alt+Enter = Properties (Windows, Dolphin), besides Ctrl+I (Finder).
+    if (event.pressed && !event.repeat && (event.sym == XKB_KEY_Return || event.sym == XKB_KEY_KP_Enter) &&
+        (event.modifiers & (KeyMod::Ctrl | KeyMod::Alt | KeyMod::Shift)) == KeyMod::Alt) {
+      return m_app.commands().isEnabled("file.info") && m_app.commands().run("file.info");
     }
     return m_browser->onKey(event);
   });
@@ -894,14 +966,28 @@ std::unique_ptr<Node> FilesWindow::buildContent(Renderer& renderer, float width,
     auto browser = buildPanes(s);
     browser->setFlexGrow(1.0F);
     split->addChild(std::move(browser));
-    split->addChild(m_details->build(s));
+    // The pane slides in and out from the right edge (toggleDetails) inside a clip of its full width.
+    const float paneWidth = DetailsPane::kPaneWidth * s;
+    auto clip = slideClip(FlexDirection::Horizontal, paneWidth, 0.0F);
+    clip->addChild(m_details->build(s));
+    clip->setSlide(paneWidth * (1.0F - m_detailsMix), 0.0F);
+    m_detailsClip = clip.get();
+    split->addChild(std::move(clip));
     m_details->update(location(), selectedPaths());
     content->addChild(std::move(split));
   } else {
+    m_detailsClip = nullptr;
     content->addChild(buildPanes(s));
   }
-  if (m_terminalOpen && m_terminal != nullptr && !m_picker.has_value()) {
-    content->addChild(m_terminal->build(renderer, s, width));
+  if ((m_terminalOpen || m_terminalAnim != 0) && m_terminal != nullptr && !m_picker.has_value()) {
+    const float paneHeight = TerminalPane::kHeight * s;
+    auto clip = slideClip(FlexDirection::Vertical, 0.0F, paneHeight);
+    clip->addChild(m_terminal->build(renderer, s, width));
+    clip->setSlide(0.0F, paneHeight * (1.0F - m_terminalMix));
+    m_terminalClip = clip.get();
+    content->addChild(std::move(clip));
+  } else {
+    m_terminalClip = nullptr;
   }
   if (m_picker.has_value()) {
     content->addChild(ui::separator({}));
@@ -1007,6 +1093,28 @@ void FilesWindow::rememberPlace() {
   if (m_app.state().get<std::string>("/files/last_place", "") != place) {
     m_app.state().set("/files/last_place", std::move(place));
   }
+  // Open tabs come back too (Finder, Dolphin): their folders and the current one.
+  nlohmann::json tabs = nlohmann::json::array();
+  if (m_browser->tabCount() > 1) {
+    for (const fs::path& folder : m_browser->tabFolders()) {
+      tabs.push_back(folder.string());
+    }
+  }
+  const nlohmann::json saved = {{"folders", tabs}, {"current", m_browser->currentTab()}};
+  if (m_app.state().get<nlohmann::json>("/files/tabs", nlohmann::json{}) != saved) {
+    m_app.state().set("/files/tabs", saved);
+  }
+}
+
+void FilesWindow::restoreTabs(const nlohmann::json& saved) {
+  if (!saved.is_object() || !saved.contains("folders") || !saved["folders"].is_array() || saved["folders"].size() < 2) {
+    return;
+  }
+  std::vector<fs::path> folders;
+  for (const auto& f : saved["folders"]) {
+    folders.emplace_back(f.is_string() ? f.get<std::string>() : std::string());
+  }
+  m_browser->restoreTabs(folders, saved.value("current", std::size_t{0}));
 }
 
 void FilesWindow::reopenPlace(const std::string& place) {
@@ -1020,9 +1128,33 @@ void FilesWindow::reopenPlace(const std::string& place) {
 }
 
 void FilesWindow::toggleDetails() {
-  m_detailsOpen = !m_detailsOpen;
-  kLog.debug("details pane {}", m_detailsOpen ? "on" : "off");
-  m_window.requestRebuild();
+  const bool open = m_detailsAnim != 0 ? m_detailsTarget == 0.0F : !m_detailsOpen;
+  kLog.debug("details pane {}", open ? "on" : "off");
+  m_detailsTarget = open ? 1.0F : 0.0F;
+  if (open && !m_detailsOpen) {
+    m_detailsOpen = true;
+    m_detailsMix = 0.0F;
+    m_window.requestRebuild();
+  }
+  m_detailsAnim = m_window.animations().drive(
+      m_detailsAnim, m_detailsMix, m_detailsTarget, Style::spring(Tokens::springMove),
+      [this](float v) {
+        m_detailsMix = std::clamp(v, 0.0F, 1.0F);
+        if (m_detailsClip != nullptr) {
+          m_detailsClip->setSlide(DetailsPane::kPaneWidth * m_window.uiScale() * (1.0F - m_detailsMix), 0.0F);
+        }
+        m_window.invalidate();
+      },
+      [this] {
+        m_detailsAnim = 0;
+        if (m_detailsTarget == 0.0F) {
+          m_detailsOpen = false; // out of the layout once closed
+          m_detailsMix = 1.0F;
+          m_window.requestRebuild();
+        }
+      },
+      nullptr);
+  m_window.invalidate();
 }
 
 void FilesWindow::searchAnswered(const std::string& text, const std::vector<std::shared_ptr<const FileInfo>>& rows) {
@@ -1135,6 +1267,18 @@ void FilesWindow::toggleSplit() {
     m_panes[1]->jump(m_browser->location());
     loadTrash(); // the sidebar places, for when the new pane becomes active
     kLog.debug("split view on");
+    // The new pane fades in: a width spring would reflow its grid on every frame.
+    m_splitMix = 0.0F;
+    m_splitAnim = m_window.animations().drive(
+        m_splitAnim, 0.0F, 1.0F, Style::spring(Tokens::springFade),
+        [this](float v) {
+          m_splitMix = v;
+          if (m_splitNode != nullptr) {
+            m_splitNode->setOpacity(v);
+          }
+          m_window.invalidate();
+        },
+        [this] { m_splitAnim = 0; }, nullptr);
     setActivePane(1);
     return;
   }
@@ -1187,6 +1331,7 @@ void FilesWindow::refreshSplitStatus() {
 
 std::unique_ptr<Node> FilesWindow::buildPanes(float scale) {
   if (m_panes[1] == nullptr) {
+    m_splitNode = nullptr;
     return m_browser->buildContent();
   }
   // Spec §13: two panes, flex 1 each, a 0.5 px hairline between; only the active pane has the path bar.
@@ -1199,6 +1344,10 @@ std::unique_ptr<Node> FilesWindow::buildPanes(float scale) {
     }
     auto pane = m_panes[i]->buildContent(i == m_activePane, true);
     pane->setFlexGrow(1.0F);
+    if (i == 1) {
+      m_splitNode = pane.get();
+      pane->setOpacity(m_splitMix);
+    }
     if (i == m_activePane && pane->children().size() >= 2) {
       Node* rule = pane->children()[pane->children().size() - 2].get();
       Node* status = pane->children().back().get();
@@ -1976,6 +2125,29 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
                            });
 }
 
+void FilesWindow::slideTerminal(float target) {
+  m_terminalAnim = m_window.animations().drive(
+      m_terminalAnim, m_terminalMix, target, Style::spring(Tokens::springMove),
+      [this](float v) {
+        m_terminalMix = std::clamp(v, 0.0F, 1.0F);
+        if (m_terminalClip != nullptr) {
+          m_terminalClip->setSlide(0.0F, TerminalPane::kHeight * m_window.uiScale() * (1.0F - m_terminalMix));
+        }
+        m_window.invalidate();
+      },
+      [this, target] {
+        m_terminalAnim = 0;
+        if (target == 0.0F) {
+          if (m_terminal != nullptr) {
+            m_terminal->detach(); // a rebuild during the slide built it again
+          }
+          m_window.requestRebuild(); // out of the layout once closed
+        }
+      },
+      nullptr);
+  m_window.invalidate();
+}
+
 void FilesWindow::toggleTerminal() {
   if (m_terminalOpen) {
     m_terminalOpen = false;
@@ -1983,7 +2155,7 @@ void FilesWindow::toggleTerminal() {
     if (m_terminal != nullptr) {
       m_terminal->detach();
     }
-    m_window.requestRebuild();
+    slideTerminal(0.0F);
     return;
   }
   if (m_terminal == nullptr || !m_terminal->running()) {
@@ -2013,7 +2185,11 @@ void FilesWindow::toggleTerminal() {
   }
   m_terminalOpen = true;
   kLog.debug("terminal pane on");
+  if (m_terminalAnim == 0) {
+    m_terminalMix = 0.0F;
+  }
   m_window.requestRebuild();
+  slideTerminal(1.0F);
   // The pane takes the keys once it is built (Dolphin focuses its terminal on F4).
   DeferredCall::callLater([this, alive = std::weak_ptr<bool>(m_alive)] {
     if (!alive.expired() && m_terminal != nullptr && m_terminalOpen) {
@@ -3768,8 +3944,12 @@ void FilesWindow::updateJobPill() {
   if (jobs.size() != m_pillShown) {
     m_pillShown = jobs.size();
     kLog.debug("job pill {}", jobs.size());
-    // The popover's height is fixed at open: a new or finished job closes it.
-    m_window.closePopover();
+    // A new or finished job: the open popover takes its new height on the rebuilt pill, in place (layout callback);
+    // with no job left it closes.
+    if (jobs.empty()) {
+      m_window.closePopover();
+    }
+    m_resizeJobs = m_window.popoverOpen();
     m_window.requestRebuild();
     return;
   }

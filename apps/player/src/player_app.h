@@ -79,6 +79,10 @@ private:
   bool m_lastHasVideo = false;
   std::string m_nowPlayingPath;
   bool m_volumeRestored = false;
+  Node* m_controlsBar = nullptr; // the playback bar of the current scene
+  float m_controlsMix = 1.0F;    // its opacity, on spring.fade / spring.fade_out
+  AnimationManager::Id m_controlsAnim = 0;
+  void fadeControls(AppWindow& host, bool in);
   AppWindow* m_pip = nullptr; // the picture-in-picture window while the video is in it
   zwp_idle_inhibitor_v1* m_inhibitor = nullptr;
   std::string m_pending;           // a file opened before the window exists

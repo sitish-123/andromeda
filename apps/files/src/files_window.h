@@ -19,6 +19,8 @@
 #include "storage_page.h"
 #include "ui/files/file_browser.h"
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <array>
 #include <chrono>
 #include <deque>
@@ -86,6 +88,7 @@ public:
   [[nodiscard]] bool selectionStarred() const;
   void openTerminalHere(); // the selected folder, else the current one
   void toggleTerminal(); // F4: the terminal pane under the view (mockup §16)
+  void slideTerminal(float target);
   void selectByPattern(); // Ctrl+S sheet (mockup §16)
   // Smart folders (mockup §16): saved searches as sidebar places, run again on each visit.
   void newSmartFolder(bool fromSearch); // fromSearch: the current search fills the criteria (Save Search)
@@ -138,6 +141,7 @@ public:
   [[nodiscard]] bool canForward() const noexcept;
   [[nodiscard]] bool inTrash() const noexcept;
   void rememberPlace();
+  void restoreTabs(const nlohmann::json& saved); // the tabs rememberPlace saved
   // A real folder, not a listing (Trash, Recents, Search, Tag, Starred, archive): paste and new items land in it.
   [[nodiscard]] bool inFolder() const;
   [[nodiscard]] const std::filesystem::path& location() const noexcept;
@@ -331,6 +335,17 @@ private:
   std::shared_ptr<class ConflictSheet> m_conflict;
   std::unique_ptr<class DetailsPane> m_details;
   bool m_detailsOpen = false;
+  float m_detailsMix = 1.0F;    // the shown share of the details pane (slide)
+  float m_detailsTarget = 1.0F;
+  AnimationManager::Id m_detailsAnim = 0;
+  class SlideClip* m_detailsClip = nullptr;
+  float m_terminalMix = 1.0F;
+  AnimationManager::Id m_terminalAnim = 0;
+  class SlideClip* m_terminalClip = nullptr;
+  float m_splitMix = 1.0F;
+  AnimationManager::Id m_splitAnim = 0;
+  Node* m_splitNode = nullptr;
+  bool m_resizeJobs = false;
   std::string m_pathText;  // Go to Folder field
   std::string m_pathError;
   static constexpr std::size_t kPathMatchScan = 4096; // subfolders kept per completion; 16 times as many entries read at most

@@ -28,7 +28,6 @@ namespace fs = std::filesystem;
 
 namespace {
   constexpr Logger kLog("details");
-  constexpr float kPaneWidth = 280.0F;  // mockup .info
   constexpr float kPreviewHeight = 160.0F;
   constexpr float kKeyWidth = 88.0F;    // mockup .kv span:first-child
   constexpr float kPreviewIcon = 96.0F;

@@ -12,7 +12,8 @@
 #     second double-click does not return to fit. (Pinch is not driven here: the virtual pointer has no gestures.)
 #   - Space does not play a video in place with its scrubber, or the video does not end,
 #   - a Live Photo pair (C_live.jpg + C_live.mov) is not one item whose motion plays muted on open,
-#   - Space on a photo does not start the slideshow.
+#   - Space on a photo does not start the slideshow,
+#   - Get Info over the Gallery stalls a frame over 50 ms.
 # Prints the Gallery speed numbers (next photo shown, full size) next to their budgets.
 # Shots of the chrome shown and hidden go to $OUT (default ./artifacts/files-gallery).
 set -euo pipefail
@@ -221,6 +222,16 @@ wait_log "$m" "gallery slideshow on" || fail "Space on a photo did not start the
 wait_log "$m" "gallery 4 of 15" 100 || fail "the slideshow did not move to the next photo"
 m=$(mark); keys tap 57
 wait_log "$m" "gallery slideshow off" || fail "a second Space did not stop the slideshow"
+
+# Get Info on the shown photo (user, 2026-11-08: a 4.8 s freeze): the sheet opens with no frame over 50 ms.
+m=$(mark); keys mod alt tap 28 mod none
+wait_log "$m" "get info 1 items" || fail "Alt+Enter in the Gallery did not open Get Info"
+run "$ANDROMEDA" settle > /dev/null
+worst=$(tail -n +"$((m + 1))" "$OUT/files.log" | grep -oE "prepareFrame callback took [0-9.]+" | grep -oE '[0-9.]+$' | sort -g | tail -n 1 || true)
+echo "get info over the Gallery: worst frame callback ${worst:-0} ms"
+awk -v w="${worst:-0}" 'BEGIN {exit !(w > 50)}' && fail "Get Info over the Gallery stalled the main thread ${worst} ms"
+keys tap 1
+run "$ANDROMEDA" settle > /dev/null
 
 # Speed (DESIGN.md "Files v2" Gallery budgets, release): next photo from its cached thumbnail, full size.
 shown=$(tail -n +"$((speed_from + 1))" "$OUT/files.log" | grep -oE "gallery photo shown in [0-9.]+" | tail -n +2 | grep -oE '[0-9.]+$' | sort -g | tail -n 1)
