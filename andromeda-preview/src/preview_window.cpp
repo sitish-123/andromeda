@@ -26,6 +26,7 @@
 #include "wayland/wayland_seat.h"
 
 #include <algorithm>
+#include <chrono>
 #include <thread>
 #include <cstdio>
 #include <filesystem>
@@ -112,6 +113,8 @@ namespace preview {
         return "typography";
       case FileKind::Folder:
         return "folder";
+      case FileKind::Office:
+        return "file-type-doc";
       default:
         return "file";
       }
@@ -406,7 +409,10 @@ namespace preview {
       });
       break;
     case FileKind::Pdf:
-      loadPdf();
+      loadPdf(path);
+      break;
+    case FileKind::Office:
+      loadOffice();
       break;
     case FileKind::Text:
       m_helper = HelperClient::start(HelperKind::Text, path);
@@ -523,8 +529,67 @@ namespace preview {
     }
   }
 
-  void PreviewWindow::loadPdf() {
-    m_helper = HelperClient::start(HelperKind::Pdf, m_path);
+  // LibreOffice converts the file to a PDF once per path, size and mtime; the PDF renderer shows it. Without
+  // LibreOffice the window shows the file card with Open With.
+  void PreviewWindow::loadOffice() {
+    namespace fs = std::filesystem;
+    struct stat st{};
+    gchar* soffice = g_find_program_in_path("soffice");
+    if (soffice == nullptr || ::stat(m_path.c_str(), &st) != 0) {
+      g_free(soffice);
+      m_loading = false;
+      m_shownNote = "shown unsupported";
+      return;
+    }
+    const fs::path dir = fs::path(g_get_user_cache_dir()) / "andromeda" / "preview-office";
+    const std::string key = std::format("{:016x}", std::hash<std::string>{}(
+                                                       std::format("{}\n{}\n{}", m_path, st.st_size, st.st_mtim.tv_sec)));
+    const fs::path pdf = dir / (key + ".pdf");
+    std::error_code ec;
+    if (fs::exists(pdf, ec)) {
+      g_free(soffice);
+      kLog.info("office {} from cache", m_path);
+      loadPdf(pdf.string());
+      return;
+    }
+    const auto generation = m_generation;
+    std::thread([this, generation, source = m_path, dir, key, pdf, program = std::string(soffice)] {
+      std::error_code err;
+      const fs::path work = dir / (key + ".d");
+      fs::create_directories(work, err);
+      const auto start = std::chrono::steady_clock::now();
+      // Own profile: a running LibreOffice with the user's profile would take the job and never write the file.
+      const std::string profile = "-env:UserInstallation=file://" + (dir / "profile").string();
+      const std::string outdir = work.string();
+      const char* argv[] = {"timeout",     "60",          program.c_str(), profile.c_str(), "--headless",
+                            "--norestore", "--convert-to", "pdf",          "--outdir",      outdir.c_str(),
+                            source.c_str(), nullptr};
+      gint status = -1;
+      g_spawn_sync(nullptr, const_cast<gchar**>(argv), nullptr,
+                   static_cast<GSpawnFlags>(G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL),
+                   nullptr, nullptr, nullptr, nullptr, &status, nullptr);
+      const fs::path made = work / fs::path(source).filename().replace_extension(".pdf");
+      const bool ok = fs::exists(made, err) && (fs::rename(made, pdf, err), !err);
+      fs::remove_all(work, err);
+      const auto ms =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+      DeferredCall::callLater([this, generation, ok, ms, pdf, source] {
+        kLog.info("office {} converted {} in {} ms", source, ok ? "ok" : "failed", ms);
+        if (generation != m_generation) {
+          return;
+        }
+        if (!ok) {
+          helperFailed();
+          return;
+        }
+        loadPdf(pdf.string());
+      });
+    }).detach();
+    g_free(soffice);
+  }
+
+  void PreviewWindow::loadPdf(const std::string& path) {
+    m_helper = HelperClient::start(HelperKind::Pdf, path);
     if (!m_helper) {
       m_loading = false;
       m_failed = true;
@@ -1029,6 +1094,7 @@ namespace preview {
       size = {kDocumentWidth + 2 * (Style::spaceLg + Tokens::spaceP16), 760.0F};
       break;
     case FileKind::Pdf:
+    case FileKind::Office:
       size = {kDocumentWidth + 2 * (Style::spaceLg + Tokens::spaceP16) + kStripWidth + Tokens::spaceP8, 760.0F};
       break;
     case FileKind::Text:
@@ -1224,7 +1290,7 @@ namespace preview {
     header->addChild(ui::label({.text = baseName(m_path), .fontSize = Style::fontSizeBody,
                                 .fontWeight = FontWeight::SemiBold, .color = colorSpecFromRole(ColorRole::Label1),
                                 .maxLines = 1, .ellipsize = TextEllipsize::Middle, .flexGrow = 1.0F}));
-    if (m_kind == FileKind::Pdf && !m_pages.empty()) {
+    if ((m_kind == FileKind::Pdf || m_kind == FileKind::Office) && !m_pages.empty()) {
       header->addChild(ui::label({.out = &m_pageLabel, .text = std::format("Page {} of {}", m_currentPage + 1, m_pages.size()),
                                   .fontSize = Style::fontSizeCaption, .fontWeight = FontWeight::Medium,
                                   .color = colorSpecFromRole(ColorRole::Label2)}));
@@ -1372,7 +1438,8 @@ namespace preview {
     if (m_failed) {
       return state("This file cannot be previewed");
     }
-    switch (m_kind) {
+    // An Office file shows its converted PDF pages; without LibreOffice it has none and shows the file card.
+    switch (m_kind == FileKind::Office && !m_pages.empty() ? FileKind::Pdf : m_kind) {
     case FileKind::Image: {
       auto image = ui::image({.fit = ImageFit::Contain, .padding = Style::spaceLg, .flexGrow = 1.0F});
       image->setSourceRaw(renderer, m_image.bytes.data(), m_image.bytes.size(), static_cast<int>(m_image.width),

@@ -4,7 +4,7 @@
 # Close removes it. Fails when no preview window maps, a file is not decoded and shown
 # ("shown <kind>" in the previewer log) within 5 s, the FLAC has no PipeWire stream, or the window stays after Close.
 # k pauses and resumes the MP4; ANDROMEDA_PREVIEW_MEDIA=sw plays it again on the software path.
-# Writes preview-{png,pdf,rs,zip,bin,ttf,dir,mp4,flac,mp4-sw}.png and preview.log to $OUT (default ./artifacts/preview-show).
+# Writes preview-{png,pdf,rs,zip,bin,ttf,dir,mp4,flac,odt,mp4-sw}.png and preview.log to $OUT (default ./artifacts/preview-show).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/preview-show}
 PREVIEW=${PREVIEW:-$(cd "$(dirname "$0")/../.." && pwd)/andromeda-preview/build-debug/andromeda-preview}
@@ -45,6 +45,14 @@ head -c 4096 /dev/urandom > "$RUNTIME/files/sample.bin"
 # A font (the specimen runs FreeType in the helper) and a folder (count, size, newest items).
 cp "$(fc-match -f '%{file}' 'sans:fontformat=TrueType')" "$RUNTIME/files/sample.ttf"
 cp -r "$RUNTIME/zipsrc" "$RUNTIME/files/sample.dir"
+# An ODF text document: LibreOffice converts it to PDF pages (skipped when soffice is not installed).
+python3 -I - "$RUNTIME/files/sample.odt" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+    z.writestr("META-INF/manifest.xml", '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>')
+    z.writestr("content.xml", '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:text><text:p>Hello from Quick Look</text:p></office:text></office:body></office:document-content>')
+PY
 
 with_noctalia '
   wait_for() { for _ in $(seq 100); do eval "$2" && return 0; sleep 0.05; done; echo "FAIL: $1"; exit 1; }
@@ -52,7 +60,7 @@ with_noctalia '
   call() { gdbus call --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer \
     --method org.gnome.NautilusPreviewer2.$1 "${@:2}" > /dev/null; }
   '"$FILEOPS"' > "$OUT/fileops.log" 2>&1 &
-  GST_DEBUG=va*:4 ANDROMEDA_PREVIEW_HELPER='"$PREVIEW_HELPER"' '"$PREVIEW"' > "$OUT/preview.log" 2>&1 &
+  GST_DEBUG=va*:4 XDG_CACHE_HOME='"$RUNTIME"'/cache ANDROMEDA_PREVIEW_HELPER='"$PREVIEW_HELPER"' '"$PREVIEW"' > "$OUT/preview.log" 2>&1 &
   previewer=$!
   wait_for "previewer did not take its bus name" "gdbus introspect --session --dest org.gnome.NautilusPreviewer --object-path /org/gnome/NautilusPreviewer > /dev/null 2>&1"
   shown() { grep -c "shown $1" "$OUT/preview.log" || true; }
@@ -76,6 +84,17 @@ with_noctalia '
   grim "$OUT/preview-flac.png"
   # grep reads all of pw-dump: under pipefail, grep -q exits at the match and the SIGPIPE to pw-dump fails the check.
   wait_for "no PipeWire stream for the FLAC" "pw-dump 2>/dev/null | grep \"\\\"Quick Look\\\"\" > /dev/null"
+
+  if command -v soffice > /dev/null; then
+    call ShowFile "file://$RUNTIME/files/sample.odt" "" false
+    # A cold LibreOffice start takes seconds: up to 60 s.
+    for _ in $(seq 1200); do grep -q "office .*sample.odt converted" "$OUT/preview.log" && break; sleep 0.05; done
+    grep -q "office .*sample.odt converted ok" "$OUT/preview.log" || { echo "FAIL: the ODT was not converted"; exit 1; }
+    wait_for "the converted ODT was not shown" "(( \$(shown \"pdf page 1 of\") >= 2 ))"
+    grim "$OUT/preview-odt.png"
+  else
+    echo "SKIP odt: soffice is not installed"
+  fi
 
   # The helper log names the decoder; a host without VA-API decodes in software.
   grep -o "vah264dec" "$OUT/preview.log" | head -n 1 || echo "decoder: software"

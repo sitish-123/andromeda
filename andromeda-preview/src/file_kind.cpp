@@ -26,6 +26,14 @@ namespace preview {
     if (type.starts_with("font/") || type.starts_with("application/x-font-") || type == "application/vnd.ms-opentype") {
       return FileKind::Font;
     }
+    // Before text/plain: application/rtf is one of its subclasses.
+    for (const char* office : {"application/vnd.oasis.opendocument.", "application/vnd.openxmlformats-officedocument.",
+                               "application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint",
+                               "application/rtf"}) {
+      if (type.starts_with(office)) {
+        return FileKind::Office;
+      }
+    }
     if (g_content_type_is_a(t, "text/plain")) {
       return FileKind::Text;
     }

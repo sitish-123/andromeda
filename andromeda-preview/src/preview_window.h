@@ -66,7 +66,8 @@ namespace preview {
     };
 
     void load(const std::string& path);
-    void loadPdf();
+    void loadPdf(const std::string& path);
+    void loadOffice();
     void loadMedia(HelperKind kind);
     void startAudio(bool withVideo);
     void togglePlayback();

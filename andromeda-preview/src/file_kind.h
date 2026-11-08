@@ -5,7 +5,7 @@
 
 namespace preview {
 
-  enum class FileKind : std::uint8_t { Image, Pdf, Text, Video, Audio, Archive, Font, Folder, Other };
+  enum class FileKind : std::uint8_t { Image, Pdf, Text, Video, Audio, Archive, Font, Folder, Office, Other };
 
   // Picks the renderer for a shared-mime-info content type (docs/search.md §5 renderer table).
   [[nodiscard]] FileKind kindForContentType(std::string_view contentType);
