@@ -38,8 +38,9 @@ park() {
   [[ -n $(sink_index "$PARK") ]] ||
     pactl load-module module-null-sink "sink_name=$PARK" "sink_properties=device.description=Parked\ audio" > /dev/null
   for i in $(inputs_on "$1"); do
-    if pw-dump "$i" 2> /dev/null | grep -q '"target\.\(object\|node\)"' ||
-      pw-metadata 2> /dev/null | grep -q "id:$i key:'target\.\(object\|node\)'"; then pinned[$i]=1; fi
+    # Here-strings, not pipes: grep -q exits early, and pipefail turns the writer's SIGPIPE into "not found".
+    if grep -q '"target\.\(object\|node\)"' <<< "$(pw-dump "$i" 2> /dev/null)" ||
+      grep -q "id:$i key:'target\.\(object\|node\)'" <<< "$(pw-metadata 2> /dev/null)"; then pinned[$i]=1; fi
     pactl move-sink-input "$i" "$PARK" && home[$i]=$2 && log "parked stream $i from $2"
   done
 }
