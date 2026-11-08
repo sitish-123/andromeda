@@ -21,11 +21,11 @@ for id in org.test.Viewer org.test.Editor; do
     > "$apps/$id.desktop"
 done
 
-bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
-env_all=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config"
+env_all=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config"
   XDG_DATA_HOME="$HOME_DIR/.local/share" XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CURRENT_DESKTOP=andromeda)
 
 run "${env_all[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &

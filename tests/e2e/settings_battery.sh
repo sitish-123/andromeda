@@ -40,7 +40,7 @@ rm -rf "$OUT/session-state" "$OUT/session-config" "$OUT/explain.jsonl"
 : > "$OUT/profiles.txt"
 with_noctalia '
   kill %1; wait %1 2> /dev/null || true
-  dbus-daemon --session --nofork --print-address=3 3> "$OUT/system-bus" &
+  dbus-daemon --config-file='"$ROOT"'/tests/e2e/private-bus.conf --nofork --print-address=3 3> "$OUT/system-bus" &
   sysbus=$!
   for _ in $(seq 50); do grep -q unix: "$OUT/system-bus" && break; sleep 0.1; done
   export DBUS_SYSTEM_BUS_ADDRESS=$(head -n1 "$OUT/system-bus")

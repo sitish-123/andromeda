@@ -19,11 +19,11 @@ fail() { echo "FAIL: $*"; exit 1; }
 command -v gocryptfs > /dev/null || fail "gocryptfs is not installed (sudo pacman -S gocryptfs)"
 boot_headless 1
 
-bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 # A second private bus stands in for the system bus: the guard talks to logind there.
-sys_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+sys_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 SYSBUS=$(sed -n 1p <<< "$sys_info")
 SYSBUS_PID=$(sed -n 2p <<< "$sys_info")
 MOUNT=$HOME_DIR/Vaults/$NAME
@@ -35,7 +35,7 @@ cleanup() {
   rm_runtime
 }
 trap cleanup EXIT
-env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" HOME="$HOME_DIR"
+env_app=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" HOME="$HOME_DIR"
   XDG_DATA_HOME="$HOME_DIR/.local/share" XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_STATE_HOME="$HOME_DIR/.local/state")
 
 mkfifo "$RUNTIME/logind.in"

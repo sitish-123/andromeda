@@ -36,11 +36,16 @@ gdbus call --system -d org.freedesktop.UDisks2 -o "$CLEAR_OBJ" -m org.freedeskto
 udisksctl lock --no-user-interaction -b "$LOOP" > /dev/null
 
 boot_headless 1
-bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+# The private bus may start only the gvfs drive monitor: Files reads drives through it.
+mkdir -p "$OUT/bus-services"
+cp /usr/share/dbus-1/services/org.gtk.vfs.{Daemon,UDisks2VolumeMonitor}.service "$OUT/bus-services/"
+printf '<busconfig><include>%s</include><servicedir>%s</servicedir></busconfig>\n' \
+  "$ROOT/tests/e2e/private-bus.conf" "$OUT/bus-services" > "$OUT/bus.conf"
+bus_info=$(dbus-daemon --config-file="$OUT/bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 trap 'detach; kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
-env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
+env_app=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
   XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_STATE_HOME="$HOME_DIR/.local/state")
 # The bus traffic shows where a mount request stops (volume monitor, mount operation, Files).
 dbus-monitor --address "$BUS" > "$OUT/bus.log" 2>&1 &

@@ -42,7 +42,7 @@ printf '#!/bin/sh\npwd > "%s/terminal-cwd"\n' "$OUT" > "$RUNTIME/fake-terminal"
 chmod +x "$RUNTIME/fake-terminal"
 rm -f "$OUT/terminal-cwd"
 
-bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT

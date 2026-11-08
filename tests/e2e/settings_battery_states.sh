@@ -11,7 +11,7 @@ MOCK="$ROOT/tests/e2e/mock_power.py"
 SYSTEM_BIN=${ANDROMEDA_SYSTEM:-$ROOT/system/target/debug/andromeda-system}
 with_noctalia '
   kill %1; wait %1 2> /dev/null || true
-  dbus-daemon --session --nofork --print-address=3 3> "$OUT/system-bus" &
+  dbus-daemon --config-file='"$ROOT"'/tests/e2e/private-bus.conf --nofork --print-address=3 3> "$OUT/system-bus" &
   for _ in $(seq 50); do grep -q unix: "$OUT/system-bus" && break; sleep 0.1; done
   export DBUS_SYSTEM_BUS_ADDRESS=$(head -n1 "$OUT/system-bus")
   # The shell reads the battery from andromeda-system, which reads the mock UPower.

@@ -28,7 +28,8 @@ clip() { ffmpeg -loglevel error -y -f lavfi -i "testsrc2=size=320x180:rate=4" -t
 clip "$H/Movies/holiday.mov" 42; clip "$H/Camera/holiday.mov" 38
 clip "$H/Movies/trailer.mov" 12; clip "$H/Camera/trailer.mov" 12
 touch -d "-5 weeks" "$H/Camera/holiday.mov"
-python3 -I - "$P" <<'PY'
+mkdir -p "$H/Pictures/Trip"
+python3 -I - "$P" "$H/Pictures/Trip" <<'PY'
 import sys, zlib, struct
 def png(path, w, h, a, b):
     rows = []
@@ -39,8 +40,56 @@ def png(path, w, h, a, b):
     open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
                            + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
 png(sys.argv[1] + "/launch-poster.png", 384, 216, (60, 50, 160), (220, 110, 70))
+trip = sys.argv[2]
 import os
 os.setxattr(sys.argv[1] + "/launch-poster.png", "user.xdg.tags", b"Work,Done")
+PY
+# §15 Trip photos: Pixel JPEGs with camera, exposure and a GPS tag (Thamel, Kathmandu), so the Info card and the
+# title capsule show what the mockup shows.
+python3 -I - "$H/Pictures/Trip" <<'PY'
+import os, struct, subprocess, sys, time
+trip = sys.argv[1]
+def exif(taken):
+    # Little-endian TIFF: IFD0 (Make, Model, Orientation, Exif and GPS pointers), Exif IFD, GPS IFD, then values.
+    ifds, data, base = [], b"", 8
+    def ifd(entries):
+        ifds.append(entries)
+    ifd0 = [(0x010f, 2, b"Google\0"), (0x0110, 2, b"Pixel 9 Pro\0"), (0x0112, 3, 1), (0x8769, 4, "exif"), (0x8825, 4, "gps")]
+    ex = [(0x829a, 5, [(1, 120)]), (0x829d, 5, [(17, 10)]), (0x8827, 3, 50), (0x9003, 2, taken.encode() + b"\0"),
+          (0x920a, 5, [(25, 1)])]
+    gps = [(1, 2, b"N\0"), (2, 5, [(27, 1), (42, 1), (5544, 100)]), (3, 2, b"E\0"), (4, 5, [(85, 1), (18, 1), (4428, 100)])]
+    order = [ifd0, ex, gps]
+    sizes = [2 + 12 * len(e) + 4 for e in order]
+    offsets = [base, base + sizes[0], base + sizes[0] + sizes[1]]
+    heap_at = offsets[2] + sizes[2]
+    heap = b""
+    out = b"II*\0" + struct.pack("<I", base)
+    for n, entries in enumerate(order):
+        out += struct.pack("<H", len(entries))
+        for tag, typ, v in entries:
+            if v == "exif" or v == "gps":
+                out += struct.pack("<HHII", tag, 4, 1, offsets[1 if v == "exif" else 2])
+            elif typ == 3:
+                out += struct.pack("<HHIHH", tag, 3, 1, v, 0)
+            elif typ == 2:
+                if len(v) <= 4:
+                    out += struct.pack("<HHI", tag, 2, len(v)) + v.ljust(4, b"\0")
+                else:
+                    out += struct.pack("<HHII", tag, 2, len(v), heap_at + len(heap)); heap += v
+            else:
+                out += struct.pack("<HHII", tag, 5, len(v), heap_at + len(heap))
+                heap += b"".join(struct.pack("<II", a, b) for a, b in v)
+        out += struct.pack("<I", 0)
+    tiff = out + heap
+    seg = b"Exif\0\0" + tiff
+    return b"\xff\xe1" + struct.pack(">H", len(seg) + 2) + seg
+for i, (a, b) in enumerate([("#3b6fd8", "#7cc3a3"), ("#f7d9bf", "#e0457b"), ("#2a3b8f", "#c86b4a"), ("#0d2b55", "#2fd0b5")]):
+    path = f"{trip}/PXL_20261002_07{12 + i:02}14.jpg"
+    jpg = subprocess.run(["magick", "-size", "1200x900", "-define", "gradient:direction=SouthEast",
+                          f"gradient:{a}-{b}", "-quality", "90", "jpg:-"], check=True, capture_output=True).stdout
+    open(path, "wb").write(jpg[:2] + exif(f"2026:10:02 07:{12 + i:02}:14") + jpg[2:])
+    os.utime(path, (time.mktime((2026, 10, 2, 7, 12 + i, 14, 0, 0, -1)),) * 2)
+os.setxattr(f"{trip}/PXL_20261002_071214.jpg", "user.xdg.tags", b"Family")
 PY
 
 export FILES FILEOPS POINTER INDEX H P
@@ -146,6 +195,17 @@ with_noctalia '
   wait_log "$m" "search results [1-9]" || fail "This PC found nothing for invoice"
   wait_log "$m" "geometry item invoice-2026-10.pdf" || fail "This PC did not list invoice-2026-10.pdf"
   shot d-search
+  # §15 Gallery, dark then light (mockup section 15 left): Ctrl+4 in a folder of photos.
+  action go "[<\"file://$H/Pictures/Trip\">]"
+  m=$(mark); "$POINTER" 1280 720 keyboard-only tap 119 pause 100 mod control tap 5 mod none > /dev/null
+  wait_log "$m" "view gallery" || fail "Ctrl+4 did not open the Gallery"
+  wait_log "$m" "gallery photo full size" || fail "the Gallery showed no full-size photo"
+  m=$(mark); "$POINTER" 1280 720 keyboard-only tap 23 > /dev/null # I: the Info card, as the mockup shows it
+  wait_log "$m" "gallery info for PXL_20261002_071214.jpg map" || fail "I did not open the Info card"
+  shot d-gallery
+  m=$(mark); "$NOCTALIA" msg theme-mode-set light > /dev/null
+  wait_log "$m" "scheme light" || fail "Files did not follow the light scheme"
+  shot l-gallery
   kill "$INDEX_PID" 2> /dev/null || true # the index daemon outlives the shell otherwise, and the teardown waits on it
   echo "pass files_parity_shots"
 '

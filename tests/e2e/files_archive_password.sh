@@ -31,11 +31,11 @@ echo "alpha body" > "$SRC/docs/a.txt"
 echo "beta body" > "$SRC/b.txt"
 echo keep > "$DEST/keep.txt"
 
-bus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
-env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
+env_app=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache"
   LC_ALL=C.UTF-8)
 run "${env_app[@]}" XDG_RUNTIME_DIR="$RUNTIME" "$FILEOPS" > "$OUT/fileops.log" 2>&1 &
