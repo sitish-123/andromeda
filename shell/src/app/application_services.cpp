@@ -207,8 +207,10 @@ void Application::syncScheduledShutdown() {
   // (with Cancel) is the last warning, so a logind power-off never cuts open windows.
   const auto handOver = [this] {
     const std::string action = m_powerConfigService->state().scheduledAction == "reboot" ? "reboot" : "shutdown";
-    m_powerConfigService->cancelScheduledShutdown();
-    (void)m_ipcService.execute("power-overlay end " + action);
+    // Refused (no layer shell for the sheet): logind keeps its schedule and runs it itself.
+    if (m_ipcService.execute("power-overlay end " + action).starts_with("ok")) {
+      m_powerConfigService->cancelScheduledShutdown();
+    }
   };
   if (left <= minutes(1)) {
     handOver();

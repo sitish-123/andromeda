@@ -122,13 +122,21 @@ void PowerOverlay::setPowerKeyHandling(SystemBus* bus, const PowerConfigService*
     m_logind = sdbus::createProxy(
         bus->connection(), sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
     );
-    m_logind->callMethod("Inhibit")
+    // Async: a slow logind must not hold the shell's first frame. The proxy owns the call, so it dies with this.
+    m_logind->callMethodAsync("Inhibit")
         .onInterface("org.freedesktop.login1.Manager")
         .withArguments(
             std::string("handle-power-key"), std::string("Andromeda"),
             std::string("The power key opens the power menu"), std::string("block")
         )
-        .storeResultsTo(m_powerKeyInhibit);
+        .uponReplyInvoke([this](std::optional<sdbus::Error> error, sdbus::UnixFd fd) {
+          if (error.has_value()) {
+            // Without the block logind keeps acting on the key itself.
+            kLog.warn("power key stays with logind: {}", error->getMessage());
+            return;
+          }
+          m_powerKeyInhibit = std::move(fd);
+        });
   } catch (const sdbus::Error& e) {
     // Without the block logind keeps acting on the key itself.
     kLog.warn("power key stays with logind: {}", e.getMessage());
@@ -199,6 +207,12 @@ void PowerOverlay::registerIpc(IpcService& ipc) {
       const std::string action = args.substr(4);
       if (action != "reboot" && action != "shutdown" && action != "logout") {
         return "error: power-overlay end takes reboot, shutdown or logout\n";
+      }
+      // Without a layer shell (the shell inside another desktop) no sheet or countdown can show, so no Cancel either:
+      // a session end the user cannot see never starts.
+      if (m_wayland == nullptr || !m_wayland->hasLayerShell()) {
+        kLog.warn("{} refused: the compositor has no layer shell for the session-end sheet", action);
+        return "error: power-overlay end needs a layer-shell compositor\n";
       }
       beginEnd(action);
       return "ok\n";

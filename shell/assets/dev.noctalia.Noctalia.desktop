@@ -3,7 +3,8 @@ Type=Application
 Name=Settings
 GenericName=System Settings
 Comment=Displays, sound, network, appearance, and every desktop setting
-Exec=sh -c "noctalia msg settings-open || { noctalia --daemon && noctalia msg settings-open; }"
+# The fallback starts the whole shell (idle, power and session logic): only in an Andromeda session, never inside another desktop.
+Exec=sh -c "noctalia msg settings-open || case :\\$XDG_CURRENT_DESKTOP: in *:andromeda:*) noctalia --daemon && noctalia msg settings-open ;; *) exit 1 ;; esac"
 Icon=dev.noctalia.Settings
 Terminal=false
 Categories=System;Settings;DesktopSettings;

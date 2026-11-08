@@ -168,7 +168,9 @@ void SessionGuard::runQueued() {
   syncTimer();
   notify();
   if (m_ipc != nullptr) {
-    (void)m_ipc->execute("power-overlay end " + action);
+    if (const std::string reply = m_ipc->execute("power-overlay end " + action); reply.starts_with("error")) {
+      kLog.warn("queued {} dropped: {}", action, reply);
+    }
   }
 }
 
