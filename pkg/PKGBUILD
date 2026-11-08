@@ -3,7 +3,7 @@ pkgname=(andromeda andromeda-compositor-git noctalia-desktop-git xdg-desktop-por
   andromeda-power-git noctalia-greeter-desktop-git andromeda-system-git andromeda-greetd)
 # Epoch keeps the monorepo revision newer than the per-fork versions it replaces.
 epoch=1
-pkgver=r15400.geb7e2e8d7
+pkgver=r15438.ge89c643cf
 pkgrel=1
 arch=(x86_64)
 license=(MIT)
@@ -46,6 +46,7 @@ prepare() {
 build() {
   # The host makepkg.conf (CachyOS) sets -march=native; packages must run on any x86-64 CPU.
   CFLAGS="${CFLAGS//-march=native/-march=x86-64 -mtune=generic}" CXXFLAGS="${CXXFLAGS//-march=native/-march=x86-64 -mtune=generic}"
+  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}"
   # Incremental: build dirs stay in srcdir between runs. default_options apply only on the first configure, so a
   # change to any meson file or wrap starts the build dirs over.
   local stamp
@@ -79,10 +80,10 @@ build() {
   local linkcache="${XDG_CACHE_HOME:-$HOME/.cache}/andromeda-pkg/link-target"
   mkdir -p "$linkcache" && ln -sfn "$linkcache" desktop/link/target
   CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
-  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
+  CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/link/Cargo.toml -p link-daemon \
     -p link-mount -p link-mirror -p link-desk -p link-session
-  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
-  RUSTFLAGS="${RUSTFLAGS//-C target-cpu=native/}" cargo build --frozen --release --manifest-path greetd/Cargo.toml -p greetd
+  CFLAGS="${CFLAGS//-flto=auto/}" CXXFLAGS="${CXXFLAGS//-flto=auto/}" cargo build --frozen --release --manifest-path desktop/system/Cargo.toml
+  cargo build --frozen --release --manifest-path greetd/Cargo.toml -p greetd
 }
 
 # Library dependencies at least at the version this was built against: an Andromeda-only update (Settings) on an
