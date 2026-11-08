@@ -411,8 +411,10 @@ namespace control_center {
       button->addChild(glyph(name, Tokens::sizeSymbol * s, ColorRole::Label2));
       trailingWidth += Tokens::sizeSymbol + Tokens::spaceP8;
     }
+    // Beside the row button, not inside it: the row's input area covers its whole frame and would take the click.
+    std::unique_ptr<Button> action;
     if (!row.action.empty()) {
-      auto action = std::make_unique<Button>();
+      action = std::make_unique<Button>();
       action->setVariant(ButtonVariant::Default);
       action->setText(row.action);
       action->setFontSize(Tokens::typeFootnote.size * s);
@@ -420,8 +422,9 @@ namespace control_center {
       action->setRadius(Tokens::radiusR8 * s);
       action->setPadding(0.0F, Tokens::spaceP8 * s, 0.0F, Tokens::spaceP8 * s);
       action->setOnClick(row.onAction);
-      button->addChild(std::move(action));
-      trailingWidth += Tokens::sizeRow * 2;
+      // App-given labels have any length: the button caps and ellipsizes, and the title reserves the cap plus inset.
+      action->setMaxWidth(Tokens::sizeRow * 3 * s);
+      trailingWidth += Tokens::sizeRow * 3 + Tokens::componentListRowInset;
     }
     // Reserve for the scrollbar gutter too.
     reserve += trailingWidth + Tokens::spaceP12;
@@ -431,6 +434,14 @@ namespace control_center {
     }
     Button* raw = button.get();
     cell->addChild(std::move(button));
+    if (action != nullptr) {
+      auto slot = std::make_unique<Flex>();
+      slot->setAlign(FlexAlign::Center);
+      slot->setJustify(FlexJustify::Center);
+      slot->setPadding(0.0F, Tokens::componentListRowInset * s, 0.0F, 0.0F);
+      slot->addChild(std::move(action));
+      cell->addChild(std::move(slot));
+    }
     card.addChild(std::move(cell));
     return raw;
   }

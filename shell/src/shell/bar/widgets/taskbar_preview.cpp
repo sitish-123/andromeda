@@ -237,8 +237,9 @@ void TaskbarPreview::closeNow() {
   m_capture->cancelInFlight();
   m_input.setSceneRoot(nullptr);
   m_lens = nullptr;
-  m_surface.reset();
+  // The scene first: its images unload textures through the surface's renderer.
   m_sceneRoot.reset();
+  m_surface.reset();
   m_cards.clear();
   m_group.clear();
   m_pointerInside = false;

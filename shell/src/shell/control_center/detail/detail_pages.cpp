@@ -1970,6 +1970,21 @@ namespace control_center {
           (void)m_notifications->invokeAction(id, "default", token, true);
           PanelManager::instance().closePanel();
         };
+        // The app's first named action (Reply, Open) as the row button; "default" is the row click above.
+        if (m_notifications->canInvokeActions(n.id)) {
+          for (std::size_t a = 0; a + 1 < n.actions.size(); a += 2) {
+            if (n.actions[a] != "default" && !n.actions[a + 1].empty()) {
+              row.action = n.actions[a + 1];
+              row.onAction = [this, id = n.id, key = n.actions[a]] {
+                const std::string token =
+                    m_platform != nullptr ? m_platform->requestActivationToken(m_platform->lastPointerSurface()) : std::string{};
+                (void)m_notifications->invokeAction(id, key, token, true);
+                PanelManager::instance().closePanel();
+              };
+              break;
+            }
+          }
+        }
         addRow(*card, row);
       }
       if (list.size() > 2) {
