@@ -325,9 +325,6 @@ namespace {
     if (panelId == "wallpaper") {
       return pc.wallpaperPosition;
     }
-    if (panelId == "session") {
-      return pc.sessionPosition;
-    }
     if (panelId == "polkit") {
       return pc.polkitPosition;
     }
@@ -338,7 +335,6 @@ namespace {
     return panelId == "clipboard"
         || panelId == "control-center"
         || panelId == "launcher"
-        || panelId == "session"
         || panelId == "setup-wizard"
         || panelId == "wallpaper";
   }
@@ -374,9 +370,6 @@ namespace {
     }
     if (panelId == "wallpaper") {
       return !pinned(pc.wallpaperPlacement, pc.wallpaperPosition) && pc.openNearClickWallpaper;
-    }
-    if (panelId == "session") {
-      return !pinned(pc.sessionPlacement, pc.sessionPosition) && pc.openNearClickSession;
     }
     return false;
   }
@@ -3974,7 +3967,8 @@ void PanelManager::registerIpc(IpcService& ipc) {
         if (auto error = parseOpenArgs(args, "panel-toggle", panelId, context)) {
           return *error;
         }
-        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId) && !m_windowPanels.contains(panelId)) {
+        if (!m_panels.contains(panelId) && !m_panelAliases.contains(panelId) && !m_persistentHost.hasPanel(panelId)
+            && !m_windowPanels.contains(panelId)) {
           return unknownPanelError(panelId);
         }
         // Output left unset: openPanel resolves it (focus source, else compositor probe).
@@ -3994,7 +3988,8 @@ void PanelManager::registerIpc(IpcService& ipc) {
         if (auto error = parseOpenArgs(args, "panel-open", panelId, context)) {
           return *error;
         }
-        if (!m_panels.contains(panelId) && !m_persistentHost.hasPanel(panelId) && !m_windowPanels.contains(panelId)) {
+        if (!m_panels.contains(panelId) && !m_panelAliases.contains(panelId) && !m_persistentHost.hasPanel(panelId)
+            && !m_windowPanels.contains(panelId)) {
           return unknownPanelError(panelId);
         }
 

@@ -538,7 +538,7 @@ namespace {
     std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.session"); }
     std::string_view iconOn() const override { return "shutdown"; }
     std::string_view iconOff() const override { return "shutdown"; }
-    void onClick() override { PanelManager::instance().togglePanel("session"); }
+    void onClick() override { openTab("session"); }
   };
 
   class ClipboardShortcut final : public Shortcut {

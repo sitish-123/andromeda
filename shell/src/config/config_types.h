@@ -262,10 +262,6 @@ struct SessionPanelActionConfig {
 
 struct ShellSessionConfig {
   std::vector<SessionPanelActionConfig> actions;
-  // Lay the session panel actions out over multiple rows of `gridColumns` instead of
-  // fitting them on a single row.
-  bool grid = false;
-  std::int32_t gridColumns = 3;
   bool showShortcuts = true;
   // Optional overrides for built-in session power commands. Empty = auto-detect at runtime.
   struct ShellSessionPowerConfig {
@@ -1138,7 +1134,6 @@ struct ShellConfig {
     PanelPlacement clipboardPlacement = PanelPlacement::Floating;
     PanelPlacement controlCenterPlacement = PanelPlacement::Attached;
     PanelPlacement wallpaperPlacement = PanelPlacement::Attached;
-    PanelPlacement sessionPlacement = PanelPlacement::Attached;
     PanelPlacement polkitPlacement = PanelPlacement::Floating;
     // Screen position per panel (one of kPanelPositions). Pins a floating panel to that
     // screen position. An attached panel follows it only when the position lies on its
@@ -1149,14 +1144,12 @@ struct ShellConfig {
     std::string clipboardPosition = "center";
     std::string controlCenterPosition = "auto";
     std::string wallpaperPosition = "auto";
-    std::string sessionPosition = "auto";
     std::string polkitPosition = "center";
     std::int32_t floatingOffset = 8; // logical px gap between a floating/detached panel and the bar edge
     bool openNearClickControlCenter = true;
     bool openNearClickLauncher = false;
     bool openNearClickClipboard = false;
     bool openNearClickWallpaper = false;
-    bool openNearClickSession = false;
 
     bool operator==(const PanelConfig&) const = default;
   };

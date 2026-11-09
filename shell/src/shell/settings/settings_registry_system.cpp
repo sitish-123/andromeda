@@ -685,39 +685,10 @@ namespace settings {
     const auto& cfg = ctx.cfg;
     const auto& env = ctx.env;
     auto& entries = ctx.entries;
-    auto& panelRows = ctx.panelRows;
-    const auto& panelPositionEntry = ctx.panelPositionEntry;
-    const auto& panelOpenNearClickEntry = ctx.panelOpenNearClickEntry;
 
     // Power
-    appendRow(entries, panelRows, "session_placement");
-    entries.push_back(panelPositionEntry(
-        SettingsSection::Panels, "session-panel", "session", "settings.schema.panels.position-session.label",
-        "settings.schema.panels.position-session.description", cfg.shell.panel.sessionPosition
-    ));
-    entries.push_back(panelOpenNearClickEntry(
-        SettingsSection::Panels, "session-panel", "session", "settings.schema.panels.open-near-click-session.label",
-        "settings.schema.panels.open-near-click-session.description", cfg.shell.panel.openNearClickSession,
-        &ShellConfig::PanelConfig::sessionPlacement, &ShellConfig::PanelConfig::sessionPosition
-    ));
     auto sessionRows =
         generateSchemaEntries(noctalia::config::schema::sessionSchema(), cfg.shell.session, {"shell", "session"});
-    appendRow(entries, sessionRows, "grid");
-    {
-      auto e = makeEntry(
-          SettingsSection::Power, "session-panel", tr("settings.schema.power.session-grid-columns.label"),
-          tr("settings.schema.power.session-grid-columns.description"), {"shell", "session", "grid_columns"},
-          StepperSetting{
-              .value = static_cast<int>(cfg.shell.session.gridColumns),
-              .minValue = static_cast<int>(noctalia::config::schema::kSessionGridColumnsRange.min.value()),
-              .maxValue = static_cast<int>(noctalia::config::schema::kSessionGridColumnsRange.max.value()),
-              .step = static_cast<int>(noctalia::config::schema::kSessionGridColumnsRange.step.value()),
-          },
-          "session panel grid columns per row"
-      );
-      e.visibleWhen = [](const Config& c) { return c.shell.session.grid; };
-      entries.push_back(std::move(e));
-    }
     appendRow(entries, sessionRows, "show_shortcuts");
     entries.push_back(makeEntry(
         SettingsSection::Power, "session-panel", tr("settings.schema.power.session-actions.label"),

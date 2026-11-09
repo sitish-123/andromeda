@@ -31,7 +31,6 @@ namespace noctalia::config::schema {
       noctalia::config::kClipboardHistoryMaxEntries,
       noctalia::config::kClipboardHistoryStepEntries,
   };
-  inline constexpr Range<std::int64_t> kSessionGridColumnsRange{1, 5, 1};
   inline constexpr Range<std::int64_t> kOsdHideDelayMsRange{250, 10000, 50};
   inline constexpr Range<float> kLockscreenTransitionDurationRange{100.0F, 30000.0F, 100.0F};
 

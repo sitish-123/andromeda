@@ -647,7 +647,6 @@ _noctalia_sources = files(
   'src/shell/session/session_action_runner.cpp',
   'src/shell/session/power_inhibitors.cpp',
   'src/shell/session/session_ipc.cpp',
-  'src/shell/session/session_panel.cpp',
   'src/shell/session/power_overlay.cpp',
   'src/shell/session/session_guard.cpp',
   'src/shell/display_mode/display_mode_panel.cpp',

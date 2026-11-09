@@ -83,7 +83,6 @@
 #include "shell/phone/phone_panel.h"
 #include "shell/polkit/polkit_panel.h"
 #include "shell/session/session_ipc.h"
-#include "shell/session/session_panel.h"
 #include "shell/setup_wizard/setup_wizard_panel.h"
 #include "shell/test/test_panel.h"
 #include "shell/tooltip/tooltip_manager.h"
@@ -815,7 +814,7 @@ void Application::initPanelManagerAndPanels() {
     m_panelManager.setPanelAlias("clipboard", "launcher", "mode:Clipboard");
   }
   syncClipboardService();
-  m_panelManager.registerPanel("session", std::make_unique<SessionPanel>(&m_configService, m_sessionActionRunner));
+  m_panelManager.setPanelAlias("session", "control-center", "session");
   m_panelManager.registerPanel("display-mode", std::make_unique<DisplayModePanel>(m_wayland));
   m_panelManager.registerPanel("test", std::make_unique<TestPanel>());
   m_panelManager.registerPanel("phone", std::make_unique<PhonePanel>(m_linkService.get()));

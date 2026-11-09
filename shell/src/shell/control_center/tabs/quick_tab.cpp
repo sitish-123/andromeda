@@ -925,7 +925,7 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
   iconButton(settings, "settings", [] { PanelManager::instance().openSettingsWindow(); });
   settings->setTooltip(i18n::tr("control-center.quick.settings-tooltip"));
   Button* power = nullptr;
-  iconButton(power, "shutdown", [] { PanelManager::instance().togglePanel("session"); });
+  iconButton(power, "shutdown", [this] { m_openTab("session"); });
   power->setTooltip(i18n::tr("control-center.shortcuts.session"));
   return footer;
 }

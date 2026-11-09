@@ -316,12 +316,9 @@ shell.panel.list_item_background
 shell.panel.open_near_click_clipboard
 shell.panel.open_near_click_control_center
 shell.panel.open_near_click_launcher
-shell.panel.open_near_click_session
 shell.panel.open_near_click_wallpaper
 shell.panel.polkit_placement
 shell.panel.polkit_position
-shell.panel.session_placement
-shell.panel.session_position
 shell.panel.shadow
 shell.panel.transparency_mode
 shell.panel.wallpaper_placement
@@ -361,8 +358,6 @@ shell.screenshot.show_region_hint
 shell.screenshot.skip_annotate_on_copy_save
 shell.screen_time_enabled
 shell.session.actions
-shell.session.grid
-shell.session.grid_columns
 shell.session.show_shortcuts
 shell.settings_expand_all_groups
 shell.settings_window_translucent

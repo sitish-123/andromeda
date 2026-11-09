@@ -1989,17 +1989,6 @@ namespace noctalia::config::schema {
               }
           ),
           enumField(
-              &ShellConfig::PanelConfig::sessionPlacement, "session_placement", kPanelPlacements,
-              RowSpec{
-                  .kind = RowSpec::Kind::Select,
-                  .section = "panels",
-                  .group = "session-panel",
-                  .label = "panels.placement-session",
-                  .tags = "attached floating bar panel power menu position",
-                  .segmented = true,
-              }
-          ),
-          enumField(
               &ShellConfig::PanelConfig::polkitPlacement, "polkit_placement", kPanelPlacements,
               RowSpec{
                   .kind = RowSpec::Kind::Select,
@@ -2014,7 +2003,6 @@ namespace noctalia::config::schema {
           field(&ShellConfig::PanelConfig::clipboardPosition, "clipboard_position"),
           field(&ShellConfig::PanelConfig::controlCenterPosition, "control_center_position"),
           field(&ShellConfig::PanelConfig::wallpaperPosition, "wallpaper_position"),
-          field(&ShellConfig::PanelConfig::sessionPosition, "session_position"),
           field(&ShellConfig::PanelConfig::polkitPosition, "polkit_position"),
           field(
               &ShellConfig::PanelConfig::floatingOffset, "floating_offset", Range<std::int64_t>{0, 100},
@@ -2030,7 +2018,6 @@ namespace noctalia::config::schema {
           field(&ShellConfig::PanelConfig::openNearClickLauncher, "open_near_click_launcher"),
           field(&ShellConfig::PanelConfig::openNearClickClipboard, "open_near_click_clipboard"),
           field(&ShellConfig::PanelConfig::openNearClickWallpaper, "open_near_click_wallpaper"),
-          field(&ShellConfig::PanelConfig::openNearClickSession, "open_near_click_session"),
       };
       return s;
     }
@@ -2670,16 +2657,6 @@ namespace noctalia::config::schema {
               &ShellSessionConfig::actions, "actions", sessionActionSchema(),
               [](const SessionPanelActionConfig& a) { return !a.action.empty(); }
           ),
-          field(
-              &ShellSessionConfig::grid, "grid",
-              RowSpec{
-                  .section = "power",
-                  .group = "session-panel",
-                  .label = "power.session-grid",
-                  .tags = "session panel grid layout rows columns",
-              }
-          ),
-          field(&ShellSessionConfig::gridColumns, "grid_columns", kSessionGridColumnsRange),
           field(
               &ShellSessionConfig::showShortcuts, "show_shortcuts",
               RowSpec{
