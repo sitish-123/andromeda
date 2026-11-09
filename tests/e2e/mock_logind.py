@@ -28,6 +28,9 @@ class Manager(Delayed, dbus.service.Object):
         # "yes" unless the test overrides it, to gate Hibernate/SuspendThenHibernate like real hardware without swap.
         self.can_hibernate = os.environ.get("MOCK_CAN_HIBERNATE", "yes")
         self.can_suspend_then_hibernate = os.environ.get("MOCK_CAN_SUSPEND_THEN_HIBERNATE", "yes")
+        # ScheduledShutdown and the PreparingFor* flags; MockSchedule changes them.
+        self.scheduled = ("", 2**64 - 1)
+        self.preparing = ""
 
     def record(self, method, interactive):
         with open(self.log, "a") as out:
@@ -97,6 +100,23 @@ class Manager(Delayed, dbus.service.Object):
     def CanSuspendThenHibernate(self):
         return self.can_suspend_then_hibernate
 
+    @dbus.service.method(MANAGER, out_signature="b")
+    def CancelScheduledShutdown(self):
+        self.record_line(f"CancelScheduledShutdown {self.scheduled[0]}")
+        self.scheduled = ("", 2**64 - 1)
+        return True
+
+    @dbus.service.method("org.andromeda.test.MockLogind", in_signature="sts")
+    def MockSchedule(self, action, usec, preparing):
+        """Sets ScheduledShutdown; preparing "sleep" or "shutdown" mimics logind running a delayed action."""
+        self.scheduled = (action, usec)
+        self.preparing = preparing
+        self.PropertiesChanged(MANAGER, {"ScheduledShutdown": self.properties()["ScheduledShutdown"]}, [])
+
+    @dbus.service.signal(dbus.PROPERTIES_IFACE, signature="sa{sv}as")
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
     def properties(self):
         # MOCK_LID_BATTERY etc. override the logind defaults (logind.conf(5)).
         return {
@@ -105,6 +125,9 @@ class Manager(Delayed, dbus.service.Object):
             "HandleLidSwitchExternalPower": os.environ.get("MOCK_LID_POWER", ""),
             "HandleLidSwitchDocked": os.environ.get("MOCK_LID_DOCKED", "ignore"),
             "HandlePowerKey": os.environ.get("MOCK_POWER_KEY", "poweroff"),
+            "ScheduledShutdown": dbus.Struct((self.scheduled[0], dbus.UInt64(self.scheduled[1])), signature="st"),
+            "PreparingForSleep": dbus.Boolean(self.preparing == "sleep"),
+            "PreparingForShutdown": dbus.Boolean(self.preparing == "shutdown"),
         }
 
     @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")

@@ -202,6 +202,11 @@ void Application::syncScheduledShutdown() {
   using namespace std::chrono;
   const auto at = system_clock::time_point(microseconds(m_powerConfigService->state().scheduledUsec));
   const auto left = duration_cast<seconds>(at - system_clock::now());
+  const std::string& scheduled = m_powerConfigService->state().scheduledAction;
+  // The "dry-" kinds only test logind's schedule; the session end would power off for real.
+  if (scheduled != "poweroff" && scheduled != "reboot" && scheduled != "halt") {
+    return;
+  }
   // One minute before, the session end takes over from logind: apps get the close request and the countdown alert
   // (with Cancel) is the last warning, so a logind power-off never cuts open windows.
   const auto handOver = [this] {

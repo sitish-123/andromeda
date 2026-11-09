@@ -297,14 +297,25 @@ void PowerConfigService::readScheduledShutdown() {
     return;
   }
   const std::weak_ptr<int> alive = m_aliveToken;
-  m_manager->getPropertyAsync("ScheduledShutdown").onInterface(kManagerInterface).uponReplyInvoke(
-      [this, alive](std::optional<sdbus::Error> e, const sdbus::Variant& value) {
+  m_manager->getAllPropertiesAsync().onInterface(kManagerInterface).uponReplyInvoke(
+      [this, alive](std::optional<sdbus::Error> e, const std::map<sdbus::PropertyName, sdbus::Variant>& props) {
         if (alive.expired() || e.has_value()) {
           return;
         }
-        const auto scheduled = value.get<sdbus::Struct<std::string, std::uint64_t>>();
-        // logind reports "nothing scheduled" as ("", UINT64_MAX).
-        const bool none = scheduled.get<0>().empty() || scheduled.get<1>() == UINT64_MAX;
+        const auto flag = [&props](const char* name) {
+          const auto it = props.find(sdbus::PropertyName{name});
+          return it != props.end() && it->second.get<bool>();
+        };
+        const auto it = props.find(sdbus::PropertyName{"ScheduledShutdown"});
+        if (it == props.end()) {
+          return;
+        }
+        const auto scheduled = it->second.get<sdbus::Struct<std::string, std::uint64_t>>();
+        // logind reports "nothing scheduled" as ("", UINT64_MAX). It also reports an action that already runs
+        // (suspend, poweroff held by delay inhibitors) as scheduled; cancelling that one cancels the action
+        // without PrepareForSleep(false), so NetworkManager and the face and finger readers stay asleep.
+        const bool none = scheduled.get<0>().empty() || scheduled.get<1>() == UINT64_MAX
+            || flag("PreparingForShutdown") || flag("PreparingForSleep");
         m_state.scheduledAction = none ? std::string{} : scheduled.get<0>();
         m_state.scheduledUsec = none ? 0 : scheduled.get<1>();
         notify();
