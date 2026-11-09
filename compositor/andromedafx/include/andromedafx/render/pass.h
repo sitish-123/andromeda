@@ -42,6 +42,9 @@ struct fx_gles_render_pass {
   // Set while an add_* call renders into an offscreen buffer instead of the
   // pass target, so it must not extend updated_region.
   bool suppress_updated;
+  // The pass target while the optimized blur source draws into its own buffer, else NULL.
+  struct fx_framebuffer* optimized_source_parent;
+  bool optimized_source_suppress;
   // Reject the frame instead of displaying a partially applied animation.
   bool require_animation_success;
   bool animation_failed;
@@ -296,6 +299,14 @@ bool fx_render_pass_add_optimized_blur(
  * light or the other way round.
  */
 bool fx_render_pass_optimized_blur_stale(const struct fx_gles_render_pass* pass);
+
+/**
+ * Binds the optimized blur's sharp buffer as the pass target, so the scene can draw the cache's source into it
+ * without what covers it on screen. Pass the result as current_buffer to fx_render_pass_add_optimized_blur, then call
+ * fx_render_pass_end_optimized_source. NULL inside a capture or on allocation failure.
+ */
+struct fx_framebuffer* fx_render_pass_begin_optimized_source(struct fx_gles_render_pass* pass);
+void fx_render_pass_end_optimized_source(struct fx_gles_render_pass* pass);
 
 /** True when the optimized blur cache holds a valid blur for this pass, so a partial re-render can update it. */
 bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pass);

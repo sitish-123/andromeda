@@ -3257,6 +3257,36 @@ bool fx_render_pass_optimized_blur_reusable(const struct fx_gles_render_pass* pa
       && !fx_render_pass_optimized_blur_stale(pass);
 }
 
+struct fx_framebuffer* fx_render_pass_begin_optimized_source(struct fx_gles_render_pass* pass) {
+  struct fx_offscreen_buffers* fbos = pass->fx_offscreen_buffers;
+  if (fbos == NULL || pass->animation_depth != 0 || pass->optimized_source_parent != NULL) {
+    return NULL;
+  }
+  if (!optimized_buffer_fits(pass, fbos->optimized_no_blur_buffer)) {
+    fbos->optimized_blur_valid = false;
+  }
+  struct fx_framebuffer* target = ensure_offscreen_buffer(pass, &fbos->optimized_no_blur_buffer, false);
+  if (target == NULL) {
+    return NULL;
+  }
+  pass->optimized_source_parent = pass->buffer;
+  pass->optimized_source_suppress = pass->suppress_updated;
+  pass->buffer = target;
+  pass->suppress_updated = true;
+  fx_framebuffer_bind(target);
+  return target;
+}
+
+void fx_render_pass_end_optimized_source(struct fx_gles_render_pass* pass) {
+  if (pass->optimized_source_parent == NULL) {
+    return;
+  }
+  pass->buffer = pass->optimized_source_parent;
+  pass->suppress_updated = pass->optimized_source_suppress;
+  pass->optimized_source_parent = NULL;
+  fx_framebuffer_bind(pass->buffer);
+}
+
 bool fx_render_pass_add_optimized_blur(
     struct fx_gles_render_pass* pass, struct fx_render_blur_pass_options* fx_options
 ) {
@@ -3307,11 +3337,15 @@ bool fx_render_pass_add_optimized_blur(
   if (!optimized_buffer_fits(pass, fbos->optimized_blur_buffer)
       || !optimized_buffer_fits(pass, fbos->optimized_no_blur_buffer)) {
     fbos->optimized_blur_valid = false;
+    if (getenv("ANDROMEDA_BLUR_DEBUG") != NULL) {
+      wlr_log(WLR_INFO, "blur cache buffers replaced (size or format change); cache invalid");
+    }
   }
   struct fx_framebuffer* blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_blur_buffer, false);
   struct fx_framebuffer* no_blur_buffer = ensure_offscreen_buffer(pass, &fbos->optimized_no_blur_buffer, false);
   struct fx_framebuffer* fx_buffer = NULL;
-  struct fx_framebuffer* backdrop = animation_backdrop(pass, NULL);
+  struct fx_framebuffer* backdrop =
+      fx_options->current_buffer != NULL ? fx_options->current_buffer : animation_backdrop(pass, NULL);
   if (blur_buffer != NULL && no_blur_buffer != NULL) {
     struct fx_render_blur_pass_options blur_options = *fx_options;
     blur_options.current_buffer = backdrop;
@@ -3324,7 +3358,9 @@ bool fx_render_pass_add_optimized_blur(
     rendered = fx_render_pass_read_to_buffer(pass, &clip, blur_buffer, fx_buffer);
 
     // Save the current scene pass state
-    rendered = fx_render_pass_read_to_buffer(pass, &clip, no_blur_buffer, backdrop) && rendered;
+    if (backdrop != no_blur_buffer) {
+      rendered = fx_render_pass_read_to_buffer(pass, &clip, no_blur_buffer, backdrop) && rendered;
+    }
     fbos->optimized_blur_valid = rendered;
     fbos->optimized_blur_sdr_tf = linear_sdr_tf(pass);
     if (rendered) {
