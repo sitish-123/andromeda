@@ -542,6 +542,13 @@ void FilesApp::action(const std::string& name, const std::vector<std::string>& p
     kLog.warn("action {} is for tests only (DESK_FILES_TEST)", name);
     return;
   }
+  if (name == "new-window") { // the desktop entry's New Window and Super+E: a window at home beside any open ones
+    openWindow(fs::path(g_get_home_dir()));
+    if (!windows().empty() && windows().back()->isOpen()) {
+      windows().back()->activate(activationToken);
+    }
+    return;
+  }
   if (name == "gallery") { // Photos (dev.andromeda.Photos.desktop): a photo in the Gallery, else Pictures as a Gallery
     fs::path photo = parameter.empty() ? fs::path() : pathFromUri(parameter.front());
     std::error_code ec;

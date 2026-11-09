@@ -808,7 +808,12 @@ void Application::initIpc() {
     if (entry == nullptr) {
       return "error: no " + name + " app installed\n";
     }
-    return desktop_entry_launch::launchEntry(*entry) ? "ok\n" : "error: failed to launch " + entry->id + "\n";
+    // A new window each time, as Win+E does, when the app offers one; otherwise the app decides (most focus).
+    const auto newWindow = std::ranges::find(entry->actions, std::string_view("new-window"), &DesktopAction::id);
+    const bool launched = newWindow != entry->actions.end()
+        ? desktop_entry_launch::launchAction(*newWindow, entry->id, entry->workingDir, entry->terminal)
+        : desktop_entry_launch::launchEntry(*entry);
+    return launched ? "ok\n" : "error: failed to launch " + entry->id + "\n";
   });
 
   m_ipcService.bind(

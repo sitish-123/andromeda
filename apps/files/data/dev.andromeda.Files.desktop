@@ -9,3 +9,8 @@ Categories=System;FileManager;Utility;Core;
 Keywords=folder;manager;explore;disk;filesystem;trash;
 MimeType=inode/directory;
 StartupWMClass=dev.andromeda.Files
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=andromeda-files --action=new-window
