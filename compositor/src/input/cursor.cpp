@@ -51,6 +51,14 @@ namespace andromeda {
       return factor ? (vertical ? factor->vertical : factor->horizontal).value_or(1.0) : 1.0;
     }
 
+    bool isTouchpad(wlr_pointer* pointer) {
+      if (pointer == nullptr || !wlr_input_device_is_libinput(&pointer->base)) {
+        return false;
+      }
+      libinput_device* device = wlr_libinput_get_device_handle(&pointer->base);
+      return device != nullptr && libinput_device_config_tap_get_finger_count(device) > 0;
+    }
+
   } // namespace
 
   Cursor::Cursor(Server& server) : m_server(&server) {
@@ -918,7 +926,9 @@ namespace andromeda {
       }
       return;
     }
+    m_buttonFromTouchpad = isTouchpad(event->pointer);
     processButton(event->time_msec, event->button, event->state);
+    m_buttonFromTouchpad = false;
   }
 
   bool Cursor::canCaptureInput() const {
@@ -1165,6 +1175,10 @@ namespace andromeda {
         if (pressed && !isXdgPopupSurface(surface)) {
           layer->focus();
         }
+        return;
+      }
+      // A touchpad's middle button is a 3-finger tap, too easy to make by accident to close a window with.
+      if (button == BTN_MIDDLE && m_buttonFromTouchpad) {
         return;
       }
       overview->handleButton(button, pressed, m_cursor->x, m_cursor->y, timeMsec);

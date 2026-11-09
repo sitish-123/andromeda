@@ -499,6 +499,8 @@ namespace andromeda {
     bool m_hoverFocusInvalidated = false;
     bool m_compositorOwnsCursor = false;
     bool m_cursorHidden = false;
+    // Set while processButton handles a button from a touchpad.
+    bool m_buttonFromTouchpad = false;
     bool m_launchBusy = false;
     std::string m_compositorCursorName;
     // What the focused client last asked the cursor to be, replayed when a
