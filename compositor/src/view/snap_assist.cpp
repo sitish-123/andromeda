@@ -233,6 +233,14 @@ namespace andromeda {
   }
 
   void SnapAssist::build() {
+    // Card frames and listeners live in m_content: release them before it goes.
+    for (const auto& card : m_cards) {
+      card->frame.reset();
+      card->commit.disconnect();
+      card->destroy.disconnect();
+      card->tree = nullptr;
+      card->surfaces = nullptr;
+    }
     if (m_content != nullptr) {
       wlr_scene_node_destroy(&m_content->node);
     }
@@ -283,11 +291,6 @@ namespace andromeda {
       const int column = static_cast<int>(i) % columns;
       const int row = static_cast<int>(i) / columns;
       card.box = {left + column * (cardW + kGap), top + row * (cardH + kGap), cardW, cardH};
-      card.frame.reset();
-      card.commit.disconnect();
-      card.destroy.disconnect();
-      card.tree = nullptr;
-      card.surfaces = nullptr;
       if (view == nullptr) {
         continue;
       }
