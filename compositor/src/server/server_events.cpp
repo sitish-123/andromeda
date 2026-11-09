@@ -854,8 +854,10 @@ namespace andromeda {
     }
   }
 
-  void Server::scheduleIpcWindowsEvent() {
-    scheduleSessionSave();
+  void Server::scheduleIpcWindowsEvent(bool sessionChanged) {
+    if (sessionChanged) {
+      scheduleSessionSave();
+    }
     if (m_ipc == nullptr || m_ipcWindowsIdle != nullptr) {
       return;
     }

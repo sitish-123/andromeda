@@ -429,8 +429,9 @@ namespace andromeda {
     void notifyOverviewChanged();
     void notifySubmapChanged();
     // Coalesced windows-event notification: at most one idle callback per frame
-    // regardless of how many window-list-relevant changes happened.
-    void scheduleIpcWindowsEvent();
+    // regardless of how many window-list-relevant changes happened. A change that crash restore ignores (a title) passes
+    // false, so it does not rewrite session.json.
+    void scheduleIpcWindowsEvent(bool sessionChanged = true);
     // Same coalescing for the workspace list: layout mode, activation, names and membership all land in one payload,
     // so a switch that renames, reindexes and reactivates emits once.
     void scheduleIpcWorkspacesEvent();

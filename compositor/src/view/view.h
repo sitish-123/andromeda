@@ -834,7 +834,7 @@ namespace andromeda {
     [[nodiscard]] bool inheritScratchpadFromParent(bool restoreTiled);
     void syncTransientSceneParent();
     void raiseTransientTree();
-    void updateForeignIdentity();
+    void updateForeignIdentity(bool titleOnly = false);
     void updateForeignState();
     void enterForeignOutput();
     void enterForeignOutput(Output* output);

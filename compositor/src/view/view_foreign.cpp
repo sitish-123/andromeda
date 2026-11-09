@@ -27,7 +27,7 @@ namespace andromeda {
     m_server->scheduleIpcWindowsEvent();
   }
 
-  void View::updateForeignIdentity() {
+  void View::updateForeignIdentity(bool titleOnly) {
     if (m_foreign != nullptr) {
       wlr_foreign_toplevel_handle_v1_set_title(m_foreign, title() != nullptr ? title() : "");
       wlr_foreign_toplevel_handle_v1_set_app_id(m_foreign, appId() != nullptr ? appId() : "");
@@ -39,7 +39,7 @@ namespace andromeda {
       };
       wlr_ext_foreign_toplevel_handle_v1_update_state(m_extForeign, &state);
     }
-    m_server->scheduleIpcWindowsEvent();
+    m_server->scheduleIpcWindowsEvent(!titleOnly);
   }
 
   void View::updateForeignState() {
@@ -102,7 +102,7 @@ namespace andromeda {
 
   void View::handleSetTitle() {
     syncSsdFrame();
-    updateForeignIdentity();
+    updateForeignIdentity(true);
     if (m_workspace != nullptr) {
       m_workspace->tabs().memberChanged(this);
     }
