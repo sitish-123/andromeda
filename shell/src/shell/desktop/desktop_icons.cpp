@@ -320,22 +320,37 @@ void DesktopIcons::startSystemDrag() {
   const Cell& pressed = m_cells[*m_pressIndex];
   const int iconSize = m_config->config().desktopIcons.iconSize;
   const std::string& type = pressed.info->contentType;
+  const bool shortcut = !pressed.info->isDir && pressed.info->name.ends_with(".desktop");
+  // A picture drags as itself; an app shortcut as its app icon; anything else as its Files icon, as on the desktop.
   const std::string iconFile = !pressed.info->isDir && type.starts_with("image/") ? pathOf(*pressed.info).string()
-                                                                                 : iconPathFor(*pressed.info);
+                               : shortcut                                         ? iconPathFor(*pressed.info)
+                                                                                  : std::string{};
+  const FileInfo info = *pressed.info;
+  const std::filesystem::path path = pathOf(info);
   const int scale = std::max(1, static_cast<int>(std::ceil(m_surface->effectiveBufferScale())));
   auto icon = std::make_unique<DragIconSurface>(*m_wayland, iconSize, iconSize, scale);
   icon->setRenderContext(m_renderContext);
   m_dragImage = ui::node({});
   m_dragImage->setSize(static_cast<float>(iconSize), static_cast<float>(iconSize));
-  icon->setPrepareFrameCallback([this, raw = icon.get(), iconFile, iconSize, loaded = false](bool, bool) mutable {
+  icon->setPrepareFrameCallback([this, raw = icon.get(), iconFile, info, path, iconSize, loaded = false](bool, bool) mutable {
     m_renderContext->makeCurrent(raw->renderTarget());
-    if (!loaded && m_dragImage != nullptr && !iconFile.empty()) {
-      loaded = true;
-      auto image = ui::image({.fit = ImageFit::Contain, .width = static_cast<float>(iconSize),
-                              .height = static_cast<float>(iconSize), .participatesInLayout = false});
-      if (image->setSourceFile(raw->renderTarget().renderer(), iconFile, iconSize, true)) {
-        m_dragImage->addChild(std::move(image));
-      }
+    if (loaded || m_dragImage == nullptr) {
+      return;
+    }
+    loaded = true;
+    Renderer& renderer = raw->renderTarget().renderer();
+    if (iconFile.empty()) {
+      auto drawn = std::make_unique<FileIcon>(static_cast<float>(iconSize));
+      drawn->setParticipatesInLayout(false);
+      drawn->bind(renderer, info, path, nullptr);
+      drawn->layout(renderer);
+      m_dragImage->addChild(std::move(drawn));
+      return;
+    }
+    auto image = ui::image({.fit = ImageFit::Contain, .width = static_cast<float>(iconSize),
+                            .height = static_cast<float>(iconSize), .participatesInLayout = false});
+    if (image->setSourceFile(renderer, iconFile, iconSize, true)) {
+      m_dragImage->addChild(std::move(image));
     }
   });
   icon->setSceneRoot(m_dragImage.get());
