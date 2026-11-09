@@ -139,7 +139,7 @@ namespace andromeda::ov {
           const Rect& u = in.usable;
           Rect content = u;
           // Scrolling frames the whole screen, not the usable area: a fullscreen or edge-maximized window reaches under
-          // the bar and the dock, and the frame marks what is on screen.
+          // the bar and the dock.
           if (ws.arrangement == Arrangement::Scrolling) {
             double x0 = 0;
             double x1 = in.width;

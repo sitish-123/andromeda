@@ -297,7 +297,7 @@ namespace andromeda {
       std::vector<WorkspaceBackground> workspaceBackgrounds;
       std::vector<std::unique_ptr<Card>> cards;
       std::vector<std::unique_ptr<DesktopSurface>> desktop;
-      // Names, title row, filter field, hint, + target, On screen frame and title capsules, above every card.
+      // Names, title row, filter field, hint, + target and title capsules, above every card.
       std::unique_ptr<ov::Chrome> chrome;
       // The chosen workspace, fractional while it moves: 1.5 sits halfway between workspaces 1 and 2. Strip scrolls
       // its rows by it, Spaces and Task View morph between neighbours. Wheel steps, keyboard moves and touchpad

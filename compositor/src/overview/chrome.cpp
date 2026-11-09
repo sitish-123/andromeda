@@ -28,8 +28,6 @@ namespace andromeda::ov {
     constexpr int kCapsuleMinCard = 60; // a card narrower than this shows no title
     constexpr int kCloseMinCard = 80;   // nor, narrower than this, a close button
     constexpr int kPlusRadius = 12;
-    constexpr int kViewportRadius = 14;
-    constexpr int kViewportTagHeight = 18;
     constexpr int kCloseSize = 26;
     constexpr int kCloseInset = 4; // the button centres this far inside the card's top-right corner
     constexpr int kMiniRadius = 3;
@@ -489,11 +487,13 @@ namespace andromeda::ov {
 
     const int usableBottom = frame.usable.y + frame.usable.height;
 
-    // The shown workspace's windows live in the main area; its thumb shows them as blocks (prototype .mini i).
+    // The shown workspace's windows live in the main area; its thumb shows them as see-through blocks (prototype
+    // .mini i), so the desktop shows behind them and a maximized window does not turn the thumb solid.
     size_t minis = 0;
     if (current != nullptr && current->shown && current->kind == CardKind::Thumb && frame.output.width > 0) {
       const double z = static_cast<double>(current->card.width) / frame.output.width;
-      const std::array<float, 4> line = withAlpha(colors.textPrimary, 0.1F);
+      const std::array<float, 4> fill = withAlpha(colors.textPrimary, 0.14F);
+      const std::array<float, 4> line = withAlpha(colors.textPrimary, 0.3F);
       for (const Rect& r : placement.currentDesk) {
         if (minis == m_minis.size()) {
           m_minis.emplace_back();
@@ -502,7 +502,7 @@ namespace andromeda::ov {
             current->card.x + px(r.x * z), current->card.y + px(r.y * z), std::max(1, px(r.w * z)),
             std::max(1, px(r.h * z))
         };
-        placeFrame(m_minis[minis++], box, kMiniRadius, 1, thick, line, shown);
+        placeFrame(m_minis[minis++], box, kMiniRadius, 1, fill, line, shown);
       }
     }
     for (; minis < m_minis.size(); ++minis) {
@@ -533,24 +533,6 @@ namespace andromeda::ov {
       placeLabel(m_plusMark, 0, 0, 0.0F);
     }
 
-    if (placement.viewport.has_value()) {
-      // The On screen frame grows from the output's work area as the overview opens.
-      const Rect usable{
-          static_cast<double>(frame.usable.x - ox), static_cast<double>(frame.usable.y - oy),
-          static_cast<double>(frame.usable.width), static_cast<double>(frame.usable.height)
-      };
-      const Rect v = lerpRect(usable, *placement.viewport, frame.progress);
-      const wlr_box box{ox + px(v.x), oy + px(v.y), px(v.w), px(v.h)};
-      placeFrame(m_viewport, box, kViewportRadius, 2, {}, {1.0F, 1.0F, 1.0F, 0.85F}, shown);
-      setLabel(
-          m_viewportTag, span({1.0F, 1.0F, 1.0F, 1.0F}, "bold", "ON SCREEN"),
-          {.font = "sans 8.25", .padX = 8, .height = kViewportTagHeight, .fill = colors.accentPrimary}, scale
-      );
-      placeLabel(m_viewportTag, box.x, box.y - kViewportTagHeight - 6, late);
-    } else {
-      placeFrame(m_viewport, {}, kViewportRadius, 2, {}, {}, 0.0F);
-      placeLabel(m_viewportTag, 0, 0, 0.0F);
-    }
 
     // Window title capsules, centred under their cards, in card stacking order.
     const int capsuleFloor = usableBottom - kCapsuleGap;

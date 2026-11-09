@@ -1313,7 +1313,11 @@ namespace andromeda {
     // when the finger is more than a step ahead of what is drawn, the zoom chases it on the frame clock, keeping its
     // speed across events, so a long or fast swipe still shows the motion (rulebook 7.7).
     constexpr double kMaxStep = 0.08;
-    const bool chasing = m_zoomAnim.animating();
+    // Within this of the finger the chase ends and the zoom follows each event directly.
+    constexpr double kCaughtUp = 0.01;
+    // Stiff and critically damped: the zoom catches the finger in about 0.1 s, not in the overview spring's settle.
+    constexpr SpringConfig kChase{.damping = 1.0, .stiffness = 1600.0};
+    const bool chasing = m_zoomAnim.animating() && std::abs(target - m_progress) > kCaughtUp;
     if (opened || chasing || std::abs(target - m_progress) > kMaxStep) {
       const double span = target - m_progress;
       if (std::abs(span) < 1e-4) {
@@ -1329,7 +1333,7 @@ namespace andromeda {
       m_zoomAnim.snap(0.0);
       const auto& overview = config().animation.overview;
       if (config().animation.enabled && overview.enabled && overview.curve.easing == Easing::Spring) {
-        m_zoomAnim.settleSpring(1.0, overview.curve.spring, progressPerSec / span);
+        m_zoomAnim.settleSpring(1.0, kChase, progressPerSec / span);
         applyProgress();
         return;
       }

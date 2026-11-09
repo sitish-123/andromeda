@@ -918,7 +918,10 @@ namespace andromeda {
     }
     m_navigation.update(dx, dy, timeMsec);
     const auto axis = m_navigation.axis();
-    if (axis == OverviewNavigation::Axis::Pending) {
+    // A vertical 3-finger swipe does nothing in the overview: it would move the desktop row, which reads as shuffled
+    // windows. Horizontal swipes and the wheel keep their axes.
+    if (axis == OverviewNavigation::Axis::Pending
+        || (axis == OverviewNavigation::Axis::Vertical && m_navigationSource == NavigationSource::Swipe)) {
       return;
     }
     OutputState* state = stateFor(m_navigationOutput);
