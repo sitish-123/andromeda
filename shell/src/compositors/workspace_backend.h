@@ -204,6 +204,8 @@ namespace compositors {
     [[nodiscard]] virtual bool canTrackOverviewState() const noexcept { return false; }
     [[nodiscard]] virtual bool hasOverviewState() const noexcept { return false; }
     [[nodiscard]] virtual bool isOverviewOpen() const noexcept { return true; }
+    // The finger's progress while a swipe drives the overview, else nullopt.
+    [[nodiscard]] virtual std::optional<float> overviewGestureProgress() const noexcept { return std::nullopt; }
     virtual void cleanup() = 0;
   };
 

@@ -105,6 +105,8 @@ namespace andromeda {
     // Physics spring: continues from the current value with `initialVelocity` in units per second and settles when
     // the solver reaches the target. Retargeting runs the same solver, but from rest over a precomputed duration.
     void settleSpring(double to, const SpringConfig& spring, double initialVelocity = 0.0);
+    // Starts the clock at `nowMsec` (the frame clock) instead of the next tick, so the next frame already moves.
+    void startClockAt(double nowMsec) { m_startMsec = nowMsec; }
     // Stop a physics spring once its remaining energy cannot leave the projected target's pixel rounding cell. Returns
     // true only when the spring was finished. The solver remains untouched while any visible motion is still possible.
     [[nodiscard]] bool finishSpringTail(double pixelsPerUnit);

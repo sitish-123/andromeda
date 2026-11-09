@@ -479,9 +479,31 @@ std::optional<std::vector<InputRect>> Bar::overviewAsideInputRegion(const BarIns
   return rects;
 }
 
-void Bar::setIslandsOverviewAside(BarInstance& instance, bool aside) {
+void Bar::setIslandsOverviewAside(BarInstance& instance, bool aside, std::optional<float> follow) {
   aside = aside && instance.barConfig.islands;
-  if (instance.overviewAside == aside || instance.surface == nullptr || instance.slideRoot == nullptr) {
+  if (instance.surface == nullptr || instance.slideRoot == nullptr) {
+    return;
+  }
+  if (follow.has_value() && instance.barConfig.islands) {
+    if (instance.overviewAsideProgress <= 0.0F && instance.overviewAsideAnimId == 0) {
+      captureIslandAsideRest(instance);
+    }
+    instance.animations.cancel(instance.overviewAsideAnimId);
+    instance.overviewAsideAnimId = 0;
+    instance.overviewAside = aside;
+    instance.overviewAsideProgress = std::clamp(*follow, 0.0F, 1.0F);
+    applyIslandAside(instance);
+    notifyCenterIslandSpace(instance);
+    applyBarCompositorBlur(instance);
+    // Input and the sheet tracker change only when the swipe starts, not on each touchpad event.
+    if (!std::exchange(instance.overviewAsideFollowing, true)) {
+      syncBarAutoHideInputRegion(instance);
+      syncSheetTracker(instance);
+    }
+    instance.surface->requestRedraw();
+    return;
+  }
+  if (instance.overviewAside == aside && !std::exchange(instance.overviewAsideFollowing, false)) {
     return;
   }
   instance.overviewAside = aside;

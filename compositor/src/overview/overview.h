@@ -14,6 +14,7 @@
 #include "view/chrome_attachment.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -66,6 +67,9 @@ namespace andromeda {
     // Open and not already zooming back in: pointer/keyboard edits still apply. The IPC `overview` event reports this
     // as `open`, so clients drop overview-scoped surfaces while the windows are still hidden.
     [[nodiscard]] bool interactive() const { return m_active && !m_closing; }
+    // The finger's progress (0 closed, 1 open) while a swipe drives the overview; the IPC `overview` event sends it so
+    // shell chrome follows the hand instead of its own spring.
+    [[nodiscard]] std::optional<double> fingerProgress() const { return m_fingerProgress; }
     // True while a card mirrors `view`, so its client must keep drawing although its real frame is hidden.
     [[nodiscard]] bool presentsLive(const View* view) const;
 
@@ -86,6 +90,11 @@ namespace andromeda {
     void gestureUpdate(double progress);
     // `stop`: 0 closed, 1 open.
     void gestureEnd(int stop, double releaseVelocity = 0);
+    // Stops a running open or close where it is drawn and returns that progress, for a swipe to start from.
+    // `heading` (may be null) receives the state (0 closed, 1 open) the stopped motion was going to; `caught` (may be
+    // null) whether a running open or close was stopped.
+    [[nodiscard]] double gestureGrab(int* heading = nullptr, bool* caught = nullptr);
+    [[nodiscard]] bool zoomAnimating() const { return m_zoomAnim.animating(); }
 
     [[nodiscard]] AnimationPhase animationPhase() const override { return AnimationPhase::Overlays; }
     // Advances the zoom and workspace-row animations; returns true while either is still running.
@@ -529,6 +538,13 @@ namespace andromeda {
     Ref<View> m_pendingFocus;
     bool m_cardPresentationDirty = false;
     bool m_gestureOpenedHere = false;
+    std::optional<double> m_fingerProgress;
+    // Logs every frame of a swipe and its release at debug level.
+    bool m_traceFrames = false;
+    // Frame clock of the last tick, in ms.
+    double m_lastTickMsec = 0.0;
+    double m_fingerTarget = 0.0;
+    std::optional<std::chrono::steady_clock::time_point> m_gestureOpenedAt;
     std::string m_filter;
     // Output under the pointer, which is the output the live target resolves against.
     Ref<Output> m_pointerOutput;

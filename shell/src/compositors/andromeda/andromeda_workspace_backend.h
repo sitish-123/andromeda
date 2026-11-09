@@ -37,6 +37,7 @@ public:
   [[nodiscard]] bool canTrackOverviewState() const noexcept override;
   [[nodiscard]] bool hasOverviewState() const noexcept override { return m_overviewKnown; }
   [[nodiscard]] bool isOverviewOpen() const noexcept override { return m_overviewOpen; }
+  [[nodiscard]] std::optional<float> overviewGestureProgress() const noexcept override { return m_overviewGesture; }
   [[nodiscard]] int pollFd() const noexcept override;
   [[nodiscard]] short pollEvents() const noexcept override;
   [[nodiscard]] int pollTimeoutMs() const noexcept override;
@@ -84,6 +85,7 @@ private:
   std::optional<std::string> m_focusedWindowId;
   bool m_overviewKnown = false;
   bool m_overviewOpen = false;
+  std::optional<float> m_overviewGesture;
   ChangeCallback m_changeCallback;
   ChangeCallback m_windowChangeCallback;
   ChangeCallback m_overviewChangeCallback;

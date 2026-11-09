@@ -112,6 +112,8 @@ struct BarInstance {
   bool overviewAside = false;
   float overviewAsideProgress = 0.0F;
   AnimationManager::Id overviewAsideAnimId = 0;
+  // The progress follows an overview swipe's fingers instead of the spring.
+  bool overviewAsideFollowing = false;
   std::array<IslandAsideRest, 2> overviewAsideRest{};
   bool pointerInside = false;
   float lastPointerSx = 0.0F;

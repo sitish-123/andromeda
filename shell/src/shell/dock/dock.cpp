@@ -849,10 +849,26 @@ void Dock::reevaluateSmartAutoHide() {
   }
 
   const bool overviewAside = m_platform->overviewStepsChromeAside();
+  const std::optional<float> overviewFollow = m_platform->overviewGestureProgress();
   for (const auto& instanceUp : m_instances) {
     shell::dock::DockInstance* instance = instanceUp.get();
     if (instance == nullptr || instance->surface == nullptr) {
       continue;
+    }
+    if (overviewFollow.has_value()) {
+      if (m_popupOwnerInstance == instance) {
+        closeItemMenu();
+      }
+      shell::dock::followOverviewGesture(*instance, *overviewFollow);
+      continue;
+    }
+    if (std::exchange(instance->overviewFollowing, false)) {
+      // The swipe let go: settle from where the fingers left the dock to the overview's state.
+      instance->overviewSteppedAside = !overviewAside;
+      // Stepping back in animates only a fixed dock; an auto-hide dock the pointer had shown returns to that.
+      if (!overviewAside && (instance->config.autoHide || instance->config.smartAutoHide) && instance->overviewFollowRest > 0.0F) {
+        shell::dock::animateDockHide(*instance, instance->overviewFollowRest);
+      }
     }
     if (overviewAside != instance->overviewSteppedAside) {
       if (overviewAside && m_popupOwnerInstance == instance) {

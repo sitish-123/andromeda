@@ -859,6 +859,15 @@ namespace andromeda {
       kLog.debug("overview open ignored during active client drag");
       return false;
     }
+    using Clock = std::chrono::steady_clock;
+    const auto phaseStart = Clock::now();
+    auto phaseMark = phaseStart;
+    std::string phases;
+    const auto phase = [&](const char* name) {
+      const auto now = Clock::now();
+      phases += std::format(" {} {:.1f}", name, std::chrono::duration<double, std::milli>(now - phaseMark).count());
+      phaseMark = now;
+    };
     m_server->cursor()->resetMode();
     // An in-flight three-finger switch settles on the filmstrip instead of the hidden desktop slide.
     const Gestures::SwitchPick switchPick = m_server->gestures()->pickSwitchForOverview();
@@ -879,7 +888,9 @@ namespace andromeda {
       switchPick.group->activate(switchPick.target, false);
     }
 
+    phase("settle");
     buildState();
+    phase("build");
     if (m_outputs.empty()) {
       return false;
     }
@@ -904,7 +915,15 @@ namespace andromeda {
       if (WorkspaceGroup* group = output->workspaceGroup()) {
         for (size_t index = 0; index < group->workspaceCount(); ++index) {
           if (Workspace* workspace = group->workspaceAt(index)) {
+            const auto arrangeStart = Clock::now();
             workspace->arrange(false);
+            const double arrangeMs = std::chrono::duration<double, std::milli>(Clock::now() - arrangeStart).count();
+            if (arrangeMs > 2.0) {
+              kLog.debug(
+                  "overview open: workspace {} arrange {:.1f} ms, {} windows", workspace->index(), arrangeMs,
+                  workspace->allViews().size()
+              );
+            }
           }
         }
       }
@@ -917,7 +936,9 @@ namespace andromeda {
         animateRow(*state, row, switchPick.velocity);
       }
     }
+    phase("arrange");
     applyProgress();
+    phase("layout");
 
     wlr_scene_node_set_enabled(&m_server->xdgTree()->node, false);
     wlr_scene_node_set_enabled(&m_server->fullscreenTree()->node, false);
@@ -932,11 +953,25 @@ namespace andromeda {
     m_server->cursor()->clearPointerFocus();
     m_server->cursor()->clearConstraint();
 
+    phase("hide");
     applyProgress();
+    phase("layout2");
+    if (std::chrono::duration<double, std::milli>(Clock::now() - phaseStart).count() > 4.0) {
+      kLog.debug("overview open phases (ms):{}", phases);
+    }
     // The wallpaper blur cache holds only the background layer, which the overview leaves as it is: open and close
     // reuse it instead of re-blurring the whole output.
     wlr_scene_node_set_enabled(&m_server->overviewBlurTree()->node, true);
     kLog.debug("overview opened on {} output(s)", m_outputs.size());
+    for (const auto& state : m_outputs) {
+      if (const wlr_scene_blur* blur = state->backgroundBlur) {
+        kLog.debug(
+            "overview background blur {}x{} at {},{} enabled {} strength {} alpha {} cache {}", blur->width,
+            blur->height, blur->node.x, blur->node.y, blur->node.enabled, blur->strength, blur->alpha,
+            blur->should_only_blur_bottom_layer
+        );
+      }
+    }
     return true;
   }
 
@@ -995,6 +1030,7 @@ namespace andromeda {
     if (!m_active || m_closing) {
       return;
     }
+    m_fingerProgress.reset();
     m_server->cursor()->resetWheelAccumulation();
     // A close releases any navigation mid-gesture. Input events carry monotonic milliseconds, so the release sample
     // shares their clock and bleeds the speed of fingers that came to rest before the close.
@@ -1048,6 +1084,13 @@ namespace andromeda {
     m_server->notifyOverviewChanged();
     m_targetProgress = target;
     m_progressFrom = m_progress;
+    if (m_traceFrames) {
+      kLog.debug(
+          "overview trace release: {:.3f} -> {:.1f}, velocity {:.2f}/s, spring k {:.0f} z {:.2f}", m_progress, target,
+          releaseVelocity, config().animation.overview.curve.spring.stiffness,
+          config().animation.overview.curve.spring.damping
+      );
+    }
     const auto& animation = config().animation;
     const auto& overview = animation.overview;
     if (!animation.enabled || !overview.enabled) {
@@ -1065,6 +1108,12 @@ namespace andromeda {
       // gesture left off to the target, so a release speed given in progress per second is that speed over this span.
       const double span = m_targetProgress - m_progressFrom;
       m_zoomAnim.settleSpring(1.0, overview.curve.spring, span != 0.0 ? releaseVelocity / span : 0.0);
+      // A release hands the fingers' speed on: a clock that starts on the next tick would hold that frame still.
+      // Only a recent tick: after frames stopped (a resting hand), the old clock would jump the spring ahead.
+      if (releaseVelocity != 0.0 && m_lastTickMsec > 0.0
+          && m_server->animationClockMsec() - m_lastTickMsec < 34.0) {
+        m_zoomAnim.startClockAt(m_lastTickMsec);
+      }
     } else {
       m_zoomAnim.retarget(1.0, overview.durationMs, overview.curve);
     }
@@ -1112,8 +1161,16 @@ namespace andromeda {
   }
 
   bool Overview::tickAnimations(double nowMsec) {
+    if (m_gestureOpenedAt) {
+      kLog.debug(
+          "overview swipe first frame {:.1f} ms after the open",
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - *m_gestureOpenedAt).count()
+      );
+      m_gestureOpenedAt.reset();
+    }
     bool active = m_dropHint != nullptr && m_dropHint->tickAnimations(nowMsec);
     active = tickEdgePan(nowMsec) || active;
+    m_lastTickMsec = nowMsec;
     const bool zoomTicked = m_zoomAnim.tick(nowMsec);
     if (zoomTicked && m_zoomAnim.animating() && m_zoomAnim.curve().easing == Easing::Spring) {
       static_cast<void>(m_zoomAnim.finishSpringTail(motionPixelsPerUnit(false)));
@@ -1156,6 +1213,13 @@ namespace andromeda {
           &state->tree->node, AnimationEvent::Overview, m_zoomAnim.animating() ? m_zoomAnim : state->rowScroll,
           m_closing ? -1.0F : 1.0F
       );
+    }
+    if (m_traceFrames) {
+      kLog.debug(
+          "overview trace frame {:.1f}: drawn {:.3f}, finger {:.3f}, zoom {}", nowMsec, m_progress, m_fingerTarget,
+          m_zoomAnim.animating()
+      );
+      m_traceFrames = m_zoomAnim.animating() || m_fingerProgress.has_value();
     }
     if (zoomTicked && !m_zoomAnim.animating()) {
       finishAnimation();
@@ -1221,6 +1285,8 @@ namespace andromeda {
   }
 
   void Overview::teardown() {
+    // Before the closed event: a stale gesture_progress would leave shell chrome following no fingers.
+    m_fingerProgress.reset();
     m_server->cursor()->resetWheelAccumulation();
     m_reflow.snap(1.0);
     m_shownRects.clear();
@@ -1287,58 +1353,56 @@ namespace andromeda {
 
   // -: gesture
 
-  void Overview::gestureUpdate(double progress) {
-    bool opened = false;
+  double Overview::gestureGrab(int* heading, bool* caught) {
+    if (heading != nullptr) {
+      *heading = m_active && !m_closing && m_targetProgress > 0.5 ? 1 : 0;
+    }
+    if (caught != nullptr) {
+      *caught = m_active && m_zoomAnim.animating();
+    }
     if (!m_active) {
+      return 0.0;
+    }
+    // A swipe catches the zoom where it is drawn, as niri and GNOME do: a running open or close stops there, and a
+    // close turns back into an overview the fingers hold. Reading it as fully open or closed jumps the first frame.
+    m_zoomAnim.snap(0.0);
+    m_progressFrom = m_progress;
+    m_targetProgress = m_progress;
+    if (m_closing) {
+      m_closing = false;
+      m_server->notifyOverviewChanged();
+    }
+    return std::clamp(m_progress, 0.0, 1.0);
+  }
+
+  void Overview::gestureUpdate(double progress) {
+    if (!m_active) {
+      const auto buildStart = std::chrono::steady_clock::now();
       if (progress <= 0.0 || !beginPresentation()) {
         return;
       }
+      m_gestureOpenedAt = std::chrono::steady_clock::now();
+      kLog.debug(
+          "overview swipe open built in {:.1f} ms",
+          std::chrono::duration<double, std::milli>(*m_gestureOpenedAt - buildStart).count()
+      );
       m_gestureOpenedHere = true;
-      opened = true;
       m_progress = 0.0;
     }
     for (const auto& state : m_outputs) {
       state->rowScroll.snap(state->rowScroll.current());
     }
     m_closing = false;
+    m_fingerProgress = std::clamp(progress, 0.0, 1.0);
     m_server->notifyOverviewChanged();
-    // Past the open state the swipe meets resistance instead of a wall (rulebook 7.7 rubber band, iOS constants): the
-    // overscroll approaches kOverscroll and gestureEnd springs it back to 1.
-    constexpr double kOverscroll = 0.12;
-    constexpr double kResistance = 0.55;
-    const double beyond = progress - 1.0;
-    const double target =
-        beyond <= 0.0 ? progress : 1.0 + (1.0 - 1.0 / (beyond * kResistance / kOverscroll + 1.0)) * kOverscroll;
-    // Opening builds every card before the first frame, and the events queued meanwhile can already reach the end:
-    // when the finger is more than a step ahead of what is drawn, the zoom chases it on the frame clock, keeping its
-    // speed across events, so a long or fast swipe still shows the motion (rulebook 7.7).
-    constexpr double kMaxStep = 0.08;
-    // Within this of the finger the chase ends and the zoom follows each event directly.
-    constexpr double kCaughtUp = 0.01;
-    // Stiff and critically damped: the zoom catches the finger in about 0.1 s, not in the overview spring's settle.
-    constexpr SpringConfig kChase{.damping = 1.0, .stiffness = 1600.0};
-    const bool chasing = m_zoomAnim.animating() && std::abs(target - m_progress) > kCaughtUp;
-    if (opened || chasing || std::abs(target - m_progress) > kMaxStep) {
-      const double span = target - m_progress;
-      if (std::abs(span) < 1e-4) {
-        m_zoomAnim.snap(0.0);
-        m_progress = target;
-        m_targetProgress = target;
-        applyProgress();
-        return;
-      }
-      const double progressPerSec = chasing ? m_zoomAnim.velocity() * (m_targetProgress - m_progressFrom) : 0.0;
-      m_progressFrom = m_progress;
-      m_targetProgress = target;
-      m_zoomAnim.snap(0.0);
-      const auto& overview = config().animation.overview;
-      if (config().animation.enabled && overview.enabled && overview.curve.easing == Easing::Spring) {
-        m_zoomAnim.settleSpring(1.0, kChase, progressPerSec / span);
-        applyProgress();
-        return;
-      }
-    }
+    // Already rubber-banded past either end by Gestures::overviewGestureProgress; a second band here made the
+    // overscroll stiffer than the fingers.
+    const double target = progress;
     m_zoomAnim.snap(0.0);
+    m_fingerTarget = target;
+    m_traceFrames = true;
+    kLog.debug("overview trace event: finger {:.3f}, drawn {:.3f}", target, m_progress);
+    // 1:1 with the fingers, as GNOME's SwipeTracker and niri's overview gesture.
     m_progress = target;
     m_targetProgress = m_progress;
     // Touchpads report faster than the display: lay the cards out once on the next frame, not per event.
@@ -1351,11 +1415,15 @@ namespace andromeda {
       return;
     }
     m_gestureOpenedHere = false;
+    m_fingerProgress.reset();
     if (stop > 0) {
+      m_pendingFocus = nullptr;
       startAnimation(1.0, false, releaseVelocity);
+      m_server->notifyOverviewChanged();
       return;
     }
-    beginClose(nullptr, releaseVelocity);
+    // A close the fingers caught keeps the window it was closing to.
+    beginClose(m_pendingFocus.get(), releaseVelocity);
   }
 
   // -: hooks

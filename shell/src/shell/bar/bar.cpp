@@ -478,10 +478,11 @@ void Bar::reevaluateSmartAutoHide() {
   }
 
   const bool overviewAside = m_platform->overviewStepsChromeAside();
+  const std::optional<float> overviewFollow = m_platform->overviewGestureProgress();
   for (const auto& instanceUp : m_instances) {
     BarInstance* instance = instanceUp.get();
     if (instance != nullptr && instance->barConfig.enabled) {
-      setIslandsOverviewAside(*instance, overviewAside);
+      setIslandsOverviewAside(*instance, overviewAside, overviewFollow);
     }
     if (instance == nullptr
         || !instance->barConfig.enabled

@@ -175,7 +175,7 @@ private:
   void applyPendingWorkspaceReveal();
   void reevaluateSmartAutoHide();
   // Andromeda overview: the start and end islands of an islands bar step aside; the center island rest pill fades with them.
-  void setIslandsOverviewAside(BarInstance& instance, bool aside);
+  void setIslandsOverviewAside(BarInstance& instance, bool aside, std::optional<float> follow);
   // While the side islands are aside only the center island takes input; nullopt while they are in place.
   [[nodiscard]] std::optional<std::vector<InputRect>> overviewAsideInputRegion(const BarInstance& instance) const;
   void startHideFadeOut(BarInstance& instance, bool immediate = false);

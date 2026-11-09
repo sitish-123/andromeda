@@ -218,6 +218,7 @@ void AndromedaWorkspaceBackend::handleStreamReset() {
   m_focusedWindowId.reset();
   m_overviewKnown = false;
   m_overviewOpen = false;
+  m_overviewGesture.reset();
   notifyChanged();
   notifyWindowsChanged();
   if (overviewWasOpen) {
@@ -309,9 +310,14 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
 
   if (event == "overview") {
     const bool open = data.value("open", false);
-    const bool changed = !m_overviewKnown || m_overviewOpen != open;
+    std::optional<float> gesture;
+    if (const auto it = data.find("gesture_progress"); it != data.end() && it->is_number()) {
+      gesture = it->get<float>();
+    }
+    const bool changed = !m_overviewKnown || m_overviewOpen != open || m_overviewGesture != gesture;
     m_overviewKnown = true;
     m_overviewOpen = open;
+    m_overviewGesture = gesture;
     if (changed) {
       notifyOverviewChanged();
     }

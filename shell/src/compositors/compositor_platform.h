@@ -225,6 +225,8 @@ public:
   [[nodiscard]] bool isOverviewOpen() const noexcept;
   // The Andromeda overview is open: the dock and the side bar islands step aside; the center island rest pill fades out.
   [[nodiscard]] bool overviewStepsChromeAside() const noexcept;
+  // The finger's progress (0 closed, 1 open) while a swipe drives the Andromeda overview: chrome follows it.
+  [[nodiscard]] std::optional<float> overviewGestureProgress() const noexcept;
 
   [[nodiscard]] bool closeOverview() const;
   // Opens or closes the compositor overview; false when the compositor has no overview action.

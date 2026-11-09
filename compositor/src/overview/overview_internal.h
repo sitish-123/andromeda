@@ -54,8 +54,9 @@ namespace andromeda::ovimpl {
   inline constexpr Logger kLog("overview");
   inline constexpr double kMiddleScrollStepPx = 105.0;
 
-  // Overview progress over which the desktop's shadows and pinned windows fade, starting from the desktop.
-  inline constexpr double kDesktopChromeFade = 0.1;
+  // Overview progress over which the desktop's shadows and pinned windows fade, starting from the desktop: about half
+  // the zoom, so they leave with the windows instead of before them.
+  inline constexpr double kDesktopChromeFade = 0.5;
   // Below this a card is neither drawn nor hit.
   inline constexpr float kHiddenOpacity = 0.004F;
   // A card the filter misses keeps this share of its opacity.

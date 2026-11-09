@@ -72,10 +72,11 @@ namespace andromeda {
 
     nlohmann::json overviewEvent(Server& server) {
       const Overview* overview = server.overview();
-      return nlohmann::json{
-          {"event", "overview"},
-          {"data", {{"open", overview != nullptr && overview->interactive()}}},
-      };
+      nlohmann::json data{{"open", overview != nullptr && overview->interactive()}};
+      if (overview != nullptr && overview->fingerProgress().has_value()) {
+        data["gesture_progress"] = *overview->fingerProgress();
+      }
+      return nlohmann::json{{"event", "overview"}, {"data", std::move(data)}};
     }
 
     // Nullopt when no physical keyboard exists; the caller then skips the send

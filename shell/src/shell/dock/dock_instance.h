@@ -102,6 +102,9 @@ namespace shell::dock {
     bool smartAutoHidePinnedVisible = false;
     // The Andromeda overview is open: the dock slides away on the auto-hide path and takes no input.
     bool overviewSteppedAside = false;
+    // An overview swipe drives hideOpacity from overviewFollowRest (closed) to 0 (open).
+    bool overviewFollowing = false;
+    float overviewFollowRest = 1.0F;
     Signal<>::ScopedConnection paletteConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
     Node* clickedItem = nullptr;    // the item cell during its click handler: a launch starts from it
@@ -145,6 +148,8 @@ namespace shell::dock {
   // Slides the dock toward `target` (0 hidden, 1 shown); a running slide keeps its velocity. The value stays in 0..1.
   void animateDockHide(DockInstance& instance, float target);
   void startHideFadeOut(DockInstance& instance);
+  // Fades the dock with an overview swipe's finger progress (0 closed, 1 open) instead of its own spring.
+  void followOverviewGesture(DockInstance& instance, float progress);
   void revealAutoHideDock(DockInstance& instance);
   // Slides the dock away while the overview is open, whatever its auto-hide mode, and back when it closes.
   void setOverviewSteppedAside(DockInstance& instance, bool aside);

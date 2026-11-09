@@ -81,6 +81,9 @@ namespace andromeda {
     void finishOverview(bool cancelled, uint32_t timeMsec);
     [[nodiscard]] double overviewGestureProgress() const;
     void silentCancel();
+    // Lets an overview open or close that resting fingers stopped go on to `heading`, once, unless something else
+    // moved the overview since.
+    void resumeCaughtOverview(bool& caught, int heading);
     [[nodiscard]] bool beginScroll(Workspace* workspace, double scale, ScrollSource source);
     void updateScroll(double delta, uint32_t timeMsec);
     // Travel along the workspace axis, in the pixels libinput reports for it.
@@ -125,7 +128,10 @@ namespace andromeda {
     bool m_hasNext = false;
 
     // Overview state (vertical 4-finger): swipe up opens, swipe down closes.
-    bool m_overviewWasOpen = false;
+    int m_overviewHeading = 0;
+    bool m_overviewCaught = false;
+    bool m_holdCaughtOverview = false;
+    int m_holdOverviewHeading = 0;
     double m_overviewBase = 0.0; // the stop the 4-finger gesture began on: 0 closed, 1 open, 2 Grid
     // A 4-finger pinch drives the overview: the scale it last reported, against the 1.0 it began at.
     bool m_overviewPinch = false;
@@ -135,6 +141,7 @@ namespace andromeda {
     bool m_overviewArmed = false;
     double m_deadAlong = 0.0;
     double m_deadAcross = 0.0;
+    uint32_t m_overviewBeginMsec = 0;
 
     wl_listener m_swipeBegin{};
     wl_listener m_swipeUpdate{};

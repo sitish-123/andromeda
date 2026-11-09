@@ -1883,6 +1883,13 @@ bool CompositorPlatform::overviewStepsChromeAside() const noexcept {
   return compositors::isAndromeda() && hasOverviewState() && isOverviewOpen();
 }
 
+std::optional<float> CompositorPlatform::overviewGestureProgress() const noexcept {
+  if (!compositors::isAndromeda() || m_workspaceMetadataBackend == nullptr) {
+    return std::nullopt;
+  }
+  return m_workspaceMetadataBackend->overviewGestureProgress();
+}
+
 bool CompositorPlatform::toggleOverview() const {
   if (compositors::isAndromeda()) {
     return andromedaRuntime().requestAction("overview-toggle");

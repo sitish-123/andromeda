@@ -593,6 +593,28 @@ namespace shell::dock {
     }
   }
 
+  void followOverviewGesture(DockInstance& inst, float progress) {
+    if (!inst.overviewFollowing) {
+      inst.overviewFollowing = true;
+      TooltipManager::instance().forceDestroy();
+      // What the dock shows with the overview closed: an auto-hide dock stays as it was, a fixed one is shown.
+      inst.overviewFollowRest = dockUsesAnyAutoHide(inst.config) && !inst.overviewSteppedAside ? inst.hideOpacity
+                                : dockUsesAnyAutoHide(inst.config)                             ? 0.0F
+                                                                                               : 1.0F;
+      syncDockAutoHideInputRegion(inst, inst.config, DockPanelGeometry{});
+    }
+    if (inst.hideAnimId != 0) {
+      inst.animations.cancel(inst.hideAnimId);
+      inst.hideAnimId = 0;
+    }
+    inst.hideOpacity = inst.overviewFollowRest * (1.0F - std::clamp(progress, 0.0F, 1.0F));
+    syncDockSlideLayerTransform(inst, inst.config);
+    applyDockCompositorBlur(inst, inst.config);
+    if (inst.surface) {
+      inst.surface->requestRedraw();
+    }
+  }
+
   void setOverviewSteppedAside(DockInstance& inst, bool aside) {
     if (inst.overviewSteppedAside == aside) {
       return;

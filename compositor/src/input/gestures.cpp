@@ -1,6 +1,7 @@
 #include "input/gestures.h"
 
 #include "config/config.h"
+#include "core/log.h"
 #include "input/cursor.h"
 #include "input/event_time.h"
 #include "input/gesture_physics.h"
@@ -24,6 +25,7 @@
 namespace andromeda {
 
   namespace {
+    constexpr Logger kLog("gestures");
     // Finger travel for a full overview open or close. One workspace of the three-finger switch travels the same
     // distance, so the hand reads one gesture distance on either side of the overview.
     constexpr double kOverviewDistancePx = 300.0;
@@ -31,8 +33,6 @@ namespace andromeda {
     constexpr double kPinchDistancePx = kOverviewDistancePx / 0.4;
     // Finger travel before a 4-finger gesture moves the overview at all; less is a resting hand, not a request.
     constexpr double kOverviewDeadZonePx = 12.0;
-    // Total finger travel a release needs before its speed alone may commit (DESIGN.md "Overview v3").
-    constexpr double kOverviewFlickTravelPx = 24.0;
 
     int touchpadGestureDirection(wlr_pointer* pointer) {
       if (const std::optional<bool> naturalSwipe = config().input.touchpad.naturalSwipe) {
@@ -367,6 +367,7 @@ namespace andromeda {
 
   void Gestures::handleSwipeBegin(void* data) {
     auto* event = static_cast<wlr_pointer_swipe_begin_event*>(data);
+    kLog.debug("swipe begin {} fingers, state {}", event->fingers, static_cast<int>(m_state));
     m_server->notifyInputActivity();
     m_server->cancelModifierTap();
     if (m_server->sessionLocked()) {
@@ -404,12 +405,13 @@ namespace andromeda {
       m_state = State::Overview;
       m_accumX = 0;
       m_accumY = 0;
-      m_overviewWasOpen = overview->active();
-      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
+      // Fingers that land catch a running open or close where it is drawn (niri, GNOME).
+      m_overviewBase = overview->gestureGrab(&m_overviewHeading, &m_overviewCaught);
       m_overviewTracker.reset();
       m_overviewArmed = false;
       m_deadAlong = 0.0;
       m_deadAcross = 0.0;
+      m_overviewBeginMsec = event->time_msec;
       return;
     }
     if (event->fingers == 3) {
@@ -574,6 +576,7 @@ namespace andromeda {
 
   void Gestures::handleSwipeEnd(void* data) {
     auto* event = static_cast<wlr_pointer_swipe_end_event*>(data);
+    kLog.debug("swipe end cancelled {}, state {}", event->cancelled, static_cast<int>(m_state));
     m_server->notifyIdleActivity();
 
     if (m_server->sessionLocked()) {
@@ -637,16 +640,25 @@ namespace andromeda {
     if (!m_overviewArmed) {
       m_deadAlong += along;
       m_deadAcross += across;
-      if (std::max(std::abs(m_deadAlong), std::abs(m_deadAcross)) < kOverviewDeadZonePx) {
+      // Fingers that land fast jitter sideways first: only clearly sideways travel, well past the dead zone, drops the
+      // gesture; until then the hand may still turn up or down.
+      if (std::abs(m_deadAlong) < kOverviewDeadZonePx) {
+        if (std::abs(m_deadAcross) >= 3.0 * kOverviewDeadZonePx && std::abs(m_deadAcross) > 2.0 * std::abs(m_deadAlong)) {
+          kLog.debug("overview gesture dropped as sideways: {:.0f} px along, {:.0f} px across", m_deadAlong, m_deadAcross);
+          m_state = State::Idle;
+          m_overviewPinch = false;
+          resumeCaughtOverview(m_overviewCaught, m_overviewHeading);
+        }
         return;
       }
-      // Sideways travel is not an overview request; the rest of this gesture does nothing.
-      if (std::abs(m_deadAcross) > std::abs(m_deadAlong)) {
-        m_state = State::Idle;
-        m_overviewPinch = false;
+      if (std::abs(m_deadAcross) > 2.0 * std::abs(m_deadAlong)) {
         return;
       }
       m_overviewArmed = true;
+      kLog.debug(
+          "overview {} armed {} ms after the fingers landed", m_overviewPinch ? "pinch" : "swipe",
+          timeMsec - m_overviewBeginMsec
+      );
       along = m_deadAlong - std::copysign(kOverviewDeadZonePx, m_deadAlong);
     }
     m_overviewTracker.push(along, timeMsec);
@@ -655,33 +667,51 @@ namespace andromeda {
     }
   }
 
+  void Gestures::resumeCaughtOverview(bool& caught, int heading) {
+    if (!std::exchange(caught, false)) {
+      return;
+    }
+    Overview* overview = m_server->overview();
+    // A close or open started while the fingers rested (Esc, a card click) owns the motion now.
+    if (overview != nullptr && overview->active() && !overview->zoomAnimating()) {
+      overview->gestureEnd(heading, 0.0);
+    }
+  }
+
   void Gestures::finishOverview(bool cancelled, uint32_t timeMsec) {
     m_state = State::Idle;
     m_overviewPinch = false;
     const bool armed = std::exchange(m_overviewArmed, false);
-    m_deadAlong = 0.0;
-    m_deadAcross = 0.0;
+    const double deadAlong = std::exchange(m_deadAlong, 0.0);
+    const double deadAcross = std::exchange(m_deadAcross, 0.0);
     Overview* overview = m_server->overview();
     if (overview == nullptr || !armed) {
+      kLog.debug("overview gesture ended before it armed: {:.0f} px along, {:.0f} px across", deadAlong, deadAcross);
+      resumeCaughtOverview(m_overviewCaught, m_overviewHeading);
       return;
     }
-    int stop = static_cast<int>(m_overviewBase);
+    m_overviewCaught = false;
+    int stop = static_cast<int>(std::lround(m_overviewBase));
     double velocity = 0.0;
     if (!cancelled) {
       m_overviewTracker.push(0.0, timeMsec);
       const GesturePhysics::StepRelease release = GesturePhysics::release(
           m_overviewTracker, kOverviewDistancePx, m_overviewBase, 0.0, 1.0
       );
-      stop = release.target;
-      velocity = release.velocity;
-      // Rulebook 7.7: a release faster than this toward open or closed settles there, whatever the projection says.
-      constexpr double kFlickPxPerSec = 300.0;
+      // GNOME's SwipeTracker rule for two snap points: a slow release settles on the nearer state; a fast one
+      // goes the way the fingers move, whatever the travel.
+      constexpr double kFlickPxPerSec = 600.0;
       const double fingerVelocity = m_overviewTracker.velocity();
-      const double travel = std::abs(m_overviewTracker.pos()) + kOverviewDeadZonePx;
-      if (std::abs(fingerVelocity) > kFlickPxPerSec && travel >= kOverviewFlickTravelPx) {
-        stop = fingerVelocity > 0.0 ? 1 : 0;
-      }
+      stop = std::abs(fingerVelocity) < kFlickPxPerSec ? static_cast<int>(std::lround(std::clamp(release.position, 0.0, 1.0)))
+                                                       : (fingerVelocity > 0.0 ? 1 : 0);
+      // Speed away from the target (after an overscroll) would first carry the zoom further out; the spring starts
+      // from rest instead.
+      velocity = (stop - release.position) * release.velocity > 0.0 ? release.velocity : 0.0;
     }
+    kLog.debug(
+        "overview release: cancelled {}, base {}, travel {:.0f} px, finger {:.0f} px/s, stop {}", cancelled,
+        m_overviewBase, m_overviewTracker.pos(), m_overviewTracker.velocity(), stop
+    );
     overview->gestureEnd(stop, velocity);
   }
 
@@ -818,6 +848,7 @@ namespace andromeda {
 
   void Gestures::handlePinchBegin(void* data) {
     auto* event = static_cast<wlr_pointer_pinch_begin_event*>(data);
+    kLog.debug("pinch begin {} fingers, state {}", event->fingers, static_cast<int>(m_state));
     m_server->notifyInputActivity();
     m_server->cancelModifierTap();
     if (m_server->sessionLocked()) {
@@ -839,12 +870,13 @@ namespace andromeda {
       m_state = State::Overview;
       m_overviewPinch = true;
       m_pinchScale = 1.0;
-      m_overviewWasOpen = overview->active();
-      m_overviewBase = m_overviewWasOpen ? 1.0 : 0.0;
+      // Fingers that land catch a running open or close where it is drawn (niri, GNOME).
+      m_overviewBase = overview->gestureGrab(&m_overviewHeading, &m_overviewCaught);
       m_overviewTracker.reset();
       m_overviewArmed = false;
       m_deadAlong = 0.0;
       m_deadAcross = 0.0;
+      m_overviewBeginMsec = event->time_msec;
       return;
     }
     wlr_pointer_gestures_v1_send_pinch_begin(
@@ -870,8 +902,11 @@ namespace andromeda {
         m_state = State::Idle;
         return;
       }
-      const double travel = (m_pinchScale - event->scale) * kPinchDistancePx;
+      // libinput reports a 4-finger swipe as a pinch when the fingers spread a little, so the hand's travel up counts
+      // as well as the pinch in.
+      const double travel = (m_pinchScale - event->scale) * kPinchDistancePx - event->dy;
       m_pinchScale = event->scale;
+      // No sideways test: a pinch's centre drifts while the fingers close.
       overviewTravel(travel, 0.0, event->time_msec);
       return;
     }
@@ -883,6 +918,7 @@ namespace andromeda {
 
   void Gestures::handlePinchEnd(void* data) {
     auto* event = static_cast<wlr_pointer_pinch_end_event*>(data);
+    kLog.debug("pinch end cancelled {}, state {}", event->cancelled, static_cast<int>(m_state));
     m_server->notifyIdleActivity();
     if (m_trackerPinch) {
       m_trackerPinch = false;
@@ -914,6 +950,11 @@ namespace andromeda {
     if (m_server->sessionLocked()) {
       return;
     }
+    // Resting fingers catch a running overview open or close, as on GNOME; a swipe that follows takes it from there.
+    if (Overview* overview = m_server->overview();
+        overview != nullptr && event->fingers >= 3 && m_state == State::Idle && overview->zoomAnimating()) {
+      static_cast<void>(overview->gestureGrab(&m_holdOverviewHeading, &m_holdCaughtOverview));
+    }
     wlr_pointer_gestures_v1_send_hold_begin(
         m_server->pointerGestures(), m_server->seat()->wlr(), event->time_msec, event->fingers
     );
@@ -922,6 +963,8 @@ namespace andromeda {
   void Gestures::handleHoldEnd(void* data) {
     auto* event = static_cast<wlr_pointer_hold_end_event*>(data);
     m_server->notifyIdleActivity();
+    // A swipe that starts now catches the motion again where it is.
+    resumeCaughtOverview(m_holdCaughtOverview, m_holdOverviewHeading);
     if (m_server->sessionLocked()) {
       return;
     }

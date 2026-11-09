@@ -469,6 +469,7 @@ namespace andromeda {
       const std::array<float, 4> backgroundTint = tint(config().colors.overview.backgroundTint, 0.0);
       state->backgroundTint = wlr_scene_rect_create(state->tree, 1, 1, backgroundTint.data());
       wlr_scene_rect_set_corner_radius(state->backgroundTint, 0);
+      const auto backgroundsStart = std::chrono::steady_clock::now();
       state->workspaceBackgrounds.reserve(group->workspaceCount());
       for (size_t row = 0; row < group->workspaceCount(); ++row) {
         state->workspaceBackgrounds.push_back(createWorkspaceBackground(*state));
@@ -478,8 +479,18 @@ namespace andromeda {
       state->rowScroll.snap(static_cast<double>(state->activeWorkspaceIndex));
       OutputState* raw = state.get();
       m_outputs.push_back(std::move(state));
+      const auto cardsStart = std::chrono::steady_clock::now();
       populateCards(*raw);
+      const auto cardsEnd = std::chrono::steady_clock::now();
       raw->chrome = std::make_unique<ov::Chrome>(raw->tree);
+      const auto ms = [](auto from, auto to) { return std::chrono::duration<double, std::milli>(to - from).count(); };
+      if (ms(backgroundsStart, std::chrono::steady_clock::now()) > 2.0) {
+        kLog.debug(
+            "overview build, output {}: {} workspace backgrounds {:.1f} ms, {} cards {:.1f} ms, chrome {:.1f} ms",
+            m_outputs.size(), group->workspaceCount(), ms(backgroundsStart, cardsStart), raw->cards.size(),
+            ms(cardsStart, cardsEnd), ms(cardsEnd, std::chrono::steady_clock::now())
+        );
+      }
     }
   }
 
