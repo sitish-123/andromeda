@@ -159,8 +159,9 @@ private:
   ThumbnailService* m_thumbnails = nullptr;
   ThumbnailService::Subscription m_thumbnailUploads;
   // Files with a thumbnail acquire() held, released when they leave the desktop or the surface closes.
-  std::set<std::string> m_thumbPaths;
-  void releaseThumbnails(const std::set<std::string>& keep);
+  // A drawn file icon may still be waiting for a thumbnail or a folder peek, so those finishing rebuild the icons.
+  bool m_drawsFileIcons = false;
+  int m_peekListener = -1;
   DirectoryWatcher m_watcher;
   IconResolver m_iconResolver;
   std::filesystem::path m_dir;

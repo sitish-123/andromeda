@@ -20,6 +20,7 @@
 #include "ui/controls/image.h"
 #include "ui/controls/input.h"
 #include "ui/controls/label.h"
+#include "ui/files/file_icon.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "wayland/drag_and_drop.h"
@@ -47,8 +48,6 @@ namespace {
   // DESIGN.md "Desktop icons": 96 x 104 cells 16 from the usable-area edge; icon on a 72 plate (r 8) with the name 4
   // below, 2 lines (all lines while selected) in a 92 wide pill (r 4).
   constexpr int kMargin = 16;
-  // Thumbnail long edge: the 80 icon at scale 2.
-  constexpr int kThumbPx = 160;
   constexpr int kPlateRound = 8;
   constexpr int kNameGap = 4;
   constexpr int kNamePad = 4;
@@ -107,7 +106,12 @@ namespace {
 
 DesktopIcons::DesktopIcons() = default;
 
-DesktopIcons::~DesktopIcons() { close(); }
+DesktopIcons::~DesktopIcons() {
+  close();
+  if (m_peekListener >= 0) {
+    FileIcon::removePeekListener(m_peekListener);
+  }
+}
 
 void DesktopIcons::initialize(WaylandConnection& wayland, ConfigService& config, RenderContext& renderContext,
                               ThumbnailService& thumbnails, SessionBus* bus) {
@@ -118,7 +122,12 @@ void DesktopIcons::initialize(WaylandConnection& wayland, ConfigService& config,
   m_renderContext = &renderContext;
   m_thumbnails = &thumbnails;
   m_thumbnailUploads = thumbnails.subscribePendingUpload([this] {
-    if (!m_thumbPaths.empty()) {
+    if (m_drawsFileIcons) {
+      requestBuild();
+    }
+  });
+  m_peekListener = FileIcon::addPeekListener([this] {
+    if (m_drawsFileIcons) {
       requestBuild();
     }
   });
@@ -742,18 +751,6 @@ void DesktopIcons::close() {
   m_dragIcon.reset();
   m_dragImage.reset();
   m_dropHighlight.reset();
-  releaseThumbnails({});
-}
-
-void DesktopIcons::releaseThumbnails(const std::set<std::string>& keep) {
-  for (auto it = m_thumbPaths.begin(); it != m_thumbPaths.end();) {
-    if (keep.contains(*it)) {
-      ++it;
-      continue;
-    }
-    m_thumbnails->release(*it, kThumbPx);
-    it = m_thumbPaths.erase(it);
-  }
 }
 
 float DesktopIcons::slotX(int column) const {
@@ -1067,6 +1064,8 @@ void DesktopIcons::build() {
   const auto h = static_cast<float>(m_surface->height());
   m_renameInput = nullptr;
   m_animations.cancelAll();
+  // The old icons go only after the new ones took their thumbnails, so a rebuild never unloads and decodes them again.
+  std::unique_ptr<Node> previous = std::move(m_sceneRoot);
   m_sceneRoot = ui::node({});
   m_sceneRoot->setAnimationManager(&m_animations);
   m_sceneRoot->setSize(w, h);
@@ -1111,7 +1110,7 @@ void DesktopIcons::build() {
 
   const auto selected = [&](const Cell& cell) { return isSelected(cell); };
   (void)m_thumbnails->uploadPending(renderer.textureManager());
-  std::set<std::string> shown;
+  m_drawsFileIcons = false;
   for (std::size_t i = 0; i < m_cells.size(); ++i) {
     const Cell& cell = m_cells[i];
     const bool on = selected(cell);
@@ -1189,40 +1188,27 @@ void DesktopIcons::build() {
         }));
       }
     }
-    const std::string& type = cell.info->contentType;
-    const bool previewable = !cell.info->isDir
-        && (type.starts_with("image/") || type.starts_with("video/") || type == "application/pdf");
-    TextureHandle thumb{};
-    if (previewable) {
-      const std::string file = pathOf(*cell.info).string();
-      shown.insert(file);
-      if (m_thumbPaths.insert(file).second) {
-        thumb = m_thumbnails->acquire(file, kThumbPx);
-      } else {
-        thumb = m_thumbnails->peek(file, kThumbPx);
+    // App shortcuts show the app's icon; every other item the Files v2 icon (folder contents, previews, page badges).
+    if (!cell.info->isDir && cell.info->name.ends_with(".desktop")) {
+      if (const std::string path = iconPathFor(*cell.info); !path.empty()) {
+        auto icon = ui::image({
+            .fit = ImageFit::Contain,
+            .width = static_cast<float>(iconSize),
+            .height = static_cast<float>(iconSize),
+            .participatesInLayout = false,
+        });
+        if (icon->setSourceFile(renderer, path, iconSize, true)) {
+          icon->setPosition(static_cast<float>(m_cellW - iconSize) * 0.5F, static_cast<float>(m_plate - iconSize) * 0.5F);
+          area->addChild(std::move(icon));
+        }
       }
-    }
-    if (thumb.valid()) {
-      auto image = ui::image({
-          .fit = ImageFit::Contain,
-          .width = static_cast<float>(iconSize),
-          .height = static_cast<float>(iconSize),
-          .participatesInLayout = false,
-      });
-      image->setExternalTexture(renderer, thumb);
-      image->setPosition(static_cast<float>(m_cellW - iconSize) * 0.5F, static_cast<float>(m_plate - iconSize) * 0.5F);
-      area->addChild(std::move(image));
-    } else if (const std::string path = iconPathFor(*cell.info); !path.empty()) {
-      auto icon = ui::image({
-          .fit = ImageFit::Contain,
-          .width = static_cast<float>(iconSize),
-          .height = static_cast<float>(iconSize),
-          .participatesInLayout = false,
-      });
-      if (icon->setSourceFile(renderer, path, iconSize, true)) {
-        icon->setPosition(static_cast<float>(m_cellW - iconSize) * 0.5F, static_cast<float>(m_plate - iconSize) * 0.5F);
-        area->addChild(std::move(icon));
-      }
+    } else {
+      auto icon = std::make_unique<FileIcon>(static_cast<float>(iconSize));
+      icon->setParticipatesInLayout(false);
+      icon->bind(renderer, *cell.info, pathOf(*cell.info), m_thumbnails);
+      icon->setPosition(static_cast<float>(m_cellW - iconSize) * 0.5F, static_cast<float>(m_plate - iconSize) * 0.5F);
+      area->addChild(std::move(icon));
+      m_drawsFileIcons = true;
     }
     // Names: white with a soft shadow on any wallpaper; the accent pill and every line while selected.
     auto name = ui::label({
@@ -1309,11 +1295,12 @@ void DesktopIcons::build() {
   // Decoration only: a band still shown before the rebuild must not take the next press on an icon.
   m_band->setHitTestVisible(false);
   syncBand();
-  releaseThumbnails(shown);
 
   for (const auto& child : m_sceneRoot->children()) {
     child->layout(renderer);
   }
+  // Before the new tree takes input: an old rename field going after the new one has focus would drop its focus.
+  previous.reset();
   m_input.setSceneRoot(m_sceneRoot.get());
   m_surface->setSceneRoot(m_sceneRoot.get());
   if (m_renaming.has_value() && m_renameInput != nullptr) {
