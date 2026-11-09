@@ -258,8 +258,19 @@ void WaylandExtForeignToplevels::onHandleDone(ext_foreign_toplevel_handle_v1* ha
   if (it == m_handles.end()) {
     return;
   }
+  const ToplevelProperties& pending = it->second.pending;
+  const ToplevelProperties& committed = it->second.committed;
+  const bool titleOnly = it->second.ready && pending.appId == committed.appId
+      && pending.identifier == committed.identifier;
+  if (titleOnly && pending.title == committed.title) {
+    return;
+  }
   it->second.committed = it->second.pending;
   it->second.ready = true;
+  if (titleOnly && m_titleCallback) {
+    m_titleCallback();
+    return;
+  }
   notifyChanged();
 }
 
@@ -292,6 +303,8 @@ void WaylandExtForeignToplevels::removeHandle(ext_foreign_toplevel_handle_v1* ha
     notifyChanged();
   }
 }
+
+void WaylandExtForeignToplevels::setTitleCallback(TitleCallback callback) { m_titleCallback = std::move(callback); }
 
 void WaylandExtForeignToplevels::notifyChanged() {
   if (m_changeCallback) {

@@ -42,6 +42,8 @@ public:
   );
   void setKdeVirtualDesktopManagerCallback(std::function<void(org_kde_plasma_virtual_desktop_management*)> callback);
   void setToplevelChangeCallback(ChangeCallback callback);
+  // A toplevel changed only its title; `active` = the focused one (always true when only ext toplevels report it).
+  void setToplevelTitleCallback(std::function<void(bool active)> callback);
   void setHyprlandToplevelMappingManagerCallback(
       std::function<void(hyprland_toplevel_mapping_manager_v1* manager)> callback
   );

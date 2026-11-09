@@ -21,6 +21,9 @@ public:
 
   void bind(ext_foreign_toplevel_list_v1* list, wl_display* display);
   void setChangeCallback(ChangeCallback callback);
+  // Only a title changed. Unset, title changes take the change callback.
+  using TitleCallback = std::function<void()>;
+  void setTitleCallback(TitleCallback callback);
   void cleanup();
 
   [[nodiscard]] bool isBound() const noexcept { return m_list != nullptr; }
@@ -71,6 +74,7 @@ private:
   std::uint64_t m_nextOrder = 0;
   bool m_initialSyncDone = false;
   ChangeCallback m_changeCallback;
+  TitleCallback m_titleCallback;
 };
 
 // Unique ext toplevel with an exact title match, skipping wlr-only entries. handle is

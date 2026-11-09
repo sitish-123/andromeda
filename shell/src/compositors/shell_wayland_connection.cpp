@@ -117,6 +117,21 @@ void ShellWaylandConnection::setToplevelChangeCallback(ChangeCallback callback) 
   m_extForeignToplevels.setChangeCallback(std::move(callback));
 }
 
+void ShellWaylandConnection::setToplevelTitleCallback(std::function<void(bool active)> callback) {
+  if (!callback) {
+    m_toplevelsHandler.setTitleCallback({});
+    m_extForeignToplevels.setTitleCallback({});
+    return;
+  }
+  m_toplevelsHandler.setTitleCallback(callback);
+  // With the wlr manager bound it reports every title too, so the ext copy is dropped.
+  m_extForeignToplevels.setTitleCallback([this, callback = std::move(callback)] {
+    if (!m_toplevelsHandler.bound()) {
+      callback(true);
+    }
+  });
+}
+
 void ShellWaylandConnection::setHyprlandToplevelMappingManagerCallback(
     std::function<void(hyprland_toplevel_mapping_manager_v1* manager)> callback
 ) {

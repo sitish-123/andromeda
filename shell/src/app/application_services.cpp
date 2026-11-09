@@ -1219,6 +1219,13 @@ void Application::initWaylandCallbacks() {
       m_backgroundPortal->onToplevelsChanged();
     }
   });
+  // Only the focused window's title shows at rest (bar island, taskbar); the switcher lists every title.
+  m_compositorPlatform.setToplevelTitleCallback([this](bool active) {
+    if (active) {
+      m_bar.refresh();
+    }
+    m_windowSwitcher.onToplevelChange();
+  });
   m_wayland.setShellActionCallback([this](const std::string& command) {
     kLog.debug("shell action from compositor: {}", command);
     (void)m_ipcService.execute(command);

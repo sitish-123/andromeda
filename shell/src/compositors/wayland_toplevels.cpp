@@ -85,6 +85,8 @@ void WaylandToplevels::bind(zwlr_foreign_toplevel_manager_v1* manager) {
 
 void WaylandToplevels::setChangeCallback(ChangeCallback callback) { m_changeCallback = std::move(callback); }
 
+void WaylandToplevels::setTitleCallback(TitleCallback callback) { m_titleCallback = std::move(callback); }
+
 void WaylandToplevels::cleanup() {
   for (auto& [handle, _] : m_handles) {
     if (handle != nullptr) {
@@ -191,6 +193,14 @@ void WaylandToplevels::onHandleDone(zwlr_foreign_toplevel_handle_v1* handle) {
 
   const auto before = current();
   const bool hadModelChanges = it->second.dirty;
+  // A title alone (a terminal spinner ticks it twice a second) skips the full toplevel refresh.
+  if (!hadModelChanges && it->second.titleDirty && it->second.ready && m_titleCallback) {
+    it->second.titleDirty = false;
+    m_titleCallback(handle == m_currentHandle);
+    return;
+  }
+  const bool titleChanged = it->second.titleDirty;
+  it->second.titleDirty = false;
   it->second.minimized = it->second.pendingMinimized;
   it->second.ready = true;
   if (it->second.activated) {
@@ -201,7 +211,7 @@ void WaylandToplevels::onHandleDone(zwlr_foreign_toplevel_handle_v1* handle) {
   it->second.dirty = false;
 
   const bool activeChanged = notifyIfChanged(before);
-  if (hadModelChanges && !activeChanged && m_changeCallback) {
+  if ((hadModelChanges || titleChanged) && !activeChanged && m_changeCallback) {
     m_changeCallback();
   }
 }
@@ -211,8 +221,12 @@ void WaylandToplevels::onHandleTitle(zwlr_foreign_toplevel_handle_v1* handle, co
   if (it == m_handles.end()) {
     return;
   }
-  it->second.title = StringUtils::windowTitleSingleLine(title != nullptr ? title : "");
-  it->second.dirty = true;
+  std::string next = StringUtils::windowTitleSingleLine(title != nullptr ? title : "");
+  if (next == it->second.title) {
+    return;
+  }
+  it->second.title = std::move(next);
+  it->second.titleDirty = true;
   it->second.generation = ++m_generation;
 }
 
@@ -221,7 +235,11 @@ void WaylandToplevels::onHandleAppId(zwlr_foreign_toplevel_handle_v1* handle, co
   if (it == m_handles.end()) {
     return;
   }
-  it->second.appId = appId != nullptr ? appId : "";
+  std::string next = appId != nullptr ? appId : "";
+  if (next == it->second.appId) {
+    return;
+  }
+  it->second.appId = std::move(next);
   it->second.dirty = true;
   it->second.generation = ++m_generation;
 }
@@ -259,6 +277,10 @@ void WaylandToplevels::onHandleState(zwlr_foreign_toplevel_handle_v1* handle, wl
     }
   }
 
+  if (it->second.activated == activated && it->second.pendingMinimized == minimized
+      && it->second.fullscreen == fullscreen) {
+    return;
+  }
   it->second.activated = activated;
   it->second.pendingMinimized = minimized;
   it->second.fullscreen = fullscreen;

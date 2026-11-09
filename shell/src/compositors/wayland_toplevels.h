@@ -68,6 +68,10 @@ public:
 
   void bind(zwlr_foreign_toplevel_manager_v1* manager);
   void setChangeCallback(ChangeCallback callback);
+  // Only a title changed; `active` = it is the focused toplevel. Unset, title changes take the change callback.
+  using TitleCallback = std::function<void(bool active)>;
+  void setTitleCallback(TitleCallback callback);
+  [[nodiscard]] bool bound() const noexcept { return m_manager != nullptr; }
   void cleanup();
 
   [[nodiscard]] std::optional<ActiveToplevel> current() const;
@@ -134,6 +138,7 @@ private:
     bool ready = false;
     bool fullscreen = false;
     bool dirty = false;
+    bool titleDirty = false;
     // Set on the first output_enter, never cleared: distinguishes "never announced an output"
     // from "left every output".
     bool sawOutputEnter = false;
@@ -154,4 +159,5 @@ private:
   std::uint64_t m_generation = 0;
   std::uint64_t m_nextOrder = 0;
   ChangeCallback m_changeCallback;
+  TitleCallback m_titleCallback;
 };

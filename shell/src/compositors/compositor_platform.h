@@ -139,6 +139,7 @@ public:
   void activateKdeWindow(const std::string& title, const std::string& appId, const std::string& uuid = {});
 
   void setToplevelChangeCallback(ChangeCallback callback);
+  void setToplevelTitleCallback(std::function<void(bool active)> callback);
   void bindHyprlandToplevelMappingManager(hyprland_toplevel_mapping_manager_v1* manager);
   void syncHyprlandToplevelMappings();
   [[nodiscard]] std::optional<std::string> compositorWindowIdForToplevel(zwlr_foreign_toplevel_handle_v1* handle) const;
@@ -272,6 +273,7 @@ private:
   ChangeCallback m_overviewChangeCallback;
   ChangeCallback m_keyboardLayoutChangeCallback;
   ChangeCallback m_toplevelChangeCallback;
+  std::function<void(bool active)> m_toplevelTitleCallback;
   std::unique_ptr<compositors::hyprland::HyprlandToplevelMapping> m_hyprlandToplevelMapping;
   std::unique_ptr<compositors::kde::KwinActiveWindow> m_kwinActiveWindow;
   std::unique_ptr<OutputProbe> m_outputProbe;

@@ -20,6 +20,7 @@ with_noctalia '
   done
   [[ -n $pid ]] || { echo "FAIL: no test shell process"; exit 1; }
   switches() { awk "/^voluntary_ctxt_switches/ {print \$2}" /proc/$pid/task/$pid/status; }
+  cputicks() { awk "{print \$14 + \$15}" /proc/$pid/stat; } # utime + stime, 100 per second
   now() { date +%T.%3N; }
   fail=0
   # scenario NAME: 21 s, so at least one whole 10 s profiler window falls inside; reports the switch rate and the
@@ -28,15 +29,17 @@ with_noctalia '
     local name=$1 start before rate
     start=$(now)
     before=$(switches)
+    local cpu_before=$(cputicks)
     sleep 21 # real time: the measurement window
     rate=$(awk -v n=$(( $(switches) - before )) "BEGIN {printf \"%.1f\", n / 21}")
+    cpu_ms=$(( ($(cputicks) - cpu_before) * 10 ))
     awk -v s="$start" -v e="$(now)" "{ t = \$1 } t >= s && t <= e" <(sed "s/\x1b\[[0-9;]*m//g" "$OUT/noctalia.log") \
       | grep "\[main\] idle profile" > "$OUT/profile-$name.txt" || true
     local loops redraws
     # The second profiler window lies wholly inside the scenario.
     loops=$(grep -E "idle profile [0-9.]+s:" "$OUT/profile-$name.txt" | sed -n "2s/.*idle profile \([0-9.]*\)s: loops=\([0-9]*\).*/\2 \1/p" | awk "{printf \"%.1f\", \$1 / \$2}")
     redraws=$(grep "idle profile surfaces:" "$OUT/profile-$name.txt" | sed -n "2s/.* renders=\([0-9]*\).*/\1/p")
-    echo "$name: main thread wakeups/s $rate, loops/s ${loops:-?}, redraws/10s ${redraws:-?}" | tee -a "$OUT/result.txt"
+    echo "$name: main thread wakeups/s $rate, loops/s ${loops:-?}, redraws/10s ${redraws:-?}, cpu ${cpu_ms} ms in 21 s" | tee -a "$OUT/result.txt"
     awk "/idle profile [0-9.]+s:/ {n++; next} n == 2 && /wake=/ && k++ < 5" "$OUT/profile-$name.txt" | sed "s/.*idle profile source //" | cut -c1-90 | sed "s/^/  /" | tee -a "$OUT/result.txt"
     awk -v r="$rate" "BEGIN {exit !(r <= '"$MAX_WAKEUPS"')}" || { echo "FAIL: $name: $rate wakeups/s (budget '"$MAX_WAKEUPS"')" | tee -a "$OUT/result.txt"; fail=1; }
   }

@@ -621,6 +621,13 @@ CompositorPlatform::CompositorPlatform(ShellWaylandConnection& wayland)
     bindHyprlandToplevelMappingManager(manager);
   });
   m_wayland.setToplevelChangeCallback([this] { notifyToplevelsChanged(); });
+  m_wayland.setToplevelTitleCallback([this](bool active) {
+    if (m_toplevelTitleCallback) {
+      m_toplevelTitleCallback(active);
+    } else {
+      notifyToplevelsChanged();
+    }
+  });
   m_wayland.setOutputLifecycleCallbacks(
       [this](wl_output* output) { onOutputAdded(output); }, [this](wl_output* output) { onOutputRemoved(output); }
   );
@@ -640,6 +647,7 @@ CompositorPlatform::~CompositorPlatform() {
   m_wayland.setKdeVirtualDesktopManagerCallback({});
   m_wayland.setHyprlandToplevelMappingManagerCallback({});
   m_wayland.setToplevelChangeCallback({});
+  m_wayland.setToplevelTitleCallback({});
   m_wayland.setKeyboardLayoutChangeCallback({});
 }
 
@@ -1148,6 +1156,10 @@ bool CompositorPlatform::containsWlrToplevelHandle(zwlr_foreign_toplevel_handle_
 
 void CompositorPlatform::setToplevelChangeCallback(ChangeCallback callback) {
   m_toplevelChangeCallback = std::move(callback);
+}
+
+void CompositorPlatform::setToplevelTitleCallback(std::function<void(bool active)> callback) {
+  m_toplevelTitleCallback = std::move(callback);
 }
 
 void CompositorPlatform::bindHyprlandToplevelMappingManager(hyprland_toplevel_mapping_manager_v1* manager) {

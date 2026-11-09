@@ -289,6 +289,18 @@ void AndromedaWorkspaceBackend::handleEvent(std::string_view event, const nlohma
     if (next == m_windows) {
       return;
     }
+    // Titles alone (a terminal spinner ticks one twice a second) are kept without a refresh: the focused title reaches
+    // the bar through the toplevel title path.
+    const auto withoutTitles = [](std::vector<std::pair<std::string, Window>> windows) {
+      for (auto& [id, window] : windows) {
+        window.title.clear();
+      }
+      return windows;
+    };
+    if (next.size() == m_windows.size() && withoutTitles(next) == withoutTitles(m_windows)) {
+      m_windows = std::move(next);
+      return;
+    }
     m_windows = std::move(next);
     notifyChanged();
     notifyWindowsChanged();
