@@ -341,9 +341,12 @@ void ActivityWindow::onSample() {
 
 void ActivityWindow::requestRebuild() {
   if (m_surface != nullptr) {
-    m_rebuildRequested = true;
+    // Only the request that starts a rebuild reads the controls: their reply refreshes and asks again, and each read
+    // sees a new memory.current, so a read per request loops until a frame clears the flag (never while hidden).
+    if (!std::exchange(m_rebuildRequested, true)) {
+      readControlsAsync();
+    }
     m_surface->requestLayout();
-    readControlsAsync();
   }
 }
 
