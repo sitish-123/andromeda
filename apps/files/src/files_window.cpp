@@ -385,6 +385,7 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location, bo
       .modifiers = [this] { return m_app.loop().wayland().keyboardModifiers(); },
       .menu = [this](std::size_t index, float x, float y) { showItemMenu(index, x, y); },
       .backgroundMenu = [this](float x, float y) { showBackgroundMenu(x, y); },
+      .pathTyped = [this](const std::string& path) { openPathField(path); },
       .startDrag =
           [this](const std::vector<fs::path>& dragged) {
             DragAndDrop* dnd = m_app.loop().wayland().dragAndDrop();
@@ -1809,7 +1810,7 @@ void FilesWindow::togglePin() {
 }
 
 void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
-  if (m_picker.has_value() || index >= m_browser->rows().size()) {
+  if (index >= m_browser->rows().size()) {
     return;
   }
   // A right click on an item outside the selection selects that item alone (Finder).
@@ -1820,6 +1821,19 @@ void FilesWindow::showItemMenu(std::size_t index, float sceneX, float sceneY) {
   }
   const auto paths = selectedPaths();
   if (paths.empty()) {
+    return;
+  }
+  if (m_picker.has_value()) {
+    // A picker only chooses: its menu copies the path or opens a terminal, and changes no file.
+    std::vector<ContextMenuControlEntry> entries{{.id = 1, .label = "Copy Location", .glyph = "copy"}};
+    if (paths.size() == 1 && isDir(paths.front())) {
+      entries.push_back({.id = 2, .label = "Open Terminal Here", .glyph = "terminal-2"});
+    }
+    m_window.openContextMenu(std::move(entries), sceneX, sceneY, [this, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {
+      if (!alive.expired() && id > 0) {
+        m_app.commands().run(id == 1 ? "edit.copy-location" : "file.open-terminal");
+      }
+    });
     return;
   }
   CommandTable& commands = m_app.commands();
@@ -2035,9 +2049,7 @@ void FilesWindow::showShareMenu(float sceneX, float sceneY) {
 }
 
 void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
-  if (m_picker.has_value()) {
-    return;
-  }
+  const bool picker = m_picker.has_value();
   kLog.debug("menu background");
   // Entry ids: 1..n commands, then the Sort By and View rows, then the folder's Get Info.
   constexpr std::int32_t kSortBase = 2000;
@@ -2058,7 +2070,14 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
                        .shortcut = c->shortcut ? menuShortcut(*c->shortcut) : std::string(), .glyph = std::move(glyph)});
   };
   const bool folder = !location().empty() && m_browser->listingId().empty();
-  if (folder) {
+  if (picker) {
+    // A picker only chooses: no new documents, paste or Get Info.
+    add("go.path", "folder-search");
+    if (folder) {
+      add("file.new-folder", "folder-plus");
+    }
+    entries.push_back({.separator = true});
+  } else if (folder) {
     add("file.new-folder", "folder-plus");
     // New Document ›: the ~/Templates files; none = the submenu says why in one disabled row (the long reason
     // on the row itself would set the menu width).
@@ -2099,8 +2118,13 @@ void FilesWindow::showBackgroundMenu(float sceneX, float sceneY) {
   add("view.options");
   if (folder) {
     entries.push_back({.separator = true});
+    if (picker) {
+      add("edit.copy-location", "copy");
+    }
     add("file.open-terminal", "terminal-2");
-    entries.push_back({.id = kFolderInfo, .label = "Get Info", .glyph = "info-circle"});
+    if (!picker) {
+      entries.push_back({.id = kFolderInfo, .label = "Get Info", .glyph = "info-circle"});
+    }
   }
   m_window.openContextMenu(std::move(entries), sceneX, sceneY,
                            [this, ids, templateFiles, alive = std::weak_ptr<bool>(m_alive)](std::int32_t id) {

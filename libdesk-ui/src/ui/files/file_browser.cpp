@@ -1198,6 +1198,20 @@ void FileBrowser::setFilter(std::string text) {
   if (text == m_filter) {
     return;
   }
+  if (m_host.pathTyped && (text.starts_with('/') || text.starts_with('~'))) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+      text.pop_back(); // a pasted path often ends in a newline
+    }
+    if (m_ui->searchField != nullptr) {
+      m_ui->searchField->setValue({});
+    }
+    m_filter.clear();
+    showChips();
+    refreshRows();
+    refreshChrome();
+    m_host.pathTyped(text);
+    return;
+  }
   m_filter = std::move(text);
   showChips();
   querySearch();
@@ -2621,7 +2635,7 @@ void FileBrowser::refreshRows() {
   page.status = st == FileModel::Status::Denied   ? "denied"
       : st == FileModel::Status::Missing          ? "missing"
       : st == FileModel::Status::Error            ? "error"
-      : st == FileModel::Status::Ready && m_rows.empty() && !(m_listing.has_value() && m_listing->page) ? "empty"
+      : st == FileModel::Status::Ready && m_rows.empty() && !(m_listing.has_value() && m_listing->page && m_filter.empty()) ? "empty"
                                                   : "";
   syncCustomPage(page);
   if (page.icons != nullptr && page.custom != nullptr) {
@@ -2751,16 +2765,19 @@ void FileBrowser::syncCustomPage(Page& page) {
   if (page.root == nullptr) {
     return;
   }
-  const bool wanted = m_listing.has_value() && m_listing->page;
+  // A typed query shows its results in place of the page (This PC).
+  const bool wanted = m_listing.has_value() && m_listing->page && m_filter.empty();
   if (!(wanted && page.customId == m_listing->id && page.custom != nullptr)) {
     if (page.custom != nullptr) {
       (void)page.root->removeChild(page.custom);
       page.custom = nullptr;
+      kLog.debug("page {} hidden", page.customId);
       page.customId.clear();
     }
     if (wanted) {
       page.custom = page.root->addChild(m_listing->page(m_ui->scale));
       page.customId = m_listing->id;
+      kLog.debug("page {} shown", page.customId);
     }
   }
   const bool bannerWanted = m_listing.has_value() && m_listing->banner;

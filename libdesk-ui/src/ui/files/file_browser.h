@@ -74,6 +74,8 @@ public:
     std::function<std::uint32_t()> modifiers;                   // KeyMod mask held now
     std::function<void(std::size_t index, float sceneX, float sceneY)> menu; // secondary click (FB4)
     std::function<void(float sceneX, float sceneY)> backgroundMenu;           // secondary click on empty space
+    // A search that starts with "/" or "~" is a path: the host opens its path field with the text.
+    std::function<void(const std::string& path)> pathTyped;
     // Starts a system drag of these paths; false when the platform has none. The host calls dragEnded() after.
     std::function<bool(const std::vector<std::filesystem::path>&)> startDrag;
     std::function<void(InputArea*)> focus;

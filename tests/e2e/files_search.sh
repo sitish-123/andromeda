@@ -7,7 +7,8 @@
 #   - This PC does not list the hits outside the folder, or the PDFs chip keeps non-PDF hits,
 #   - This PC results do not show as a list, or This Folder does not bring the icons view back,
 #   - a query with no hits does not show the no-results state,
-#   - Recents does not add the files the index saw change in the last 30 days.
+#   - Recents does not add the files the index saw change in the last 30 days,
+#   - a search on the This PC page does not show its hits, or a path typed into search does not go there.
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/files-search}
 source "$(dirname "$0")/lib.sh"
@@ -104,4 +105,18 @@ m=$(mark); ptr move $(at "place Recents") click 272
 wait_log "$m" "recents [3-9] rows" || fail "Recents did not add the index's recent files"
 wait_log "$m" "geometry item invoice-march.pdf" || fail "Recents did not list invoice-march.pdf"
 shot 5-recents
+
+# This PC is a page, not a folder: a query shows its hits in place of the page.
+m=$(mark); ptr move $(at "place This PC") click 272
+wait_log "$m" "page this-pc shown" || fail "This PC did not show its page"
+m=$(mark); keys mod control tap 33 mod none "${INVOICE[@]}"       # Ctrl+F, "invoice"
+wait_log "$m" "page this-pc hidden" || fail "a search on the This PC page kept the page over its hits"
+ptr move $(at "chip This PC") click 272
+wait_log "$m" "geometry item invoice-march.pdf" || fail "a search on the This PC page did not list its hits"
+shot 6-this-pc-page-search
+
+# A path typed into the search field opens Go to Folder with it; Enter goes there.
+m=$(mark); keys mod control tap 33 mod none tap 14 tap 53 pause 300 tap 28  # Ctrl+F, Backspace, "/", Enter
+wait_log "$m" "location /$" || fail "a path typed into search did not go to that folder"
+shot 7-path-from-search
 echo "pass files_search"
