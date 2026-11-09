@@ -1077,6 +1077,8 @@ async fn follow_procs(shared: Shared) {
 
 /// Feeds `per = "unit"` rules: failed units of the system and the user manager.
 async fn follow_units(system: Connection, session: Connection, shared: Shared) {
+    // Units first seen failed soon after a compositor crash; they stay its victims until they recover.
+    let mut victims = std::collections::HashSet::<String>::new();
     loop {
         if wanted(&shared, "unit").await {
             let mut names = units::failed(&system, false).await.unwrap_or_else(|e| {
@@ -1084,7 +1086,16 @@ async fn follow_units(system: Connection, session: Connection, shared: Shared) {
                 Vec::new()
             });
             names.extend(units::failed(&session, true).await.unwrap_or_default());
-            let rows = names.into_iter().map(|n| (n, vec![("unit.failed", Value::Bool(true))])).collect();
+            victims.retain(|v| names.contains(v));
+            let fresh_crash = crashes::desktop_crashed_at()
+                .is_some_and(|at| at.elapsed() <= UNITS_EVERY + crashes::AFTERMATH);
+            let rows = names
+                .into_iter()
+                .map(|n| {
+                    let with_desktop = victims.contains(&n) || (fresh_crash && victims.insert(n.clone()));
+                    (n, vec![("unit.failed", Value::Bool(true)), ("unit.with_desktop", Value::Bool(with_desktop))])
+                })
+                .collect();
             set_rows(&shared, "unit", rows).await;
         }
         tokio::time::sleep(UNITS_EVERY).await;
@@ -1128,7 +1139,9 @@ async fn follow_crashes(shared: Shared) {
         let rows = recent
             .counts(Instant::now())
             .into_iter()
-            .map(|(exe, n)| (exe, vec![("crash.count", Value::Num(n as f64))]))
+            .map(|(exe, n, with_desktop)| {
+                (exe, vec![("crash.count", Value::Num(n as f64)), ("crash.with_desktop", Value::Bool(with_desktop))])
+            })
             .collect();
         set_rows(&shared, "crash", rows).await;
     }

@@ -58,7 +58,7 @@ const FIELDS: &[(&str, Type)] = &[
     ("startup.boot_median_s", Type::Num),
     ("startup.login_s", Type::Num),
     ("startup.login_median_s", Type::Num),
-    // One process, for `per = "process"` rules (procs.rs). Wakeups = CPU timeslices per second, all threads.
+    // One process, for `per = "process"` rules (procs.rs). Wakeups = voluntary context switches per second, all threads.
     ("proc.wakeups_s", Type::Num),
     ("proc.anon_mb", Type::Num),
     // Least-squares growth of anonymous memory over the last 2 h, and its fit; absent before 1 h of samples.
@@ -66,8 +66,12 @@ const FIELDS: &[(&str, Type)] = &[
     ("proc.growth_r2", Type::Num),
     // One crashed executable, for `per = "crash"` rules: crashes in the last 24 h.
     ("crash.count", Type::Num),
+    // Every one of those crashes came with a compositor crash (crashes.rs AFTERMATH).
+    ("crash.with_desktop", Type::Bool),
     // One systemd unit, for `per = "unit"` rules: the unit is in the failed state.
     ("unit.failed", Type::Bool),
+    // It failed right after a compositor crash, so the desktop crash alert covers it.
+    ("unit.with_desktop", Type::Bool),
 ];
 
 #[derive(Clone, Debug, Default)]
@@ -235,5 +239,32 @@ impl Values for InstanceValues<'_> {
             None if name.starts_with("proc.") || name.starts_with("crash.") || name.starts_with("unit.") => None,
             None => self.state.value_of(name),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::Fields;
+
+    // A shipped rule that names an unknown field or does not parse is dropped at runtime with only a log line.
+    #[test]
+    fn every_shipped_rule_file_loads_against_the_state_fields() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/rules");
+        let mut files = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                let loaded = crate::rules::load(&text, &Fields).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                for rule in loaded {
+                    if let Err((id, why)) = rule {
+                        panic!("{}: rule {id}: {why}", path.display());
+                    }
+                }
+                files += 1;
+            }
+        }
+        assert!(files > 0, "no rule files in {dir}");
     }
 }

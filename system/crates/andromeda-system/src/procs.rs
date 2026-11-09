@@ -17,7 +17,7 @@ const PF_KTHREAD: u64 = 0x0020_0000;
 
 struct Track {
     start: u64,
-    slices: u64,
+    wakeups: u64,
     at: Instant,
     /// (seconds since the first sample, MiB of anonymous memory).
     anon: VecDeque<(f64, f64)>,
@@ -46,9 +46,11 @@ pub fn rss_anon_kb(status: &str) -> Option<u64> {
     line.split_whitespace().nth(1)?.parse().ok()
 }
 
-/// Timeslices run, the third number of `/proc/<pid>/task/<tid>/schedstat`.
-pub fn schedstat_slices(text: &str) -> Option<u64> {
-    text.split_whitespace().nth(2)?.parse().ok()
+/// `voluntary_ctxt_switches` of `/proc/<pid>/task/<tid>/status`: each one is the thread going to sleep, so the count is
+/// its wakeups. Timeslices would also count a busy thread being preempted, which is CPU use, not waking the CPU.
+pub fn voluntary_switches(status: &str) -> Option<u64> {
+    let line = status.lines().find(|l| l.starts_with("voluntary_ctxt_switches:"))?;
+    line.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// Least-squares slope (per hour, from per-second x) and R² of `points`; R² is 0 when y does not vary.
@@ -76,12 +78,12 @@ fn read(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
-fn slices_of(task_dir: &Path) -> u64 {
+fn wakeups_of(task_dir: &Path) -> u64 {
     let Ok(tasks) = std::fs::read_dir(task_dir) else { return 0 };
     tasks
         .filter_map(Result::ok)
-        .filter_map(|t| read(&t.path().join("schedstat")))
-        .filter_map(|s| schedstat_slices(&s))
+        .filter_map(|t| read(&t.path().join("status")))
+        .filter_map(|s| voluntary_switches(&s))
         .sum()
 }
 
@@ -106,28 +108,28 @@ impl Sampler {
                 continue;
             }
             let Some(kb) = read(&base.join("status")).and_then(|s| rss_anon_kb(&s)) else { continue };
-            let slices = slices_of(&base.join("task"));
+            let wakeups = wakeups_of(&base.join("task"));
             #[allow(clippy::cast_precision_loss)] // kB as MiB
             let anon_mb = kb as f64 / 1024.0;
             seen.push(pid);
             let track = self.tracks.entry(pid).or_insert_with(|| Track {
                 start,
-                slices,
+                wakeups,
                 at: now,
                 anon: VecDeque::new(),
                 first: now,
             });
             if track.start != start {
-                *track = Track { start, slices, at: now, anon: VecDeque::new(), first: now };
+                *track = Track { start, wakeups, at: now, anon: VecDeque::new(), first: now };
             }
             let mut fields = vec![("proc.anon_mb", Value::Num(anon_mb))];
             let elapsed = now.duration_since(track.at).as_secs_f64();
             if both_idle && elapsed > 0.0 {
-                #[allow(clippy::cast_precision_loss)] // a slice count
-                let rate = slices.saturating_sub(track.slices) as f64 / elapsed;
+                #[allow(clippy::cast_precision_loss)] // a wakeup count
+                let rate = wakeups.saturating_sub(track.wakeups) as f64 / elapsed;
                 fields.push(("proc.wakeups_s", Value::Num(rate)));
             }
-            track.slices = slices;
+            track.wakeups = wakeups;
             track.at = now;
             let x = now.duration_since(track.first).as_secs_f64();
             track.anon.push_back((x, anon_mb));
@@ -171,10 +173,10 @@ mod tests {
     }
 
     #[test]
-    fn this_process_reads_as_user_space_with_slices() {
+    fn this_process_reads_as_user_space_with_wakeups() {
         let me = std::process::id();
         let (_, flags, _) = parse_stat(&read(Path::new(&format!("/proc/{me}/stat"))).unwrap()).unwrap();
         assert_eq!(flags & PF_KTHREAD, 0);
-        assert!(slices_of(Path::new(&format!("/proc/{me}/task"))) > 0);
+        assert!(wakeups_of(Path::new(&format!("/proc/{me}/task"))) > 0);
     }
 }

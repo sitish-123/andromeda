@@ -1,6 +1,6 @@
 # Health watch (docs/system-health.md §4.3): alerts only, one per episode.
 
-# Names the process that keeps the CPU waking while the session is idle (wakeups = timeslices per second, all
+# Names the process that keeps the CPU waking while the session is idle (wakeups = voluntary context switches per second, all
 # threads). Samples come each minute while idle; a rate shows only when two idle samples in a row frame it.
 [[rule]]
 id = "power.wakeups"
@@ -26,13 +26,14 @@ clear = "proc.growth_mb_h < calm_mb_h"
 dwell = "1h"
 alert = { urgency = "normal", text = "memory_leak" }
 
-# One alert per crashed executable per day (systemd-coredump).
+# One alert per crashed executable per day (systemd-coredump). Apps and services that die with the compositor give no
+# alert of their own: the compositor's crash alert covers them.
 [[rule]]
 id = "apps.crashed"
 scope = "session"
 priority = "automatic"
 per = "crash"
-when = "crash.count >= 1"
+when = "crash.count >= 1 and not crash.with_desktop"
 clear = "crash.count < 1"
 alert = { urgency = "normal", text = "crashed" }
 
@@ -42,7 +43,7 @@ id = "services.failed"
 scope = "session"
 priority = "automatic"
 per = "unit"
-when = "unit.failed"
+when = "unit.failed and not unit.with_desktop"
 clear = "not unit.failed"
 alert = { urgency = "normal", text = "unit_failed" }
 
