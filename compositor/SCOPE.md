@@ -1,8 +1,8 @@
 # Scope
 
-Andromeda is a thin compositor layer over [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) 0.20 and `andromedafx`, its own hard fork of [SceneFX](https://github.com/wlrfx/scenefx). It is built by the people who use it daily. It is young, and the fastest way to make it worse is to grow it in every direction at once. This file records what the project takes on and what it declines, so a request gets a predictable answer instead of a case-by-case one.
+Andromeda is the compositor of the Andromeda desktop, built on [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) 0.20 and `andromedafx`, its own hard fork of [SceneFX](https://github.com/wlrfx/scenefx). It owns windows, input, effects, surface motion and appearance state for the desktop shell and apps. It is young, and the fastest way to make it worse is to grow it in every direction at once. This file records what the project takes on and what it declines, so a request gets a predictable answer instead of a case-by-case one.
 
-Read the project [ethos](https://noctalia.dev/ethos) for the values behind these lines, and [CONTRIBUTING.md](CONTRIBUTING.md) for the technical principles they follow from.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the technical principles these lines follow from.
 
 ## In scope
 
@@ -16,7 +16,7 @@ Read the project [ethos](https://noctalia.dev/ethos) for the values behind these
 ## Out of scope
 
 - **New tiling layouts and new layout paradigms.** Scrolling, dwindle, master, and floating are the set. Improving how those four behave is in scope; adding a fifth model, or reshaping one of them into a different one, is not.
-- **Desktop shell components.** Bars, panels, launchers, notification daemons, wallpaper handling, widgets, menus, and on-screen displays belong to a shell speaking Wayland protocols, for example [Noctalia](https://github.com/noctalia-dev/noctalia). Andromeda's job is to expose what a shell needs, not to become one.
+- **Desktop shell components.** Bars, panels, launchers, notification daemons, wallpaper handling, widgets, menus, and on-screen displays belong to the Andromeda shell. The compositor gives it mechanism through Wayland and `dsk_*` protocols: glass shapes, surface motion, compositor-run animations and appearance state. It does not draw shell content.
 - **A plugin system, embedded scripting language, or runtime module loading.** Behavior is configured in TOML and driven through `andromeda msg`.
 - **Configuration languages other than TOML**, and compatibility aliases, migration readers, or silent fallbacks for renamed keys.
 - **Effects that bypass `andromedafx`.** New visuals land in `andromedafx/`, never as ad-hoc scene graph hacks.
@@ -24,7 +24,7 @@ Read the project [ethos](https://noctalia.dev/ethos) for the values behind these
 - **Feature parity with another compositor as the motivation.** "Project X has this" describes Project X, not a problem you have.
 - **Per-application special cases** that a window rule or layer rule can already express.
 - **Anything already reachable** through configuration, window and layer rules, keybinds, submaps, or `andromeda msg`.
-- **Threading the event loop.** `Server::spawn` depends on it staying single-threaded.
+- **Threading the event loop.** `Server::spawn` depends on it staying single-threaded. Workers that take their input by value and post one result to the loop are allowed.
 
 "Out of scope" is not a verdict on the idea. It means the work does not belong in this project, at this stage, with this maintenance budget.
 
@@ -40,7 +40,7 @@ A request that survives all four is worth an issue. One that does not is still w
 ## Where to raise things
 
 - **Bug or regression:** open a bug report. These are always welcome, including small ones.
-- **Idea, question, or "would you consider":** ask on [Discord](https://discord.noctalia.dev) first. It is faster than an issue and it survives being wrong.
+- **Idea, question, or "would you consider":** open a discussion issue first. It is faster than a pull request and it survives being wrong.
 - **Large or invasive pull request:** agree on the change before writing it. An unsolicited rewrite can be declined on scope alone, and nobody enjoys that outcome.
 
 This file is not a promise that the answer stays no forever. Scope widens deliberately, when the foundation is stable enough to carry the addition, and it is recorded here when it does.
