@@ -3,6 +3,7 @@
 #include "config/fields.h"
 #include "config/keybind_parse.h"
 #include "config/store.h"
+#include "core/log.h"
 
 // clang-format off
 #include <xkbcommon/xkbcommon.h>
@@ -19,6 +20,7 @@
 namespace andromeda {
 
   namespace {
+    constexpr Logger kLog("config");
 
     // The keys a keybind written as a table takes besides its chord.
     struct KeybindOptions {
@@ -49,6 +51,60 @@ namespace andromeda {
           registry::text("release_action", &K::releaseAction),
       };
       return fields;
+    }
+
+    // Lines an earlier starter config shipped that a later one changed. A copied starter config still holds them; in the
+    // user's own file they give way to the current shipped binding.
+    bool retiredDefault(const Keybind& binding, std::string_view action) {
+      static const std::vector<std::pair<Keybind, std::string_view>> retired = [] {
+        static constexpr std::pair<std::string_view, std::string_view> kLines[] = {
+          {"Ctrl+Alt+T", "spawn:sh -c 'for t in foot kitty ghostty alacritty konsole gnome-terminal xterm; do command -v $t >/dev/null && exec $t; done'"},
+          {"Mod+Ctrl+F", "window-toggle-maximize"},
+          {"Mod+Ctrl+Space", "window-restore-from-scratchpad"},
+          {"Mod+E", "spawn:andromeda-files"},
+          {"Mod+Escape", "session-quit"},
+          {"Mod+F", "window-toggle-fullscreen"},
+          {"Mod+H", "window-focus-left"},
+          {"Mod+J", "window-focus-down"},
+          {"Mod+K", "window-focus-up"},
+          {"Mod+L", "window-focus-right"},
+          {"Mod+M", "window-toggle-maximize-to-edges"},
+          {"Mod+O", "overview-toggle"},
+          {"Mod+Period", "window-consume-right"},
+          {"Mod+P", "window-toggle-pinned"},
+          {"Mod+Q", "window-close"},
+          {"Mod+Return", "spawn:kitty"},
+          {"Mod+Return", "spawn:sh -c 'for t in foot kitty ghostty alacritty konsole gnome-terminal xterm; do command -v $t >/dev/null && exec $t; done'"},
+          {"Mod+Return", "terminal-spawn"},
+          {"Mod+R", "spawn:noctalia msg panel-toggle launcher"},
+          {"Mod+R", "window-cycle-width"},
+          {"Mod+Shift+L", "shell:panel-toggle session"},
+          {"Mod+Shift+Q", "close"},
+          {"Mod+Shift+Q", "window-close"},
+          {"Mod+Shift+R", "window-cycle-primary-extent-back"},
+          {"Mod+Shift+R", "window-cycle-width-back"},
+          {"Mod+Shift+Space", "window-move-to-scratchpad"},
+          {"Mod+Shift+T", "window-focus-switch-floating"},
+          {"Mod+Space", "scratchpad-toggle"},
+          {"Mod", "spawn:noctalia msg panel-toggle launcher"},
+          {"Mod+Tab", "scratchpad-focus-next"},
+          {"Mod+T", "spawn-terminal"},
+          {"Mod+T", "terminal-spawn"},
+          {"Mod+T", "window-toggle-floating"},
+          {"Mod+WheelDown", "window-focus-right"},
+          {"Mod+WheelUp", "window-focus-left"},
+        };
+        std::vector<std::pair<Keybind, std::string_view>> parsed;
+        for (const auto& [chord, retiredAction] : kLines) {
+          if (Keybind bind; parseChord(chord, bind)) {
+            parsed.emplace_back(std::move(bind), retiredAction);
+          }
+        }
+        return parsed;
+      }();
+      return std::ranges::any_of(retired, [&](const auto& entry) {
+        return entry.second == action && sameChord(entry.first, binding);
+      });
     }
 
     void readKeybinds(Section& section, Config& loaded, registry::ReadContext& context) {
@@ -105,6 +161,11 @@ namespace andromeda {
           std::erase_if(loaded.keybinds, [&](const Keybind& existing) { return sameChord(existing, binding); });
           continue;
         }
+        if (configStore().layeredKeybinds() && key.source().path != nullptr
+            && *key.source().path == configStore().rootPath().string() && retiredDefault(binding, *options.action)) {
+          kLog.info("keybind {} = '{}' is a retired default; the current shipped binding applies", chord, *options.action);
+          continue;
+        }
         if (!parseAction(*options.action, binding)) {
           warnAt(key.source(), "ignoring keybind '{}' (unknown action '{}')", chord, *options.action);
           continue;
@@ -134,6 +195,20 @@ namespace andromeda {
     }
 
   } // namespace
+
+  void readShippedKeybinds(const toml::table& root, Config& loaded) {
+    const toml::table* keybinds = root["keybinds"].as_table();
+    if (keybinds == nullptr) {
+      return;
+    }
+    std::vector<EffectReference> effectReferences;
+    const std::vector<configmerge::EffectDeclaration> none;
+    registry::ReadContext context{
+        .loaded = loaded, .effectReferences = effectReferences, .presetDeclarations = none, .poolDeclarations = none
+    };
+    Section section(*keybinds, "keybinds", configStore().mutableDiagnostics());
+    readKeybinds(section, loaded, context);
+  }
 
   registry::Field<Config> keybindsTable() {
     return registry::map<Config>(

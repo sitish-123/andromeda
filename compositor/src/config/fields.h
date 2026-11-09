@@ -150,6 +150,8 @@ namespace andromeda {
   [[nodiscard]] registry::Field<Config> inputTable();
   [[nodiscard]] registry::Field<Config> outputTable();
   [[nodiscard]] registry::Field<Config> keybindsTable();
+  // Read the [keybinds] of the packaged config over the built-in set in `loaded`.
+  void readShippedKeybinds(const toml::table& root, Config& loaded);
 
   // Checks that need every table read.
   void validateEffectReferences(Config& loaded, std::vector<EffectReference>& references);

@@ -59,6 +59,9 @@ namespace andromeda {
     [[nodiscard]] ConfigReloadResult commit(Config&& config, std::filesystem::path rootPath, bool fileMissing);
     void setMissingIncludes(bool missing) { m_missingIncludes = missing; }
     void setRootPath(std::filesystem::path path, bool explicitPath);
+    // True while the packaged config's shortcuts sit under the user's file, which then drops retired shipped lines.
+    [[nodiscard]] bool layeredKeybinds() const { return m_layeredKeybinds; }
+    void setLayeredKeybinds(bool layered) { m_layeredKeybinds = layered; }
 
   private:
     Config m_config;
@@ -70,6 +73,7 @@ namespace andromeda {
     std::vector<std::filesystem::path> m_implicitCandidates;
     std::filesystem::path m_rootPath;
     bool m_explicitPath = false;
+    bool m_layeredKeybinds = false;
     bool m_fileMissing = false;
     bool m_missingIncludes = false;
     uint64_t m_generation = 0;

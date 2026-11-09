@@ -151,6 +151,26 @@ namespace andromeda {
       }
     }
 
+    // The built-in set, then the packaged config's [keybinds] when the user's own file replaces it: a shortcut added to
+    // the packaged config reaches every user who has not bound that chord.
+    std::vector<Keybind> baseKeybinds(const std::filesystem::path& root, bool layered) {
+      Config base;
+      base.keybinds = defaultKeybinds();
+      const std::filesystem::path shipped = std::filesystem::path(kDataDir) / "andromeda/config.toml";
+      std::error_code error;
+      configStore().setLayeredKeybinds(false);
+      if (!layered || root == shipped || !std::filesystem::is_regular_file(shipped, error)) {
+        return base.keybinds;
+      }
+      try {
+        readShippedKeybinds(toml::parse_file(shipped.string()), base);
+        configStore().setLayeredKeybinds(true);
+      } catch (const std::exception& exception) {
+        kLog.warn("cannot read shortcuts from {}: {}", shipped.string(), exception.what());
+      }
+      return base.keybinds;
+    }
+
     // Reset the store for a load of `rootPath`, then read it if it is a file.
     ConfigParseOutcome parseInto(
         Config& out, const std::filesystem::path& rootPath, const std::vector<std::filesystem::path>& watchPaths
@@ -285,7 +305,7 @@ namespace andromeda {
     adoptLegacyInputSettings(selection.root);
 
     Config loaded;
-    loaded.keybinds = defaultKeybinds();
+    loaded.keybinds = baseKeybinds(selection.root, explicitPath == nullptr);
     const ConfigParseOutcome outcome = parseInto(loaded, selection.root, selection.watchPaths);
     const bool missing = outcome == ConfigParseOutcome::Missing;
     if (missing) {
@@ -314,7 +334,7 @@ namespace andromeda {
     selection.watchPaths.push_back(selection.root);
 
     Config loaded;
-    loaded.keybinds = defaultKeybinds();
+    loaded.keybinds = baseKeybinds(selection.root, false);
     const ConfigParseOutcome outcome = parseInto(loaded, selection.root, selection.watchPaths);
 
     const bool missing = outcome == ConfigParseOutcome::Missing;
@@ -358,7 +378,7 @@ namespace andromeda {
     }
 
     Config loaded;
-    loaded.keybinds = defaultKeybinds();
+    loaded.keybinds = baseKeybinds(selection.root, !m_explicitPath);
     const ConfigParseOutcome outcome = parseInto(loaded, selection.root, selection.watchPaths);
     const bool missing = outcome == ConfigParseOutcome::Missing;
     if (m_explicitPath && missing) {
