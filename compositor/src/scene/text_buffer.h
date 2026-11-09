@@ -38,6 +38,10 @@ namespace andromeda {
   // Returns a buffer the caller owns (drop after wlr_scene_buffer_create).
   [[nodiscard]] TextBufferResult renderTextBuffer(const TextBufferParams& params);
 
+  // Loads fontconfig and the overview's font sets on the text thread at startup, off the main thread. Without it the
+  // first text the compositor draws (the first overview's workspace labels) waits 25-55 ms for them.
+  void warmTextRendering();
+
   // Wraps a Cairo ARGB32 image surface in a wlr_buffer, taking a reference to it. The caller drops the buffer.
   [[nodiscard]] wlr_buffer* imageBuffer(cairo_surface_t* surface);
 

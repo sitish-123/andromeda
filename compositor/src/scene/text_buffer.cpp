@@ -1,16 +1,26 @@
 #include "scene/text_buffer.h"
 
+#include "core/log.h"
+
 extern "C" {
 #include <wlr/interfaces/wlr_buffer.h>
 }
 
 #include <cairo.h>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <drm_fourcc.h>
 #include <glib.h>
 #include <pango/pangocairo.h>
+#include <thread>
+#include <pthread.h>
+#include <mutex>
+#include <future>
+#include <functional>
+#include <deque>
+#include <condition_variable>
 
 namespace {
 
@@ -82,7 +92,7 @@ namespace andromeda {
     return &buf->base;
   }
 
-  TextBufferResult renderTextBuffer(const TextBufferParams& params) {
+  static TextBufferResult renderTextBufferHere(const TextBufferParams& params) {
     const double scale = std::max(1.0, params.scale);
 
     // Measure text with a throwaway 1×1 surface, scaled for HiDPI.
@@ -151,6 +161,99 @@ namespace andromeda {
         .logicalWidth = logicalW,
         .logicalHeight = logicalH,
     };
+  }
+
+
+  namespace {
+    // Pango keeps a font map per thread and builds each font set (size, weight, scale) on first use; on the main
+    // thread that first use stalled the first overview open by 25-55 ms. All text renders on this one thread, which
+    // warms its font map at startup, so the main thread only waits for the render itself.
+    class TextThread {
+    public:
+      static TextThread& instance() {
+        static TextThread thread;
+        return thread;
+      }
+
+      void post(std::function<void()> job) {
+        {
+          const std::lock_guard lock(m_mutex);
+          m_jobs.push_back(std::move(job));
+        }
+        m_wake.notify_one();
+      }
+
+      TextBufferResult render(const TextBufferParams& params) {
+        if (std::this_thread::get_id() == m_thread.get_id()) {
+          return renderTextBufferHere(params);
+        }
+        std::packaged_task<TextBufferResult()> task([&params] { return renderTextBufferHere(params); });
+        std::future<TextBufferResult> result = task.get_future();
+        post([&task] { task(); });
+        return result.get();
+      }
+
+    private:
+      TextThread() : m_thread([this] { loop(); }) {}
+
+      ~TextThread() {
+        {
+          const std::lock_guard lock(m_mutex);
+          m_stop = true;
+        }
+        m_wake.notify_one();
+        m_thread.join();
+      }
+
+      void loop() {
+        pthread_setname_np(pthread_self(), "andromeda-text");
+        for (;;) {
+          std::function<void()> job;
+          {
+            std::unique_lock lock(m_mutex);
+            m_wake.wait(lock, [this] { return m_stop || !m_jobs.empty(); });
+            if (m_jobs.empty()) {
+              return;
+            }
+            job = std::move(m_jobs.front());
+            m_jobs.pop_front();
+          }
+          job();
+        }
+      }
+
+      std::mutex m_mutex;
+      std::condition_variable m_wake;
+      std::deque<std::function<void()>> m_jobs;
+      bool m_stop = false;
+      std::thread m_thread;
+    };
+  } // namespace
+
+  TextBufferResult renderTextBuffer(const TextBufferParams& params) { return TextThread::instance().render(params); }
+
+  void warmTextRendering() {
+    TextThread::instance().post([] {
+      // Warms the text thread's font sets with the overview chrome's sizes and weights (overview/chrome.cpp), at the
+      // two device scales outputs round to (ceil of the output scale). The symbols (·, ▾, ▏) load the fallback font.
+      const auto start = std::chrono::steady_clock::now();
+      std::string markup;
+      for (const char* weight : {"normal", "500", "600", "bold"}) {
+        markup += std::string("<span weight='") + weight + "'>Desktop 1 · ▾ ▏ +</span>";
+      }
+      for (const double scale : {1.0, 2.0}) {
+        for (const char* font : {"sans 8.25", "sans 9", "sans 9.75", "sans 13.5", "sans 21"}) {
+          if (wlr_buffer* buffer = renderTextBufferHere({.markup = markup, .font = font, .scale = scale}).buffer) {
+            wlr_buffer_drop(buffer);
+          }
+        }
+      }
+      constexpr Logger kLog("text");
+      kLog.debug(
+          "text rendering warmed in {:.1f} ms",
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count()
+      );
+    });
   }
 
 } // namespace andromeda

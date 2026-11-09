@@ -828,6 +828,21 @@ namespace andromeda {
   }
 
   void Workspace::arrange(bool animate) {
+    using ArrangeClock = std::chrono::steady_clock;
+    const auto arrangeStart = ArrangeClock::now();
+    auto arrangeMark = arrangeStart;
+    std::string arrangePhases;
+    const auto arrangePhase = [&](const char* name) {
+      const auto now = ArrangeClock::now();
+      arrangePhases +=
+          std::format(" {} {:.1f}", name, std::chrono::duration<double, std::milli>(now - arrangeMark).count());
+      arrangeMark = now;
+    };
+    const auto arrangeReport = [&] {
+      if (std::chrono::duration<double, std::milli>(ArrangeClock::now() - arrangeStart).count() > 2.0) {
+        kLog.debug("workspace {} arrange phases (ms):{}", m_index, arrangePhases);
+      }
+    };
     // Clearing here, rather than only in flushArrange, is what makes mixing the two safe: a direct arrange() satisfies
     // whatever was marked earlier in the frame, so the flush does not repeat it.
     m_arrangePending = false;
@@ -847,7 +862,9 @@ namespace andromeda {
       return;
     }
 
+    arrangePhase("alone");
     m_layout->arrange(applyLayoutStruts(usable, m_layoutConfig.struts));
+    arrangePhase("layout");
     // Tab visibility follows the layout on hidden workspaces too, so a workspace always comes back showing the right
     // tabs.
     m_tabs.sync();
@@ -861,6 +878,7 @@ namespace andromeda {
     }
     // The map-time IPC event can fire before this arrange runs, leaving the previous window positions in the listing.
     // Re-emit now that the layout boxes are settled; the event coalescer caps this at one per frame.
+    arrangePhase("tabs+refit");
     m_group->server()->scheduleIpcWindowsEvent();
     struct ResizeRequest {
       View* view;
@@ -905,22 +923,29 @@ namespace andromeda {
     // Visual state below (scroll, positions) only applies while visible.
     Overview* overview = m_group->server()->overview();
     const bool overviewActive = overview != nullptr && overview->active();
+    arrangePhase("plan");
     if (!m_active && !m_inSwitchTransition && !overviewActive) {
       for (const ResizeRequest& request : resizeRequests) {
         request.view->requestTiledSize(request.width, request.height);
       }
+      arrangePhase("requests");
+      arrangeReport();
       return;
     }
 
     // One positioning path for every layout: targets already include any
     // layout-specific offset, and each view animates or snaps itself.
     applyPositions(animate, resized);
+    arrangePhase("positions");
     for (const ResizeRequest& request : resizeRequests) {
       request.view->requestTiledSize(request.width, request.height);
     }
+    arrangePhase("requests");
     if (overviewActive) {
       overview->onWorkspaceArranged(this);
     }
+    arrangePhase("overview");
+    arrangeReport();
   }
 
   void Workspace::syncViewPresentation(View* view) {

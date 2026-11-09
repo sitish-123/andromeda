@@ -3,6 +3,7 @@
 #include "core/scanout_keeper.h"
 #include "qos/controller.h"
 #include "server/server.h"
+#include "scene/text_buffer.h"
 #include "server/apps_bus.h"
 
 #include "core/screen_activity_recorder.h"
@@ -1485,6 +1486,7 @@ namespace andromeda {
   }
 
   bool Server::start(const char* startupCmd) {
+    warmTextRendering();
     m_lockFileManaged = !m_nested && isDirectSystemdService(getpid(), std::getenv("SYSTEMD_EXEC_PID"));
     if (m_lockFileManaged) {
       // Present from start to clean exit: finding it means the previous compositor crashed.
