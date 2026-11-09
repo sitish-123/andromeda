@@ -43,6 +43,7 @@ namespace settings {
     bool biometricsKnown = false;
     bool facePresent = false;
     bool fingerPresent = false;
+    bool fprintdMissing = false;
     std::vector<std::string> faces;
     // fprintd finger ids ("right-index-finger").
     std::vector<std::string> fingers;
@@ -59,6 +60,10 @@ namespace settings {
     bool faceAdminKnown = false;
     bool faceAdmin = false;
     std::function<void(bool)> setFaceAdmin;
+    // The helper is installed: the fingerprint "Admin prompts" switch shows.
+    bool fingerAdminKnown = false;
+    bool fingerAdmin = false;
+    std::function<void(bool)> setFingerAdmin;
     std::function<void(std::string)> openDetail;
     std::function<void()> back;
     std::function<void(std::vector<std::string> path, bool value)> setBool;

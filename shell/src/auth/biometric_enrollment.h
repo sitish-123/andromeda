@@ -41,6 +41,8 @@ public:
 
   [[nodiscard]] bool facePresent() const noexcept { return m_facePresent; }
   [[nodiscard]] bool fingerPresent() const noexcept { return m_fingerPresent; }
+  // fprintd is not installed, so a reader cannot show even when the laptop has one.
+  [[nodiscard]] bool fprintdMissing() const noexcept { return m_fprintdMissing; }
   [[nodiscard]] const std::vector<std::string>& faces() const noexcept { return m_faces; }
   [[nodiscard]] const std::vector<std::string>& fingers() const noexcept { return m_fingers; }
   [[nodiscard]] Method enrolling() const noexcept { return m_enrolling; }
@@ -72,6 +74,7 @@ private:
   std::string m_fingerDevice;
   bool m_facePresent = false;
   bool m_fingerPresent = false;
+  bool m_fprintdMissing = false;
   std::vector<std::string> m_faces;
   std::vector<std::string> m_fingers;
 

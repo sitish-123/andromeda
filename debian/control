@@ -28,7 +28,7 @@ Package: noctalia-desktop
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}, hicolor-icon-theme, git, curl, gstreamer1.0-plugins-base,
  gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-pipewire, andromeda-system (= ${binary:Version})
-Suggests: ddcutil
+Suggests: ddcutil, fprintd, libpam-fprintd
 Description: Noctalia desktop shell for Andromeda
 
 Package: xdg-desktop-portal-andromeda

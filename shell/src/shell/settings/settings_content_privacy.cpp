@@ -124,7 +124,10 @@ namespace settings {
     void addFingerPage(Flex& content, const SettingsPrivacyContext& ctx) {
       const float scale = ctx.scale;
       if (!ctx.fingerPresent) {
-        addEmptyState(content, "fingerprint-off", i18n::tr("settings.privacy.finger-unavailable"), scale);
+        addEmptyState(content, "fingerprint-off",
+                      i18n::tr(ctx.fprintdMissing ? "settings.privacy.finger-no-fprintd"
+                                                  : "settings.privacy.finger-unavailable"),
+                      scale);
         return;
       }
       addHeader(content, i18n::tr("settings.privacy.fingers"), nullptr, scale);
@@ -153,6 +156,12 @@ namespace settings {
       Flex* use = addCard(content, scale);
       addToggleRow(*use, i18n::tr("settings.privacy.use-unlock"), ctx.fingerprintUnlock, {"lockscreen", "fingerprint"},
                    ctx);
+      if (ctx.fingerAdminKnown) {
+        auto r = row(scale);
+        r->addChild(title(i18n::tr("settings.privacy.use-admin"), scale));
+        r->addChild(ui::toggle({.checked = ctx.fingerAdmin, .scale = scale, .onChange = ctx.setFingerAdmin}));
+        use->addChild(std::move(r));
+      }
     }
 
     void addRenamePage(Flex& content, const SettingsPrivacyContext& ctx, const std::string& from) {

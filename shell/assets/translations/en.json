@@ -1956,6 +1956,7 @@
       "faces": "Faces",
       "faces-many": "{count} faces",
       "faces-one": "1 face",
+      "finger-no-fprintd": "Install fprintd to use a fingerprint reader",
       "finger-unavailable": "No fingerprint reader",
       "finger-use-for": "Use Fingerprint For",
       "fingerprint": "Fingerprint",

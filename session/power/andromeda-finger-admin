@@ -1,0 +1,45 @@
+#!/bin/sh
+# Runs as root through pkexec (polkit org.andromeda.biometrics.finger-admin). Turns fingerprint for admin prompts on
+# or off: a pam_fprintd line first in /etc/pam.d/sudo and /etc/pam.d/polkit-1. A prompt waits up to 10 s for one
+# touch, then asks for the password; pam_fprintd skips at once for a user with no enrolled finger. "off" comments the
+# line out with a marker, so "on" can restore it.
+# Usage: andromeda-finger-admin on|off
+set -eu
+PATH=/usr/bin:/usr/sbin
+case ${1:-} in
+  on | off) ;;
+  *) echo "usage: $0 on|off" >&2; exit 2 ;;
+esac
+[ $# -eq 1 ] || { echo "usage: $0 on|off" >&2; exit 2; }
+# ANDROMEDA_PAM_ETC and ANDROMEDA_PAM_LIB are a test root; root always uses the system.
+[ "$(id -u)" -ne 0 ] || { ANDROMEDA_PAM_ETC=; ANDROMEDA_PAM_LIB=; }
+dir=${ANDROMEDA_PAM_ETC:-/etc}/pam.d
+line='auth       sufficient   pam_fprintd.so max-tries=1 timeout=10'
+active='^auth\s\+sufficient\s\+pam_fprintd\.so'
+# Debian's pam-auth-update puts pam_fprintd in common-auth, which sudo and polkit-1 include: that turns it on for
+# every login, and only pam-auth-update turns it off.
+for shared in "$dir/common-auth" "$dir/system-auth"; do
+  [ -f "$shared" ] && grep -q '^auth.*pam_fprintd\.so' "$shared" || continue
+  [ "$1" = on ] && exit 0
+  echo "pam_fprintd is on for every login in $shared; turn it off with pam-auth-update" >&2
+  exit 4
+done
+if [ "$1" = on ]; then
+  find "${ANDROMEDA_PAM_LIB:-/usr/lib}" -maxdepth 3 -path '*/security/pam_fprintd.so' | grep -q . \
+    || { echo "pam_fprintd is not installed; install fprintd first" >&2; exit 3; }
+  # New polkit ships its stack in /usr/lib/pam.d; a copy in /etc overrides it.
+  vendor=${ANDROMEDA_PAM_ETC:+$ANDROMEDA_PAM_ETC/..}/usr/lib/pam.d/polkit-1
+  [ -f "$dir/polkit-1" ] || [ ! -f "$vendor" ] || cp "$vendor" "$dir/polkit-1"
+fi
+for f in "$dir/sudo" "$dir/polkit-1"; do
+  [ -f "$f" ] || continue
+  if [ "$1" = off ]; then
+    sed -i "s/$active/#andromeda-off &/" "$f"
+  elif grep -q "^#andromeda-off auth\s\+sufficient\s\+pam_fprintd\.so" "$f"; then
+    sed -i 's/^#andromeda-off \(auth\s\+sufficient\s\+pam_fprintd\.so\)/\1/' "$f"
+  elif ! grep -q "$active" "$f"; then
+    # First auth line: before pam_gaze, so a touch never waits behind the face prompt.
+    sed -i "0,/^auth\s/s//$line\n&/" "$f"
+    grep -q "$active" "$f" || { echo "no auth line in $f" >&2; exit 5; }
+  fi
+done

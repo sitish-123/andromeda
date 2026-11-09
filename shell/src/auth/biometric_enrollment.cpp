@@ -157,6 +157,7 @@ void BiometricEnrollment::probeFinger() {
           }
           if (e.has_value()) {
             m_fingerPresent = false;
+            m_fprintdMissing = e->getName() == "org.freedesktop.DBus.Error.ServiceUnknown";
             m_fingers.clear();
             changed();
             return;
@@ -204,6 +205,7 @@ void BiometricEnrollment::probeFinger() {
                 });
           }
           m_fingerPresent = true;
+          m_fprintdMissing = false;
           listFingers();
         });
   });

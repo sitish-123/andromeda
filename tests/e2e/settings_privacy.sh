@@ -40,5 +40,11 @@ BEFORE_NOCTALIA='
   "$NOCTALIA" msg settings-open lock-screen > /dev/null
   sleep 1
   grim "$OUT/lock-screen-link.png"
+  # The private bus has no fprintd: the Fingerprint page says to install it, not that there is no reader.
+  "$NOCTALIA" msg settings-close > /dev/null
+  "$NOCTALIA" msg settings-open privacy > /dev/null
+  sleep 1
+  click 989 291    # Fingerprint chevron, one row under Face Unlock
+  grim "$OUT/privacy-finger.png"
 '
 echo PASS

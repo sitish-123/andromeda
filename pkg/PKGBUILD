@@ -261,7 +261,7 @@ package_noctalia-desktop-git() {
     libical libjxl libpipewire libqalculate librsvg libsecret libsndfile libsodium libstdc++ libwebp libwireplumber
     libxkbcommon libxml2 md4c pam polkit pango qrencode sdbus-cpp tomlplusplus wayland
     gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugin-pipewire gst-plugin-va andromeda-system-git)
-  optdepends=('ddcutil: monitor brightness control')
+  optdepends=('ddcutil: monitor brightness control' 'fprintd: fingerprint unlock and fingerprint for admin prompts')
   provides=(noctalia)
   conflicts=(noctalia)
   meson install -C build-shell --destdir "$pkgdir"
@@ -275,6 +275,7 @@ package_noctalia-desktop-git() {
   install -Dm644 desktop/session/power/org.andromeda.power.configure.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.power.configure.policy"
   install -Dm755 desktop/session/power/andromeda-face-admin "$pkgdir/usr/lib/noctalia/andromeda-face-admin"
+  install -Dm755 desktop/session/power/andromeda-finger-admin "$pkgdir/usr/lib/noctalia/andromeda-finger-admin"
   install -Dm644 desktop/session/power/org.andromeda.biometrics.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.biometrics.policy"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"

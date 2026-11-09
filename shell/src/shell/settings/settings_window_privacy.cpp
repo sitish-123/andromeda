@@ -23,6 +23,7 @@ namespace {
 
   constexpr auto kBiometricsAction = "org.andromeda.biometrics.manage";
   constexpr auto kFaceAdminHelper = "/usr/lib/noctalia/andromeda-face-admin";
+  constexpr auto kFingerAdminHelper = "/usr/lib/noctalia/andromeda-finger-admin";
 
   // nullopt: pam_gaze is not in /etc/pam.d/sudo; true: its line is active (not "#andromeda-off").
   std::optional<bool> faceAdminState() {
@@ -34,6 +35,19 @@ namespace {
       return !line.starts_with("#");
     }
     return std::nullopt;
+  }
+
+  // An active pam_fprintd line in sudo, or in the stack every login includes (Debian's pam-auth-update).
+  bool fingerAdminState() {
+    for (const char* path : {"/etc/pam.d/sudo", "/etc/pam.d/common-auth", "/etc/pam.d/system-auth"}) {
+      std::ifstream file(path);
+      for (std::string line; std::getline(file, line);) {
+        if (line.starts_with("auth") && line.find("pam_fprintd.so") != std::string::npos) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   std::string currentUser() {
@@ -245,6 +259,7 @@ void SettingsWindow::addPrivacyContent(float scale) {
           .biometricsKnown = enroll != nullptr,
           .facePresent = enroll != nullptr && enroll->facePresent(),
           .fingerPresent = enroll != nullptr && enroll->fingerPresent(),
+          .fprintdMissing = enroll != nullptr && enroll->fprintdMissing(),
           .faces = enroll != nullptr ? enroll->faces() : std::vector<std::string>{},
           .fingers = enroll != nullptr ? enroll->fingers() : std::vector<std::string>{},
           .enrolling = enrolling == BiometricEnrollment::Method::Face ? 1
@@ -262,6 +277,30 @@ void SettingsWindow::addPrivacyContent(float scale) {
               [this](bool on) {
                 const bool started = process::runAsync(
                     std::vector<std::string>{"pkexec", kFaceAdminHelper, on ? "on" : "off"},
+                    process::RunCallbacks{
+                        .onExit =
+                            [this, alive = std::weak_ptr<void>(m_aliveGuard)](const process::RunResult& result) {
+                              if (alive.expired()) {
+                                return;
+                              }
+                              m_privacyStatus = result ? std::string{} : i18n::tr("settings.privacy.change-failed");
+                              if (isOpen()) {
+                                requestContentRebuild();
+                              }
+                            },
+                    }
+                );
+                if (!started) {
+                  m_privacyStatus = i18n::tr("settings.privacy.change-failed");
+                  requestContentRebuild();
+                }
+              },
+          .fingerAdminKnown = ::access(kFingerAdminHelper, X_OK) == 0,
+          .fingerAdmin = fingerAdminState(),
+          .setFingerAdmin =
+              [this](bool on) {
+                const bool started = process::runAsync(
+                    std::vector<std::string>{"pkexec", kFingerAdminHelper, on ? "on" : "off"},
                     process::RunCallbacks{
                         .onExit =
                             [this, alive = std::weak_ptr<void>(m_aliveGuard)](const process::RunResult& result) {
