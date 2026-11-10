@@ -2252,8 +2252,6 @@ void Application::initSessionBusServices() {
     m_configService.addReloadCallback([this] { syncNotificationDaemon(); });
     installSecretServiceNameWatch();
     installSecretServiceCollectionWatch();
-
-    m_compositorPlatform.startKdeActiveWindow(*m_bus);
   }
 
   m_locationService.setSystemBus(m_systemBus.get());

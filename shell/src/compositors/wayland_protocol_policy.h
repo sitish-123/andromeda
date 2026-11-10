@@ -5,13 +5,7 @@
 namespace wayland_protocol_policy {
 
   [[nodiscard]] constexpr bool shouldBindExtForeignToplevelList(compositors::CompositorKind compositor) noexcept {
-    return compositor == compositors::CompositorKind::Niri
-        || compositor == compositors::CompositorKind::Hyprland
-        || compositor == compositors::CompositorKind::Kde
-        || compositor == compositors::CompositorKind::Andromeda
-        || compositor == compositors::CompositorKind::Labwc
-        || compositor == compositors::CompositorKind::Mango
-        || compositor == compositors::CompositorKind::Sway;
+    return compositor == compositors::CompositorKind::Andromeda;
   }
 
 } // namespace wayland_protocol_policy

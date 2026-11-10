@@ -115,7 +115,7 @@ expect_missing_config() {
   fi
 }
 
-for name in andromeda niri sway scroll mango hyprland-conf hyprland-lua labwc; do
+for name in andromeda; do
   configure_case "$name"
 
   expect_missing_config

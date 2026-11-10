@@ -374,20 +374,6 @@ namespace {
 
   std::vector<std::string> compositorVersionCommand(compositors::CompositorKind kind) {
     switch (kind) {
-    case compositors::CompositorKind::Niri:
-      return {"niri", "--version"};
-    case compositors::CompositorKind::Hyprland:
-      return {"Hyprland", "--version"};
-    case compositors::CompositorKind::Sway:
-      return {"sway", "--version"};
-    case compositors::CompositorKind::Mango:
-      return {"mango", "-v"};
-    case compositors::CompositorKind::Dwl:
-      return {"dwl", "-v"};
-    case compositors::CompositorKind::Labwc:
-      return {"labwc", "--version"};
-    case compositors::CompositorKind::Kde:
-      return {"kwin_wayland", "--version"};
     case compositors::CompositorKind::Andromeda:
       return {"andromeda", "-v"};
     case compositors::CompositorKind::Unknown:

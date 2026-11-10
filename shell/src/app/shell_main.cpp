@@ -6,6 +6,7 @@
 #include "cli/completions.h"
 #include "cli/help.h"
 #include "cli/schema_root.h"
+#include "compositors/compositor_detect.h"
 #include "config/cli.h"
 #include "core/build_info.h"
 #include "core/log.h"
@@ -223,6 +224,15 @@ namespace {
   }
 
   int runShell() {
+    if (compositors::detect() != compositors::CompositorKind::Andromeda) {
+      logError(
+          "noctalia runs only on the Andromeda compositor (ANDROMEDA_SOCKET is unset, desktop \"{}\")",
+          compositors::envHint()
+      );
+      completeDaemonStartup(1);
+      return 1;
+    }
+
     // Raise the soft fd limit before any Wayland/EGL init. The NVIDIA EGL/Wayland
     // driver leaks internal sync_file fences slowly across a session; the default
     // 1024 soft cap can be exhausted in a long-running session, after which the

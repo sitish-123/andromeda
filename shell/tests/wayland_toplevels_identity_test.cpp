@@ -30,13 +30,8 @@ int main() {
   using compositors::CompositorKind;
   using wayland_protocol_policy::shouldBindExtForeignToplevelList;
 
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Niri));
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Hyprland));
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Kde));
+  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Andromeda));
   TEST_CHECK(!shouldBindExtForeignToplevelList(CompositorKind::Unknown));
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Sway));
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Labwc));
-  TEST_CHECK(shouldBindExtForeignToplevelList(CompositorKind::Mango));
   TEST_CHECK(toplevel_identity::wlr(0).empty());
   TEST_CHECK(toplevel_identity::wlr(42) == "wlr:42");
   TEST_CHECK(toplevel_identity::isWlr("wlr:42"));

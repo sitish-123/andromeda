@@ -26,51 +26,11 @@ namespace compositors {
     }
 
     [[nodiscard]] CompositorKind detectImpl() {
-      // Compositor-set env vars are the most reliable signal.
       if (const char* v = std::getenv("ANDROMEDA_SOCKET"); v != nullptr && v[0] != '\0') {
         return CompositorKind::Andromeda;
       }
-      if (const char* v = std::getenv("LABWC_PID"); v != nullptr && v[0] != '\0') {
-        return CompositorKind::Labwc;
-      }
-      if (const char* v = std::getenv("NIRI_SOCKET"); v != nullptr && v[0] != '\0') {
-        return CompositorKind::Niri;
-      }
-      if (const char* v = std::getenv("HYPRLAND_INSTANCE_SIGNATURE"); v != nullptr && v[0] != '\0') {
-        return CompositorKind::Hyprland;
-      }
-      if (const char* v = std::getenv("SWAYSOCK"); v != nullptr && v[0] != '\0') {
-        return CompositorKind::Sway;
-      }
-      if (const char* v = std::getenv("MANGO_INSTANCE_SIGNATURE"); v != nullptr && v[0] != '\0') {
-        return CompositorKind::Mango;
-      }
-
-      // Fall back to the desktop env hint (covers dwl-style compositors that don't expose a socket var).
-      const std::string hint = buildEnvHint();
-      if (StringUtils::containsInsensitive(hint, "andromeda")) {
+      if (StringUtils::containsInsensitive(buildEnvHint(), "andromeda")) {
         return CompositorKind::Andromeda;
-      }
-      if (StringUtils::containsInsensitive(hint, "niri")) {
-        return CompositorKind::Niri;
-      }
-      if (StringUtils::containsInsensitive(hint, "hypr")) {
-        return CompositorKind::Hyprland;
-      }
-      if (StringUtils::containsInsensitive(hint, "sway")) {
-        return CompositorKind::Sway;
-      }
-      if (StringUtils::containsInsensitive(hint, "mango")) {
-        return CompositorKind::Mango;
-      }
-      if (StringUtils::containsInsensitive(hint, "dwl")) {
-        return CompositorKind::Dwl;
-      }
-      if (StringUtils::containsInsensitive(hint, "labwc")) {
-        return CompositorKind::Labwc;
-      }
-      if (StringUtils::containsInsensitive(hint, "kde") || StringUtils::containsInsensitive(hint, "plasma")) {
-        return CompositorKind::Kde;
       }
       return CompositorKind::Unknown;
     }
@@ -84,20 +44,6 @@ namespace compositors {
 
   std::string_view name(CompositorKind kind) {
     switch (kind) {
-    case CompositorKind::Niri:
-      return "Niri";
-    case CompositorKind::Hyprland:
-      return "Hyprland";
-    case CompositorKind::Sway:
-      return "Sway";
-    case CompositorKind::Mango:
-      return "Mango";
-    case CompositorKind::Dwl:
-      return "dwl";
-    case CompositorKind::Labwc:
-      return "Labwc";
-    case CompositorKind::Kde:
-      return "KDE";
     case CompositorKind::Andromeda:
       return "Andromeda";
     case CompositorKind::Unknown:
