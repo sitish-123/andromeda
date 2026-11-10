@@ -243,7 +243,7 @@ namespace {
     return std::round(Tokens::componentIslandInsetText * config.scale);
   }
 
-  // R5: symbol ends 8, text ends 12; the workspace track ends the left island at cell inset 4.
+  // R5: each island end is concentric with the item at that end: symbol ends 8 ((32 - 16) / 2), text ends 12.
   struct IslandInsets {
     float start;
     float end;
@@ -252,12 +252,15 @@ namespace {
   IslandInsets barIslandInsets(const BarConfig& config, std::size_t island) {
     const float symbol = std::round(Tokens::componentIslandInsetSymbol * config.scale);
     const float text = barIslandInset(config);
+    const bool vertical = config.position == "left" || config.position == "right";
     switch (island) {
     case 0:
-      // The workspace dots end the island concentric: (32 - 7) / 2 rounds to the text inset.
-      return {symbol, text};
+      // The workspace dots lead: (32 - 7) / 2 rounds to the text inset. The app title ends a horizontal island; a
+      // vertical one shows only the app icon.
+      return {text, vertical ? symbol : text};
     case 2:
-      return {symbol, text};
+      // Status symbols lead; the notification and mark symbols end it.
+      return {symbol, symbol};
     default:
       return {text, text};
     }

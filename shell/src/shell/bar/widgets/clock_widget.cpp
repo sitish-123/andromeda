@@ -50,18 +50,15 @@ std::string ClockWidget::formatTimeText() const {
     return formatLocalTime(m_format.c_str());
   }
 
-  if (!m_verticalFormat.empty()) {
-    if (!m_timezone.empty()) {
-      return formatTimezoneTime(m_verticalFormat.c_str(), m_timezone);
-    }
-    return formatLocalTime(m_verticalFormat.c_str());
+  const std::string& format = m_verticalFormat.empty() ? m_format : m_verticalFormat;
+  auto text = m_timezone.empty() ? formatLocalTime(format.c_str()) : formatTimezoneTime(format.c_str(), m_timezone);
+  if (text.find('\n') != std::string::npos) {
+    return text;
   }
 
-  // Fallback for vertical bars when no explicit vertical_format is configured:
-  // stack each whitespace- or colon-separated token on its own line so "21:15"
-  // splits into "21" / "15". Matches Pango's lineBudget (1 + '\n' count) so
-  // nothing gets ellipsized unless a single token is wider than the bar.
-  auto text = m_timezone.empty() ? formatLocalTime(m_format.c_str()) : formatTimezoneTime(m_format.c_str(), m_timezone);
+  // A one-line time does not fit the bar's width: stack each whitespace- or colon-separated token on its own line so
+  // "21:15" splits into "21" / "15". Matches Pango's lineBudget (1 + '\n' count) so nothing gets ellipsized unless a
+  // single token is wider than the bar.
   std::string out;
   out.reserve(text.size());
   bool lastWasBreak = true;
