@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 enum class HotspotState : std::uint8_t { Off, Activating, On, Deactivating };
 
@@ -62,6 +63,40 @@ struct HotspotChannel {
     return HotspotChannel{"a", (mhz - 5000) / 5};
   }
   return std::nullopt;
+}
+
+// A Wi-Fi device as NetworkManager lists it: its 802.11 mode and ActiveAccessPoint ("/" while not associated).
+struct HotspotWifiDevice {
+  std::string path;
+  std::uint32_t mode = 0;
+  std::string accessPoint;
+};
+
+// The connected Wi-Fi client (empty when none) and the device whose ActiveAccessPoint the plan watches.
+struct HotspotClientScan {
+  std::string client;
+  std::string accessPoint;
+  std::string watch;
+};
+
+// A device that roams has no access point for a moment; the plan still watches it, so it plans again when the
+// device associates. NetworkManager's ActiveConnections does not change at that moment.
+[[nodiscard]] inline HotspotClientScan hotspotClientScan(const std::vector<HotspotWifiDevice>& devices) {
+  constexpr std::uint32_t kModeInfrastructure = 2;
+  constexpr std::uint32_t kModeAccessPoint = 3;
+  HotspotClientScan scan;
+  for (const HotspotWifiDevice& device : devices) {
+    if (device.path.empty()) {
+      continue;
+    }
+    if (device.mode == kModeInfrastructure && !device.accessPoint.empty() && device.accessPoint != "/") {
+      return {.client = device.path, .accessPoint = device.accessPoint, .watch = device.path};
+    }
+    if (scan.watch.empty() && device.mode != kModeAccessPoint) {
+      scan.watch = device.path;
+    }
+  }
+  return scan;
 }
 
 // What one NetworkManager query saw: no hotspot connection, one in NM state Activating (1), or Activated (2).

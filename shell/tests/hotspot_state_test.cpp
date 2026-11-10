@@ -1,8 +1,10 @@
 #include "dbus/network/hotspot_state.h"
 #include "tests/test_check.h"
 
+#include <map>
 #include <optional>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace {
@@ -351,9 +353,50 @@ namespace {
     TEST_CHECK(machine.state() == HotspotState::Off && removed == created && !owned);
   }
 
+  // NmHotspot's plan triggers: an ActiveConnections change scans the devices; a change of the watched device's
+  // ActiveAccessPoint or of the watched access point's Frequency scans again.
+  void roamFollowsClient() {
+    std::map<std::string, std::uint32_t> frequency{{"/ap/36", 5180}, {"/ap/6", 0}};
+    std::vector<HotspotWifiDevice> world{{.path = "/dev/wlan0", .mode = 2, .accessPoint = "/ap/36"}};
+    HotspotClientScan scan;
+    std::optional<HotspotChannel> channel;
+    const auto plan = [&] {
+      scan = hotspotClientScan(world);
+      channel = scan.client.empty() ? std::nullopt : hotspotChannelOf(frequency[scan.accessPoint]);
+    };
+    const auto associate = [&](std::string ap) {
+      const bool watched = scan.watch == world[0].path;
+      world[0].accessPoint = std::move(ap);
+      if (watched) {
+        plan();
+      }
+    };
+
+    plan();
+    TEST_CHECK(channel.has_value() && channel->channel == 36);
+    // NetworkManager swaps the active connection while the device has no access point.
+    associate("/");
+    plan();
+    TEST_CHECK(scan.client.empty());
+    associate("/ap/6");
+    TEST_CHECK(scan.client == "/dev/wlan0" && !channel.has_value());
+    frequency["/ap/6"] = 2437;
+    if (scan.accessPoint == "/ap/6") {
+      plan();
+    }
+    TEST_CHECK(channel.has_value() && channel->band == "bg" && channel->channel == 6);
+
+    // An access-point interface is not watched as a client; the client beside it is found.
+    TEST_CHECK(
+        hotspotClientScan({{.path = "/dev/wlan0ap", .mode = 3, .accessPoint = "/"}, {}, world[0]}).client
+        == "/dev/wlan0"
+    );
+  }
+
 } // namespace
 
 int main() {
+  roamFollowsClient();
   const auto channelIs = [](std::uint32_t mhz, std::string_view band, std::uint32_t channel) {
     const auto got = hotspotChannelOf(mhz);
     return got.has_value() && got->band == band && got->channel == channel;

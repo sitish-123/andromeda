@@ -72,7 +72,8 @@ private:
   void startQuery();
   void startPlan();
   void setPlan(ClientPlan plan);
-  // Watches the client device's ActiveAccessPoint and that access point's Frequency; a change queries the plan.
+  // Watches a Wi-Fi device's ActiveAccessPoint, also while it has none, and that access point's Frequency; a change
+  // queries the plan.
   void watchClient(const std::string& device, const std::string& ap);
   // Restarts a hotspot beside the client on the plan's channel when the client roamed to another one.
   void followClientChannel();

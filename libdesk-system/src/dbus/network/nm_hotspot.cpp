@@ -31,7 +31,6 @@ namespace {
   constexpr std::uint32_t kActiveStateDeactivated = 4;
   constexpr auto kDeviceInterface = "org.freedesktop.NetworkManager.Device";
   constexpr auto kAccessPointInterface = "org.freedesktop.NetworkManager.AccessPoint";
-  constexpr std::uint32_t kWifiModeInfrastructure = 2;
   constexpr std::uint32_t kDeviceStateDisconnected = 30;
   constexpr auto kDeviceWait = std::chrono::seconds(10);
   const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
@@ -312,47 +311,52 @@ namespace {
   }
 
   // The first Wi-Fi device in infrastructure mode with an access point, and that access point; empty when none.
-  void findClient(SystemBus& bus, sdbus::IProxy& nm, std::function<void(std::string device, std::string ap)> done) {
+  void findClient(SystemBus& bus, sdbus::IProxy& nm, std::function<void(HotspotClientScan)> done) {
     try {
       nm.callMethodAsync("GetDevices")
           .onInterface(kNmInterface)
           .uponReplyInvoke([&bus, done](std::optional<sdbus::Error> error, std::vector<sdbus::ObjectPath> paths) {
-            if (error.has_value()) {
-              done({}, {});
+            if (error.has_value() || paths.empty()) {
+              done({});
               return;
             }
-            auto aps = std::make_shared<std::map<std::string, std::string>>();
-            auto match = FirstMatch::start(std::move(paths), [aps, done](std::optional<std::string>, std::string path) {
-              const auto ap = aps->find(path);
-              done(path, ap != aps->end() ? ap->second : std::string());
-            });
-            for (std::size_t i = 0; i < match->paths.size(); ++i) {
+            struct Scan {
+              std::vector<HotspotWifiDevice> devices;
+              std::size_t pending = 0;
+            };
+            auto scan = std::make_shared<Scan>(Scan{.devices = std::vector<HotspotWifiDevice>(paths.size()),
+                                                    .pending = paths.size()});
+            const auto settle = [scan, done] {
+              if (--scan->pending == 0) {
+                done(hotspotClientScan(scan->devices));
+              }
+            };
+            for (std::size_t i = 0; i < paths.size(); ++i) {
               try {
-                auto device = proxy(bus, match->paths[i]);
+                auto device = proxy(bus, paths[i]);
                 device->getAllPropertiesAsync()
                     .onInterface(kWirelessInterface)
-                    .uponReplyInvoke([device, match, aps, i](std::optional<sdbus::Error> e, const Properties& props) {
-                      bool client = false;
+                    .uponReplyInvoke([device, scan, settle, i, path = std::string(paths[i])](
+                                         std::optional<sdbus::Error> e, const Properties& props) {
                       try {
                         const auto mode = props.find(sdbus::PropertyName{"Mode"});
                         const auto ap = props.find(sdbus::PropertyName{"ActiveAccessPoint"});
-                        if (!e.has_value() && mode != props.end() && ap != props.end()
-                            && mode->second.get<std::uint32_t>() == kWifiModeInfrastructure) {
-                          const std::string apPath = ap->second.get<sdbus::ObjectPath>();
-                          client = apPath != "/";
-                          (*aps)[match->paths[i]] = apPath;
+                        if (!e.has_value() && mode != props.end() && ap != props.end()) {
+                          scan->devices[i] = HotspotWifiDevice{.path = path,
+                                                               .mode = mode->second.get<std::uint32_t>(),
+                                                               .accessPoint = ap->second.get<sdbus::ObjectPath>()};
                         }
                       } catch (const sdbus::Error&) {
                       }
-                      match->settle(i, client);
+                      settle();
                     });
               } catch (const sdbus::Error&) {
-                match->settle(i, false);
+                settle();
               }
             }
           });
     } catch (const sdbus::Error&) {
-      done({}, {});
+      done({});
     }
   }
 
@@ -509,15 +513,17 @@ void NmHotspot::startPlan() {
   const std::uint64_t token = ++m_planToken;
   const auto current = [this, alive, token] { return !alive.expired() && token == m_planToken; };
   const ClientPlan turnsOff{.kind = ClientPlan::Kind::TurnsOffClient, .client = {}, .channel = {}};
-  findClient(m_bus, *m_nm, [this, current, turnsOff](std::string device, std::string ap) {
+  findClient(m_bus, *m_nm, [this, current, turnsOff](const HotspotClientScan& scan) {
     if (!current()) {
       return;
     }
-    watchClient(device, ap);
-    if (device.empty()) {
+    watchClient(scan.watch, scan.accessPoint);
+    if (scan.client.empty()) {
       setPlan({});
       return;
     }
+    const std::string& device = scan.client;
+    const std::string& ap = scan.accessPoint;
     readProperty<std::uint32_t>(m_bus, ap, kAccessPointInterface, "Frequency", [this, current, turnsOff, device](
                                                                                     std::optional<std::uint32_t> mhz) {
       if (!current()) {
@@ -549,14 +555,14 @@ void NmHotspot::startPlan() {
                   return;
                 }
                 if (error.has_value()) {
-                  kLog.debug("CanRunApWithClient failed: {}", error->what());
+                  kLog.warn("CanRunApWithClient failed, the hotspot turns off Wi-Fi: {}", error->what());
                 }
                 setPlan(!error.has_value() && can
                             ? ClientPlan{.kind = ClientPlan::Kind::BesideClient, .client = client, .channel = channel}
                             : turnsOff);
               });
         } catch (const sdbus::Error& e) {
-          kLog.debug("CanRunApWithClient failed: {}", e.what());
+          kLog.warn("CanRunApWithClient failed, the hotspot turns off Wi-Fi: {}", e.what());
           setPlan(turnsOff);
         }
       });
