@@ -9,8 +9,8 @@ ExecStart=/usr/lib/andromeda/andromeda-system
 Restart=on-failure
 WatchdogSec=30s
 # Root only for reads the kernel keeps from users (RAPL energy_uj 0400); PSI triggers with 1 s windows need
-# CAP_SYS_RESOURCE. Nothing in /sys or /etc is written yet (step 1 of docs/system-health.md).
-CapabilityBoundingSet=CAP_SYS_RESOURCE
+# CAP_SYS_RESOURCE. CAP_NET_ADMIN creates the hotspot AP interface (nl80211 add interface).
+CapabilityBoundingSet=CAP_SYS_RESOURCE CAP_NET_ADMIN
 AmbientCapabilities=
 NoNewPrivileges=yes
 ProtectSystem=strict
