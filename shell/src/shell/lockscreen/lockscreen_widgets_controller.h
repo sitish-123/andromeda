@@ -44,6 +44,11 @@ public:
 
   void initialize(const LockscreenWidgetsControllerServices& services);
 
+  // The snapshot a lock shows for this config on these outputs, as the controller loads it, without saving it.
+  // Widgets off leaves an empty snapshot: the host then plays only a live wallpaper.
+  [[nodiscard]] static LockscreenWidgetsSnapshot
+  lockSnapshot(const LockscreenWidgetsConfig& config, const WaylandConnection& wayland);
+
   void registerIpc(IpcService& ipc);
   void onLockStateChanged();
   void onOutputChange();
@@ -74,7 +79,7 @@ private:
   void saveSnapshotToConfig();
   void applyVisibility();
   void handleConfigReload();
-  void normalizeSnapshot();
+  static void normalizeSnapshot(LockscreenWidgetsSnapshot& snapshot, const WaylandConnection& wayland);
 
   WaylandConnection* m_wayland = nullptr;
   ConfigService* m_config = nullptr;

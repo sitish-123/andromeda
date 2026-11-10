@@ -160,7 +160,7 @@ void LockscreenWidgetsController::onOutputChange() {
     return;
   }
   bool placementChanged = m_placementMapper.remapForOutputChange(m_wayland->outputs(), m_snapshot.widgets);
-  normalizeSnapshot();
+  normalizeSnapshot(m_snapshot, *m_wayland);
   placementChanged |= m_placementMapper.remapForOutputChange(m_wayland->outputs(), m_snapshot.widgets);
   if (placementChanged) {
     saveSnapshotToConfig();
@@ -272,7 +272,7 @@ void LockscreenWidgetsController::exitEdit() {
   }
 
   m_snapshot = fromDesktopWidgetsEditorSnapshot(m_editor->snapshot());
-  normalizeSnapshot();
+  normalizeSnapshot(m_snapshot, *m_wayland);
   m_placementMapper.rebaseForCurrentOutputs(m_wayland->outputs(), m_snapshot.widgets);
   applyVisibility();
   (void)m_editor->close();
@@ -357,7 +357,7 @@ void LockscreenWidgetsController::loadSnapshotFromConfig() {
   // that clamp operates in the current output's logical coordinate space.
   bool placementChanged = m_placementMapper.remapForOutputChange(m_wayland->outputs(), m_snapshot.widgets);
   const std::size_t widgetCountBefore = m_snapshot.widgets.size();
-  normalizeSnapshot();
+  normalizeSnapshot(m_snapshot, *m_wayland);
   placementChanged |= m_placementMapper.remapForOutputChange(m_wayland->outputs(), m_snapshot.widgets);
   if (placementChanged || m_snapshot.widgets.size() > widgetCountBefore) {
     saveSnapshotToConfig();
@@ -428,15 +428,26 @@ void LockscreenWidgetsController::handleConfigReload() {
   applyVisibility();
 }
 
-void LockscreenWidgetsController::normalizeSnapshot() {
-  if (m_wayland == nullptr) {
-    return;
+LockscreenWidgetsSnapshot
+LockscreenWidgetsController::lockSnapshot(const LockscreenWidgetsConfig& config, const WaylandConnection& wayland) {
+  if (!config.enabled) {
+    return {};
   }
+  LockscreenWidgetsSnapshot snapshot = config;
+  const desktop_widgets::PlacementMapper mapper;
+  (void)mapper.remapForOutputChange(wayland.outputs(), snapshot.widgets);
+  normalizeSnapshot(snapshot, wayland);
+  (void)mapper.remapForOutputChange(wayland.outputs(), snapshot.widgets);
+  return snapshot;
+}
 
-  lockscreen_login_box::ensureWidgets(m_snapshot.widgets, m_wayland->outputs());
+void LockscreenWidgetsController::normalizeSnapshot(
+    LockscreenWidgetsSnapshot& snapshot, const WaylandConnection& wayland
+) {
+  lockscreen_login_box::ensureWidgets(snapshot.widgets, wayland.outputs());
 
   std::uint64_t maxCounter = 0;
-  for (const auto& widget : m_snapshot.widgets) {
+  for (const auto& widget : snapshot.widgets) {
     if (lockscreen_login_box::isLoginBoxWidget(widget)) {
       continue;
     }
@@ -447,7 +458,7 @@ void LockscreenWidgetsController::normalizeSnapshot() {
   }
 
   std::unordered_set<std::string> seenIds;
-  for (auto& widget : m_snapshot.widgets) {
+  for (auto& widget : snapshot.widgets) {
     if (lockscreen_login_box::isLoginBoxWidget(widget)) {
       lockscreen_login_box::normalizeSettings(widget.settings);
       seenIds.insert(widget.id);
@@ -465,14 +476,14 @@ void LockscreenWidgetsController::normalizeSnapshot() {
     seenIds.insert(widget.id);
 
     if (widget.outputName.empty()) {
-      const WaylandOutput* output = desktop_widgets::resolveEffectiveOutput(*m_wayland, widget.outputName);
+      const WaylandOutput* output = desktop_widgets::resolveEffectiveOutput(wayland, widget.outputName);
       if (output != nullptr) {
         widget.outputName = desktop_widgets::outputKey(*output);
       }
       continue;
     }
 
-    if (desktop_widgets::selectOutput(m_wayland->outputs(), widget.outputName).ambiguous) {
+    if (desktop_widgets::selectOutput(wayland.outputs(), widget.outputName).ambiguous) {
       kLog.warn(
           "widget {} output selector '{}' matches multiple monitors; use a unique description or serial", widget.id,
           widget.outputName

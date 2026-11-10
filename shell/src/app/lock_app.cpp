@@ -11,9 +11,11 @@
 #include "config/config_service.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
+#include "core/timer_manager.h"
 #include "dbus/andromeda/lock_service.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
+#include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
 #include "dbus/system_bus.h"
@@ -21,12 +23,19 @@
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "i18n/i18n_service.h"
+#include "ipc/pixel_stream_service.h"
 #include "net/http_client.h"
 #include "render/animation/motion_service.h"
 #include "render/core/shared_texture_cache.h"
 #include "render/gl_shared_context.h"
 #include "render/render_context.h"
+#include "scripting/plugin_manager.h"
+#include "scripting/plugin_registry.h"
+#include "scripting/script_api_context.h"
 #include "shell/lockscreen/lock_screen.h"
+#include "shell/lockscreen/lock_surface.h"
+#include "shell/lockscreen/lockscreen_widgets_controller.h"
+#include "shell/lockscreen/lockscreen_widgets_host.h"
 #include "shell/session/session_action_runner.h"
 #include "system/lock_keys_poll_source.h"
 #include "system/lock_keys_service.h"
@@ -78,6 +87,11 @@ namespace {
           m_logind->setLockBeforeSuspendEnabled(m_config.shouldLockBeforeSuspend());
         }
         m_lock.onConfigChanged();
+        if (m_config.lastChange().plugins && m_widgetsShown) {
+          loadPlugins();
+          m_widgetsHost.reloadPluginWidgets(m_lock);
+        }
+        syncWidgets();
       });
 
       if (!m_wayland.connect()) {
@@ -98,6 +112,7 @@ namespace {
       initBuses();
       m_lock.initialize(m_wayland, &m_renderContext, &m_config, &m_textures, m_systemBus.get(), &m_platform);
       m_lock.setLoginBoxServices(&m_sessionActions, m_mpris.get(), &m_weather, &m_http);
+      initWidgets();
       initHooks();
       initInput();
       initLiveAppearance();
@@ -146,6 +161,14 @@ namespace {
       } catch (const std::exception& e) {
         kLog.warn("system bus: {}", e.what());
       }
+      if (m_systemBus != nullptr) {
+        try {
+          m_powerProfiles = std::make_unique<PowerProfilesService>(*m_systemBus);
+          m_powerProfiles->setChangeCallback([this](const auto& /*state*/, auto /*origin*/) { syncStreamPause(); });
+        } catch (const std::exception& e) {
+          kLog.warn("power profiles: {}", e.what());
+        }
+      }
       try {
         m_sessionBus = std::make_unique<SessionBus>();
         m_sessionBusPoll = std::make_unique<SessionBusPollSource>(*m_sessionBus);
@@ -155,15 +178,81 @@ namespace {
       }
     }
 
+    void initWidgets() {
+      m_widgetsHost.initialize(DesktopWidgetServices{
+          .wayland = m_wayland,
+          .config = &m_config,
+          .renderContext = &m_renderContext,
+          .runtime =
+              {
+                  .weather = &m_weather,
+                  .mpris = m_mpris.get(),
+                  .httpClient = &m_http,
+                  .scriptDeps = {.scriptApi = &m_scriptApi, .configService = &m_config},
+              },
+          .textureCache = &m_textures,
+      });
+      syncStreamPause();
+    }
+
+    void loadPlugins() {
+      scripting::applyPluginSourcesToRegistry(scripting::PluginRegistry::instance(), m_config.config().plugins);
+    }
+
+    // As LockscreenWidgetsController::applyVisibility: the host and its lock helper run only while the session is
+    // locked (never on the surfaces of a pending lock), and with widgets off the host still plays a video or shader
+    // wallpaper. Only show() resets the helper restart cap, so a visible host is rebuilt, never shown again.
+    void syncWidgets() {
+      if (!m_sessionLocked || !m_config.isLockScreenEnabled()) {
+        m_widgetsTick.stop();
+        m_widgetsHost.hide();
+        m_widgetsShown = false;
+        return;
+      }
+      m_scriptApi.setDarkMode(!m_theme.isLightMode());
+      m_scriptApi.setTimeFormat(m_config.config().shell.timeFormat);
+      m_scriptApi.setDateFormat(m_config.config().shell.dateFormat);
+      auto snapshot = LockscreenWidgetsController::lockSnapshot(m_config.config().lockscreenWidgets, m_wayland);
+      if (m_widgetsShown) {
+        m_widgetsHost.rebuild(snapshot, m_lock);
+      } else {
+        loadPlugins();
+        m_widgetsHost.show(snapshot, m_lock);
+        m_widgetsShown = true;
+      }
+      scheduleWidgetsTick();
+    }
+
+    // The shell's TimeService tick: every second while a widget shows seconds, else on the minute.
+    void scheduleWidgetsTick() {
+      using namespace std::chrono;
+      const milliseconds period = m_widgetsHost.wantsSecondTicks() ? milliseconds(seconds(1)) : minutes(1);
+      const auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch());
+      m_widgetsTick.start(period - now % period + milliseconds(5), [this] {
+        m_widgetsHost.onSecondTick();
+        scheduleWidgetsTick();
+      });
+    }
+
+    void syncStreamPause() {
+      const bool powerSaver = m_powerProfiles != nullptr && m_powerProfiles->activeProfile() == "power-saver";
+      setLockClockPowerSaver(powerSaver);
+      m_widgetsHost.setStreamsPaused(powerSaver, m_platform.outputPowerStates());
+    }
+
     void initHooks() {
       m_lock.setSessionHooks(
           [this] {
             if (m_logind != nullptr) {
               m_logind->setSessionLockedHint(true);
             }
+            m_sessionLocked = true;
+            syncWidgets();
             emitState("locked");
           },
           [this] {
+            m_sessionLocked = false;
+            syncWidgets();
             releaseSleepDelayIfPending();
             if (m_logind != nullptr) {
               m_logind->setSessionLockedHint(false);
@@ -176,12 +265,17 @@ namespace {
             emitState("unlocked");
           },
           [this] {
+            m_sessionLocked = false;
+            syncWidgets();
             releaseSleepDelayIfPending();
             emitState("aborted");
           },
           [this] { releaseSleepDelayIfPending(); }
       );
-      m_platform.setOutputPowerChangeCallback([this] { m_lock.onOutputPowerChanged(); });
+      m_platform.setOutputPowerChangeCallback([this] {
+        m_lock.onOutputPowerChanged();
+        syncStreamPause();
+      });
 
       if (m_logind == nullptr) {
         return;
@@ -262,7 +356,10 @@ namespace {
           m_lock.onKeyboardLayoutChanged();
         }
       });
-      m_wayland.setOutputChangeCallback([this] { m_lock.onOutputChange(); });
+      m_wayland.setOutputChangeCallback([this] {
+        m_lock.onOutputChange();
+        syncWidgets();
+      });
       // The previous lock process died while locked, or the compositor restarted into the lock: lock at once.
       m_wayland.setRelockCallback([this] { (void)lock("relock"); });
     }
@@ -361,6 +458,7 @@ namespace {
       sources.push_back(&m_keyRepeatPoll);
       sources.push_back(&m_keyboardLayoutPoll);
       sources.push_back(&m_lockKeysPoll);
+      sources.push_back(&m_pixelStreams);
       return sources;
     }
 
@@ -375,18 +473,25 @@ namespace {
     GlSharedContext m_glShared;
     SharedTextureCache m_textures;
     RenderContext m_renderContext;
+    // Polls the lock helper's frame sockets; its clients live in the lock surfaces, so it outlives m_lock.
+    PixelStreamService m_pixelStreams;
 
     // The lock's authenticators and players hold proxies on these buses, so the buses outlive m_lock.
     std::unique_ptr<SystemBus> m_systemBus;
     std::unique_ptr<SystemBusPollSource> m_systemBusPoll;
     std::unique_ptr<LogindService> m_logind;
     std::unique_ptr<UPowerService> m_upower;
+    std::unique_ptr<PowerProfilesService> m_powerProfiles;
     std::unique_ptr<SessionBus> m_sessionBus;
     std::unique_ptr<SessionBusPollSource> m_sessionBusPoll;
     std::unique_ptr<MprisService> m_mpris;
 
     LockScreen m_lock;
     SessionActionRunner m_sessionActions{m_platform, m_lock};
+    scripting::ScriptApiContext m_scriptApi;
+    // Declared after m_lock: hide() on destruction detaches its nodes from the live lock surfaces.
+    LockscreenWidgetsHost m_widgetsHost;
+    Timer m_widgetsTick;
     std::unique_ptr<LockDBusService> m_control;
 
     DeferredCallPollSource m_deferredPoll;
@@ -396,6 +501,8 @@ namespace {
     KeyboardLayoutPollSource m_keyboardLayoutPoll{m_platform};
     LockKeysPollSource m_lockKeysPoll{m_lockKeys};
 
+    bool m_sessionLocked = false;
+    bool m_widgetsShown = false;
     bool m_skipLockOnNextSleep = false;
     bool m_releaseSleepDelayWhenLocked = false;
   };

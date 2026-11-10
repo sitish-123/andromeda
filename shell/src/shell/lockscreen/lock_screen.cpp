@@ -402,6 +402,8 @@ void LockScreen::finishUnlock() {
   // isActive() is false so LockscreenWidgetsController::applyVisibility() hides first.
   if (wasLockedInteractive && m_onSessionUnlocked) {
     m_onSessionUnlocked();
+  } else if (!wasLockedInteractive && m_onLockAborted) {
+    m_onLockAborted();
   }
 
   clearInstances();
