@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # NetworkManager on a test system bus: the root object's Connectivity, Metered, ActiveConnections and
-# ConnectivityCheckUri, no devices. dsk.test.NM.SetConnectivity(u) changes Connectivity (1 none, 2 portal, 4 full).
+# ConnectivityCheckUri. GetDevices lists none; GetDeviceByIpIface finds the interfaces of the fake nl80211 file
+# ANDROMEDA_SYSTEM_FAKE_WIFI names, in state Disconnected. dsk.test.NM.SetConnectivity(u) changes Connectivity
+# (1 none, 2 portal, 4 full).
 import os
 
 import dbus
@@ -12,6 +14,14 @@ NM = "org.freedesktop.NetworkManager"
 PROPS = "org.freedesktop.DBus.Properties"
 
 
+class Device(dbus.service.Object):
+    """A device in state Disconnected (30): NetworkManager manages it and can activate on it."""
+
+    @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
+    def Get(self, interface, name):
+        return {"State": dbus.UInt32(30)}[name]
+
+
 class NetworkManager(dbus.service.Object):
     def __init__(self, bus):
         super().__init__(bus, "/org/freedesktop/NetworkManager")
@@ -21,6 +31,7 @@ class NetworkManager(dbus.service.Object):
             "ActiveConnections": dbus.Array([], signature="o"),
             "ConnectivityCheckUri": "http://nmcheck.test/check",
         }
+        self.devices = {}
 
     @dbus.service.method(PROPS, in_signature="ss", out_signature="v")
     def Get(self, interface, name):
@@ -37,6 +48,18 @@ class NetworkManager(dbus.service.Object):
     @dbus.service.method(NM, out_signature="ao")
     def GetDevices(self):
         return dbus.Array([], signature="o")
+
+    @dbus.service.method(NM, in_signature="s", out_signature="o")
+    def GetDeviceByIpIface(self, iface):
+        try:
+            with open(os.environ.get("ANDROMEDA_SYSTEM_FAKE_WIFI", "/nonexistent")) as f:
+                ifindex = next(line.split()[1] for line in f if line.split()[:1] == [iface])
+        except (OSError, StopIteration):
+            raise dbus.DBusException(f"no device {iface}", name=f"{NM}.UnknownDevice") from None
+        path = f"/org/freedesktop/NetworkManager/Devices/{ifindex}"
+        if path not in self.devices:
+            self.devices[path] = Device(self.connection, path)
+        return dbus.ObjectPath(path)
 
     @dbus.service.method("dsk.test.NM", in_signature="u")
     def SetConnectivity(self, value):

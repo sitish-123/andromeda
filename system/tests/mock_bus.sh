@@ -35,6 +35,9 @@ start_mock() {
   until_has 50 ready cat "$OUT/mock.out"
 }
 start_mock
+# The fake nl80211 file (wifi.rs Fake): client wlan0, ifindex 3, card 0, station (2), up, on 2412 MHz.
+export ANDROMEDA_SYSTEM_FAKE_WIFI=$OUT/wifi
+echo 'wlan0 3 0 2 1 2412' >"$ANDROMEDA_SYSTEM_FAKE_WIFI"
 STATE_DIRECTORY=$OUT ANDROMEDA_SYSTEM_TEST=1 "$BIN" >"$OUT/daemon.log" 2>&1 & PIDS+=($!)
 
 until_has 30 '"battery" true ""' get /org/andromeda/System1 Manager Areas
@@ -213,4 +216,38 @@ until_has 30 '"network" true ""' get /org/andromeda/System1 Manager Areas
 "${B[@]}" call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager dsk.test.NM SetConnectivity u 2
 until_has 80 'Sign in to the network default,Sign In network.captive_portal' cat "$OUT/notes.log"
 until_has 20 'http://nmcheck.test/check' cat "$OUT/opened.log"
+
+# Network.CreateApInterface: wpa_supplicant (tests/mock_wpa_supplicant.py) makes wlan0ap; NetworkManager lists it
+# (mock_nm.py). A second call after NetworkManager reset it to station and down makes it an access point and up
+# again without a new interface; removal goes through wpa_supplicant. One caller holds the interface throughout.
+python3 "$ROOT/system/tests/mock_wpa_supplicant.py" "$ANDROMEDA_SYSTEM_FAKE_WIFI" "$OUT/wpa.log" >"$OUT/wpa.out" 2>&1 &
+PIDS+=($!)
+until_has 50 ready cat "$OUT/wpa.out"
+python3 -c 'import re, sys, dbus
+wifi = sys.argv[2]
+net = dbus.Interface(dbus.bus.BusConnection(sys.argv[1]).get_object("org.andromeda.System1",
+                     "/org/andromeda/System1/Network"), "org.andromeda.System1.Network")
+def row():
+    return next((line.split() for line in open(wifi) if line.startswith("wlan0ap ")), None)
+def check(what):
+    r = row()
+    if r is None or r[2:5] != ["0", "3", "1"]:
+        sys.exit(f"{what}: wlan0ap is no access point that is up on card 0: {open(wifi).read()!r}")
+    return r[1]
+assert net.CreateApInterface("wlan0", timeout=20) == "wlan0ap"
+first = check("create")
+text = open(wifi).read()
+open(wifi, "w").write(re.sub(r"^(wlan0ap \d+ 0) 3 1 ", r"\1 2 0 ", text, flags=re.M))
+assert net.CreateApInterface("wlan0", timeout=20) == "wlan0ap"
+if check("re-arm") != first:
+    sys.exit("re-arm made a new interface")
+net.RemoveApInterface("wlan0ap", timeout=20)
+if row() is not None:
+    sys.exit("wlan0ap stayed after RemoveApInterface")
+' "$DBUS_SYSTEM_BUS_ADDRESS" "$ANDROMEDA_SYSTEM_FAKE_WIFI" || fail "access-point interface"
+diff -u - "$OUT/wpa.log" <<'EOF' || fail "wpa_supplicant calls differ"
+CreateInterface wlan0ap ap True
+GetInterface wlan0ap
+RemoveInterface /fi/w1/wpa_supplicant1/Interfaces/4
+EOF
 echo PASS

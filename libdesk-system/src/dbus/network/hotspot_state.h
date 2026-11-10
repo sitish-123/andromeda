@@ -86,6 +86,7 @@ public:
     case Phase::ApCalling:
     case Phase::ApStarting:
     case Phase::ApRestarting:
+    case Phase::ApRearming:
       return HotspotState::Activating;
     case Phase::On:
     case Phase::ApOn:
@@ -134,15 +135,17 @@ public:
     case HotspotEvent::DeactivateOk:
       return (m_phase == Phase::Deactivating && transition(Phase::Off, {}))
              || (m_phase == Phase::ApDeactivating && transition(Phase::Removing, {}))
-             || (m_phase == Phase::ApRestarting && transition(Phase::ApCalling, {}));
+             || (m_phase == Phase::ApRestarting && transition(Phase::ApRearming, {}));
     case HotspotEvent::DeactivateFailed:
       return (m_phase == Phase::Deactivating && transition(Phase::On, std::string(error)))
              || (m_phase == Phase::ApDeactivating && transition(Phase::ApOn, std::string(error)))
              || (m_phase == Phase::ApRestarting && transition(Phase::Removing, std::string(error)));
     case HotspotEvent::InterfaceCreated:
-      return m_phase == Phase::Creating && transition(Phase::AwaitingDevice, {});
+      return (m_phase == Phase::Creating && transition(Phase::AwaitingDevice, {}))
+             || (m_phase == Phase::ApRearming && transition(Phase::ApCalling, {}));
     case HotspotEvent::InterfaceFailed:
-      return m_phase == Phase::Creating && transition(Phase::Off, std::string(error));
+      return (m_phase == Phase::Creating && transition(Phase::Off, std::string(error)))
+             || (m_phase == Phase::ApRearming && transition(Phase::Removing, std::string(error)));
     case HotspotEvent::DeviceReady:
       return m_phase == Phase::AwaitingDevice && transition(Phase::ApCalling, {});
     case HotspotEvent::DeviceTimeout:
@@ -174,6 +177,7 @@ public:
     case Phase::ApCalling:
     case Phase::ApDeactivating:
     case Phase::ApRestarting:
+    case Phase::ApRearming:
     case Phase::Removing:
       return false;
     case Phase::Starting:
@@ -202,7 +206,8 @@ public:
 private:
   // Calling: the Activate call is in flight. Starting: NM accepted it; waiting for the connection to come up.
   // Ap*: the same on an access-point interface this machine created; Creating and Removing are its System1 calls.
-  // ApRestarting: deactivating to start again on the client's new channel.
+  // ApRestarting: deactivating to start again on the client's new channel. ApRearming: CreateApInterface again,
+  // because NetworkManager resets the interface type to managed when it deactivates.
   enum class Phase : std::uint8_t {
     Off,
     Calling,
@@ -216,6 +221,7 @@ private:
     ApOn,
     ApDeactivating,
     ApRestarting,
+    ApRearming,
     Removing,
   };
 
@@ -224,6 +230,7 @@ private:
     case Phase::Calling:
       return HotspotWork::Activate;
     case Phase::Creating:
+    case Phase::ApRearming:
       return HotspotWork::CreateInterface;
     case Phase::AwaitingDevice:
       return HotspotWork::AwaitDevice;

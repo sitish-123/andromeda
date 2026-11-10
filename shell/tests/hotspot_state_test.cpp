@@ -9,6 +9,8 @@ namespace {
 
   enum class Call : std::uint8_t { Activate, Deactivate, Create, Remove };
 
+  enum class Restart : std::uint8_t { None, Deactivating, Rearming };
+
   enum class Step : std::uint8_t {
     RequestOn,
     RequestOnBeside,
@@ -64,8 +66,9 @@ namespace {
     bool starting = false;
     bool awaitingDevice = false;
     bool planKnown = false;
-    // A roam's Deactivate is in flight; its success starts the activation on the new channel.
-    bool restarting = false;
+    // Deactivating: a roam's Deactivate is in flight; its success re-arms the interface. Rearming: that
+    // CreateApInterface call is in flight; its success starts the activation on the new channel.
+    Restart restart = Restart::None;
     // An interface exists whose removal the machine has not started yet.
     bool owned = false;
     int created = 0;
@@ -89,7 +92,7 @@ namespace {
         inFlight = Call::Activate;
         break;
       case HotspotWork::CreateInterface:
-        TEST_CHECK(!owned);
+        TEST_CHECK(owned == (restart == Restart::Rearming));
         inFlight = Call::Create;
         break;
       case HotspotWork::AwaitDevice:
@@ -165,7 +168,8 @@ namespace {
       TEST_CHECK(machine.apply(event, "denied"));
       fence = lastIssued;
       inFlight.reset();
-      if (call == Call::Create && ok) {
+      const Restart wasRestart = std::exchange(restart, Restart::None);
+      if (call == Call::Create && ok && wasRestart != Restart::Rearming) {
         owned = true;
         ++created;
       }
@@ -175,11 +179,17 @@ namespace {
       } else if (ok && call == Call::Deactivate) {
         world = HotspotObservation::Off;
       }
-      const bool wasRestarting = std::exchange(restarting, false);
-      const bool removing =
-          owned && ((call == Call::Activate && !ok) || (call == Call::Deactivate && ok != wasRestarting));
+      const bool removing = owned
+                            && ((call == Call::Activate && !ok)
+                                || (call == Call::Deactivate && ok != (wasRestart == Restart::Deactivating))
+                                || (call == Call::Create && !ok && wasRestart == Restart::Rearming));
+      if (wasRestart == Restart::Deactivating && ok) {
+        restart = Restart::Rearming;
+      }
       drain();
-      if (wasRestarting && ok) {
+      if (wasRestart == Restart::Deactivating && ok) {
+        TEST_CHECK(inFlight == Call::Create && owned);
+      } else if (wasRestart == Restart::Rearming && ok) {
         TEST_CHECK(inFlight == Call::Activate);
       }
       if (call == Call::Remove) {
@@ -267,7 +277,7 @@ namespace {
         const bool accepted = machine.apply(HotspotEvent::ClientChannelChanged);
         TEST_CHECK(accepted == (prior == HotspotState::On && owned));
         if (accepted) {
-          restarting = true;
+          restart = Restart::Deactivating;
           fence = lastIssued;
           drain();
           TEST_CHECK(inFlight == Call::Deactivate && machine.state() == HotspotState::Activating);
