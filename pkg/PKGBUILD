@@ -125,7 +125,8 @@ package_andromeda-greetd() {
 
 package_andromeda-system-git() {
   pkgdesc='Andromeda system daemon: one API (org.andromeda.System1) for power, battery, thermal, memory, storage and network'
-  depends=(dbus polkit upower power-profiles-daemon pacman-contrib fakeroot)
+  # NetworkManager connection sharing (the hotspot) starts dnsmasq for DHCP and DNS.
+  depends=(dbus polkit upower power-profiles-daemon pacman-contrib fakeroot dnsmasq)
   backup=(etc/UPower/UPower.conf.d/50-andromeda.conf)
   optdepends=('networkmanager: network state' 'flatpak: Flatpak updates' 'fwupd: firmware updates')
   install=andromeda-system.install
