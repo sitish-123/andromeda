@@ -92,7 +92,7 @@ check: test link system
 # Incremental: pkg/src and its build dirs stay; the PKGBUILD wipes them when a meson file changes. `just package -C` builds clean.
 package *flags:
     # flock: runs share pkg/src, so a second session's run waits.
-    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$PWD")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$PWD")/link" flock /tmp/andromeda-package.lock makepkg -f {{flags}}
+    cd pkg && ANDROMEDA_SOURCE="file://$(dirname "$(pwd -P)")#branch=$(git branch --show-current)" ANDROMEDA_LINK_SOURCE="$(dirname "$(pwd -P)")/link" flock /tmp/andromeda-package.lock makepkg -f {{flags}}
     # makepkg writes the resolved pkgver back into the PKGBUILD.
     git checkout pkg/PKGBUILD
 
