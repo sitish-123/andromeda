@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # polkit sheet with face (docs/face.md P1, P2, P6) on the real stack: the machine's polkit, /etc/pam.d/polkit-1 with
 # pam_gaze.so, the running gazed, and the enrolled user in front of the camera. The shell under test registers its
-# agent for one waiting process only (NOCTALIA_POLKIT_TEST_PROCESS), so the user's own agent keeps the session. That
+# agent for one waiting process only (ANDROMEDA_POLKIT_TEST_PROCESS), so the user's own agent keeps the session. That
 # process then runs `pkexec true`: the sheet must show the face prompt from pam_gaze's markers, then Confirm after the
 # match, and Enter must authorize. Needs FACE_LIVE=1 and a person, so `just e2e` skips it. Writes look.png,
 # confirm.png, noctalia.log, and pkexec.txt to $OUT (default ./artifacts/face-polkit).
@@ -23,7 +23,7 @@ trap 'busctl --system call com.gundulabs.Gaze /com/gundulabs/Gaze com.gundulabs.
 
 printf '[shell]\npolkit_agent = true\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
 # A private session bus keeps this shell off the user's notification and MPRIS names; the system bus stays real.
-run env GIO_USE_VFS=local NOCTALIA_POLKIT_TEST_PROCESS="$subject" dbus-run-session --config-file="$RUNTIME/bus.conf" -- "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
+run env GIO_USE_VFS=local ANDROMEDA_POLKIT_TEST_PROCESS="$subject" dbus-run-session --config-file="$RUNTIME/bus.conf" -- "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
 wait_for "the agent did not register" logged "polkit authentication agent active"
 wait_for "gazed was not told about polkit-1" logged "gazed sends face prompts to this agent"
 run wtype -s 3600000 &

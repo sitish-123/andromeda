@@ -55,7 +55,7 @@
 namespace {
 
   constexpr Logger kLog("screenshot");
-  constexpr const char* kScreenshotPathEnv = "NOCTALIA_SCREENSHOT_PATH";
+  constexpr const char* kScreenshotPathEnv = "ANDROMEDA_SCREENSHOT_PATH";
   constexpr const char* kStateOwner = "screenshot";
   constexpr const char* kLastRegionKey = "last_region";
   constexpr const char* kAnnotateStateOwner = "annotate";

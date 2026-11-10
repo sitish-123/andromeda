@@ -28,7 +28,7 @@ BUS=$(sed -n 1p <<< "$bus_info")
 BUS_PID=$(sed -n 2p <<< "$bus_info")
 trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 \
-  NOCTALIA_LOG_LEVEL=debug "$FILES" --service > "$OUT/files.log" 2>&1 &
+  ANDROMEDA_LOG_LEVEL=debug "$FILES" --service > "$OUT/files.log" 2>&1 &
 
 wait_log() {
   for _ in $(seq 100); do

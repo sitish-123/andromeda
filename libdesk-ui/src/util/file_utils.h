@@ -373,7 +373,7 @@ namespace FileUtils {
   }
 
   [[nodiscard]] inline std::string configDir() {
-    const char* noctalia = std::getenv("NOCTALIA_CONFIG_HOME");
+    const char* noctalia = (std::getenv("ANDROMEDA_CONFIG_HOME") ? std::getenv("ANDROMEDA_CONFIG_HOME") : std::getenv("NOCTALIA_CONFIG_HOME"));
     if (noctalia != nullptr && noctalia[0] != '\0') {
       return std::string(noctalia) + "/noctalia";
     }
@@ -389,7 +389,7 @@ namespace FileUtils {
   }
 
   [[nodiscard]] inline std::string stateDir() {
-    const char* noctalia = std::getenv("NOCTALIA_STATE_HOME");
+    const char* noctalia = (std::getenv("ANDROMEDA_STATE_HOME") ? std::getenv("ANDROMEDA_STATE_HOME") : std::getenv("NOCTALIA_STATE_HOME"));
     if (noctalia != nullptr && noctalia[0] != '\0') {
       return std::string(noctalia) + "/noctalia";
     }
@@ -405,7 +405,7 @@ namespace FileUtils {
   }
 
   [[nodiscard]] inline std::string dataDir() {
-    const char* noctalia = std::getenv("NOCTALIA_DATA_HOME");
+    const char* noctalia = (std::getenv("ANDROMEDA_DATA_HOME") ? std::getenv("ANDROMEDA_DATA_HOME") : std::getenv("NOCTALIA_DATA_HOME"));
     if (noctalia != nullptr && noctalia[0] != '\0') {
       return std::string(noctalia) + "/noctalia";
     }
@@ -441,7 +441,7 @@ namespace FileUtils {
   }
 
   // Persistent per-plugin data directory. Survives plugin updates (unlike the
-  // materialized runtime dir) and honors the NOCTALIA_STATE_HOME override.
+  // materialized runtime dir) and honors the ANDROMEDA_STATE_HOME override.
   // Caller is responsible for creating it. Empty if no state home resolves.
   [[nodiscard]] inline std::string pluginDataDir(const std::string& pluginId) {
     const std::string base = stateDir();

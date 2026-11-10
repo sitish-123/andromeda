@@ -422,7 +422,7 @@ struct PolkitAgent::Impl {
     // enter GLib's global worker pool before returning.
     const char* sessionId = std::getenv("XDG_SESSION_ID");
     // E2E only: serve one process, so a test pkexec reaches this agent while the user's own agent keeps the session.
-    if (const char* testPid = std::getenv("NOCTALIA_POLKIT_TEST_PROCESS"); testPid != nullptr && testPid[0] != '\0') {
+    if (const char* testPid = (std::getenv("ANDROMEDA_POLKIT_TEST_PROCESS") ? std::getenv("ANDROMEDA_POLKIT_TEST_PROCESS") : std::getenv("NOCTALIA_POLKIT_TEST_PROCESS")); testPid != nullptr && testPid[0] != '\0') {
       beginRegisterSubject(
           polkit_unix_process_new_for_owner(static_cast<gint>(std::strtol(testPid, nullptr, 10)), 0, -1), nullptr
       );

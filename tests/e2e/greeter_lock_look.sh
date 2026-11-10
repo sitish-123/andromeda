@@ -25,7 +25,7 @@ greet() {
   printf '[lockscreen]\ntheme = "%s"\nlayout = "glance"\nclock_style = "%s"\nclock_size = "l"\nclock_material = "%s"\n' "$theme" "${STYLE:-bold}" "${MATERIAL:-solid}" \
     > "$RUNTIME/greeter-state/sync.toml"
   [[ -z ${WALLPAPER:-} ]] || printf '[appearance.wallpaper]\npath = "%s"\n' "$WALLPAPER" >> "$RUNTIME/greeter-state/sync.toml"
-  run env XDG_DATA_DIRS="$RUNTIME/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
+  run env XDG_DATA_DIRS="$RUNTIME/share" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
     "$NOCTALIA" greeter --user "$USER" > "$OUT/greeter-$name.log" 2>&1 &
   greeter=$!
   wait_for "no first frame ($name)" grep -q 'first frame at' "$OUT/greeter-$name.log"

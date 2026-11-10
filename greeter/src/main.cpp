@@ -178,7 +178,7 @@ int main(int argc, char* argv[]) {
       kLog.warn("log-test warn line");
       kLog.error("log-test error line");
       std::printf(
-          "Under greetd, logs go to syslog by default; set NOCTALIA_GREETER_LOG=stderr or =/path to override\n"
+          "Under greetd, logs go to syslog by default; set ANDROMEDA_GREETER_LOG=stderr or =/path to override\n"
       );
       return 0;
     }
@@ -208,7 +208,7 @@ int main(int argc, char* argv[]) {
           "Environment:\n"
           "  GREETD_SOCK           Path to greetd Unix socket\n"
           "  WAYLAND_DISPLAY       Wayland display (set by compositor)\n"
-          "  NOCTALIA_GREETER_LOG  Under greetd: unset → syslog (fds parked);\n"
+          "  ANDROMEDA_GREETER_LOG  Under greetd: unset → syslog (fds parked);\n"
           "                        stderr/none/- → console (info → stdout,\n"
           "                        debug/warn/error → stderr); /path → log file\n"
           "\n"
@@ -237,7 +237,7 @@ int main(int argc, char* argv[]) {
     const char* paths = loggingPaths();
     if (paths[0] != '\0') {
       kLog.info("greetd session: file logs at {}", paths);
-    } else if (std::getenv("NOCTALIA_GREETER_LOG") != nullptr) {
+    } else if ((std::getenv("ANDROMEDA_GREETER_LOG") ? std::getenv("ANDROMEDA_GREETER_LOG") : std::getenv("NOCTALIA_GREETER_LOG")) != nullptr) {
       kLog.info("greetd session: console logging");
     } else {
       kLog.info("greetd session: syslog logging");

@@ -37,7 +37,7 @@ LOG=$OUT/files.log
 start() {
   : > "$LOG"
   run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share" \
-    XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug \
+    XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug \
     DESK_FILES_GEOMETRY=1 "$FILES" "$A" >> "$LOG" 2>&1 &
   FILES_PID=$!
   for _ in $(seq 100); do

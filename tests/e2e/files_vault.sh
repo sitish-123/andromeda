@@ -41,7 +41,7 @@ env_app=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" DBUS_SYSTEM_BUS_A
 mkfifo "$RUNTIME/logind.in"
 DBUS_SYSTEM_BUS_ADDRESS=$SYSBUS python3 -I "$ROOT/tests/e2e/fake_logind.py" < "$RUNTIME/logind.in" > "$OUT/logind.log" 2>&1 &
 exec 7> "$RUNTIME/logind.in"
-run "${env_app[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" "$HOME_DIR" > "$OUT/files.log" 2>&1 &
+run "${env_app[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" "$HOME_DIR" > "$OUT/files.log" 2>&1 &
 
 wait_for() { local what=$1; shift; for _ in $(seq 200); do "$@" && return 0; sleep 0.05; done; fail "$what"; }
 on_bus() { DBUS_SESSION_BUS_ADDRESS=$BUS gdbus introspect --session -d "$1" -o "$2" > /dev/null 2>&1; }

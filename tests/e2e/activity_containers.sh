@@ -22,7 +22,7 @@ HOLDER=$!
 trap 'kill $HOLDER 2> /dev/null || true' EXIT
 mkdir -p "$RUNTIME/podman"
 python3 -c 'import os, socket, sys; s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); os.chmod(sys.argv[1], 0)' "$RUNTIME/denied.sock"
-export NOCTALIA_CONTAINER_SOCKETS=$RUNTIME/docker.sock:$RUNTIME/podman/podman.sock:$RUNTIME/denied.sock HOLDER E2E POINTER=$ROOT/compositor/build-debug/tests/pointer-client
+export ANDROMEDA_CONTAINER_SOCKETS=$RUNTIME/docker.sock:$RUNTIME/podman/podman.sock:$RUNTIME/denied.sock HOLDER E2E POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 : > "$OUT/calls.txt"
 rm -f "$OUT/result.txt"
 : > "$OUT/docker-calls.txt"

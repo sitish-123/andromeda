@@ -28,7 +28,7 @@ trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true
 env_all=(env DESK_FILES_TEST=1 DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config"
   XDG_DATA_HOME="$HOME_DIR/.local/share" XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CURRENT_DESKTOP=andromeda)
 
-run "${env_all[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &
+run "${env_all[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &
 
 wait_for() { # description, test command...
   local what=$1; shift
@@ -89,7 +89,7 @@ DOCS=$HOME_DIR/docs
 mkdir -p "$DOCS"
 echo text > "$DOCS/note.txt"
 APP=dev.andromeda.Files
-run "${env_all[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" "$DOCS" > "$OUT/files.log" 2>&1 &
+run "${env_all[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" "$DOCS" > "$OUT/files.log" 2>&1 &
 files_win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 files_mapped() { local w; w=$(files_win); [[ -n $w && $(jq .w <<< "$w") -gt 0 ]]; }
 wait_for "the Files window did not map" files_mapped

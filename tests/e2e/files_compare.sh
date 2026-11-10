@@ -48,7 +48,7 @@ env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HO
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config")
 dbus-monitor --address "$BUS" "path_namespace='/org/andromeda/FileOps1'" > "$OUT/bus.log" 2>&1 &
 run "${env_app[@]}" XDG_RUNTIME_DIR="$RUNTIME" "$FILEOPS" > "$OUT/fileops.log" 2>&1 &
-run "${env_app[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" "$A" > "$OUT/files.log" 2>&1 &
+run "${env_app[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" "$A" > "$OUT/files.log" 2>&1 &
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 for _ in $(seq 100); do

@@ -46,7 +46,7 @@ start_link() { # [env assignments]
 start_link
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share" \
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache" \
-  NOCTALIA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 "$FILES" "$HOME_DIR" > "$OUT/files.log" 2>&1 &
+  ANDROMEDA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 "$FILES" "$HOME_DIR" > "$OUT/files.log" 2>&1 &
 mapped() { [[ $(run "$ANDROMEDA" windows --json | jq "[.. | objects | select(.app_id? == \"$APP\")] | length") -gt 0 ]]; }
 wait_for "the Files window did not map" mapped
 action() {

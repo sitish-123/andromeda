@@ -58,7 +58,7 @@ with_noctalia '
   "$ANDROMEDA" outputs --json | jq -e ".[0].scale == 2" > /dev/null || fail "the output did not take scale 2"
   "$NOCTALIA" msg config-set dock.enabled false > /dev/null || true
   "$NOCTALIA" msg theme-mode-set light > /dev/null
-  HOME="$H" XDG_CONFIG_HOME="$H/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug "$FILES" "$D" > "$OUT/files.log" 2>&1 &
+  HOME="$H" XDG_CONFIG_HOME="$H/.config" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug "$FILES" "$D" > "$OUT/files.log" 2>&1 &
   for _ in $(seq 100); do grep -q "first frame" "$OUT/files.log" 2> /dev/null && break; sleep 0.05; done
   grep -q "first frame" "$OUT/files.log" || fail "Files drew no first frame"
   for _ in $(seq 60); do grep -q "scheme light" "$OUT/files.log" && break; sleep 0.05; done

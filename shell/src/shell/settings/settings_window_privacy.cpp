@@ -22,8 +22,8 @@
 namespace {
 
   constexpr auto kBiometricsAction = "org.andromeda.biometrics.manage";
-  constexpr auto kFaceAdminHelper = "/usr/lib/noctalia/andromeda-face-admin";
-  constexpr auto kFingerAdminHelper = "/usr/lib/noctalia/andromeda-finger-admin";
+  constexpr auto kFaceAdminHelper = "/usr/lib/andromeda/andromeda-face-admin";
+  constexpr auto kFingerAdminHelper = "/usr/lib/andromeda/andromeda-finger-admin";
 
   // nullopt: pam_gaze is not in /etc/pam.d/sudo; true: its line is active (not "#andromeda-off").
   std::optional<bool> faceAdminState() {

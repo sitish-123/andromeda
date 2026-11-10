@@ -41,7 +41,7 @@ namespace {
   constexpr std::size_t kMaxLogLineBytes = 8 * 1024;    // 8 KiB
   constexpr std::size_t kBufferedFileLogFlushLines = 64;
   constexpr auto kBufferedFileLogFlushInterval = std::chrono::milliseconds(500);
-  constexpr const char* kLogLevelEnv = "NOCTALIA_LOG_LEVEL";
+  constexpr const char* kLogLevelEnv = "ANDROMEDA_LOG_LEVEL";
 
   // Every write runs on one writer thread: a write to the journal or the log file can block for seconds under disk
   // writeback throttling or a busy journald, and on the main thread that froze the UI. Callers only queue lines;

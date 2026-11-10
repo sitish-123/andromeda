@@ -8,14 +8,14 @@
 #include <utility>
 
 // Lightweight, opt-in wall-clock profiling. Output is gated behind the
-// NOCTALIA_PROFILE env var so normal runs stay silent; set it to any non-empty
-// value to surface timing lines (e.g. `NOCTALIA_PROFILE=1 noctalia`).
+// ANDROMEDA_PROFILE env var so normal runs stay silent; set it to any non-empty
+// value to surface timing lines (e.g. `ANDROMEDA_PROFILE=1 noctalia`).
 namespace noctalia::profiling {
 
   // Evaluated once on first use.
   inline bool enabled() {
     static const bool value = [] {
-      const char* v = std::getenv("NOCTALIA_PROFILE");
+      const char* v = (std::getenv("ANDROMEDA_PROFILE") ? std::getenv("ANDROMEDA_PROFILE") : std::getenv("NOCTALIA_PROFILE"));
       return v != nullptr && v[0] != '\0';
     }();
     return value;

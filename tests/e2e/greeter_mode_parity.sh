@@ -27,7 +27,7 @@ mkdir -p "$RUNTIME/share/wayland-sessions" "$RUNTIME/greeter-state"
 cp "$ROOT/compositor/data/andromeda.desktop" "$RUNTIME/share/wayland-sessions/"
 printf '[Desktop Entry]\nName=Other Desktop\nExec=other-session\nType=Application\n' \
   > "$RUNTIME/share/wayland-sessions/other.desktop"
-run env XDG_DATA_DIRS="$RUNTIME/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
+run env XDG_DATA_DIRS="$RUNTIME/share" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
   "$NOCTALIA" greeter --user "$USER" > "$OUT/greeter.log" 2>&1 &
 greeter=$!
 wait_for "no session opened at start" atleast create_session 1

@@ -144,7 +144,7 @@ namespace {
   }
 
   void appendDummyUsers(std::vector<std::string>& users, std::vector<uid_t>& uids) {
-    const char* dummyEnv = std::getenv("NOCTALIA_GREETER_DUMMY_USERS");
+    const char* dummyEnv = (std::getenv("ANDROMEDA_GREETER_DUMMY_USERS") ? std::getenv("ANDROMEDA_GREETER_DUMMY_USERS") : std::getenv("NOCTALIA_GREETER_DUMMY_USERS"));
     if (dummyEnv == nullptr) {
       return;
     }

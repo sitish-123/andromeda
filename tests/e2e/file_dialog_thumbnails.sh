@@ -34,7 +34,7 @@ PY
 video_entry=$(python3 -I -c 'import hashlib, sys, urllib.parse; print(hashlib.md5(("file://" + urllib.parse.quote(sys.argv[1])).encode()).hexdigest())' "$docs/clip.mp4")
 
 export THUMBNAILER docs video_entry
-NOCTALIA_SETTINGS_TEST_MODAL=file NOCTALIA_SETTINGS_TEST_DIR=$docs with_noctalia '
+ANDROMEDA_SETTINGS_TEST_MODAL=file ANDROMEDA_SETTINGS_TEST_DIR=$docs with_noctalia '
   wait_for() { for _ in $(seq 100); do eval "$2" && return 0; sleep 0.05; done; echo "FAIL: $1"; exit 1; }
   "$THUMBNAILER" > "$OUT/thumbnailer.log" 2>&1 &
   # The private bus has no activation file: the dialog must find the name already owned.

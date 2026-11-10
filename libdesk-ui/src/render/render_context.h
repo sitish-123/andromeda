@@ -120,7 +120,7 @@ private:
   float m_textScale = 1.0F;
   std::uint64_t m_gpuResourceGeneration = 0;
   bool m_glyphTexturesDirty = false;
-  // NOCTALIA_PROFILE frame stats: nodes drawn and culled in the current renderScene.
+  // ANDROMEDA_PROFILE frame stats: nodes drawn and culled in the current renderScene.
   std::uint32_t m_statDrawn = 0;
   std::uint32_t m_statCulled = 0;
   // Frees text and icon textures of a shell that stopped drawing (step 5 runs only inside frames).

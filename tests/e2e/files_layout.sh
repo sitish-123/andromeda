@@ -38,7 +38,7 @@ for _ in $(seq 100); do run "$ANDROMEDA" outputs --json | jq -e '.[0].scale == 1
 
 LOG=$OUT/files.log
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
-  XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug \
+  XDG_CONFIG_HOME="$HOME_DIR/.config" XDG_CACHE_HOME="$HOME_DIR/.cache" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug \
   DESK_FILES_GEOMETRY=1 "$FILES" "$HOME_DIR" > "$LOG" 2>&1 &
 wait_log() { for _ in $(seq "${3:-100}"); do grep -qE "$2" < <(tail -n +"$(($1 + 1))" "$LOG") && return 0; sleep 0.05; done; return 1; }
 mark() { wc -l < "$LOG"; }

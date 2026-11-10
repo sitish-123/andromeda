@@ -488,13 +488,13 @@ void SettingsWindow::open(std::string context) {
     refocus();
     DeferredCall::callLater(refocus);
     // E2E hook: a second settings-open shows a modal, since headless tests have no pointer to reach the menus.
-    if (const char* modal = std::getenv("NOCTALIA_SETTINGS_TEST_MODAL"); modal != nullptr && !m_modalHost.isOpen()) {
+    if (const char* modal = (std::getenv("ANDROMEDA_SETTINGS_TEST_MODAL") ? std::getenv("ANDROMEDA_SETTINGS_TEST_MODAL") : std::getenv("NOCTALIA_SETTINGS_TEST_MODAL")); modal != nullptr && !m_modalHost.isOpen()) {
       DeferredCall::callLater([this, kind = std::string(modal)] {
         if (kind == "export") {
           openConfigExportDialog();
         } else if (kind == "file") {
-          // Grid view of NOCTALIA_SETTINGS_TEST_DIR: the tiles that load thumbnails.
-          const char* dir = std::getenv("NOCTALIA_SETTINGS_TEST_DIR");
+          // Grid view of ANDROMEDA_SETTINGS_TEST_DIR: the tiles that load thumbnails.
+          const char* dir = (std::getenv("ANDROMEDA_SETTINGS_TEST_DIR") ? std::getenv("ANDROMEDA_SETTINGS_TEST_DIR") : std::getenv("NOCTALIA_SETTINGS_TEST_DIR"));
           (void)FileDialog::open(
               {.defaultViewMode = FileDialogViewMode::Grid, .startDirectory = dir != nullptr ? dir : ""},
               [](const std::optional<std::filesystem::path>&) {}

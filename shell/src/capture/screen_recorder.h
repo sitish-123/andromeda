@@ -22,7 +22,7 @@ typedef struct _GstBus GstBus;
 // Records the screen to ~/Videos as H.264 MP4 with the desktop's audio as AAC. The source is a ScreenCast portal
 // stream (our portal's picker runs on the first recording of a shell session; later ones reuse the choice), encoded on
 // the GPU through VA-API with GStreamer: pipewiresrc, vapostproc, vah264enc, mp4mux. Audio is the default output's
-// monitor through fdkaacenc; if PipeWire refuses it, the recording is video only. NOCTALIA_RECORD_TEST_SOURCE swaps
+// monitor through fdkaacenc; if PipeWire refuses it, the recording is video only. ANDROMEDA_RECORD_TEST_SOURCE swaps
 // the portal for videotestsrc so tests exercise encode and save without a portal.
 // A region recording's stream in the global logical space, and the region clipped to it, relative to it.
 struct CropGeometry {

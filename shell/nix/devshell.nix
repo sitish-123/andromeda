@@ -30,7 +30,7 @@ pkgs.mkShell {
 
   shellHook = ''
     # Point to local assets so binaries find resources without installation
-    export NOCTALIA_ASSETS_DIR="$PWD/assets"
+    export ANDROMEDA_ASSETS_DIR="$PWD/assets"
 
     echo " Noctalia dev-shell | 'just --list' to see available tasks"
   '';

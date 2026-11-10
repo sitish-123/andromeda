@@ -10,7 +10,7 @@ find_session_bin() {
 
   local candidate
   for candidate in \
-    "${NOCTALIA_GREETER_SESSION_BIN:-}" \
+    "${ANDROMEDA_GREETER_SESSION_BIN:-}" \
     /usr/bin/noctalia-greeter-session \
     /usr/local/bin/noctalia-greeter-session \
     "${script_dir}/noctalia-greeter-session" \
@@ -29,7 +29,7 @@ find_apply_appearance() {
 
   local candidate
   for candidate in \
-    "${NOCTALIA_GREETER_APPLY_APPEARANCE:-}" \
+    "${ANDROMEDA_GREETER_APPLY_APPEARANCE:-}" \
     /usr/bin/noctalia-greeter-apply-appearance \
     /usr/local/bin/noctalia-greeter-apply-appearance \
     "${script_dir}/../build/noctalia-greeter-apply-appearance" \
@@ -66,7 +66,7 @@ resolve_greeter_user() {
 # Logging defaults to syslog via the greeter; do not create a log file here.
 ensure_greeter_paths() {
   local greeter_user="${1:-greeter}"
-  local state_dir="${NOCTALIA_GREETER_STATE_DIR:-/var/lib/noctalia-greeter}"
+  local state_dir="${ANDROMEDA_GREETER_STATE_DIR:-/var/lib/noctalia-greeter}"
 
   mkdir -p "${state_dir}"
   chmod 0750 "${state_dir}"

@@ -60,7 +60,7 @@ action() {
 }
 start_player() { # name [mpv options]; ao=pcm writes faster than real time, so a timed run passes ao=null
   run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" \
-    XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CACHE_HOME="$HOME_DIR/.cache" NOCTALIA_LOG_LEVEL=debug \
+    XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CACHE_HOME="$HOME_DIR/.cache" ANDROMEDA_LOG_LEVEL=debug \
     ANDROMEDA_PLAYER_MPV_OPTIONS="${2:-ao=pcm,ao-pcm-file=$OUT/$1.wav,audio-format=s16,audio-samplerate=$RATE,audio-channels=mono}" \
     "$PLAYER" > "$OUT/$1.log" 2>&1 &
   wait_for "the player window did not map ($1)" mapped

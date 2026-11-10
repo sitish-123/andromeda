@@ -58,7 +58,7 @@ namespace {
 int main() {
   // Keep the usage files out of the real state directory.
   const auto state = std::filesystem::temp_directory_path() / ("noctalia-search-broker-" + std::to_string(getpid()));
-  setenv("NOCTALIA_STATE_HOME", state.c_str(), 1);
+  setenv("ANDROMEDA_STATE_HOME", state.c_str(), 1);
 
   std::vector<std::unique_ptr<LauncherProvider>> providers;
   auto* apps = new FakeProvider("Apps", "", 1.0);

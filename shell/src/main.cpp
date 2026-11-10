@@ -35,12 +35,12 @@ namespace {
   }
 
   void execWithJemalloc(char* argv[]) {
-    if (std::getenv("NOCTALIA_JEMALLOC") != nullptr || access(NOCTALIA_JEMALLOC_PATH, R_OK) != 0) {
+    if ((std::getenv("ANDROMEDA_JEMALLOC") ? std::getenv("ANDROMEDA_JEMALLOC") : std::getenv("NOCTALIA_JEMALLOC")) != nullptr || access(NOCTALIA_JEMALLOC_PATH, R_OK) != 0) {
       return;
     }
     std::string preload = NOCTALIA_JEMALLOC_PATH;
     if (const char* own = std::getenv("LD_PRELOAD"); own != nullptr && own[0] != '\0') {
-      setenv("NOCTALIA_LD_PRELOAD_ORIG", own, 1);
+      setenv("ANDROMEDA_LD_PRELOAD_ORIG", own, 1);
       preload += ':';
       preload += own;
     }
@@ -48,12 +48,12 @@ namespace {
     // The user's own MALLOC_CONF keys come last, so they override single keys as with the old compiled-in malloc_conf.
     std::string conf = kJemallocConf;
     if (const char* own = std::getenv("MALLOC_CONF"); own != nullptr) {
-      setenv("NOCTALIA_MALLOC_CONF_ORIG", own, 1);
+      setenv("ANDROMEDA_MALLOC_CONF_ORIG", own, 1);
       conf += ',';
       conf += own;
     }
     setenv("MALLOC_CONF", conf.c_str(), 1);
-    setenv("NOCTALIA_JEMALLOC", "1", 1);
+    setenv("ANDROMEDA_JEMALLOC", "1", 1);
     // The real path, not /proc/self/exe: the kernel names the process after the file, and `pgrep noctalia` must work.
     std::error_code ec;
     const auto self = std::filesystem::read_symlink("/proc/self/exe", ec);

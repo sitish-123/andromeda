@@ -29,7 +29,7 @@ trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true
 ENVS=(DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HOME_DIR/.local/share"
   XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8)
 run env "${ENVS[@]}" "$FILEOPS" > "$OUT/fileops.log" 2>&1 &
-run env "${ENVS[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
+run env "${ENVS[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 for _ in $(seq 100); do

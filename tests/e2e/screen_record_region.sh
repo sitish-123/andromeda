@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Region recording. With NOCTALIA_RECORD_TEST_SOURCE (a 1280x720 SMPTE pattern standing in for the portal stream at
+# Region recording. With ANDROMEDA_RECORD_TEST_SOURCE (a 1280x720 SMPTE pattern standing in for the portal stream at
 # 0,0), `screen-record-region "100,50 600x400"` saves a 600x400 H.264 MP4 whose first frame matches the pattern cropped
 # at 100,50 and not the whole pattern scaled down; a region off the recorded display is refused; with no geometry the
 # region picker appears over the desktop, and Escape cancels it without recording. Writes region.mp4, frame.png,
@@ -8,7 +8,7 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/screen-record-region}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
-export NOCTALIA_RECORD_TEST_SOURCE=1
+export ANDROMEDA_RECORD_TEST_SOURCE=1
 rm -f "$OUT"/*.mp4 "$OUT"/*.png "$OUT"/*.txt
 
 with_noctalia '

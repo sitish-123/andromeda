@@ -2,32 +2,32 @@
 set -eu
 
 _session_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-GREETER_BIN="${NOCTALIA_GREETER_BIN:-${_session_dir}/noctalia-greeter}"
-COMPOSITOR_BIN="${NOCTALIA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
+GREETER_BIN="${ANDROMEDA_GREETER_BIN:-${_session_dir}/noctalia-greeter}"
+COMPOSITOR_BIN="${ANDROMEDA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
 # andromeda --greeter reads outputs, cursor and keyboard from this file. Unset: generated from the greeter's own config.
-GREETER_CONFIG="${NOCTALIA_GREETER_ANDROMEDA_CONFIG:-}"
+GREETER_CONFIG="${ANDROMEDA_GREETER_ANDROMEDA_CONFIG:-}"
 
 # Default: park stdout/stderr so wlroots/libseat do not paint the VT. Greeter
 # and compositor logs go to syslog (journald / metalog / syslog-ng via greetd).
-# NOCTALIA_GREETER_LOG=stderr|stdout|none|- → console debug (no redirect).
-# NOCTALIA_GREETER_LOG=/path → file (+ syslog from the greeter and compositor).
-case "${NOCTALIA_GREETER_LOG:-}" in
+# ANDROMEDA_GREETER_LOG=stderr|stdout|none|- → console debug (no redirect).
+# ANDROMEDA_GREETER_LOG=/path → file (+ syslog from the greeter and compositor).
+case "${ANDROMEDA_GREETER_LOG:-}" in
 "" )
   exec >/dev/null 2>&1
-  unset NOCTALIA_GREETER_LOG
+  unset ANDROMEDA_GREETER_LOG
   ;;
 - | none | NONE | stderr | STDERR | stdout | STDOUT)
-  export NOCTALIA_GREETER_LOG=stderr
+  export ANDROMEDA_GREETER_LOG=stderr
   ;;
 *)
-  _log_target="${NOCTALIA_GREETER_LOG}"
+  _log_target="${ANDROMEDA_GREETER_LOG}"
   if touch "${_log_target}" 2>/dev/null; then
     exec >>"${_log_target}" 2>&1
-    export NOCTALIA_GREETER_LOG="${_log_target}"
+    export ANDROMEDA_GREETER_LOG="${_log_target}"
   else
     echo "warn: cannot write ${_log_target}; falling back to syslog-only" >&2
     exec >/dev/null 2>&1
-    unset NOCTALIA_GREETER_LOG
+    unset ANDROMEDA_GREETER_LOG
   fi
   ;;
 esac
@@ -35,7 +35,7 @@ esac
 echo "=== noctalia-greeter-session $(date -Iseconds) pid=$$ uid=$(id -u) euid=$(id -u -r 2>/dev/null || id -u) ==="
 echo "GREETER_BIN=${GREETER_BIN}"
 echo "COMPOSITOR_BIN=${COMPOSITOR_BIN}"
-echo "NOCTALIA_GREETER_LOG=${NOCTALIA_GREETER_LOG:-syslog (fds parked)}"
+echo "ANDROMEDA_GREETER_LOG=${ANDROMEDA_GREETER_LOG:-syslog (fds parked)}"
 echo "GREETD_SOCK=${GREETD_SOCK:-unset}"
 
 _pam_runtime="${XDG_RUNTIME_DIR:-unset}"
@@ -78,7 +78,7 @@ if [ -n "${GREETER_CONFIG}" ]; then
   set -- "$@" -c "${GREETER_CONFIG}"
 fi
 
-# Raise log level with WLR_LOG=info when debugging (also set NOCTALIA_GREETER_LOG=stderr).
+# Raise log level with WLR_LOG=info when debugging (also set ANDROMEDA_GREETER_LOG=stderr).
 export WLR_LOG="${WLR_LOG:-error}"
 echo "launch: ${COMPOSITOR_BIN} $*"
 if command -v dbus-run-session >/dev/null 2>&1; then

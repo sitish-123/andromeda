@@ -11,7 +11,7 @@
 
 ActivityMonitor* Application::ensureActivityMonitor() {
   if (m_activityMonitor == nullptr && m_bus != nullptr) {
-    const char* root = std::getenv("NOCTALIA_CGROUP_ROOT");
+    const char* root = (std::getenv("ANDROMEDA_CGROUP_ROOT") ? std::getenv("ANDROMEDA_CGROUP_ROOT") : std::getenv("NOCTALIA_CGROUP_ROOT"));
     m_activityMonitor = std::make_unique<ActivityMonitor>(
         *m_bus, [this]() { return m_compositorPlatform.windowPids(); },
         root != nullptr && *root != '\0' ? root : "/sys/fs/cgroup"
@@ -78,9 +78,9 @@ void Application::initActivity() {
   m_activityWindow.setDetails(&m_activityDetails);
   m_activityWindow.setSystemMonitorProvider([this]() { return m_systemMonitor.get(); });
   m_activityWindow.setUPowerProvider([this]() { return upower(); });
-  // NOCTALIA_CONTAINER_SOCKETS (colon-separated) replaces the engine socket search, for tests.
+  // ANDROMEDA_CONTAINER_SOCKETS (colon-separated) replaces the engine socket search, for tests.
   std::vector<std::string> sockets = ContainerService::defaultSockets();
-  if (const char* list = std::getenv("NOCTALIA_CONTAINER_SOCKETS"); list != nullptr) {
+  if (const char* list = (std::getenv("ANDROMEDA_CONTAINER_SOCKETS") ? std::getenv("ANDROMEDA_CONTAINER_SOCKETS") : std::getenv("NOCTALIA_CONTAINER_SOCKETS")); list != nullptr) {
     sockets.clear();
     for (const auto part : StringUtils::split(list, ':')) {
       if (!part.empty()) {

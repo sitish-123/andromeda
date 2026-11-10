@@ -47,7 +47,7 @@ namespace {
 
   enum class SpawnResult { Parent, Error };
 
-  constexpr const char* kDaemonPipeEnv = "NOCTALIA_DAEMON_PIPE_FD";
+  constexpr const char* kDaemonPipeEnv = "ANDROMEDA_DAEMON_PIPE_FD";
   int g_daemonPipe = -1;
 
   void closeFd(int& fd) {
@@ -268,10 +268,10 @@ namespace {
 // The shell behind the `noctalia` launcher (src/main.cpp), which has already set the allocator and the locale.
 extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int argc, char* argv[]) {
   // Undo the launcher's jemalloc preload in the environment: apps the shell starts must not inherit it. The check on
-  // LD_PRELOAD itself keeps a stale inherited NOCTALIA_JEMALLOC from deleting the user's own preload.
+  // LD_PRELOAD itself keeps a stale inherited ANDROMEDA_JEMALLOC from deleting the user's own preload.
 #ifdef NOCTALIA_JEMALLOC_PATH
   const char* preload = std::getenv("LD_PRELOAD");
-  if (std::getenv("NOCTALIA_JEMALLOC") != nullptr && preload != nullptr
+  if ((std::getenv("ANDROMEDA_JEMALLOC") ? std::getenv("ANDROMEDA_JEMALLOC") : std::getenv("NOCTALIA_JEMALLOC")) != nullptr && preload != nullptr
       && std::string_view(preload).starts_with(NOCTALIA_JEMALLOC_PATH)) {
     const auto restore = [](const char* name, const char* saved) {
       if (const char* orig = std::getenv(saved); orig != nullptr) {
@@ -281,11 +281,11 @@ extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int
       }
       unsetenv(saved);
     };
-    restore("LD_PRELOAD", "NOCTALIA_LD_PRELOAD_ORIG");
-    restore("MALLOC_CONF", "NOCTALIA_MALLOC_CONF_ORIG");
+    restore("LD_PRELOAD", "ANDROMEDA_LD_PRELOAD_ORIG");
+    restore("MALLOC_CONF", "ANDROMEDA_MALLOC_CONF_ORIG");
   }
 #endif
-  unsetenv("NOCTALIA_JEMALLOC");
+  unsetenv("ANDROMEDA_JEMALLOC");
 
   const bool isDaemonChild = takeDaemonPipeFromEnv();
   bool shouldDaemonize = false;

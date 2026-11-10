@@ -27,7 +27,7 @@ with_noctalia '
   MOCK_NM_PRIMARY=802-3-ethernet python3 '"$NM_MOCK"' "$OUT/nm-calls.txt" > "$OUT/nm-mock.log" 2>&1 &
   mockpid=$!
   wait_for 5 grep -q ready "$OUT/nm-mock.log" || fail "the NetworkManager mock did not start"
-  NOCTALIA_LOG_LEVEL=debug "$NOCTALIA" lock > "$OUT/lock.log" 2>&1 &
+  ANDROMEDA_LOG_LEVEL=debug "$NOCTALIA" lock > "$OUT/lock.log" 2>&1 &
   lockpid=$!
   wait_for 10 grep -q "lock notices: 2 groups" "$OUT/lock.log" || fail "the lock process did not read 2 groups"
   wait_for 5 grep -q "network glyph ethernet$" "$OUT/lock.log" \

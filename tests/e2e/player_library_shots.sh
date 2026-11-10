@@ -39,7 +39,7 @@ action() {
 }
 
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config" \
-  XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CACHE_HOME="$HOME_DIR/.cache" NOCTALIA_LOG_LEVEL=debug \
+  XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CACHE_HOME="$HOME_DIR/.cache" ANDROMEDA_LOG_LEVEL=debug \
   ANDROMEDA_PLAYER_MPV_OPTIONS="ao=null" "$PLAYER" > "$OUT/player.log" 2>&1 &
 wait_for "the library did not list 2 albums" logged "library: 2 albums, 4 tracks"
 sleep 1 # images decode after the first frame

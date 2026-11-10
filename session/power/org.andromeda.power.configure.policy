@@ -11,7 +11,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/noctalia/andromeda-power-config</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/andromeda/andromeda-power-config</annotate>
   </action>
   <!-- Swap files and boot entries: admin every time, never kept. -->
   <action id="org.andromeda.power.system">
@@ -22,6 +22,6 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/noctalia/andromeda-power-system</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/andromeda/andromeda-power-system</annotate>
   </action>
 </policyconfig>

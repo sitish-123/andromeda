@@ -21,7 +21,7 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/noctalia/andromeda-face-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/andromeda/andromeda-face-admin</annotate>
   </action>
   <action id="org.andromeda.biometrics.finger-admin">
     <description>Use fingerprint for admin prompts</description>
@@ -31,6 +31,6 @@
       <allow_inactive>auth_admin</allow_inactive>
       <allow_active>auth_admin</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/noctalia/andromeda-finger-admin</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/andromeda/andromeda-finger-admin</annotate>
   </action>
 </policyconfig>

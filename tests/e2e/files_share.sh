@@ -32,7 +32,7 @@ DBUS_SESSION_BUS_ADDRESS=$BUS python3 -u "$(dirname "$0")/fake_link_daemon.py" >
 wait_file "$OUT/link.log" "^READY" || fail "the fake Link daemon did not start"
 
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
-  XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 \
+  XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 \
   "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
 for _ in $(seq 100); do
   w=$(run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty")

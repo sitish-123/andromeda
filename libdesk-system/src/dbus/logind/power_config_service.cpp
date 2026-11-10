@@ -25,8 +25,8 @@ namespace {
   const sdbus::ServiceName kLogindBusName{"org.freedesktop.login1"};
   const sdbus::ObjectPath kLogindObjectPath{"/org/freedesktop/login1"};
   constexpr auto kManagerInterface = "org.freedesktop.login1.Manager";
-  constexpr auto kHelperPath = "/usr/lib/noctalia/andromeda-power-config";
-  constexpr auto kSystemHelperPath = "/usr/lib/noctalia/andromeda-power-system";
+  constexpr auto kHelperPath = "/usr/lib/andromeda/andromeda-power-config";
+  constexpr auto kSystemHelperPath = "/usr/lib/andromeda/andromeda-power-system";
   constexpr auto kSleepDropIn = "/etc/systemd/sleep.conf.d/60-andromeda.conf";
   constexpr auto kUPowerDropIn = "/etc/UPower/UPower.conf.d/60-andromeda.conf";
 

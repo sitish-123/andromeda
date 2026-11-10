@@ -32,8 +32,8 @@ for i in $(seq 0 $((RUNS - 1))); do
   mkdir -p "$RUNTIME/greeter-state-$i"
   start=$(now_ms)
   # shellcheck disable=SC2086 # GREETER is a command line
-  run env XDG_DATA_DIRS="$RUNTIME/share:/usr/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state-$i" \
-    DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" GREETD_SOCK="$sock" NOCTALIA_GREETER_LOG=stderr $GREETER > "$OUT/greeter-$i.log" 2>&1 &
+  run env XDG_DATA_DIRS="$RUNTIME/share:/usr/share" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/greeter-state-$i" \
+    DBUS_SYSTEM_BUS_ADDRESS="$SYSBUS" GREETD_SOCK="$sock" ANDROMEDA_GREETER_LOG=stderr $GREETER > "$OUT/greeter-$i.log" 2>&1 &
   pid=$! spid=$!
   until grep -q 'first frame at' "$OUT/greeter-$i.log"; do
     kill -0 "$pid" 2> /dev/null || { echo "run $i: greeter exited, see $OUT/greeter-$i.log" >&2; exit 1; }

@@ -67,10 +67,10 @@ setup-log-dir:
   sudo bash -c "source '{{justfile_directory()}}/scripts/greetd_setup_lib.sh'; ensure_greeter_paths '${greeter_user}'"
   echo "State dir: /var/lib/noctalia-greeter (user=${greeter_user}); logs default to stderr"
 
-# Verify greeter logging (stderr by default; set NOCTALIA_GREETER_LOG for a file)
+# Verify greeter logging (stderr by default; set ANDROMEDA_GREETER_LOG for a file)
 log-test: build
   sudo -u greeter env GREETD_SOCK=1 XDG_VTNR=7 ./build/noctalia-greeter --log-test
-  @echo "--- stderr-only by default; optional file via NOCTALIA_GREETER_LOG ---"
+  @echo "--- stderr-only by default; optional file via ANDROMEDA_GREETER_LOG ---"
 
 # Uninstall
 uninstall:
@@ -84,11 +84,11 @@ run: build
 run-local: build
   #!/usr/bin/env bash
   set -euo pipefail
-  log="${NOCTALIA_GREETER_LOG:-$HOME/.cache/noctalia-greeter.log}"
+  log="${ANDROMEDA_GREETER_LOG:-$HOME/.cache/noctalia-greeter.log}"
   mkdir -p "$(dirname "$log")"
   echo "user=$USER log=$log"
   echo "Recovery: just recover"
-  env NOCTALIA_GREETER_LOG="$log" NOCTALIA_GREETER_DUMMY_USERS=15 dbus-run-session -- \
+  env ANDROMEDA_GREETER_LOG="$log" ANDROMEDA_GREETER_DUMMY_USERS=15 dbus-run-session -- \
     andromeda --greeter -s ./build/noctalia-greeter
 
 # Configure AddressSanitizer build dir
@@ -112,11 +112,11 @@ run-niri: build
     echo "WAYLAND_DISPLAY is not set; run from a terminal inside niri."
     exit 1
   fi
-  log="${NOCTALIA_GREETER_LOG:-$HOME/.cache/noctalia-greeter.log}"
+  log="${ANDROMEDA_GREETER_LOG:-$HOME/.cache/noctalia-greeter.log}"
   mkdir -p "$(dirname "$log")"
   echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY log=$log"
   echo "Auth needs greetd; unset GREETD_SOCK for UI-only dev, or point at a test socket."
-  env -u GREETD_SOCK NOCTALIA_GREETER_LOG="$log" ./build/noctalia-greeter
+  env -u GREETD_SOCK ANDROMEDA_GREETER_LOG="$log" ./build/noctalia-greeter
 
 # Kill greeter and stop greetd when the display is stuck (run over SSH or blind)
 recover:

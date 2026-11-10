@@ -91,9 +91,9 @@ namespace {
     };
 
     bool ok = true;
-    hooks.fire(HookKind::WallpaperChanged, {{"NOCTALIA_WALLPAPER_PATH", "/w.png"}});
+    hooks.fire(HookKind::WallpaperChanged, {{"ANDROMEDA_WALLPAPER_PATH", "/w.png"}});
     ok = ok && runs.size() == 1 && runs[0].back().ends_with("10-first");
-    ok = ok && has(runs[0], "--setenv=NOCTALIA_WALLPAPER_PATH=/w.png") && has(runs[0], "--property=RuntimeMaxSec=10");
+    ok = ok && has(runs[0], "--setenv=ANDROMEDA_WALLPAPER_PATH=/w.png") && has(runs[0], "--property=RuntimeMaxSec=10");
     pending[0](true);
     ok = ok && runs.size() == 2 && runs[1].back().ends_with("20-second");
     pending[1](false);
@@ -118,8 +118,8 @@ int main() {
   TEST_CHECK(asyncHookFinishesBeforeAction());
   TEST_CHECK(dirHooksRunAsUnits());
 
-  constexpr const char* kPathName = "NOCTALIA_WALLPAPER_PATH";
-  constexpr const char* kConnectorName = "NOCTALIA_WALLPAPER_CONNECTOR";
+  constexpr const char* kPathName = "ANDROMEDA_WALLPAPER_PATH";
+  constexpr const char* kConnectorName = "ANDROMEDA_WALLPAPER_CONNECTOR";
 
   ::unsetenv(kPathName);
   ::unsetenv(kConnectorName);

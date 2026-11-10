@@ -59,7 +59,7 @@ URI="sftp://$USER_NAME@127.0.0.1:2222$SHARE"
 printf '[{"name":"Test share","uri":"%s","reconnect":true},{"name":"Other","uri":"sftp://%s@127.0.0.1:2223/","reconnect":false}]\n' \
   "$URI" "$USER_NAME" > "$HOME_DIR/.config/andromeda/files/servers.json"
 
-"${env_all[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" --reconnect > "$OUT/reconnect.log" 2>&1 \
+"${env_all[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" --reconnect > "$OUT/reconnect.log" 2>&1 \
   || { cat "$OUT/reconnect.log"; fail "--reconnect did not mount the saved server"; }
 mounts=$("${env_all[@]}" gio mount -l 2>&1)
 grep -q "127.0.0.1" <<< "$mounts" || { echo "$mounts"; fail "gio mount -l does not list the reconnected server"; }

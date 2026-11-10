@@ -9,7 +9,7 @@ mkdir -p "$srcdir"
 ln -sfn "$root" "$srcdir/desktop"
 
 # The flags of Arch's arch-meson, except the wrap mode (the wraps download). --libdir=lib as on Arch: the fixed
-# /usr/lib/andromeda and /usr/lib/noctalia paths and the PKGBUILD install steps expect it, not Debian's multiarch dir.
+# /usr/lib/andromeda paths and the PKGBUILD install steps expect it, not Debian's multiarch dir.
 # A kept build dir (tools/ubuntu-deb.sh builds incrementally) is reconfigured, so changed flags still apply.
 arch-meson() {
   local reconfigure=()

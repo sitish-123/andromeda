@@ -12,5 +12,5 @@ service = "andromeda-greeter"
 # Shell greeter mode: the package installs this as /usr/share/noctalia-greeter/greetd.toml; config.toml is the
 # one-release fallback for the old greeter binary (tools/greeter-switch.sh legacy).
 [default_session]
-command = "/usr/lib/noctalia/andromeda-greeter-session"
+command = "/usr/lib/andromeda/andromeda-greeter-session"
 user = "greeter"

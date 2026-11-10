@@ -51,7 +51,7 @@ pinned = ["dropcatch"]
 CONFIG
 
 export POINTER FILES FILEOPS DESK H
-export NOCTALIA_LOG_LEVEL=debug DESK_DOCK_GEOMETRY=1
+export ANDROMEDA_LOG_LEVEL=debug DESK_DOCK_GEOMETRY=1
 with_noctalia '
   fail() { echo "FAIL: $*"; exit 1; }
   wait_for() { # description, test command...
@@ -125,7 +125,7 @@ with_noctalia '
   echo "PASS desktop icon to the GTK app"
 
   # 4. Files -> the pinned dock app: it opens the file (Exec %F).
-  env DESK_FILES_GEOMETRY=1 NOCTALIA_LOG_LEVEL=debug "$FILES" "$H/Docs" > "$OUT/files.log" 2>&1 &
+  env DESK_FILES_GEOMETRY=1 ANDROMEDA_LOG_LEVEL=debug "$FILES" "$H/Docs" > "$OUT/files.log" 2>&1 &
   FILES_PID=$!
   wait_for "Files did not list report.txt" logged "$OUT/files.log" "geometry item report.txt "
   settle

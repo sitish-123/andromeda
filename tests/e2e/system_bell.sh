@@ -7,7 +7,7 @@ OUT=${OUT:-$(pwd)/artifacts/system-bell}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 CLIENT=${CLIENT:-$ROOT/compositor/build-debug/tests/surface-protocols-client}
-export NOCTALIA_LOG_LEVEL=debug
+export ANDROMEDA_LOG_LEVEL=debug
 
 with_noctalia '
   "'"$CLIENT"'" bell terminal-app > "$OUT/client.log" 2>&1 &

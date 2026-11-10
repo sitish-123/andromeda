@@ -6,7 +6,7 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/default-apps-watch}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
-export NOCTALIA_PROFILE=1
+export ANDROMEDA_PROFILE=1
 
 with_noctalia '
   rebuilds() { grep -cE "profile prepareFrame (buildScene|rebuildContent):" "$OUT/noctalia.log" || true; }

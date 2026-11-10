@@ -42,7 +42,7 @@ env_app=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_DATA_HOME="$HO
 # test clicks; the small steps before it do not notice.
 systemd-run --user --scope --quiet -p CPUQuota=3% "${env_app[@]}" XDG_RUNTIME_DIR="$RUNTIME" "$FILEOPS" \
   > "$OUT/fileops.log" 2>&1 &
-run "${env_app[@]}" NOCTALIA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
+run "${env_app[@]}" ANDROMEDA_LOG_LEVEL=debug DESK_FILES_GEOMETRY=1 "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 for _ in $(seq 100); do

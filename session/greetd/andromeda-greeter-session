@@ -4,15 +4,15 @@
 set -eu
 
 NOCTALIA_BIN="${NOCTALIA_BIN:-$(command -v noctalia || echo /usr/bin/noctalia)}"
-COMPOSITOR_BIN="${NOCTALIA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
+COMPOSITOR_BIN="${ANDROMEDA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
 # Outputs, cursor and keyboard for andromeda --greeter; unset = its own default (/etc/andromeda/greeter.toml).
-GREETER_CONFIG="${NOCTALIA_GREETER_ANDROMEDA_CONFIG:-}"
+GREETER_CONFIG="${ANDROMEDA_GREETER_ANDROMEDA_CONFIG:-}"
 
-# Logs go to syslog through greetd unless NOCTALIA_GREETER_LOG=stderr or a file path: the VT stays clean.
-case "${NOCTALIA_GREETER_LOG:-}" in
+# Logs go to syslog through greetd unless ANDROMEDA_GREETER_LOG=stderr or a file path: the VT stays clean.
+case "${ANDROMEDA_GREETER_LOG:-}" in
 "") exec >/dev/null 2>&1 ;;
 stderr) ;;
-*) exec >>"${NOCTALIA_GREETER_LOG}" 2>&1 ;;
+*) exec >>"${ANDROMEDA_GREETER_LOG}" 2>&1 ;;
 esac
 
 XDG_RUNTIME_DIR="/tmp/noctalia-runtime-$(id -u)"

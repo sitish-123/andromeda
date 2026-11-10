@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The background warning fires once for the trigger case and its Stop action reaches systemd. mock_systemd1.py
 # serves opencode.service (enabled from ~/.config, started 3 h ago) whose ControlGroup points into a fake cgroup
-# tree (NOCTALIA_CGROUP_ROOT) holding 480 MB; pipewire and the other mock units have no cgroup files and stay quiet.
+# tree (ANDROMEDA_CGROUP_ROOT) holding 480 MB; pipewire and the other mock units have no cgroup files and stay quiet.
 # `msg activity-check` must post exactly one finding, a second check none (state survives in
 # ~/.local/state/.../activity.json), and the notification's "stop" action must call StopUnit. Writes artifacts to $OUT
 # (default ./artifacts/activity-warning), with settings.png: the Settings search for the Background Activity row.
@@ -21,7 +21,7 @@ mkdir -p "$RUNTIME/home/.config/systemd/user"
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_systemd1.py"
 export E2E="$(cd "$(dirname "$0")" && pwd)" POINTER=$ROOT/compositor/build-debug/tests/pointer-client
-export NOCTALIA_CGROUP_ROOT=$CG
+export ANDROMEDA_CGROUP_ROOT=$CG
 BEFORE_NOCTALIA='python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done'
 : > "$OUT/calls.txt"

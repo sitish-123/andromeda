@@ -80,7 +80,7 @@ namespace {
   constexpr std::string_view kGreeterName = "noctalia-greeter";
   constexpr std::string_view kGreeterTomlFileName = "greeter.toml";
   constexpr std::string_view kDefaultGreeterStateDir = "/var/lib/noctalia-greeter";
-  constexpr std::string_view kGreeterStateDirEnv = "NOCTALIA_GREETER_STATE_DIR";
+  constexpr std::string_view kGreeterStateDirEnv = "ANDROMEDA_GREETER_STATE_DIR";
   constexpr std::string_view kStagedOutputLayoutFileName = "output_layout";
   constexpr std::string_view kStagedOutputTransformsFileName = "output_transforms";
   constexpr std::string_view kStagedOutputScalesFileName = "output_scales";

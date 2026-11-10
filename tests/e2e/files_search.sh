@@ -39,7 +39,7 @@ for _ in $(seq 200); do grep -q watching "$OUT/index.log" && break; sleep 0.05; 
 grep -q watching "$OUT/index.log" || fail "the index daemon did not start"
 
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
-  XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug DESK_MOTION_TRACE=1 DESK_FILES_GEOMETRY=1 \
+  XDG_CONFIG_HOME="$HOME_DIR/.config" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug DESK_MOTION_TRACE=1 DESK_FILES_GEOMETRY=1 \
   "$FILES" "$SRC" > "$OUT/files.log" 2>&1 &
 
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }

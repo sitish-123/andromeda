@@ -31,7 +31,7 @@ trap 'kill "$BUS_PID" 2> /dev/null || true; kill $(jobs -p) 2> /dev/null || true
 env_all=(env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_CONFIG_HOME="$HOME_DIR/.config"
   XDG_DATA_HOME="$HOME_DIR/.local/share" XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CURRENT_DESKTOP=andromeda)
 
-run "${env_all[@]}" NOCTALIA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &
+run "${env_all[@]}" ANDROMEDA_LOG_LEVEL=debug "$FILES" --picker > "$OUT/picker.log" 2>&1 &
 run "${env_all[@]}" XDG_DESKTOP_PORTAL_DIR="$RUNTIME/portals" "$PORTAL" --verbose > "$OUT/portal.log" 2>&1 &
 
 wait_for() { # description, test command...

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shell wakeup and redraw budget: the headless shell's main thread per scenario, measured two ways:
-# voluntary context switches of that thread, and the shell's own main-loop profiler (NOCTALIA_IDLE_PROFILE: loops,
+# voluntary context switches of that thread, and the shell's own main-loop profiler (ANDROMEDA_IDLE_PROFILE: loops,
 # redraws, top wake sources). Scenarios: idle; media playing with no local audio stream (phone media over Link; a test
 # MPRIS player whose Position does not advance), where the island waveform must still move (compositor dsk loop).
 # Run after any change that can add timers, polling or redraws: `just e2e-one shell_wakeups`.
@@ -8,7 +8,7 @@
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/shell-wakeups}
 MAX_WAKEUPS=${MAX_WAKEUPS:-2} # per second, main thread, each scenario
-export NOCTALIA_IDLE_PROFILE=1
+export ANDROMEDA_IDLE_PROFILE=1
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 

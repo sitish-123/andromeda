@@ -575,29 +575,29 @@ int main() {
 
   bool ok = true;
   const fs::path migrationHome = root / "migration";
-  ok = expect(::setenv("NOCTALIA_STATE_HOME", migrationHome.c_str(), 1) == 0, "failed to set migration state home")
+  ok = expect(::setenv("ANDROMEDA_STATE_HOME", migrationHome.c_str(), 1) == 0, "failed to set migration state home")
       && ok;
   ok = migrationAndEncryptedReload(migrationHome) && ok;
 
   const fs::path unavailableHome = root / "unavailable";
-  ok = expect(::setenv("NOCTALIA_STATE_HOME", unavailableHome.c_str(), 1) == 0, "failed to set unavailable state home")
+  ok = expect(::setenv("ANDROMEDA_STATE_HOME", unavailableHome.c_str(), 1) == 0, "failed to set unavailable state home")
       && ok;
   ok = unavailableProviderPreservesPlaintext(unavailableHome) && ok;
 
   const fs::path missingKeyHome = root / "missing-key";
-  ok = expect(::setenv("NOCTALIA_STATE_HOME", missingKeyHome.c_str(), 1) == 0, "failed to set missing-key state home")
+  ok = expect(::setenv("ANDROMEDA_STATE_HOME", missingKeyHome.c_str(), 1) == 0, "failed to set missing-key state home")
       && ok;
   ok = missingKeyPreservesEncryptedFiles(missingKeyHome) && ok;
 
   const fs::path recoveryHome = root / "recovery";
-  ok = expect(::setenv("NOCTALIA_STATE_HOME", recoveryHome.c_str(), 1) == 0, "failed to set recovery state home") && ok;
+  ok = expect(::setenv("ANDROMEDA_STATE_HOME", recoveryHome.c_str(), 1) == 0, "failed to set recovery state home") && ok;
   ok = secretServiceRecoveryReset(recoveryHome) && ok;
 
   const fs::path fileKeyHome = root / "file-key";
-  ok = expect(::setenv("NOCTALIA_STATE_HOME", fileKeyHome.c_str(), 1) == 0, "failed to set file-key state home") && ok;
+  ok = expect(::setenv("ANDROMEDA_STATE_HOME", fileKeyHome.c_str(), 1) == 0, "failed to set file-key state home") && ok;
   ok = fileKeySource(fileKeyHome) && ok;
 
-  ::unsetenv("NOCTALIA_STATE_HOME");
+  ::unsetenv("ANDROMEDA_STATE_HOME");
   fs::remove_all(root);
   return ok ? 0 : 1;
 }

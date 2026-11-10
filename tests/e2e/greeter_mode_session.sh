@@ -23,8 +23,8 @@ cp "$ROOT/compositor/data/andromeda.desktop" "$RUNTIME/share/wayland-sessions/"
 
 # The script owns XDG_RUNTIME_DIR (/tmp/noctalia-runtime-UID); the greeter finds the mock through GREETD_SOCK.
 env -u WAYLAND_DISPLAY -u DISPLAY WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_HEADLESS_OUTPUTS=1 \
-  NOCTALIA_BIN="$NOCTALIA" NOCTALIA_GREETER_COMPOSITOR_BIN="$ANDROMEDA" NOCTALIA_GREETER_LOG=stderr \
-  GREETD_SOCK="$sock" XDG_DATA_DIRS="$RUNTIME/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/state" \
+  NOCTALIA_BIN="$NOCTALIA" ANDROMEDA_GREETER_COMPOSITOR_BIN="$ANDROMEDA" ANDROMEDA_GREETER_LOG=stderr \
+  GREETD_SOCK="$sock" XDG_DATA_DIRS="$RUNTIME/share" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/state" \
   "$ROOT/session/greetd/andromeda-greeter-session" --user "$USER" > "$OUT/session.log" 2>&1 &
 session=$!
 wait_for "no create_session from the greeter" grep -q '"type": "create_session"' "$OUT/requests.jsonl"

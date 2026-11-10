@@ -36,7 +36,7 @@ enabled = true
 CONFIG
 
 export POINTER FILEOPS DESK H
-export NOCTALIA_LOG_LEVEL=debug
+export ANDROMEDA_LOG_LEVEL=debug
 with_noctalia '
   fail() { echo "FAIL: $*"; exit 1; }
   wait_for() { # description, test command...

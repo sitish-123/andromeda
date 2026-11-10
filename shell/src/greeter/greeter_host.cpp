@@ -62,7 +62,7 @@ namespace {
   constexpr const char* kDefaultStateDir = "/var/lib/noctalia-greeter";
 
   std::filesystem::path stateDir() {
-    const char* dir = std::getenv("NOCTALIA_GREETER_STATE_DIR");
+    const char* dir = (std::getenv("ANDROMEDA_GREETER_STATE_DIR") ? std::getenv("ANDROMEDA_GREETER_STATE_DIR") : std::getenv("NOCTALIA_GREETER_STATE_DIR"));
     return dir != nullptr && dir[0] != '\0' ? dir : kDefaultStateDir;
   }
 

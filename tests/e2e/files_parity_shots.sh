@@ -115,7 +115,7 @@ with_noctalia '
   INDEX_PID=$!
   for _ in $(seq 200); do grep -q watching "$OUT/index.log" && break; sleep 0.05; done
   grep -q watching "$OUT/index.log" || fail "the index daemon did not start"
-  HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state" LC_ALL=C.UTF-8 NOCTALIA_LOG_LEVEL=debug \
+  HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state" LC_ALL=C.UTF-8 ANDROMEDA_LOG_LEVEL=debug \
     DESK_FILES_GEOMETRY=1 "$FILES" "$P" > "$OUT/files.log" 2>&1 &
   for _ in $(seq 100); do grep -q "first frame" "$OUT/files.log" 2> /dev/null && break; sleep 0.05; done
   grep -q "first frame" "$OUT/files.log" || fail "Files drew no first frame"

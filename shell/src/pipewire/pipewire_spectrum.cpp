@@ -353,7 +353,7 @@ void PipeWireSpectrum::Stream::handleProcess() {
 }
 
 PipeWireSpectrum::PipeWireSpectrum(PipeWireService& service) : m_service(service) {
-  m_diagEnabled = std::getenv("NOCTALIA_SPECTRUM_DEBUG") != nullptr;
+  m_diagEnabled = (std::getenv("ANDROMEDA_SPECTRUM_DEBUG") ? std::getenv("ANDROMEDA_SPECTRUM_DEBUG") : std::getenv("NOCTALIA_SPECTRUM_DEBUG")) != nullptr;
   initProcessing();
 }
 

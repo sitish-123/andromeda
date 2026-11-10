@@ -20,7 +20,7 @@ run "$ANDROMEDA" msg config-reload > /dev/null
 fail() { echo "FAIL: $*"; exit 1; }
 win() { run "$ANDROMEDA" windows --json | jq -c "[.. | objects | select(.app_id? == \"$APP\")][0] // empty"; }
 start_app() {
-  run env -u DBUS_SESSION_BUS_ADDRESS NOCTALIA_LOG_LEVEL=debug XDG_STATE_HOME="$RUNTIME/home/.local/state" "${@:2}" \
+  run env -u DBUS_SESSION_BUS_ADDRESS ANDROMEDA_LOG_LEVEL=debug XDG_STATE_HOME="$RUNTIME/home/.local/state" "${@:2}" \
     "$SAMPLE" > "$OUT/app-$1.log" 2>&1 &
   app_pid=$!
   for _ in $(seq 100); do

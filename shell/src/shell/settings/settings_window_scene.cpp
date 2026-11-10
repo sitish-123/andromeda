@@ -1394,7 +1394,7 @@ std::unique_ptr<Flex> SettingsWindow::buildHeaderRow(
     row->addChild(ui::spacer());
   }
 
-  static const bool translatorMode = SysUtils::isEnvFlagOn("NOCTALIA_TRANSLATOR");
+  static const bool translatorMode = SysUtils::isEnvFlagOn("ANDROMEDA_TRANSLATOR") || SysUtils::isEnvFlagOn("NOCTALIA_TRANSLATOR");
   if (translatorMode) {
     row->addChild(makeLabel("en", Style::fontSizeBody * scale, colorSpecFromRole(ColorRole::DangerText)));
     row->addChild(

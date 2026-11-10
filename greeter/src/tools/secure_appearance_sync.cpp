@@ -1156,7 +1156,7 @@ namespace greeter::secure_sync {
 
     // The generic logger supports an environment-selected file target. Do not let a
     // caller-controlled value become a root file open on an early validation error.
-    ::unsetenv("NOCTALIA_GREETER_LOG");
+    ::unsetenv("ANDROMEDA_GREETER_LOG");
 
     uid_t callerUid = 0;
     if (!parseCallingUid(callerUid, errorOut)) {
@@ -1222,7 +1222,7 @@ namespace greeter::secure_sync {
       return false;
     }
 
-    ::unsetenv("NOCTALIA_GREETER_LOG");
+    ::unsetenv("ANDROMEDA_GREETER_LOG");
 
     UniqueFd syncLock;
     if (!acquireSyncLock(syncLock, errorOut)) {

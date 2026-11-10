@@ -52,7 +52,7 @@ start() {
   mkdir -p "$RUNTIME/greeter-state" "$RUNTIME/share/wayland-sessions"
   # The repo's session entry, not the installed one, which may predate it.
   cp "$ROOT/compositor/data/andromeda.desktop" "$RUNTIME/share/wayland-sessions/"
-  run env XDG_DATA_DIRS="$RUNTIME/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" NOCTALIA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
+  run env XDG_DATA_DIRS="$RUNTIME/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/greeter-state" DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SYSTEM_BUS_ADDRESS" ANDROMEDA_GREETER_LOG=stderr GREETD_SOCK="$sock" "$GREETER" --user "$USER" > "$OUT/greeter-$case.log" 2>&1 &
   greeter=$!
   wait_for "$case: no session opened on start" atleast create_session 1
   sleep 1.6 # real time: the entry animation drops typed keys until it ends

@@ -142,17 +142,17 @@ namespace {
   }
 
   bool syncAppliesEnvOverrides() {
-    ::setenv("NOCTALIA_PROCESS_UNSET_TEST", "parent", 1);
+    ::setenv("ANDROMEDA_PROCESS_UNSET_TEST", "parent", 1);
 
     process::RunOptions options;
-    options.env.push_back({"NOCTALIA_PROCESS_SET_TEST", "child"});
-    options.env.push_back({"NOCTALIA_PROCESS_UNSET_TEST", std::nullopt});
+    options.env.push_back({"ANDROMEDA_PROCESS_SET_TEST", "child"});
+    options.env.push_back({"ANDROMEDA_PROCESS_UNSET_TEST", std::nullopt});
 
     const auto result = process::runSync(
-        {"/bin/sh", "-lc", R"(printf '%s/%s' "$NOCTALIA_PROCESS_SET_TEST" "${NOCTALIA_PROCESS_UNSET_TEST-unset}")"},
+        {"/bin/sh", "-lc", R"(printf '%s/%s' "$ANDROMEDA_PROCESS_SET_TEST" "${ANDROMEDA_PROCESS_UNSET_TEST-unset}")"},
         options
     );
-    ::unsetenv("NOCTALIA_PROCESS_UNSET_TEST");
+    ::unsetenv("ANDROMEDA_PROCESS_UNSET_TEST");
 
     bool ok = expect(result.exitCode == 0, "sync env override command failed");
     ok = expect(result.out == "child/unset", "sync env overrides were not visible in child") && ok;
@@ -168,7 +168,7 @@ namespace {
 
     process::RunOptions options;
     options.stdinData = payload;
-    options.env.push_back({"NOCTALIA_PROCESS_FEED_PATH", outPath});
+    options.env.push_back({"ANDROMEDA_PROCESS_FEED_PATH", outPath});
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -181,7 +181,7 @@ namespace {
       cv.notify_all();
     }};
     bool ok = expect(
-        process::runAsync({"/bin/sh", "-c", "cat > \"$NOCTALIA_PROCESS_FEED_PATH\""}, std::move(callbacks), options),
+        process::runAsync({"/bin/sh", "-c", "cat > \"$ANDROMEDA_PROCESS_FEED_PATH\""}, std::move(callbacks), options),
         "stdin async command did not launch"
     );
     std::unique_lock lock(mutex);
@@ -210,14 +210,14 @@ namespace {
     std::error_code ec;
     std::filesystem::remove(outPath, ec);
 
-    ::setenv("NOCTALIA_WALLPAPER_PATH", "/tmp/noctalia test/wallpaper.png", 1);
-    ::setenv("NOCTALIA_WALLPAPER_CONNECTOR", "DP-1", 1);
+    ::setenv("ANDROMEDA_WALLPAPER_PATH", "/tmp/noctalia test/wallpaper.png", 1);
+    ::setenv("ANDROMEDA_WALLPAPER_CONNECTOR", "DP-1", 1);
 
-    const std::string command = R"(printf '%s\n%s' "$NOCTALIA_WALLPAPER_PATH" "$NOCTALIA_WALLPAPER_CONNECTOR" > )"
+    const std::string command = R"(printf '%s\n%s' "$ANDROMEDA_WALLPAPER_PATH" "$ANDROMEDA_WALLPAPER_CONNECTOR" > )"
         + shellQuote(outPath.string());
     const bool launched = process::runAsync(command);
-    ::unsetenv("NOCTALIA_WALLPAPER_PATH");
-    ::unsetenv("NOCTALIA_WALLPAPER_CONNECTOR");
+    ::unsetenv("ANDROMEDA_WALLPAPER_PATH");
+    ::unsetenv("ANDROMEDA_WALLPAPER_CONNECTOR");
 
     if (!expect(launched, "detached async env command did not launch")) {
       return false;

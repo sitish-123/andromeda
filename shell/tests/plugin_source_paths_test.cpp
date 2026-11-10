@@ -30,8 +30,8 @@ namespace {
 } // namespace
 
 int main() {
-  ::setenv("NOCTALIA_STATE_HOME", "/tmp/noctalia-path-test-state", 1);
-  ::setenv("NOCTALIA_DATA_HOME", "/tmp/noctalia-path-test-data", 1);
+  ::setenv("ANDROMEDA_STATE_HOME", "/tmp/noctalia-path-test-state", 1);
+  ::setenv("ANDROMEDA_DATA_HOME", "/tmp/noctalia-path-test-data", 1);
 
   const PluginSourceConfig gitSource{
       .kind = PluginSourceKind::Git,

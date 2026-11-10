@@ -58,9 +58,9 @@ int main() {
   std::filesystem::create_directories(root / "config" / "noctalia");
   std::filesystem::create_directories(root / "state" / "noctalia");
   std::filesystem::create_directories(root / "data");
-  ::setenv("NOCTALIA_CONFIG_HOME", (root / "config").c_str(), 1);
-  ::setenv("NOCTALIA_STATE_HOME", (root / "state").c_str(), 1);
-  ::setenv("NOCTALIA_DATA_HOME", (root / "data").c_str(), 1);
+  ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
+  ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
+  ::setenv("ANDROMEDA_DATA_HOME", (root / "data").c_str(), 1);
 
   // ConfigService reads its persisted overrides from <state dir>/overrides.toml, the same file
   // the settings GUI writes.

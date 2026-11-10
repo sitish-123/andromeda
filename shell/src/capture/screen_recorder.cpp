@@ -121,7 +121,7 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
   }
   setState(State::Starting);
   m_region = region;
-  if (std::getenv("NOCTALIA_RECORD_TEST_SOURCE") != nullptr) {
+  if ((std::getenv("ANDROMEDA_RECORD_TEST_SOURCE") ? std::getenv("ANDROMEDA_RECORD_TEST_SOURCE") : std::getenv("NOCTALIA_RECORD_TEST_SOURCE")) != nullptr) {
     m_crop.stream = {.x = 0, .y = 0, .width = kTestSourceWidth, .height = kTestSourceHeight};
     startPipeline([](const Make& make) {
       GstElement* src = make("videotestsrc");

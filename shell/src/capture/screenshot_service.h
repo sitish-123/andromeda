@@ -243,7 +243,7 @@ struct ScreenshotIpcRequest {
 // Applies `noctalia msg <command>` flags on top of `base` (the [shell.screenshot] snapshot).
 // The error string is the complete IPC response: an "error: ...\n" line, or the help text.
 // `pipe_command` as argv: shell-style quoting, no expansion, no shell. The screenshot path reaches the command in
-// NOCTALIA_SCREENSHOT_PATH. Empty on an empty or unbalanced command.
+// ANDROMEDA_SCREENSHOT_PATH. Empty on an empty or unbalanced command.
 [[nodiscard]] std::vector<std::string> screenshotPipeArgv(std::string_view command);
 
 [[nodiscard]] std::expected<ScreenshotIpcRequest, std::string> parseScreenshotIpcRequest(

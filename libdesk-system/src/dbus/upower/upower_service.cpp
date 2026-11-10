@@ -373,7 +373,7 @@ UPowerService::UPowerService(SystemBus& bus) : m_bus(bus), m_props(std::make_uni
         rescanDevices();
       });
 
-  if (SysUtils::isEnvFlagOn("NOCTALIA_DUMMY_BATTERY")) {
+  if (SysUtils::isEnvFlagOn("ANDROMEDA_DUMMY_BATTERY") || SysUtils::isEnvFlagOn("NOCTALIA_DUMMY_BATTERY")) {
     m_dummyDevice = makeDummyBatteryDevice();
     kLog.info("dummy battery enabled ({:.0F}% discharging)", m_dummyDevice->state.percentage);
   }

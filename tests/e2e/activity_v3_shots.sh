@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Activity v3 design shots next to .agent/mockups/activity-v3.html §A: Memory pane with the problem card in light,
 # CPU pane with Zen Browser selected in dark, each at 1100 and 1600 px wide. Two foot windows run in real scopes
-# (rows with a window); the other rows are mock units whose cgroup files live in a fake tree (NOCTALIA_CGROUP_ROOT),
+# (rows with a window); the other rows are mock units whose cgroup files live in a fake tree (ANDROMEDA_CGROUP_ROOT),
 # with a loop that adds CPU time so CPU shows. Shots only; the mockup is the reference. Images in $OUT
 # (default ./artifacts/activity-v3).
 set -euo pipefail
@@ -46,7 +46,7 @@ for u in "${UNITS[@]}"; do IFS=: read -r name mb cpu <<< "$u"; fake "$name" app.
     done
     sleep 1
   done ) &
-export NOCTALIA_CGROUP_ROOT=$CG REAL_RUNTIME CG POINTER=$ROOT/compositor/build-debug/tests/pointer-client
+export ANDROMEDA_CGROUP_ROOT=$CG REAL_RUNTIME CG POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 export SCOPE1=${SCOPES[0]} SCOPE2=${SCOPES[1]} UNITS_LIST="${UNITS[*]}"
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_systemd1.py"
 BEFORE_NOCTALIA='REAL_RUNTIME=$REAL_RUNTIME python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &

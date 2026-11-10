@@ -60,13 +60,13 @@ namespace paths {
     std::vector<std::filesystem::path> assetCandidates() {
       std::vector<std::filesystem::path> candidates;
 
-      if (const char* env = std::getenv("NOCTALIA_ASSETS_DIR"); env != nullptr && env[0] != '\0') {
+      if (const char* env = (std::getenv("ANDROMEDA_ASSETS_DIR") ? std::getenv("ANDROMEDA_ASSETS_DIR") : std::getenv("NOCTALIA_ASSETS_DIR")); env != nullptr && env[0] != '\0') {
         const std::filesystem::path overridePath(env);
         if (isAssetRoot(overridePath)) {
           candidates.push_back(overridePath);
           return candidates;
         }
-        kLog.warn("NOCTALIA_ASSETS_DIR is not a valid asset bundle: {}", overridePath.string());
+        kLog.warn("ANDROMEDA_ASSETS_DIR is not a valid asset bundle: {}", overridePath.string());
       }
 
       if (auto exe = executablePath()) {

@@ -169,7 +169,7 @@ namespace {
       writeFile(m_directory / "mode", mode);
       writeFile(m_directory / "outputs", std::to_string(outputCount));
       m_path = std::make_unique<EnvironmentVariable>("PATH", m_directory.string());
-      m_state = std::make_unique<EnvironmentVariable>("NOCTALIA_TEST_DDC_DIR", m_directory.string());
+      m_state = std::make_unique<EnvironmentVariable>("ANDROMEDA_TEST_DDC_DIR", m_directory.string());
     }
 
     ~DdcExecutable() { fs::remove_all(m_directory); }
@@ -255,7 +255,7 @@ namespace {
   };
 
   int runDdcCommand(int argc, char** argv) {
-    const char* directory = std::getenv("NOCTALIA_TEST_DDC_DIR");
+    const char* directory = (std::getenv("ANDROMEDA_TEST_DDC_DIR") ? std::getenv("ANDROMEDA_TEST_DDC_DIR") : std::getenv("NOCTALIA_TEST_DDC_DIR"));
     TEST_CHECK(directory != nullptr);
     const fs::path state(directory);
     std::string command;

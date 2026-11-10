@@ -49,15 +49,15 @@ namespace {
 
   bool readsLogLevelEnvironment() {
     setLogLevel(LogLevel::Info);
-    bool ok = expect(setenv("NOCTALIA_LOG_LEVEL", "warn", 1) == 0, "failed to set NOCTALIA_LOG_LEVEL");
+    bool ok = expect(setenv("ANDROMEDA_LOG_LEVEL", "warn", 1) == 0, "failed to set ANDROMEDA_LOG_LEVEL");
     initLogLevelFromEnvironment();
     ok = expect(currentLogLevel() == LogLevel::Warn, "environment log level was not applied") && ok;
 
     setLogLevel(LogLevel::Error);
-    ok = expect(setenv("NOCTALIA_LOG_LEVEL", "WRN", 1) == 0, "failed to set invalid NOCTALIA_LOG_LEVEL") && ok;
+    ok = expect(setenv("ANDROMEDA_LOG_LEVEL", "WRN", 1) == 0, "failed to set invalid ANDROMEDA_LOG_LEVEL") && ok;
     initLogLevelFromEnvironment();
     ok = expect(currentLogLevel() == LogLevel::Error, "invalid environment log level changed current level") && ok;
-    unsetenv("NOCTALIA_LOG_LEVEL");
+    unsetenv("ANDROMEDA_LOG_LEVEL");
     return ok;
   }
 

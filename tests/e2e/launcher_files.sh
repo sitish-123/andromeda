@@ -18,7 +18,7 @@ printf '[Desktop Entry]\nType=Application\nName=E2E Open\nExec=%s %%f\nMimeType=
   > "$home/.local/share/applications/e2e-open.desktop"
 printf '[Default Applications]\ntext/plain=e2e-open.desktop\n' > "$home/.config/mimeapps.list"
 
-export NOCTALIA_LOG_LEVEL=debug INDEX
+export ANDROMEDA_LOG_LEVEL=debug INDEX
 with_noctalia '
   wait_for() { for _ in $(seq 100); do eval "$2" && return 0; sleep 0.05; done; echo "FAIL: $1"; exit 1; }
   "$INDEX" serve > "$OUT/index.log" 2>&1 &

@@ -44,19 +44,19 @@ namespace {
   std::vector<process::EnvOverride> sampleHookEnv(HookKind kind) {
     switch (kind) {
     case HookKind::WallpaperChanged:
-      return {{"NOCTALIA_WALLPAPER_PATH", "/usr/share/backgrounds/andromeda.png"}, {"NOCTALIA_WALLPAPER_CONNECTOR", "eDP-1"}};
+      return {{"ANDROMEDA_WALLPAPER_PATH", "/usr/share/backgrounds/andromeda.png"}, {"ANDROMEDA_WALLPAPER_CONNECTOR", "eDP-1"}};
     case HookKind::ThemeModeChanged:
-      return {{"NOCTALIA_THEME_MODE", "dark"}, {"NOCTALIA_THEME_MODE_PREVIOUS", "light"},
-              {"NOCTALIA_THEME_MODE_CONFIGURED", "auto"}};
+      return {{"ANDROMEDA_THEME_MODE", "dark"}, {"ANDROMEDA_THEME_MODE_PREVIOUS", "light"},
+              {"ANDROMEDA_THEME_MODE_CONFIGURED", "auto"}};
     case HookKind::PowerProfileChanged:
-      return {{"NOCTALIA_POWER_PROFILE", "performance"}, {"NOCTALIA_POWER_PROFILE_PREVIOUS", "balanced"},
-              {"NOCTALIA_POWER_PROFILE_ORIGIN", "user"}};
+      return {{"ANDROMEDA_POWER_PROFILE", "performance"}, {"ANDROMEDA_POWER_PROFILE_PREVIOUS", "balanced"},
+              {"ANDROMEDA_POWER_PROFILE_ORIGIN", "user"}};
     case HookKind::BatteryCharging:
     case HookKind::BatteryDischarging:
     case HookKind::BatteryPlugged:
     case HookKind::BatteryPercentageChanged:
-      return {{"NOCTALIA_BATTERY_STATE", kind == HookKind::BatteryDischarging ? "discharging" : "charging"},
-              {"NOCTALIA_BATTERY_PERCENT", "80"}};
+      return {{"ANDROMEDA_BATTERY_STATE", kind == HookKind::BatteryDischarging ? "discharging" : "charging"},
+              {"ANDROMEDA_BATTERY_PERCENT", "80"}};
     default:
       return {};
     }

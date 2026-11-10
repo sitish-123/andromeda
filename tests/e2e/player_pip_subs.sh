@@ -56,7 +56,7 @@ log_count() { sed 's/\x1b\[[0-9;]*m//g' "$OUT/player.log" | grep -c "$1" || true
 count_above() { (( $(log_count "$1") > $2 )); }
 
 run env DBUS_SESSION_BUS_ADDRESS="$BUS" HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
-  NOCTALIA_LOG_LEVEL=debug "$PLAYER" "$CLIP" > "$OUT/player.log" 2>&1 &
+  ANDROMEDA_LOG_LEVEL=debug "$PLAYER" "$CLIP" > "$OUT/player.log" 2>&1 &
 wait_for "the player window did not map" mapped "$APP"
 wait_for "MPRIS did not report Playing" playing
 

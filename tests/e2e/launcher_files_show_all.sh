@@ -16,7 +16,7 @@ for i in $(seq -w 1 12); do
 done
 printf '%%PDF-1.4\n' > "$home/Documents/kiwi-report-scan.pdf"
 
-export NOCTALIA_LOG_LEVEL=debug INDEX
+export ANDROMEDA_LOG_LEVEL=debug INDEX
 with_noctalia '
   wait_for() { for _ in $(seq 100); do eval "$2" && return 0; sleep 0.05; done; echo "FAIL: $1"; exit 1; }
   "$INDEX" serve > "$OUT/index.log" 2>&1 &

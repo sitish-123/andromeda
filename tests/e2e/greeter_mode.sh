@@ -21,7 +21,7 @@ MOCK_SCENARIOS=broken,plain,plain python3 -I "$ROOT/tests/e2e/mock_greetd.py" "$
 wait_for "the mock did not start" grep -q ready "$OUT/mock.log"
 mkdir -p "$RUNTIME/share/wayland-sessions" "$RUNTIME/greeter-state"
 cp "$ROOT/compositor/data/andromeda.desktop" "$RUNTIME/share/wayland-sessions/"
-run env XDG_DATA_DIRS="$RUNTIME/share" NOCTALIA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
+run env XDG_DATA_DIRS="$RUNTIME/share" ANDROMEDA_GREETER_STATE_DIR="$RUNTIME/greeter-state" GREETD_SOCK="$sock" \
   "$NOCTALIA" greeter --user "$USER" > "$OUT/greeter.log" 2>&1 &
 greeter=$!
 # greetd's own error on the first create_session (its worker is gone): the greeter opens a new session.

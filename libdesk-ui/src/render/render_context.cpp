@@ -325,11 +325,11 @@ bool RenderContext::renderScene(RenderTarget& target, Node* sceneRoot, const Wal
 
   // A full repaint is needed when the buffer changed, GPU resources or glyphs were rebuilt, or the wallpaper mask
   // changed; an unchanged mask is redrawn inside each repainted rect.
-  // NOCTALIA_FULL_REDRAW turns damage tracking off, to rule it out when a surface shows stale pixels.
-  static const bool forceFull = std::getenv("NOCTALIA_FULL_REDRAW") != nullptr;
+  // ANDROMEDA_FULL_REDRAW turns damage tracking off, to rule it out when a surface shows stale pixels.
+  static const bool forceFull = (std::getenv("ANDROMEDA_FULL_REDRAW") ? std::getenv("ANDROMEDA_FULL_REDRAW") : std::getenv("NOCTALIA_FULL_REDRAW")) != nullptr;
   const bool damageReset = target.takeDamageReset(sceneRoot);
   const bool maskChanged = target.takeWallpaperMaskChange(wallpaperMask);
-  // Why this frame repaints everything (NOCTALIA_PROFILE frame stats); the first reason found wins.
+  // Why this frame repaints everything (ANDROMEDA_PROFILE frame stats); the first reason found wins.
   const char* fullReason = forceFull ? "env"
       : damageReset                  ? "reset"
       : sceneRoot == nullptr         ? "no-root"

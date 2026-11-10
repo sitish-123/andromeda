@@ -151,9 +151,9 @@ namespace {
     return index;
   }
 
-  // NOCTALIA_RFKILL_DEVICE lets tests capture events without touching the machine's radios.
+  // ANDROMEDA_RFKILL_DEVICE lets tests capture events without touching the machine's radios.
   [[nodiscard]] const char* rfkillDevicePath() {
-    const char* path = std::getenv("NOCTALIA_RFKILL_DEVICE");
+    const char* path = (std::getenv("ANDROMEDA_RFKILL_DEVICE") ? std::getenv("ANDROMEDA_RFKILL_DEVICE") : std::getenv("NOCTALIA_RFKILL_DEVICE"));
     return path != nullptr && path[0] != '\0' ? path : "/dev/rfkill";
   }
 

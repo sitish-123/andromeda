@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Screen recording encodes on the GPU and saves an MP4 with the desktop's audio. NOCTALIA_RECORD_TEST_SOURCE stands in
+# Screen recording encodes on the GPU and saves an MP4 with the desktop's audio. ANDROMEDA_RECORD_TEST_SOURCE stands in
 # for the ScreenCast portal stream. With no PipeWire in the sandbox, `noctalia msg screen-record-toggle` still records
 # H.264 video only. Then a private PipeWire and WirePlumber start with a null sink as the default output playing a
 # 440 Hz tone, and the second recording must carry H.264 video plus AAC audio of about the recorded length whose loudness
@@ -9,7 +9,7 @@ set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/screen-record}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
-export NOCTALIA_RECORD_TEST_SOURCE=1
+export ANDROMEDA_RECORD_TEST_SOURCE=1
 # A Videos dir whose name has quotes and spaces: the file path must reach filesink as a value, never parsed text.
 mkdir -p "$RUNTIME/home/.config"
 printf 'XDG_VIDEOS_DIR="$HOME/My \\"Clips\\""\n' > "$RUNTIME/home/.config/user-dirs.dirs"

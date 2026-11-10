@@ -196,7 +196,7 @@ namespace {
   }
 
   void testManager(const fs::path& dir) {
-    TEST_CHECK(setenv("NOCTALIA_STATE_HOME", dir.c_str(), 1) == 0);
+    TEST_CHECK(setenv("ANDROMEDA_STATE_HOME", dir.c_str(), 1) == 0);
     const auto path = fs::path(FileUtils::stateDir()) / "notification_history.enc";
     const auto keyFile = dir / "storage-key";
     write(keyFile, std::string(64, '1'));
@@ -277,7 +277,7 @@ namespace {
     provider.setChangeCallback({});
   }
   void testClearBeforeUnlock(const fs::path& dir) {
-    TEST_CHECK(setenv("NOCTALIA_STATE_HOME", dir.c_str(), 1) == 0);
+    TEST_CHECK(setenv("ANDROMEDA_STATE_HOME", dir.c_str(), 1) == 0);
     const auto path = fs::path(FileUtils::stateDir()) / "notification_history.enc";
     const auto keyFile = dir / "storage-key";
     write(keyFile, std::string(64, '1'));

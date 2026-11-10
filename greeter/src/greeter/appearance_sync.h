@@ -29,7 +29,7 @@ namespace greeter::appearance {
   inline constexpr const char* kSyncTomlFileName = "sync.toml";
   inline constexpr const char* kWallpaperBaseName = "wallpaper";
   inline constexpr const char* kSyncedSchemeDisplayName = "Synced";
-  inline constexpr const char* kSyncedDataDirEnv = "NOCTALIA_GREETER_STATE_DIR";
+  inline constexpr const char* kSyncedDataDirEnv = "ANDROMEDA_GREETER_STATE_DIR";
 
   [[nodiscard]] std::filesystem::path syncedDataDirectory();
   [[nodiscard]] std::filesystem::path packageConfPath();
