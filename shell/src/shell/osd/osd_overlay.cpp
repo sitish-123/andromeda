@@ -375,7 +375,7 @@ void OsdOverlay::show(const OsdContent& content) {
     if (inst->surface == nullptr) {
       continue;
     }
-    inst->showPending = true;
+    runReveal(*inst, inst->reveal.request());
     inst->surface->requestUpdate();
   }
 }
@@ -390,7 +390,7 @@ bool OsdOverlay::isVisible() const {
     return true;
   }
   return std::ranges::any_of(m_instances, [](const auto& inst) {
-    return inst->visible || inst->showPending || inst->showAnimId != 0;
+    return inst->reveal.visible();
   });
 }
 
@@ -464,8 +464,8 @@ void OsdOverlay::onOutputChange() {
   ensureSurfaces();
   if (wasVisible) {
     for (auto& inst : m_instances) {
-      if (inst->surface != nullptr && !inst->visible && !inst->showPending && inst->showAnimId == 0) {
-        inst->showPending = true;
+      if (inst->surface != nullptr && !inst->reveal.visible()) {
+        runReveal(*inst, inst->reveal.request());
         inst->surface->requestUpdate();
       }
     }
@@ -712,9 +712,8 @@ void OsdOverlay::prepareFrame(Instance& inst, bool needsUpdate, bool needsLayout
     }
   }
 
-  if (needsUpdate && inst.showPending) {
-    animateInstance(inst);
-    inst.showPending = false;
+  if (needsUpdate && inst.sceneRoot != nullptr) {
+    runReveal(inst, inst.reveal.frame());
   }
 
   // Keep blur publication after animation state/positions are applied for this frame.
@@ -903,7 +902,7 @@ void OsdOverlay::updateBlurRegion(Instance& inst) const {
   if (inst.surface == nullptr || inst.background == nullptr || inst.sceneRoot == nullptr) {
     return;
   }
-  if (!inst.visible && !inst.showPending && inst.showAnimId == 0 && inst.hideAnimId == 0) {
+  if (!inst.reveal.visible()) {
     inst.surface->clearBlurRegion();
     return;
   }
@@ -978,56 +977,65 @@ void OsdOverlay::applyReveal(Instance& inst, float reveal) {
   }
 }
 
-void OsdOverlay::animateInstance(Instance& inst) {
-  if (inst.sceneRoot == nullptr) {
+void OsdOverlay::runReveal(Instance& inst, OsdReveal::Cmd cmd) {
+  if (cmd == OsdReveal::Cmd::Keep) {
     return;
   }
-
-  if (inst.hideAnimId != 0) {
-    inst.animations.cancel(inst.hideAnimId);
-    inst.hideAnimId = 0;
+  if (inst.animId != 0) {
+    inst.animations.cancel(inst.animId);
+    inst.animId = 0;
   }
-
-  if (!inst.visible) {
-    // During fast updates (e.g. slider drag), don't restart the show animation
-    // every tick; keep the current show motion and only extend hide timing.
-    if (inst.showAnimId == 0) {
+  const auto setter = [this, &inst](float v) {
+    inst.reveal.setReveal(v);
+    applyReveal(inst, v);
+  };
+  const Threshold threshold = Threshold::px(std::max(
+      cardWidth(inst.uiLayoutScale, m_lastOrientation),
+      cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress)
+  ));
+  switch (cmd) {
+  case OsdReveal::Cmd::Keep:
+  case OsdReveal::Cmd::Stop:
+    return;
+  case OsdReveal::Cmd::Show:
+    if (inst.sceneRoot != nullptr) {
       inst.sceneRoot->setOpacity(1.0F);
-      applyReveal(inst, 0.0F);
-      inst.showAnimId = inst.animations.animateSpring(
-          0.0F, 1.0F, Style::spring(Tokens::springMorph), [this, &inst](float v) { applyReveal(inst, v); },
-          [&inst] {
-            inst.showAnimId = 0;
-            inst.visible = true;
-          }
-      , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
     }
-  } else {
+    applyReveal(inst, inst.reveal.reveal());
+    inst.animId = inst.animations.animateSpring(
+        inst.reveal.reveal(), 1.0F, Style::spring(Tokens::springMorph), setter,
+        [this, &inst] {
+          inst.animId = 0;
+          runReveal(inst, inst.reveal.showSettled());
+        },
+        nullptr, 0.0F, threshold
+    );
+    return;
+  case OsdReveal::Cmd::Hold: {
     applyReveal(inst, 1.0F);
+    const float hideDelayMs =
+        static_cast<float>(m_config != nullptr ? m_config->config().osd.hideDelayMs : OsdConfig{}.hideDelayMs);
+    inst.animId = inst.animations.animateTimer(1.0F, 0.0F, hideDelayMs, Easing::Linear, [](float /*v*/) {}, [this, &inst] {
+      inst.animId = 0;
+      runReveal(inst, inst.reveal.holdElapsed());
+    });
+    return;
   }
-
-  const float hideDelayMs =
-      static_cast<float>(m_config != nullptr ? m_config->config().osd.hideDelayMs : OsdConfig{}.hideDelayMs);
-  // Timer: the configured hide delay.
-  inst.hideAnimId = inst.animations.animateTimer(
-      1.0F, 0.0F, hideDelayMs, Easing::Linear, [](float /*v*/) {},
-      [this, &inst] {
-        inst.hideAnimId = inst.animations.animateSpring(
-            1.0F, 0.0F, Style::spring(Tokens::springCollapse), [this, &inst](float v) { applyReveal(inst, v); },
-            [this, &inst] {
-              inst.hideAnimId = 0;
-              inst.visible = false;
-              DeferredCall::callLater([this] {
-                const bool allIdle = std::ranges::all_of(m_instances, [](const auto& i) {
-                  return !i->visible && !i->showPending && i->showAnimId == 0 && i->hideAnimId == 0;
-                });
-                if (allIdle) {
-                  destroySurfaces();
-                  m_targetOutput = nullptr;
-                }
-              });
+  case OsdReveal::Cmd::Hide:
+    inst.animId = inst.animations.animateSpring(
+        inst.reveal.reveal(), 0.0F, Style::spring(Tokens::springCollapse), setter,
+        [this, &inst] {
+          inst.animId = 0;
+          runReveal(inst, inst.reveal.hideSettled());
+          DeferredCall::callLater([this] {
+            if (std::ranges::none_of(m_instances, [](const auto& i) { return i->reveal.visible(); })) {
+              destroySurfaces();
+              m_targetOutput = nullptr;
             }
-        , nullptr, 0.0F, Threshold::px(std::max(cardWidth(inst.uiLayoutScale, m_lastOrientation), cardHeight(inst.uiLayoutScale, m_lastOrientation, m_lastShowProgress))));
-      }
-  );
+          });
+        },
+        nullptr, 0.0F, threshold
+    );
+    return;
+  }
 }

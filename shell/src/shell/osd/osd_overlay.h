@@ -2,6 +2,7 @@
 
 #include "wayland/glass_surface.h"
 #include "render/animation/animation_manager.h"
+#include "shell/osd/osd_reveal.h"
 #include "wayland/layer_surface.h"
 
 #include <cstdint>
@@ -113,10 +114,9 @@ private:
     float progressValueMinWidth = 0.0F;
     float rowBaseX = 0.0F;
     float rowBaseY = 0.0F;
-    AnimationManager::Id showAnimId = 0;
-    AnimationManager::Id hideAnimId = 0;
-    bool showPending = false;
-    bool visible = false;
+    OsdReveal reveal;
+    // The animation of reveal.state(): show spring, hold timer or hide spring.
+    AnimationManager::Id animId = 0;
     float appliedCornerRadiusScale = -1.0F;
   };
 
@@ -131,7 +131,7 @@ private:
   void updateInstanceContent(Instance& inst);
   void updateBlurRegion(Instance& inst) const;
   void applyReveal(Instance& inst, float reveal);
-  void animateInstance(Instance& inst);
+  void runReveal(Instance& inst, OsdReveal::Cmd cmd);
 
   WaylandConnection* m_wayland = nullptr;
   CompositorPlatform* m_platform = nullptr;
