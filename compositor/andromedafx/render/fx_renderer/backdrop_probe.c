@@ -4,6 +4,7 @@
 #include "render/fx_renderer/shaders.h"
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
+#include <GLES3/gl3.h>
 #include <math.h>
 #include <stdlib.h>
 #include <time.h>
@@ -25,6 +26,7 @@ struct fx_backdrop_probe {
   struct wl_list link;          // fx_renderer.backdrop_probes
   GLuint texture;
   GLuint framebuffer;
+  GLuint pack_buffer; // GL_PIXEL_PACK_BUFFER the capture reads the samples into
   struct probe_fence* fence;
   bool awaiting_fence; // captured; the pass submit fences it
   bool linear;
@@ -108,6 +110,10 @@ static void release_gl(struct fx_backdrop_probe* probe) {
     glDeleteFramebuffers(1, &probe->framebuffer);
     probe->framebuffer = 0;
   }
+  if (probe->pack_buffer != 0) {
+    glDeleteBuffers(1, &probe->pack_buffer);
+    probe->pack_buffer = 0;
+  }
   if (probe->texture != 0) {
     glDeleteTextures(1, &probe->texture);
     probe->texture = 0;
@@ -120,6 +126,14 @@ struct fx_backdrop_probe* fx_backdrop_probe_create(struct wlr_renderer* wlr_rend
   }
   struct fx_renderer* renderer = fx_get_renderer(wlr_renderer);
   if (renderer->egl->procs.eglCreateSyncKHR == NULL || renderer->egl->eglClientWaitSyncKHR == NULL) {
+    return NULL;
+  }
+  if (!renderer->is_gles3) {
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      wlr_log(WLR_INFO, "backdrop probe: off, pixel pack buffers need GLES 3");
+    }
     return NULL;
   }
   struct fx_backdrop_probe* probe = calloc(1, sizeof(*probe));
@@ -180,6 +194,10 @@ void fx_backdrop_probe_capture(
       release_gl(probe);
       return;
     }
+    glGenBuffers(1, &probe->pack_buffer);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, probe->pack_buffer);
+    glBufferData(GL_PIXEL_PACK_BUFFER, kProbeWidth * kProbeHeight * 4, NULL, GL_STREAM_READ);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
   }
   // The caller skips a capture while one is in flight; a node redrawn every frame would otherwise never finish one.
   if (fx_backdrop_probe_pending(probe)) {
@@ -210,6 +228,10 @@ void fx_backdrop_probe_capture(
   glEnableVertexAttribArray(probe_shader.pos);
   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   glDisableVertexAttribArray(probe_shader.pos);
+  // The pass submit fences this copy with the draw, so poll maps the buffer only once the GPU finished it.
+  glBindBuffer(GL_PIXEL_PACK_BUFFER, probe->pack_buffer);
+  glReadPixels(0, 0, kProbeWidth, kProbeHeight, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+  glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
   if (blend) {
     glEnable(GL_BLEND);
   }
@@ -251,11 +273,9 @@ bool fx_backdrop_probe_poll(struct fx_backdrop_probe* probe, float* luminance) {
     return false;
   }
   bool done = false;
-  {
-    GLubyte pixels[kProbeWidth * kProbeHeight * 4];
-    glBindFramebuffer(GL_FRAMEBUFFER, probe->framebuffer);
-    glReadPixels(0, 0, kProbeWidth, kProbeHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glBindBuffer(GL_PIXEL_PACK_BUFFER, probe->pack_buffer);
+  const GLubyte* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, kProbeWidth * kProbeHeight * 4, GL_MAP_READ_BIT);
+  if (pixels != NULL) {
     double sum = 0.0;
     for (int i = 0; i < kProbeWidth * kProbeHeight; i++) {
       const GLubyte* p = &pixels[i * 4];
@@ -264,7 +284,9 @@ bool fx_backdrop_probe_poll(struct fx_backdrop_probe* probe, float* luminance) {
     double mean = sum / (kProbeWidth * kProbeHeight);
     *luminance = (float)(probe->linear ? pow(mean, 1.0 / 2.2) : mean);
     done = true;
+    glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
   }
+  glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
   wlr_egl_restore_context(&saved);
   return done;
 }

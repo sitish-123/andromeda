@@ -1,6 +1,7 @@
 // Effect program kinds, generic uniforms, and the composition slots, rendered
 // on a headless output. Each case name is a meson test; the executable
 // returns 77 without an FP16-capable render node.
+#include "render/fx_renderer/backdrop_probe.h"
 #include "render/fx_renderer/effect.h"
 #include "render_fixture.h"
 #include "andromedafx/render/effect.h"
@@ -2402,6 +2403,69 @@ static bool test_in_place_shape(struct fixture* fixture) {
   return ok;
 }
 
+// Captures a solid texture into the probe in one pass, submits it, and polls until the fenced sample arrives.
+static bool backdrop_probe_sample(
+    struct fixture* fixture, struct fx_backdrop_probe* probe, const uint8_t rgba[4], float* luminance
+) {
+  uint8_t pixels[8 * 8 * 4];
+  for (int i = 0; i < 8 * 8; i++) {
+    memcpy(&pixels[i * 4], rgba, 4);
+  }
+  struct wlr_texture* source = wlr_texture_from_pixels(fixture->renderer, DRM_FORMAT_ABGR8888, 8 * 4, 8, 8, pixels);
+  struct wlr_buffer* target = create_output_buffer(fixture, DRM_FORMAT_ARGB8888, TEST_WIDTH, TEST_HEIGHT);
+  struct wlr_render_pass* pass =
+      source != NULL && target != NULL ? wlr_renderer_begin_buffer_pass(fixture->renderer, target, NULL) : NULL;
+  bool ok = check(pass != NULL, "probe source, target and pass");
+  if (ok) {
+    const struct fx_texture* texture = fx_get_texture(source);
+    // The default mipmap min filter leaves the texture incomplete; the blur pass sets its own filter.
+    glBindTexture(texture->target, texture->tex);
+    glTexParameteri(texture->target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    fx_backdrop_probe_capture(
+        probe, texture->tex, texture->target, 8, 8, &(struct wlr_box){.x = 2, .y = 2, .width = 4, .height = 4}, false
+    );
+    ok &= check(fx_backdrop_probe_pending(probe), "capture leaves a sample in flight");
+    ok &= check(wlr_render_pass_submit(pass), "submit");
+    struct timespec start, now;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    bool done = false;
+    do {
+      done = fx_backdrop_probe_poll(probe, luminance);
+      clock_gettime(CLOCK_MONOTONIC, &now);
+    } while (!done && fx_backdrop_probe_pending(probe) && now.tv_sec - start.tv_sec < 5);
+    ok &= check(done, "poll returns the sample once its fence signalled");
+  }
+  if (target != NULL) {
+    wlr_buffer_drop(target);
+  }
+  if (source != NULL) {
+    wlr_texture_destroy(source);
+  }
+  return ok;
+}
+
+// Two colours in a row: a poll that reads an unpacked or stale buffer reports the wrong luminance.
+static bool test_backdrop_probe(struct fixture* fixture) {
+  struct fx_backdrop_probe* probe = fx_backdrop_probe_create(fixture->renderer);
+  if (!check(probe != NULL, "probe")) {
+    return false;
+  }
+  static const uint8_t colours[][4] = {{200, 100, 50, 255}, {20, 240, 90, 255}};
+  bool ok = true;
+  for (size_t i = 0; ok && i < sizeof(colours) / sizeof(colours[0]); i++) {
+    const uint8_t* c = colours[i];
+    const float expected = (float)((0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255.0);
+    float luminance = -1.0f;
+    ok &= backdrop_probe_sample(fixture, probe, c, &luminance);
+    if (ok && fabsf(luminance - expected) > 1.5f / 255.0f) {
+      fprintf(stderr, "  colour %zu: luminance %.4f, expected %.4f\n", i, luminance, expected);
+      ok = false;
+    }
+  }
+  fx_backdrop_probe_destroy(probe);
+  return ok;
+}
+
 // Exercise dynamic sampling of every entry, interpolation and clamps.
 static bool test_audio_spectrum(struct fixture* fixture) {
   struct wlr_scene* scene = wlr_scene_create();
@@ -2884,6 +2948,8 @@ int main(int argc, char* argv[]) {
     ok = test_capture_composition(&fixture);
   } else if (strcmp(argv[1], "in-place-shape") == 0) {
     ok = test_in_place_shape(&fixture);
+  } else if (strcmp(argv[1], "backdrop-probe") == 0) {
+    ok = test_backdrop_probe(&fixture);
   } else if (strcmp(argv[1], "audio-spectrum") == 0) {
     ok = test_audio_spectrum(&fixture);
   } else if (strcmp(argv[1], "output-effects") == 0) {

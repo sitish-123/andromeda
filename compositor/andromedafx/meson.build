@@ -333,6 +333,7 @@ if build_tests
     'in-place-shape',
     'output-effects',
     'audio-spectrum',
+    'backdrop-probe',
   ]
     test('effects-' + case_name, andromedafx_effects_test, args: case_name, suite: 'andromedafx')
   endforeach
