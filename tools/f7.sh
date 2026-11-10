@@ -50,10 +50,10 @@ start=$(date +%s.%N)
 echo "f7: building [$union] (log $state/last.log)"
 # tools/build.sh queues this build behind any other heavy build on the machine.
 if [ "$union" = all ]; then
-  tools/build.sh ninja -C shell/build-f7 2>&1 | tee "$state/last.log"
+  tools/build.sh ninja ${F7_JOBS:+-j$F7_JOBS} -C shell/build-f7 2>&1 | tee "$state/last.log"
 else
   # shellcheck disable=SC2086
-  tools/build.sh ninja -C shell/build-f7 $union 2>&1 | tee "$state/last.log"
+  tools/build.sh ninja ${F7_JOBS:+-j$F7_JOBS} -C shell/build-f7 $union 2>&1 | tee "$state/last.log"
 fi
 rc=${PIPESTATUS[0]}
 [ "$rc" -ne 0 ] || echo "$start $union" >"$state/last-ok"
