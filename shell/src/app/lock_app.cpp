@@ -1,6 +1,7 @@
 #include "app/lock_app.h"
 
 #include "app/application.h"
+#include "app/application_internal.h"
 #include "app/deferred_call_poll_source.h"
 #include "app/main_loop.h"
 #include "app/timer_poll_source.h"
@@ -9,6 +10,7 @@
 #include "compositors/shell_wayland_connection.h"
 #include "config/config_poll_source.h"
 #include "config/config_service.h"
+#include "core/deferred_call.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/timer_manager.h"
@@ -51,6 +53,7 @@
 #include <cmath>
 #include <csignal>
 #include <format>
+#include <malloc.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -277,12 +280,14 @@ namespace {
               }
             }
             emitState("unlocked");
+            releaseWhenIdle();
           },
           [this] {
             m_sessionLocked = false;
             syncWidgets();
             releaseSleepDelayIfPending();
             emitState("aborted");
+            releaseWhenIdle();
           },
           [this] { releaseSleepDelayIfPending(); }
       );
@@ -341,6 +346,17 @@ namespace {
         m_releaseSleepDelayWhenLocked = false;
         m_logind->releaseSleepDelayInhibit();
       }
+    }
+
+    // The session hooks run before LockScreen destroys its surfaces, so the release waits for the next loop turn.
+    void releaseWhenIdle() {
+      DeferredCall::callLater([this] {
+        if (m_lock.isActive()) {
+          return;
+        }
+        m_renderContext.releaseUnusedCaches();
+        trimAllocator();
+      });
     }
 
     void releaseSleepDelayIfPending() {
@@ -473,6 +489,7 @@ namespace {
       sources.push_back(&m_keyboardLayoutPoll);
       sources.push_back(&m_lockKeysPoll);
       sources.push_back(&m_pixelStreams);
+      sources.push_back(&m_textures);
       return sources;
     }
 
@@ -525,6 +542,11 @@ namespace {
 } // namespace
 
 int runLockMode(int /*argc*/, char* /*argv*/[]) {
+#ifdef __GLIBC__
+  // A fixed threshold keeps wallpaper decode buffers (8-33 MB) on their own mappings, unmapped when freed; glibc's
+  // dynamic threshold would move them into arena heaps that stay dirty while the process waits unlocked.
+  mallopt(M_MMAP_THRESHOLD, 4 << 20);
+#endif
   try {
     LockApp app;
     return app.run();
