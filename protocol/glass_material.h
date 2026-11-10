@@ -51,7 +51,7 @@ namespace glass {
     float tint = 0.0F;
     switch (kind) {
     case Kind::Shape:
-      tint = light ? curve(0.20F, 0.34F, 0.84F) : curve(0.24F, 0.40F, 0.60F);
+      tint = light ? curve(0.20F, 0.34F, 0.84F) : curve(0.30F, 0.52F, 0.70F);
       break;
     case Kind::Sheet:
     case Kind::Menu:
