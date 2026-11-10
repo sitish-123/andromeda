@@ -264,8 +264,12 @@ std::unique_ptr<Flex> PowerMenuPage::makeTile(std::string_view glyph, const std:
   button->addChild(std::move(iconBox));
   auto text = ui::label({.out = labelOut, .text = label, .fontSize = Tokens::typeHeadline.size * s,
                          .fontWeight = static_cast<FontWeight>(Style::glassWeight(Tokens::typeHeadline.weight)),
-                         .color = colorSpecFromRole(ColorRole::Label1), .maxLines = 1});
+                         .color = colorSpecFromRole(ColorRole::Label1), .maxLines = roundIcon ? 2 : 1});
   text->setHitTestVisible(false);
+  // A half-width tile gives its label the rest of the row, so "Shut Down When Done" wraps inside the tile.
+  if (roundIcon) {
+    text->setFlexGrow(1.0F);
+  }
   button->addChild(std::move(text));
   button->setOnClick([this, action = std::move(action)] { run(action); });
   auto card = ui::row({.align = FlexAlign::Stretch});
