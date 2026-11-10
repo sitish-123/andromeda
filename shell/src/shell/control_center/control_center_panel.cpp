@@ -97,9 +97,9 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
     page->setOnBack(back);
     m_tabs[tabIndex(id)] = std::move(page);
   };
-  addDetail(TabId::DetailWifi, std::make_unique<control_center::WifiDetailPage>(services.network));
+  addDetail(TabId::DetailWifi, std::make_unique<control_center::WifiDetailPage>(services.network, services.hotspot));
   addDetail(TabId::DetailBluetooth, std::make_unique<control_center::BluetoothDetailPage>(services.bluetooth, services.bluetoothAgent));
-  addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio));
+  addDetail(TabId::DetailSound, std::make_unique<control_center::SoundDetailPage>(services.audio, services.easyEffects));
   addDetail(TabId::DetailPower,
             std::make_unique<control_center::PowerDetailPage>(services.powerProfiles, services.upower));
   addDetail(TabId::DetailSearch, std::make_unique<control_center::SearchDetailPage>(services.network, [this](std::string_view key) {

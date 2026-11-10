@@ -573,7 +573,8 @@
         "status-connected": "Connected",
         "status-not-connected": "Not connected",
         "unavailable": "Bluetooth unavailable",
-        "unavailable-body": "No Bluetooth adapter was found."
+        "unavailable-body": "No Bluetooth adapter was found.",
+        "visible": "Visible to Nearby Devices"
       },
       "display": {
         "brightness": "Brightness",
@@ -631,6 +632,7 @@
         "title": "Phone"
       },
       "power": {
+        "charge-limit": "Charge Limit",
         "health": "Battery health {percent}%",
         "modes": "Power mode",
         "settings": "Battery Settings...",
@@ -685,6 +687,11 @@
         "connect-failed": "Could not connect to {ssid}",
         "connected": "Connected",
         "disconnect": "Disconnect",
+        "disconnect-failed": "Could not disconnect {name}",
+        "forget": "Forget This Network",
+        "hotspot": "Personal Hotspot",
+        "hotspot-failed": "Hotspot could not start",
+        "hotspot-failed-reason": "Hotspot could not start ({reason})",
         "ip-address": "IP Address",
         "known-networks": "Known networks",
         "network-details": "Network Details…",

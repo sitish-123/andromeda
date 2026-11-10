@@ -25,9 +25,7 @@ public:
   std::unique_ptr<Flex> create() override;
   void onClose() override;
 
-private:
-  friend class PowerTabTestAccess;
-
+  // The CC Power detail page shares these until the old tab goes (R4).
   enum class ChargeLimitMode : std::uint8_t {
     Unsupported,
     UPowerActive,
@@ -48,6 +46,9 @@ private:
   [[nodiscard]] static ChargeLimitMode classifyChargeLimit(const UPowerChargeLimitState& state) noexcept;
   [[nodiscard]] static ChargeLimitControlState chargeLimitControlState(const UPowerChargeLimitState& state) noexcept;
   [[nodiscard]] static bool shouldShowChargeLimit(const UPowerChargeLimitState& state) noexcept;
+
+private:
+  friend class PowerTabTestAccess;
 
   void doLayout(Renderer& renderer, float contentWidth, float bodyHeight) override;
   void doUpdate(Renderer& renderer) override;

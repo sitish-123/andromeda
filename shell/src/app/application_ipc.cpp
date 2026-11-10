@@ -204,8 +204,8 @@ void Application::initIpc() {
     if (m_hotspot == nullptr) {
       return "error: no system bus\n";
     }
-    const std::string error = m_hotspot->setEnabled(!m_hotspot->active());
-    return error.empty() ? "ok\n" : "error: " + error + "\n";
+    // The result arrives later; `hotspot-status` shows it.
+    return m_hotspot->setEnabled(!m_hotspot->active()) ? "ok\n" : "error: a hotspot request is still running\n";
   });
   m_ipcService.bind(noctalia::cli::msg::hotspotStatus, [this](const std::string&) -> std::string {
     return m_hotspot != nullptr && m_hotspot->active() ? "on\n" : "off\n";

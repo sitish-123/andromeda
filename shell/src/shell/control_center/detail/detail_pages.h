@@ -25,7 +25,9 @@ struct ShortcutServices;
 class INetworkService;
 class LinkService;
 struct LinkDevice;
+class EasyEffectsService;
 class Input;
+class NmHotspot;
 class NotificationManager;
 class PipeWireService;
 class PowerProfilesService;
@@ -36,7 +38,7 @@ namespace control_center {
 
   class WifiDetailPage final : public DetailPage {
   public:
-    explicit WifiDetailPage(INetworkService* network) : m_network(network) {}
+    WifiDetailPage(INetworkService* network, NmHotspot* hotspot) : m_network(network), m_hotspot(hotspot) {}
     std::unique_ptr<Flex> createHeaderActions() override;
     void setActive(bool active) override;
 
@@ -48,8 +50,12 @@ namespace control_center {
     [[nodiscard]] bool deferRebuild() const override;
     void releaseControls() override;
     [[nodiscard]] bool available() const;
+    void buildWireless();
+    // Ethernet and Personal Hotspot: shown whether Wi-Fi is on or off.
+    void addLinks();
 
     INetworkService* m_network = nullptr;
+    NmHotspot* m_hotspot = nullptr;
     Toggle* m_toggle = nullptr;
     Input* m_password = nullptr;
     bool m_active = false;
@@ -90,18 +96,27 @@ namespace control_center {
     std::chrono::steady_clock::time_point m_scanAttempt;
     bool m_showNearby = false;
     bool m_showAllPaired = false;
+    std::string m_error;
+    std::shared_ptr<int> m_lifetime = std::make_shared<int>(0); // guards async BlueZ replies
   };
 
   class SoundDetailPage final : public DetailPage {
   public:
-    explicit SoundDetailPage(PipeWireService* audio) : m_audio(audio) {}
+    SoundDetailPage(PipeWireService* audio, EasyEffectsService* effects) : m_audio(audio), m_effects(effects) {}
+    void setActive(bool active) override;
 
   private:
+    // The EasyEffects profile list that is open inline.
+    enum class EffectsList : std::uint8_t { None, Output, Input };
+
     [[nodiscard]] std::string structureKey() const override;
     void build() override;
     [[nodiscard]] std::vector<FooterButton> footerButtons() override;
+    void addEffectsRows(Flex& card, EffectsList list);
 
     PipeWireService* m_audio = nullptr;
+    EasyEffectsService* m_effects = nullptr;
+    EffectsList m_openEffects = EffectsList::None;
     bool m_showAllOutputs = false;
     bool m_showAllApps = false;
   };

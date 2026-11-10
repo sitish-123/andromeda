@@ -9,6 +9,7 @@
 #include "util/string_utils.h"
 #include "notification/notification_display_name.h"
 #include "system/brightness_service.h"
+#include "system/easyeffects_service.h"
 #include "system/format_units.h"
 #include "system/screen_time_service.h"
 #include "system/system_monitor_service.h"
@@ -20,12 +21,14 @@
 #include "dbus/link/link_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
+#include "dbus/network/nm_hotspot.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/upower/upower_service.h"
 #include "i18n/i18n.h"
 #include "notification/notification_manager.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/control_center/tabs/bluetooth_tab.h"
+#include "shell/control_center/tabs/power_tab.h"
 #include "shell/phone/phone_state.h"
 #include "shell/panel/panel_manager.h"
 #include "ui/builders.h"
@@ -138,6 +141,10 @@ namespace control_center {
     const NetworkState& state = m_network->state();
     std::string key = std::format("{}|{}|{}|{}|{}|{}|{}|{}", state.wirelessEnabled, state.resolving, state.ssid,
                                   m_showAll, m_passwordSsid, m_error, state.ipv4, state.frequencyMhz);
+    key += std::format("|{}:{}:{}:{}", static_cast<int>(state.kind), state.connected,
+                       m_network->canActivateWiredConnection(),
+                       m_hotspot != nullptr ? std::format("{}:{}", static_cast<int>(m_hotspot->state()), m_hotspot->lastError())
+                                            : std::string());
     if (state.wirelessEnabled) {
       for (const AccessPointInfo& ap : m_network->accessPoints()) {
         key += std::format("|{}:{}:{}:{}:{}", ap.ssid, network_display::wifiSignalBand(ap.strength), ap.secured,
@@ -153,6 +160,61 @@ namespace control_center {
       addEmpty("wifi-off", tr("control-center.detail.wifi.unavailable"), tr("control-center.detail.wifi.unavailable-body"));
       return;
     }
+    buildWireless();
+    addLinks();
+  }
+
+  void WifiDetailPage::addLinks() {
+    const NetworkState& state = m_network->state();
+    const bool wired = state.kind == NetworkConnectivity::Wired && state.connected;
+    if (!wired && !m_network->canActivateWiredConnection() && m_hotspot == nullptr) {
+      return;
+    }
+    if (m_hotspot != nullptr && !m_hotspot->lastError().empty()) {
+      addError(m_hotspot->lastError(), [this] {
+        (void)m_hotspot->setEnabled(m_hotspot->requestedOn());
+        requestRebuild();
+      });
+    }
+    Flex* card = addGroup();
+    if (m_hotspot != nullptr) {
+      DetailRow row;
+      row.glyph = "access-point";
+      row.title = tr("control-center.detail.wifi.hotspot");
+      row.toggle = m_hotspot->active();
+      row.toggleEnabled = !m_hotspot->pending();
+      row.onToggle = [this](bool on) {
+        (void)m_hotspot->setEnabled(on);
+        requestRebuild();
+      };
+      addRow(*card, row);
+    }
+    if (wired || m_network->canActivateWiredConnection()) {
+      DetailRow row;
+      row.glyph = wired ? "ethernet" : "ethernet-off";
+      row.title = tr("control-center.network.ethernet");
+      row.trailing = tr(wired ? "control-center.network.connected" : "control-center.network.not-connected");
+      if (wired && !state.ipv4.empty()) {
+        row.secondary = state.ipv4;
+      }
+      row.selected = wired;
+      row.onClick = [this] {
+        const NetworkState& now = m_network->state();
+        if (now.kind == NetworkConnectivity::Wired && now.connected) {
+          if (!m_network->deactivateWiredConnection()) {
+            m_error = i18n::tr("control-center.detail.wifi.disconnect-failed", "name",
+                               tr("control-center.network.ethernet"));
+          }
+        } else if (!m_network->activateWiredConnection()) {
+          m_error = i18n::tr("control-center.detail.wifi.connect-failed", "ssid", tr("control-center.network.ethernet"));
+        }
+        requestRebuild();
+      };
+      addRow(*card, row);
+    }
+  }
+
+  void WifiDetailPage::buildWireless() {
     const NetworkState& state = m_network->state();
     if (!state.wirelessEnabled) {
       addEmpty("wifi-off", tr("control-center.detail.wifi.off"), tr("control-center.detail.wifi.off-body"));
@@ -213,6 +275,15 @@ namespace control_center {
       details.trailingGlyphs = {Style::rtl() ? "chevron-left" : "chevron-right"};
       details.onClick = [] { openSettings("wifi"); };
       addRow(*card, details);
+      if (m_network->hasSavedConnection(active.ssid)) {
+        DetailRow forget;
+        forget.title = tr("control-center.detail.wifi.forget");
+        forget.onClick = [this, ssid = active.ssid] {
+          m_network->forgetSsid(ssid);
+          requestRebuild();
+        };
+        addRow(*card, forget);
+      }
     }
 
     std::vector<const AccessPointInfo*> known;
@@ -362,6 +433,7 @@ namespace control_center {
     if (!active) {
       stopScan();
       m_showNearby = false;
+      m_error.clear();
     }
   }
 
@@ -396,7 +468,8 @@ namespace control_center {
       return "unavailable";
     }
     const BluetoothState& state = m_bluetooth->state();
-    std::string key = std::format("{}|{}|{}|{}", state.powered, state.discovering, m_showNearby, m_showAllPaired);
+    std::string key = std::format("{}|{}|{}|{}|{}|{}", state.powered, state.discovering, state.discoverable, m_showNearby,
+                                  m_showAllPaired, m_error);
     if (m_agent != nullptr && m_agent->hasPendingRequest()) {
       const BluetoothPairingRequest req = m_agent->pendingRequest();
       key += std::format("|pair:{}:{}:{}:{}", static_cast<int>(req.kind), req.devicePath, req.passkey, req.pin);
@@ -585,6 +658,26 @@ namespace control_center {
     if (connected.empty() && paired.empty() && !m_showNearby) {
       addEmpty("bluetooth", tr("control-center.bluetooth.no-devices"), "");
     }
+    DetailRow visible;
+    visible.title = tr("control-center.detail.bluetooth.visible");
+    visible.toggle = m_bluetooth->state().discoverable;
+    visible.onToggle = [this](bool on) {
+      m_error.clear();
+      m_bluetooth->setDiscoverable(on, [this, alive = std::weak_ptr<int>(m_lifetime)](std::string error) {
+        if (alive.expired()) {
+          return;
+        }
+        m_error = std::move(error);
+        requestRebuild();
+      });
+    };
+    if (!m_error.empty()) {
+      addError(m_error, [this] {
+        m_error.clear();
+        requestRebuild();
+      });
+    }
+    addRow(*addGroup(), visible);
   }
 
   std::vector<DetailPage::FooterButton> BluetoothDetailPage::footerButtons() {
@@ -616,7 +709,65 @@ namespace control_center {
     for (const AudioNode& n : state.programOutputs) {
       key += std::format("|p{}:{}:{}:{}:{}:{}", n.id, n.applicationName, n.iconName, n.applicationId, n.applicationBinary, title(n));
     }
+    if (m_effects != nullptr) {
+      key += std::format("|e{}", static_cast<int>(m_openEffects));
+      for (const AudioEffectsProfileKind kind : {AudioEffectsProfileKind::Output, AudioEffectsProfileKind::Input}) {
+        key += std::format("|{}", m_effects->activeEffectsProfile(kind));
+        for (const std::string& p : m_effects->effectsProfiles(kind)) {
+          key += ":" + p;
+        }
+      }
+    }
     return key;
+  }
+
+  void SoundDetailPage::setActive(bool active) {
+    if (active && m_effects != nullptr) {
+      m_effects->refreshAsync();
+    }
+    if (!active) {
+      m_openEffects = EffectsList::None;
+    }
+  }
+
+  // An "Effects" row with the active EasyEffects profile; a click opens the profile list inline. None without profiles.
+  void SoundDetailPage::addEffectsRows(Flex& card, EffectsList list) {
+    if (m_effects == nullptr) {
+      return;
+    }
+    const AudioEffectsProfileKind kind = list == EffectsList::Input ? AudioEffectsProfileKind::Input : AudioEffectsProfileKind::Output;
+    const std::vector<std::string>& profiles = m_effects->effectsProfiles(kind);
+    if (profiles.empty()) {
+      return;
+    }
+    const bool open = m_openEffects == list;
+    const std::string active = m_effects->activeEffectsProfile(kind);
+    DetailRow row;
+    row.glyph = list == EffectsList::Input ? "microphone" : "volume";
+    row.title = tr("control-center.audio.effects-profile");
+    row.trailing = active;
+    row.trailingGlyphs = {open ? "chevron-up" : "chevron-down"};
+    row.onClick = [this, list, open] {
+      m_openEffects = open ? EffectsList::None : list;
+      requestRebuild();
+    };
+    addRow(card, row);
+    if (!open) {
+      return;
+    }
+    for (const std::string& profile : profiles) {
+      DetailRow item;
+      item.title = profile;
+      item.selected = profile == active;
+      item.onClick = [this, kind, profile] {
+        if (m_effects->loadEffectsProfile(kind, profile)) {
+          m_effects->refreshAsync();
+        }
+        m_openEffects = EffectsList::None;
+        requestRebuild();
+      };
+      addRow(card, item);
+    }
   }
 
   void SoundDetailPage::build() {
@@ -668,6 +819,7 @@ namespace control_center {
         requestRebuild();
       });
     }
+    addEffectsRows(*card, EffectsList::Output);
 
     if (!state.programOutputs.empty()) {
       Flex* apps = addGroup(tr("control-center.detail.sound.applications"));
@@ -724,6 +876,7 @@ namespace control_center {
                              .value = level(source->id, true),
                              .onChange = [this, id = source->id](float v) { m_audio->setSourceVolume(id, v); }});
     }
+    addEffectsRows(*inputs, EffectsList::Input);
   }
 
   std::vector<DetailPage::FooterButton> SoundDetailPage::footerButtons() {
@@ -732,48 +885,125 @@ namespace control_center {
 
   // ---- Power ----
 
+  namespace {
+    std::string batteryName(const UPowerDeviceInfo& info) {
+      return !info.model.empty() ? info.model : !info.vendor.empty() ? info.vendor : tr("control-center.power.unknown-device");
+    }
+
+    // Laptop batteries whose charge limit UPower can switch, and present peripheral batteries.
+    struct PowerBatteries {
+      std::vector<UPowerDeviceInfo> limits;
+      std::vector<UPowerDeviceInfo> peripherals;
+    };
+
+    PowerBatteries powerBatteries(UPowerService* upower) {
+      PowerBatteries out;
+      if (upower == nullptr) {
+        return out;
+      }
+      for (UPowerDeviceInfo& d : upower->batteryDevices()) {
+        if (!d.isPresent) {
+          continue;
+        }
+        if (!d.isLaptopBattery()) {
+          out.peripherals.push_back(std::move(d));
+        } else if (PowerTab::chargeLimitControlState(d.chargeLimit).visible) {
+          out.limits.push_back(std::move(d));
+        }
+      }
+      return out;
+    }
+  } // namespace
+
   std::string PowerDetailPage::structureKey() const {
-    if (m_profiles == nullptr || m_profiles->profiles().empty()) {
+    const bool hasProfiles = m_profiles != nullptr && !m_profiles->profiles().empty();
+    const PowerBatteries batteries = powerBatteries(m_upower);
+    if (!hasProfiles && batteries.limits.empty() && batteries.peripherals.empty()) {
       return "unavailable";
     }
-    std::string key = m_profiles->activeProfile();
-    for (const std::string& p : m_profiles->profiles()) {
-      key += "|" + p;
+    std::string key;
+    if (hasProfiles) {
+      key = m_profiles->activeProfile();
+      for (const std::string& p : m_profiles->profiles()) {
+        key += "|" + p;
+      }
     }
     if (m_upower != nullptr) {
       if (const UPowerDeviceInfo* battery = m_upower->defaultSystemBattery(); battery != nullptr) {
         key += std::format("|{}", battery->healthPercent().value_or(-1.0));
       }
     }
+    for (const UPowerDeviceInfo& d : batteries.limits) {
+      const PowerTab::ChargeLimitControlState c = PowerTab::chargeLimitControlState(d.chargeLimit);
+      key += std::format("|l{}:{}:{}:{}", d.path, batteryName(d), c.checked, c.enabled);
+    }
+    for (const UPowerDeviceInfo& d : batteries.peripherals) {
+      key += std::format("|p{}:{}:{}:{}", d.path, batteryName(d), static_cast<int>(d.type),
+                         std::lround(d.state.percentage));
+    }
     return key;
   }
 
   void PowerDetailPage::build() {
-    if (m_profiles == nullptr || m_profiles->profiles().empty()) {
+    const bool hasProfiles = m_profiles != nullptr && !m_profiles->profiles().empty();
+    const PowerBatteries batteries = powerBatteries(m_upower);
+    if (!hasProfiles && batteries.limits.empty() && batteries.peripherals.empty()) {
       addEmpty("battery-off", tr("control-center.detail.power.unavailable"), tr("control-center.detail.power.unavailable-body"));
       return;
     }
-    Flex* card = addGroup(tr("control-center.detail.power.modes"));
-    for (const std::string_view profile : powerProfileOrder()) {
-      if (!std::ranges::contains(m_profiles->profiles(), profile)) {
-        continue;
+    if (hasProfiles) {
+      Flex* card = addGroup(tr("control-center.detail.power.modes"));
+      for (const std::string_view profile : powerProfileOrder()) {
+        if (!std::ranges::contains(m_profiles->profiles(), profile)) {
+          continue;
+        }
+        DetailRow row;
+        row.glyph = std::string(profileGlyphName(profile));
+        row.title = profileLabel(profile);
+        row.selected = m_profiles->activeProfile() == profile;
+        row.onClick = [this, name = std::string(profile)] {
+          if (m_profiles->setActiveProfile(name)) {
+            requestRebuild();
+          }
+        };
+        addRow(*card, row);
       }
-      DetailRow row;
-      row.glyph = std::string(profileGlyphName(profile));
-      row.title = profileLabel(profile);
-      row.selected = m_profiles->activeProfile() == profile;
-      row.onClick = [this, name = std::string(profile)] {
-        if (m_profiles->setActiveProfile(name)) {
-          requestRebuild();
+      if (m_upower != nullptr) {
+        if (const UPowerDeviceInfo* battery = m_upower->defaultSystemBattery(); battery != nullptr) {
+          if (const auto health = battery->healthPercent(); health.has_value()) {
+            addGroupFooter(*card,
+                           i18n::tr("control-center.detail.power.health", "percent", static_cast<int>(std::lround(*health))));
+          }
         }
-      };
-      addRow(*card, row);
+      }
     }
-    if (m_upower != nullptr) {
-      if (const UPowerDeviceInfo* battery = m_upower->defaultSystemBattery(); battery != nullptr) {
-        if (const auto health = battery->healthPercent(); health.has_value()) {
-          addGroupFooter(*card, i18n::tr("control-center.detail.power.health", "percent", static_cast<int>(std::lround(*health))));
+    if (!batteries.limits.empty()) {
+      Flex* card = addGroup();
+      for (const UPowerDeviceInfo& d : batteries.limits) {
+        const PowerTab::ChargeLimitControlState c = PowerTab::chargeLimitControlState(d.chargeLimit);
+        DetailRow row;
+        row.glyph = batteryGlyphName(d.state.percentage, d.state.state);
+        row.title = tr("control-center.detail.power.charge-limit");
+        if (batteries.limits.size() > 1) {
+          row.secondary = batteryName(d);
         }
+        row.toggle = c.checked;
+        row.toggleEnabled = c.enabled;
+        row.onToggle = [this, path = d.path](bool on) {
+          (void)m_upower->enableChargeThreshold(path, on);
+          requestRebuild();
+        };
+        addRow(*card, row);
+      }
+    }
+    if (!batteries.peripherals.empty()) {
+      Flex* card = addGroup(tr("control-center.power.peripherals"));
+      for (const UPowerDeviceInfo& d : batteries.peripherals) {
+        DetailRow row;
+        row.glyph = batteryDeviceGlyphName(d.type);
+        row.title = batteryName(d);
+        row.trailing = std::format("{} %", std::lround(d.state.percentage));
+        addRow(*card, row);
       }
     }
   }

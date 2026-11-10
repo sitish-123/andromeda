@@ -1212,6 +1212,7 @@ if build_tests
     'grid_item_cursor',
     'gtk_extensions',
     'hook_manager',
+    'hotspot_state',
     'i18n_language_tag',
     'i18n_supported_languages',
     'ical_parser',

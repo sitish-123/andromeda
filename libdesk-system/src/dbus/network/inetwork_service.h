@@ -44,6 +44,8 @@ public:
   virtual bool deactivateVpnConnection(const VpnConnectionInfo& vpn) = 0;
   [[nodiscard]] virtual bool canActivateWiredConnection() const noexcept { return false; }
   virtual bool activateWiredConnection() { return false; }
+  // Disconnects the wired device only; false when no wired connection is up or the request cannot be sent.
+  virtual bool deactivateWiredConnection() { return false; }
   // GNOME-style mobile-data control over a saved cellular (gsm) connection.
   // Activation brings up the modem and the data connection; deactivation drops
   // the data connection but leaves the modem registered. Only backends that own

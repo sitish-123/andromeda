@@ -15,6 +15,8 @@
 #include "ui/controls/label.h"
 #include "ui/controls/scroll_view.h"
 #include "ui/controls/slider.h"
+#include "ui/controls/toggle.h"
+#include "ui/builders.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 
@@ -30,6 +32,7 @@ namespace control_center {
 
     constexpr float kEmptyBodyMaxWidth = 320.0F; // rulebook 9.13
     constexpr float kEmptyBodyLines = 2.0F;
+    constexpr float kEmptyTitleLines = 3.0F;
 
     // Function-local: the icon theme walk must not run before main().
     IconResolver& iconResolver() {
@@ -205,7 +208,8 @@ namespace control_center {
       return;
     }
     for (const Ellipsized& item : m_ellipsized) {
-      item.label->setMaxWidth(std::max(0.0F, contentWidth - item.reserve));
+      const float width = std::max(0.0F, contentWidth - item.reserve);
+      item.label->setMaxWidth(item.cap > 0.0F ? std::min(width, item.cap) : width);
     }
     for (IconSlot& slot : m_icons) {
       if (slot.done) {
@@ -426,6 +430,17 @@ namespace control_center {
       action->setMaxWidth(Tokens::sizeRow * 3 * s);
       trailingWidth += Tokens::sizeRow * 3 + Tokens::componentListRowInset;
     }
+    std::unique_ptr<Toggle> toggle;
+    if (row.toggle.has_value()) {
+      toggle = ui::toggle({
+          .checkedImmediate = *row.toggle,
+          .toggleSize = ToggleSize::Medium,
+          .scale = s,
+          .onChange = row.onToggle,
+      });
+      toggle->setEnabled(row.toggleEnabled);
+      trailingWidth += Tokens::sizeRow + Tokens::componentListRowInset;
+    }
     // Reserve for the scrollbar gutter too.
     reserve += trailingWidth + Tokens::spaceP12;
     m_ellipsized.push_back({.label = title, .reserve = reserve * s});
@@ -440,6 +455,14 @@ namespace control_center {
       slot->setJustify(FlexJustify::Center);
       slot->setPadding(0.0F, Tokens::componentListRowInset * s, 0.0F, 0.0F);
       slot->addChild(std::move(action));
+      cell->addChild(std::move(slot));
+    }
+    if (toggle != nullptr) {
+      auto slot = std::make_unique<Flex>();
+      slot->setAlign(FlexAlign::Center);
+      slot->setJustify(FlexJustify::Center);
+      slot->setPadding(0.0F, Tokens::componentListRowInset * s, 0.0F, 0.0F);
+      slot->addChild(std::move(toggle));
       cell->addChild(std::move(slot));
     }
     card.addChild(std::move(cell));
@@ -537,6 +560,9 @@ namespace control_center {
     column->addChild(std::move(gap1));
     Label* heading = nullptr;
     column->addChild(label(heading, Tokens::typeTitle3, s, ColorRole::Label1, title));
+    heading->setMaxLines(static_cast<int>(kEmptyTitleLines));
+    heading->setMaxWidth(kEmptyBodyMaxWidth * s);
+    heading->setTextAlign(TextAlign::Center);
     auto gap2 = std::make_unique<Flex>();
     gap2->setMinHeight(Tokens::spaceP4 * s);
     column->addChild(std::move(gap2));
@@ -545,6 +571,10 @@ namespace control_center {
     text->setMaxLines(static_cast<int>(kEmptyBodyLines));
     text->setMaxWidth(kEmptyBodyMaxWidth * s);
     text->setTextAlign(TextAlign::Center);
+    // Both lines wrap inside the page at any scale: 320 is a cap, not a fixed width.
+    for (Label* line : {heading, text}) {
+      m_ellipsized.push_back({.label = line, .reserve = 2.0F * Tokens::spaceP12 * s, .cap = kEmptyBodyMaxWidth * s});
+    }
     column->addChild(std::move(bodyLabel));
     m_content->addChild(std::move(column));
   }

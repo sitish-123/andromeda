@@ -92,7 +92,8 @@ public:
   [[nodiscard]] const std::vector<BluetoothDeviceInfo>& devices() const noexcept { return m_devices; }
 
   void setPowered(bool enabled);
-  void setDiscoverable(bool enabled);
+  // `onFailed` gets BlueZ's error message; a failure also re-emits the unchanged state so views revert.
+  void setDiscoverable(bool enabled, std::function<void(std::string error)> onFailed = {});
   void setPairable(bool enabled);
   void startDiscovery();
   void stopDiscovery();

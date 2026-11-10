@@ -1212,36 +1212,9 @@ void NetworkManagerService::setWirelessEnabled(bool enabled, WirelessEnabledComp
 }
 
 void NetworkManagerService::disconnect() {
-  if (m_state.kind == NetworkConnectivity::Wired && !m_activeDevicePath.empty() && m_activeDevicePath != "/") {
-    // DeactivateConnection can be immediately undone by a wired profile's
-    // autoconnect policy. Device.Disconnect keeps the device down until the
-    // user manually activates it again.
-    const std::string devicePath = m_activeDevicePath;
-    const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
-    try {
-      auto device = std::shared_ptr<sdbus::IProxy>(
-          sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{devicePath})
-      );
-      device->callMethodAsync("Disconnect")
-          .onInterface(kNmDeviceInterface)
-          .uponReplyInvoke([this, lifetimeToken, device, devicePath](std::optional<sdbus::Error> err) {
-            if (lifetimeToken.expired()) {
-              return;
-            }
-            if (err.has_value()) {
-              kLog.warn("Device.Disconnect failed path={}: {}", devicePath, err->what());
-            } else {
-              kLog.info("disconnected wired device path={}", devicePath);
-            }
-            m_emitOnNextRefresh = true;
-            requestRebind();
-          });
-      return;
-    } catch (const sdbus::Error& e) {
-      kLog.warn("Device.Disconnect dispatch failed path={}: {}", devicePath, e.what());
-    }
+  if (deactivateWiredConnection()) {
+    return;
   }
-
   if (m_activeConnectionPath.empty() || m_activeConnectionPath == "/") {
     return;
   }
@@ -1268,6 +1241,40 @@ void NetworkManagerService::disconnect() {
         });
   } catch (const sdbus::Error& e) {
     kLog.warn("DeactivateConnection dispatch failed: {}", e.what());
+  }
+}
+
+bool NetworkManagerService::deactivateWiredConnection() {
+  if (m_state.kind != NetworkConnectivity::Wired || m_activeDevicePath.empty() || m_activeDevicePath == "/") {
+    return false;
+  }
+  // DeactivateConnection can be immediately undone by a wired profile's
+  // autoconnect policy. Device.Disconnect keeps the device down until the
+  // user manually activates it again.
+  const std::string devicePath = m_activeDevicePath;
+  const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
+  try {
+    auto device = std::shared_ptr<sdbus::IProxy>(
+        sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{devicePath})
+    );
+    device->callMethodAsync("Disconnect")
+        .onInterface(kNmDeviceInterface)
+        .uponReplyInvoke([this, lifetimeToken, device, devicePath](std::optional<sdbus::Error> err) {
+          if (lifetimeToken.expired()) {
+            return;
+          }
+          if (err.has_value()) {
+            kLog.warn("Device.Disconnect failed path={}: {}", devicePath, err->what());
+          } else {
+            kLog.info("disconnected wired device path={}", devicePath);
+          }
+          m_emitOnNextRefresh = true;
+          requestRebind();
+        });
+    return true;
+  } catch (const sdbus::Error& e) {
+    kLog.warn("Device.Disconnect dispatch failed path={}: {}", devicePath, e.what());
+    return false;
   }
 }
 

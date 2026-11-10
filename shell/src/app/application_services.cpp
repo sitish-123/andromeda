@@ -2141,6 +2141,11 @@ void Application::initSessionBusServices() {
       m_screenRecorder->setActiveCallback([this]() { syncLiveActivity(); });
       if (m_systemBus != nullptr) {
         m_hotspot = std::make_unique<NmHotspot>(*m_systemBus);
+        m_hotspot->setChangeCallback([this, shouldRefreshControlCenter] {
+          if (shouldRefreshControlCenter()) {
+            m_panelManager.refresh();
+          }
+        });
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("inhibit, background or global shortcuts portal disabled: {}", e.what());

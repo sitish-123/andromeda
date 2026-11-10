@@ -576,21 +576,28 @@ void BluetoothService::setPowered(bool enabled) {
   }
 }
 
-void BluetoothService::setDiscoverable(bool enabled) {
+void BluetoothService::setDiscoverable(bool enabled, std::function<void(std::string error)> onFailed) {
   if (m_impl->adapter == nullptr) {
     return;
   }
+  const auto fail = [this, onFailed](const std::string& error) {
+    kLog.warn("setDiscoverable failed: {}", error);
+    if (onFailed) {
+      onFailed(error);
+    }
+    emitState(BluetoothStateChangeOrigin::Noctalia);
+  };
   try {
     m_impl->adapter->setPropertyAsync("Discoverable")
         .onInterface(kAdapterInterface)
         .toValue(enabled)
-        .uponReplyInvoke([](std::optional<sdbus::Error> err) {
+        .uponReplyInvoke([fail](std::optional<sdbus::Error> err) {
           if (err.has_value()) {
-            kLog.warn("setDiscoverable failed: {}", err->what());
+            fail(err->what());
           }
         });
   } catch (const sdbus::Error& e) {
-    kLog.warn("setDiscoverable failed: {}", e.what());
+    fail(e.what());
   }
 }
 

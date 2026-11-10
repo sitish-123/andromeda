@@ -39,6 +39,10 @@ namespace control_center {
     // A small trailing button (Connect, Disconnect, Pair) with its own action.
     std::string action;
     std::function<void()> onAction;
+    // A trailing switch beside the row (Visible, Hotspot); none when empty.
+    std::optional<bool> toggle;
+    bool toggleEnabled = true;
+    std::function<void(bool)> onToggle;
   };
 
   // A row with a window slider (rulebook 9.6): a 24 app icon when `iconCandidates` is set, else a 16 symbol.
@@ -120,6 +124,7 @@ namespace control_center {
     struct Ellipsized {
       Label* label = nullptr;
       float reserve = 0.0F;
+      float cap = 0.0F; // widest allowed width; 0 = the page width minus `reserve`
     };
 
     void doLayout(Renderer& renderer, float contentWidth, float bodyHeight) override;

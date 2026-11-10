@@ -3,7 +3,7 @@
 
 Each ActiveProfile write is appended to argv[1]. dsk.test.Power.SetOnBattery(b) flips the power source and emits
 PropertiesChanged the way UPower does. MOCK_BATTERY=1 adds a laptop battery (battery_BAT0, charge limit supported) and a keyboard backlight (0-3);
-MOCK_HISTORY=0 empties the battery history, MOCK_UNPLUGGED_HOURS=h ends it with h hours on battery; dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1].
+MOCK_HISTORY=0 empties the battery history, MOCK_UNPLUGGED_HOURS=h ends it with h hours on battery; dsk.test.Power.SetBattery(d percent, u state) changes it, and EnableChargeThreshold calls are appended to argv[1]. MOCK_MOUSE=1 adds a 64 % mouse battery.
 """
 import os
 import sys
@@ -240,6 +240,11 @@ battery = os.environ.get("MOCK_BATTERY") == "1"
 devices = {DEVICES + "DisplayDevice": Device(bus, DEVICES + "DisplayDevice", device_props(battery, 64.0, 2), sys.argv[1])}
 if battery:
     devices[DEVICES + "battery_BAT0"] = Device(bus, DEVICES + "battery_BAT0", device_props(True, 64.0, 2), sys.argv[1])
+if os.environ.get("MOCK_MOUSE") == "1":
+    mouse = device_props(True, 64.0, 2) | {"Type": dbus.UInt32(5), "PowerSupply": dbus.Boolean(False),
+                                            "NativePath": "hidpp_battery_0", "Model": "MX Master 3S",
+                                            "ChargeThresholdSupported": dbus.Boolean(False)}
+    devices[DEVICES + "mouse_hidpp"] = Device(bus, DEVICES + "mouse_hidpp", mouse, sys.argv[1])
 kbd = [KbdBacklight(bus, "/org/freedesktop/UPower/KbdBacklight/kbd_backlight")] if battery else []
 upower = UPower(bus, "/org/freedesktop/UPower", {"OnBattery": dbus.Boolean(False), "DaemonVersion": "mock"}, devices,
                 [k._object_path for k in kbd])
