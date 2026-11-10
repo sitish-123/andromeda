@@ -18,6 +18,8 @@ namespace settings {
     std::function<void()> upgradeAndromeda;
     // Try Again: the last update, full or Andromeda-only.
     std::function<void()> retry;
+    // Accept and Update: "yes" to the questions of a NeedsChoice result.
+    std::function<void()> accept;
     std::function<void(bool enable)> scheduleTonight;
     std::function<void()> restart;
     std::function<void(const std::string& url)> openLink;

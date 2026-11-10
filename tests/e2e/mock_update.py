@@ -103,14 +103,14 @@ class Helper(dbus.service.Object):
         ok = os.environ.get("MOCK_UPGRADE", "ok") != "fail"
         GLib.timeout_add(200 * (len(steps) + 1), lambda: self.Finished(
             ok, "updated" if ok else "commit: could not satisfy dependencies",
-            ["linux 6.18.3.arch1-1", "mesa 1:26.1.2-1"] if ok else [], []) and False)
+            ["linux 6.18.3.arch1-1", "mesa 1:26.1.2-1"] if ok else [], [], False) and False)
 
     @dbus.service.method(HELPER)
     def UpgradeAndromeda(self):
         log("UpgradeAndromeda")
         self.Progress("install", 50, "andromeda")
         GLib.timeout_add(400, lambda: self.Finished(
-            False, "needs a system update first: glibc", [], []) and False)
+            False, "needs a system update first: glibc", [], [], True) and False)
 
     @dbus.service.method(HELPER, in_signature="x")
     def MarkNewsRead(self, until):
@@ -120,8 +120,8 @@ class Helper(dbus.service.Object):
     def Progress(self, stage, percent, package):
         pass
 
-    @dbus.service.signal(HELPER, signature="bsasas")
-    def Finished(self, ok, message, targets, questions):
+    @dbus.service.signal(HELPER, signature="bsasasb")
+    def Finished(self, ok, message, targets, questions, andromeda):
         pass
 
     @dbus.service.method("dsk.test.Update", in_signature="sis")

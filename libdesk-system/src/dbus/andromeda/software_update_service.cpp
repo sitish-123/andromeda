@@ -85,7 +85,7 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
     m_helper->uponSignal("Finished")
         .onInterface(kHelperName)
         .call([this](bool ok, const std::string& message, const std::vector<std::string>& targets,
-                     const std::vector<std::string>& questions) {
+                     const std::vector<std::string>& questions, bool andromeda) {
           // Tonight's run may be refused before any Progress: its Finished still carries the reason.
           if (m_runState != RunState::Running && !m_tonight) {
             return;
@@ -93,7 +93,8 @@ SoftwareUpdateService::SoftwareUpdateService(SessionBus& session, SystemBus* sys
           m_tonight = false;
           releaseWaiters();
           m_resultMessage = message;
-          m_questions = questions;
+          m_choice = Choice{.questions = questions, .andromeda = andromeda};
+          m_lastAndromeda = andromeda;
           m_runState = ok ? RunState::Done : (questions.empty() ? RunState::Failed : RunState::NeedsChoice);
           // Debian packages write /run/reboot-required from their maintainer scripts; Arch has no such file.
           if (ok &&
@@ -207,6 +208,16 @@ void SoftwareUpdateService::check() {
   }
 }
 
+void SoftwareUpdateService::checkNow() {
+  if (m_runState == RunState::NeedsChoice || (m_runState == RunState::Failed && !needsSystemFirst())) {
+    m_runState = RunState::Idle;
+    m_resultMessage.clear();
+    m_choice = {};
+    notify();
+  }
+  check();
+}
+
 void SoftwareUpdateService::markNewsRead() {
   if (m_news.empty()) {
     return;
@@ -301,15 +312,21 @@ void SoftwareUpdateService::upgradeApps() {
 void SoftwareUpdateService::upgrade() {
   upgradeApps();
   m_lastAndromeda = false;
-  startHelper("Upgrade", true);
+  startHelper("Upgrade", true, {});
 }
 
 void SoftwareUpdateService::upgradeAndromeda() {
   m_lastAndromeda = true;
-  startHelper("UpgradeAndromeda", false);
+  startHelper("UpgradeAndromeda", false, {});
 }
 
-void SoftwareUpdateService::startHelper(const char* method, bool withDryRun) {
+void SoftwareUpdateService::acceptAndUpgrade() {
+  if (m_runState == RunState::NeedsChoice) {
+    startHelper("UpgradeAccepting", false, m_choice);
+  }
+}
+
+void SoftwareUpdateService::startHelper(const char* method, bool withDryRun, Choice accepted) {
   if (m_helper == nullptr || m_runState == RunState::Running) {
     return;
   }
@@ -318,7 +335,7 @@ void SoftwareUpdateService::startHelper(const char* method, bool withDryRun) {
   m_stagePackage.clear();
   m_percent = 0;
   m_resultMessage.clear();
-  m_questions.clear();
+  m_choice = {};
   notify();
   const std::weak_ptr<int> alive = m_lifetimeToken;
   try {
@@ -327,6 +344,8 @@ void SoftwareUpdateService::startHelper(const char* method, bool withDryRun) {
     call.onInterface(kHelperName);
     if (withDryRun) {
       call.withArguments(false);
+    } else if (!accepted.questions.empty()) {
+      call.withArguments(accepted.andromeda, accepted.questions);
     }
     call.withTimeout(std::chrono::minutes(5))
         .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error) {

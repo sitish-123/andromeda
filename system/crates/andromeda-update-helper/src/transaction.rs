@@ -25,7 +25,7 @@ pub enum Scope {
 pub struct Outcome {
     /// Packages the transaction installs or upgrades ("name version"), then those it removes ("-name").
     pub targets: Vec<String>,
-    /// Questions libalpm asked; non-empty means nothing was committed.
+    /// Questions libalpm asked, at prepare and at commit; with `committed` false, the ones that stopped the run.
     pub questions: Vec<String>,
     pub committed: bool,
 }
@@ -42,27 +42,35 @@ fn stage(progress: Progress) -> &'static str {
     }
 }
 
-fn record_questions(alpm: &Alpm, asked: &Rc<RefCell<Vec<String>>>) {
+/// A question whose text is in `accepted` gets "yes"; any other gets the safe answer.
+fn record_questions(alpm: &Alpm, asked: &Rc<RefCell<Vec<String>>>, accepted: &[String]) {
     let asked = asked.clone();
+    let accepted = accepted.to_vec();
     alpm.set_question_cb((), move |question, ()| {
+        let yes = |text: &String| crate::helper::accepts(&accepted, text);
         let text = match question.question() {
             Question::InstallIgnorepkg(mut q) => {
-                q.set_install(false);
-                format!("install {} although IgnorePkg lists it", q.pkg().name())
+                let text = format!("install {} although IgnorePkg lists it", q.pkg().name());
+                q.set_install(yes(&text));
+                text
             }
             Question::Replace(q) => {
-                q.set_replace(false);
-                format!("replace {} with {}/{}", q.oldpkg().name(), q.newdb().name(), q.newpkg().name())
+                let text = format!("replace {} with {}/{}", q.oldpkg().name(), q.newdb().name(), q.newpkg().name());
+                q.set_replace(yes(&text));
+                text
             }
             Question::Conflict(mut q) => {
-                q.set_remove(false);
                 let conflict = q.conflict();
-                format!("{} conflicts with {}", conflict.package1().name(), conflict.package2().name())
+                let text = format!("{} conflicts with {}", conflict.package1().name(), conflict.package2().name());
+                q.set_remove(yes(&text));
+                text
             }
             Question::Corrupted(mut q) => {
-                q.set_remove(false);
-                format!("{} is corrupted", q.filepath())
+                let text = format!("{} is corrupted", q.filepath());
+                q.set_remove(yes(&text));
+                text
             }
+            // Skipping drops the packages from the upgrade either way; the consent is the commit itself.
             Question::RemovePkgs(mut q) => {
                 q.set_skip(true);
                 let names: Vec<&str> = q.packages().iter().map(|p| p.name()).collect();
@@ -74,8 +82,9 @@ fn record_questions(alpm: &Alpm, asked: &Rc<RefCell<Vec<String>>>) {
                 format!("choose a provider for {}: {}", q.depend(), names.join(", "))
             }
             Question::ImportKey(mut q) => {
-                q.set_import(false);
-                format!("import PGP key {} ({})", q.fingerprint(), q.uid())
+                let text = format!("import PGP key {} ({})", q.fingerprint(), q.uid());
+                q.set_import(yes(&text));
+                text
             }
         };
         log::warn!("question: {text}");
@@ -124,9 +133,13 @@ pub const NEEDS_SYSTEM: &str = "needs a system update first";
 /// `dry_run`: prepares against the databases as they are (no sync: a sync without the upgrade would leave a partial
 /// upgrade state) and lists the targets. Otherwise syncs, prepares and commits.
 /// `before_commit` runs once the commit is certain (the snapshot); its error stops the upgrade.
+/// `accepted`: the questions the user answered "yes". The commit runs only when the user accepted every question the
+/// prepare asked; a commit-time question that is not accepted gets the safe answer, and its failure ends the run with
+/// the questions (nothing committed).
 pub fn upgrade(
     scope: Scope,
     dry_run: bool,
+    accepted: &[String],
     events: &tokio::sync::mpsc::UnboundedSender<Event>,
     before_commit: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Outcome> {
@@ -135,7 +148,7 @@ pub fn upgrade(
     // alpm_with_conf sets IgnorePkg but not IgnoreGroup.
     alpm.set_ignoregroups(conf.ignore_group.iter()).context("IgnoreGroup")?;
     let asked = Rc::new(RefCell::new(Vec::new()));
-    record_questions(&alpm, &asked);
+    record_questions(&alpm, &asked, accepted);
     if !dry_run {
         match scope {
             Scope::All => {
@@ -176,7 +189,7 @@ pub fn upgrade(
             alpm.trans_add().iter().map(|p| format!("{} {}", p.name(), p.version())).collect();
         targets.extend(alpm.trans_remove().iter().map(|p| format!("-{}", p.name())));
         let questions = asked.borrow().clone();
-        if dry_run || !questions.is_empty() || targets.is_empty() {
+        if dry_run || !crate::helper::consented(&questions, accepted) || targets.is_empty() {
             return Ok(Outcome { targets, questions, committed: false });
         }
         before_commit()?;
@@ -195,7 +208,9 @@ pub fn upgrade(
         return Err(anyhow!("{NEEDS_SYSTEM}: {}", questions.join("; ")));
     }
     match result {
-        Err(_) if !questions.is_empty() => Ok(Outcome { targets: Vec::new(), questions, committed: false }),
+        Err(_) if !crate::helper::consented(&questions, accepted) => {
+            Ok(Outcome { targets: Vec::new(), questions, committed: false })
+        }
         Err(e) if !dry_run && scope == Scope::All => Err(e.context("the package databases were refreshed, nothing was upgraded")),
         other => other,
     }

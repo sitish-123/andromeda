@@ -163,7 +163,17 @@ namespace settings {
       case RunState::NeedsChoice:
         hero.title = i18n::tr("settings.update.needs-choice");
         hero.status = i18n::tr("settings.update.needs-choice-detail");
-        hero.action = rows::plainButton(i18n::tr("settings.update.check"), ButtonVariant::Default, scale, actions.check);
+        if (service.canInstall()) {
+          auto buttons = ui::row({.align = FlexAlign::Center, .gap = Style::spaceSm * scale});
+          buttons->addChild(rows::plainButton(i18n::tr("settings.update.check"), ButtonVariant::Default, scale,
+                                              actions.check));
+          buttons->addChild(rows::plainButton(i18n::tr("settings.update.accept"), ButtonVariant::Primary, scale,
+                                              actions.accept));
+          hero.action = std::move(buttons);
+        } else {
+          hero.action = rows::plainButton(i18n::tr("settings.update.check"), ButtonVariant::Default, scale,
+                                          actions.check);
+        }
         break;
       case RunState::Failed:
         // A refused Andromeda-only update leaves the system update as the way forward: show it as available.

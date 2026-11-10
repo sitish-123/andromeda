@@ -35,11 +35,12 @@ void SettingsWindow::addSoftwareUpdateContent(float scale) {
       m_hookFailuresProvider ? m_hookFailuresProvider() : std::vector<std::pair<std::string, std::string>>{},
       checkDaily,
       settings::SoftwareUpdateActions{
-          .check = [service] { service->check(); },
+          .check = [service] { service->checkNow(); },
           .markNewsRead = [service] { service->markNewsRead(); },
           .upgrade = [service] { service->upgrade(); },
           .upgradeAndromeda = [service] { service->upgradeAndromeda(); },
           .retry = [service] { service->retry(); },
+          .accept = [service] { service->acceptAndUpgrade(); },
           .scheduleTonight = [service](bool enable) { service->scheduleTonight(enable); },
           .restart = [this] {
             if (m_restartSession) {

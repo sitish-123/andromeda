@@ -30,7 +30,7 @@ const LISTS: &str = "/var/lib/apt/lists";
 pub struct Outcome {
     /// Packages the transaction installs or upgrades ("name version"), then those it removes ("-name").
     pub targets: Vec<String>,
-    /// Removals apt wants; non-empty means nothing was committed.
+    /// Removals apt wants; with `committed` false, the ones that stopped the run.
     pub questions: Vec<String>,
     pub committed: bool,
 }
@@ -79,11 +79,12 @@ fn status(line: &str) -> Option<Event> {
 pub fn upgrade(
     scope: Scope,
     dry_run: bool,
+    accepted: &[String],
     events: &tokio::sync::mpsc::UnboundedSender<Event>,
     before_commit: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Outcome> {
     if scope == Scope::Andromeda {
-        return upgrade_andromeda(dry_run, events, before_commit);
+        return upgrade_andromeda(dry_run, accepted, events, before_commit);
     }
     if !dry_run {
         let out = apt_get().args(["-qq", "update"]).output().context("apt-get update")?;
@@ -96,17 +97,23 @@ pub fn upgrade(
         bail!("apt-get -s dist-upgrade: {}", String::from_utf8_lossy(&sim.stderr).trim());
     }
     let (mut targets, removed) = plan(&String::from_utf8_lossy(&sim.stdout));
-    let apt_installs = !targets.is_empty();
+    let apt_targets = targets.len();
+    let apt_installs = apt_targets > 0;
     let snaps = snap_refreshes()?;
     targets.extend(snaps.iter().cloned());
     let questions: Vec<String> = removed.iter().map(|name| format!("remove {name}")).collect();
     targets.extend(removed.iter().map(|name| format!("-{name}")));
-    if dry_run || !questions.is_empty() || targets.is_empty() {
+    if dry_run || !crate::helper::consented(&questions, accepted) || targets.is_empty() {
         return Ok(Outcome { targets, questions, committed: false });
     }
+    let command = if removed.is_empty() {
+        vec!["dist-upgrade".to_owned()]
+    } else {
+        explicit(&targets[..apt_targets], &removed, accepted)?
+    };
     before_commit()?;
-    if apt_installs {
-        apt_upgrade(&["dist-upgrade"], events)?;
+    if apt_installs || !removed.is_empty() {
+        apt_upgrade(&command, !removed.is_empty(), events)?;
     }
     if !snaps.is_empty() {
         let _ = events.send(Event::Progress("snaps".into(), 0, String::new()));
@@ -122,6 +129,7 @@ pub fn upgrade(
 /// the installed packages it offers.
 fn upgrade_andromeda(
     dry_run: bool,
+    accepted: &[String],
     events: &tokio::sync::mpsc::UnboundedSender<Event>,
     before_commit: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Outcome> {
@@ -158,16 +166,48 @@ fn upgrade_andromeda(
     let (mut targets, removed) = plan(&text);
     let questions: Vec<String> = removed.iter().map(|name| format!("remove {name}")).collect();
     targets.extend(removed.iter().map(|name| format!("-{name}")));
-    if dry_run || !questions.is_empty() || targets.is_empty() {
+    if dry_run || !crate::helper::consented(&questions, accepted) || targets.is_empty() {
         return Ok(Outcome { targets, questions, committed: false });
     }
+    let command = if removed.is_empty() {
+        pinned(&targets)
+    } else {
+        explicit(&targets[..targets.len() - removed.len()], &removed, accepted)?
+    };
     before_commit()?;
-    // The exact planned versions: lists that changed since the plan cannot widen the install.
-    let mut args = vec!["install".to_owned(), "--only-upgrade".to_owned()];
-    args.extend(targets.iter().filter_map(|t| t.split_once(' ')).map(|(name, version)| format!("{name}={version}")));
-    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    apt_upgrade(&args, events)?;
+    apt_upgrade(&command, !removed.is_empty(), events)?;
     Ok(Outcome { targets, questions, committed: true })
+}
+
+/// `install --only-upgrade` with the exact planned versions: lists that changed since the plan cannot widen the
+/// install. A named package that is not installed stays out; apt brings it in as a dependency when one needs it.
+fn pinned(installs: &[String]) -> Vec<String> {
+    let mut args = vec!["install".to_owned(), "--only-upgrade".to_owned()];
+    args.extend(installs.iter().filter_map(|t| t.split_once(' ')).map(|(name, version)| format!("{name}={version}")));
+    args
+}
+
+/// The consented commit with removals: the pinned installs plus a `name-` for each planned removal. apt-get's
+/// --no-remove refuses named removals too, so the commit runs without it; first a simulation of the same command
+/// must remove only what the user accepted, or nothing is changed.
+fn explicit(installs: &[String], removed: &[String], accepted: &[String]) -> Result<Vec<String>> {
+    let mut args = pinned(installs);
+    args.extend(removed.iter().map(|name| format!("{name}-")));
+    let sim = apt_get().arg("-s").args(&args).output().context("apt-get -s install")?;
+    if !sim.status.success() {
+        bail!("apt-get -s install: {}: nothing was changed", String::from_utf8_lossy(&sim.stderr).trim());
+    }
+    let extra = unaccepted_removals(&String::from_utf8_lossy(&sim.stdout), accepted);
+    if !extra.is_empty() {
+        bail!("the update would also remove {}, which was not accepted: nothing was changed", extra.join(", "));
+    }
+    Ok(args)
+}
+
+/// Packages an `apt-get -s` plan removes that the user did not accept ("remove name").
+fn unaccepted_removals(text: &str, accepted: &[String]) -> Vec<String> {
+    let (_, removed) = plan(text);
+    removed.into_iter().filter(|name| !crate::helper::accepts(accepted, &format!("remove {name}"))).collect()
 }
 
 /// Installed packages outside `ours` that an `apt-get -s` plan upgrades (`Inst name [old] ...`).
@@ -206,10 +246,12 @@ fn snap_targets(text: &str) -> Vec<String> {
         .collect()
 }
 
-fn apt_upgrade(action: &[&str], events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<()> {
-    // --no-remove: a removal that appears after the plan aborts instead of being taken.
+fn apt_upgrade(action: &[String], remove: bool, events: &tokio::sync::mpsc::UnboundedSender<Event>) -> Result<()> {
+    // --no-remove: a removal that appears after the plan aborts instead of being taken. `remove`: `action` names the
+    // accepted removals and a simulation of it removed nothing else (`explicit`).
     let mut child = apt_get()
-        .args(["-y", "-q", "--no-remove"])
+        .args(["-y", "-q"])
+        .args(if remove { &[][..] } else { &["--no-remove"][..] })
         .args(action)
         .args(["-o", "APT::Status-Fd=1"])
         .args(["-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"])
@@ -245,6 +287,14 @@ mod tests {
         let (targets, removed) = plan(text);
         assert_eq!(targets, ["apt 3.2.1ubuntu0.1"]);
         assert_eq!(removed, ["oldpkg"]);
+    }
+
+    #[test]
+    fn a_removal_the_user_did_not_accept_stops_the_commit() {
+        let text = "Inst apt [3.2.0] (3.2.1 Ubuntu:26.04 [amd64])\nRemv oldpkg [1.0]\nRemv libgone [2.0]\n";
+        let accepted = vec!["remove oldpkg".to_owned()];
+        assert_eq!(unaccepted_removals(text, &accepted), ["libgone"]);
+        assert!(unaccepted_removals("Remv oldpkg [1.0]\n", &accepted).is_empty());
     }
 
     #[test]

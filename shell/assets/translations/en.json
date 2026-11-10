@@ -7027,6 +7027,7 @@
       },
       "needs-choice": "The update needs a choice",
       "needs-choice-detail": "Nothing was changed. These questions need an answer first.",
+      "accept": "Accept and Update",
       "failed": "The update failed",
       "try-again": "Try Again",
       "restart-needed": "Restart to finish the update",

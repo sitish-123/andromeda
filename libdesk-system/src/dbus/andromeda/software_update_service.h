@@ -58,13 +58,15 @@ public:
   // 0-100 within the current stage.
   [[nodiscard]] int percent() const noexcept { return m_percent; }
   [[nodiscard]] const std::string& resultMessage() const noexcept { return m_resultMessage; }
-  [[nodiscard]] const std::vector<std::string>& questions() const noexcept { return m_questions; }
+  [[nodiscard]] const std::vector<std::string>& questions() const noexcept { return m_choice.questions; }
   // A kernel, Mesa, systemd or glibc update was installed: the session must restart to use it.
   [[nodiscard]] bool restartNeeded() const noexcept { return m_restartNeeded; }
 
   // Reads the session service (D-Bus activates it); the page calls this when it opens.
   void refresh();
   void check();
+  // The Check Now button: also leaves a NeedsChoice or Failed result (not the needs-system hint) for Idle.
+  void checkNow();
   // False without a system bus: nothing can be installed or marked read from here.
   [[nodiscard]] bool canInstall() const noexcept { return m_helper != nullptr; }
   // Marks news up to the newest unread item as read, in the session service and in the helper (polkit).
@@ -75,6 +77,9 @@ public:
   void upgradeAndromeda();
   // Runs the last update again, full or Andromeda-only.
   void retry() { m_lastAndromeda ? upgradeAndromeda() : upgrade(); }
+  // NeedsChoice: runs the update that asked again, in its scope, with "yes" to the questions shown; the helper
+  // commits only when every question the new run asks is one of these.
+  void acceptAndUpgrade();
   // The last run was an Andromeda-only update that needs newer system packages first.
   [[nodiscard]] bool needsSystemFirst() const noexcept {
     return m_runState == RunState::Failed && m_resultMessage.starts_with("needs a system update first");
@@ -116,7 +121,12 @@ private:
   std::string m_stagePackage;
   int m_percent = 0;
   std::string m_resultMessage;
-  std::vector<std::string> m_questions;
+  // What a NeedsChoice run asked, and its scope (the Andromeda-only update or the full one).
+  struct Choice {
+    std::vector<std::string> questions;
+    bool andromeda = false;
+  };
+  Choice m_choice;
   bool m_restartNeeded = false;
   bool m_tonight = false;
   std::string m_snapshots;
@@ -128,5 +138,6 @@ private:
   std::string m_appsError;
 
   void upgradeApps();
-  void startHelper(const char* method, bool withDryRun);
+  // `accepted` with questions: UpgradeAccepting with them, in their scope.
+  void startHelper(const char* method, bool withDryRun, Choice accepted);
 };

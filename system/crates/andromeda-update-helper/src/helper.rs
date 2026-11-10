@@ -70,6 +70,20 @@ fn now_secs() -> i64 {
 
 const TONIGHT_MAX_AGE: i64 = 24 * 3600;
 
+const MAX_QUESTIONS: usize = 256;
+const MAX_QUESTION: usize = 4096;
+
+/// The user's "yes" to `question`: it is one of the `accepted` questions they saw.
+pub fn accepts(accepted: &[String], question: &str) -> bool {
+    accepted.iter().any(|a| a == question)
+}
+
+/// A run may commit when the user accepted every question it asked (at prepare or at commit); a run that asks
+/// nothing may too.
+pub fn consented(questions: &[String], accepted: &[String]) -> bool {
+    questions.iter().all(|q| accepts(accepted, q))
+}
+
 #[zbus::proxy(interface = "org.freedesktop.login1.Session", default_service = "org.freedesktop.login1")]
 trait Session {
     #[zbus(property)]
@@ -114,6 +128,7 @@ impl Helper {
         &self,
         scope: Scope,
         dry_run: bool,
+        accepted: Vec<String>,
         conn: &Connection,
         emitter: SignalEmitter<'_>,
     ) -> zbus::fdo::Result<()> {
@@ -139,10 +154,11 @@ impl Helper {
         let state_dir = self.state_dir.clone();
         let runtime = tokio::runtime::Handle::current();
         let snapper_conn = conn.clone();
+        let consent = !accepted.is_empty();
         let work = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             // The pre snapshot is taken only once the transaction is sure to commit.
             let mut pre = None;
-            let outcome = transaction::upgrade(scope, dry_run, &tx, &mut || {
+            let outcome = transaction::upgrade(scope, dry_run, &accepted, &tx, &mut || {
                 pre = runtime
                     .block_on(snapshot::pre(&snapper_conn))
                     .map_err(|e| anyhow::anyhow!("the snapshot before the update failed: {e}"))?;
@@ -167,11 +183,18 @@ impl Helper {
             }
             let (ok, message, targets, questions) = match work.await {
                 Ok(Ok((outcome, Err(e)))) => (false, format!("updated, but {e:#}"), outcome.targets, Vec::new()),
-                Ok(Ok((outcome, Ok(_)))) if outcome.questions.is_empty() => {
-                    let message = if outcome.committed { "updated" } else { "nothing committed" };
-                    (true, message.to_owned(), outcome.targets, Vec::new())
+                Ok(Ok((outcome, Ok(_)))) if outcome.committed => {
+                    (true, "updated".to_owned(), outcome.targets, Vec::new())
                 }
-                Ok(Ok((outcome, Ok(_)))) => (false, "needs a choice".to_owned(), outcome.targets, outcome.questions),
+                Ok(Ok((outcome, Ok(_)))) if !outcome.questions.is_empty() => {
+                    let message = if consent { "the plan changed: nothing was changed" } else { "needs a choice" };
+                    (false, message.to_owned(), outcome.targets, outcome.questions)
+                }
+                // A preview, or nothing to update.
+                Ok(Ok((outcome, Ok(_)))) if dry_run || outcome.targets.is_empty() => {
+                    (true, "nothing committed".to_owned(), outcome.targets, Vec::new())
+                }
+                Ok(Ok((outcome, Ok(_)))) => (false, "nothing was committed".to_owned(), outcome.targets, Vec::new()),
                 Ok(Err(e)) => (false, format!("{e:#}"), Vec::new(), Vec::new()),
                 Err(e) => (false, e.to_string(), Vec::new(), Vec::new()),
             };
@@ -179,7 +202,7 @@ impl Helper {
             drop(inhibitor);
             this.running.store(false, Ordering::SeqCst);
             let _ = this.running_changed(&emitter).await;
-            let _ = Self::finished(&emitter, ok, &message, targets, questions).await;
+            let _ = Self::finished(&emitter, ok, &message, targets, questions, scope == Scope::Andromeda).await;
         });
         Ok(())
     }
@@ -241,7 +264,7 @@ impl Helper {
         self.touch();
         authorize(conn, &header, if dry_run { "org.andromeda.update.preview" } else { "org.andromeda.update.upgrade" })
             .await?;
-        self.start(Scope::All, dry_run, conn, emitter).await
+        self.start(Scope::All, dry_run, Vec::new(), conn, emitter).await
     }
 
     /// Starts an update of the Andromeda repository packages only. Not gated by the Arch news. Fails with a message
@@ -254,7 +277,28 @@ impl Helper {
     ) -> zbus::fdo::Result<()> {
         self.touch();
         authorize(conn, &header, "org.andromeda.update.upgrade").await?;
-        self.start(Scope::Andromeda, false, conn, emitter).await
+        self.start(Scope::Andromeda, false, Vec::new(), conn, emitter).await
+    }
+
+    /// The user's "yes" to the `questions` a `Finished` listed: runs that update again (`andromeda`: the
+    /// Andromeda-only one) and answers them yes. Commits only when every question the run asks is one of these;
+    /// any other gets the safe answer and `Finished` lists the run's questions with the message "the plan changed:
+    /// nothing was changed".
+    async fn upgrade_accepting(
+        &self,
+        andromeda: bool,
+        questions: Vec<String>,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        self.touch();
+        if questions.is_empty() || questions.len() > MAX_QUESTIONS || questions.iter().any(|q| q.len() > MAX_QUESTION) {
+            return Err(zbus::fdo::Error::InvalidArgs("questions: 1 to 256, each at most 4096 bytes".into()));
+        }
+        authorize(conn, &header, "org.andromeda.update.upgrade").await?;
+        let scope = if andromeda { Scope::Andromeda } else { Scope::All };
+        self.start(scope, false, questions, conn, emitter).await
     }
 
     /// The user authenticates now for tonight's 02:00 run (`andromeda-update-tonight.timer`); `false` cancels.
@@ -315,14 +359,14 @@ impl Helper {
         }
         // The token is gone now: every refusal is reported, or the page would only see "Tonight" switch off.
         let refused = if all_sessions_locked(conn).await {
-            self.start(Scope::All, false, conn, emitter.clone()).await.err().map(|e| e.to_string())
+            self.start(Scope::All, false, Vec::new(), conn, emitter.clone()).await.err().map(|e| e.to_string())
         } else {
             Some("a session was unlocked at 02:00".to_owned())
         };
         if let Some(reason) = refused {
             log::info!("tonight: not updating: {reason}");
-            let _ = Self::finished(&emitter, false, &format!("tonight's update did not run: {reason}"), vec![], vec![])
-                .await;
+            let message = format!("tonight's update did not run: {reason}");
+            let _ = Self::finished(&emitter, false, &message, vec![], vec![], false).await;
         }
         Ok(())
     }
@@ -350,8 +394,9 @@ impl Helper {
     #[zbus(signal)]
     async fn progress(emitter: &SignalEmitter<'_>, stage: &str, percent: i32, package: &str) -> zbus::Result<()>;
 
-    /// `targets`: "name version" to install, "-name" to remove. `questions`: non-empty when libalpm asked something
-    /// (nothing was committed).
+    /// `targets`: "name version" to install, "-name" to remove. `questions`: non-empty when the run asked something
+    /// the user has not accepted (nothing was committed). `andromeda`: the run was the Andromeda-only update, the
+    /// scope an `UpgradeAccepting` for these questions takes.
     #[zbus(signal)]
     async fn finished(
         emitter: &SignalEmitter<'_>,
@@ -359,5 +404,36 @@ impl Helper {
         message: &str,
         targets: Vec<String>,
         questions: Vec<String>,
+        andromeda: bool,
     ) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{accepts, consented};
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn consent_with_a_changed_plan_is_refused() {
+        let seen = strings(&["remove a", "remove b"]);
+        assert!(consented(&strings(&["remove b", "remove a"]), &seen));
+        assert!(!consented(&strings(&["remove a", "remove b", "remove c"]), &seen));
+        assert!(consented(&strings(&["remove a"]), &seen));
+        assert!(consented(&[], &seen));
+        assert!(!consented(&seen, &[]));
+    }
+
+    #[test]
+    fn a_commit_time_question_in_accepted_is_answered_yes() {
+        // The first run's commit asked for the key; the consent run's prepare asks nothing.
+        let accepted = strings(&["import PGP key ABCD (Packager <p@example.org>)"]);
+        assert!(consented(&[], &accepted));
+        assert!(accepts(&accepted, "import PGP key ABCD (Packager <p@example.org>)"));
+        assert!(!accepts(&accepted, "import PGP key EF01 (Other <o@example.org>)"));
+        let asked = strings(&["import PGP key ABCD (Packager <p@example.org>)", "remove c"]);
+        assert!(!consented(&asked, &accepted));
+    }
 }
