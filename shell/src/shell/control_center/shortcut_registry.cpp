@@ -70,7 +70,7 @@ namespace {
         m_svc->setWirelessEnabled(!m_svc->state().wirelessEnabled);
       }
     }
-    void onRightClick() override { openTab("network"); }
+    void onRightClick() override { openTab("detail-wifi"); }
 
   private:
     INetworkService* m_svc;
@@ -184,7 +184,7 @@ namespace {
         m_svc->setPowered(!m_svc->state().powered);
       }
     }
-    void onRightClick() override { openTab("bluetooth"); }
+    void onRightClick() override { openTab("detail-bluetooth"); }
 
   private:
     BluetoothService* m_svc;
@@ -251,7 +251,7 @@ namespace {
         (void)m_svc->toggleDoNotDisturb();
       }
     }
-    void onRightClick() override { openTab("notifications"); }
+    void onRightClick() override { openTab("detail-notifications"); }
 
   private:
     NotificationManager* m_svc;
@@ -332,7 +332,7 @@ namespace {
         }
       }
     }
-    void onRightClick() override { openTab("audio"); }
+    void onRightClick() override { openTab("detail-sound"); }
 
   private:
     PipeWireService* m_svc;
@@ -360,7 +360,7 @@ namespace {
         }
       }
     }
-    void onRightClick() override { openTab("audio"); }
+    void onRightClick() override { openTab("detail-sound"); }
 
   private:
     PipeWireService* m_svc;
@@ -497,7 +497,7 @@ namespace {
         (void)m_svc->playPauseActive();
       }
     }
-    void onRightClick() override { openTab("media"); }
+    void onRightClick() override { openTab("detail-media"); }
 
   private:
     MprisService* m_svc;
@@ -509,8 +509,8 @@ namespace {
     std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.system"); }
     std::string_view iconOn() const override { return "activity"; }
     std::string_view iconOff() const override { return "activity"; }
-    void onClick() override { openTab("system"); }
-    void onRightClick() override { openTab("system"); }
+    void onClick() override { openTab("detail-system"); }
+    void onRightClick() override { openTab("detail-system"); }
   };
 
   class ScreenTimeShortcut final : public Shortcut {
@@ -519,8 +519,8 @@ namespace {
     std::string defaultLabel() const override { return i18n::tr("control-center.shortcuts.screen-time"); }
     std::string_view iconOn() const override { return "hourglass"; }
     std::string_view iconOff() const override { return "hourglass"; }
-    void onClick() override { openTab("screen-time"); }
-    void onRightClick() override { openTab("screen-time"); }
+    void onClick() override { openTab("detail-screen-time"); }
+    void onRightClick() override { openTab("detail-screen-time"); }
   };
 
   class WallpaperShortcut final : public Shortcut {

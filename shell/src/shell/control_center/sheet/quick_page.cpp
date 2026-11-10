@@ -213,7 +213,10 @@ QuickPage::QuickPage(const ControlCenterServices& services, OpenTabCallback open
 std::unique_ptr<Flex> QuickPage::makeCard(bool badged) {
   const float s = contentScale();
   std::unique_ptr<Flex> card = badged ? std::make_unique<BadgedCard>() : std::make_unique<Flex>();
-  control_center::applySectionCardStyle(*card, s, panelCardOpacity());
+  card->setCardStyle(s, panelCardOpacity());
+  card->setDirection(FlexDirection::Vertical);
+  card->setAlign(FlexAlign::Stretch);
+  card->setGap(Style::spaceSm * s);
   card->setFill(colorSpecFromRole(ColorRole::GlassCard, panelCardOpacity()));
   card->setBorder(colorSpecFromRole(ColorRole::GlassCardEdge), 0.5F * s);
   card->setRadius(Tokens::componentTileRadius * s);
@@ -906,7 +909,7 @@ std::unique_ptr<Flex> QuickPage::makeFooter() {
     b->setRadius(Tokens::componentButtonRadius * s);
     footer->addChild(std::move(b));
   };
-  iconButton(m_notificationsButton, "bell", [this] { m_openTab("notifications"); });
+  iconButton(m_notificationsButton, "bell", [this] { m_openTab("detail-notifications"); });
   m_notificationsButton->setTooltip(i18n::tr("control-center.tabs.notifications"));
   {
     auto badge = ui::box({

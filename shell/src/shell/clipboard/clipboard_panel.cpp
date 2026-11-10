@@ -13,7 +13,6 @@
 #include "render/core/color.h"
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
-#include "shell/control_center/tab.h"
 #include "shell/panel/panel_manager.h"
 #include "time/time_format.h"
 #include "ui/builders.h"

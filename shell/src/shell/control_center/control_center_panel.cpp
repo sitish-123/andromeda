@@ -718,7 +718,7 @@ void ControlCenterPanel::scheduleMprisRefreshFor(TabId tab) {
 }
 
 ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view context) const {
-  // Contexts of the old sidebar tabs (bar gestures, IPC, user config) open their v2 page.
+  // Pre-v2 context names that user gesture config and scripts may still send; each opens its v2 page.
   static constexpr std::array<std::pair<std::string_view, std::string_view>, 10> kOldContexts{{
       {"audio", "detail-sound"},
       {"bluetooth", "detail-bluetooth"},

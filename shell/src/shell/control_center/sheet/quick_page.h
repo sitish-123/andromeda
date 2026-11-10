@@ -3,7 +3,7 @@
 #include "shell/control_center/control_center_services.h"
 #include "shell/control_center/shortcut_registry.h"
 #include "core/timer_manager.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 
 #include <array>
 #include <chrono>
@@ -31,7 +31,7 @@ class Spinner;
 // toggles, record and microphone); brightness, volume, media, phone and a battery and power-profile footer stay fixed.
 struct AccessPointInfo;
 
-class QuickPage : public Tab {
+class QuickPage : public SheetPage {
 public:
   using OpenTabCallback = std::function<void(std::string_view tabKey)>;
 

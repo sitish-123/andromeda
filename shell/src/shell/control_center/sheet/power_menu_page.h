@@ -1,7 +1,7 @@
 #pragma once
 
 #include "shell/control_center/control_center_services.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 
 #include <cstdint>
 #include <memory>
@@ -16,7 +16,7 @@ class Label;
 // Power menu (.agent/DESIGN.md "Power menu and session end", mockup power-menu.html section 0): who you are, the
 // Lock / Sleep / Restart / Shut Down tiles, then Log Out across the row. Opens from the bar's power and brand
 // buttons, Super+Esc and Ctrl+Alt+Del.
-class PowerMenuPage : public Tab {
+class PowerMenuPage : public SheetPage {
 public:
   explicit PowerMenuPage(const ControlCenterServices& services);
 

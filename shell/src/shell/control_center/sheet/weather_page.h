@@ -1,6 +1,6 @@
 #pragma once
 
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 
 #include <chrono>
 #include <memory>
@@ -15,7 +15,7 @@ struct WeatherSnapshot;
 
 // Weather page in the control-center sheet (.agent/DESIGN.md "Weather page", direction A): hero, hourly strip,
 // 7-day range bars and 2 x 2 detail tiles. The body rebuilds only when a new forecast arrives.
-class WeatherPage : public Tab {
+class WeatherPage : public SheetPage {
 public:
   WeatherPage(WeatherService* weather, ConfigService* config);
 

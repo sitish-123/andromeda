@@ -6,26 +6,16 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 class Flex;
 class Label;
 class Renderer;
 
-namespace control_center {
-
-  void applySectionCardStyle(Flex& card, float scale = 1.0F, float fillOpacity = 1.0F);
-  Label* addTitle(Flex& parent, const std::string& text, float scale = 1.0F);
-  void addBody(Flex& parent, const std::string& text, float scale = 1.0F);
-
-  // Card header row: a card-title-styled label (flexGrow) ready for trailing
-  // controls appended by the caller. Used for titled group cards.
-  std::unique_ptr<Flex> makeCardHeaderRow(const std::string& title, float scale = 1.0F);
-
-} // namespace control_center
-
-class Tab {
+// Base of every control-center page: the quick sheet, its sheet pages and its detail pages.
+class SheetPage {
 public:
-  virtual ~Tab() = default;
+  virtual ~SheetPage() = default;
 
   // Creates and returns the tab's root Flex container.
   // The returned node is owned by the caller (added to m_tabBodies).
@@ -34,7 +24,7 @@ public:
 
   // Optional trailing header actions shown in the shared control-center header
   // while this tab is active.
-  virtual std::unique_ptr<Flex> createHeaderActions();
+  virtual std::unique_ptr<Flex> createHeaderActions() { return nullptr; }
 
   // The label that becomes the header title of the detail page `detailKey` (rulebook 7.4); null for none.
   [[nodiscard]] virtual Label* sharedTitleFor(std::string_view detailKey) { (void)detailKey; return nullptr; }

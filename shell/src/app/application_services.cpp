@@ -1040,7 +1040,7 @@ void Application::initStyleThemeAndWayland() {
   m_screenTimeService.initialize(&m_compositorPlatform);
   syncScreenTimeService();
   m_screenTimeService.setChangeCallback([this] {
-    if (m_panelManager.isOpenPanel("control-center") && m_panelManager.isActivePanelContext("screen-time")) {
+    if (m_panelManager.isOpenPanel("control-center") && m_panelManager.isActivePanelContext("detail-screen-time")) {
       m_panelManager.refresh();
     }
   });

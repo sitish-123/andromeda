@@ -3,7 +3,7 @@
 #include "render/animation/animation_manager.h"
 #include "shell/control_center/control_center_services.h"
 #include "shell/control_center/detail/detail_pages.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 #include "shell/panel/panel.h"
 #include "ui/controls/scroll_view.h"
 
@@ -152,12 +152,11 @@ private:
   [[nodiscard]] TabId tabFromContext(std::string_view context) const;
   [[nodiscard]] static std::size_t tabIndex(TabId id);
 
-  // Tab instances (long-lived, survive panel open/close cycles)
-  std::array<std::unique_ptr<Tab>, kTabCount> m_tabs;
+  // Page instances (long-lived, survive panel open/close cycles)
+  std::array<std::unique_ptr<SheetPage>, kTabCount> m_tabs;
 
   // Panel UI structure (rebuilt each create(), nulled in onClose())
   Flex* m_rootLayout = nullptr;
-  ScrollViewState m_sidebarScrollState{};
   Flex* m_content = nullptr;
   InputArea* m_contentDismissArea = nullptr;
   Flex* m_contentHeader = nullptr;
@@ -166,7 +165,6 @@ private:
   // Returns from a detail page to the quick sheet.
   Button* m_backButton = nullptr;
   Flex* m_tabBodies = nullptr;
-  std::array<Button*, kTabCount> m_tabButtons{};
   std::array<Flex*, kTabCount> m_tabContainers{};
   std::array<Flex*, kTabCount> m_tabHeaderActions{};
   TabId m_activeTab = TabId::Quick;

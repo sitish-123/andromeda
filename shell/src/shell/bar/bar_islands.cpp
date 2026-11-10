@@ -576,7 +576,7 @@ bool Bar::onPointerEvent(const PointerEvent& event) {
         const auto sy = static_cast<float>(event.sy);
         if (!handleBarDeadZoneButton(*targetInstance, sx, sy, event.button, m_platform, m_actionDispatcher)) {
           openPanelAtBarPointer(
-              *targetInstance, sx, sy, m_platform, targetInstance->barConfig.name, "control-center", "home", true
+              *targetInstance, sx, sy, m_platform, targetInstance->barConfig.name, "control-center", "quick", true
           );
         }
         return true;

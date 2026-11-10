@@ -1413,7 +1413,7 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
             }
             // A banner opens the notification history; the resting date pill opens the calendar, as the clock does.
             if (m_open) {
-              m_open(instPtr->output, fromBanner ? "notifications" : "calendar");
+              m_open(instPtr->output, fromBanner ? "detail-notifications" : "calendar");
             }
           },
   });

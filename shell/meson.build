@@ -579,7 +579,6 @@ _noctalia_sources = files(
   'src/shell/control_center/sheet/quick_page.cpp',
   'src/shell/control_center/plugin_shortcut.cpp',
   'src/shell/control_center/shortcut_registry.cpp',
-  'src/shell/control_center/tab.cpp',
   'src/shell/control_center/sheet/weather_page.cpp',
   'src/shell/control_center/sheet/power_menu_page.cpp',
   'src/shell/launcher/launcher_panel.cpp',

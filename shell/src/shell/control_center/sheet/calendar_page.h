@@ -2,7 +2,7 @@
 
 #include "core/timer_manager.h"
 #include "render/animation/animation_manager.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 #include "calendar/calendar_view.h"
 
 #include <chrono>
@@ -17,7 +17,7 @@ class Label;
 class ScrollView;
 class WeatherService;
 
-class CalendarPage : public Tab {
+class CalendarPage : public SheetPage {
 public:
   explicit CalendarPage(ConfigService* config = nullptr, CalendarService* calendar = nullptr, WeatherService* weather = nullptr);
 

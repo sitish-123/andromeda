@@ -9,7 +9,7 @@
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "render/scene/input_dispatcher.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 #include "shell/panel/panel_button_style.h"
 #include "shell/panel/panel_manager.h"
 #include "system/desktop_entry_launch.h"

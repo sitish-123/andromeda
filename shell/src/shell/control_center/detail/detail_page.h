@@ -1,7 +1,7 @@
 #pragma once
 
 #include "notification/notification.h"
-#include "shell/control_center/tab.h"
+#include "shell/control_center/sheet/sheet_page.h"
 
 #include <cstdint>
 #include <functional>
@@ -57,7 +57,7 @@ namespace control_center {
   // A detail page of the control center sheet (rulebook 9.16): a scrolling list of grouped cards and a footer of
   // plain buttons. A subclass describes the content in build(); the page rebuilds it from doUpdate when
   // structureKey() changes or requestRebuild() ran, never inside a row callback.
-  class DetailPage : public Tab {
+  class DetailPage : public SheetPage {
   public:
     struct FooterButton {
       std::string text;

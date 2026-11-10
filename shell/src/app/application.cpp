@@ -260,7 +260,7 @@ Application::Application()
     const char* origin = (n.origin == NotificationOrigin::Internal) ? "internal" : "external";
     kLog.debug("notification {} id={} origin={}", kind, n.id, origin);
 
-    if (event == NotificationEvent::Added && m_panelManager.isActivePanelContext("notifications")) {
+    if (event == NotificationEvent::Added && m_panelManager.isActivePanelContext("detail-notifications")) {
       m_notificationManager.markNotificationHistorySeen();
     }
 
