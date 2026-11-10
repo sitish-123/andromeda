@@ -43,7 +43,6 @@
 #include "render/gl_shared_context.h"
 #include "render/render_context.h"
 #include "scripting/plugin_manager.h"
-#include "scripting/plugin_recommendations.h"
 #include "scripting/plugin_service_host.h"
 #include "scripting/script_api_context.h"
 #include "security/secret_store.h"
@@ -97,8 +96,6 @@
 #include "system/screen_time_service.h"
 #include "system/weather_poll_source.h"
 #include "system/weather_service.h"
-#include "theme/community_palettes.h"
-#include "theme/community_templates.h"
 #include "theme/template_apply_service.h"
 #include "theme/live_appearance_sync.h"
 #include "theme/theme_service.h"
@@ -343,15 +340,12 @@ private:
   ConfigService m_configService;
   HttpClient m_httpClient;
   FileWatcher m_fileWatcher;
-  noctalia::theme::CommunityPaletteService m_communityPaletteService{m_httpClient};
-  noctalia::theme::CommunityTemplateService m_communityTemplateService{m_httpClient};
   noctalia::theme::ThemeService m_themeService{m_configService, m_httpClient};
   LiveAppearanceSync m_liveAppearance;
   noctalia::theme::TemplateApplyService m_templateApplyService{m_configService};
   scripting::ScriptApiContext m_scriptApi;
   std::function<void()> m_syncScriptApiOutputs;
   scripting::PluginManager m_pluginManager{m_configService};
-  scripting::PluginRecommendations m_pluginRecommendations{m_configService, m_httpClient, m_pluginManager};
   scripting::PluginServiceHost m_pluginServiceHost{m_scriptApi, &m_httpClient, &m_clipboardService, &m_fileWatcher};
   TimeService m_timeService;
   LockKeysService m_lockKeysService;

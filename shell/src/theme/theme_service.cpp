@@ -9,7 +9,6 @@
 #include "net/http_client.h"
 #include "system/day_night_schedule.h"
 #include "theme/builtin_palettes.h"
-#include "theme/community_palettes.h"
 #include "theme/custom_palettes.h"
 #include "theme/fixed_palette.h"
 #include "theme/image_loader.h"
@@ -176,12 +175,12 @@ namespace noctalia::theme {
       return readTerminalJson(*it);
     }
 
-    struct ParsedCommunityPalette {
+    struct ParsedPalette {
       FixedPaletteMode dark;
       FixedPaletteMode light;
     };
 
-    std::optional<ParsedCommunityPalette> parseCommunityPaletteJson(const std::filesystem::path& path) {
+    std::optional<ParsedPalette> parsePaletteJson(const std::filesystem::path& path) {
       try {
         std::ifstream in(path);
         if (!in)
@@ -191,7 +190,7 @@ namespace noctalia::theme {
         auto root = nlohmann::json::parse(buf.str());
         if (!root.is_object())
           return std::nullopt;
-        ParsedCommunityPalette out{};
+        ParsedPalette out{};
         if (auto it = root.find("dark"); it != root.end() && it->is_object()) {
           out.dark.palette = readPaletteJson(*it);
           if (auto terminal = readModeTerminalJson(*it)) {
@@ -214,15 +213,15 @@ namespace noctalia::theme {
         }
         return out;
       } catch (const std::exception& e) {
-        kLog.warn("failed to parse community palette '{}': {}", path.string(), e.what());
+        kLog.warn("failed to parse palette '{}': {}", path.string(), e.what());
         return std::nullopt;
       }
     }
 
     ResolvedTheme
-    makeResolvedFromParsed(const ParsedCommunityPalette& parsed, std::string_view mode, std::string_view shellMode) {
+    makeResolvedFromParsed(const ParsedPalette& parsed, std::string_view mode, std::string_view shellMode) {
       BuiltinPalette bp{
-          .name = "community",
+          .name = "custom",
           .dark = parsed.dark,
           .light = parsed.light,
       };
@@ -241,8 +240,6 @@ namespace noctalia::theme {
         return theme.builtinPalette;
       case PaletteSource::Wallpaper:
         return theme.wallpaperScheme;
-      case PaletteSource::Community:
-        return theme.communityPalette;
       case PaletteSource::Custom:
         return theme.customPalette;
       }
@@ -262,13 +259,13 @@ namespace noctalia::theme {
     ) {
       const auto tokens = StringUtils::splitWhitespace(args);
       if (tokens.size() < 2) {
-        errorOut = "error: expected <builtin|wallpaper|community|custom> <name-or-scheme>\n";
+        errorOut = "error: expected <builtin|wallpaper|custom> <name-or-scheme>\n";
         return false;
       }
 
       const auto source = enumFromKey(kPaletteSources, tokens.front());
       if (!source.has_value()) {
-        errorOut = "error: unknown palette source (expected builtin, wallpaper, community, or custom)\n";
+        errorOut = "error: unknown palette source (expected builtin, wallpaper, or custom)\n";
         return false;
       }
 
@@ -425,35 +422,6 @@ namespace noctalia::theme {
     m_resolvedCallback(generated, mode);
   }
 
-  void ThemeService::startCommunityDownload(const std::string& name) {
-    if (m_inflightCommunityName == name) {
-      return;
-    }
-    m_inflightCommunityName = name;
-    const auto cachePath = communityPaletteCachePath(name);
-    std::error_code ec;
-    std::filesystem::create_directories(cachePath.parent_path(), ec);
-    const std::string url = communityPaletteDownloadUrl(name);
-    kLog.info("fetching community palette '{}' from {}", name, url);
-    m_httpClient.download(url, cachePath, [this, name, cachePath](bool success) {
-      if (m_inflightCommunityName == name) {
-        m_inflightCommunityName.clear();
-      }
-      if (!success) {
-        kLog.warn("community palette download failed for '{}'", name);
-        return;
-      }
-      // Validate the just-downloaded file. If it parses, trigger a re-resolve.
-      if (!parseCommunityPaletteJson(cachePath).has_value()) {
-        kLog.warn("community palette '{}' downloaded but failed to parse; removing cache", name);
-        std::error_code rmEc;
-        std::filesystem::remove(cachePath, rmEc);
-        return;
-      }
-      resolveAndSet(/*animate=*/true);
-    });
-  }
-
   std::optional<ThemeService::WallpaperPaletteKey>
   ThemeService::wallpaperPaletteKey(const ThemeConfig& cfg, const std::string& wallpaperPath) const {
     if (wallpaperPath.empty()) {
@@ -573,7 +541,7 @@ namespace noctalia::theme {
     if (cfg.source == PaletteSource::Custom && !cfg.customPalette.empty()) {
       const auto path = customPalettePath(cfg.customPalette);
       if (std::filesystem::exists(path)) {
-        if (auto parsed = parseCommunityPaletteJson(path)) {
+        if (auto parsed = parsePaletteJson(path)) {
           resolved = makeResolvedFromParsed(*parsed, mode, shellMode);
         }
       }
@@ -599,34 +567,13 @@ namespace noctalia::theme {
             .shellMode = shellMode,
         };
       }
-    } else if (cfg.source == PaletteSource::Community && !cfg.communityPalette.empty()) {
-      const auto cachePath = communityPaletteCachePath(cfg.communityPalette);
-      bool stale = true;
-      if (std::filesystem::exists(cachePath)) {
-        if (auto parsed = parseCommunityPaletteJson(cachePath)) {
-          resolved = makeResolvedFromParsed(*parsed, mode, shellMode);
-          // Re-fetch when the catalog advertises a different checksum than the
-          // cached copy. An empty catalog md5 means "freshness unknown": keep
-          // the cached palette rather than re-downloading on every resolve.
-          const std::string expectedMd5 = communityPaletteCatalogMd5(cfg.communityPalette);
-          stale = !expectedMd5.empty() && util::fileMd5Hex(cachePath) != StringUtils::toLower(expectedMd5);
-        } else {
-          std::error_code rmEc;
-          std::filesystem::remove(cachePath, rmEc);
-        }
-      }
-      // A stale-but-valid cache still resolves above, so the fresh copy fades in
-      // via the download callback instead of flashing the builtin palette.
-      if (stale) {
-        startCommunityDownload(cfg.communityPalette);
-      }
     }
     if (!resolved.has_value()) {
       resolved = resolveBuiltin(cfg, mode, shellMode);
     }
 
     // Every source funnels through here, so the transform covers wallpaper-generated,
-    // builtin, community and custom palettes alike. It runs after the wallpaper cache,
+    // builtin and custom palettes alike. It runs after the wallpaper cache,
     // which keeps storing the untransformed palette, so toggling this cannot serve a stale one.
     if (cfg.pureBlackDark) {
       applyPureBlackDark(resolved->generated);

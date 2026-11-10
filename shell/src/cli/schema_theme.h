@@ -24,7 +24,7 @@ namespace noctalia::cli {
           "--list-templates",
           {},
           {},
-          "List built-in, cached community, and configured user templates",
+          "List built-in and configured user templates",
           {},
           {},
           false,

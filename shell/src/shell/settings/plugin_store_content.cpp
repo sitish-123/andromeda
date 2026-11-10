@@ -104,8 +104,7 @@ namespace settings {
         }
         t->bind(
             storeEntry.entry, storeEntry.source, onDisk, selected, hovered, thumbPath, m_renderer, m_textureCache,
-            m_content != nullptr ? m_content->recommendationCount(storeEntry) : std::nullopt,
-            m_content != nullptr && m_content->isRecommended(storeEntry), storeEntry.listed
+      storeEntry.listed
         );
       }
 
@@ -130,38 +129,13 @@ namespace settings {
 
   PluginStoreContent::PluginStoreContent(
       std::vector<StoreCatalogEntry> catalog, ConfigService* config, PluginStoreCallbacks callbacks,
-      scripting::PluginFileCache* fileCache, ScrollViewState* scrollState,
-      scripting::PluginRecommendations* recommendations
+      scripting::PluginFileCache* fileCache, ScrollViewState* scrollState
   )
-      : m_catalog(std::move(catalog)), m_recommendations(recommendations), m_config(config),
+      : m_catalog(std::move(catalog)), m_config(config),
         m_callbacks(std::move(callbacks)), m_fileCache(fileCache), m_scrollState(scrollState) {
     if (m_config != nullptr) {
       if (const std::optional<std::string> sort = m_config->stateString("plugin_store", "sort")) {
         m_sortMode = sortModeFromState(*sort);
-      }
-    }
-    if (m_config != nullptr && m_recommendations != nullptr) {
-      for (const auto& key : m_recommendations->recommendedKeys()) {
-        const auto id = key.substr(key.find(':') + 1);
-        // A listed owner takes precedence over remembered, delisted identities.
-        if (std::ranges::any_of(m_catalog, [&](const auto& current) {
-              return current.listed && current.entry.id == id;
-            })) {
-          continue;
-        }
-        for (const auto& source : m_config->config().plugins.sources) {
-          if (scripting::PluginRecommendations::pluginKey(source, id) != key) {
-            continue;
-          }
-          m_catalog.push_back(
-              StoreCatalogEntry{
-                  .entry = {.id = id, .name = id, .icon = "puzzle", .compatible = true},
-                  .source = source.name,
-                  .sourceConfig = source,
-                  .listed = false,
-              }
-          );
-        }
       }
     }
     collectThumbnails();
@@ -208,14 +182,6 @@ namespace settings {
       next = SortMode::AddedAtAsc;
       break;
     case SortMode::AddedAtAsc:
-      next = m_recommendations != nullptr && m_recommendations->metricsAvailable() ? SortMode::MostRecommended
-                                                                                   : SortMode::NameAsc;
-      break;
-    case SortMode::MostRecommended:
-      next = m_recommendations != nullptr && m_recommendations->metricsAvailable() ? SortMode::Trending
-                                                                                   : SortMode::NameAsc;
-      break;
-    case SortMode::Trending:
       next = SortMode::NameAsc;
       break;
     }
@@ -237,12 +203,6 @@ namespace settings {
   }
 
   SortMode PluginStoreContent::sortModeFromState(std::string_view value) {
-    if (value == "most_recommended") {
-      return SortMode::MostRecommended;
-    }
-    if (value == "trending") {
-      return SortMode::Trending;
-    }
     if (value == "name_desc") {
       return SortMode::NameDesc;
     }
@@ -263,10 +223,6 @@ namespace settings {
 
   std::string_view PluginStoreContent::sortModeStateValue(SortMode mode) {
     switch (mode) {
-    case SortMode::MostRecommended:
-      return "most_recommended";
-    case SortMode::Trending:
-      return "trending";
     case SortMode::NameDesc:
       return "name_desc";
     case SortMode::UpdatedAtAsc:
@@ -285,10 +241,6 @@ namespace settings {
 
   std::string_view PluginStoreContent::sortModeGlyph(SortMode mode) {
     switch (mode) {
-    case SortMode::MostRecommended:
-      return "thumb-up";
-    case SortMode::Trending:
-      return "trending-up";
     case SortMode::NameDesc:
       return "sort-z-a";
     case SortMode::UpdatedAtAsc:
@@ -307,10 +259,6 @@ namespace settings {
 
   const char* PluginStoreContent::sortModeTooltipKey(SortMode mode) {
     switch (mode) {
-    case SortMode::MostRecommended:
-      return "settings.plugins.store.sort-most-recommended";
-    case SortMode::Trending:
-      return "settings.plugins.store.sort-trending";
     case SortMode::NameDesc:
       return "settings.plugins.store.sort-name-desc";
     case SortMode::UpdatedAtAsc:
@@ -331,12 +279,9 @@ namespace settings {
     if (m_sortButton == nullptr) {
       return;
     }
-    const bool unavailable = (m_sortMode == SortMode::MostRecommended || m_sortMode == SortMode::Trending)
-        && (m_recommendations == nullptr || !m_recommendations->metricsAvailable());
-    const auto displayedMode = unavailable ? SortMode::NameAsc : m_sortMode;
-    m_sortButton->setGlyph(sortModeGlyph(displayedMode));
+    m_sortButton->setGlyph(sortModeGlyph(m_sortMode));
     // Retargets a tooltip already on screen: setTooltip notifies TooltipManager.
-    m_sortButton->setTooltip(i18n::tr(sortModeTooltipKey(displayedMode)));
+    m_sortButton->setTooltip(i18n::tr(sortModeTooltipKey(m_sortMode)));
   }
 
   std::optional<std::string> PluginStoreContent::detailPageUrl() const {
@@ -406,32 +351,6 @@ namespace settings {
     });
   }
 
-  std::optional<std::string> PluginStoreContent::recommendationKey(const StoreCatalogEntry& entry) const {
-    if (m_config == nullptr || m_recommendations == nullptr) {
-      return std::nullopt;
-    }
-    if (m_callbacks.ownsPlugin && !m_callbacks.ownsPlugin(entry.entry.id, entry.source)) {
-      return std::nullopt;
-    }
-    const auto& sources = m_config->config().plugins.sources;
-    if (!std::ranges::contains(sources, entry.sourceConfig)) {
-      return std::nullopt;
-    }
-    return scripting::PluginRecommendations::pluginKey(entry.sourceConfig, entry.entry.id);
-  }
-
-  std::optional<std::uint64_t> PluginStoreContent::recommendationCount(const StoreCatalogEntry& entry) const {
-    const auto key = recommendationKey(entry);
-    return key.has_value() ? m_recommendations->count(*key) : std::nullopt;
-  }
-
-  bool PluginStoreContent::isRecommended(const StoreCatalogEntry& entry) const {
-    const auto key = recommendationKey(entry);
-    return key.has_value() && m_recommendations->state(*key).recommended;
-  }
-
-  void PluginStoreContent::onRecommendationsChanged() { requestRebuild(); }
-
   void PluginStoreContent::sortEntries() {
     std::ranges::sort(m_filteredIndices, [this](std::size_t a, std::size_t b) {
       const int nameOrder =
@@ -445,39 +364,6 @@ namespace settings {
         return nameOrder < 0;
       };
       switch (m_sortMode) {
-      case SortMode::MostRecommended:
-      case SortMode::Trending: {
-        if (m_recommendations == nullptr || !m_recommendations->metricsAvailable()) {
-          return nameOrder < 0;
-        }
-        const auto& left = m_catalog[a];
-        const auto& right = m_catalog[b];
-        if (left.listed != right.listed) {
-          return left.listed;
-        }
-        if (left.entry.compatible != right.entry.compatible) {
-          return left.entry.compatible;
-        }
-        if (left.entry.deprecated != right.entry.deprecated) {
-          return !left.entry.deprecated;
-        }
-        const auto leftKey = recommendationKey(left);
-        const auto rightKey = recommendationKey(right);
-        const auto leftMetric = leftKey.has_value() ? m_recommendations->metric(*leftKey) : std::nullopt;
-        const auto rightMetric = rightKey.has_value() ? m_recommendations->metric(*rightKey) : std::nullopt;
-        if (leftMetric.has_value() != rightMetric.has_value()) {
-          return leftMetric.has_value();
-        }
-        if (leftMetric.has_value() && rightMetric.has_value()) {
-          if (m_sortMode == SortMode::MostRecommended && leftMetric->recommendations != rightMetric->recommendations) {
-            return leftMetric->recommendations > rightMetric->recommendations;
-          }
-          if (m_sortMode == SortMode::Trending && leftMetric->trendingScore != rightMetric->trendingScore) {
-            return leftMetric->trendingScore > rightMetric->trendingScore;
-          }
-        }
-        return nameOrder < 0;
-      }
       case SortMode::NameDesc:
         return nameOrder > 0;
       case SortMode::UpdatedAtAsc:
@@ -499,9 +385,6 @@ namespace settings {
     m_filteredIndices.clear();
     for (std::size_t i = 0; i < m_catalog.size(); ++i) {
       const auto& e = m_catalog[i];
-      if (!e.listed && m_recommendations != nullptr && !m_recommendations->state(e.key()).recommended) {
-        continue;
-      }
       if (!m_selectedSource.empty() && e.source != m_selectedSource) {
         continue;
       }
@@ -959,50 +842,6 @@ namespace settings {
     info->addChild(ui::spacer());
     auto installActions = ui::row({.align = FlexAlign::Center, .wrap = true, .gap = Style::spaceSm * scale});
 
-    if (const auto key = recommendationKey(storeEntry)) {
-      const auto state = m_recommendations->state(*key);
-      const auto count = m_recommendations->count(*key);
-      const bool online = m_config != nullptr && !m_config->config().shell.offlineMode;
-      const bool actionable = online
-          && (state.recommended
-              || state.failedDesired.has_value()
-              || (storeEntry.listed && onDisk && !entry.deprecated));
-      if (count.has_value() || actionable) {
-        const bool retry = state.failedDesired.has_value();
-        const bool desired = retry ? *state.failedDesired : !state.recommended;
-        installActions->addChild(
-            ui::button({
-                .text = count.has_value() ? std::to_string(*count) : std::string(),
-                .glyph = state.recommended ? "thumb-up-filled" : "thumb-up",
-                .fontSize = Style::fontSizeCaption * scale,
-                .glyphSize = Style::fontSizeTitle * scale,
-                .enabled = actionable
-                    && !state.pending
-                    && state.error != scripting::RecommendationError::Protocol
-                    && (state.error != scripting::RecommendationError::NotRecommendable || state.recommended),
-                .variant = state.recommended ? ButtonVariant::Primary : ButtonVariant::Default,
-                .tooltip = actionable
-                    ? i18n::tr(
-                          state.pending ? "settings.plugins.store.recommendation-pending"
-                                        : (retry ? "settings.plugins.store.recommendation-retry"
-                                                 : (state.recommended ? "settings.plugins.store.remove-recommendation"
-                                                                      : "settings.plugins.store.recommend"))
-                      )
-                    : std::string(),
-                .minWidth = Style::controlHeight * scale,
-                .minHeight = Style::controlHeight * scale,
-                .onClick = [this, source = storeEntry.sourceConfig, id = entry.id, desired] {
-                  m_recommendations->setRecommended(source, id, desired);
-                },
-            })
-        );
-        if (state.pending) {
-          installActions->addChild(
-              ui::spinner({.spinnerSize = Style::controlHeight * scale * 0.7F, .spinning = true})
-          );
-        }
-      }
-    }
 
     if (!storeEntry.listed) {
       installActions->addChild(
@@ -1062,39 +901,6 @@ namespace settings {
     info->addChild(std::move(installActions));
     header->addChild(std::move(info));
     dc->addChild(std::move(header));
-    if (const auto key = recommendationKey(storeEntry)) {
-      const auto state = m_recommendations->state(*key);
-      if (state.error != scripting::RecommendationError::None) {
-        const char* errorKey = "settings.plugins.store.recommendation-error";
-        switch (state.error) {
-        case scripting::RecommendationError::Protocol:
-          errorKey = "settings.plugins.store.recommendation-protocol-error";
-          break;
-        case scripting::RecommendationError::NotRecommendable:
-          errorKey = "settings.plugins.store.recommendation-not-recommendable";
-          break;
-        case scripting::RecommendationError::RateLimited:
-          errorKey = "settings.plugins.store.recommendation-rate-limited";
-          break;
-        case scripting::RecommendationError::State:
-          errorKey = "settings.plugins.store.recommendation-state-error";
-          break;
-        case scripting::RecommendationError::Unavailable:
-          errorKey = "settings.plugins.store.recommendation-unavailable";
-          break;
-        default:
-          break;
-        }
-        dc->addChild(
-            ui::label(
-                {.text = i18n::tr(errorKey),
-                 .fontSize = Style::fontSizeMini * scale,
-                 .color = colorSpecFromRole(ColorRole::DangerText),
-                 .maxLines = 3}
-            )
-        );
-      }
-    }
 
     dc->addChild(ui::separator({.spacing = Style::spaceSm * scale}));
 

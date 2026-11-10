@@ -169,8 +169,7 @@ namespace settings {
       : m_ctx(std::move(ctx)), m_scale(m_ctx.scale) {}
 
   bool SettingsControlFactory::isTemplateEnableTogglePath(const std::vector<std::string>& path) {
-    return path == std::vector<std::string>{"theme", "templates", "enable_builtin_templates"}
-    || path == std::vector<std::string>{"theme", "templates", "enable_community_templates"};
+    return path == std::vector<std::string>{"theme", "templates", "enable_builtin_templates"};
   }
 
   std::unique_ptr<Button> SettingsControlFactory::makeResetButton(const std::vector<std::string>& path) {

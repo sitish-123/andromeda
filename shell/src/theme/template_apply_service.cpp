@@ -7,7 +7,6 @@
 #include "core/log.h"
 #include "core/process/process.h"
 #include "ipc/ipc_service.h"
-#include "theme/community_templates.h"
 #include "theme/gtk_extensions.h"
 #include "theme/hook_runner.h"
 #include "theme/template_engine.h"
@@ -166,13 +165,6 @@ namespace noctalia::theme {
       return {templates.builtinIds.begin(), templates.builtinIds.end()};
     }
 
-    std::set<std::string> enabledCommunityIds(const ThemeConfig::TemplatesConfig& templates) {
-      if (!templates.enableCommunityTemplates) {
-        return {};
-      }
-      return {templates.communityIds.begin(), templates.communityIds.end()};
-    }
-
   } // namespace
 
   TemplateApplyService::TemplateApplyService(
@@ -262,7 +254,6 @@ namespace noctalia::theme {
         }
       } else {
         request.undoBuiltinIds = syncAppliedIds(m_builtinIds, enabledBuiltinIds(request.templates));
-        request.undoCommunityIds = syncAppliedIds(m_communityIds, enabledCommunityIds(request.templates));
         request.generation = ++m_nextGeneration;
         m_warningGeneration->store(request.generation);
         m_lastAppliedRequest = request;
@@ -366,17 +357,13 @@ namespace noctalia::theme {
     // The undo hooks ran synchronously; drop their ids from state.toml so the next
     // application does not repeat them. State belongs to the main thread.
     std::vector<std::string> undoneBuiltin = undoBuiltinTemplates(request);
-    std::vector<std::string> undoneCommunity = undoCommunityTemplates(request);
-    if (!undoneBuiltin.empty() || !undoneCommunity.empty()) {
-      DeferredCall::callLater([this, undoneBuiltin = std::move(undoneBuiltin),
-                               undoneCommunity = std::move(undoneCommunity)] {
+    if (!undoneBuiltin.empty()) {
+      DeferredCall::callLater([this, undoneBuiltin = std::move(undoneBuiltin)] {
         forgetAppliedIds(m_builtinIds, undoneBuiltin);
-        forgetAppliedIds(m_communityIds, undoneCommunity);
       });
     }
 
-    // GTK extensions of community templates load through andromeda.css (toolkit_theme_files), which the shell
-    // always writes, so both toolkits take them.
+    // GTK extensions load through andromeda.css (toolkit_theme_files), which the shell always writes.
     const GtkToolkits gtkToolkits{.gtk3 = true, .gtk4 = true};
     const std::filesystem::path gtk3Dir = gtkConfigDir(GtkToolkit::Gtk3);
     const std::filesystem::path gtk4Dir = gtkConfigDir(GtkToolkit::Gtk4);
@@ -400,39 +387,6 @@ namespace noctalia::theme {
 
     std::vector<std::string> gtk3Extensions;
     std::vector<std::string> gtk4Extensions;
-    if (request.templates.enableCommunityTemplates
-        && !request.templates.communityIds.empty()
-        && !requestSuperseded(request.generation)) {
-      for (const auto& id : request.templates.communityIds) {
-        if (requestSuperseded(request.generation))
-          return;
-        if (!isSafeCommunityTemplateId(id)) {
-          kLog.warn("skipping unsafe community template id '{}'", id);
-          continue;
-        }
-
-        const std::filesystem::path communityConfig = communityTemplateConfigPath(id);
-        if (!std::filesystem::exists(communityConfig)) {
-          kLog.warn("community template '{}' is not cached yet", id);
-          continue;
-        }
-        toml::table communityRoot;
-        try {
-          communityRoot = toml::parse_file(communityConfig.string());
-        } catch (const toml::parse_error&) {
-          kLog.warn("failed to parse community template '{}' from {}", id, communityConfig.string());
-          continue;
-        }
-        for (GtkExtensionFile& file : prepareGtkExtensions(communityRoot, id, gtkToolkits, gtk3Dir, gtk4Dir)) {
-          (file.toolkit == GtkToolkit::Gtk3 ? gtk3Extensions : gtk4Extensions).push_back(std::move(file.fileName));
-        }
-        TemplateEngine communityEngine(TemplateEngine::makeThemeData(request.palette), options);
-        if (!communityEngine.processConfigTable(communityRoot, communityConfig)) {
-          kLog.warn("failed to apply community template '{}' from {}", id, communityConfig.string());
-        }
-      }
-    }
-
     // Rewrite the index from what is enabled now, then drop extension files nothing imports.
     if (!requestSuperseded(request.generation)) {
       if (gtkToolkits.gtk3)
@@ -559,58 +513,6 @@ namespace noctalia::theme {
       }
       const auto* hook = entry->get_as<std::string>("undo_hook");
       if (hook == nullptr || runUndoHook(request, configPath, hook->get(), std::format("built-in template '{}'", id))) {
-        resolved.push_back(id);
-      }
-    }
-    return resolved;
-  }
-
-  std::vector<std::string> TemplateApplyService::undoCommunityTemplates(const ApplyRequest& request) const {
-    std::vector<std::string> resolved;
-    for (const auto& id : request.undoCommunityIds) {
-      if (requestSuperseded(request.generation)) {
-        return resolved;
-      }
-      if (!isSafeCommunityTemplateId(id)) {
-        resolved.push_back(id);
-        continue;
-      }
-
-      // The cache keeps a disabled template's files, so its undo hook is still on disk.
-      const std::filesystem::path configPath = communityTemplateConfigPath(id);
-      if (!std::filesystem::exists(configPath)) {
-        kLog.warn("cannot undo community template '{}': {} is not cached", id, configPath.string());
-        resolved.push_back(id);
-        continue;
-      }
-      toml::table root;
-      try {
-        root = toml::parse_file(configPath.string());
-      } catch (const toml::parse_error&) {
-        kLog.warn("failed to parse community template '{}' for undo hooks from {}", id, configPath.string());
-        resolved.push_back(id);
-        continue;
-      }
-      const toml::table* templates = root["templates"].as_table();
-      if (templates == nullptr) {
-        resolved.push_back(id);
-        continue;
-      }
-
-      // One community template can define several entries; it stays owed until every undo
-      // hook succeeds, so those hooks must be safe to run again.
-      bool done = true;
-      for (const auto& [entryId, node] : *templates) {
-        const toml::table* entry = node.as_table();
-        const auto* hook = entry != nullptr ? entry->get_as<std::string>("undo_hook") : nullptr;
-        if (hook != nullptr
-            && !runUndoHook(
-                request, configPath, hook->get(), std::format("community template '{}.{}'", id, entryId.str())
-            )) {
-          done = false;
-        }
-      }
-      if (done) {
         resolved.push_back(id);
       }
     }

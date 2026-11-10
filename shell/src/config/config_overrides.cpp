@@ -1098,8 +1098,6 @@ bool ConfigService::setThemeColorScheme(PaletteSource source, std::string_view v
       return false;
     }
     break;
-  case PaletteSource::Community:
-    break;
   case PaletteSource::Custom:
     if (!std::filesystem::exists(noctalia::theme::customPalettePath(value))) {
       return false;
@@ -1116,9 +1114,6 @@ bool ConfigService::setThemeColorScheme(PaletteSource source, std::string_view v
     break;
   case PaletteSource::Wallpaper:
     themeTbl->insert_or_assign("wallpaper_scheme", value);
-    break;
-  case PaletteSource::Community:
-    themeTbl->insert_or_assign("community_palette", value);
     break;
   case PaletteSource::Custom:
     themeTbl->insert_or_assign("custom_palette", value);
@@ -2400,9 +2395,6 @@ void ConfigService::extractWallpaperFromTable(const toml::table& table) {
       if (auto v = (*favTbl)["builtin_palette"].value<std::string>()) {
         favorite.builtinPalette = *v;
       }
-      if (auto v = (*favTbl)["community_palette"].value<std::string>()) {
-        favorite.communityPalette = *v;
-      }
       if (auto v = (*favTbl)["custom_palette"].value<std::string>()) {
         favorite.customPalette = *v;
       }
@@ -2440,11 +2432,6 @@ void ConfigService::syncWallpaperFavoritesToOverridesTable() {
       case PaletteSource::Wallpaper:
         if (!favorite.wallpaperScheme.empty()) {
           entry.insert("wallpaper_scheme", favorite.wallpaperScheme);
-        }
-        break;
-      case PaletteSource::Community:
-        if (!favorite.communityPalette.empty()) {
-          entry.insert("community_palette", favorite.communityPalette);
         }
         break;
       case PaletteSource::Custom:
@@ -2579,12 +2566,6 @@ void ConfigService::setWallpaperFavoritePaletteSource(std::string_view path, std
           changed = true;
         }
         break;
-      case PaletteSource::Community:
-        if (favorite.communityPalette.empty()) {
-          favorite.communityPalette = m_config.theme.communityPalette;
-          changed = true;
-        }
-        break;
       case PaletteSource::Custom:
         if (favorite.customPalette.empty()) {
           favorite.customPalette = m_config.theme.customPalette;
@@ -2629,12 +2610,6 @@ void ConfigService::setWallpaperFavoritePaletteSelection(std::string_view path, 
     case PaletteSource::Wallpaper:
       if (favorite.wallpaperScheme != selection) {
         favorite.wallpaperScheme = selection;
-        changed = true;
-      }
-      break;
-    case PaletteSource::Community:
-      if (favorite.communityPalette != selection) {
-        favorite.communityPalette = selection;
         changed = true;
       }
       break;
@@ -2692,12 +2667,6 @@ void ConfigService::applyWallpaperSelection(
       case PaletteSource::Wallpaper:
         if (!applyTheme->wallpaperScheme.empty() && m_config.theme.wallpaperScheme != applyTheme->wallpaperScheme) {
           themeTbl->insert_or_assign("wallpaper_scheme", applyTheme->wallpaperScheme);
-          changed = true;
-        }
-        break;
-      case PaletteSource::Community:
-        if (!applyTheme->communityPalette.empty() && m_config.theme.communityPalette != applyTheme->communityPalette) {
-          themeTbl->insert_or_assign("community_palette", applyTheme->communityPalette);
           changed = true;
         }
         break;

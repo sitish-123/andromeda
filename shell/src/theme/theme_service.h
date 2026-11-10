@@ -111,13 +111,11 @@ namespace noctalia::theme {
     void startTransition(const Palette& target);
     void finishTransition(bool deferResolvedCallback);
     void tickTransition();
-    void startCommunityDownload(const std::string& name);
     void rescheduleAutoTimer();
     [[nodiscard]] bool hasAutoMode() const noexcept;
 
     ConfigService& m_config;
     HttpClient& m_httpClient;
-    std::string m_inflightCommunityName;
 
     // Memoized wallpaper palette (see resolveWallpaperGenerated); any key mismatch re-decodes.
     std::optional<GeneratedPalette> m_wallpaperCacheGenerated;

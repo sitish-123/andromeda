@@ -1,7 +1,5 @@
 #pragma once
 
-#include "theme/community_palettes.h"
-
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -10,6 +8,21 @@
 namespace noctalia::theme {
 
   struct GeneratedPalette;
+
+  struct AvailablePalette {
+    struct PreviewMode {
+      std::string surface;
+      std::vector<std::string> accents;
+    };
+
+    struct Preview {
+      PreviewMode dark;
+      PreviewMode light;
+    };
+
+    std::string name;
+    Preview preview = {};
+  };
 
   [[nodiscard]] std::filesystem::path customPaletteDir();
   [[nodiscard]] std::filesystem::path customPalettePath(std::string_view name);

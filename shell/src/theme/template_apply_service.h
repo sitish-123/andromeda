@@ -59,7 +59,7 @@ namespace noctalia::theme {
     [[nodiscard]] bool running() const;
 
   private:
-    // Template ids of one source (built-in or community) whose output Noctalia has put on
+    // Built-in template ids whose output Noctalia has put on
     // disk: the enabled ones plus the ones still owing an undo. Mirrors one key of
     // [theme_templates] in state.toml, so a disable survives a restart between queueing the
     // request and running its undo hook. Main thread only.
@@ -80,7 +80,6 @@ namespace noctalia::theme {
       // Templates Noctalia has applied and that are no longer enabled: their undo hooks
       // run before this request's templates.
       std::vector<std::string> undoBuiltinIds;
-      std::vector<std::string> undoCommunityIds;
       std::uint64_t generation = 0;
     };
 
@@ -94,10 +93,9 @@ namespace noctalia::theme {
     // Clears ids whose undo hook has run from the applied/owed sets.
     void forgetAppliedIds(AppliedTemplateIds& ids, const std::vector<std::string>& resolved) const;
     void persistAppliedIds(const AppliedTemplateIds& ids) const;
-    // Run the undo hooks of request.undoBuiltinIds / request.undoCommunityIds and return
+    // Run the undo hooks of request.undoBuiltinIds and return
     // the ids they resolved.
     [[nodiscard]] std::vector<std::string> undoBuiltinTemplates(const ApplyRequest& request) const;
-    [[nodiscard]] std::vector<std::string> undoCommunityTemplates(const ApplyRequest& request) const;
     // Renders and runs one undo hook synchronously. False when it must be retried later.
     [[nodiscard]] bool runUndoHook(
         const ApplyRequest& request, const std::filesystem::path& configPath, std::string_view hook,
@@ -114,7 +112,6 @@ namespace noctalia::theme {
     mutable std::optional<ApplyRequest> m_pendingRequest;
     mutable std::optional<ApplyRequest> m_lastAppliedRequest;
     mutable AppliedTemplateIds m_builtinIds{.stateKey = "applied_builtin_ids"};
-    mutable AppliedTemplateIds m_communityIds{.stateKey = "applied_community_ids"};
     mutable std::thread m_worker;
     mutable bool m_workerRunning = false; // guarded by m_mutex
     mutable std::uint64_t m_nextGeneration = 0;

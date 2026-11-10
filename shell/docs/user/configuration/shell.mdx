@@ -229,7 +229,7 @@ Notes:
 
 - `shell.keyboard_layout.custom_labels` maps exact compositor layout names to aliases used consistently by keyboard-layout widgets, the keyboard-layout OSD, the lock screen, and the Control Center shortcut. Keyboard-layout widgets and the OSD also match the active fcitx5 input method name (for example `Mozc`). Unmatched or empty aliases use each surface's normal compact or full label. Configure under **Settings → Shell → Keyboard Layout**.
 
-- `offline_mode` prevents the shell from making any outgoing HTTP requests (weather, community palettes, community templates, album art, remote notification icons, currency exchange rates, plugin recommendation metrics and changes). Distro packagers can default to `true` to comply with policies requiring explicit user consent for network access.
+- `offline_mode` prevents the shell from making any outgoing HTTP requests (weather, album art, remote notification icons, currency exchange rates). Distro packagers can default to `true` to comply with policies requiring explicit user consent for network access.
 
 - `panel_anchor_bar` names the bar that every panel attaches to, however it was opened. When set, it overrides the source bar: panels opened by clicking a widget on another bar still attach to the anchor bar. Leave unset (default) to keep per-source behavior: the opening widget's bar, or, for opens without a source bar (IPC, shortcuts, dock), the first enabled bar on the output. An unknown bar name fails loudly; a bar disabled on the current output logs a warning and the panel opens without bar attachment. Renaming the anchor bar in Settings updates this key to the new name; deleting it in Settings clears the key. Configure under **Settings → Panels → General**.
 

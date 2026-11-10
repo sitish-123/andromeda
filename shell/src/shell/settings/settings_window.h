@@ -89,10 +89,6 @@ struct PointerEvent;
 struct wl_output;
 struct wl_surface;
 
-namespace scripting {
-  class PluginRecommendations;
-}
-
 namespace noctalia::theme {
   struct GeneratedPalette;
 }
@@ -150,9 +146,6 @@ public:
     m_openLockscreenWidgetEditor = std::move(callback);
   }
   void setOpenWallpaperPanel(std::function<void()> callback) { m_openWallpaperPanel = std::move(callback); }
-  void setPluginRecommendations(scripting::PluginRecommendations* recommendations) {
-    m_pluginRecommendations = recommendations;
-  }
   void setPluginManager(scripting::PluginManager* manager) { m_pluginManager = manager; }
   void setSyncGreeterAppearance(std::function<void()> callback) { m_syncGreeterAppearance = std::move(callback); }
   void setResetLauncherUsage(std::function<void()> callback) { m_resetLauncherUsage = std::move(callback); }
@@ -356,7 +349,6 @@ private:
   void openPluginSourceCreateEditor(std::optional<PluginSourceConfig> existing = std::nullopt);
   void openPluginSettingsEditor(std::string pluginId);
   void openPluginStore();
-  void openCommunityTemplateStore();
   void openPaletteInspector();
   void openBarWidgetEditorSheet(
       std::string title, std::function<void(Flex&)> populate, std::function<void()> removeAction = nullptr
@@ -399,7 +391,6 @@ private:
   scripting::PluginManager* m_pluginManager = nullptr;
   // Expires with the window; worker completions posted through DeferredCall check it first.
   std::shared_ptr<void> m_aliveGuard = std::make_shared<char>();
-  scripting::PluginRecommendations* m_pluginRecommendations = nullptr;
   // Cached PluginManager::list() — discovery can spawn git, so refresh it off the UI path.
   std::vector<scripting::PluginStatus> m_pluginList;
   bool m_pluginListDirty = true;

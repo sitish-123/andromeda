@@ -98,7 +98,6 @@ namespace {
     favorite.themeMode = theme.mode;
     favorite.paletteSource = theme.source;
     favorite.builtinPalette = theme.builtinPalette;
-    favorite.communityPalette = theme.communityPalette;
     favorite.customPalette = theme.customPalette;
     favorite.wallpaperScheme = theme.wallpaperScheme;
     return favorite;

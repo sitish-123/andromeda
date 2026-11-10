@@ -35,8 +35,6 @@
 #include "system/dependency_service.h"
 #include "system/distro_info.h"
 #include "theme/builtin_templates.h"
-#include "theme/community_palettes.h"
-#include "theme/community_templates.h"
 #include "theme/custom_palettes.h"
 #include "ui/builders.h"
 #include "ui/controls/select_dropdown_popup.h"
@@ -769,16 +767,6 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
   env.greeterSyncAvailable =
       m_config != nullptr && greeter::appearanceSyncAvailable(m_config->config().shell.greeterSync);
   const ThemeMode previewMode = m_config != nullptr ? shellThemeMode(m_config->config().theme) : ThemeMode::Dark;
-  for (const auto& paletteInfo : noctalia::theme::availableCommunityPalettes()) {
-    env.communityPalettes.push_back(
-        settings::SelectOption{
-            .value = paletteInfo.name,
-            .label = paletteInfo.name,
-            .description = {},
-            .preview = availablePalettePreview(paletteInfo, previewMode),
-        }
-    );
-  }
   for (const auto& p : noctalia::theme::availableCustomPalettes()) {
     env.customPalettes.push_back(
         settings::SelectOption{
@@ -786,16 +774,6 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
             .label = p.name,
             .description = {},
             .preview = availablePalettePreview(p, previewMode),
-        }
-    );
-  }
-  for (const auto& t : noctalia::theme::CommunityTemplateService::availableTemplates()) {
-    env.communityTemplates.push_back(
-        settings::SelectOption{
-            .value = t.id,
-            .label = t.displayName,
-            .description = t.category,
-            .tooltip = noctalia::theme::formatTemplateTooltip(t)
         }
     );
   }
@@ -1712,12 +1690,6 @@ void SettingsWindow::refreshSettingsRegistry(const Config& cfg) {
       if (auto* button = std::get_if<settings::ButtonSetting>(&entry.control)) {
         button->action = [this] { DeferredCall::callLater([this] { openPaletteInspector(); }); };
       }
-    }
-    if (entry.section != settings::SettingsSection::Appearance || entry.group != "templates") {
-      continue;
-    }
-    if (auto* button = std::get_if<settings::ButtonSetting>(&entry.control)) {
-      button->action = [this] { openCommunityTemplateStore(); };
     }
   }
 

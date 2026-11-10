@@ -21,8 +21,7 @@ namespace settings {
 
     void bind(
         const scripting::CatalogEntry& entry, std::string_view source, bool onDisk, bool selected, bool hovered,
-        const std::string& thumbnailPath, Renderer* renderer, AsyncTextureCache* textureCache,
-        std::optional<std::uint64_t> recommendations, bool recommended, bool listed
+        const std::string& thumbnailPath, Renderer* renderer, AsyncTextureCache* textureCache, bool listed
     );
 
   private:
@@ -38,8 +37,6 @@ namespace settings {
     Label* m_statusLabel = nullptr;
     Label* m_descLabel = nullptr;
     Label* m_authorLabel = nullptr;
-    Label* m_recommendationsLabel = nullptr;
-    Glyph* m_recommendationsGlyph = nullptr;
     Glyph* m_addedGlyph = nullptr;
 
     std::string m_boundThumbnailPath;

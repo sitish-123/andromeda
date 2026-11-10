@@ -88,11 +88,8 @@ namespace settings {
       const std::string_view fromWallpaper = "wallpaper";
       // Off returns to the source whose palette is configured; the active source needs no guess.
       std::string offSource = "builtin";
-      if (cfg.theme.source == PaletteSource::Community
-          || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.communityPalette.empty())) {
-        offSource = "community";
-      } else if (cfg.theme.source == PaletteSource::Custom
-                 || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.customPalette.empty())) {
+      if (cfg.theme.source == PaletteSource::Custom
+          || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.customPalette.empty())) {
         offSource = "custom";
       }
       SettingEntry toggle = makeEntry(
@@ -119,23 +116,6 @@ namespace settings {
           SettingsSection::Appearance, "theme", tr("settings.schema.appearance.wallpaper-generation-scheme.label"),
           tr("settings.schema.appearance.wallpaper-generation-scheme.description"), {"theme", "wallpaper_scheme"},
           wallpaperSchemeSelect(cfg.theme.wallpaperScheme), "wallpaper palette generator scheme material you m3 colors"
-      ));
-    } else if (cfg.theme.source == PaletteSource::Community) {
-      SettingControl communityPaletteControl =
-          TextSetting{.value = cfg.theme.communityPalette, .placeholder = "Oxocarbon", .browseFileExtensions = {}};
-      if (!env.communityPalettes.empty()) {
-        communityPaletteControl = SearchPickerSetting{
-            .options = env.communityPalettes,
-            .selectedValue = cfg.theme.communityPalette,
-            .placeholder = tr("settings.schema.appearance.community-palette.search-placeholder"),
-            .emptyText = tr("ui.controls.search-picker.empty"),
-            .preferredHeight = 240.0F,
-        };
-      }
-      entries.push_back(makeEntry(
-          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.community-palette.label"),
-          tr("settings.schema.appearance.community-palette.description"), {"theme", "community_palette"},
-          std::move(communityPaletteControl), "community palette colors"
       ));
     } else if (cfg.theme.source == PaletteSource::Custom) {
       SettingControl customPaletteControl =
@@ -381,14 +361,11 @@ namespace settings {
   void registry_detail::add_templates_settings(RegistryContext& ctx) {
     using i18n::tr;
     const auto& cfg = ctx.cfg;
-    const auto& env = ctx.env;
     auto& entries = ctx.entries;
 
     // Templates
     const auto builtInTemplatesOn =
         SettingVisibility{[](const Config& c) { return c.theme.templates.enableBuiltinTemplates; }};
-    const auto communityTemplatesOn =
-        SettingVisibility{[](const Config& c) { return c.theme.templates.enableCommunityTemplates; }};
     auto templateRows = generateSchemaEntries(
         noctalia::config::schema::themeTemplatesSchema(), cfg.theme.templates, {"theme", "templates"}
     );
@@ -405,23 +382,6 @@ namespace settings {
           "theme templates apps foot walker gtk"
       );
       e.visibleWhen = builtInTemplatesOn;
-      entries.push_back(std::move(e));
-    }
-    appendRow(entries, templateRows, "enable_community_templates");
-    {
-      const std::size_t enabledCount = cfg.theme.templates.communityIds.size();
-      auto e = makeEntry(
-          SettingsSection::Appearance, "templates", tr("settings.schema.templates.community-ids.label"),
-          enabledCount == 0 ? tr("settings.schema.templates.community-ids.description")
-                            : tr("settings.templates.store.enabled-count", "count", std::to_string(enabledCount)),
-          {},
-          ButtonSetting{
-              .label = tr("settings.templates.store.browse"),
-              .glyph = "apps",
-          },
-          "theme templates community apps discord fuzzel vscode walker store browse"
-      );
-      e.visibleWhen = communityTemplatesOn;
       entries.push_back(std::move(e));
     }
   }

@@ -515,7 +515,6 @@ _noctalia_sources = files(
   'src/scripting/plugin_ipc.cpp',
   'src/scripting/plugin_lint.cpp',
   'src/scripting/plugin_manager.cpp',
-  'src/scripting/plugin_recommendations.cpp',
   'src/scripting/plugin_manifest.cpp',
   'src/scripting/plugin_permissions.cpp',
   'src/scripting/plugin_layer_config.cpp',
@@ -700,8 +699,6 @@ _noctalia_sources = files(
   'src/shell/settings/path_browse.cpp',
   'src/shell/settings/plugin_store_content.cpp',
   'src/shell/settings/plugin_store_tile.cpp',
-  'src/shell/settings/template_store_content.cpp',
-  'src/shell/settings/template_store_tile.cpp',
   'src/shell/settings/settings_control_factory.cpp',
   'src/shell/settings/settings_content_idle_behavior.cpp',
   'src/shell/settings/settings_content_notification_filter.cpp',
@@ -956,8 +953,6 @@ _noctalia_sources = files(
   'src/theme/custom_schemes.cpp',
   'src/theme/builtin_palettes.cpp',
   'src/theme/builtin_templates.cpp',
-  'src/theme/community_palettes.cpp',
-  'src/theme/community_templates.cpp',
   'src/theme/custom_palettes.cpp',
   'src/theme/dev_tokens.cpp',
   'src/theme/fixed_palette.cpp',
@@ -1322,7 +1317,6 @@ if build_tests
     'plugin_lifecycle',
     'plugin_manifest',
     'plugin_process',
-    'plugin_recommendations',
     'plugin_source_locks',
     'plugin_source_paths',
     'pixel_stream_client',
@@ -1401,17 +1395,6 @@ if build_tests
       ]
     endif
     test(test_name, test_exe, args: test_args, depends: test_name == 'math_provider' ? [noctalia_calc_module] : [])
-    if test_name == 'plugin_recommendations' and git_program.found()
-      recommendations_python = find_program('python3', required: false)
-      recommendations_openssl = find_program('openssl', required: false)
-      if recommendations_python.found() and recommendations_openssl.found()
-        test('plugin_recommendations_http', recommendations_python,
-          args: [files('tests/plugin_recommendations_http_test.py'), test_exe],
-          workdir: meson.project_source_root(),
-          timeout: 90,
-        )
-      endif
-    endif
   endforeach
 
   lock_helper_test_exe = executable('lock_helper_test',

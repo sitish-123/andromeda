@@ -142,23 +142,6 @@ namespace settings {
         })
     );
     bottomRow->addChild(
-        ui::label({
-            .out = &m_recommendationsLabel,
-            .fontSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::Label2),
-            .visible = false,
-        })
-    );
-    bottomRow->addChild(
-        ui::glyph({
-            .out = &m_recommendationsGlyph,
-            .glyph = "thumb-up",
-            .glyphSize = Style::fontSizeMini * scale,
-            .color = colorSpecFromRole(ColorRole::Label2),
-            .visible = false,
-        })
-    );
-    bottomRow->addChild(
         ui::glyph({
             .out = &m_addedGlyph,
             .glyph = "check",
@@ -172,8 +155,7 @@ namespace settings {
 
   void PluginStoreTile::bind(
       const scripting::CatalogEntry& entry, std::string_view source, bool onDisk, bool selected, bool hovered,
-      const std::string& thumbnailPath, Renderer* renderer, AsyncTextureCache* textureCache,
-      std::optional<std::uint64_t> recommendations, bool recommended, bool listed
+      const std::string& thumbnailPath, Renderer* renderer, AsyncTextureCache* textureCache, bool listed
   ) {
     // Thumbnail vs icon fallback.
     const bool hasThumbnail = !thumbnailPath.empty() && renderer != nullptr;
@@ -242,15 +224,6 @@ namespace settings {
     m_descLabel->setText(entry.description);
     m_authorLabel->setText(entry.author.empty() ? std::string() : entry.author);
 
-    const auto recommendationColor = colorSpecFromRole(recommended ? ColorRole::AccentText : ColorRole::Label2);
-    m_recommendationsLabel->setColor(recommendationColor);
-    m_recommendationsGlyph->setColor(recommendationColor);
-    m_recommendationsGlyph->setGlyph(recommended ? "thumb-up-filled" : "thumb-up");
-    m_recommendationsLabel->setVisible(recommendations.has_value());
-    m_recommendationsLabel->setParticipatesInLayout(recommendations.has_value());
-    m_recommendationsLabel->setText(recommendations.has_value() ? std::to_string(*recommendations) : std::string());
-    m_recommendationsGlyph->setVisible(recommendations.has_value() || recommended);
-    m_recommendationsGlyph->setParticipatesInLayout(recommendations.has_value() || recommended);
     m_addedGlyph->setVisible(onDisk);
     m_addedGlyph->setParticipatesInLayout(onDisk);
 

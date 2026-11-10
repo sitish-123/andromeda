@@ -2,7 +2,6 @@
 
 #include "config/config_types.h"
 #include "scripting/plugin_catalog.h"
-#include "scripting/plugin_recommendations.h"
 
 #include <cstddef>
 #include <functional>
@@ -36,8 +35,6 @@ namespace settings {
     UpdatedAtDesc,
     AddedAtAsc,
     AddedAtDesc,
-    MostRecommended,
-    Trending,
   };
 
   struct StoreCatalogEntry {
@@ -62,8 +59,7 @@ namespace settings {
   public:
     PluginStoreContent(
         std::vector<StoreCatalogEntry> catalog, ConfigService* config, PluginStoreCallbacks callbacks,
-        scripting::PluginFileCache* fileCache, ScrollViewState* scrollState,
-        scripting::PluginRecommendations* recommendations
+        scripting::PluginFileCache* fileCache, ScrollViewState* scrollState
     );
     ~PluginStoreContent();
 
@@ -72,9 +68,6 @@ namespace settings {
 
     void populateBody(Flex& body, Renderer& renderer, AsyncTextureCache* textureCache);
 
-    void onRecommendationsChanged();
-    [[nodiscard]] std::optional<std::uint64_t> recommendationCount(const StoreCatalogEntry& entry) const;
-    [[nodiscard]] bool isRecommended(const StoreCatalogEntry& entry) const;
 
     void onFileReady(const std::string& pluginId, const std::string& filename, const std::string& path);
 
@@ -119,9 +112,7 @@ namespace settings {
     [[nodiscard]] bool activateSelection();
     [[nodiscard]] bool installDetailIfAvailable();
 
-    [[nodiscard]] std::optional<std::string> recommendationKey(const StoreCatalogEntry& entry) const;
     std::vector<StoreCatalogEntry> m_catalog;
-    scripting::PluginRecommendations* m_recommendations = nullptr;
     ConfigService* m_config = nullptr;
     std::vector<std::size_t> m_filteredIndices;
     std::vector<std::string> m_sources;

@@ -18,9 +18,6 @@ namespace noctalia::cli {
   inline constexpr std::array kMsgColorSchemeSetWallpaperPositionals{
       Positional{"name", {}, theme::kSchemeNames, true, false, false},
   };
-  inline constexpr std::array kMsgColorSchemeSetCommunityPositionals{
-      Positional{"name", {}, {}, true, false, false},
-  };
   inline constexpr std::array kMsgColorSchemeSetCustomPositionals{
       Positional{"name", {}, {}, true, false, false},
   };
@@ -29,7 +26,6 @@ namespace noctalia::cli {
       Command{
           "wallpaper", "Use a wallpaper generator scheme", {}, {}, {}, kMsgColorSchemeSetWallpaperPositionals, {}, false
       },
-      Command{"community", "Use a community palette", {}, {}, {}, kMsgColorSchemeSetCommunityPositionals, {}, false},
       Command{"custom", "Use a custom palette", {}, {}, {}, kMsgColorSchemeSetCustomPositionals, {}, false},
   };
 
@@ -520,7 +516,7 @@ namespace noctalia::cli {
     };
     inline constexpr Command colorSchemeGet{
         "color-scheme-get",
-        "Print active color scheme: <source> <name> (source is builtin, wallpaper, community, or custom)",
+        "Print active color scheme: <source> <name> (source is builtin, wallpaper, or custom)",
         {},
         {},
         {},
@@ -530,8 +526,8 @@ namespace noctalia::cli {
     };
     inline constexpr Command colorSchemeSet{
         "color-scheme-set",
-        "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, "
-        "or custom scheme folder name)",
+        "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, or custom "
+        "scheme folder name)",
         {},
         {},
         {},

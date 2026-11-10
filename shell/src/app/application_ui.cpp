@@ -233,7 +233,6 @@ void Application::initUiRenderSurfacesAndSettings() {
   );
   m_settingsWindow.setFileWatcher(&m_fileWatcher);
   m_settingsWindow.setPluginManager(&m_pluginManager);
-  m_settingsWindow.setPluginRecommendations(&m_pluginRecommendations);
   m_settingsWindow.setIpcService(&m_ipcService);
   m_settingsWindow.setActivity(
       [this]() -> std::optional<std::size_t> {

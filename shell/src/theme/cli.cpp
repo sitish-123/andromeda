@@ -7,7 +7,6 @@
 #include "core/toml.h" // IWYU pragma: keep
 #include "theme/builtin_templates.h"
 #include "theme/color.h"
-#include "theme/community_templates.h"
 #include "theme/fixed_palette.h"
 #include "theme/image_loader.h"
 #include "theme/json_output.h"
@@ -62,23 +61,6 @@ namespace noctalia::theme {
                 .id = builtin.id,
                 .category = builtin.category,
                 .name = templateNameOrId(builtin.id, builtin.name),
-            }
-        );
-      }
-      sortTemplateList(out);
-      return out;
-    }
-
-    std::vector<TemplateListEntry> loadCommunityTemplateList() {
-      std::vector<TemplateListEntry> out;
-      const auto community = CommunityTemplateService::availableTemplates();
-      out.reserve(community.size());
-      for (const auto& entry : community) {
-        out.push_back(
-            TemplateListEntry{
-                .id = entry.id,
-                .category = entry.category,
-                .name = templateNameOrId(entry.id, entry.displayName),
             }
         );
       }
@@ -197,7 +179,6 @@ namespace noctalia::theme {
         return 1;
       }
 
-      const auto community = loadCommunityTemplateList();
       std::vector<TemplateListEntry> userTemplates;
       std::string explicitConfigTitle = "Template config";
       if (configPath != nullptr) {
@@ -217,7 +198,6 @@ namespace noctalia::theme {
 
       bool firstGroup = true;
       printTemplateListGroup("Built-in templates", builtins, firstGroup);
-      printTemplateListGroup("Community templates (cached)", community, firstGroup);
       printTemplateListGroup(
           configPath != nullptr ? explicitConfigTitle.c_str() : "User templates", userTemplates, firstGroup
       );

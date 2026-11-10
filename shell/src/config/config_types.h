@@ -1722,14 +1722,12 @@ std::string_view hookKindKey(HookKind kind);
 enum class PaletteSource : std::uint8_t {
   Builtin = 0,
   Wallpaper = 1,
-  Community = 2,
   Custom = 3,
 };
 
 constexpr EnumOption<PaletteSource> kPaletteSources[] = {
     {PaletteSource::Builtin, "builtin", "settings.options.theme.source.built-in"},
     {PaletteSource::Wallpaper, "wallpaper", "settings.options.theme.source.wallpaper"},
-    {PaletteSource::Community, "community", "settings.options.theme.source.community"},
     {PaletteSource::Custom, "custom", "settings.options.theme.source.custom"},
 };
 
@@ -1766,7 +1764,6 @@ struct WallpaperFavorite {
   std::optional<ThemeMode> themeMode;
   std::optional<PaletteSource> paletteSource;
   std::string builtinPalette;
-  std::string communityPalette;
   std::string customPalette;
   std::string wallpaperScheme;
 
@@ -1832,8 +1829,6 @@ struct ThemeConfig {
   struct TemplatesConfig {
     bool enableBuiltinTemplates = true;
     std::vector<std::string> builtinIds;
-    bool enableCommunityTemplates = true;
-    std::vector<std::string> communityIds;
     std::vector<TemplateColorConfig> customColors;
     std::vector<UserTemplateConfig> userTemplates;
 
@@ -1842,7 +1837,6 @@ struct ThemeConfig {
 
   PaletteSource source = PaletteSource::Builtin;
   std::string builtinPalette = "Andromeda";
-  std::string communityPalette = "Oxocarbon";
   std::string customPalette;
   std::string wallpaperScheme = "m3-content";
   ThemeMode mode = ThemeMode::Light; // the shell is the system scheme; another client changing it is adopted

@@ -1675,16 +1675,16 @@ namespace noctalia::config::schema {
               }
           ),
           field(&ThemeConfig::TemplatesConfig::builtinIds, "builtin_ids"),
-          field(
-              &ThemeConfig::TemplatesConfig::enableCommunityTemplates, "enable_community_templates",
-              RowSpec{
-                  .section = "appearance",
-                  .group = "templates",
-                  .label = "templates.enable-community-templates",
-                  .tags = "theme templates community",
-              }
+          // Retired keys (no upstream server calls): read and dropped so old configs load without a warning.
+          custom<ThemeConfig::TemplatesConfig>(
+              "enable_community_templates",
+              [](const toml::table&, ThemeConfig::TemplatesConfig&, std::string_view, Diagnostics&) {},
+              [](toml::table&, const ThemeConfig::TemplatesConfig&) {}
           ),
-          field(&ThemeConfig::TemplatesConfig::communityIds, "community_ids"),
+          custom<ThemeConfig::TemplatesConfig>(
+              "community_ids", [](const toml::table&, ThemeConfig::TemplatesConfig&, std::string_view, Diagnostics&) {},
+              [](toml::table&, const ThemeConfig::TemplatesConfig&) {}
+          ),
           customColorsField(),
           namedMap<ThemeConfig::TemplatesConfig, UserTemplate>(
               &ThemeConfig::TemplatesConfig::userTemplates, "user", userTemplateSchema(),
@@ -1742,7 +1742,11 @@ namespace noctalia::config::schema {
             }
         ),
         field(&ThemeConfig::builtinPalette, "builtin"),
-        field(&ThemeConfig::communityPalette, "community_palette"),
+        // Retired key (no upstream server calls): read and dropped so old configs load without a warning.
+        custom<ThemeConfig>(
+            "community_palette", [](const toml::table&, ThemeConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const ThemeConfig&) {}
+        ),
         field(&ThemeConfig::customPalette, "custom_palette"),
         field(&ThemeConfig::wallpaperScheme, "wallpaper_scheme"),
         enumField(

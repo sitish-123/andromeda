@@ -75,26 +75,6 @@ For Labwc, the template also installs the theme in `${XDG_DATA_HOME:-$HOME/.loca
 
 If an earlier Noctalia version created a primary config containing only its theme integration, inspect that file before moving it aside manually. Moving it aside lets the compositor discover its previous config again. Preserve any settings you added, then add the theme integration to the config you intend to use. Noctalia does not delete primary configs automatically.
 
-## Community Templates
-
-Community templates are fetched from `https://api.noctalia.dev/templates` and cached locally:
-
-```toml
-[theme.templates]
-enable_community_templates = true
-community_ids              = []        # opt-in; fetched from api.noctalia.dev/templates
-```
-
-`community_ids` selects which community templates run. In **Settings → Appearance → Style → App Theming**, enable community templates and use **Browse Templates** to search and filter the catalog (by category or enabled-only). Metadata and files are stored in `~/.local/state/noctalia/community-templates/` (honoring `NOCTALIA_STATE_HOME`, then `XDG_STATE_HOME`).
-
-Setup instructions for each community template live in its `README.md` in the [community-templates repository](https://github.com/noctalia-dev/community-templates). Template tiles show an external-link button with the **Readme** tooltip; click it to open those instructions in your default browser without changing the template's enabled state. With a template selected in the catalog grid, **F1** opens its README.
-
-Cached community template files are treated as editable local copies. Sync updates files only while their content still matches the last Noctalia-written md5; local edits are preserved until you delete the edited cached file.
-
-Disabling a community template, or disabling `enable_community_templates`, runs the `undo_hook` of each entry in its cached `template.toml`, so the template can remove an include or theme selection its `post_hook` added. A failed undo hook is retried on the next theme application. Templates without an `undo_hook` leave their files in place.
-
-Community template discovery and updates require network access unless the selected template is already cached. [`shell.offline_mode`](/noctalia/configuration/shell/#shell-settings) prevents outgoing HTTP requests, including community template requests.
-
 ### Firefox
 
 Firefox is themed through the [Pywalfox](https://addons.mozilla.org/en-US/firefox/addon/pywalfox/) browser extension and the **`pywalfox`** community template. The template writes a Pywal-compatible `colors.json` and requests the built-in `firefox-theme` post-action. Noctalia itself acts as the extension's native-messaging host, so no `python-pywalfox` package or separate daemon is needed.
