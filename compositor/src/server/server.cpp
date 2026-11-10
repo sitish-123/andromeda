@@ -1644,7 +1644,7 @@ namespace andromeda {
           wl_display_get_event_loop(m_display), [this] { handleConfigReload(reloadConfig()); },
           [this] {
             for (const auto& output : m_outputs) {
-              (void)output->applyOutputState();
+              output->applyRefreshCap();
             }
           }
       );

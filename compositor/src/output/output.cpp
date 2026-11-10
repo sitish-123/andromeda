@@ -673,7 +673,17 @@ namespace andromeda {
     return mask;
   }
 
+  bool Output::configuredPowered() const {
+    return m_mirrorSource != nullptr ? !m_mirrorSource->m_dpmsOff : desktopEnabled() && !m_dpmsOff;
+  }
+
   bool Output::applyConfiguredState(bool stageGeometry) {
+    // wlroots fails a nonblocking commit while a page flip is pending, and the live-mode fallback would then force a
+    // modeset (a black blink). An apply that keeps a lit output lit runs at the next frame event instead.
+    if (m_mirrorSource == nullptr && m_output->enabled && m_output->frame_pending && configuredPowered()) {
+      m_deferredConfiguredApply = stageGeometry || m_deferredConfiguredApply.value_or(false);
+      return true;
+    }
     // With libliftoff, wlroots silently rejects a commit whose visible cursor layer did not get a plane, which
     // happens on modesets (eDP-1, xe): the cursor is drawn in software until the next frame.
     wlr_output_lock_software_cursors(m_output, true);
@@ -699,7 +709,7 @@ namespace andromeda {
       return false;
     }
     const std::optional<double> configuredScale = rule != nullptr ? rule->scale : std::nullopt;
-    const bool enabled = m_mirrorSource != nullptr ? !m_mirrorSource->m_dpmsOff : desktopEnabled() && !m_dpmsOff;
+    const bool enabled = configuredPowered();
     wlr_output_state state{};
     wlr_output_state_init(&state);
     if (stageGeometry && outputEnableNeedsStaging(*m_output, enabled)) {
@@ -849,6 +859,7 @@ namespace andromeda {
 
     // Run the format sequence, retrying with the preferred mode on failure.
     bool anyCommitted = false;
+    bool commitBusy = false;
     bool usedModeFallback = false;
     std::string_view pendingHdrFail = earlyHdrFail;
     std::string_view pendingSdr10Fail;
@@ -920,7 +931,10 @@ namespace andromeda {
             },
             [&](const wlr_output_state& pending) {
               SceneCommit observation(*this, pending);
-              return wlr_output_commit_state(m_output, &pending);
+              errno = 0;
+              const bool ok = wlr_output_commit_state(m_output, &pending);
+              commitBusy = !ok && errno == EBUSY;
+              return ok;
             }
         );
         if (secureMask != nullptr) {
@@ -954,7 +968,8 @@ namespace andromeda {
         case RenderedStateCommitResult::Committed:
           return FormatCommitResult::Committed;
         case RenderedStateCommitResult::CommitFailed:
-          return FormatCommitResult::Rejected;
+          // A busy plane is no rejection of the state: retrying it as another mode would force a modeset.
+          return commitBusy ? FormatCommitResult::Retry : FormatCommitResult::Rejected;
         case RenderedStateCommitResult::BuildFailed:
         case RenderedStateCommitResult::MissingBuffer:
           return FormatCommitResult::Retry;
@@ -1050,6 +1065,11 @@ namespace andromeda {
       updateSceneSdrWhite();
       markBlurBackgroundDirty();
       m_server->updateColorPreferences();
+      if (commitBusy && m_mirrorSource == nullptr) {
+        m_deferredConfiguredApply = stageGeometry;
+        armFrameRetry(kFrameRetryDelayMs);
+        return true;
+      }
       kLog.error("output '{}': failed to commit configured state", m_output->name);
       // A rejected modeset leaves no frame scheduled; without one the cursor plane stays put until a client damages.
       if (enabled) {
@@ -1253,6 +1273,18 @@ namespace andromeda {
       return wlr_output_layout_add_auto(layout, m_output);
     }
     return wlr_output_layout_add(layout, m_output, box.x, box.y);
+  }
+
+  void Output::applyRefreshCap() {
+    // Same pick as commitConfiguredState: a configured mode or a nested output ignores the cap.
+    const OutputRule* rule = findOutputRule(config(), identity());
+    if (!m_output->enabled || (rule != nullptr && rule->mode) || wlr_output_is_wl(m_output)) {
+      return;
+    }
+    const wlr_output_mode* mode = fastestPreferredMode(m_output, static_cast<int>(qos::registry().refreshCap * 1000));
+    if (mode != nullptr && !liveModeMatches(*m_output, mode)) {
+      (void)applyOutputState();
+    }
   }
 
   bool Output::applyOutputState() {
@@ -2373,13 +2405,15 @@ namespace andromeda {
         m_pointerSceneSerial = serial;
       }
     }
-    const bool hdrTransitionPending = m_hdrTransition.pending(m_output->enabled, hdrRequested());
+    const std::optional<bool> deferredApply = std::exchange(m_deferredConfiguredApply, std::nullopt);
+    const bool hdrTransitionPending =
+        deferredApply.has_value() || m_hdrTransition.pending(m_output->enabled, hdrRequested());
     if (hdrTransitionPending) {
       // Run at the frame boundary, after the previous page flip completed. The
       // configured-state commit builds the scene into the same state as the
       // image-description and render-format switch.
       m_inFrame = true;
-      const bool committed = applyConfiguredState(false);
+      const bool committed = applyConfiguredState(deferredApply.value_or(false));
       m_inFrame = false;
       commitFailed = !committed;
       if (committed) {

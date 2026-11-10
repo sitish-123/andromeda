@@ -114,6 +114,8 @@ namespace andromeda {
     [[nodiscard]] unsigned effectEligible() const;
     void onGammaChanged(wlr_gamma_control_v1* control);
     [[nodiscard]] bool applyOutputState();
+    // Re-applies the output state only when the refresh cap changes the automatic mode.
+    void applyRefreshCap();
     // Adopt a successfully committed wlr-output-management state in two
     // phases. Logical state changes first so callbacks cannot revive a
     // disabled output, then layout membership changes after transient UI has
@@ -253,6 +255,7 @@ namespace andromeda {
     // the live geometry and carry a freshly rendered scene buffer.
     [[nodiscard]] bool applyConfiguredState(bool stageGeometry = true);
     [[nodiscard]] bool commitConfiguredState(bool stageGeometry);
+    [[nodiscard]] bool configuredPowered() const;
     [[nodiscard]] bool autoHdrEligible(const View* view) const;
     [[nodiscard]] View* findAutoHdrCandidate() const;
     [[nodiscard]] bool configuredVrrEnabled() const;
@@ -306,6 +309,8 @@ namespace andromeda {
     bool m_inFrame = false;
     bool m_handlingFrame = false;
     bool m_hasDeferredMode = false;
+    // stageGeometry of a configured-state apply that waits for the pending page flip.
+    std::optional<bool> m_deferredConfiguredApply;
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
     bool m_animationRenderLocked = false;
