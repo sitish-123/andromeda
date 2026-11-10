@@ -3,6 +3,7 @@
 
 #include "core/log.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <condition_variable>
@@ -11,6 +12,7 @@
 #include <libsecret/secret.h>
 #include <limits>
 #include <memory>
+#include <sdbus-c++/sdbus-c++.h>
 #include <string_view>
 #include <sys/eventfd.h>
 #include <thread>
@@ -206,54 +208,40 @@ namespace security {
     }
 
     // libsecret logs a GLib critical (unref of a null object) when no Secret Service is on the bus. Ask the bus first
-    // and report the same "service unknown" error a missing provider gives.
-    bool secretServiceOnBus(GCancellable* cancellable) {
-      GError* rawError = nullptr;
-      GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SESSION, cancellable, &rawError);
-      ErrorPtr busError(rawError, &g_error_free);
-      if (bus == nullptr) {
+    // and report the same "service unknown" error a missing provider gives. The probe uses sd-bus: GDBus would start
+    // the gdbus and gmain threads for good even when no provider exists.
+    bool secretServiceOnBus() {
+      std::unique_ptr<sdbus::IProxy> bus;
+      try {
+        bus = sdbus::createProxy(
+            sdbus::createSessionBusConnection(), sdbus::ServiceName{"org.freedesktop.DBus"},
+            sdbus::ObjectPath{"/org/freedesktop/DBus"}, sdbus::dont_run_event_loop_thread
+        );
+      } catch (const sdbus::Error&) {
         return true;
       }
-      const auto busGuard = std::unique_ptr<GDBusConnection, void (*)(GDBusConnection*)>(bus, [](GDBusConnection* b) {
-        g_object_unref(b);
-      });
-      const auto call = [&](const char* method, GVariant* params, const char* replyType) -> GVariant* {
-        GError* callError = nullptr;
-        GVariant* reply = g_dbus_connection_call_sync(
-            bus, "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", method, params,
-            G_VARIANT_TYPE(replyType), G_DBUS_CALL_FLAGS_NONE, -1, cancellable, &callError
-        );
-        if (callError != nullptr) {
-          g_error_free(callError);
+      try {
+        bool owned = false;
+        bus->callMethod("NameHasOwner")
+            .onInterface("org.freedesktop.DBus")
+            .withArguments(std::string("org.freedesktop.secrets"))
+            .storeResultsTo(owned);
+        if (owned) {
+          return true;
         }
-        return reply;
-      };
-      bool found = false;
-      if (GVariant* reply = call("NameHasOwner", g_variant_new("(s)", "org.freedesktop.secrets"), "(b)")) {
-        gboolean owned = FALSE;
-        g_variant_get(reply, "(b)", &owned);
-        g_variant_unref(reply);
-        found = owned != FALSE;
+      } catch (const sdbus::Error&) {
       }
-      if (!found) {
-        if (GVariant* reply = call("ListActivatableNames", nullptr, "(as)")) {
-          GVariantIter* names = nullptr;
-          g_variant_get(reply, "(as)", &names);
-          const gchar* name = nullptr;
-          while (!found && g_variant_iter_next(names, "&s", &name)) {
-            found = std::string_view(name) == "org.freedesktop.secrets";
-          }
-          g_variant_iter_free(names);
-          g_variant_unref(reply);
-        } else {
-          found = true;
-        }
+      try {
+        std::vector<std::string> names;
+        bus->callMethod("ListActivatableNames").onInterface("org.freedesktop.DBus").storeResultsTo(names);
+        return std::ranges::find(names, "org.freedesktop.secrets") != names.end();
+      } catch (const sdbus::Error&) {
+        return true;
       }
-      return found;
     }
 
     SecretService* getSecretService(SecretServiceFlags flags, GCancellable* cancellable, GError** error) {
-      if (!secretServiceOnBus(cancellable)) {
+      if (!secretServiceOnBus()) {
         g_set_error_literal(error, G_DBUS_ERROR, G_DBUS_ERROR_SERVICE_UNKNOWN, "no Secret Service on the session bus");
         return nullptr;
       }
