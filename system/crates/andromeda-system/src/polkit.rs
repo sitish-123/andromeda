@@ -17,7 +17,7 @@ pub enum Auth {
 
 /// Test buses have no polkit. `ANDROMEDA_SYSTEM_TEST=1` skips the check, and only on a bus that
 /// `DBUS_SYSTEM_BUS_ADDRESS` names (the systemd unit sets neither).
-fn test_bus() -> bool {
+pub fn test_bus() -> bool {
     std::env::var_os("DBUS_SYSTEM_BUS_ADDRESS").is_some()
         && std::env::var("ANDROMEDA_SYSTEM_TEST").as_deref() == Ok("1")
 }

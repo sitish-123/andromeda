@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         .serve_at(manager::PATH, manager::Manager::default())
         .serve_at(power::PATH, power::Power::default())
         .serve_at(memory::PATH, memory::Memory::default())
-        .serve_at(network::PATH, network::Network::default())
+        .serve_at(network::PATH, network::Network::new(state.join("hotspot-interfaces")))
         .serve_at(login::PATH, login::Login)
         .serve_at(storage::PATH, storage::Storage::default())
         .serve_at(thermal::PATH, thermal::Thermal::default())
