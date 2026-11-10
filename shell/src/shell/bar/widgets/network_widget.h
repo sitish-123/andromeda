@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-class ExternalIpService;
 class Glyph;
 class Label;
 class ModemManagerService;
@@ -30,7 +29,7 @@ public:
   };
 
   NetworkWidget(
-      INetworkService* network, ExternalIpService* externalIp, SystemMonitorService* monitor,
+      INetworkService* network, SystemMonitorService* monitor,
       ModemManagerService* modem, wl_output* output, Options options
   );
 
@@ -43,7 +42,6 @@ private:
   [[nodiscard]] std::vector<TooltipRow> buildTooltipRows() const;
 
   INetworkService* m_network = nullptr;
-  ExternalIpService* m_externalIp = nullptr;
   SystemMonitorService* m_monitor = nullptr;
   ModemManagerService* m_modem = nullptr;
   bool m_showLabel = true;

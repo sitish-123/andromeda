@@ -21,7 +21,6 @@ class LinkService;
 class BrightnessService;
 class ClipboardService;
 class EasyEffectsService;
-class ExternalIpService;
 class RenderContext;
 class ScreenshotService;
 class INetworkService;
@@ -72,7 +71,6 @@ private:
   PowerProfilesService* m_powerProfiles;
   INetworkService* m_network;
   ModemManagerService* m_modem;
-  ExternalIpService* m_externalIp;
   IdleInhibitor* m_idleInhibitor;
   MprisService* m_mpris;
   PipeWireSpectrum* m_audioSpectrum;

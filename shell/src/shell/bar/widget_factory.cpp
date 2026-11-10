@@ -107,7 +107,7 @@ WidgetFactory::WidgetFactory(const BarServices& services)
       m_notifications(services.notifications), m_tray(services.tray), m_audio(services.audio),
       m_easyEffects(services.easyEffects), m_upower(services.upower), m_sysmon(services.sysmon),
       m_powerProfiles(services.powerProfiles), m_network(services.network), m_modem(services.modem),
-      m_externalIp(services.externalIp), m_idleInhibitor(services.idleInhibitor), m_mpris(services.mpris),
+      m_idleInhibitor(services.idleInhibitor), m_mpris(services.mpris),
       m_audioSpectrum(services.audioSpectrum), m_httpClient(services.httpClient), m_weather(services.weather),
       m_nightLight(services.nightLight), m_themeService(services.theme), m_bluetooth(services.bluetooth),
       m_link(services.link), m_brightness(services.brightness), m_lockKeys(services.lockKeys),
@@ -171,9 +171,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
             options.minWidth = 0;
             options.appName = true;
             options.iconGap = Tokens::componentIslandGap * context.contentScale;
-            // The island lane has no spacer before the title: the inset is that spacer plus its flex gap, so it
-            // leaves and returns with the title on one spring.
-            options.leadingInset = Tokens::componentIslandGroupGap * context.contentScale + Tokens::componentIslandGap;
             return createWidget<ActiveWindowWidget>(context.contentScale, f.m_configService, f.m_platform, options);
           }},
       // Desktop Layouts, macOS: the focused app's name, text only (board desktop-layouts.html section 7).
@@ -199,10 +196,11 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 context.config, context.settingContext,
                 BatteryWidgetDefinitionContext{.batteryConfig = &f.m_config.battery, .upower = f.m_upower}
             );
-            // The island shows the percent as text unless display_mode asks for the battery symbol.
-            if (options.displayMode != BatteryDisplayMode::Graphic) {
-              options.displayMode = BatteryDisplayMode::None;
+            // The island draws the level symbol; display_mode "none" leaves the percent as text only.
+            if (options.displayMode == BatteryDisplayMode::None) {
               options.showLabel = true;
+            } else {
+              options.displayMode = BatteryDisplayMode::Graphic;
             }
             options.islandStyle = true;
             return createWidget<BatteryWidget>(context.contentScale, f.m_upower, options);
@@ -217,7 +215,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
             auto options = networkWidgetDefinition().resolve(context.config, context.settingContext);
             options.showLabel = false;
             return createWidget<NetworkWidget>(
-                context.contentScale, f.m_network, f.m_externalIp, f.m_sysmon, f.m_modem, context.output, options
+                context.contentScale, f.m_network, f.m_sysmon, f.m_modem, context.output, options
             );
           }},
       {"island_volume", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
@@ -340,7 +338,7 @@ std::unique_ptr<Widget> WidgetFactory::create(
           }},
       {"network", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<NetworkWidget>(
-                context.contentScale, f.m_network, f.m_externalIp, f.m_sysmon, f.m_modem, context.output,
+                context.contentScale, f.m_network, f.m_sysmon, f.m_modem, context.output,
                 networkWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},

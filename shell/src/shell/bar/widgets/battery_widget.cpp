@@ -232,20 +232,29 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
     return;
   }
 
-  if (m_islandStyle && !m_isVertical) {
-    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height, centered in a 22 px box; units are
-    // symbol units times s.
+  if (m_islandStyle) {
+    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height in a 22 px box, its body centred (R9);
+    // units are symbol units times s. Horizontal bars put the percent before the symbol, vertical bars under it.
     const float s = Tokens::componentIslandIcon / 24.0F * m_contentScale;
     const float boxW = 22.0F * m_contentScale;
     const float boxH = 24.0F * s;
     float labelW = 0.0F;
+    float labelH = 0.0F;
     if (m_overlayLabel != nullptr && m_overlayLabel->visible()) {
-      m_overlayLabel->setFontSize(Style::fontSizeBody * fontScale());
+      m_overlayLabel->setFontSize((m_isVertical ? Style::fontSizeCaption : Style::fontSizeBody) * fontScale());
       m_overlayLabel->measure(renderer);
-      m_overlayLabel->setPosition(0.0F, std::round((boxH - m_overlayLabel->height()) * 0.5F));
-      labelW = m_overlayLabel->width() + Tokens::componentIslandGap * m_contentScale;
+      labelW = m_overlayLabel->width();
+      labelH = m_overlayLabel->height();
     }
-    const float offX = labelW + (boxW - 26.0F * s) * 0.5F;
+    const float rootW = m_isVertical ? std::max(boxW, labelW) : labelW + (labelW > 0.0F ? Tokens::componentIslandGap * m_contentScale : 0.0F) + boxW;
+    const float boxX = m_isVertical ? std::round((rootW - boxW) * 0.5F) : rootW - boxW;
+    if (labelW > 0.0F) {
+      m_overlayLabel->setPosition(
+          m_isVertical ? std::round((rootW - labelW) * 0.5F) : 0.0F,
+          m_isVertical ? boxH : std::round((boxH - labelH) * 0.5F)
+      );
+    }
+    const float offX = boxX + boxW * 0.5F - 11.0F * s;
     if (m_overlayGlyph != nullptr && m_overlayGlyph->visible()) {
       m_overlayGlyph->setGlyphSize(13.8F * s);
       m_overlayGlyph->measure(renderer);
@@ -261,7 +270,7 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
     m_terminalNub->setSize(1.8F * s, 5.8F * s);
     m_fillRect->setRadius(1.5F * s);
     updateFillGeometry();
-    rootNode->setSize(labelW + boxW, boxH);
+    rootNode->setSize(rootW, m_isVertical && labelW > 0.0F ? boxH + labelH : boxH);
     return;
   }
 
@@ -392,9 +401,9 @@ void BatteryWidget::updateFillGeometry() {
 
   const float fraction = std::clamp(m_animatedPct / 100.0F, 0.0F, 1.0F);
 
-  if (m_islandStyle && !m_isVertical) {
+  if (m_islandStyle) {
     const float s = m_bodyBg->height() / 13.8F;
-    m_fillRect->setPosition(m_bodyBg->x() + 3.4F * s, 8.5F * s);
+    m_fillRect->setPosition(m_bodyBg->x() + 3.4F * s, m_bodyBg->y() + 3.4F * s);
     m_fillRect->setSize(15.0F * s * fraction, 7.0F * s);
     return;
   }
@@ -422,7 +431,7 @@ void BatteryWidget::syncPalette() {
       && !batteryStatePlugged(m_lastState).value_or(false);
   const ColorSpec foreground = isWarning ? m_warningColor : normalFg;
 
-  if (m_islandStyle && !m_isVertical) {
+  if (m_islandStyle) {
     m_bodyBg->setFill(Color{0.0F, 0.0F, 0.0F, 0.0F});
     m_bodyBg->setBorder(foreground, 1.8F * Tokens::componentIslandIcon / 24.0F * m_contentScale);
     m_fillRect->setFill(foreground);
@@ -540,15 +549,15 @@ void BatteryWidget::syncState(Renderer& renderer) {
       m_overlayGlyph->measure(renderer);
     }
 
-    // A full battery needs no number, and three digits would stretch the narrow vertical body.
+    // A full battery needs no number in the upright body: three digits would stretch it.
     if (m_overlayLabel != nullptr) {
-      m_overlayLabel->setVisible(m_showLabel && (!m_isVertical || pct < 100));
+      m_overlayLabel->setVisible(m_showLabel && (m_islandStyle || !m_isVertical || pct < 100));
     }
     if (m_overlayGlyph != nullptr) {
       m_overlayGlyph->setVisible(stateGlyph != nullptr);
     }
     // The outlined symbol draws the state glyph inside the body, where the level fill would hide it.
-    if (m_islandStyle && !m_isVertical) {
+    if (m_islandStyle) {
       m_fillRect->setVisible(stateGlyph == nullptr);
     }
   } else if (m_displayMode == BatteryDisplayMode::Glyph) {

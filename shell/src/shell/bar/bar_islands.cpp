@@ -256,8 +256,8 @@ namespace {
     switch (island) {
     case 0:
       // The workspace dots lead: (32 - 7) / 2 rounds to the text inset. The app title ends a horizontal island; a
-      // vertical one shows only the app icon.
-      return {text, vertical ? symbol : text};
+      // vertical one ends at the app icon, whose 16 box carries about 2 of clear margin, so its ink also sits 12 in.
+      return {text, vertical ? std::round((Tokens::componentIslandInsetSymbol + 2.0F) * config.scale) : text};
     case 2:
       // Status symbols lead; the notification and mark symbols end it.
       return {symbol, symbol};

@@ -77,7 +77,6 @@
         "signal": "Signal",
         "upload": "Senden",
         "vpn": "VPN",
-        "wan-ip": "WAN-IP",
         "wifi": "WLAN",
         "wired": "Kabelgebunden",
         "yes": "Ja"
@@ -271,7 +270,6 @@
       "available": "Verfügbar",
       "connect": "Verbinden",
       "current-connection": "Aktuelle Verbindung",
-      "external-ip": "WAN {ip}",
       "no-networks": "Keine Netzwerke in Reichweite",
       "not-connected": "Nicht verbunden",
       "password": "Passwort",
@@ -2827,10 +2825,6 @@
           "description": "Standarddatumsformat für die Shell-UI ohne eigene Einstellung",
           "label": "Datumsformat"
         },
-        "external-ip": {
-          "description": "Löse die öffentliche WAN-IP der Verbindung auf (über api.noctalia.dev) und zeige sie im Netzwerk-Tab des Kontrollzentrums an",
-          "label": "WAN-IP anzeigen"
-        },
         "greeter-sync-auto": {
           "description": "Synchronisiere den Greeter automatisch, wenn sich Hintergrundbild, Farben oder Theme-Modus ändern",
           "label": "Greeter automatisch synchronisieren"
@@ -3945,7 +3939,6 @@
         "location": "Wetter- und Standortabfragen werden nicht funktionieren.",
         "plugin-store": "Fernzugriff auf den Plugin-Katalog und Download-Anfragen werden nicht funktionieren.",
         "plugins": "Plugin-HTTP-Anfragen werden nicht funktionieren; Git-Quellen können weiterhin aktualisiert werden.",
-        "security": "Externe IP-Abfrage und Telemetrie werden nicht funktionieren.",
         "template-store": "Community-Template-Downloads werden nicht funktionieren.",
         "templates": "Community-Template-Downloads und -Aktualisierungen werden nicht funktionieren.",
         "title": "Offline-Modus"

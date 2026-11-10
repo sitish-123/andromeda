@@ -365,7 +365,6 @@
         "technology": "Technology",
         "upload": "Upload",
         "vpn": "VPN",
-        "wan-ip": "WAN IP",
         "wifi": "Wi-Fi",
         "wired": "Wired",
         "yes": "Yes"
@@ -2959,7 +2958,6 @@
         },
         "source": {
           "built-in": "Built-In",
-          "community": "Community",
           "custom": "Custom",
           "wallpaper": "Wallpaper"
         }
@@ -3117,24 +3115,12 @@
         "not-listed": "Not listed",
         "open-page": "Open plugin page on noctalia.dev",
         "open-source": "Open plugin source repository",
-        "recommend": "Recommend",
-        "recommendation-error": "The change was not confirmed. Your previous recommendation is unchanged. Retry the same change to reconcile it.",
-        "recommendation-not-recommendable": "This plugin cannot accept this recommendation.",
-        "recommendation-pending": "Sending recommendation…",
-        "recommendation-protocol-error": "The service returned an unexpected response. Your previous recommendation is unchanged.",
-        "recommendation-rate-limited": "Too many requests. Wait before retrying this change.",
-        "recommendation-retry": "Retry recommendation change",
-        "recommendation-state-error": "Recommendation state could not be read or saved. Check state.toml before retrying.",
-        "recommendation-unavailable": "Recommendations are temporarily unavailable. Your previous recommendation is unchanged. You can retry shortly.",
-        "remove-recommendation": "Remove recommendation",
         "results-count": "{count} plugins",
         "search-placeholder": "Search plugins…",
         "sort-added-at-asc": "Sort by date added (oldest first)",
         "sort-added-at-desc": "Sort by date added (newest first)",
-        "sort-most-recommended": "Most recommended",
         "sort-name-asc": "Sort by name (A-Z)",
         "sort-name-desc": "Sort by name (Z-A)",
-        "sort-trending": "Trending",
         "sort-updated-at-asc": "Sort by date updated (oldest first)",
         "sort-updated-at-desc": "Sort by date updated (newest first)",
         "source-all": "All sources",
@@ -3195,11 +3181,6 @@
         "card-borders": {
           "description": "Draw outlines around section cards inside panels and the settings window",
           "label": "Card Borders"
-        },
-        "community-palette": {
-          "description": "Choose a palette from the community catalog",
-          "label": "Community Palette",
-          "search-placeholder": "Search palettes…"
         },
         "corner-roundness": {
           "description": "Scale corner radius across shell UI containers and controls",
@@ -5150,19 +5131,10 @@
           "empty": "No built-in templates are available.",
           "label": "Built-In Templates"
         },
-        "community-ids": {
-          "description": "Browse and enable community templates applied on each theme change",
-          "empty": "No community templates are available yet. Enable community templates and refresh the catalog first.",
-          "label": "Community Templates"
-        },
         "dynamic-output": "Output path is resolved when the template is applied",
         "enable-builtins": {
           "description": "Use the bundled catalog of theme templates for apps",
           "label": "Enable Built-In Templates"
-        },
-        "enable-community-templates": {
-          "description": "Download and apply templates from the community catalog",
-          "label": "Enable Community Templates"
         }
       },
       "wallpaper": {
@@ -5643,23 +5615,7 @@
     },
     "templates": {
       "documentation": "Documentation",
-      "readme": "Readme",
-      "store": {
-        "browse": "Browse Templates",
-        "categories": "Categories",
-        "category-all": "All",
-        "empty": "No templates match your filters",
-        "enabled-count": "{count} enabled",
-        "filter-all": "All",
-        "filter-enabled": "Enabled",
-        "results-count": "{count} templates",
-        "search-placeholder": "Search templates…",
-        "sort-category-asc": "Sort by category (A-Z)",
-        "sort-category-desc": "Sort by category (Z-A)",
-        "sort-name-asc": "Sort by name (A-Z)",
-        "sort-name-desc": "Sort by name (Z-A)",
-        "title": "Community Templates"
-      }
+      "readme": "Readme"
     },
     "widgets": {
       "actions": {
@@ -5754,11 +5710,11 @@
             "label": "Print clipboard text"
           },
           "color-scheme-get": {
-            "description": "Print active color scheme: <source> <name> (source is builtin, wallpaper, community, or custom)",
+            "description": "Print active color scheme: <source> <name> (source is builtin, wallpaper, or custom)",
             "label": "Get color scheme"
           },
           "color-scheme-set": {
-            "description": "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, community id, or custom scheme folder name)",
+            "description": "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, or custom scheme folder name)",
             "label": "Set color scheme"
           },
           "config-reload": {
@@ -6948,7 +6904,6 @@
         "location": "Weather and location lookups will not work.",
         "plugin-store": "Remote plugin catalog and download requests will not work.",
         "plugins": "Plugin HTTP requests will not work. Git sources can still update.",
-        "template-store": "Community template downloads will not work.",
         "title": "Offline Mode"
       },
       "reset-page": "Reset page to defaults",

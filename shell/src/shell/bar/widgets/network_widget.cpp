@@ -1,7 +1,6 @@
 #include "shell/bar/widgets/network_widget.h"
 
 #include "dbus/modem/modem_manager_service.h"
-#include "dbus/network/external_ip_service.h"
 #include "dbus/network/network_display.h"
 #include "i18n/i18n.h"
 #include "render/scene/input_area.h"
@@ -66,10 +65,10 @@ namespace {
 } // namespace
 
 NetworkWidget::NetworkWidget(
-    INetworkService* network, ExternalIpService* externalIp, SystemMonitorService* monitor, ModemManagerService* modem,
-    wl_output* /*output*/, Options options
+    INetworkService* network, SystemMonitorService* monitor, ModemManagerService* modem, wl_output* /*output*/,
+    Options options
 )
-    : m_network(network), m_externalIp(externalIp), m_monitor(monitor), m_modem(modem), m_showLabel(options.showLabel),
+    : m_network(network), m_monitor(monitor), m_modem(modem), m_showLabel(options.showLabel),
       m_showVpnLabel(options.showVpnLabel), m_vpnStatusMode(options.vpnStatusMode) {}
 
 void NetworkWidget::create() {
@@ -434,10 +433,6 @@ std::vector<TooltipRow> NetworkWidget::buildTooltipRows() const {
 
     if (!s.ipv4.empty()) {
       rows.push_back({i18n::tr("bar.widgets.network.ip"), s.ipv4});
-    }
-
-    if (m_externalIp != nullptr && !m_externalIp->externalIp().empty()) {
-      rows.push_back({i18n::tr("bar.widgets.network.wan-ip"), m_externalIp->externalIp()});
     }
 
     if (m_monitor != nullptr && m_monitor->isRunning()) {

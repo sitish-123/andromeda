@@ -87,7 +87,6 @@
         "signal": "Jel",
         "upload": "Feltöltés",
         "vpn": "VPN",
-        "wan-ip": "WAN IP",
         "wifi": "Wi-Fi",
         "wired": "Vezetékes",
         "yes": "Igen"
@@ -283,7 +282,6 @@
       "available": "Elérhető",
       "connect": "Csatlakozás",
       "current-connection": "Jelenlegi kapcsolat",
-      "external-ip": "WAN {ip}",
       "no-networks": "Nincs hálózat a közelben",
       "not-connected": "Nincs csatlakozva",
       "password": "Jelszó",
@@ -2713,10 +2711,6 @@
         "date-format": {
           "description": "Alapértelmezett dátumformátum a shell UI-hoz, saját beállítás nélkül",
           "label": "Dátumformátum"
-        },
-        "external-ip": {
-          "description": "Határozza meg a kapcsolat nyilvános WAN-IP-címét (az api.noctalia.dev oldalon keresztül), és jelenítse meg azt a Vezérlőközpont Hálózat fülén",
-          "label": "WAN-IP megjelenítése"
         },
         "greeter-sync-auto": {
           "description": "A háttérkép, a színek vagy a téma mód változásakor a greeter automatikusan szinkronizálódjon",
