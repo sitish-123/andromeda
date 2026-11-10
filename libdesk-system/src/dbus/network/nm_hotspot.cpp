@@ -336,7 +336,7 @@ namespace {
                 auto device = proxy(bus, paths[i]);
                 device->getAllPropertiesAsync()
                     .onInterface(kWirelessInterface)
-                    .uponReplyInvoke([device, scan, settle, i, path = std::string(paths[i])](
+                    .uponReplyInvoke([&bus, device, scan, settle, i, path = std::string(paths[i])](
                                          std::optional<sdbus::Error> e, const Properties& props) {
                       try {
                         const auto mode = props.find(sdbus::PropertyName{"Mode"});
@@ -344,11 +344,20 @@ namespace {
                         if (!e.has_value() && mode != props.end() && ap != props.end()) {
                           scan->devices[i] = HotspotWifiDevice{.path = path,
                                                                .mode = mode->second.get<std::uint32_t>(),
-                                                               .accessPoint = ap->second.get<sdbus::ObjectPath>()};
+                                                               .accessPoint = ap->second.get<sdbus::ObjectPath>(),
+                                                               .state = 0};
                         }
                       } catch (const sdbus::Error&) {
                       }
-                      settle();
+                      if (scan->devices[i].accessPoint.empty() || scan->devices[i].accessPoint == "/") {
+                        settle();
+                        return;
+                      }
+                      readProperty<std::uint32_t>(bus, path, kDeviceInterface, "State",
+                                                  [scan, settle, i](std::optional<std::uint32_t> state) {
+                                                    scan->devices[i].state = state.value_or(0);
+                                                    settle();
+                                                  });
                     });
               } catch (const sdbus::Error&) {
                 settle();
@@ -458,6 +467,19 @@ bool NmHotspot::setEnabled(bool enabled) {
 
 void NmHotspot::setPlan(ClientPlan plan) {
   const bool changed = plan.kind != m_plan.kind;
+  if (changed || plan.client != m_plan.client || plan.channel.channel != m_plan.channel.channel) {
+    switch (plan.kind) {
+    case ClientPlan::Kind::BesideClient:
+      kLog.info("hotspot plan: beside {} ch {}", plan.client, plan.channel.channel);
+      break;
+    case ClientPlan::Kind::TurnsOffClient:
+      kLog.info("hotspot plan: turns off Wi-Fi");
+      break;
+    case ClientPlan::Kind::NoClient:
+      kLog.info("hotspot plan: no client");
+      break;
+    }
+  }
   m_plan = std::move(plan);
   const bool first = m_machine.apply(HotspotEvent::PlanKnown);
   notify(changed || first);
@@ -479,8 +501,8 @@ void NmHotspot::followClientChannel() {
 }
 
 void NmHotspot::watchClient(const std::string& device, const std::string& ap) {
-  const auto watch = [this](std::unique_ptr<sdbus::IProxy>& slot, const std::string& path, const char* interface,
-                            const char* property) {
+  using Triggers = std::vector<std::pair<std::string, std::string>>;
+  const auto watch = [this](std::unique_ptr<sdbus::IProxy>& slot, const std::string& path, Triggers triggers) {
     if (path.empty() || path == "/") {
       slot.reset();
       return;
@@ -492,11 +514,14 @@ void NmHotspot::watchClient(const std::string& device, const std::string& ap) {
       slot = sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{path});
       slot->uponSignal("PropertiesChanged")
           .onInterface("org.freedesktop.DBus.Properties")
-          .call([this, interface, property](const std::string& interfaceName,
-                                            const std::map<std::string, sdbus::Variant>& changed,
-                                            const std::vector<std::string>& /*invalidated*/) {
-            if (interfaceName == interface && changed.contains(property)) {
-              startPlan();
+          .call([this, triggers = std::move(triggers)](const std::string& interfaceName,
+                                                       const std::map<std::string, sdbus::Variant>& changed,
+                                                       const std::vector<std::string>& /*invalidated*/) {
+            for (const auto& [interface, property] : triggers) {
+              if (interfaceName == interface && changed.contains(property)) {
+                startPlan();
+                return;
+              }
             }
           });
     } catch (const sdbus::Error& e) {
@@ -504,8 +529,9 @@ void NmHotspot::watchClient(const std::string& device, const std::string& ap) {
       kLog.debug("Wi-Fi client watch failed: {}", e.what());
     }
   };
-  watch(m_clientDeviceWatch, device, kWirelessInterface, "ActiveAccessPoint");
-  watch(m_clientApWatch, ap, kAccessPointInterface, "Frequency");
+  // A device that associates is not activated yet: its State reaching Activated plans again.
+  watch(m_clientDeviceWatch, device, {{kWirelessInterface, "ActiveAccessPoint"}, {kDeviceInterface, "State"}});
+  watch(m_clientApWatch, ap, {{kAccessPointInterface, "Frequency"}});
 }
 
 void NmHotspot::startPlan() {
@@ -518,7 +544,10 @@ void NmHotspot::startPlan() {
       return;
     }
     watchClient(scan.watch, scan.accessPoint);
-    if (scan.client.empty()) {
+    if (scan.status == HotspotClientStatus::Associating) {
+      return;
+    }
+    if (scan.status == HotspotClientStatus::None) {
       setPlan({});
       return;
     }

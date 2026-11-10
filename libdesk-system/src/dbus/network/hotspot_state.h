@@ -65,32 +65,50 @@ struct HotspotChannel {
   return std::nullopt;
 }
 
-// A Wi-Fi device as NetworkManager lists it: its 802.11 mode and ActiveAccessPoint ("/" while not associated).
+// A Wi-Fi device as NetworkManager lists it: its 802.11 mode, ActiveAccessPoint ("/" while not associated) and
+// NMDeviceState (100 Activated).
 struct HotspotWifiDevice {
   std::string path;
   std::uint32_t mode = 0;
   std::string accessPoint;
+  std::uint32_t state = 0;
 };
 
-// The connected Wi-Fi client (empty when none) and the device whose ActiveAccessPoint the plan watches.
+// Activated: `client` runs on `accessPoint`. Associating: a device has an access point but is not activated yet,
+// so System1 cannot judge it and the plan waits for the device's State to change.
+enum class HotspotClientStatus : std::uint8_t { None, Associating, Activated };
+
+// The connected Wi-Fi client (empty unless Activated) and the device whose ActiveAccessPoint and State the plan
+// watches.
 struct HotspotClientScan {
+  HotspotClientStatus status = HotspotClientStatus::None;
   std::string client;
   std::string accessPoint;
   std::string watch;
 };
 
 // A device that roams has no access point for a moment; the plan still watches it, so it plans again when the
-// device associates. NetworkManager's ActiveConnections does not change at that moment.
+// device associates and again when it activates. NetworkManager's ActiveConnections does not change then.
 [[nodiscard]] inline HotspotClientScan hotspotClientScan(const std::vector<HotspotWifiDevice>& devices) {
   constexpr std::uint32_t kModeInfrastructure = 2;
   constexpr std::uint32_t kModeAccessPoint = 3;
+  constexpr std::uint32_t kStateActivated = 100;
   HotspotClientScan scan;
   for (const HotspotWifiDevice& device : devices) {
     if (device.path.empty()) {
       continue;
     }
     if (device.mode == kModeInfrastructure && !device.accessPoint.empty() && device.accessPoint != "/") {
-      return {.client = device.path, .accessPoint = device.accessPoint, .watch = device.path};
+      if (device.state == kStateActivated) {
+        return {.status = HotspotClientStatus::Activated,
+                .client = device.path,
+                .accessPoint = device.accessPoint,
+                .watch = device.path};
+      }
+      if (scan.status == HotspotClientStatus::None) {
+        scan = {.status = HotspotClientStatus::Associating, .client = {}, .accessPoint = {}, .watch = device.path};
+      }
+      continue;
     }
     if (scan.watch.empty() && device.mode != kModeAccessPoint) {
       scan.watch = device.path;

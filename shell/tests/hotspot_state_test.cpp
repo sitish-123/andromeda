@@ -354,36 +354,54 @@ namespace {
   }
 
   // NmHotspot's plan triggers: an ActiveConnections change scans the devices; a change of the watched device's
-  // ActiveAccessPoint or of the watched access point's Frequency scans again.
+  // ActiveAccessPoint or State, or of the watched access point's Frequency, scans again. The events replay a roam
+  // from ch 36 to ch 6 (.agent/hotspot-planner-trace.md): System1 judges a client only once it is activated.
   void roamFollowsClient() {
+    enum class Plan : std::uint8_t { Unknown, NoClient, TurnsOffClient, BesideClient };
+    constexpr std::uint32_t kConfig = 50;
+    constexpr std::uint32_t kActivated = 100;
     std::map<std::string, std::uint32_t> frequency{{"/ap/36", 5180}, {"/ap/6", 0}};
-    std::vector<HotspotWifiDevice> world{{.path = "/dev/wlan0", .mode = 2, .accessPoint = "/ap/36"}};
+    std::map<std::string, bool> canRunBeside{{"/ap/36", false}, {"/ap/6", true}};
+    std::vector<HotspotWifiDevice> world{
+        {.path = "/dev/wlan0", .mode = 2, .accessPoint = "/ap/36", .state = kActivated}};
     HotspotClientScan scan;
     std::optional<HotspotChannel> channel;
-    const auto plan = [&] {
+    Plan plan = Plan::Unknown;
+    const auto replan = [&] {
       scan = hotspotClientScan(world);
-      channel = scan.client.empty() ? std::nullopt : hotspotChannelOf(frequency[scan.accessPoint]);
+      if (scan.status == HotspotClientStatus::Associating) {
+        return;
+      }
+      if (scan.status == HotspotClientStatus::None) {
+        channel.reset();
+        plan = Plan::NoClient;
+        return;
+      }
+      channel = hotspotChannelOf(frequency[scan.accessPoint]);
+      const bool can = world[0].state == kActivated && canRunBeside[scan.accessPoint];
+      plan = channel.has_value() && can ? Plan::BesideClient : Plan::TurnsOffClient;
     };
-    const auto associate = [&](std::string ap) {
+    const auto change = [&](std::string ap, std::uint32_t state) {
       const bool watched = scan.watch == world[0].path;
       world[0].accessPoint = std::move(ap);
+      world[0].state = state;
       if (watched) {
-        plan();
+        replan();
       }
     };
 
-    plan();
-    TEST_CHECK(channel.has_value() && channel->channel == 36);
+    replan();
+    TEST_CHECK(plan == Plan::TurnsOffClient && channel.has_value() && channel->channel == 36);
     // NetworkManager swaps the active connection while the device has no access point.
-    associate("/");
-    plan();
-    TEST_CHECK(scan.client.empty());
-    associate("/ap/6");
-    TEST_CHECK(scan.client == "/dev/wlan0" && !channel.has_value());
+    change("/", 30);
+    replan();
+    TEST_CHECK(scan.client.empty() && plan == Plan::NoClient);
+    // The new access point arrives in state Config, seven seconds before the device activates.
     frequency["/ap/6"] = 2437;
-    if (scan.accessPoint == "/ap/6") {
-      plan();
-    }
+    change("/ap/6", kConfig);
+    TEST_CHECK(scan.status == HotspotClientStatus::Associating && plan == Plan::NoClient);
+    change("/ap/6", kActivated);
+    TEST_CHECK(scan.client == "/dev/wlan0" && plan == Plan::BesideClient);
     TEST_CHECK(channel.has_value() && channel->band == "bg" && channel->channel == 6);
 
     // An access-point interface is not watched as a client; the client beside it is found.
