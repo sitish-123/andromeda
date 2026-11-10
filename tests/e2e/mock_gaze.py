@@ -149,6 +149,16 @@ bus = dbus.bus.BusConnection(os.environ["DBUS_SYSTEM_BUS_ADDRESS"])
 names = [dbus.service.BusName(GAZE, bus), dbus.service.BusName("org.freedesktop.login1", bus)]
 gaze = Gaze(bus)
 login = Login(bus)
+
+
+# As gazed does (gaze/src/main.rs watch_claim_owner): a claimant that leaves the bus loses its claim.
+def owner_changed(name, old, new):
+    if not new and name == gaze.claimant:
+        record("ClaimantLeft")
+        gaze.claimant = None
+
+
+bus.add_signal_receiver(owner_changed, signal_name="NameOwnerChanged", dbus_interface="org.freedesktop.DBus")
 loop = GLib.MainLoop()
 print("ready", flush=True)
 loop.run()
