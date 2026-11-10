@@ -1,6 +1,7 @@
 #include "dbus/andromeda/software_update_service.h"
 #include "app/main_loop.h"
 #include "application.h"
+#include "shell/lockscreen/lock_client.h"
 #include "application_internal.h"
 #include "compositors/compositor_detect.h"
 #include "config/config_types.h"
@@ -528,8 +529,18 @@ void Application::initLockScreenAndSession() {
   sessionActionHooks.onShutdown = [afterUpdate](std::function<void(bool)> done) {
     afterUpdate(HookKind::ShuttingDown, "settings.update.lock-shutdown", std::move(done));
   };
-  sessionActionHooks.onBeforePlainSuspend = [this] { m_skipLockOnNextSleep = true; };
-  sessionActionHooks.onPlainSuspendAborted = [this] { m_skipLockOnNextSleep = false; };
+  sessionActionHooks.onBeforePlainSuspend = [this] {
+    m_skipLockOnNextSleep = true;
+    if (m_lockClient != nullptr) {
+      m_lockClient->skipLockOnNextSleep(true);
+    }
+  };
+  sessionActionHooks.onPlainSuspendAborted = [this] {
+    m_skipLockOnNextSleep = false;
+    if (m_lockClient != nullptr) {
+      m_lockClient->skipLockOnNextSleep(false);
+    }
+  };
   m_sessionActionRunner.setHooks(std::move(sessionActionHooks));
   m_sessionActionRunner.setPowerConfig(m_configService.config().shell.session.power);
   m_configService.addReloadCallback(
@@ -609,9 +620,17 @@ void Application::initInputDispatch() {
   });
 
   // The lock client died, or the compositor restarted into the lock (docs/resilience.md §4): lock again at once.
+  // Waits for the lock process query: a shell that restarts while the lock process holds the lock must not race it.
   m_wayland.setRelockCallback([this] {
-    if (!m_lockScreen.isActive()) {
-      m_lockScreen.lock();
+    auto relock = [this] {
+      if (!m_lockScreen.isActive()) {
+        m_lockScreen.lock(true);
+      }
+    };
+    if (m_lockClient != nullptr) {
+      m_lockClient->whenResolved(std::move(relock));
+    } else {
+      relock();
     }
   });
   // One notification per restart; "restore" relaunches every saved app that has no window when it is clicked, so

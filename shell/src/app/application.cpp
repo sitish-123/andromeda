@@ -1,4 +1,5 @@
 #include "application.h"
+#include "shell/lockscreen/lock_client.h"
 #include "a11y/atspi_bridge.h"
 
 #include "app/main_loop.h"
@@ -420,7 +421,9 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
 
   m_polkitInitTimer.start(std::chrono::milliseconds(1000), [this] { syncPolkitAgent(); });
 
-  m_mainLoop = std::make_unique<MainLoop>(m_wayland, m_bar, [this] { return currentPollSources(); });
+  m_mainLoop = std::make_unique<MainLoop>(
+      m_wayland, [this] { return currentPollSources(); }, [this] { m_bar.closeAllInstances(); }
+  );
   if (startupReadyCallback) {
     startupReadyCallback();
   }

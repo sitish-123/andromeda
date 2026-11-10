@@ -4,7 +4,6 @@
 #include "core/poll_source.h"
 #include "core/deferred_call.h"
 #include "core/log.h"
-#include "shell/bar/bar.h"
 #include "wayland/surface.h"
 #include "wayland/wayland_connection.h"
 
@@ -308,8 +307,8 @@ namespace {
   }
 } // namespace
 
-MainLoop::MainLoop(WaylandConnection& wayland, Bar& bar, PollSourcesProvider sourcesProvider)
-    : m_wayland(wayland), m_bar(bar), m_sourcesProvider(std::move(sourcesProvider)) {}
+MainLoop::MainLoop(WaylandConnection& wayland, PollSourcesProvider sourcesProvider, std::function<void()> closeSurfaces)
+    : m_wayland(wayland), m_sourcesProvider(std::move(sourcesProvider)), m_closeSurfaces(std::move(closeSurfaces)) {}
 
 void MainLoop::run() {
   if (idleProfileEnabled()) {
@@ -687,8 +686,9 @@ void MainLoop::run() {
   }
 
   // Close all UI surfaces immediately and flush Wayland to make them disappear
-  kLog.debug("closing bar surfaces for clean shutdown");
-  m_bar.closeAllInstances();
+  if (m_closeSurfaces) {
+    m_closeSurfaces();
+  }
 
   if (dispatchPendingGuarded(m_wayland.display()) < 0) {
     const int dispatchErrno = errno;

@@ -1,0 +1,413 @@
+#include "app/lock_app.h"
+
+#include "app/application.h"
+#include "app/deferred_call_poll_source.h"
+#include "app/main_loop.h"
+#include "app/timer_poll_source.h"
+#include "compositors/compositor_platform.h"
+#include "compositors/keyboard_layout_poll_source.h"
+#include "compositors/shell_wayland_connection.h"
+#include "config/config_poll_source.h"
+#include "config/config_service.h"
+#include "core/input/keybind_matcher.h"
+#include "core/log.h"
+#include "dbus/andromeda/lock_service.h"
+#include "dbus/logind/logind_service.h"
+#include "dbus/mpris/mpris_service.h"
+#include "dbus/session_bus.h"
+#include "dbus/session_bus_poll_source.h"
+#include "dbus/system_bus.h"
+#include "dbus/system_bus_poll_source.h"
+#include "dbus/upower/upower_service.h"
+#include "i18n/i18n.h"
+#include "i18n/i18n_service.h"
+#include "net/http_client.h"
+#include "render/animation/motion_service.h"
+#include "render/core/shared_texture_cache.h"
+#include "render/gl_shared_context.h"
+#include "render/render_context.h"
+#include "shell/lockscreen/lock_screen.h"
+#include "shell/session/session_action_runner.h"
+#include "system/lock_keys_poll_source.h"
+#include "system/lock_keys_service.h"
+#include "system/weather_service.h"
+#include "theme/live_appearance_sync.h"
+#include "theme/theme_service.h"
+#include "ui/auth/auth_column.h"
+#include "ui/controls/input.h"
+#include "ui/style.h"
+#include "wayland/key_repeat_poll_source.h"
+
+#include <cmath>
+#include <csignal>
+#include <format>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace {
+
+  constexpr Logger kLog("lock-mode");
+
+  void onSignal(int signum) {
+    if (signum == SIGTERM || signum == SIGINT) {
+      Application::s_shutdownRequested = true;
+    }
+  }
+
+  class LockApp {
+  public:
+    int run() {
+      std::signal(SIGTERM, onSignal);
+      std::signal(SIGINT, onSignal);
+      initLogLevelFromEnvironment();
+      kLog.info("lock process starting");
+
+      applyStyle();
+      i18n::Service::instance().init(m_config.config().shell.lang);
+      m_theme.apply();
+      m_config.addReloadCallback([this] {
+        applyStyle();
+        i18n::Service::instance().setLanguage(m_config.config().shell.lang);
+        m_theme.onConfigReload();
+        m_renderContext.setTextFontFamily(m_config.config().shell.fontFamily);
+        m_renderContext.setTextScale(m_config.config().accessibility.textScale);
+        if (m_logind != nullptr) {
+          m_logind->setSessionLockIntegrationEnabled(m_config.isLockScreenEnabled());
+          m_logind->setLockBeforeSuspendEnabled(m_config.shouldLockBeforeSuspend());
+        }
+        m_lock.onConfigChanged();
+      });
+
+      if (!m_wayland.connect()) {
+        kLog.error("cannot connect to the Wayland display");
+        return 1;
+      }
+      m_platform.initialize();
+      const bool sharedGl = m_config.config().shell.sharedGlContext;
+      m_glShared.initialize(m_wayland.display(), sharedGl);
+      m_textures.initialize(sharedGl ? &m_glShared : nullptr);
+      m_renderContext.initialize(m_glShared);
+      m_renderContext.setTextFontFamily(m_config.config().shell.fontFamily);
+      m_renderContext.setTextScale(m_config.config().accessibility.textScale);
+      Style::setRtl(i18n::Service::instance().rtl());
+      m_renderContext.setTextBaseDirection(i18n::Service::instance().rtl());
+      bindKeybinds();
+
+      initBuses();
+      m_lock.initialize(m_wayland, &m_renderContext, &m_config, &m_textures, m_systemBus.get(), &m_platform);
+      m_lock.setLoginBoxServices(&m_sessionActions, m_mpris.get(), &m_weather, &m_http);
+      initHooks();
+      initInput();
+      initLiveAppearance();
+      refreshStatus();
+      initControl();
+
+      MainLoop loop(m_wayland, [this] { return pollSources(); });
+      loop.run();
+      kLog.info("lock process stopping");
+      return Application::s_displayLost ? 75 : 0;
+    }
+
+  private:
+    void applyStyle() {
+      const auto& shell = m_config.config().shell;
+      MotionService::instance().setSpeed(shell.animation.speed);
+      MotionService::instance().setEnabled(shell.animation.enabled);
+      Style::setCornerRadiusScale(shell.cornerRadiusScale);
+      Style::setInputBordersEnabled(shell.inputBorders);
+      Style::setButtonBordersEnabled(shell.buttonBorders);
+      Input::setPasswordMaskStyle(
+          shell.passwordMaskStyle == PasswordMaskStyle::RandomIcons ? Input::PasswordMaskStyle::RandomIcons
+                                                                    : Input::PasswordMaskStyle::CircleFilled
+      );
+      m_http.setOfflineMode(shell.offlineMode);
+    }
+
+    void bindKeybinds() {
+      for (const KeybindAction action :
+           {KeybindAction::Validate, KeybindAction::Cancel, KeybindAction::Left, KeybindAction::Right}) {
+        KeybindMatcher::setMatcher(action, [this, action](std::uint32_t sym, std::uint32_t modifiers) {
+          return m_config.matchesKeybind(action, sym, modifiers);
+        });
+      }
+    }
+
+    void initBuses() {
+      try {
+        m_systemBus = std::make_unique<SystemBus>();
+        m_systemBusPoll = std::make_unique<SystemBusPollSource>(*m_systemBus);
+        if (m_systemBus->nameHasOwner("org.freedesktop.login1")) {
+          m_logind = std::make_unique<LogindService>(*m_systemBus);
+        }
+        m_upower = std::make_unique<UPowerService>(*m_systemBus);
+        m_upower->setChangeCallback([this](const auto& /*change*/) { refreshStatus(); });
+      } catch (const std::exception& e) {
+        kLog.warn("system bus: {}", e.what());
+      }
+      try {
+        m_sessionBus = std::make_unique<SessionBus>();
+        m_sessionBusPoll = std::make_unique<SessionBusPollSource>(*m_sessionBus);
+        m_mpris = std::make_unique<MprisService>(*m_sessionBus);
+      } catch (const std::exception& e) {
+        kLog.warn("session bus: {}", e.what());
+      }
+    }
+
+    void initHooks() {
+      m_lock.setSessionHooks(
+          [this] {
+            if (m_logind != nullptr) {
+              m_logind->setSessionLockedHint(true);
+            }
+            emitState("locked");
+          },
+          [this] {
+            releaseSleepDelayIfPending();
+            if (m_logind != nullptr) {
+              m_logind->setSessionLockedHint(false);
+            }
+            if (m_control != nullptr) {
+              if (const auto rejected = m_lock.takeRejectedWhileLocked(); !rejected.empty()) {
+                m_control->failedAttempts(rejected);
+              }
+            }
+            emitState("unlocked");
+          },
+          [this] {
+            releaseSleepDelayIfPending();
+            emitState("aborted");
+          },
+          [this] { releaseSleepDelayIfPending(); }
+      );
+      m_platform.setOutputPowerChangeCallback([this] { m_lock.onOutputPowerChanged(); });
+
+      if (m_logind == nullptr) {
+        return;
+      }
+      m_logind->setSessionLockIntegrationEnabled(m_config.isLockScreenEnabled());
+      m_logind->setLockBeforeSuspendEnabled(m_config.shouldLockBeforeSuspend());
+      m_logind->setLockCallback([this] { (void)lock("logind"); });
+      m_logind->setUnlockCallback([this] {
+        if (m_lock.isActive()) {
+          m_lock.unlock();
+        }
+      });
+      m_logind->setPrepareForSleepCallback([this](bool sleeping) { onPrepareForSleep(sleeping); });
+    }
+
+    // Mirrors the shell's lock-before-sleep: the delay inhibit holds the suspend until the lock frames are on screen.
+    void onPrepareForSleep(bool sleeping) {
+      if (!sleeping) {
+        m_skipLockOnNextSleep = false;
+        m_releaseSleepDelayWhenLocked = false;
+        if (m_config.shouldLockBeforeSuspend()) {
+          (void)m_logind->acquireSleepDelayInhibit();
+        }
+        m_renderContext.invalidateGlyphTexturesNextFrame();
+        if (m_lock.isActive()) {
+          m_lock.forceRepaintAfterResume();
+          m_lock.onSystemResumed();
+        }
+        m_weather.requestRefresh();
+        return;
+      }
+      // A sleep-bound lock never offers the passwordless grace.
+      m_lock.resetGracePeriod();
+      const bool skip = std::exchange(m_skipLockOnNextSleep, false);
+      if (skip || !m_config.shouldLockBeforeSuspend() || m_lock.isReadyForSleep()) {
+        m_releaseSleepDelayWhenLocked = false;
+        m_logind->releaseSleepDelayInhibit();
+        return;
+      }
+      m_releaseSleepDelayWhenLocked = true;
+      if (!m_lock.isActive() && !m_lock.lock()) {
+        m_releaseSleepDelayWhenLocked = false;
+        m_logind->releaseSleepDelayInhibit();
+        return;
+      }
+      m_lock.prepareForSleep();
+      // A deferred lock (no outputs yet) never reaches SessionLocked; it must not hold the suspend.
+      if (!m_lock.isActive()) {
+        m_releaseSleepDelayWhenLocked = false;
+        m_logind->releaseSleepDelayInhibit();
+      }
+    }
+
+    void releaseSleepDelayIfPending() {
+      if (std::exchange(m_releaseSleepDelayWhenLocked, false) && m_logind != nullptr) {
+        m_logind->releaseSleepDelayInhibit();
+      }
+    }
+
+    void initInput() {
+      m_wayland.setPointerEventCallback([this](const PointerEvent& event) {
+        if (m_lock.isActive()) {
+          m_lock.onPointerEvent(event);
+        }
+      });
+      m_wayland.setKeyboardEventCallback([this](const KeyboardEvent& event) {
+        if (m_lock.isActive()) {
+          m_lock.onKeyboardEvent(event);
+        }
+      });
+      m_wayland.setLockKeysChangeCallback([this] {
+        if (m_lock.isActive()) {
+          m_lock.onLockKeysChanged();
+        }
+      });
+      m_platform.setKeyboardLayoutChangeCallback([this] {
+        if (m_lock.isActive()) {
+          m_lock.onKeyboardLayoutChanged();
+        }
+      });
+      m_wayland.setOutputChangeCallback([this] { m_lock.onOutputChange(); });
+      // The previous lock process died while locked, or the compositor restarted into the lock: lock at once.
+      m_wayland.setRelockCallback([this] { (void)lock("relock"); });
+    }
+
+    void initLiveAppearance() {
+      m_liveAppearance.initialize(m_wayland, [this](const LiveAppearance& appearance) {
+        Style::setGlass(appearance.glass, appearance.reduceTransparency, appearance.blurEnabled);
+        MotionService::instance().setReduced(appearance.reduceMotion);
+        m_theme.setLiveAppearance(appearance.accent, appearance.increaseContrast);
+        m_lock.onThemeChanged();
+      });
+    }
+
+    void refreshStatus() {
+      AuthColumn::Status status;
+      if (m_upower != nullptr && m_upower->state().isPresent) {
+        const auto& battery = m_upower->state();
+        status.batteryGlyph = batteryGlyphName(battery.percentage, battery.state);
+        status.batteryText = std::format("{}%", static_cast<int>(std::lround(battery.percentage)));
+        if (battery.state == BatteryState::Charging) {
+          const std::int64_t minutes = battery.timeToFull / 60;
+          status.chargingText = minutes <= 0
+              ? i18n::tr("lockscreen.cards.charging", "percent", std::lround(battery.percentage))
+              : minutes < 60
+              ? i18n::tr("lockscreen.cards.charging-full-in", "time", std::format("{} min", minutes))
+              : i18n::tr(
+                    "lockscreen.cards.charging-full-in", "time", std::format("{} h {} min", minutes / 60, minutes % 60)
+                );
+        }
+      }
+      m_lock.setStatus(std::move(status));
+    }
+
+    bool lock(const std::string& reason) {
+      const bool relock = reason == "relock";
+      if (!relock && !m_config.isLockScreenEnabled()) {
+        kLog.info("lock ({}) refused: the lock screen is off", reason);
+        return false;
+      }
+      if (m_lock.isActive()) {
+        return true;
+      }
+      kLog.info("lock requested ({})", reason);
+      if (reason == "phone") {
+        return m_lock.lockFromPhone();
+      }
+      if (reason == "sleep") {
+        m_lock.resetGracePeriod();
+      }
+      return m_lock.lock(relock);
+    }
+
+    void initControl() {
+      if (m_sessionBus == nullptr) {
+        kLog.warn("no session bus: org.andromeda.Lock1 is not served");
+        return;
+      }
+      try {
+        m_control = std::make_unique<LockDBusService>(
+            *m_sessionBus,
+            LockDBusService::Handlers{
+                .lock = [this](const std::string& reason) { return lock(reason); },
+                .primeCapture = [this] { m_lock.primeDesktopCaptures(); },
+                .clearCapture = [this] { m_lock.clearPrimedDesktopCaptures(); },
+                .prepareOutputPowerOff =
+                    [this](std::function<void(bool)> done) { m_lock.prepareForOutputPowerOff(std::move(done)); },
+                .cancelOutputPowerOff = [this] { m_lock.cancelOutputPowerOff(); },
+                .outputsWoke = [this] { m_lock.markOutputsWoke(); },
+                .skipLockOnNextSleep = [this](bool skip) { m_skipLockOnNextSleep = skip; },
+                .active = [this] { return m_lock.isActive(); },
+                .locked = [this] { return m_lock.isSessionLocked(); },
+            }
+        );
+      } catch (const std::exception& e) {
+        kLog.error("cannot serve org.andromeda.Lock1: {}", e.what());
+      }
+    }
+
+    void emitState(const std::string& state) {
+      if (m_control != nullptr) {
+        m_control->stateChanged(state);
+      }
+    }
+
+    std::vector<PollSource*> pollSources() {
+      std::vector<PollSource*> sources;
+      if (m_sessionBusPoll != nullptr) {
+        sources.push_back(m_sessionBusPoll.get());
+      }
+      if (m_systemBusPoll != nullptr) {
+        sources.push_back(m_systemBusPoll.get());
+      }
+      sources.push_back(&m_deferredPoll);
+      sources.push_back(&m_configPoll);
+      sources.push_back(&m_timerPoll);
+      sources.push_back(&m_keyRepeatPoll);
+      sources.push_back(&m_keyboardLayoutPoll);
+      sources.push_back(&m_lockKeysPoll);
+      return sources;
+    }
+
+    ShellWaylandConnection m_wayland;
+    CompositorPlatform m_platform{m_wayland};
+    ConfigService m_config;
+    HttpClient m_http;
+    noctalia::theme::ThemeService m_theme{m_config, m_http};
+    LiveAppearanceSync m_liveAppearance;
+    WeatherService m_weather{m_config, m_http};
+    LockKeysService m_lockKeys{m_wayland};
+    GlSharedContext m_glShared;
+    SharedTextureCache m_textures;
+    RenderContext m_renderContext;
+
+    // The lock's authenticators and players hold proxies on these buses, so the buses outlive m_lock.
+    std::unique_ptr<SystemBus> m_systemBus;
+    std::unique_ptr<SystemBusPollSource> m_systemBusPoll;
+    std::unique_ptr<LogindService> m_logind;
+    std::unique_ptr<UPowerService> m_upower;
+    std::unique_ptr<SessionBus> m_sessionBus;
+    std::unique_ptr<SessionBusPollSource> m_sessionBusPoll;
+    std::unique_ptr<MprisService> m_mpris;
+
+    LockScreen m_lock;
+    SessionActionRunner m_sessionActions{m_platform, m_lock};
+    std::unique_ptr<LockDBusService> m_control;
+
+    DeferredCallPollSource m_deferredPoll;
+    ConfigPollSource m_configPoll{m_config};
+    TimerPollSource m_timerPoll;
+    KeyRepeatPollSource m_keyRepeatPoll{m_wayland};
+    KeyboardLayoutPollSource m_keyboardLayoutPoll{m_platform};
+    LockKeysPollSource m_lockKeysPoll{m_lockKeys};
+
+    bool m_skipLockOnNextSleep = false;
+    bool m_releaseSleepDelayWhenLocked = false;
+  };
+
+} // namespace
+
+int runLockMode(int /*argc*/, char* /*argv*/[]) {
+  try {
+    LockApp app;
+    return app.run();
+  } catch (const std::exception& e) {
+    kLog.error("lock process failed: {}", e.what());
+    return 1;
+  }
+}

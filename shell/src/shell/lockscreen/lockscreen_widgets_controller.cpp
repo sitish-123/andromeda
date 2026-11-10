@@ -395,7 +395,8 @@ void LockscreenWidgetsController::applyVisibility() {
     return;
   }
 
-  if (!m_lockScreen->isActive()) {
+  // The lock process draws its own lock; the shell's helper would only cost a process.
+  if (!m_lockScreen->isActive() || m_lockScreen->remote()) {
     m_host->hide();
     return;
   }

@@ -47,6 +47,7 @@
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/secret/secret_collection_probe.h"
 #include "dbus/session_bus.h"
+#include "shell/lockscreen/lock_client.h"
 #include "dbus/session_bus_poll_source.h"
 #include "dbus/system_bus.h"
 #include "dbus/system_bus_poll_source.h"
@@ -1984,6 +1985,8 @@ void Application::initEarlySessionBusAndTray() {
   try {
     m_bus = std::make_unique<SessionBus>();
     kLog.info("connected to session bus");
+    m_lockClient = std::make_unique<LockClient>(*m_bus);
+    m_lockScreen.setRemote(m_lockClient.get());
     AtspiBridge::instance().start(m_bus->connection(), "andromeda-shell");
   } catch (const std::exception& e) {
     // i18n is initialized later, in initStyleThemeAndWayland(), so hold the reason

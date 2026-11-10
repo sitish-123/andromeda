@@ -1,4 +1,5 @@
 #include "shell/lockscreen/lock_screen.h"
+#include "shell/lockscreen/lock_client.h"
 #include "util/thread_name.h"
 
 #include "auth/face_authenticator.h"
@@ -208,13 +209,17 @@ void LockScreen::setPhoneServices(LinkService* link) {
   }
 }
 
-bool LockScreen::lock() {
+bool LockScreen::lock(bool relock) {
+  if (remote()) {
+    m_remote->lock(relock ? "relock" : "user");
+    return true;
+  }
   if (m_wayland == nullptr || m_renderContext == nullptr) {
     invalidateDesktopCaptures();
     notifyLockAborted();
     return false;
   }
-  if (m_configService != nullptr && !m_configService->isLockScreenEnabled()) {
+  if (!relock && m_configService != nullptr && !m_configService->isLockScreenEnabled()) {
     invalidateDesktopCaptures();
     kLog.debug("lock screen disabled");
     notifyLockAborted();
@@ -307,6 +312,9 @@ bool LockScreen::lock() {
 }
 
 void LockScreen::unlock() {
+  if (remote()) {
+    return;
+  }
   m_lockDeferred = false;
   cancelPendingAfterLocked();
   cancelOutputPowerOff();
@@ -671,9 +679,54 @@ bool LockScreen::tryActionShortcut(std::uint32_t sym, std::uint32_t modifiers) {
   return true;
 }
 
-void LockScreen::markOutputsWoke() { m_wokeAtMillis = bootTimeMillis(); }
+void LockScreen::markOutputsWoke() {
+  if (remote()) {
+    m_remote->outputsWoke();
+    return;
+  }
+  m_wokeAtMillis = bootTimeMillis();
+}
 
-bool LockScreen::isActive() const noexcept { return m_lockPending || m_locked; }
+bool LockScreen::remote() const noexcept {
+  return m_remote != nullptr && m_remote->delegating() && (m_remote->owned() || m_remote->locked()) && !m_lockPending
+      && !m_locked && !m_lockStarting;
+}
+
+void LockScreen::setRemote(LockClient* client) {
+  m_remote = client;
+  if (m_remote == nullptr) {
+    return;
+  }
+  m_remote->setFailedAttemptsCallback([this](const std::vector<std::int64_t>& rejectedAtMs) {
+    m_rejectedAt.insert(m_rejectedAt.end(), rejectedAtMs.begin(), rejectedAtMs.end());
+  });
+  m_remote->setStateCallback([this](const std::string& state) {
+    if (state == "locked") {
+      if (auto after = std::exchange(m_remoteAfterLocked, nullptr)) {
+        after();
+      }
+      if (m_onSessionLocked) {
+        m_onSessionLocked();
+      }
+      if (m_onReadyForSleep) {
+        m_onReadyForSleep();
+      }
+      return;
+    }
+    // A request refused while this instance holds its own lock says nothing about the session.
+    if (!remote()) {
+      return;
+    }
+    m_remoteAfterLocked = nullptr;
+    if (state == "unlocked" && m_onSessionUnlocked) {
+      m_onSessionUnlocked();
+    } else if (state == "aborted" && m_onLockAborted) {
+      m_onLockAborted();
+    }
+  });
+}
+
+bool LockScreen::isActive() const noexcept { return remote() ? m_remote->active() : (m_lockPending || m_locked); }
 
 bool LockScreen::isInGracePeriod() const noexcept {
   if (!m_graceAllowed || !m_locked || m_lockedAtMillis <= 0) {
@@ -735,6 +788,10 @@ void LockScreen::setClockGradient(std::uint32_t from, std::uint32_t to) {
 }
 
 bool LockScreen::lockFromPhone() {
+  if (remote()) {
+    m_remote->lock("phone");
+    return true;
+  }
   if (m_unlocking) {
     m_phoneLockAfterUnlock = true;
     return true;
@@ -756,11 +813,16 @@ bool LockScreen::lockFromPhone() {
   return ok;
 }
 
-bool LockScreen::isSessionLocked() const noexcept { return m_locked; }
+bool LockScreen::isSessionLocked() const noexcept { return remote() ? m_remote->locked() : m_locked; }
 
-bool LockScreen::isReadyForSleep() const { return m_locked && !m_unlocking && allSurfacesReady(); }
+bool LockScreen::isReadyForSleep() const {
+  return remote() ? m_remote->locked() : (m_locked && !m_unlocking && allSurfacesReady());
+}
 
 void LockScreen::prepareForSleep() {
+  if (remote()) {
+    return;
+  }
   resetGracePeriod();
   // Nobody sees the enter transition before sleep; waiting for it holds the suspend for its full length.
   if (!isReadyForSleep()) {
@@ -804,6 +866,10 @@ void LockScreen::onOutputPowerChanged() {
 }
 
 void LockScreen::prepareForOutputPowerOff(std::function<void(bool)> done) {
+  if (remote()) {
+    m_remote->prepareOutputPowerOff(std::move(done));
+    return;
+  }
   cancelOutputPowerOff();
   if (!done) {
     return;
@@ -827,6 +893,9 @@ void LockScreen::prepareForOutputPowerOff(std::function<void(bool)> done) {
 }
 
 void LockScreen::cancelOutputPowerOff() {
+  if (remote()) {
+    m_remote->cancelOutputPowerOff();
+  }
   ++m_outputPowerOffGeneration;
   m_outputPowerOffQueued = false;
   m_outputPowerOffTimer.stop();
@@ -966,6 +1035,17 @@ void LockScreen::dispatchPendingAfterLocked(bool timedOut) {
 
 void LockScreen::runAfterSessionLocked(std::function<void()> fn) {
   if (fn == nullptr) {
+    return;
+  }
+  if (remote()) {
+    if (m_remote->locked()) {
+      fn();
+      return;
+    }
+    m_remoteAfterLocked = std::move(fn);
+    if (!m_remote->active()) {
+      m_remote->lock("user");
+    }
     return;
   }
   cancelPendingAfterLocked();
@@ -1122,6 +1202,10 @@ bool LockScreen::allSurfacesReady() const {
 }
 
 void LockScreen::primeDesktopCaptures() {
+  if (remote()) {
+    m_remote->primeCapture();
+    return;
+  }
   if (m_configService != nullptr && !m_configService->isLockScreenEnabled()) {
     return;
   }
@@ -1141,7 +1225,13 @@ void LockScreen::primeDesktopCaptures() {
   }
 }
 
-void LockScreen::clearPrimedDesktopCaptures() { invalidateDesktopCaptures(); }
+void LockScreen::clearPrimedDesktopCaptures() {
+  if (remote()) {
+    m_remote->clearCapture();
+    return;
+  }
+  invalidateDesktopCaptures();
+}
 
 void LockScreen::invalidateDesktopCaptures() {
   ++m_desktopCaptureGeneration;

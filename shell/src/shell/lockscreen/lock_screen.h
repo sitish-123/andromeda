@@ -34,6 +34,7 @@ class FingerprintAuthenticator;
 class HttpClient;
 class LockSurface;
 class LinkService;
+class LockClient;
 class MprisService;
 class RenderContext;
 class SessionActionRunner;
@@ -61,10 +62,16 @@ public:
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
   void setPhoneServices(LinkService* link);
+  // While the client delegates, the lock process (`noctalia lock`) owns the lock: lock(), state, captures and output
+  // power-off go to it, and the session hooks fire from its state. Without the process (and no lock it left held), or
+  // while this instance has its own lock pending or held, everything stays in process.
+  void setRemote(LockClient* client);
+  [[nodiscard]] bool remote() const noexcept;
   void setNotificationManager(const NotificationManager* notifications);
   // Wall-clock ms of each rejected password since the last unlock; clears it.
   [[nodiscard]] std::vector<std::int64_t> takeRejectedWhileLocked() { return std::exchange(m_rejectedAt, {}); }
-  bool lock();
+  // relock: the compositor already holds the secure blank, so the lock runs even with the lock screen turned off.
+  bool lock(bool relock = false);
   // Lock from the paired phone (Link): password only, no grace, until the next unlock.
   bool lockFromPhone();
   // Battery and network for the status island; the keyboard layout comes from the surface indicators.
@@ -247,6 +254,8 @@ private:
   const WeatherService* m_weather = nullptr;
   HttpClient* m_httpClient = nullptr;
   LinkService* m_link = nullptr;
+  LockClient* m_remote = nullptr;
+  std::function<void()> m_remoteAfterLocked;
   // Decline pressed on the call card: declined after the next successful unlock if that call still rings.
   std::string m_pendingDecline;
   const NotificationManager* m_notifications = nullptr;
