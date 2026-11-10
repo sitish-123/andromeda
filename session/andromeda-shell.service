@@ -1,11 +1,11 @@
 [Unit]
-Description=Noctalia desktop shell
+Description=Andromeda desktop shell
 PartOf=andromeda-session.target
 After=andromeda-session.target
 
 [Service]
 Slice=session.slice
-ExecStart=/usr/bin/noctalia
+ExecStart=/usr/bin/andromeda-shell
 # The shell's working set (RSS about 220 MB) stays in RAM under build load; see session/memory.
 MemoryMin=512M
 Restart=on-failure
@@ -17,3 +17,7 @@ RestartSec=1
 RestartSteps=5
 RestartMaxDelaySec=30
 ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || touch "$XDG_RUNTIME_DIR/noctalia-crashed"'
+
+[Install]
+# The old unit name, for one release; the package also ships it as a link.
+Alias=noctalia.service

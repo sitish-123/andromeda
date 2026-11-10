@@ -124,7 +124,7 @@ PY
   step 8-removed 932 108
   step 9-done 1224 76
 
-  conf=$HOME/.local/state/noctalia/overrides.toml
+  conf=$HOME/.local/state/andromeda/shell/overrides.toml
   wait_for 5 bash -c "[[ -n \"$conf\" ]] && grep -q quick_tiles \"$conf\"" || fail "quick_tiles was not saved"
   tiles=$(sed -n "/quick_tiles/,/]/p" "$conf")
   [[ $tiles == *bluetooth* ]] || fail "saved tiles lost Bluetooth: $tiles"

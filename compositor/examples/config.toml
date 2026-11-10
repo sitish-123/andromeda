@@ -24,7 +24,7 @@ files = []
 # https://docs.noctalia.dev/andromeda/configuration/#general
 #
 [general]
-# autostart = ["noctalia", "kitty"]
+# autostart = ["andromeda-shell", "kitty"]
 # xwayland = false
 # Sharp X11 apps and games on scaled outputs; they see physical resolutions.
 # xwayland_native_resolution = true
@@ -159,9 +159,9 @@ numlock_toggle = true
 
 # Applications and session
 # Terminal and Files open the apps set in Settings > Default Apps.
-"Mod+Return" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
-"Ctrl+Alt+T" = { action = "spawn:noctalia msg default-app-open terminal", repeat = false }
-"Mod+E" = { action = "spawn:noctalia msg default-app-open files", repeat = false }
+"Mod+Return" = { action = "spawn:andromeda-shell msg default-app-open terminal", repeat = false }
+"Ctrl+Alt+T" = { action = "spawn:andromeda-shell msg default-app-open terminal", repeat = false }
+"Mod+E" = { action = "spawn:andromeda-shell msg default-app-open files", repeat = false }
 "Mod" = "shell:panel-toggle launcher"
 "Mod+Space" = { action = "shell:panel-toggle launcher", repeat = false }
 "Mod+Period" = { action = "shell:panel-toggle launcher /emo", repeat = false }
@@ -185,16 +185,16 @@ numlock_toggle = true
 # Media, volume and brightness keys from any input device, routed through the
 # Noctalia shell so its OSDs show. Safe while the session is locked.
 # https://docs.noctalia.dev/noctalia/compositor-settings/andromeda
-"XF86AudioRaiseVolume" = { action = "spawn:noctalia msg volume-up", allow_when_locked = true }
-"XF86AudioLowerVolume" = { action = "spawn:noctalia msg volume-down", allow_when_locked = true }
-"XF86AudioMute" = { action = "spawn:noctalia msg volume-mute", allow_when_locked = true, repeat = false }
-"XF86AudioMicMute" = { action = "spawn:noctalia msg mic-mute", allow_when_locked = true, repeat = false }
-"XF86AudioPause" = { action = "spawn:noctalia msg media toggle", allow_when_locked = true, repeat = false }
-"XF86AudioPlay" = { action = "spawn:noctalia msg media toggle", allow_when_locked = true, repeat = false }
-"XF86AudioNext" = { action = "spawn:noctalia msg media next", allow_when_locked = true }
-"XF86AudioPrev" = { action = "spawn:noctalia msg media previous", allow_when_locked = true }
-"XF86MonBrightnessUp" = { action = "spawn:noctalia msg brightness-up", allow_when_locked = true }
-"XF86MonBrightnessDown" = { action = "spawn:noctalia msg brightness-down", allow_when_locked = true }
+"XF86AudioRaiseVolume" = { action = "spawn:andromeda-shell msg volume-up", allow_when_locked = true }
+"XF86AudioLowerVolume" = { action = "spawn:andromeda-shell msg volume-down", allow_when_locked = true }
+"XF86AudioMute" = { action = "spawn:andromeda-shell msg volume-mute", allow_when_locked = true, repeat = false }
+"XF86AudioMicMute" = { action = "spawn:andromeda-shell msg mic-mute", allow_when_locked = true, repeat = false }
+"XF86AudioPause" = { action = "spawn:andromeda-shell msg media toggle", allow_when_locked = true, repeat = false }
+"XF86AudioPlay" = { action = "spawn:andromeda-shell msg media toggle", allow_when_locked = true, repeat = false }
+"XF86AudioNext" = { action = "spawn:andromeda-shell msg media next", allow_when_locked = true }
+"XF86AudioPrev" = { action = "spawn:andromeda-shell msg media previous", allow_when_locked = true }
+"XF86MonBrightnessUp" = { action = "spawn:andromeda-shell msg brightness-up", allow_when_locked = true }
+"XF86MonBrightnessDown" = { action = "spawn:andromeda-shell msg brightness-down", allow_when_locked = true }
 
 # Screenshots and screen recording
 "Print" = { action = "shell:screenshot-region", repeat = false }

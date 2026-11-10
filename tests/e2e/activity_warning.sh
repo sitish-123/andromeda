@@ -44,7 +44,7 @@ with_noctalia '
   bash "$E2E/activity_click.sh" Pause
   for _ in $(seq 50); do grep -qx "FreezeUnit opencode.service" "$OUT/calls.txt" && break; sleep 0.1; done
   echo "findings=$(findings)" > "$OUT/result.txt"
-  [[ -s $HOME/.local/state/noctalia/activity.json || -n $(find "$HOME/.local/state" -name activity.json 2>/dev/null) ]] \
+  [[ -s $HOME/.local/state/andromeda/shell/activity.json || -n $(find "$HOME/.local/state" -name activity.json 2>/dev/null) ]] \
     && echo "state=saved" >> "$OUT/result.txt"
   echo "action=$("$NOCTALIA" msg notification-action-latest stop)" >> "$OUT/result.txt"
   for _ in $(seq 50); do grep -q "^StopUnit opencode.service replace$" "$OUT/calls.txt" && break; sleep 0.1; done

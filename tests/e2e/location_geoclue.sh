@@ -19,7 +19,7 @@ with_noctalia '
     for _ in $(seq 100); do "$@" && return; sleep 0.1; done
     fail "$what"
   }
-  CONFIG=$RUNTIME/home/.config/noctalia/config.toml
+  CONFIG=$RUNTIME/home/.config/andromeda/shell/config.toml
 
   python3 '"$ROOT"'/tests/e2e/mock_geoclue.py "$OUT/geoclue.log" &
   wait_for "the stand-in GeoClue never came up" grep -q ready "$OUT/geoclue.log"

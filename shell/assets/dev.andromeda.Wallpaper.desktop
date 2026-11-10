@@ -2,7 +2,7 @@
 Type=Application
 Name=Wallpaper
 Comment=Choose the desktop wallpaper
-Exec=noctalia msg panel-open wallpaper
+Exec=andromeda-shell msg panel-open wallpaper
 Icon=preferences-desktop-wallpaper
 Terminal=false
 NoDisplay=true

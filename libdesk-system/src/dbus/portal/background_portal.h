@@ -9,7 +9,7 @@
 
 class SessionBus;
 
-// Serves org.freedesktop.impl.portal.Background under org.freedesktop.impl.portal.desktop.noctalia. xdg-desktop-portal
+// Serves org.freedesktop.impl.portal.Background under org.freedesktop.impl.portal.desktop.andromeda.shell. xdg-desktop-portal
 // asks which apps have windows (GetAppState) and, for a sandboxed app that runs with none, calls NotifyBackground.
 // The reply is always "allow": the shell warns with its own notification, and Activity can stop the app. Autostart is
 // written by xdg-desktop-portal itself (1.17+), so EnableAutostart only reports that it did nothing.

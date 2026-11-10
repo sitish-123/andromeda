@@ -11,7 +11,7 @@ MAX_CLOCK=${MAX_CLOCK:-1.1}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 printf '\n[bar.default]\nstart = [ %s ]\ncenter = []\nend = []\n' "$BAR_START" \
-  >> "$RUNTIME/home/.config/noctalia/config.toml"
+  >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 export ANDROMEDA_IDLE_PROFILE=1
 
 with_noctalia 'sleep 35' # real time: 5 s settle, then three 10 s profile windows

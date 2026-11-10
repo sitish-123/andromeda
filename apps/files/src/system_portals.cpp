@@ -379,7 +379,7 @@ void SystemPortals::answer(std::uint64_t id, std::uint32_t response, const std::
       response = 2;
     }
     if (response == 0) {
-      const gchar* argv[] = {"noctalia", "msg", "wallpaper-set", r.path.c_str(), nullptr};
+      const gchar* argv[] = {"andromeda-shell", "msg", "wallpaper-set", r.path.c_str(), nullptr};
       GError* error = nullptr;
       if (!g_spawn_async(nullptr, const_cast<gchar**>(argv), nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr, nullptr,
                          &error)) {

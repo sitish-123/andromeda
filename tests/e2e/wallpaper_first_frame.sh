@@ -8,12 +8,12 @@ source "$(dirname "$0")/lib.sh"
 rm -rf "$OUT"
 boot_headless 1
 magick -size 7680x4320 xc:'#d04020' -quality 95 "$RUNTIME/wall.jpg"
-cat > "$RUNTIME/home/.config/noctalia/config.toml" <<'TOML'
+cat > "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'TOML'
 [shell]
 setup_wizard_enabled = false
 TOML
-mkdir -p "$RUNTIME/home/.local/state/noctalia"
-cat > "$RUNTIME/home/.local/state/noctalia/overrides.toml" <<TOML
+mkdir -p "$RUNTIME/home/.local/state/andromeda/shell"
+cat > "$RUNTIME/home/.local/state/andromeda/shell/overrides.toml" <<TOML
 [wallpaper.default]
 path = "$RUNTIME/wall.jpg"
 TOML

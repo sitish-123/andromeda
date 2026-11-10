@@ -37,7 +37,7 @@ int main() {
   const std::filesystem::path root =
       std::filesystem::temp_directory_path() / ("noctalia-group-style-persist-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
-  writeFile(root / "config" / "noctalia" / "config.toml", R"(
+  writeFile(root / "config" / "andromeda" / "shell" / "config.toml", R"(
 [bar.default]
 start = [ "clock", "weather" ]
 )");

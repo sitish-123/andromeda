@@ -22,7 +22,7 @@ else
 fi
 # A translucent window with compositor blur and a forced server-side title bar: window glass (decoration + ssd).
 printf '\n[[window_rule]]\nmatch.app_id = "^glassterm$"\nblur = true\ntitle_bar = "forced"\n' >> "$RUNTIME/andromeda.toml"
-printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 export TAG=$SCHEME-g$GLASS
 with_noctalia '
   shot() { grim "$OUT/$TAG-$1.png"; }

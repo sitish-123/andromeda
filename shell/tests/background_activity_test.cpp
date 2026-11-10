@@ -49,7 +49,7 @@ int main() {
   TEST_CHECK(quiet.background && quiet.finding == Finding::None);
 
   // Session plumbing never flags, whatever it costs.
-  for (const char* unit : {"pipewire.service", "andromeda.service", "andromeda-index.service", "noctalia.service",
+  for (const char* unit : {"pipewire.service", "andromeda.service", "andromeda-index.service", "andromeda-shell.service",
                            "xdg-desktop-portal.service", "wireplumber.service", "dbus-broker.service"}) {
     TEST_CHECK(classifyBackground(row(unit, "", 900 * kMb, 9.0, 5 * kHourUsec), "/usr/lib/systemd/user/x", "enabled", ctx).finding == Finding::None);
   }

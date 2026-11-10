@@ -12,7 +12,7 @@ run_bar() {
   (
     boot_headless 1
     printf '\n[bar.default]\nstart = [ %s ]\ncenter = []\nend = []\n\n[widget.sysmon_cpu]\ntype = "sysmon"\nstat = "cpu_usage"\n' \
-      "$widgets" >> "$RUNTIME/home/.config/noctalia/config.toml"
+      "$widgets" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
     with_noctalia 'sleep 3' # real time: the bar maps and its widgets are built
     cp "$OUT/noctalia.log" "$OUT/$name.log"
     echo "$name sampler_started=$(grep -c "detected stats sources" "$OUT/$name.log" || true)" >> "$OUT/result.txt"

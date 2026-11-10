@@ -11,7 +11,7 @@ source "$(dirname "$0")/lib.sh"
 
 boot_headless 1
 printf '\n[appearance]\nscheme = "%s"\n' "$SCHEME" >> "$RUNTIME/andromeda.toml"
-printf '\n[theme]\nmode = "%s"\n\n[accessibility]\nui_scale = %s\n' "$SCHEME" "$UI_SCALE" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[theme]\nmode = "%s"\n\n[accessibility]\nui_scale = %s\n' "$SCHEME" "$UI_SCALE" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 SUFFIX=$SCHEME
 [[ $UI_SCALE == 1 ]] || SUFFIX=$SCHEME-scale$UI_SCALE
 export SUFFIX

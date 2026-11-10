@@ -10,7 +10,7 @@ namespace greeter::passwordless_sync::detail {
 
   namespace {
 
-    constexpr std::string_view kActionId = "org.noctalia.greeter.sync-appearance";
+    constexpr std::string_view kActionId = "org.andromeda.greeter.sync-appearance";
     constexpr std::string_view kExecPathAnnotation = "org.freedesktop.policykit.exec.path";
     constexpr std::string_view kExecArgv1Annotation = "org.freedesktop.policykit.exec.argv1";
 

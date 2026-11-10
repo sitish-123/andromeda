@@ -21,7 +21,7 @@ with_noctalia '
   python3 '"$MOCK"' "$OUT/calls.txt" >> "$OUT/mock.log" 2>&1 &
   wait_for "the mock did not start" bus status com.gundulabs.Gaze
   # The forged signal must arrive during a running verify: face starts on lock, not on request.
-  printf "\n[lockscreen]\nface_on_request = false\n" >> "$HOME/.config/noctalia/config.toml"
+  printf "\n[lockscreen]\nface_on_request = false\n" >> "$HOME/.config/andromeda/shell/config.toml"
   "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
   for _ in $(seq 100); do "$NOCTALIA" msg settings-close > /dev/null 2>&1 && break; sleep 0.1; done
   wtype -s 3600000 &

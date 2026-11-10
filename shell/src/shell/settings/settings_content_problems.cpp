@@ -23,7 +23,7 @@ namespace settings {
 
     // Units the desktop starts: the session services it ships and the app units it launches (app-*.scope, app-*.service).
     bool isDesktopUnit(std::string_view unit) {
-      return unit == "andromeda.service" || unit == "noctalia.service" || unit == "xdg-desktop-portal-andromeda.service"
+      return unit == "andromeda.service" || unit == "xdg-desktop-portal-andromeda.service"
           || (unit.starts_with("andromeda-") && unit.ends_with(".service")) || unit.starts_with("app-");
     }
 
@@ -32,7 +32,7 @@ namespace settings {
       if (base == "andromeda") {
         return i18n::tr("settings.problems.desktop");
       }
-      if (base == "noctalia") {
+      if (base == "andromeda-shell" || base == "noctalia") {
         return i18n::tr("settings.problems.shell");
       }
       return base;

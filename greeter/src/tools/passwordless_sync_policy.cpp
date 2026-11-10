@@ -36,7 +36,9 @@ namespace greeter::passwordless_sync {
     constexpr char kManagedRuleName[] = "49-noctalia-greeter-passwordless-sync.rules";
     constexpr char kLockPath[] = "/run/noctalia-greeter-passwordless-sync.lock";
     constexpr char kApplyHelperName[] = "noctalia-greeter-apply-appearance";
-    constexpr char kActionId[] = "org.noctalia.greeter.sync-appearance";
+    constexpr char kActionId[] = "org.andromeda.greeter.sync-appearance";
+    // Rules written before the rename; read as ours and rewritten with kActionId.
+    constexpr char kLegacyActionId[] = "org.noctalia.greeter.sync-appearance";
     constexpr char kSecureSyncCapability[] = "secure-sync-v1";
     constexpr std::string_view kManagedMarker = "// Managed by noctalia-greeter passwordless-sync. Do not edit.\n";
     constexpr std::string_view kMetadataPrefix = "// metadata: ";
@@ -87,6 +89,7 @@ namespace greeter::passwordless_sync {
     struct ManagedRule {
       std::string helper;
       std::vector<std::string> users;
+      std::string_view actionId = kActionId;
     };
 
     enum class ManagedRuleState : std::uint8_t {
@@ -329,7 +332,7 @@ namespace greeter::passwordless_sync {
       contents += users.dump(-1, ' ', true);
       contents += ";\n\n";
       contents += "  if (action.id == ";
-      contents += nlohmann::json(kActionId).dump(-1, ' ', true);
+      contents += nlohmann::json(rule.actionId).dump(-1, ' ', true);
       contents += " &&\n      action.lookup(\"program\") == ";
       contents += nlohmann::json(rule.helper).dump(-1, ' ', true);
       contents += " &&\n      action.lookup(\"user\") == \"root\" &&\n";
@@ -393,6 +396,9 @@ namespace greeter::passwordless_sync {
               || std::adjacent_find(parsed.users.begin(), parsed.users.end()) != parsed.users.end()) {
             errorOut = "the managed rule user list is not canonical";
             return false;
+          }
+          if (renderRule(parsed) != contents) {
+            parsed.actionId = kLegacyActionId;
           }
           if (renderRule(parsed) != contents) {
             errorOut = "the managed rule was modified outside noctalia-greeter";
@@ -849,7 +855,7 @@ namespace greeter::passwordless_sync {
 
       const bool alreadyEnabled = std::binary_search(rule.users.begin(), rule.users.end(), user);
       const bool helperChanged = rule.helper != helper;
-      if (alreadyEnabled && !helperChanged) {
+      if (alreadyEnabled && !helperChanged && rule.actionId == kActionId) {
         std::cout << "Passwordless appearance sync is already enabled for '" << user << "'.\n";
         return 0;
       }
@@ -861,6 +867,7 @@ namespace greeter::passwordless_sync {
         std::sort(rule.users.begin(), rule.users.end());
       }
       rule.helper = helper;
+      rule.actionId = kActionId;
       if (!installManagedRule(rulesDirectory.get(), rule, error)) {
         return reportError(error);
       }
@@ -905,6 +912,7 @@ namespace greeter::passwordless_sync {
         return 0;
       }
       rule.users.erase(found);
+      rule.actionId = kActionId;
       const bool removedRule = rule.users.empty();
       const bool updated = removedRule ? removeManagedRule(rulesDirectory.get(), error)
                                        : installManagedRule(rulesDirectory.get(), rule, error);
@@ -990,6 +998,11 @@ namespace greeter::passwordless_sync {
 
     printUsage(std::cerr);
     return 2;
+  }
+
+  bool detail::isManagedRule(std::string_view contents, std::string& errorOut) {
+    ManagedRule rule;
+    return parseManagedRule(contents, rule, errorOut);
   }
 
 } // namespace greeter::passwordless_sync

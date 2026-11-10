@@ -14,8 +14,8 @@ trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$RUNTIME"' 
 
 H=$RUNTIME/home
 mkdir -p "$H/.config" "$H/.local/state"
-cp -r ~/.config/noctalia "$H/.config/" 2>/dev/null || true
-cp -r ~/.local/state/noctalia "$H/.local/state/" 2>/dev/null || true
+mkdir -p "$H/.config/andromeda" "$H/.local/state/andromeda" && cp -r ~/.config/andromeda/shell "$H/.config/andromeda/" 2>/dev/null || true
+cp -r ~/.local/state/andromeda/shell "$H/.local/state/andromeda/" 2>/dev/null || true
 ln -s ~/Pictures "$H/Pictures"
 # The user's compositor config without its autostart (the shell starts below).
 sed -e '/^autostart *=/d' ~/.config/andromeda/config.toml > "$RUNTIME/andromeda.toml"

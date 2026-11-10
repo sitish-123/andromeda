@@ -21,7 +21,7 @@ subject=$$
 trap 'busctl --system call com.gundulabs.Gaze /com/gundulabs/Gaze com.gundulabs.Gaze RemovePamInternal s polkit-1 \
   > /dev/null 2>&1 || true; kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null; rm_runtime' EXIT
 
-printf '[shell]\npolkit_agent = true\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '[shell]\npolkit_agent = true\n' >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 # A private session bus keeps this shell off the user's notification and MPRIS names; the system bus stays real.
 run env GIO_USE_VFS=local ANDROMEDA_POLKIT_TEST_PROCESS="$subject" dbus-run-session --config-file="$RUNTIME/bus.conf" -- "$NOCTALIA" > "$OUT/noctalia.log" 2>&1 &
 wait_for "the agent did not register" logged "polkit authentication agent active"

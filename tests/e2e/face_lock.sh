@@ -16,7 +16,7 @@ boot_headless 1
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_gaze.py"
 with_noctalia '
   MOCK='"$MOCK"'
-  CONFIG=$HOME/.config/noctalia/config.toml
+  CONFIG=$HOME/.config/andromeda/shell/config.toml
   fail() { echo "FAIL: $*" >&2; exit 1; }
   msg() { "$NOCTALIA" msg "$@" 2>&1 || true; }
   gaze() { busctl --address="$DBUS_SYSTEM_BUS_ADDRESS" call com.gundulabs.Gaze "$@" > /dev/null; }

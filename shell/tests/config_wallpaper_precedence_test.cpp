@@ -27,18 +27,18 @@ namespace {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / ("noctalia-wallpaper-config-file-" + std::to_string(::getpid()));
     std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root / "config" / "noctalia");
-    std::filesystem::create_directories(root / "state" / "noctalia");
+    std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
+    std::filesystem::create_directories(root / "state" / "andromeda" / "shell");
     std::filesystem::create_directories(root / "data");
     ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
     ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
     ::setenv("ANDROMEDA_DATA_HOME", (root / "data").c_str(), 1);
 
     {
-      std::ofstream out(root / "config" / "noctalia" / "config.toml", std::ios::trunc);
+      std::ofstream out(root / "config" / "andromeda" / "shell" / "config.toml", std::ios::trunc);
       out << "[wallpaper]\nenabled = true\n\n[wallpaper.default]\npath = \"/tmp/from-config.png\"\n";
     }
-    const auto sidecar = root / "state" / "noctalia" / "overrides.toml";
+    const auto sidecar = root / "state" / "andromeda" / "shell" / "overrides.toml";
     expect(!std::filesystem::exists(sidecar), "state dir should start without overrides.toml");
 
     ConfigService config;
@@ -63,15 +63,15 @@ namespace {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / ("noctalia-wallpaper-sidecar-" + std::to_string(::getpid()));
     std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root / "config" / "noctalia");
-    std::filesystem::create_directories(root / "state" / "noctalia");
+    std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
+    std::filesystem::create_directories(root / "state" / "andromeda" / "shell");
     std::filesystem::create_directories(root / "data");
     ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
     ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
     ::setenv("ANDROMEDA_DATA_HOME", (root / "data").c_str(), 1);
 
     {
-      std::ofstream out(root / "config" / "noctalia" / "config.toml", std::ios::trunc);
+      std::ofstream out(root / "config" / "andromeda" / "shell" / "config.toml", std::ios::trunc);
       out << "[wallpaper]\nenabled = true\n\n[wallpaper.default]\npath = \"/tmp/from-config.png\"\n";
     }
     ConfigService config;
@@ -98,8 +98,8 @@ namespace {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / ("noctalia-wallpaper-envvar-" + std::to_string(::getpid()));
     std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root / "config" / "noctalia");
-    std::filesystem::create_directories(root / "state" / "noctalia");
+    std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
+    std::filesystem::create_directories(root / "state" / "andromeda" / "shell");
     std::filesystem::create_directories(root / "data");
     ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
     ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
@@ -107,7 +107,7 @@ namespace {
     ::setenv("ANDROMEDA_WP_TEST", "/tmp/wp-root", 1);
 
     {
-      std::ofstream out(root / "config" / "noctalia" / "config.toml", std::ios::trunc);
+      std::ofstream out(root / "config" / "andromeda" / "shell" / "config.toml", std::ios::trunc);
       out << "[wallpaper]\nenabled = true\ndirectory = \"$ANDROMEDA_WP_TEST/pics\"\n";
     }
 
@@ -130,15 +130,15 @@ namespace {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / ("noctalia-wallpaper-favorite-" + std::to_string(::getpid()));
     std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root / "config" / "noctalia");
-    std::filesystem::create_directories(root / "state" / "noctalia");
+    std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
+    std::filesystem::create_directories(root / "state" / "andromeda" / "shell");
     std::filesystem::create_directories(root / "data");
     ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
     ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
     ::setenv("ANDROMEDA_DATA_HOME", (root / "data").c_str(), 1);
 
     {
-      std::ofstream out(root / "state" / "noctalia" / "overrides.toml", std::ios::trunc);
+      std::ofstream out(root / "state" / "andromeda" / "shell" / "overrides.toml", std::ios::trunc);
       out << "[theme]\nmode = \"dark\"\n\n"
              "[[wallpaper.favorite]]\npath = \"/tmp/explicit.png\"\ntheme_mode = \"light\"\n";
     }

@@ -14,7 +14,7 @@ mkdir -p "$DESK/Projects" "$DESK/Kathmandu trip"
 printf '%%PDF-1.4\n' > "$DESK/Quarterly report final version 2026.pdf"
 cp "$ROOT/shell/assets/andromeda-wallpaper.png" "$DESK/Wallpaper photo.png"
 printf 'notes\n' > "$DESK/notes.txt"
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [desktop_icons]
 enabled = true

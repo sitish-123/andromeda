@@ -76,16 +76,20 @@ namespace settings {
       return text;
     }
 
-    // A desktop-shell command: the argument of shell:, or a spawn of "noctalia msg ...".
+    // A desktop-shell command: the argument of shell:, or a spawn of "andromeda-shell msg ..." (or the old "noctalia msg ...").
     std::optional<std::string> shellCommand(std::string_view action) {
       const std::string_view name = actionName(action);
       const std::string_view argument = actionArgument(action);
       if (name == "shell") {
         return std::string(argument);
       }
-      constexpr std::string_view kMsg = "noctalia msg ";
-      if (name == "spawn" && argument.starts_with(kMsg)) {
-        return std::string(argument.substr(kMsg.size()));
+      if (name != "spawn") {
+        return std::nullopt;
+      }
+      for (const std::string_view msg : {std::string_view("andromeda-shell msg "), std::string_view("noctalia msg ")}) {
+        if (argument.starts_with(msg)) {
+          return std::string(argument.substr(msg.size()));
+        }
       }
       return std::nullopt;
     }

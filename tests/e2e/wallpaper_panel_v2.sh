@@ -19,7 +19,7 @@ for i, (a, b) in enumerate([((20, 40, 90), (200, 120, 60)), ((10, 90, 80), (230,
     img.save(f"{sys.argv[1]}/wall-{i}.png")
 PY
 boot_headless 1
-printf '\n[wallpaper]\ndirectory = "%s"\n' "$RUNTIME/walls" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[wallpaper]\ndirectory = "%s"\n' "$RUNTIME/walls" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 with_noctalia '
   fail() { echo "FAIL: $*" >&2; exit 1; }

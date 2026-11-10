@@ -11,7 +11,7 @@ boot_headless 1
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_gaze.py"
 with_noctalia '
   MOCK='"$MOCK"'
-  CONFIG=$HOME/.config/noctalia/config.toml
+  CONFIG=$HOME/.config/andromeda/shell/config.toml
   fail() { echo "FAIL: $*" >&2; exit 1; }
   msg() { "$NOCTALIA" msg "$@" 2>&1 || true; }
   wait_for() { local what=$1; shift; for _ in $(seq 50); do "$@" && return; sleep 0.1; done; fail "$what"; }

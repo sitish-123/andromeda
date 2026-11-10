@@ -169,7 +169,7 @@ in
         security.polkit.extraConfig = lib.mkAfter ''
           polkit.addRule(function(action, subject) {
             var allowedUsers = ${builtins.toJSON cfg.passwordless-sync-users};
-            if (action.id == "org.noctalia.greeter.sync-appearance" &&
+            if (action.id == "org.andromeda.greeter.sync-appearance" &&
                 action.lookup("program") == "${cfg.package}/bin/noctalia-greeter-apply-appearance" &&
                 action.lookup("user") == "root" &&
                 subject.local && subject.active &&

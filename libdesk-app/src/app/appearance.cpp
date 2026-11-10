@@ -9,7 +9,7 @@
 namespace {
   constexpr Logger kLog("appearance");
   const sdbus::ServiceName kPortal{"org.freedesktop.portal.Desktop"};
-  const sdbus::ServiceName kBackend{"org.freedesktop.impl.portal.desktop.noctalia"};
+  const sdbus::ServiceName kBackend{"org.freedesktop.impl.portal.desktop.andromeda.shell"};
   const sdbus::ObjectPath kPath{"/org/freedesktop/portal/desktop"};
   constexpr auto kPortalSettings = "org.freedesktop.portal.Settings";
   constexpr auto kBackendSettings = "org.freedesktop.impl.portal.Settings";

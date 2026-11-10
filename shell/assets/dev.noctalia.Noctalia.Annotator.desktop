@@ -1,7 +1,7 @@
 [Desktop Entry]
 Categories=Graphics;ImageProcessing;
 Comment=Edit images with Noctalia's built-in image annotator
-Exec=noctalia msg annotate %f
+Exec=andromeda-shell msg annotate %f
 Icon=andromeda
 MimeType=image/bmp;image/gif;image/vnd.microsoft.icon;image/jpeg;image/jxl;image/png;image/qoi;image/svg+xml;image/x-tga;image/webp;image/vnd.wap.wbmp;image/x-portable-anymap;image/x-portable-graymap;image/x-portable-pixmap;
 Name=Andromeda Image Annotator

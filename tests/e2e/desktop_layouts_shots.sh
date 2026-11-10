@@ -23,7 +23,7 @@ style = "andromeda"
 button_position = "right"
 CONFIG
 run "$ANDROMEDA" msg config-reload > /dev/null
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [dock]
 enabled = true

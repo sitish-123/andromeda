@@ -8,7 +8,7 @@
 
 class SessionBus;
 
-// Serves org.freedesktop.impl.portal.GlobalShortcuts under org.freedesktop.impl.portal.desktop.noctalia. Apps
+// Serves org.freedesktop.impl.portal.GlobalShortcuts under org.freedesktop.impl.portal.desktop.andromeda.shell. Apps
 // register shortcut ids; nothing grabs a key on an app's behalf. A key reaches an app only through a compositor
 // keybind the user writes, `shell:global-shortcut <app-id> <shortcut-id>`, which calls activate().
 class GlobalShortcutsPortal {

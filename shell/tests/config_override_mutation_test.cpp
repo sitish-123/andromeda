@@ -49,7 +49,7 @@ int main() {
   const std::filesystem::path root =
       std::filesystem::temp_directory_path() / ("noctalia-override-mutation-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
-  writeFile(root / "config" / "noctalia" / "config.toml", "[dock]\nenabled = true\nmonitors = [\"legacy\"]\n");
+  writeFile(root / "config" / "andromeda" / "shell" / "config.toml", "[dock]\nenabled = true\nmonitors = [\"legacy\"]\n");
 
   ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
   ::setenv("XDG_STATE_HOME", (root / "state").c_str(), 1);
@@ -128,9 +128,9 @@ int main() {
   }
 
   const std::filesystem::path overlayRoot = root / "overlay-case";
-  writeFile(overlayRoot / "config" / "noctalia" / "config.toml", "[dock]\nenabled = true\n");
+  writeFile(overlayRoot / "config" / "andromeda" / "shell" / "config.toml", "[dock]\nenabled = true\n");
   writeFile(
-      overlayRoot / "state" / "noctalia" / "settings.toml", "config_version = 14\n[dock]\nmonitors = [\"DP-1\"]\n"
+      overlayRoot / "state" / "andromeda" / "shell" / "settings.toml", "config_version = 14\n[dock]\nmonitors = [\"DP-1\"]\n"
   );
   ::setenv("ANDROMEDA_CONFIG_HOME", (overlayRoot / "config").c_str(), 1);
   ::setenv("XDG_STATE_HOME", (overlayRoot / "state").c_str(), 1);
@@ -144,7 +144,7 @@ int main() {
         config.hasOverride({"dock", "monitor", "DP-1", "enabled"}),
         "sidecar migration persisted the enabled monitor override"
     );
-    const auto stateDir = overlayRoot / "state" / "noctalia";
+    const auto stateDir = overlayRoot / "state" / "andromeda" / "shell";
     expect(std::filesystem::exists(stateDir / "overrides.toml"), "legacy settings.toml was renamed to overrides.toml");
     expect(!std::filesystem::exists(stateDir / "settings.toml"), "legacy settings.toml is gone after the rename");
   }
@@ -153,7 +153,7 @@ int main() {
   // widget schema default is a real override and must survive the no-op override pruning.
   const std::filesystem::path inheritRoot = root / "bar-inherit-case";
   writeFile(
-      inheritRoot / "config" / "noctalia" / "config.toml",
+      inheritRoot / "config" / "andromeda" / "shell" / "config.toml",
       "[bar.default]\nshow_tooltip = false\n\n[widget.clock]\ntype = \"clock\"\n"
   );
   ::setenv("ANDROMEDA_CONFIG_HOME", (inheritRoot / "config").c_str(), 1);
@@ -170,7 +170,7 @@ int main() {
   // shell.panel_anchor_bar names a bar: renaming that bar in Settings must carry the key along, or every
   // panel open without a source bar (IPC, shortcuts) fails on the stale name. Deleting it clears the key.
   const std::filesystem::path anchorRoot = root / "anchor-bar-case";
-  writeFile(anchorRoot / "config" / "noctalia" / "config.toml", "");
+  writeFile(anchorRoot / "config" / "andromeda" / "shell" / "config.toml", "");
   ::setenv("ANDROMEDA_CONFIG_HOME", (anchorRoot / "config").c_str(), 1);
   ::setenv("XDG_STATE_HOME", (anchorRoot / "state").c_str(), 1);
   {

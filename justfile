@@ -113,16 +113,16 @@ design-reference:
 dev-live:
     meson configure shell/build-f7 -Dcpp_link_args=-fuse-ld=mold -Dc_link_args=-fuse-ld=mold
     tools/f7.sh noctalia noctalia-calc.so
-    mkdir -p ~/.config/systemd/user/noctalia.service.d /tmp/andromeda-live
-    printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/noctalia\n' "$PWD" "$PWD" > ~/.config/systemd/user/noctalia.service.d/dev-live.conf
-    systemctl --user daemon-reload && systemctl --user restart noctalia.service
+    mkdir -p ~/.config/systemd/user/andromeda-shell.service.d /tmp/andromeda-live
+    printf '[Service]\nEnvironment=ANDROMEDA_DEV_TOKENS=%s/protocol/design-tokens.toml\nExecStart=\nExecStart=%s/shell/build-f7/noctalia\n' "$PWD" "$PWD" > ~/.config/systemd/user/andromeda-shell.service.d/dev-live.conf
+    systemctl --user daemon-reload && systemctl --user restart andromeda-shell.service
     # Restart only on a new binary: a source watch restarts the live shell on every half-done agent edit.
-    watchexec -p -w shell/build-f7/noctalia --debounce 500ms -- 'systemctl --user restart noctalia.service && sleep 1 && grim /tmp/andromeda-live/last.png'
+    watchexec -p -w shell/build-f7/noctalia --debounce 500ms -- 'systemctl --user restart andromeda-shell.service && sleep 1 && grim /tmp/andromeda-live/last.png'
 
 # Back to the packaged shell.
 dev-live-off:
-    rm -f ~/.config/systemd/user/noctalia.service.d/dev-live.conf
-    systemctl --user daemon-reload && systemctl --user restart noctalia.service
+    rm -f ~/.config/systemd/user/andromeda-shell.service.d/dev-live.conf ~/.config/systemd/user/noctalia.service.d/dev-live.conf
+    systemctl --user daemon-reload && systemctl --user restart andromeda-shell.service
 
 # The session compositor runs compositor/build-live/andromeda from the next login. A compositor cannot restart under a live session: rebuild, then log out and in.
 dev-comp:

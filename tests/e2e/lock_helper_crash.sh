@@ -14,9 +14,9 @@ OUT=${OUT:-$(pwd)/artifacts/lock-helper-crash}
 source "$(dirname "$0")/lib.sh"
 rm -rf "$OUT"
 boot_headless 1
-mkdir -p "$RUNTIME/home/.local/share/noctalia/plugins"
-cp -r "$ROOT/shell/tests/lock_helper/me-lockbox" "$RUNTIME/home/.local/share/noctalia/plugins/"
-cat > "$RUNTIME/home/.config/noctalia/config.toml" <<'TOML'
+mkdir -p "$RUNTIME/home/.local/share/andromeda/shell/plugins"
+cp -r "$ROOT/shell/tests/lock_helper/me-lockbox" "$RUNTIME/home/.local/share/andromeda/shell/plugins/"
+cat > "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'TOML'
 [plugins]
 auto_update = "none"
 enabled = ["me/lockbox"]

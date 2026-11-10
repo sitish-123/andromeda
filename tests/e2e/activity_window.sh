@@ -16,7 +16,7 @@ REAL_RUNTIME=/run/user/$(id -u)
 SCOPE="app-act\\x2dtest-$$.scope"
 trap 'XDG_RUNTIME_DIR=$REAL_RUNTIME systemctl --user stop "$SCOPE" > /dev/null 2>&1 || true; kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm_runtime' EXIT
 boot_headless 1
-printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_systemd1.py"
 export SCOPE REAL_RUNTIME POINTER=$ROOT/compositor/build-debug/tests/pointer-client

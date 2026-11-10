@@ -413,10 +413,10 @@ std::filesystem::path LocationService::transportCacheDir() {
 
 std::filesystem::path LocationService::stateCacheFilePath() {
   if (const char* xdg = std::getenv("XDG_CACHE_HOME"); xdg != nullptr && xdg[0] != '\0') {
-    return std::filesystem::path(xdg) / "noctalia" / "location.json";
+    return std::filesystem::path(xdg) / "andromeda" / "shell" / "location.json";
   }
   if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
-    return std::filesystem::path(home) / ".cache" / "noctalia" / "location.json";
+    return std::filesystem::path(home) / ".cache" / "andromeda" / "shell" / "location.json";
   }
   return std::filesystem::path("/tmp") / "noctalia-location-cache.json";
 }

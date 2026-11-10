@@ -52,7 +52,7 @@ ANDROMEDA_SETTINGS_TEST_MODAL=file ANDROMEDA_SETTINGS_TEST_DIR=$docs with_noctal
   sleep 1
   grim "$OUT/file-dialog.png"
   # No own cache dir at all is the pass case; find fails on it, so it must not end the script.
-  own=$( { find "$HOME/.cache/noctalia/thumbnails" -name "*.webp" 2> /dev/null || true; } | wc -l)
+  own=$( { find "$HOME/.cache/andromeda/shell/thumbnails" -name "*.webp" 2> /dev/null || true; } | wc -l)
   (( own == 0 )) || { echo "FAIL: the shell wrote $own WebP thumbnails of its own"; exit 1; }
 '
 echo "PASS; artifacts: $OUT"

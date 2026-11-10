@@ -19,7 +19,7 @@ END=$(date -u -d "+3 hours" +%Y%m%dT%H0000Z)
 printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nBEGIN:VEVENT\r\nUID:e2e-1@local\r\nDTSTAMP:%s\r\nDTSTART:%s\r\nDTEND:%s\r\nSUMMARY:Quarterly Pelican Review\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n' \
   "$START" "$START" "$END" > "$CAL/e2e-1.ics"
 for colour in red green blue; do magick -size 640x360 "xc:$colour" "$RUNTIME/walls/$colour.png"; done
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<TOML
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<TOML
 
 [calendar]
 enabled = true

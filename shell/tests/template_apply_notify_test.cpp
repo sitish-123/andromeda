@@ -100,7 +100,7 @@ namespace {
     );
     writeFile(root / "input.tmpl", "generated theme\n");
     writeFile(
-        root / "config" / "noctalia" / "config.toml",
+        root / "config" / "andromeda" / "shell" / "config.toml",
         "[theme.templates.user.warning]\n"
         "enabled = true\n"
         "input_path = \""
@@ -212,7 +212,7 @@ int main() {
   const std::filesystem::path root =
       std::filesystem::temp_directory_path() / ("noctalia-template-notify-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
-  std::filesystem::create_directories(root / "config" / "noctalia");
+  std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
   std::filesystem::create_directories(root / "state");
   std::filesystem::create_directories(root / "data");
   ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);

@@ -71,7 +71,7 @@ namespace {
     logWarn("{}", std::string(10'000, 'x'));
     flushLogs();
 
-    const auto logPath = cacheRoot / "noctalia" / "noctalia.log";
+    const auto logPath = cacheRoot / "andromeda" / "shell" / "noctalia.log";
     std::error_code ec;
     const auto size = std::filesystem::file_size(logPath, ec);
     bool ok = expect(!ec, "failed to stat capped log file");
@@ -90,7 +90,7 @@ namespace {
       return false;
     }
 
-    const auto logDir = cacheRoot / "noctalia";
+    const auto logDir = cacheRoot / "andromeda" / "shell";
     std::filesystem::create_directories(logDir);
 
     const auto logPath = logDir / "noctalia.log";

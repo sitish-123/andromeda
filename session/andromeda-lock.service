@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Slice=session.slice
-ExecStart=/usr/bin/noctalia lock
+ExecStart=/usr/bin/andromeda-shell lock
 # Always: a lock process that exits for any reason must come back, or lock requests have no taker.
 Restart=always
 RestartSec=0

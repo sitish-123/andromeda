@@ -7,7 +7,7 @@ OUT=${OUT:-$(pwd)/artifacts/ryoku-lock}
 source "$(dirname "$0")/lib.sh"
 rm -rf "$OUT"
 boot_headless 1
-printf '\n[lockscreen]\nstyle = "ryoku"\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[lockscreen]\nstyle = "ryoku"\n' >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 with_noctalia '
   fail() { echo "FAIL: $*" >&2; exit 1; }

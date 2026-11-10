@@ -3,7 +3,7 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
 <policyconfig>
-  <action id="org.noctalia.greeter.sync-appearance">
+  <action id="org.andromeda.greeter.sync-appearance">
     <description>Apply Noctalia Shell appearance to the greeter</description>
     <message>Authentication is required to sync appearance to the login greeter</message>
     <defaults>

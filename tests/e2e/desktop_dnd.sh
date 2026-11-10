@@ -37,7 +37,7 @@ Icon=text-x-generic
 MimeType=text/plain;
 DESKTOP
 rm -f "$OUT/caught.txt"
-cat >> "$H/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$H/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [desktop_icons]
 enabled = true
@@ -152,7 +152,7 @@ with_noctalia '
 
   # 5. Use Stacks: the two images fold into one Images stack; a click opens it, a second click closes it.
   # The desktop menu toggle writes this key; the config watcher applies it.
-  sed -i "s/^start_corner = \"top_right\"$/start_corner = \"top_right\"\nstacks = true/" "$H/.config/noctalia/config.toml"
+  sed -i "s/^start_corner = \"top_right\"$/start_corner = \"top_right\"\nstacks = true/" "$H/.config/andromeda/shell/config.toml"
   wait_for "the desktop did not switch to stacks" logged "$OUT/noctalia.log" "desktop stacks on"
   settle
   grim "$OUT/stacks.png"

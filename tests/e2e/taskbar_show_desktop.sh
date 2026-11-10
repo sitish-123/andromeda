@@ -12,7 +12,7 @@ POINTER=$ROOT/compositor/build-debug/tests/pointer-client
 boot_headless 1
 printf '\n[layout]\nmode = "floating"\n' >> "$RUNTIME/andromeda.toml"
 run "$ANDROMEDA" msg config-reload > /dev/null
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [bar.default]
 position = "bottom"

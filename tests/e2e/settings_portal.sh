@@ -18,7 +18,7 @@ export PATH="$RUNTIME/stub:$PATH"
 
 with_noctalia '
   impl() {
-    busctl --user call org.freedesktop.impl.portal.desktop.noctalia /org/freedesktop/portal/desktop \
+    busctl --user call org.freedesktop.impl.portal.desktop.andromeda.shell /org/freedesktop/portal/desktop \
       org.freedesktop.impl.portal.Settings "$@"
   }
   rss() { awk "/VmRSS/ {print \$2}" /proc/$(pgrep -f "^$NOCTALIA\$" | head -1)/status; }

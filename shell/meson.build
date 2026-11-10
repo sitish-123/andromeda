@@ -428,6 +428,7 @@ _noctalia_sources = files(
   'src/config/schema/config_sections.cpp',
   'src/config/state_store.cpp',
   'src/config/cli.cpp',
+  'src/config/legacy_home_move.cpp',
   'src/core/build_info.cpp',
   'src/core/files/file_watcher.cpp',
   'src/core/shared_worker.cpp',
@@ -1075,6 +1076,11 @@ noctalia_exe = executable('noctalia',
   cpp_args: _noctalia_cpp_args,
   install: true,
 )
+# The build tree keeps the name noctalia; the installed file is andromeda-shell, and noctalia stays a link for one release.
+meson.add_install_script('sh', '-c',
+  'cd "$MESON_INSTALL_DESTDIR_PREFIX/@0@" && { [ -L noctalia ] || mv -f noctalia andromeda-shell; } && ln -sfn andromeda-shell noctalia'.format(
+    get_option('bindir')),
+)
 
 # libqalculate and its library tree load on the first calculator use, not at shell start.
 noctalia_calc_module = shared_module('noctalia-calc',
@@ -1095,11 +1101,11 @@ install_subdir('assets',
 )
 
 install_data(
-  'data/noctalia.portal',
+  'data/andromeda-shell.portal',
   install_dir: get_option('datadir') / 'xdg-desktop-portal' / 'portals',
 )
 install_data(
-  'data/org.freedesktop.impl.portal.desktop.noctalia.service',
+  'data/org.freedesktop.impl.portal.desktop.andromeda.shell.service',
   install_dir: get_option('datadir') / 'dbus-1' / 'services',
 )
 install_data(
@@ -1238,6 +1244,7 @@ if build_tests
     'clock_style',
     'offscreen_render',
     'lockscreen_session_actions',
+    'legacy_home_move',
     'log',
     'math_provider',
     'monitor_selector',

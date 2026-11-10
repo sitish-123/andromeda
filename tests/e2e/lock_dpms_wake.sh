@@ -8,7 +8,7 @@ OUT=${OUT:-$(pwd)/artifacts/lock-dpms-wake}
 source "$(dirname "$0")/lib.sh"
 rm -rf "$OUT"
 boot_headless 1
-cat > "$RUNTIME/home/.config/noctalia/config.toml" <<'TOML'
+cat > "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'TOML'
 [shell]
 setup_wizard_enabled = false
 TOML

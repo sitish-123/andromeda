@@ -10,7 +10,7 @@ source "$(dirname "$0")/lib.sh"
 LINK_BIN=${LINK_BIN:-$ROOT/link/target/debug}
 boot_headless 1
 # The default island bar has no phone item (phone status lives in the Control Center); this test adds the opt-in widget.
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [bar.default]
 end = ["island_network", "island_volume", "island_battery", "island_clock", "phone", "notifications"]

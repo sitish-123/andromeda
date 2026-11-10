@@ -11,7 +11,7 @@ namespace sdbus {
   class Variant;
 }
 
-// Serves org.freedesktop.impl.portal.Settings under org.freedesktop.impl.portal.desktop.noctalia, so apps follow
+// Serves org.freedesktop.impl.portal.Settings under org.freedesktop.impl.portal.desktop.andromeda.shell, so apps follow
 // the shell's dark mode through xdg-desktop-portal (org.freedesktop.appearance color-scheme).
 class SettingsPortal {
 public:

@@ -14,8 +14,8 @@ rm -rf "$OUT"
 boot_headless 1
 printf '\n[output.HEADLESS-1]\nscale = %s\n' "$SCALE" >> "$RUNTIME/andromeda.toml"
 printf '\n[lockscreen]\ntheme = "andromeda"\nlayout = "%s"\nclock_style = "%s"\nclock_size = "%s"\nwallpaper = "%s"\nowner_message = "If found, call +977 98XX XXX XXX"\n' "$LAYOUT" "$CLOCK" "$CLOCK_SIZE" "$WALL" \
-  >> "$RUNTIME/home/.config/noctalia/config.toml"
-[[ -z ${OUTPUT_WALL:-} ]] || printf 'wallpaper_outputs = { "HEADLESS-1" = "%s" }\n' "$OUTPUT_WALL" >> "$RUNTIME/home/.config/noctalia/config.toml"
+  >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
+[[ -z ${OUTPUT_WALL:-} ]] || printf 'wallpaper_outputs = { "HEADLESS-1" = "%s" }\n' "$OUTPUT_WALL" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 KEYS=${KEYS:-$ROOT/compositor/build-debug/tests/pointer-client}
 with_noctalia '

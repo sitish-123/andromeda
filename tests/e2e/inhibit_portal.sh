@@ -13,7 +13,7 @@ MOCK="$(cd "$(dirname "$0")" && pwd)/mock_logind.py"
 with_noctalia '
   python3 '"$MOCK"' "$OUT/calls.txt" > "$OUT/mock.log" 2>&1 &
   for _ in $(seq 50); do grep -q ready "$OUT/mock.log" && break; sleep 0.1; done
-  portal() { gdbus call --session --dest org.freedesktop.impl.portal.desktop.noctalia "$@"; }
+  portal() { gdbus call --session --dest org.freedesktop.impl.portal.desktop.andromeda.shell "$@"; }
   wait_line() { for _ in $(seq 30); do grep -qx "$1" "$OUT/calls.txt" && return 0; sleep 0.1; done
     echo "FAIL: logind never saw \"$1\"; calls: $(tr "\n" "," < "$OUT/calls.txt")"; exit 1; }
 
@@ -27,7 +27,7 @@ with_noctalia '
   wait_line "Release idle e2e.app"
   wait_line "Release sleep e2e.app"
 
-  gdbus monitor --session --dest org.freedesktop.impl.portal.desktop.noctalia > "$OUT/signals.txt" &
+  gdbus monitor --session --dest org.freedesktop.impl.portal.desktop.andromeda.shell > "$OUT/signals.txt" &
   sleep 0.3
   response=$(portal --object-path /org/freedesktop/portal/desktop \
     --method org.freedesktop.impl.portal.Inhibit.CreateMonitor \

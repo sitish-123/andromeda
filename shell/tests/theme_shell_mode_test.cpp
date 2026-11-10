@@ -55,8 +55,8 @@ int main() {
   const std::filesystem::path root =
       std::filesystem::temp_directory_path() / ("noctalia-theme-shell-mode-" + std::to_string(::getpid()));
   std::filesystem::remove_all(root);
-  std::filesystem::create_directories(root / "config" / "noctalia");
-  std::filesystem::create_directories(root / "state" / "noctalia");
+  std::filesystem::create_directories(root / "config" / "andromeda" / "shell");
+  std::filesystem::create_directories(root / "state" / "andromeda" / "shell");
   std::filesystem::create_directories(root / "data");
   ::setenv("ANDROMEDA_CONFIG_HOME", (root / "config").c_str(), 1);
   ::setenv("ANDROMEDA_STATE_HOME", (root / "state").c_str(), 1);
@@ -64,7 +64,7 @@ int main() {
 
   // ConfigService reads its persisted overrides from <state dir>/overrides.toml, the same file
   // the settings GUI writes.
-  const std::filesystem::path overrides = root / "state" / "noctalia" / "overrides.toml";
+  const std::filesystem::path overrides = root / "state" / "andromeda" / "shell" / "overrides.toml";
   // follow: one mode drives Noctalia and apps together.
   {
     const Resolution r = resolve(overrides, "[theme]\nmode = \"light\"\nshell_mode = \"follow\"\n");

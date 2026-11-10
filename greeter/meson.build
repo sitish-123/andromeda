@@ -126,7 +126,7 @@ noctalia_greeter_executable = executable('noctalia-greeter',
     '-DNOCTALIA_GREETER_VERSION="' + meson.project_version() + '"',
     '-DNOCTALIA_GREETER_ASSETS_DIR="' + meson.project_source_root() / 'assets' + '"',
     '-DNOCTALIA_GREETER_INSTALLED_ASSETS_DIR="' + get_option('datadir') / 'noctalia-greeter' / 'assets' + '"',
-    '-DNOCTALIA_GREETER_INSTALLED_POLICY_PATH="' + get_option('prefix') / get_option('datadir') / 'polkit-1' / 'actions' / 'org.noctalia.greeter.apply-appearance.policy' + '"',
+    '-DNOCTALIA_GREETER_INSTALLED_POLICY_PATH="' + get_option('prefix') / get_option('datadir') / 'polkit-1' / 'actions' / 'org.andromeda.greeter.apply-appearance.policy' + '"',
   ],
   install: true,
 )
@@ -188,8 +188,8 @@ apply_appearance_executable = executable('noctalia-greeter-apply-appearance',
 )
 
 installed_polkit_policy = configure_file(
-  input: 'data/org.noctalia.greeter.apply-appearance.policy.in',
-  output: 'org.noctalia.greeter.apply-appearance.policy',
+  input: 'data/org.andromeda.greeter.apply-appearance.policy.in',
+  output: 'org.andromeda.greeter.apply-appearance.policy',
   configuration: {
     'bindir': get_option('prefix') / get_option('bindir'),
   },
@@ -208,9 +208,11 @@ passwordless_sync_policy_xml_test = executable(
   'passwordless-sync-policy-xml-test',
   sources: files(
     'tests/passwordless_sync_policy_xml_test.cpp',
+    'src/tools/passwordless_sync_policy.cpp',
     'src/tools/passwordless_sync_policy_xml.cpp',
   ),
-  dependencies: [libxml2_dep],
+  dependencies: [libxml2_dep, nlohmann_dep],
+  cpp_args: ['-DNOCTALIA_GREETER_INSTALLED_POLICY_PATH="' + get_option('prefix') / get_option('datadir') / 'polkit-1' / 'actions' / 'org.andromeda.greeter.apply-appearance.policy' + '"'],
   include_directories: include_directories('src'),
   build_by_default: false,
 )

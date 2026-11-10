@@ -1525,7 +1525,7 @@ std::filesystem::path CalendarService::cacheFilePath() {
   } else {
     base = "/tmp";
   }
-  return base / "noctalia" / "calendar" / "events.enc";
+  return base / "andromeda" / "shell" / "calendar" / "events.enc";
 }
 
 std::filesystem::path CalendarService::legacyCacheFilePath() {

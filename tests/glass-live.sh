@@ -13,7 +13,7 @@ RECORD=${RECORD:-0}
 GLASS=${GLASS:-}
 # REDUCE=1 runs with glass off (Reduce Transparency): the baseline to subtract from a glass run.
 REDUCE=${REDUCE:-0}
-SHELL_CONF=$HOME/.config/noctalia/config.toml
+SHELL_CONF=$HOME/.config/andromeda/shell/config.toml
 SETTINGS=${SETTINGS:-$HOME/.config/andromeda/settings.toml}
 FRAMES=${FRAMES:-$OUT/frames.log}
 RAPL=/sys/class/powercap/intel-rapl:0/energy_uj
@@ -27,7 +27,7 @@ type_text() { ydotool type --key-delay "$1" "$2" > /dev/null 2>&1; }
 backspaces() { for _ in $(seq "$1"); do ydotool key 14:1 14:0 > /dev/null 2>&1; done; }
 for t in foot mpv ffmpeg ydotool notify-send; do command -v "$t" > /dev/null || { echo "missing $t" >&2; exit 2; }; done
 
-comp=$(pgrep -xn -u "$(id -u)" andromeda); shellpid=$(pgrep -xn -u "$(id -u)" noctalia)
+comp=$(pgrep -xn -u "$(id -u)" andromeda); shellpid=$(pgrep -xn -u "$(id -u)" andromeda-shell)
 glass0=$(sed -n 's/^glass *= *//p' "$SETTINGS" | head -1); scheme0=$(sed -n "s/^scheme *= *'\?\([a-z]*\)'\?/\1/p" "$SETTINGS" | head -1)
 reduce0=$(sed -n 's/^reduce_transparency *= *\([a-z]*\).*/\1/p' "$SETTINGS" | head -1)
 restore() {
@@ -35,7 +35,7 @@ restore() {
   [[ -f $SHELL_CONF.glass-live ]] && mv "$SHELL_CONF.glass-live" "$SHELL_CONF"
   [[ -f $SHELL_CONF.glass-live-none ]] && rm -f "$SHELL_CONF" "$SHELL_CONF.glass-live-none"
   set_glass "${glass0:-0.5}"; set_scheme "${scheme0:-light}"
-  noctalia msg panel-close > /dev/null 2>&1 || true
+  andromeda-shell msg panel-close > /dev/null 2>&1 || true
   kill $(jobs -p) 2> /dev/null || true; wait 2> /dev/null
 }
 trap restore EXIT
@@ -47,7 +47,7 @@ set_reduce() {
   else sed -i "/^\[appearance\]/a reduce_transparency = $1" "$SETTINGS"; fi
 }
 set_scheme() { sed -i "s/^scheme *=.*/scheme = '$1'/" "$SETTINGS"; }
-msg() { noctalia msg "$@" > /dev/null 2>&1; }
+msg() { andromeda-shell msg "$@" > /dev/null 2>&1; }
 energy() { sudo -n cat "$RAPL" 2> /dev/null || echo 0; }
 ticks() { awk '{print $14 + $15}' "/proc/$1/stat" 2> /dev/null || echo 0; }
 rss() { awk '/^VmRSS/ {print int($2 / 1024)}' "/proc/$1/status" 2> /dev/null || echo 0; }

@@ -18,7 +18,7 @@ with_noctalia '
   # Keys typed before the editor has the keyboard go to the old focus: wait for its "keyboard focus" line.
   opened() { grep -c "lock-editor.* keyboard focus" "$OUT/noctalia.log" | grep -qx "$1"; }
   closed() { grep -c "lock-editor.* closed" "$OUT/noctalia.log" | grep -qx "$1"; }
-  saved() { grep -rqs "layout = \"glance\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  saved() { grep -rqs "layout = \"glance\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   keys() { for k in "$@"; do wtype -k "$k"; done; }
   # Focus order with the panel open: Slots, Free, Wallpaper, Layout, Theme, Done, Centered, Glance, Split, Minimal,
   # Andromeda, Ryoku.
@@ -48,8 +48,8 @@ with_noctalia '
 
   # Slots: Tab past the bar to the clock slot, Return opens the clock sheet; 7 filter chips, then Tab Tab = the second
   # style (bold). 27 Tabs on = the Weight bar (after the 26 later tiles); Right = +1/20 of 100..900, so 640.
-  bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
-  weight() { grep -rqs "clock_weight = 640" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  bold() { grep -rqs "clock_style = \"bold\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
+  weight() { grep -rqs "clock_weight = 640" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a third time"
   wait_for "editor did not open a third time" opened 3
   keys Tab Tab Tab Tab Tab Tab Tab Return Tab Tab Tab Tab Tab Tab Tab Tab Tab Return
@@ -65,9 +65,9 @@ with_noctalia '
   # Slots: the first row place opens the widget gallery on Weather (Return picks it); four Tabs on = the bottom slot,
   # whose chooser opens on Media; Tab Return picks Phone; four Tabs on = Done.
   # The writer may wrap the array over lines: match the key, then "weather" in the next lines.
-  widgets() { grep -rhsA3 "^ *widgets = \[" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia" | grep -q "\"weather\""; }
-  dump() { grep -rhsA12 "^\[lockscreen\]" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia" >&2 || true; }
-  phone() { grep -rqs "bottom_slot = \"phone\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  widgets() { grep -rhsA3 "^ *widgets = \[" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell" | grep -q "\"weather\""; }
+  dump() { grep -rhsA12 "^\[lockscreen\]" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell" >&2 || true; }
+  phone() { grep -rqs "bottom_slot = \"phone\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a fourth time"
   wait_for "editor did not open a fourth time" opened 4
   keys Tab Tab Tab Tab Return Tab Tab Tab Return
@@ -91,7 +91,7 @@ with_noctalia '
     python3 - "$HOME" "$1" <<"PY"
 import pathlib, sys, tomllib
 home, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
-for f in list((home / ".config/noctalia").rglob("*.toml")) + list((home / ".local/state/noctalia").rglob("*.toml")):
+for f in list((home / ".config/andromeda/shell").rglob("*.toml")) + list((home / ".local/state/andromeda/shell").rglob("*.toml")):
     data = tomllib.loads(f.read_text())
     for w in data.get("lockscreen_widgets", {}).get("widget", {}).values():
         if w.get("type") == "clock" and (mode != "moved" or round(w.get("cx", -1)) % 32 == 24):
@@ -100,7 +100,7 @@ sys.exit(1)
 PY
   }
   free_saved() { lock_clock moved; }
-  custom() { grep -rqs "layout = \"custom\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  custom() { grep -rqs "layout = \"custom\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a fifth time"
   wait_for "editor did not open a fifth time" opened 5
   keys Tab Tab Return Tab Return Tab Tab Tab Tab Tab Return Right Right
@@ -113,7 +113,7 @@ PY
 
   # Layout change with placed widgets asks first (rulebook 9.10 alert, Cancel focused): Return cancels, the pick again,
   # Tab Return confirms; Escape closes the panel, five Tabs = Done. Saved: layout = "glance", the clock widget gone.
-  glance() { grep -rqs "layout = \"glance\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  glance() { grep -rqs "layout = \"glance\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   no_clock() { ! lock_clock any; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a sixth time"
   wait_for "editor did not open a sixth time" opened 6
@@ -128,7 +128,7 @@ PY
   # Wallpaper (L7): three Tabs + Return open the Wallpaper panel; six Tabs on (Layout, Theme, Done, Photos, Live,
   # Colours) + Return show the colours; Tab Tab (the scope chip, the first colour) + Return pick night blue; five
   # Shift+Tabs (scope, Colours, Live, Photos, Done) + Return save lockscreen.wallpaper = "color:#10182b".
-  colour() { grep -rqs "wallpaper = \"color:#10182b\"" "$HOME/.config/noctalia" "$HOME/.local/state/noctalia"; }
+  colour() { grep -rqs "wallpaper = \"color:#10182b\"" "$HOME/.config/andromeda/shell" "$HOME/.local/state/andromeda/shell"; }
   [[ $(msg lockscreen-widgets-edit) == ok ]] || fail "editor refused to open a seventh time"
   wait_for "editor did not open a seventh time" opened 7
   keys Tab Tab Tab Return Tab Tab Tab Tab Tab Tab Return Tab Tab Return

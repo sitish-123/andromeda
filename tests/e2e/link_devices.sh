@@ -14,7 +14,7 @@ source "$(dirname "$0")/lib.sh"
 LINK_BIN=${LINK_BIN:-$ROOT/link/target/debug}
 boot_headless 1
 # The dashboard shows at most 6 tiles and the default set fills them, so the phone tile is added here.
-printf '\n[[control_center.shortcuts]]\ntype = "phone"\n[[control_center.shortcuts]]\ntype = "wifi"\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[[control_center.shortcuts]]\ntype = "phone"\n[[control_center.shortcuts]]\ntype = "wifi"\n' >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 rm -f "$OUT"/*.png "$OUT/steps.txt" "$OUT/phone.log" "$OUT/hold.jsonl" "$OUT/notify.txt"
 
 with_noctalia '

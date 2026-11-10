@@ -151,7 +151,7 @@ fn instance_name(instance: &str) -> String {
 }
 
 fn open_activity(unit: &str) {
-    match tokio::process::Command::new("noctalia").args(["msg", "activity-open", unit]).spawn() {
+    match tokio::process::Command::new("andromeda-shell").args(["msg", "activity-open", unit]).spawn() {
         Ok(mut child) => {
             tokio::spawn(async move { child.wait().await });
         }

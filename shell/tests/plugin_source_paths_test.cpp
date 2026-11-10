@@ -44,10 +44,10 @@ int main() {
       .location = "~/dev/noctalia-plugins",
   };
 
-  const std::filesystem::path stateRoot = "/tmp/noctalia-path-test-state/noctalia";
+  const std::filesystem::path stateRoot = "/tmp/noctalia-path-test-state/andromeda/shell";
   bool ok = true;
   ok = expectPath(
-           scripting::plugin_paths::localSourceRoot(), "/tmp/noctalia-path-test-data/noctalia/plugins",
+           scripting::plugin_paths::localSourceRoot(), "/tmp/noctalia-path-test-data/andromeda/shell/plugins",
            "local source root"
        )
       && ok;

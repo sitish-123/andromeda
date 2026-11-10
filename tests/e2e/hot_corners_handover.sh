@@ -9,7 +9,7 @@ OUT=${OUT:-$(pwd)/artifacts/hot-corners-handover}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 rm -f "$OUT/steps.txt" "$OUT/settings.txt"
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'TOML'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'TOML'
 
 [hot_corners]
 enabled = true

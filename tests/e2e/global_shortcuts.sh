@@ -9,7 +9,7 @@ source "$(dirname "$0")/lib.sh"
 boot_headless 1
 
 with_noctalia '
-  portal() { gdbus call --session --dest org.freedesktop.impl.portal.desktop.noctalia \
+  portal() { gdbus call --session --dest org.freedesktop.impl.portal.desktop.andromeda.shell \
     --object-path /org/freedesktop/portal/desktop --method org.freedesktop.impl.portal.GlobalShortcuts.$1 "${@:2}"; }
   session=/org/freedesktop/portal/desktop/session/1_1/e2e
   portal CreateSession /org/freedesktop/portal/desktop/request/1_1/c "$session" e2e.app "{}" > /dev/null
@@ -18,7 +18,7 @@ with_noctalia '
   [[ $bound == *"toggle"*"shell:global-shortcut e2e.app toggle"* ]] || { echo "FAIL: BindShortcuts answered $bound"; exit 1; }
 
   "$NOCTALIA" msg global-shortcuts > "$OUT/list.txt"
-  gdbus monitor --session --dest org.freedesktop.impl.portal.desktop.noctalia > "$OUT/signals.txt" &
+  gdbus monitor --session --dest org.freedesktop.impl.portal.desktop.andromeda.shell > "$OUT/signals.txt" &
   sleep 0.3
   [[ $("$NOCTALIA" msg global-shortcut e2e.app toggle) == ok ]] || { echo "FAIL: activation refused"; exit 1; }
   refused=$("$NOCTALIA" msg global-shortcut e2e.app missing || true)

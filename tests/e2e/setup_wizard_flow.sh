@@ -11,8 +11,8 @@ source "$(dirname "$0")/lib.sh"
 export POINTER=${POINTER:-$ROOT/compositor/build-debug/tests/pointer-client} UI_SCALE
 
 boot_headless 1
-sed -i 's/setup_wizard_enabled = false/setup_wizard_enabled = true/' "$RUNTIME/home/.config/noctalia/config.toml"
-printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/noctalia/config.toml"
+sed -i 's/setup_wizard_enabled = false/setup_wizard_enabled = true/' "$RUNTIME/home/.config/andromeda/shell/config.toml"
+printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 # A software update check that always fails, so the run needs no network and proves a failed step does not block.
 mkdir -p "$RUNTIME/bin"
 printf '#!/bin/sh\necho "==> ERROR: Cannot fetch updates" >&2\nexit 1\n' > "$RUNTIME/bin/checkupdates"

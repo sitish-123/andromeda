@@ -198,7 +198,7 @@ namespace noctalia::theme {
         return self;
       }
 #ifdef NOCTALIA_INSTALL_PREFIX
-      auto installed = std::filesystem::path(NOCTALIA_INSTALL_PREFIX) / "bin" / "noctalia";
+      auto installed = std::filesystem::path(NOCTALIA_INSTALL_PREFIX) / "bin" / "andromeda-shell";
       std::error_code ec;
       if (std::filesystem::is_regular_file(installed, ec)) {
         return installed;

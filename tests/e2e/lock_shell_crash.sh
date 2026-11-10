@@ -10,7 +10,7 @@ OUT=${OUT:-$(pwd)/artifacts/lock-shell-crash}
 source "$(dirname "$0")/lib.sh"
 rm -rf "$OUT"
 boot_headless 1
-printf '\n[lockscreen]\nface = true\nface_on_request = false\n' >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[lockscreen]\nface = true\nface_on_request = false\n' >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_gaze.py"
 with_noctalia '

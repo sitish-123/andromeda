@@ -11,7 +11,7 @@
 class SessionBus;
 class SystemBus;
 
-// Serves org.freedesktop.impl.portal.Inhibit under org.freedesktop.impl.portal.desktop.noctalia. Each request holds
+// Serves org.freedesktop.impl.portal.Inhibit under org.freedesktop.impl.portal.desktop.andromeda.shell. Each request holds
 // logind block inhibitors (idle, sleep) until xdg-desktop-portal closes it; the shell's idle chain already honours
 // logind's idle BlockInhibited. Logout requests are kept with their reason for the session end, which lists them and
 // tells monitors Query End, then Ending (session-state 2, 3), so apps can save first.

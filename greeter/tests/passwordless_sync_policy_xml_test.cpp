@@ -1,3 +1,4 @@
+#include "tools/passwordless_sync_policy.h"
 #include "tools/passwordless_sync_policy_xml.h"
 
 #include <filesystem>
@@ -30,10 +31,34 @@ namespace {
     return false;
   }
 
+  [[nodiscard]] std::string ruleWith(std::string_view actionId) {
+    return "// Managed by noctalia-greeter passwordless-sync. Do not edit.\n"
+           "// metadata: {\"format\":1,\"helper\":\"/usr/bin/noctalia-greeter-apply-appearance\",\"users\":[\"alice\"]}\n"
+           "\npolkit.addRule(function(action, subject) {\n"
+           "  var allowedUsers = [\"alice\"];\n\n"
+           "  if (action.id == \""
+        + std::string(actionId)
+        + "\" &&\n      action.lookup(\"program\") == \"/usr/bin/noctalia-greeter-apply-appearance\" &&\n"
+          "      action.lookup(\"user\") == \"root\" &&\n"
+          "      subject.local && subject.active &&\n"
+          "      allowedUsers.indexOf(subject.user) >= 0) {\n"
+          "    return polkit.Result.YES;\n  }\n});\n";
+  }
+
+  [[nodiscard]] bool expectManagedRule(std::string_view name, const std::string& rule, bool expected) {
+    std::string error;
+    const bool actual = greeter::passwordless_sync::detail::isManagedRule(rule, error);
+    if (actual == expected) {
+      return true;
+    }
+    std::cerr << name << ": expected managed " << expected << ", got " << actual << " (" << error << ")\n";
+    return false;
+  }
+
 } // namespace
 
 int main(const int argc, char* argv[]) {
-  const std::string validAction = "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+  const std::string validAction = "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
                                   "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
                                   "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
                                   "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
@@ -44,7 +69,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "commented argv annotation",
       policyWith(
-          "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
           "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
           "    <!-- <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate> -->\n"
@@ -55,7 +80,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "suffix action attribute",
       policyWith(
-          "  <action notid=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action notid=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
           "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
@@ -66,7 +91,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "nested argv annotation",
       policyWith(
-          "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
           "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
           "    <defaults><annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate></defaults>\n"
@@ -78,7 +103,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "wrong helper",
       policyWith(
-          "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">/tmp/helper</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>\n"
           "  </action>"
@@ -88,7 +113,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "wrong argv1",
       policyWith(
-          "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
           "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.argv1\">--setup-system</annotate>\n"
@@ -99,7 +124,7 @@ int main(const int argc, char* argv[]) {
   passed &= expectValidation(
       "duplicate annotations",
       policyWith(
-          "  <action id=\"org.noctalia.greeter.sync-appearance\">\n"
+          "  <action id=\"org.andromeda.greeter.sync-appearance\">\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
           "/usr/bin/noctalia-greeter-apply-appearance</annotate>\n"
           "    <annotate key=\"org.freedesktop.policykit.exec.path\">"
@@ -112,7 +137,7 @@ int main(const int argc, char* argv[]) {
   );
   passed &= expectValidation(
       "namespaced policy",
-      "<policyconfig xmlns=\"urn:unexpected\"><action id=\"org.noctalia.greeter.sync-appearance\">"
+      "<policyconfig xmlns=\"urn:unexpected\"><action id=\"org.andromeda.greeter.sync-appearance\">"
       "<annotate key=\"org.freedesktop.policykit.exec.path\">"
       "/usr/bin/noctalia-greeter-apply-appearance</annotate>"
       "<annotate key=\"org.freedesktop.policykit.exec.argv1\">--sync</annotate>"
@@ -120,6 +145,10 @@ int main(const int argc, char* argv[]) {
       false
   );
   passed &= expectValidation("malformed XML", "<policyconfig><action>", false);
+
+  passed &= expectManagedRule("current rule", ruleWith("org.andromeda.greeter.sync-appearance"), true);
+  passed &= expectManagedRule("pre-rename rule", ruleWith("org.noctalia.greeter.sync-appearance"), true);
+  passed &= expectManagedRule("foreign action rule", ruleWith("org.example.other"), false);
 
   if (argc == 3) {
     std::ifstream policyFile(argv[1], std::ios::binary);

@@ -18,7 +18,7 @@ printf 'static template content, no color tokens needed\n' > "$RUNTIME/hook_inpu
   printf 'input_path = "%s"\n' "$RUNTIME/hook_input.tmpl"
   printf 'output_path = "%s"\n' "$RUNTIME/hook_output.txt"
   printf 'post_hook = "sleep 1; touch %s/hook-done"\n' "$OUT"
-} > "$RUNTIME/home/.config/noctalia/config.toml"
+} > "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 with_noctalia '
   noctalia_pid=$(pgrep -f "^$NOCTALIA\$" | head -1)

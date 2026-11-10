@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 # greetd default_session command for the shell's greeter mode (.agent/DESIGN.md "Shell greeter mode"):
-# `andromeda --greeter` runs `noctalia greeter` as its only client and ends when it exits.
+# `andromeda --greeter` runs `andromeda-shell greeter` as its only client and ends when it exits.
 set -eu
 
-NOCTALIA_BIN="${NOCTALIA_BIN:-$(command -v noctalia || echo /usr/bin/noctalia)}"
+NOCTALIA_BIN="${NOCTALIA_BIN:-$(command -v andromeda-shell || echo /usr/bin/andromeda-shell)}"
 COMPOSITOR_BIN="${ANDROMEDA_GREETER_COMPOSITOR_BIN:-$(command -v andromeda || echo /usr/bin/andromeda)}"
 # Outputs, cursor and keyboard for andromeda --greeter; unset = its own default (/etc/andromeda/greeter.toml).
 GREETER_CONFIG="${ANDROMEDA_GREETER_ANDROMEDA_CONFIG:-}"

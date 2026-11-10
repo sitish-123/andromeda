@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 boot_headless 1
 : > "$OUT/profiles.txt"
 printf '\n[battery]\nprofile_on_ac = "balanced"\nprofile_on_battery = "power-saver"\n' \
-  >> "$RUNTIME/home/.config/noctalia/config.toml"
+  >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_power.py"
 SYSTEM_BIN=${ANDROMEDA_SYSTEM:-$(cd "$(dirname "$0")/../.." && pwd)/system/target/debug/andromeda-system}

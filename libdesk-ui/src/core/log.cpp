@@ -433,9 +433,9 @@ void initLogFile() {
 
   std::string dir;
   if (cacheHome != nullptr && cacheHome[0] != '\0') {
-    dir = std::string(cacheHome) + "/noctalia";
+    dir = std::string(cacheHome) + "/andromeda/shell";
   } else if (home != nullptr && home[0] != '\0') {
-    dir = std::string(home) + "/.cache/noctalia";
+    dir = std::string(home) + "/.cache/andromeda/shell";
   } else {
     return; // no writable location available
   }

@@ -38,8 +38,8 @@ for section in $(cut -f1 "$OUT/registry.txt" | sort -u); do
 done
 
 # One setting changed from Settings, so the Style page shows a row's reset control.
-mkdir -p "$RUNTIME/home/.local/state/noctalia"
-printf '[theme]\npure_black_dark = true\n' > "$RUNTIME/home/.local/state/noctalia/settings.toml"
+mkdir -p "$RUNTIME/home/.local/state/andromeda/shell"
+printf '[theme]\npure_black_dark = true\n' > "$RUNTIME/home/.local/state/andromeda/shell/settings.toml"
 
 aliases="templates:appearance osd:notifications andromeda:windows dock:desktop-dock panels:control-center keybinds:keyboard security:privacy system:about hooks:automation"
 

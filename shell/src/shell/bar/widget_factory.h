@@ -71,13 +71,11 @@ private:
   PowerProfilesService* m_powerProfiles;
   INetworkService* m_network;
   ModemManagerService* m_modem;
-  IdleInhibitor* m_idleInhibitor;
   MprisService* m_mpris;
   PipeWireSpectrum* m_audioSpectrum;
   HttpClient* m_httpClient;
   WeatherService* m_weather;
   GammaService* m_nightLight;
-  noctalia::theme::ThemeService* m_themeService;
   BluetoothService* m_bluetooth;
   LinkService* m_link;
   BrightnessService* m_brightness;

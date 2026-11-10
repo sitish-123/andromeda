@@ -12,7 +12,7 @@ namespace {
 
   constexpr Logger kLog("settings-portal");
 
-  const sdbus::ServiceName kBusName{"org.freedesktop.impl.portal.desktop.noctalia"};
+  const sdbus::ServiceName kBusName{"org.freedesktop.impl.portal.desktop.andromeda.shell"};
   const sdbus::ObjectPath kObjectPath{"/org/freedesktop/portal/desktop"};
   constexpr auto kInterface = "org.freedesktop.impl.portal.Settings";
   constexpr auto kAppearance = "org.freedesktop.appearance";

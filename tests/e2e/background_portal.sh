@@ -12,7 +12,7 @@ boot_headless 1
 
 with_noctalia '
   impl() {
-    busctl --user call org.freedesktop.impl.portal.desktop.noctalia /org/freedesktop/portal/desktop \
+    busctl --user call org.freedesktop.impl.portal.desktop.andromeda.shell /org/freedesktop/portal/desktop \
       org.freedesktop.impl.portal.Background "$@"
   }
   foot --config=/dev/null --app-id=bg.test sh -c "sleep 300" > /dev/null 2>&1 &

@@ -8,6 +8,7 @@
 #include "cli/schema_root.h"
 #include "compositors/compositor_detect.h"
 #include "config/cli.h"
+#include "config/legacy_home_move.h"
 #include "core/build_info.h"
 #include "core/log.h"
 #include "core/process/process_fds.h"
@@ -302,6 +303,11 @@ extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int
       argv[argc] = nullptr;
       break;
     }
+  }
+
+  // The shell, the lock process and the config CLI read the config roots; `msg` and the helpers do not.
+  if (argc < 2 || std::strcmp(argv[1], "lock") == 0 || std::strcmp(argv[1], "config") == 0) {
+    noctalia::config::moveLegacyHomes();
   }
 
   if (argc >= 2) {

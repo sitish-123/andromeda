@@ -14,8 +14,8 @@ fi
 source "$(dirname "$0")/lib.sh"
 mkdir -p "$OUT"
 boot_headless 1
-mkdir -p "$RUNTIME/home/.config/noctalia"
-printf '\n[bar.default]\nposition = "%s"\n' "$SIDE" >> "$RUNTIME/home/.config/noctalia/config.toml"
+mkdir -p "$RUNTIME/home/.config/andromeda/shell"
+printf '\n[bar.default]\nposition = "%s"\n' "$SIDE" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 export OUT SIDE
 
 with_noctalia '

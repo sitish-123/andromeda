@@ -29,7 +29,7 @@ Name=Drop Catch
 Exec=true
 Icon=text-x-generic
 DESKTOP
-cat >> "$H/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$H/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [desktop_icons]
 enabled = true

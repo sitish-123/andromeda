@@ -12,7 +12,7 @@ boot_headless 1
 printf '\n[layout]\nmode = "floating"\n[appearance.title_bar]\nmode = "forced"\nstyle = "macos"\nbutton_position = "left"\n' \
   >> "$RUNTIME/andromeda.toml"
 run "$ANDROMEDA" msg config-reload > /dev/null
-cat >> "$RUNTIME/home/.config/noctalia/config.toml" <<'CONFIG'
+cat >> "$RUNTIME/home/.config/andromeda/shell/config.toml" <<'CONFIG'
 
 [bar.default]
 position = "top"

@@ -1094,7 +1094,7 @@ namespace andromeda {
       activity.keysym = XKB_KEY_Escape;
       activity.repeat = false;
       activity.action = KeybindAction::Spawn;
-      activity.payload = SpawnArg{.command = "noctalia msg activity-open"};
+      activity.payload = SpawnArg{.command = "andromeda-shell msg activity-open"};
       keybinds.push_back(std::move(activity));
     }
     add(KeybindAction::WindowSnapLayouts, XKB_KEY_z).repeat = false;

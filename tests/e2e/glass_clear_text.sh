@@ -14,7 +14,7 @@ seq 1 400 | awk '{printf "%05d  The quick brown fox jumps over the lazy dog; sha
 boot_headless 1
 printf '\n[appearance]\nscheme = "%s"\nglass = %s\n' "$SCHEME" "$GLASS" >> "$RUNTIME/andromeda.toml"
 # The shell's palette follows its own [theme] mode, not the compositor scheme.
-printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 TAG=$SCHEME-g$GLASS
 with_noctalia '
   foot --fullscreen -o main.font=monospace:size=11 sh -c "cat '"$RUNTIME"'/text.txt; exec sleep 600" > "$OUT/foot.log" 2>&1 &

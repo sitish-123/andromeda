@@ -43,7 +43,7 @@ int main() {
   ::setenv("ANDROMEDA_STATE_HOME", root.c_str(), 1);
 
   // A data dir left world-readable by an older release must be tightened.
-  const fs::path dataDir = root / "noctalia" / "plugins" / "data" / "test" / "plugin";
+  const fs::path dataDir = root / "andromeda" / "shell" / "plugins" / "data" / "test" / "plugin";
   fs::create_directories(dataDir);
   fs::permissions(dataDir, fs::perms(0755), fs::perm_options::replace);
   const fs::path shared = root / "shared.txt";

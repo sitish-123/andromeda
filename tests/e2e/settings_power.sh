@@ -7,7 +7,7 @@ OUT=${OUT:-$(pwd)/artifacts/settings-power}
 source "$(dirname "$0")/lib.sh"
 boot_headless 1
 # UI_SCALE=0.75 fits the whole page in the 720 px headless output, so one shot shows every card.
-[ -z "${UI_SCALE:-}" ] || printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/noctalia/config.toml"
+[ -z "${UI_SCALE:-}" ] || printf '\n[accessibility]\nui_scale = %s\n' "$UI_SCALE" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 : > "$OUT/calls.txt"
 MOCK="$(cd "$(dirname "$0")" && pwd)/mock_logind.py"
 export MOCK_LID_BATTERY=hibernate MOCK_CAN_HIBERNATE=${MOCK_CAN_HIBERNATE:-no} MOCK_CAN_SUSPEND_THEN_HIBERNATE=no

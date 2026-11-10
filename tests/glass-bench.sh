@@ -106,8 +106,8 @@ run_mode() {
   local R; R=$(mktemp -d /tmp/glass-bench.XXXX)
   local H=$R/home
   mkdir -p "$H/.config" "$H/.local/state"
-  cp -r "$CONF_HOME/.config/noctalia" "$H/.config/" 2>/dev/null || true
-  cp -r "$CONF_HOME/.local/state/noctalia" "$H/.local/state/" 2>/dev/null || true
+  mkdir -p "$H/.config/andromeda" "$H/.local/state/andromeda" && cp -r "$CONF_HOME/.config/andromeda/shell" "$H/.config/andromeda/" 2>/dev/null || true
+  cp -r "$CONF_HOME/.local/state/andromeda/shell" "$H/.local/state/andromeda/" 2>/dev/null || true
   ln -s "$CONF_HOME/Pictures" "$H/Pictures"
   make_config "$mode" "$R/andromeda.toml"
 

@@ -37,7 +37,7 @@ run_bar() {
   local name=$1 config=$2
   (
     boot_headless 1
-    printf '%s\n' "$config" >> "$RUNTIME/home/.config/noctalia/config.toml"
+    printf '%s\n' "$config" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
     measure "$name"
   )
 }

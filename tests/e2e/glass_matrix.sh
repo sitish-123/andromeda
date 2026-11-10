@@ -19,7 +19,7 @@ seq 1 200 | awk '{printf "%04d  The quick brown fox jumps over the lazy dog %s\n
 
 boot_headless 1
 printf '\n[appearance]\nscheme = "%s"\nglass = 0.5\n' "$SCHEME" >> "$RUNTIME/andromeda.toml"
-printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/noctalia/config.toml"
+printf '\n[theme]\nmode = "%s"\n' "$SCHEME" >> "$RUNTIME/home/.config/andromeda/shell/config.toml"
 export RUNTIME WALLS SCHEME SCHEME_OUT=$OUT/$SCHEME
 with_noctalia '
   settle() { "$NOCTALIA" msg status > /dev/null; "$ANDROMEDA" settle > /dev/null; sleep 0.8; }
