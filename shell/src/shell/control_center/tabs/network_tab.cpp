@@ -2,7 +2,6 @@
 
 #include "core/ui_phase.h"
 #include "dbus/modem/modem_manager_service.h"
-#include "dbus/network/external_ip_service.h"
 #include "dbus/network/inetwork_service.h"
 #include "dbus/network/network_display.h"
 #include "dbus/network/nm_hotspot.h"
@@ -104,7 +103,7 @@ namespace {
     return {};
   }
 
-  std::string currentDetail(const NetworkState& s, const std::string& externalIp, const CellularModemInfo* modem) {
+  std::string currentDetail(const NetworkState& s, const CellularModemInfo* modem) {
     if (!s.connected) {
       if (s.kind == NetworkConnectivity::Cellular && modem != nullptr) {
         return cellularStateText(modem->state);
@@ -139,9 +138,6 @@ namespace {
         out += "  •  ";
         out += tech;
       }
-    }
-    if (!externalIp.empty()) {
-      append(i18n::tr("control-center.network.external-ip", "ip", externalIp));
     }
     return out;
   }
@@ -335,10 +331,10 @@ namespace {
 
 } // namespace
 NetworkTab::NetworkTab(
-    INetworkService* network, NetworkSecretAgent* secrets, ExternalIpService* externalIp, ModemManagerService* modem,
+    INetworkService* network, NetworkSecretAgent* secrets, ModemManagerService* modem,
     NmHotspot* hotspot
 )
-    : m_network(network), m_secrets(secrets), m_externalIpService(externalIp), m_modem(modem), m_hotspot(hotspot) {
+    : m_network(network), m_secrets(secrets), m_modem(modem), m_hotspot(hotspot) {
   if (m_secrets != nullptr) {
     m_secrets->setRequestCallback([this](const NetworkSecretAgent::SecretRequest& request) {
       showPasswordPrompt(request);
@@ -998,12 +994,9 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
       wifi.lock = activeAp != nullptr && activeAp->secured ? "lock" : "";
       wifi.ssid = state.ssid;
       if (m_currentExpanded) {
-        static const std::string kNoExternalIp;
-        const std::string& externalIp =
-            m_externalIpService != nullptr ? m_externalIpService->externalIp() : kNoExternalIp;
         wifi.extra = std::string(m_network->hasSavedConnection(state.ssid) ? "1" : "0") +
                      (m_actionPending ? "1" : "0") +
-                     currentDetail(state, externalIp, m_modem != nullptr ? m_modem->primaryModem() : nullptr);
+                     currentDetail(state, m_modem != nullptr ? m_modem->primaryModem() : nullptr);
       }
       wifi.onClick = [this, refresh] {
         m_currentExpanded = !m_currentExpanded;
@@ -1198,9 +1191,7 @@ void NetworkTab::rebuildApList(Renderer& renderer) {
       Label* detailText = nullptr;
       details->addChild(makeLabel(detailText, Tokens::typeFootnote, scale, ColorRole::Label2));
       detailText->setMaxLines(3);
-      static const std::string kNoExternalIp;
-      const std::string& externalIp = m_externalIpService != nullptr ? m_externalIpService->externalIp() : kNoExternalIp;
-      detailText->setText(currentDetail(state, externalIp, m_modem != nullptr ? m_modem->primaryModem() : nullptr));
+      detailText->setText(currentDetail(state, m_modem != nullptr ? m_modem->primaryModem() : nullptr));
 
       auto actions = std::make_unique<Flex>();
       actions->setDirection(FlexDirection::Horizontal);

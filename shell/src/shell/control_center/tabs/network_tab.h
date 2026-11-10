@@ -15,7 +15,6 @@
 #include <vector>
 
 class Button;
-class ExternalIpService;
 class Flex;
 class Glyph;
 class Input;
@@ -31,7 +30,7 @@ class INetworkService;
 class NetworkTab : public Tab {
 public:
   NetworkTab(
-      INetworkService* network, NetworkSecretAgent* secrets, ExternalIpService* externalIp, ModemManagerService* modem,
+      INetworkService* network, NetworkSecretAgent* secrets, ModemManagerService* modem,
       NmHotspot* hotspot
   );
   ~NetworkTab() override;
@@ -83,7 +82,6 @@ private:
 
   INetworkService* m_network = nullptr;
   NetworkSecretAgent* m_secrets = nullptr;
-  ExternalIpService* m_externalIpService = nullptr;
   ModemManagerService* m_modem = nullptr;
   NmHotspot* m_hotspot = nullptr;
 

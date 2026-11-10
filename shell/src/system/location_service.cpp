@@ -303,14 +303,10 @@ void LocationService::startGeolocate() {
     startGeoclue();
     return;
   }
-  std::error_code ec;
-  std::filesystem::create_directories(transportCacheDir(), ec);
-  const auto path = transportCacheDir() / "geolocate.json";
-  const std::uint64_t serial = ++m_requestSerial;
-  m_requestKind = RequestKind::Geolocate;
-  m_httpClient.download("https://api.noctalia.dev/geolocate", path, [this, path, serial](bool success) {
-    handleResponse(path, true, success, serial);
-  });
+  m_error = i18n::tr("location.errors.geoclue-unavailable");
+  kLog.warn("{}", m_error);
+  scheduleRetryAfterFailure();
+  notifyChanged();
 }
 
 void LocationService::startAddressGeocode() {

@@ -780,7 +780,6 @@
       "error-missing-identity": "Enter the identity your organization issued you.",
       "error-missing-password": "Enter your password.",
       "error-unsupported-phase2": "PEAP requires MSCHAPv2 inner authentication.",
-      "external-ip": "WAN {ip}",
       "identity": "Identity",
       "no-networks": "No networks in range",
       "not-connected": "Not connected",
@@ -1492,6 +1491,7 @@
   "location": {
     "errors": {
       "address-lookup-failed": "Address lookup failed",
+      "geoclue-unavailable": "Automatic location needs GeoClue, which is not running",
       "ip-geolocation-failed": "IP geolocation failed",
       "parse-geocode": "Could not parse geocode response",
       "parse-ip-geolocation": "Could not parse IP geolocation response"
@@ -4764,10 +4764,6 @@
           "description": "Default date format for shell UI without its own setting",
           "label": "Date Format"
         },
-        "external-ip": {
-          "description": "Resolve the connection's public WAN IP (via api.noctalia.dev) and show it in the Control Center network tab",
-          "label": "Show WAN IP"
-        },
         "greeter-sync-auto": {
           "description": "Automatically sync the greeter whenever wallpaper, colors, theme mode, or shell font change. Authorization still follows system policy; this setting does not enable passwordless sync.",
           "label": "Auto-Sync Greeter"
@@ -5072,10 +5068,6 @@
           "button": "Sync Now",
           "description": "Copy the current appearance and monitor arrangement to Andromeda Greeter. Administrator approval is requested unless system policy authorizes passwordless sync for your user.",
           "label": "Andromeda Greeter"
-        },
-        "telemetry": {
-          "description": "Sends a small anonymous startup ping with version, OS, compositor, monitor resolutions, RAM, and UI scale",
-          "label": "Anonymous Startup Ping"
         },
         "time-format": {
           "description": "Default time format for shell UI without its own setting",
@@ -6949,7 +6941,6 @@
       "no-results": "No settings found",
       "no-results-hint": "Try a different setting name or config key.",
       "offline-mode-notice": {
-        "appearance": "Community palette downloads will not work.",
         "calendar": "Calendar account sync will not work.",
         "calendar-account": "Calendar discovery and sync will not work.",
         "disable-hint": "Disable Offline Mode in the Security section.",
@@ -6957,7 +6948,6 @@
         "location": "Weather and location lookups will not work.",
         "plugin-store": "Remote plugin catalog and download requests will not work.",
         "plugins": "Plugin HTTP requests will not work. Git sources can still update.",
-        "security": "External IP lookup and telemetry will not work.",
         "template-store": "Community template downloads will not work.",
         "title": "Offline Mode"
       },
@@ -7394,7 +7384,6 @@
     "select-wallpaper": "Select Wallpaper",
     "set-up": "Set Up",
     "set-up-later": "Set Up Later",
-    "share-usage": "Share anonymous usage data",
     "skip": "Skip",
     "subtitle": "A few quick choices to get you started.",
     "tip-control-center": "Control Center",

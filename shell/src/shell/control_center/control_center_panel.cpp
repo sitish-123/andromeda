@@ -76,7 +76,7 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
       std::make_unique<NotificationsTab>(services.notifications, services.platform, services.asyncTextures);
   m_tabs[tabIndex(TabId::Network)] =
       std::make_unique<NetworkTab>(
-          services.network, services.networkSecrets, services.externalIp, services.modem, services.hotspot
+          services.network, services.networkSecrets, services.modem, services.hotspot
       );
   m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
   m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);

@@ -155,7 +155,6 @@ private:
   Button* m_leadButton = nullptr;
   Button* m_laterButton = nullptr;
   Button* m_primaryButton = nullptr;
-  Toggle* m_telemetryToggle = nullptr;
 
   std::vector<Overlay> m_overlays;
   std::vector<ModeArt> m_modeArts;

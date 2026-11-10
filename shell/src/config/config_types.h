@@ -1333,9 +1333,6 @@ struct ShellConfig {
   /// Bar name panels attach to when opened without a source bar (IPC, shortcuts, dock).
   /// Empty keeps per-source resolution (widget click bar, else first enabled bar).
   std::string panelAnchorBar;
-  /// Resolve and show the connection's external (WAN) IP in the Control Center network tab.
-  bool externalIpEnabled = false;
-  bool telemetryEnabled = false;
   bool setupWizardEnabled = true;
   bool niriOverviewTypeToLaunchEnabled = false;
   bool andromedaOverviewTypeToLaunchEnabled = false;
@@ -1652,10 +1649,10 @@ struct NightLightConfig {
 
 struct LocationConfig {
   // Single source of truth for "where am I". Resolution priority:
-  //   auto_locate (IP) -> address (geocoded) -> manual latitude/longitude.
+  //   auto_locate (GeoClue) -> address (geocoded) -> manual latitude/longitude.
   // When customSchedule is true, explicit sunset/sunrise times override coordinates.
   // Consumed by the weather service, night light, and theme auto mode.
-  bool autoLocate = false;     // resolve coordinates from IP geolocation
+  bool autoLocate = false;     // resolve coordinates from GeoClue
   std::string address;         // geocoded when auto_locate is off and this is non-empty
   bool customSchedule = false; // when true, use sunset/sunrise times instead of coordinates
   std::string sunset;          // HH:MM night start, used only when customSchedule is true

@@ -2777,23 +2777,14 @@ namespace noctalia::config::schema {
             }
         ),
         stringIfNonEmptyField(&ShellConfig::panelAnchorBar, "panel_anchor_bar"),
-        field(
-            &ShellConfig::externalIpEnabled, "external_ip_enabled",
-            RowSpec{
-                .section = "security",
-                .group = "network",
-                .label = "shell.external-ip",
-                .tags = "wan external ip public address network resolve",
-            }
+        // Retired keys (no upstream server calls): read and dropped so old configs load without a warning.
+        custom<ShellConfig>(
+            "external_ip_enabled", [](const toml::table&, ShellConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const ShellConfig&) {}
         ),
-        field(
-            &ShellConfig::telemetryEnabled, "telemetry_enabled",
-            RowSpec{
-                .section = "security",
-                .group = "network",
-                .label = "shell.telemetry",
-                .tags = "analytics ping privacy",
-            }
+        custom<ShellConfig>(
+            "telemetry_enabled", [](const toml::table&, ShellConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const ShellConfig&) {}
         ),
         field(&ShellConfig::setupWizardEnabled, "setup_wizard_enabled"),
         field(&ShellConfig::niriOverviewTypeToLaunchEnabled, "niri_overview_type_to_launch_enabled"),

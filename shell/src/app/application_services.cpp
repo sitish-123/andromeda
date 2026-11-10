@@ -1727,18 +1727,10 @@ void Application::initSystemBusServices() {
         *m_systemBus,
         NetworkModule::Hooks{
             .started =
-                [this, shouldRefreshControlCenter](INetworkService& service) {
+                [this](INetworkService& service) {
                   if (service.hasStateSnapshot()) {
                     m_prevWirelessEnabledForEvents = service.state().wirelessEnabled;
                   }
-                  m_externalIpService.setNetworkService(&service);
-                  m_externalIpService.setChangeCallback([this, shouldRefreshControlCenter] {
-                    m_bar.refresh();
-                    if (shouldRefreshControlCenter()) {
-                      m_panelManager.refresh();
-                    }
-                  });
-                  m_externalIpService.onNetworkChanged();
                 },
             .changed =
                 [this, shouldRefreshControlCenter](const NetworkState& state, NetworkChangeOrigin origin) {
@@ -1746,7 +1738,6 @@ void Application::initSystemBusServices() {
                   if (network()->available()) {
                     onNetworkStateChangedForEvents(state, origin);
                   }
-                  m_externalIpService.onNetworkChanged();
                   m_settingsWindow.onConnectivityChanged();
                   m_bar.refresh();
                   if (shouldRefreshControlCenter()) {
@@ -1815,8 +1806,6 @@ void Application::initSystemBusServices() {
       kLog.warn("keyboard backlight disabled: {}", e.what());
       m_keyboardBacklightService.reset();
     }
-
-    m_configService.addReloadCallback([this] { m_externalIpService.onConfigReload(); });
 
     try {
       m_modemManagerService = std::make_unique<ModemManagerService>(*m_systemBus);

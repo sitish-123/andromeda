@@ -1131,7 +1131,6 @@ std::unique_ptr<Flex> SetupWizardPanel::buildUpdate(float scale) {
 }
 
 std::unique_ptr<Flex> SetupWizardPanel::buildDone(float scale) {
-  const auto& cfg = m_config->config();
   auto page = ui::column({
       .out = &m_pages[kDone],
       .align = FlexAlign::Center,
@@ -1175,13 +1174,6 @@ std::unique_ptr<Flex> SetupWizardPanel::buildDone(float scale) {
     tips->addChild(std::move(row));
   }
   column->addChild(std::move(tips));
-
-  auto privacy = makeCard(scale);
-  auto row = makeListRow(scale);
-  row->addChild(makeGrowLabel(i18n::tr("setup-wizard.share-usage"), scale));
-  row->addChild(ui::toggle({.out = &m_telemetryToggle, .checked = cfg.shell.telemetryEnabled, .scale = scale}));
-  privacy->addChild(std::move(row));
-  column->addChild(std::move(privacy));
   page->addChild(std::move(column));
   return page;
 }
@@ -1878,9 +1870,6 @@ bool SetupWizardPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifier
 }
 
 void SetupWizardPanel::commit() {
-  if (m_telemetryToggle != nullptr) {
-    m_config->setOverride({"shell", "telemetry_enabled"}, m_telemetryToggle->checked());
-  }
   if (m_config != nullptr) {
     (void)m_config->markSetupWizardCompleted();
   }

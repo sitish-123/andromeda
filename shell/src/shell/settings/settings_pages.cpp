@@ -147,7 +147,7 @@ namespace settings {
         "lockscreen.notification_content",
         "shell.animation.enabled", "shell.animation.speed", "accessibility.high_contrast",
         "shell.window_switcher.mru", "shell.window_switcher.show_all_outputs",
-        "shell.offline_mode", "shell.telemetry_enabled", "location.auto_locate", "location.address",
+        "shell.offline_mode", "location.auto_locate", "location.address",
         "weather.enabled",
         "calendar.enabled", "calendar.reminders.enabled", "control_center.calendar.show_week_numbers",
         "shell.screenshot.save_to_file", "shell.screenshot.copy_to_clipboard", "shell.screenshot.directory",

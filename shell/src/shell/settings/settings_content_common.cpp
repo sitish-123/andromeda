@@ -398,12 +398,12 @@ namespace settings {
 
   bool settingsSectionNeedsOfflineModeNotice(SettingsSection section) {
     switch (section) {
-    case SettingsSection::Appearance:
     case SettingsSection::Launcher:
-    case SettingsSection::Security:
     case SettingsSection::Location:
     case SettingsSection::Calendar:
       return true;
+    case SettingsSection::Appearance:
+    case SettingsSection::Security:
     case SettingsSection::Services:
     case SettingsSection::Wallpaper:
     case SettingsSection::Desktop:
@@ -440,16 +440,14 @@ namespace settings {
 
   std::string offlineModeNoticeMessage(SettingsSection section) {
     switch (section) {
-    case SettingsSection::Appearance:
-      return i18n::tr("settings.window.offline-mode-notice.appearance");
     case SettingsSection::Launcher:
       return i18n::tr("settings.window.offline-mode-notice.launcher");
-    case SettingsSection::Security:
-      return i18n::tr("settings.window.offline-mode-notice.security");
     case SettingsSection::Calendar:
       return i18n::tr("settings.window.offline-mode-notice.calendar");
     case SettingsSection::Location:
       return i18n::tr("settings.window.offline-mode-notice.location");
+    case SettingsSection::Appearance:
+    case SettingsSection::Security:
     case SettingsSection::Services:
     case SettingsSection::Wallpaper:
     case SettingsSection::Desktop:

@@ -50,7 +50,7 @@ namespace settings {
     auto& shellRows = ctx.shellRows;
 
     // Security
-    for (const auto* key : {"offline_mode", "external_ip_enabled", "telemetry_enabled", "polkit_agent", "password_style"}) {
+    for (const auto* key : {"offline_mode", "polkit_agent", "password_style"}) {
       appendRow(entries, shellRows, key);
     }
     const SettingVisibility lockscreenOn = [](const Config& c) { return c.lockscreen.enabled; };

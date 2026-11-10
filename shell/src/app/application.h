@@ -21,7 +21,6 @@
 #include "core/files/file_watcher.h"
 #include "core/process/process_poll_source.h"
 #include "core/timer_manager.h"
-#include "dbus/network/external_ip_service.h"
 #include "dbus/notification/notification_poll_source.h"
 #include "dbus/secret/secret_collection_probe.h"
 #include "hooks/battery_hook_state.h"
@@ -96,7 +95,6 @@
 #include "system/lock_keys_poll_source.h"
 #include "system/lock_keys_service.h"
 #include "system/screen_time_service.h"
-#include "system/telemetry_service.h"
 #include "system/weather_poll_source.h"
 #include "system/weather_service.h"
 #include "theme/community_palettes.h"
@@ -439,7 +437,6 @@ private:
   PipeWireModule* m_pipewireModule = nullptr;
   ScreenSaverModule* m_screenSaverModule = nullptr;
   std::optional<bool> m_profileAppliedOnBattery;
-  ExternalIpService m_externalIpService{&m_httpClient, &m_configService};
   std::unique_ptr<UDisksService> m_udisksService;
   std::unique_ptr<SettingsPortal> m_settingsPortal;
   std::unique_ptr<InhibitPortal> m_inhibitPortal;
@@ -483,7 +480,6 @@ private:
   std::uint64_t m_andromedaAudioListener = 0;
   std::shared_ptr<SoundPlayer> m_soundPlayer;
 
-  TelemetryService m_telemetryService;
   ScreenTimeService m_screenTimeService;
 
   GlSharedContext m_glShared;

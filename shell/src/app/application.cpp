@@ -413,9 +413,6 @@ void Application::run(const std::function<void()>& startupReadyCallback) {
     m_hookManager.reload(m_configService.config().hooks);
     m_hookManager.fire(HookKind::Started);
   });
-  runStartupPhase("telemetry enqueue", [this] {
-    m_telemetryService.maybeSend(m_configService, m_httpClient, m_wayland);
-  });
 
   runStartupPhase("allocator_trim", [] { trimAllocator(); });
 

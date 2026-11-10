@@ -255,7 +255,6 @@ shell.clipboard_keep_from_closed_apps
 shell.corner_radius_scale
 shell.date_format
 shell.desktop_layout
-shell.external_ip_enabled
 shell.font_family
 shell.input_borders
 shell.keyboard_layout.custom_labels
@@ -365,7 +364,6 @@ shell.shadow.alpha
 shell.shadow.direction
 shell.show_close_buttons
 shell.show_location
-shell.telemetry_enabled
 shell.time_format
 shell.window_switcher.current_workspace_only
 shell.window_switcher.mru
