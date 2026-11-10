@@ -402,9 +402,6 @@ namespace {
     if (section == "audio") {
       return schema::writeTable(cfg.audio, schema::audioSchema());
     }
-    if (section == "backdrop") {
-      return schema::writeTable(cfg.backdrop, schema::backdropSchema());
-    }
     if (section == "battery") {
       return schema::writeTable(cfg.battery, schema::batterySchema());
     }

@@ -111,7 +111,7 @@ public:
   // An app dragged out of a panel must reach the surfaces below: the outside-click shield goes until the panel closes.
   void dropClickShield();
   void setClickShieldExcludeRectsProvider(std::function<std::vector<InputRect>(wl_output*)> provider);
-  // Callback returning every bar wl_surface. Used to seed the Hyprland focus
+  // Callback returning every bar wl_surface. Used to seed the focus
   // grab whitelist so bar widgets keep receiving clicks while a panel is open.
   void setFocusGrabBarSurfacesProvider(std::function<std::vector<wl_surface*>()> provider);
   void setPanelClosedCallback(std::function<void()> callback);

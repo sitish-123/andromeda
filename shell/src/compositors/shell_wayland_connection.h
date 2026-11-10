@@ -18,9 +18,6 @@ struct ext_output_image_capture_source_manager_v1;
 struct ext_session_lock_manager_v1;
 struct ext_workspace_manager_v1;
 struct dsk_shell_v1;
-struct hyprland_toplevel_mapping_manager_v1;
-struct org_kde_plasma_virtual_desktop_management;
-struct zdwl_ipc_manager_v2;
 struct zwlr_foreign_toplevel_handle_v1;
 struct zwlr_gamma_control_manager_v1;
 struct zwlr_output_power_manager_v1;
@@ -37,16 +34,10 @@ public:
   explicit ShellWaylandConnection(Purpose purpose = Purpose::Shell);
   ~ShellWaylandConnection() override;
 
-  void setWorkspaceManagerCallbacks(
-      std::function<void(ext_workspace_manager_v1*)> extWorkspace, std::function<void(zdwl_ipc_manager_v2*)> dwlIpc
-  );
-  void setKdeVirtualDesktopManagerCallback(std::function<void(org_kde_plasma_virtual_desktop_management*)> callback);
+  void setWorkspaceManagerCallbacks(std::function<void(ext_workspace_manager_v1*)> extWorkspace);
   void setToplevelChangeCallback(ChangeCallback callback);
   // A toplevel changed only its title; `active` = the focused one (always true when only ext toplevels report it).
   void setToplevelTitleCallback(std::function<void(bool active)> callback);
-  void setHyprlandToplevelMappingManagerCallback(
-      std::function<void(hyprland_toplevel_mapping_manager_v1* manager)> callback
-  );
   // dsk_shell_v1: keybind actions, lock-key state, and system bells from the compositor.
   void setShellActionCallback(std::function<void(const std::string& command)> callback);
   void setShellBellCallback(std::function<void(const std::string& appId)> callback);
@@ -81,8 +72,6 @@ public:
   void setVirtualKeyboardService(VirtualKeyboardService* virtualKeyboardService);
 
   [[nodiscard]] bool hasExtWorkspaceManager() const noexcept { return m_hasExtWorkspaceGlobal; }
-  [[nodiscard]] bool hasKdeVirtualDesktopManager() const noexcept { return m_hasKdeVirtualDesktopGlobal; }
-  [[nodiscard]] bool hasDwlIpcManager() const noexcept { return m_hasDwlIpcGlobal; }
   [[nodiscard]] bool hasForeignToplevelManager() const noexcept { return m_hasForeignToplevelManagerGlobal; }
   [[nodiscard]] bool hasExtForeignToplevelList() const noexcept { return m_hasExtForeignToplevelListGlobal; }
   [[nodiscard]] bool hasSessionLockManager() const noexcept { return m_sessionLockManager != nullptr; }
@@ -184,14 +173,9 @@ private:
   ClipboardService* m_clipboardService = nullptr;
   VirtualKeyboardService* m_virtualKeyboardService = nullptr;
   bool m_hasExtWorkspaceGlobal = false;
-  bool m_hasKdeVirtualDesktopGlobal = false;
-  bool m_hasDwlIpcGlobal = false;
   bool m_hasForeignToplevelManagerGlobal = false;
   bool m_hasExtForeignToplevelListGlobal = false;
   std::function<void(ext_workspace_manager_v1*)> m_extWorkspaceManagerCallback;
-  std::function<void(org_kde_plasma_virtual_desktop_management*)> m_kdeVirtualDesktopManagerCallback;
-  std::function<void(zdwl_ipc_manager_v2*)> m_dwlIpcManagerCallback;
-  std::function<void(hyprland_toplevel_mapping_manager_v1*)> m_hyprlandToplevelMappingManagerCallback;
 
   WaylandToplevels m_toplevelsHandler;
   WaylandExtForeignToplevels m_extForeignToplevels;

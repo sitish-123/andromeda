@@ -47,7 +47,6 @@
 #include "scripting/script_api_context.h"
 #include "security/secret_store.h"
 #include "security/storage_key_provider.h"
-#include "shell/backdrop/backdrop.h"
 #include "shell/bar/bar.h"
 #include "shell/desktop/desktop_icons.h"
 #include "shell/desktop/desktop_widgets_controller.h"
@@ -525,7 +524,6 @@ private:
   ScreenCorners m_screenCorners;
   TrayMenu m_trayMenu;
   Wallpaper m_wallpaper;
-  Backdrop m_backdrop;
   SettingsWindow m_settingsWindow;
   LayerPopupHostRegistry m_layerPopupHosts;
   ColorPickerDialogPopup m_colorPickerDialogPopup;

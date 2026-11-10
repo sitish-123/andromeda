@@ -345,7 +345,7 @@ private:
   Timer m_previewCloseTimer;
   std::vector<zwlr_foreign_toplevel_handle_v1*> m_contextMenuHandles;
   zwlr_foreign_toplevel_handle_v1* m_contextMenuPrimaryHandle = nullptr;
-  // KDE and Niri ext-foreign-toplevel tasks close through ToplevelInfo rather
+  // Exact-identity ext-foreign-toplevel tasks close through ToplevelInfo rather
   // than a wlr foreign-toplevel handle.
   std::vector<ToplevelInfo> m_contextMenuInfoWindows;
   ToplevelInfo m_contextMenuInfoPrimary;

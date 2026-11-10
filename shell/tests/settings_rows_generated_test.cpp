@@ -135,10 +135,7 @@ namespace {
     cfg.bars.push_back(BarConfig{});
     cfg.bars.back().name = "default";
     RegistryEnvironment env;
-    env.niriBackdropSupported = true;
-    env.niriOverviewTypeToLaunchSupported = true;
     env.andromedaOverviewTypeToLaunchSupported = true;
-    env.niriOverviewCloseOnLaunchSupported = true;
     env.andromedaOverviewCloseOnLaunchSupported = true;
     env.screencopySupported = true;
     env.backgroundEffectBlurSupported = true;

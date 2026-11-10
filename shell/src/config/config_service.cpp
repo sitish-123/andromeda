@@ -666,7 +666,6 @@ void ConfigService::fireReloadCallbacks() {
     add(m_lastChange.hotCorners, "hotCorners");
     add(m_lastChange.lockscreenWidgets, "lockscreenWidgets");
     add(m_lastChange.wallpaper, "wallpaper");
-    add(m_lastChange.backdrop, "backdrop");
     add(m_lastChange.lockscreen, "lockscreen");
     add(m_lastChange.dock, "dock");
     add(m_lastChange.shell, "shell");

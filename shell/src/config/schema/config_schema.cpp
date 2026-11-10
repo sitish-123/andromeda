@@ -145,15 +145,6 @@ namespace noctalia::config::schema {
     return s;
   }
 
-  const Schema<BackdropConfig>& backdropSchema() {
-    static const Schema<BackdropConfig> s = {
-        field(&BackdropConfig::enabled, "enabled"),
-        field(&BackdropConfig::blurIntensity, "blur_intensity", kUnitRange),
-        field(&BackdropConfig::tintIntensity, "tint_intensity", kUnitRange),
-    };
-    return s;
-  }
-
   const Schema<LockscreenConfig>& lockscreenSchema() {
     static const Schema<LockscreenConfig> s = {
         field(
@@ -2791,10 +2782,19 @@ namespace noctalia::config::schema {
             [](toml::table&, const ShellConfig&) {}
         ),
         field(&ShellConfig::setupWizardEnabled, "setup_wizard_enabled"),
-        field(&ShellConfig::niriOverviewTypeToLaunchEnabled, "niri_overview_type_to_launch_enabled"),
+        // Retired keys (Andromeda only): read and dropped so old configs load without a warning.
+        custom<ShellConfig>(
+            "niri_overview_type_to_launch_enabled",
+            [](const toml::table&, ShellConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const ShellConfig&) {}
+        ),
+        custom<ShellConfig>(
+            "niri_overview_close_on_launch_enabled",
+            [](const toml::table&, ShellConfig&, std::string_view, Diagnostics&) {},
+            [](toml::table&, const ShellConfig&) {}
+        ),
         field(&ShellConfig::andromedaOverviewTypeToLaunchEnabled, "andromeda_overview_type_to_launch_enabled"),
         field(&ShellConfig::andromedaAudioProviderEnabled, "andromeda_audio_provider_enabled"),
-        field(&ShellConfig::niriOverviewCloseOnLaunchEnabled, "niri_overview_close_on_launch_enabled"),
         field(&ShellConfig::andromedaOverviewCloseOnLaunchEnabled, "andromeda_overview_close_on_launch_enabled"),
         field(
             &ShellConfig::polkitAgent, "polkit_agent",

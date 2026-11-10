@@ -1094,7 +1094,6 @@ void Application::reconcileOutputSurfaces() {
   // stacking (e.g. screen corners above the dock) is identical in both cases.
   // Each owner's onOutputChange() reconciles idempotently against the current
   // output set, so re-running it is safe. initialize() only wires dependencies.
-  m_backdrop.onOutputChange();
   m_wallpaper.onOutputChange();
   m_bar.onOutputChange();
   m_dock.onOutputChange();
@@ -1287,7 +1286,6 @@ void Application::initAuxServicesAndHooks() {
     if (m_syncScriptApiOutputs) {
       m_syncScriptApiOutputs();
     }
-    m_backdrop.onStateChange();
     m_lockScreen.onWallpaperChanged();
     m_themeService.onWallpaperChange();
     if (m_panelManager.isOpenPanel("control-center")) {
@@ -1313,7 +1311,6 @@ void Application::initAuxServicesAndHooks() {
     m_bar.refresh();
     m_lockScreen.onThemeChanged();
     m_trayMenu.onThemeChanged();
-    m_backdrop.onThemeChanged();
     m_settingsWindow.onThemeChanged();
     m_activityWindow.onThemeChanged();
     m_wallpaperWindow.onThemeChanged();

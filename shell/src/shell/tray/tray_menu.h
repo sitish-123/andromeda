@@ -109,7 +109,7 @@ private:
   };
   std::vector<SubmenuLevel> m_submenuLevels;
 
-  // Hyprland-only: keeps the popup surfaces in the focus whitelist so motion
+  // With focus_grab: keeps the popup surfaces in the focus whitelist so motion
   // events (hover) reach the popup eagerly instead of waiting for a click to
   // transfer focus from the bar's OnDemand layer surface.
   std::unique_ptr<FocusGrab> m_focusGrab;

@@ -50,7 +50,6 @@ namespace noctalia::config::schema {
         t.push_back(std::move(wallpaper));
 
         t.push_back(makeSection("theme", &Config::theme, themeSchema()));
-        t.push_back(makeSection("backdrop", &Config::backdrop, backdropSchema()));
         t.push_back(makeSection("lockscreen", &Config::lockscreen, lockscreenSchema()));
         t.push_back(makeSection("notification", &Config::notification, notificationSchema()));
         t.push_back(makeSection("osd", &Config::osd, osdSchema()));
@@ -88,7 +87,7 @@ namespace noctalia::config::schema {
   }
 
   std::span<const std::string_view> customRootKeys() {
-    static constexpr std::array<std::string_view, 8> kKeys = {
+    static constexpr std::array<std::string_view, 9> kKeys = {
         "bar",
         "widget",
         "desktop_widgets",
@@ -98,6 +97,8 @@ namespace noctalia::config::schema {
         "config_version",
         // Template palette files (e.g. user-templates.toml) use [config.custom_colors].
         "config",
+        // Retired [backdrop] section: read and dropped so old configs load without a warning.
+        "backdrop",
     };
     return kKeys;
   }

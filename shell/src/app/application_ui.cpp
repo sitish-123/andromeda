@@ -190,7 +190,6 @@ void Application::initUiRenderSurfacesAndSettings() {
   Style::setRtl(i18n::Service::instance().rtl());
   m_renderContext.setTextBaseDirection(i18n::Service::instance().rtl());
   m_wallpaper.initialize(m_wayland, &m_configService, &m_renderContext, &m_sharedTextureCache, &m_themeService);
-  m_backdrop.initialize(m_wayland, &m_configService, &m_sharedTextureCache, &m_glShared);
   m_settingsWindow.initialize(
       m_wayland, &m_configService, &m_renderContext, &m_dependencyService, upower(), &m_idleManager,
       &m_compositorPlatform, m_accountsService.get()
@@ -1379,7 +1378,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
-        m_backdrop.onFontChanged();
         m_settingsWindow.onFontChanged();
         m_colorPickerDialogPopup.requestLayout();
         m_glyphPickerDialogPopup.requestLayout();
@@ -1409,7 +1407,6 @@ void Application::initWidgetControllersAndCallbacks() {
         m_lockScreen.onFontChanged();
         m_osdOverlay.requestLayout();
         m_trayMenu.onFontChanged();
-        m_backdrop.onFontChanged();
         m_settingsWindow.onFontChanged();
         m_colorPickerDialogPopup.requestLayout();
         m_glyphPickerDialogPopup.requestLayout();

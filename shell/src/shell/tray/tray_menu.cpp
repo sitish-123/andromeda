@@ -706,7 +706,7 @@ void TrayMenu::ensureSurface() {
     anchorX = placement.anchorX;
     anchorY = placement.anchorY;
   }
-  // On Hyprland, hyprland_focus_grab_v1 conflicts with xdg_popup_grab — the
+  // hyprland_focus_grab_v1 conflicts with xdg_popup_grab — the
   // compositor sends popup_done shortly after we commit our focus grab,
   // tearing the popup down. Skip xdg_popup_grab when we'll be using
   // focus_grab; outside-click dismissal is handled by the focus grab's
@@ -757,11 +757,11 @@ void TrayMenu::ensureSurface() {
   inst->wlSurface = inst->surface->wlSurface();
   m_instance = std::move(inst);
 
-  // Hyprland: without an active focus grab covering the popup, the compositor
+  // Without an active focus grab covering the popup, the compositor
   // only delivers pointer events after a click transfers focus from the bar's
   // OnDemand layer surface, so hover never reaches the popup. Whitelisting the
   // popup (and the parent bar so re-clicking other tray icons keeps working)
-  // eagerly routes motion to the popup. Defer to the next tick — Hyprland's
+  // eagerly routes motion to the popup. Defer to the next tick — the
   // focus_grab needs the whitelisted surfaces to be mapped, which only happens
   // after the configure round-trip completes; committing the grab synchronously
   // here makes the compositor fire `cleared` immediately and the menu never

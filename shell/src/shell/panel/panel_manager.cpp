@@ -1479,7 +1479,7 @@ void PanelManager::activateClickShield(LayerShellLayer layer) {
   if (m_activePanel == nullptr || m_platform == nullptr) {
     return;
   }
-  // Hyprland: prefer the native focus-grab path. Skip the shield and let
+  // Prefer the native focus-grab path. Skip the shield and let
   // activateFocusGrab handle it later.
   auto* grabService = m_platform->focusGrabService();
   if (grabService != nullptr && grabService->available()) {

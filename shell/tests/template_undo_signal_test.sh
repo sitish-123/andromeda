@@ -33,7 +33,7 @@ mkdir -p "$stub_dir"
 calls_file="$work_dir/calls"
 
 # Every command an undo hook can use to reload a client records its invocation instead.
-for stub in pkill mmsg gdbus emacsclient; do
+for stub in pkill gdbus emacsclient; do
   cat >"$stub_dir/$stub" <<EOF
 #!/bin/sh
 printf '%s %s\n' "$stub" "\$*" >>"$calls_file"
@@ -69,7 +69,6 @@ ghostty/undo.sh:ghostty/themes/noctalia
 kitty/undo.sh:kitty/themes/noctalia.conf
 btop/undo.sh:btop/themes/noctalia.theme
 cava/undo.sh:cava/themes/noctalia
-mango/undo.sh:mango/noctalia.conf
 "
 
 for entry in $cases; do

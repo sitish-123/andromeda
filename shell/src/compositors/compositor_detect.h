@@ -19,12 +19,6 @@ namespace compositors {
   // Concatenated XDG_CURRENT_DESKTOP:XDG_SESSION_DESKTOP:DESKTOP_SESSION env hint for diagnostics.
   [[nodiscard]] std::string_view envHint();
 
-  // Removed in D2b.
-  [[nodiscard]] inline bool isNiri() { return false; }
-  // Removed in D2b.
-  [[nodiscard]] inline bool isHyprland() { return false; }
-  // Removed in D2b.
-  [[nodiscard]] inline bool isKde() { return false; }
   [[nodiscard]] inline bool isAndromeda() { return detect() == CompositorKind::Andromeda; }
 
 } // namespace compositors

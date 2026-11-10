@@ -2609,7 +2609,6 @@
         "desktop": "Desktop",
         "desktop-layout": "Desktop Layout",
         "automation": "Automation",
-        "backdrop": "Backdrop",
         "background": "Background",
         "battery": "Battery",
         "background-apps": "Background Apps",
@@ -2706,7 +2705,6 @@
       "sections": {
         "accessibility": "Accessibility",
         "appearance": "Style",
-        "backdrop": "Backdrop",
         "bar": "Bar",
         "calendar": "Calendar",
         "control-center": "Control Center",
@@ -2716,7 +2714,6 @@
         "keybinds": "Panel Keys",
         "launcher": "Launcher",
         "location": "Location",
-        "niri": "Niri",
         "notifications": "Notifications & OSD",
         "panels": "Panels & Popups",
         "plugins": "Plugins",
@@ -3269,19 +3266,6 @@
         "wallpaper-generation-scheme": {
           "description": "Choose how wallpaper colors are converted into a palette",
           "label": "Wallpaper Color Style"
-        }
-      },
-      "backdrop": {
-        "blur-intensity": {
-          "description": "Blur intensity of the backdrop",
-          "label": "Blur Intensity"
-        },
-        "enabled": {
-          "description": "Enable the backdrop"
-        },
-        "tint-intensity": {
-          "description": "Tint intensity of the backdrop",
-          "label": "Tint Intensity"
         }
       },
       "bar": {
@@ -4766,14 +4750,6 @@
           "description": "Wraps apps launched from the launcher, dock, and taskbar; substitutes $CMD with the original command",
           "label": "Custom App Launch Command",
           "placeholder": "$CMD"
-        },
-        "niri-overview-close-on-launch": {
-          "description": "Close the overview when an app launches from the launcher while the niri overview is open",
-          "label": "Close on Launch"
-        },
-        "niri-overview-type-to-launch": {
-          "description": "Open the launcher when typing in niri overview; uses a tiny keyboard-focus surface while overview is open",
-          "label": "Type to Launch"
         },
         "offline-mode": {
           "description": "Block all outgoing network requests",

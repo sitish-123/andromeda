@@ -550,14 +550,6 @@ struct WallpaperConfig {
   bool operator==(const WallpaperConfig&) const = default;
 };
 
-struct BackdropConfig {
-  bool enabled = false;
-  float blurIntensity = 0.5F;
-  float tintIntensity = 0.3F;
-
-  bool operator==(const BackdropConfig&) const = default;
-};
-
 struct LockscreenConfig {
   bool enabled = true;
   // Lock on PrepareForSleep (lid close / systemctl suspend) via logind sleep-delay inhibit.
@@ -1334,10 +1326,8 @@ struct ShellConfig {
   /// Empty keeps per-source resolution (widget click bar, else first enabled bar).
   std::string panelAnchorBar;
   bool setupWizardEnabled = true;
-  bool niriOverviewTypeToLaunchEnabled = false;
   bool andromedaOverviewTypeToLaunchEnabled = false;
   bool andromedaAudioProviderEnabled = false;
-  bool niriOverviewCloseOnLaunchEnabled = false;
   bool andromedaOverviewCloseOnLaunchEnabled = false;
   bool polkitAgent = true;
   bool automountDrives = true;
@@ -1989,7 +1979,6 @@ struct Config {
   std::vector<BarConfig> bars;
   std::unordered_map<std::string, WidgetConfig> widgets;
   WallpaperConfig wallpaper;
-  BackdropConfig backdrop;
   LockscreenConfig lockscreen;
   LockscreenWidgetsConfig lockscreenWidgets;
   DockConfig dock;
@@ -2026,7 +2015,6 @@ struct ConfigChangeSet {
   bool desktopWidgets = true;
   bool lockscreenWidgets = true;
   bool wallpaper = true;
-  bool backdrop = true;
   bool lockscreen = true;
   bool dock = true;
   bool shell = true;
@@ -2057,7 +2045,6 @@ struct ConfigChangeSet {
         || desktopWidgets
         || lockscreenWidgets
         || wallpaper
-        || backdrop
         || lockscreen
         || dock
         || shell

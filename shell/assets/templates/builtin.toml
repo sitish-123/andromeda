@@ -40,36 +40,6 @@ name = "Kitty"
 category = "terminal"
 documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
 
-[catalog.labwc]
-name = "Labwc"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
-
-[catalog.niri]
-name = "Niri"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
-
-[catalog.hyprland]
-name = "Hyprland"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
-
-[catalog.mango]
-name = "Mango"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/templates/official/mango/"
-
-[catalog.scroll]
-name = "Scroll"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
-
-[catalog.sway]
-name = "Sway"
-category = "compositor"
-documentation_url = "https://docs.noctalia.dev/noctalia/theming/app-theming/#built-in-templates"
-
 [catalog.andromeda]
 name = "Andromeda"
 category = "compositor"
@@ -126,42 +96,6 @@ input_path = "./kitty/kitty.conf"
 output_path = "$XDG_CONFIG_HOME/kitty/themes/noctalia.conf"
 post_hook = "bash '{{ config_dir }}/kitty/apply.sh'"
 undo_hook = "bash '{{ config_dir }}/kitty/undo.sh'"
-
-[templates.labwc]
-input_path = "./labwc/labwc.conf"
-output_path = "$XDG_CONFIG_HOME/labwc/noctalia.conf"
-post_hook = "bash '{{ config_dir }}/labwc/apply.sh'"
-undo_hook = "bash '{{ config_dir }}/labwc/undo.sh'"
-
-[templates.niri]
-input_path = "./niri/niri.kdl"
-output_path_dynamic = "bash '{{ config_dir }}/niri/apply.sh' output"
-post_hook = "bash '{{ config_dir }}/niri/apply.sh' apply"
-undo_hook = "bash '{{ config_dir }}/niri/undo.sh'"
-
-[templates.hyprland]
-input_path_dynamic = "bash '{{ config_dir }}/hyprland/apply.sh' input"
-output_path_dynamic = "bash '{{ config_dir }}/hyprland/apply.sh' output"
-post_hook = "bash '{{ config_dir }}/hyprland/apply.sh' apply"
-undo_hook = "bash '{{ config_dir }}/hyprland/undo.sh'"
-
-[templates.mango]
-input_path = "./mango/mango.conf"
-output_path = "$XDG_CONFIG_HOME/mango/noctalia.conf"
-post_hook = "bash '{{ config_dir }}/mango/apply.sh'"
-undo_hook = "bash '{{ config_dir }}/mango/undo.sh'"
-
-[templates.scroll]
-input_path = "./scroll/scroll"
-output_path = "$XDG_CONFIG_HOME/scroll/noctalia"
-post_hook = "bash '{{ config_dir }}/scroll/apply.sh'"
-undo_hook = "bash '{{ config_dir }}/scroll/undo.sh'"
-
-[templates.sway]
-input_path = "./sway/sway"
-output_path = "$XDG_CONFIG_HOME/sway/noctalia"
-post_hook = "bash '{{ config_dir }}/sway/apply.sh'"
-undo_hook = "bash '{{ config_dir }}/sway/undo.sh'"
 
 [templates.andromeda]
 input_path = "./andromeda/andromeda.toml"

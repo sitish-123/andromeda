@@ -59,7 +59,6 @@ void Application::recoverGraphicsAfterReset() {
     // A robust-context reset invalidates the whole share group. Tear down every
     // child before replacing the root, and do it outside the render callback.
     m_lockScreen.prepareForGraphicsReset();
-    m_backdrop.prepareForGraphicsReset();
     m_thumbnailService.abandonGpuResources();
     m_sharedTextureCache.abandonGpuResources();
     m_asyncTextureCache.abandonGpuResources();
@@ -67,15 +66,12 @@ void Application::recoverGraphicsAfterReset() {
 
     m_glShared.recreateRootContext();
     m_renderContext.restoreAfterGraphicsReset(m_glShared);
-    m_backdrop.restoreAfterGraphicsReset();
 
     m_sharedTextureCache.reloadResidentTextures();
     m_asyncTextureCache.reloadResidentTextures();
     m_renderContext.finishGraphicsResetRecovery();
-    m_backdrop.finishGraphicsResetRecovery();
     m_thumbnailService.invalidateGpuResources(m_renderContext.backend().textureManager());
     m_wallpaper.onGpuResourcesInvalidated();
-    m_backdrop.onGpuResourcesInvalidated();
     m_lockScreen.onGpuResourcesInvalidated();
     m_trayMenu.requestLayout();
     m_settingsWindow.requestRedraw();

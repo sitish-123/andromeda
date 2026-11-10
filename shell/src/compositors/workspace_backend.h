@@ -14,8 +14,6 @@
 
 struct wl_output;
 struct ext_workspace_manager_v1;
-struct org_kde_plasma_virtual_desktop_management;
-struct zdwl_ipc_manager_v2;
 
 struct Workspace {
   std::string id;
@@ -101,7 +99,7 @@ public:
   }
   [[nodiscard]] virtual std::vector<WorkspaceWindow> workspaceWindows(wl_output* /*output*/) const { return {}; }
   // Workspace keys of the overlay workspaces currently open on `output` (nullptr = every
-  // output), such as Hyprland special workspaces, which backends hide from all()/forOutput().
+  // output), which backends hide from all()/forOutput().
   // Non-empty means the overlay supersedes the reported active workspace. Keys use the
   // WorkspaceWindow::workspaceKey namespace.
   [[nodiscard]] virtual std::vector<std::string> openOverlayWorkspaceKeys(wl_output* /*output*/) const { return {}; }
@@ -128,18 +126,6 @@ class ExtWorkspaceProtocolBinder {
 public:
   virtual ~ExtWorkspaceProtocolBinder() = default;
   virtual void bindExtWorkspace(ext_workspace_manager_v1* manager) = 0;
-};
-
-class DwlIpcWorkspaceProtocolBinder {
-public:
-  virtual ~DwlIpcWorkspaceProtocolBinder() = default;
-  virtual void bindDwlIpcWorkspace(zdwl_ipc_manager_v2* manager) = 0;
-};
-
-class KdeVirtualDesktopProtocolBinder {
-public:
-  virtual ~KdeVirtualDesktopProtocolBinder() = default;
-  virtual void bindKdeVirtualDesktop(org_kde_plasma_virtual_desktop_management* management) = 0;
 };
 
 class WorkspaceOutputNameResolver {

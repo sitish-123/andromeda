@@ -245,10 +245,7 @@ CompositorPlatform::CompositorPlatform(ShellWaylandConnection& wayland)
 
   m_workspaces->setOutputNameResolver([this](wl_output* output) { return connectorNameForOutput(output); });
 
-  m_wayland.setWorkspaceManagerCallbacks(
-      [this](ext_workspace_manager_v1* manager) { bindExtWorkspace(manager); },
-      {}
-  );
+  m_wayland.setWorkspaceManagerCallbacks([this](ext_workspace_manager_v1* manager) { bindExtWorkspace(manager); });
   m_wayland.setToplevelChangeCallback([this] { notifyToplevelsChanged(); });
   m_wayland.setToplevelTitleCallback([this](bool active) {
     if (m_toplevelTitleCallback) {
@@ -272,7 +269,7 @@ CompositorPlatform::~CompositorPlatform() {
   }
   cleanup();
   m_wayland.setOutputLifecycleCallbacks({}, {});
-  m_wayland.setWorkspaceManagerCallbacks({}, {});
+  m_wayland.setWorkspaceManagerCallbacks({});
   m_wayland.setToplevelChangeCallback({});
   m_wayland.setToplevelTitleCallback({});
   m_wayland.setKeyboardLayoutChangeCallback({});

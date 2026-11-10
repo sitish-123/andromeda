@@ -398,7 +398,6 @@ namespace {
         && a.hotCorners == b.hotCorners
         && lockscreenWidgetsConfigEqual(a.lockscreenWidgets, b.lockscreenWidgets)
         && a.wallpaper == b.wallpaper
-        && a.backdrop == b.backdrop
         && a.lockscreen == b.lockscreen
         && a.dock == b.dock
         && a.desktopIcons == b.desktopIcons
@@ -890,7 +889,6 @@ ConfigChangeSet computeConfigChangeSet(const Config& prev, const Config& next) {
       .desktopWidgets = !desktopWidgetsConfigEqual(prev.desktopWidgets, next.desktopWidgets),
       .lockscreenWidgets = !lockscreenWidgetsConfigEqual(prev.lockscreenWidgets, next.lockscreenWidgets),
       .wallpaper = !(prev.wallpaper == next.wallpaper),
-      .backdrop = !(prev.backdrop == next.backdrop),
       .lockscreen = !(prev.lockscreen == next.lockscreen),
       .dock = !(prev.dock == next.dock),
       .shell = !(prev.shell == next.shell),

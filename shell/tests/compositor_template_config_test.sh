@@ -13,22 +13,6 @@ fail() {
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
 
-mkdir -p "$work_dir/bin"
-cat >"$work_dir/bin/hyprctl" <<'EOF'
-#!/bin/sh
-if [ "$TEST_HYPRLAND_MODE" = lua ]; then
-  printf 'ok\n'
-else
-  exit 1
-fi
-EOF
-cat >"$work_dir/bin/mmsg" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-chmod +x "$work_dir/bin/hyprctl" "$work_dir/bin/mmsg"
-export PATH="$work_dir/bin:$PATH"
-
 configure_case() {
   local name=$1
   case_dir="$work_dir/$name"
@@ -36,7 +20,6 @@ configure_case() {
   export XDG_CONFIG_HOME="$case_dir/config"
   export XDG_DATA_HOME="$case_dir/data"
   export XDG_CONFIG_DIRS="$case_dir/system"
-  export TEST_HYPRLAND_MODE=conf
 
   compositor=$name
   case "$name" in
@@ -45,45 +28,6 @@ configure_case() {
       theme_relative=andromeda/noctalia.toml
       integration='files = ["noctalia.toml"]'
       manual_directive="files = [\"$XDG_CONFIG_HOME/$theme_relative\"]"
-      ;;
-    niri)
-      primary_relative=niri/config.kdl
-      theme_relative=niri/noctalia.kdl
-      integration='include "noctalia.kdl"'
-      manual_directive="include \"$XDG_CONFIG_HOME/$theme_relative\""
-      ;;
-    sway|scroll)
-      primary_relative="$name/config"
-      theme_relative="$name/noctalia"
-      integration="include $XDG_CONFIG_HOME/$theme_relative"
-      manual_directive="include \"$XDG_CONFIG_HOME/$theme_relative\""
-      ;;
-    mango)
-      primary_relative=mango/config.conf
-      theme_relative=mango/noctalia.conf
-      integration="source=$XDG_CONFIG_HOME/$theme_relative"
-      manual_directive=$integration
-      ;;
-    hyprland-conf)
-      compositor=hyprland
-      primary_relative=hypr/hyprland.conf
-      theme_relative=hypr/noctalia.conf
-      integration="source = $XDG_CONFIG_HOME/$theme_relative"
-      manual_directive=$integration
-      ;;
-    hyprland-lua)
-      compositor=hyprland
-      export TEST_HYPRLAND_MODE=lua
-      primary_relative=hypr/hyprland.lua
-      theme_relative=hypr/noctalia.lua
-      integration='require("noctalia").apply_theme()'
-      manual_directive="dofile(\"$XDG_CONFIG_HOME/$theme_relative\").apply_theme()"
-      ;;
-    labwc)
-      primary_relative=labwc/rc.xml
-      theme_relative=labwc/noctalia.conf
-      integration='<name>noctalia</name>'
-      manual_directive=$integration
       ;;
   esac
 
@@ -124,10 +68,6 @@ for name in andromeda; do
   expect_missing_config
   [ ! -L "$primary" ] || fail "$name: created primary config symlink"
   [ -f "$theme" ] || fail "$name: removed generated theme on missing config"
-  if [ "$name" = labwc ]; then
-    cmp -s "$theme" "$XDG_DATA_HOME/themes/noctalia/openbox-3/themerc" \
-      || fail "$name: did not install generated theme before warning"
-  fi
   run_hook undo || fail "$name: undo failed with missing config"
   [ ! -e "$primary" ] && [ ! -L "$primary" ] \
     || fail "$name: undo created missing config"
@@ -141,15 +81,7 @@ for name in andromeda; do
     || fail "$name: changed dangling config symlink"
   rm "$primary"
 
-  if [ "$name" = labwc ]; then
-    printf '<labwc_config>\n  <!-- user configuration -->\n  <theme>\n    <name>existing</name>\n  </theme>\n</labwc_config>\n' >"$primary"
-  elif [ "$name" = niri ]; then
-    printf '// user configuration\n' >"$primary"
-  elif [ "$name" = hyprland-lua ]; then
-    printf -- '-- user configuration\n' >"$primary"
-  else
-    printf '# user configuration\n' >"$primary"
-  fi
+  printf '# user configuration\n' >"$primary"
   run_hook apply || fail "$name: apply failed with existing config: $(cat "$case_dir/stderr")"
   [ "$(grep -cF "$integration" "$primary")" = 1 ] \
     || fail "$name: existing config did not get exactly one theme integration"

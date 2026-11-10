@@ -108,7 +108,7 @@ public:
   // flowing to the bar instead of dismissing the active panel.
   [[nodiscard]] std::vector<InputRect> surfaceRectsForOutput(wl_output* output) const;
   // Returns every bar wl_surface across all outputs. Used as the focus-grab
-  // whitelist on Hyprland so bar widgets keep receiving clicks.
+  // whitelist so bar widgets keep receiving clicks.
   [[nodiscard]] std::vector<wl_surface*> allBarSurfaces() const;
   // Bar surfaces that are visually shown and can anchor a Wayland idle inhibitor.
   [[nodiscard]] std::vector<wl_surface*> caffeineAnchorSurfaces() const;
