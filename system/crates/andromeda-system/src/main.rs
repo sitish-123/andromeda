@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
     tokio::spawn(power::sample_rapl(conn.clone()));
     tokio::spawn(memory::run(conn.clone()));
     tokio::spawn(network::run(conn.clone()));
+    tokio::spawn(login::run(conn.clone()));
     tokio::spawn(storage::run(conn.clone()));
     tokio::spawn(thermal::run(conn.clone()));
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);

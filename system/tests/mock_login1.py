@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # logind on a test system bus: session "c1" of the caller's uid (no session by PID, so GetUser's Display finds it),
 # session "c2" of uid 4242, and the inhibitors that argv[2] holds at each call, one "what mode uid" per line. Power,
-# firmware-setup and brightness calls only append a line to argv[1]; nothing reboots or suspends.
+# firmware-setup, brightness and scheduled-shutdown calls only append a line to argv[1]; nothing reboots or suspends.
+# A suspend call emits PrepareForSleep(true); scheduling or cancelling emits the ScheduledShutdown change.
 import os
 import sys
 
@@ -19,6 +20,7 @@ SESSIONS = {"c1": UID, "c2": 4242}
 LOG = sys.argv[1]
 INHIBITORS = sys.argv[2]
 KEEP = []
+SCHEDULED = ["", dbus.UInt64(2**64 - 1)]
 
 
 def record(line):
@@ -72,6 +74,28 @@ class Login1(dbus.service.FallbackObject):
     @dbus.service.method(MANAGER, in_signature="t")
     def SuspendWithFlags(self, flags):
         record(f"SuspendWithFlags {flags}")
+        self.PrepareForSleep(True)
+
+    @dbus.service.signal(MANAGER, signature="b")
+    def PrepareForSleep(self, start):
+        pass
+
+    @dbus.service.signal(PROPS, signature="sa{sv}as")
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
+    @dbus.service.method(MANAGER, in_signature="st")
+    def ScheduleShutdown(self, action, usec):
+        record(f"ScheduleShutdown {action} {usec}")
+        SCHEDULED[:] = [str(action), dbus.UInt64(usec)]
+        self.PropertiesChanged(MANAGER, {"ScheduledShutdown": dbus.Struct(SCHEDULED)}, [])
+
+    @dbus.service.method(MANAGER, out_signature="b")
+    def CancelScheduledShutdown(self):
+        record("CancelScheduledShutdown")
+        SCHEDULED[:] = ["", dbus.UInt64(2**64 - 1)]
+        self.PropertiesChanged(MANAGER, {"ScheduledShutdown": dbus.Struct(SCHEDULED)}, [])
+        return True
 
     @dbus.service.method(MANAGER, in_signature="b")
     def SetRebootToFirmwareSetup(self, enable):
@@ -88,8 +112,15 @@ class Login1(dbus.service.FallbackObject):
     def SetBrightness(self, subsystem, name, value, path=None):
         record(f"SetBrightness {path} {subsystem} {name} {value}")
 
+    @dbus.service.method(PROPS, in_signature="s", out_signature="a{sv}", rel_path_keyword="path")
+    def GetAll(self, interface, path=None):
+        return {"ScheduledShutdown": dbus.Struct(SCHEDULED, signature="st"), "HandleLidSwitch": "suspend",
+                "BlockInhibited": "idle", "PreparingForSleep": False, "NAutoVTs": dbus.UInt32(6)}
+
     @dbus.service.method(PROPS, in_signature="ss", out_signature="v", rel_path_keyword="path")
     def Get(self, interface, name, path=None):
+        if interface == MANAGER:
+            return self.GetAll(interface)[name]
         if path.startswith("/user/"):
             return dbus.Struct(("c1", dbus.ObjectPath(f"{ROOT}/session/c1")))
         sid = path.rsplit("/", 1)[-1]

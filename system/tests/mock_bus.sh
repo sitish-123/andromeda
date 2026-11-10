@@ -161,6 +161,21 @@ echo "sleep block-weak 4242" >"$INH"
 "${B[@]}" "${L[@]}" ListSessions | grep -q '^a(susso) 2 ' || fail "ListSessions"
 "${B[@]}" "${L[@]}" SetBrightness sssu "" backlight intel 5
 "${B[@]}" "${L[@]}" SetBrightness sssu c2 backlight intel 6 2>/dev/null && fail "SetBrightness reached another user's session"
+# System1 relays PrepareForSleep only from logind, not from another peer, and the names of changed mirrored properties.
+dbus-monitor --address "$DBUS_SYSTEM_BUS_ADDRESS" "type='signal',path='/org/andromeda/System1/Login'" \
+  "type='signal',member='Marker'" >"$OUT/login-signals" 2>&1 & PIDS+=($!)
+until_has 50 Marker sh -c "busctl --address=$DBUS_SYSTEM_BUS_ADDRESS emit /test test.T Marker; cat $OUT/login-signals"
+"${B[@]}" emit /org/freedesktop/login1 org.freedesktop.login1.Manager PrepareForSleep b true
+"${B[@]}" "${L[@]}" Power sbb suspend true false
+until_has 30 'member=PrepareForSleep' cat "$OUT/login-signals"
+[[ $(grep -c 'member=PrepareForSleep' "$OUT/login-signals") == 1 ]] || fail "System1 relayed a PrepareForSleep not from logind"
+"${B[@]}" "${L[@]}" ScheduleShutdown stb halt 1 false 2>/dev/null && fail "ScheduleShutdown took an action other than poweroff or reboot"
+"${B[@]}" "${L[@]}" ScheduleShutdown stb poweroff 123 false
+until_has 30 '"ScheduledShutdown"' cat "$OUT/login-signals"
+until_has 10 '"poweroff" 123' "${B[@]}" "${L[@]}" ManagerProperties
+"${B[@]}" "${L[@]}" ManagerProperties | grep -q NAutoVTs && fail "ManagerProperties returned an unmirrored property"
+"${B[@]}" "${L[@]}" CancelScheduledShutdown b false | grep -q '^b true' || fail "CancelScheduledShutdown"
+"${B[@]}" "${L[@]}" CancelScheduledShutdown b false | grep -q '^b false' || fail "nothing scheduled must answer false"
 diff -u - "$OUT/login1.log" <<'EOF' || fail "logind calls differ"
 RebootWithFlags 16
 SuspendWithFlags 1
@@ -168,6 +183,9 @@ SuspendWithFlags 0
 SuspendWithFlags 1
 Inhibit sleep delay
 SetBrightness /session/c1 backlight intel 5
+SuspendWithFlags 1
+ScheduleShutdown poweroff 123
+CancelScheduledShutdown
 EOF
 # The session part: the low battery rule holds power-saver through the system part, alerts once, and the alert's
 # Undo releases the hold.

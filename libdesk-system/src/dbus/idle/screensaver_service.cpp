@@ -14,11 +14,10 @@ namespace {
   constexpr Logger kLog("screensaver");
 
   const sdbus::ServiceName kBusName{"org.freedesktop.ScreenSaver"};
-  const sdbus::ServiceName kLogindBusName{"org.freedesktop.login1"};
-  const sdbus::ObjectPath kLogindObjectPath{"/org/freedesktop/login1"};
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kLoginObjectPath{"/org/andromeda/System1/Login"};
   constexpr auto kInterface = "org.freedesktop.ScreenSaver";
-  constexpr auto kLogindManagerInterface = "org.freedesktop.login1.Manager";
-  constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
+  constexpr auto kLoginInterface = "org.andromeda.System1.Login";
   constexpr auto kFileExistsError = "org.freedesktop.DBus.Error.FileExists";
 
   constexpr int kMaxEventsPerDispatch = 16;
@@ -168,20 +167,14 @@ void ScreenSaverService::registerLogindIdleMonitor(SystemBus* systemBus) {
   }
 
   try {
-    m_logindProxy = sdbus::createProxy(systemBus->connection(), kLogindBusName, kLogindObjectPath);
-    m_logindProxy->uponSignal("PropertiesChanged")
-        .onInterface(kPropertiesInterface)
-        .call([this](
-                  const std::string& interfaceName, const std::map<std::string, sdbus::Variant>& changedProperties,
-                  const std::vector<std::string>& /*invalidatedProperties*/
-              ) {
-          if (interfaceName != kLogindManagerInterface) {
+    m_logindProxy = sdbus::createProxy(systemBus->connection(), kSystem1BusName, kLoginObjectPath);
+    m_logindProxy->uponSignal("ManagerPropertiesChanged")
+        .onInterface(kLoginInterface)
+        .call([this](const std::vector<std::string>& names) {
+          if (!std::ranges::contains(names, "BlockInhibited")) {
             return;
           }
-          if (!changedProperties.contains("BlockInhibited")) {
-            return;
-          }
-          // Any peer can send this signal directly to us, so read the value from logind instead.
+          // Any peer can send this signal directly to us, so read the value instead.
           readLogindBlockInhibited();
         });
 
@@ -196,9 +189,11 @@ void ScreenSaverService::registerLogindIdleMonitor(SystemBus* systemBus) {
 void ScreenSaverService::readLogindBlockInhibited() {
   const std::weak_ptr<int> aliveToken = m_aliveToken;
   const std::uint64_t read = ++m_blockInhibitedReads;
-  m_logindProxy->getPropertyAsync("BlockInhibited")
-      .onInterface(kLogindManagerInterface)
-      .uponReplyInvoke([this, aliveToken, read](std::optional<sdbus::Error> e, sdbus::Variant value) {
+  m_logindProxy->callMethodAsync("ManagerProperties")
+      .onInterface(kLoginInterface)
+      .uponReplyInvoke([this, aliveToken, read](
+                           std::optional<sdbus::Error> e, const std::map<std::string, sdbus::Variant>& props
+                       ) {
         // Only the newest read applies, so a late reply cannot undo a newer state.
         if (aliveToken.expired() || read != m_blockInhibitedReads) {
           return;
@@ -207,7 +202,9 @@ void ScreenSaverService::readLogindBlockInhibited() {
           kLog.warn("logind idle inhibit read failed: {}", e->what());
           return;
         }
-        applyLogindBlockInhibited(value.get<std::string>());
+        if (const auto it = props.find("BlockInhibited"); it != props.end()) {
+          applyLogindBlockInhibited(it->second.get<std::string>());
+        }
       });
 }
 

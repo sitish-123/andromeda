@@ -81,7 +81,7 @@ public:
 private:
   void readSystem();
   void readLogind();
-  void readScheduledShutdown();
+  void readManagerProperties();
   void notify();
   void writeTrial(const std::string& value);
   void finishTrial();

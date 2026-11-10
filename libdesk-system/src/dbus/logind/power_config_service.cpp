@@ -22,9 +22,9 @@
 namespace {
   constexpr Logger kLog("power-config");
 
-  const sdbus::ServiceName kLogindBusName{"org.freedesktop.login1"};
-  const sdbus::ObjectPath kLogindObjectPath{"/org/freedesktop/login1"};
-  constexpr auto kManagerInterface = "org.freedesktop.login1.Manager";
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kLoginObjectPath{"/org/andromeda/System1/Login"};
+  constexpr auto kLoginInterface = "org.andromeda.System1.Login";
   constexpr auto kHelperPath = "/usr/lib/andromeda/andromeda-power-config";
   constexpr auto kSystemHelperPath = "/usr/lib/andromeda/andromeda-power-system";
   constexpr auto kSleepDropIn = "/etc/systemd/sleep.conf.d/60-andromeda.conf";
@@ -138,9 +138,9 @@ namespace {
 
 PowerConfigService::PowerConfigService(SystemBus& bus) {
   try {
-    m_manager = sdbus::createProxy(bus.connection(), kLogindBusName, kLogindObjectPath);
+    m_manager = sdbus::createProxy(bus.connection(), kSystem1BusName, kLoginObjectPath);
   } catch (const sdbus::Error& e) {
-    kLog.warn("logind unavailable: {}", e.what());
+    kLog.warn("System1 Login unavailable: {}", e.what());
   }
   // "pending <boot id> <epoch>" from another boot: the trial hibernate never resumed. From this boot (the shell
   // restarted around it): the kernel log decides.
@@ -159,21 +159,17 @@ PowerConfigService::PowerConfigService(SystemBus& bus) {
     }
   }
   if (m_manager != nullptr) {
-    m_manager->uponSignal("PrepareForSleep").onInterface(kManagerInterface).call([this](bool sleeping) {
+    m_manager->uponSignal("PrepareForSleep").onInterface(kLoginInterface).call([this](bool sleeping) {
       if (!sleeping && m_state.trial == "pending") {
         finishTrial();
       }
     });
-    // A shutdown scheduled anywhere (Settings, `shutdown +10`) shows in the island; logind emits the change.
-    m_manager->uponSignal("PropertiesChanged")
-        .onInterface("org.freedesktop.DBus.Properties")
-        .call([this](
-                  const std::string& interface, const std::map<std::string, sdbus::Variant>& changed,
-                  const std::vector<std::string>& invalidated
-              ) {
-          if (interface == kManagerInterface
-              && (changed.contains("ScheduledShutdown") || std::ranges::contains(invalidated, "ScheduledShutdown"))) {
-            readScheduledShutdown();
+    // A shutdown scheduled anywhere (Settings, `shutdown +10`) shows in the island; System1 relays logind's change.
+    m_manager->uponSignal("ManagerPropertiesChanged")
+        .onInterface(kLoginInterface)
+        .call([this](const std::vector<std::string>& names) {
+          if (std::ranges::any_of(names, [](const std::string& name) { return name != "BlockInhibited"; })) {
+            readManagerProperties();
           }
         });
   }
@@ -212,7 +208,10 @@ void PowerConfigService::startTrial() {
     writeTrial("pending");
     notify();
     const std::weak_ptr<int> alive = m_aliveToken;
-    m_manager->callMethodAsync("Hibernate").onInterface(kManagerInterface).withArguments(false).uponReplyInvoke(
+    m_manager->callMethodAsync("Power")
+        .onInterface(kLoginInterface)
+        .withArguments(std::string{"hibernate"}, false, false)
+        .uponReplyInvoke(
         [this, alive](std::optional<sdbus::Error> e) {
           if (alive.expired() || !e.has_value()) {
             return;
@@ -292,22 +291,36 @@ void PowerConfigService::readSystem() {
   saved >> m_state.trial >> m_trialFingerprint;
 }
 
-void PowerConfigService::readScheduledShutdown() {
+void PowerConfigService::readManagerProperties() {
   if (m_manager == nullptr) {
     return;
   }
   const std::weak_ptr<int> alive = m_aliveToken;
-  m_manager->getAllPropertiesAsync().onInterface(kManagerInterface).uponReplyInvoke(
-      [this, alive](std::optional<sdbus::Error> e, const std::map<sdbus::PropertyName, sdbus::Variant>& props) {
-        if (alive.expired() || e.has_value()) {
+  m_manager->callMethodAsync("ManagerProperties").onInterface(kLoginInterface).uponReplyInvoke(
+      [this, alive](std::optional<sdbus::Error> e, const std::map<std::string, sdbus::Variant>& props) {
+        if (alive.expired()) {
+          return;
+        }
+        if (e.has_value()) {
+          kLog.warn("logind properties read failed: {}", e->what());
           return;
         }
         const auto flag = [&props](const char* name) {
-          const auto it = props.find(sdbus::PropertyName{name});
+          const auto it = props.find(name);
           return it != props.end() && it->second.get<bool>();
         };
-        const auto it = props.find(sdbus::PropertyName{"ScheduledShutdown"});
+        const auto text = [this, &props](const char* name, std::string PowerConfigState::* field) {
+          if (const auto it = props.find(name); it != props.end()) {
+            m_state.*field = it->second.get<std::string>();
+          }
+        };
+        text("HandleLidSwitch", &PowerConfigState::lidBattery);
+        text("HandleLidSwitchExternalPower", &PowerConfigState::lidPower);
+        text("HandleLidSwitchDocked", &PowerConfigState::lidDocked);
+        text("HandlePowerKey", &PowerConfigState::powerKey);
+        const auto it = props.find("ScheduledShutdown");
         if (it == props.end()) {
+          notify();
           return;
         }
         const auto scheduled = it->second.get<sdbus::Struct<std::string, std::uint64_t>>();
@@ -327,14 +340,14 @@ void PowerConfigService::scheduleShutdown(const std::string& action, std::uint64
   if (m_manager == nullptr) {
     return;
   }
-  m_manager->callMethodAsync("ScheduleShutdown").onInterface(kManagerInterface).withArguments(action, usec).uponReplyInvoke(
+  m_manager->callMethodAsync("ScheduleShutdown").onInterface(kLoginInterface).withArguments(action, usec, true).uponReplyInvoke(
       [this, alive = std::weak_ptr<int>(m_aliveToken)](std::optional<sdbus::Error> e) {
         if (e.has_value()) {
           kLog.warn("schedule shutdown refused: {}", e->what());
         }
         // logind may not signal ScheduledShutdown: read it back.
         if (!alive.expired()) {
-          readScheduledShutdown();
+          readManagerProperties();
         }
       }
   );
@@ -344,13 +357,13 @@ void PowerConfigService::cancelScheduledShutdown() {
   if (m_manager == nullptr) {
     return;
   }
-  m_manager->callMethodAsync("CancelScheduledShutdown").onInterface(kManagerInterface).uponReplyInvoke(
+  m_manager->callMethodAsync("CancelScheduledShutdown").onInterface(kLoginInterface).withArguments(true).uponReplyInvoke(
       [this, alive = std::weak_ptr<int>(m_aliveToken)](std::optional<sdbus::Error> e, bool /*cancelled*/) {
         if (e.has_value()) {
           kLog.warn("cancel scheduled shutdown failed: {}", e->what());
         }
         if (!alive.expired()) {
-          readScheduledShutdown();
+          readManagerProperties();
         }
       }
   );
@@ -361,35 +374,16 @@ void PowerConfigService::readLogind() {
     return;
   }
   const std::weak_ptr<int> alive = m_aliveToken;
-  const auto readString = [this, alive](const char* property, std::string PowerConfigState::* field) {
-    m_manager->getPropertyAsync(property).onInterface(kManagerInterface).uponReplyInvoke(
-        [this, alive, property, field](std::optional<sdbus::Error> e, const sdbus::Variant& value) {
-          if (alive.expired()) {
-            return;
-          }
-          if (e.has_value()) {
-            kLog.warn("logind {} read failed: {}", property, e->what());
-            return;
-          }
-          m_state.*field = value.get<std::string>();
-          notify();
-        }
-    );
-  };
-  readString("HandleLidSwitch", &PowerConfigState::lidBattery);
-  readString("HandleLidSwitchExternalPower", &PowerConfigState::lidPower);
-  readString("HandleLidSwitchDocked", &PowerConfigState::lidDocked);
-  readString("HandlePowerKey", &PowerConfigState::powerKey);
-  readScheduledShutdown();
+  readManagerProperties();
 
-  const auto readCan = [this, alive](const char* method, bool PowerConfigState::* field) {
-    m_manager->callMethodAsync(method).onInterface(kManagerInterface).uponReplyInvoke(
-        [this, alive, method, field](std::optional<sdbus::Error> e, const std::string& answer) {
+  const auto readCan = [this, alive](const char* action, bool PowerConfigState::* field) {
+    m_manager->callMethodAsync("CanPower").onInterface(kLoginInterface).withArguments(std::string{action}).uponReplyInvoke(
+        [this, alive, action, field](std::optional<sdbus::Error> e, const std::string& answer) {
           if (alive.expired()) {
             return;
           }
           if (e.has_value()) {
-            kLog.warn("logind {} failed: {}", method, e->what());
+            kLog.warn("CanPower {} failed: {}", action, e->what());
             return;
           }
           m_state.*field = answer == "yes";
@@ -397,8 +391,8 @@ void PowerConfigService::readLogind() {
         }
     );
   };
-  readCan("CanHibernate", &PowerConfigState::canHibernate);
-  readCan("CanSuspendThenHibernate", &PowerConfigState::canSuspendThenHibernate);
+  readCan("hibernate", &PowerConfigState::canHibernate);
+  readCan("suspend-then-hibernate", &PowerConfigState::canSuspendThenHibernate);
 }
 
 void PowerConfigService::set(const std::string& key, const std::string& value, ResultCallback done) {
@@ -452,7 +446,7 @@ void PowerConfigService::reboot() {
     return;
   }
   // interactive = true: polkit may ask when other sessions are open.
-  m_manager->callMethodAsync("Reboot").onInterface(kManagerInterface).withArguments(true).uponReplyInvoke(
+  m_manager->callMethodAsync("Power").onInterface(kLoginInterface).withArguments(std::string{"reboot"}, true, false).uponReplyInvoke(
       [](std::optional<sdbus::Error> e) {
         if (e.has_value()) {
           kLog.warn("reboot refused: {}", e->what());

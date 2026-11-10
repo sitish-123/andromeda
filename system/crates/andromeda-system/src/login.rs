@@ -2,11 +2,15 @@
 //! backlight brightness. This service calls login1 as root, so it first makes logind's own polkit checks, with
 //! logind's action ids, for the caller: each call needs the same authorization as when the caller asks logind.
 
+use std::collections::HashMap;
 use std::fmt::Display;
 
+use futures_util::StreamExt;
 use zbus::fdo::{Error, Result};
 use zbus::message::Header;
 use zbus::names::BusName;
+use zbus::object_server::{InterfaceRef, SignalEmitter};
+use zbus::proxy::CacheProperties;
 use zbus::zvariant::{DynamicType, Type};
 use zbus::{Connection, OwnedFd, OwnedObjectPath, OwnedVariant, interface};
 
@@ -24,6 +28,17 @@ const ROOT_CHECK_INHIBITORS: u64 = 1 << 0;
 const SKIP_INHIBITORS: u64 = 1 << 4;
 const FIRMWARE: &str = "reboot-to-firmware-setup";
 const FIRMWARE_ACTION: &str = "org.freedesktop.login1.set-reboot-to-firmware-setup";
+/// logind Manager properties that `ManagerProperties` returns.
+const MIRRORED: [&str; 8] = [
+    "BlockInhibited",
+    "HandleLidSwitch",
+    "HandleLidSwitchDocked",
+    "HandleLidSwitchExternalPower",
+    "HandlePowerKey",
+    "PreparingForShutdown",
+    "PreparingForSleep",
+    "ScheduledShutdown",
+];
 
 /// (what, who, why, mode, uid, pid), as logind's `ListInhibitors`.
 pub type Inhibitor = (String, String, String, String, u32, u32);
@@ -175,6 +190,25 @@ fn inhibit_action(kind: &str, mode: &str) -> Option<String> {
     }
 }
 
+/// The power action of a shutdown that `ScheduleShutdown` takes, in logind's names.
+fn schedulable(action: &str) -> Result<PowerAction> {
+    match action {
+        "poweroff" => Ok(PowerAction::PowerOff),
+        "reboot" => Ok(PowerAction::Reboot),
+        _ => Err(Error::InvalidArgs(format!("cannot schedule {action:?}"))),
+    }
+}
+
+/// logind's polkit action for cancelling a shutdown that another uid scheduled, by its scheduled action name.
+fn cancel_action(scheduled: &str) -> Option<&'static str> {
+    match scheduled.strip_prefix("dry-").unwrap_or(scheduled) {
+        "poweroff" => Some("org.freedesktop.login1.power-off"),
+        "reboot" | "kexec" | "soft-reboot" => Some("org.freedesktop.login1.reboot"),
+        "halt" => Some("org.freedesktop.login1.halt"),
+        _ => None,
+    }
+}
+
 fn failed(what: &str, e: impl Display) -> Error {
     Error::Failed(format!("logind {what}: {e}"))
 }
@@ -253,6 +287,93 @@ async fn session_path(conn: &Connection, session: &str, uid: u32, pid: u32) -> R
     if display.as_str() == "/" { Err(Error::Failed(format!("user {uid} has no session"))) } else { Ok(display) }
 }
 
+/// Makes logind's polkit checks for `action` for the caller and returns the flags for System1's call as root.
+async fn authorize_power(
+    conn: &Connection,
+    header: &Header<'_>,
+    action: PowerAction,
+    interactive: bool,
+    skip_inhibitors: bool,
+) -> Result<(u32, u64)> {
+    let (uid, _) = caller(conn, header).await?;
+    let mut passed: Vec<String> = Vec::new();
+    // Inhibitors and sessions can change while a polkit dialog is open: plan again until no new check is due.
+    loop {
+        let (checks, flags) = power_plan_for(conn, uid, action, skip_inhibitors).await?.map_err(Error::AccessDenied)?;
+        let due: Vec<String> = checks.into_iter().filter(|check| !passed.contains(check)).collect();
+        if due.is_empty() {
+            return Ok((uid, flags));
+        }
+        for check in due {
+            polkit::check_with(conn, header, &check, interactive).await?;
+            passed.push(check);
+        }
+    }
+}
+
+async fn scheduled_shutdown(conn: &Connection) -> Result<String> {
+    let (action, _): (String, u64) = property(conn, LOGIN1_PATH, MANAGER, "ScheduledShutdown").await?;
+    Ok(action)
+}
+
+#[zbus::proxy(
+    interface = "org.freedesktop.login1.Manager",
+    default_service = "org.freedesktop.login1",
+    default_path = "/org/freedesktop/login1"
+)]
+trait Login1 {
+    #[zbus(signal)]
+    fn prepare_for_sleep(&self, start: bool) -> zbus::Result<()>;
+}
+
+/// Relays logind's `PrepareForSleep` and the names of changed mirrored properties until the connection closes.
+pub async fn run(conn: Connection) {
+    if let Err(e) = relay(&conn).await {
+        log::warn!("login: logind signal relay stopped: {e}");
+    }
+}
+
+async fn relay(conn: &Connection) -> zbus::Result<()> {
+    // Proxies of a well-known name take signals only from its current owner, so no other peer can fake one.
+    let login1 = Login1Proxy::builder(conn).cache_properties(CacheProperties::No).build().await?;
+    let props = zbus::fdo::PropertiesProxy::builder(conn)
+        .destination(LOGIN1)
+        .path(LOGIN1_PATH)
+        .cache_properties(CacheProperties::No)
+        .build()
+        .await?;
+    let mut sleep = login1.receive_prepare_for_sleep().await?;
+    let mut changes = props.receive_properties_changed().await?;
+    let iface: InterfaceRef<Login> = conn.object_server().interface(PATH).await?;
+    let emitter = iface.signal_emitter();
+    loop {
+        // One bad signal must not end the relay: the shell would miss every later PrepareForSleep.
+        let sent = tokio::select! {
+            Some(signal) = sleep.next() => match signal.args() {
+                Ok(args) => Login::prepare_for_sleep(emitter, *args.start()).await,
+                Err(e) => Err(e),
+            },
+            Some(signal) = changes.next() => match signal.args() {
+                Ok(args) if args.interface_name().as_str() == MANAGER => {
+                    let names: Vec<&str> = MIRRORED
+                        .into_iter()
+                        .filter(|name| {
+                            args.changed_properties().contains_key(name) || args.invalidated_properties().contains(name)
+                        })
+                        .collect();
+                    if names.is_empty() { Ok(()) } else { Login::manager_properties_changed(emitter, names).await }
+                }
+                Ok(_) => Ok(()),
+                Err(e) => Err(e),
+            },
+            else => return Ok(()),
+        };
+        if let Err(e) = sent {
+            log::warn!("login: logind signal not relayed: {e}");
+        }
+    }
+}
+
 pub struct Login;
 
 #[interface(name = "org.andromeda.System1.Login")]
@@ -298,24 +419,66 @@ impl Login {
         #[zbus(connection)] conn: &Connection,
     ) -> Result<()> {
         let action = PowerAction::parse(&action)?;
-        let (uid, _) = caller(conn, &header).await?;
-        let mut passed: Vec<String> = Vec::new();
-        // Inhibitors and sessions can change while a polkit dialog is open: plan again until no new check is due.
-        let flags = loop {
-            let (checks, flags) =
-                power_plan_for(conn, uid, action, skip_inhibitors).await?.map_err(Error::AccessDenied)?;
-            let due: Vec<String> = checks.into_iter().filter(|check| !passed.contains(check)).collect();
-            if due.is_empty() {
-                break flags;
-            }
-            for check in due {
-                polkit::check_with(conn, &header, &check, interactive).await?;
-                passed.push(check);
-            }
-        };
+        let (uid, flags) = authorize_power(conn, &header, action, interactive, skip_inhibitors).await?;
         call(conn, LOGIN1_PATH, MANAGER, action.method(), &(flags,)).await?;
         log::info!("login: {} for uid {uid}", action.method());
         Ok(())
+    }
+
+    /// Schedules logind's `action` (poweroff or reboot) at `usec`, `CLOCK_REALTIME` microseconds, after the same polkit
+    /// checks as `Power` without skipping inhibitors.
+    async fn schedule_shutdown(
+        &self,
+        action: String,
+        usec: u64,
+        interactive: bool,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<()> {
+        authorize_power(conn, &header, schedulable(&action)?, interactive, false).await?;
+        call(conn, LOGIN1_PATH, MANAGER, "ScheduleShutdown", &(&action, usec)).await?;
+        Ok(())
+    }
+
+    /// Cancels the scheduled shutdown; false when none was scheduled. logind records uid 0 as the owner of a shutdown
+    /// that System1 scheduled, so every caller needs the polkit action that logind asks of a non-owner.
+    async fn cancel_scheduled_shutdown(
+        &self,
+        interactive: bool,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> Result<bool> {
+        let action = scheduled_shutdown(conn).await?;
+        if action.is_empty() {
+            return Ok(false);
+        }
+        let check =
+            cancel_action(&action).ok_or_else(|| Error::AccessDenied(format!("cannot cancel scheduled {action:?}")))?;
+        polkit::check_with(conn, &header, check, interactive).await?;
+        // A different shutdown scheduled during the polkit dialog was not authorized.
+        if scheduled_shutdown(conn).await? != action {
+            return Err(Error::AccessDenied("the scheduled shutdown changed".into()));
+        }
+        manager(conn, "CancelScheduledShutdown", &()).await
+    }
+
+    /// logind's `PrepareForSleep`: true before suspend or hibernate, false after resume or an aborted sleep.
+    #[zbus(signal)]
+    async fn prepare_for_sleep(emitter: &SignalEmitter<'_>, start: bool) -> zbus::Result<()>;
+
+    /// The names of mirrored logind properties that changed. Read the values with `ManagerProperties`: any peer can
+    /// send this signal straight to a reader. logind changes the Handle* settings on a reload without a signal.
+    #[zbus(signal)]
+    async fn manager_properties_changed(emitter: &SignalEmitter<'_>, names: Vec<&str>) -> zbus::Result<()>;
+
+    /// logind's Manager properties that the shell reads, read live: `BlockInhibited`, `HandleLidSwitch`,
+    /// `HandleLidSwitchDocked`, `HandleLidSwitchExternalPower`, `HandlePowerKey`, `PreparingForShutdown`,
+    /// `PreparingForSleep` and `ScheduledShutdown`.
+    async fn manager_properties(&self, #[zbus(connection)] conn: &Connection) -> Result<HashMap<String, OwnedVariant>> {
+        let reply = call(conn, LOGIN1_PATH, "org.freedesktop.DBus.Properties", "GetAll", &(MANAGER,)).await?;
+        let mut all: HashMap<String, OwnedVariant> = reply.body().deserialize().map_err(|e| failed("GetAll", e))?;
+        all.retain(|name, _| MIRRORED.contains(&name.as_str()));
+        Ok(all)
     }
 
     /// Sets or clears the request to boot into the firmware setup; needs logind's set-reboot-to-firmware-setup.
@@ -447,6 +610,17 @@ mod tests {
         assert_eq!(inhibit_action("handle-power-key", "block"), None);
         assert_eq!(inhibit_action("idle", "block"), None);
         assert_eq!(inhibit_action("everything", "block"), None);
+    }
+
+    #[test]
+    fn cancelling_needs_the_scheduled_actions_polkit_action() {
+        assert_eq!(cancel_action("poweroff"), Some("org.freedesktop.login1.power-off"));
+        assert_eq!(cancel_action("dry-reboot"), Some("org.freedesktop.login1.reboot"));
+        assert_eq!(cancel_action("kexec"), Some("org.freedesktop.login1.reboot"));
+        assert_eq!(cancel_action("halt"), Some("org.freedesktop.login1.halt"));
+        assert_eq!(cancel_action("something-new"), None);
+        assert!(schedulable("halt").is_err());
+        assert_eq!(schedulable("poweroff").ok(), Some(PowerAction::PowerOff));
     }
 
     #[test]

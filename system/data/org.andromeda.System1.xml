@@ -91,6 +91,24 @@
       <arg name="interactive" type="b" direction="in" />
       <arg name="skip_inhibitors" type="b" direction="in" />
     </method>
+    <method name="ScheduleShutdown">
+      <arg name="action" type="s" direction="in" />
+      <arg name="usec" type="t" direction="in" />
+      <arg name="interactive" type="b" direction="in" />
+    </method>
+    <method name="CancelScheduledShutdown">
+      <arg name="interactive" type="b" direction="in" />
+      <arg type="b" direction="out" />
+    </method>
+    <signal name="PrepareForSleep">
+      <arg name="start" type="b" />
+    </signal>
+    <signal name="ManagerPropertiesChanged">
+      <arg name="names" type="as" />
+    </signal>
+    <method name="ManagerProperties">
+      <arg type="a{sv}" direction="out" />
+    </method>
     <method name="SetRebootToFirmwareSetup">
       <arg name="enable" type="b" direction="in" />
       <arg name="interactive" type="b" direction="in" />
