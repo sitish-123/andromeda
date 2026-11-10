@@ -43,7 +43,7 @@ namespace andromeda {
 
     // Places the frame over the output's layout box (logical size).
     void setBox(int x, int y, int width, int height);
-    // Starts the cross: opacity 1 -> 0, scale 1 -> 1.02 on `close`; reduced motion fades on `fade_out` only.
+    // Starts the cross: opacity 1 -> 0 on `close`; reduced motion fades on `fade_out`.
     void release(bool reducedMotion);
     [[nodiscard]] bool released() const noexcept { return m_released; }
     // Advances the cross; returns false once it settled (the caller then destroys the frame).
@@ -61,7 +61,6 @@ namespace andromeda {
     int m_width = 0;
     int m_height = 0;
     bool m_released = false;
-    bool m_reducedMotion = false;
     desk::motion::Spring m_progress;
   };
 

@@ -35,7 +35,6 @@ namespace andromeda {
     // Rulebook 7.2: close (d 0.28, b 0) and fade_out (d 0.10, b 0) as stiffness k = (2 pi / d)^2, damping ratio 1.
     constexpr desk::motion::SpringConfig kClose{.damping = 1.0, .stiffness = 504.0, .mass = 1.0};
     constexpr desk::motion::SpringConfig kFadeOut{.damping = 1.0, .stiffness = 3948.0, .mass = 1.0};
-    constexpr double kExitScale = 0.02;
 
     struct HeldBuffer {
       wlr_buffer base;
@@ -353,7 +352,6 @@ namespace andromeda {
       return;
     }
     m_released = true;
-    m_reducedMotion = reducedMotion;
     m_progress = desk::motion::Spring(0.0, 1.0, reducedMotion ? kFadeOut : kClose);
     m_progress.setThreshold(1.0 / 256.0);
   }
@@ -371,12 +369,10 @@ namespace andromeda {
     if (m_width <= 0 || m_height <= 0) {
       return;
     }
+    // The cross is opacity only: any scale reads as the frame shifting.
     const double t = m_released ? std::clamp(m_progress.value(), 0.0, 1.0) : 0.0;
-    const double scale = 1.0 + (m_reducedMotion ? 0.0 : kExitScale * t);
-    const int width = static_cast<int>(std::lround(m_width * scale));
-    const int height = static_cast<int>(std::lround(m_height * scale));
-    wlr_scene_buffer_set_dest_size(m_node, width, height);
-    wlr_scene_node_set_position(&m_node->node, m_x - (width - m_width) / 2, m_y - (height - m_height) / 2);
+    wlr_scene_buffer_set_dest_size(m_node, m_width, m_height);
+    wlr_scene_node_set_position(&m_node->node, m_x, m_y);
     wlr_scene_buffer_set_opacity(m_node, static_cast<float>(1.0 - t));
   }
 
