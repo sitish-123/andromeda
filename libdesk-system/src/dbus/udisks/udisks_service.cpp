@@ -16,7 +16,11 @@ namespace {
   constexpr auto kObjectManager = "org.freedesktop.DBus.ObjectManager";
   constexpr auto kBlock = "org.freedesktop.UDisks2.Block";
   constexpr auto kFilesystem = "org.freedesktop.UDisks2.Filesystem";
-  constexpr auto kDrive = "org.freedesktop.UDisks2.Drive";
+  // PowerOff goes through System1, which checks udisks2's polkit action on this user; Mount stays direct
+  // because udisks2 picks the mount directory and file owner from its caller.
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kSystem1StoragePath{"/org/andromeda/System1/Storage"};
+  constexpr auto kSystem1DrivesInterface = "org.andromeda.System1.Drives";
 
   using Properties = std::map<std::string, sdbus::Variant>;
   using ObjectInterfaces = std::map<std::string, Properties>;
@@ -42,6 +46,7 @@ namespace {
 
 UDisksService::UDisksService(SystemBus& bus) : m_bus(bus) {
   m_root = sdbus::createProxy(m_bus.connection(), kBusName, kRootPath);
+  m_system1 = sdbus::createProxy(m_bus.connection(), kSystem1BusName, kSystem1StoragePath);
   m_root->uponSignal("InterfacesAdded")
       .onInterface(kObjectManager)
       .call([this](const sdbus::ObjectPath& path, const ObjectInterfaces& interfaces) {
@@ -123,15 +128,11 @@ void UDisksService::eject(const std::string& blockPath) {
 }
 
 void UDisksService::powerOff(const std::string& drivePath) {
-  auto& proxy = m_calls[drivePath];
-  if (proxy == nullptr) {
-    proxy = sdbus::createProxy(m_bus.connection(), kBusName, sdbus::ObjectPath{drivePath});
-  }
   const std::weak_ptr<int> alive = m_lifetimeToken;
-  proxy->callMethodAsync("PowerOff")
-      .onInterface(kDrive)
-      .withArguments(Properties{})
-      .uponReplyInvoke([this, alive, drivePath](std::optional<sdbus::Error> err) {
+  m_system1->callMethodAsync("PowerOff")
+      .onInterface(kSystem1DrivesInterface)
+      .withArguments(sdbus::ObjectPath{drivePath}, Properties{})
+      .uponReplyInvoke([alive, drivePath](std::optional<sdbus::Error> err) {
         if (alive.expired()) {
           return;
         }

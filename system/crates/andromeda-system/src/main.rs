@@ -5,6 +5,7 @@ mod battery;
 mod bus;
 mod crashes;
 mod display;
+mod drives;
 mod engine;
 mod explain;
 mod expr;
@@ -56,6 +57,7 @@ async fn main() -> Result<()> {
         .serve_at(network::PATH, network::Network::new(state.join("hotspot-interfaces")))
         .serve_at(login::PATH, login::Login)
         .serve_at(storage::PATH, storage::Storage::default())
+        .serve_at(storage::PATH, drives::Drives)
         .serve_at(thermal::PATH, thermal::Thermal::default())
         .serve_at(display::PATH, display::Display::default())
         .serve_at(knobs::PATH, knobs::Knobs { policy: policy.clone() })

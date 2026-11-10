@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # logind on a test system bus: session "c1" of the caller's uid (no session by PID, so GetUser's Display finds it),
-# session "c2" of uid 4242, and the inhibitors that argv[2] holds at each call, one "what mode uid" per line. Power,
+# session "c2" of uid 4242, both active on seat0, and the inhibitors that argv[2] holds at each call, one "what mode uid" per line. Power,
 # firmware-setup, brightness and scheduled-shutdown calls only append a line to argv[1]; nothing reboots or suspends.
 # A suspend call emits PrepareForSleep(true); scheduling or cancelling emits the ScheduledShutdown change.
 import os
@@ -127,6 +127,8 @@ class Login1(dbus.service.FallbackObject):
         if name == "User":
             uid = SESSIONS[sid]
             return dbus.Struct((dbus.UInt32(uid), dbus.ObjectPath(f"{ROOT}/user/_{uid}")))
+        if name == "Active":
+            return True
         return "user"
 
 

@@ -312,4 +312,30 @@ until_has 30 's "full"' timeout 1 "${B[@]}" get-property org.andromeda.System1 /
   org.andromeda.System1.Network Connectivity
 : >"$HOLD"
 wait "$HELD" || fail "the held DeactivateConnection: $(cat "$OUT/held.out")"
+# Drives.PowerOff (tests/mock_udisks.py) checks the caller first: a bad path or option before polkit, then udisks2's
+# own power-off-drive action by seat and system hint. Only then does udisks2 see the call.
+python3 "$ROOT/system/tests/mock_udisks.py" "$OUT/udisks.log" >"$OUT/udisks.out" 2>&1 & PIDS+=($!)
+until_has 50 ready cat "$OUT/udisks.out"
+: >"$OUT/polkit.log"
+D=(call org.andromeda.System1 /org/andromeda/System1/Storage org.andromeda.System1.Drives)
+UD=/org/freedesktop/UDisks2
+echo org.freedesktop.udisks2.power-off-drive >"$DENY"
+"${B[@]}" "${D[@]}" PowerOff oa{sv} $UD/block_devices/sdb 0 2>/dev/null && fail "PowerOff took a block path"
+"${B[@]}" "${D[@]}" PowerOff oa{sv} $UD/drives/Stick 1 force b true 2>/dev/null && fail "PowerOff took an unknown option"
+"${B[@]}" "${D[@]}" PowerOff oa{sv} $UD/drives/Stick 0 2>/dev/null && fail "PowerOff ran without power-off-drive"
+: >"$DENY"
+for drive in Stick Internal Far; do
+  "${B[@]}" "${D[@]}" PowerOff oa{sv} $UD/drives/$drive 0 || fail "PowerOff $drive"
+done
+diff -u - "$OUT/polkit.log" <<'EOF' || fail "udisks2 polkit checks differ"
+org.freedesktop.udisks2.power-off-drive
+org.freedesktop.udisks2.power-off-drive
+org.freedesktop.udisks2.power-off-drive-system
+org.freedesktop.udisks2.power-off-drive-other-seat
+EOF
+diff -u - "$OUT/udisks.log" <<EOF || fail "udisks2 calls differ"
+PowerOff $UD/drives/Stick
+PowerOff $UD/drives/Internal
+PowerOff $UD/drives/Far
+EOF
 echo PASS

@@ -40,6 +40,12 @@
     <method name="ReleaseScanout">
       </method>
   </interface>
+  <interface name="org.andromeda.System1.Drives">
+    <method name="PowerOff">
+      <arg name="drive" type="o" direction="in" />
+      <arg name="options" type="a{sv}" direction="in" />
+    </method>
+  </interface>
   <interface name="org.andromeda.System1.Explain">
     <method name="List">
       <arg name="since_usec" type="t" direction="in" />

@@ -12,7 +12,8 @@ namespace sdbus {
 }
 
 // Automounts removable filesystems through org.freedesktop.UDisks2 as they appear, honouring the block device's
-// HintAuto / HintIgnore / HintSystem, and ejects them on request. Filesystems present at startup are left alone.
+// HintAuto / HintIgnore / HintSystem, and ejects them on request; the drive power-off goes through
+// org.andromeda.System1. Filesystems present at startup are left alone.
 class UDisksService {
 public:
   struct Mounted {
@@ -37,6 +38,7 @@ private:
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_root;
+  std::unique_ptr<sdbus::IProxy> m_system1;
   // One proxy per object, reused across calls and dropped when UDisks removes the object; a proxy must not be
   // destroyed from inside its own reply callback.
   std::map<std::string, std::unique_ptr<sdbus::IProxy>> m_calls;
