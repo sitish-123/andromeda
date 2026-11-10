@@ -46,6 +46,8 @@ with_noctalia '
 
   busctl --user call org.andromeda.Lock1 /org/andromeda/Lock1 org.andromeda.Lock1 Lock s user > /dev/null
   wait_for "P2: the session did not lock" reached "session is locked" 2
+  # The crash hits while the old process holds the claim, so the new one gets it only after gazed drops the dead owner.
+  wait_for "P2: face verify did not start before the crash" verifying 2
   kill -SEGV "$lockpid"; wait "$lockpid" 2> /dev/null || true
   wait_for "P2: the compositor did not keep the lock" reached "destroyed while locked" 1
   start=$(ms)
