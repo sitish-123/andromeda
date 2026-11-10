@@ -266,6 +266,7 @@ package_noctalia-desktop-git() {
   conflicts=(noctalia)
   meson install -C build-shell --destdir "$pkgdir"
   install -Dm644 desktop/session/noctalia.service "$pkgdir/usr/lib/systemd/user/noctalia.service"
+  install -Dm644 desktop/session/andromeda-lock.service "$pkgdir/usr/lib/systemd/user/andromeda-lock.service"
   # Shell greeter mode: greetd runs it through /usr/share/noctalia-greeter/greetd.toml (noctalia-greeter-desktop-git).
   install -Dm755 desktop/session/greetd/andromeda-greeter-session "$pkgdir/usr/lib/noctalia/andromeda-greeter-session"
   install -Dm644 desktop/session/pam.d/andromeda-greeter "$pkgdir/etc/pam.d/andromeda-greeter"
@@ -280,6 +281,7 @@ package_noctalia-desktop-git() {
     "$pkgdir/usr/share/polkit-1/actions/org.andromeda.biometrics.policy"
   install -d "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants"
   ln -s ../noctalia.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/noctalia.service"
+  ln -s ../andromeda-lock.service "$pkgdir/usr/lib/systemd/user/andromeda-session.target.wants/andromeda-lock.service"
   install -Dm644 desktop/shell/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   _pin_depends
 }

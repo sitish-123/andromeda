@@ -1,0 +1,15 @@
+[Unit]
+Description=Andromeda lock screen
+PartOf=andromeda-session.target
+After=andromeda-session.target
+# A crash loop must keep restarting: a locked session shows only the secure blank until a lock process runs.
+StartLimitIntervalSec=0
+
+[Service]
+Slice=session.slice
+ExecStart=/usr/bin/noctalia lock
+# Always: a lock process that exits for any reason must come back, or lock requests have no taker.
+Restart=always
+RestartSec=0
+# 75: the compositor closed the display; the restart brings the lock back after a compositor restart.
+SuccessExitStatus=75
