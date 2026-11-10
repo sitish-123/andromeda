@@ -19,7 +19,7 @@ namespace settings {
     constexpr std::array<S, 1> kBar{S::Bar};
     constexpr std::array<S, 2> kControlCenter{S::ControlCenter, S::Panels};
     constexpr std::array<S, 1> kLauncher{S::Launcher};
-    constexpr std::array<S, 4> kWindows{S::Windows, S::Layout, S::Overview, S::Niri};
+    constexpr std::array<S, 3> kWindows{S::Windows, S::Layout, S::Overview};
     // The input page holds keyboard and pointer options in one block until it is split.
     constexpr std::array<S, 3> kKeyboard{S::Keybinds, S::Shortcuts, S::Input};
     constexpr std::array<S, 1> kDevices{S::Devices};

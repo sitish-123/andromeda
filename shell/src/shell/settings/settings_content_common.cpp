@@ -420,7 +420,6 @@ namespace settings {
     case SettingsSection::System:
     case SettingsSection::Power:
     case SettingsSection::Hooks:
-    case SettingsSection::Niri:
     case SettingsSection::Windows:
     case SettingsSection::WindowStyle:
     case SettingsSection::Layout:
@@ -464,7 +463,6 @@ namespace settings {
     case SettingsSection::System:
     case SettingsSection::Power:
     case SettingsSection::Hooks:
-    case SettingsSection::Niri:
     case SettingsSection::Windows:
     case SettingsSection::WindowStyle:
     case SettingsSection::Layout:

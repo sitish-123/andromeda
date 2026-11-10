@@ -1,6 +1,5 @@
 #include "shell/dock/dock_context_menu.h"
 
-#include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -41,15 +40,8 @@ namespace shell::dock {
       if (window.handle != nullptr) {
         return true;
       }
-      // Exact-identity ext toplevels (Hyprland/Niri via workspace-metadata backend) close
-      // through `closeToplevelInfo` via the backend, without a wlr handle.
-      if (window.exactIdentity && !window.identifier.empty()) {
-        return true;
-      }
-      if (compositors::isKde()) {
-        return !window.identifier.empty() || (!window.title.empty() && !window.appId.empty());
-      }
-      return false;
+      // Exact-identity ext toplevels close through `closeToplevelInfo` via the backend, without a wlr handle.
+      return window.exactIdentity && !window.identifier.empty();
     }
 
     popup_chrome::Attachment popupAttachmentForDockPosition(bool isBottom, bool isTop, bool isRight) {
@@ -181,9 +173,7 @@ namespace shell::dock {
           ContextMenuControlEntry{
               .id = kMenuWindowBaseId - static_cast<std::int32_t>(i) * 2,
               .label = title,
-              .enabled = window.handle != nullptr
-                  || !window.identifier.empty()
-                  || (compositors::isKde() && (!window.title.empty() || !window.appId.empty())),
+              .enabled = window.handle != nullptr || !window.identifier.empty(),
               .separator = false,
               .hasSubmenu = false,
           }

@@ -42,7 +42,6 @@ namespace settings {
     Layout,
     Overview,
     Windows,
-    Niri,
     Displays,
     Input,
     Devices,
@@ -337,10 +336,7 @@ namespace settings {
   struct RegistryEnvironment {
     // The compositor's own settings, once its settings manager has sent them; null leaves their pages out.
     const SettingsControl* compositorSettings = nullptr;
-    bool niriBackdropSupported = false;             // hide niri backdrop entries when false
-    bool niriOverviewTypeToLaunchSupported = false; // show niri-only type-to-launch integration
     bool andromedaOverviewTypeToLaunchSupported = false;
-    bool niriOverviewCloseOnLaunchSupported = false;
     bool andromedaOverviewCloseOnLaunchSupported = false;
     bool screencopySupported = false;           // lockscreen blurred desktop + screenshot features
     bool backgroundEffectBlurSupported = false; // hide compositor blur toggles without ext-background-effect-v1

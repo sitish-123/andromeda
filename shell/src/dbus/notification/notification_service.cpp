@@ -1,6 +1,5 @@
 #include "notification_service.h"
 
-#include "compositors/compositor_detect.h"
 #include "core/log.h"
 #include "dbus/session_bus.h"
 #include "i18n/i18n.h"
@@ -36,7 +35,6 @@ namespace {
   constexpr auto kDbusInterface = "org.freedesktop.DBus";
 
   constexpr uint32_t kNameFlagAllowReplacement = 1U;
-  constexpr uint32_t kNameFlagReplaceExisting = 2U;
   constexpr uint32_t kNameFlagDoNotQueue = 4U;
 
   constexpr uint32_t kNameReplyPrimaryOwner = 1U;
@@ -48,13 +46,6 @@ namespace {
     return sdbus::createProxy(connection, kDbusBusName, kDbusObjectPath);
   }
 
-  [[nodiscard]] uint32_t notificationNameRequestFlags() {
-    if (compositors::isKde()) {
-      return kNameFlagAllowReplacement | kNameFlagReplaceExisting | kNameFlagDoNotQueue;
-    }
-    return kNameFlagAllowReplacement | kNameFlagDoNotQueue;
-  }
-
 } // namespace
 
 namespace notification_dbus {
@@ -62,7 +53,7 @@ namespace notification_dbus {
   void acquireBusName(sdbus::IConnection& connection) {
     auto proxy = dbusDaemonProxy(connection);
 
-    const uint32_t flags = notificationNameRequestFlags();
+    const uint32_t flags = kNameFlagAllowReplacement | kNameFlagDoNotQueue;
     uint32_t reply = 0;
     proxy->callMethod("RequestName")
         .onInterface(kDbusInterface)

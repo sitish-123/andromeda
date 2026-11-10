@@ -37,7 +37,6 @@
 #include "dbus/network/network_secret_agent.h"
 #include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
-#include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
 #include "dbus/notification/notification_service.h"
 #include "dbus/polkit/polkit_agent.h"

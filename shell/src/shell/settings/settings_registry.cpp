@@ -46,7 +46,7 @@ namespace settings {
 
   namespace {
 
-    constexpr std::array<SettingsSectionDescriptor, 34> kSettingsSections{{
+    constexpr std::array<SettingsSectionDescriptor, 33> kSettingsSections{{
         {SettingsSection::Appearance, SettingsCategory::Appearance, "appearance", "palette"},
         {SettingsSection::WindowStyle, SettingsCategory::Appearance, "window-style", "app-window"},
         {SettingsSection::Wallpaper, SettingsCategory::Appearance, "wallpaper", "paint"},
@@ -62,7 +62,6 @@ namespace settings {
         {SettingsSection::Layout, SettingsCategory::Windows, "layout", "layout-grid"},
         {SettingsSection::Overview, SettingsCategory::Windows, "overview", "layout-dashboard"},
         {SettingsSection::Windows, SettingsCategory::Windows, "windows", "pointer"},
-        {SettingsSection::Niri, SettingsCategory::Windows, "niri", "niri"},
         {SettingsSection::Displays, SettingsCategory::Pinned, "displays", "device-desktop", true, true},
         {SettingsSection::Input, SettingsCategory::Devices, "input", "keyboard", true, true},
         {SettingsSection::Devices, SettingsCategory::Devices, "devices", "device-mobile", true, true},

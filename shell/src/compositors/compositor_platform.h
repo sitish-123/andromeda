@@ -29,9 +29,6 @@ namespace compositors {
   class CompositorRuntimeRegistry;
   class FocusedOutputBackend;
   class OutputPowerBackend;
-  namespace niri {
-    class NiriRuntime;
-  }
   namespace andromeda {
     class AndromedaRuntime;
   }
@@ -218,8 +215,6 @@ public:
   bool toggleOverview() const;
   // Minimizes every window on the focused workspace, or brings them back (Andromeda only).
   bool toggleShowDesktop() const;
-
-  [[nodiscard]] compositors::niri::NiriRuntime& niriRuntime() noexcept;
 
   [[nodiscard]] compositors::andromeda::AndromedaRuntime& andromedaRuntime() noexcept;
   [[nodiscard]] const compositors::andromeda::AndromedaRuntime& andromedaRuntime() const noexcept;

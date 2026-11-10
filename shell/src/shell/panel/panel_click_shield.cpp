@@ -1,6 +1,5 @@
 #include "shell/panel/panel_click_shield.h"
 
-#include "compositors/compositor_detect.h"
 #include "core/log.h"
 #include "viewporter-client-protocol.h"
 #include "wayland/layer_surface.h"
@@ -35,15 +34,6 @@ namespace {
       .closed = &PanelClickShield::handleClosed,
   };
 
-  // Hyprland refuses to deliver pointer events to layer-shell surfaces with
-  // keyboard_interactivity == None. Exclusive is what unlocks pointer delivery
-  // there. Bar exclusion via input region doesn't actually work on Hyprland
-  // (clicks on bars still hit the shield); on Hyprland we prefer the
-  // hyprland_focus_grab_v1 protocol when available and only fall back to the
-  // shield path here.
-  LayerShellKeyboard shieldKeyboardMode() {
-    return compositors::isHyprland() ? LayerShellKeyboard::Exclusive : LayerShellKeyboard::None;
-  }
 
 } // namespace
 
@@ -179,7 +169,7 @@ PanelClickShield::createShield(wl_output* output, LayerShellLayer layer, std::ve
   zwlr_layer_surface_v1_set_size(shield->layerSurface, 0, 0);
   zwlr_layer_surface_v1_set_exclusive_zone(shield->layerSurface, -1);
   zwlr_layer_surface_v1_set_keyboard_interactivity(
-      shield->layerSurface, static_cast<std::uint32_t>(shieldKeyboardMode())
+      shield->layerSurface, static_cast<std::uint32_t>(LayerShellKeyboard::None)
   );
 
   // Empty input region until we receive a configure with the actual surface

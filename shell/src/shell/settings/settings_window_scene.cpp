@@ -731,13 +731,9 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
   if (m_compositorSettings != nullptr && m_compositorSettings->ready()) {
     env.compositorSettings = m_compositorSettings.get();
   }
-  env.niriBackdropSupported = (m_wayland != nullptr && compositors::isNiri());
   env.screencopySupported = m_wayland != nullptr && m_wayland->hasScreencopy();
   env.backgroundEffectBlurSupported = m_wayland != nullptr && m_wayland->hasBackgroundEffectBlur();
-  env.niriOverviewTypeToLaunchSupported = (m_wayland != nullptr && compositors::isNiri());
   env.andromedaOverviewTypeToLaunchSupported = (m_wayland != nullptr && compositors::isAndromeda());
-  env.niriOverviewCloseOnLaunchSupported =
-      env.niriOverviewTypeToLaunchSupported && m_platform != nullptr && m_platform->tracksOverviewState();
   env.andromedaOverviewCloseOnLaunchSupported =
       env.andromedaOverviewTypeToLaunchSupported && m_platform != nullptr && m_platform->tracksOverviewState();
   env.ddcutilAvailable = (m_dependencies != nullptr && m_dependencies->hasDdcutil());

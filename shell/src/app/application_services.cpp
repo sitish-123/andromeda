@@ -33,7 +33,6 @@
 #include "dbus/network/network_secret_agent.h"
 #include "dbus/network/nm_hotspot.h"
 #include "dbus/network/wpa_supplicant_service.h"
-#include "dbus/notification/kde_notification_client.h"
 #include "dbus/notification/notification_dbus_host.h"
 #include "dbus/notification/notification_service.h"
 #include "dbus/polkit/polkit_agent.h"
@@ -392,25 +391,6 @@ void Application::syncNotificationDaemon() {
     m_notificationDaemonInitFailed = false;
     kLog.info("listening on org.freedesktop.Notifications");
   } catch (const std::exception& ownerError) {
-    if (compositors::isKde()) {
-      try {
-        m_notificationDbus = std::make_unique<KdeNotificationClient>(*m_bus, m_notificationManager);
-        m_notificationPollSource.setDbusService(m_notificationDbus.get());
-        m_notificationDaemonInitFailed = false;
-        kLog.info("listening on KDE Plasma notifications via NotificationWatcher");
-        return;
-      } catch (const std::exception& kdeError) {
-        kLog.warn("notifications disabled: {}", kdeError.what());
-        m_notificationDbus.reset();
-        m_notificationPollSource.setDbusService(nullptr);
-        m_notificationDaemonInitFailed = true;
-        m_notificationManager.addInternal(
-            "Noctalia", i18n::tr("notifications.internal.dbus-disabled"), kdeError.what(), Urgency::Low
-        );
-        return;
-      }
-    }
-
     kLog.warn("notifications disabled: {}", ownerError.what());
     m_notificationDbus.reset();
     m_notificationPollSource.setDbusService(nullptr);
@@ -1126,7 +1106,6 @@ void Application::reconcileOutputSurfaces() {
   m_lockScreen.onOutputChange();
   m_idleGraceOverlay.onOutputChange();
   m_idleInhibitor.onOutputChange();
-  m_overviewLauncherCapture.onOutputChange();
   m_screenshotService.onOutputChange();
   m_osdOverlay.onOutputChange();
   m_liveActivity.onOutputChange();
@@ -1325,26 +1304,6 @@ void Application::initAuxServicesAndHooks() {
     } else {
       for (const auto& change : wallpaperChanges) {
         fireWallpaperChangedHook(change.path, change.connector);
-      }
-    }
-    if (compositors::isKde()) {
-      const auto applyKdeWallpaper = [](const std::string& path, const std::string& connector) {
-        if (path.empty()) {
-          return;
-        }
-        std::vector<std::string> cmd{"plasma-apply-wallpaperimage"};
-        if (!connector.empty()) {
-          cmd.insert(cmd.end(), {"--screen", connector});
-        }
-        cmd.push_back(path);
-        (void)process::runAsync(cmd);
-      };
-      if (wallpaperChanges.empty()) {
-        applyKdeWallpaper(m_configService.getPaletteWallpaperPath(), {});
-      } else {
-        for (const auto& change : wallpaperChanges) {
-          applyKdeWallpaper(change.path, change.connector);
-        }
       }
     }
   });

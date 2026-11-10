@@ -5,7 +5,6 @@
 #include "capture/toplevel_thumbnail_capture.h"
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
-#include "compositors/hyprland/hyprland_window_id.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
 #include "core/input/key_modifiers.h"
@@ -149,14 +148,6 @@ namespace {
   }
 
   [[nodiscard]] std::string canonicalWindowId(std::string_view windowId) {
-    if (windowId.empty()) {
-      return {};
-    }
-    if (compositors::isHyprland()) {
-      if (const std::string normalized = compositors::hyprland::normalizeWindowId(windowId); !normalized.empty()) {
-        return normalized;
-      }
-    }
     return std::string(windowId);
   }
 
@@ -167,30 +158,15 @@ namespace {
     return toplevel_identity::wlr(wlrHandleForToplevel(info));
   }
 
-  [[nodiscard]] bool identityKeysEqual(const std::string_view lhs, const std::string_view rhs) {
-    if (lhs == rhs) {
-      return true;
-    }
-    if (toplevel_identity::isWlr(lhs) || toplevel_identity::isWlr(rhs)) {
-      return false;
-    }
-    return compositors::isHyprland() && compositors::hyprland::windowIdsEqual(lhs, rhs);
-  }
+  [[nodiscard]] bool identityKeysEqual(const std::string_view lhs, const std::string_view rhs) { return lhs == rhs; }
 
   void activateWindowSwitcherEntry(CompositorPlatform& platform, const WindowSwitcherEntry& entry) {
-    // Niri: foreign-toplevel activate does not reliably focus/scroll the column.
-    if (compositors::isNiri() && !entry.windowId.empty()) {
-      platform.focusCompositorWindow(entry.windowId);
-      return;
-    }
     // Andromeda's exact-id action preserves the switcher's pointer-warp intent without changing taskbar activation.
     if (compositors::isAndromeda() && !entry.windowId.empty()) {
       platform.focusCompositorWindow(entry.windowId, true);
       return;
     }
-    // Prefer wlr-foreign-toplevel activate (same path as the taskbar). On Hyprland this
-    // raises floating windows and respects cursor:no_warps / scrolling follow_focus;
-    // dispatch focuswindow alone does not.
+    // Prefer wlr-foreign-toplevel activate (same path as the taskbar).
     if (entry.closeHandle != 0) {
       auto* handle = reinterpret_cast<zwlr_foreign_toplevel_handle_v1*>(entry.closeHandle);
       if (platform.containsWlrToplevelHandle(handle)) {
@@ -240,9 +216,8 @@ namespace {
     const std::string idLower = StringUtils::toLower(appId);
     for (const auto& info : platform.windowsForApp(idLower, idLower)) {
       if (!windowId.empty()) {
-        if (const auto mapped = platform.compositorWindowIdForToplevelInfo(info); mapped.has_value()
-            && (compositors::isHyprland() ? compositors::hyprland::windowIdsEqual(*mapped, windowId)
-                                          : *mapped == windowId)) {
+        if (const auto mapped = platform.compositorWindowIdForToplevelInfo(info);
+            mapped.has_value() && *mapped == windowId) {
           return wlrHandleForToplevel(info);
         }
       }

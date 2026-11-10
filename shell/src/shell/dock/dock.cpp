@@ -1,6 +1,5 @@
 #include "shell/dock/dock.h"
 
-#include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "core/deferred_call.h"
@@ -199,9 +198,7 @@ namespace {
   }
 
   [[nodiscard]] bool canActivateWindow(const ToplevelInfo& window) {
-    return window.handle != nullptr
-        || !window.identifier.empty()
-        || (compositors::isKde() && (!window.title.empty() || !window.appId.empty()));
+    return window.handle != nullptr || !window.identifier.empty();
   }
 
   [[nodiscard]] const ToplevelInfo* newestActivatableWindow(const std::vector<ToplevelInfo>& windows) {

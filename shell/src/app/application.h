@@ -64,7 +64,6 @@
 #include "shell/osd/osd_overlay.h"
 #include "shell/live_activity/live_activity_island.h"
 #include "shell/osd/privacy_osd.h"
-#include "shell/overview/overview_launcher_capture.h"
 #include "shell/panel/panel_manager.h"
 #include "shell/plugin_layer/plugin_layer_host.h"
 #include "shell/screen_corners/screen_corners.h"
@@ -511,7 +510,6 @@ private:
   WindowSwitcher m_windowSwitcher;
   PowerOverlay m_powerOverlay;
   SessionGuard m_sessionGuard;
-  OverviewLauncherCapture m_overviewLauncherCapture;
   AudioOsd m_audioOsd;
   HdmiAudioSwitch m_hdmiAudioSwitch;
   BrightnessOsd m_brightnessOsd;

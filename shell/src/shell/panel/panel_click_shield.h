@@ -27,15 +27,7 @@ struct zwlr_layer_surface_v1;
 // excludes the active panel as well as the bars, so pointer routing does not
 // depend on which surface the compositor stacks first.
 //
-// Keyboard interactivity:
-//   - Hyprland gates pointer delivery on keyboard_interactivity: layer-shell
-//     surfaces declared as None never receive pointer events, so the shield
-//     uses Exclusive there. The panel is also Exclusive and is mapped after
-//     the shield, so per the layer-shell spec the panel still wins keyboard
-//     focus.
-//   - On every other compositor we tested (niri, wlroots vanilla, sway), None
-//     works fine and avoids touching keyboard focus at all, so we keep that
-//     as the default.
+// Keyboard interactivity is None: the shield never takes keyboard focus.
 //
 // Buffer strategy: a single shared 1×1 fully-transparent SHM buffer is
 // stretched to the per-shield surface size via wp_viewport. Cost is ~4 bytes

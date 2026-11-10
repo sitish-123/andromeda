@@ -7,7 +7,6 @@
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_runtime.h"
 #include "compositors/ext_workspace/ext_workspace_output_backend.h"
-#include "compositors/niri/niri_runtime.h"
 #include "compositors/workspace_alert_service.h"
 #include "core/log.h"
 #include "core/process/process.h"
@@ -304,11 +303,6 @@ void CompositorPlatform::cleanup() {
 }
 
 wl_display* CompositorPlatform::display() const noexcept { return m_wayland.display(); }
-
-compositors::niri::NiriRuntime& CompositorPlatform::niriRuntime() noexcept {
-  static compositors::niri::NiriRuntime shim;
-  return shim;
-}
 
 compositors::andromeda::AndromedaRuntime& CompositorPlatform::andromedaRuntime() noexcept {
   return m_runtimeRegistry->andromeda();
