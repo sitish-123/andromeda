@@ -1083,7 +1083,7 @@ namespace noctalia::cli {
     };
     inline constexpr Command quickShareNearby{
         "quickshare-nearby",
-        "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off",
+        "Print nearby Quick Share receivers (id and name), or start or stop looking with on or off; on looks for 2 minutes, so repeat it to keep looking",
         {},
         {},
         {},

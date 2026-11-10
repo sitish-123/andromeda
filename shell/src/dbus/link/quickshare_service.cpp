@@ -213,7 +213,8 @@ void QuickShareService::setVisible(bool visible) {
 }
 
 void QuickShareService::setDiscovering(bool discovering) {
-  if (discovering == m_discovering) {
+  // Every StartDiscovery renews the daemon's 2 min limit, so a repeated on is not skipped.
+  if (!discovering && !m_discovering) {
     return;
   }
   m_discovering = discovering;
