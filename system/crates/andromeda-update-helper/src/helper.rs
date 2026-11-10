@@ -38,6 +38,30 @@ trait Login {
     fn list_sessions(&self) -> zbus::Result<Vec<(String, u32, String, String, zbus::OwnedObjectPath)>>;
 }
 
+#[zbus::proxy(
+    interface = "org.freedesktop.systemd1.Manager",
+    default_service = "org.freedesktop.systemd1",
+    default_path = "/org/freedesktop/systemd1"
+)]
+trait Systemd {
+    fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::OwnedObjectPath>;
+    fn stop_unit(&self, name: &str, mode: &str) -> zbus::Result<zbus::OwnedObjectPath>;
+}
+
+const TONIGHT_TIMER: &str = "andromeda-update-tonight.timer";
+
+/// The 02:00 timer wakes the machine, so it runs only while an update is scheduled.
+async fn set_tonight_timer(conn: &Connection, on: bool) {
+    let result = match SystemdProxy::new(conn).await {
+        Ok(systemd) if on => systemd.start_unit(TONIGHT_TIMER, "replace").await.map(drop),
+        Ok(systemd) => systemd.stop_unit(TONIGHT_TIMER, "replace").await.map(drop),
+        Err(e) => Err(e),
+    };
+    if let Err(e) = result {
+        log::warn!("tonight: cannot {} {TONIGHT_TIMER}: {e}", if on { "start" } else { "stop" });
+    }
+}
+
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -251,6 +275,7 @@ impl Helper {
         } else {
             let _ = std::fs::remove_file(self.tonight_file());
         }
+        set_tonight_timer(conn, enable).await;
         let _ = self.tonight_changed(&emitter).await;
         Ok(())
     }
@@ -282,6 +307,7 @@ impl Helper {
         }
         let Some(scheduled) = self.tonight_token() else { return Ok(()) };
         let _ = std::fs::remove_file(self.tonight_file());
+        set_tonight_timer(conn, false).await;
         let _ = self.tonight_changed(&emitter).await;
         // A token older than a day was for a night that passed (machine off or on battery then).
         if now_secs() - scheduled > TONIGHT_MAX_AGE {

@@ -1,5 +1,7 @@
 [Unit]
 Description=Andromeda scheduled system update at 02:00
+# Armed only while an update is scheduled (the helper starts and stops it), so no other night wakes the machine.
+ConditionPathExists=/var/lib/andromeda-update/tonight
 
 [Timer]
 OnCalendar=*-*-* 02:00:00
