@@ -674,6 +674,10 @@ void UPowerService::requestHistory(
             points.reserve(items.size());
             for (const auto& item : items) {
               const std::uint32_t raw = std::get<2>(item);
+              // UPower marks a gap (daemon start, resume) with an Unknown 0 point; it is no sample.
+              if (raw == 0) {
+                continue;
+              }
               points.push_back({
                   .time = std::get<0>(item),
                   .value = std::get<1>(item),
