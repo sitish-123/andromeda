@@ -94,7 +94,6 @@
 #include "system/screen_time_service.h"
 #include "system/weather_poll_source.h"
 #include "system/weather_service.h"
-#include "theme/template_apply_service.h"
 #include "theme/live_appearance_sync.h"
 #include "theme/theme_service.h"
 #include "time/time_poll_source.h"
@@ -340,7 +339,6 @@ private:
   FileWatcher m_fileWatcher;
   noctalia::theme::ThemeService m_themeService{m_configService, m_httpClient};
   LiveAppearanceSync m_liveAppearance;
-  noctalia::theme::TemplateApplyService m_templateApplyService{m_configService};
   scripting::ScriptApiContext m_scriptApi;
   std::function<void()> m_syncScriptApiOutputs;
   scripting::PluginManager m_pluginManager{m_configService};

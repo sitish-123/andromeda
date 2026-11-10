@@ -1,33 +1,11 @@
 #pragma once
 
 #include "cli/schema.h"
-#include "theme/scheme.h"
 
 #include <array>
 #include <string_view>
 
 namespace noctalia::cli {
-
-  inline constexpr std::array<std::string_view, 11> kBuiltinPaletteNames{
-      "Andromeda", "Ayu", "Catppuccin", "Dracula", "Eldritch", "Gruvbox", "Kanagawa", "Noctalia", "Nord", "Rosé Pine", "Tokyo-Night",
-  };
-
-  inline constexpr std::array kMsgColorSchemeSetBuiltinPositionals{
-      Positional{"name", {}, kBuiltinPaletteNames, true, false, false},
-  };
-  inline constexpr std::array kMsgColorSchemeSetWallpaperPositionals{
-      Positional{"name", {}, theme::kSchemeNames, true, false, false},
-  };
-  inline constexpr std::array kMsgColorSchemeSetCustomPositionals{
-      Positional{"name", {}, {}, true, false, false},
-  };
-  inline constexpr std::array kMsgColorSchemeSetSubcommands{
-      Command{"builtin", "Use a built-in palette", {}, {}, {}, kMsgColorSchemeSetBuiltinPositionals, {}, false},
-      Command{
-          "wallpaper", "Use a wallpaper generator scheme", {}, {}, {}, kMsgColorSchemeSetWallpaperPositionals, {}, false
-      },
-      Command{"custom", "Use a custom palette", {}, {}, {}, kMsgColorSchemeSetCustomPositionals, {}, false},
-  };
 
   inline constexpr std::array kMsgPluginsEnablePositionals{
       Positional{"author/plugin", {}, {}, true, false, false, "plugins_disabled"},
@@ -514,27 +492,6 @@ namespace noctalia::cli {
         {},
         false
     };
-    inline constexpr Command colorSchemeGet{
-        "color-scheme-get",
-        "Print active color scheme: <source> <name> (source is builtin, wallpaper, or custom)",
-        {},
-        {},
-        {},
-        {},
-        {},
-        false
-    };
-    inline constexpr Command colorSchemeSet{
-        "color-scheme-set",
-        "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, or custom "
-        "scheme folder name)",
-        {},
-        {},
-        {},
-        {},
-        kMsgColorSchemeSetSubcommands,
-        false
-    };
     inline constexpr Command configGet{"config-get", "Get a config value",     {}, {},
                                        {},           kMsgConfigGetPositionals, {}, false};
     inline constexpr Command configSet{"config-set", "Set a config value",     {}, {},
@@ -787,7 +744,7 @@ namespace noctalia::cli {
         false
     };
     inline constexpr Command panelOpen{
-        "panel-open", "Open a panel by id, optionally with context (e.g. launcher /emo, control-center audio)",
+        "panel-open", "Open a panel by id, optionally with context (e.g. launcher /emo, control-center detail-sound)",
         {},           {},
         {},           kMsgPanelOpenPositionals,
         {},           false
@@ -800,7 +757,7 @@ namespace noctalia::cli {
     };
     inline constexpr Command panelToggle{
         "panel-toggle",
-        "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center audio)",
+        "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center detail-sound)",
         {},
         {},
         {},
@@ -930,9 +887,6 @@ namespace noctalia::cli {
         kMsgTaskbarCyclePositionals,
         {},
         false
-    };
-    inline constexpr Command templatesApply{
-        "templates-apply", "Apply configured theme templates for the current palette", {}, {}, {}, {}, {}, false
     };
     inline constexpr Command themeModeGet{
         "theme-mode-get", "Print the current resolved theme mode", {}, {}, {}, {}, {}, false
@@ -1207,8 +1161,6 @@ namespace noctalia::cli {
       msg::clipboardClear,
       msg::clipboardCopy,
       msg::clipboardText,
-      msg::colorSchemeGet,
-      msg::colorSchemeSet,
       msg::configGet,
       msg::configSet,
       msg::configUnset,
@@ -1309,7 +1261,6 @@ namespace noctalia::cli {
       msg::status,
       msg::subscribe,
       msg::taskbarCycle,
-      msg::templatesApply,
       msg::themeModeGet,
       msg::themeModeSet,
       msg::themeModeToggle,

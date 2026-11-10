@@ -58,31 +58,6 @@ namespace noctalia::config {
   void seedBuiltinWidgets(Config& config) {
     auto seed = [&](const char* name, WidgetConfig wc) { config.widgets.emplace(name, std::move(wc)); };
 
-    WidgetConfig cpu;
-    cpu.type = "sysmon";
-    cpu.settings["stat"] = std::string("cpu_usage");
-    seed("cpu", std::move(cpu));
-
-    WidgetConfig temp;
-    temp.type = "sysmon";
-    temp.settings["stat"] = std::string("cpu_temp");
-    seed("temp", std::move(temp));
-
-    WidgetConfig ram;
-    ram.type = "sysmon";
-    ram.settings["stat"] = std::string("ram_used");
-    seed("ram", std::move(ram));
-
-    WidgetConfig netTx;
-    netTx.type = "sysmon";
-    netTx.settings["stat"] = std::string("net_tx");
-    seed("network_tx", std::move(netTx));
-
-    WidgetConfig netRx;
-    netRx.type = "sysmon";
-    netRx.settings["stat"] = std::string("net_rx");
-    seed("network_rx", std::move(netRx));
-
     WidgetConfig outputVolume;
     outputVolume.type = "volume";
     outputVolume.settings["device"] = std::string("output");

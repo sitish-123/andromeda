@@ -6,7 +6,6 @@
 }:
 let
   cfg = config.programs.noctalia;
-  jsonFormat = pkgs.formats.json { };
   tomlFormat = pkgs.formats.toml { };
 
   generateConfig =
@@ -19,7 +18,6 @@ let
       format.generate name value;
 
   generateToml = generateConfig tomlFormat;
-  generateJson = generateConfig jsonFormat;
 in
 {
   # Disable the home-manager module to avoid conflicts
@@ -75,25 +73,7 @@ in
 
         theme = {
           mode = "dark";
-          source = "builtin";
-          builtin = "Catppuccin";
         };
-      '';
-    };
-
-    customPalettes = lib.mkOption {
-      type =
-        with lib.types;
-        attrsOf (oneOf [
-          jsonFormat.type
-          str
-          path
-        ]);
-      default = { };
-      description = ''
-        Custom color pallete options.
-
-        See <https://docs.noctalia.dev/noctalia/theming/palette/#custom-palette-files>.
       '';
     };
   };
@@ -106,10 +86,7 @@ in
         PartOf = [ config.wayland.systemd.target ];
         After = [ config.wayland.systemd.target ];
         X-Restart-Triggers =
-          lib.optional (cfg.settings != { }) "${config.xdg.configFile."noctalia/config.toml".source}"
-          ++ lib.mapAttrsToList (
-            name: _: "${config.xdg.configFile."noctalia/palettes/${name}.json".source}"
-          ) cfg.customPalettes;
+          lib.optional (cfg.settings != { }) "${config.xdg.configFile."noctalia/config.toml".source}";
       };
 
       Service = {
@@ -137,12 +114,6 @@ in
             else
               rawConfig;
         })
-        (lib.mapAttrs' (
-          name: palette:
-          lib.nameValuePair "noctalia/palettes/${name}.json" {
-            source = generateJson "${name}-palette.json" palette;
-          }
-        ) cfg.customPalettes)
       ];
     };
 

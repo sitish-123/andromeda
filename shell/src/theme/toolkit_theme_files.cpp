@@ -1,7 +1,6 @@
 #include "theme/toolkit_theme_files.h"
 
 #include "core/log.h"
-#include "theme/gtk_extensions.h"
 #include "ui/style.h"
 #include "util/file_utils.h"
 
@@ -19,9 +18,13 @@ namespace toolkit_theme {
 
   namespace {
 
-    using noctalia::theme::GtkToolkit;
-    using noctalia::theme::gtkConfigDir;
-    using noctalia::theme::kGtkExtensionIndexFile;
+    enum class GtkToolkit { Gtk3, Gtk4 };
+
+    std::filesystem::path gtkConfigDir(GtkToolkit toolkit) {
+      return FileUtils::expandXdgBaseDir(
+          toolkit == GtkToolkit::Gtk3 ? "$XDG_CONFIG_HOME/gtk-3.0" : "$XDG_CONFIG_HOME/gtk-4.0"
+      );
+    }
 
     constexpr Logger kLog("toolkit-theme");
     constexpr std::string_view kGtkImport = R"(@import url("andromeda.css");)";
@@ -143,9 +146,6 @@ namespace toolkit_theme {
       const std::filesystem::path dir = gtkConfigDir(toolkit);
       std::string css = std::format("/* Written by the Andromeda shell; edits are replaced. */\n@import url(\"file://{}\");\n",
                                     base->string());
-      if (std::filesystem::exists(dir / kGtkExtensionIndexFile)) {
-        css += std::format("@import url(\"{}\");\n", kGtkExtensionIndexFile);
-      }
       css += std::format(
           "@define-color accent_color {2};\n@define-color accent_bg_color {0};\n@define-color accent_fg_color {1};\n",
           accent, onAccent, accentText

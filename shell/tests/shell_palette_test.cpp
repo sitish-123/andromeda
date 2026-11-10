@@ -127,7 +127,7 @@ namespace {
 
   bool checkAndromedaColoursUnderAnotherNameAreRecoloured() {
     bool ok = true;
-    const auto generated = noctalia::theme::expandBuiltinPalette(*noctalia::theme::findBuiltinPalette("Andromeda"));
+    const auto generated = noctalia::theme::expandBuiltinPalette(noctalia::theme::andromedaPalette());
     for (const bool light : {false, true}) {
       const ::Palette tokens = tokenPalette(light);
       const ::Palette out = noctalia::theme::recolorShellPalette(tokens, generated, light);

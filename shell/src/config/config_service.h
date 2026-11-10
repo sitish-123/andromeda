@@ -122,8 +122,6 @@ public:
   void addWallpaperFavorite(std::string path, const std::optional<WallpaperFavorite>& preset = std::nullopt);
   void removeWallpaperFavorite(std::string_view path);
   void setWallpaperFavoriteThemeMode(std::string_view path, ThemeMode themeMode);
-  void setWallpaperFavoritePaletteSource(std::string_view path, std::optional<PaletteSource> source);
-  void setWallpaperFavoritePaletteSelection(std::string_view path, std::string_view value);
   void applyWallpaperSelection(
       const std::optional<std::string>& connectorName, const std::string& path, const WallpaperFavorite* applyTheme,
       const std::vector<std::string>& allConnectors
@@ -146,7 +144,6 @@ public:
   // Persist a theme-mode override to overrides.toml and trigger the reload pipeline.
   void setThemeMode(ThemeMode mode);
   // Persist `[theme].source` and the palette field for that source, then reload.
-  [[nodiscard]] bool setThemeColorScheme(PaletteSource source, std::string_view value);
   // Persist dock enabled override to overrides.toml and trigger the reload pipeline.
   void setDockEnabled(bool enabled);
   // Persist desktop widget layout/editor state to overrides.toml and trigger the reload pipeline.

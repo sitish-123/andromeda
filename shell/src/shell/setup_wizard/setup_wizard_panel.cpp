@@ -25,7 +25,6 @@
 #include "system/display_manager.h"
 #include "system/desktop_entry.h"
 #include "system/xkb_layout_catalog.h"
-#include "theme/builtin_palettes.h"
 #include "ui/builders.h"
 #include "ui/dialogs/file_dialog.h"
 #include "ui/palette.h"
@@ -46,7 +45,6 @@
 #include <sdbus-c++/IConnection.h>
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
-#include <span>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
@@ -67,7 +65,6 @@ namespace {
   // Thumbnail cell: 3 equal columns in the 640 sheet (592 content - 2 x 4 card - 2 x 8 thumbs - 2 x 8 gaps) / 3.
   constexpr float kThumbWidth = 184.0F;
   constexpr float kThumbHeight = 80.0F;
-  constexpr float kSwatch = 20.0F;
   constexpr float kRingOutset = 4.0F;
   constexpr float kSlotWidth = 208.0F;
   constexpr float kQrSize = 160.0F;
@@ -107,24 +104,6 @@ namespace {
 
 
   constexpr auto kPairingPoll = std::chrono::seconds(1);
-
-  struct SelectOption {
-    std::string_view labelKey;
-    std::string_view value;
-  };
-
-  constexpr SelectOption kWallpaperSchemes[] = {
-      {"theme.scheme.m3-content", "m3-content"},
-      {"theme.scheme.m3-tonal-spot", "m3-tonal-spot"},
-      {"theme.scheme.m3-fruit-salad", "m3-fruit-salad"},
-      {"theme.scheme.m3-rainbow", "m3-rainbow"},
-      {"theme.scheme.m3-monochrome", "m3-monochrome"},
-      {"theme.scheme.vibrant", "vibrant"},
-      {"theme.scheme.faithful", "faithful"},
-      {"theme.scheme.soft", "soft"},
-      {"theme.scheme.dysfunctional", "dysfunctional"},
-      {"theme.scheme.muted", "muted"},
-  };
 
   constexpr const char* kModeValues[] = {"light", "dark", "auto"};
 
@@ -215,15 +194,6 @@ namespace {
     return chip;
   }
 
-  std::size_t selectedOptionIndex(std::span<const SelectOption> options, std::string_view value) {
-    for (std::size_t i = 0; i < options.size(); ++i) {
-      if (options[i].value == value) {
-        return i;
-      }
-    }
-    return 0;
-  }
-
   void setRing(Flex* ring, bool on, ColorRole role, float scale) {
     if (ring == nullptr) {
       return;
@@ -300,8 +270,6 @@ void SetupWizardPanel::create() {
   const float scale = contentScale();
   m_overlays.clear();
   m_modeArts.clear();
-  m_swatchRings.clear();
-  m_swatchNames.clear();
   m_pickedLoaded = false;
   m_preview = false;
   // Update1 lists pacman or apt updates; the client exists whenever there is a session bus.
@@ -545,83 +513,6 @@ std::unique_ptr<Flex> SetupWizardPanel::buildAppearance(float scale) {
   }
   page->addChild(ui::node({.height = Tokens::spaceP16 * scale}));
 
-  m_paletteSource = cfg.theme.source == PaletteSource::Wallpaper ? PaletteSource::Wallpaper : PaletteSource::Builtin;
-  m_builtinPalette = cfg.theme.builtinPalette;
-  {
-    auto card = makeCard(scale);
-    auto colour = makeListRow(scale);
-    m_colourRow = colour.get();
-    colour->addChild(makeGrowLabel(i18n::tr("setup-wizard.colour"), scale));
-    auto swatches = ui::row({.align = FlexAlign::Center, .gap = Tokens::spaceP12 * scale});
-    const bool light = isLightPalette();
-    for (const auto& entry : noctalia::theme::builtinPalettes()) {
-      const std::string name(entry.name);
-      auto swatch = ui::row({
-          .fill = fixedColorSpec(light ? entry.light.palette.primary : entry.dark.palette.primary),
-          .radius = kSwatch * 0.5F * scale,
-          .width = kSwatch * scale,
-          .height = kSwatch * scale,
-      });
-      Flex* swatchPtr = swatch.get();
-      auto ring = ui::row({.radius = (kSwatch * 0.5F + kRingOutset) * scale});
-      m_swatchRings.push_back(ring.get());
-      m_swatchNames.push_back(name);
-      addOverlay(swatch->addChild(std::move(ring)), swatchPtr, kRingOutset * scale);
-      auto area = ui::inputArea({});
-      area->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
-      area->setTooltip(name);
-      area->setOnClick([this, name](const InputArea::PointerData&) {
-        m_builtinPalette = name;
-        m_config->setOverride({"theme", "source"}, std::string("builtin"));
-        m_config->setOverride({"theme", "builtin"}, name);
-        syncSelection();
-      });
-      addOverlay(swatch->addChild(std::move(area)), swatchPtr, 0.0F);
-      swatches->addChild(std::move(swatch));
-    }
-    colour->addChild(std::move(swatches));
-    card->addChild(std::move(colour));
-
-    auto match = makeListRow(scale);
-    match->addChild(makeGrowLabel(i18n::tr("setup-wizard.match-wallpaper"), scale));
-    std::vector<std::string> schemes;
-    for (const auto& option : kWallpaperSchemes) {
-      schemes.emplace_back(i18n::tr(option.labelKey));
-    }
-    match->addChild(ui::select({
-        .out = &m_schemeSelect,
-        .options = std::move(schemes),
-        .selectedIndex = selectedOptionIndex(kWallpaperSchemes, cfg.theme.wallpaperScheme),
-        .fontSize = Style::fontSizeBody * scale,
-        .controlHeight = Style::controlHeightSm * scale,
-        .horizontalPadding = Tokens::spaceP8 * scale,
-        .onSelectionChanged =
-            [this](std::size_t index, std::string_view /*label*/) {
-              if (index < std::size(kWallpaperSchemes)) {
-                m_config->setOverride({"theme", "wallpaper_scheme"}, std::string(kWallpaperSchemes[index].value));
-              }
-            },
-    }));
-    match->addChild(ui::toggle({
-        .out = &m_matchToggle,
-        .checked = m_paletteSource == PaletteSource::Wallpaper,
-        .scale = scale,
-        .onChange =
-            [this](bool on) {
-              m_paletteSource = on ? PaletteSource::Wallpaper : PaletteSource::Builtin;
-              m_config->setOverride({"theme", "source"}, std::string(on ? "wallpaper" : "builtin"));
-              if (!on && !m_builtinPalette.empty()) {
-                m_config->setOverride({"theme", "builtin"}, m_builtinPalette);
-              }
-              syncSelection();
-            },
-    }));
-    m_matchSeparator = match->addChild(ui::box({.fill = colorSpecFromRole(ColorRole::Separator)}));
-    m_matchSeparator->setParticipatesInLayout(false);
-    card->addChild(std::move(match));
-    page->addChild(std::move(card));
-  }
-  page->addChild(ui::node({.height = Tokens::spaceP16 * scale}));
 
   {
     const std::string bundled = paths::assetPath("andromeda-wallpaper.png").string();
@@ -1414,15 +1305,6 @@ void SetupWizardPanel::syncSelection() {
       m_layoutLabels[i]->setFontWeight(on ? FontWeight::SemiBold : FontWeight::Medium);
     }
   }
-  const bool match = m_paletteSource == PaletteSource::Wallpaper;
-  for (std::size_t i = 0; i < m_swatchRings.size(); ++i) {
-    setRing(m_swatchRings[i], m_swatchNames[i] == m_builtinPalette, ColorRole::Label3, scale);
-  }
-  show(m_colourRow, !match);
-  if (m_matchSeparator != nullptr) {
-    m_matchSeparator->setVisible(!match);
-  }
-  show(m_schemeSelect, match);
   for (std::size_t i = 0; i < m_wallpaperRings.size(); ++i) {
     const bool on = static_cast<int>(i) == m_wallpaper && (i == 0 || !m_pickedPath.empty());
     setRing(m_wallpaperRings[i], on, ColorRole::Label1, scale);
@@ -1822,10 +1704,6 @@ void SetupWizardPanel::doLayout(Renderer& renderer, float width, float height) {
   }
   for (const auto& art : m_modeArts) {
     layoutModeArt(art);
-  }
-  if (m_matchSeparator != nullptr && m_matchSeparator->parent() != nullptr) {
-    m_matchSeparator->setPosition(Tokens::spaceP12 * scale, 0.0F);
-    m_matchSeparator->setSize(m_matchSeparator->parent()->width() - Tokens::spaceP8 * scale, scale);
   }
   if (m_pickedImage != nullptr && m_pickedImage->parent() != nullptr) {
     m_pickedImage->setPosition(0.0F, 0.0F);

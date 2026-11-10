@@ -16,8 +16,8 @@
 #include "launcher/dmenu_cli.h"
 #include "scripting/plugin_lint.h"
 #include "theme/dev_tokens.h"
-#include "theme/cli.h"
-#include "theme/firefox_theme/firefox_theme.h"
+
+#include <librsvg/rsvg.h>
 
 #include <array>
 #include <cerrno>
@@ -44,6 +44,32 @@ namespace {
     if (sched_setscheduler(0, SCHED_RR | SCHED_RESET_ON_FORK, &param) != 0) {
       logWarn("real-time scheduling unavailable ({}); the shell may stall under CPU load", std::strerror(errno));
     }
+  }
+
+  // librsvg filters run on rayon's global pool, which otherwise keeps one idle thread per CPU for the process lifetime.
+  // Rayon reads RAYON_NUM_THREADS once, at the first filter render, so one 1 px render here sizes the pool and the
+  // variable is removed again before any app inherits it. Must run after the daemon fork: threads do not survive it.
+  void capRsvgThreadPool() {
+    if (std::getenv("RAYON_NUM_THREADS") != nullptr) {
+      return;
+    }
+    setenv("RAYON_NUM_THREADS", "1", 1);
+    constexpr std::string_view kSvg = R"(<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1">)"
+                                      R"(<filter id="f"><feGaussianBlur stdDeviation="1"/></filter>)"
+                                      R"svg(<rect width="1" height="1" filter="url(#f)"/></svg>)svg";
+    if (RsvgHandle* handle =
+            rsvg_handle_new_from_data(reinterpret_cast<const guint8*>(kSvg.data()), kSvg.size(), nullptr);
+        handle != nullptr) {
+      // A 1x1 target skips the parallel blur path and leaves the pool unstarted.
+      cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 2, 2);
+      cairo_t* cr = cairo_create(surface);
+      const RsvgRectangle viewport{0, 0, 2, 2};
+      (void)rsvg_handle_render_document(handle, cr, &viewport, nullptr);
+      cairo_destroy(cr);
+      cairo_surface_destroy(surface);
+      g_object_unref(handle);
+    }
+    unsetenv("RAYON_NUM_THREADS");
   }
 
   enum class SpawnResult { Parent, Error };
@@ -248,6 +274,7 @@ namespace {
       completeDaemonStartup(1);
       _exit(1);
     }
+    capRsvgThreadPool();
     raiseMainThreadPriority();
     try {
       noctalia::theme::dev_tokens::applyFromEnv();
@@ -311,14 +338,8 @@ extern "C" __attribute__((visibility("default"))) int noctalia_shell_main_v1(int
   }
 
   if (argc >= 2) {
-    if (noctalia::theme::isFirefoxNativeMessagingLaunch(argc, argv))
-      return noctalia::theme::runFirefoxNativeMessagingHost();
     if (std::strcmp(argv[1], "completions") == 0)
       return noctalia::cli::runCompletionsCli(argc, argv);
-    if (std::strcmp(argv[1], "firefox-theme") == 0)
-      return noctalia::theme::runFirefoxThemeCli(argc, argv);
-    if (std::strcmp(argv[1], "theme") == 0)
-      return noctalia::theme::runCli(argc, argv);
     if (std::strcmp(argv[1], "msg") == 0)
       return noctalia::ipc::runCli(argc, argv);
     // Internal mode for PAM authentication after re-exec.

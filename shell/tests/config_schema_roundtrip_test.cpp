@@ -452,8 +452,6 @@ location = "https://example.invalid/bad"
     c.battery.warningThreshold = 15;
     c.battery.deviceThresholds = {{"BAT0", 10}, {"hidpp:1", 25}};
     c.bluetooth.connectWhenEnabled = true;
-    c.controlCenter.sidebarMode = ControlCenterSidebarMode::Full;
-    c.controlCenter.sidebarSectionMode = ControlCenterSidebarMode::None;
     c.controlCenter.circularAvatar = false;
     c.controlCenter.calendarTab.showEventsCard = false;
     c.controlCenter.calendarTab.showWeekNumbers = true;
@@ -596,31 +594,8 @@ location = "https://example.invalid/bad"
     c.shell.session.power.suspend = "zzz";
     c.shell.session.power.reboot = "sudo -n reboot";
     c.shell.session.power.shutdown = "sudo -n poweroff";
-    c.theme.source = PaletteSource::Wallpaper;
-    c.theme.builtinPalette = "Tokyo";
     c.theme.mode = ThemeMode::Light;
     c.theme.shellMode = ShellThemeMode::Auto;
-    c.theme.templates.enableBuiltinTemplates = false;
-    c.theme.templates.builtinIds = {"a", "b"};
-    c.theme.templates.customColors = {
-        {"accent", "#112233", "#112233", "#332211", true}, {"bg", "#000000", "#000000", "#000000", false}
-    };
-    c.theme.templates.userTemplates = {
-        ThemeConfig::UserTemplateConfig{
-            "tmpl1",
-            true,
-            "/in.png",
-            ThemeConfig::TemplateInputPathModesConfig{"/d.png", "/l.png"},
-            {"/out1", "/out2"},
-            "/dyn",
-            "compareX",
-            {{"c1", "#aabbcc"}},
-            "pre",
-            "post",
-            "kde-color-scheme",
-            3,
-        },
-    };
     c.accessibility.uiScale = 1.25F;
     c.accessibility.highContrast = true;
 
@@ -1045,76 +1020,6 @@ key_source = "automatic"
     }
   }
 
-  // color falls back to color_dark then color_light so a single-mode entry survives
-  // the name+color keep-predicate and carries a usable comparison color.
-  void checkCustomColorFallback() {
-    auto root = toml::parse(R"(
-[templates.custom_colors]
-onlydark = { color_dark = "#111111" }
-onlylight = { color_light = "#222222" }
-bare = { color = "#333333" }
-both = { color_dark = "#444444", color_light = "#555555" }
-)");
-    ThemeConfig theme{};
-    Diagnostics d;
-    readInto(root, theme, themeSchema(), "theme", d);
-
-    auto find = [&](std::string_view name) -> const ThemeConfig::TemplateColorConfig* {
-      for (const auto& c : theme.templates.customColors)
-        if (c.name == name)
-          return &c;
-      return nullptr;
-    };
-
-    const auto* onlydark = find("onlydark");
-    if (onlydark == nullptr || onlydark->color != "#111111" || onlydark->color_dark != "#111111") {
-      fail("custom_colors onlydark: color should fall back to color_dark");
-    }
-    const auto* onlylight = find("onlylight");
-    if (onlylight == nullptr || onlylight->color != "#222222" || onlylight->color_light != "#222222") {
-      fail("custom_colors onlylight: color should fall back to color_light");
-    }
-    const auto* bare = find("bare");
-    if (bare == nullptr || bare->color != "#333333" || !bare->color_dark.empty() || !bare->color_light.empty()) {
-      fail("custom_colors bare: color set, no dark/light overrides");
-    }
-    const auto* both = find("both");
-    if (both == nullptr
-        || both->color != "#444444"
-        || both->color_dark != "#444444"
-        || both->color_light != "#555555") {
-      fail("custom_colors both: color prefers color_dark, both overrides retained");
-    }
-  }
-
-  // Template palette files use [config.custom_colors]; export must emit the canonical
-  // [theme.templates.custom_colors] table after parse.
-  void checkTemplateConfigCustomColorsExport() {
-    const auto root = toml::parse(R"(
-[config.custom_colors.red]
-color = "#FF0000"
-blend = true
-
-[config.custom_colors.blue]
-color = "#0000FF"
-blend = false
-)");
-    Config config;
-    Diagnostics diag;
-    liftTemplateConfigCustomColors(root, config, diag);
-    if (config.theme.templates.customColors.size() != 2) {
-      fail("config.custom_colors lift: expected two custom colors in config");
-    }
-
-    const toml::table exported = config_export::serialize(config);
-    const auto* theme = exported["theme"].as_table();
-    const auto* templates = theme != nullptr ? (*theme)["templates"].as_table() : nullptr;
-    const auto* customColors = templates != nullptr ? (*templates)["custom_colors"].as_table() : nullptr;
-    if (customColors == nullptr || !customColors->contains("red") || !customColors->contains("blue")) {
-      fail("config.custom_colors lift: export missing theme.templates.custom_colors entries");
-    }
-  }
-
 } // namespace
 
 int main() {
@@ -1392,8 +1297,6 @@ widget_spacing = 8
   checkPluginAutoUpdateMode();
   checkAutoUpdateScopeSelection();
   checkDuplicatePluginSourceRejection();
-  checkCustomColorFallback();
-  checkTemplateConfigCustomColorsExport();
 
   if (g_failures == 0) {
     std::println("config_schema_roundtrip: all checks passed");

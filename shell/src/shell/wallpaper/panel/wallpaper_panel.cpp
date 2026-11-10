@@ -96,10 +96,6 @@ namespace {
   [[nodiscard]] WallpaperFavorite wallpaperFavoriteFromTheme(const ThemeConfig& theme) {
     WallpaperFavorite favorite;
     favorite.themeMode = theme.mode;
-    favorite.paletteSource = theme.source;
-    favorite.builtinPalette = theme.builtinPalette;
-    favorite.customPalette = theme.customPalette;
-    favorite.wallpaperScheme = theme.wallpaperScheme;
     return favorite;
   }
 

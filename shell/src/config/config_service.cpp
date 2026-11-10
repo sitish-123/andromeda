@@ -1810,10 +1810,6 @@ void ConfigService::parseConfigTable(
     }
   }
 
-  // Template config files (e.g. user-templates.toml) store palette extensions under
-  // [config.custom_colors]; lift them into the canonical theme.templates slot.
-  schema::liftTemplateConfigCustomColors(tbl, config, schemaDiag);
-
   // Default seeding must apply even when the section is absent, so it runs after the
   // registry pass. A schema read can't tell an explicitly empty list from a missing
   // one, so these probe the raw table for the list key.

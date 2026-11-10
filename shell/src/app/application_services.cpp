@@ -148,23 +148,18 @@ namespace {
   }
 
   // GTK 3 apps read the GNOME key rather than the Settings portal.
-  void syncGSettingsColorScheme(std::string_view mode) {
-    if (mode.empty()) {
+  // GSettings would start the gmain, gdbus and dconf worker threads for good, so the write goes straight to the dconf
+  // writer: Change takes the bytes of an a{smv} changeset (key path to new value).
+  void syncGSettingsColorScheme(SessionBus* bus, std::string_view mode) {
+    if (mode.empty() || bus == nullptr) {
       return;
     }
-    GSettingsSchemaSource* source = g_settings_schema_source_get_default();
-    GSettingsSchema* schema =
-        source != nullptr ? g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE) : nullptr;
-    if (schema == nullptr) {
-      return;
-    }
-    const bool hasKey = g_settings_schema_has_key(schema, "color-scheme") != FALSE;
-    g_settings_schema_unref(schema);
-    if (!hasKey) {
-      return;
-    }
-    GSettings* settings = g_settings_new("org.gnome.desktop.interface");
-    g_settings_set_string(settings, "color-scheme", mode == "light" ? "prefer-light" : "prefer-dark");
+    GVariantBuilder changes;
+    g_variant_builder_init(&changes, G_VARIANT_TYPE("a{smv}"));
+    g_variant_builder_add(
+        &changes, "{smv}", "/org/gnome/desktop/interface/color-scheme",
+        g_variant_new_string(mode == "light" ? "prefer-light" : "prefer-dark")
+    );
     // GTK 3 has no dark variant switch of its own: pick adw-gtk3 or adw-gtk3-dark when installed.
     const std::string gtkTheme = mode == "light" ? "adw-gtk3" : "adw-gtk3-dark";
     const char* home = std::getenv("HOME");
@@ -173,9 +168,22 @@ namespace {
             && (std::filesystem::exists(std::filesystem::path(home) / ".local/share/themes" / gtkTheme)
                 || std::filesystem::exists(std::filesystem::path(home) / ".themes" / gtkTheme)));
     if (installed) {
-      g_settings_set_string(settings, "gtk-theme", gtkTheme.c_str());
+      g_variant_builder_add(
+          &changes, "{smv}", "/org/gnome/desktop/interface/gtk-theme", g_variant_new_string(gtkTheme.c_str())
+      );
     }
-    g_object_unref(settings);
+    GVariant* changeset = g_variant_ref_sink(g_variant_builder_end(&changes));
+    const auto* data = static_cast<const std::uint8_t*>(g_variant_get_data(changeset));
+    std::vector<std::uint8_t> blob(data, data + g_variant_get_size(changeset));
+    g_variant_unref(changeset);
+    try {
+      const auto writer = sdbus::createProxy(
+          bus->connection(), sdbus::ServiceName{"ca.desrt.dconf"}, sdbus::ObjectPath{"/ca/desrt/dconf/Writer/user"}
+      );
+      writer->callMethod("Change").onInterface("ca.desrt.dconf.Writer").withArguments(blob).dontExpectReply();
+    } catch (const sdbus::Error& e) {
+      kLog.debug("dconf color-scheme write failed: {}", e.what());
+    }
     // GSettings has no prefer-dark key, so a stale settings.ini value would mix a dark theme into light apps.
     if (home == nullptr) {
       return;
@@ -910,23 +918,6 @@ void Application::initStyleThemeAndWayland() {
     }
   });
 
-  // Runs once per applied generation: the gsettings color-scheme write has to land after the
-  // gtk-theme templates, and colors_changed only concerns a palette that actually changed.
-  m_templateApplyService.setAfterApplyCallback([this](std::string_view appliedMode, bool paletteChanged) {
-    if (m_configService.config().theme.syncColorScheme) {
-      syncGSettingsColorScheme(appliedMode);
-    }
-    if (m_settingsPortal != nullptr && !appliedMode.empty()) {
-      m_settingsPortal->setDark(appliedMode != "light");
-    }
-    if (paletteChanged) {
-      m_hookManager.fire(HookKind::ColorsChanged);
-    }
-  });
-  m_templateApplyService.setWarningCallback([this](std::string_view warning) {
-    m_settingsWindow.showTransientStatus(std::string(warning), true);
-  });
-
   m_themeService.setResolvedCallback([this, lastResolvedThemeMode = std::optional<std::string>{},
                                       lastGeneratedPalette = std::optional<noctalia::theme::GeneratedPalette>{},
                                       syncScriptApiWallpaperDirectory](
@@ -967,7 +958,15 @@ void Application::initStyleThemeAndWayland() {
     m_liveAppearance.publish(
         m_themeService.resolvedShellMode(), primary != shellTokens.end() ? formatRgbHex(rgbHex(primary->second)) : ""
     );
-    m_templateApplyService.apply(generated, mode, /*force=*/false, /*paletteChanged=*/colorsChanged);
+    if (m_configService.config().theme.syncColorScheme) {
+      syncGSettingsColorScheme(m_bus.get(), resolvedMode);
+    }
+    if (m_settingsPortal != nullptr) {
+      m_settingsPortal->setDark(resolvedMode != "light");
+    }
+    if (colorsChanged) {
+      m_hookManager.fire(HookKind::ColorsChanged);
+    }
     if (previousMode.has_value() && *previousMode != resolvedMode) {
       m_hookManager.fire(
           HookKind::ThemeModeChanged,
@@ -997,7 +996,7 @@ void Application::initStyleThemeAndWayland() {
     toolkit_theme::remove();
   }
   if (m_configService.config().theme.syncColorScheme) {
-    syncGSettingsColorScheme(m_themeService.resolvedMode());
+    syncGSettingsColorScheme(m_bus.get(), m_themeService.resolvedMode());
   }
   {
     // Enabling the key alone leaves the template inputs unchanged, so no application would
@@ -1011,7 +1010,7 @@ void Application::initStyleThemeAndWayland() {
           }
           lastSyncColorScheme = current;
           if (current) {
-            syncGSettingsColorScheme(m_themeService.resolvedMode());
+            syncGSettingsColorScheme(m_bus.get(), m_themeService.resolvedMode());
           }
         },
         "theme-color-scheme-sync"
@@ -1287,7 +1286,6 @@ void Application::initAuxServicesAndHooks() {
       m_syncScriptApiOutputs();
     }
     m_lockScreen.onWallpaperChanged();
-    m_themeService.onWallpaperChange();
     if (m_panelManager.isOpenPanel("control-center")) {
       m_panelManager.refresh();
     }

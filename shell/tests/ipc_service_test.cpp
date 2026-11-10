@@ -124,7 +124,7 @@ int main() {
     TEST_CHECK(visible->actionEditorVisibility == IpcService::ActionEditorVisibility::Shown);
     TEST_CHECK(
         visible->description
-        == "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center audio)"
+        == "Toggle a panel by id, optionally with context (e.g. launcher /emo, control-center detail-sound)"
     );
 
     const auto status = std::ranges::find(infos, "status", &IpcService::HandlerInfo::command);

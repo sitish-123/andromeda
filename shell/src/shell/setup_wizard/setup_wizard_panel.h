@@ -29,7 +29,6 @@ class SoftwareUpdateService;
 class SystemBus;
 class Toggle;
 class WaylandConnection;
-enum class PaletteSource : std::uint8_t;
 
 namespace sdbus {
   class IProxy;
@@ -166,14 +165,6 @@ private:
   std::array<Label*, 4> m_layoutLabels{};
   std::string m_layoutPick;
 
-  Flex* m_colourRow = nullptr;
-  Node* m_matchSeparator = nullptr;
-  std::vector<Flex*> m_swatchRings;
-  std::vector<std::string> m_swatchNames;
-  Toggle* m_matchToggle = nullptr;
-  Select* m_schemeSelect = nullptr;
-  PaletteSource m_paletteSource{};
-  std::string m_builtinPalette;
 
   std::array<Flex*, 2> m_wallpaperRings{};
   std::array<Label*, 2> m_wallpaperLabels{};

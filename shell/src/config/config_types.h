@@ -1709,18 +1709,6 @@ struct HooksConfig {
 std::optional<HookKind> hookKindFromKey(std::string_view key);
 std::string_view hookKindKey(HookKind kind);
 
-enum class PaletteSource : std::uint8_t {
-  Builtin = 0,
-  Wallpaper = 1,
-  Custom = 3,
-};
-
-constexpr EnumOption<PaletteSource> kPaletteSources[] = {
-    {PaletteSource::Builtin, "builtin", "settings.options.theme.source.built-in"},
-    {PaletteSource::Wallpaper, "wallpaper", "settings.options.theme.source.wallpaper"},
-    {PaletteSource::Custom, "custom", "settings.options.theme.source.custom"},
-};
-
 enum class ThemeMode : std::uint8_t {
   Dark = 0,
   Light = 1,
@@ -1734,7 +1722,7 @@ constexpr EnumOption<ThemeMode> kThemeModes[] = {
 };
 
 // Noctalia's own light/dark mode. `follow` tracks [theme].mode, which always drives apps
-// (templates and the GTK color scheme); the other values pin the shell independently.
+// (the GTK color scheme); the other values pin the shell independently.
 enum class ShellThemeMode : std::uint8_t {
   Follow = 0,
   Dark = 1,
@@ -1752,89 +1740,16 @@ constexpr EnumOption<ShellThemeMode> kShellThemeModes[] = {
 struct WallpaperFavorite {
   std::string path;
   std::optional<ThemeMode> themeMode;
-  std::optional<PaletteSource> paletteSource;
-  std::string builtinPalette;
-  std::string customPalette;
-  std::string wallpaperScheme;
 
   bool operator==(const WallpaperFavorite&) const = default;
 };
 
-enum class ControlCenterSidebarMode : std::uint8_t {
-  Full = 0,
-  Compact = 1,
-  None = 2,
-};
-
-constexpr EnumOption<ControlCenterSidebarMode> kControlCenterSidebarModes[] = {
-    {ControlCenterSidebarMode::Full, "full", "settings.options.control-center.sidebar.full"},
-    {ControlCenterSidebarMode::Compact, "compact", "settings.options.control-center.sidebar.compact"},
-    {ControlCenterSidebarMode::None, "none", "settings.options.control-center.sidebar.none"},
-};
-
 struct ThemeConfig {
-  struct TemplateColorConfig {
-    std::string name;
-    std::string color;
-    std::string color_dark;
-    std::string color_light;
-    bool blend = true;
-
-    bool operator==(const TemplateColorConfig&) const = default;
-  };
-
-  struct TemplateInputPathModesConfig {
-    std::string dark;
-    std::string light;
-
-    bool operator==(const TemplateInputPathModesConfig&) const = default;
-  };
-
-  struct TemplateCompareColorConfig {
-    std::string name;
-    std::string color;
-
-    bool operator==(const TemplateCompareColorConfig&) const = default;
-  };
-
-  struct UserTemplateConfig {
-    std::string id;
-    bool enabled = true;
-    std::string inputPath;
-    std::optional<TemplateInputPathModesConfig> inputPathModes;
-    std::vector<std::string> outputPaths;
-    std::string outputPathDynamic;
-    std::string compareTo;
-    std::vector<TemplateCompareColorConfig> colorsToCompare;
-    std::string preHook;
-    std::string postHook;
-    std::string postAction;
-    int index = 0;
-    // False runs post_hook inline, serialized against other hooks of the same run.
-    bool hookAsync = true;
-
-    bool operator==(const UserTemplateConfig&) const = default;
-  };
-
-  struct TemplatesConfig {
-    bool enableBuiltinTemplates = true;
-    std::vector<std::string> builtinIds;
-    std::vector<TemplateColorConfig> customColors;
-    std::vector<UserTemplateConfig> userTemplates;
-
-    bool operator==(const TemplatesConfig&) const = default;
-  };
-
-  PaletteSource source = PaletteSource::Builtin;
-  std::string builtinPalette = "Andromeda";
-  std::string customPalette;
-  std::string wallpaperScheme = "m3-content";
   ThemeMode mode = ThemeMode::Light; // the shell is the system scheme; another client changing it is adopted
   ShellThemeMode shellMode = ShellThemeMode::Follow;
   bool pureBlackDark = false;
   bool syncColorScheme = true;
   bool toolkitThemes = true; // GTK, Qt, KDE and fcitx5 colors from the design tokens (toolkit_theme_files)
-  TemplatesConfig templates;
 
   bool operator==(const ThemeConfig&) const = default;
 };
@@ -1856,7 +1771,6 @@ struct ThemeConfig {
 }
 
 struct ControlCenterConfig {
-  static constexpr std::int32_t kDefaultWidth = 700;
 
   struct CalendarTabConfig {
     bool showEventsCard = true;
@@ -1873,11 +1787,7 @@ struct ControlCenterConfig {
   };
 
   std::vector<ShortcutConfig> shortcuts;
-  std::vector<std::string> hiddenTabs; // tab keys (see kTabs) the user has hidden; empty = all available shown
   std::vector<std::string> quickTiles; // quick-sheet tile ids in order (edit mode); empty = every available tile, default order
-  ControlCenterSidebarMode sidebarMode = ControlCenterSidebarMode::Compact;
-  ControlCenterSidebarMode sidebarSectionMode = ControlCenterSidebarMode::Compact;
-  std::int32_t width = kDefaultWidth; // full-sidebar logical width; compact/none modes scale down from this
   bool showShortcutLabels = true;
   bool showSessionButton = true;
   bool circularAvatar = true;

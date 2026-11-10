@@ -7,12 +7,10 @@
 let
   inherit (lib.modules) mkIf;
   inherit (lib.options) mkEnableOption mkOption;
-  inherit (lib.attrsets) mapAttrs mapAttrs' attrValues;
   inherit (lib.lists) optional;
 
   cfg = config.programs.noctalia;
   toml = pkgs.formats.toml { };
-  json = pkgs.formats.json { };
 
   configToml =
     let
@@ -25,10 +23,6 @@ let
       ''
     else
       rawConfig;
-
-  paletteFiles = mapAttrs (
-    name: palette: json.generate "${name}-palette.json" palette
-  ) cfg.customPalettes;
 in
 {
   options.programs.noctalia = {
@@ -70,27 +64,6 @@ in
 
         theme = {
           mode = "dark";
-          source = "builtin";
-          builtin = "Catppuccin";
-        };
-      '';
-    };
-
-    customPalettes = mkOption {
-      type = json.type;
-      default = { };
-      description = ''
-        Custom color palettes written to {file}`$XDG_CONFIG_HOME/noctalia/palettes/<name>.json`.
-        See <https://docs.noctalia.dev/noctalia/theming/palette/#custom-palette-files> for more information.
-      '';
-      example = lib.literalExpression ''
-        cherry-blossom = {
-          dark = {
-            mPrimary = "#F2C1D4";
-            mOnPrimary = "#2A1B21";
-            mSecondary = "#FFD6E2";
-            ...
-          };
         };
       '';
     };
@@ -112,22 +85,16 @@ in
       restartTriggers = [
         cfg.package
       ]
-      ++ optional (cfg.settings != { }) configToml
-      ++ attrValues paletteFiles;
+      ++ optional (cfg.settings != { }) configToml;
       serviceConfig = {
         ExecStart = lib.getExe cfg.package;
         Restart = "on-failure";
       };
     };
 
-    xdg.config.files = lib.mkMerge [
-      (mkIf (cfg.settings != { }) {
-        "noctalia/config.toml".source = configToml;
-      })
-      (mapAttrs' (
-        name: source: lib.nameValuePair "noctalia/palettes/${name}.json" { inherit source; }
-      ) paletteFiles)
-    ];
+    xdg.config.files = mkIf (cfg.settings != { }) {
+      "noctalia/config.toml".source = configToml;
+    };
 
     assertions = [
       {

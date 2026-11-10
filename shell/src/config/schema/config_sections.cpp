@@ -95,9 +95,9 @@ namespace noctalia::config::schema {
         "plugin_settings",
         "include",
         "config_version",
-        // Template palette files (e.g. user-templates.toml) use [config.custom_colors].
+        // Retired [config] (template palette custom_colors) and [backdrop] sections: read and dropped so old
+        // configs load without a warning.
         "config",
-        // Retired [backdrop] section: read and dropped so old configs load without a warning.
         "backdrop",
     };
     return kKeys;

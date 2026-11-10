@@ -257,22 +257,6 @@ void Application::initUiRenderSurfacesAndSettings() {
     m_lockscreenWidgetsController.toggleEdit();
   });
   m_settingsWindow.setSyncGreeterAppearance([this] { performGreeterSync(); });
-  m_settingsWindow.setSaveWallpaperPaletteAsCustom([this] {
-    std::string paletteName;
-    std::string error;
-    if (!m_themeService.saveWallpaperPaletteAsCustom(&paletteName, &error)) {
-      m_settingsWindow.markSettingsWriteError(
-          error.empty() ? i18n::tr("settings.errors.export-wallpaper-palette") : std::move(error)
-      );
-      return;
-    }
-    m_settingsWindow.onExternalOptionsChanged();
-    m_settingsWindow.markSettingsWriteSuccess(true);
-    notify::info(
-        "Noctalia", i18n::tr("notifications.internal.wallpaper-palette-export"),
-        i18n::tr("notifications.internal.wallpaper-palette-export-success", "name", paletteName)
-    );
-  });
 }
 
 void Application::performGreeterSync(bool quiet) {
