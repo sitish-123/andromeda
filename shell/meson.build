@@ -744,8 +744,6 @@ _noctalia_sources = files(
   'src/shell/bar/widget_gesture_defaults.cpp',
   'src/shell/bar/widgets/active_window_widget.cpp',
   'src/shell/bar/widgets/active_window_widget_definition.cpp',
-  'src/shell/bar/widgets/audio_visualizer_widget.cpp',
-  'src/shell/bar/widgets/audio_visualizer_widget_definition.cpp',
   'src/shell/bar/widgets/battery_widget.cpp',
   'src/shell/bar/widgets/battery_widget_definition.cpp',
   'src/shell/bar/widgets/bluetooth_widget.cpp',
@@ -755,15 +753,11 @@ _noctalia_sources = files(
   'src/shell/phone/phone_state.cpp',
   'src/shell/bar/widgets/control_center_widget.cpp',
   'src/shell/bar/widgets/control_center_widget_definition.cpp',
-  'src/shell/bar/widgets/custom_button_widget.cpp',
-  'src/shell/bar/widgets/custom_button_widget_definition.cpp',
   'src/shell/bar/widgets/clipboard_widget.cpp',
   'src/shell/bar/widgets/clipboard_widget_definition.cpp',
   'src/shell/bar/widgets/clock_widget.cpp',
   'src/shell/bar/widgets/clock_widget_definition.cpp',
   'src/shell/bar/widgets/debug_indicator_widget.cpp',
-  'src/shell/bar/widgets/idle_inhibitor_widget.cpp',
-  'src/shell/bar/widgets/caffeine_widget_definition.cpp',
   'src/shell/bar/widgets/keyboard_layout_widget.cpp',
   'src/shell/bar/widgets/keyboard_layout_widget_definition.cpp',
   'src/shell/bar/widgets/lock_keys_widget.cpp',
@@ -792,25 +786,15 @@ _noctalia_sources = files(
   'src/shell/bar/widgets/show_desktop_widget_definition.cpp',
   'src/shell/bar/widgets/spacer_widget.cpp',
   'src/shell/bar/widgets/spacer_widget_definition.cpp',
-  'src/shell/bar/widgets/text_widget.cpp',
-  'src/shell/bar/widgets/text_widget_definition.cpp',
-  'src/shell/bar/widgets/sysmon_widget.cpp',
-  'src/shell/bar/widgets/sysmon_widget_definition.cpp',
   'src/shell/bar/widgets/taskbar_widget.cpp',
   'src/shell/bar/widgets/taskbar_preview.cpp',
   'src/shell/bar/widgets/taskbar_widget_definition.cpp',
-  'src/shell/bar/widgets/test_widget.cpp',
-  'src/shell/bar/widgets/test_widget_definition.cpp',
-  'src/shell/bar/widgets/theme_mode_widget.cpp',
-  'src/shell/bar/widgets/theme_mode_widget_definition.cpp',
   'src/shell/bar/widgets/tray_widget.cpp',
   'src/shell/bar/widgets/tray_widget_definition.cpp',
   'src/shell/bar/widgets/volume_widget.cpp',
   'src/shell/bar/widgets/volume_widget_definition.cpp',
   'src/shell/bar/widgets/brightness_widget.cpp',
   'src/shell/bar/widgets/brightness_widget_definition.cpp',
-  'src/shell/bar/widgets/wallpaper_widget.cpp',
-  'src/shell/bar/widgets/wallpaper_widget_definition.cpp',
   'src/shell/bar/widgets/weather_widget.cpp',
   'src/shell/bar/widgets/weather_widget_definition.cpp',
   'src/shell/bar/widgets/workspaces_widget.cpp',
@@ -1498,7 +1482,7 @@ if build_tests
   endif
 
   config_validate_env = environment()
-  config_validate_env.set('NOCTALIA_CONFIG_HOME', meson.current_source_dir() / 'tests/config_validate/config-home')
+  config_validate_env.set('ANDROMEDA_CONFIG_HOME', meson.current_source_dir() / 'tests/config_validate/config-home')
   config_validate_env.set('NOCTALIA_STATE_HOME', meson.current_source_dir() / 'tests/config_validate/state-home')
   config_validate_env.set('NOCTALIA_DATA_HOME', meson.current_source_dir() / 'tests/config_validate/data-home')
 

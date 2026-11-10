@@ -5,8 +5,6 @@
 #include "core/log.h"
 #include "shell/bar/widgets/active_window_widget.h"
 #include "shell/bar/widgets/active_window_widget_definition.h"
-#include "shell/bar/widgets/audio_visualizer_widget.h"
-#include "shell/bar/widgets/audio_visualizer_widget_definition.h"
 #include "shell/bar/widgets/battery_widget.h"
 #include "shell/bar/widgets/battery_widget_definition.h"
 #include "shell/bar/widgets/bluetooth_widget.h"
@@ -19,8 +17,6 @@
 #include "shell/bar/widgets/clock_widget_definition.h"
 #include "shell/bar/widgets/control_center_widget.h"
 #include "shell/bar/widgets/control_center_widget_definition.h"
-#include "shell/bar/widgets/custom_button_widget.h"
-#include "shell/bar/widgets/custom_button_widget_definition.h"
 #include "shell/bar/widgets/phone_widget.h"
 #ifndef NDEBUG
 #include "shell/bar/widgets/debug_indicator_widget.h"
@@ -28,7 +24,6 @@
 #include "capture/screenshot_service.h"
 #include "scripting/plugin_manifest.h"
 #include "scripting/plugin_registry.h"
-#include "shell/bar/widgets/idle_inhibitor_widget.h"
 #include "shell/bar/widgets/keyboard_layout_widget.h"
 #include "shell/bar/widgets/keyboard_layout_widget_definition.h"
 #include "shell/bar/widgets/launcher_widget.h"
@@ -56,20 +51,12 @@
 #include "shell/bar/widgets/spacer_widget.h"
 #include "shell/bar/widgets/show_desktop_widget_definition.h"
 #include "shell/bar/widgets/spacer_widget_definition.h"
-#include "shell/bar/widgets/sysmon_widget.h"
-#include "shell/bar/widgets/sysmon_widget_definition.h"
 #include "shell/bar/widgets/taskbar_widget.h"
 #include "shell/bar/widgets/taskbar_widget_definition.h"
-#include "shell/bar/widgets/test_widget.h"
-#include "shell/bar/widgets/text_widget.h"
-#include "shell/bar/widgets/text_widget_definition.h"
-#include "shell/bar/widgets/theme_mode_widget.h"
 #include "shell/bar/widgets/tray_widget.h"
 #include "shell/bar/widgets/tray_widget_definition.h"
 #include "shell/bar/widgets/volume_widget.h"
 #include "shell/bar/widgets/volume_widget_definition.h"
-#include "shell/bar/widgets/wallpaper_widget.h"
-#include "shell/bar/widgets/wallpaper_widget_definition.h"
 #include "shell/bar/widgets/weather_widget.h"
 #include "shell/bar/widgets/weather_widget_definition.h"
 #include "shell/bar/widgets/workspaces_widget.h"
@@ -244,12 +231,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 context.contentScale, f.m_platform, f.m_configService, context.output, options
             );
           }},
-      {"audio_visualizer", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
-            return createWidget<AudioVisualizerWidget>(
-                context.contentScale, f.m_audioSpectrum,
-                audioVisualizerWidgetDefinition().resolve(context.config, context.settingContext)
-            );
-          }},
       {"battery", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             auto options = batteryWidgetDefinition().resolve(
                 context.config, context.settingContext,
@@ -274,9 +255,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 brightnessWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},
-      {"caffeine", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
-            return createWidget<IdleInhibitorWidget>(context.contentScale, f.m_idleInhibitor);
-          }},
       {"clipboard", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             if (!f.m_config.shell.clipboardEnabled) {
               return std::unique_ptr<Widget>{};
@@ -296,11 +274,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
             return createWidget<ControlCenterWidget>(
                 context.contentScale, context.output,
                 controlCenterWidgetDefinition().resolve(context.config, context.settingContext)
-            );
-          }},
-      {"custom_button", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
-            return createWidget<CustomButtonWidget>(
-                context.contentScale, customButtonWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},
 #ifndef NDEBUG
@@ -398,15 +371,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
                 spacerWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},
-      {"sysmon", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
-            return createWidget<SysmonWidget>(
-                context.contentScale, f.m_sysmon, f.m_configService,
-                sysmonWidgetDefinition().resolve(
-                    context.config, context.settingContext,
-                    SysmonWidgetDefinitionContext{.verticalBar = context.verticalBar}
-                )
-            );
-          }},
       {"taskbar", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<TaskbarWidget>(
                 context.contentScale, f.m_platform, f.m_configService, context.output,
@@ -418,17 +382,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
                     .asyncTextures = f.m_asyncTextures,
                 }
             );
-          }},
-      {"test", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
-            return createWidget<TestWidget>(context.contentScale, context.output);
-          }},
-      {"text", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
-            return createWidget<TextWidget>(
-                context.contentScale, textWidgetDefinition().resolve(context.config, context.settingContext)
-            );
-          }},
-      {"theme_mode", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
-            return createWidget<ThemeModeWidget>(context.contentScale, f.m_themeService);
           }},
       {"tray", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {
             return createWidget<TrayWidget>(
@@ -447,12 +400,6 @@ std::unique_ptr<Widget> WidgetFactory::create(
             return createWidget<VolumeWidget>(
                 context.contentScale, f.m_audio, f.m_easyEffects,
                 volumeWidgetDefinition().resolve(context.config, context.settingContext)
-            );
-          }},
-      {"wallpaper", [](const WidgetFactory&, const BuiltinWidgetContext& context) {
-            return createWidget<WallpaperWidget>(
-                context.contentScale, context.output,
-                wallpaperWidgetDefinition().resolve(context.config, context.settingContext)
             );
           }},
       {"weather", [](const WidgetFactory& f, const BuiltinWidgetContext& context) {

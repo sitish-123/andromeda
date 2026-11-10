@@ -3,15 +3,12 @@
 // not catch. Without this test a malformed definition ships as an uncaught exception at bar build.
 #include "shell/bar/widget_gesture_defaults.h"
 #include "shell/bar/widgets/active_window_widget_definition.h"
-#include "shell/bar/widgets/audio_visualizer_widget_definition.h"
 #include "shell/bar/widgets/battery_widget_definition.h"
 #include "shell/bar/widgets/bluetooth_widget_definition.h"
 #include "shell/bar/widgets/brightness_widget_definition.h"
-#include "shell/bar/widgets/caffeine_widget_definition.h"
 #include "shell/bar/widgets/clipboard_widget_definition.h"
 #include "shell/bar/widgets/clock_widget_definition.h"
 #include "shell/bar/widgets/control_center_widget_definition.h"
-#include "shell/bar/widgets/custom_button_widget_definition.h"
 #include "shell/bar/widgets/keyboard_layout_widget_definition.h"
 #include "shell/bar/widgets/launcher_widget_definition.h"
 #include "shell/bar/widgets/lock_keys_widget_definition.h"
@@ -25,14 +22,9 @@
 #include "shell/bar/widgets/session_widget_definition.h"
 #include "shell/bar/widgets/settings_widget_definition.h"
 #include "shell/bar/widgets/spacer_widget_definition.h"
-#include "shell/bar/widgets/sysmon_widget_definition.h"
 #include "shell/bar/widgets/taskbar_widget_definition.h"
-#include "shell/bar/widgets/test_widget_definition.h"
-#include "shell/bar/widgets/text_widget_definition.h"
-#include "shell/bar/widgets/theme_mode_widget_definition.h"
 #include "shell/bar/widgets/tray_widget_definition.h"
 #include "shell/bar/widgets/volume_widget_definition.h"
-#include "shell/bar/widgets/wallpaper_widget_definition.h"
 #include "shell/bar/widgets/weather_widget_definition.h"
 #include "shell/desktop/desktop_widget_settings_registry.h"
 #include "shell/settings/widget_settings_registry.h"
@@ -126,15 +118,12 @@ int main() {
   const BatteryConfig batteryConfig;
 
   checkDefinition("active_window", activeWindowWidgetDefinition);
-  checkDefinition("audio_visualizer", audioVisualizerWidgetDefinition);
   checkDefinition("battery", batteryWidgetDefinition, BatteryWidgetDefinitionContext{.batteryConfig = &batteryConfig});
   checkDefinition("bluetooth", bluetoothWidgetDefinition);
   checkDefinition("brightness", brightnessWidgetDefinition);
-  checkDefinition<true>("caffeine", caffeineWidgetDefinition);
   checkDefinition("clipboard", clipboardWidgetDefinition);
   checkDefinition("clock", clockWidgetDefinition);
   checkDefinition("control-center", controlCenterWidgetDefinition);
-  checkDefinition("custom_button", customButtonWidgetDefinition);
   checkDefinition("keyboard_layout", keyboardLayoutWidgetDefinition);
   checkDefinition("launcher", launcherWidgetDefinition);
   checkDefinition("lock_keys", lockKeysWidgetDefinition);
@@ -148,7 +137,6 @@ int main() {
   checkDefinition("session", sessionWidgetDefinition);
   checkDefinition("settings", settingsWidgetDefinition);
   checkDefinition("spacer", spacerWidgetDefinition);
-  checkDefinition("sysmon", sysmonWidgetDefinition, SysmonWidgetDefinitionContext{});
 
   WidgetConfig invalidKeyboardLayout;
   invalidKeyboardLayout.type = "keyboard_layout";
@@ -163,39 +151,9 @@ int main() {
     fail("keyboard_layout", "valid resolved options produced a semantic error");
   }
 
-  WidgetConfig invalidSysmon;
-  invalidSysmon.type = "sysmon";
-  invalidSysmon.settings["show_glyph"] = false;
-  invalidSysmon.settings["show_value"] = false;
-  invalidSysmon.settings["visualization"] = std::string("none");
-  const auto sysmonError = settings::validateWidgetSemantics("sysmon", &invalidSysmon);
-  if (!sysmonError.has_value()
-      || *sysmonError != "show_glyph, custom_label, show_value, and visualization cannot all be disabled") {
-    fail("sysmon", "invalid resolved options did not produce the semantic error");
-  }
-  invalidSysmon.settings["custom_label"] = std::string("CPU");
-  if (settings::validateWidgetSemantics("sysmon", &invalidSysmon).has_value()) {
-    fail("sysmon", "custom-label-only options produced a semantic error");
-  }
-  invalidSysmon.settings["custom_label"] = std::string();
-  invalidSysmon.settings["show_value"] = true;
-  if (settings::validateWidgetSemantics("sysmon", &invalidSysmon).has_value()) {
-    fail("sysmon", "valid resolved options produced a semantic error");
-  }
-
   WidgetConfig networkPrecision;
   networkPrecision.type = "sysmon";
   networkPrecision.settings["stat"] = std::string("net_rx");
-  networkPrecision.settings["network_speed_decimal_places"] = std::int64_t{-1};
-  if (sysmonWidgetDefinition().resolve(&networkPrecision, "sysmon", {}).networkSpeedDecimalPlaces
-      != FormatUnits::kMinCompactByteRateDecimalPlaces) {
-    fail("sysmon", "network speed precision was not clamped to its lower bound");
-  }
-  networkPrecision.settings["network_speed_decimal_places"] = std::int64_t{4};
-  if (sysmonWidgetDefinition().resolve(&networkPrecision, "sysmon", {}).networkSpeedDecimalPlaces
-      != FormatUnits::kMaxCompactByteRateDecimalPlaces) {
-    fail("sysmon", "network speed precision was not clamped to its upper bound");
-  }
 
   Config networkPrecisionConfig;
   networkPrecision.settings["network_speed_compact"] = false;
@@ -213,19 +171,7 @@ int main() {
         networkPrecisionConfig, "network-precision", *precision, specs, settings::WidgetSettingCapabilities{}
     );
   };
-  const auto barSysmonSpecs =
-      settings::widgetSettingSpecs("sysmon", &networkPrecisionConfig.widgets.at("network-precision"), "", false);
-  if (networkPrecisionVisible(barSysmonSpecs)) {
-    fail("sysmon", "network speed precision is visible when compact formatting is disabled");
-  }
   networkPrecisionConfig.widgets.at("network-precision").settings["network_speed_compact"] = true;
-  if (!networkPrecisionVisible(barSysmonSpecs)) {
-    fail("sysmon", "network speed precision is hidden for a compact network stat");
-  }
-  networkPrecisionConfig.widgets.at("network-precision").settings["stat"] = std::string("cpu_usage");
-  if (networkPrecisionVisible(barSysmonSpecs)) {
-    fail("sysmon", "network speed precision is visible for a non-network stat");
-  }
 
   const auto desktopSysmonSpecs = desktop_settings::desktopWidgetSettingSpecs("sysmon");
   networkPrecisionConfig.widgets.at("network-precision").settings["stat2"] = std::string("net_tx");
@@ -305,9 +251,6 @@ int main() {
   if (!taskbarConfig.widgets.at("taskbar-test").getBool("group_by_workspace", false)) {
     fail("taskbar", "capability visibility mutated persisted workspace grouping");
   }
-  checkDefinition<true>("test", testWidgetDefinition);
-  checkDefinition("text", textWidgetDefinition);
-  checkDefinition<true>("theme_mode", themeModeWidgetDefinition);
   checkDefinition("tray", trayWidgetDefinition, TrayWidgetDefinitionContext{});
   checkDefinition("volume", volumeWidgetDefinition);
 
@@ -330,10 +273,6 @@ int main() {
 
   Config glyphConfig;
   glyphConfig.widgets.emplace("mic", inputVolume);
-  WidgetConfig networkDownload;
-  networkDownload.type = "sysmon";
-  networkDownload.settings["stat"] = std::string("net_rx");
-  glyphConfig.widgets.emplace("network-download", std::move(networkDownload));
   const auto pickerEntries = settings::widgetPickerEntries(glyphConfig);
   const auto pickerGlyph = [&](std::string_view name) -> std::string_view {
     const auto entry = std::ranges::find(pickerEntries, name, &settings::WidgetPickerEntry::value);
@@ -345,9 +284,6 @@ int main() {
   };
   if (pickerGlyph("mic") != "microphone") {
     fail("volume", "input device did not select the microphone picker glyph");
-  }
-  if (pickerGlyph("network-download") != "download") {
-    fail("sysmon", "network receive stat did not select the download picker glyph");
   }
 
   // hide_when_inactive keys off microphone capture, so the settings UI must only offer it on a
@@ -375,7 +311,6 @@ int main() {
   if (hideWhenInactiveVisible("speaker")) {
     fail("volume", "hide_when_inactive is offered on an output widget");
   }
-  checkDefinition("wallpaper", wallpaperWidgetDefinition);
   checkDefinition("weather", weatherWidgetDefinition);
 
   return g_ok ? 0 : 1;

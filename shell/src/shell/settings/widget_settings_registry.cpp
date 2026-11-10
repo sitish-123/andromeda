@@ -7,15 +7,12 @@
 #include "scripting/plugin_registry.h"
 #include "shell/bar/widget_gesture_defaults.h"
 #include "shell/bar/widgets/active_window_widget_definition.h"
-#include "shell/bar/widgets/audio_visualizer_widget_definition.h"
 #include "shell/bar/widgets/battery_widget_definition.h"
 #include "shell/bar/widgets/bluetooth_widget_definition.h"
 #include "shell/bar/widgets/brightness_widget_definition.h"
-#include "shell/bar/widgets/caffeine_widget_definition.h"
 #include "shell/bar/widgets/clipboard_widget_definition.h"
 #include "shell/bar/widgets/clock_widget_definition.h"
 #include "shell/bar/widgets/control_center_widget_definition.h"
-#include "shell/bar/widgets/custom_button_widget_definition.h"
 #include "shell/bar/widgets/keyboard_layout_widget_definition.h"
 #include "shell/bar/widgets/launcher_widget_definition.h"
 #include "shell/bar/widgets/lock_keys_widget_definition.h"
@@ -29,14 +26,9 @@
 #include "shell/bar/widgets/session_widget_definition.h"
 #include "shell/bar/widgets/settings_widget_definition.h"
 #include "shell/bar/widgets/spacer_widget_definition.h"
-#include "shell/bar/widgets/sysmon_widget_definition.h"
 #include "shell/bar/widgets/taskbar_widget_definition.h"
-#include "shell/bar/widgets/test_widget_definition.h"
-#include "shell/bar/widgets/text_widget_definition.h"
-#include "shell/bar/widgets/theme_mode_widget_definition.h"
 #include "shell/bar/widgets/tray_widget_definition.h"
 #include "shell/bar/widgets/volume_widget_definition.h"
-#include "shell/bar/widgets/wallpaper_widget_definition.h"
 #include "shell/bar/widgets/weather_widget_definition.h"
 #include "shell/bar/widgets/workspaces_widget_definition.h"
 #include "shell/settings/font_family_catalog.h"
@@ -138,15 +130,12 @@ namespace settings {
 
     constexpr std::array kTypedWidgetDefinitions{
         projectWidgetDefinition<activeWindowWidgetDefinition>(),
-        projectWidgetDefinition<audioVisualizerWidgetDefinition>(),
         projectWidgetDefinition<batteryWidgetDefinition>(),
         projectWidgetDefinition<bluetoothWidgetDefinition>(),
         projectWidgetDefinition<brightnessWidgetDefinition>(),
-        projectWidgetDefinition<caffeineWidgetDefinition>(),
         projectWidgetDefinition<clipboardWidgetDefinition>(),
         projectWidgetDefinition<clockWidgetDefinition>(),
         projectWidgetDefinition<controlCenterWidgetDefinition>(),
-        projectWidgetDefinition<customButtonWidgetDefinition>(),
         projectWidgetDefinition<keyboardLayoutWidgetDefinition>(),
         projectWidgetDefinition<launcherWidgetDefinition>(),
         projectWidgetDefinition<lockKeysWidgetDefinition>(),
@@ -160,14 +149,9 @@ namespace settings {
         projectWidgetDefinition<sessionWidgetDefinition>(),
         projectWidgetDefinition<settingsWidgetDefinition>(),
         projectWidgetDefinition<spacerWidgetDefinition>(),
-        projectWidgetDefinition<sysmonWidgetDefinition>(),
         projectWidgetDefinition<taskbarWidgetDefinition>(),
-        projectWidgetDefinition<testWidgetDefinition>(),
-        projectWidgetDefinition<textWidgetDefinition>(),
-        projectWidgetDefinition<themeModeWidgetDefinition>(),
         projectWidgetDefinition<trayWidgetDefinition>(),
         projectWidgetDefinition<volumeWidgetDefinition>(),
-        projectWidgetDefinition<wallpaperWidgetDefinition>(),
         projectWidgetDefinition<weatherWidgetDefinition>(),
         projectWidgetDefinition<workspacesWidgetDefinition>(),
     };
@@ -228,15 +212,12 @@ namespace settings {
 
     const std::vector<WidgetTypeSpec> kWidgetTypeSpecs = {
         {.type = "active_window", .labelKey = "settings.widgets.types.active-window", .glyph = "app-window"},
-        {.type = "audio_visualizer", .labelKey = "settings.widgets.types.audio-visualizer", .glyph = "wave-sine"},
         {.type = "battery", .labelKey = "settings.widgets.types.battery", .glyph = "battery-4"},
         {.type = "bluetooth", .labelKey = "settings.widgets.types.bluetooth", .glyph = "bluetooth"},
         {.type = "brightness", .labelKey = "settings.widgets.types.brightness", .glyph = "brightness-high"},
         {.type = "clock", .labelKey = "settings.widgets.types.clock", .glyph = "clock"},
         {.type = "control-center", .labelKey = "settings.widgets.types.control-center", .glyph = "noctalia"},
         {.type = "clipboard", .labelKey = "settings.widgets.types.clipboard", .glyph = "clipboard"},
-        {.type = "custom_button", .labelKey = "settings.widgets.types.custom-button", .glyph = "circuit-pushbutton"},
-        {.type = "caffeine", .labelKey = "settings.widgets.types.caffeine", .glyph = "caffeine-off"},
         {.type = "keyboard_layout", .labelKey = "settings.widgets.types.keyboard-layout", .glyph = "keyboard"},
         {.type = "launcher", .labelKey = "settings.widgets.types.launcher", .glyph = "search"},
         {.type = "lock_keys", .labelKey = "settings.widgets.types.lock-keys", .glyph = "lock"},
@@ -251,14 +232,9 @@ namespace settings {
         {.type = "session", .labelKey = "settings.widgets.types.session", .glyph = "shutdown"},
         {.type = "settings", .labelKey = "settings.widgets.types.settings", .glyph = "settings"},
         {.type = "spacer", .labelKey = "settings.widgets.types.spacer", .glyph = "arrows-horizontal"},
-        {.type = "sysmon", .labelKey = "settings.widgets.types.sysmon", .glyph = "cpu-usage"},
         {.type = "taskbar", .labelKey = "settings.widgets.types.taskbar", .glyph = "apps"},
-        {.type = "test", .labelKey = "settings.widgets.types.test", .glyph = "flask", .visibleInPicker = false},
-        {.type = "text", .labelKey = "settings.widgets.types.text", .glyph = "letter-t"},
-        {.type = "theme_mode", .labelKey = "settings.widgets.types.theme-mode", .glyph = "theme-mode"},
         {.type = "tray", .labelKey = "settings.widgets.types.tray", .glyph = "apps"},
         {.type = "volume", .labelKey = "settings.widgets.types.volume", .glyph = "volume-high"},
-        {.type = "wallpaper", .labelKey = "settings.widgets.types.wallpaper", .glyph = "wallpaper-selector"},
         {.type = "weather", .labelKey = "settings.widgets.types.weather", .glyph = "weather-cloud"},
         {.type = "window_menu", .labelKey = "settings.widgets.types.window-menu", .glyph = "app-window"},
         {.type = "workspaces", .labelKey = "settings.widgets.types.workspaces", .glyph = "layout-grid"},
@@ -479,7 +455,7 @@ namespace settings {
   bool isPluginWidgetType(std::string_view type) { return resolvePluginWidget(type).has_value(); }
 
   bool widgetTypeRequiresNamedConfig(std::string_view type) {
-    return type == "custom_button" || type == "spacer" || type == "text" || resolvePluginWidget(type).has_value();
+    return type == "spacer" || resolvePluginWidget(type).has_value();
   }
 
   std::string widgetTypeForReference(const Config& cfg, std::string_view name) {
@@ -575,7 +551,7 @@ namespace settings {
       if (isBuiltInWidgetType(name)) {
         continue;
       }
-      // Only surface named instances of built-in multi-instance types (custom_button, spacer).
+      // Only surface named instances of built-in multi-instance types (spacer).
       // Plugin-typed instances are already represented by their registry [[widget]] entry below,
       // and stale/invalid types (e.g. "scripted") are surfaced loudly by config_validate.
       if (!widget.type.empty() && !isBuiltInWidgetType(widget.type)) {
