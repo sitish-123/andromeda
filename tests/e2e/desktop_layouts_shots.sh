@@ -30,6 +30,13 @@ enabled = true
 auto_hide = false
 smart_auto_hide = false
 pinned = []
+# The Windows status cell; the islands bar shows it only once section 4 lists "group:status".
+[[bar.default.capsule_group]]
+id = "status"
+members = ["status_network", "status_volume", "status_battery"]
+fill = "#00000000"
+radius = 8
+hover_as_one = false
 CONFIG
 
 export UNMAP POINTER
@@ -125,7 +132,7 @@ with_noctalia '
   "$NOCTALIA" msg config-set bar.default.radius_bottom_right 0 > /dev/null
   "$NOCTALIA" msg config-set bar.default.start "[]" > /dev/null
   "$NOCTALIA" msg config-set bar.default.center "[\"start\", \"windows_taskbar\"]" > /dev/null
-  "$NOCTALIA" msg config-set bar.default.end "[\"tray\", \"windows_clock\", \"notifications\", \"show_desktop\"]" > /dev/null
+  "$NOCTALIA" msg config-set bar.default.end "[\"tray\", \"group:status\", \"windows_clock\", \"notifications\", \"show_desktop\"]" > /dev/null
   "$ANDROMEDA" msg "window-focus:$(window desk-a | jq -r .id)" > /dev/null
   read -r lw lh < <("$ANDROMEDA" outputs --json | jq -r ".[0].logical_size | \"\(.width) \(.height)\"")
   for _ in $(seq 100); do

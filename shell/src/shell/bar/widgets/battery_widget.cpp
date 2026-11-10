@@ -233,10 +233,11 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
   }
 
   if (m_islandStyle) {
-    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height in a 22 px box, its body centred (R9);
-    // units are symbol units times s. Horizontal bars put the percent before the symbol, vertical bars under it.
+    // The reference's 26 x 24 battery symbol drawn at its 16 px icon height; units are symbol units times s. Vertical
+    // bars centre its body in a 22 px box (R9) and put the percent under it. Horizontal bars put the percent before it
+    // and hug it with the 2-unit side margin of the 24-grid icons, so the row gaps stay equal.
     const float s = Tokens::componentIslandIcon / 24.0F * m_contentScale;
-    const float boxW = 22.0F * m_contentScale;
+    const float boxW = m_isVertical ? 22.0F * m_contentScale : 28.3F * s;
     const float boxH = 24.0F * s;
     float labelW = 0.0F;
     float labelH = 0.0F;
@@ -254,7 +255,7 @@ void BatteryWidget::layoutGraphicMode(Renderer& renderer) {
           m_isVertical ? boxH : std::round((boxH - labelH) * 0.5F)
       );
     }
-    const float offX = boxX + boxW * 0.5F - 11.0F * s;
+    const float offX = m_isVertical ? boxX + boxW * 0.5F - 11.0F * s : boxX + 1.9F * s;
     if (m_overlayGlyph != nullptr && m_overlayGlyph->visible()) {
       m_overlayGlyph->setGlyphSize(13.8F * s);
       m_overlayGlyph->measure(renderer);
