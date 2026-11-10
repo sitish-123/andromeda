@@ -42,6 +42,9 @@ namespace {
   const sdbus::ServiceName kDbusBusName{"org.freedesktop.DBus"};
   const sdbus::ObjectPath kDbusObjectPath{"/org/freedesktop/DBus"};
   constexpr auto kDbusInterface = "org.freedesktop.DBus";
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kSystem1NetworkPath{"/org/andromeda/System1/Network"};
+  constexpr auto kSystem1NetworkInterface = "org.andromeda.System1.Network";
 
   using ConnectionSettings = std::map<std::string, std::map<std::string, sdbus::Variant>>;
   using VariantMap = std::map<std::string, sdbus::Variant>;
@@ -96,7 +99,8 @@ namespace {
   // Body for a connect request NetworkManager rejected before activation began.
   std::string connectRequestErrorBody(const sdbus::Error& err) {
     const auto& name = err.getName();
-    if (name == sdbus::Error::Name{"org.freedesktop.NetworkManager.PermissionDenied"}) {
+    if (name == sdbus::Error::Name{"org.freedesktop.NetworkManager.PermissionDenied"}
+        || name == sdbus::Error::Name{"org.freedesktop.DBus.Error.AccessDenied"}) {
       return i18n::tr("notifications.internal.network-connect-failed-permission");
     }
     if (name == sdbus::Error::Name{"org.freedesktop.DBus.Error.NoReply"}
@@ -458,14 +462,12 @@ void NetworkManagerService::requestScan() {
     auto scanStarted = std::make_shared<bool>(false);
     for (const auto& devicePath : devicePaths) {
       try {
-        auto device = std::shared_ptr<sdbus::IProxy>(
-            sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{devicePath})
-        );
         const std::map<std::string, sdbus::Variant> options;
-        device->callMethodAsync("RequestScan")
-            .onInterface(kNmDeviceWirelessInterface)
-            .withArguments(options)
-            .uponReplyInvoke([this, lifetimeToken, device, devicePath, lastScanBaseline, generation,
+        system1Network()
+            .callMethodAsync("RequestScan")
+            .onInterface(kSystem1NetworkInterface)
+            .withArguments(sdbus::ObjectPath{devicePath}, options)
+            .uponReplyInvoke([this, lifetimeToken, devicePath, lastScanBaseline, generation,
                               scanStarted](std::optional<sdbus::Error> err) {
               if (lifetimeToken.expired() || generation != m_scanGeneration) {
                 return;
@@ -804,16 +806,14 @@ void NetworkManagerService::persistConnectionToDisk(const std::string& connectio
     return;
   }
   try {
-    auto connection = std::shared_ptr<sdbus::IProxy>(
-        sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{connectionPath})
-    );
     const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
     const ConnectionSettings settings;
     const VariantMap args;
-    connection->callMethodAsync("Update2")
-        .onInterface(kNmSettingsConnectionInterface)
-        .withArguments(settings, k_nmSettingsUpdate2FlagToDisk, args)
-        .uponReplyInvoke([this, lifetimeToken, connection, connectionPath,
+    system1Network()
+        .callMethodAsync("UpdateConnection")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(sdbus::ObjectPath{connectionPath}, settings, k_nmSettingsUpdate2FlagToDisk, args)
+        .uponReplyInvoke([this, lifetimeToken, connectionPath,
                           ssid](std::optional<sdbus::Error> err, const VariantMap& /*result*/) {
           if (lifetimeToken.expired()) {
             return;
@@ -835,13 +835,12 @@ void NetworkManagerService::deleteUnsavedConnection(const std::string& connectio
     return;
   }
   try {
-    auto connection = std::shared_ptr<sdbus::IProxy>(
-        sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{connectionPath})
-    );
     const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
-    connection->callMethodAsync("Delete")
-        .onInterface(kNmSettingsConnectionInterface)
-        .uponReplyInvoke([this, lifetimeToken, connection, connectionPath, ssid](std::optional<sdbus::Error> err) {
+    system1Network()
+        .callMethodAsync("DeleteConnection")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(sdbus::ObjectPath{connectionPath})
+        .uponReplyInvoke([this, lifetimeToken, connectionPath, ssid](std::optional<sdbus::Error> err) {
           if (lifetimeToken.expired()) {
             return;
           }
@@ -997,8 +996,9 @@ bool NetworkManagerService::deactivateConnectionsByProfilePaths(
                           if (profilePaths.contains(profilePath) && deactivatable) {
                             lookup->dispatched = true;
                             try {
-                              m_nm->callMethodAsync("DeactivateConnection")
-                                  .onInterface(kNmInterface)
+                              system1Network()
+                                  .callMethodAsync("DeactivateConnection")
+                                  .onInterface(kSystem1NetworkInterface)
                                   .withArguments(sdbus::ObjectPath{activePathStr})
                                   .uponReplyInvoke([this, lifetimeToken, activePathStr,
                                                     tag](std::optional<sdbus::Error> deactivateErr) {
@@ -1180,9 +1180,10 @@ void NetworkManagerService::setWirelessEnabled(bool enabled, WirelessEnabledComp
   // while authorization is pending.
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   try {
-    m_nm->setPropertyAsync("WirelessEnabled")
-        .onInterface(kNmInterface)
-        .toValue(enabled)
+    system1Network()
+        .callMethodAsync("SetWirelessEnabled")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(enabled)
         .uponReplyInvoke([this, lifetimeToken, enabled, complete](std::optional<sdbus::Error> err) {
           if (lifetimeToken.expired()) {
             return;
@@ -1221,8 +1222,9 @@ void NetworkManagerService::disconnect() {
   const std::string activePath = m_activeConnectionPath;
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   try {
-    m_nm->callMethodAsync("DeactivateConnection")
-        .onInterface(kNmInterface)
+    system1Network()
+        .callMethodAsync("DeactivateConnection")
+        .onInterface(kSystem1NetworkInterface)
         .withArguments(sdbus::ObjectPath{activePath})
         .uponReplyInvoke([this, lifetimeToken, activePath](std::optional<sdbus::Error> err) {
           if (lifetimeToken.expired()) {
@@ -1251,12 +1253,11 @@ bool NetworkManagerService::deactivateWiredConnection() {
   const std::string devicePath = m_activeDevicePath;
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   try {
-    auto device = std::shared_ptr<sdbus::IProxy>(
-        sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{devicePath})
-    );
-    device->callMethodAsync("Disconnect")
-        .onInterface(kNmDeviceInterface)
-        .uponReplyInvoke([this, lifetimeToken, device, devicePath](std::optional<sdbus::Error> err) {
+    system1Network()
+        .callMethodAsync("DisconnectDevice")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(sdbus::ObjectPath{devicePath})
+        .uponReplyInvoke([this, lifetimeToken, devicePath](std::optional<sdbus::Error> err) {
           if (lifetimeToken.expired()) {
             return;
           }
@@ -1281,6 +1282,7 @@ namespace {
   struct ForgetOp {
     std::string ssid;
     std::unique_ptr<sdbus::IProxy> settings;
+    std::unique_ptr<sdbus::IProxy> system1;
     std::vector<std::unique_ptr<sdbus::IProxy>> targets;
     int matched = 0;
     int removed = 0;
@@ -1346,6 +1348,7 @@ void NetworkManagerService::forgetSsid(const std::string& ssid) {
 
   try {
     op->settings = sdbus::createProxy(m_bus.connection(), kNmBusName, kNmSettingsObjectPath);
+    op->system1 = sdbus::createProxy(m_bus.connection(), kSystem1BusName, kSystem1NetworkPath);
   } catch (const sdbus::Error& e) {
     kLog.warn("forgetSsid: settings proxy failed ssid=\"{}\": {}", ssid, e.what());
     refresh();
@@ -1376,7 +1379,7 @@ void NetworkManagerService::forgetSsid(const std::string& ssid) {
           const std::string& pathStr{connectionPath};
           connRaw->callMethodAsync("GetSettings")
               .onInterface(kNmSettingsConnectionInterface)
-              .uponReplyInvoke([op, connRaw, pathStr](
+              .uponReplyInvoke([op, pathStr](
                                    std::optional<sdbus::Error> getErr,
                                    const std::map<std::string, std::map<std::string, sdbus::Variant>>& cfg
                                ) {
@@ -1393,8 +1396,9 @@ void NetworkManagerService::forgetSsid(const std::string& ssid) {
                 }
                 ++op->matched;
                 ++op->pendingDeletes;
-                connRaw->callMethodAsync("Delete")
-                    .onInterface(kNmSettingsConnectionInterface)
+                op->system1->callMethodAsync("DeleteConnection")
+                    .onInterface(kSystem1NetworkInterface)
+                    .withArguments(sdbus::ObjectPath{pathStr})
                     .uponReplyInvoke([op, pathStr](std::optional<sdbus::Error> delErr) {
                       --op->pendingDeletes;
                       if (delErr.has_value()) {
@@ -2911,6 +2915,13 @@ void NetworkManagerService::endScan() {
   }
   m_scanning = false;
   m_scanTimeoutTimer.stop();
+}
+
+sdbus::IProxy& NetworkManagerService::system1Network() {
+  if (m_system1Network == nullptr) {
+    m_system1Network = sdbus::createProxy(m_bus.connection(), kSystem1BusName, kSystem1NetworkPath);
+  }
+  return *m_system1Network;
 }
 
 NetworkChangeOrigin NetworkManagerService::consumeWirelessEnabledChangeOrigin(bool enabled) {

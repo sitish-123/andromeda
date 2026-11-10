@@ -228,7 +228,7 @@ grep -q 'low_pct = 10' "$OUT/andromeda/system-rules.toml" || fail "the threshold
 "${S[@]}" "${RULES[@]}" Set sba{sv} power.low_power_plan false 0
 until_has 10 '"power.low_power_plan" false ""' "${S[@]}" "${RULES[@]}" List
 # network.captive_portal (§12.1): a portal opens NetworkManager's check URL once and alerts with Sign In.
-python3 "$ROOT/system/tests/mock_nm.py" >"$OUT/nm.out" 2>&1 & PIDS+=($!)
+python3 "$ROOT/system/tests/mock_nm.py" "$OUT/nm.log" >"$OUT/nm.out" 2>&1 & PIDS+=($!)
 until_has 50 ready cat "$OUT/nm.out"
 until_has 30 '"network" true ""' get /org/andromeda/System1 Manager Areas
 "${B[@]}" call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager dsk.test.NM SetConnectivity u 2
@@ -268,4 +268,48 @@ CreateInterface wlan0ap ap True
 GetInterface wlan0ap
 RemoveInterface /fi/w1/wpa_supplicant1/Interfaces/4
 EOF
+# Network NetworkManager writes check the caller first (tests/mock_polkit.py): a bad path before polkit, a connection
+# for another user before polkit, then NetworkManager's polkit action; only then does NetworkManager see the call,
+# and its errors come back unchanged.
+DENY=$OUT/polkit-deny
+echo org.freedesktop.NetworkManager.network-control >"$DENY"
+HOLD=$OUT/polkit-hold
+python3 "$ROOT/system/tests/mock_polkit.py" "$OUT/polkit.log" "$DENY" "$HOLD" >"$OUT/polkit.out" 2>&1 & PIDS+=($!)
+until_has 50 ready cat "$OUT/polkit.out"
+N=(call org.andromeda.System1 /org/andromeda/System1/Network org.andromeda.System1.Network)
+NMO=/org/freedesktop/NetworkManager
+"${B[@]}" "${N[@]}" DeactivateConnection o $NMO/ActiveConnection/1 2>/dev/null \
+  && fail "DeactivateConnection ran without network-control"
+: >"$DENY"
+"${B[@]}" "${N[@]}" DeactivateConnection o $NMO/Settings/1 2>/dev/null \
+  && fail "DeactivateConnection took a connection path as active connection"
+"${B[@]}" "${N[@]}" DeactivateConnection o $NMO/ActiveConnection/2 2>/dev/null \
+  && fail "DeactivateConnection stopped another user's connection"
+"${B[@]}" "${N[@]}" DeactivateConnection o $NMO/ActiveConnection/1 || fail "DeactivateConnection"
+dbus-send --bus="$DBUS_SYSTEM_BUS_ADDRESS" --print-reply --dest=org.andromeda.System1 /org/andromeda/System1/Network \
+  org.andromeda.System1.Network.DeactivateConnection objpath:$NMO/ActiveConnection/3 \
+  >"$OUT/nm-error" 2>&1 && fail "DeactivateConnection of an inactive connection"
+grep -qx 'Error org.freedesktop.NetworkManager.ConnectionNotActive: not active' "$OUT/nm-error" \
+  || fail "NetworkManager's error did not reach the caller: $(cat "$OUT/nm-error")"
+diff -u - "$OUT/polkit.log" <<'EOF' || fail "polkit checks differ"
+org.freedesktop.NetworkManager.network-control
+org.freedesktop.NetworkManager.network-control
+org.freedesktop.NetworkManager.network-control
+EOF
+diff -u - "$OUT/nm.log" <<EOF || fail "NetworkManager calls differ"
+DeactivateConnection $NMO/ActiveConnection/1
+DeactivateConnection $NMO/ActiveConnection/3
+EOF
+# A pending polkit dialog blocks only its own call: NetworkManager's connectivity still reaches Network, and another
+# client reads it at once.
+echo org.freedesktop.NetworkManager.network-control >"$HOLD"
+"${B[@]}" --timeout=30 "${N[@]}" DeactivateConnection o $NMO/ActiveConnection/1 >"$OUT/held.out" 2>&1 &
+HELD=$!
+PIDS+=("$HELD")
+until_has 50 4 grep -c '' "$OUT/polkit.log"
+"${B[@]}" call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager dsk.test.NM SetConnectivity u 4
+until_has 30 's "full"' timeout 1 "${B[@]}" get-property org.andromeda.System1 /org/andromeda/System1/Network \
+  org.andromeda.System1.Network Connectivity
+: >"$HOLD"
+wait "$HELD" || fail "the held DeactivateConnection: $(cat "$OUT/held.out")"
 echo PASS

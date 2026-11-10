@@ -385,14 +385,14 @@ NmHotspot::~NmHotspot() {
   }
   // The shell exits: nothing waits for the replies. System1 also removes the interface when this bus name leaves.
   try {
+    auto system = system1(m_bus);
     if (!m_activePath.empty()) {
-      m_nm->callMethod("DeactivateConnection")
-          .onInterface(kNmInterface)
+      system->callMethod("DeactivateConnection")
+          .onInterface(kSystem1NetworkInterface)
           .withArguments(sdbus::ObjectPath{m_activePath})
           .dontExpectReply();
     }
-    system1(m_bus)
-        ->callMethod("RemoveApInterface")
+    system->callMethod("RemoveApInterface")
         .onInterface(kSystem1NetworkInterface)
         .withArguments(m_ap.interface)
         .dontExpectReply();
@@ -717,10 +717,11 @@ void NmHotspot::startDeactivate() {
       return;
     }
     try {
-      m_nm->callMethodAsync("DeactivateConnection")
-          .onInterface(kNmInterface)
+      auto system = system1(m_bus);
+      system->callMethodAsync("DeactivateConnection")
+          .onInterface(kSystem1NetworkInterface)
           .withArguments(sdbus::ObjectPath{active})
-          .uponReplyInvoke([settle](std::optional<sdbus::Error> reply) {
+          .uponReplyInvoke([system, settle](std::optional<sdbus::Error> reply) {
             settle(reply.has_value() ? std::optional<std::string>(reply->what()) : std::nullopt);
           });
     } catch (const sdbus::Error& e) {
@@ -853,9 +854,9 @@ void NmHotspot::startActivateOnInterface() {
       if (profile.empty()) {
         // Saves the new profile so its key stays the same next time.
         Settings settings = newProfile();
-        auto store = proxy(m_bus, kSettingsPath);
+        auto store = system1(m_bus);
         store->callMethodAsync("AddConnection")
-            .onInterface(kSettingsInterface)
+            .onInterface(kSystem1NetworkInterface)
             .withArguments(settings)
             .uponReplyInvoke([store](std::optional<sdbus::Error> reply, sdbus::ObjectPath /*profile*/) {
               if (reply.has_value()) {

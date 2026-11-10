@@ -16,6 +16,7 @@ mod manager;
 mod memory;
 mod network;
 mod nm;
+mod nm_control;
 mod plugs;
 mod policy;
 mod polkit;

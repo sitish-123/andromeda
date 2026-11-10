@@ -242,7 +242,7 @@ where
 }
 
 /// The caller's uid and pid.
-async fn caller(conn: &Connection, header: &Header<'_>) -> Result<(u32, u32)> {
+pub(crate) async fn caller(conn: &Connection, header: &Header<'_>) -> Result<(u32, u32)> {
     let sender = header.sender().ok_or_else(|| Error::Failed("call without sender".into()))?;
     let dbus = zbus::fdo::DBusProxy::new(conn).await?;
     let uid = dbus.get_connection_unix_user(BusName::Unique(sender.clone())).await?;

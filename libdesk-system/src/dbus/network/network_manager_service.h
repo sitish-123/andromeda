@@ -138,12 +138,14 @@ private:
   [[nodiscard]] NetworkChangeOrigin consumeWirelessEnabledChangeOrigin(bool enabled);
   void beginScan(std::int64_t lastScanBaseline);
   void endScan();
+  sdbus::IProxy& system1Network();
 
   struct PendingAccessPointActivation;
 
   SystemBus& m_bus;
   std::unique_ptr<sdbus::IProxy> m_busDaemon; // NameOwnerChanged watch for NetworkManager.
   std::unique_ptr<sdbus::IProxy> m_nm;
+  std::unique_ptr<sdbus::IProxy> m_system1Network; // NetworkManager writes go through org.andromeda.System1.
   std::unique_ptr<sdbus::IProxy> m_activeConnection;
   std::unique_ptr<sdbus::IProxy> m_activeDevice;
   std::unique_ptr<sdbus::IProxy> m_activeAp;

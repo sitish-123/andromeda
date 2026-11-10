@@ -12,7 +12,7 @@ use zbus::object_server::InterfaceRef;
 use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, interface};
 
 use crate::bus::{self, Remote};
-use crate::{manager, polkit, wifi};
+use crate::{manager, nm_control, polkit, wifi};
 
 pub const PATH: &str = "/org/andromeda/System1/Network";
 pub const AREA: &str = "network";
@@ -43,7 +43,9 @@ const NM_DEVICE_WAIT: Duration = Duration::from_secs(10);
 type Creators = Arc<Mutex<HashMap<String, String>>>;
 
 pub struct Network {
-    data: NetworkData,
+    /// Behind a std mutex, never held across an await: the follow task writes it with only a read lock on the
+    /// interface, so it never queues behind a method that waits for a polkit dialog.
+    data: Mutex<NetworkData>,
     creators: Creators,
     records: Arc<wifi::Records>,
 }
@@ -51,16 +53,12 @@ pub struct Network {
 impl Network {
     /// `records`: the file in the `StateDirectory` that lists the access-point interfaces this service made.
     pub fn new(records: PathBuf) -> Self {
-        Self {
-            data: NetworkData::default(),
-            creators: Creators::default(),
-            records: Arc::new(wifi::Records::new(records)),
-        }
+        Self { data: Mutex::default(), creators: Creators::default(), records: Arc::new(wifi::Records::new(records)) }
     }
 }
 
-fn lock(creators: &Creators) -> MutexGuard<'_, HashMap<String, String>> {
-    creators.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Removes access-point interface `ap` when `creator` leaves the bus and still owns it (a shell crash or logout).
@@ -276,27 +274,100 @@ impl Network {
         Ok(())
     }
 
+    /// NetworkManager's `Settings.AddConnection`.
+    async fn add_connection(
+        &self,
+        settings: nm_control::Settings,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<OwnedObjectPath, nm_control::NmError> {
+        nm_control::add(conn, &header, settings).await
+    }
+
+    /// NetworkManager's `Settings.Connection.Update2` on `connection`.
+    async fn update_connection(
+        &self,
+        connection: OwnedObjectPath,
+        settings: nm_control::Settings,
+        flags: u32,
+        args: nm_control::Options,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<nm_control::Options, nm_control::NmError> {
+        nm_control::update(conn, &header, connection, settings, flags, args).await
+    }
+
+    /// NetworkManager's `Settings.Connection.Delete` on `connection`.
+    async fn delete_connection(
+        &self,
+        connection: OwnedObjectPath,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<(), nm_control::NmError> {
+        nm_control::delete(conn, &header, connection).await
+    }
+
+    async fn deactivate_connection(
+        &self,
+        active_connection: OwnedObjectPath,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<(), nm_control::NmError> {
+        nm_control::deactivate(conn, &header, active_connection).await
+    }
+
+    /// NetworkManager's `Device.Disconnect` on `device`.
+    async fn disconnect_device(
+        &self,
+        device: OwnedObjectPath,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<(), nm_control::NmError> {
+        nm_control::disconnect(conn, &header, device).await
+    }
+
+    /// Sets NetworkManager's `WirelessEnabled`.
+    async fn set_wireless_enabled(
+        &self,
+        enabled: bool,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<(), nm_control::NmError> {
+        nm_control::set_wireless_enabled(conn, &header, enabled).await
+    }
+
+    /// NetworkManager's `Device.Wireless.RequestScan` on `device`.
+    async fn request_scan(
+        &self,
+        device: OwnedObjectPath,
+        options: nm_control::Options,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> std::result::Result<(), nm_control::NmError> {
+        nm_control::request_scan(conn, &header, device, options).await
+    }
+
     /// unknown, none, portal, limited or full.
     #[zbus(property)]
     fn connectivity(&self) -> String {
-        self.data.connectivity.clone()
+        lock(&self.data).connectivity.clone()
     }
     /// The primary connection is metered (set by the user or guessed by NetworkManager).
     #[zbus(property)]
     fn metered(&self) -> bool {
-        self.data.metered
+        lock(&self.data).metered
     }
     /// A VPN or WireGuard connection is active.
     #[zbus(property)]
     fn vpn(&self) -> bool {
-        self.data.vpn
+        lock(&self.data).vpn
     }
 }
 
 async fn update(conn: &Connection, data: NetworkData) -> zbus::Result<()> {
     let iface: InterfaceRef<Network> = conn.object_server().interface(PATH).await?;
-    let old = std::mem::replace(&mut iface.get_mut().await.data, data.clone());
     let network = iface.get().await;
+    let old = std::mem::replace(&mut *lock(&network.data), data.clone());
     let e = iface.signal_emitter();
     if old.connectivity != data.connectivity {
         network.connectivity_changed(e).await?;

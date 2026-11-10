@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use zbus::Connection;
 use zbus::fdo::{Error, Result};
 use zbus::message::Header;
+use zbus::names::BusName;
 use zbus_polkit::policykit1::{AuthorityProxy, AuthorizationResult, CheckAuthorizationFlags, Subject};
 
 /// What polkit answers for a caller without asking it: logind's `Can*` words.
@@ -20,6 +21,19 @@ pub enum Auth {
 pub fn test_bus() -> bool {
     std::env::var_os("DBUS_SYSTEM_BUS_ADDRESS").is_some()
         && std::env::var("ANDROMEDA_SYSTEM_TEST").as_deref() == Ok("1")
+}
+
+/// A test bus skips the check unless a mock authority owns polkit's name there (`system/tests/mock_polkit.py`).
+async fn skip(conn: &Connection) -> bool {
+    if !test_bus() {
+        return false;
+    }
+    let (Ok(dbus), Ok(name)) =
+        (zbus::fdo::DBusProxy::new(conn).await, BusName::from_static_str("org.freedesktop.PolicyKit1"))
+    else {
+        return true;
+    };
+    !dbus.name_has_owner(name).await.unwrap_or(false)
 }
 
 async fn authorize(
@@ -40,7 +54,7 @@ pub async fn check(conn: &Connection, header: &Header<'_>, action: &str) -> Resu
 
 /// Like `check`; the auth dialog shows only when `interactive` is set.
 pub async fn check_with(conn: &Connection, header: &Header<'_>, action: &str, interactive: bool) -> Result<()> {
-    if test_bus() {
+    if skip(conn).await {
         return Ok(());
     }
     let flags =
@@ -51,7 +65,7 @@ pub async fn check_with(conn: &Connection, header: &Header<'_>, action: &str, in
 
 /// Whether the sender has `action` now, could get it with a password, or cannot; never shows a dialog.
 pub async fn test(conn: &Connection, header: &Header<'_>, action: &str) -> Result<Auth> {
-    if test_bus() {
+    if skip(conn).await {
         return Ok(Auth::Yes);
     }
     let result = authorize(conn, header, action, CheckAuthorizationFlags::empty()).await?;

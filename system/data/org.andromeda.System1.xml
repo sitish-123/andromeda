@@ -164,6 +164,33 @@
     <method name="RemoveApInterface">
       <arg name="ap" type="s" direction="in" />
     </method>
+    <method name="AddConnection">
+      <arg name="settings" type="a{sa{sv}}" direction="in" />
+      <arg type="o" direction="out" />
+    </method>
+    <method name="UpdateConnection">
+      <arg name="connection" type="o" direction="in" />
+      <arg name="settings" type="a{sa{sv}}" direction="in" />
+      <arg name="flags" type="u" direction="in" />
+      <arg name="args" type="a{sv}" direction="in" />
+      <arg type="a{sv}" direction="out" />
+    </method>
+    <method name="DeleteConnection">
+      <arg name="connection" type="o" direction="in" />
+    </method>
+    <method name="DeactivateConnection">
+      <arg name="active_connection" type="o" direction="in" />
+    </method>
+    <method name="DisconnectDevice">
+      <arg name="device" type="o" direction="in" />
+    </method>
+    <method name="SetWirelessEnabled">
+      <arg name="enabled" type="b" direction="in" />
+    </method>
+    <method name="RequestScan">
+      <arg name="device" type="o" direction="in" />
+      <arg name="options" type="a{sv}" direction="in" />
+    </method>
     <property name="Connectivity" type="s" access="read" />
     <property name="Metered" type="b" access="read" />
     <property name="Vpn" type="b" access="read" />
