@@ -7,10 +7,11 @@
 
 namespace {
 
-  enum class Call : std::uint8_t { Activate, Deactivate };
+  enum class Call : std::uint8_t { Activate, Deactivate, Create, Remove };
 
   enum class Step : std::uint8_t {
     RequestOn,
+    RequestOnBeside,
     RequestOff,
     ReplyOk,
     ReplyFailed,
@@ -19,6 +20,13 @@ namespace {
     ExternalToggle,
     LateFailure,
     NmActivated,
+    DeviceAppears,
+    TimerFires,
+    PlanArrives,
+    // The Wi-Fi client roams to another channel.
+    Roam,
+    // A hotspot on `<client>ap` that an earlier shell or System1 run started comes up in the world.
+    Leftover,
   };
 
   struct Query {
@@ -28,30 +36,81 @@ namespace {
 
   bool pending(HotspotState state) { return state == HotspotState::Activating || state == HotspotState::Deactivating; }
 
-  // The state a query result must leave when it counts.
-  HotspotState expected(HotspotState prior, HotspotObservation seen) {
+  // The state a query result must leave when it counts. `owned`: the hotspot runs on an interface the machine made,
+  // so a hotspot that is gone first removes it.
+  HotspotState expected(HotspotState prior, HotspotObservation seen, bool owned) {
+    const HotspotState gone = owned ? HotspotState::Deactivating : HotspotState::Off;
     if (prior == HotspotState::Activating) {
-      return seen == HotspotObservation::On ? HotspotState::On
-             : seen == HotspotObservation::Off ? HotspotState::Off
+      return seen == HotspotObservation::On || seen == HotspotObservation::OnBesideClient ? HotspotState::On
+             : seen == HotspotObservation::Off ? gone
                                                : HotspotState::Activating;
+    }
+    if (prior == HotspotState::On) {
+      return seen == HotspotObservation::Off ? gone : HotspotState::On;
     }
     return seen == HotspotObservation::Off ? HotspotState::Off : HotspotState::On;
   }
 
-  // Random requests, replies, overlapping queries that finish out of order, late failures and external toggles,
-  // against a model of NetworkManager and of the one D-Bus call in flight.
+  // Random requests, replies, overlapping queries that finish out of order, late failures, external toggles,
+  // access-point interfaces that fail, never appear in NetworkManager (timer) or appear, roams that restart the
+  // hotspot, leftover hotspots that the machine adopts, and requests before the plan is known, against a model of
+  // NetworkManager, System1 and the one call in flight.
   void runSequence(std::uint32_t seed) {
     std::mt19937 random(seed);
-    std::uniform_int_distribution<int> pick(0, 8);
+    std::uniform_int_distribution<int> pick(0, 14);
     HotspotMachine machine;
     HotspotObservation world = HotspotObservation::Off;
     std::optional<Call> inFlight;
     bool starting = false;
+    bool awaitingDevice = false;
+    bool planKnown = false;
+    // A roam's Deactivate is in flight; its success starts the activation on the new channel.
+    bool restarting = false;
+    // An interface exists whose removal the machine has not started yet.
+    bool owned = false;
+    int created = 0;
+    int removed = 0;
     std::optional<bool> lastTarget;
     std::vector<Query> queries;
     std::uint64_t lastIssued = 0;
     std::uint64_t fence = 0;
 
+    // Starts the work the machine asked for, the way NmHotspot does.
+    const auto drain = [&] {
+      const std::optional<HotspotWork> work = machine.takeWork();
+      TEST_CHECK(!machine.takeWork().has_value());
+      if (!work.has_value()) {
+        return;
+      }
+      TEST_CHECK(!inFlight.has_value() && !awaitingDevice);
+      switch (*work) {
+      case HotspotWork::Activate:
+        TEST_CHECK(!owned);
+        inFlight = Call::Activate;
+        break;
+      case HotspotWork::CreateInterface:
+        TEST_CHECK(!owned);
+        inFlight = Call::Create;
+        break;
+      case HotspotWork::AwaitDevice:
+        TEST_CHECK(owned);
+        awaitingDevice = true;
+        break;
+      case HotspotWork::ActivateOnInterface:
+        TEST_CHECK(owned);
+        inFlight = Call::Activate;
+        break;
+      case HotspotWork::Deactivate:
+        inFlight = Call::Deactivate;
+        break;
+      case HotspotWork::RemoveInterface:
+        TEST_CHECK(owned);
+        owned = false;
+        ++removed;
+        inFlight = Call::Remove;
+        break;
+      }
+    };
     const auto issueQuery = [&] {
       lastIssued = machine.beginQuery();
       queries.push_back({lastIssued, world});
@@ -61,13 +120,20 @@ namespace {
       queries.erase(queries.begin() + static_cast<std::ptrdiff_t>(index));
       const HotspotState prior = machine.state();
       const std::string priorError = machine.error();
+      const bool priorOwned = owned;
       machine.observe(query.token, query.seen, "connection gone");
-      if (query.token != lastIssued || query.token <= fence || inFlight.has_value()) {
+      if (query.token != lastIssued || query.token <= fence || inFlight.has_value() || awaitingDevice) {
         TEST_CHECK(machine.state() == prior && machine.error() == priorError);
+        TEST_CHECK(!machine.takeWork().has_value());
         return;
       }
-      TEST_CHECK(machine.state() == expected(prior, query.seen));
-      if (starting && machine.state() == HotspotState::Off) {
+      drain();
+      TEST_CHECK(machine.state() == expected(prior, query.seen, priorOwned));
+      if (!priorOwned && query.seen == HotspotObservation::OnBesideClient && prior != HotspotState::Activating) {
+        owned = true;
+        ++created;
+      }
+      if (starting && query.seen == HotspotObservation::Off) {
         TEST_CHECK(!machine.error().empty());
       } else if (machine.state() != prior) {
         TEST_CHECK(machine.error().empty());
@@ -79,21 +145,57 @@ namespace {
       }
     };
     const auto reply = [&](bool ok) {
-      const bool accepted = machine.apply(
-          inFlight == Call::Activate ? (ok ? HotspotEvent::ActivateOk : HotspotEvent::ActivateFailed)
-                                     : (ok ? HotspotEvent::DeactivateOk : HotspotEvent::DeactivateFailed),
-          "denied");
-      TEST_CHECK(accepted);
+      const Call call = *inFlight;
+      const std::string priorError = machine.error();
+      HotspotEvent event{};
+      switch (call) {
+      case Call::Activate:
+        event = ok ? HotspotEvent::ActivateOk : HotspotEvent::ActivateFailed;
+        break;
+      case Call::Deactivate:
+        event = ok ? HotspotEvent::DeactivateOk : HotspotEvent::DeactivateFailed;
+        break;
+      case Call::Create:
+        event = ok ? HotspotEvent::InterfaceCreated : HotspotEvent::InterfaceFailed;
+        break;
+      case Call::Remove:
+        event = ok ? HotspotEvent::InterfaceRemoved : HotspotEvent::RemoveFailed;
+        break;
+      }
+      TEST_CHECK(machine.apply(event, "denied"));
       fence = lastIssued;
-      if (ok) {
-        world = inFlight == Call::Activate ? HotspotObservation::Activating : HotspotObservation::Off;
-        starting = inFlight == Call::Activate;
+      inFlight.reset();
+      if (call == Call::Create && ok) {
+        owned = true;
+        ++created;
+      }
+      if (ok && call == Call::Activate) {
+        world = HotspotObservation::Activating;
+        starting = true;
+      } else if (ok && call == Call::Deactivate) {
+        world = HotspotObservation::Off;
+      }
+      const bool wasRestarting = std::exchange(restarting, false);
+      const bool removing =
+          owned && ((call == Call::Activate && !ok) || (call == Call::Deactivate && ok != wasRestarting));
+      drain();
+      if (wasRestarting && ok) {
+        TEST_CHECK(inFlight == Call::Activate);
+      }
+      if (call == Call::Remove) {
+        TEST_CHECK(machine.state() == HotspotState::Off);
+        TEST_CHECK(ok ? machine.error() == priorError : !machine.error().empty());
+      } else if (ok) {
         TEST_CHECK(machine.error().empty());
       } else {
         TEST_CHECK(!machine.error().empty());
       }
-      inFlight.reset();
-      issueQuery();
+      if (removing) {
+        TEST_CHECK(inFlight == Call::Remove);
+      }
+      if (call != Call::Create) {
+        issueQuery();
+      }
     };
 
     for (int step = 0; step < 300; ++step) {
@@ -101,15 +203,23 @@ namespace {
       const HotspotState prior = machine.state();
       switch (action) {
       case Step::RequestOn:
+      case Step::RequestOnBeside:
       case Step::RequestOff: {
-        const bool on = action == Step::RequestOn;
-        const bool accepted = machine.apply(on ? HotspotEvent::RequestOn : HotspotEvent::RequestOff);
-        TEST_CHECK(accepted == (prior == (on ? HotspotState::Off : HotspotState::On)));
+        const bool on = action != Step::RequestOff;
+        const HotspotEvent event = action == Step::RequestOn        ? HotspotEvent::RequestOn
+                                   : action == Step::RequestOnBeside ? HotspotEvent::RequestOnBesideClient
+                                                                     : HotspotEvent::RequestOff;
+        const bool accepted = machine.apply(event);
+        TEST_CHECK(accepted == (prior == (on ? HotspotState::Off : HotspotState::On) && (!on || planKnown)));
         if (accepted) {
           TEST_CHECK(machine.error().empty());
-          inFlight = on ? Call::Activate : Call::Deactivate;
           lastTarget = on;
           fence = lastIssued;
+          drain();
+          TEST_CHECK(inFlight
+                     == (action == Step::RequestOn         ? Call::Activate
+                         : action == Step::RequestOnBeside ? Call::Create
+                                                           : Call::Deactivate));
         }
         break;
       }
@@ -120,6 +230,8 @@ namespace {
         } else {
           TEST_CHECK(!machine.apply(HotspotEvent::ActivateOk) && !machine.apply(HotspotEvent::DeactivateOk));
           TEST_CHECK(!machine.apply(HotspotEvent::ActivateFailed) && !machine.apply(HotspotEvent::DeactivateFailed));
+          TEST_CHECK(!machine.apply(HotspotEvent::InterfaceCreated) && !machine.apply(HotspotEvent::InterfaceFailed));
+          TEST_CHECK(!machine.apply(HotspotEvent::InterfaceRemoved) && !machine.apply(HotspotEvent::RemoveFailed));
         }
         break;
       case Step::StartQuery:
@@ -146,9 +258,49 @@ namespace {
           issueQuery();
         }
         break;
+      case Step::PlanArrives:
+        TEST_CHECK(machine.apply(HotspotEvent::PlanKnown) == !planKnown);
+        TEST_CHECK(machine.planKnown());
+        planKnown = true;
+        break;
+      case Step::Roam: {
+        const bool accepted = machine.apply(HotspotEvent::ClientChannelChanged);
+        TEST_CHECK(accepted == (prior == HotspotState::On && owned));
+        if (accepted) {
+          restarting = true;
+          fence = lastIssued;
+          drain();
+          TEST_CHECK(inFlight == Call::Deactivate && machine.state() == HotspotState::Activating);
+        }
+        break;
       }
-      TEST_CHECK(pending(machine.state()) == (inFlight.has_value() || starting));
+      case Step::Leftover:
+        if (prior == HotspotState::Off && world == HotspotObservation::Off && !inFlight.has_value()) {
+          world = HotspotObservation::OnBesideClient;
+          issueQuery();
+        }
+        break;
+      case Step::DeviceAppears:
+      case Step::TimerFires: {
+        const bool timeout = action == Step::TimerFires;
+        const bool accepted =
+            machine.apply(timeout ? HotspotEvent::DeviceTimeout : HotspotEvent::DeviceReady, "no device");
+        TEST_CHECK(accepted == awaitingDevice);
+        if (accepted) {
+          awaitingDevice = false;
+          fence = lastIssued;
+          drain();
+          TEST_CHECK(inFlight == (timeout ? Call::Remove : Call::Activate));
+          TEST_CHECK(timeout != machine.error().empty());
+        }
+        break;
+      }
+      }
+      TEST_CHECK(!machine.takeWork().has_value());
+      TEST_CHECK(pending(machine.state()) == (inFlight.has_value() || starting || awaitingDevice));
       TEST_CHECK(!lastTarget.has_value() || machine.requestedOn() == *lastTarget);
+      TEST_CHECK(removed <= created);
+      TEST_CHECK(machine.state() != HotspotState::Off || (removed == created && !owned));
     }
 
     if (inFlight.has_value()) {
@@ -160,13 +312,50 @@ namespace {
       finishQuery(random() % (queries.size() - 1));
     }
     const HotspotState prior = machine.state();
+    const bool priorOwned = owned;
+    const bool counts = !inFlight.has_value() && !awaitingDevice;
     finishQuery(0);
-    TEST_CHECK(machine.state() == expected(prior, world));
+    TEST_CHECK(!counts || machine.state() == expected(prior, world, priorOwned));
+
+    // Turning everything off removes every interface the machine created.
+    for (int round = 0; round < 20; ++round) {
+      if (awaitingDevice) {
+        TEST_CHECK(machine.apply(HotspotEvent::DeviceTimeout, "no device"));
+        awaitingDevice = false;
+        fence = lastIssued;
+        drain();
+      } else if (inFlight.has_value()) {
+        reply(true);
+      } else if (starting) {
+        world = HotspotObservation::On;
+        issueQuery();
+        finishQuery(queries.size() - 1);
+      } else if (machine.state() == HotspotState::On) {
+        TEST_CHECK(machine.apply(HotspotEvent::RequestOff));
+        fence = lastIssued;
+        drain();
+      } else {
+        break;
+      }
+    }
+    TEST_CHECK(machine.state() == HotspotState::Off && removed == created && !owned);
   }
 
 } // namespace
 
 int main() {
+  const auto channelIs = [](std::uint32_t mhz, std::string_view band, std::uint32_t channel) {
+    const auto got = hotspotChannelOf(mhz);
+    return got.has_value() && got->band == band && got->channel == channel;
+  };
+  TEST_CHECK(channelIs(2412, "bg", 1));
+  TEST_CHECK(channelIs(2437, "bg", 6));
+  TEST_CHECK(channelIs(2484, "bg", 14));
+  TEST_CHECK(channelIs(5180, "a", 36));
+  TEST_CHECK(channelIs(5745, "a", 149));
+  TEST_CHECK(!hotspotChannelOf(5955).has_value());
+  TEST_CHECK(!hotspotChannelOf(0).has_value());
+
   for (std::uint32_t seed = 1; seed <= 500; ++seed) {
     runSequence(seed);
   }

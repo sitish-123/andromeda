@@ -4,11 +4,13 @@
 #include "dbus/system_bus.h"
 #include "i18n/i18n.h"
 
+#include <chrono>
 #include <map>
 #include <optional>
 #include <random>
 #include <sdbus-c++/sdbus-c++.h>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -27,6 +29,14 @@ namespace {
   constexpr std::uint32_t kActiveStateActivating = 1;
   constexpr std::uint32_t kActiveStateActivated = 2;
   constexpr std::uint32_t kActiveStateDeactivated = 4;
+  constexpr auto kDeviceInterface = "org.freedesktop.NetworkManager.Device";
+  constexpr auto kAccessPointInterface = "org.freedesktop.NetworkManager.AccessPoint";
+  constexpr std::uint32_t kWifiModeInfrastructure = 2;
+  constexpr std::uint32_t kDeviceStateDisconnected = 30;
+  constexpr auto kDeviceWait = std::chrono::seconds(10);
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  const sdbus::ObjectPath kSystem1NetworkPath{"/org/andromeda/System1/Network"};
+  constexpr auto kSystem1NetworkInterface = "org.andromeda.System1.Network";
 
   using Settings = std::map<std::string, std::map<std::string, sdbus::Variant>>;
   using Properties = std::map<sdbus::PropertyName, sdbus::Variant>;
@@ -154,8 +164,13 @@ namespace {
     }
   }
 
-  // An error message, or the found active connection and its NM state (path empty when none matched).
-  using ActiveFound = std::function<void(std::optional<std::string> error, std::string path, std::uint32_t state)>;
+  // An error message, or the found active connection, its NM state and its first device (path empty when none
+  // matched).
+  using ActiveFound = std::function<void(std::optional<std::string> error, std::string path, std::uint32_t state,
+                                         std::string device)>;
+
+  // The name System1 gives an access-point interface beside a Wi-Fi client: `<client>ap`.
+  bool isBesideClientName(std::string_view interface) { return interface.size() > 2 && interface.ends_with("ap"); }
 
   // The active connection of an access-point profile that is activating or up. Checks only active Wi-Fi
   // connections: listing every saved profile costs ~30 D-Bus calls.
@@ -167,26 +182,30 @@ namespace {
             std::vector<sdbus::ObjectPath> paths;
             try {
               if (error.has_value()) {
-                done(error->what(), {}, 0);
+                done(error->what(), {}, 0, {});
                 return;
               }
               paths = value.get<std::vector<sdbus::ObjectPath>>();
             } catch (const sdbus::Error& e) {
-              done(e.what(), {}, 0);
+              done(e.what(), {}, 0, {});
               return;
             }
             auto states = std::make_shared<std::map<std::string, std::uint32_t>>();
-            auto match = FirstMatch::start(std::move(paths), [states, done](std::optional<std::string> e, std::string path) {
+            auto devices = std::make_shared<std::map<std::string, std::string>>();
+            auto match = FirstMatch::start(std::move(paths), [states, devices, done](std::optional<std::string> e,
+                                                                                     std::string path) {
               const auto state = states->find(path);
-              done(std::move(e), path, state != states->end() ? state->second : 0);
+              const auto device = devices->find(path);
+              done(std::move(e), path, state != states->end() ? state->second : 0,
+                   device != devices->end() ? device->second : std::string());
             });
             for (std::size_t i = 0; i < match->paths.size(); ++i) {
               try {
                 auto active = proxy(bus, match->paths[i]);
                 active->getAllPropertiesAsync()
                     .onInterface(kActiveInterface)
-                    .uponReplyInvoke([active, &bus, match, states, i](std::optional<sdbus::Error> e,
-                                                                      const Properties& props) {
+                    .uponReplyInvoke([active, &bus, match, states, devices, i](std::optional<sdbus::Error> e,
+                                                                               const Properties& props) {
                       std::string profile;
                       try {
                         const auto type = props.find(sdbus::PropertyName{"Type"});
@@ -198,6 +217,13 @@ namespace {
                                 || state->second.get<std::uint32_t>() == kActiveStateActivated)) {
                           profile = connection->second.get<sdbus::ObjectPath>();
                           (*states)[match->paths[i]] = state->second.get<std::uint32_t>();
+                          const auto onDevices = props.find(sdbus::PropertyName{"Devices"});
+                          if (onDevices != props.end()) {
+                            const auto list = onDevices->second.get<std::vector<sdbus::ObjectPath>>();
+                            if (!list.empty()) {
+                              (*devices)[match->paths[i]] = list.front();
+                            }
+                          }
                         }
                       } catch (const sdbus::Error&) {
                       }
@@ -213,7 +239,7 @@ namespace {
             }
           });
     } catch (const sdbus::Error& e) {
-      done(e.what(), {}, 0);
+      done(e.what(), {}, 0, {});
     }
   }
 
@@ -259,6 +285,77 @@ namespace {
     return settings;
   }
 
+  Proxy system1(SystemBus& bus) {
+    return Proxy(sdbus::createProxy(bus.connection(), kSystem1BusName, kSystem1NetworkPath));
+  }
+
+  // Reads one property of a NetworkManager object; nullopt on any error.
+  template <typename T>
+  void readProperty(SystemBus& bus, const std::string& path, const char* interface, const char* name,
+                    std::function<void(std::optional<T>)> done) {
+    try {
+      auto object = proxy(bus, path);
+      object->getPropertyAsync(name).onInterface(interface).uponReplyInvoke(
+          [object, done](std::optional<sdbus::Error> error, const sdbus::Variant& value) {
+            std::optional<T> result;
+            try {
+              if (!error.has_value()) {
+                result = value.get<T>();
+              }
+            } catch (const sdbus::Error&) {
+            }
+            done(std::move(result));
+          });
+    } catch (const sdbus::Error&) {
+      done(std::nullopt);
+    }
+  }
+
+  // The first Wi-Fi device in infrastructure mode with an access point, and that access point; empty when none.
+  void findClient(SystemBus& bus, sdbus::IProxy& nm, std::function<void(std::string device, std::string ap)> done) {
+    try {
+      nm.callMethodAsync("GetDevices")
+          .onInterface(kNmInterface)
+          .uponReplyInvoke([&bus, done](std::optional<sdbus::Error> error, std::vector<sdbus::ObjectPath> paths) {
+            if (error.has_value()) {
+              done({}, {});
+              return;
+            }
+            auto aps = std::make_shared<std::map<std::string, std::string>>();
+            auto match = FirstMatch::start(std::move(paths), [aps, done](std::optional<std::string>, std::string path) {
+              const auto ap = aps->find(path);
+              done(path, ap != aps->end() ? ap->second : std::string());
+            });
+            for (std::size_t i = 0; i < match->paths.size(); ++i) {
+              try {
+                auto device = proxy(bus, match->paths[i]);
+                device->getAllPropertiesAsync()
+                    .onInterface(kWirelessInterface)
+                    .uponReplyInvoke([device, match, aps, i](std::optional<sdbus::Error> e, const Properties& props) {
+                      bool client = false;
+                      try {
+                        const auto mode = props.find(sdbus::PropertyName{"Mode"});
+                        const auto ap = props.find(sdbus::PropertyName{"ActiveAccessPoint"});
+                        if (!e.has_value() && mode != props.end() && ap != props.end()
+                            && mode->second.get<std::uint32_t>() == kWifiModeInfrastructure) {
+                          const std::string apPath = ap->second.get<sdbus::ObjectPath>();
+                          client = apPath != "/";
+                          (*aps)[match->paths[i]] = apPath;
+                        }
+                      } catch (const sdbus::Error&) {
+                      }
+                      match->settle(i, client);
+                    });
+              } catch (const sdbus::Error&) {
+                match->settle(i, false);
+              }
+            }
+          });
+    } catch (const sdbus::Error&) {
+      done({}, {});
+    }
+  }
+
 } // namespace
 
 NmHotspot::NmHotspot(SystemBus& bus) : m_bus(bus), m_nm(sdbus::createProxy(bus.connection(), kNmBusName, kNmPath)) {
@@ -270,12 +367,39 @@ NmHotspot::NmHotspot(SystemBus& bus) : m_bus(bus), m_nm(sdbus::createProxy(bus.c
             ) {
         if (interfaceName == kNmInterface && changed.contains("ActiveConnections")) {
           startQuery();
+          startPlan();
         }
       });
+  m_nm->uponSignal("DeviceAdded").onInterface(kNmInterface).call([this](const sdbus::ObjectPath& /*device*/) {
+    if (!m_ap.interface.empty() && m_ap.device.empty()) {
+      checkApDevice();
+    }
+  });
   startQuery();
+  startPlan();
 }
 
-NmHotspot::~NmHotspot() = default;
+NmHotspot::~NmHotspot() {
+  if (m_ap.interface.empty()) {
+    return;
+  }
+  // The shell exits: nothing waits for the replies. System1 also removes the interface when this bus name leaves.
+  try {
+    if (!m_activePath.empty()) {
+      m_nm->callMethod("DeactivateConnection")
+          .onInterface(kNmInterface)
+          .withArguments(sdbus::ObjectPath{m_activePath})
+          .dontExpectReply();
+    }
+    system1(m_bus)
+        ->callMethod("RemoveApInterface")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(m_ap.interface)
+        .dontExpectReply();
+  } catch (const sdbus::Error& e) {
+    kLog.warn("hotspot interface {} left behind: {}", m_ap.interface, e.what());
+  }
+}
 
 void NmHotspot::notify(bool changed) {
   if (changed && m_onChange) {
@@ -283,23 +407,168 @@ void NmHotspot::notify(bool changed) {
   }
 }
 
+void NmHotspot::advance(bool changed) {
+  notify(changed);
+  if (const auto work = m_machine.takeWork()) {
+    run(*work);
+  }
+}
+
+void NmHotspot::run(HotspotWork work) {
+  switch (work) {
+  case HotspotWork::Activate:
+    startActivate();
+    return;
+  case HotspotWork::CreateInterface:
+    startCreateInterface();
+    return;
+  case HotspotWork::AwaitDevice:
+    startAwaitDevice();
+    return;
+  case HotspotWork::ActivateOnInterface:
+    startActivateOnInterface();
+    return;
+  case HotspotWork::Deactivate:
+    startDeactivate();
+    return;
+  case HotspotWork::RemoveInterface:
+    startRemoveInterface();
+    return;
+  }
+}
+
 bool NmHotspot::setEnabled(bool enabled) {
-  if (!m_machine.apply(enabled ? HotspotEvent::RequestOn : HotspotEvent::RequestOff)) {
+  const bool beside = enabled && m_plan.kind == ClientPlan::Kind::BesideClient;
+  const HotspotEvent event = !enabled ? HotspotEvent::RequestOff
+                             : beside ? HotspotEvent::RequestOnBesideClient
+                                      : HotspotEvent::RequestOn;
+  if (!m_machine.apply(event)) {
     return false;
   }
-  notify(true);
-  if (enabled) {
-    startActivate();
-  } else {
-    startDeactivate();
+  if (beside) {
+    m_ap = ApRun{.client = m_plan.client, .channel = m_plan.channel, .interface = {}, .device = {}};
   }
+  advance(true);
   return true;
+}
+
+void NmHotspot::setPlan(ClientPlan plan) {
+  const bool changed = plan.kind != m_plan.kind;
+  m_plan = std::move(plan);
+  const bool first = m_machine.apply(HotspotEvent::PlanKnown);
+  notify(changed || first);
+  followClientChannel();
+}
+
+void NmHotspot::followClientChannel() {
+  if (m_plan.kind != ClientPlan::Kind::BesideClient || m_ap.channel.channel == 0 || m_ap.client != m_plan.client
+      || (m_ap.channel.band == m_plan.channel.band && m_ap.channel.channel == m_plan.channel.channel)) {
+    return;
+  }
+  // Only a running hotspot restarts; one that is still starting restarts once it runs.
+  if (!m_machine.apply(HotspotEvent::ClientChannelChanged)) {
+    return;
+  }
+  kLog.info("Wi-Fi client {} moved to channel {}: hotspot restarts there", m_plan.client, m_plan.channel.channel);
+  m_ap.channel = m_plan.channel;
+  advance(true);
+}
+
+void NmHotspot::watchClient(const std::string& device, const std::string& ap) {
+  const auto watch = [this](std::unique_ptr<sdbus::IProxy>& slot, const std::string& path, const char* interface,
+                            const char* property) {
+    if (path.empty() || path == "/") {
+      slot.reset();
+      return;
+    }
+    if (slot && slot->getObjectPath() == path) {
+      return;
+    }
+    try {
+      slot = sdbus::createProxy(m_bus.connection(), kNmBusName, sdbus::ObjectPath{path});
+      slot->uponSignal("PropertiesChanged")
+          .onInterface("org.freedesktop.DBus.Properties")
+          .call([this, interface, property](const std::string& interfaceName,
+                                            const std::map<std::string, sdbus::Variant>& changed,
+                                            const std::vector<std::string>& /*invalidated*/) {
+            if (interfaceName == interface && changed.contains(property)) {
+              startPlan();
+            }
+          });
+    } catch (const sdbus::Error& e) {
+      slot.reset();
+      kLog.debug("Wi-Fi client watch failed: {}", e.what());
+    }
+  };
+  watch(m_clientDeviceWatch, device, kWirelessInterface, "ActiveAccessPoint");
+  watch(m_clientApWatch, ap, kAccessPointInterface, "Frequency");
+}
+
+void NmHotspot::startPlan() {
+  const std::weak_ptr<int> alive = m_lifetime;
+  const std::uint64_t token = ++m_planToken;
+  const auto current = [this, alive, token] { return !alive.expired() && token == m_planToken; };
+  const ClientPlan turnsOff{.kind = ClientPlan::Kind::TurnsOffClient, .client = {}, .channel = {}};
+  findClient(m_bus, *m_nm, [this, current, turnsOff](std::string device, std::string ap) {
+    if (!current()) {
+      return;
+    }
+    watchClient(device, ap);
+    if (device.empty()) {
+      setPlan({});
+      return;
+    }
+    readProperty<std::uint32_t>(m_bus, ap, kAccessPointInterface, "Frequency", [this, current, turnsOff, device](
+                                                                                    std::optional<std::uint32_t> mhz) {
+      if (!current()) {
+        return;
+      }
+      const std::optional<HotspotChannel> channel = mhz.has_value() ? hotspotChannelOf(*mhz) : std::nullopt;
+      if (!channel.has_value()) {
+        kLog.warn("Wi-Fi client on {} MHz: no hotspot beside it, the hotspot turns off Wi-Fi", mhz.value_or(0));
+        setPlan(turnsOff);
+        return;
+      }
+      readProperty<std::string>(m_bus, device, kDeviceInterface, "Interface", [this, current, turnsOff, channel](
+                                                                                  std::optional<std::string> client) {
+        if (!current()) {
+          return;
+        }
+        if (!client.has_value()) {
+          setPlan(turnsOff);
+          return;
+        }
+        try {
+          auto system = system1(m_bus);
+          system->callMethodAsync("CanRunApWithClient")
+              .onInterface(kSystem1NetworkInterface)
+              .withArguments(*client)
+              .uponReplyInvoke([this, system, current, turnsOff, client = *client,
+                                channel = *channel](std::optional<sdbus::Error> error, bool can) {
+                if (!current()) {
+                  return;
+                }
+                if (error.has_value()) {
+                  kLog.debug("CanRunApWithClient failed: {}", error->what());
+                }
+                setPlan(!error.has_value() && can
+                            ? ClientPlan{.kind = ClientPlan::Kind::BesideClient, .client = client, .channel = channel}
+                            : turnsOff);
+              });
+        } catch (const sdbus::Error& e) {
+          kLog.debug("CanRunApWithClient failed: {}", e.what());
+          setPlan(turnsOff);
+        }
+      });
+    });
+  });
 }
 
 void NmHotspot::startQuery() {
   const std::weak_ptr<int> alive = m_lifetime;
   const std::uint64_t token = m_machine.beginQuery();
-  findActive(m_bus, *m_nm, [this, alive, token](std::optional<std::string> error, std::string path, std::uint32_t state) {
+  findActive(m_bus, *m_nm, [this, alive, token](std::optional<std::string> error, std::string path, std::uint32_t state,
+                                                 std::string device) {
     if (alive.expired()) {
       return;
     }
@@ -307,16 +576,43 @@ void NmHotspot::startQuery() {
       kLog.debug("hotspot state unavailable: {}", *error);
       return;
     }
-    const HotspotObservation seen = path.empty()                       ? HotspotObservation::Off
-                                    : state == kActiveStateActivated ? HotspotObservation::On
-                                                                     : HotspotObservation::Activating;
-    std::string failure;
-    if (seen == HotspotObservation::Off && m_machine.state() == HotspotState::Activating) {
-      failure = m_failReason.empty() ? i18n::tr("control-center.detail.wifi.hotspot-failed")
-                                     : i18n::tr("control-center.detail.wifi.hotspot-failed-reason", "reason", m_failReason);
-      kLog.warn("hotspot stopped while starting: {}", m_failReason.empty() ? "connection gone" : m_failReason);
+    const auto finish = [this, token, path](HotspotObservation seen, const std::string& interface,
+                                            const std::string& device) {
+      m_activePath = path;
+      std::string failure;
+      if (seen == HotspotObservation::Off && m_machine.state() == HotspotState::Activating) {
+        failure = m_failReason.empty()
+                      ? i18n::tr("control-center.detail.wifi.hotspot-failed")
+                      : i18n::tr("control-center.detail.wifi.hotspot-failed-reason", "reason", m_failReason);
+        kLog.warn("hotspot stopped while starting: {}", m_failReason.empty() ? "connection gone" : m_failReason);
+      }
+      // A plain activation that NM ran on such an interface is not adopted.
+      const bool starting = m_machine.state() == HotspotState::Activating;
+      const bool changed = m_machine.observe(token, seen, failure);
+      if (changed && !starting && seen == HotspotObservation::OnBesideClient && m_ap.interface.empty()) {
+        kLog.info("hotspot on {} adopted; turning it off removes the interface", interface);
+        m_ap = ApRun{
+            .client = interface.substr(0, interface.size() - 2), .channel = {}, .interface = interface, .device = device};
+      }
+      advance(changed);
+      followClientChannel();
+    };
+    if (path.empty() || state != kActiveStateActivated || device.empty()) {
+      finish(path.empty() ? HotspotObservation::Off
+             : state == kActiveStateActivated ? HotspotObservation::On
+                                              : HotspotObservation::Activating,
+             {}, {});
+      return;
     }
-    notify(m_machine.observe(token, seen, failure));
+    readProperty<std::string>(m_bus, device, kDeviceInterface, "Interface",
+                              [alive, finish, device](std::optional<std::string> interface) {
+                                if (alive.expired()) {
+                                  return;
+                                }
+                                const bool beside = interface.has_value() && isBesideClientName(*interface);
+                                finish(beside ? HotspotObservation::OnBesideClient : HotspotObservation::On,
+                                       interface.value_or(""), device);
+                              });
   });
 }
 
@@ -338,21 +634,23 @@ void NmHotspot::watchActive(const std::string& path) {
   }
 }
 
+void NmHotspot::finishActivate(std::optional<std::string> error, const std::string& active) {
+  if (error.has_value()) {
+    kLog.warn("hotspot activation failed: {}", *error);
+  } else {
+    watchActive(active);
+  }
+  advance(m_machine.apply(error.has_value() ? HotspotEvent::ActivateFailed : HotspotEvent::ActivateOk,
+                          error.value_or("")));
+  startQuery();
+}
+
 void NmHotspot::startActivate() {
   const std::weak_ptr<int> alive = m_lifetime;
-  // A reply without error carries the new active connection; it stays Activating until NM reports it Activated.
   const auto settle = [this, alive](std::optional<std::string> error, const std::string& active = {}) {
-    if (alive.expired()) {
-      return;
+    if (!alive.expired()) {
+      finishActivate(std::move(error), active);
     }
-    if (error.has_value()) {
-      kLog.warn("hotspot activation failed: {}", *error);
-    } else {
-      watchActive(active);
-    }
-    notify(m_machine.apply(error.has_value() ? HotspotEvent::ActivateFailed : HotspotEvent::ActivateOk,
-                           error.value_or("")));
-    startQuery();
   };
   findProfile(m_bus, [this, alive, settle](std::optional<std::string> error, std::string profile) {
     if (alive.expired()) {
@@ -405,12 +703,12 @@ void NmHotspot::startDeactivate() {
     if (error.has_value()) {
       kLog.warn("hotspot deactivation failed: {}", *error);
     }
-    notify(m_machine.apply(error.has_value() ? HotspotEvent::DeactivateFailed : HotspotEvent::DeactivateOk,
-                           error.value_or("")));
+    advance(m_machine.apply(error.has_value() ? HotspotEvent::DeactivateFailed : HotspotEvent::DeactivateOk,
+                            error.value_or("")));
     startQuery();
   };
   findActive(m_bus, *m_nm, [this, alive, settle](std::optional<std::string> error, std::string active,
-                                                 std::uint32_t /*state*/) {
+                                                 std::uint32_t /*state*/, std::string /*device*/) {
     if (alive.expired()) {
       return;
     }
@@ -429,4 +727,203 @@ void NmHotspot::startDeactivate() {
       settle(e.what());
     }
   });
+}
+
+void NmHotspot::startCreateInterface() {
+  const std::weak_ptr<int> alive = m_lifetime;
+  const auto settle = [this, alive](std::optional<std::string> error, std::string ap) {
+    if (alive.expired()) {
+      return;
+    }
+    if (error.has_value()) {
+      kLog.warn("hotspot interface beside {} not created: {}", m_ap.client, *error);
+    } else {
+      kLog.info("hotspot interface {} created beside {}", ap, m_ap.client);
+      m_ap.interface = std::move(ap);
+    }
+    advance(m_machine.apply(error.has_value() ? HotspotEvent::InterfaceFailed : HotspotEvent::InterfaceCreated,
+                            error.value_or("")));
+  };
+  try {
+    auto system = system1(m_bus);
+    system->callMethodAsync("CreateApInterface")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(m_ap.client)
+        .uponReplyInvoke([system, settle](std::optional<sdbus::Error> error, std::string ap) {
+          settle(error.has_value() ? std::optional<std::string>(error->what()) : std::nullopt, std::move(ap));
+        });
+  } catch (const sdbus::Error& e) {
+    settle(e.what(), {});
+  }
+}
+
+void NmHotspot::startAwaitDevice() {
+  m_deviceTimeout.start(kDeviceWait, [this] {
+    kLog.warn("hotspot interface {} not ready in NetworkManager", m_ap.interface);
+    advance(m_machine.apply(HotspotEvent::DeviceTimeout,
+                            i18n::tr("control-center.detail.wifi.hotspot-failed-reason", "reason", "device-timeout")));
+  });
+  checkApDevice();
+}
+
+void NmHotspot::checkApDevice() {
+  const std::weak_ptr<int> alive = m_lifetime;
+  const std::string ap = m_ap.interface;
+  // NetworkManager can activate on the device from state Disconnected on.
+  const auto ready = [this, alive, ap](const std::string& device, std::uint32_t state) {
+    if (alive.expired() || ap != m_ap.interface || state < kDeviceStateDisconnected
+        || !m_machine.apply(HotspotEvent::DeviceReady)) {
+      return;
+    }
+    m_ap.device = device;
+    advance(true);
+  };
+  try {
+    m_nm->callMethodAsync("GetDeviceByIpIface")
+        .onInterface(kNmInterface)
+        .withArguments(ap)
+        .uponReplyInvoke([this, alive, ready](std::optional<sdbus::Error> error, sdbus::ObjectPath device) {
+          // An error means NetworkManager does not list the interface yet; DeviceAdded checks again.
+          if (alive.expired() || error.has_value()) {
+            return;
+          }
+          try {
+            m_apDeviceWatch = sdbus::createProxy(m_bus.connection(), kNmBusName, device);
+            m_apDeviceWatch->uponSignal("StateChanged")
+                .onInterface(kDeviceInterface)
+                .call([ready, device](std::uint32_t state, std::uint32_t /*old*/, std::uint32_t /*reason*/) {
+                  ready(device, state);
+                });
+          } catch (const sdbus::Error& e) {
+            kLog.debug("hotspot device watch failed: {}", e.what());
+          }
+          readProperty<std::uint32_t>(m_bus, device, kDeviceInterface, "State",
+                                      [ready, device](std::optional<std::uint32_t> state) {
+                                        ready(device, state.value_or(0));
+                                      });
+        });
+  } catch (const sdbus::Error& e) {
+    kLog.debug("hotspot device lookup failed: {}", e.what());
+  }
+}
+
+void NmHotspot::startActivateOnInterface() {
+  m_deviceTimeout.stop();
+  m_apDeviceWatch.reset();
+  const std::weak_ptr<int> alive = m_lifetime;
+  const auto settle = [this, alive](std::optional<std::string> error, const std::string& active = {}) {
+    if (!alive.expired()) {
+      finishActivate(std::move(error), active);
+    }
+  };
+  // A volatile copy of the profile, bound to the new interface on the client's channel; NetworkManager deletes
+  // it when it goes down, and the saved profile stays unchanged.
+  const auto activateCopy = [this, alive, settle](Settings settings) {
+    if (alive.expired()) {
+      return;
+    }
+    settings["connection"].erase("uuid");
+    settings["connection"]["interface-name"] = sdbus::Variant{m_ap.interface};
+    settings["connection"]["autoconnect"] = sdbus::Variant{false};
+    settings["802-11-wireless"].erase("mac-address");
+    settings["802-11-wireless"]["band"] = sdbus::Variant{std::string(m_ap.channel.band)};
+    settings["802-11-wireless"]["channel"] = sdbus::Variant{m_ap.channel.channel};
+    const std::map<std::string, sdbus::Variant> options{{"persist", sdbus::Variant{std::string("volatile")}}};
+    try {
+      m_nm->callMethodAsync("AddAndActivateConnection2")
+          .onInterface(kNmInterface)
+          .withArguments(settings, sdbus::ObjectPath{m_ap.device}, sdbus::ObjectPath{"/"}, options)
+          .uponReplyInvoke([settle](std::optional<sdbus::Error> reply, sdbus::ObjectPath /*profile*/,
+                                    sdbus::ObjectPath active, std::map<std::string, sdbus::Variant> /*result*/) {
+            settle(reply.has_value() ? std::optional<std::string>(reply->what()) : std::nullopt, active);
+          });
+    } catch (const sdbus::Error& e) {
+      settle(e.what());
+    }
+  };
+  findProfile(m_bus, [this, alive, settle, activateCopy](std::optional<std::string> error, std::string profile) {
+    if (alive.expired()) {
+      return;
+    }
+    if (error.has_value()) {
+      settle(error);
+      return;
+    }
+    try {
+      if (profile.empty()) {
+        // Saves the new profile so its key stays the same next time.
+        Settings settings = newProfile();
+        auto store = proxy(m_bus, kSettingsPath);
+        store->callMethodAsync("AddConnection")
+            .onInterface(kSettingsInterface)
+            .withArguments(settings)
+            .uponReplyInvoke([store](std::optional<sdbus::Error> reply, sdbus::ObjectPath /*profile*/) {
+              if (reply.has_value()) {
+                kLog.warn("hotspot profile not saved: {}", reply->what());
+              }
+            });
+        activateCopy(std::move(settings));
+        return;
+      }
+      auto connection = proxy(m_bus, profile);
+      connection->callMethodAsync("GetSettings")
+          .onInterface(kConnectionInterface)
+          .uponReplyInvoke([connection, settle, activateCopy](std::optional<sdbus::Error> reply, Settings settings) {
+            if (reply.has_value()) {
+              settle(reply->what());
+              return;
+            }
+            connection->callMethodAsync("GetSecrets")
+                .onInterface(kConnectionInterface)
+                .withArguments(std::string("802-11-wireless-security"))
+                .uponReplyInvoke([connection, activateCopy, settings](std::optional<sdbus::Error> secretsError,
+                                                                      const Settings& secrets) {
+                  // Without the stored key NetworkManager asks a secret agent.
+                  if (secretsError.has_value()) {
+                    kLog.debug("hotspot secrets unavailable: {}", secretsError->what());
+                  }
+                  Settings merged = settings;
+                  for (const auto& [setting, values] : secrets) {
+                    for (const auto& [key, value] : values) {
+                      merged[setting][key] = value;
+                    }
+                  }
+                  activateCopy(std::move(merged));
+                });
+          });
+    } catch (const sdbus::Error& e) {
+      settle(e.what());
+    }
+  });
+}
+
+void NmHotspot::startRemoveInterface() {
+  m_deviceTimeout.stop();
+  m_apDeviceWatch.reset();
+  const std::weak_ptr<int> alive = m_lifetime;
+  const std::string ap = std::exchange(m_ap, {}).interface;
+  const auto settle = [this, alive, ap](std::optional<std::string> error) {
+    if (alive.expired()) {
+      return;
+    }
+    if (error.has_value()) {
+      kLog.warn("hotspot interface {} not removed: {}", ap, *error);
+    } else {
+      kLog.info("hotspot interface {} removed", ap);
+    }
+    advance(m_machine.apply(error.has_value() ? HotspotEvent::RemoveFailed : HotspotEvent::InterfaceRemoved,
+                            error.value_or("")));
+    startQuery();
+  };
+  try {
+    auto system = system1(m_bus);
+    system->callMethodAsync("RemoveApInterface")
+        .onInterface(kSystem1NetworkInterface)
+        .withArguments(ap)
+        .uponReplyInvoke([system, settle](std::optional<sdbus::Error> error) {
+          settle(error.has_value() ? std::optional<std::string>(error->what()) : std::nullopt);
+        });
+  } catch (const sdbus::Error& e) {
+    settle(e.what());
+  }
 }

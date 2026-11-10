@@ -40,6 +40,15 @@
       <allow_active>yes</allow_active>
     </defaults>
   </action>
+  <action id="org.andromeda.system.wifi-hotspot">
+    <description>Add a Wi-Fi interface for a hotspot beside the Wi-Fi connection</description>
+    <message>Authentication is required to start a Wi-Fi hotspot</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
   <action id="org.andromeda.system.keyboard-backlight">
     <description>Change the keyboard backlight</description>
     <message>Authentication is required to change the keyboard backlight</message>

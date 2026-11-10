@@ -101,6 +101,17 @@
     <property name="SomeAvg10" type="d" access="read" />
   </interface>
   <interface name="org.andromeda.System1.Network">
+    <method name="CanRunApWithClient">
+      <arg name="client" type="s" direction="in" />
+      <arg type="b" direction="out" />
+    </method>
+    <method name="CreateApInterface">
+      <arg name="client" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="RemoveApInterface">
+      <arg name="ap" type="s" direction="in" />
+    </method>
     <property name="Connectivity" type="s" access="read" />
     <property name="Metered" type="b" access="read" />
     <property name="Vpn" type="b" access="read" />

@@ -1,11 +1,16 @@
-//! `/org/andromeda/System1/Network`: connectivity, metered, VPN. Stage 1 backend: NetworkManager.
+//! `/org/andromeda/System1/Network`: connectivity, metered, VPN, and the hotspot's access-point interface (nl80211).
+//! Stage 1 backend: NetworkManager.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::{Result, anyhow};
+use zbus::message::Header;
 use zbus::object_server::InterfaceRef;
 use zbus::{Connection, OwnedObjectPath, interface};
 
 use crate::bus::{self, Remote};
-use crate::manager;
+use crate::{manager, polkit, wifi};
 
 pub const PATH: &str = "/org/andromeda/System1/Network";
 pub const AREA: &str = "network";
@@ -23,13 +28,98 @@ pub struct NetworkData {
     pub vpn: bool,
 }
 
+const HOTSPOT_ACTION: &str = "org.andromeda.system.wifi-hotspot";
+
+/// Access-point interface name to the unique bus name that created it; memory only, so a restart forgets it.
+type Creators = Arc<Mutex<HashMap<String, String>>>;
+
 #[derive(Default)]
 pub struct Network {
     data: NetworkData,
+    creators: Creators,
+}
+
+fn lock(creators: &Creators) -> MutexGuard<'_, HashMap<String, String>> {
+    creators.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Removes access-point interface `ap` when `creator` leaves the bus and still owns it (a shell crash or logout).
+async fn remove_when_gone(conn: Connection, creators: Creators, creator: String, ap: String) {
+    if let Err(e) = bus::vanished(&conn, &creator).await {
+        log::warn!("network: cannot follow {creator}, {ap} stays: {e:#}");
+        return;
+    }
+    {
+        let mut owners = lock(&creators);
+        if owners.get(&ap) != Some(&creator) {
+            return;
+        }
+        owners.remove(&ap);
+    }
+    let name = ap.clone();
+    match blocking(move || wifi::remove_ap_interface(&name)).await {
+        Ok(wifi::ApRemoval::Removed) => log::info!("network: removed access-point interface {ap}, {creator} left"),
+        Ok(_) => {}
+        Err(e) => log::warn!("network: {ap} not removed after {creator} left: {e}"),
+    }
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> zbus::fdo::Result<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?
+        .map_err(|e| zbus::fdo::Error::Failed(format!("{e:#}")))
 }
 
 #[interface(name = "org.andromeda.System1.Network")]
 impl Network {
+    /// Whether the card of Wi-Fi interface `client` can run a hotspot while `client` stays connected.
+    async fn can_run_ap_with_client(&self, client: String) -> zbus::fdo::Result<bool> {
+        blocking(move || wifi::can_run_ap_with_client(&client)).await
+    }
+
+    /// Adds an access-point interface beside Wi-Fi interface `client` on the same card and returns its name. Calling
+    /// it again returns the same interface while it exists. The interface goes when its caller leaves the bus.
+    async fn create_ap_interface(
+        &self,
+        client: String,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<String> {
+        polkit::check(conn, &header, HOTSPOT_ACTION).await?;
+        let (name, _) = blocking(move || wifi::create_ap_interface(&client)).await?;
+        log::info!("network: access-point interface {name} ready");
+        if let Some(sender) = header.sender().map(ToString::to_string) {
+            let old = lock(&self.creators).insert(name.clone(), sender.clone());
+            if old.as_ref() != Some(&sender) {
+                tokio::spawn(remove_when_gone(conn.clone(), Arc::clone(&self.creators), sender, name.clone()));
+            }
+        }
+        Ok(name)
+    }
+
+    /// Deletes access-point interface `ap`; only one of the kind `CreateApInterface` makes, also from before a
+    /// restart of this service.
+    async fn remove_ap_interface(
+        &self,
+        ap: String,
+        #[zbus(header)] header: Header<'_>,
+        #[zbus(connection)] conn: &Connection,
+    ) -> zbus::fdo::Result<()> {
+        polkit::check(conn, &header, HOTSPOT_ACTION).await?;
+        let name = ap.clone();
+        match blocking(move || wifi::remove_ap_interface(&name)).await? {
+            wifi::ApRemoval::NotOurs => {
+                return Err(zbus::fdo::Error::AccessDenied(format!("{ap} is not a hotspot interface of this service")));
+            }
+            wifi::ApRemoval::Removed => log::info!("network: removed access-point interface {ap}"),
+            wifi::ApRemoval::Absent => {}
+        }
+        lock(&self.creators).remove(&ap);
+        Ok(())
+    }
+
+
     /// unknown, none, portal, limited or full.
     #[zbus(property)]
     fn connectivity(&self) -> String {
