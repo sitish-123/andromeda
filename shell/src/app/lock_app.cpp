@@ -14,10 +14,13 @@
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/timer_manager.h"
+#include "dbus/andromeda/lock_notice_client.h"
 #include "dbus/andromeda/lock_service.h"
 #include "dbus/link/link_lock_client.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
+#include "dbus/network/network_display.h"
+#include "dbus/network/network_lock_client.h"
 #include "dbus/power/power_profiles_service.h"
 #include "dbus/session_bus.h"
 #include "dbus/session_bus_poll_source.h"
@@ -117,6 +120,9 @@ namespace {
       m_lock.initialize(m_wayland, &m_renderContext, &m_config, &m_textures, m_systemBus.get(), &m_platform);
       m_lock.setLoginBoxServices(&m_sessionActions, m_mpris.get(), &m_weather, &m_http);
       m_lock.setPhoneServices(m_link.get());
+      if (m_notices != nullptr) {
+        m_lock.setNoticeProvider([this] { return m_notices->groups(); });
+      }
       initWidgets();
       initHooks();
       initInput();
@@ -173,6 +179,13 @@ namespace {
         } catch (const std::exception& e) {
           kLog.warn("power profiles: {}", e.what());
         }
+        try {
+          m_network = std::make_unique<NetworkLockClient>(*m_systemBus);
+          m_network->setChangeCallback([this] { refreshStatus(); });
+          m_network->setSignalGate([this] { return m_lock.isActive(); });
+        } catch (const std::exception& e) {
+          kLog.warn("network: {}", e.what());
+        }
       }
       try {
         m_sessionBus = std::make_unique<SessionBus>();
@@ -191,6 +204,16 @@ namespace {
           });
         } catch (const std::exception& e) {
           kLog.warn("link client: {}", e.what());
+        }
+        try {
+          m_notices = std::make_unique<LockNoticeClient>(*m_sessionBus);
+          m_notices->setChangeCallback([this] {
+            if (m_lock.isActive()) {
+              m_lock.requestUpdate();
+            }
+          });
+        } catch (const std::exception& e) {
+          kLog.warn("lock notices: {}", e.what());
         }
       }
     }
@@ -420,6 +443,10 @@ namespace {
                 );
         }
       }
+      if (m_network != nullptr && m_network->hasState()) {
+        status.networkGlyph = network_display::glyphForState(m_network->state());
+        kLog.debug("network glyph {}", status.networkGlyph);
+      }
       m_lock.setStatus(std::move(status));
     }
 
@@ -433,6 +460,9 @@ namespace {
         return true;
       }
       kLog.info("lock requested ({})", reason);
+      if (m_network != nullptr) {
+        m_network->refreshSignal();
+      }
       if (reason == "phone") {
         return m_lock.lockFromPhone();
       }
@@ -517,6 +547,8 @@ namespace {
     std::unique_ptr<SessionBusPollSource> m_sessionBusPoll;
     std::unique_ptr<MprisService> m_mpris;
     std::unique_ptr<LinkLockClient> m_link;
+    std::unique_ptr<LockNoticeClient> m_notices;
+    std::unique_ptr<NetworkLockClient> m_network;
 
     LockScreen m_lock;
     SessionActionRunner m_sessionActions{m_platform, m_lock};

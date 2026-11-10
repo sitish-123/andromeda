@@ -419,7 +419,7 @@ void Application::initLockScreenAndSession() {
       m_wayland, &m_renderContext, &m_configService, &m_sharedTextureCache, m_systemBus.get(), &m_compositorPlatform
   );
   m_lockScreen.setLoginBoxServices(&m_sessionActionRunner, mpris(), &m_weatherService, &m_httpClient);
-  m_lockScreen.setNotificationManager(&m_notificationManager);
+  m_lockScreen.setNoticeProvider([this] { return groupUnseenNotices(m_notificationManager.history()); });
   refreshLockStatus();
   m_wallpaper.setAutomationGate([this] {
     if (m_lockScreen.isActive()) {

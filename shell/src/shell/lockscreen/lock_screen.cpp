@@ -191,11 +191,11 @@ void LockScreen::setLoginBoxServices(
   }
 }
 
-void LockScreen::setNotificationManager(const NotificationManager* notifications) {
-  m_notifications = notifications;
+void LockScreen::setNoticeProvider(LockNoticeProvider notices) {
+  m_notices = std::move(notices);
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {
-      instance.surface->setNotificationManager(m_notifications);
+      instance.surface->setNoticeProvider(m_notices);
     }
   }
 }
@@ -1469,7 +1469,7 @@ void LockScreen::applyOutputRestriction() {
 }
 
 LockCards::Data LockScreen::previewCards(const LockscreenConfig& lock) const {
-  LockCards::Data data = collectLockCards(m_mpris, m_link, m_notifications);
+  LockCards::Data data = collectLockCards(m_mpris, m_link, m_notices);
   data.charging = m_statusIsland.chargingText;
   fillLockWidgetData(data, lock, m_weather, m_statusIsland);
   data.preview = true;
@@ -1584,7 +1584,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   surface->setOnPasswordChanged([this](const std::string& value) { handlePasswordEdited(value); });
   surface->setLoginBoxServices(m_sessionActions, m_mpris, m_weather, m_httpClient);
   surface->setPhoneServices(m_link);
-  surface->setNotificationManager(m_notifications);
+  surface->setNoticeProvider(m_notices);
   surface->setPromptState(m_user, m_password, m_status, m_statusIsError, m_authenticating);
   applyIndicatorsToSurface(*surface);
 

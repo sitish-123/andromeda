@@ -42,7 +42,6 @@ class Box;
 class Flex;
 class Glyph;
 class HttpClient;
-class NotificationManager;
 class Image;
 class Input;
 class Label;
@@ -127,7 +126,7 @@ public:
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
   void setPhoneServices(const LinkPhoneState* link);
-  void setNotificationManager(const NotificationManager* notifications);
+  void setNoticeProvider(LockNoticeProvider notices);
   void selectAllPassword();
   void clearPasswordSelection();
   void onThemeChanged();
@@ -247,7 +246,7 @@ private:
   // Device whose ringing call the user chose to decline on this surface.
   std::string m_declinePending;
   const LinkPhoneState* m_link = nullptr;
-  const NotificationManager* m_notifications = nullptr;
+  LockNoticeProvider m_notices;
   Flex* m_infoRow = nullptr;
   Flex* m_mediaBlock = nullptr;
   Image* m_mediaArt = nullptr;

@@ -45,6 +45,9 @@ class Profile(Object):
 class Manager(Object):
     def __init__(self, bus, log):
         super().__init__(bus, BASE, {NM: {"ActiveConnections": dbus.Array([], signature="o")}})
+        # MOCK_NM_PRIMARY=<connection type>: report a connected-global primary connection of that type.
+        if primary := os.environ.get("MOCK_NM_PRIMARY"):
+            self.props[NM].update({"State": dbus.UInt32(70), "PrimaryConnectionType": primary, "WirelessEnabled": True})
         self.bus, self.log, self.profiles, self.actives, self.activations = bus, log, [], [], 0
         Object(bus, BASE + "/Devices/1", {
             NM + ".Device": {"DeviceType": dbus.UInt32(2)},

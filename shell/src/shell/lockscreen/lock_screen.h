@@ -26,7 +26,6 @@ struct ext_session_lock_v1;
 struct wl_surface;
 struct wl_output;
 class ConfigService;
-class NotificationManager;
 
 class CompositorPlatform;
 class FaceAuthenticator;
@@ -67,7 +66,7 @@ public:
   // while this instance has its own lock pending or held, everything stays in process.
   void setRemote(LockClient* client);
   [[nodiscard]] bool remote() const noexcept;
-  void setNotificationManager(const NotificationManager* notifications);
+  void setNoticeProvider(LockNoticeProvider notices);
   // Wall-clock ms of each rejected password since the last unlock; clears it.
   [[nodiscard]] std::vector<std::int64_t> takeRejectedWhileLocked() { return std::exchange(m_rejectedAt, {}); }
   // relock: the compositor already holds the secure blank, so the lock runs even with the lock screen turned off.
@@ -258,7 +257,7 @@ private:
   std::function<void()> m_remoteAfterLocked;
   // Decline pressed on the call card: declined after the next successful unlock if that call still rings.
   std::string m_pendingDecline;
-  const NotificationManager* m_notifications = nullptr;
+  LockNoticeProvider m_notices;
   Timer m_suspendTimeoutTimer;
   Timer m_outputPowerOffTimer;
   // CLOCK_BOOTTIME millis when the lock flow started; grace expires gracePeriodSeconds after it.

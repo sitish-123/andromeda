@@ -17,7 +17,6 @@ class Label;
 class LinkPhoneState;
 class MprisService;
 class Node;
-class NotificationManager;
 class RectNode;
 class Renderer;
 
@@ -138,7 +137,7 @@ private:
   bool m_buttonsShown = false;
 };
 
-// Lock card data from the shell services; any service may be null. Notification content never enters it.
+// Lock card data from the shell services; any service or the provider may be null. Notification content never enters it.
 [[nodiscard]] LockCards::Data collectLockCards(
-    const MprisService* mpris, const LinkPhoneState* link, const NotificationManager* notifications
+    const MprisService* mpris, const LinkPhoneState* link, const LockNoticeProvider& notices
 );

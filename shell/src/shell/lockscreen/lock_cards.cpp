@@ -4,7 +4,6 @@
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "i18n/i18n.h"
-#include "notification/notification_manager.h"
 #include "render/core/color.h"
 #include "render/core/render_styles.h"
 #include "render/core/renderer.h"
@@ -526,7 +525,7 @@ LockCards::Control LockCards::hitTest(float x, float y) const {
 }
 
 LockCards::Data collectLockCards(
-    const MprisService* mpris, const LinkPhoneState* link, const NotificationManager* notifications
+    const MprisService* mpris, const LinkPhoneState* link, const LockNoticeProvider& notices
 ) {
   LockCards::Data data;
   if (mpris != nullptr) {
@@ -557,8 +556,8 @@ LockCards::Data collectLockCards(
       }
     }
   }
-  if (notifications != nullptr) {
-    data.groups = groupUnseenNotices(notifications->history());
+  if (notices) {
+    data.groups = notices();
   }
   return data;
 }

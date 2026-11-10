@@ -684,8 +684,8 @@ LockSurface::~LockSurface() {
   }
 }
 
-void LockSurface::setNotificationManager(const NotificationManager* notifications) {
-  m_notifications = notifications;
+void LockSurface::setNoticeProvider(LockNoticeProvider notices) {
+  m_notices = std::move(notices);
   requestUpdate();
 }
 
@@ -1893,7 +1893,7 @@ void LockSurface::layoutAndromeda(Renderer& renderer, float sw, float sh) {
   const float scale = m_config != nullptr ? m_config->config().accessibility.uiScale : 1.0F;
   LockCards::Data cards;
   if (visible) {
-    cards = collectLockCards(m_mpris, m_link, m_notifications);
+    cards = collectLockCards(m_mpris, m_link, m_notices);
     if (cards.media.has_value() && !cards.media->artUrl.empty()) {
       cards.media->artPath = mpris::resolveArtworkSource(
           m_httpClient, m_pendingArtDownloads, cards.media->artUrl, [this] { requestLayout(); }, m_aliveGuard
