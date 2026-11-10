@@ -59,33 +59,57 @@ namespace {
   }
 
   // A connection of our own: the shell's system bus belongs to the main loop, and actions run on worker threads.
-  [[nodiscard]] bool callLogind(std::string_view action, const char* method) {
+  constexpr auto kLoginInterface = "org.andromeda.System1.Login";
+
+  std::unique_ptr<sdbus::IProxy> loginProxy(sdbus::IConnection& connection) {
+    return sdbus::createProxy(
+        connection, sdbus::ServiceName{"org.andromeda.System1"}, sdbus::ObjectPath{"/org/andromeda/System1/Login"}
+    );
+  }
+
+  // `power` is a System1 Login action: reboot, power-off, suspend, hibernate or suspend-then-hibernate.
+  [[nodiscard]] bool callPower(std::string_view action, const char* power, bool skipInhibitors = false) {
     try {
       const auto connection = sdbus::createSystemBusConnection();
-      const auto manager = sdbus::createProxy(
-          *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
-      );
-      manager->callMethod(method).onInterface("org.freedesktop.login1.Manager").withArguments(true);
-      kLog.info("{}: logind {} accepted", action, method);
+      loginProxy(*connection)
+          ->callMethod("Power")
+          .onInterface(kLoginInterface)
+          .withArguments(std::string(power), !skipInhibitors, skipInhibitors);
+      kLog.info("{}: logind {} accepted", action, power);
       return true;
     } catch (const sdbus::Error& e) {
-      kLog.warn("{}: logind {} failed: {}", action, method, e.what());
+      kLog.warn("{}: logind {} failed: {}", action, power, e.what());
       return false;
     }
   }
 
   // "yes", "no", "challenge" (needs polkit), or "na" (not available on this hardware, e.g. no swap).
-  [[nodiscard]] bool canLogind(std::string_view action, const char* canMethod) {
+  [[nodiscard]] bool canPower(std::string_view action, const char* power) {
     try {
       const auto connection = sdbus::createSystemBusConnection();
-      const auto manager = sdbus::createProxy(
-          *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
-      );
       std::string reply;
-      manager->callMethod(canMethod).onInterface("org.freedesktop.login1.Manager").storeResultsTo(reply);
+      loginProxy(*connection)
+          ->callMethod("CanPower")
+          .onInterface(kLoginInterface)
+          .withArguments(std::string(power))
+          .storeResultsTo(reply);
       return reply == "yes";
     } catch (const sdbus::Error& e) {
-      kLog.warn("{}: logind {} failed: {}", action, canMethod, e.what());
+      kLog.warn("{}: logind can {} failed: {}", action, power, e.what());
+      return false;
+    }
+  }
+
+  [[nodiscard]] bool setRebootToFirmwareSetup() {
+    try {
+      const auto connection = sdbus::createSystemBusConnection();
+      loginProxy(*connection)
+          ->callMethod("SetRebootToFirmwareSetup")
+          .onInterface(kLoginInterface)
+          .withArguments(true, false);
+      return true;
+    } catch (const sdbus::Error& e) {
+      kLog.warn("reboot_uefi: logind SetRebootToFirmwareSetup failed: {}", e.what());
       return false;
     }
   }
@@ -110,20 +134,20 @@ namespace {
   }
 
   [[nodiscard]] bool runPowerActionResolved(
-      std::string_view action, const std::optional<std::string>& commandOverride, const char* logindMethod,
-      PowerLaunchMode mode, const char* logindCanMethod = nullptr
+      std::string_view action, const std::optional<std::string>& commandOverride, const char* power,
+      PowerLaunchMode mode, bool checkAvailable = false
   ) {
     if (commandOverride.has_value()) {
       return runPowerOverride(action, *commandOverride, mode);
     }
-    if (logindCanMethod != nullptr && !canLogind(action, logindCanMethod)) {
-      kLog.warn("{}: logind reports {} unavailable", action, logindCanMethod);
+    if (checkAvailable && !canPower(action, power)) {
+      kLog.warn("{}: logind reports {} unavailable", action, power);
       return false;
     }
-    return callLogind(action, logindMethod);
+    return callPower(action, power);
   }
 
-  [[nodiscard]] bool rebootUefiSupported() { return canLogind("reboot_uefi", "CanRebootToFirmwareSetup"); }
+  [[nodiscard]] bool rebootUefiSupported() { return canPower("reboot_uefi", "reboot-to-firmware-setup"); }
 
   [[nodiscard]] bool requestLock(LockScreen& lockScreen) {
     logActionContext("lock");
@@ -286,7 +310,7 @@ bool SessionActionRunner::requestSuspendDetached() const {
   }
   std::scoped_lock lock(m_powerMutex);
   const bool started =
-      runPowerActionResolved("suspend", m_suspendCommandOverride, "Suspend", PowerLaunchMode::Detached);
+      runPowerActionResolved("suspend", m_suspendCommandOverride, "suspend", PowerLaunchMode::Detached);
   if (!started && m_hooks.onPlainSuspendAborted) {
     m_hooks.onPlainSuspendAborted();
   }
@@ -296,52 +320,39 @@ bool SessionActionRunner::requestSuspendDetached() const {
 bool SessionActionRunner::requestRebootDetached() const {
   logActionContext("reboot");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved("reboot", m_rebootCommandOverride, "Reboot", PowerLaunchMode::Detached);
+  return runPowerActionResolved("reboot", m_rebootCommandOverride, "reboot", PowerLaunchMode::Detached);
 }
 
 bool SessionActionRunner::requestRebootUefiDetached() const {
   logActionContext("reboot_uefi");
   std::scoped_lock lock(m_powerMutex);
-  return callLogind("reboot_uefi", "SetRebootToFirmwareSetup") && callLogind("reboot_uefi", "Reboot");
+  return setRebootToFirmwareSetup() && callPower("reboot_uefi", "reboot");
 }
 
 bool SessionActionRunner::requestPowerSkippingInhibitors(std::string_view action) const {
-  // SD_LOGIND_SKIP_INHIBITORS (systemd login-util.h).
-  constexpr std::uint64_t kSkipInhibitors = std::uint64_t{1} << 4;
-  const char* method = action == "suspend" ? "SuspendWithFlags"
-      : action == "reboot"                 ? "RebootWithFlags"
-      : action == "shutdown"               ? "PowerOffWithFlags"
-                                           : nullptr;
-  if (method == nullptr) {
+  const char* power = action == "suspend" ? "suspend"
+      : action == "reboot"                ? "reboot"
+      : action == "shutdown"              ? "power-off"
+                                          : nullptr;
+  if (power == nullptr) {
     return false;
   }
   logActionContext(action);
   std::scoped_lock lock(m_powerMutex);
-  try {
-    const auto connection = sdbus::createSystemBusConnection();
-    const auto manager = sdbus::createProxy(
-        *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
-    );
-    manager->callMethod(method).onInterface("org.freedesktop.login1.Manager").withArguments(kSkipInhibitors);
-    kLog.info("{}: logind {} accepted", action, method);
-    return true;
-  } catch (const sdbus::Error& e) {
-    kLog.warn("{}: logind {} failed: {}", action, method, e.what());
-    return false;
-  }
+  return callPower(action, power, true);
 }
 
 bool SessionActionRunner::requestShutdownDetached() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "PowerOff", PowerLaunchMode::Detached);
+  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "power-off", PowerLaunchMode::Detached);
 }
 
 bool SessionActionRunner::requestHibernateDetached() const {
   logActionContext("hibernate");
   std::scoped_lock lock(m_powerMutex);
   return runPowerActionResolved(
-      "hibernate", m_hibernateCommandOverride, "Hibernate", PowerLaunchMode::Detached, "CanHibernate"
+      "hibernate", m_hibernateCommandOverride, "hibernate", PowerLaunchMode::Detached, true
   );
 }
 
@@ -352,8 +363,8 @@ bool SessionActionRunner::requestSuspendThenHibernateDetached() const {
   }
   std::scoped_lock lock(m_powerMutex);
   const bool started = runPowerActionResolved(
-      "suspend_then_hibernate", m_suspendThenHibernateCommandOverride, "SuspendThenHibernate",
-      PowerLaunchMode::Detached, "CanSuspendThenHibernate"
+      "suspend_then_hibernate", m_suspendThenHibernateCommandOverride, "suspend-then-hibernate",
+      PowerLaunchMode::Detached, true
   );
   if (!started && m_hooks.onPlainSuspendAborted) {
     m_hooks.onPlainSuspendAborted();
@@ -374,7 +385,7 @@ bool SessionActionRunner::suspendBlocking() const {
   }
   std::scoped_lock lock(m_powerMutex);
   const bool started =
-      runPowerActionResolved("suspend", m_suspendCommandOverride, "Suspend", PowerLaunchMode::Blocking);
+      runPowerActionResolved("suspend", m_suspendCommandOverride, "suspend", PowerLaunchMode::Blocking);
   if (!started && m_hooks.onPlainSuspendAborted) {
     m_hooks.onPlainSuspendAborted();
   }
@@ -384,11 +395,11 @@ bool SessionActionRunner::suspendBlocking() const {
 bool SessionActionRunner::rebootBlocking() const {
   logActionContext("reboot");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved("reboot", m_rebootCommandOverride, "Reboot", PowerLaunchMode::Blocking);
+  return runPowerActionResolved("reboot", m_rebootCommandOverride, "reboot", PowerLaunchMode::Blocking);
 }
 
 bool SessionActionRunner::shutdownBlocking() const {
   logActionContext("shutdown");
   std::scoped_lock lock(m_powerMutex);
-  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "PowerOff", PowerLaunchMode::Blocking);
+  return runPowerActionResolved("shutdown", m_shutdownCommandOverride, "power-off", PowerLaunchMode::Blocking);
 }

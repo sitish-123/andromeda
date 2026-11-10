@@ -11,6 +11,7 @@ mod expr;
 mod holds;
 mod kbd_backlight;
 mod knobs;
+mod login;
 mod manager;
 mod memory;
 mod network;
@@ -18,8 +19,8 @@ mod nm;
 mod plugs;
 mod policy;
 mod polkit;
-mod procs;
 mod power;
+mod procs;
 mod rules;
 mod session;
 mod startup;
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
         .serve_at(power::PATH, power::Power::default())
         .serve_at(memory::PATH, memory::Memory::default())
         .serve_at(network::PATH, network::Network::default())
+        .serve_at(login::PATH, login::Login)
         .serve_at(storage::PATH, storage::Storage::default())
         .serve_at(thermal::PATH, thermal::Thermal::default())
         .serve_at(display::PATH, display::Display::default())

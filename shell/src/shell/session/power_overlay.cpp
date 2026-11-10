@@ -122,6 +122,7 @@ void PowerOverlay::setPowerKeyHandling(SystemBus* bus, const PowerConfigService*
     m_logind = sdbus::createProxy(
         bus->connection(), sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
     );
+    // Direct, not through System1: logind applies a handle-* inhibitor only while its owner's session is active.
     // Async: a slow logind must not hold the shell's first frame. The proxy owns the call, so it dies with this.
     m_logind->callMethodAsync("Inhibit")
         .onInterface("org.freedesktop.login1.Manager")

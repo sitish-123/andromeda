@@ -124,13 +124,48 @@ until_has 10 'i 3' get "$KBD" KbdBacklight Brightness
 "${B[@]}" call org.andromeda.System1 /org/andromeda/System1/Storage org.freedesktop.DBus.Properties Get ss \
   org.andromeda.System1.Storage Mounts | grep -q '"/"' || fail "Storage lacks /"
 # The API matches the committed contract; UPDATE_CONTRACT=1 rewrites it after a deliberate change.
-for path in / /Power /Memory /Network /Storage /Thermal /Display /Knobs /Explain /Battery/battery_BAT0 /KbdBacklight/kbd_backlight; do
+for path in / /Power /Memory /Network /Storage /Thermal /Display /Knobs /Explain /Login /Battery/battery_BAT0 /KbdBacklight/kbd_backlight; do
   "${B[@]}" --xml-interface introspect org.andromeda.System1 "/org/andromeda/System1${path%/}" >"$OUT/introspect${path//\//_}.xml"
 done
 python3 "$ROOT/system/tests/contract.py" "$OUT"/introspect*.xml >"$OUT/contract.xml"
 CONTRACT=$ROOT/system/data/org.andromeda.System1.xml
 if [[ ${UPDATE_CONTRACT:-0} == 1 ]]; then cp "$OUT/contract.xml" "$CONTRACT"; fi
 diff -u "$CONTRACT" "$OUT/contract.xml" || fail "API differs from $CONTRACT"
+# Login forwards to logind (tests/mock_login1.py; the test bus has no polkit) by logind's rules: a block inhibitor,
+# the caller's own too, refuses a power action unless the caller skips inhibitors; another user's block-weak one
+# needs no skip; logind gets the skip flag only for a skip the caller asked for, else checks new inhibitors itself.
+# Brightness goes only to the caller's session.
+INH=$OUT/inhibitors
+echo "shutdown block 0" >"$INH"
+python3 "$ROOT/system/tests/mock_login1.py" "$OUT/login1.log" "$INH" >"$OUT/login1.out" 2>&1 & PIDS+=($!)
+until_has 50 ready cat "$OUT/login1.out"
+L=(call org.andromeda.System1 /org/andromeda/System1/Login org.andromeda.System1.Login)
+until_has 10 's "yes"' "${B[@]}" "${L[@]}" CanPower s suspend
+until_has 10 's "na"' "${B[@]}" "${L[@]}" CanPower s reboot-to-firmware-setup
+"${B[@]}" "${L[@]}" Power sbb reboot true false 2>/dev/null && fail "reboot ran past a block inhibitor"
+"${B[@]}" "${L[@]}" Power sbb reboot false true
+echo "sleep block $(id -u)" >"$INH"
+"${B[@]}" "${L[@]}" Power sbb suspend true false 2>/dev/null && fail "suspend ran past the caller's own block inhibitor"
+echo "sleep block-weak $(id -u)" >"$INH"
+"${B[@]}" "${L[@]}" Power sbb suspend true false
+echo "sleep block-weak 4242" >"$INH"
+"${B[@]}" "${L[@]}" Power sbb suspend true false
+: >"$INH"
+"${B[@]}" "${L[@]}" Power sbb suspend true true
+"${B[@]}" "${L[@]}" Inhibit ssss handle-power-key Andromeda test block >/dev/null 2>&1 \
+  && fail "System1 took a handle-power-key inhibitor, which logind would apply in every session"
+"${B[@]}" "${L[@]}" Inhibit ssss sleep Andromeda test delay | grep -q '^h ' || fail "Inhibit returned no fd"
+"${B[@]}" "${L[@]}" ListSessions | grep -q '^a(susso) 2 ' || fail "ListSessions"
+"${B[@]}" "${L[@]}" SetBrightness sssu "" backlight intel 5
+"${B[@]}" "${L[@]}" SetBrightness sssu c2 backlight intel 6 2>/dev/null && fail "SetBrightness reached another user's session"
+diff -u - "$OUT/login1.log" <<'EOF' || fail "logind calls differ"
+RebootWithFlags 16
+SuspendWithFlags 1
+SuspendWithFlags 0
+SuspendWithFlags 1
+Inhibit sleep delay
+SetBrightness /session/c1 backlight intel 5
+EOF
 # The session part: the low battery rule holds power-saver through the system part, alerts once, and the alert's
 # Undo releases the hold.
 dbus-daemon --session --nofork --print-address=3 3>"$OUT/session-addr" & PIDS+=($!)

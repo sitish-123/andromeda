@@ -41,11 +41,11 @@ std::vector<LogindInhibitor> listLogindInhibitors() {
   std::vector<LogindInhibitor> out;
   try {
     const auto connection = sdbus::createSystemBusConnection();
-    const auto manager = sdbus::createProxy(
-        *connection, sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+    const auto login = sdbus::createProxy(
+        *connection, sdbus::ServiceName{"org.andromeda.System1"}, sdbus::ObjectPath{"/org/andromeda/System1/Login"}
     );
     std::vector<sdbus::Struct<std::string, std::string, std::string, std::string, std::uint32_t, std::uint32_t>> reply;
-    manager->callMethod("ListInhibitors").onInterface("org.freedesktop.login1.Manager").storeResultsTo(reply);
+    login->callMethod("ListInhibitors").onInterface("org.andromeda.System1.Login").storeResultsTo(reply);
     for (const auto& row : reply) {
       out.push_back({.what = std::get<0>(row), .who = std::get<1>(row), .why = std::get<2>(row), .mode = std::get<3>(row),
                      .uid = std::get<4>(row), .pid = std::get<5>(row)});

@@ -12,7 +12,7 @@
 namespace {
 
   constexpr Logger kLog("session-guard");
-  constexpr auto kManager = "org.freedesktop.login1.Manager";
+  constexpr auto kLogin = "org.andromeda.System1.Login";
   // Below this uid are system accounts (the greeter among them), never "other users".
   constexpr std::uint32_t kFirstUserUid = 1000;
 
@@ -28,14 +28,18 @@ void SessionGuard::initialize(SystemBus* bus, IpcService* ipc) {
   }
   try {
     m_logind = sdbus::createProxy(
-        bus->connection(), sdbus::ServiceName{"org.freedesktop.login1"}, sdbus::ObjectPath{"/org/freedesktop/login1"}
+        bus->connection(), sdbus::ServiceName{"org.andromeda.System1"},
+        sdbus::ObjectPath{"/org/andromeda/System1/Login"}
     );
   } catch (const sdbus::Error& e) {
     kLog.warn("logind unavailable: {}", e.getMessage());
     return;
   }
   std::weak_ptr<int> alive = m_alive;
-  m_logind->callMethodAsync("CanRebootToFirmwareSetup").onInterface(kManager).uponReplyInvoke(
+  m_logind->callMethodAsync("CanPower")
+      .onInterface(kLogin)
+      .withArguments(std::string("reboot-to-firmware-setup"))
+      .uponReplyInvoke(
       [this, alive](std::optional<sdbus::Error> e, const std::string& answer) {
         if (!alive.expired() && !e.has_value()) {
           m_firmwareSetup = answer == "yes" || answer == "challenge";
@@ -66,7 +70,7 @@ void SessionGuard::refresh() {
     return;
   }
   std::weak_ptr<int> alive = m_alive;
-  m_logind->callMethodAsync("ListInhibitors").onInterface(kManager).uponReplyInvoke(
+  m_logind->callMethodAsync("ListInhibitors").onInterface(kLogin).uponReplyInvoke(
       [this, alive](std::optional<sdbus::Error> e, const std::vector<Inhibitor>& list) {
         if (alive.expired() || e.has_value()) {
           return;
@@ -91,7 +95,7 @@ void SessionGuard::refresh() {
         }
       }
   );
-  m_logind->callMethodAsync("ListSessions").onInterface(kManager).uponReplyInvoke(
+  m_logind->callMethodAsync("ListSessions").onInterface(kLogin).uponReplyInvoke(
       [this, alive](std::optional<sdbus::Error> e, const std::vector<Session>& list) {
         if (alive.expired() || e.has_value()) {
           return;

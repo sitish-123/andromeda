@@ -81,6 +81,40 @@
       <arg type="a(sva(ssvst))" direction="out" />
     </method>
   </interface>
+  <interface name="org.andromeda.System1.Login">
+    <method name="CanPower">
+      <arg name="action" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Power">
+      <arg name="action" type="s" direction="in" />
+      <arg name="interactive" type="b" direction="in" />
+      <arg name="skip_inhibitors" type="b" direction="in" />
+    </method>
+    <method name="SetRebootToFirmwareSetup">
+      <arg name="enable" type="b" direction="in" />
+      <arg name="interactive" type="b" direction="in" />
+    </method>
+    <method name="Inhibit">
+      <arg name="what" type="s" direction="in" />
+      <arg name="who" type="s" direction="in" />
+      <arg name="why" type="s" direction="in" />
+      <arg name="mode" type="s" direction="in" />
+      <arg type="h" direction="out" />
+    </method>
+    <method name="ListInhibitors">
+      <arg type="a(ssssuu)" direction="out" />
+    </method>
+    <method name="ListSessions">
+      <arg type="a(susso)" direction="out" />
+    </method>
+    <method name="SetBrightness">
+      <arg name="session" type="s" direction="in" />
+      <arg name="subsystem" type="s" direction="in" />
+      <arg name="name" type="s" direction="in" />
+      <arg name="value" type="u" direction="in" />
+    </method>
+  </interface>
   <interface name="org.andromeda.System1.Manager">
     <method name="Watch">
       <arg name="areas" type="as" direction="in" />

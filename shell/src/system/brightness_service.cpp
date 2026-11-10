@@ -147,9 +147,8 @@ namespace {
     std::set<std::pair<std::string, int>> reportedDisplays;
   };
 
-  const sdbus::ServiceName kLogindBusName{"org.freedesktop.login1"};
-  constexpr auto kLogindManagerInterface = "org.freedesktop.login1.Manager";
-  constexpr auto kLogindSessionInterface = "org.freedesktop.login1.Session";
+  const sdbus::ServiceName kSystem1BusName{"org.andromeda.System1"};
+  constexpr auto kSystem1LoginInterface = "org.andromeda.System1.Login";
 
   std::string joinBrightnessDisplayIds(const BrightnessService& service) {
     std::string out;
@@ -701,10 +700,8 @@ struct BrightnessService::Impl {
   std::vector<BrightnessDisplay> publicDisplays;
   std::vector<DisplayInternal> internals;
 
-  std::unique_ptr<sdbus::IProxy> managerProxy;
-  std::unique_ptr<sdbus::IProxy> sessionProxy;
+  std::unique_ptr<sdbus::IProxy> loginProxy;
   std::shared_ptr<int> aliveToken = std::make_shared<int>(0);
-  sdbus::ObjectPath sessionPath;
 
   Inotify m_inotify;
 
@@ -817,58 +814,17 @@ struct BrightnessService::Impl {
   }
 
   void updateSessionProxy() {
-    sessionProxy.reset();
-    managerProxy.reset();
+    loginProxy.reset();
     if (bus == nullptr) {
       return;
     }
+    loginProxy = sdbus::createProxy(bus->connection(), kSystem1BusName, sdbus::ObjectPath{"/org/andromeda/System1/Login"});
+  }
 
-    managerProxy = sdbus::createProxy(bus->connection(), kLogindBusName, sdbus::ObjectPath{"/org/freedesktop/login1"});
-    const std::weak_ptr<int> token = aliveToken;
-    const auto attach = [this, token](const sdbus::ObjectPath& path) {
-      if (token.expired()) {
-        return;
-      }
-      sessionPath = path;
-      sessionProxy = sdbus::createProxy(bus->connection(), kLogindBusName, sessionPath);
-    };
-    const auto byPid = [this, token, attach] {
-      managerProxy->callMethodAsync("GetSessionByPID")
-          .onInterface(kLogindManagerInterface)
-          .withArguments(static_cast<std::uint32_t>(::getpid()))
-          .uponReplyInvoke([token, attach](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
-            if (token.expired()) {
-              return;
-            }
-            if (e.has_value()) {
-              kLog.warn("failed to resolve logind session: {}", e->what());
-              path = sdbus::ObjectPath{"/org/freedesktop/login1/session/auto"};
-            }
-            attach(path);
-          });
-    };
-
-    const char* sessionId = std::getenv("XDG_SESSION_ID");
-    if (sessionId == nullptr || sessionId[0] == '\0') {
-      byPid();
-      return;
-    }
-    managerProxy->callMethodAsync("GetSession")
-        .onInterface(kLogindManagerInterface)
-        .withArguments(std::string(sessionId))
-        .uponReplyInvoke([token, attach, byPid, id = std::string(sessionId)](
-                             std::optional<sdbus::Error> e, sdbus::ObjectPath path
-                         ) {
-          if (token.expired()) {
-            return;
-          }
-          if (e.has_value()) {
-            kLog.debug("failed to resolve logind session via XDG_SESSION_ID={}: {}", id, e->what());
-            byPid();
-            return;
-          }
-          attach(path);
-        });
+  // Empty means "the caller's session"; System1 resolves it by pid, then by the user's display session.
+  static std::string sessionId() {
+    const char* id = std::getenv("XDG_SESSION_ID");
+    return id != nullptr ? std::string(id) : std::string();
   }
 
   void clearBacklightWatches() {
@@ -1212,11 +1168,11 @@ struct BrightnessService::Impl {
   void setBacklightBrightness(DisplayInternal& display, float value) {
     const auto rawValue = static_cast<std::uint32_t>(std::round(value * static_cast<float>(display.maxRaw)));
     const std::string& backlightName = display.backlightName.empty() ? display.pub.id : display.backlightName;
-    if (sessionProxy != nullptr) {
+    if (loginProxy != nullptr) {
       const std::weak_ptr<int> token = aliveToken;
-      sessionProxy->callMethodAsync("SetBrightness")
-          .onInterface(kLogindSessionInterface)
-          .withArguments(std::string("backlight"), backlightName, rawValue)
+      loginProxy->callMethodAsync("SetBrightness")
+          .onInterface(kSystem1LoginInterface)
+          .withArguments(sessionId(), std::string("backlight"), backlightName, rawValue)
           .uponReplyInvoke([this, token, id = display.pub.id, backlightName, rawValue, value](
                                std::optional<sdbus::Error> e
                            ) {
