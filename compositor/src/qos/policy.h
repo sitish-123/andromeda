@@ -39,6 +39,10 @@ namespace andromeda::qos {
     std::uint64_t hiddenLongMs = kHiddenLongDelayMs;
   };
 
+  // A held thaw intent (a workspace slide, the app switcher) reaches a scope only through a window that motion can
+  // show: windowless scopes and windows on other workspaces stay frozen.
+  [[nodiscard]] constexpr bool thawIntent(bool held, bool windowShown) { return held && windowShown; }
+
   class ScopePolicy {
   public:
     explicit ScopePolicy(Delays delays = {}) : m_delays(delays) {}

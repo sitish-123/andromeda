@@ -438,6 +438,10 @@ namespace andromeda {
     void flushArrange();
 
     [[nodiscard]] bool slideActive() const { return m_slide.base != nullptr; }
+    // The running slide can show this workspace: its source, its target, or a neighbour during a swipe.
+    [[nodiscard]] bool slideShows(const Workspace* workspace) const {
+      return slideActive() && (workspace == m_slide.base || workspace == m_slide.previous || workspace == m_slide.next);
+    }
     // Where the slide sits between its steps right now. A gesture that starts mid-settle picks the slide up here
     // instead of snapping it to an end first.
     [[nodiscard]] double slideProgress() const { return m_slide.base != nullptr ? m_slide.progress : 0.0; }

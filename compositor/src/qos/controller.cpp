@@ -281,6 +281,7 @@ namespace andromeda::qos {
       int windows = 0;
       bool neverThrottle = false;
       bool freezeWhenHidden = false;
+      bool thawShown = false;
       // The window units this scope follows (the launch scope of an app that moved into its own scope).
       std::vector<std::string> follows;
     };
@@ -308,6 +309,7 @@ namespace andromeda::qos {
         app.inputs.screenCast = app.inputs.screenCast || window.screenCast;
         app.neverThrottle = app.neverThrottle || window.rule == Rule::NeverThrottle;
         app.freezeWhenHidden = app.freezeWhenHidden || window.rule == Rule::FreezeWhenHidden;
+        app.thawShown = app.thawShown || window.thawShown;
         return app;
       };
       addWindow(cgroup);
@@ -367,7 +369,7 @@ namespace andromeda::qos {
       }
       AppInputs inputs = app.inputs;
       inputs.focused = (unit == m_focused || std::ranges::contains(app.follows, m_focused)) && inputs.visible;
-      inputs.thawIntent = m_thawHolds > 0;
+      inputs.thawIntent = thawIntent(m_thawHolds > 0, app.thawShown);
       inputs.freezeHidden = snapshot.freezeHiddenApps && registry().freezeHidden;
       inputs.rule = scope.rule;
       // A background service: an app unit with no mapped window.

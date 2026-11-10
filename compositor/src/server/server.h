@@ -1032,6 +1032,8 @@ namespace andromeda {
     std::unique_ptr<SystemdUnits> m_systemdUnits;
     std::unique_ptr<CpuBoost> m_cpuBoost;
     std::unique_ptr<qos::Controller> m_qos;
+    // Open app switcher surfaces: the switcher lists every mapped window (its default scope), so all of them thaw.
+    int m_windowSwitchers = 0;
     std::unique_ptr<AppsBus> m_appsBus; // after m_qos: its holds go through the controller
     void beginLaunchBusy(std::string token, std::string appId);
     void syncLaunchBusy();

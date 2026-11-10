@@ -81,6 +81,24 @@ ANDROMEDA_TEST(hiddenLongFreezesOnlyWithRuleOrPowerSaverAndIntentThaws) {
   }
 }
 
+ANDROMEDA_TEST(aSlideThawsOnlyScopesWithAWindowItCanShow) {
+  struct Scope {
+    bool windowShown;
+    bool thawsDuringSlide;
+  };
+  // A window on the slide's target workspace, a window on a far workspace, a windowless scope.
+  for (const Scope scope : {Scope{true, true}, Scope{false, false}, Scope{false, false}}) {
+    ScopePolicy policy;
+    AppInputs inputs{.freezeHidden = true};
+    policy.update(inputs, true, kStart);
+    CHECK(policy.update(inputs, true, kLongAt).frozen);
+    inputs.thawIntent = andromeda::qos::thawIntent(true, scope.windowShown);
+    CHECK(policy.update(inputs, true, kLongAt + 1).frozen == !scope.thawsDuringSlide);
+    inputs.thawIntent = andromeda::qos::thawIntent(false, scope.windowShown);
+    CHECK(policy.update(inputs, true, kLongAt + 2).frozen);
+  }
+}
+
 ANDROMEDA_TEST(promotionIsImmediateAndRestartsTheHiddenClock) {
   ScopePolicy policy;
   policy.update(kHidden, true, kStart);

@@ -83,10 +83,12 @@ namespace andromeda {
         ThawWatch* owner;
         owner = wl_container_of(listener, owner, destroy);
         wl_list_remove(&owner->destroy.link);
+        --owner->server->m_windowSwitchers;
         owner->server->holdQosThawIntent(false);
         delete owner;
       };
       wl_signal_add(&wlrLayer->events.destroy, &watch->destroy);
+      ++self->m_windowSwitchers;
       self->holdQosThawIntent(true);
     }
     self->m_layerSurfaces.push_back(std::move(surface));

@@ -1615,7 +1615,9 @@ namespace andromeda {
                  .rule = view->qosRule(),
                  .adoptable = !view->xwayland() && view->rootSurface() != nullptr
                      && (m_desktopShell == nullptr
-                         || !m_desktopShell->boundBy(wl_resource_get_client(view->rootSurface()->resource)))}
+                         || !m_desktopShell->boundBy(wl_resource_get_client(view->rootSurface()->resource))),
+                 .thawShown = m_windowSwitchers > 0
+                     || (view->workspace() != nullptr && view->workspace()->group()->slideShows(view->workspace()))}
             );
           }
         }

@@ -34,6 +34,7 @@ namespace andromeda::qos {
       Rule rule = Rule::Normal;
       // May get its own scope: a native Wayland client that is not the shell. An X11 pid is the client's own claim.
       bool adoptable = false;
+      bool thawShown = false; // the running workspace slide or the open app switcher can show it
     };
     struct Activity {
       pid_t pid = 0;
@@ -63,8 +64,8 @@ namespace andromeda::qos {
     // Keyboard focus moved to the client process pid. Focus on a process outside an app unit (the shell) keeps the
     // last app focused.
     void focus(pid_t pid);
-    // The user starts to reach hidden apps (the app switcher opens, a workspace swipe starts): frozen apps thaw until
-    // every hold ends.
+    // The user starts to reach hidden apps (the app switcher opens, a workspace swipe starts): frozen apps with a
+    // Snapshot::Window::thawShown window thaw until every hold ends.
     void holdThawIntent(bool held);
     // CpuBoost ended the launch weight of unit. Returns true when the unit is ours, so its tier weight goes back on.
     bool launchEnded(const std::string& unit);
