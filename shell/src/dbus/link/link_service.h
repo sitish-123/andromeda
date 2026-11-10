@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/timer_manager.h"
+#include "dbus/link/link_phone_state.h"
 #include "notification/notification.h"
 
 #include <chrono>
@@ -25,22 +26,6 @@ class SoundPlayer;
 namespace sdbus {
   class IProxy;
 } // namespace sdbus
-
-struct LinkDevice {
-  std::string id;
-  std::string name;
-  bool connected = false;
-};
-
-// What a connected phone reports about itself.
-struct LinkStatus {
-  std::uint32_t battery = 0;
-  bool charging = false;
-  // wifi, cellular, ethernet, none, or other.
-  std::string network;
-  // Cellular bars, 0 to 4; -1 without service.
-  std::int32_t signal = -1;
-};
 
 // A paired device's last session and how it is reached.
 struct LinkDeviceInfo {
@@ -116,18 +101,16 @@ struct LinkPairingOutcome {
 // looking for this desktop rings it until stopped. An incoming call offers mute and decline. Phones that share their
 // texts list them here, and texts go out through them. The daemon may start, stop, or restart at any time; available()
 // follows its bus name.
-class LinkService {
+class LinkService : public LinkPhoneState {
 public:
   using ChangeCallback = std::function<void()>;
+  using CallStatus = LinkCallStatus;
 
   LinkService(
       SessionBus& bus, NotificationManager& notifications, ClipboardService& clipboard,
       std::weak_ptr<SoundPlayer> sounds
   );
-  ~LinkService();
-
-  LinkService(const LinkService&) = delete;
-  LinkService& operator=(const LinkService&) = delete;
+  ~LinkService() override;
 
   void setChangeCallback(ChangeCallback callback);
 
@@ -141,18 +124,7 @@ public:
   [[nodiscard]] std::optional<TransferStatus> activeTransfer() const;
   void cancelTransfer(const std::string& transferId);
 
-  struct CallStatus {
-    std::string deviceId;
-    std::string caller;
-    // The phone's name, after the app for an app call: "Messenger · OnePlus 12".
-    std::string device;
-    bool ringing = false;
-    // When the call was answered; unset while it rings.
-    std::optional<std::chrono::steady_clock::time_point> since;
-  };
-  // The phone call that is ringing or active; empty when none.
-  [[nodiscard]] std::optional<CallStatus> activeCall() const;
-  void declineCall(const std::string& deviceId);
+  void declineCall(const std::string& deviceId) override;
   void muteCall(const std::string& deviceId);
 
   // Runs on each transfer progress or finish and on each call state change. While it is set, transfer progress
@@ -198,16 +170,11 @@ public:
   void registerIpc(IpcService& ipc);
 
   [[nodiscard]] bool available() const noexcept { return m_available; }
-  [[nodiscard]] const std::vector<LinkDevice>& devices() const noexcept { return m_devices; }
   void setLocalSendVisible(bool visible);
   [[nodiscard]] bool localSendVisible() const noexcept { return m_localSendVisible; }
   [[nodiscard]] const std::vector<LinkNearby>& nearby() const noexcept { return m_nearby; }
-  // The device's status while it is connected and has reported one.
-  [[nodiscard]] const LinkStatus* status(const std::string& deviceId) const;
   [[nodiscard]] const LinkDeviceInfo* info(const std::string& deviceId) const;
   [[nodiscard]] const LinkControls* controls(const std::string& deviceId) const;
-  // The phone notifications on show, those held while locked included.
-  [[nodiscard]] std::uint32_t notificationCount(const std::string& deviceId) const;
   // Devices whose file offers are accepted without asking.
   [[nodiscard]] const std::vector<std::string>& autoAccept() const noexcept { return m_autoAccept; }
   // The window this shell opened, while the daemon keeps it open.
@@ -239,7 +206,7 @@ public:
 private:
   void refresh();
   void apply(const std::map<std::string, sdbus::Variant>& properties);
-  // DeviceInfo, DeviceControls and NotificationCounts.
+  // DeviceInfo and DeviceControls.
   void applyDeviceState(const std::map<std::string, sdbus::Variant>& properties);
   void detach();
   void notify();
@@ -263,7 +230,7 @@ private:
       const std::string& app
   );
   void stopRinging();
-  [[nodiscard]] std::string deviceName(const std::string& deviceId) const;
+  [[nodiscard]] std::string deviceName(const std::string& deviceId) const override;
 
   struct ReceivedShare {
     bool link = false;
@@ -298,11 +265,8 @@ private:
   std::unordered_map<std::string, Transfer> m_transfers;
   std::uint64_t m_progressSerial = 0;
   ChangeCallback m_activityCallback;
-  std::optional<CallStatus> m_call;
   std::unordered_map<std::uint32_t, TransferAction> m_transferActions;
   std::vector<std::string> m_autoAccept;
-  std::map<std::string, std::vector<std::string>> m_grants;
-  std::map<std::string, LinkStatus> m_status;
   std::set<std::string> m_paused;
   std::map<std::string, std::chrono::steady_clock::time_point> m_connectDeadline;
   struct PhotoList {
@@ -318,7 +282,6 @@ private:
   void forgetPhotos(const std::string& deviceId);
   std::map<std::string, LinkDeviceInfo> m_info;
   std::map<std::string, LinkControls> m_controls;
-  std::map<std::string, std::uint32_t> m_notificationCounts;
   std::map<std::string, std::vector<LinkText>> m_texts;
   // Per phone, a number's last 9 digits to the contact's name.
   std::map<std::string, std::unordered_map<std::string, std::string>> m_contactNames;
@@ -341,7 +304,6 @@ private:
   std::unordered_map<std::string, std::uint32_t> m_callNotifications;
   std::unordered_map<std::uint32_t, std::string> m_callDevices;
   ChangeCallback m_changeCallback;
-  std::vector<LinkDevice> m_devices;
   std::optional<LinkPairing> m_pairing;
   std::optional<LinkPairingOutcome> m_outcome;
   bool m_available = false;

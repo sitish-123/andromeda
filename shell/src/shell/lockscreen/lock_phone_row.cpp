@@ -1,6 +1,6 @@
 #include "shell/lockscreen/lock_phone_row.h"
 
-#include "dbus/link/link_service.h"
+#include "dbus/link/link_phone_state.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "i18n/i18n.h"
@@ -67,7 +67,7 @@ std::unique_ptr<Flex> LockPhoneRow::create() {
   return row;
 }
 
-void LockPhoneRow::setServices(const LinkService* link) { m_link = link; }
+void LockPhoneRow::setServices(const LinkPhoneState* link) { m_link = link; }
 
 void LockPhoneRow::sync(const MprisService* mpris) {
   if (m_row == nullptr) {

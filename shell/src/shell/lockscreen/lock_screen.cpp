@@ -5,7 +5,7 @@
 #include "auth/face_authenticator.h"
 #include "auth/fingerprint_authenticator.h"
 #include "capture/screencopy_util.h"
-#include "dbus/link/link_service.h"
+#include "dbus/link/link_phone_state.h"
 #include "compositors/compositor_platform.h"
 #include "config/config_service.h"
 #include "config/config_types.h"
@@ -200,7 +200,7 @@ void LockScreen::setNotificationManager(const NotificationManager* notifications
   }
 }
 
-void LockScreen::setPhoneServices(LinkService* link) {
+void LockScreen::setPhoneServices(LinkPhoneState* link) {
   m_link = link;
   for (auto& instance : m_instances) {
     if (instance.surface != nullptr) {

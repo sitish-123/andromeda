@@ -60,7 +60,9 @@ struct MprisPlayerInfo {
 
 class MprisService {
 public:
-  explicit MprisService(SessionBus& bus);
+  // Without `serveControlApi` the service is a client only: it does not own dev.noctalia.Mpris, which the shell
+  // serves, and emits none of its signals.
+  explicit MprisService(SessionBus& bus, bool serveControlApi = true);
 
   [[nodiscard]] const std::unordered_map<std::string, MprisPlayerInfo>& players() const noexcept;
   [[nodiscard]] std::vector<MprisPlayerInfo> listPlayers() const;

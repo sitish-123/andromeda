@@ -4,6 +4,7 @@
 #include <string>
 #include <string_view>
 
+class LinkPhoneState;
 class LinkService;
 struct LinkDevice;
 struct LinkStatus;
@@ -12,7 +13,7 @@ struct LinkStatus;
 namespace phone {
 
   // The phone the shell shows: the first connected one, else the first paired one.
-  [[nodiscard]] const LinkDevice* primary(const LinkService& link);
+  [[nodiscard]] const LinkDevice* primary(const LinkPhoneState& link);
   // Wi-Fi or Bluetooth while connected, else when the phone was last seen.
   [[nodiscard]] std::string connectionText(const LinkService& link, const LinkDevice& device);
   // "42%", or "42%, charging".

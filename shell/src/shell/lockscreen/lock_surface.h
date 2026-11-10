@@ -47,7 +47,7 @@ class Image;
 class Input;
 class Label;
 class LockscreenTransitionCover;
-class LinkService;
+class LinkPhoneState;
 class MprisService;
 class Renderer;
 class SessionActionRunner;
@@ -126,7 +126,7 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
-  void setPhoneServices(const LinkService* link);
+  void setPhoneServices(const LinkPhoneState* link);
   void setNotificationManager(const NotificationManager* notifications);
   void selectAllPassword();
   void clearPasswordSelection();
@@ -246,7 +246,7 @@ private:
   std::function<void(const std::string&)> m_onDeclineCall;
   // Device whose ringing call the user chose to decline on this surface.
   std::string m_declinePending;
-  const LinkService* m_link = nullptr;
+  const LinkPhoneState* m_link = nullptr;
   const NotificationManager* m_notifications = nullptr;
   Flex* m_infoRow = nullptr;
   Flex* m_mediaBlock = nullptr;

@@ -43,23 +43,11 @@ void LinkService::applyDeviceState(const std::map<std::string, sdbus::Variant>& 
       kLog.warn("malformed DeviceControls: {}", e.what());
     }
   }
-  if (const auto it = properties.find("NotificationCounts"); it != properties.end()) {
-    try {
-      m_notificationCounts = it->second.get<std::map<std::string, std::uint32_t>>();
-    } catch (const sdbus::Error& e) {
-      kLog.warn("malformed NotificationCounts: {}", e.what());
-    }
-  }
 }
 
 const LinkDeviceInfo* LinkService::info(const std::string& deviceId) const {
   const auto it = m_info.find(deviceId);
   return it != m_info.end() ? &it->second : nullptr;
-}
-
-std::uint32_t LinkService::notificationCount(const std::string& deviceId) const {
-  const auto it = m_notificationCounts.find(deviceId);
-  return it != m_notificationCounts.end() ? it->second : 0;
 }
 
 const LinkControls* LinkService::controls(const std::string& deviceId) const {

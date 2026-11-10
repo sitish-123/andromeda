@@ -33,7 +33,7 @@ class FaceAuthenticator;
 class FingerprintAuthenticator;
 class HttpClient;
 class LockSurface;
-class LinkService;
+class LinkPhoneState;
 class LockClient;
 class MprisService;
 class RenderContext;
@@ -61,7 +61,7 @@ public:
   void setLoginBoxServices(
       SessionActionRunner* sessionActions, MprisService* mpris, const WeatherService* weather, HttpClient* httpClient
   );
-  void setPhoneServices(LinkService* link);
+  void setPhoneServices(LinkPhoneState* link);
   // While the client delegates, the lock process (`noctalia lock`) owns the lock: lock(), state, captures and output
   // power-off go to it, and the session hooks fire from its state. Without the process (and no lock it left held), or
   // while this instance has its own lock pending or held, everything stays in process.
@@ -253,7 +253,7 @@ private:
   MprisService* m_mpris = nullptr;
   const WeatherService* m_weather = nullptr;
   HttpClient* m_httpClient = nullptr;
-  LinkService* m_link = nullptr;
+  LinkPhoneState* m_link = nullptr;
   LockClient* m_remote = nullptr;
   std::function<void()> m_remoteAfterLocked;
   // Decline pressed on the call card: declined after the next successful unlock if that call still rings.

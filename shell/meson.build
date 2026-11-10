@@ -445,6 +445,8 @@ _noctalia_sources = files(
   'src/dbus/notification/notification_service.cpp',
   'src/dbus/link/link_service.cpp',
   'src/dbus/link/link_device_state.cpp',
+  'src/dbus/link/link_lock_client.cpp',
+  'src/dbus/link/link_phone_state.cpp',
   'src/dbus/link/quickshare_service.cpp',
   'src/dbus/andromeda/lock_service.cpp',
   'src/dbus/andromeda/shell_service.cpp',

@@ -1,6 +1,6 @@
 #include "shell/lockscreen/lock_cards.h"
 
-#include "dbus/link/link_service.h"
+#include "dbus/link/link_phone_state.h"
 #include "dbus/mpris/mpris_art.h"
 #include "dbus/mpris/mpris_service.h"
 #include "i18n/i18n.h"
@@ -526,7 +526,7 @@ LockCards::Control LockCards::hitTest(float x, float y) const {
 }
 
 LockCards::Data collectLockCards(
-    const MprisService* mpris, const LinkService* link, const NotificationManager* notifications
+    const MprisService* mpris, const LinkPhoneState* link, const NotificationManager* notifications
 ) {
   LockCards::Data data;
   if (mpris != nullptr) {

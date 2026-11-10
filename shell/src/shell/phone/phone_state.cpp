@@ -11,7 +11,7 @@
 
 namespace phone {
 
-  const LinkDevice* primary(const LinkService& link) {
+  const LinkDevice* primary(const LinkPhoneState& link) {
     const auto& devices = link.devices();
     if (devices.empty()) {
       return nullptr;

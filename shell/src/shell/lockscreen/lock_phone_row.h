@@ -6,7 +6,7 @@
 class Flex;
 class Glyph;
 class Label;
-class LinkService;
+class LinkPhoneState;
 class MprisService;
 class Renderer;
 
@@ -15,14 +15,14 @@ class Renderer;
 class LockPhoneRow {
 public:
   [[nodiscard]] std::unique_ptr<Flex> create();
-  void setServices(const LinkService* link);
+  void setServices(const LinkPhoneState* link);
   // Update phase: copies the phone's state, and its player from `mpris`, into the row.
   void sync(const MprisService* mpris);
   // Layout phase: places the row, or hides it when `shown` is false or there is nothing to show.
   void layout(Renderer& renderer, float screenWidth, float screenHeight, bool shown);
 
 private:
-  const LinkService* m_link = nullptr;
+  const LinkPhoneState* m_link = nullptr;
   Flex* m_row = nullptr;
   Glyph* m_battery = nullptr;
   Label* m_phone = nullptr;

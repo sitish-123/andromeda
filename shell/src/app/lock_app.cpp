@@ -13,6 +13,7 @@
 #include "core/log.h"
 #include "core/timer_manager.h"
 #include "dbus/andromeda/lock_service.h"
+#include "dbus/link/link_lock_client.h"
 #include "dbus/logind/logind_service.h"
 #include "dbus/mpris/mpris_service.h"
 #include "dbus/power/power_profiles_service.h"
@@ -112,6 +113,7 @@ namespace {
       initBuses();
       m_lock.initialize(m_wayland, &m_renderContext, &m_config, &m_textures, m_systemBus.get(), &m_platform);
       m_lock.setLoginBoxServices(&m_sessionActions, m_mpris.get(), &m_weather, &m_http);
+      m_lock.setPhoneServices(m_link.get());
       initWidgets();
       initHooks();
       initInput();
@@ -172,9 +174,21 @@ namespace {
       try {
         m_sessionBus = std::make_unique<SessionBus>();
         m_sessionBusPoll = std::make_unique<SessionBusPollSource>(*m_sessionBus);
-        m_mpris = std::make_unique<MprisService>(*m_sessionBus);
+        m_mpris = std::make_unique<MprisService>(*m_sessionBus, false);
       } catch (const std::exception& e) {
         kLog.warn("session bus: {}", e.what());
+      }
+      if (m_sessionBus != nullptr) {
+        try {
+          m_link = std::make_unique<LinkLockClient>(*m_sessionBus);
+          m_link->setChangeCallback([this] {
+            if (m_lock.isActive()) {
+              m_lock.requestUpdate();
+            }
+          });
+        } catch (const std::exception& e) {
+          kLog.warn("link client: {}", e.what());
+        }
       }
     }
 
@@ -485,6 +499,7 @@ namespace {
     std::unique_ptr<SessionBus> m_sessionBus;
     std::unique_ptr<SessionBusPollSource> m_sessionBusPoll;
     std::unique_ptr<MprisService> m_mpris;
+    std::unique_ptr<LinkLockClient> m_link;
 
     LockScreen m_lock;
     SessionActionRunner m_sessionActions{m_platform, m_lock};

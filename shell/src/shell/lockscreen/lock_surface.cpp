@@ -5,7 +5,7 @@
 #include "core/files/resource_paths.h"
 #include "core/log.h"
 #include "core/ui_phase.h"
-#include "dbus/link/link_service.h"
+#include "dbus/link/link_phone_state.h"
 #include "shell/session/power_inhibitors.h"
 
 #include <cstdlib>
@@ -689,7 +689,7 @@ void LockSurface::setNotificationManager(const NotificationManager* notification
   requestUpdate();
 }
 
-void LockSurface::setPhoneServices(const LinkService* link) {
+void LockSurface::setPhoneServices(const LinkPhoneState* link) {
   m_link = link;
   m_phoneRow.setServices(link);
   requestUpdate();

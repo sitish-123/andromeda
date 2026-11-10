@@ -362,9 +362,11 @@ std::string logicalTrackSignature(const MprisPlayerInfo& info) {
   return std::format("{}\n{}\n{}\n{}", info.trackId, info.title, joinedArtists(info.artists), info.album);
 }
 
-MprisService::MprisService(SessionBus& bus)
+MprisService::MprisService(SessionBus& bus, bool serveControlApi)
     : m_bus(bus), m_dbusProxy(sdbus::createProxy(bus.connection(), kDbusName, kDbusPath)) {
-  registerControlApi();
+  if (serveControlApi) {
+    registerControlApi();
+  }
   registerBusSignals();
   discoverPlayers();
   scheduleStartupRediscovery();
@@ -1464,6 +1466,9 @@ void MprisService::registerControlApi() {
 }
 
 void MprisService::emitPlayersChanged() {
+  if (m_controlObject == nullptr) {
+    return;
+  }
   std::vector<std::map<std::string, sdbus::Variant>> players;
   for (const auto& player : listPlayers()) {
     players.push_back(to_dbus_player(player));
@@ -1473,6 +1478,9 @@ void MprisService::emitPlayersChanged() {
 }
 
 void MprisService::emitActivePlayerChanged() {
+  if (m_controlObject == nullptr) {
+    return;
+  }
   const auto active = activePlayer();
   if (!active.has_value()) {
     m_controlObject->emitSignal("ActivePlayerChanged")
@@ -1487,6 +1495,9 @@ void MprisService::emitActivePlayerChanged() {
 }
 
 void MprisService::emitTrackChanged(const MprisPlayerInfo& player) {
+  if (m_controlObject == nullptr) {
+    return;
+  }
   m_controlObject->emitSignal("TrackChanged")
       .onInterface(kNoctaliaMprisInterface)
       .withArguments(player.busName, to_dbus_player(player));

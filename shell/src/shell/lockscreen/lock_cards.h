@@ -14,7 +14,7 @@
 class Glyph;
 class Image;
 class Label;
-class LinkService;
+class LinkPhoneState;
 class MprisService;
 class Node;
 class NotificationManager;
@@ -140,5 +140,5 @@ private:
 
 // Lock card data from the shell services; any service may be null. Notification content never enters it.
 [[nodiscard]] LockCards::Data collectLockCards(
-    const MprisService* mpris, const LinkService* link, const NotificationManager* notifications
+    const MprisService* mpris, const LinkPhoneState* link, const NotificationManager* notifications
 );

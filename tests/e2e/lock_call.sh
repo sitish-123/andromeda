@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Rulebook 9.15 call card on the lock screen, against a real andromeda-linkd, a headless phone and mock_gaze.py. Proves:
 # a call that rings while locked shows the call card; Decline on the card does not reach the phone while the session
-# is locked; the next unlock (face match) declines that call; an unlock without Decline leaves a ringing call alone.
-# No password is ever submitted. Writes call-card.png, decline-pending.png, steps.txt, hold.jsonl, calls.txt to $OUT
+# is locked; the next unlock (face match) declines that call; an unlock without Decline leaves a ringing call alone;
+# the same card and Decline work with the lock delegated to `noctalia lock`. No password is ever submitted. Writes
+# call-card.png, decline-pending.png, call-card-process.png, media-process.png, steps.txt, hold.jsonl, calls.txt to $OUT
 # (default ./artifacts/lock-call).
 set -euo pipefail
 OUT=${OUT:-$(pwd)/artifacts/lock-call}
@@ -87,11 +88,41 @@ with_noctalia '
   sleep 1 # real time: a stray decline would reach the phone well within this
   [[ $(declines) == 1 ]] || fail "an unlock without Decline declined the call"
   step "unlock without Decline: the ringing call stays"
+
+  # Delegated: the lock process (`noctalia lock`) draws the lock; its own read-only Link1 client feeds the card.
+  say "call {\"state\":\"idle\"}"
+  "$NOCTALIA" lock > "$OUT/lock-process.log" 2>&1 &
+  lockproc=$!
+  wait_for "the shell does not delegate to the lock process" grep -q "delegates every lock" "$OUT/noctalia.log"
+  lock
+  grep -q "lock requested (user)" "$OUT/lock-process.log" || fail "the lock process did not take the lock"
+  say "call {\"state\":\"ringing\",\"number\":\"+1 555 0142\",\"name\":\"Grace Hopper\"}"
+  wait_for "the third call never reached the shell" activity_has "Grace Hopper"
+  sleep 2 # real time: the enter transition ends (the surface takes no input before) and the card paints
+  grim "$OUT/call-card-process.png"
+  "$KEYS" 1280 720 move 546 340 click 272 > /dev/null
+  sleep 1 # real time: a decline sent now would reach the phone well within this
+  [[ $(declines) == 1 ]] || fail "Decline reached the phone while the lock process held the lock"
+  face_unlock process
+  wait_for "the lock process did not decline the call on unlock" eval "[[ \$(declines) == 2 ]]"
+  step "lock process: call card shown; Decline reached the daemon on unlock"
+  say "call {\"state\":\"idle\"}"
+  python3 "$E2E/mpris_test_player.py" "$OUT/player-calls.txt" > /dev/null 2>&1 &
+  player=$!
+  ! grep -q "session bus:" "$OUT/lock-process.log" || fail "the lock process has no session services"
+  lock
+  sleep 2 # real time: the enter transition ends and the media card paints
+  grim "$OUT/media-process.png"
+  face_unlock media
+  step "lock process: media card shot with the shell running"
+  kill "$player"
+  kill "$lockproc"
+  wait "$lockproc" || true
   kill "$hold"
   wait "$hold" || true
 '
 cat "$OUT/steps.txt"
-for shot in call-card decline-pending; do
+for shot in call-card decline-pending call-card-process media-process; do
   [[ -s $OUT/$shot.png ]] || { echo "FAIL: no $shot.png" >&2; exit 1; }
 done
 echo "PASS; artifacts: $OUT"

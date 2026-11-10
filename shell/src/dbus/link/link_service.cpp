@@ -256,15 +256,8 @@ void LinkService::refresh() {
 }
 
 void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties) {
-  if (const auto it = properties.find("Devices"); it != properties.end()) {
-    try {
-      m_devices.clear();
-      for (const auto& device : it->second.get<std::vector<sdbus::Struct<std::string, std::string, bool>>>()) {
-        m_devices.push_back({.id = device.get<0>(), .name = device.get<1>(), .connected = device.get<2>()});
-      }
-    } catch (const sdbus::Error& e) {
-      kLog.warn("malformed Devices: {}", e.what());
-    }
+  applyPhoneProperties(properties);
+  if (properties.contains("Devices")) {
     for (const LinkDevice& device : m_devices) {
       if (device.connected) {
         m_connectDeadline.erase(device.id);
@@ -296,22 +289,6 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       }
     } catch (const sdbus::Error& e) {
       kLog.warn("malformed Nearby: {}", e.what());
-    }
-  }
-  if (const auto it = properties.find("DeviceStatus"); it != properties.end()) {
-    try {
-      m_status.clear();
-      for (const auto& [id, status] :
-           it->second.get<std::map<std::string, sdbus::Struct<std::uint32_t, bool, std::string, std::int32_t>>>()) {
-        m_status[id] = LinkStatus{
-            .battery = status.get<0>(),
-            .charging = status.get<1>(),
-            .network = status.get<2>(),
-            .signal = status.get<3>(),
-        };
-      }
-    } catch (const sdbus::Error& e) {
-      kLog.warn("malformed DeviceStatus: {}", e.what());
     }
   }
   if (const auto it = properties.find("Texts"); it != properties.end()) {
@@ -351,13 +328,6 @@ void LinkService::apply(const std::map<std::string, sdbus::Variant>& properties)
       kLog.warn("malformed Contacts: {}", e.what());
     }
   }
-  if (const auto it = properties.find("Grants"); it != properties.end()) {
-    try {
-      m_grants = it->second.get<std::map<std::string, std::vector<std::string>>>();
-    } catch (const sdbus::Error& e) {
-      kLog.warn("malformed Grants: {}", e.what());
-    }
-  }
   if (const auto it = properties.find("Commands"); it != properties.end()) {
     try {
       m_commands.clear();
@@ -393,11 +363,9 @@ void LinkService::detach() {
     return;
   }
   m_available = false;
-  m_devices.clear();
-  m_status.clear();
+  clearPhoneState();
   m_info.clear();
   m_controls.clear();
-  m_notificationCounts.clear();
   m_texts.clear();
   m_contactNames.clear();
   m_nearby.clear();
@@ -586,16 +554,6 @@ void LinkService::setGrant(const std::string& deviceId, const std::string& featu
       .uponReplyInvoke([](std::optional<sdbus::Error> error) { logFailure("SetGrant", error); });
 }
 
-const LinkStatus* LinkService::status(const std::string& deviceId) const {
-  const auto it = m_status.find(deviceId);
-  return it != m_status.end() ? &it->second : nullptr;
-}
-
-bool LinkService::granted(const std::string& deviceId, std::string_view feature) const {
-  const auto it = m_grants.find(deviceId);
-  return it != m_grants.end() && std::ranges::contains(it->second, feature);
-}
-
 void LinkService::callTransfer(const char* method, const std::string& transferId) {
   m_link->callMethodAsync(method)
       .onInterface(kLinkInterface)
@@ -715,8 +673,6 @@ std::optional<LinkService::TransferStatus> LinkService::activeTransfer() const {
 void LinkService::setActivityCallback(ChangeCallback callback) { m_activityCallback = std::move(callback); }
 
 void LinkService::cancelTransfer(const std::string& transferId) { callTransfer("CancelTransfer", transferId); }
-
-std::optional<LinkService::CallStatus> LinkService::activeCall() const { return m_call; }
 
 void LinkService::declineCall(const std::string& deviceId) {
   m_link->callMethodAsync("CallAction")
@@ -1103,22 +1059,7 @@ void LinkService::onCall(
     const std::string& app
 ) {
   const bool wasRinging = m_call.has_value() && m_call->deviceId == deviceId && m_call->ringing;
-  if (state == "ringing" || state == "active") {
-    const std::string who =
-        !name.empty() ? name : (!number.empty() ? number : i18n::tr("notifications.internal.link-call-unknown"));
-    const bool wasActive = m_call.has_value() && m_call->deviceId == deviceId && m_call->since.has_value();
-    m_call = CallStatus{
-        .deviceId = deviceId,
-        .caller = who,
-        .device = app.empty() ? deviceName(deviceId) : app + " · " + deviceName(deviceId),
-        .ringing = state == "ringing",
-        .since = state == "ringing" ? std::nullopt
-            : wasActive             ? m_call->since
-                                    : std::optional(std::chrono::steady_clock::now()),
-    };
-  } else if (m_call.has_value() && m_call->deviceId == deviceId) {
-    m_call.reset();
-  }
+  applyCall(deviceId, state, number, name, app);
   if (m_activityCallback) {
     m_activityCallback();
     // The island shows the call and its actions; the alert sound replaces the toast's.
