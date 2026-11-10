@@ -145,7 +145,7 @@ void LogindService::setLockBeforeSuspendEnabled(bool enabled) {
     releaseSleepDelayInhibit();
     return;
   }
-  (void)acquireSleepDelayInhibit();
+  acquireSleepDelayInhibit();
 }
 
 void LogindService::setPrepareForSleepCallback(PrepareForSleepCallback callback) {
@@ -218,21 +218,23 @@ void LogindService::releaseIdleInhibit() {
   kLog.debug("logind idle inhibit released");
 }
 
-bool LogindService::hasSleepDelayInhibit() const noexcept { return m_sleepDelayInhibitFd >= 0; }
-
-// The lock is async: a PrepareForSleep before the reply proceeds without the delay lock.
-bool LogindService::acquireSleepDelayInhibit() {
-  if (m_sleepDelayInhibitFd >= 0) {
-    return true;
+// The lock is async: a suspend that starts while Pending runs without the delay. logind ignores lid
+// events for HoldoffTimeoutSec (30 s) after resume, so only a scripted suspend can land in that window.
+void LogindService::acquireSleepDelayInhibit() {
+  switch (m_sleepDelay) {
+  case SleepDelay::Held:
+  case SleepDelay::Pending:
+    return;
+  case SleepDelay::PendingCancelled:
+    m_sleepDelay = SleepDelay::Pending;
+    return;
+  case SleepDelay::None:
+    break;
   }
   if (m_managerProxy == nullptr) {
-    return false;
+    return;
   }
-  m_sleepDelayInhibitCancelled = false;
-  if (m_sleepDelayInhibitPending) {
-    return true;
-  }
-  m_sleepDelayInhibitPending = true;
+  m_sleepDelay = SleepDelay::Pending;
 
   const std::weak_ptr<int> aliveToken = m_aliveToken;
   m_managerProxy->callMethodAsync("Inhibit")
@@ -244,13 +246,14 @@ bool LogindService::acquireSleepDelayInhibit() {
         if (aliveToken.expired()) {
           return;
         }
-        m_sleepDelayInhibitPending = false;
+        const bool cancelled = m_sleepDelay == SleepDelay::PendingCancelled;
+        m_sleepDelay = SleepDelay::None;
         if (e.has_value()) {
           kLog.warn("failed to acquire logind sleep delay inhibit: {}", e->what());
           return;
         }
         const int rawFd = fd.release();
-        if (m_sleepDelayInhibitCancelled) {
+        if (cancelled) {
           if (rawFd >= 0) {
             ::close(rawFd);
           }
@@ -266,19 +269,24 @@ bool LogindService::acquireSleepDelayInhibit() {
           return;
         }
         m_sleepDelayInhibitFd = rawFd;
+        m_sleepDelay = SleepDelay::Held;
         kLog.info("logind sleep delay inhibit acquired");
       });
-  return true;
 }
 
 void LogindService::releaseSleepDelayInhibit() {
-  if (m_sleepDelayInhibitPending) {
-    m_sleepDelayInhibitCancelled = true;
-  }
-  if (m_sleepDelayInhibitFd < 0) {
+  switch (m_sleepDelay) {
+  case SleepDelay::Pending:
+    m_sleepDelay = SleepDelay::PendingCancelled;
+    return;
+  case SleepDelay::Held:
+    ::close(m_sleepDelayInhibitFd);
+    m_sleepDelayInhibitFd = -1;
+    m_sleepDelay = SleepDelay::None;
+    kLog.info("logind sleep delay inhibit released");
+    return;
+  case SleepDelay::None:
+  case SleepDelay::PendingCancelled:
     return;
   }
-  ::close(m_sleepDelayInhibitFd);
-  m_sleepDelayInhibitFd = -1;
-  kLog.info("logind sleep delay inhibit released");
 }

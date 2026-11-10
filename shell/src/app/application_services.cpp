@@ -360,28 +360,22 @@ void Application::syncNotificationDaemon() {
   if (m_bus == nullptr) {
     m_notificationPollSource.setDbusService(nullptr);
     m_notificationDbus.reset();
-    m_notificationDaemonEnabled.reset();
-    m_notificationDaemonInitFailed = false;
+    m_notificationDaemonMode = NotificationDaemonMode::Unset;
     return;
   }
 
-  const bool enabled = m_configService.config().notification.enableDaemon;
-  const bool enabledChanged = !m_notificationDaemonEnabled.has_value() || *m_notificationDaemonEnabled != enabled;
-  m_notificationDaemonEnabled = enabled;
-
-  if (!enabled) {
-    if (m_notificationDbus != nullptr) {
+  if (!m_configService.config().notification.enableDaemon) {
+    if (m_notificationDaemonMode == NotificationDaemonMode::Owner) {
       kLog.info("notification daemon disabled by config");
     }
     m_notificationPollSource.setDbusService(nullptr);
     m_notificationDbus.reset();
-    m_notificationDaemonInitFailed = false;
+    m_notificationDaemonMode = NotificationDaemonMode::Disabled;
     return;
   }
 
-  if (m_notificationDbus != nullptr) {
+  if (m_notificationDaemonMode == NotificationDaemonMode::Owner) {
     if (m_notificationDbus->isHealthy()) {
-      m_notificationDaemonInitFailed = false;
       return;
     }
     kLog.info("notification daemon connection lost; re-registering");
@@ -389,20 +383,20 @@ void Application::syncNotificationDaemon() {
     m_notificationDbus.reset();
   }
 
-  if (m_notificationDaemonInitFailed && !enabledChanged) {
+  if (m_notificationDaemonMode == NotificationDaemonMode::Failed) {
     return;
   }
 
   try {
     m_notificationDbus = std::make_unique<NotificationService>(*m_bus, m_notificationManager);
     m_notificationPollSource.setDbusService(m_notificationDbus.get());
-    m_notificationDaemonInitFailed = false;
+    m_notificationDaemonMode = NotificationDaemonMode::Owner;
     kLog.info("listening on org.freedesktop.Notifications");
   } catch (const std::exception& ownerError) {
     kLog.warn("notifications disabled: {}", ownerError.what());
     m_notificationDbus.reset();
     m_notificationPollSource.setDbusService(nullptr);
-    m_notificationDaemonInitFailed = true;
+    m_notificationDaemonMode = NotificationDaemonMode::Failed;
     m_notificationManager.addInternal(
         "Noctalia", i18n::tr("notifications.internal.dbus-disabled"), ownerError.what(), Urgency::Low
     );
@@ -424,7 +418,9 @@ void Application::installNotificationBusNameWatch() {
           return;
         }
         DeferredCall::callLater([this] {
-          m_notificationDaemonInitFailed = false;
+          if (m_notificationDaemonMode == NotificationDaemonMode::Failed) {
+            m_notificationDaemonMode = NotificationDaemonMode::Unset;
+          }
           syncNotificationDaemon();
         });
       });
@@ -1361,14 +1357,22 @@ void Application::initAuxServicesAndHooks() {
   }
 }
 
-void Application::releaseSleepDelayInhibitIfPending() {
-  if (!m_releaseSleepDelayWhenLocked) {
-    return;
-  }
-  m_releaseSleepDelayWhenLocked = false;
-  if (m_logindService != nullptr) {
-    m_logindService->releaseSleepDelayInhibit();
-  }
+LockBeforeSleep::Hooks Application::lockBeforeSleepHooks() {
+  return {
+      .enabled = [this] { return m_configService.shouldLockBeforeSuspend() && m_logindService != nullptr; },
+      .lockReadyForSleep = [this] { return m_lockScreen.isReadyForSleep(); },
+      .lockHeldOrQueued = [this] { return m_lockScreen.isLockHeldOrQueued(); },
+      .lockTearingDown = [this] { return m_lockScreen.isTearingDown(); },
+      .lock = [this] { return m_lockScreen.lockForSleep(); },
+      .prepareLockForSleep = [this] { m_lockScreen.prepareForSleep(); },
+      .acquireDelay = [this] { m_logindService->acquireSleepDelayInhibit(); },
+      .releaseDelay =
+          [this] {
+            if (m_logindService != nullptr) {
+              m_logindService->releaseSleepDelayInhibit();
+            }
+          },
+  };
 }
 
 void Application::initSystemBusServices() {
@@ -1413,58 +1417,11 @@ void Application::initSystemBusServices() {
             // Screen time must not accumulate across suspend even when lock-before-suspend is off.
             m_screenTimeService.setSuspendPaused(true);
             // The readiness hook releases the delay inhibit after the revealed lock frames are acknowledged.
-            if (m_skipLockOnNextSleep) {
-              // Noctalia-initiated suspend: skip lock-before-sleep (plain Suspend or already locked).
-              m_skipLockOnNextSleep = false;
-              m_releaseSleepDelayWhenLocked = false;
-              if (m_logindService != nullptr) {
-                m_logindService->releaseSleepDelayInhibit();
-              }
-              return;
-            }
-            if (!m_configService.shouldLockBeforeSuspend()) {
-              m_releaseSleepDelayWhenLocked = false;
-              if (m_logindService != nullptr) {
-                m_logindService->releaseSleepDelayInhibit();
-              }
-              return;
-            }
-            if (m_lockScreen.isReadyForSleep()) {
-              m_releaseSleepDelayWhenLocked = false;
-              if (m_logindService != nullptr) {
-                m_logindService->releaseSleepDelayInhibit();
-              }
-              return;
-            }
-            m_releaseSleepDelayWhenLocked = true;
-            if (m_lockScreen.isActive()) {
-              m_lockScreen.prepareForSleep();
-              return;
-            }
-            if (!m_lockScreen.lock()) {
-              m_releaseSleepDelayWhenLocked = false;
-              if (m_logindService != nullptr) {
-                m_logindService->releaseSleepDelayInhibit();
-              }
-              return;
-            }
-            // Deferred lock (no outputs yet) never reaches SessionLocked; do not block sleep.
-            // lock() re-armed grace above; a sleep-bound lock must never offer it.
-            m_lockScreen.prepareForSleep();
-            if (!m_lockScreen.isActive()) {
-              m_releaseSleepDelayWhenLocked = false;
-              if (m_logindService != nullptr) {
-                m_logindService->releaseSleepDelayInhibit();
-              }
-            }
+            m_lockBeforeSleep.onPrepareForSleep(true);
             return;
           }
-          m_skipLockOnNextSleep = false;
-          m_releaseSleepDelayWhenLocked = false;
           m_screenTimeService.setSuspendPaused(false);
-          if (m_configService.shouldLockBeforeSuspend() && m_logindService != nullptr) {
-            (void)m_logindService->acquireSleepDelayInhibit();
-          }
+          m_lockBeforeSleep.onPrepareForSleep(false);
           kLog.info("system resumed; rechecking night light and auto theme schedules");
           // Drivers may discard glyph textures while suspended without reporting a
           // full graphics reset. Re-rasterize them before the resumed surfaces paint.

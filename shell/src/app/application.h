@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/deferred_call_poll_source.h"
+#include "app/lock_before_sleep.h"
 #include "app/modules/bluetooth_module.h"
 #include "app/modules/mpris_module.h"
 #include "app/modules/network_module.h"
@@ -286,7 +287,7 @@ private:
   void onGraphicsReset(RenderGraphicsResetStatus status);
   void recoverGraphicsAfterReset();
   void requestAllSurfacesRedraw();
-  void releaseSleepDelayInhibitIfPending();
+  [[nodiscard]] LockBeforeSleep::Hooks lockBeforeSleepHooks();
   void onUpowerStateChangedForHooks();
   // Battery and network for the lock screen's status island.
   void refreshLockStatus();
@@ -355,10 +356,7 @@ private:
   std::unique_ptr<SystemBus> m_systemBus;
   std::unique_ptr<LogindService> m_logindService;
   std::unique_ptr<PowerConfigService> m_powerConfigService;
-  // Set on PrepareForSleep(true); cleared when the session lock engages (or the lock aborts).
-  bool m_releaseSleepDelayWhenLocked = false;
-  // Set before Noctalia-initiated suspend so PrepareForSleep skips lock-before-sleep.
-  bool m_skipLockOnNextSleep = false;
+  LockBeforeSleep m_lockBeforeSleep{lockBeforeSleepHooks()};
   std::uint64_t m_outputPowerRequestGeneration = 0;
   std::unique_ptr<AccountsService> m_accountsService;
   std::unique_ptr<ScreenSaverPollSource> m_screenSaverPollSource;
@@ -441,8 +439,9 @@ private:
   std::unique_ptr<ModemManagerService> m_modemManagerService;
   Timer m_bluetoothResumeTimer;
   std::unique_ptr<PolkitAgent> m_polkitAgent;
-  std::optional<bool> m_notificationDaemonEnabled;
-  bool m_notificationDaemonInitFailed = false;
+  // Owner holds m_notificationDbus; Unset means not yet tried, so the next sync claims the name.
+  enum class NotificationDaemonMode { Unset, Disabled, Owner, Failed };
+  NotificationDaemonMode m_notificationDaemonMode = NotificationDaemonMode::Unset;
   bool m_notificationShellRefreshScheduled = false;
   BatteryHookState m_batteryHookState;
   BatteryWarningMonitor m_batteryWarningMonitor;

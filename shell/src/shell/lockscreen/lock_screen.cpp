@@ -119,7 +119,29 @@ LockScreen::~LockScreen() {
   m_aliveGuard.reset();
   invalidatePendingAuthentication();
   clearInstances();
-  resetLockState();
+  cancelPendingAfterLocked();
+  cancelOutputPowerOff();
+  // Never unlocks: a lock process stopped by a signal must leave the session locked.
+  releaseLockObject(m_lifecycle.on(LockLifecycle::Event::Abandon).wire);
+}
+
+void LockScreen::releaseLockObject(LockLifecycle::Wire wire) {
+  if (m_lock == nullptr) {
+    return;
+  }
+  switch (wire) {
+  case LockLifecycle::Wire::UnlockAndDestroy:
+    ext_session_lock_v1_unlock_and_destroy(m_lock);
+    kLog.info("session unlock requested");
+    break;
+  case LockLifecycle::Wire::Destroy:
+    ext_session_lock_v1_destroy(m_lock);
+    break;
+  case LockLifecycle::Wire::None:
+    wl_proxy_destroy(reinterpret_cast<wl_proxy*>(m_lock));
+    break;
+  }
+  m_lock = nullptr;
 }
 
 bool LockScreen::initialize(
@@ -228,7 +250,10 @@ bool LockScreen::lock(bool relock) {
   if (m_compositorPlatform != nullptr && m_compositorPlatform->shouldSuppressLockTransition()) {
     suppressEntryTransition();
   }
-  if (isActive() || m_lockStarting) {
+  if (m_lifecycle.queueRelock(LockLifecycle::Relock::Plain)) {
+    return true;
+  }
+  if (isActive() || starting()) {
     return true;
   }
   m_lockedAtMillis = bootTimeMillis();
@@ -241,7 +266,7 @@ bool LockScreen::lock(bool relock) {
     return false;
   }
   if (!hasUsableOutput(*m_wayland)) {
-    m_lockDeferred = true;
+    (void)m_lifecycle.on(LockLifecycle::Event::Defer);
     kLog.warn("no outputs available for lock screen; lock deferred until an output is connected");
     // No output can ever show a lock surface, so run any pending post-lock action (e.g. suspend)
     // immediately instead of holding it until a monitor reconnects.
@@ -250,7 +275,7 @@ bool LockScreen::lock(bool relock) {
     return true;
   }
 
-  m_lockStarting = true;
+  (void)m_lifecycle.on(LockLifecycle::Event::Start);
 
   if (m_desktopCapturesPrimed) {
     m_desktopCapturesPrimed = false;
@@ -262,8 +287,7 @@ bool LockScreen::lock(bool relock) {
   }
 
   if (!hasUsableOutput(*m_wayland)) {
-    m_lockStarting = false;
-    m_lockDeferred = true;
+    (void)m_lifecycle.on(LockLifecycle::Event::Defer);
     kLog.warn("outputs disappeared while preparing lock screen; lock deferred until an output is connected");
     dispatchPendingAfterLocked();
     flushPendingOutputPowerOff();
@@ -280,30 +304,29 @@ bool LockScreen::lock(bool relock) {
   m_lock = ext_session_lock_manager_v1_lock(m_wayland->sessionLockManager());
   if (m_lock == nullptr) {
     kLog.warn("failed to create session lock object");
-    resetLockState();
+    abortLockStart();
     notifyLockAborted();
     return false;
   }
   if (ext_session_lock_v1_add_listener(m_lock, &kSessionLockListener, this) != 0) {
-    ext_session_lock_v1_destroy(m_lock);
+    wl_proxy_destroy(reinterpret_cast<wl_proxy*>(m_lock));
     m_lock = nullptr;
     kLog.warn("failed to register session lock listener");
-    resetLockState();
+    abortLockStart();
     notifyLockAborted();
     return false;
   }
 
-  m_lockPending = true;
-  m_lockStarting = false;
-  m_locked = false;
+  (void)m_lifecycle.on(LockLifecycle::Event::Requested);
   clearSensitiveString(m_password);
   m_status = i18n::tr("lockscreen.waiting");
   m_statusIsError = false;
   syncInstances();
   if (m_instances.empty()) {
+    // The compositor still answers this request; endLock() fires the abort hook then.
     kLog.warn("no outputs available for lock screen");
-    resetLockState();
-    notifyLockAborted();
+    abortLockStart();
+    m_transitionSuppressed = false;
     return false;
   }
   wl_display_flush(m_wayland->display());
@@ -315,7 +338,9 @@ void LockScreen::unlock() {
   if (remote()) {
     return;
   }
-  m_lockDeferred = false;
+  if (deferred()) {
+    (void)m_lifecycle.on(LockLifecycle::Event::Unlock);
+  }
   cancelPendingAfterLocked();
   cancelOutputPowerOff();
   if (!isActive()) {
@@ -324,7 +349,7 @@ void LockScreen::unlock() {
     return;
   }
 
-  if (m_unlocking) {
+  if (unlocking() || m_lifecycle.phase() == LockLifecycle::Phase::Cancelling) {
     return;
   }
 
@@ -342,54 +367,55 @@ void LockScreen::unlock() {
   m_failDelayTimer.stop();
   m_passwordOnly = false;
 
-  if (m_locked) {
-    m_unlocking = true;
-    for (auto& instance : m_instances) {
-      if (instance.surface != nullptr) {
-        instance.surface->startExitTransition();
-      }
-    }
-    tryFinishAnimatedUnlock();
-    if (m_unlocking) {
-      const auto timeoutMs = static_cast<std::int64_t>(std::ceil(m_transitionDurationMs)) + 1000;
-      m_unlockTransitionTimer.start(std::chrono::milliseconds(timeoutMs), [this] {
-        if (!m_unlocking) {
-          return;
-        }
-        kLog.warn("lockscreen exit transition timed out; completing unlock");
-        finishUnlock();
-      });
-    }
+  if (m_lifecycle.phase() == LockLifecycle::Phase::Pending) {
+    (void)m_lifecycle.on(LockLifecycle::Event::Unlock);
+    kLog.info("session lock request cancelled; unlocking when the compositor answers");
     return;
   }
-
-  finishUnlock();
+  (void)m_lifecycle.on(LockLifecycle::Event::Unlock);
+  for (auto& instance : m_instances) {
+    if (instance.surface != nullptr) {
+      instance.surface->startExitTransition();
+    }
+  }
+  tryFinishAnimatedUnlock();
+  if (unlocking()) {
+    const auto timeoutMs = static_cast<std::int64_t>(std::ceil(m_transitionDurationMs)) + 1000;
+    m_unlockTransitionTimer.start(std::chrono::milliseconds(timeoutMs), [this] {
+      if (!unlocking()) {
+        return;
+      }
+      kLog.warn("lockscreen exit transition timed out; completing unlock");
+      finishUnlock();
+    });
+  }
 }
 
-void LockScreen::finishUnlock() {
-  if (!isActive() && m_lock == nullptr) {
+void LockScreen::finishUnlock() { endLock(LockLifecycle::Event::UnlockDone); }
+
+void LockScreen::endLock(LockLifecycle::Event event) {
+  const bool wasLockedInteractive = m_lifecycle.locked();
+  if (event == LockLifecycle::Event::Finished) {
+    resetGracePeriod();
+    cancelPendingAfterLocked();
+    cancelOutputPowerOff();
+    invalidatePendingAuthentication();
+    stopFingerprint();
+    stopFace();
+  }
+  const auto step = m_lifecycle.on(event);
+  if (!step.accepted || m_lifecycle.phase() != LockLifecycle::Phase::Idle) {
     return;
   }
 
   m_unlockTransitionTimer.stop();
-  m_unlocking = false;
   m_unlockFinishQueued = false;
-
-  const bool wasLockedInteractive = m_locked;
-
-  if (m_lock != nullptr) {
-    if (m_locked) {
-      ext_session_lock_v1_unlock_and_destroy(m_lock);
-      kLog.info("session unlock requested");
-    } else {
-      ext_session_lock_v1_destroy(m_lock);
-      kLog.info("session lock request cancelled");
-    }
-    m_lock = nullptr;
+  releaseLockObject(step.wire);
+  // A post-lock action (e.g. suspend) belongs to this attempt; only a queued relock carries it on.
+  if (!m_lifecycle.lockAhead()) {
+    cancelPendingAfterLocked();
   }
 
-  m_lockPending = false;
-  m_locked = false;
   clearSensitiveString(m_password);
   m_status.clear();
   m_statusIsError = false;
@@ -409,8 +435,18 @@ void LockScreen::finishUnlock() {
   clearInstances();
   m_pointerSurface = nullptr;
   wl_display_flush(m_wayland->display());
-  if (std::exchange(m_phoneLockAfterUnlock, false)) {
-    (void)lockFromPhone();
+  const auto relock = m_lifecycle.takeRelock();
+  if (relock == LockLifecycle::Relock::None) {
+    return;
+  }
+  const bool relocked = relock == LockLifecycle::Relock::Phone ? lockFromPhone()
+      : relock == LockLifecycle::Relock::Sleep                ? lockForSleep()
+                                                              : lock();
+  if (!relocked) {
+    cancelPendingAfterLocked();
+  } else if (deferred() && m_onReadyForSleep) {
+    // No output can show the relock: a suspend must not wait for it.
+    m_onReadyForSleep();
   }
 }
 
@@ -444,9 +480,9 @@ void LockScreen::onOutputChange() {
   if (!isActive()) {
     invalidateDesktopCaptures();
   }
-  if (m_lockDeferred) {
+  if (deferred()) {
     if (m_wayland != nullptr && !m_wayland->outputs().empty()) {
-      m_lockDeferred = false;
+      (void)m_lifecycle.on(LockLifecycle::Event::Fail);
       (void)lock();
     }
     return;
@@ -457,10 +493,10 @@ void LockScreen::onOutputChange() {
   syncInstances();
   applyWallpaperStyleToSurfaces();
   handleSleepReady();
-  if (m_locked && !allSurfacesReady()) {
+  if (m_lifecycle.locked() && !allSurfacesReady()) {
     armSleepReadyTimeout();
   }
-  if (m_unlocking) {
+  if (unlocking()) {
     for (auto& instance : m_instances) {
       if (instance.surface != nullptr && !instance.surface->exitTransitionComplete()) {
         instance.surface->startExitTransition();
@@ -523,7 +559,7 @@ void LockScreen::onConfigChanged() {
   }
   applyOutputRestriction();
   applyWallpaperStyleToSurfaces();
-  if (m_locked && !m_unlocking) {
+  if (m_lifecycle.locked() && !unlocking()) {
     if (!faceEnabled() || (m_face != nullptr && m_face->onRequest() != faceOnRequest())) {
       stopFace();
     }
@@ -542,7 +578,7 @@ void LockScreen::onWallpaperChanged() {
 }
 
 void LockScreen::onPointerEvent(const PointerEvent& event) {
-  if (!isActive() || !m_locked || m_unlocking) {
+  if (!isActive() || !m_lifecycle.locked() || unlocking()) {
     return;
   }
 
@@ -588,10 +624,10 @@ void LockScreen::onPointerEvent(const PointerEvent& event) {
 }
 
 void LockScreen::onKeyboardEvent(const KeyboardEvent& event) {
-  if (!isActive() || m_unlocking) {
+  if (!isActive() || unlocking()) {
     return;
   }
-  if (!m_locked) {
+  if (!m_lifecycle.locked()) {
     return;
   }
   if (!event.pressed) {
@@ -690,8 +726,8 @@ void LockScreen::markOutputsWoke() {
 }
 
 bool LockScreen::remote() const noexcept {
-  return m_remote != nullptr && m_remote->delegating() && (m_remote->owned() || m_remote->locked()) && !m_lockPending
-      && !m_locked && !m_lockStarting;
+  return m_remote != nullptr && m_remote->delegating() && (m_remote->owned() || m_remote->locked())
+      && (m_lifecycle.phase() == LockLifecycle::Phase::Idle || deferred());
 }
 
 void LockScreen::setRemote(LockClient* client) {
@@ -728,10 +764,14 @@ void LockScreen::setRemote(LockClient* client) {
   });
 }
 
-bool LockScreen::isActive() const noexcept { return remote() ? m_remote->active() : (m_lockPending || m_locked); }
+bool LockScreen::isActive() const noexcept { return remote() ? m_remote->active() : m_lifecycle.active(); }
+
+bool LockScreen::isLockHeldOrQueued() const noexcept {
+  return remote() ? m_remote->active() : m_lifecycle.lockAhead();
+}
 
 bool LockScreen::isInGracePeriod() const noexcept {
-  if (!m_graceAllowed || !m_locked || m_lockedAtMillis <= 0) {
+  if (!m_graceAllowed || !m_lifecycle.locked() || m_lockedAtMillis <= 0) {
     return false;
   }
   if (m_configService == nullptr || m_configService->config().lockscreen.gracePeriodSeconds <= 0) {
@@ -794,8 +834,7 @@ bool LockScreen::lockFromPhone() {
     m_remote->lock("phone");
     return true;
   }
-  if (m_unlocking) {
-    m_phoneLockAfterUnlock = true;
+  if (m_lifecycle.queueRelock(LockLifecycle::Relock::Phone)) {
     return true;
   }
   m_passwordOnly = true;
@@ -807,7 +846,7 @@ bool LockScreen::lockFromPhone() {
   if (!ok) {
     m_passwordOnly = false;
   }
-  if (ok && m_locked && !m_failDelayTimer.active()) {
+  if (ok && m_lifecycle.locked() && !m_failDelayTimer.active()) {
     m_status = i18n::tr("lockscreen.password-required");
     m_statusIsError = false;
     updatePromptOnSurfaces();
@@ -815,10 +854,24 @@ bool LockScreen::lockFromPhone() {
   return ok;
 }
 
-bool LockScreen::isSessionLocked() const noexcept { return remote() ? m_remote->locked() : m_locked; }
+bool LockScreen::lockForSleep() {
+  if (remote()) {
+    m_remote->lock("sleep");
+    return true;
+  }
+  if (m_lifecycle.queueRelock(LockLifecycle::Relock::Sleep)) {
+    return true;
+  }
+  const bool ok = lock();
+  // lock() arms the grace window; a sleep-bound lock never offers it.
+  resetGracePeriod();
+  return ok;
+}
+
+bool LockScreen::isSessionLocked() const noexcept { return remote() ? m_remote->locked() : m_lifecycle.locked(); }
 
 bool LockScreen::isReadyForSleep() const {
-  return remote() ? m_remote->locked() : (m_locked && !m_unlocking && allSurfacesReady());
+  return remote() ? m_remote->locked() : (m_lifecycle.locked() && !unlocking() && allSurfacesReady());
 }
 
 void LockScreen::prepareForSleep() {
@@ -832,13 +885,13 @@ void LockScreen::prepareForSleep() {
   }
   if (isReadyForSleep()) {
     handleSleepReady();
-  } else if (m_locked) {
+  } else if (m_lifecycle.locked()) {
     armSleepReadyTimeout();
   }
 }
 
 void LockScreen::suppressEntryTransition() {
-  if (m_transitionSuppressed || m_unlocking) {
+  if (m_transitionSuppressed || unlocking()) {
     return;
   }
   m_transitionSuppressed = true;
@@ -860,7 +913,7 @@ void LockScreen::onOutputPowerChanged() {
     markOutputsWoke();
     return;
   }
-  if (isActive() || m_lockStarting || m_lockDeferred) {
+  if (isActive() || starting() || deferred()) {
     suppressEntryTransition();
   } else {
     invalidateDesktopCaptures();
@@ -876,12 +929,12 @@ void LockScreen::prepareForOutputPowerOff(std::function<void(bool)> done) {
   if (!done) {
     return;
   }
-  if (m_unlocking) {
+  if (unlocking()) {
     done(false);
     return;
   }
-  if (!isActive() && !m_lockStarting) {
-    if (m_lockDeferred) {
+  if (!isActive() && !starting()) {
+    if (deferred()) {
       suppressEntryTransition();
     }
     invalidateDesktopCaptures();
@@ -919,7 +972,7 @@ void LockScreen::armOutputPowerOffTimeout() {
 }
 
 void LockScreen::flushPendingOutputPowerOff() {
-  if (!m_pendingOutputPowerOff || m_outputPowerOffQueued || ((!isReadyForSleep()) && (isActive() || m_lockStarting))) {
+  if (!m_pendingOutputPowerOff || m_outputPowerOffQueued || ((!isReadyForSleep()) && (isActive() || starting()))) {
     return;
   }
   m_outputPowerOffQueued = true;
@@ -930,7 +983,7 @@ void LockScreen::flushPendingOutputPowerOff() {
       return;
     }
     m_outputPowerOffQueued = false;
-    if ((isActive() || m_lockStarting) && !isReadyForSleep()) {
+    if ((isActive() || starting()) && !isReadyForSleep()) {
       return;
     }
     m_outputPowerOffTimer.stop();
@@ -941,13 +994,13 @@ void LockScreen::flushPendingOutputPowerOff() {
 }
 
 void LockScreen::armSleepReadyTimeout() {
-  if (!m_locked || m_unlocking || m_suspendTimeoutTimer.active()) {
+  if (!m_lifecycle.locked() || unlocking() || m_suspendTimeoutTimer.active()) {
     return;
   }
   const auto animationMs =
       m_activeTransition.has_value() ? static_cast<std::int64_t>(std::ceil(m_transitionDurationMs)) : 0;
   m_suspendTimeoutTimer.start(std::chrono::milliseconds(animationMs) + std::chrono::seconds(3), [this] {
-    if (!m_locked || m_unlocking) {
+    if (!m_lifecycle.locked() || unlocking()) {
       return;
     }
     if (allSurfacesReady()) {
@@ -984,13 +1037,13 @@ bool LockScreen::tryFlushPendingAfterLocked() {
 }
 
 void LockScreen::handleTransitionStateChanged() {
-  if (m_unlocking) {
+  if (unlocking()) {
     tryFinishAnimatedUnlock();
   }
 }
 
 void LockScreen::tryFinishAnimatedUnlock() {
-  if (!m_unlocking || m_unlockFinishQueued) {
+  if (!unlocking() || m_unlockFinishQueued) {
     return;
   }
   const bool complete = std::ranges::all_of(m_instances, [](const Instance& instance) {
@@ -1002,7 +1055,7 @@ void LockScreen::tryFinishAnimatedUnlock() {
 
   m_unlockFinishQueued = true;
   DeferredCall::callLater([this] {
-    if (m_unlocking) {
+    if (unlocking()) {
       finishUnlock();
     }
   });
@@ -1022,7 +1075,7 @@ void LockScreen::dispatchPendingAfterLocked(bool timedOut) {
     const auto generation = m_afterLockedGeneration;
     const std::weak_ptr<void> guard = m_aliveGuard;
     DeferredCall::callLater([this, guard, generation, timedOut, pending = std::move(pending)] mutable {
-      if (guard.expired() || generation != m_afterLockedGeneration || m_unlocking || (!isActive() && !m_lockDeferred)) {
+      if (guard.expired() || generation != m_afterLockedGeneration || unlocking() || (!isActive() && !deferred())) {
         return;
       }
       if (!timedOut && isActive() && !isReadyForSleep()) {
@@ -1055,8 +1108,8 @@ void LockScreen::runAfterSessionLocked(std::function<void()> fn) {
   if (tryFlushPendingAfterLocked()) {
     return;
   }
-  if (isActive()) {
-    if (m_locked) {
+  if (isLockHeldOrQueued()) {
+    if (m_lifecycle.locked()) {
       armSleepReadyTimeout();
     }
     return;
@@ -1070,11 +1123,16 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
   auto* self = static_cast<LockScreen*>(data);
   // Ignore locked events after unlock()/handleFinished() tore down the lock object.
   // A late event would re-engage the locked state with no matching unlock hook.
-  if (self->m_lock == nullptr || !self->m_lockPending) {
+  if (self->m_lock == nullptr) {
     return;
   }
-  self->m_lockPending = false;
-  self->m_locked = true;
+  if (self->m_lifecycle.phase() == LockLifecycle::Phase::Cancelling) {
+    self->endLock(LockLifecycle::Event::Locked);
+    return;
+  }
+  if (!self->m_lifecycle.on(LockLifecycle::Event::Locked).accepted) {
+    return;
+  }
   // Idle status is empty; the surface renders the password hint itself.
   self->m_status.clear();
   self->m_statusIsError = false;
@@ -1107,41 +1165,7 @@ void LockScreen::handleLocked(void* data, ext_session_lock_v1* /*lock*/) {
 void LockScreen::handleFinished(void* data, ext_session_lock_v1* /*lock*/) {
   auto* self = static_cast<LockScreen*>(data);
   kLog.info("session lock finished by compositor");
-  const bool wasLockedInteractive = self->m_locked;
-  self->resetGracePeriod();
-  self->cancelPendingAfterLocked();
-  self->cancelOutputPowerOff();
-  self->m_unlockTransitionTimer.stop();
-  self->m_unlocking = false;
-  self->m_unlockFinishQueued = false;
-  self->invalidatePendingAuthentication();
-  self->stopFingerprint();
-  self->stopFace();
-
-  if (self->m_lock != nullptr) {
-    if (self->m_locked) {
-      ext_session_lock_v1_unlock_and_destroy(self->m_lock);
-    } else {
-      ext_session_lock_v1_destroy(self->m_lock);
-    }
-    self->m_lock = nullptr;
-  }
-  self->m_lockPending = false;
-  self->m_locked = false;
-  self->m_lockStarting = false;
-  clearSensitiveString(self->m_password);
-  self->m_status.clear();
-  self->m_statusIsError = false;
-  self->invalidateDesktopCaptures();
-  self->m_activeTransition.reset();
-  self->m_transitionSuppressed = false;
-  if (wasLockedInteractive && self->m_onSessionUnlocked) {
-    self->m_onSessionUnlocked();
-  } else if (!wasLockedInteractive && self->m_onLockAborted) {
-    self->m_onLockAborted();
-  }
-  self->clearInstances();
-  self->m_pointerSurface = nullptr;
+  self->endLock(LockLifecycle::Event::Finished);
 }
 
 void LockScreen::syncInstances() {
@@ -1211,7 +1235,7 @@ void LockScreen::primeDesktopCaptures() {
   if (m_configService != nullptr && !m_configService->isLockScreenEnabled()) {
     return;
   }
-  if (isActive() || m_lockStarting) {
+  if (isActive() || starting()) {
     return;
   }
   invalidateDesktopCaptures();
@@ -1558,7 +1582,7 @@ void LockScreen::createInstance(const WaylandOutput& output) {
   auto surface = std::make_unique<LockSurface>(*m_wayland, m_configService);
   surface->setRenderContext(m_renderContext);
   surface->setTextureCache(m_textureCache);
-  surface->setLockedState(m_locked);
+  surface->setLockedState(m_lifecycle.locked());
   applyLockscreenStyle(*surface);
   surface->setOutputKey(desktop_widgets::outputKey(output));
   if (m_configService != nullptr) {
@@ -1613,29 +1637,13 @@ void LockScreen::notifyLockAborted() {
   }
 }
 
-void LockScreen::resetLockState() {
+void LockScreen::abortLockStart() {
   cancelPendingAfterLocked();
   cancelOutputPowerOff();
-  m_unlockTransitionTimer.stop();
-  m_lockDeferred = false;
-  m_lockStarting = false;
-  m_transitionSuppressed = false;
-  m_unlocking = false;
-  m_unlockFinishQueued = false;
   m_activeTransition.reset();
   invalidateDesktopCaptures();
   resetGracePeriod();
-  if (m_lock == nullptr) {
-    m_lockPending = false;
-    m_locked = false;
-    return;
-  }
-  // unlock_and_destroy is required once the compositor may have entered the locked
-  // state (including while m_lockPending is still true locally).
-  ext_session_lock_v1_unlock_and_destroy(m_lock);
-  m_lock = nullptr;
-  m_lockPending = false;
-  m_locked = false;
+  (void)m_lifecycle.on(LockLifecycle::Event::Fail);
 }
 
 void LockScreen::clearInstances() { m_instances.clear(); }
@@ -1734,7 +1742,7 @@ void LockScreen::handlePasswordEdited(const std::string& value) {
 }
 
 void LockScreen::tryAuthenticate() {
-  if (m_authenticating || !m_locked || m_unlocking) {
+  if (m_authenticating || !m_lifecycle.locked() || unlocking()) {
     return;
   }
   if (applyFailDelay()) {
@@ -1789,7 +1797,7 @@ void LockScreen::tryAuthenticate() {
 }
 
 void LockScreen::handleAuthResult(std::uint64_t generation, const PamAuthenticator::Result& result) {
-  if (generation != m_authGeneration || !m_locked) {
+  if (generation != m_authGeneration || !m_lifecycle.locked()) {
     return;
   }
 
@@ -1886,7 +1894,7 @@ void LockScreen::startFace() {
 }
 
 void LockScreen::requestFace() {
-  if (m_face != nullptr && faceEnabled() && m_locked && !m_unlocking && !m_authenticating && !applyFailDelay()) {
+  if (m_face != nullptr && faceEnabled() && m_lifecycle.locked() && !unlocking() && !m_authenticating && !applyFailDelay()) {
     m_face->setOnRequest(faceOnRequest());
     m_face->request();
   }

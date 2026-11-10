@@ -431,7 +431,7 @@ void Application::initLockScreenAndSession() {
         m_screenTimeService.setSessionLocked(false);
         m_hookManager.fire(HookKind::SessionUnlocked);
         notifyFailedUnlocks(m_lockScreen.takeRejectedWhileLocked());
-        releaseSleepDelayInhibitIfPending();
+        m_lockBeforeSleep.onLockEnded();
         requestAllSurfacesRedraw();
         // The bar skipped ticks while locked; refresh it now rather than at the next minute.
         DeferredCall::callLater([this] { m_timeService.forceTick(); });
@@ -446,10 +446,10 @@ void Application::initLockScreenAndSession() {
         m_idleGraceOverlay.hide();
         m_lockscreenWidgetsController.onLockStateChanged();
         syncLockStreamPause();
-        releaseSleepDelayInhibitIfPending();
+        m_lockBeforeSleep.onLockEnded();
         requestAllSurfacesRedraw();
       },
-      [this] { releaseSleepDelayInhibitIfPending(); }
+      [this] { m_lockBeforeSleep.onLockSettled(); }
   );
   m_compositorPlatform.setOutputPowerChangeCallback([this] {
     m_lockScreen.onOutputPowerChanged();
@@ -462,7 +462,7 @@ void Application::initLockScreenAndSession() {
       if (!m_configService.isLockScreenEnabled()) {
         return;
       }
-      if (!m_lockScreen.isActive()) {
+      if (!m_lockScreen.isLockHeldOrQueued()) {
         (void)m_lockScreen.lock();
       }
     });
@@ -499,13 +499,13 @@ void Application::initLockScreenAndSession() {
     afterUpdate(HookKind::ShuttingDown, "settings.update.lock-shutdown", std::move(done));
   };
   sessionActionHooks.onBeforePlainSuspend = [this] {
-    m_skipLockOnNextSleep = true;
+    m_lockBeforeSleep.setSkipNextLock(true);
     if (m_lockClient != nullptr) {
       m_lockClient->skipLockOnNextSleep(true);
     }
   };
   sessionActionHooks.onPlainSuspendAborted = [this] {
-    m_skipLockOnNextSleep = false;
+    m_lockBeforeSleep.setSkipNextLock(false);
     if (m_lockClient != nullptr) {
       m_lockClient->skipLockOnNextSleep(false);
     }
@@ -592,7 +592,7 @@ void Application::initInputDispatch() {
   // Waits for the lock process query: a shell that restarts while the lock process holds the lock must not race it.
   m_wayland.setRelockCallback([this] {
     auto relock = [this] {
-      if (!m_lockScreen.isActive()) {
+      if (!m_lockScreen.isLockHeldOrQueued()) {
         m_lockScreen.lock(true);
       }
     };

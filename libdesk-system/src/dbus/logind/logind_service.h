@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -34,9 +35,10 @@ public:
   void releaseIdleInhibit();
 
   // Delay-type sleep inhibit: holds off suspend/hibernate until released so the
-  // session can lock first (same pattern as swayidle/hypridle).
-  [[nodiscard]] bool hasSleepDelayInhibit() const noexcept;
-  bool acquireSleepDelayInhibit();
+  // session can lock first (same pattern as swayidle/hypridle). Only Held delays a suspend.
+  enum class SleepDelay : std::uint8_t { None, Pending, PendingCancelled, Held };
+  [[nodiscard]] SleepDelay sleepDelay() const noexcept { return m_sleepDelay; }
+  void acquireSleepDelayInhibit();
   void releaseSleepDelayInhibit();
 
 private:
@@ -54,7 +56,7 @@ private:
   SessionLockCallback m_lockCallback;
   SessionLockCallback m_unlockCallback;
   int m_idleInhibitFd = -1;
+  // Valid only in SleepDelay::Held.
   int m_sleepDelayInhibitFd = -1;
-  bool m_sleepDelayInhibitPending = false;
-  bool m_sleepDelayInhibitCancelled = false;
+  SleepDelay m_sleepDelay = SleepDelay::None;
 };

@@ -7,6 +7,7 @@
 #include "ui/auth/auth_column.h"
 #include "shell/lockscreen/lock_cards.h"
 #include "shell/lockscreen/lock_fail_delay.h"
+#include "shell/lockscreen/lock_lifecycle.h"
 
 #include <cstdint>
 #include <functional>
@@ -73,6 +74,8 @@ public:
   bool lock(bool relock = false);
   // Lock from the paired phone (Link): password only, no grace, until the next unlock.
   bool lockFromPhone();
+  // Lock for a suspend: no grace, also when the lock is queued behind an unlock.
+  bool lockForSleep();
   // Battery and network for the status island; the keyboard layout comes from the surface indicators.
   void setStatus(AuthColumn::Status status);
   // Gradient clock colors from the resolved palette, packed 0xRRGGBBAA.
@@ -100,6 +103,11 @@ public:
   void onPointerEvent(const PointerEvent& event);
   void onKeyboardEvent(const KeyboardEvent& event);
   [[nodiscard]] bool isActive() const noexcept;
+  // The session is locked or a lock is on its way (also a relock queued behind an unlock). When false, lock()
+  // starts a lock or queues one behind the running teardown.
+  [[nodiscard]] bool isLockHeldOrQueued() const noexcept;
+  // This instance runs an exit transition or a cancelled request: for a suspend the session is not locked.
+  [[nodiscard]] bool isTearingDown() const noexcept { return !remote() && m_lifecycle.tearingDown(); }
   // Palette colours of the gradient clock style (packed 0xRRGGBBAA).
   [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> clockGradient() const noexcept {
     return {m_clockGradientFrom, m_clockGradientTo};
@@ -178,7 +186,13 @@ private:
   void tryFinishAnimatedUnlock();
   void finishUnlock();
   void notifyLockAborted();
-  void resetLockState();
+  void abortLockStart();
+  // Runs `event` through m_lifecycle; on the move to Idle sends the wire request, tears down and runs a queued relock.
+  void endLock(LockLifecycle::Event event);
+  void releaseLockObject(LockLifecycle::Wire wire);
+  [[nodiscard]] bool unlocking() const noexcept { return m_lifecycle.phase() == LockLifecycle::Phase::Unlocking; }
+  [[nodiscard]] bool starting() const noexcept { return m_lifecycle.phase() == LockLifecycle::Phase::Starting; }
+  [[nodiscard]] bool deferred() const noexcept { return m_lifecycle.phase() == LockLifecycle::Phase::Deferred; }
   void clearInstances();
   void updatePromptOnSurfaces();
   void updateIndicatorsOnSurfaces();
@@ -226,14 +240,10 @@ private:
   bool m_statusIsError = false;
   bool m_authenticating = false;
   std::uint64_t m_authGeneration = 0;
-  bool m_lockPending = false;
-  bool m_locked = false;
-  bool m_lockStarting = false;
+  LockLifecycle m_lifecycle;
   bool m_desktopCapturesPrimed = false;
   std::uint64_t m_desktopCaptureGeneration = 0;
-  bool m_lockDeferred = false;
   bool m_transitionSuppressed = false;
-  bool m_unlocking = false;
   bool m_unlockFinishQueued = false;
   std::optional<LockscreenTransition> m_activeTransition;
   LockscreenTransitionParams m_transitionParams;
@@ -276,6 +286,4 @@ private:
   AuthColumn::Status m_statusIsland;
   std::uint32_t m_clockGradientFrom = 0;
   std::uint32_t m_clockGradientTo = 0;
-  // LockFromPhone arrived during the unlock animation.
-  bool m_phoneLockAfterUnlock = false;
 };

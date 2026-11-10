@@ -293,7 +293,7 @@ namespace {
           [this] {
             m_sessionLocked = false;
             syncWidgets();
-            releaseSleepDelayIfPending();
+            m_lockBeforeSleep.onLockEnded();
             if (m_logind != nullptr) {
               m_logind->setSessionLockedHint(false);
             }
@@ -308,11 +308,11 @@ namespace {
           [this] {
             m_sessionLocked = false;
             syncWidgets();
-            releaseSleepDelayIfPending();
+            m_lockBeforeSleep.onLockEnded();
             emitState("aborted");
             releaseWhenIdle();
           },
-          [this] { releaseSleepDelayIfPending(); }
+          [this] { m_lockBeforeSleep.onLockSettled(); }
       );
       m_platform.setOutputPowerChangeCallback([this] {
         m_lock.onOutputPowerChanged();
@@ -333,14 +333,9 @@ namespace {
       m_logind->setPrepareForSleepCallback([this](bool sleeping) { onPrepareForSleep(sleeping); });
     }
 
-    // Mirrors the shell's lock-before-sleep: the delay inhibit holds the suspend until the lock frames are on screen.
     void onPrepareForSleep(bool sleeping) {
       if (!sleeping) {
-        m_skipLockOnNextSleep = false;
-        m_releaseSleepDelayWhenLocked = false;
-        if (m_config.shouldLockBeforeSuspend()) {
-          (void)m_logind->acquireSleepDelayInhibit();
-        }
+        m_lockBeforeSleep.onPrepareForSleep(false);
         m_renderContext.invalidateGlyphTexturesNextFrame();
         if (m_lock.isActive()) {
           m_lock.forceRepaintAfterResume();
@@ -351,24 +346,7 @@ namespace {
       }
       // A sleep-bound lock never offers the passwordless grace.
       m_lock.resetGracePeriod();
-      const bool skip = std::exchange(m_skipLockOnNextSleep, false);
-      if (skip || !m_config.shouldLockBeforeSuspend() || m_lock.isReadyForSleep()) {
-        m_releaseSleepDelayWhenLocked = false;
-        m_logind->releaseSleepDelayInhibit();
-        return;
-      }
-      m_releaseSleepDelayWhenLocked = true;
-      if (!m_lock.isActive() && !m_lock.lock()) {
-        m_releaseSleepDelayWhenLocked = false;
-        m_logind->releaseSleepDelayInhibit();
-        return;
-      }
-      m_lock.prepareForSleep();
-      // A deferred lock (no outputs yet) never reaches SessionLocked; it must not hold the suspend.
-      if (!m_lock.isActive()) {
-        m_releaseSleepDelayWhenLocked = false;
-        m_logind->releaseSleepDelayInhibit();
-      }
+      m_lockBeforeSleep.onPrepareForSleep(true);
     }
 
     // The session hooks run before LockScreen destroys its surfaces, so the release waits for the next loop turn.
@@ -380,12 +358,6 @@ namespace {
         m_renderContext.releaseUnusedCaches();
         trimAllocator();
       });
-    }
-
-    void releaseSleepDelayIfPending() {
-      if (std::exchange(m_releaseSleepDelayWhenLocked, false) && m_logind != nullptr) {
-        m_logind->releaseSleepDelayInhibit();
-      }
     }
 
     void initInput() {
@@ -456,7 +428,9 @@ namespace {
         kLog.info("lock ({}) refused: the lock screen is off", reason);
         return false;
       }
-      if (m_lock.isActive()) {
+      // A phone or sleep lock also reaches a held or queued lock: it revokes grace (phone: also face and fingerprint).
+      const bool upgrade = reason == "phone" || reason == "sleep";
+      if (!upgrade && m_lock.isLockHeldOrQueued()) {
         return true;
       }
       kLog.info("lock requested ({})", reason);
@@ -467,7 +441,7 @@ namespace {
         return m_lock.lockFromPhone();
       }
       if (reason == "sleep") {
-        m_lock.resetGracePeriod();
+        return m_lock.lockForSleep();
       }
       return m_lock.lock(relock);
     }
@@ -488,7 +462,7 @@ namespace {
                     [this](std::function<void(bool)> done) { m_lock.prepareForOutputPowerOff(std::move(done)); },
                 .cancelOutputPowerOff = [this] { m_lock.cancelOutputPowerOff(); },
                 .outputsWoke = [this] { m_lock.markOutputsWoke(); },
-                .skipLockOnNextSleep = [this](bool skip) { m_skipLockOnNextSleep = skip; },
+                .skipLockOnNextSleep = [this](bool skip) { m_lockBeforeSleep.setSkipNextLock(skip); },
                 .active = [this] { return m_lock.isActive(); },
                 .locked = [this] { return m_lock.isSessionLocked(); },
             }
@@ -567,8 +541,21 @@ namespace {
 
     bool m_sessionLocked = false;
     bool m_widgetsShown = false;
-    bool m_skipLockOnNextSleep = false;
-    bool m_releaseSleepDelayWhenLocked = false;
+    LockBeforeSleep m_lockBeforeSleep{{
+        .enabled = [this] { return m_config.shouldLockBeforeSuspend(); },
+        .lockReadyForSleep = [this] { return m_lock.isReadyForSleep(); },
+        .lockHeldOrQueued = [this] { return m_lock.isLockHeldOrQueued(); },
+        .lockTearingDown = [this] { return m_lock.isTearingDown(); },
+        .lock = [this] { return m_lock.lockForSleep(); },
+        .prepareLockForSleep = [this] { m_lock.prepareForSleep(); },
+        .acquireDelay = [this] { m_logind->acquireSleepDelayInhibit(); },
+        .releaseDelay =
+            [this] {
+              if (m_logind != nullptr) {
+                m_logind->releaseSleepDelayInhibit();
+              }
+            },
+    }};
   };
 
 } // namespace
