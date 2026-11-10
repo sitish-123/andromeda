@@ -8,5 +8,6 @@ post_install() {
 # The running daemon keeps the old binary until a restart: new D-Bus objects (Display) and rules stay absent.
 post_upgrade() {
   post_install
+  systemctl daemon-reload 2> /dev/null || true # the pacman hook reloads only after this script: restart with the new unit
   systemctl try-restart andromeda-system.service 2> /dev/null || true
 }
