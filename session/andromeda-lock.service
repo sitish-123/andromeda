@@ -13,3 +13,5 @@ Restart=always
 RestartSec=0
 # 75: the compositor closed the display; the restart brings the lock back after a compositor restart.
 SuccessExitStatus=75
+# Locked: ~36 MB private, ~90 MB Pss (lock_process_memory.sh); a lock under memory pressure must not wait on swap.
+MemoryMin=96M
