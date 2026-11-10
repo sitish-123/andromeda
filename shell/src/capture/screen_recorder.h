@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/poll_source.h"
 #include "capture/screencopy_capture.h"
+#include "core/poll_source.h"
 
 #include <chrono>
 #include <cstdint>
@@ -71,11 +71,13 @@ private:
   std::string launch(const Source& source, bool withAudio);
   void finish(const std::string& error);
   void closePortalSession();
+  void watchPortalOwner();
 
   SessionBus& m_bus;
   NotificationManager& m_notifications;
   std::unique_ptr<sdbus::IProxy> m_portal;
   std::unique_ptr<sdbus::IProxy> m_request;
+  sdbus::Slot m_portalOwnerWatch;
   std::string m_sessionHandle;
   std::string m_restoreToken;
   std::uint64_t m_tokenSeq = 0;
@@ -88,5 +90,6 @@ private:
   std::string m_path;
   std::optional<LogicalRect> m_region;
   CropGeometry m_crop;
-  std::optional<std::chrono::steady_clock::time_point> m_stopDeadline;
+  // Starting or Stopping ends by then.
+  std::optional<std::chrono::steady_clock::time_point> m_deadline;
 };

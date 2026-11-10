@@ -11,6 +11,7 @@
 #include <sdbus-c++/IProxy.h>
 #include <sdbus-c++/Types.h>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -31,7 +32,6 @@ namespace {
   const sdbus::ObjectPath kLoginPath{"/org/freedesktop/login1"};
   constexpr auto kLoginManagerInterface = "org.freedesktop.login1.Manager";
 
-  constexpr int kMaxMisses = 3;
   constexpr auto kRetryDelay = std::chrono::milliseconds(500);
 
   using ScoredFace = sdbus::Struct<std::string, double, double, bool, double, double, bool>;
@@ -93,17 +93,7 @@ FaceAuthenticator::FaceAuthenticator(SystemBus& bus, std::string user) : m_bus(b
   try {
     m_loginManager = sdbus::createProxy(m_bus.connection(), kLoginBusName, kLoginPath);
     m_loginManager->uponSignal("PrepareForSleep").onInterface(kLoginManagerInterface).call([this](bool sleeping) {
-      m_sleeping = sleeping;
-      if (sleeping) {
-        m_retryTimer.stop();
-        stopVerify();
-        if (m_onRequest) {
-          m_active = false;
-          release();
-        }
-      } else if (m_active) {
-        arm();
-      }
+      run(sleeping ? m_machine.sleep(m_onRequest) : m_machine.wake());
     });
   } catch (const sdbus::Error& e) {
     kLog.debug("could not monitor PrepareForSleep: {}", e.what());
@@ -119,57 +109,25 @@ void FaceAuthenticator::setAuthenticatedCallback(AuthenticatedCallback callback)
 
 void FaceAuthenticator::setStatusCallback(StatusCallback callback) { m_onStatus = std::move(callback); }
 
-void FaceAuthenticator::start() {
-  if (m_active) {
-    return;
-  }
-  m_active = true;
-  m_misses = 0;
-  m_unavailable = false;
-  arm();
-}
+void FaceAuthenticator::start() { run(m_machine.start()); }
 
-void FaceAuthenticator::resume() {
-  if (m_active || m_unavailable || m_misses >= kMaxMisses) {
-    return;
-  }
-  m_active = true;
-  arm();
-}
+void FaceAuthenticator::resume() { run(m_machine.resume()); }
 
-void FaceAuthenticator::stop() {
-  m_retryTimer.stop();
-  m_active = false;
-  m_pending = false;
-  stopVerify();
-  release();
-}
+void FaceAuthenticator::stop() { run(m_machine.stop()); }
 
 void FaceAuthenticator::request() {
-  if (m_misses >= kMaxMisses) {
+  if (m_machine.phase() == face_auth::Phase::Exhausted) {
     emitStatus(i18n::tr("auth.face.too-many-attempts"), true);
     return;
   }
-  if (m_unavailable) {
+  if (m_machine.phase() == face_auth::Phase::Unavailable) {
     emitStatus(i18n::tr("auth.face.unavailable"), true);
     return;
   }
-  if (!m_active) {
-    m_active = true;
-    arm();
-    return;
-  }
-  if (!m_verifying && !m_pending && !m_sleeping) {
-    m_retryTimer.stop();
-    arm();
-  }
+  run(m_machine.request());
 }
 
-void FaceAuthenticator::onUserActivity() {
-  if (m_active && !m_unavailable && !m_verifying && !m_pending && !m_sleeping && m_misses < kMaxMisses) {
-    arm();
-  }
-}
+void FaceAuthenticator::onUserActivity() { run(m_machine.activity()); }
 
 bool FaceAuthenticator::ensureProxy() {
   if (m_gaze != nullptr) {
@@ -200,37 +158,85 @@ bool FaceAuthenticator::ensureProxy() {
   return true;
 }
 
-void FaceAuthenticator::arm() {
-  if (!m_active || m_sleeping || m_pending || m_verifying || !ensureProxy()) {
+void FaceAuthenticator::run(face_auth::Commands commands) {
+  if (m_machine.phase() != face_auth::Phase::RetryWait) {
+    m_retryTimer.stop();
+  }
+  if (commands == face_auth::None) {
     return;
   }
-  m_pending = true;
-  if (!tryCall("HasEnrolledFaces", [&]() {
-        m_gaze->callMethodAsync("HasEnrolledFaces")
-            .onInterface(kGazeInterface)
-            .withArguments(m_user)
-            .uponReplyInvoke([this](std::optional<sdbus::Error> e, bool enrolled) {
-              setEnrolled(!e.has_value() && enrolled);
-              if (e.has_value()) {
-                m_pending = false;
-                m_unavailable = true;
-                kLog.info("face unlock unavailable: {}", e->what());
-                return;
-              }
-              if (!enrolled) {
-                m_pending = false;
-                m_unavailable = true;
-                kLog.info("face unlock off: no face enrolled for {}", m_user);
-                return;
-              }
-              if (m_claimed) {
-                startVerify();
-              } else {
-                claim();
-              }
-            });
+  const std::uint64_t attempt = m_machine.attempt();
+  if (m_gaze == nullptr && !ensureProxy()) {
+    m_machine.callFailed(attempt);
+    return;
+  }
+  for (const auto [command, method] : {
+           std::pair{face_auth::VerifyStop, "VerifyStop"},
+           std::pair{face_auth::Release, "Release"},
+           std::pair{face_auth::QueryEnrolled, "HasEnrolledFaces"},
+           std::pair{face_auth::Claim, "Claim"},
+           std::pair{face_auth::VerifyStart, "VerifyStartFor"},
+       }) {
+    if ((commands & command) != 0) {
+      callAsync(method, attempt);
+    }
+  }
+  if ((commands & face_auth::Release) != 0) {
+    kLog.info("released gazed");
+  }
+}
+
+void FaceAuthenticator::callAsync(const char* method, std::uint64_t attempt) {
+  const std::string_view name = method;
+  if (!tryCall(method, [&]() {
+        if (name == "HasEnrolledFaces") {
+          m_gaze->callMethodAsync(method)
+              .onInterface(kGazeInterface)
+              .withArguments(m_user)
+              .uponReplyInvoke([this, attempt](std::optional<sdbus::Error> e, bool enrolled) {
+                setEnrolled(!e.has_value() && enrolled);
+                if (e.has_value()) {
+                  kLog.info("face unlock unavailable: {}", e->what());
+                } else if (!enrolled) {
+                  kLog.info("face unlock off: no face enrolled for {}", m_user);
+                }
+                run(m_machine.enrolledReply(attempt, !e.has_value() && enrolled));
+              });
+        } else if (name == "Claim") {
+          m_gaze->callMethodAsync(method)
+              .onInterface(kGazeInterface)
+              .withArguments(m_user)
+              .uponReplyInvoke([this, attempt](std::optional<sdbus::Error> e) {
+                if (e.has_value()) {
+                  kLog.info("could not claim gazed: {}", e->what());
+                }
+                run(m_machine.claimReply(attempt, !e.has_value()));
+              });
+        } else if (name == "VerifyStartFor") {
+          m_gaze->callMethodAsync(method)
+              .onInterface(kGazeInterface)
+              .withArguments(std::string{}, std::string{kPamService})
+              .uponReplyInvoke([this, attempt](std::optional<sdbus::Error> e) {
+                if (e.has_value()) {
+                  kLog.info("could not start face verification: {}", e->what());
+                }
+                run(m_machine.verifyStartReply(attempt, !e.has_value()));
+                if (!e.has_value() && m_machine.phase() == face_auth::Phase::Verifying) {
+                  kLog.info("face verification started");
+                  emitStatus(i18n::tr("auth.face.look"), false);
+                }
+              });
+        } else {
+          m_gaze->callMethodAsync(method)
+              .onInterface(kGazeInterface)
+              .uponReplyInvoke([method](std::optional<sdbus::Error> e) {
+                if (e.has_value()) {
+                  kLog.debug("gazed {} failed: {}", method, e->what());
+                }
+              });
+        }
       })) {
-    m_pending = false;
+    m_machine.callFailed(attempt);
   }
 }
 
@@ -261,90 +267,9 @@ void FaceAuthenticator::setEnrolled(bool enrolled) {
   }
 }
 
-void FaceAuthenticator::claim() {
-  if (!tryCall("Claim", [&]() {
-        m_gaze->callMethodAsync("Claim")
-            .onInterface(kGazeInterface)
-            .withArguments(m_user)
-            .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-              if (e.has_value()) {
-                m_pending = false;
-                kLog.info("could not claim gazed: {}", e->what());
-                return;
-              }
-              m_claimed = true;
-              if (!m_active) {
-                m_pending = false;
-                release();
-                return;
-              }
-              startVerify();
-            });
-      })) {
-    m_pending = false;
-  }
-}
-
-void FaceAuthenticator::startVerify() {
-  if (!m_active || m_sleeping) {
-    m_pending = false;
-    return;
-  }
-  if (!tryCall("VerifyStartFor", [&]() {
-        m_gaze->callMethodAsync("VerifyStartFor")
-            .onInterface(kGazeInterface)
-            .withArguments(std::string{}, std::string{kPamService})
-            .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-              m_pending = false;
-              if (e.has_value()) {
-                kLog.info("could not start face verification: {}", e->what());
-                return;
-              }
-              m_verifying = true;
-              kLog.info("face verification started");
-              emitStatus(i18n::tr("auth.face.look"), false);
-            });
-      })) {
-    m_pending = false;
-  }
-}
-
-void FaceAuthenticator::stopVerify() {
-  if (!m_verifying || m_gaze == nullptr) {
-    m_verifying = false;
-    return;
-  }
-  m_verifying = false;
-  tryCall("VerifyStop", [&]() {
-    m_gaze->callMethodAsync("VerifyStop")
-        .onInterface(kGazeInterface)
-        .uponReplyInvoke([](std::optional<sdbus::Error> e) {
-          if (e.has_value()) {
-            kLog.debug("could not stop face verification: {}", e->what());
-          }
-        });
-  });
-}
-
-void FaceAuthenticator::release() {
-  if (!m_claimed || m_gaze == nullptr) {
-    m_claimed = false;
-    return;
-  }
-  m_claimed = false;
-  tryCall("Release", [&]() {
-    m_gaze->callMethodAsync("Release").onInterface(kGazeInterface).uponReplyInvoke([](std::optional<sdbus::Error> e) {
-      if (e.has_value()) {
-        kLog.debug("could not release gazed: {}", e->what());
-      }
-    });
-  });
-  kLog.info("released gazed");
-}
-
 void FaceAuthenticator::handleFaceStatus(const std::string& status) {
-  kLog.debug("face status {} (active={} verifying={})", status, m_active, m_verifying);
-  if (!m_active || !m_verifying) {
+  kLog.debug("face status {} (phase={})", status, static_cast<int>(m_machine.phase()));
+  if (m_machine.phase() != face_auth::Phase::Verifying) {
     return;
   }
   const std::string text = captureStatusText(status);
@@ -356,48 +281,29 @@ void FaceAuthenticator::handleFaceStatus(const std::string& status) {
 void FaceAuthenticator::handleVerifyStatus(
     const std::string& result, bool judged, const std::string& rgb, const std::string& ir
 ) {
-  if (!m_active || !m_verifying) {
+  if (m_machine.phase() != face_auth::Phase::Verifying) {
     return;
   }
-  m_verifying = false;
   kLog.info("face verify ended: {} judged={} rgb={} ir={}", result, judged, rgb, ir);
+  const face_auth::Verdict verdict = result == "verify-match" ? face_auth::Verdict::Match
+      : judged                                                ? face_auth::Verdict::Miss
+                                                              : face_auth::Verdict::Unjudged;
+  run(m_machine.verifyEnded(verdict, m_onRequest));
 
-  if (result == "verify-match") {
-    release();
+  if (verdict == face_auth::Verdict::Match) {
     if (m_onAuthenticated) {
       m_onAuthenticated();
     }
     return;
   }
-
-  if (m_onRequest) {
-    // One scan per request: the camera stops until the next tap or empty Enter.
-    if (judged) {
-      ++m_misses;
-    }
-    emitStatus(
-        m_misses >= kMaxMisses ? i18n::tr("auth.face.too-many-attempts")
-                               : (judged ? i18n::tr("auth.face.no-match") : unjudgedEndText(rgb, ir)),
-        true
-    );
-    m_active = false;
-    release();
-    return;
-  }
-
-  if (!judged) {
-    emitStatus(unjudgedEndText(rgb, ir), true);
-    return;
-  }
-
-  ++m_misses;
-  if (m_misses >= kMaxMisses) {
+  if (m_machine.phase() == face_auth::Phase::Exhausted) {
     emitStatus(i18n::tr("auth.face.too-many-attempts"), true);
-    release();
     return;
   }
-  emitStatus(i18n::tr("auth.face.no-match"), true);
-  m_retryTimer.start(kRetryDelay, [this]() { arm(); });
+  emitStatus(judged ? i18n::tr("auth.face.no-match") : unjudgedEndText(rgb, ir), true);
+  if (m_machine.phase() == face_auth::Phase::RetryWait) {
+    m_retryTimer.start(kRetryDelay, [this]() { run(m_machine.retryDue()); });
+  }
 }
 
 void FaceAuthenticator::handleDaemonGone() {
@@ -405,17 +311,13 @@ void FaceAuthenticator::handleDaemonGone() {
     return;
   }
   kLog.info("gazed left the bus");
-  const bool wasVerifying = m_verifying;
-  m_pending = false;
-  m_claimed = false;
-  m_verifying = false;
+  const bool wasVerifying = m_machine.phase() == face_auth::Phase::Verifying;
+  m_machine.daemonGone(m_onRequest);
+  run(face_auth::None);
   // The signal arrives on another proxy, so dropping this one here cannot free a running handler.
   m_gaze.reset();
-  if (wasVerifying && m_active) {
+  if (wasVerifying) {
     emitStatus(i18n::tr("auth.face.unavailable"), true);
-  }
-  if (m_onRequest) {
-    m_active = false;
   }
 }
 

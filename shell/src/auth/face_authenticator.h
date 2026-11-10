@@ -1,7 +1,9 @@
 #pragma once
 
+#include "auth/face_auth_machine.h"
 #include "core/timer_manager.h"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
@@ -32,7 +34,9 @@ public:
   // Asks gazed whether the user has a face enrolled; the camera stays off.
   void probe();
   // gazed runs and the user has a face enrolled (false until a probe or a scan answers).
-  [[nodiscard]] bool available() const noexcept { return m_enrolled && !m_unavailable; }
+  [[nodiscard]] bool available() const noexcept {
+    return m_enrolled && m_machine.phase() != face_auth::Phase::Unavailable;
+  }
 
   // start() begins a new lock and resets the miss count; resume() re-arms after a wrong password without it.
   void start();
@@ -45,19 +49,14 @@ public:
   void setOnRequest(bool onRequest) { m_onRequest = onRequest; }
   [[nodiscard]] bool onRequest() const noexcept { return m_onRequest; }
   // Starts a new lock: clears the miss count and the unavailable state.
-  void resetAttempts() noexcept {
-    m_misses = 0;
-    m_unavailable = false;
-  }
+  void resetAttempts() noexcept { m_machine.resetAttempts(); }
   void request();
 
 private:
   bool ensureProxy();
-  void arm();
-  void claim();
-  void startVerify();
-  void stopVerify();
-  void release();
+  // Sends the calls a machine transition asked for and keeps the retry timer in step with the phase.
+  void run(face_auth::Commands commands);
+  void callAsync(const char* method, std::uint64_t attempt);
   void handleFaceStatus(const std::string& status);
   void handleVerifyStatus(const std::string& result, bool judged, const std::string& rgb, const std::string& ir);
   void handleDaemonGone();
@@ -76,14 +75,7 @@ private:
 
   Timer m_retryTimer;
 
-  bool m_active = false;
+  face_auth::Machine m_machine;
   bool m_onRequest = false;
-  bool m_pending = false;
-  bool m_claimed = false;
-  bool m_verifying = false;
-  bool m_sleeping = false;
-  int m_misses = 0;
-  // No gazed or no enrolled face: asked once per start(), not again on every key.
-  bool m_unavailable = false;
   bool m_enrolled = false;
 };

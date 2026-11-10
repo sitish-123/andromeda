@@ -23,6 +23,9 @@ namespace {
   constexpr Logger kLog("screen-recorder");
 
   const sdbus::ServiceName kPortalBusName{"org.freedesktop.portal.Desktop"};
+  constexpr auto kPortalOwnerRule =
+      "type='signal',sender='org.freedesktop.DBus',path='/org/freedesktop/DBus',"
+      "interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'";
   const sdbus::ObjectPath kPortalPath{"/org/freedesktop/portal/desktop"};
   constexpr auto kScreenCast = "org.freedesktop.portal.ScreenCast";
   constexpr auto kRequest = "org.freedesktop.portal.Request";
@@ -33,6 +36,8 @@ namespace {
   constexpr std::uint32_t kResponseCancelled = 1;
   // EOS drains the encoder; a pipeline that has not finished by then is torn down and its file may be unplayable.
   constexpr auto kStopTimeout = std::chrono::seconds(5);
+  // The picker waits for the user, so this only ends a portal that hangs without leaving the bus.
+  constexpr auto kStartTimeout = std::chrono::minutes(2);
 
   constexpr int kTestSourceWidth = 1280;
   constexpr int kTestSourceHeight = 720;
@@ -109,7 +114,7 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
     return "a recording is being saved";
   case State::Recording:
     setState(State::Stopping);
-    m_stopDeadline = std::chrono::steady_clock::now() + kStopTimeout;
+    m_deadline = std::chrono::steady_clock::now() + kStopTimeout;
     gst_element_send_event(m_pipeline, gst_event_new_eos());
     return {};
   case State::Idle:
@@ -141,7 +146,9 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
     return m_state == State::Recording ? std::string{} : std::string("the recording pipeline did not start");
   }
 
+  m_deadline = std::chrono::steady_clock::now() + kStartTimeout;
   try {
+    watchPortalOwner();
     m_portal = sdbus::createProxy(m_bus.connection(), kPortalBusName, kPortalPath);
     portalRequest(
         "CreateSession",
@@ -159,8 +166,8 @@ std::string ScreenRecorder::toggle(std::optional<LogicalRect> region) {
           portal.callMethodAsync("CreateSession")
               .onInterface(kScreenCast)
               .withArguments(options)
-              .uponReplyInvoke([this](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
-                if (error.has_value()) {
+              .uponReplyInvoke([this, seq = m_tokenSeq](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
+                if (error.has_value() && m_state == State::Starting && seq == m_tokenSeq) {
                   finish(error->what());
                 }
               });
@@ -177,7 +184,8 @@ void ScreenRecorder::portalRequest(
     const std::string& method, std::function<void(std::uint32_t, const Results&)> onResponse,
     std::function<void(sdbus::IProxy&, Results)> call
 ) {
-  const std::string token = std::format("noctalia_rec{}", ++m_tokenSeq);
+  const std::uint64_t seq = ++m_tokenSeq;
+  const std::string token = std::format("noctalia_rec{}", seq);
   std::string sender = m_bus.connection().getUniqueName().substr(1);
   std::ranges::replace(sender, '.', '_');
   // Subscribed before the call, so a fast Response is never missed.
@@ -187,10 +195,15 @@ void ScreenRecorder::portalRequest(
   );
   m_request->uponSignal("Response")
       .onInterface(kRequest)
-      .call([this, onResponse, method](std::uint32_t response, const Results& results) {
+      .call([this, onResponse, method, seq](std::uint32_t response, const Results& results) {
         kLog.debug("{} answered {}", method, response);
         // The request proxy is running this handler; replace it only once the handler has returned.
-        DeferredCall::callLater([this, onResponse, response, results]() { onResponse(response, results); });
+        DeferredCall::callLater([this, onResponse, response, results, seq]() {
+          // A start that ended, or a newer request, makes this answer stale.
+          if (m_state == State::Starting && seq == m_tokenSeq) {
+            onResponse(response, results);
+          }
+        });
       });
   call(*m_portal, Results{{"handle_token", sdbus::Variant{token}}});
 }
@@ -215,8 +228,8 @@ void ScreenRecorder::selectSources() {
         portal.callMethodAsync("SelectSources")
             .onInterface(kScreenCast)
             .withArguments(sdbus::ObjectPath{m_sessionHandle}, options)
-            .uponReplyInvoke([this](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
-              if (error.has_value()) {
+            .uponReplyInvoke([this, seq = m_tokenSeq](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
+              if (error.has_value() && m_state == State::Starting && seq == m_tokenSeq) {
                 finish(error->what());
               }
             });
@@ -283,8 +296,8 @@ void ScreenRecorder::startCast() {
         portal.callMethodAsync("Start")
             .onInterface(kScreenCast)
             .withArguments(sdbus::ObjectPath{m_sessionHandle}, std::string{}, options)
-            .uponReplyInvoke([this](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
-              if (error.has_value()) {
+            .uponReplyInvoke([this, seq = m_tokenSeq](std::optional<sdbus::Error> error, sdbus::ObjectPath /*request*/) {
+              if (error.has_value() && m_state == State::Starting && seq == m_tokenSeq) {
                 finish(error->what());
               }
             });
@@ -317,6 +330,7 @@ void ScreenRecorder::startPipeline(const Source& source) {
     finish(error);
     return;
   }
+  m_deadline.reset();
   setState(State::Recording);
   kLog.info("recording to {}{}", m_path, withAudio ? " with desktop audio" : "");
   m_notifications.addInternal(
@@ -438,7 +452,7 @@ void ScreenRecorder::finish(const std::string& error) {
   }
   closePortalSession();
   m_request.reset();
-  m_stopDeadline.reset();
+  m_deadline.reset();
   const bool saved = m_state == State::Stopping && error.empty();
   setState(State::Idle);
   if (saved) {
@@ -448,6 +462,29 @@ void ScreenRecorder::finish(const std::string& error) {
     kLog.warn("recording failed: {}", error);
     m_notifications.addInternal("Noctalia", "Recording failed", error);
   }
+}
+
+void ScreenRecorder::watchPortalOwner() {
+  m_portalOwnerWatch = m_bus.connection().addMatch(
+      kPortalOwnerRule,
+      [this](sdbus::Message message) {
+        std::string name;
+        std::string oldOwner;
+        std::string newOwner;
+        message >> name >> oldOwner >> newOwner;
+        // A gained owner is D-Bus activation; a lost owner forgets the session, so no Response comes.
+        if (!newOwner.empty()) {
+          return;
+        }
+        // finish() drops this match, so it runs after the handler returns.
+        DeferredCall::callLater([this]() {
+          if (m_state == State::Starting) {
+            finish("the portal stopped");
+          }
+        });
+      },
+      sdbus::return_slot
+  );
 }
 
 void ScreenRecorder::closePortalSession() {
@@ -464,11 +501,11 @@ void ScreenRecorder::closePortalSession() {
 }
 
 int ScreenRecorder::pollTimeoutMs() const {
-  if (!m_stopDeadline.has_value()) {
+  if (!m_deadline.has_value()) {
     return -1;
   }
   const auto remaining =
-      std::chrono::ceil<std::chrono::milliseconds>(*m_stopDeadline - std::chrono::steady_clock::now()).count();
+      std::chrono::ceil<std::chrono::milliseconds>(*m_deadline - std::chrono::steady_clock::now()).count();
   return static_cast<int>(std::max<std::int64_t>(0, remaining));
 }
 
@@ -479,8 +516,11 @@ void ScreenRecorder::doAddPollFds(std::vector<pollfd>& fds) {
 }
 
 void ScreenRecorder::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*startIdx*/) {
-  if (m_stopDeadline.has_value() && std::chrono::steady_clock::now() >= *m_stopDeadline) {
-    finish("the encoder did not finish in time; the file may be incomplete");
+  if (m_deadline.has_value() && std::chrono::steady_clock::now() >= *m_deadline) {
+    finish(
+        m_state == State::Starting ? "the portal did not answer"
+                                   : "the encoder did not finish in time; the file may be incomplete"
+    );
     return;
   }
   while (m_gstBus != nullptr) {
@@ -509,6 +549,9 @@ void ScreenRecorder::dispatch(const std::vector<pollfd>& /*fds*/, std::size_t /*
 void ScreenRecorder::setState(State state) {
   const bool wasActive = active();
   m_state = state;
+  if (state != State::Starting) {
+    m_portalOwnerWatch.reset();
+  }
   if (wasActive != active() && m_activeCallback) {
     m_activeCallback();
   }
