@@ -30,6 +30,7 @@ public:
   void setRestore(std::function<void(const std::filesystem::path& version, const std::filesystem::path& folder)> restore) {
     m_restore = std::move(restore);
   }
+  void setOpen(std::function<void(const std::filesystem::path& version)> open) { m_open = std::move(open); }
 
   // Previous Versions (FB-INFO): the file in btrfs snapshots (snapper layout <dir>/.snapshots/<n>/snapshot/<rel>,
   // looked up in each ancestor on the same device), newest first, only versions that differ from the file.
@@ -92,6 +93,7 @@ private:
   std::string m_error;
   std::optional<AdminChange> m_admin; // set: the error offers "Change as Administrator…"
   std::function<void(const std::filesystem::path&, const std::filesystem::path&)> m_restore;
+  std::function<void(const std::filesystem::path&)> m_open;
   std::vector<Version> m_versions;
   Sum m_sha;
   Sum m_md5;

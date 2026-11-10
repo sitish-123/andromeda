@@ -323,6 +323,17 @@ namespace {
     return out;
   }
 
+  using LaunchContext = std::unique_ptr<GAppLaunchContext, void (*)(gpointer)>;
+
+  // The launched app activates its window with this token; without one the compositor only marks it urgent.
+  LaunchContext launchContext(const WaylandConnection& wayland, wl_surface* surface) {
+    LaunchContext context(g_app_launch_context_new(), g_object_unref);
+    if (const std::string token = wayland.requestActivationToken(surface); !token.empty()) {
+      g_app_launch_context_setenv(context.get(), "XDG_ACTIVATION_TOKEN", token.c_str());
+    }
+    return context;
+  }
+
   std::string noun(std::size_t count) { return count == 1 ? "1 item" : std::format("{} items", count); }
 
   std::vector<fs::path> parseUriList(const std::string& data) {
@@ -375,7 +386,9 @@ FilesWindow::FilesWindow(FilesApp& app, AppWindow& window, fs::path location, bo
               return;
             }
             GError* error = nullptr;
-            if (!g_app_info_launch_default_for_uri(uriFor(path).c_str(), nullptr, &error)) {
+            if (!g_app_info_launch_default_for_uri(
+                    uriFor(path).c_str(), launchContext(m_app.loop().wayland(), m_window.wlSurface()).get(), &error
+                )) {
               showToast(std::format("Can’t open “{}”", path.filename().string()), false);
               kLog.warn("open {}: {}", path.string(), error != nullptr ? error->message : "?");
               g_clear_error(&error);
@@ -2636,6 +2649,16 @@ void FilesWindow::getInfo(std::vector<fs::path> paths) {
       startJob("Restoring", 1, [&](FileOpsClient& ops, auto done) { ops.copy({version}, folder, done); });
     });
   });
+  m_info->setOpen([this](const fs::path& version) {
+    GError* error = nullptr;
+    if (!g_app_info_launch_default_for_uri(
+            uriFor(version).c_str(), launchContext(m_app.loop().wayland(), m_window.wlSurface()).get(), &error
+        )) {
+      showToast(std::format("Can’t open “{}”", version.filename().string()), false);
+      kLog.warn("open {}: {}", version.string(), error != nullptr ? error->message : "?");
+      g_clear_error(&error);
+    }
+  });
   m_window.presentSheet([this](float scale) { return m_info->build(scale); }, [this] { m_window.dismissSheet(); });
 }
 
@@ -3610,7 +3633,9 @@ void FilesWindow::openSelection() {
   }
   for (const fs::path& path : paths) {
     GError* error = nullptr;
-    if (!g_app_info_launch_default_for_uri(uriFor(path).c_str(), nullptr, &error)) {
+    if (!g_app_info_launch_default_for_uri(
+            uriFor(path).c_str(), launchContext(m_app.loop().wayland(), m_window.wlSurface()).get(), &error
+        )) {
       showToast(std::format("Can’t open “{}”", path.filename().string()), false);
       kLog.warn("open {}: {}", path.string(), error != nullptr ? error->message : "?");
       g_clear_error(&error);
@@ -3668,7 +3693,9 @@ void FilesWindow::launchWith(const std::string& id, const std::vector<fs::path>&
     uris = g_list_append(uris, g_strdup(uriFor(path).c_str()));
   }
   GError* error = nullptr;
-  if (!g_app_info_launch_uris(G_APP_INFO(app), uris, nullptr, &error)) {
+  if (!g_app_info_launch_uris(
+          G_APP_INFO(app), uris, launchContext(m_app.loop().wayland(), m_window.wlSurface()).get(), &error
+      )) {
     showToast(std::format("Can’t open with {}", g_app_info_get_name(G_APP_INFO(app))), false);
     kLog.warn("open with {}: {}", id, error != nullptr ? error->message : "?");
     g_clear_error(&error);

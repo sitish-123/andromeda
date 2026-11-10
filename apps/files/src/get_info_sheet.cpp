@@ -310,11 +310,10 @@ std::unique_ptr<Node> GetInfoSheet::buildVersions(float s) {
     row->addChild(ui::label({.text = std::format("{} · {}", formatFileDate(v.modifiedNs), formatFileSize(v.size)),
                              .fontSize = Style::fontSizeBody * s, .color = colorSpecFromRole(ColorRole::Label1),
                              .flexGrow = 1.0F}));
-    row->addChild(ui::button({.text = std::string("Open"), .variant = ButtonVariant::Default, .onClick = [path = v.path] {
-                                gchar* uri = g_filename_to_uri(path.c_str(), nullptr, nullptr);
-                                if (uri != nullptr) {
-                                  g_app_info_launch_default_for_uri(uri, nullptr, nullptr);
-                                  g_free(uri);
+    row->addChild(ui::button({.text = std::string("Open"), .variant = ButtonVariant::Default,
+                              .onClick = [this, path = v.path] {
+                                if (m_open) {
+                                  m_open(path);
                                 }
                               }}));
     row->addChild(ui::button({.text = std::string("Restore"), .variant = ButtonVariant::Default,
