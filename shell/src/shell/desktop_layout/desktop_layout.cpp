@@ -95,6 +95,11 @@ namespace desktop_layout {
       return preset == "windows" ? &windows : preset == "macos" ? &macos : nullptr;
     }
 
+    std::span<const std::string_view> capsuledWidgets(std::string_view preset) {
+      static constexpr std::array<std::string_view, 2> kWindows{"windows_clock", "notifications"};
+      return preset == "windows" ? std::span<const std::string_view>(kWindows) : std::span<const std::string_view>{};
+    }
+
     BarCapsuleGroupStyle statusGroup() {
       BarCapsuleGroupStyle group;
       group.id = "status";
@@ -345,6 +350,11 @@ namespace desktop_layout {
                                                           : field.value;
           out.emplace_back(Path{"bar", first, std::string(field.key)}, value);
         }
+        // A clear capsule reserves capsule_padding on both sides: the mockup's wider clock and bell gaps.
+        for (const std::string_view widget : capsuledWidgets(preset)) {
+          out.emplace_back(Path{"widget", std::string(widget), "capsule"}, true);
+          out.emplace_back(Path{"widget", std::string(widget), "capsule_fill"}, std::string("#00000000"));
+        }
         // Status flyouts float with a gap off a full-width bar, as on macOS and Windows.
         out.emplace_back(Path{"shell", "panel", "control_center_placement"}, std::string("floating"));
       }
@@ -382,6 +392,10 @@ namespace desktop_layout {
         out.push_back(Path{"bar", first, std::string(field.key)});
       }
       out.push_back(Path{"shell", "panel", "control_center_placement"});
+      for (const std::string_view widget : capsuledWidgets(row == rowFor("windows") ? "windows" : "")) {
+        out.push_back(Path{"widget", std::string(widget), "capsule"});
+        out.push_back(Path{"widget", std::string(widget), "capsule_fill"});
+      }
     }
     if (!hasDesktopIcons(preset)) {
       out.push_back(Path{"desktop_icons", "start_corner"});
