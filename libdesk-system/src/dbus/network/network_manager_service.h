@@ -164,8 +164,9 @@ private:
   std::vector<std::unique_ptr<PendingAccessPointActivation>> m_retiredApActivations;
   std::shared_ptr<int> m_lifetimeToken;
   bool m_refreshInFlight = false;
-  bool m_refreshQueued = false;
-  bool m_refreshQueuedFull = false;
+  // Ordered: a full refresh covers a partial one.
+  enum class QueuedRefresh { None, Partial, Full };
+  QueuedRefresh m_refreshQueued = QueuedRefresh::None;
   bool m_rebindInFlight = false;
   bool m_rebindQueued = false;
   bool m_emitOnNextRefresh = false;

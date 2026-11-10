@@ -947,8 +947,6 @@ void ConfigService::setPluginEnabled(std::string_view pluginId, bool enabled) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
 }
@@ -1007,9 +1005,7 @@ void ConfigService::addPluginSource(const PluginSourceConfig& source) {
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
-  }
-  m_ownOverridesWritePending = true;
-  loadAll();
+  }  loadAll();
   fireReloadCallbacks();
 }
 
@@ -1044,9 +1040,7 @@ void ConfigService::removePluginSource(std::string_view name) {
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
-  }
-  m_ownOverridesWritePending = true;
-  loadAll();
+  }  loadAll();
   fireReloadCallbacks();
 }
 
@@ -1064,8 +1058,6 @@ void ConfigService::setThemeMode(ThemeMode mode) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
   }
-
-  m_ownOverridesWritePending = true;
 
   // Rebuild Config and fan out reload callbacks so ThemeService transitions.
   loadAll();
@@ -1091,8 +1083,6 @@ void ConfigService::setDockEnabled(bool enabled) {
     return;
   }
 
-  m_ownOverridesWritePending = true;
-
   loadAll();
   fireReloadCallbacks();
 }
@@ -1115,8 +1105,6 @@ void ConfigService::setPluginsAutoUpdate(PluginAutoUpdateMode mode) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
   }
-
-  m_ownOverridesWritePending = true;
 
   loadAll();
   fireReloadCallbacks();
@@ -1603,8 +1591,6 @@ bool ConfigService::createBarOverride(std::string_view name) {
     kLog.warn("failed to write {}", m_overridesPath);
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   return true;
@@ -1635,8 +1621,6 @@ bool ConfigService::moveBarOverride(std::string_view name, int direction) {
     kLog.warn("failed to write {}", m_overridesPath);
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   return true;
@@ -1730,8 +1714,6 @@ bool ConfigService::createMonitorOverride(std::string_view barName, std::string_
     kLog.warn("failed to write {}", m_overridesPath);
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   return true;
@@ -1799,8 +1781,6 @@ bool ConfigService::createDockMonitorOverride(std::string_view match) {
     kLog.warn("failed to write {}", m_overridesPath);
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   return true;
@@ -1988,8 +1968,6 @@ bool ConfigService::commitOverrideTable(toml::table next, bool* changed, const O
     }
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   if (changed != nullptr) {
     *changed = true;
   }
@@ -2142,8 +2120,6 @@ bool ConfigService::renameOverrideTable(
     kLog.warn("failed to write {}", m_overridesPath);
     return false;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   return true;
@@ -2273,8 +2249,6 @@ void ConfigService::setWallpaperPath(const std::optional<std::string>& connector
     kLog.warn("failed to write {}", m_overridesPath);
     return;
   }
-
-  m_ownOverridesWritePending = true;
   if (m_wallpaperBatchDepth > 0) {
     m_wallpaperBatchDirty = true;
     return;
@@ -2392,9 +2366,7 @@ void ConfigService::addWallpaperFavorite(std::string path, const std::optional<W
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
-  }
-  m_ownOverridesWritePending = true;
-}
+  }}
 
 void ConfigService::removeWallpaperFavorite(std::string_view path) {
   if (m_overridesPath.empty()) {
@@ -2412,9 +2384,7 @@ void ConfigService::removeWallpaperFavorite(std::string_view path) {
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
-  }
-  m_ownOverridesWritePending = true;
-}
+  }}
 
 void ConfigService::setWallpaperFavoriteThemeMode(std::string_view path, ThemeMode themeMode) {
   if (m_overridesPath.empty()) {
@@ -2441,9 +2411,7 @@ void ConfigService::setWallpaperFavoriteThemeMode(std::string_view path, ThemeMo
   if (!writeOverridesToFile()) {
     kLog.warn("failed to write {}", m_overridesPath);
     return;
-  }
-  m_ownOverridesWritePending = true;
-}
+  }}
 
 void ConfigService::applyWallpaperSelection(
     const std::optional<std::string>& connectorName, const std::string& path, const WallpaperFavorite* applyTheme,
@@ -2511,8 +2479,6 @@ void ConfigService::applyWallpaperSelection(
     kLog.warn("failed to write {}", m_overridesPath);
     return;
   }
-
-  m_ownOverridesWritePending = true;
   loadAll();
   fireReloadCallbacks();
   if (m_wallpaperChangeCallback) {
@@ -2537,10 +2503,12 @@ bool ConfigService::writeOverridesToFile(const OverrideDiagnostics& known) {
     m_overridesTable = m_persistedOverridesTable;
     return false;
   }
-  if (!writeTextFileAtomic(m_overridesPath, out.str())) {
+  std::string text = out.str();
+  if (!writeTextFileAtomic(m_overridesPath, text)) {
     m_overridesTable = m_persistedOverridesTable;
     return false;
   }
   m_persistedOverridesTable = m_overridesTable;
+  m_writtenOverridesContent = std::move(text);
   return true;
 }

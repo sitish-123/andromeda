@@ -325,7 +325,8 @@ private:
   std::vector<std::filesystem::path> m_includeLoadedFiles;
   std::vector<std::filesystem::path> m_includeDirs;
 
-  bool m_ownOverridesWritePending = false;
+  // Text of our last overrides write: the watcher ignores an event while the file still holds it.
+  std::optional<std::string> m_writtenOverridesContent;
   std::string m_lastMutationError;
   int m_wallpaperBatchDepth = 0;
   bool m_wallpaperBatchDirty = false;

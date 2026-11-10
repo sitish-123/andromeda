@@ -329,7 +329,7 @@ void NetworkManagerService::detach() {
   m_savedWiredConnectionPaths.clear();
   m_savedCellularConnectionPaths.clear();
   m_refreshInFlight = false;
-  m_refreshQueued = false;
+  m_refreshQueued = QueuedRefresh::None;
   m_rebindInFlight = false;
   m_rebindQueued = false;
   m_emitOnNextRefresh = false;
@@ -366,8 +366,7 @@ void NetworkManagerService::runRefresh(bool full) {
   }
   const std::weak_ptr<int> lifetimeToken = m_lifetimeToken;
   if (m_refreshInFlight) {
-    m_refreshQueued = true;
-    m_refreshQueuedFull = m_refreshQueuedFull || full;
+    m_refreshQueued = std::max(m_refreshQueued, full ? QueuedRefresh::Full : QueuedRefresh::Partial);
     return;
   }
   m_refreshInFlight = true;
@@ -422,11 +421,9 @@ void NetworkManagerService::runRefresh(bool full) {
       m_retiredApActivations.clear();
 
       m_refreshInFlight = false;
-      if (m_refreshQueued) {
-        const bool queuedFull = m_refreshQueuedFull;
-        m_refreshQueued = false;
-        m_refreshQueuedFull = false;
-        runRefresh(queuedFull);
+      if (const QueuedRefresh queued = std::exchange(m_refreshQueued, QueuedRefresh::None);
+          queued != QueuedRefresh::None) {
+        runRefresh(queued == QueuedRefresh::Full);
       }
     });
   };
