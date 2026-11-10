@@ -67,16 +67,16 @@ int main() {
   Config base;
   noctalia::config::seedBuiltinWidgets(base);
 
-  const auto parsed = toml::parse("[widget.temp]\nshow_label = false\n");
+  const auto parsed = toml::parse("[widget.output_volume]\nshow_label = false\n");
   const auto* widgetRoot = parsed["widget"].as_table();
-  const auto* tempTable = widgetRoot != nullptr ? (*widgetRoot)["temp"].as_table() : nullptr;
-  if (!expect(tempTable != nullptr, "parsed widget.temp table")) {
+  const auto* tempTable = widgetRoot != nullptr ? (*widgetRoot)["output_volume"].as_table() : nullptr;
+  if (!expect(tempTable != nullptr, "parsed widget.output_volume table")) {
     return 1;
   }
 
-  const WidgetConfig temp = noctalia::config::readBarWidgetConfig("temp", *tempTable, base);
-  ok = expect(temp.type == "sysmon", "temp resolves to sysmon") && ok;
-  ok = expectStringSetting(temp, "stat", "cpu_temp") && ok;
+  const WidgetConfig temp = noctalia::config::readBarWidgetConfig("output_volume", *tempTable, base);
+  ok = expect(temp.type == "volume", "output_volume resolves to volume") && ok;
+  ok = expectStringSetting(temp, "device", "output") && ok;
   ok = expectBoolSetting(temp, "show_label", false) && ok;
 
   const auto customParsed = toml::parse("[widget.my_clock]\nformat = \"{:%H:%M}\"\n");

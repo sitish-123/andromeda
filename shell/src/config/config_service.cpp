@@ -458,16 +458,6 @@ namespace {
     }
   }
 
-  void seedLegacyDockAllowListEnabled(toml::table& sidecar, const toml::table& baseConfig) {
-    auto* dock = sidecar["dock"].as_table();
-    if (dock == nullptr || (*dock)["monitors"].as_array() == nullptr || dock->contains("enabled")) {
-      return;
-    }
-    if (baseConfig["dock"]["enabled"].value_or(false)) {
-      dock->insert("enabled", true);
-    }
-  }
-
   toml::table buildDistroReport() {
     toml::table distro;
     distro.insert_or_assign("label", distroLabel());
@@ -510,7 +500,6 @@ namespace {
       const std::filesystem::path settingsFile{std::string(settingsPath)};
       try {
         toml::table sidecar = toml::parse_file(settingsPath);
-        seedLegacyDockAllowListEnabled(sidecar, merged);
         noctalia::config::ConfigOriginIndex origins;
         origins.record(settingsFile, sidecar);
         schema::Diagnostics migrationDiag;
@@ -1541,13 +1530,6 @@ void ConfigService::loadAll() {
         }
       }
     }
-    if (auto* legacyMonitors = (*dockTbl)["monitors"].as_array()) {
-      for (const auto& node : *legacyMonitors) {
-        if (const auto selector = node.value<std::string>(); selector.has_value() && !selector->empty()) {
-          configFileDockMonitorOverrideNames.insert(*selector);
-        }
-      }
-    }
   }
   if (auto* calendarTbl = merged["calendar"].as_table()) {
     if (auto* accountTblMap = (*calendarTbl)["account"].as_table()) {
@@ -1566,7 +1548,6 @@ void ConfigService::loadAll() {
   int appliedVersion = storedVersion;
   bool sidecarNeedsPersist = false;
   if (!m_overridesTable.empty()) {
-    seedLegacyDockAllowListEnabled(effectiveOverrides, merged);
     const auto parsedVersion = noctalia::config::storedConfigVersion(effectiveOverrides, migrationDiag);
     if (parsedVersion.has_value()) {
       storedVersion = *parsedVersion;
