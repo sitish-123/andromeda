@@ -251,14 +251,10 @@ void LiveActivityIsland::setRestSources(
 }
 
 void LiveActivityIsland::hideDndSuppressed() {
-  std::erase_if(m_bannerQueue, [](const BannerItem& b) { return b.respectsDnd; });
-  if (m_banner.has_value() && m_banner->respectsDnd) {
-    endBanner();
-  }
+  apply(m_queue.dropIf([](const BannerItem& b) { return b.respectsDnd; }));
 }
 
 void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
-  const bool had = m_activity.has_value();
   m_activity = std::move(activity);
   for (auto& inst : m_instances) {
     applyLayer(*inst);
@@ -272,21 +268,10 @@ void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
   }
   if (m_activity.has_value()) {
     m_shown = *m_activity;
-    // The banner waits behind the call, recording or transfer.
-    m_bannerTimer.stop();
-  } else if (had && m_banner.has_value() && !m_banner->sticky && !m_osd.has_value()) {
-    m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
-      if (!alive.expired()) {
-        endBanner();
-      }
-    });
-  } else if (had && !m_banner.has_value() && !m_osd.has_value()) {
-    startNextBanner();
   }
-  updateAllFaces();
-  for (auto& inst : m_instances) {
-    inst->surface->requestLayout();
-  }
+  Queue::Step step = m_queue.setActivity(bannerCovered());
+  step.changed = true;
+  apply(step);
 }
 
 void LiveActivityIsland::setExtraSources(
@@ -323,39 +308,11 @@ bool LiveActivityIsland::showOsd(const OsdContent& content) {
   if (!coversAllOutputs()) {
     return false;
   }
-  if (m_banner.has_value()) {
-    m_bannerQueue.insert(m_bannerQueue.begin(), *m_banner);
-    m_banner.reset();
-    m_bannerTimer.stop();
-  }
-  m_osd = content;
-  m_osdTimer.start(kOsdTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
-    if (alive.expired()) {
-      return;
-    }
-    m_osd.reset();
-    if (!m_bannerQueue.empty()) {
-      startNextBanner();
-    } else {
-      updateAllFaces();
-    }
-    for (auto& inst : m_instances) {
-      inst->surface->requestLayout();
-    }
-  });
-  updateAllFaces();
-  for (auto& inst : m_instances) {
-    inst->surface->requestLayout();
-  }
+  apply(m_queue.showOsd(content));
   return true;
 }
 
 bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent event) {
-  const auto relayout = [this] {
-    for (auto& inst : m_instances) {
-      inst->surface->requestLayout();
-    }
-  };
   const auto item = [&n] {
     return BannerItem{
         .id = n.id,
@@ -374,23 +331,16 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
   };
   if (event == NotificationEvent::Closed) {
     m_consumed.erase(n.id);
-    std::erase_if(m_bannerQueue, [&n](const BannerItem& b) { return b.id == n.id; });
-    if (m_banner.has_value() && m_banner->id == n.id) {
-      endBanner();
-    }
+    apply(m_queue.dropIf([&n](const BannerItem& b) { return b.id == n.id; }));
     return false;
   }
   if (event == NotificationEvent::Updated) {
-    if (m_banner.has_value() && m_banner->id == n.id) {
-      m_banner = item();
-      relayout();
-      return true;
-    }
-    for (auto& queued : m_bannerQueue) {
-      if (queued.id == n.id) {
-        queued = item();
-        return true;
+    const bool current = m_banner.has_value() && m_banner->id == n.id;
+    if (Queue::Step step; m_queue.update(item(), step)) {
+      if (current) {
+        apply(step);
       }
+      return true;
     }
     // The banner already ended: the update must not raise a toast for a notification the island showed.
     return m_consumed.contains(n.id);
@@ -400,45 +350,39 @@ bool LiveActivityIsland::showBanner(const Notification& n, NotificationEvent eve
     return false;
   }
   m_consumed.insert(n.id);
-  m_bannerQueue.push_back(item());
-  if (!m_osd.has_value() && !m_banner.has_value()) {
-    startNextBanner();
-  }
+  apply(m_queue.push(item()));
   return true;
 }
 
-void LiveActivityIsland::startNextBanner() {
-  if (m_bannerQueue.empty()) {
-    updateAllFaces();
+void LiveActivityIsland::apply(Queue::Step step) {
+  if (step.osd == Queue::TimerCmd::Start) {
+    m_osdTimer.start(kOsdTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
+      if (!alive.expired()) {
+        apply(m_queue.endOsd());
+      }
+    });
+  } else if (step.osd == Queue::TimerCmd::Stop) {
+    m_osdTimer.stop();
+  }
+  if (step.banner == Queue::TimerCmd::Start) {
+    m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
+      if (!alive.expired()) {
+        endBanner();
+      }
+    });
+  } else if (step.banner == Queue::TimerCmd::Stop) {
+    m_bannerTimer.stop();
+  }
+  if (!step.changed) {
     return;
   }
-  m_banner = std::move(m_bannerQueue.front());
-  m_bannerQueue.erase(m_bannerQueue.begin());
-  if (m_banner->sticky) {
-    updateAllFaces();
-    for (auto& inst : m_instances) {
-      inst->surface->requestLayout();
-    }
-    return;
-  }
-  m_bannerTimer.start(kBannerTime, [this, alive = std::weak_ptr<bool>(m_alive)] {
-    if (!alive.expired()) {
-      endBanner();
-    }
-  });
   updateAllFaces();
   for (auto& inst : m_instances) {
     inst->surface->requestLayout();
   }
 }
 
-void LiveActivityIsland::endBanner() {
-  m_banner.reset();
-  m_bannerTimer.stop();
-  if (!m_osd.has_value()) {
-    startNextBanner();
-  }
-}
+void LiveActivityIsland::endBanner() { apply(m_queue.endBanner()); }
 
 void LiveActivityIsland::refresh() {
   if (m_refreshScheduled) {
@@ -466,15 +410,13 @@ void LiveActivityIsland::refreshNow() {
   ensureSurfaces();
   if (!coversAllOutputs() && m_osd.has_value()) {
     // An output without an island cannot show the OSD; the OSD overlay shows the next one.
-    m_osd.reset();
-    m_osdTimer.stop();
+    apply(m_queue.endOsd());
   }
-  if (m_instances.empty() && (m_banner.has_value() || !m_bannerQueue.empty())) {
+  if (m_instances.empty() && (m_banner.has_value() || !m_queue.queued().empty())) {
     // With no island at all the banners stay in the notification history.
-    m_banner.reset();
-    m_bannerQueue.clear();
-    m_bannerTimer.stop();
+    apply(m_queue.dropIf([](const BannerItem&) { return true; }));
   }
+  apply(m_queue.setActivity(bannerCovered()));
   updateAllFaces();
   syncBars();
   for (auto& inst : m_instances) {
@@ -705,7 +647,7 @@ LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) c
   if (m_osd.has_value()) {
     return Face::Osd;
   }
-  if (m_activity.has_value() && (!m_activity->since.has_value() || inst.hovered || inst.space.restless)) {
+  if (hidesBanner(inst)) {
     return Face::Live;
   }
   if (m_banner.has_value()) {
@@ -715,6 +657,18 @@ LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) c
     return inst.hoverMedia ? Face::HoverMedia : Face::HoverIdle;
   }
   return Face::Rest;
+}
+
+bool LiveActivityIsland::hidesBanner(const Instance& inst) const {
+  return activityHidesBanner(
+      m_activity.has_value(), m_activity.has_value() && m_activity->since.has_value(), inst.hovered,
+      inst.space.restless
+  );
+}
+
+bool LiveActivityIsland::bannerCovered() const {
+  return m_activity.has_value()
+         && std::ranges::all_of(m_instances, [this](const auto& inst) { return hidesBanner(*inst); });
 }
 
 void LiveActivityIsland::updateAllFaces() {
@@ -774,6 +728,7 @@ void LiveActivityIsland::hoverEnter(Instance& inst) {
   inst.hoverMedia = !m_activity.has_value();
   inst.hovered = true;
   updateFace(inst);
+  apply(m_queue.setActivity(bannerCovered()));
 }
 
 void LiveActivityIsland::hoverLeave(Instance& inst) {
@@ -783,6 +738,7 @@ void LiveActivityIsland::hoverLeave(Instance& inst) {
   inst.collapse.start(kCollapseDelay, [this, &inst] {
     inst.hovered = false;
     updateFace(inst);
+    apply(m_queue.setActivity(bannerCovered()));
   });
 }
 

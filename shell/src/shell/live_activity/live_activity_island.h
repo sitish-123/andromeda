@@ -6,6 +6,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "notification/notification.h"
 #include "shell/bar/center_island_space.h"
+#include "shell/live_activity/island_queue.h"
 #include "system/icon_resolver.h"
 #include "shell/osd/osd_overlay.h"
 #include "wayland/layer_surface.h"
@@ -291,6 +292,9 @@ private:
   void applyLayer(Instance& inst);
   void updateAllFaces();
   [[nodiscard]] Face desiredFace(const Instance& inst) const;
+  [[nodiscard]] bool hidesBanner(const Instance& inst) const;
+  // The activity hides the banner on every island, so the banner timer pauses.
+  [[nodiscard]] bool bannerCovered() const;
   void syncDsk(Instance& inst, bool animate);
   // The glass tint of `face`: the pill material at rest, the sheet tint expanded; alpha 0 when the shell paints it.
   [[nodiscard]] static DskSurfaceClient::Value islandTint(const Instance& inst, Face face);
@@ -315,7 +319,8 @@ private:
   [[nodiscard]] bool realSpectrum() const;
   [[nodiscard]] bool barsNeedTimer() const;
   void syncHoverProgress(Instance& inst);
-  void startNextBanner();
+  using Queue = IslandQueue<BannerItem, OsdContent>;
+  void apply(Queue::Step step);
   void endBanner();
   void syncVisibility();
   [[nodiscard]] bool coversAllOutputs() const;
@@ -342,13 +347,14 @@ private:
   Timer m_barsTimer;
   float m_barsPhase = 0.0F;
   Timer m_osdTimer;
-  std::optional<OsdContent> m_osd;
   Timer m_bannerTimer;
+  Queue m_queue;
+  // Read-only views: only m_queue changes the OSD and the banners.
+  const std::optional<OsdContent>& m_osd = m_queue.osd();
+  const std::optional<BannerItem>& m_banner = m_queue.banner();
   Timer m_callTimer;
   IconResolver m_iconResolver;
-  std::optional<BannerItem> m_banner;
   int m_notificationToken = -1;
-  std::vector<BannerItem> m_bannerQueue;
   // Ids the island showed as a banner: their later updates never raise a toast.
   std::unordered_set<std::uint32_t> m_consumed;
   std::optional<LiveActivity> m_activity;
