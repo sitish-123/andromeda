@@ -27,8 +27,8 @@
 #include "i18n/i18n.h"
 #include "notification/notification_manager.h"
 #include "pipewire/pipewire_service.h"
-#include "shell/control_center/tabs/bluetooth_tab.h"
-#include "shell/control_center/tabs/power_tab.h"
+#include "shell/control_center/bluetooth_glyph.h"
+#include "shell/control_center/charge_limit.h"
 #include "shell/phone/phone_state.h"
 #include "shell/panel/panel_manager.h"
 #include "ui/builders.h"
@@ -143,7 +143,8 @@ namespace control_center {
                                   m_showAll, m_passwordSsid, m_error, state.ipv4, state.frequencyMhz);
     key += std::format("|{}:{}:{}:{}", static_cast<int>(state.kind), state.connected,
                        m_network->canActivateWiredConnection(),
-                       m_hotspot != nullptr ? std::format("{}:{}", static_cast<int>(m_hotspot->state()), m_hotspot->lastError())
+                       m_hotspot != nullptr ? std::format("{}:{}:{}", static_cast<int>(m_hotspot->state()),
+                                                          m_hotspot->lastError(), m_hotspot->turnsOffWifi())
                                             : std::string());
     if (state.wirelessEnabled) {
       for (const AccessPointInfo& ap : m_network->accessPoints()) {
@@ -183,6 +184,9 @@ namespace control_center {
       row.title = tr("control-center.detail.wifi.hotspot");
       row.toggle = m_hotspot->active();
       row.toggleEnabled = !m_hotspot->pending();
+      if (!m_hotspot->active() && m_hotspot->turnsOffWifi()) {
+        row.secondary = tr("control-center.detail.wifi.hotspot-turns-off-wifi");
+      }
       row.onToggle = [this](bool on) {
         (void)m_hotspot->setEnabled(on);
         requestRebuild();
@@ -907,7 +911,7 @@ namespace control_center {
         }
         if (!d.isLaptopBattery()) {
           out.peripherals.push_back(std::move(d));
-        } else if (PowerTab::chargeLimitControlState(d.chargeLimit).visible) {
+        } else if (charge_limit::controlState(d.chargeLimit).visible) {
           out.limits.push_back(std::move(d));
         }
       }
@@ -934,7 +938,7 @@ namespace control_center {
       }
     }
     for (const UPowerDeviceInfo& d : batteries.limits) {
-      const PowerTab::ChargeLimitControlState c = PowerTab::chargeLimitControlState(d.chargeLimit);
+      const charge_limit::ControlState c = charge_limit::controlState(d.chargeLimit);
       key += std::format("|l{}:{}:{}:{}", d.path, batteryName(d), c.checked, c.enabled);
     }
     for (const UPowerDeviceInfo& d : batteries.peripherals) {
@@ -980,7 +984,7 @@ namespace control_center {
     if (!batteries.limits.empty()) {
       Flex* card = addGroup();
       for (const UPowerDeviceInfo& d : batteries.limits) {
-        const PowerTab::ChargeLimitControlState c = PowerTab::chargeLimitControlState(d.chargeLimit);
+        const charge_limit::ControlState c = charge_limit::controlState(d.chargeLimit);
         DetailRow row;
         row.glyph = batteryGlyphName(d.state.percentage, d.state.state);
         row.title = tr("control-center.detail.power.charge-limit");

@@ -692,6 +692,7 @@
         "hotspot": "Personal Hotspot",
         "hotspot-failed": "Hotspot could not start",
         "hotspot-failed-reason": "Hotspot could not start ({reason})",
+        "hotspot-turns-off-wifi": "Hotspot turns off Wi-Fi",
         "ip-address": "IP Address",
         "known-networks": "Known networks",
         "network-details": "Network Details…",
@@ -1787,8 +1788,6 @@
       "screen-time-reset": "Screen Time",
       "screen-time-reset-success": "Usage history cleared.",
       "session-bus-unavailable": "Session bus unavailable",
-      "wallpaper-palette-export": "Custom Palette",
-      "wallpaper-palette-export-success": "Saved \"{name}\" and switched palette source to custom.",
       "shell-restarted": "The desktop shell restarted",
       "shell-restarted-body": "It stopped unexpectedly. Your windows were not affected.",
       "desktop-restarted": "The desktop restarted after a problem",
@@ -2210,7 +2209,6 @@
       "batch-write": "Some settings could not be saved.",
       "custom-schedule-times": "A custom schedule needs both a sunrise and a sunset time in HH:MM form.",
       "export-config": "Failed to save config export.",
-      "export-wallpaper-palette": "Could not save the wallpaper palette as a custom palette.",
       "monitor-override": {
         "create": "Could not create monitor override.",
         "delete": "Could not delete monitor override.",
@@ -2677,7 +2675,6 @@
         "window-switcher": "Window Switcher",
         "surfaces": "Surfaces",
         "icons": "Icons",
-        "templates": "App Theming",
         "text": "Text",
         "window-borders": "Borders",
         "window-shadow": "Shadow",
@@ -2941,11 +2938,6 @@
         },
         "shell-mode": {
           "follow": "Follow"
-        },
-        "source": {
-          "built-in": "Built-In",
-          "custom": "Custom",
-          "wallpaper": "Wallpaper"
         }
       },
       "theme-role": {
@@ -3157,7 +3149,6 @@
           "label": "Colorize App Icons"
         },
         "builtin-palette": {
-          "description": "Choose a palette from the bundled catalog",
           "label": "Colour Theme"
         },
         "button-borders": {
@@ -3171,16 +3162,6 @@
         "corner-roundness": {
           "description": "Scale corner radius across shell UI containers and controls",
           "label": "Corner Roundness"
-        },
-        "custom-palette": {
-          "description": "Choose a palette from ~/.config/noctalia/palettes/",
-          "label": "Custom Palette",
-          "search-placeholder": "Search custom palettes…"
-        },
-        "export-wallpaper-palette": {
-          "button": "Save as Custom Palette",
-          "description": "Save the current wallpaper-generated palette as a reusable custom palette file",
-          "label": "Export Wallpaper Palette"
         },
         "from-wallpaper": {
           "label": "From Wallpaper"
@@ -3208,10 +3189,6 @@
           "description": "View template color names, swatches, and hex values for the active palette",
           "label": "Show Palette Colors"
         },
-        "palette-source": {
-          "description": "Where the accent and other colours come from",
-          "label": "Colour theme"
-        },
         "popup-borders": {
           "description": "Draw outlines around popups and dropdowns",
           "label": "Popup Borders"
@@ -3224,13 +3201,21 @@
           "description": "Anchor dark surfaces to true black, preventing banding on OLED panels (dark mode only)",
           "label": "Pure Black"
         },
-        "shell-theme-mode": {
-          "description": "Pin Andromeda's own light or dark mode; Follow keeps it in sync with Theme Mode",
-          "label": "Shell Theme Mode"
-        },
         "show-close-buttons": {
           "description": "Show close buttons on panels, notification toasts, popups, dialogs, and the settings window",
           "label": "Show Close Buttons"
+        },
+        "text-scale": {
+          "description": "Make text larger or smaller; icons and spacing keep their size",
+          "label": "Text Size"
+        },
+        "ui-scale": {
+          "description": "Scale the entire interface up or down",
+          "label": "Interface Size"
+        },
+        "shell-theme-mode": {
+          "description": "Pin Andromeda's own light or dark mode; Follow keeps it in sync with Theme Mode",
+          "label": "Shell Theme Mode"
         },
         "sync-color-scheme": {
           "description": "Set the system dark/light preference read by browsers and other apps to follow Theme Mode",
@@ -3243,18 +3228,6 @@
         "theme-mode": {
           "description": "Choose Dark, Light, or Auto based on time of day; also applies to apps through templates",
           "label": "Theme Mode"
-        },
-        "text-scale": {
-          "description": "Make text larger or smaller; icons and spacing keep their size",
-          "label": "Text Size"
-        },
-        "ui-scale": {
-          "description": "Scale the entire interface up or down",
-          "label": "Interface Size"
-        },
-        "wallpaper-generation-scheme": {
-          "description": "Choose how wallpaper colors are converted into a palette",
-          "label": "Wallpaper Color Style"
         }
       },
       "bar": {
@@ -3709,10 +3682,6 @@
             "description": "Command to run after Andromeda starts",
             "label": "On Started"
           },
-          "theme-mode-changed": {
-            "description": "Command to run when the resolved theme mode changes between light and dark",
-            "label": "On Theme Mode Changed"
-          },
           "wallpaper-changed": {
             "description": "Command to run when the wallpaper changes; provides NOCTALIA_WALLPAPER_PATH and NOCTALIA_WALLPAPER_CONNECTOR",
             "label": "On Wallpaper Changed"
@@ -3724,6 +3693,10 @@
           "wifi-enabled": {
             "description": "Command to run when Wi-Fi is enabled",
             "label": "On Wi-Fi Enabled"
+          },
+          "theme-mode-changed": {
+            "description": "Command to run when the resolved theme mode changes between light and dark",
+            "label": "On Theme Mode Changed"
           }
         }
       },
@@ -5090,18 +5063,6 @@
           "label": "Power Mode on Battery"
         }
       },
-      "templates": {
-        "builtin-ids": {
-          "description": "Toggle bundled app templates to render on each theme change",
-          "empty": "No built-in templates are available.",
-          "label": "Built-In Templates"
-        },
-        "dynamic-output": "Output path is resolved when the template is applied",
-        "enable-builtins": {
-          "description": "Use the bundled catalog of theme templates for apps",
-          "label": "Enable Built-In Templates"
-        }
-      },
       "wallpaper": {
         "automation": {
           "description": "Cycle wallpapers automatically on a timer",
@@ -5578,10 +5539,6 @@
       "label": "Recover Private Storage",
       "success": "Private storage was reset successfully."
     },
-    "templates": {
-      "documentation": "Documentation",
-      "readme": "Readme"
-    },
     "widgets": {
       "actions": {
         "command-placeholder": "Shell command",
@@ -5673,14 +5630,6 @@
           "clipboard-text": {
             "description": "Print the most recent clipboard text (empty when the selection holds no text)",
             "label": "Print clipboard text"
-          },
-          "color-scheme-get": {
-            "description": "Print active color scheme: <source> <name> (source is builtin, wallpaper, or custom)",
-            "label": "Get color scheme"
-          },
-          "color-scheme-set": {
-            "description": "Set palette source and selection in overrides.toml (builtin name, wallpaper generator scheme, or custom scheme folder name)",
-            "label": "Set color scheme"
           },
           "config-reload": {
             "description": "Reload the config file",
@@ -5953,10 +5902,6 @@
           "taskbar-cycle": {
             "description": "Step to the adjacent task or workspace group in the invoking taskbar",
             "label": "Cycle taskbar"
-          },
-          "templates-apply": {
-            "description": "Apply configured theme templates for the current palette",
-            "label": "Apply theme templates"
           },
           "theme-mode-get": {
             "description": "Print the current resolved theme mode",
@@ -7205,10 +7150,8 @@
     "appearance-title": "Appearance",
     "back": "Back",
     "browse": "Browse",
-    "builtin-palette": "Built-In Palette",
     "cancel": "Cancel",
     "choose": "Choose…",
-    "colour": "Colour",
     "continue": "Continue",
     "done": "Done",
     "done-body": "Three things to try first.",
@@ -7251,7 +7194,6 @@
     "login-switch": "Switch",
     "login-switching": "Waiting for your password…",
     "login-title": "Login Screen",
-    "match-wallpaper": "Match wallpaper",
     "mode": "Mode",
     "no-wallpaper-selected": "No wallpaper selected",
     "on": "On",
@@ -7302,7 +7244,6 @@
     "timezone-zone": "Time zone",
     "title": "Welcome to Andromeda",
     "wallpaper": "Wallpaper",
-    "wallpaper-scheme": "Wallpaper Scheme",
     "welcome-body": "Set up your desktop in a minute. You can change everything later in Settings.",
     "layout-title": "How do you like to work?",
     "layout-body": "Pick a desktop layout. You can change each part later in Settings."
@@ -7313,20 +7254,6 @@
       "unknown-cpu": "Unknown CPU",
       "unknown-distro": "Unknown distro",
       "unknown-gpu": "Unknown GPU"
-    }
-  },
-  "theme": {
-    "scheme": {
-      "dysfunctional": "Dysfunctional",
-      "faithful": "Faithful",
-      "m3-content": "M3 Content",
-      "m3-fruit-salad": "M3 Fruit Salad",
-      "m3-monochrome": "M3 Monochrome",
-      "m3-rainbow": "M3 Rainbow",
-      "m3-tonal-spot": "M3 Tonal Spot",
-      "muted": "Muted",
-      "soft": "Soft",
-      "vibrant": "Vibrant"
     }
   },
   "time": {

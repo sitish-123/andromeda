@@ -4,18 +4,6 @@
 #include "shell/control_center/control_center_services.h"
 #include "shell/control_center/detail/detail_pages.h"
 #include "shell/control_center/tab.h"
-#include "shell/control_center/tabs/audio_tab.h"
-#include "shell/control_center/tabs/bluetooth_tab.h"
-#include "shell/control_center/tabs/calendar_tab.h"
-#include "shell/control_center/tabs/home_tab.h"
-#include "shell/control_center/tabs/quick_tab.h"
-#include "shell/control_center/tabs/media_tab.h"
-#include "shell/control_center/tabs/monitor_tab.h"
-#include "shell/control_center/tabs/network_tab.h"
-#include "shell/control_center/tabs/notifications_tab.h"
-#include "shell/control_center/tabs/power_tab.h"
-#include "shell/control_center/tabs/system_tab.h"
-#include "shell/control_center/tabs/weather_tab.h"
 #include "shell/panel/panel.h"
 #include "ui/controls/scroll_view.h"
 
@@ -72,16 +60,7 @@ class ControlCenterPanel : public Panel {
 public:
   explicit ControlCenterPanel(const ControlCenterServices& services);
 
-  // Tabs the user may hide from the Settings GUI (every tab except Home).
-  // Keys match the [control_center] hidden_tabs entries.
-  struct TabCatalogEntry {
-    std::string_view key;
-    std::string_view titleKey;
-  };
-  [[nodiscard]] static std::vector<TabCatalogEntry> hideableTabCatalog();
-
-  // Tabs a launcher row can jump straight to right now (feature-available and not
-  // hidden via [control_center] hidden_tabs), excluding Home.
+  // Pages a launcher row can open right now (feature-available), excluding the quick sheet.
   struct LauncherTabEntry {
     std::string_view key;
     std::string_view titleKey;
@@ -97,15 +76,12 @@ public:
   [[nodiscard]] bool isContextActive(std::string_view context) const override;
   [[nodiscard]] std::string activeContext() const override { return kTabs[static_cast<std::size_t>(m_activeTab)].key; }
   [[nodiscard]] bool handleGlobalKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;
-  [[nodiscard]] bool deferExternalRefresh() const override;
-  [[nodiscard]] bool deferPointerRelayout() const override;
   [[nodiscard]] float preferredWidth() const override;
   [[nodiscard]] float preferredHeight() const override;
   // The quick sheet shows at its content's height; detail tabs opened from it use the full height.
   [[nodiscard]] bool fitsContentHeight() const noexcept override;
   [[nodiscard]] float measureContentHeight(Renderer& renderer, float contentWidth) override;
   [[nodiscard]] PanelPlacement panelPlacement() const noexcept override;
-  [[nodiscard]] bool showsSidebar() const noexcept { return m_showSidebar; }
 
 private:
   void onPanelCardOpacityChanged(float opacity) override;
@@ -114,19 +90,9 @@ private:
 
   enum class TabId : std::uint8_t {
     Quick,
-    Home,
-    Media,
-    Audio,
-    Monitor,
-    System,
-    Network,
-    Bluetooth,
     Weather,
     Session,
     Calendar,
-    Notifications,
-    ScreenTime,
-    Power,
     DetailWifi,
     DetailBluetooth,
     DetailSound,
@@ -152,19 +118,9 @@ private:
   static constexpr std::size_t kTabCount = static_cast<std::size_t>(TabId::Count);
   static constexpr std::array<TabMeta, kTabCount> kTabs{{
       {TabId::Quick, "quick", "control-center.tabs.quick", "adjustments-horizontal"},
-      {TabId::Home, "home", "control-center.tabs.home", "home"},
-      {TabId::Media, "media", "control-center.tabs.media", "disc"},
-      {TabId::Audio, "audio", "control-center.tabs.audio", "volume"},
-      {TabId::Monitor, "monitor", "control-center.tabs.monitor", "device-desktop"},
-      {TabId::System, "system", "control-center.tabs.system", "activity-heartbeat"},
-      {TabId::Power, "power", "control-center.tabs.power", "battery-charging-2"},
-      {TabId::Network, "network", "control-center.tabs.network", "wifi"},
-      {TabId::Bluetooth, "bluetooth", "control-center.tabs.bluetooth", "bluetooth"},
       {TabId::Weather, "weather", "control-center.tabs.weather", "weather-cloud-sun"},
       {TabId::Session, "session", "control-center.power-menu.title", "power"},
       {TabId::Calendar, "calendar", "control-center.tabs.calendar", "calendar-event"},
-      {TabId::Notifications, "notifications", "control-center.tabs.notifications", "bell"},
-      {TabId::ScreenTime, "screen-time", "control-center.tabs.screen-time", "hourglass"},
       {TabId::DetailWifi, "detail-wifi", "control-center.network.wifi", "wifi"},
       {TabId::DetailBluetooth, "detail-bluetooth", "control-center.tabs.bluetooth", "bluetooth"},
       {TabId::DetailSound, "detail-sound", "control-center.detail.sound.title", "volume"},
@@ -179,34 +135,21 @@ private:
       {TabId::DetailNotifications, "detail-notifications", "control-center.detail.notifications.title", "bell"},
   }};
 
-  // Sheet detail pages (rulebook 9.16): reached from the quick sheet, never listed in the sidebar.
+  // Sheet detail pages (rulebook 9.16): reached from the quick sheet, opened by context.
   [[nodiscard]] static constexpr bool isDetailTab(TabId tab) noexcept { return tab >= TabId::DetailWifi; }
   void selectTab(TabId tab, bool animated = false);
-  void selectAdjacentVisibleTab(int direction);
-  void wireSidebarScroll(InputArea* area);
   void scrollFocusedInputIntoView(InputArea* area) override;
-  void scrollSidebarNodeIntoView(const Node* node);
   void scheduleMprisRefreshFor(TabId tab);
   void updateTabChrome(TabId tab);
   void applyTabContainerVisibility(TabId activeTab);
   void layoutTabContainers(float bodyWidth, float bodyHeight);
-  void layoutFullSidebarWidth(Renderer& renderer);
   void resetTabContainerTransforms();
   void startTabTransition(TabId from, TabId to);
   void finishTabTransition();
   void applyTabTransitionLayout();
   [[nodiscard]] int visibleTabOrdinal(TabId tab) const;
-  void syncTabVisibility();
   [[nodiscard]] bool isTabFeatureAvailable(TabId tab) const;
-  [[nodiscard]] bool isTabVisible(TabId tab) const;
-  [[nodiscard]] bool isTabShown(TabId tab) const;
-  [[nodiscard]] static std::string_view tabKey(TabId tab);
-  [[nodiscard]] TabId firstVisibleTab() const;
   [[nodiscard]] TabId tabFromContext(std::string_view context) const;
-  [[nodiscard]] bool isDirectSectionOpenContext(std::string_view context) const;
-  // Quick and Network share the 360 px sheet layout: no sidebar.
-  [[nodiscard]] bool isSheetContext(std::string_view context) const;
-  [[nodiscard]] ControlCenterSidebarMode sidebarModeForOpen(std::string_view context) const;
   [[nodiscard]] static std::size_t tabIndex(TabId id);
 
   // Tab instances (long-lived, survive panel open/close cycles)
@@ -214,18 +157,13 @@ private:
 
   // Panel UI structure (rebuilt each create(), nulled in onClose())
   Flex* m_rootLayout = nullptr;
-  Flex* m_sidebar = nullptr;
-  ScrollView* m_sidebarScrollView = nullptr;
   ScrollViewState m_sidebarScrollState{};
-  RovingListNavHost* m_sidebarNav = nullptr;
-  InputArea* m_sidebarScrollArea = nullptr;
   Flex* m_content = nullptr;
   InputArea* m_contentDismissArea = nullptr;
   Flex* m_contentHeader = nullptr;
   Flex* m_contentHeaderActions = nullptr;
   Label* m_contentTitle = nullptr;
-  Button* m_closeButton = nullptr;
-  // Without the sidebar, returns from a detail tab to the quick sheet.
+  // Returns from a detail page to the quick sheet.
   Button* m_backButton = nullptr;
   Flex* m_tabBodies = nullptr;
   std::array<Button*, kTabCount> m_tabButtons{};
@@ -247,18 +185,14 @@ private:
   void beginTitleMove(Label& source);
   void runTitleMove();
   void endTitleMove();
-  bool m_activeTabForced = false;
   ConfigService* m_config = nullptr;
   MprisService* m_mpris = nullptr;
   NotificationManager* m_notificationManager = nullptr;
   DependencyService* m_dependencies = nullptr;
-  bool m_compact = false;
-  bool m_showSidebar = true;
-  bool m_hasPowerServices = false;
   bool m_mprisRefreshScheduled = false;
   std::chrono::steady_clock::time_point m_lastMprisRefreshAt;
   AnimationManager::Id m_tabTransitionAnimId = 0;
-  TabId m_tabTransitionOutgoing = TabId::Home;
+  TabId m_tabTransitionOutgoing = TabId::Quick;
   float m_tabTransitionProgress = 1.0F;
   int m_tabTransitionDirection = 1;
   // Quick to a detail page or back: parallax (P12 deeper level) instead of a side-by-side slide.

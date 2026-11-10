@@ -21,7 +21,6 @@
 #include "shell/wallpaper/wallpaper_paths.h"
 #include "system/sysmon_threshold_profile.h"
 #include "theme/builtin_palettes.h"
-#include "theme/builtin_templates.h"
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -277,7 +276,6 @@ namespace settings {
 
     add_appearance_settings(ctx);
     add_wallpaper_settings(ctx);
-    add_templates_settings(ctx);
     add_dock_settings(ctx);
     add_panels_settings(ctx);
     add_controlcenter_settings(ctx);

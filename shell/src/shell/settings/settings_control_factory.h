@@ -109,7 +109,6 @@ namespace settings {
     // Resets several config paths as one setting (e.g. a range slider's low + high paths).
     [[nodiscard]] std::unique_ptr<Button>
     makeGroupedResetButton(std::vector<std::vector<std::string>> paths, std::function<void()> onConfirmed = nullptr);
-    [[nodiscard]] static bool isTemplateEnableTogglePath(const std::vector<std::string>& path);
 
     SettingsContentContext m_ctx;
     float m_scale;

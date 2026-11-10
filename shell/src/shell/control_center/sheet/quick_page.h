@@ -31,11 +31,11 @@ class Spinner;
 // toggles, record and microphone); brightness, volume, media, phone and a battery and power-profile footer stay fixed.
 struct AccessPointInfo;
 
-class QuickTab : public Tab {
+class QuickPage : public Tab {
 public:
   using OpenTabCallback = std::function<void(std::string_view tabKey)>;
 
-  QuickTab(const ControlCenterServices& services, OpenTabCallback openTab);
+  QuickPage(const ControlCenterServices& services, OpenTabCallback openTab);
 
   std::unique_ptr<Flex> create() override;
   bool handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) override;

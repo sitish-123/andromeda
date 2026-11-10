@@ -66,11 +66,11 @@ shell/src/shell/clipboard/clipboard_panel.cpp|S1|constexpr float kRowHeightEstim
 shell/src/shell/control_center/detail/detail_page.cpp|S1|constexpr float kEmptyBodyMaxWidth = 320.0F; // rulebook 9.13
 shell/src/shell/control_center/tabs/audio_tab.cpp|S1|constexpr float kCompactSliderControlHeight = 20.0F;
 shell/src/shell/control_center/tabs/audio_tab.cpp|S1|constexpr float kIconSizeSm = 28.0F;
-shell/src/shell/control_center/tabs/calendar_tab.cpp|S1|constexpr float kCalendarWeekColumnMinFontScale = 1.45F;
+shell/src/shell/control_center/sheet/calendar_page.cpp|S1|constexpr float kCalendarWeekColumnMinFontScale = 1.45F;
 shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconGlyphSize = 22.0F;
 shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconReferenceSize = 36.0F;
 shell/src/shell/control_center/tabs/notifications_tab.cpp|S1|constexpr float kHistoryIconSize = 36.0F;
-shell/src/shell/control_center/tabs/quick_tab.cpp|S1|strip->setGap(2.0F * Tokens::componentSheetPadding * s);
+shell/src/shell/control_center/sheet/quick_page.cpp|S1|strip->setGap(2.0F * Tokens::componentSheetPadding * s);
 shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kAppIconSize = 28.0F;
 shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kBarGap = 2.0F;
 shell/src/shell/control_center/tabs/screen_time_tab.cpp|S1|constexpr float kChartHeight = 132.0F;

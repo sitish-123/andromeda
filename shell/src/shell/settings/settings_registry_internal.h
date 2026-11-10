@@ -20,8 +20,6 @@
 #include "shell/settings/font_weight_catalog.h"
 #include "shell/wallpaper/wallpaper_paths.h"
 #include "system/sysmon_threshold_profile.h"
-#include "theme/builtin_palettes.h"
-#include "theme/builtin_templates.h"
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -106,10 +104,6 @@ namespace settings {
     plainSelect(std::initializer_list<std::pair<std::string_view, std::string_view>> items, std::string_view selected);
     [[nodiscard]] std::string_view barAutoHideMode(bool autoHide, bool smartAutoHide);
     [[nodiscard]] SelectSetting autoHideModeSelect(std::string_view mode, std::vector<std::string> smartPath);
-    ColorSwatchPreview palettePreviewFromPalette(const noctalia::theme::FixedPalette& palette);
-    ColorSwatchPreview builtinPalettePreview(const noctalia::theme::BuiltinPalette& palette, ThemeMode mode);
-    SelectSetting builtinPaletteSelect(std::string_view selected, ThemeMode mode);
-    SelectSetting wallpaperSchemeSelect(std::string_view selected);
     std::vector<SelectOption> controlCenterShortcutOptions(const Config& cfg);
     SelectSetting languageSelect(std::string_view selected);
     ColorSpecPickerSetting
@@ -226,7 +220,6 @@ namespace settings {
     );
     void add_appearance_settings(RegistryContext& ctx);
     void add_wallpaper_settings(RegistryContext& ctx);
-    void add_templates_settings(RegistryContext& ctx);
     void add_dock_settings(RegistryContext& ctx);
     void add_panels_settings(RegistryContext& ctx);
     void add_controlcenter_settings(RegistryContext& ctx);

@@ -17,9 +17,9 @@ class Label;
 class ScrollView;
 class WeatherService;
 
-class CalendarTab : public Tab {
+class CalendarPage : public Tab {
 public:
-  explicit CalendarTab(ConfigService* config = nullptr, CalendarService* calendar = nullptr, WeatherService* weather = nullptr);
+  explicit CalendarPage(ConfigService* config = nullptr, CalendarService* calendar = nullptr, WeatherService* weather = nullptr);
 
   // Height of the one-column clock sheet at this width (the panel fits the sheet to it).
   [[nodiscard]] float measureHeight(Renderer& renderer, float width);

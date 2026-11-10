@@ -1,4 +1,4 @@
-#include "shell/control_center/tabs/calendar_tab.h"
+#include "shell/control_center/sheet/calendar_page.h"
 
 #include "calendar/calendar_service.h"
 #include "config/config_service.h"
@@ -47,10 +47,10 @@ namespace {
 
 } // namespace
 
-CalendarTab::CalendarTab(ConfigService* config, CalendarService* calendar, WeatherService* weather)
+CalendarPage::CalendarPage(ConfigService* config, CalendarService* calendar, WeatherService* weather)
     : m_config(config), m_calendar(calendar), m_weather(weather) {}
 
-std::unique_ptr<Flex> CalendarTab::create() {
+std::unique_ptr<Flex> CalendarPage::create() {
   const float scale = contentScale();
 
   if (m_calendar != nullptr && !m_changeCallbackRegistered) {
@@ -293,7 +293,7 @@ std::unique_ptr<Flex> CalendarTab::create() {
   return tab;
 }
 
-void CalendarTab::updateWeather() {
+void CalendarPage::updateWeather() {
   if (m_weatherTile == nullptr) {
     return;
   }
@@ -326,7 +326,7 @@ void CalendarTab::updateWeather() {
   m_weatherDetail->setText(detail);
 }
 
-std::unique_ptr<Flex> CalendarTab::createHeaderActions() {
+std::unique_ptr<Flex> CalendarPage::createHeaderActions() {
   const float scale = contentScale();
   if (m_config != nullptr) {
     m_showEventsCard = m_config->config().controlCenter.calendarTab.showEventsCard;
@@ -347,7 +347,7 @@ std::unique_ptr<Flex> CalendarTab::createHeaderActions() {
   );
 }
 
-void CalendarTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
+void CalendarPage::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
   if (m_rootLayout == nullptr || m_card == nullptr || m_calendarArea == nullptr) {
     return;
   }
@@ -434,12 +434,12 @@ void CalendarTab::doLayout(Renderer& renderer, float contentWidth, float bodyHei
   calendar_view::layoutEventLinkOverlays(m_eventListState);
 }
 
-void CalendarTab::doUpdate(Renderer& renderer) {
+void CalendarPage::doUpdate(Renderer& renderer) {
   (void)renderer;
   updateDateHeader();
 }
 
-void CalendarTab::updateDateHeader() {
+void CalendarPage::updateDateHeader() {
   if (m_todayLabel == nullptr || m_weekdayLabel == nullptr) {
     return;
   }
@@ -447,11 +447,11 @@ void CalendarTab::updateDateHeader() {
   m_todayLabel->setText(formatLocalTime("%-d %B"));
 }
 
-float CalendarTab::gridHeight(float scale) {
+float CalendarPage::gridHeight(float scale) {
   return (kCalendarWeekdayRowHeight + kCalendarGridGap + 6.0F * kCalendarDayCellHeight + 5.0F * kCalendarGridGap) * scale;
 }
 
-float CalendarTab::measureHeight(Renderer& renderer, float width) {
+float CalendarPage::measureHeight(Renderer& renderer, float width) {
   if (m_rootLayout == nullptr) {
     return 0.0F;
   }
@@ -462,7 +462,7 @@ float CalendarTab::measureHeight(Renderer& renderer, float width) {
   return m_rootLayout->measure(renderer, constraints).height;
 }
 
-void CalendarTab::setActive(bool active) {
+void CalendarPage::setActive(bool active) {
   if (!active) {
     m_eventFadeTimer.stop();
     return;
@@ -476,7 +476,7 @@ void CalendarTab::setActive(bool active) {
   }
 }
 
-bool CalendarTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
+bool CalendarPage::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
   (void)modifiers;
   if (!pressed || preedit || m_rootLayout == nullptr) {
     return false;
@@ -521,7 +521,7 @@ bool CalendarTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pre
   }
 }
 
-void CalendarTab::moveSelection(int days) {
+void CalendarPage::moveSelection(int days) {
   using namespace std::chrono;
   if (m_selectedDay < 0) {
     return;
@@ -544,7 +544,7 @@ void CalendarTab::moveSelection(int days) {
   }
 }
 
-void CalendarTab::focusToday() {
+void CalendarPage::focusToday() {
   cancelMonthSlide();
   const calendar_view::State state = calendar_view::stateForOffset(0);
   m_monthOffset = 0;
@@ -556,7 +556,7 @@ void CalendarTab::focusToday() {
   m_eventsDirty = true;
 }
 
-void CalendarTab::onClose() {
+void CalendarPage::onClose() {
   m_eventFadeTimer.stop();
   cancelMonthSlide();
   m_rootLayout = nullptr;
@@ -596,7 +596,7 @@ void CalendarTab::onClose() {
   m_lastToday = -1;
 }
 
-void CalendarTab::changeMonthBy(int delta) {
+void CalendarPage::changeMonthBy(int delta) {
   if (delta == 0) {
     return;
   }
@@ -615,7 +615,7 @@ void CalendarTab::changeMonthBy(int delta) {
   beginSlideOut(delta);
 }
 
-void CalendarTab::cancelMonthSlide() {
+void CalendarPage::cancelMonthSlide() {
   if (m_monthSlideAnimId != 0 && m_gridViewport != nullptr) {
     if (AnimationManager* animations = m_gridViewport->animationManager(); animations != nullptr) {
       animations->cancel(m_monthSlideAnimId);
@@ -636,7 +636,7 @@ void CalendarTab::cancelMonthSlide() {
   }
 }
 
-void CalendarTab::applyMonthSlide(float progress, bool slidingIn) {
+void CalendarPage::applyMonthSlide(float progress, bool slidingIn) {
   if (m_grid == nullptr || m_gridViewport == nullptr) {
     return;
   }
@@ -656,7 +656,7 @@ void CalendarTab::applyMonthSlide(float progress, bool slidingIn) {
   }
 }
 
-void CalendarTab::beginSlideOut(int delta) {
+void CalendarPage::beginSlideOut(int delta) {
   AnimationManager* animations = m_gridViewport != nullptr ? m_gridViewport->animationManager() : nullptr;
   if (animations == nullptr || m_grid == nullptr) {
     m_monthOffset += delta;
@@ -689,7 +689,7 @@ void CalendarTab::beginSlideOut(int delta) {
   , 0.0F, Unit::Progress);
 }
 
-void CalendarTab::beginSlideIn() {
+void CalendarPage::beginSlideIn() {
   AnimationManager* animations = m_gridViewport != nullptr ? m_gridViewport->animationManager() : nullptr;
   if (animations == nullptr || m_grid == nullptr) {
     return;
@@ -714,8 +714,8 @@ void CalendarTab::beginSlideIn() {
   , 0.0F, Unit::Progress);
 }
 
-void CalendarTab::rebuild() {
-  uiAssertNotRendering("CalendarTab::rebuild");
+void CalendarPage::rebuild() {
+  uiAssertNotRendering("CalendarPage::rebuild");
   if (m_grid == nullptr || m_monthLabel == nullptr || m_card == nullptr) {
     return;
   }
@@ -801,7 +801,7 @@ void CalendarTab::rebuild() {
   rebuildEventList(scale);
 }
 
-void CalendarTab::rebuildEventList(float scale) {
+void CalendarPage::rebuildEventList(float scale) {
   if (m_eventsScroll == nullptr || m_config == nullptr) {
     return;
   }
@@ -835,7 +835,7 @@ void CalendarTab::rebuildEventList(float scale) {
   addEventsEmptyState(scale);
 }
 
-void CalendarTab::addEventsEmptyState(float scale) {
+void CalendarPage::addEventsEmptyState(float scale) {
   Flex* content = m_eventsScroll != nullptr ? m_eventsScroll->content() : nullptr;
   if (content == nullptr || m_config == nullptr) {
     return;
@@ -903,7 +903,7 @@ void CalendarTab::addEventsEmptyState(float scale) {
                              ColorRole::Label2, Tokens::typeFootnote, FontWeight::Medium));
 }
 
-void CalendarTab::toggleEventsCard() {
+void CalendarPage::toggleEventsCard() {
   m_showEventsCard = !m_showEventsCard;
   if (m_config != nullptr) {
     m_config->setOverride({"control_center", "calendar", "show_events_card"}, m_showEventsCard);

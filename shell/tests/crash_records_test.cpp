@@ -19,7 +19,7 @@ int main() {
       + dump("/home/u/src/desktop/compositor/build-debug/andromeda", "11", "4000", "foot-server.service")
       + dump("/usr/bin/andromeda", "12", "5000", "run-p22-i64.scope")
       + dump("/usr/lib/firefox/firefox", "13", "3000", "app-andromeda-1848-5.scope")
-      + dump("/usr/bin/noctalia", "14", "2000", "noctalia.service");
+      + dump("/usr/bin/andromeda-shell", "14", "2000", "andromeda-shell.service");
 
   const auto records = settings::parseCrashRecords(journal);
   TEST_CHECK(records.size() == 3);

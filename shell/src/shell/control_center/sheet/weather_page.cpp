@@ -1,4 +1,4 @@
-#include "shell/control_center/tabs/weather_tab.h"
+#include "shell/control_center/sheet/weather_page.h"
 
 #include "config/config_service.h"
 #include "i18n/i18n.h"
@@ -82,18 +82,18 @@ namespace {
 
 } // namespace
 
-WeatherTab::WeatherTab(WeatherService* weather, ConfigService* config) : m_weather(weather), m_config(config) {}
+WeatherPage::WeatherPage(WeatherService* weather, ConfigService* config) : m_weather(weather), m_config(config) {}
 
-int WeatherTab::temperature(double celsius) const {
+int WeatherPage::temperature(double celsius) const {
   return static_cast<int>(std::lround(m_weather != nullptr ? m_weather->displayTemperature(celsius) : celsius));
 }
 
-std::string WeatherTab::timeFormat() const {
+std::string WeatherPage::timeFormat() const {
   const std::string fmt = m_config != nullptr ? m_config->config().shell.timeFormat : std::string{};
   return fmt.empty() ? std::string("%H:%M") : fmt;
 }
 
-std::unique_ptr<Flex> WeatherTab::create() {
+std::unique_ptr<Flex> WeatherPage::create() {
   const float scale = contentScale();
   if (m_weather != nullptr && !m_changeCallbackRegistered) {
     m_changeCallbackRegistered = true;
@@ -150,7 +150,7 @@ std::unique_ptr<Flex> WeatherTab::create() {
   return tab;
 }
 
-void WeatherTab::onClose() {
+void WeatherPage::onClose() {
   m_rootLayout = nullptr;
   m_body = nullptr;
   m_scroll = nullptr;
@@ -159,7 +159,7 @@ void WeatherTab::onClose() {
   m_shownState.clear();
 }
 
-void WeatherTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
+void WeatherPage::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
   if (m_rootLayout == nullptr) {
     return;
   }
@@ -168,12 +168,12 @@ void WeatherTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeig
   m_rootLayout->layout(renderer);
 }
 
-void WeatherTab::doUpdate(Renderer& renderer) {
+void WeatherPage::doUpdate(Renderer& renderer) {
   (void)renderer;
   sync();
 }
 
-float WeatherTab::measureHeight(Renderer& renderer, float width) {
+float WeatherPage::measureHeight(Renderer& renderer, float width) {
   if (m_rootLayout == nullptr) {
     return 0.0F;
   }
@@ -185,7 +185,7 @@ float WeatherTab::measureHeight(Renderer& renderer, float width) {
   return header->height() + m_rootLayout->gap() + m_body->measure(renderer, constraints).height;
 }
 
-void WeatherTab::sync() {
+void WeatherPage::sync() {
   if (m_body == nullptr) {
     return;
   }
@@ -225,7 +225,7 @@ void WeatherTab::sync() {
   PanelManager::instance().refresh();
 }
 
-std::unique_ptr<Flex> WeatherTab::makeCard(float gap) const {
+std::unique_ptr<Flex> WeatherPage::makeCard(float gap) const {
   const float scale = contentScale();
   auto card = ui::column({
       .align = FlexAlign::Stretch,
@@ -238,7 +238,7 @@ std::unique_ptr<Flex> WeatherTab::makeCard(float gap) const {
   return card;
 }
 
-void WeatherTab::buildMessage(
+void WeatherPage::buildMessage(
     const std::string& glyph, const std::string& title, const std::string& body, bool settingsAction
 ) {
   const float scale = contentScale();
@@ -274,7 +274,7 @@ void WeatherTab::buildMessage(
   m_body->addChild(std::move(card));
 }
 
-void WeatherTab::buildBody(const WeatherSnapshot& snap) {
+void WeatherPage::buildBody(const WeatherSnapshot& snap) {
   const float scale = contentScale();
   if (m_title != nullptr) {
     m_title->setText(snap.locationName.empty() ? i18n::tr("control-center.tabs.weather") : snap.locationName);
@@ -301,7 +301,7 @@ void WeatherTab::buildBody(const WeatherSnapshot& snap) {
   m_body->addChild(makeTiles(snap));
 }
 
-std::unique_ptr<Flex> WeatherTab::makeHourly(const WeatherSnapshot& snap) {
+std::unique_ptr<Flex> WeatherPage::makeHourly(const WeatherSnapshot& snap) {
   const float scale = contentScale();
   auto card = makeCard(0.0F);
   card->setPadding(Tokens::spaceP8 * scale, Tokens::spaceP4 * scale);
@@ -355,7 +355,7 @@ std::unique_ptr<Flex> WeatherTab::makeHourly(const WeatherSnapshot& snap) {
   return card;
 }
 
-std::unique_ptr<Flex> WeatherTab::makeDaily(const WeatherSnapshot& snap) const {
+std::unique_ptr<Flex> WeatherPage::makeDaily(const WeatherSnapshot& snap) const {
   const float scale = contentScale();
   auto card = makeCard(0.0F);
   card->setPadding(Tokens::spaceP4 * scale, Tokens::componentTilePadding * scale);
@@ -416,7 +416,7 @@ std::unique_ptr<Flex> WeatherTab::makeDaily(const WeatherSnapshot& snap) const {
   return card;
 }
 
-std::unique_ptr<Flex> WeatherTab::makeTile(
+std::unique_ptr<Flex> WeatherPage::makeTile(
     const std::string& glyph, const std::string& title, const std::string& value, const std::string& detail
 ) const {
   const float scale = contentScale();
@@ -432,7 +432,7 @@ std::unique_ptr<Flex> WeatherTab::makeTile(
   return tile;
 }
 
-std::unique_ptr<Flex> WeatherTab::makeTiles(const WeatherSnapshot& snap) const {
+std::unique_ptr<Flex> WeatherPage::makeTiles(const WeatherSnapshot& snap) const {
   const float scale = contentScale();
   const auto& now = snap.current;
   const bool imperial = m_weather != nullptr && m_weather->useImperial();

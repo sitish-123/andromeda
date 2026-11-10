@@ -151,9 +151,6 @@ public:
   void setResetLauncherUsage(std::function<void()> callback) { m_resetLauncherUsage = std::move(callback); }
   void setResetScreenTime(std::function<void()> callback) { m_resetScreenTime = std::move(callback); }
   void setResetEncryptedStorage(std::function<void()> callback) { m_resetEncryptedStorage = std::move(callback); }
-  void setSaveWallpaperPaletteAsCustom(std::function<void()> callback) {
-    m_saveWallpaperPaletteAsCustom = std::move(callback);
-  }
   // Also rebuilds the calendar account rows when an account's sync failure changes.
   void setCalendarService(CalendarService* service);
   void setSystemBus(SystemBus* bus) { m_systemBus = bus; }
@@ -623,5 +620,4 @@ private:
   std::function<std::optional<std::size_t>()> m_activityFlaggedCount;
   std::function<void()> m_openActivity;
   std::function<void()> m_resetEncryptedStorage;
-  std::function<void()> m_saveWallpaperPaletteAsCustom;
 };

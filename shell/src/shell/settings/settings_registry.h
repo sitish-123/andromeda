@@ -2,7 +2,6 @@
 
 #include "config/config_types.h"
 #include "core/input/key_chord.h"
-#include "theme/builtin_templates.h"
 #include "ui/controls/button.h"
 #include "ui/controls/color_swatch_preview.h"
 #include "ui/palette.h"
@@ -280,12 +279,6 @@ namespace settings {
     bool persistUnselected = false; // persist the unchecked complement (denylist) instead of the selection
   };
 
-  struct TemplateGridSetting {
-    std::vector<noctalia::theme::AvailableTemplate> options;
-    std::vector<std::string> selectedValues;
-    std::string emptyText;
-  };
-
   struct ButtonSetting {
     std::string label;
     std::function<void()> action;
@@ -313,7 +306,7 @@ namespace settings {
       ToggleSetting, SelectSetting, SliderSetting, RangeSliderSetting, TextSetting, OptionalNumberSetting,
       OptionalStepperSetting, StepperSetting, ListSetting, StringMapSetting, ShortcutListSetting, KeybindListSetting,
       SessionPanelActionsSetting, IdleBehaviorsSetting, NotificationFiltersSetting, MultiSelectSetting,
-      TemplateGridSetting, ButtonSetting, ColorSpecPickerSetting, SearchPickerSetting, GestureActionSetting>;
+      ButtonSetting, ColorSpecPickerSetting, SearchPickerSetting, GestureActionSetting>;
 
   // Visibility predicate, evaluated against the same Config the registry was built from
   // (the registry rebuilds on every config change). Capture snapshot values or read the
@@ -353,7 +346,6 @@ namespace settings {
     bool systemBatteryAvailable = false;
     std::vector<SelectOption> batteryDeviceOptions;
     std::unordered_map<std::string, int> batteryWarningThresholds;
-    std::vector<SelectOption> customPalettes;
     std::vector<SelectOption> fontFamilies;
     std::string shellAvatarPath;
     std::vector<std::string> keyboardLayoutNames;

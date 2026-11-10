@@ -15,9 +15,9 @@ struct WeatherSnapshot;
 
 // Weather page in the control-center sheet (.agent/DESIGN.md "Weather page", direction A): hero, hourly strip,
 // 7-day range bars and 2 x 2 detail tiles. The body rebuilds only when a new forecast arrives.
-class WeatherTab : public Tab {
+class WeatherPage : public Tab {
 public:
-  WeatherTab(WeatherService* weather, ConfigService* config);
+  WeatherPage(WeatherService* weather, ConfigService* config);
 
   std::unique_ptr<Flex> create() override;
   void onClose() override;

@@ -18,8 +18,6 @@
 #include "shell/settings/font_weight_catalog.h"
 #include "shell/wallpaper/wallpaper_paths.h"
 #include "system/sysmon_threshold_profile.h"
-#include "theme/builtin_palettes.h"
-#include "theme/builtin_templates.h"
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -151,60 +149,6 @@ namespace settings {
         };
       };
       return select;
-    }
-
-
-    ColorSwatchPreview palettePreviewFromPalette(const noctalia::theme::FixedPalette& palette) {
-      return ColorSwatchPreview{
-          .surface = fixedColorSpec(palette.surface),
-          .swatches = {
-              fixedColorSpec(palette.primary),
-              fixedColorSpec(palette.secondary),
-              fixedColorSpec(palette.tertiary),
-              fixedColorSpec(palette.error),
-          },
-      };
-    }
-
-
-    ColorSwatchPreview builtinPalettePreview(const noctalia::theme::BuiltinPalette& palette, ThemeMode mode) {
-      return palettePreviewFromPalette(mode == ThemeMode::Light ? palette.light.palette : palette.dark.palette);
-    }
-
-
-    SelectSetting builtinPaletteSelect(std::string_view selected, ThemeMode mode) {
-      std::vector<SelectOption> opts;
-      opts.reserve(noctalia::theme::builtinPalettes().size());
-      for (const auto& palette : noctalia::theme::builtinPalettes()) {
-        opts.push_back(
-            SelectOption{
-                .value = std::string(palette.name),
-                .label = std::string(palette.name),
-                .description = {},
-                .preview = builtinPalettePreview(palette, mode),
-            }
-        );
-      }
-      return SelectSetting{
-          .options = std::move(opts), .selectedValue = std::string(selected), .preferredWidth = 240.0F
-      };
-    }
-
-
-    SelectSetting wallpaperSchemeSelect(std::string_view selected) {
-      return plainSelect(
-          {{"m3-content", "theme.scheme.m3-content"},
-           {"m3-tonal-spot", "theme.scheme.m3-tonal-spot"},
-           {"m3-fruit-salad", "theme.scheme.m3-fruit-salad"},
-           {"m3-rainbow", "theme.scheme.m3-rainbow"},
-           {"m3-monochrome", "theme.scheme.m3-monochrome"},
-           {"vibrant", "theme.scheme.vibrant"},
-           {"faithful", "theme.scheme.faithful"},
-           {"soft", "theme.scheme.soft"},
-           {"dysfunctional", "theme.scheme.dysfunctional"},
-           {"muted", "theme.scheme.muted"}},
-          selected
-      );
     }
 
 

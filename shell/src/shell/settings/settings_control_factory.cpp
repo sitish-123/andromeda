@@ -168,10 +168,6 @@ namespace settings {
   SettingsControlFactory::SettingsControlFactory(SettingsContentContext ctx)
       : m_ctx(std::move(ctx)), m_scale(m_ctx.scale) {}
 
-  bool SettingsControlFactory::isTemplateEnableTogglePath(const std::vector<std::string>& path) {
-    return path == std::vector<std::string>{"theme", "templates", "enable_builtin_templates"};
-  }
-
   std::unique_ptr<Button> SettingsControlFactory::makeResetButton(const std::vector<std::string>& path) {
     return makeGroupedResetButton(std::vector<std::vector<std::string>>{path});
   }
@@ -458,7 +454,7 @@ namespace settings {
     }
     auto row = layoutRow(
         std::move(titleRow), settingEntryShowsCaption(entry) ? std::string_view{entry.subtitle} : std::string_view{},
-        !isTemplateEnableTogglePath(entry.path), std::move(actions), scale
+        true, std::move(actions), scale
     );
     section.addChild(std::move(row));
   }

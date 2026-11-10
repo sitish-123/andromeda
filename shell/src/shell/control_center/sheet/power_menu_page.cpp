@@ -1,4 +1,4 @@
-#include "shell/control_center/tabs/session_tab.h"
+#include "shell/control_center/sheet/power_menu_page.h"
 
 #include "config/config_service.h"
 #include "dbus/andromeda/software_update_service.h"
@@ -38,9 +38,9 @@ namespace {
 
 } // namespace
 
-SessionTab::SessionTab(const ControlCenterServices& services) : m_services(services) {}
+PowerMenuPage::PowerMenuPage(const ControlCenterServices& services) : m_services(services) {}
 
-std::unique_ptr<Flex> SessionTab::create() {
+std::unique_ptr<Flex> PowerMenuPage::create() {
   const float s = contentScale();
   const float gap = Tokens::componentTileGap * s;
   auto tab = ui::column({.out = &m_rootLayout, .align = FlexAlign::Stretch, .gap = gap});
@@ -110,7 +110,7 @@ std::unique_ptr<Flex> SessionTab::create() {
   return tab;
 }
 
-bool SessionTab::updateOffered() const {
+bool PowerMenuPage::updateOffered() const {
   SoftwareUpdateService* updates = m_services.softwareUpdates ? m_services.softwareUpdates() : nullptr;
   if (updates == nullptr) {
     return false;
@@ -125,7 +125,7 @@ bool SessionTab::updateOffered() const {
   return install || updates->restartNeeded();
 }
 
-std::unique_ptr<Flex> SessionTab::makeUpdateTile() {
+std::unique_ptr<Flex> PowerMenuPage::makeUpdateTile() {
   const float s = contentScale();
   auto button = std::make_unique<Button>();
   button->setVariant(ButtonVariant::Primary);
@@ -162,7 +162,7 @@ std::unique_ptr<Flex> SessionTab::makeUpdateTile() {
   return row;
 }
 
-std::unique_ptr<Flex> SessionTab::makeBlockerRow() {
+std::unique_ptr<Flex> PowerMenuPage::makeBlockerRow() {
   const float s = contentScale();
   const float iconSize = Tokens::componentRoundIconSize * s;
   // A block inhibitor (pacman, firmware, a format) is a live row: it names who holds the machine and why.
@@ -184,7 +184,7 @@ std::unique_ptr<Flex> SessionTab::makeBlockerRow() {
   );
 }
 
-void SessionTab::syncState() {
+void PowerMenuPage::syncState() {
   const SessionGuard* guard = m_services.sessionGuard;
   const bool blocked = guard != nullptr && !guard->blockers().empty();
   if (m_blockerRow != nullptr) {
@@ -221,7 +221,7 @@ void SessionTab::syncState() {
   }
 }
 
-bool SessionTab::handleKey(std::uint32_t sym, std::uint32_t /*modifiers*/, bool pressed, bool /*preedit*/) {
+bool PowerMenuPage::handleKey(std::uint32_t sym, std::uint32_t /*modifiers*/, bool pressed, bool /*preedit*/) {
   if (sym != XKB_KEY_Alt_L && sym != XKB_KEY_Alt_R) {
     return false;
   }
@@ -231,7 +231,7 @@ bool SessionTab::handleKey(std::uint32_t sym, std::uint32_t /*modifiers*/, bool 
   return false;
 }
 
-std::unique_ptr<Flex> SessionTab::makeTile(std::string_view glyph, const std::string& label, std::string action,
+std::unique_ptr<Flex> PowerMenuPage::makeTile(std::string_view glyph, const std::string& label, std::string action,
                                            float height, bool roundIcon, Label** labelOut) {
   const float s = contentScale();
   const float opacity = panelCardOpacity();
@@ -274,7 +274,7 @@ std::unique_ptr<Flex> SessionTab::makeTile(std::string_view glyph, const std::st
   return card;
 }
 
-void SessionTab::run(const std::string& action) {
+void PowerMenuPage::run(const std::string& action) {
   SessionGuard* guard = m_services.sessionGuard;
   const bool firmware = action == "reboot" && m_alt && guard != nullptr && guard->firmwareSetup();
   PanelManager::instance().closePanel();
@@ -295,7 +295,7 @@ void SessionTab::run(const std::string& action) {
   (void)m_services.ipc->execute((ends ? "power-overlay end " : "session ") + action);
 }
 
-void SessionTab::syncWho(Renderer& renderer) {
+void PowerMenuPage::syncWho(Renderer& renderer) {
   if (m_subtitle != nullptr) {
     std::string line;
     if (const auto uptime = systemUptime(); uptime.has_value()) {
@@ -321,7 +321,7 @@ void SessionTab::syncWho(Renderer& renderer) {
   }
 }
 
-void SessionTab::onClose() {
+void PowerMenuPage::onClose() {
   if (m_watching && m_services.sessionGuard != nullptr) {
     m_services.sessionGuard->watch(false);
   }
@@ -340,7 +340,7 @@ void SessionTab::onClose() {
   m_avatarPath.clear();
 }
 
-void SessionTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
+void PowerMenuPage::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
   if (m_rootLayout == nullptr) {
     return;
   }
@@ -349,12 +349,12 @@ void SessionTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeig
   m_rootLayout->layout(renderer);
 }
 
-void SessionTab::doUpdate(Renderer& renderer) {
+void PowerMenuPage::doUpdate(Renderer& renderer) {
   syncWho(renderer);
   syncState();
 }
 
-float SessionTab::measureHeight(Renderer& renderer, float width) {
+float PowerMenuPage::measureHeight(Renderer& renderer, float width) {
   if (m_rootLayout == nullptr) {
     return 0.0F;
   }

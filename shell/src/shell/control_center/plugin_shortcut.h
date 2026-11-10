@@ -24,7 +24,7 @@ namespace scripting {
 // A control-center shortcut backed by a plugin's [[shortcut]] entry. The native
 // Shortcut interface is polled, so the latest label/icon/active/enabled patch is
 // cached and a redraw is kicked when it changes. Instances are reused across
-// Control Center open/close (HomeTab keeps them); timers and the source file
+// Control Center open/close (QuickPage keeps them); timers and the source file
 // watch are suspended while the panel is closed. Reopen reloads the script if
 // the source file changed while closed.
 class PluginShortcut : public Shortcut {

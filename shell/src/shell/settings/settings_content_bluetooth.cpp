@@ -2,7 +2,7 @@
 
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "i18n/i18n.h"
-#include "shell/control_center/tabs/bluetooth_tab.h"
+#include "shell/control_center/bluetooth_glyph.h"
 #include "shell/settings/settings_page_rows.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"

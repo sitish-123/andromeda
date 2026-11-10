@@ -9,8 +9,10 @@
 #include "render/core/renderer.h"
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
-#include "shell/control_center/tabs/screen_time_tab.h"
-#include "shell/control_center/tabs/session_tab.h"
+#include "shell/control_center/sheet/calendar_page.h"
+#include "shell/control_center/sheet/power_menu_page.h"
+#include "shell/control_center/sheet/quick_page.h"
+#include "shell/control_center/sheet/weather_page.h"
 #include "shell/panel/panel_button_style.h"
 #include "render/animation/motion_service.h"
 #include "shell/panel/panel_manager.h"
@@ -50,39 +52,17 @@ namespace {
 } // namespace
 
 ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
-  m_hasPowerServices = services.upower != nullptr || services.powerProfiles != nullptr;
-  WaylandConnection* wayland = services.platform != nullptr ? &services.platform->wayland() : nullptr;
   m_config = services.config;
   m_mpris = services.mpris;
   m_notificationManager = services.notifications;
   m_dependencies = services.dependencies;
-  m_tabs[tabIndex(TabId::Quick)] = std::make_unique<QuickTab>(services, [this](std::string_view tabKey) {
+  m_tabs[tabIndex(TabId::Quick)] = std::make_unique<QuickPage>(services, [this](std::string_view tabKey) {
     selectTab(tabFromContext(tabKey), /*animated=*/true);
     PanelManager::instance().refresh();
   });
-  m_tabs[tabIndex(TabId::Home)] = std::make_unique<HomeTab>(services);
-  m_tabs[tabIndex(TabId::Media)] = std::make_unique<MediaTab>(
-      services.mpris, services.httpClient, services.spectrum, services.config, wayland,
-      PanelManager::instance().renderContext()
-  );
-  m_tabs[tabIndex(TabId::Audio)] = std::make_unique<AudioTab>(
-      services.audio, services.easyEffects, services.mpris, services.config, wayland,
-      PanelManager::instance().renderContext()
-  );
-  m_tabs[tabIndex(TabId::Weather)] = std::make_unique<WeatherTab>(services.weather, services.config);
-  m_tabs[tabIndex(TabId::Session)] = std::make_unique<SessionTab>(services);
-  m_tabs[tabIndex(TabId::Calendar)] = std::make_unique<CalendarTab>(services.config, services.calendar, services.weather);
-  m_tabs[tabIndex(TabId::Notifications)] =
-      std::make_unique<NotificationsTab>(services.notifications, services.platform, services.asyncTextures);
-  m_tabs[tabIndex(TabId::Network)] =
-      std::make_unique<NetworkTab>(
-          services.network, services.networkSecrets, services.modem, services.hotspot
-      );
-  m_tabs[tabIndex(TabId::Bluetooth)] = std::make_unique<BluetoothTab>(services.bluetooth, services.bluetoothAgent);
-  m_tabs[tabIndex(TabId::Monitor)] = std::make_unique<MonitorTab>(services.brightness, services.config);
-  m_tabs[tabIndex(TabId::System)] = std::make_unique<SystemTab>(services.sysmon);
-  m_tabs[tabIndex(TabId::ScreenTime)] = std::make_unique<ScreenTimeTab>(services.screenTime);
-  m_tabs[tabIndex(TabId::Power)] = std::make_unique<PowerTab>(services.upower, services.powerProfiles);
+  m_tabs[tabIndex(TabId::Weather)] = std::make_unique<WeatherPage>(services.weather, services.config);
+  m_tabs[tabIndex(TabId::Session)] = std::make_unique<PowerMenuPage>(services);
+  m_tabs[tabIndex(TabId::Calendar)] = std::make_unique<CalendarPage>(services.config, services.calendar, services.weather);
   // A page opened straight from a bar icon closes on back (Esc), as a macOS / Windows flyout; one reached from the
   // quick sheet goes back to it.
   const auto back = [this] {
@@ -115,37 +95,17 @@ ControlCenterPanel::ControlCenterPanel(const ControlCenterServices& services) {
   addDetail(TabId::DetailMedia, std::make_unique<control_center::MediaDetailPage>(services.mpris, services.httpClient));
   addDetail(TabId::DetailNotifications,
             std::make_unique<control_center::NotificationsDetailPage>(services.notifications, services.platform));
-  m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
 }
 
-float ControlCenterPanel::preferredWidth() const {
-  if (isSheetContext(pendingOpenContext())) {
-    return kQuickSheetWidth * m_contentScale;
-  }
-  const float fullSize = m_config != nullptr ? static_cast<float>(m_config->config().controlCenter.width)
-                                             : static_cast<float>(ControlCenterConfig::kDefaultWidth);
-  switch (sidebarModeForOpen(pendingOpenContext())) {
-  case ControlCenterSidebarMode::Full:
-    return fullSize * m_contentScale;
-  case ControlCenterSidebarMode::None:
-    return fullSize * 0.75F * m_contentScale;
-  default:
-  case ControlCenterSidebarMode::Compact:
-    return fullSize * 0.85F * m_contentScale;
-  }
-}
+float ControlCenterPanel::preferredWidth() const { return kQuickSheetWidth * m_contentScale; }
 
-bool ControlCenterPanel::fitsContentHeight() const noexcept {
-  const TabId tab = tabFromContext(pendingOpenContext());
-  return tab == TabId::Quick || tab == TabId::Calendar || tab == TabId::Weather || tab == TabId::Session
-      || isDetailTab(tab);
-}
+bool ControlCenterPanel::fitsContentHeight() const noexcept { return true; }
 
 float ControlCenterPanel::preferredHeight() const {
   // The sheet is the slot a detail page may grow into: the manager clamps it to the room it grants.
-  return scaled(fitsContentHeight() ? 4096.0F : 520.0F);
+  return scaled(4096.0F);
 }
 
 float ControlCenterPanel::measureContentHeight(Renderer& renderer, float contentWidth) {
@@ -157,21 +117,21 @@ float ControlCenterPanel::measureContentHeight(Renderer& renderer, float content
     }
   }
   if (m_activeTab == TabId::Calendar) {
-    if (auto* calendar = dynamic_cast<CalendarTab*>(m_tabs[tabIndex(TabId::Calendar)].get()); calendar != nullptr) {
+    if (auto* calendar = dynamic_cast<CalendarPage*>(m_tabs[tabIndex(TabId::Calendar)].get()); calendar != nullptr) {
       return calendar->measureHeight(renderer, contentWidth);
     }
   }
   if (m_activeTab == TabId::Session) {
-    if (auto* session = dynamic_cast<SessionTab*>(m_tabs[tabIndex(TabId::Session)].get()); session != nullptr) {
+    if (auto* session = dynamic_cast<PowerMenuPage*>(m_tabs[tabIndex(TabId::Session)].get()); session != nullptr) {
       return session->measureHeight(renderer, contentWidth);
     }
   }
   if (m_activeTab == TabId::Weather) {
-    if (auto* weather = dynamic_cast<WeatherTab*>(m_tabs[tabIndex(TabId::Weather)].get()); weather != nullptr) {
+    if (auto* weather = dynamic_cast<WeatherPage*>(m_tabs[tabIndex(TabId::Weather)].get()); weather != nullptr) {
       return weather->measureHeight(renderer, contentWidth);
     }
   }
-  auto* quick = dynamic_cast<QuickTab*>(m_tabs[tabIndex(TabId::Quick)].get());
+  auto* quick = dynamic_cast<QuickPage*>(m_tabs[tabIndex(TabId::Quick)].get());
   if (m_activeTab != TabId::Quick || quick == nullptr || m_contentHeader == nullptr || m_content == nullptr) {
     return preferredHeight();
   }
@@ -189,9 +149,6 @@ bool ControlCenterPanel::dismissTransientUi() {
 
 void ControlCenterPanel::create() {
   const float scale = contentScale();
-  const ControlCenterSidebarMode sidebarMode = sidebarModeForOpen(pendingOpenContext());
-  m_compact = sidebarMode == ControlCenterSidebarMode::Compact;
-  m_showSidebar = sidebarMode != ControlCenterSidebarMode::None;
 
   for (auto& tab : m_tabs) {
     tab->setContentScale(scale);
@@ -204,111 +161,6 @@ void ControlCenterPanel::create() {
       .gap = Style::panelPadding * scale,
       .padding = 0.0F,
   });
-
-  if (m_showSidebar) {
-    auto sidebar = ui::column({
-        .out = &m_sidebar,
-        .align = FlexAlign::Start,
-        .gap = 0.0F,
-        .padding = Style::spaceMd * scale,
-        .fillWidth = false,
-        .fillHeight = true,
-        .configure = [this, scale](Flex& column) {
-          column.setFill(colorSpecFromRole(ColorRole::Fill2, panelCardOpacity()));
-          column.setRadius(Style::scaledRadiusXl(scale));
-        },
-    });
-
-    auto sidebarScrollArea = ui::inputArea({});
-    sidebarScrollArea->setParticipatesInLayout(false);
-    sidebarScrollArea->setZIndex(-1);
-    m_sidebarScrollArea = sidebarScrollArea.get();
-    wireSidebarScroll(m_sidebarScrollArea);
-    sidebar->addChild(std::move(sidebarScrollArea));
-
-    const std::optional<float> sidebarScrollWidth =
-        m_compact ? std::optional<float>{Style::controlHeight * scale} : std::nullopt;
-
-    auto sidebarScroll = ui::scrollView({
-        .out = &m_sidebarScrollView,
-        .state = &m_sidebarScrollState,
-        .contentScale = scale,
-        .scrollbarVisible = true,
-        .viewportPaddingH = 0.0F,
-        .viewportPaddingV = 0.0F,
-        .fillWidth = false,
-        .fillHeight = true,
-        .width = sidebarScrollWidth,
-        .configure = [](ScrollView& scrollView) {
-          scrollView.clearFill();
-          scrollView.clearBorder();
-        },
-    });
-
-    auto sidebarNav = std::make_unique<RovingListNavHost>(RovingListNavController::Options{
-        .axis = RovingListNavAxis::Vertical,
-        .mode = RovingListNavMode::FollowFocus,
-        .keepItemsInTabOrder = false,
-        .wrap = true,
-        .scrollIntoView = [this](const Node* node) { scrollSidebarNodeIntoView(node); },
-        .syncIndexFromSelection = {},
-    });
-    sidebarNav->setTabFocusKey("control-center.sidebar");
-    if (!m_compact) {
-      sidebarNav->setAlign(FlexAlign::Stretch);
-      sidebarNav->setFillWidth(true);
-    } else {
-      sidebarNav->setAlign(FlexAlign::Start);
-    }
-    sidebarNav->setGap(Style::spaceXs * scale);
-    m_sidebarNav = sidebarNav.get();
-
-    for (const auto& tab : kTabs) {
-      if (isDetailTab(tab.id)) {
-        continue;
-      }
-      const std::size_t idx = tabIndex(tab.id);
-      const auto onClick = [this, id = tab.id] {
-        selectTab(id, true);
-        PanelManager::instance().refresh();
-      };
-      sidebarNav->addChild(
-          ui::button({
-              .out = &m_tabButtons[idx],
-              .text = m_compact ? std::optional<std::string>{} : std::optional<std::string>{i18n::tr(tab.titleKey)},
-              .glyph = tab.glyph,
-              .glyphSize = Tokens::sizeSymbolL * scale,
-              .contentAlign = m_compact ? ButtonContentAlign::Center : ButtonContentAlign::Start,
-              .variant = ButtonVariant::Tab,
-              .tooltip = m_compact ? i18n::tr(tab.titleKey) : std::string{},
-              .minWidth = m_compact ? std::optional<float>{Style::controlHeight * scale} : std::optional<float>{},
-              .minHeight = Style::controlHeight * scale,
-              .paddingV = Style::spaceXs * scale,
-              .paddingH = (m_compact ? Style::spaceXs : Style::spaceSm) * scale,
-              .gap = Style::spaceSm * scale,
-              .radius = Style::scaledRadiusLg(scale),
-              .onClick = onClick,
-              .configure = [this, scale](Button& button) {
-                if (button.label() != nullptr) {
-                  button.label()->setFontWeight(FontWeight::Bold);
-                  button.label()->setFontSize(Style::fontSizeBody * scale);
-                }
-                wireSidebarScroll(button.inputArea());
-              },
-          })
-      );
-      sidebarNav->registerItem(m_tabButtons[idx], onClick);
-    }
-
-    if (sidebarScroll->content() != nullptr) {
-      if (!m_compact) {
-        sidebarScroll->content()->setAlign(FlexAlign::Stretch);
-      }
-      sidebarScroll->content()->addChild(std::move(sidebarNav));
-    }
-    sidebar->addChild(std::move(sidebarScroll));
-    rootLayout->addChild(std::move(sidebar));
-  }
 
   auto content = ui::column({
       .out = &m_content,
@@ -338,9 +190,7 @@ void ControlCenterPanel::create() {
       .gap = Style::spaceSm * scale,
   });
 
-  if (!m_showSidebar) {
-    header->setMinHeight(Tokens::componentSheetDetailHeader * scale);
-  }
+  header->setMinHeight(Tokens::componentSheetDetailHeader * scale);
   header->addChild(ui::button({
       .out = &m_backButton,
       .glyph = "chevron-left",
@@ -350,11 +200,9 @@ void ControlCenterPanel::create() {
   header->addChild(
       ui::label({
           .out = &m_contentTitle,
-          .text = i18n::tr("control-center.tabs.home"),
-          .fontSize = (m_showSidebar ? Style::fontSizeTitle : Tokens::typeTitle3.size) * scale,
-          .fontWeight = m_showSidebar ? FontWeight::Bold
-                                      : static_cast<FontWeight>(Style::glassWeight(Tokens::typeTitle3.weight)),
-          .color = colorSpecFromRole(m_showSidebar ? ColorRole::AccentText : ColorRole::Label1),
+          .fontSize = Tokens::typeTitle3.size * scale,
+          .fontWeight = static_cast<FontWeight>(Style::glassWeight(Tokens::typeTitle3.weight)),
+          .color = colorSpecFromRole(ColorRole::Label1),
           .maxLines = 1,
           // The row gives the title the width the back button and actions leave (flexGrow), so it ellipsizes there.
           .ellipsize = TextEllipsize::End,
@@ -377,16 +225,6 @@ void ControlCenterPanel::create() {
     }
   }
 
-  if (Style::closeButtonsEnabled() && m_showSidebar) {
-    m_contentHeaderActions->addChild(
-        ui::button({
-            .out = &m_closeButton,
-            .glyph = "close",
-            .onClick = [] { PanelManager::instance().close(); },
-            .configure = [scale](Button& button) { panel_button_style::configureHeaderIconButton(button, scale); },
-        })
-    );
-  }
   header->addChild(std::move(headerActions));
 
   content->addChild(std::move(header));
@@ -416,7 +254,6 @@ void ControlCenterPanel::create() {
     root()->setAnimationManager(m_animations);
   }
 
-  syncTabVisibility();
   m_firstOpenAfterCreate = true;
   selectTab(m_activeTab);
 }
@@ -427,18 +264,11 @@ void ControlCenterPanel::onPanelCardOpacityChanged(float opacity) {
       tab->setPanelCardOpacity(opacity);
     }
   }
-  if (m_sidebar != nullptr) {
-    m_sidebar->setFill(colorSpecFromRole(ColorRole::Fill2, opacity));
-  }
 }
 
 void ControlCenterPanel::doLayout(Renderer& renderer, float width, float height) {
   if (m_rootLayout == nullptr || m_content == nullptr || m_tabBodies == nullptr) {
     return;
-  }
-
-  if (!m_compact && m_showSidebar) {
-    layoutFullSidebarWidth(renderer);
   }
 
   m_rootLayout->setSize(width, height);
@@ -449,11 +279,6 @@ void ControlCenterPanel::doLayout(Renderer& renderer, float width, float height)
   const float bodyWidth = m_tabBodies->width();
   const float bodyHeight = m_tabBodies->height();
   const float bodyContentHeight = tabContentHeight(bodyHeight);
-
-  if (m_sidebarScrollArea != nullptr && m_sidebar != nullptr) {
-    m_sidebarScrollArea->setPosition(0.0F, 0.0F);
-    m_sidebarScrollArea->setSize(m_sidebar->width(), m_sidebar->height());
-  }
 
   if (m_contentDismissArea != nullptr) {
     m_contentDismissArea->setPosition(0.0F, 0.0F);
@@ -487,10 +312,8 @@ void ControlCenterPanel::doLayout(Renderer& renderer, float width, float height)
 }
 
 void ControlCenterPanel::doUpdate(Renderer& renderer) {
-  if (!isTabFeatureAvailable(m_activeTab) || (!m_activeTabForced && !isTabVisible(m_activeTab))) {
-    selectTab(firstVisibleTab());
-  } else {
-    syncTabVisibility();
+  if (!isTabFeatureAvailable(m_activeTab)) {
+    selectTab(TabId::Quick);
   }
   const std::size_t activeIdx = tabIndex(m_activeTab);
   if (m_tabs[activeIdx] != nullptr) {
@@ -525,21 +348,9 @@ bool ControlCenterPanel::handleGlobalKey(std::uint32_t sym, std::uint32_t modifi
   if (auto& tab = m_tabs[tabIndex(m_activeTab)]; tab != nullptr && tab->handleKey(sym, modifiers, pressed, preedit)) {
     return true;
   }
-  if (!m_showSidebar || m_sidebarNav == nullptr || m_sidebarScrollView == nullptr || m_content == nullptr) {
-    return false;
-  }
-
-  const SplitPaneFocusConfig panes{
-      .sidebarFocus = m_sidebarNav->focusArea(),
-      .sidebarRoot = m_sidebarScrollView,
-      .contentRoot = m_content,
-      .headerFocus = nullptr,
-  };
-  auto& dispatcher = PanelManager::instance().inputDispatcher();
-  const SplitPaneFocusResult splitResult =
-      handleSplitPaneFocusNavigation(dispatcher, panes, sym, modifiers, pressed, preedit);
-  return splitResult == SplitPaneFocusResult::Consumed;
+  return false;
 }
+
 
 void ControlCenterPanel::onClose() {
   if (m_titleMove.animation != 0 && m_animations != nullptr) {
@@ -557,97 +368,27 @@ void ControlCenterPanel::onClose() {
     tab->onClose();
   }
   m_rootLayout = nullptr;
-  m_sidebar = nullptr;
-  m_sidebarScrollView = nullptr;
-  m_sidebarScrollState = {};
-  m_sidebarNav = nullptr;
-  m_sidebarScrollArea = nullptr;
   m_content = nullptr;
   m_contentDismissArea = nullptr;
   m_contentHeader = nullptr;
   m_contentHeaderActions = nullptr;
   m_contentTitle = nullptr;
-  m_closeButton = nullptr;
   m_backButton = nullptr;
   m_tabBodies = nullptr;
-  m_tabButtons.fill(nullptr);
   m_tabContainers.fill(nullptr);
   m_tabHeaderActions.fill(nullptr);
   clearReleasedRoot();
 }
 
-bool ControlCenterPanel::deferExternalRefresh() const {
-  if (m_activeTab != TabId::Audio) {
-    return false;
-  }
-  const auto* audioTab = dynamic_cast<const AudioTab*>(m_tabs[tabIndex(TabId::Audio)].get());
-  return audioTab != nullptr && audioTab->dragging();
-}
-
-bool ControlCenterPanel::deferPointerRelayout() const { return deferExternalRefresh(); }
-
 bool ControlCenterPanel::isTabFeatureAvailable(TabId tab) const {
-  if (m_config == nullptr) {
-    switch (tab) {
-    case TabId::ScreenTime:
-      return false;
-    case TabId::Power:
-      return m_hasPowerServices;
-    default:
-      return true;
-    }
-  }
-  const auto& cfg = m_config->config();
-  switch (tab) {
-  case TabId::Weather:
-    return cfg.weather.enabled;
-  case TabId::ScreenTime:
-    return cfg.shell.screenTimeEnabled;
-  case TabId::System:
-    return cfg.system.monitor.enabled;
-  case TabId::Power:
-    return m_hasPowerServices;
-  default:
-    return true;
-  }
-}
-
-bool ControlCenterPanel::isTabVisible(TabId tab) const {
-  if (isDetailTab(tab) || !isTabFeatureAvailable(tab)) {
-    return false;
-  }
-  // Home is always shown so the panel never opens to an empty surface.
-  if (tab == TabId::Quick || tab == TabId::Home || m_config == nullptr) {
-    return true;
-  }
-  const auto& hidden = m_config->config().controlCenter.hiddenTabs;
-  return !std::ranges::contains(hidden, tabKey(tab));
-}
-
-bool ControlCenterPanel::isTabShown(TabId tab) const {
-  if (tab == m_activeTab && m_activeTabForced) {
-    return isTabFeatureAvailable(tab);
-  }
-  return isTabVisible(tab);
-}
-
-std::vector<ControlCenterPanel::TabCatalogEntry> ControlCenterPanel::hideableTabCatalog() {
-  std::vector<TabCatalogEntry> out;
-  out.reserve(kTabCount - 1);
-  for (const auto& meta : kTabs) {
-    if (meta.id == TabId::Quick || meta.id == TabId::Home || isDetailTab(meta.id)) {
-      continue;
-    }
-    out.push_back({.key = meta.key, .titleKey = meta.titleKey});
-  }
-  return out;
+  return tab != TabId::Weather || m_config == nullptr || m_config->config().weather.enabled;
 }
 
 std::vector<ControlCenterPanel::LauncherTabEntry> ControlCenterPanel::visibleTabsForLauncher() const {
   std::vector<LauncherTabEntry> out;
   out.reserve(kTabCount - 1);
   for (const auto& meta : kTabs) {
-    if (meta.id == TabId::Quick || meta.id == TabId::Home || !isTabVisible(meta.id)) {
+    if (meta.id == TabId::Quick || meta.id == TabId::DetailSearch || !isTabFeatureAvailable(meta.id)) {
       continue;
     }
     out.push_back({.key = meta.key, .titleKey = meta.titleKey, .glyph = meta.glyph});
@@ -655,84 +396,36 @@ std::vector<ControlCenterPanel::LauncherTabEntry> ControlCenterPanel::visibleTab
   return out;
 }
 
-std::string_view ControlCenterPanel::tabKey(TabId tab) {
-  for (const auto& meta : kTabs) {
-    if (meta.id == tab) {
-      return meta.key;
-    }
-  }
-  return {};
-}
-
-ControlCenterPanel::TabId ControlCenterPanel::firstVisibleTab() const {
-  for (const auto& meta : kTabs) {
-    if (isTabVisible(meta.id)) {
-      return meta.id;
-    }
-  }
-  return TabId::Quick;
-}
-
-void ControlCenterPanel::syncTabVisibility() {
-  for (const auto& meta : kTabs) {
-    const std::size_t idx = tabIndex(meta.id);
-    const bool visible = isTabShown(meta.id);
-    if (m_tabButtons[idx] != nullptr) {
-      m_tabButtons[idx]->setVisible(visible);
-    }
-    if (!visible) {
-      if (m_tabContainers[idx] != nullptr) {
-        m_tabContainers[idx]->setVisible(false);
-      }
-      if (m_tabHeaderActions[idx] != nullptr) {
-        m_tabHeaderActions[idx]->setVisible(false);
-      }
-    }
-  }
-}
-
 void ControlCenterPanel::updateTabChrome(TabId tab) {
   for (const auto& meta : kTabs) {
     const std::size_t idx = tabIndex(meta.id);
-    const bool tabEnabled = isTabShown(meta.id);
+    const bool tabEnabled = isTabFeatureAvailable(meta.id);
     if (m_tabs[idx] != nullptr) {
       m_tabs[idx]->setActive(tabEnabled && meta.id == tab);
     }
-    if (m_tabButtons[idx] != nullptr) {
-      m_tabButtons[idx]->setVisible(tabEnabled);
-      m_tabButtons[idx]->setVariant(meta.id == tab ? ButtonVariant::TabActive : ButtonVariant::Tab);
-    }
     if (meta.id == tab && m_contentTitle != nullptr) {
       const std::string dynamicTitle = m_tabs[idx] != nullptr ? m_tabs[idx]->headerTitle() : std::string{};
-      m_contentTitle->setText(!dynamicTitle.empty() ? dynamicTitle
-          : i18n::tr(!m_showSidebar && tab == TabId::Network ? "control-center.network.wifi" : meta.titleKey));
+      m_contentTitle->setText(!dynamicTitle.empty() ? dynamicTitle : i18n::tr(meta.titleKey));
     }
     if (m_tabHeaderActions[idx] != nullptr) {
       m_tabHeaderActions[idx]->setVisible(tabEnabled && meta.id == tab);
     }
   }
 
+  // The quick, calendar, weather and power menu sheets draw their own headers.
+  const bool ownHeader = tab == TabId::Quick || tab == TabId::Calendar || tab == TabId::Weather || tab == TabId::Session;
   if (m_backButton != nullptr) {
-    m_backButton->setVisible(
-        !m_showSidebar && tab != TabId::Quick && tab != TabId::Calendar && tab != TabId::Weather && tab != TabId::Session
-    );
+    m_backButton->setVisible(!ownHeader);
   }
   if (m_contentHeader != nullptr) {
-    // The clock calendar and weather sheets draw their own headers.
-    m_contentHeader->setVisible(
-        tab != TabId::Quick && tab != TabId::Session
-        && !((tab == TabId::Calendar || tab == TabId::Weather) && !m_showSidebar)
-    );
-  }
-  if (m_sidebarNav != nullptr) {
-    m_sidebarNav->notifyExternalSelectionChanged();
+    m_contentHeader->setVisible(!ownHeader);
   }
 }
 
 void ControlCenterPanel::applyTabContainerVisibility(TabId activeTab) {
   for (const auto& meta : kTabs) {
     const std::size_t idx = tabIndex(meta.id);
-    const bool tabEnabled = isTabShown(meta.id);
+    const bool tabEnabled = isTabFeatureAvailable(meta.id);
     if (m_tabContainers[idx] != nullptr) {
       m_tabContainers[idx]->setVisible(tabEnabled && meta.id == activeTab);
     }
@@ -806,7 +499,7 @@ void ControlCenterPanel::resetTabContainerTransforms() {
 int ControlCenterPanel::visibleTabOrdinal(TabId tab) const {
   int ordinal = 0;
   for (const auto& meta : kTabs) {
-    if (!isTabShown(meta.id)) {
+    if (!isTabFeatureAvailable(meta.id)) {
       continue;
     }
     if (meta.id == tab) {
@@ -877,51 +570,10 @@ void ControlCenterPanel::finishTabTransition() {
   applyTabContainerVisibility(m_activeTab);
 }
 
-void ControlCenterPanel::wireSidebarScroll(InputArea* area) {
-  if (area == nullptr) {
-    return;
-  }
-  area->setOnAxis([this](const InputArea::PointerData& data) {
-    if (data.axis != WL_POINTER_AXIS_VERTICAL_SCROLL) {
-      return;
-    }
-    const float steps = data.scrollSteps();
-    if (steps == 0.0F) {
-      return;
-    }
-    selectAdjacentVisibleTab(steps > 0.0F ? 1 : -1);
-  });
-}
-
-void ControlCenterPanel::selectAdjacentVisibleTab(int direction) {
-  if (direction == 0) {
-    return;
-  }
-
-  const int activeOrdinal = visibleTabOrdinal(m_activeTab);
-  const int targetOrdinal = activeOrdinal + direction;
-
-  int ordinal = 0;
-  for (const auto& meta : kTabs) {
-    if (!isTabShown(meta.id)) {
-      continue;
-    }
-    if (ordinal == targetOrdinal) {
-      if (meta.id != m_activeTab) {
-        selectTab(meta.id, true);
-        PanelManager::instance().refresh();
-      }
-      return;
-    }
-    ++ordinal;
-  }
-}
-
 void ControlCenterPanel::selectTab(TabId tab, bool animated) {
   if (!isTabFeatureAvailable(tab)) {
-    tab = firstVisibleTab();
+    tab = TabId::Quick;
   }
-  m_activeTabForced = !isTabVisible(tab);
 
   const TabId previousTab = m_activeTab;
   const bool tabChanged = tab != previousTab;
@@ -940,9 +592,6 @@ void ControlCenterPanel::selectTab(TabId tab, bool animated) {
     }
   }
   m_activeTab = tab;
-  if (tab == TabId::Notifications && m_notificationManager != nullptr) {
-    m_notificationManager->markNotificationHistorySeen();
-  }
 
   updateTabChrome(tab);
 
@@ -1046,7 +695,7 @@ void ControlCenterPanel::endTitleMove() {
 }
 
 void ControlCenterPanel::scheduleMprisRefreshFor(TabId tab) {
-  if (m_mpris == nullptr || m_mprisRefreshScheduled || (tab != TabId::Quick && tab != TabId::Home && tab != TabId::Media)) {
+  if (m_mpris == nullptr || m_mprisRefreshScheduled || (tab != TabId::Quick && tab != TabId::DetailMedia)) {
     return;
   }
 
@@ -1066,30 +715,6 @@ void ControlCenterPanel::scheduleMprisRefreshFor(TabId tab) {
     PanelManager::instance().requestUpdateOnly();
     PanelManager::instance().requestRedraw();
   });
-}
-
-bool ControlCenterPanel::isDirectSectionOpenContext(std::string_view context) const {
-  if (context.empty() || context == "home") {
-    return false;
-  }
-  return std::ranges::any_of(kTabs, [&](const auto& tab) { return tab.id != TabId::Quick && tab.id != TabId::Home && context == tab.key; });
-}
-
-bool ControlCenterPanel::isSheetContext(std::string_view context) const {
-  const TabId tab = tabFromContext(context);
-  return tab == TabId::Quick || tab == TabId::Network || tab == TabId::Calendar || tab == TabId::Weather
-      || tab == TabId::Session || isDetailTab(tab);
-}
-
-ControlCenterSidebarMode ControlCenterPanel::sidebarModeForOpen(std::string_view context) const {
-  if (m_config == nullptr) {
-    return ControlCenterSidebarMode::Compact;
-  }
-  if (isSheetContext(context)) {
-    return ControlCenterSidebarMode::None;
-  }
-  const auto& cc = m_config->config().controlCenter;
-  return isDirectSectionOpenContext(context) ? cc.sidebarSectionMode : cc.sidebarMode;
 }
 
 ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view context) const {
@@ -1121,67 +746,9 @@ ControlCenterPanel::TabId ControlCenterPanel::tabFromContext(std::string_view co
 
 std::size_t ControlCenterPanel::tabIndex(TabId id) { return static_cast<std::size_t>(id); }
 
-void ControlCenterPanel::layoutFullSidebarWidth(Renderer& renderer) {
-  if (m_sidebarScrollView == nullptr || m_sidebarNav == nullptr) {
-    return;
-  }
-
-  const float scale = contentScale();
-  const float fontSize = Style::fontSizeBody * scale;
-  const float paddingH = Style::spaceSm * scale * 2.0F;
-  const float gap = Style::spaceSm * scale;
-  const float glyphW = 21.0F * scale;
-
-  float maxTabWidth = 0.0F;
-  for (const auto& meta : kTabs) {
-    if (!isTabVisible(meta.id)) {
-      continue;
-    }
-    const TextMetrics text = renderer.measureText(i18n::tr(meta.titleKey), fontSize, {FontWeight::Bold});
-    maxTabWidth = std::max(maxTabWidth, paddingH + glyphW + gap + text.width);
-  }
-
-  const float minWidth = Style::controlHeight * scale;
-  const float contentWidth = std::max(minWidth, std::ceil(maxTabWidth));
-
-  // Scrollbar gutter lives inside the scroll viewport; reserve it only when the nav overflows.
-  float targetWidth = contentWidth;
-  const float scrollHeight = m_sidebarScrollView->height();
-  if (scrollHeight > 0.0F) {
-    LayoutConstraints navConstraints;
-    navConstraints.setExactWidth(contentWidth);
-    const float navHeight = m_sidebarNav->measure(renderer, navConstraints).height;
-    if (navHeight > scrollHeight + 0.5F) {
-      targetWidth = contentWidth + m_sidebarScrollView->scrollbarGutter();
-    }
-  }
-
-  if (std::abs(m_sidebarScrollView->width() - targetWidth) > 0.5F) {
-    m_sidebarScrollView->setSize(targetWidth, m_sidebarScrollView->height());
-  }
-}
-
-void ControlCenterPanel::scrollSidebarNodeIntoView(const Node* node) {
-  if (node == nullptr || m_sidebarScrollView == nullptr) {
-    return;
-  }
-  scrollNodeIntoScrollView(*m_sidebarScrollView, &m_sidebarScrollState, *node, Style::spaceXs * contentScale());
-  PanelManager::instance().requestLayout();
-}
-
 void ControlCenterPanel::scrollFocusedInputIntoView(InputArea* area) {
   if (area == nullptr) {
     return;
-  }
-
-  if (m_sidebarScrollView != nullptr && m_sidebarScrollView->content() != nullptr) {
-    for (const Node* node = area; node != nullptr; node = node->parent()) {
-      if (node == m_sidebarScrollView->content()) {
-        scrollNodeIntoScrollView(*m_sidebarScrollView, &m_sidebarScrollState, *area, Style::spaceXs * contentScale());
-        PanelManager::instance().requestLayout();
-        return;
-      }
-    }
   }
 
   // A horizontal view is the quick sheet's pager: it rests on whole pages, so a margin scroll would leave it 12 px off.

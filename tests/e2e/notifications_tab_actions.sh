@@ -23,7 +23,7 @@ with_noctalia '
   tag=e2e-act-$$-$RANDOM
   # notify-send -w stays connected and prints the invoked action key: that is the app side of ActionInvoked.
   notify-send -w -t 0 -a "$tag" -A "reply=Reply $tag" "Message $tag" "body" > "$OUT/invoked.txt" 2>&1 &
-  "$NOCTALIA" msg panel-open control-center notifications > /dev/null
+  "$NOCTALIA" msg panel-open control-center detail-notifications > /dev/null
   settle
   cp "$OUT/now.png" "$OUT/1-tab.png"
   # The row button (not the banner): the first action sits at the right end of the row.
@@ -35,7 +35,7 @@ with_noctalia '
   # its summary line runs "default".
   notify-send -w -t 0 -a "$tag-d" -A "default=Open" "Open $tag" "body" > "$OUT/default.txt" 2>&1 &
   "$POINTER" 1280 720 move 5 715 > /dev/null
-  "$NOCTALIA" msg panel-open control-center notifications > /dev/null
+  "$NOCTALIA" msg panel-open control-center detail-notifications > /dev/null
   settle
   cp "$OUT/now.png" "$OUT/2-default.png"
   "$POINTER" 1280 720 move 986 183 > /dev/null

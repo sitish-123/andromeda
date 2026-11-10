@@ -20,7 +20,6 @@
 #include "shell/wallpaper/wallpaper_paths.h"
 #include "system/sysmon_threshold_profile.h"
 #include "theme/builtin_palettes.h"
-#include "theme/builtin_templates.h"
 #include "ui/app_icon_colorization.h"
 #include "util/file_utils.h"
 #include "util/string_utils.h"
@@ -82,57 +81,6 @@ namespace settings {
           std::string(),
           {"shell", "desktop_layout"}, std::move(select),
           "desktop layout preset macos windows taskbar tiling dock bar look like"
-      ));
-    }
-    {
-      const std::string_view fromWallpaper = "wallpaper";
-      // Off returns to the source whose palette is configured; the active source needs no guess.
-      std::string offSource = "builtin";
-      if (cfg.theme.source == PaletteSource::Custom
-          || (cfg.theme.source == PaletteSource::Wallpaper && !cfg.theme.customPalette.empty())) {
-        offSource = "custom";
-      }
-      SettingEntry toggle = makeEntry(
-          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.from-wallpaper.label"), {}, {},
-          ToggleSetting{
-              .checked = cfg.theme.source == PaletteSource::Wallpaper,
-              .valuePath = {"theme", "source"},
-              .onValue = std::string(fromWallpaper),
-              .offValue = offSource,
-              .id = "theme.from_wallpaper",
-          },
-          "wallpaper accent colors palette source"
-      );
-      entries.push_back(std::move(toggle));
-    }
-    if (cfg.theme.source == PaletteSource::Builtin) {
-      entries.push_back(makeEntry(
-          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.builtin-palette.label"),
-          tr("settings.schema.appearance.builtin-palette.description"), {"theme", "builtin"},
-          builtinPaletteSelect(cfg.theme.builtinPalette, shellThemeMode(cfg.theme)), "builtin palette colors"
-      ));
-    } else if (cfg.theme.source == PaletteSource::Wallpaper) {
-      entries.push_back(makeEntry(
-          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.wallpaper-generation-scheme.label"),
-          tr("settings.schema.appearance.wallpaper-generation-scheme.description"), {"theme", "wallpaper_scheme"},
-          wallpaperSchemeSelect(cfg.theme.wallpaperScheme), "wallpaper palette generator scheme material you m3 colors"
-      ));
-    } else if (cfg.theme.source == PaletteSource::Custom) {
-      SettingControl customPaletteControl =
-          TextSetting{.value = cfg.theme.customPalette, .placeholder = "", .browseFileExtensions = {}};
-      if (!env.customPalettes.empty()) {
-        customPaletteControl = SearchPickerSetting{
-            .options = env.customPalettes,
-            .selectedValue = cfg.theme.customPalette,
-            .placeholder = tr("settings.schema.appearance.custom-palette.search-placeholder"),
-            .emptyText = tr("ui.controls.search-picker.empty"),
-            .preferredHeight = 240.0F,
-        };
-      }
-      entries.push_back(makeEntry(
-          SettingsSection::Appearance, "theme", tr("settings.schema.appearance.custom-palette.label"),
-          tr("settings.schema.appearance.custom-palette.description"), {"theme", "custom_palette"},
-          std::move(customPaletteControl), "custom palette colors"
       ));
     }
     entries.push_back(makeEntry(
@@ -356,34 +304,6 @@ namespace settings {
         asSegmented(enumSelect(kWallpaperAutomationOrders, cfg.wallpaper.automation.order)), "rotate slideshow"
     ));
     appendGroup(entries, automationRows, "automation");
-  }
-
-  void registry_detail::add_templates_settings(RegistryContext& ctx) {
-    using i18n::tr;
-    const auto& cfg = ctx.cfg;
-    auto& entries = ctx.entries;
-
-    // Templates
-    const auto builtInTemplatesOn =
-        SettingVisibility{[](const Config& c) { return c.theme.templates.enableBuiltinTemplates; }};
-    auto templateRows = generateSchemaEntries(
-        noctalia::config::schema::themeTemplatesSchema(), cfg.theme.templates, {"theme", "templates"}
-    );
-    appendRow(entries, templateRows, "enable_builtin_templates");
-    {
-      auto e = makeEntry(
-          SettingsSection::Appearance, "templates", tr("settings.schema.templates.builtin-ids.label"),
-          tr("settings.schema.templates.builtin-ids.description"), {"theme", "templates", "builtin_ids"},
-          TemplateGridSetting{
-              .options = noctalia::theme::availableTemplates(),
-              .selectedValues = cfg.theme.templates.builtinIds,
-              .emptyText = tr("settings.schema.templates.builtin-ids.empty"),
-          },
-          "theme templates apps foot walker gtk"
-      );
-      e.visibleWhen = builtInTemplatesOn;
-      entries.push_back(std::move(e));
-    }
   }
 
   void registry_detail::add_dock_settings(RegistryContext& ctx) {
@@ -882,24 +802,6 @@ namespace settings {
         generateSchemaEntries(noctalia::config::schema::controlCenterSchema(), cfg.controlCenter, {"control_center"});
     appendGroup(entries, controlCenterRows, "layout");
     appendGroup(entries, controlCenterRows, "navigation");
-    {
-      MultiSelectSetting tabs;
-      const auto catalog = ControlCenterPanel::hideableTabCatalog();
-      tabs.options.reserve(catalog.size());
-      tabs.selectedValues.reserve(catalog.size());
-      for (const auto& tab : catalog) {
-        tabs.options.push_back(SelectOption{std::string(tab.key), tr(tab.titleKey)});
-        if (!std::ranges::contains(cfg.controlCenter.hiddenTabs, tab.key)) {
-          tabs.selectedValues.emplace_back(tab.key);
-        }
-      }
-      tabs.persistUnselected = true;
-      entries.push_back(makeEntry(
-          SettingsSection::ControlCenter, "navigation", tr("settings.schema.panels.control-center-tabs.label"),
-          tr("settings.schema.panels.control-center-tabs.description"), {"control_center", "hidden_tabs"},
-          std::move(tabs), "tabs sections visible hide show display brightness media audio network power"
-      ));
-    }
     entries.push_back(makeEntry(
         SettingsSection::ControlCenter, "home", tr("settings.schema.panels.home-shortcuts.label"),
         tr("settings.schema.panels.home-shortcuts.description"), {"control_center", "shortcuts"},

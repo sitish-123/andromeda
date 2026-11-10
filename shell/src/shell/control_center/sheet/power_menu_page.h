@@ -16,9 +16,9 @@ class Label;
 // Power menu (.agent/DESIGN.md "Power menu and session end", mockup power-menu.html section 0): who you are, the
 // Lock / Sleep / Restart / Shut Down tiles, then Log Out across the row. Opens from the bar's power and brand
 // buttons, Super+Esc and Ctrl+Alt+Del.
-class SessionTab : public Tab {
+class PowerMenuPage : public Tab {
 public:
-  explicit SessionTab(const ControlCenterServices& services);
+  explicit PowerMenuPage(const ControlCenterServices& services);
 
   std::unique_ptr<Flex> create() override;
   void onClose() override;

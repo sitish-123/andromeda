@@ -1,4 +1,4 @@
-#include "shell/control_center/tabs/quick_tab.h"
+#include "shell/control_center/sheet/quick_page.h"
 
 #include "dbus/bluetooth/bluetooth_service.h"
 #include "dbus/link/link_service.h"
@@ -11,7 +11,7 @@
 #include "i18n/i18n.h"
 #include "pipewire/pipewire_service.h"
 #include "shell/panel/panel_manager.h"
-#include "shell/control_center/tabs/bluetooth_tab.h"
+#include "shell/control_center/bluetooth_glyph.h"
 #include "shell/phone/phone_state.h"
 #include "system/brightness_service.h"
 #include "system/rfkill_helper.h"
@@ -205,12 +205,12 @@ namespace {
 
 } // namespace
 
-QuickTab::QuickTab(const ControlCenterServices& services, OpenTabCallback openTab)
+QuickPage::QuickPage(const ControlCenterServices& services, OpenTabCallback openTab)
     : m_services(services), m_openTab(std::move(openTab)) {
   m_phoneRing = ShortcutRegistry::create("phone", services.shortcutServices());
 }
 
-std::unique_ptr<Flex> QuickTab::makeCard(bool badged) {
+std::unique_ptr<Flex> QuickPage::makeCard(bool badged) {
   const float s = contentScale();
   std::unique_ptr<Flex> card = badged ? std::make_unique<BadgedCard>() : std::make_unique<Flex>();
   control_center::applySectionCardStyle(*card, s, panelCardOpacity());
@@ -223,7 +223,7 @@ std::unique_ptr<Flex> QuickTab::makeCard(bool badged) {
   return card;
 }
 
-void QuickTab::addSingleRow(Flex& card, std::unique_ptr<Button> row) {
+void QuickPage::addSingleRow(Flex& card, std::unique_ptr<Button> row) {
   // The row is the whole card, so its press fill covers the card instead of an inset rectangle.
   const float s = contentScale();
   card.setPadding(0.0F);
@@ -233,7 +233,7 @@ void QuickTab::addSingleRow(Flex& card, std::unique_ptr<Button> row) {
   card.addChild(std::move(row));
 }
 
-std::unique_ptr<Button> QuickTab::makeToggleRow(
+std::unique_ptr<Button> QuickPage::makeToggleRow(
     ToggleRow& row, std::string_view detailTab, float iconTextGap, bool chevron
 ) {
   const float s = contentScale();
@@ -317,14 +317,14 @@ std::unique_ptr<Button> QuickTab::makeToggleRow(
   return container;
 }
 
-void QuickTab::attachTileDrag(Button& button) {
+void QuickPage::attachTileDrag(Button& button) {
   Button* source = &button;
   button.setOnPress([this, source](float x, float y, bool pressed) { tilePress(source, x, y, pressed); });
   button.setOnPointerMotion([this, source](float x, float y) { tileMotion(source, x, y); });
 }
 
 // A press that moves sideways past the slop hands the gesture to the pager; the tile then does not toggle.
-void QuickTab::tilePress(Button* button, float x, float y, bool pressed) {
+void QuickPage::tilePress(Button* button, float x, float y, bool pressed) {
   if (m_pager == nullptr) {
     return;
   }
@@ -348,7 +348,7 @@ void QuickTab::tilePress(Button* button, float x, float y, bool pressed) {
   m_tileSource = nullptr;
 }
 
-void QuickTab::tileMotion(Button* button, float x, float y) {
+void QuickPage::tileMotion(Button* button, float x, float y) {
   if (m_tileSource != button || m_editing || m_pager == nullptr) {
     return;
   }
@@ -366,7 +366,7 @@ void QuickTab::tileMotion(Button* button, float x, float y) {
   m_pager->dragMove(position);
 }
 
-std::unique_ptr<Button> QuickTab::makeTileRow(std::string_view type, bool plain) {
+std::unique_ptr<Button> QuickPage::makeTileRow(std::string_view type, bool plain) {
   ToggleRow row;
   row.id = std::string(type);
   row.shortcut = ShortcutRegistry::create(type, m_services.shortcutServices());
@@ -396,7 +396,7 @@ std::unique_ptr<Button> QuickTab::makeTileRow(std::string_view type, bool plain)
   return button;
 }
 
-std::unique_ptr<Flex> QuickTab::makeTileCard(std::string_view type, bool plain) {
+std::unique_ptr<Flex> QuickPage::makeTileCard(std::string_view type, bool plain) {
   auto row = makeTileRow(type, plain);
   if (row == nullptr) {
     return nullptr;
@@ -408,7 +408,7 @@ std::unique_ptr<Flex> QuickTab::makeTileCard(std::string_view type, bool plain) 
   return card;
 }
 
-std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider, Label*& value) {
+std::unique_ptr<Flex> QuickPage::makePill(std::string_view glyph, Slider*& slider, Label*& value) {
   const float s = contentScale();
   auto pill = std::make_unique<SliderPill>();
   pill->setDirection(FlexDirection::Horizontal);
@@ -458,7 +458,7 @@ std::unique_ptr<Flex> QuickTab::makePill(std::string_view glyph, Slider*& slider
   return pill;
 }
 
-std::unique_ptr<Flex> QuickTab::create() {
+std::unique_ptr<Flex> QuickPage::create() {
   const float s = contentScale();
   m_extras.clear();
   m_editing = false;
@@ -669,7 +669,7 @@ std::unique_ptr<Flex> QuickTab::create() {
   return root;
 }
 
-std::unique_ptr<Flex> QuickTab::makeDots() {
+std::unique_ptr<Flex> QuickPage::makeDots() {
   const float s = contentScale();
   auto row = std::make_unique<Flex>();
   row->setDirection(FlexDirection::Horizontal);
@@ -681,7 +681,7 @@ std::unique_ptr<Flex> QuickTab::makeDots() {
   return row;
 }
 
-void QuickTab::fillDots(std::size_t pages) {
+void QuickPage::fillDots(std::size_t pages) {
   const float s = contentScale();
   const float kDot = Tokens::componentPageDotsDot;
   const float kDotGap = Tokens::componentPageDotsGap;
@@ -707,19 +707,19 @@ void QuickTab::fillDots(std::size_t pages) {
   }
 }
 
-void QuickTab::goToPage(std::size_t page) {
+void QuickPage::goToPage(std::size_t page) {
   if (m_pager != nullptr && m_pageStep > 0.0F && page < m_pages.size()) {
     m_pager->scrollToPage(page);
   }
 }
 
-const std::vector<std::string>& QuickTab::tileOrderDefault() {
+const std::vector<std::string>& QuickPage::tileOrderDefault() {
   static const std::vector<std::string> kDefault = {"wifi",    "bluetooth",  "notification", "dark_mode",     "airplane",
                                                     "hotspot", "nightlight", "caffeine",     "screen-record", "mic_mute"};
   return kDefault;
 }
 
-std::vector<std::string> QuickTab::savedTileOrder() const {
+std::vector<std::string> QuickPage::savedTileOrder() const {
   const auto* config = m_services.config;
   const auto& stored = config != nullptr ? config->config().controlCenter.quickTiles : std::vector<std::string>{};
   std::vector<std::string> order;
@@ -731,7 +731,7 @@ std::vector<std::string> QuickTab::savedTileOrder() const {
   return order;
 }
 
-std::vector<std::string> QuickTab::tileOrder() const {
+std::vector<std::string> QuickPage::tileOrder() const {
   std::vector<std::string> order = savedTileOrder();
   if (std::ranges::none_of(order, [this](const std::string& id) { return tileAvailable(id); })) {
     return tileOrderDefault();
@@ -739,7 +739,7 @@ std::vector<std::string> QuickTab::tileOrder() const {
   return order;
 }
 
-bool QuickTab::tileAvailable(std::string_view id) const {
+bool QuickPage::tileAvailable(std::string_view id) const {
   if (id == "airplane") {
     return hasRfkillRadios();
   }
@@ -761,7 +761,7 @@ bool QuickTab::tileAvailable(std::string_view id) const {
   return id == "wifi" || id == "bluetooth" || id == "notification" || id == "dark_mode" || id == "session";
 }
 
-void QuickTab::buildPages(const std::vector<std::string>& order) {
+void QuickPage::buildPages(const std::vector<std::string>& order) {
   const float s = contentScale();
   Flex* strip = m_pager->content();
   while (!strip->children().empty()) {
@@ -851,7 +851,7 @@ void QuickTab::buildPages(const std::vector<std::string>& order) {
   fillDots(m_pages.size());
 }
 
-std::unique_ptr<Flex> QuickTab::makeFooter() {
+std::unique_ptr<Flex> QuickPage::makeFooter() {
   const float s = contentScale();
   const float kFooterHeight = Tokens::componentButtonHeightM;
   auto footer = std::make_unique<Flex>();
@@ -931,9 +931,9 @@ std::unique_ptr<Flex> QuickTab::makeFooter() {
 }
 
 // Badge overhang and lift growth (about 7 px), rounded up to the 4 grid.
-float QuickTab::editGridMargin() const { return Tokens::spaceP8 * contentScale(); }
+float QuickPage::editGridMargin() const { return Tokens::spaceP8 * contentScale(); }
 
-void QuickTab::sizePages(Renderer& renderer, float width) {
+void QuickPage::sizePages(Renderer& renderer, float width) {
   if (m_pager == nullptr || m_pages.empty()) {
     return;
   }
@@ -975,7 +975,7 @@ void QuickTab::sizePages(Renderer& renderer, float width) {
   m_volumeValue->setMaxWidth(width * 0.5F);
 }
 
-void QuickTab::refreshDots(float offset) {
+void QuickPage::refreshDots(float offset) {
   if (m_pageStep <= 0.0F || m_pages.empty()) {
     return;
   }
@@ -985,14 +985,14 @@ void QuickTab::refreshDots(float offset) {
   }
 }
 
-void QuickTab::syncPager() {
+void QuickPage::syncPager() {
   if (m_pager == nullptr || m_pageStep <= 0.0F) {
     return;
   }
   refreshDots(m_pager->scrollOffset());
 }
 
-float QuickTab::measureHeight(Renderer& renderer, float width) {
+float QuickPage::measureHeight(Renderer& renderer, float width) {
   if (m_root == nullptr) {
     return 0.0F;
   }
@@ -1003,7 +1003,7 @@ float QuickTab::measureHeight(Renderer& renderer, float width) {
   return m_root->measure(renderer, constraints).height;
 }
 
-void QuickTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
+void QuickPage::doLayout(Renderer& renderer, float contentWidth, float bodyHeight) {
   if (m_root == nullptr) {
     return;
   }
@@ -1030,7 +1030,7 @@ void QuickTab::doLayout(Renderer& renderer, float contentWidth, float bodyHeight
 }
 
 // The dragged tile sits under the pointer, above the other rows; layout and FLIP never move it.
-void QuickTab::placeDraggedTile() {
+void QuickPage::placeDraggedTile() {
   if (m_dragIndex < 0 || static_cast<std::size_t>(m_dragIndex) >= m_editCards.size() || m_editGrid == nullptr) {
     return;
   }
@@ -1045,7 +1045,7 @@ void QuickTab::placeDraggedTile() {
   );
 }
 
-void QuickTab::animateScale(Flex& card, float to) {
+void QuickPage::animateScale(Flex& card, float to) {
   AnimationManager* manager = card.animationManager();
   if (manager == nullptr) {
     card.setScale(to);
@@ -1058,7 +1058,7 @@ void QuickTab::animateScale(Flex& card, float to) {
 }
 
 // The tiles that changed slot slide from where they were to where layout put them.
-void QuickTab::animateFlip() {
+void QuickPage::animateFlip() {
   for (const auto& [card, from] : m_flipFrom) {
     AnimationManager* manager = card->animationManager();
     const float toX = card->x();
@@ -1086,7 +1086,7 @@ void QuickTab::animateFlip() {
   m_flipFrom.clear();
 }
 
-void QuickTab::fadeIn(Node& node, float delayMs) {
+void QuickPage::fadeIn(Node& node, float delayMs) {
   (void)delayMs;
   AnimationManager* manager = node.animationManager();
   if (manager == nullptr) {
@@ -1097,7 +1097,7 @@ void QuickTab::fadeIn(Node& node, float delayMs) {
   manager->animateSpring(0.0F, 1.0F, springOf(Tokens::springFade), [target](float v) { target->setOpacity(v); }, {}, target, 0.0F, Unit::Progress);
 }
 
-void QuickTab::startStagger() {
+void QuickPage::startStagger() {
   // Rulebook P5: tiles stagger in after the content gate (35 % of the open spring), 8 ms apart, six at most.
   const int kGateMs = static_cast<int>(PanelManager::openContentGate().count());
   constexpr int kStaggerMs = 8;
@@ -1116,7 +1116,7 @@ void QuickTab::startStagger() {
   }
 }
 
-void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
+void QuickPage::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
   if (row.shortcut == nullptr || row.icon == nullptr) {
     return;
   }
@@ -1130,7 +1130,7 @@ void QuickTab::syncToggleRow(ToggleRow& row, const std::string& subtitle) {
   }
 }
 
-void QuickTab::syncExtras() {
+void QuickPage::syncExtras() {
   for (ToggleRow& row : m_extras) {
     Shortcut* shortcut = row.shortcut.get();
     std::string subtitle;
@@ -1158,7 +1158,7 @@ void QuickTab::syncExtras() {
   }
 }
 
-void QuickTab::syncFooter() {
+void QuickPage::syncFooter() {
   const UPowerState* state = m_services.upower != nullptr ? &m_services.upower->state() : nullptr;
   const bool battery = state != nullptr && state->isPresent;
   const bool profile = m_services.powerProfiles != nullptr && !m_services.powerProfiles->activeProfile().empty();
@@ -1187,7 +1187,7 @@ void QuickTab::syncFooter() {
   }
 }
 
-void QuickTab::syncSliders() {
+void QuickPage::syncSliders() {
   if (m_brightnessSlider->dragging() || m_volumeSlider->dragging()) {
     return;
   }
@@ -1215,7 +1215,7 @@ void QuickTab::syncSliders() {
   m_syncingSliders = false;
 }
 
-void QuickTab::syncMedia(Renderer& renderer) {
+void QuickPage::syncMedia(Renderer& renderer) {
   const auto player = m_services.mpris != nullptr ? m_services.mpris->activePlayer() : std::nullopt;
   m_mediaCard->setVisible(player.has_value());
   if (!player.has_value()) {
@@ -1255,7 +1255,7 @@ void QuickTab::syncMedia(Renderer& renderer) {
   m_mediaArtUrl = url;
 }
 
-void QuickTab::syncPhone() {
+void QuickPage::syncPhone() {
   const LinkDevice* phone = m_services.link != nullptr ? phone::primary(*m_services.link) : nullptr;
   m_phoneCard->setVisible(phone != nullptr);
   m_phoneId = phone != nullptr && phone->connected ? phone->id : std::string{};
@@ -1281,7 +1281,7 @@ void QuickTab::syncPhone() {
   m_phoneStatus->setText(line);
 }
 
-float QuickTab::offsetIn(const Node* node, const Node* ancestor, bool y) {
+float QuickPage::offsetIn(const Node* node, const Node* ancestor, bool y) {
   float total = 0.0F;
   for (; node != nullptr && node != ancestor; node = node->parent()) {
     total += y ? node->y() : node->x();
@@ -1322,7 +1322,7 @@ namespace {
   }
 } // namespace
 
-void QuickTab::buildEditParts(Flex& root) {
+void QuickPage::buildEditParts(Flex& root) {
   const float s = contentScale();
   auto header = std::make_unique<Flex>();
   header->setDirection(FlexDirection::Horizontal);
@@ -1472,7 +1472,7 @@ void QuickTab::buildEditParts(Flex& root) {
 }
 
 // The dragged tile lifts to E3 (rulebook 9.16): a soft shadow under it, behind the rows of the grid.
-void QuickTab::syncLiftShadow() {
+void QuickPage::syncLiftShadow() {
   const bool lifted = m_editing && m_editGrid != nullptr && m_dragIndex >= 0
       && static_cast<std::size_t>(m_dragIndex) < m_editCards.size();
   if (!lifted) {
@@ -1504,7 +1504,7 @@ void QuickTab::syncLiftShadow() {
   m_liftShadow->setFrameSize(w, h);
 }
 
-void QuickTab::reflowEditGrid() {
+void QuickPage::reflowEditGrid() {
   const float s = contentScale();
   std::vector<std::unique_ptr<Flex>> held;
   for (Flex* card : m_editCards) {
@@ -1538,7 +1538,7 @@ void QuickTab::reflowEditGrid() {
   }
 }
 
-int QuickTab::editSlotAt(float x, float y) const {
+int QuickPage::editSlotAt(float x, float y) const {
   const float pad = Tokens::componentSheetGap * contentScale() * 0.5F;
   const bool laidOut = m_slotPos.size() == m_editCards.size();
   for (std::size_t i = 0; i < m_editCards.size(); ++i) {
@@ -1553,7 +1553,7 @@ int QuickTab::editSlotAt(float x, float y) const {
   return -1;
 }
 
-void QuickTab::rebuildEdit() {
+void QuickPage::rebuildEdit() {
   const float s = contentScale();
   m_extras.clear();
   m_galleryCards.clear();
@@ -1650,7 +1650,7 @@ void QuickTab::rebuildEdit() {
   PanelManager::instance().requestLayout();
 }
 
-void QuickTab::saveEdit() {
+void QuickPage::saveEdit() {
   if (m_services.config == nullptr) {
     return;
   }
@@ -1668,7 +1668,7 @@ void QuickTab::saveEdit() {
   }
 }
 
-void QuickTab::onClose() {
+void QuickPage::onClose() {
   for (Timer& timer : m_staggerTimers) {
     timer.stop();
   }
@@ -1681,7 +1681,7 @@ void QuickTab::onClose() {
   m_liftShadow = nullptr;
 }
 
-void QuickTab::setEditing(bool editing) {
+void QuickPage::setEditing(bool editing) {
   if (m_editing == editing || m_root == nullptr || m_editGrid == nullptr) {
     return;
   }
@@ -1736,7 +1736,7 @@ void QuickTab::setEditing(bool editing) {
   PanelManager::instance().requestLayout();
 }
 
-Label* QuickTab::sharedTitleFor(std::string_view detailKey) {
+Label* QuickPage::sharedTitleFor(std::string_view detailKey) {
   if (detailKey == "detail-phone") {
     return m_phoneCard != nullptr && m_phoneCard->visible() ? m_phoneName : nullptr;
   }
@@ -1748,7 +1748,7 @@ Label* QuickTab::sharedTitleFor(std::string_view detailKey) {
   return nullptr;
 }
 
-void QuickTab::setActive(bool active) {
+void QuickPage::setActive(bool active) {
   if (active && m_staggerPending) {
     m_staggerPending = false;
     startStagger();
@@ -1761,14 +1761,14 @@ void QuickTab::setActive(bool active) {
   }
 }
 
-bool QuickTab::focusSlider(Slider* slider) {
+bool QuickPage::focusSlider(Slider* slider) {
   if (slider != nullptr && slider->inputArea() != nullptr) {
     PanelManager::instance().inputDispatcher().setFocus(slider->inputArea());
   }
   return true;
 }
 
-bool QuickTab::handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const InputArea* focused) {
+bool QuickPage::handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const InputArea* focused) {
   Slider* slider = nullptr;
   if (m_brightnessSlider != nullptr && focused == m_brightnessSlider->inputArea()) {
     slider = m_brightnessSlider;
@@ -1802,7 +1802,7 @@ bool QuickTab::handleSliderKey(std::uint32_t sym, std::uint32_t modifiers, const
   }
 }
 
-bool QuickTab::moveFocus(int index) {
+bool QuickPage::moveFocus(int index) {
   if (index < 0 || static_cast<std::size_t>(index) >= m_extras.size() || m_extras[static_cast<std::size_t>(index)].body == nullptr) {
     return true;
   }
@@ -1812,7 +1812,7 @@ bool QuickTab::moveFocus(int index) {
 }
 
 // The media and phone cards are rows of buttons below the volume pill: Down reaches them, Left and Right move along a row.
-bool QuickTab::handleCardKey(std::uint32_t sym, const InputArea* focused) {
+bool QuickPage::handleCardKey(std::uint32_t sym, const InputArea* focused) {
   const std::array<std::array<Button*, 3>*, 2> rows{&m_mediaKeys, &m_phoneKeys};
   const std::array<const Node*, 2> cards{m_mediaCard, m_phoneCard};
   const auto shown = [&](std::size_t row) { return cards[row] != nullptr && cards[row]->visible(); };
@@ -1887,7 +1887,7 @@ bool QuickTab::handleCardKey(std::uint32_t sym, const InputArea* focused) {
   return false;
 }
 
-bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
+bool QuickPage::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool pressed, bool preedit) {
   if (!pressed || preedit) {
     return false;
   }
@@ -1953,7 +1953,7 @@ bool QuickTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, bool presse
 }
 
 
-void QuickTab::doUpdate(Renderer& renderer) {
+void QuickPage::doUpdate(Renderer& renderer) {
   // A drag swallows only the click of its own release; keyboard activation later must work.
   if (m_swallowClick && !m_tileDragging && m_tileSource == nullptr) {
     m_swallowClick = false;

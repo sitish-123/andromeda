@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Media both ways, through the shell, against a real andromeda-linkd and a present headless phone. Proves: a track
 # playing on the phone appears as the MPRIS player andromeda_link_<device> that playerctl reads (title, artist, status,
-# position, volume, artwork file) and that the shell's bar, media tab, and lock screen show with no shell change;
+# position, volume, artwork file) and that the shell's bar, media page, and lock screen show with no shell change;
 # playerctl's play-pause, seek, volume, and next reach the phone as media-command, and the phone's new state comes
 # back; the player goes when the phone stops it or the session ends. The reverse: a desktop MPRIS test player is sent
 # to the phone as media-player (with its state, commands, and volume), a phone command pauses it, seeks it, sets its
@@ -73,9 +73,9 @@ with_noctalia '
   POS=$(pc position | cut -d. -f1)
   (( POS >= 30 && POS < 40 )) || fail "position does not advance from 30 s: $POS"
   step "phone player on MPRIS: $(pc metadata --format "{{title}} by {{artist}}, {{status}}, {{position}} us, volume {{volume}}") art $ART"
-  sleep 1.5 # real time: the bar and media tab repaint
+  sleep 1.5 # real time: the bar and media page repaint
   grim "$OUT/media-bar.png"
-  msg panel-open control-center media > /dev/null
+  msg panel-open control-center detail-media > /dev/null
   sleep 1.5 # real time: the panel opens and paints the player
   grim "$OUT/media-tab.png"
   msg panel-close > /dev/null
