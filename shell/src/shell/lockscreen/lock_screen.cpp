@@ -762,6 +762,10 @@ bool LockScreen::isReadyForSleep() const { return m_locked && !m_unlocking && al
 
 void LockScreen::prepareForSleep() {
   resetGracePeriod();
+  // Nobody sees the enter transition before sleep; waiting for it holds the suspend for its full length.
+  if (!isReadyForSleep()) {
+    suppressEntryTransition();
+  }
   if (isReadyForSleep()) {
     handleSleepReady();
   } else if (m_locked) {
