@@ -1,5 +1,6 @@
 #include "launcher/math_provider.h"
 #include "tests/test_check.h"
+#include "tests/test_deferred.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -28,6 +29,12 @@ namespace {
   }
 
   // command() runs a program; it must stay disabled even after user definitions load.
+  // The calculator engine builds on the SharedWorker after an open that needs one.
+  void openLauncher(MathProvider& provider) {
+    provider.onLauncherOpened();
+    TEST_CHECK(runDeferredUntil([&provider] { return !provider.queryPrefixed("2 + 2").empty(); }));
+  }
+
   bool commandRuns(const MathProvider& provider, const fs::path& marker) {
     (void)provider.queryPrefixed(R"(command("touch", ")" + marker.string() + R"("))");
     return fs::exists(marker);
@@ -48,7 +55,7 @@ int main() {
   provider.initialize();
   // The calculator loads on the first launcher open, or later after start.
   TEST_CHECK(provider.queryPrefixed("2 + 2").empty());
-  provider.onLauncherOpened();
+  openLauncher(provider);
 
   TEST_CHECK(provider.query("EUR").empty());
   TEST_CHECK(!provider.queryPrefixed("EUR").empty());
@@ -59,18 +66,18 @@ int main() {
   TEST_CHECK(firstTitle(provider, "noctaliaprobe*2") != "= 480");
   fs::create_directories(definitions);
   writeVariable(definitions, "noctaliaprobe", "240");
-  provider.onLauncherOpened();
+  openLauncher(provider);
   TEST_CHECK(firstTitle(provider, "noctaliaprobe*2") == "= 480");
   TEST_CHECK(!commandRuns(provider, marker));
 
   // Edits are picked up through the watch.
   writeVariable(definitions, "noctaliaprobe", "100");
-  provider.onLauncherOpened();
+  openLauncher(provider);
   TEST_CHECK(firstTitle(provider, "noctaliaprobe*2") == "= 200");
 
   // Removed definitions disappear rather than lingering from the previous load.
   fs::remove(definitions / "variables.xml");
-  provider.onLauncherOpened();
+  openLauncher(provider);
   TEST_CHECK(firstTitle(provider, "noctaliaprobe*2") != "= 200");
   TEST_CHECK(!commandRuns(provider, marker));
 

@@ -36,7 +36,7 @@ def literals(code):
             continue  # scale math
         if re.search(r"\b(?:opacity|alpha)\s*[=(]\s*$", code[: m.start()], re.I):
             continue  # an opacity on a size line is not a size
-        if re.search(r"\b(?:withAlpha|rgba)\([^()]*$", code[: m.start()]):
+        if re.search(r"\b(?:withAlpha|rgba|colorSpecFromRole)\([^()]*$", code[: m.start()]):
             continue  # a colour channel or alpha, not a size
         fields = re.findall(r"\.(\w+)\s*=", code[: m.start()])
         if fields and fields[-1].lower() in ("opacity", "alpha"):

@@ -1,5 +1,6 @@
 #include "system/desktop_entry.h"
 #include "tests/test_check.h"
+#include "tests/test_deferred.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -50,7 +51,7 @@ int main() {
   writeEntry(applications / "nested/watch-probe-added.desktop", "Added Probe");
   TEST_CHECK(watchEventPending());
   checkDesktopEntryReload();
-  TEST_CHECK(hasId(desktopEntries(), "watch-probe-added"));
+  TEST_CHECK(runDeferredUntil([] { return hasId(desktopEntries(), "watch-probe-added"); }));
   TEST_CHECK(!watchEventPending());
 
   writeEntry(applications / "nested/watch-probe-later.desktop", "Later Probe");

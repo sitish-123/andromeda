@@ -1,5 +1,6 @@
 #include "system/desktop_entry.h"
 #include "tests/test_check.h"
+#include "tests/test_deferred.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -37,13 +38,14 @@ namespace {
     return {};
   }
 
-  bool waitForWatchEvent() {
+  // The rescan runs on the SharedWorker: true once its list replaced the one at `version`.
+  bool waitForRescan(std::uint64_t version) {
     pollfd pfd{.fd = desktopEntryWatchFd(), .events = POLLIN, .revents = 0};
     if (poll(&pfd, 1, 2000) <= 0) {
       return false;
     }
     checkDesktopEntryReload();
-    return true;
+    return runDeferredUntil([version] { return desktopEntriesVersion() > version; });
   }
 
 } // namespace
@@ -76,19 +78,19 @@ int main() {
   const auto initialVersion = desktopEntriesVersion();
 
   writeEntry(elsewhere / "symlink-probe-added.desktop", "Added Probe");
-  TEST_CHECK(waitForWatchEvent());
+  TEST_CHECK(waitForRescan(initialVersion));
   const auto addedVersion = desktopEntriesVersion();
   TEST_CHECK(addedVersion > initialVersion);
   TEST_CHECK(countId(desktopEntries(), "symlink-probe-added") == 1);
 
   writeEntry(elsewhere / "deeper/symlink-probe-deeper.desktop", "Deeper Probe");
-  TEST_CHECK(waitForWatchEvent());
+  TEST_CHECK(waitForRescan(addedVersion));
   const auto deeperVersion = desktopEntriesVersion();
   TEST_CHECK(deeperVersion > addedVersion);
   TEST_CHECK(countId(desktopEntries(), "symlink-probe-deeper") == 1);
 
   writeEntry(elsewhere / "deeper/symlink-probe-deeper.desktop", "Renamed Probe");
-  TEST_CHECK(waitForWatchEvent());
+  TEST_CHECK(waitForRescan(deeperVersion));
   TEST_CHECK(desktopEntriesVersion() > deeperVersion);
   TEST_CHECK(nameOf(desktopEntries(), "symlink-probe-deeper") == "Renamed Probe");
 

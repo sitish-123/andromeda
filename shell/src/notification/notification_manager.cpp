@@ -9,6 +9,7 @@
 #include "util/string_utils.h"
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <filesystem>
 #include <ranges>
@@ -931,6 +932,7 @@ namespace {
       const std::filesystem::path& path, const std::deque<NotificationHistoryEntry>& entries, std::uint32_t nextId,
       std::uint64_t serial, const security::SecureKey& key, std::uint64_t generation
   );
+  std::uint64_t nextHistoryGeneration();
   std::filesystem::path historyPath();
 } // namespace
 
@@ -948,7 +950,7 @@ void NotificationManager::schedulePersistHistory() {
     SharedWorker::instance().post<bool>(
         m_alive,
         [path, entries = m_history, nextId = m_nextId, serial = m_changeSerial, key = m_historyKey,
-         generation = ++m_persistGeneration] { return writeHistory(path, entries, nextId, serial, *key, generation); },
+         generation = nextHistoryGeneration()] { return writeHistory(path, entries, nextId, serial, *key, generation); },
         [this](bool written) {
           if (written && m_historyKeyProvider != nullptr) {
             m_historyKeyProvider->noteEncryptedDataExists();
@@ -962,6 +964,10 @@ namespace {
   // The worker save and the in-place save at exit share the file: the newest snapshot always lands last.
   std::mutex gHistoryWriteMutex;
   std::uint64_t gHistoryWritten = 0;
+  // One counter for every manager in the process: gHistoryWritten compares snapshots across all of them.
+  std::atomic<std::uint64_t> gHistoryGeneration = 0;
+
+  std::uint64_t nextHistoryGeneration() { return ++gHistoryGeneration; }
 
   bool writeHistory(
       const std::filesystem::path& path, const std::deque<NotificationHistoryEntry>& entries, std::uint32_t nextId,
@@ -997,7 +1003,7 @@ void NotificationManager::persistHistoryToDisk() {
   }
   m_persistTimer.stop();
   m_persistScheduled = false;
-  if (writeHistory(path, m_history, m_nextId, m_changeSerial, *m_historyKey, ++m_persistGeneration)
+  if (writeHistory(path, m_history, m_nextId, m_changeSerial, *m_historyKey, nextHistoryGeneration())
       && m_historyKeyProvider != nullptr) {
     m_historyKeyProvider->noteEncryptedDataExists();
   }

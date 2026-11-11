@@ -2,6 +2,7 @@
 #include "notification/notification_history_store.h"
 #include "notification/notification_manager.h"
 #include "notification_history_test_utils.h"
+#include "tests/test_deferred.h"
 #include "util/file_utils.h"
 
 #include <cstdlib>
@@ -296,8 +297,8 @@ namespace {
     manager.clearHistory();
     manager.syncHistoryPersistence(provider);
     TEST_CHECK(manager.history().empty());
-    TEST_CHECK(readNotificationHistoryJson(path, *key)["entries"].empty());
-    drain();
+    // The cleared history is written on the SharedWorker.
+    TEST_CHECK(runDeferredUntil([&] { return readNotificationHistoryJson(path, *key)["entries"].empty(); }));
   }
 
 } // namespace

@@ -2,6 +2,7 @@
 #include "launcher/app_provider.h"
 #include "system/desktop_entry.h"
 #include "tests/test_check.h"
+#include "tests/test_deferred.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -18,6 +19,13 @@ namespace {
     const auto match = std::ranges::find(entries, id, &DesktopEntry::id);
     TEST_CHECK(match != entries.end());
     return *match;
+  }
+
+  // A language change after the first load rescans on the SharedWorker; the old list stays until it lands.
+  void switchLanguage(std::string_view language) {
+    const std::uint64_t version = desktopEntriesVersion();
+    setDesktopEntryLanguage(language);
+    TEST_CHECK(runDeferredUntil([version] { return desktopEntriesVersion() > version; }));
   }
 
   const LauncherResult& findResult(const std::vector<LauncherResult>& results, std::string_view title) {
@@ -67,7 +75,7 @@ int main(int argc, char* argv[]) {
   setDesktopEntryLanguage(i18n::Service::instance().requestedLanguage());
   TEST_CHECK(findEntry("noctalia-locale-probe").name == "软件");
 
-  setDesktopEntryLanguage("en");
+  switchLanguage("en");
   TEST_CHECK(findEntry("noctalia-locale-probe").name == "Disk Locale Probe");
 
   AppProvider provider(nullptr, nullptr);
@@ -76,14 +84,14 @@ int main(int argc, char* argv[]) {
   TEST_CHECK(findResult(translatedSearch, "Disk Locale Probe").id == (applications / "noctalia-locale-probe.desktop"));
 
   const std::uint64_t englishVersion = desktopEntriesVersion();
-  setDesktopEntryLanguage("ru");
+  switchLanguage("ru");
   const DesktopEntry& russian = findEntry("noctalia-locale-probe");
   TEST_CHECK(desktopEntriesVersion() > englishVersion);
   TEST_CHECK(russian.name == "Диски Locale Probe");
   TEST_CHECK(russian.genericName == "Дисковая утилита");
   TEST_CHECK(russian.keywords == "диск;хранилище;");
 
-  setDesktopEntryLanguage("pt-BR");
+  switchLanguage("pt-BR");
   TEST_CHECK(findEntry("noctalia-locale-probe").name == "Discos Locale Probe");
 
   fs::remove_all(root);

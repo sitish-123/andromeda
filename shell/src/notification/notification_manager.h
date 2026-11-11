@@ -243,7 +243,6 @@ private:
   std::shared_ptr<const security::SecureKey> m_historyKey;
   // Debounces history saves; each change used to rewrite every entry on the main thread.
   Timer m_persistTimer;
-  std::uint64_t m_persistGeneration = 0;
   std::shared_ptr<int> m_alive = std::make_shared<int>(0);
   Timer m_historyRetentionTimer;
 

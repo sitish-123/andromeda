@@ -78,11 +78,11 @@ S1 | shell/src/shell/settings/settings_content_workspaces.cpp | kSelectWidth = |
 S1 | shell/src/shell/setup_wizard/setup_wizard_panel.cpp | kChoiceWidth = | Setup wizard choice card 260 (setup-wizard mockup)
 S1 | shell/src/shell/settings/widget_add_popup.cpp | kCreateHeight = | Widget create popup height 192 (4 grid; content height of the form)
 S1 | shell/src/shell/wallpaper/panel/wallpaper_panel.cpp | kSearchWidth = | wallpaper search field width 240 (same as Settings text fields)
-S1 | shell/src/shell/control_center/tabs/weather_tab.cpp | kHourCellWidth = | weather hourly cell width 48 (iOS hourly strip)
-S1 | shell/src/shell/control_center/tabs/weather_tab.cpp | kHourStripHeight = | weather hourly strip height 92: caption + symbol + headline + caption
-S1 | shell/src/shell/control_center/tabs/weather_tab.cpp | kDayLabelWidth = | weather 7-day weekday column 56
-S1 | shell/src/shell/control_center/tabs/weather_tab.cpp | kTempLabelWidth = | weather 7-day temperature column 36
-S1 | shell/src/shell/control_center/tabs/weather_tab.cpp | kRangeBarHeight = | weather range bar height 4
+S1 | shell/src/shell/control_center/sheet/weather_page.cpp | kHourCellWidth = | weather hourly cell width 48 (iOS hourly strip)
+S1 | shell/src/shell/control_center/sheet/weather_page.cpp | kHourStripHeight = | weather hourly strip height 92: caption + symbol + headline + caption
+S1 | shell/src/shell/control_center/sheet/weather_page.cpp | kDayLabelWidth = | weather 7-day weekday column 56
+S1 | shell/src/shell/control_center/sheet/weather_page.cpp | kTempLabelWidth = | weather 7-day temperature column 36
+S1 | shell/src/shell/control_center/sheet/weather_page.cpp | kRangeBarHeight = | weather range bar height 4
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowWidth = | Wallpaper window frame 980 x 700 (the v2 panel size, .agent/DESIGN.md "Wallpaper panel v2")
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowHeight = | Wallpaper window frame 980 x 700
 S1 | shell/src/shell/wallpaper/wallpaper_window.cpp | kWindowMinWidth = | Wallpaper window minimum: preview card + 2 grid columns fit
@@ -92,3 +92,9 @@ S1 | libdesk-ui/src/ui/tooltip/tooltip_manager.cpp | kTableMinPeerColumnWidth = 
 S1 | libdesk-ui/src/ui/files/file_browser.cpp | 4.0F * Tokens::componentFilesViewItemWidth | a count (4 cells, 5 paddings), not a size
 S1 | libdesk-ui/src/ui/files/file_gallery.cpp | 2.0F * Tokens::spaceP16 | a count (padding on both sides), not a size
 S1 | libdesk-ui/src/ui/files/file_gallery.cpp | std::max(4.0F, std::round((fx1 | navigator frame floor in navigator pixels, so a deep zoom still shows a frame
+S1 | shell/src/shell/settings/settings_content_datetime.cpp | kSelectWidth = | Date and Time wide select 240 (D6 page; the Workspaces wide select width)
+S1 | shell/src/shell/settings/settings_content_language.cpp | kSelectWidth = | Language and Region wide select 240 (D6 page; the Workspaces wide select width)
+S1 | shell/src/shell/settings/settings_window_automation.cpp | .width = 240.0F * scale | Automation rule editor "When" select 240 (the Workspaces wide select width)
+S1 | shell/src/shell/settings/settings_window.cpp | kWindowMinWidth = | Settings window minimum 360: narrow windows collapse the sidebar to a rail, then to a back-button stack (D6)
+S1 | shell/src/shell/settings/settings_selection_style.h | kSearchFieldWidth = | Settings sidebar search field width 200 (D6 rail and stack layouts)
+S1 | shell/src/shell/settings/settings_selection_style.h | kRailWidth = | rail width is a sum of tokens; 2.0F counts both sides, not a size
