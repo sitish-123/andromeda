@@ -336,7 +336,9 @@ const NAMESPACE_FLAGS: u32 = (libc::CLONE_NEWNS
 
 /// The seccomp program for bwrap's `--seccomp`: raw `struct sock_filter` entries in native byte order.
 /// Denied syscalls and clone with a namespace flag return EPERM; clone3 returns ENOSYS, so libc falls back to
-/// clone, whose flags a filter can read. Another architecture, or an x32 call, kills the process.
+/// clone, whose flags a filter can read. A socket of any family but `AF_UNIX` returns EAFNOSUPPORT: decoders use
+/// only local sockets, and each other family is kernel surface. Another architecture, or an x32 call, kills the
+/// process.
 /// None on an architecture this filter does not know.
 fn seccomp_program() -> Option<Vec<u8>> {
     const LD_W_ABS: u16 = 0x20;
@@ -358,15 +360,16 @@ fn seccomp_program() -> Option<Vec<u8>> {
         _ => return None,
     };
     let nr = |n: libc::c_long| u32::try_from(n).ok();
-    let (clone, clone3) = (nr(libc::SYS_clone)?, nr(libc::SYS_clone3)?);
+    let (clone, clone3, socket) = (nr(libc::SYS_clone)?, nr(libc::SYS_clone3)?, nr(libc::SYS_socket)?);
     let denied: Vec<u32> = DENIED.iter().map(|&n| nr(n)).collect::<Option<_>>()?;
 
-    // Head: arch check, load nr, x32 check. Then one jump per denied syscall, clone3 and clone. Tail at the end.
+    // Head: arch check, load nr, x32 check. Then one jump per denied syscall, clone3, clone and socket. Tail at
+    // the end.
     let head = 4;
-    let checks = denied.len() + 2;
+    let checks = denied.len() + 3;
     let tail = head + checks;
-    let (clone_args, eperm, enosys, kill) = (tail + 1, tail + 4, tail + 5, tail + 6);
-    let mut prog: Vec<(u16, u8, u8, u32)> = Vec::with_capacity(tail + 7);
+    let (clone_args, socket_args, eperm, enosys, kill) = (tail + 1, tail + 4, tail + 8, tail + 9, tail + 10);
+    let mut prog: Vec<(u16, u8, u8, u32)> = Vec::with_capacity(tail + 11);
     // Jump offsets count from the next instruction and only go forward.
     let to = |from: usize, target: usize| u8::try_from(target - from - 1).ok();
     prog.push((LD_W_ABS, 0, 0, OFFSET_ARCH));
@@ -382,10 +385,16 @@ fn seccomp_program() -> Option<Vec<u8>> {
     prog.push((JEQ_K, to(at, enosys)?, 0, clone3));
     let at = prog.len();
     prog.push((JEQ_K, to(at, clone_args)?, 0, clone));
+    let at = prog.len();
+    prog.push((JEQ_K, to(at, socket_args)?, 0, socket));
     prog.push((RET_K, 0, 0, ALLOW));
     prog.push((LD_W_ABS, 0, 0, OFFSET_ARG0));
-    prog.push((JSET_K, 1, 0, NAMESPACE_FLAGS));
+    prog.push((JSET_K, to(clone_args + 1, eperm)?, 0, NAMESPACE_FLAGS));
     prog.push((RET_K, 0, 0, ALLOW));
+    prog.push((LD_W_ABS, 0, 0, OFFSET_ARG0));
+    prog.push((JEQ_K, 0, 1, libc::AF_UNIX as u32));
+    prog.push((RET_K, 0, 0, ALLOW));
+    prog.push((RET_K, 0, 0, ERRNO | libc::EAFNOSUPPORT as u32));
     prog.push((RET_K, 0, 0, ERRNO | libc::EPERM as u32));
     prog.push((RET_K, 0, 0, ERRNO | libc::ENOSYS as u32));
     prog.push((RET_K, 0, 0, KILL_PROCESS));
@@ -470,9 +479,10 @@ mod tests {
         assert!(matches!(r.run(&program("/usr/bin/false"), "file:///x", &input, Flavor::Normal), Outcome::ThumbnailerFailed));
     }
 
-    /// A decoder inside the sandbox cannot make a namespace: the seccomp filter answers EPERM.
+    /// A decoder inside the sandbox cannot make a namespace (EPERM) or a socket other than `AF_UNIX`
+    /// (EAFNOSUPPORT). Each probe copies the input to the output only when the call failed with that error.
     #[test]
-    fn sandbox_denies_namespace_syscalls() {
+    fn sandbox_denies_namespaces_and_sockets() {
         let dir = tempfile::tempdir().unwrap();
         let r = runner(dir.path());
         if !r.sandbox_works() {
@@ -481,11 +491,13 @@ mod tests {
         }
         let input = dir.path().join("input.png");
         std::fs::write(&input, png::marker(&[])).unwrap();
-        let script = "unshare -U /usr/bin/true 2>&1 | grep -q 'Operation not permitted' && cp \"$1\" \"$2\"";
-        let probe = Thumbnailer {
-            name: "probe".into(),
-            exec: ["/usr/bin/sh", "-c", script, "sh", "%i", "%o"].map(String::from).to_vec(),
-        };
-        assert!(matches!(r.run(&probe, "file:///x", &input, Flavor::Normal), Outcome::Made(_)));
+        let namespace = "unshare -U /usr/bin/true 2>&1 | grep -q 'Operation not permitted' && cp \"$1\" \"$2\"";
+        let socket = "import errno, shutil, socket, sys\n\
+            try:\n    socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n\
+            except OSError as e:\n    e.errno == errno.EAFNOSUPPORT and shutil.copy(sys.argv[1], sys.argv[2])";
+        for exec in [["/usr/bin/sh", "-c", namespace, "sh", "%i", "%o"], ["/usr/bin/python3", "-I", "-c", socket, "%i", "%o"]] {
+            let probe = Thumbnailer { name: "probe".into(), exec: exec.map(String::from).to_vec() };
+            assert!(matches!(r.run(&probe, "file:///x", &input, Flavor::Normal), Outcome::Made(_)), "{exec:?}");
+        }
     }
 }
