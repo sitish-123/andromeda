@@ -34,14 +34,7 @@ LockClient::LockClient(SessionBus& bus) {
 
   m_lock = sdbus::createProxy(bus.connection(), sdbus::ServiceName{kLockBusName}, kLockPath);
   m_lock->uponSignal("StateChanged").onInterface(kLockInterface).call([this](const std::string& state) {
-    if (state == "locked") {
-      applyState(true, true);
-    } else if (state == "unlocked" || !m_locked) {
-      applyState(false, false);
-    } else {
-      // A failed relock leaves the compositor's blank in place: the session is still locked.
-      m_requested = false;
-    }
+    apply(LockClientState::StateChanged{.state = state});
   });
   m_lock->uponSignal("FailedAttempts")
       .onInterface(kLockInterface)
@@ -56,7 +49,7 @@ LockClient::LockClient(SessionBus& bus) {
       .onInterface(kDaemonInterface)
       .withArguments(std::string{kLockBusName})
       .uponReplyInvoke([this, alive](std::optional<sdbus::Error> error, bool owned) {
-        if (alive.expired() || m_resolved) {
+        if (alive.expired() || m_state.resolved()) {
           return;
         }
         onOwner(!error.has_value() && owned);
@@ -69,7 +62,7 @@ void LockClient::whenResolved(std::function<void()> fn) {
   if (fn == nullptr) {
     return;
   }
-  if (m_resolved) {
+  if (m_state.resolved()) {
     fn();
     return;
   }
@@ -77,19 +70,39 @@ void LockClient::whenResolved(std::function<void()> fn) {
 }
 
 void LockClient::onOwner(bool owned) {
-  m_owned = owned;
-  if (owned) {
-    if (!m_seen) {
-      kLog.info("the lock process serves org.andromeda.Lock1; the shell delegates every lock to it");
-    }
-    m_seen = true;
-    readState();
-  } else if (m_seen) {
+  if (owned && !m_state.seen()) {
+    kLog.info("the lock process serves org.andromeda.Lock1; the shell delegates every lock to it");
+  } else if (!owned && m_state.seen()) {
     kLog.warn("the lock process left the bus; keeping the last lock state until it returns");
   }
   // With an owner, resolution waits for its state (readState), so the first relock sees it.
-  if (!m_resolved && !owned) {
-    m_resolved = true;
+  apply(LockClientState::OwnerChanged{.owned = owned});
+}
+
+void LockClient::apply(LockClientState::Event event) {
+  const LockClientState::Result result = m_state.apply(std::move(event));
+  if (m_stateCallback) {
+    switch (result.notice) {
+    case LockClientState::Notice::Locked:
+      m_stateCallback("locked");
+      break;
+    case LockClientState::Notice::Unlocked:
+      m_stateCallback("unlocked");
+      break;
+    case LockClientState::Notice::Aborted:
+      m_stateCallback("aborted");
+      break;
+    case LockClientState::Notice::None:
+      break;
+    }
+  }
+  if (result.sendLock.has_value()) {
+    sendLock(*result.sendLock);
+  }
+  if (result.readState) {
+    readState();
+  }
+  if (result.resolved) {
     for (auto& fn : std::exchange(m_whenResolved, {})) {
       fn();
     }
@@ -105,61 +118,23 @@ void LockClient::readState() {
         if (alive.expired()) {
           return;
         }
-        if (!error.has_value()) {
-          const auto get = [&props](const char* key) {
-            const auto it = props.find(key);
-            return it != props.end() && it->second.get<bool>();
-          };
-          // Only StateChanged reports an unlock: a restarted process reads unlocked until its relock lands.
-          const bool active = get("Active");
-          if (get("Locked")) {
-            applyState(true, true);
-          } else {
-            m_active = active;
-          }
-          // A lock asked for while the process was away is sent now.
-          if (m_requested && !active) {
-            lock(m_requestReason);
-          }
-        } else {
+        if (error.has_value()) {
           kLog.warn("cannot read the lock state: {}", error->what());
+          apply(LockClientState::StateRead{});
+          return;
         }
-        if (!m_resolved) {
-          m_resolved = true;
-          for (auto& fn : std::exchange(m_whenResolved, {})) {
-            fn();
-          }
-        }
+        const auto get = [&props](const char* key) {
+          const auto it = props.find(key);
+          return it != props.end() && it->second.get<bool>();
+        };
+        apply(LockClientState::StateRead{.ok = true, .active = get("Active"), .locked = get("Locked")});
       });
 }
 
-void LockClient::applyState(bool active, bool locked) {
-  const bool wasLocked = m_locked;
-  const bool wasActive = m_requested || m_active;
-  m_active = active;
-  m_locked = locked;
-  if (locked || !active) {
-    m_requested = false;
-  }
-  if (!m_stateCallback) {
-    return;
-  }
-  if (locked && !wasLocked) {
-    m_stateCallback("locked");
-  } else if (!active && wasLocked) {
-    m_stateCallback("unlocked");
-  } else if (!active && wasActive && !wasLocked) {
-    m_stateCallback("aborted");
-  }
-}
+void LockClient::lock(const std::string& reason) { apply(LockClientState::LockAsked{.reason = reason}); }
 
-void LockClient::lock(const std::string& reason) {
-  // A queued phone lock keeps its reason: it offers no passwordless grace.
-  if (!m_requested || reason == "phone") {
-    m_requestReason = reason;
-  }
-  m_requested = true;
-  if (!m_owned) {
+void LockClient::sendLock(const std::string& reason) {
+  if (!m_state.owned()) {
     return;
   }
   std::weak_ptr<int> alive = m_alive;
@@ -173,15 +148,15 @@ void LockClient::lock(const std::string& reason) {
         // An error (the process left mid-call) keeps the request; it is sent again when the process returns.
         if (error.has_value()) {
           kLog.warn("lock ({}) not delivered: {}", reason, error->what());
-        } else if (!locking && !m_locked) {
+        } else if (!locking && !m_state.locked()) {
           kLog.warn("lock ({}) refused: the lock screen is off", reason);
-          applyState(false, false);
+          apply(LockClientState::LockRefused{});
         }
       });
 }
 
 void LockClient::call(const char* method) {
-  if (m_owned) {
+  if (m_state.owned()) {
     m_lock->callMethodAsync(method).onInterface(kLockInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {});
   }
 }
@@ -195,7 +170,7 @@ void LockClient::cancelOutputPowerOff() { call("CancelOutputPowerOff"); }
 void LockClient::outputsWoke() { call("OutputsWoke"); }
 
 void LockClient::prepareOutputPowerOff(std::function<void(bool)> done) {
-  if (!m_owned) {
+  if (!m_state.owned()) {
     if (done) {
       done(true);
     }
@@ -212,7 +187,7 @@ void LockClient::prepareOutputPowerOff(std::function<void(bool)> done) {
 
 // Blocks for the reply: the process must hold the skip before logind's PrepareForSleep, which comes on the system bus.
 void LockClient::skipLockOnNextSleep(bool skip) {
-  if (!m_owned) {
+  if (!m_state.owned()) {
     return;
   }
   try {

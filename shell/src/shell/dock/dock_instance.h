@@ -8,6 +8,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "shell/dock/dock_items.h"
 #include "shell/dock/dock_model.h"
+#include "shell/dock/dock_state.h"
 #include "ui/signal.h"
 #include "wayland/surface.h"
 
@@ -17,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -41,6 +43,8 @@ namespace shell::dock {
   inline desk::motion::SpringConfig dockHideSpring() {
     return {.damping = Tokens::springClose.damping, .stiffness = Tokens::springClose.stiffness};
   }
+
+  static_assert(std::is_same_v<DockVisibility::AnimId, AnimationManager::Id>);
 
   struct DockInstance {
     std::uint32_t outputName = 0;
@@ -97,14 +101,11 @@ namespace shell::dock {
     // Auto-hide: tracks visibility [0,1] driven by hover.
     float hideOpacity = 1.0F;
     std::optional<std::vector<InputRect>> sentBlur; // last blur region sent; empty vector = cleared
-    AnimationManager::Id hideAnimId = 0;
     // smart_auto_hide: active workspace empty (or a Niri overview open) — keep the dock visible.
     bool smartAutoHidePinnedVisible = false;
-    // The Andromeda overview is open: the dock slides away on the auto-hide path and takes no input.
-    bool overviewSteppedAside = false;
-    // An overview swipe drives hideOpacity from overviewFollowRest (closed) to 0 (open).
-    bool overviewFollowing = false;
-    float overviewFollowRest = 1.0F;
+    // Aside: the Andromeda overview is open, the dock slides away on the auto-hide path and takes no input.
+    // Following: an overview swipe drives hideOpacity from its rest (closed) to 0 (open).
+    DockVisibility visibility;
     Signal<>::ScopedConnection paletteConn;
     Signal<>::ScopedConnection glassConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
@@ -112,14 +113,29 @@ namespace shell::dock {
 
     // Drag-to-reorder state.
     struct DragState {
-      bool active = false;         // drag mode is live
-      bool armed = false;          // hold timer has fired; drag begins on next motion
+      DragPhase phase = DragPhase::Idle; // Armed: hold timer has fired; drag begins on next motion
       bool pinned = false;         // source item is pinned (only pinned items may be reordered)
       std::size_t sourceIndex = 0; // index into snapshot.items being dragged
       std::size_t targetIndex = 0; // current intended insert position (among pinned items)
       float startMain = 0.0F;      // pointer main-axis position when press was received
       float currentMain = 0.0F;    // current pointer main-axis position
       Timer holdTimer;             // fires after hold delay to arm the drag
+
+      [[nodiscard]] bool active() const noexcept { return phase == DragPhase::Active; }
+      // The hold has fired: the press is a drag, not a click.
+      [[nodiscard]] bool engaged() const noexcept { return phase == DragPhase::Armed || phase == DragPhase::Active; }
+      void clearPayload() noexcept {
+        pinned = false;
+        sourceIndex = targetIndex = 0;
+        startMain = currentMain = 0.0F;
+      }
+      bool apply(DragEvent event) {
+        const std::optional<DragPhase> next = dragTransition(phase, event);
+        if (next.has_value()) {
+          phase = *next;
+        }
+        return next.has_value();
+      }
     } drag;
   };
 

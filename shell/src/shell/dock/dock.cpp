@@ -102,7 +102,7 @@ namespace {
     };
     // An auto-hidden dock keeps an edge strip for input: a drag there shows it, as the pointer does.
     const auto reveal = [inst](const std::vector<std::string>&) {
-      if (dockPointerHideAllowed(inst->config, *inst) && !inst->overviewSteppedAside && inst->sceneRoot != nullptr
+      if (dockPointerHideAllowed(inst->config, *inst) && !inst->visibility.aside() && inst->sceneRoot != nullptr
           && inst->surface != nullptr) {
         shell::dock::animateDockHide(*inst, 1.0F);
         // The full surface takes the drag, as on a pointer enter: the strip alone would lose it on the way up.
@@ -661,7 +661,7 @@ bool Dock::onPointerEvent(const PointerEvent& event) {
     updateHoverZoomPointer(*m_hoveredInstance, static_cast<float>(event.sx), static_cast<float>(event.sy));
     // Auto-hide: show the dock when the pointer enters.
     if (dockPointerHideAllowed(m_hoveredInstance->config, *m_hoveredInstance)
-        && !m_hoveredInstance->overviewSteppedAside
+        && !m_hoveredInstance->visibility.aside()
         && m_hoveredInstance->sceneRoot != nullptr) {
       shell::dock::animateDockHide(*m_hoveredInstance, 1.0F);
       // Restore full input region (full surface so shadow-margin edges don't
@@ -677,7 +677,7 @@ bool Dock::onPointerEvent(const PointerEvent& event) {
   }
   case PointerEvent::Type::Leave: {
     if (m_hoveredInstance != nullptr) {
-      if (m_hoveredInstance->drag.active || m_hoveredInstance->drag.armed) {
+      if (m_hoveredInstance->drag.engaged()) {
         endDrag(*m_hoveredInstance, false);
       }
       clearHoverZoomPointer(*m_hoveredInstance);
@@ -859,21 +859,20 @@ void Dock::reevaluateSmartAutoHide() {
       shell::dock::followOverviewGesture(*instance, *overviewFollow);
       continue;
     }
-    if (std::exchange(instance->overviewFollowing, false)) {
-      // The swipe let go: settle from where the fingers left the dock to the overview's state.
-      instance->overviewSteppedAside = !overviewAside;
-      // Stepping back in animates only a fixed dock; an auto-hide dock the pointer had shown returns to that.
-      if (!overviewAside && (instance->config.autoHide || instance->config.smartAutoHide) && instance->overviewFollowRest > 0.0F) {
-        shell::dock::animateDockHide(*instance, instance->overviewFollowRest);
-      }
-    }
-    if (overviewAside != instance->overviewSteppedAside) {
+    // A released swipe settles from where the fingers left the dock to the overview's state.
+    const std::optional<float> releasedRest = instance->visibility.followRest();
+    if (shell::dock::overviewRelationChanged(releasedRest, overviewAside, instance->visibility.aside())) {
       if (overviewAside && m_popupOwnerInstance == instance) {
         closeItemMenu();
       }
       shell::dock::setOverviewSteppedAside(*instance, overviewAside);
     }
-    if (instance->overviewSteppedAside) {
+    // Stepping back in animates only a fixed dock; an auto-hide dock the pointer had shown returns to that.
+    if (releasedRest.has_value() && !overviewAside && (instance->config.autoHide || instance->config.smartAutoHide)
+        && *releasedRest > 0.0F) {
+      shell::dock::animateDockHide(*instance, *releasedRest);
+    }
+    if (instance->visibility.aside()) {
       continue;
     }
     const auto& cfg = instance->config;
@@ -1188,7 +1187,8 @@ void Dock::clearHoverZoomPointer(shell::dock::DockInstance& instance) {
 // ── Private: item context menu (right-click) ──────────────────────────────────
 
 void Dock::beginDrag(shell::dock::DockInstance& instance, std::size_t index, float mainPos) {
-  if (m_config == nullptr || instance.drag.active) {
+  if (m_config == nullptr
+      || !shell::dock::dragTransition(instance.drag.phase, shell::dock::DragEvent::Begin).has_value()) {
     return;
   }
 
@@ -1197,7 +1197,7 @@ void Dock::beginDrag(shell::dock::DockInstance& instance, std::size_t index, flo
     return;
   }
 
-  instance.drag.active = true;
+  instance.drag.apply(shell::dock::DragEvent::Begin);
   instance.drag.sourceIndex = index;
   instance.drag.currentMain = mainPos;
   instance.drag.targetIndex = shell::dock::computeDragTargetIndex(instance, cfg, mainPos);
@@ -1210,7 +1210,7 @@ void Dock::beginDrag(shell::dock::DockInstance& instance, std::size_t index, flo
 }
 
 void Dock::updateDrag(shell::dock::DockInstance& instance, float mainPos) {
-  if (m_config == nullptr || !instance.drag.active) {
+  if (m_config == nullptr || !instance.drag.active()) {
     return;
   }
 
@@ -1228,20 +1228,17 @@ void Dock::updateDrag(shell::dock::DockInstance& instance, float mainPos) {
 }
 
 void Dock::endDrag(shell::dock::DockInstance& instance, bool commit) {
-  if (!instance.drag.active && !instance.drag.armed) {
+  if (!shell::dock::dragTransition(instance.drag.phase, shell::dock::DragEvent::End).has_value()) {
     return;
   }
 
   instance.drag.holdTimer.stop();
-  const bool wasActive = instance.drag.active;
-  const bool wasArmed = instance.drag.armed;
+  const bool wasActive = instance.drag.phase == shell::dock::DragPhase::Active;
   const std::size_t sourceIndex = instance.drag.sourceIndex;
   const std::size_t targetIndex = instance.drag.targetIndex;
-  instance.drag = {};
-
-  if (wasActive || wasArmed) {
-    instance.suppressItemClick = true;
-  }
+  instance.drag.apply(shell::dock::DragEvent::End);
+  instance.drag.clearPayload();
+  instance.suppressItemClick = true;
 
   if (m_config == nullptr) {
     return;

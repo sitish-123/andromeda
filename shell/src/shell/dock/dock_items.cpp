@@ -69,7 +69,8 @@ namespace {
 
   void resetDockItemDragState(shell::dock::DockInstance& instance) {
     instance.drag.holdTimer.stop();
-    instance.drag = {};
+    instance.drag.apply(shell::dock::DragEvent::Reset);
+    instance.drag.clearPayload();
   }
 
   void dismissDockTooltipImpl() {
@@ -792,14 +793,14 @@ namespace shell::dock {
             return;
           }
           resetDockItemDragState(*instPtr);
+          drag.apply(DragEvent::Press);
           drag.pinned = true;
           drag.sourceIndex = itemIndex;
           drag.startMain = pointerMainOnRow(dockCfg, instPtr->items[itemIndex].area, d.localX, d.localY);
           drag.currentMain = drag.startMain;
           drag.targetIndex = itemIndex;
           drag.holdTimer.start(kDragHoldDelay, [instPtr, itemIndex] {
-            if (instPtr->drag.sourceIndex == itemIndex && !instPtr->drag.active) {
-              instPtr->drag.armed = true;
+            if (instPtr->drag.sourceIndex == itemIndex && instPtr->drag.apply(DragEvent::HoldElapsed)) {
               dismissDockTooltipImpl();
             }
           });
@@ -810,7 +811,7 @@ namespace shell::dock {
           return;
         }
 
-        if (drag.active) {
+        if (drag.active()) {
           if (clickContext->callbacks.endDrag) {
             clickContext->callbacks.endDrag(*instPtr, true);
           }
@@ -818,11 +819,12 @@ namespace shell::dock {
         }
 
         drag.holdTimer.stop();
-        if (drag.armed) {
+        if (drag.phase == DragPhase::Armed) {
           if (clickContext->callbacks.endDrag) {
             clickContext->callbacks.endDrag(*instPtr, false);
           }
         } else {
+          drag.apply(DragEvent::Release);
           resetDockItemDragState(*instPtr);
         }
       });
@@ -830,18 +832,18 @@ namespace shell::dock {
         if (!itemPinned || instPtr->drag.sourceIndex != itemIndex) {
           return;
         }
-        if (!instPtr->drag.armed && !instPtr->drag.active) {
+        if (!instPtr->drag.engaged()) {
           return;
         }
 
         const auto& dockCfg = instPtr->config;
         const float mainPos = pointerMainOnRow(dockCfg, instPtr->items[itemIndex].area, d.localX, d.localY);
         instPtr->drag.currentMain = mainPos;
-        if (instPtr->drag.active) {
+        if (instPtr->drag.active()) {
           if (clickContext->callbacks.updateDrag) {
             clickContext->callbacks.updateDrag(*instPtr, mainPos);
           }
-        } else if (instPtr->drag.armed && clickContext->callbacks.beginDrag) {
+        } else if (instPtr->drag.phase == DragPhase::Armed && clickContext->callbacks.beginDrag) {
           clickContext->callbacks.beginDrag(*instPtr, itemIndex, mainPos);
         }
       });
@@ -860,7 +862,7 @@ namespace shell::dock {
           instPtr->suppressItemClick = false;
           return;
         }
-        if (instPtr->drag.active || instPtr->drag.armed) {
+        if (instPtr->drag.engaged()) {
           return;
         }
         instPtr->clickedItem = item;
@@ -917,7 +919,7 @@ namespace shell::dock {
     for (std::size_t itemIndex = 0; itemIndex < itemCount; ++itemIndex) {
       auto& item = instance.items[itemIndex];
       const auto& model = snapshot.items[itemIndex];
-      const bool dragActive = instance.drag.active;
+      const bool dragActive = instance.drag.active();
       const bool isDraggedItem = dragActive && itemIndex == instance.drag.sourceIndex;
       const float iconScale = model.active ? cfg.activeScale : cfg.inactiveScale;
       const float iconOpacity = model.active ? cfg.activeOpacity : cfg.inactiveOpacity;
@@ -1072,7 +1074,7 @@ namespace shell::dock {
       }
     }
 
-    if (instance.drag.active) {
+    if (instance.drag.active()) {
       applyDragVisuals(instance, cfg);
     }
 
@@ -1154,7 +1156,7 @@ namespace shell::dock {
     if (!cfg.magnification || instance.row == nullptr) {
       return false;
     }
-    if (instance.drag.active) {
+    if (instance.drag.active()) {
       applyDragVisuals(instance, cfg);
       return false;
     }
@@ -1299,13 +1301,13 @@ namespace shell::dock {
 
       const float paintScale = *slot.visualScale > 0.0F ? *slot.visualScale : slot.targetScale;
       applyHoverZoomZIndex(slot.area, paintScale);
-      if (!instance.drag.active) {
+      if (!instance.drag.active()) {
         syncHoveredTooltipAnchor(slot.area, cfg, iSize, paintScale);
       }
     }
 
     // The lens grows with the magnified focused icon: the icon's drawn rect plus the lens inset.
-    if (instance.lensActiveIndex < instance.items.size() && !instance.drag.active) {
+    if (instance.lensActiveIndex < instance.items.size() && !instance.drag.active()) {
       const auto& lensItem = instance.items[instance.lensActiveIndex];
       const InputArea* area = lensItem.area;
       if (area != nullptr && lensItem.visualScale > 0.0F) {
@@ -1408,7 +1410,7 @@ namespace shell::dock {
   }
 
   void applyDragVisuals(DockInstance& instance, const DockConfig& cfg) {
-    if (!instance.drag.active || instance.items.empty()) {
+    if (!instance.drag.active() || instance.items.empty()) {
       return;
     }
     const bool vertical = shell::dock::isVerticalEdge(cfg.position);

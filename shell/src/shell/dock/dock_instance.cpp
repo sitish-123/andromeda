@@ -163,7 +163,7 @@ namespace shell::dock {
       return;
     }
 
-    if (instance.overviewSteppedAside) {
+    if (instance.visibility.aside()) {
       instance.surface->setInputRegion({});
       return;
     }
@@ -394,11 +394,11 @@ namespace shell::dock {
             cfg.smartAutoHide && smartAutoHideWantsPinnedVisible(deps.platform, instance.output);
         instance.slideRoot->setOpacity(1.0F);
         const bool startHidden =
-            instance.overviewSteppedAside || (cfg.smartAutoHide ? !instance.smartAutoHidePinnedVisible : cfg.autoHide);
+            instance.visibility.aside() || (cfg.smartAutoHide ? !instance.smartAutoHidePinnedVisible : cfg.autoHide);
         instance.hideOpacity = startHidden ? 0.0F : 1.0F;
       } else {
         instance.slideRoot->setOpacity(0.0F);
-        instance.hideOpacity = instance.overviewSteppedAside ? 0.0F : 1.0F;
+        instance.hideOpacity = instance.visibility.aside() ? 0.0F : 1.0F;
         instance.animations.animateSpatial(
             0.0F, 1.0F, {.damping = Tokens::springFade.damping, .stiffness = Tokens::springFade.stiffness},
             [slide = instance.slideRoot](float v) { slide->setOpacity(v); }, {}, instance.slideRoot
@@ -553,22 +553,29 @@ namespace shell::dock {
   }
 
   void animateDockHide(DockInstance& inst, float target) {
-    const desk::motion::SpringConfig spring = target > 0.5F ? dockShowSpring() : dockHideSpring();
-    if (inst.hideAnimId != 0 && inst.animations.retarget(inst.hideAnimId, target, spring)) {
+    if (inst.visibility.following()) {
       return;
     }
-    if (inst.hideAnimId != 0) {
-      inst.animations.cancel(inst.hideAnimId);
+    const desk::motion::SpringConfig spring = target > 0.5F ? dockShowSpring() : dockHideSpring();
+    const std::optional<AnimationManager::Id> running = inst.visibility.slideAnim();
+    AnimationManager::Id anim = 0;
+    if (running.has_value() && inst.animations.retarget(*running, target, spring)) {
+      anim = *running;
+    } else {
+      if (running.has_value()) {
+        inst.animations.cancel(*running);
+      }
+      anim = inst.animations.animateSpatial(
+          inst.hideOpacity, target, spring,
+          [&inst](float v) {
+            inst.hideOpacity = std::clamp(v, 0.0F, 1.0F);
+            syncDockSlideLayerTransform(inst, inst.config);
+            applyDockCompositorBlur(inst, inst.config);
+          },
+          [&inst] { inst.visibility.apply(DockVisibility::SlideEnded{}); }
+      );
     }
-    inst.hideAnimId = inst.animations.animateSpatial(
-        inst.hideOpacity, target, spring,
-        [&inst](float v) {
-          inst.hideOpacity = std::clamp(v, 0.0F, 1.0F);
-          syncDockSlideLayerTransform(inst, inst.config);
-          applyDockCompositorBlur(inst, inst.config);
-        },
-        [&inst] { inst.hideAnimId = 0; }
-    );
+    inst.visibility.apply(DockVisibility::SlideStarted{.anim = anim, .target = target});
   }
 
   void revealAutoHideDock(DockInstance& inst) {
@@ -579,7 +586,7 @@ namespace shell::dock {
 
     constexpr float kSettledThreshold = 0.999F;
     const float current = inst.hideOpacity;
-    if (current >= kSettledThreshold && inst.hideAnimId == 0) {
+    if (current >= kSettledThreshold && !inst.visibility.slideAnim().has_value()) {
       syncDockAutoHideInputRegion(inst, cfg, DockPanelGeometry{});
       inst.surface->requestRedraw();
       return;
@@ -602,20 +609,18 @@ namespace shell::dock {
   }
 
   void followOverviewGesture(DockInstance& inst, float progress) {
-    if (!inst.overviewFollowing) {
-      inst.overviewFollowing = true;
+    if (!inst.visibility.following()) {
       TooltipManager::instance().forceDestroy();
       // What the dock shows with the overview closed: an auto-hide dock stays as it was, a fixed one is shown.
-      inst.overviewFollowRest = dockUsesAnyAutoHide(inst.config) && !inst.overviewSteppedAside ? inst.hideOpacity
-                                : dockUsesAnyAutoHide(inst.config)                             ? 0.0F
-                                                                                               : 1.0F;
+      const float rest = dockUsesAnyAutoHide(inst.config) && !inst.visibility.aside() ? inst.hideOpacity
+                         : dockUsesAnyAutoHide(inst.config)                           ? 0.0F
+                                                                                      : 1.0F;
+      if (const auto running = inst.visibility.apply(DockVisibility::FollowBegan{.rest = rest}).cancel) {
+        inst.animations.cancel(*running);
+      }
       syncDockAutoHideInputRegion(inst, inst.config, DockPanelGeometry{});
     }
-    if (inst.hideAnimId != 0) {
-      inst.animations.cancel(inst.hideAnimId);
-      inst.hideAnimId = 0;
-    }
-    inst.hideOpacity = inst.overviewFollowRest * (1.0F - std::clamp(progress, 0.0F, 1.0F));
+    inst.hideOpacity = *inst.visibility.followRest() * (1.0F - std::clamp(progress, 0.0F, 1.0F));
     syncDockSlideLayerTransform(inst, inst.config);
     applyDockCompositorBlur(inst, inst.config);
     if (inst.surface) {
@@ -624,10 +629,9 @@ namespace shell::dock {
   }
 
   void setOverviewSteppedAside(DockInstance& inst, bool aside) {
-    if (inst.overviewSteppedAside == aside) {
+    if (!inst.visibility.apply(DockVisibility::OverviewSet{.aside = aside}).accepted) {
       return;
     }
-    inst.overviewSteppedAside = aside;
     if (aside) {
       startHideFadeOut(inst);
       return;
