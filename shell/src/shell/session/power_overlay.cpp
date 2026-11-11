@@ -293,10 +293,12 @@ std::vector<std::pair<std::string, std::string>> PowerOverlay::appBlockers() con
   return out;
 }
 
-void PowerOverlay::setPortalState(int state) {
-  if (m_portal != nullptr) {
-    m_portal->setSessionState(static_cast<InhibitPortal::SessionState>(state));
+void PowerOverlay::syncPortal() {
+  if (m_portal == nullptr) {
+    return;
   }
+  const bool queryOpen = m_mode == Mode::Closing || m_mode == Mode::Countdown || m_mode == Mode::Blockers;
+  m_portal->setSessionState(static_cast<InhibitPortal::SessionState>(session_end::portalState(queryOpen, m_sessionEnd)));
 }
 
 void PowerOverlay::watchGuard(bool on) {
@@ -316,16 +318,11 @@ void PowerOverlay::onGuardChanged() {
 
 void PowerOverlay::hide() {
   watchGuard(false);
-  if (m_mode != Mode::Choices && m_mode != Mode::Ending) {
-    // A cancelled Query End goes back to what the session is: still Ending while an earlier end action runs.
-    setPortalState(static_cast<int>(
-        m_sessionEnd.ending() ? InhibitPortal::SessionState::Ending : InhibitPortal::SessionState::Running
-    ));
-  }
   m_appBlockers.clear();
   m_closeTimer.stop();
   m_tickTimer.stop();
   m_mode = Mode::Choices;
+  syncPortal();
   m_blockers.clear();
   hideSurface();
 }
@@ -715,6 +712,7 @@ bool PowerOverlay::onPointerEvent(const PointerEvent& event) {
 
 void PowerOverlay::setMode(Mode mode) {
   m_mode = mode;
+  syncPortal();
   if (m_holdAnim != 0) {
     m_animations.cancel(m_holdAnim);
     m_holdAnim = 0;
@@ -760,7 +758,8 @@ void PowerOverlay::beginEnd(const std::string& action) {
   m_blockers.clear();
   m_tickTimer.stop();
   // Apps that watch the session (Inhibit portal monitors) save now; ones that must not end yet hold a logout inhibitor.
-  setPortalState(static_cast<int>(InhibitPortal::SessionState::QueryEnd));
+  m_mode = Mode::Closing;
+  syncPortal();
   const std::vector<ToplevelInfo> windows = openWindows();
   m_appBlockers = appBlockers();
   if (windows.empty() && m_appBlockers.empty()) {
@@ -769,7 +768,6 @@ void PowerOverlay::beginEnd(const std::string& action) {
   }
   // Nothing covers the windows while they close, so a "Save changes?" dialog they raise takes input.
   hideSurface();
-  m_mode = Mode::Closing;
   for (const ToplevelInfo& window : windows) {
     m_platform->closeToplevelInfo(window);
   }
@@ -784,6 +782,7 @@ void PowerOverlay::beginEnd(const std::string& action) {
       return;
     }
     m_mode = Mode::Blockers;
+    syncPortal();
     readUnresponsive();
     restoreSheet();
   });
@@ -874,7 +873,7 @@ void PowerOverlay::finishEnd() {
   m_mode = Mode::Ending;
   (void)m_sessionEnd.apply(session_end::Run{.action = m_endAction});
   const std::uint64_t generation = m_sessionEnd.generation();
-  setPortalState(static_cast<int>(InhibitPortal::SessionState::Ending));
+  syncPortal();
   saveReopen(m_reopenApps);
   const std::string action = m_endAction;
   m_closeTimer.stop();
@@ -893,7 +892,7 @@ void PowerOverlay::runEnd(const std::string& action, std::uint64_t generation) {
   hide();
   const auto failed = [this, generation] {
     if (m_sessionEnd.apply(session_end::Failed{.generation = generation})) {
-      setPortalState(static_cast<int>(InhibitPortal::SessionState::Running));
+      syncPortal();
     }
   };
   const auto canonical = session_action::canonicalActionName(action);

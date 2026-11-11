@@ -152,7 +152,8 @@ private:
   // Logout inhibitors as of the last check: app id, reason.
   std::vector<std::pair<std::string, std::string>> m_appBlockers;
   [[nodiscard]] std::vector<std::pair<std::string, std::string>> appBlockers() const;
-  void setPortalState(int state);
+  // Sets the portal from the mode and the session-end machine; called after every change of either.
+  void syncPortal();
   bool m_guardWatched = false;
   bool m_reopen = true;
   std::vector<std::string> m_reopenApps;

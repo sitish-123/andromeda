@@ -68,4 +68,16 @@ namespace session_end {
     std::uint64_t m_lastGeneration = 0;
   };
 
+  // Inhibit portal session-state values.
+  enum class PortalState : std::uint32_t { Running = 1, QueryEnd = 2, Ending = 3 };
+
+  // The one source of the portal state. `queryOpen`: a session end asks apps now (windows closing, blockers or the
+  // countdown); it wins over an earlier run, whose late failure then changes nothing.
+  [[nodiscard]] inline PortalState portalState(bool queryOpen, const Machine& machine) {
+    if (queryOpen) {
+      return PortalState::QueryEnd;
+    }
+    return machine.ending() ? PortalState::Ending : PortalState::Running;
+  }
+
 } // namespace session_end
