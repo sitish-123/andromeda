@@ -89,6 +89,10 @@ fn unguard(e: ArchiveError) -> ArchiveError {
 
 static STAGING: AtomicU32 = AtomicU32::new(0);
 
+/// Per decoder (dictionary, 7z header buffer), in KiB. 4x the largest preset dictionary (64 MiB: xz -9, 7-Zip
+/// Ultra); the archive header sets it, so without a cap a 200-byte file makes the daemon allocate up to 4 GiB.
+const DECODER_MEMORY_KIB: u32 = 256 * 1024;
+
 #[derive(Debug)]
 pub enum ArchiveError {
     PasswordNeeded,
@@ -97,6 +101,8 @@ pub enum ArchiveError {
     /// An entry path that leaves the destination (absolute, "..") or runs through a link.
     Unsafe(String),
     TooLarge,
+    /// A decoder would need more than `DECODER_MEMORY_KIB`.
+    TooMuchMemory,
     Corrupt(String),
     Io(io::Error),
 }
@@ -109,6 +115,9 @@ impl std::fmt::Display for ArchiveError {
             Self::Unsupported => write!(f, "not a supported archive"),
             Self::Unsafe(path) => write!(f, "unsafe path in archive: {path}"),
             Self::TooLarge => write!(f, "the archive expands to too many files or more than the free space"),
+            Self::TooMuchMemory => {
+                write!(f, "the archive needs more than {} MiB of memory to unpack", DECODER_MEMORY_KIB / 1024)
+            }
             Self::Corrupt(why) => write!(f, "damaged archive: {why}"),
             Self::Io(e) => write!(f, "{e}"),
         }
@@ -117,7 +126,8 @@ impl std::fmt::Display for ArchiveError {
 
 impl From<io::Error> for ArchiveError {
     fn from(e: io::Error) -> Self {
-        Self::Io(e)
+        // lzma-rust2 reports a block over its memory limit as OutOfMemory, before it allocates.
+        if e.kind() == io::ErrorKind::OutOfMemory { Self::TooMuchMemory } else { Self::Io(e) }
     }
 }
 
@@ -139,7 +149,8 @@ impl From<sevenz_rust2::Error> for ArchiveError {
         match e {
             Error::PasswordRequired => Self::PasswordNeeded,
             Error::MaybeBadPassword(_) => Self::WrongPassword,
-            Error::Io(e, _) => Self::Io(e),
+            Error::MaxMemLimited { .. } => Self::TooMuchMemory,
+            Error::Io(e, _) => e.into(),
             other => Self::Corrupt(other.to_string()),
         }
     }
@@ -411,7 +422,11 @@ fn walk_7z(
     each: &mut dyn FnMut(Item<'_>) -> Result<bool, ArchiveError>,
 ) -> Result<(), ArchiveError> {
     let password = if password.is_empty() { sevenz_rust2::Password::empty() } else { password.into() };
-    let mut reader = sevenz_rust2::ArchiveReader::new(Volumes::open(path)?, password)?;
+    let mut reader = sevenz_rust2::ArchiveReader::new_with_memory_limit(
+        Volumes::open(path)?,
+        password,
+        DECODER_MEMORY_KIB as usize,
+    )?;
     let item = |e: &sevenz_rust2::ArchiveEntry| -> Result<Option<Entry>, ArchiveError> {
         let Some(inner) = checked_path(&e.name().replace('\\', "/").into_bytes())? else { return Ok(None) };
         let kind = if e.is_directory() { Kind::Dir } else { Kind::File };
@@ -460,7 +475,7 @@ fn tar_stream(path: &Path, codec: Codec) -> Result<Box<dyn Read>, ArchiveError> 
     Ok(match codec {
         Codec::Plain => Box::new(file),
         Codec::Gz => Box::new(flate2::read::MultiGzDecoder::new(file)),
-        Codec::Xz => Box::new(lzma_rust2::XzReader::new(file, true)),
+        Codec::Xz => Box::new(lzma_rust2::XzReader::new_mem_limit(file, true, DECODER_MEMORY_KIB)),
         Codec::Zst => Box::new(
             ruzstd::decoding::StreamingDecoder::new(file).map_err(|e| ArchiveError::Corrupt(e.to_string()))?,
         ),
@@ -1152,6 +1167,42 @@ fn write_tar<W: Write>(out: W, items: &[(PathBuf, String, fs::Metadata)], ctl: &
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_archive_that_declares_a_huge_dictionary_fails_before_it_allocates() {
+        // `xz --lzma2=dict=1536MiB` of a tar with one 5-byte file.
+        const TAR_XZ: &[u8] = &[
+            0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00, 0x00, 0x04, 0xe6, 0xd6, 0xb4, 0x46, 0x04, 0xc0, 0x77, 0x80, 0x50, 0x21,
+            0x01, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4f, 0x16, 0xf3, 0xcf, 0xe0, 0x27, 0xff, 0x00,
+            0x6f, 0x5d, 0x00, 0x34, 0x0b, 0x8a, 0x87, 0xc4, 0x0e, 0xf2, 0x97, 0xa4, 0xf8, 0x75, 0x3d, 0xc5, 0xab, 0x01,
+            0x8d, 0xdb, 0x74, 0xe2, 0x92, 0xa8, 0x50, 0x8a, 0xd5, 0x8f, 0xaa, 0xa4, 0x36, 0xb6, 0xe0, 0xb7, 0x08, 0x12,
+            0x7e, 0x85, 0x3c, 0x79, 0x3d, 0x9a, 0x50, 0xa0, 0x7b, 0x54, 0xc8, 0x3d, 0x10, 0x26, 0x82, 0x47, 0x9e, 0xca,
+            0xfc, 0x81, 0x54, 0xe3, 0x61, 0x24, 0x95, 0x37, 0x69, 0x8e, 0xba, 0x70, 0x66, 0x76, 0xa5, 0xf3, 0x79, 0x4e,
+            0x20, 0xf5, 0xf4, 0x4a, 0x86, 0x59, 0x58, 0xb9, 0x19, 0xd5, 0x02, 0xba, 0x88, 0x7f, 0x57, 0x13, 0x29, 0x70,
+            0x00, 0x3f, 0x9f, 0x19, 0xbd, 0xac, 0x35, 0xdb, 0x4c, 0xc3, 0xdc, 0x0b, 0x23, 0x4f, 0xff, 0xe0, 0xbd, 0x62,
+            0x83, 0x60, 0x72, 0xd4, 0x00, 0x00, 0x00, 0x00, 0x9e, 0xc6, 0x1a, 0xaa, 0x49, 0x1f, 0xf5, 0x8e, 0x00, 0x01,
+            0x93, 0x01, 0x80, 0x50, 0x00, 0x00, 0x0b, 0x01, 0x22, 0xe4, 0xb1, 0xc4, 0x67, 0xfb, 0x02, 0x00, 0x00, 0x00,
+            0x00, 0x04, 0x59, 0x5a,
+        ];
+        // `7z a -mhc=off -m0=lzma2` of one 5-byte file, its LZMA2 dictionary byte set to 1536 MiB and CRCs fixed.
+        const SEVEN_Z: &[u8] = &[
+            0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c, 0x00, 0x04, 0x49, 0xae, 0x61, 0xc7, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32, 0xf1, 0x7e, 0x33, 0x01, 0x00, 0x04, 0x68,
+            0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x01, 0x04, 0x06, 0x00, 0x01, 0x09, 0x09, 0x00, 0x07, 0x0b, 0x01, 0x00, 0x01,
+            0x21, 0x21, 0x01, 0x25, 0x0c, 0x05, 0x00, 0x08, 0x0a, 0x01, 0x86, 0xa6, 0x10, 0x36, 0x00, 0x00, 0x05, 0x01,
+            0x19, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x0d, 0x00, 0x68,
+            0x00, 0x2e, 0x00, 0x74, 0x00, 0x78, 0x00, 0x74, 0x00, 0x00, 0x00, 0x14, 0x0a, 0x01, 0x00, 0x8a, 0x6d, 0x22,
+            0x52, 0xe3, 0x71, 0xdd, 0x01, 0x15, 0x06, 0x01, 0x00, 0x20, 0x80, 0xa4, 0x81, 0x00, 0x00,
+        ];
+        let root = tempfile::tempdir().unwrap();
+        for (name, bytes) in [("big-dict.tar.xz", TAR_XZ), ("big-dict.7z", SEVEN_Z)] {
+            let archive = root.path().join(name);
+            fs::write(&archive, bytes).unwrap();
+            let limits = Limits { stop: &|| false, max_bytes: u64::MAX, deadline: None };
+            let result = walk(&archive, "", true, &limits, &mut |_| Ok(true));
+            assert!(matches!(result, Err(ArchiveError::TooMuchMemory)), "{name}: {result:?}");
+        }
+    }
 
     struct Quietly;
 

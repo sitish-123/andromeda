@@ -18,9 +18,9 @@ zbus.workspace = true
 # Archives are untrusted input: pure-Rust decoders only (no libarchive, liblzma or libzstd in this process).
 bzip2 = "0.6"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
-lzma-rust2 = { version = "0.16", default-features = false, features = ["std", "xz", "encoder"] }
+lzma-rust2 = { version = "0.25", default-features = false, features = ["std", "xz", "encoder"] }
 ruzstd = "0.8"
-sevenz-rust2 = { version = "0.20", default-features = false, features = ["aes256", "bzip2", "compress", "util"] }
+sevenz-rust2 = { version = "0.25", default-features = false, features = ["aes256", "bzip2", "compress", "util"] }
 tar = { version = "0.4", default-features = false }
 md-5 = "0.10"
 serde.workspace = true
