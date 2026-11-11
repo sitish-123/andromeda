@@ -280,6 +280,14 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg, std::funct
     }
     return;
   }
+  // A caller that waits on the outcome gets an override's exit status (a detached launch only reports the spawn).
+  const std::optional<std::string>& endOverride = cfg.action == "reboot" ? m_rebootCommandOverride
+      : cfg.action == "shutdown"                                     ? m_shutdownCommandOverride
+                                                                     : std::nullopt;
+  if (failed && endOverride.has_value() && !StringUtils::trim(*endOverride).empty()) {
+    runShellCommand(m_aliveGuard, hookFor(cfg.action), StringUtils::trim(*endOverride), cfg.action, failed);
+    return;
+  }
   if (cfg.action == "reboot") {
     runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot", failed);
     return;
