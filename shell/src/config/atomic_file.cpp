@@ -106,7 +106,8 @@ bool writeTextFileAtomic(
     return false;
   }
 
-  if (!writeAll(fd, content)) {
+  // The data reaches disk before the rename: a crash leaves the old file or the new one, never an empty one.
+  if (!writeAll(fd, content) || ::fsync(fd) != 0) {
     closeFd(fd);
     std::filesystem::remove(tmpPath, ec);
     return false;
@@ -124,5 +125,11 @@ bool writeTextFileAtomic(
     std::filesystem::remove(tmpPath, ec);
     return false;
   }
-  return true;
+  const int dirFd = ::open(parent.empty() ? "." : parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (dirFd < 0) {
+    return false;
+  }
+  const bool dirSynced = ::fsync(dirFd) == 0;
+  ::close(dirFd);
+  return dirSynced;
 }
