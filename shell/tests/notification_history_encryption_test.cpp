@@ -297,7 +297,7 @@ namespace {
     manager.clearHistory();
     manager.syncHistoryPersistence(provider);
     TEST_CHECK(manager.history().empty());
-    // The cleared history is written on the SharedWorker.
+    // syncHistoryPersistence saves the cleared history in place, though an earlier manager in this process wrote first.
     TEST_CHECK(runDeferredUntil([&] { return readNotificationHistoryJson(path, *key)["entries"].empty(); }));
   }
 
