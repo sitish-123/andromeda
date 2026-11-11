@@ -7026,11 +7026,11 @@
       "unavailable": "Crash records are not available on this system."
     },
     "update": {
-      "news-title": "Read the Arch news before updating",
+      "news-title": "Read the {distro} news before updating",
       "news-open": "Open",
-      "news-unknown": "Arch news could not be checked yet",
+      "news-unknown": "{distro} news could not be checked yet",
       "news-read": "I Have Read This",
-      "news-first": "Read the Arch news above to update",
+      "news-first": "Read the {distro} news above to update",
       "andromeda-title": "Andromeda",
       "andromeda-version": "Andromeda {version}",
       "andromeda-update": "Update Andromeda",

@@ -46,14 +46,31 @@ pub async fn check() -> Result<Vec<Update>> {
         Err(e) => return Err(e).context("snap"),
     };
     if !out.status.success() {
-        bail!("snap: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!("{}", failure(&String::from_utf8_lossy(&out.stderr)));
     }
     Ok(parse(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// snapd's raw HTTP error is long and says nothing a user can act on; a store timeout gets one plain line.
+fn failure(stderr: &str) -> String {
+    if stderr.contains("Client.Timeout") || stderr.contains("waiting for connection") {
+        "the Snap Store did not answer in time; check the network and try again".into()
+    } else {
+        format!("snap: {}", stderr.trim())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn store_timeout_reads_plainly() {
+        let stderr = "error: cannot list updates: Post \"https://api.snapcraft.io/v2/snaps/refresh\": net/http: request \
+            canceled while waiting for connection (Client.Timeout exceeded while awaiting headers)";
+        assert!(failure(stderr).starts_with("the Snap Store did not answer"));
+        assert_eq!(failure("error: other\n"), "snap: error: other");
+    }
 
     #[test]
     fn rows_with_sizes() {

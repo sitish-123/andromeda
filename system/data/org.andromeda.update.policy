@@ -23,8 +23,8 @@
     </defaults>
   </action>
   <action id="org.andromeda.update.news">
-    <description>Confirm that you read the Arch news</description>
-    <message>Authentication is required to confirm the Arch news</message>
+    <description>Confirm that you read the distribution news</description>
+    <message>Authentication is required to confirm the distribution news</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

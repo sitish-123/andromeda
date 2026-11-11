@@ -4,6 +4,7 @@
 #include "i18n/i18n.h"
 #include "shell/settings/settings_content_common.h"
 #include "shell/settings/settings_page_rows.h"
+#include "system/distro_info.h"
 #include "ui/builders.h"
 #include "ui/controls/flex.h"
 #include "ui/controls/progress_bar.h"
@@ -21,6 +22,14 @@ namespace settings {
 
     namespace rows = page_rows;
     using RunState = SoftwareUpdateService::RunState;
+
+    const std::string& distroName() {
+      static const std::string name = [] {
+        const auto info = DistroDetector::detect();
+        return info && !info->name.empty() ? info->name : std::string("Linux");
+      }();
+      return name;
+    }
 
     constexpr std::array<std::string_view, 6> kGroups{"andromeda", "system", "apps", "snaps", "firmware", "held"};
 
@@ -112,7 +121,7 @@ namespace settings {
           Flex* card = rows::addCard(content, scale);
           auto r = rows::row(scale);
           r->addChild(rows::symbol("alert-triangle", Tokens::sizeSymbol * scale, ColorRole::Label2));
-          r->addChild(makeLabel(i18n::tr("settings.update.news-unknown"), Style::fontSizeBody * scale,
+          r->addChild(makeLabel(i18n::tr("settings.update.news-unknown", "distro", distroName()), Style::fontSizeBody * scale,
                                 colorSpecFromRole(ColorRole::Label1)));
           r->addChild(ui::spacer());
           r->addChild(rows::plainButton(i18n::tr("settings.update.check"), ButtonVariant::Default, scale, actions.check));
@@ -125,7 +134,7 @@ namespace settings {
       auto top = rows::row(scale);
       top->addChild(rows::symbol("alert-triangle", Tokens::sizeSymbol * scale, ColorRole::Label2));
       auto copy = ui::column({.align = FlexAlign::Start, .flexGrow = 1.0F});
-      copy->addChild(makeLabel(i18n::tr("settings.update.news-title"), Style::fontSizeBody * scale,
+      copy->addChild(makeLabel(i18n::tr("settings.update.news-title", "distro", distroName()), Style::fontSizeBody * scale,
                                colorSpecFromRole(ColorRole::Label1), FontWeight::SemiBold));
       copy->addChild(makeLabel(item.title, Style::fontSizeCaption * scale, colorSpecFromRole(ColorRole::Label2)));
       top->addChild(std::move(copy));
@@ -226,7 +235,7 @@ namespace settings {
             buttons->addChild(std::move(now));
             hero.action = std::move(buttons);
             if (blocked) {
-              hero.status = i18n::tr("settings.update.news-first");
+              hero.status = i18n::tr("settings.update.news-first", "distro", distroName());
             }
             if (service.needsSystemFirst()) {
               hero.status = i18n::tr("settings.update.needs-system");
