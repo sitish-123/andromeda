@@ -109,7 +109,7 @@ public:
     return m_monitorWallpaperPaths;
   }
   [[nodiscard]] std::string getDefaultWallpaperPath() const;
-  // Last applied wallpaper, else default. Drives palette generation and template previews.
+  // First-run bundled wallpaper, else last applied, else default. Drives palette generation and template previews.
   [[nodiscard]] std::string getPaletteWallpaperPath() const;
   // Greeter sync fallback when no monitor-specific path is chosen.
   [[nodiscard]] std::string getGreeterSyncWallpaperPath() const;
