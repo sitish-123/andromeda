@@ -63,6 +63,12 @@ else:
 '''
 
 
+def own_unit():
+    """The systemd unit this process runs in, as the compositor reads it from /proc/self/cgroup."""
+    path = next(line[3:] for line in Path("/proc/self/cgroup").read_text().splitlines() if line.startswith("0::"))
+    return next((part for part in reversed(path.split("/")) if part.endswith((".service", ".scope"))), "")
+
+
 def events(root):
     path = root / "events"
     return path.read_text().splitlines() if path.exists() else []
@@ -119,6 +125,7 @@ def check(binary, abstract=False, fail_import=False, managed=True):
                 READINESS_ROOT=str(root),
                 READINESS_MANAGED="true" if managed else "false",
                 WLR_BACKENDS="headless",
+                ANDROMEDA_TEST_SESSION_UNIT=own_unit(),
                 WLR_HEADLESS_OUTPUTS="1",
                 WLR_LIBINPUT_NO_DEVICES="1",
             )

@@ -25,6 +25,13 @@ if name == "systemd-run":
     sys.exit(1)
 '''
 
+
+def own_unit():
+    """The systemd unit this process runs in, as the compositor reads it from /proc/self/cgroup."""
+    path = next(line[3:] for line in Path("/proc/self/cgroup").read_text().splitlines() if line.startswith("0::"))
+    return next((part for part in reversed(path.split("/")) if part.endswith((".service", ".scope"))), "")
+
+
 O_CLOEXEC = 0o2000000
 
 
@@ -104,6 +111,7 @@ def main(binary, mode):
             WATCHDOG_USEC="400000",
             ANDROMEDA_LOCK_ESCAPE_MS="1000",
             WLR_BACKENDS="headless",
+            ANDROMEDA_TEST_SESSION_UNIT=own_unit(),
             WLR_HEADLESS_OUTPUTS="1",
             WLR_LIBINPUT_NO_DEVICES="1",
         )
