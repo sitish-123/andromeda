@@ -1264,15 +1264,12 @@ namespace andromeda {
     m_densityTarget = 0.0F;
     m_density.snap(0.0);
     m_fade.snap(1.0);
-    // Avoid sending configures while unmapping (wrong serial / client abort).
-    m_arrangingOut = true;
     if (Output* out = output()) {
       out->markDirty(Dirty::LayerArrange);
       if (m_layerSurface->current.layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
         out->markBlurBackgroundDirty(&m_scene->tree->node);
       }
     }
-    m_arrangingOut = false;
     notifyDesktopStack();
     if (hadFocus) {
       m_server->refocus();

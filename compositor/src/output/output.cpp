@@ -1752,10 +1752,11 @@ namespace andromeda {
         continue;
       }
       auto* layerSurface = static_cast<LayerSurface*>(sceneNode);
-      if (layerSurface->scene() == nullptr || layerSurface->arrangingOut()) {
+      if (layerSurface->scene() == nullptr) {
         continue;
       }
       wlr_layer_surface_v1* surface = layerSurface->layerSurface();
+      // wlroots clears `initialized` in the unmapping commit, so an unmapped surface gets no configure.
       if (surface == nullptr || !surface->initialized) {
         continue;
       }

@@ -41,7 +41,6 @@ namespace andromeda {
     [[nodiscard]] wlr_layer_surface_v1* layerSurface() const { return m_layerSurface; }
     [[nodiscard]] wlr_scene_layer_surface_v1* scene() const { return m_scene; }
     [[nodiscard]] bool mapped() const { return m_mapped; }
-    [[nodiscard]] bool arrangingOut() const { return m_arrangingOut; }
     [[nodiscard]] bool exclusiveKeyboard() const;
     [[nodiscard]] bool acceptsKeyboard() const;
     [[nodiscard]] bool hasKeyboardFocus() const;
@@ -152,7 +151,6 @@ namespace andromeda {
     ResolvedLayerRule m_rule;
     AnimatedValue m_fade{1.0};
     bool m_mapped = false;
-    bool m_arrangingOut = false;
 
     wl_listener m_map{};
     wl_listener m_unmap{};
