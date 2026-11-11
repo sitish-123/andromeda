@@ -524,7 +524,8 @@ pub fn totals(path: &Path) -> (u64, u64) {
 
 /// "photos" for photos.tar.gz, photos.zip, photos.7z.
 fn stem(archive: &Path) -> std::ffi::OsString {
-    let mut name = archive.file_name().map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+    let full = archive.file_name().map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+    let mut name = full.clone();
     if name.len() > 4 && name.ends_with(b".001") {
         name.truncate(name.len() - 4);
     }
@@ -533,6 +534,10 @@ fn stem(archive: &Path) -> std::ffi::OsString {
         .iter()
         .find(|ext| lower.ends_with(ext.as_bytes()) && lower.len() > ext.len())
         .map_or(name.len(), |ext| name.len() - ext.len());
+    // A stem of "." or ".." would make the staging root escape the staging folder.
+    if matches!(&name[..cut], b"." | b"..") {
+        return std::ffi::OsString::from_vec(full);
+    }
     std::ffi::OsString::from_vec(name[..cut].to_vec())
 }
 
@@ -1230,6 +1235,24 @@ mod tests {
         fs::create_dir(&dest).expect("mkdir");
         extract(&archive, &[], &dest, "", &Quietly).1.expect("extract");
         assert_eq!(tree(&dest.join("bundle")), vec![PathBuf::new(), "d".into(), "d/two.txt".into(), "one.txt".into()]);
+    }
+
+    #[test]
+    fn an_archive_named_dot_or_dot_dot_extracts_into_a_folder_with_its_full_name() {
+        for name in ["..tar.gz", "...tar.gz", "...001"] {
+            let root = tempfile::tempdir().expect("tmp");
+            let src = root.path().join("src");
+            fs::create_dir(&src).expect("mkdir");
+            fs::write(src.join("one.txt"), "1").expect("write");
+            fs::write(src.join("two.txt"), "2").expect("write");
+            let archive = root.path().join(name);
+            let (_, result) = compress(&[src.join("one.txt"), src.join("two.txt")], &archive, OutFormat::TarGz, "", 0, &Quietly);
+            result.expect("compress");
+            let dest = root.path().join("out");
+            fs::create_dir(&dest).expect("mkdir");
+            extract(&archive, &[], &dest, "", &Quietly).1.expect("extract");
+            assert_eq!(tree(&dest.join(name)), vec![PathBuf::new(), "one.txt".into(), "two.txt".into()], "{name}");
+        }
     }
 
     #[test]

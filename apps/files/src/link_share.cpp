@@ -8,6 +8,7 @@
 #include <map>
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -242,12 +243,19 @@ void LinkShare::send(const std::string& deviceId, const std::vector<std::filesys
                      std::function<void(const std::string& transferId, const std::string& error)> done) {
   std::vector<sdbus::Struct<sdbus::UnixFd, std::string>> sources;
   for (const auto& path : files) {
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    // O_NONBLOCK keeps open(2) from waiting on a FIFO or device on the UI thread.
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
     if (fd < 0) {
       done({}, path.filename().string() + ": cannot be read");
       return;
     }
-    sources.emplace_back(sdbus::UnixFd{fd, sdbus::adopt_fd}, path.filename().string());
+    sdbus::UnixFd owned{fd, sdbus::adopt_fd};
+    struct stat st{};
+    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+      done({}, path.filename().string() + ": not a regular file");
+      return;
+    }
+    sources.emplace_back(std::move(owned), path.filename().string());
   }
   kLog.debug("share {} files to {}", files.size(), deviceId);
   m_proxy->callMethodAsync("SendFiles")

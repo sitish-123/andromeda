@@ -902,6 +902,21 @@ mod tests {
     }
 
     #[test]
+    fn a_name_at_the_length_limit_trashes_and_restores() {
+        let root = tempfile::tempdir().expect("tmp");
+        let file = root.path().join(format!("{}.txt", "é".repeat(125)));
+        write(&file, "t");
+        let ctl = Answers::new(&[]);
+        let (steps, result) = trash_all(std::slice::from_ref(&file), &ctl);
+        result.expect("trash");
+        let UndoStep::Trashed(entry) = &steps[0] else { panic!("not trashed") };
+        assert_eq!(trash::read_info(&entry.trash_dir, &entry.name).expect("info").original, file);
+        let (_, result, _) = undo(&steps, &ctl);
+        result.expect("restore");
+        assert_eq!(read(&file), "t");
+    }
+
+    #[test]
     fn move_into_its_own_folder_changes_nothing() {
         let root = tempfile::tempdir().expect("tmp");
         write(&root.path().join("f"), "f");

@@ -96,6 +96,9 @@ test('picker_match', executable('picker_match_test', 'tests/picker_match_test.cp
   dependencies: [_desk_app_dep, _gio_unix_dep], include_directories: include_directories('src'), cpp_args: _warnings))
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
+test('service_menus', executable('service_menus_test', 'tests/service_menus_test.cpp', 'src/service_menus.cpp',
+  link_with: _files_lib, dependencies: [_desk_app_dep, _gio_unix_dep], include_directories: include_directories('src'),
+  cpp_args: _warnings))
 
 install_data('data/dev.andromeda.Files.desktop', 'data/dev.andromeda.Photos.desktop',
   install_dir: get_option('datadir') / 'applications')

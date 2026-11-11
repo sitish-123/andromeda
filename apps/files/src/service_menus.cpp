@@ -5,19 +5,25 @@
 #include <algorithm>
 #include <gio/gio.h>
 #include <glib.h>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
 namespace {
-  std::vector<fs::path> menuDirs() {
-    std::vector<fs::path> dirs;
-    const auto add = [&](const fs::path& base) {
-      dirs.push_back(base / "kio" / "servicemenus");
-      dirs.push_back(base / "andromeda-files" / "servicemenus");
+  struct MenuDir {
+    fs::path path;
+    bool user;
+  };
+
+  std::vector<MenuDir> menuDirs() {
+    std::vector<MenuDir> dirs;
+    const auto add = [&](const fs::path& base, bool user) {
+      dirs.push_back({base / "kio" / "servicemenus", user});
+      dirs.push_back({base / "andromeda-files" / "servicemenus", user});
     };
-    add(g_get_user_data_dir());
+    add(g_get_user_data_dir(), true);
     for (const gchar* const* dir = g_get_system_data_dirs(); dir != nullptr && *dir != nullptr; ++dir) {
-      add(*dir);
+      add(*dir, false);
     }
     return dirs;
   }
@@ -86,10 +92,11 @@ namespace service_menus {
       return out;
     }
     std::vector<fs::path> files;
-    for (const fs::path& dir : menuDirs()) {
+    for (const MenuDir& dir : menuDirs()) {
       std::error_code ec;
-      for (const auto& entry : fs::directory_iterator(dir, ec)) {
-        if (entry.path().extension() == ".desktop") {
+      for (const auto& entry : fs::directory_iterator(dir.path, ec)) {
+        // As in Dolphin, a user-local menu runs only once the user marks it executable.
+        if (entry.path().extension() == ".desktop" && (!dir.user || ::access(entry.path().c_str(), X_OK) == 0)) {
           files.push_back(entry.path());
         }
       }

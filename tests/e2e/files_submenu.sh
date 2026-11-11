@@ -27,6 +27,7 @@ X-KDE-Submenu=E2E
 Name=Mark for E2E
 Exec=sh -c 'for f in "\$@"; do echo "\$f" >> $MARKS; done' _ %F
 EOF
+chmod +x "$HOME_DIR/.local/share/kio/servicemenus/e2e.desktop"
 
 bus_info=$(dbus-daemon --config-file="$ROOT/tests/e2e/private-bus.conf" --fork --print-address=1 --print-pid=1)
 BUS=$(sed -n 1p <<< "$bus_info")

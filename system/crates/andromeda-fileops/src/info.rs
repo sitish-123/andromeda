@@ -1,8 +1,8 @@
 //! Get Info operations: permission changes (with undo) and checksums, both run as jobs.
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use md5::Md5;
@@ -65,9 +65,18 @@ pub fn set_permissions(paths: &[PathBuf], mode: u32, mask: u32, recursive: bool,
     (undo, Ok(()))
 }
 
+/// Opens `path` for reading only if it is a regular file; `O_NONBLOCK` keeps open(2) from waiting on a FIFO or device.
+fn open_regular(path: &Path) -> io::Result<File> {
+    let file = OpenOptions::new().read(true).custom_flags(rustix::fs::OFlags::NONBLOCK.bits().cast_signed()).open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("not a regular file"));
+    }
+    Ok(file)
+}
+
 /// The lowercase hex digest of `path`; algorithm "sha256" or "md5". Reads in chunks, checks cancel per chunk.
 pub fn checksum(path: &Path, algorithm: &str, ctl: &dyn Control) -> OpResult<String> {
-    let mut file = File::open(path).map_err(|e| OpError::Io(path.to_path_buf(), e))?;
+    let mut file = open_regular(path).map_err(|e| OpError::Io(path.to_path_buf(), e))?;
     let mut sha = (algorithm == "sha256").then(Sha256::new);
     let mut md5 = (algorithm == "md5").then(Md5::new);
     if sha.is_none() && md5.is_none() {
@@ -161,5 +170,18 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
         assert_eq!(checksum(&file, "md5", &Quietly).expect("md5"), "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    #[test]
+    fn checksum_of_a_fifo_fails_at_once() {
+        let root = tempfile::tempdir().expect("tmp");
+        let fifo = root.path().join("pipe");
+        rustix::fs::mknodat(rustix::fs::CWD, &fifo, rustix::fs::FileType::Fifo, rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR, 0)
+            .expect("mkfifo");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(checksum(&fifo, "sha256", &Quietly).is_err());
+        });
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)), Ok(true));
     }
 }

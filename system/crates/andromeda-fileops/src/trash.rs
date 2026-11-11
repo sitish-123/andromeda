@@ -58,7 +58,7 @@ fn uid() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
-/// The highest folder of `path`'s mount: walk up while the device stays the same.
+/// The highest folder of `path`'s mount: walk up while the device stays the same. `path` must hold no links.
 fn top_dir(path: &Path, dev: u64) -> PathBuf {
     let mut top = path.to_path_buf();
     while let Some(parent) = top.parent() {
@@ -98,9 +98,10 @@ fn trash_for(path: &Path) -> io::Result<(PathBuf, PathBuf)> {
     if dev == fs::metadata(&home)?.dev() {
         return Ok((home, path.to_path_buf()));
     }
-    let parent = path.parent().unwrap_or(Path::new("/"));
-    let top = top_dir(parent, dev);
-    let relative = path.strip_prefix(&top).map_or_else(|_| path.to_path_buf(), Path::to_path_buf);
+    let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let real = fs::canonicalize(path.parent().unwrap_or(Path::new("/")))?.join(name);
+    let top = top_dir(real.parent().unwrap_or(Path::new("/")), dev);
+    let relative = real.strip_prefix(&top).map_or_else(|_| real.clone(), Path::to_path_buf);
     // $topdir/.Trash must be a real folder with the sticky bit, else it is not used.
     let shared = top.join(".Trash");
     if let Ok(meta) = fs::symlink_metadata(&shared)
@@ -121,11 +122,23 @@ fn trash_for(path: &Path) -> io::Result<(PathBuf, PathBuf)> {
     Ok((own, relative))
 }
 
+/// `name` cut at a character boundary so `<name>.<u32>.trashinfo` fits `NAME_MAX` (255 bytes); the info file keeps
+/// the real name.
+fn shortened(name: &str) -> &str {
+    const MAX: usize = 255 - ".trashinfo".len() - ".4294967295".len();
+    let mut end = name.len().min(MAX);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    &name[..end]
+}
+
 /// Moves `path` to its trash. The info file is made first with `O_EXCL`, which reserves the name.
 pub fn trash(path: &Path) -> io::Result<Trashed> {
     let path = absolute(path)?;
     let (trash_dir, stored) = trash_for(&path)?;
     let base = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?.to_string_lossy();
+    let base = shortened(&base);
     let date = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
     let encoded = percent_encode(stored.as_os_str().as_bytes(), PATH_SET).to_string();
     for n in 1u32.. {
@@ -210,5 +223,25 @@ mod tests {
         assert_eq!(read_info(dir.path(), "a").expect("info").original, PathBuf::from("/home/u/a b"));
         fs::write(dir.path().join("info/b.trashinfo"), "[Other]\nPath=/etc/passwd\n").expect("write");
         assert!(read_info(dir.path(), "b").is_err());
+    }
+
+    #[test]
+    fn a_link_in_the_parents_does_not_move_the_device_trash() {
+        let home = tempfile::tempdir().expect("tmp");
+        use_home_trash(home.path().join("Trash"));
+        let other = tempfile::tempdir_in("/dev/shm").expect("shm");
+        if fs::metadata(other.path()).expect("stat").dev() == fs::metadata(home.path()).expect("stat").dev() {
+            return;
+        }
+        fs::create_dir(other.path().join("sub")).expect("mkdir");
+        fs::write(other.path().join("sub/f"), "x").expect("write");
+        std::os::unix::fs::symlink(other.path().join("sub"), home.path().join("lnk")).expect("link");
+        let made = !Path::new("/dev/shm").join(format!(".Trash-{}", uid())).exists();
+        let (dir, relative) = trash_for(&home.path().join("lnk/f")).expect("trash");
+        if made {
+            let _ = fs::remove_dir_all(&dir);
+        }
+        assert_eq!(dir.parent(), Some(Path::new("/dev/shm")));
+        assert_eq!(relative, other.path().strip_prefix("/dev/shm").expect("in shm").join("sub/f"));
     }
 }
