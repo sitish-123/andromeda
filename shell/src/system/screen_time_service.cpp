@@ -848,7 +848,7 @@ namespace {
       return true;
     }
     gScreenTimeWritten = generation;
-    return writeTextFileAtomic(path, text);
+    return writeTextFileAtomic(path, text, std::nullopt, AtomicWrite::Durable);
   }
 } // namespace
 

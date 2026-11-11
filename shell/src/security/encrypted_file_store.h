@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config/atomic_file.h"
+
 #include "security/secure_buffer.h"
 
 #include <array>
@@ -48,7 +50,7 @@ namespace security {
 
   [[nodiscard]] bool writeEncryptedFile(
       const std::filesystem::path& path, std::span<const std::uint8_t> plaintext, const SecureKey& key,
-      const EncryptionContext& context
+      const EncryptionContext& context, AtomicWrite durability = AtomicWrite::Fast
   );
 
   [[nodiscard]] EncryptedReadResult readEncryptedFile(

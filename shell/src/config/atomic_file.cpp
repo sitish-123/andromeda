@@ -1,5 +1,7 @@
 #include "config/atomic_file.h"
 
+#include "core/log.h"
+
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -8,6 +10,8 @@
 #include <utility>
 
 namespace {
+  constexpr Logger kLog("atomic-file");
+
   [[nodiscard]] mode_t toMode(std::filesystem::perms mode) {
     return static_cast<mode_t>(static_cast<unsigned>(mode & std::filesystem::perms::all));
   }
@@ -78,7 +82,8 @@ std::optional<AtomicWriteTarget> resolveAtomicWriteTarget(const std::filesystem:
 }
 
 bool writeTextFileAtomic(
-    const std::filesystem::path& path, std::string_view content, std::optional<std::filesystem::perms> mode
+    const std::filesystem::path& path, std::string_view content, std::optional<std::filesystem::perms> mode,
+    AtomicWrite durability
 ) {
   const auto target = resolveAtomicWriteTarget(path);
   if (!target.has_value() || target->path.empty()) {
@@ -106,8 +111,8 @@ bool writeTextFileAtomic(
     return false;
   }
 
-  // The data reaches disk before the rename: a crash leaves the old file or the new one, never an empty one.
-  if (!writeAll(fd, content) || ::fsync(fd) != 0) {
+  // Durable: the data reaches disk before the rename, so a crash never leaves an empty file.
+  if (!writeAll(fd, content) || (durability == AtomicWrite::Durable && ::fsync(fd) != 0)) {
     closeFd(fd);
     std::filesystem::remove(tmpPath, ec);
     return false;
@@ -125,11 +130,15 @@ bool writeTextFileAtomic(
     std::filesystem::remove(tmpPath, ec);
     return false;
   }
-  const int dirFd = ::open(parent.empty() ? "." : parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (dirFd < 0) {
-    return false;
+  if (durability == AtomicWrite::Durable) {
+    // The rename already replaced the file: a failed directory sync only weakens crash safety.
+    const int dirFd = ::open(parent.empty() ? "." : parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dirFd < 0 || ::fsync(dirFd) != 0) {
+      kLog.warn("cannot sync directory of {}", target->path.string());
+    }
+    if (dirFd >= 0) {
+      ::close(dirFd);
+    }
   }
-  const bool dirSynced = ::fsync(dirFd) == 0;
-  ::close(dirFd);
-  return dirSynced;
+  return true;
 }

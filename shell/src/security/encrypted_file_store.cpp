@@ -51,7 +51,9 @@ namespace security {
       return output;
     }
 
-    [[nodiscard]] bool writePrivateEnvelope(const std::filesystem::path& path, std::span<const std::uint8_t> bytes) {
+    [[nodiscard]] bool writePrivateEnvelope(
+        const std::filesystem::path& path, std::span<const std::uint8_t> bytes, AtomicWrite durability
+    ) {
       const auto target = resolveAtomicWriteTarget(path);
       if (!target.has_value() || target->path.parent_path().empty()) {
         return false;
@@ -63,7 +65,7 @@ namespace security {
       }
 
       const auto content = std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-      return writeTextFileAtomic(path, content, FileUtils::privateFileMode());
+      return writeTextFileAtomic(path, content, FileUtils::privateFileMode(), durability);
     }
 
     [[nodiscard]] bool readExact(std::ifstream& input, std::span<std::uint8_t> bytes) {
@@ -80,7 +82,7 @@ namespace security {
 
   bool writeEncryptedFile(
       const std::filesystem::path& path, std::span<const std::uint8_t> plaintext, const SecureKey& key,
-      const EncryptionContext& context
+      const EncryptionContext& context, AtomicWrite durability
   ) {
     if (!securityPrimitivesReady()
         || plaintext.size() > static_cast<std::size_t>(crypto_aead_xchacha20poly1305_ietf_MESSAGEBYTES_MAX)) {
@@ -107,7 +109,7 @@ namespace security {
     if (encrypted != 0 || ciphertextSize != plaintext.size() + EncryptedFileTagSize) {
       return false;
     }
-    return writePrivateEnvelope(path, envelope);
+    return writePrivateEnvelope(path, envelope, durability);
   }
 
   EncryptedReadResult readEncryptedFile(

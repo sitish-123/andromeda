@@ -760,7 +760,7 @@ bool saveNotificationHistoryToFile(
 
   const auto text = root.dump(2, ' ', false, nlohmann::json::error_handler_t::replace);
   const auto bytes = std::span(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
-  if (bytes.size() > kMaxHistoryBytes || !security::writeEncryptedFile(path, bytes, key, kHistoryContext)) {
+  if (bytes.size() > kMaxHistoryBytes || !security::writeEncryptedFile(path, bytes, key, kHistoryContext, AtomicWrite::Durable)) {
     kLog.warn("could not write notification history {}", path.string());
     return false;
   }
