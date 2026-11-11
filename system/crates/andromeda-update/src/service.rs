@@ -27,10 +27,44 @@ struct State {
     /// A news fetch succeeded since start; until then the System group stays blocked.
     news_known: bool,
     last_check: i64,
-    checking: bool,
+    run: Run,
     errors: Vec<String>,
-    /// The running check came from the daily timer: it may notify.
-    scheduled: bool,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+enum Run {
+    #[default]
+    Idle,
+    /// `scheduled`: the check came from the daily timer and may notify.
+    Checking { scheduled: bool },
+}
+
+/// Owns the `Checking` state of one check; dropping it, also on panic, returns the state to `Idle`.
+struct CheckGuard(Option<Arc<Mutex<State>>>);
+
+impl CheckGuard {
+    fn begin(state: &Arc<Mutex<State>>, scheduled: bool) -> Option<Self> {
+        let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
+        if s.run != Run::Idle {
+            return None;
+        }
+        s.run = Run::Checking { scheduled };
+        Some(Self(Some(state.clone())))
+    }
+
+    /// Returns to `Idle` under the caller's lock and tells whether the check was scheduled.
+    fn finish(mut self, state: &mut State) -> bool {
+        self.0 = None;
+        matches!(std::mem::take(&mut state.run), Run::Checking { scheduled: true })
+    }
+}
+
+impl Drop for CheckGuard {
+    fn drop(&mut self) {
+        if let Some(state) = self.0.take() {
+            state.lock().unwrap_or_else(PoisonError::into_inner).run = Run::Idle;
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -92,7 +126,23 @@ impl Update {
         let _ = this.checking_changed(emitter).await;
     }
 
-    async fn run_check(&self, conn: Connection) {
+    /// A panicking check has already reset `run` through its guard; this tells clients so.
+    fn spawn_check(&self, conn: Connection, guard: CheckGuard) {
+        let this = self.clone();
+        let task = tokio::spawn({
+            let conn = conn.clone();
+            async move { this.run_check(conn, guard).await }
+        });
+        tokio::spawn(async move {
+            if task.await.is_err() {
+                if let Ok(iface) = conn.object_server().interface::<_, Self>(PATH).await {
+                    Self::emit_all(&iface).await;
+                }
+            }
+        });
+    }
+
+    async fn run_check(&self, conn: Connection, guard: CheckGuard) {
         let db = self.cache.join("checkup-db");
         let (repo, apps, snaps, firmware, feed) = tokio::join!(
             bounded("system", packages::check(&db)),
@@ -134,7 +184,7 @@ impl Update {
             Err(e) => errors.push(format!("firmware: {e:#}")),
         }
         let token = self.read_token();
-        {
+        let (scheduled, count) = {
             let mut state = self.lock();
             match feed {
                 Ok(items) => {
@@ -149,15 +199,11 @@ impl Update {
             state.updates = rows;
             state.errors = errors;
             state.last_check = now();
-            state.checking = false;
-        }
+            (guard.finish(&mut state), state.updates.iter().filter(|row| row.0 != "held").count())
+        };
         if let Ok(iface) = conn.object_server().interface::<_, Self>(PATH).await {
             Self::emit_all(&iface).await;
         }
-        let (scheduled, count) = {
-            let mut state = self.lock();
-            (std::mem::take(&mut state.scheduled), state.updates.iter().filter(|row| row.0 != "held").count())
-        };
         if scheduled && count > 0 {
             self.notify(&conn, count).await;
         }
@@ -231,7 +277,7 @@ impl Update {
 
     #[zbus(property)]
     fn checking(&self) -> bool {
-        self.lock().checking
+        self.lock().run != Run::Idle
     }
 
     /// One line per source that failed; the other sources still report.
@@ -247,17 +293,9 @@ impl Update {
         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
         #[zbus(connection)] conn: &Connection,
     ) -> zbus::fdo::Result<()> {
-        {
-            let mut state = self.lock();
-            if state.checking {
-                return Ok(());
-            }
-            state.checking = true;
-        }
+        let Some(guard) = CheckGuard::begin(&self.state, false) else { return Ok(()) };
         let _ = self.checking_changed(&emitter).await;
-        let this = self.clone();
-        let conn = conn.clone();
-        tokio::spawn(async move { this.run_check(conn).await });
+        self.spawn_check(conn.clone(), guard);
         Ok(())
     }
 
@@ -272,19 +310,9 @@ impl Update {
             log::info!("scheduled check skipped: metered network");
             return Ok(());
         }
-        {
-            // Set together with `checking`, so a manual Check() racing in cannot inherit the flag.
-            let mut state = self.lock();
-            if state.checking {
-                return Ok(());
-            }
-            state.checking = true;
-            state.scheduled = true;
-        }
+        let Some(guard) = CheckGuard::begin(&self.state, true) else { return Ok(()) };
         let _ = self.checking_changed(&emitter).await;
-        let this = self.clone();
-        let conn = conn.clone();
-        tokio::spawn(async move { this.run_check(conn).await });
+        self.spawn_check(conn.clone(), guard);
         Ok(())
     }
 
@@ -303,5 +331,24 @@ impl Update {
         let _ = self.news_changed(&emitter).await;
         let _ = self.news_blocks_system_changed(&emitter).await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_after_panicked_check_is_accepted() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let guard = CheckGuard::begin(&state, true).unwrap();
+        assert!(CheckGuard::begin(&state, false).is_none());
+        let panicked = std::thread::spawn(move || {
+            let _guard = guard;
+            panic!("check failed");
+        })
+        .join();
+        assert!(panicked.is_err());
+        assert!(CheckGuard::begin(&state, false).is_some());
     }
 }
