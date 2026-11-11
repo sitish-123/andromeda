@@ -2773,7 +2773,7 @@ namespace andromeda {
     if (m_snapFlyout != nullptr && m_snapFlyout->active()) {
       m_snapFlyout->close(false);
     }
-    if (m_snapAssist != nullptr && m_snapAssist->active()) {
+    if (m_snapAssist != nullptr) {
       m_snapAssist->end(false);
     }
   }

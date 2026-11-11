@@ -118,8 +118,8 @@ namespace andromeda {
   SnapAssist::SnapAssist(Server& server, wlr_scene_tree* parent)
       : m_server(server), m_tree(wlr_scene_tree_create(parent)),
         m_icons(std::make_unique<ov::AppIcons>(wl_display_get_event_loop(server.display()), [this] {
-          if (m_open) {
-            build();
+          if (m_mode.open()) {
+            build(*m_mode.picture());
           }
         })) {
     if (m_tree != nullptr) {
@@ -134,6 +134,22 @@ namespace andromeda {
 
   // The scene owns the tree and frees it with the rest of the chrome at teardown.
   SnapAssist::~SnapAssist() { m_server.unregisterAnimatable(this); }
+
+  SnapAssist::Picture::Picture(Picture&& other) noexcept
+      : content(std::exchange(other.content, nullptr)), cards(std::move(other.cards)) {}
+
+  SnapAssist::Picture::~Picture() {
+    cards.clear();
+    if (content != nullptr) {
+      wlr_scene_node_destroy(&content->node);
+    }
+  }
+
+  const std::vector<std::unique_ptr<SnapAssist::Card>>& SnapAssist::cards() {
+    static const std::vector<std::unique_ptr<Card>> none;
+    const Picture* picture = m_mode.picture();
+    return picture != nullptr ? picture->cards : none;
+  }
 
   void SnapAssist::start(View& anchor, SnapZone zone) {
     end();
@@ -158,7 +174,7 @@ namespace andromeda {
         target = candidate;
       }
     }
-    m_cards.clear();
+    Picture picture;
     if (target) {
       for (View* view : std::views::reverse(workspace->allViews())) {
         const auto spot = view->snapSpot();
@@ -167,11 +183,11 @@ namespace andromeda {
             && (zone == nullptr || zone->layout != layout)) {
           auto card = std::make_unique<Card>();
           card->view = Ref<View>(view);
-          m_cards.push_back(std::move(card));
+          picture.cards.push_back(std::move(card));
         }
       }
     }
-    if (!target || m_cards.empty()) {
+    if (!target || picture.cards.empty()) {
       return false;
     }
     m_zone = *target;
@@ -181,10 +197,10 @@ namespace andromeda {
         m_server.outputLayout(), m_box.x + m_box.width / 2.0, m_box.y + m_box.height / 2.0
     );
     m_lit = 0;
-    m_open = true;
+    m_mode.show(std::move(picture));
     wlr_scene_node_raise_to_top(&m_tree->node);
     wlr_scene_node_set_enabled(&m_tree->node, true);
-    build();
+    build(*m_mode.picture());
     moveLens(false);
     if (config().animation.enabled) {
       m_fade.snap(0.0);
@@ -216,14 +232,14 @@ namespace andromeda {
     if (m_lensShadow != nullptr) {
       wlr_scene_shadow_set_color(m_lensShadow, faded(m_lensShadowColor).data());
     }
-    for (const auto& card : m_cards) {
+    for (const auto& card : cards()) {
       if (card->frame != nullptr) {
         card->frame->setAlpha(opacity);
       }
     }
-    if (m_content != nullptr) {
+    if (const Picture* picture = m_mode.picture(); picture != nullptr && picture->content != nullptr) {
       wlr_scene_node_for_each_buffer(
-          &m_content->node,
+          &picture->content->node,
           [](wlr_scene_buffer* buffer, int /*sx*/, int /*sy*/, void* data) {
             wlr_scene_buffer_set_opacity(buffer, *static_cast<float*>(data));
           },
@@ -232,20 +248,20 @@ namespace andromeda {
     }
   }
 
-  void SnapAssist::build() {
-    // Card frames and listeners live in m_content: release them before it goes.
-    for (const auto& card : m_cards) {
+  void SnapAssist::build(Picture& picture) {
+    // Card frames and listeners live in the content tree: release them before it goes.
+    for (const auto& card : picture.cards) {
       card->frame.reset();
       card->commit.disconnect();
       card->destroy.disconnect();
       card->tree = nullptr;
       card->surfaces = nullptr;
     }
-    if (m_content != nullptr) {
-      wlr_scene_node_destroy(&m_content->node);
+    if (picture.content != nullptr) {
+      wlr_scene_node_destroy(&picture.content->node);
     }
-    m_content = wlr_scene_tree_create(m_tree);
-    if (m_content == nullptr || m_lens == nullptr || m_lensShadow == nullptr) {
+    picture.content = wlr_scene_tree_create(m_tree);
+    if (picture.content == nullptr || m_lens == nullptr || m_lensShadow == nullptr) {
       return;
     }
     const auto& colors = scheme();
@@ -258,11 +274,11 @@ namespace andromeda {
     const wlr_box& zone = m_box;
 
     // Grid: as many cards as fit at kMinCardW or more, up to 3 x 3; slots are 4:3, each thumbnail fits its slot.
-    const int pad = m_cards.size() == 1 ? kSolePad : kPad;
+    const int pad = picture.cards.size() == 1 ? kSolePad : kPad;
     const int areaW = zone.width - 2 * pad;
     const int areaH = zone.height - 2 * pad;
     const int rowExtra = kLabelGap + kLabelH;
-    size_t count = std::min(m_cards.size(), static_cast<size_t>(kMaxColumns * kMaxRows));
+    size_t count = std::min(picture.cards.size(), static_cast<size_t>(kMaxColumns * kMaxRows));
     int columns = 1;
     int rows = 1;
     int cardW = 0;
@@ -277,7 +293,7 @@ namespace andromeda {
       }
     }
     cardW = std::max(cardW, 1);
-    m_cards.resize(count);
+    picture.cards.resize(count);
     m_columns = columns;
     const int slotH = cardW * 3 / 4;
     const int cardH = slotH + rowExtra;
@@ -285,8 +301,8 @@ namespace andromeda {
     const int top = zone.y + (zone.height - (rows * cardH + (rows - 1) * kGap)) / 2;
     const double scale = std::max(1.0, std::ceil(m_output != nullptr ? m_output->scale : 1.0));
 
-    for (size_t i = 0; i < m_cards.size(); ++i) {
-      Card& card = *m_cards[i];
+    for (size_t i = 0; i < picture.cards.size(); ++i) {
+      Card& card = *picture.cards[i];
       View* view = card.view.get();
       const int column = static_cast<int>(i) % columns;
       const int row = static_cast<int>(i) / columns;
@@ -300,7 +316,7 @@ namespace andromeda {
       card.thumb = {card.box.x + (cardW - thumbW) / 2, card.box.y + (slotH - thumbH) / 2, thumbW, thumbH};
       const wlr_box geometry = view->geometryBox();
       card.zoom = geometry.width > 0 ? static_cast<double>(thumbW) / geometry.width : 1.0;
-      card.tree = wlr_scene_tree_create(m_content);
+      card.tree = wlr_scene_tree_create(picture.content);
       if (card.tree != nullptr) {
         wlr_scene_node_set_position(&card.tree->node, card.thumb.x, card.thumb.y);
         const wlr_box clip{0, 0, thumbW, thumbH};
@@ -336,13 +352,13 @@ namespace andromeda {
       int x = card.box.x;
       const int labelY = card.box.y + slotH + kLabelGap;
       if (icon != nullptr) {
-        wlr_scene_buffer* node = wlr_scene_buffer_create(m_content, icon);
+        wlr_scene_buffer* node = wlr_scene_buffer_create(picture.content, icon);
         wlr_scene_buffer_set_dest_size(node, kIcon, kIcon);
         wlr_scene_node_set_position(&node->node, x, labelY + (kLabelH - kIcon) / 2);
         x += kIcon + kIconGap;
       }
       if (text.buffer != nullptr) {
-        wlr_scene_buffer* node = wlr_scene_buffer_create(m_content, text.buffer);
+        wlr_scene_buffer* node = wlr_scene_buffer_create(picture.content, text.buffer);
         wlr_buffer_drop(text.buffer);
         wlr_scene_buffer_set_dest_size(node, text.logicalWidth, text.logicalHeight);
         wlr_scene_node_set_position(&node->node, x, labelY + (kLabelH - text.logicalHeight) / 2);
@@ -357,7 +373,7 @@ namespace andromeda {
                                           (light ? e1.keyLight : e1.keyDark) * 255.0F
                                       )));
     m_lensShadowColor = shadow;
-    if (m_lit >= m_cards.size()) {
+    if (m_lit >= picture.cards.size()) {
       m_lit = 0;
     }
     placeLens();
@@ -411,10 +427,10 @@ namespace andromeda {
   }
 
   void SnapAssist::moveLens(bool animate) {
-    if (m_lit >= m_cards.size()) {
+    if (m_lit >= cards().size()) {
       return;
     }
-    const wlr_box& box = m_cards[m_lit]->box;
+    const wlr_box& box = cards()[m_lit]->box;
     const std::array<double, 4> target{static_cast<double>(box.x - kLensPad), static_cast<double>(box.y - kLensPad),
                                        static_cast<double>(box.x + box.width + kLensPad),
                                        static_cast<double>(box.y + box.height + kLensPad)};
@@ -446,7 +462,7 @@ namespace andromeda {
     if (m_lens == nullptr || m_lensShadow == nullptr) {
       return;
     }
-    const bool show = m_open && m_lit < m_cards.size();
+    const bool show = m_mode.open() && m_lit < cards().size();
     wlr_scene_node_set_enabled(&m_lens->node, show);
     wlr_scene_node_set_enabled(&m_lensShadow->node, show);
     if (!show) {
@@ -474,11 +490,11 @@ namespace andromeda {
     }
     const bool fading = m_fade.tick(nowMsec);
     running = fading || running;
-    if (!m_open && !m_fade.animating()) {
-      destroyContent();
+    if (!m_mode.open() && !m_fade.animating()) {
+      close();
       return running;
     }
-    if (m_open) {
+    if (m_mode.open()) {
       placeLens();
     }
     applyFade();
@@ -495,14 +511,14 @@ namespace andromeda {
   }
 
   void SnapAssist::end(bool animate) {
-    const bool wasOpen = m_open;
-    m_open = false;
-    m_cards.clear();
     for (auto& value : m_lensBox) {
       value.snap(value.target());
     }
-    // The cards' listeners are gone, so what fades out is a still picture of the last frame.
-    if (animate && wasOpen && config().animation.enabled && m_tree != nullptr) {
+    if (animate && config().animation.enabled && m_tree != nullptr && m_mode.fadeOut()) {
+      // What fades out is a still picture of the last frame.
+      for (const auto& card : cards()) {
+        card->commit.disconnect();
+      }
       m_fade.settleSpring(
           0.0, {.damping = Tokens::springFadeOut.damping, .stiffness = Tokens::springFadeOut.stiffness}
       );
@@ -512,14 +528,11 @@ namespace andromeda {
       return;
     }
     m_fade.snap(0.0);
-    destroyContent();
+    close();
   }
 
-  void SnapAssist::destroyContent() {
-    if (m_content != nullptr) {
-      wlr_scene_node_destroy(&m_content->node);
-      m_content = nullptr;
-    }
+  void SnapAssist::close() {
+    m_mode.close();
     if (m_tree != nullptr) {
       wlr_scene_node_set_enabled(&m_tree->node, false);
     }
@@ -543,7 +556,7 @@ namespace andromeda {
   }
 
   void SnapAssist::pick(size_t index) {
-    View* view = index < m_cards.size() ? m_cards[index]->view.get() : nullptr;
+    View* view = index < cards().size() ? cards()[index]->view.get() : nullptr;
     if (view == nullptr || !view->snapTo(SnapSpot{m_zone})) {
       finish();
       return;
@@ -554,9 +567,9 @@ namespace andromeda {
     }
   }
 
-  std::optional<size_t> SnapAssist::cardAt(double lx, double ly) const {
-    for (size_t i = 0; i < m_cards.size(); ++i) {
-      if (holds(m_cards[i]->box, lx, ly)) {
+  std::optional<size_t> SnapAssist::cardAt(double lx, double ly) {
+    for (size_t i = 0; i < cards().size(); ++i) {
+      if (holds(cards()[i]->box, lx, ly)) {
         return i;
       }
     }
@@ -573,17 +586,17 @@ namespace andromeda {
   }
 
   void SnapAssist::hover(double lx, double ly) {
-    if (m_open && !anchorHolds()) {
+    if (m_mode.open() && !anchorHolds()) {
       return;
     }
-    if (const auto index = m_open ? cardAt(lx, ly) : std::nullopt; index && *index != m_lit) {
+    if (const auto index = m_mode.open() ? cardAt(lx, ly) : std::nullopt; index && *index != m_lit) {
       m_lit = *index;
       moveLens(true);
     }
   }
 
   bool SnapAssist::press(double lx, double ly) {
-    if (!m_open || !anchorHolds()) {
+    if (!m_mode.open() || !anchorHolds()) {
       return false;
     }
     if (const auto index = cardAt(lx, ly)) {
@@ -598,10 +611,10 @@ namespace andromeda {
   }
 
   bool SnapAssist::key(uint32_t keysym) {
-    if (!m_open || m_cards.empty() || !anchorHolds()) {
+    if (!m_mode.open() || cards().empty() || !anchorHolds()) {
       return false;
     }
-    const auto count = static_cast<long>(m_cards.size());
+    const auto count = static_cast<long>(cards().size());
     const auto move = [&](long by) {
       m_lit = static_cast<size_t>(((static_cast<long>(m_lit) + by) % count + count) % count);
       moveLens(true);

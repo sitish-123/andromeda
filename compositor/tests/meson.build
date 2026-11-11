@@ -8,6 +8,7 @@ unit_tests = [
   ['overview-navigation', ['unit/overview_navigation.cpp'], []],
   ['overview-interact', ['unit/overview_interact.cpp'], []],
   ['overview-card-pointer', ['unit/overview_card_pointer.cpp'], []],
+  ['snap-assist-mode', ['unit/snap_assist_mode.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],

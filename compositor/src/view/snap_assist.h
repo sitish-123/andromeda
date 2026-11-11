@@ -4,6 +4,7 @@
 #include "util/listener.h"
 #include "util/tracked.h"
 #include "view/snap.h"
+#include "view/snap_assist_mode.h"
 
 #include <memory>
 #include <optional>
@@ -39,7 +40,7 @@ namespace andromeda {
     void start(View& anchor, SnapZone zone);
     // `animate` false hides at once (interruptions: lock, output removal, workspace switch).
     void end(bool animate = true);
-    [[nodiscard]] bool active() const { return m_open; }
+    [[nodiscard]] bool active() const { return m_mode.open(); }
 
     void hover(double lx, double ly);
     // A press on a card picks it; inside the zone it is kept; outside it ends assist and passes on. Returns consumed.
@@ -69,32 +70,42 @@ namespace andromeda {
       Listener commit;
       Listener destroy;
     };
+    // The cards and the scene tree they draw in, rebuilt per zone. Cards release their frames and listeners before
+    // the tree goes.
+    struct Picture {
+      wlr_scene_tree* content = nullptr;
+      std::vector<std::unique_ptr<Card>> cards;
+      Picture() = default;
+      Picture(Picture&& other) noexcept;
+      Picture& operator=(Picture&&) = delete;
+      ~Picture();
+    };
     struct Member {
       Ref<View> view;
       SnapZone zone;
     };
     [[nodiscard]] bool showNextZone();
-    void build();
+    void build(Picture& picture);
+    [[nodiscard]] const std::vector<std::unique_ptr<Card>>& cards();
+    void close();
     void syncThumbnail(Card& card);
     void moveLens(bool animate);
     void placeLens();
     // Applies m_fade to the scrim, lens, cards and labels.
     void applyFade();
-    void destroyContent();
     void pick(size_t index);
     void finish();
     // Ends assist when its anchor window left its zone or went away; returns whether it still holds.
     bool anchorHolds();
-    [[nodiscard]] std::optional<size_t> cardAt(double lx, double ly) const;
+    [[nodiscard]] std::optional<size_t> cardAt(double lx, double ly);
 
     Server& m_server;
     wlr_scene_tree* m_tree = nullptr;
-    wlr_scene_tree* m_content = nullptr; // rebuilt per zone
     std::unique_ptr<GlassPanel> m_scrim;
     wlr_scene_shadow* m_lensShadow = nullptr;
     wlr_scene_rect* m_lens = nullptr;
     std::unique_ptr<ov::AppIcons> m_icons;
-    std::vector<std::unique_ptr<Card>> m_cards;
+    SnapAssistMode<Picture> m_mode;
     std::vector<Member> m_members; // the group being formed, anchor first
     struct Group {
       uint32_t id = 0;
@@ -114,6 +125,5 @@ namespace andromeda {
     SnapZone m_zone;
     size_t m_lit = 0;
     int m_columns = 1;
-    bool m_open = false;
   };
 } // namespace andromeda
