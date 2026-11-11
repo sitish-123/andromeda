@@ -106,6 +106,14 @@ const CTRL_ATTR_MCAST_GROUPS: u16 = 7;
 const CTRL_ATTR_MCAST_GRP_NAME: u16 = 1;
 const CTRL_ATTR_MCAST_GRP_ID: u16 = 2;
 const NLA_TYPE_MASK: u16 = 0x3fff;
+/// `THERMAL_GENL_EVENT_TZ_CREATE` ..= `THERMAL_GENL_EVENT_TZ_TRIP_DELETE`; the group also carries cooling-device
+/// and CPU-capability (Intel HFI, every few seconds) events, which change no zone.
+const ZONE_EVENTS: std::ops::RangeInclusive<u8> = 1..=9;
+
+/// A thermal `event` group message (nlmsghdr, then genlmsghdr) reports a zone or trip change.
+fn is_zone_event(msg: &[u8]) -> bool {
+    msg.get(16).is_some_and(|cmd| ZONE_EVENTS.contains(cmd))
+}
 
 pub fn getfamily_request(family: &str) -> Vec<u8> {
     let name_len = family.len() + 1;
@@ -178,8 +186,10 @@ fn listen(notify: Arc<Notify>) -> Result<()> {
     let group = mcast_group_id(&reply, "event")?;
     socket.add_membership(group).context("join thermal event group")?;
     std::thread::Builder::new().name("thermal-netlink".into()).spawn(move || {
-        while socket.recv_from_full().is_ok() {
-            notify.notify_one();
+        while let Ok((msg, _)) = socket.recv_from_full() {
+            if is_zone_event(&msg) {
+                notify.notify_one();
+            }
         }
         log::warn!("thermal: netlink socket closed");
     })?;
@@ -225,7 +235,8 @@ pub async fn run(conn: Connection) {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
-        let zones = read_zones();
+        // ACPI zone temperatures take seconds to read under EC load; a read on the loop starves the watchdog ping.
+        let zones = tokio::task::spawn_blocking(read_zones).await.unwrap_or_default();
         let available = !zones.is_empty();
         let why = if available { reason.as_str() } else { "no thermal zones in sysfs" };
         if let Err(e) = publish(&conn, zones).await.and(manager::set_area(&conn, AREA, available, why).await) {
@@ -242,7 +253,16 @@ pub async fn run(conn: Connection) {
 
 #[cfg(test)]
 mod tests {
-    use super::{mcast_group_id, zone_state};
+    use super::{is_zone_event, mcast_group_id, zone_state};
+
+    #[test]
+    fn only_zone_and_trip_events_wake_the_reader() {
+        let msg = |cmd: u8| [[0; 16].as_slice(), &[cmd, 1, 0, 0]].concat();
+        // 5 = TZ_TRIP_UP, 12 = CDEV_STATE_UPDATE, 14 = CPU_CAPABILITY_CHANGE.
+        assert!(is_zone_event(&msg(5)));
+        assert!(!is_zone_event(&msg(12)));
+        assert!(!is_zone_event(&msg(14)));
+    }
 
     fn attr(kind: u16, payload: &[u8]) -> Vec<u8> {
         let len = u16::try_from(4 + payload.len()).unwrap_or(0);
