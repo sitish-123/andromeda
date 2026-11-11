@@ -2,6 +2,7 @@
 #include "output/output.h"
 #include "overview/overview.h"
 #include "scene/surface_shape.h"
+#include "server/ipc.h"
 #include "server/server.h"
 #include "view/floating.h"
 #include "view/size_hints.h"
@@ -64,6 +65,7 @@ namespace andromeda {
   void View::setActivatedState(bool activated) {
     if (m_toplevel != nullptr) {
       wlr_xdg_toplevel_set_activated(m_toplevel, activated);
+      transitionConfigure(ConfigureEvent::Scheduled);
       return;
     }
     m_xState.activated = activated;
@@ -91,6 +93,7 @@ namespace andromeda {
       return;
     }
     wlr_xdg_toplevel_set_suspended(m_toplevel, suspended);
+    transitionConfigure(ConfigureEvent::Scheduled);
   }
 
   bool View::suspended() const { return m_toplevel != nullptr && m_toplevel->scheduled.suspended; }
@@ -127,6 +130,7 @@ namespace andromeda {
     m_server->scheduleIpcWindowsEvent();
     if (m_toplevel != nullptr) {
       wlr_xdg_toplevel_set_fullscreen(m_toplevel, fullscreen);
+      transitionConfigure(ConfigureEvent::Scheduled);
     } else {
       m_xState.fullscreen = fullscreen;
       m_xFullscreenSize.reset();
@@ -139,6 +143,7 @@ namespace andromeda {
     m_server->scheduleIpcWindowsEvent();
     if (m_toplevel != nullptr) {
       wlr_xdg_toplevel_set_maximized(m_toplevel, maximized);
+      transitionConfigure(ConfigureEvent::Scheduled);
     } else {
       m_xState.maximized = maximized;
       wlr_xwayland_surface_set_maximized(m_xsurface, maximized, maximized);
@@ -230,7 +235,9 @@ namespace andromeda {
 
   uint32_t View::configureSize(int width, int height) {
     if (m_toplevel != nullptr) {
-      return wlr_xdg_toplevel_set_size(m_toplevel, width, height);
+      const uint32_t serial = wlr_xdg_toplevel_set_size(m_toplevel, width, height);
+      transitionConfigure(ConfigureEvent::Scheduled);
+      return serial;
     }
     sendXwaylandConfigure(width, height);
     return 0;
@@ -240,6 +247,7 @@ namespace andromeda {
     if (m_toplevel != nullptr) {
       m_toplevel->scheduled.width = width;
       m_toplevel->scheduled.height = height;
+      transitionConfigure(ConfigureEvent::Scheduled);
       return;
     }
     // The X window already has this size, so there is nothing to send.
@@ -248,12 +256,25 @@ namespace andromeda {
     m_xConfigured.height = m_xsurface->height;
   }
 
-  bool View::configureOutstanding() const {
-    if (m_toplevel == nullptr) {
-      return false;
+  bool View::transitionConfigure(ConfigureEvent event) {
+    ConfigureFacts facts;
+    if (m_toplevel != nullptr) {
+      const wlr_xdg_surface* surface = m_toplevel->base;
+      const ClientSize scheduled = scheduledSize();
+      const ClientSize current = currentSize();
+      const bool sizeLanded = (scheduled.width == 0 || scheduled.width == current.width)
+          && (scheduled.height == 0 || scheduled.height == current.height);
+      facts = {
+          .queued = surface->configure_idle != nullptr,
+          .acked = surface->current.configure_serial == surface->scheduled_serial,
+          .excused = suspended() && sizeLanded,
+      };
     }
-    const wlr_xdg_surface* surface = m_toplevel->base;
-    return surface->configure_idle != nullptr || surface->current.configure_serial != surface->scheduled_serial;
+    return applyConfigureEvent(m_configureState, event, facts, [this] {
+      if (Ipc* ipc = m_server->ipc()) {
+        ipc->notifySettleInputCleared();
+      }
+    });
   }
 
   bool View::configureSettled(uint32_t serial) const {
@@ -284,6 +305,7 @@ namespace andromeda {
   void View::reassertRoleState() {
     if (m_toplevel != nullptr) {
       wlr_xdg_surface_schedule_configure(m_toplevel->base);
+      transitionConfigure(ConfigureEvent::Scheduled);
       return;
     }
     wlr_xwayland_surface_set_fullscreen(m_xsurface, m_xState.fullscreen);
@@ -293,6 +315,7 @@ namespace andromeda {
   void View::setTiledState(uint32_t edges) {
     if (m_toplevel != nullptr) {
       wlr_xdg_toplevel_set_tiled(m_toplevel, edges);
+      transitionConfigure(ConfigureEvent::Scheduled);
     }
   }
 

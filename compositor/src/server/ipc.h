@@ -59,7 +59,8 @@ namespace andromeda {
     void notifyOutputFrame(const Output& output);
     // A hidden window's commit draws no frame, yet it can answer the last configure a settle waits for.
     void notifyViewCommitted();
-    // A settle input cleared without a commit or a frame (the effect-selection idle): recheck once the loop is idle,
+    // A settle input cleared without a commit or a frame (the effect-selection idle, a window entering a settled
+    // configure state such as suspended): recheck once the loop is idle,
     // so a waiter is not answered in the middle of the change that cleared it.
     void notifySettleInputCleared();
 

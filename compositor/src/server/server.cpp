@@ -2656,18 +2656,8 @@ namespace andromeda {
     if (std::ranges::any_of(m_animatables, [](const Animatable* owner) { return owner->hasActiveAnimations(); })) {
       return false;
     }
-    // A window whose latest configure is still queued, or not yet acknowledged and committed, has not drawn the state
-    // the compositor asked for. A suspended window gets no frame callbacks, so it may never commit a configure that
-    // only suspends it; a new size still has to land.
     for (const auto& view : m_registry.all()) {
-      if (view->effectSelectionPending()) {
-        return false;
-      }
-      const auto scheduled = view->scheduledSize();
-      const auto current = view->currentSize();
-      const bool sizeLanded = (scheduled.width == 0 || scheduled.width == current.width)
-          && (scheduled.height == 0 || scheduled.height == current.height);
-      if (view->mapped() && !(view->suspended() && sizeLanded) && view->configureOutstanding()) {
+      if (view->effectSelectionPending() || !configureSettled(view->configureState())) {
         return false;
       }
     }

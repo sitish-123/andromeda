@@ -4,6 +4,7 @@
 #include "scene/node.h"
 #include "util/tracked.h"
 #include "view/chrome_attachment.h"
+#include "view/configure_state.h"
 #include "view/decoration.h"
 #include "view/deferred_unfullscreen.h"
 #include "view/drag_physics.h"
@@ -100,9 +101,9 @@ namespace andromeda {
     // True once the client has been sent the suspended state; always false for X11 windows and xdg clients older than
     // version 6, which cannot receive it.
     [[nodiscard]] bool suspended() const;
-    // True while the latest configure is still queued, or sent but not yet acknowledged and committed. Always false for
-    // X11 windows, which acknowledge nothing.
-    [[nodiscard]] bool configureOutstanding() const;
+    // True while a mapped window owes the latest configure. Always false for X11 windows, which acknowledge nothing.
+    [[nodiscard]] bool configureOutstanding() const { return configureOwed(m_configureState); }
+    [[nodiscard]] ConfigureState configureState() const { return m_configureState; }
     // True while the shared scene draws the window: its frame and every ancestor are enabled.
     [[nodiscard]] bool presented() const;
     // Presented, and not behind the lock screen or on a powered-off output.
@@ -516,6 +517,8 @@ namespace andromeda {
     void setNodeEnabled(bool placeShows);
     // Applies one lifecycle event; false when the transition is rejected.
     bool transitionLifecycle(LifecycleEvent event);
+    // Applies one configure event with what wlroots reports now; entering a settled state wakes waiting settle requests.
+    bool transitionConfigure(ConfigureEvent event);
     void syncShown();
     [[nodiscard]] WindowVisibility visibility() const {
       return {.lifecycle = m_lifecycle, .tabHidden = m_tabHidden, .minimized = m_minimized, .placeShows = m_placeShows};
@@ -1023,6 +1026,7 @@ namespace andromeda {
     std::optional<DisplacedHome> m_displacedHome;
 
     Lifecycle m_lifecycle = Lifecycle::Unmapped;
+    ConfigureState m_configureState = ConfigureState::Unmapped;
     bool m_placeShows = false;
     bool m_hasEverMapped = false;
     bool m_launchPlacementPending = false;

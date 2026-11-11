@@ -11,6 +11,7 @@ unit_tests = [
   ['snap-assist-mode', ['unit/snap_assist_mode.cpp'], []],
   ['slide-mode', ['unit/slide_mode.cpp'], []],
   ['view-visibility', ['unit/view_visibility.cpp'], []],
+  ['configure-state', ['unit/configure_state.cpp'], []],
   ['gesture-physics', ['unit/gesture_physics.cpp'], []],
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],

@@ -171,6 +171,7 @@ namespace andromeda {
   void View::onCommit(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_commit);
     self->handleCommit();
+    self->transitionConfigure(ConfigureEvent::Commit);
     if (Ipc* ipc = self->m_server->ipc()) {
       ipc->notifyViewCommitted();
     }
@@ -1132,6 +1133,7 @@ namespace andromeda {
   }
 
   void View::roleDestroyed() {
+    transitionConfigure(ConfigureEvent::Destroy);
     cancelFadeAnimation();
     cancelPositionAnimation();
     leaveForeignOutput();

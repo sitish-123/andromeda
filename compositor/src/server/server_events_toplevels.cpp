@@ -158,12 +158,15 @@ namespace andromeda {
         return;
       }
       watch->pendingMode = resolvedDecorationMode(watch->decoration);
-      if (View* view = View::fromSurface(surface->surface))
+      View* view = View::fromSurface(surface->surface);
+      if (view != nullptr)
         view->setXdgDecorationPreference(watch->pendingMode == WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
       // set_mode schedules a configure; that asserts unless the xdg_surface is ready.
       if (surface->initialized) {
         clearDecorationCommit(watch);
         wlr_xdg_toplevel_decoration_v1_set_mode(watch->decoration, watch->pendingMode);
+        if (view != nullptr)
+          view->transitionConfigure(ConfigureEvent::Scheduled);
         return;
       }
       if (watch->surfaceCommit.notify != nullptr) {

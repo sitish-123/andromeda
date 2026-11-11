@@ -366,6 +366,7 @@ namespace andromeda {
         eligible ? caps | WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE : caps & ~WLR_XDG_TOPLEVEL_WM_CAPABILITIES_MINIMIZE;
     if (wanted != caps) {
       wlr_xdg_toplevel_set_wm_capabilities(m_toplevel, wanted);
+      transitionConfigure(ConfigureEvent::Scheduled);
     }
   }
 

@@ -648,6 +648,9 @@ namespace andromeda {
       return false;
     }
     m_lifecycle = *next;
+    if (event == LifecycleEvent::Map || event == LifecycleEvent::Unmap) {
+      transitionConfigure(event == LifecycleEvent::Map ? ConfigureEvent::Map : ConfigureEvent::Unmap);
+    }
     syncShown();
     return true;
   }
@@ -924,6 +927,7 @@ namespace andromeda {
   // A suspended view gets frame callbacks only while it owes a configure, so a sent configure arms the tick.
   void View::onConfigure(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_configure);
+    self->transitionConfigure(ConfigureEvent::Sent);
     if (self->suspended()) {
       self->m_server->armBackgroundFrameTimer();
     }
