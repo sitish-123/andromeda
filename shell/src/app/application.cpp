@@ -1,4 +1,5 @@
 #include "application.h"
+#include "protocols/crash_capture.h"
 #include "shell/lockscreen/lock_client.h"
 #include "a11y/atspi_bridge.h"
 
@@ -347,6 +348,7 @@ Application::~Application() {
 
 void Application::run(const std::function<void()>& startupReadyCallback) {
   initLogFile();
+  andromeda::crash::install("andromeda-shell", noctalia::build_info::displayVersion());
   initLogLevelFromEnvironment();
   kLog.info("noctalia {}", noctalia::build_info::displayVersion());
   noctalia::theme::dev_tokens::watchEnv(m_fileWatcher, [this] { m_configService.reloadAllSections(); });

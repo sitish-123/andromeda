@@ -1,4 +1,5 @@
 #include "core/main_loop_worker.h"
+#include "protocols/crash_capture.h"
 
 #include <sys/eventfd.h>
 #include <unistd.h>
@@ -46,6 +47,7 @@ namespace andromeda {
   }
 
   void MainLoopWorker::run(const std::stop_token& stop) {
+    andromeda::crash::installThreadStack();
     std::unique_lock lock(m_mutex);
     while (m_wake.wait(lock, stop, [this] { return !m_jobs.empty(); })) {
       Job job = std::move(m_jobs.front());

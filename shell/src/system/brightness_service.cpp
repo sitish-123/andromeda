@@ -1,4 +1,5 @@
 #include "system/brightness_service.h"
+#include "protocols/crash_capture.h"
 #include "util/thread_name.h"
 
 #include "compositors/compositor_platform.h"
@@ -1280,6 +1281,7 @@ struct BrightnessService::Impl {
   }
 
   void workerLoop() {
+    andromeda::crash::installThreadStack();
     nameThisThread("dsk-ddc");
     while (true) {
       std::optional<DdcDetectJob> detectJob;

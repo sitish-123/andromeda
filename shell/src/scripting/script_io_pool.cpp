@@ -1,4 +1,5 @@
 #include "scripting/script_io_pool.h"
+#include "protocols/crash_capture.h"
 #include "util/thread_name.h"
 
 #include <algorithm>
@@ -48,6 +49,7 @@ namespace scripting {
   }
 
   void ScriptIoPool::runWorker() {
+    andromeda::crash::installThreadStack();
     nameThisThread("dsk-script-io");
     for (;;) {
       std::function<void()> task;

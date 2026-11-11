@@ -3,6 +3,7 @@
 #include "core/deferred_call.h"
 #include "core/files/resource_paths.h"
 #include "core/log.h"
+#include "protocols/crash_capture.h"
 #include "core/ui_phase.h"
 #include "greeter/greetd_client.h"
 #include "render/gl_shared_context.h"
@@ -1220,6 +1221,7 @@ int runGreeterHost(int argc, char* argv[]) {
   }
   std::signal(SIGTERM, onSignal);
   std::signal(SIGINT, onSignal);
+  andromeda::crash::install("andromeda-greeter", NOCTALIA_VERSION);
   kLog.info("greeter mode start");
   GreeterHost host(std::move(user));
   if (!host.initialize()) {

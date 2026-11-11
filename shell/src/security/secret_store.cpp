@@ -1,4 +1,5 @@
 #include "security/secret_store.h"
+#include "protocols/crash_capture.h"
 #include "util/thread_name.h"
 
 #include "core/log.h"
@@ -774,6 +775,7 @@ namespace security {
 
   private:
     void workerLoop() {
+      andromeda::crash::installThreadStack();
       nameThisThread("dsk-secret");
       while (true) {
         Request request;

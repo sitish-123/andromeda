@@ -1,4 +1,5 @@
 #include "core/shared_worker.h"
+#include "protocols/crash_capture.h"
 
 #include "core/deferred_call.h"
 
@@ -47,6 +48,7 @@ bool SharedWorker::running() {
 void SharedWorker::runOnMainLoop(std::function<void()> fn) { DeferredCall::callLater(std::move(fn)); }
 
 void SharedWorker::loop() {
+  andromeda::crash::installThreadStack();
   pthread_setname_np(pthread_self(), "dsk-worker");
   std::unique_lock lock(m_mutex);
   while (true) {

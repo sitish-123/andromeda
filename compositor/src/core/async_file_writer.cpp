@@ -1,4 +1,5 @@
 #include "core/async_file_writer.h"
+#include "protocols/crash_capture.h"
 
 #include "core/log.h"
 
@@ -43,6 +44,7 @@ namespace andromeda {
 
     private:
       void run(const std::stop_token& stop) {
+        andromeda::crash::installThreadStack();
         std::unique_lock lock(m_mutex);
         while (true) {
           m_wake.wait(lock, stop, [this] { return !m_queue.empty(); });

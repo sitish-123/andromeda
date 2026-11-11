@@ -18,6 +18,7 @@ unit_tests = [
   ['presented-crop', ['unit/presented_crop.cpp'], []],
   ['scene-node', ['unit/scene_node.cpp'], []],
   ['scene-clip', ['unit/scene_clip.cpp'], [wayland_server_dep]],
+  ['crash-capture', ['unit/crash_capture.cpp'], [], ['-I' + meson.project_source_root()]],
   ['xwayland-outputs', ['unit/xwayland_outputs.cpp'], [andromeda_core_dep]],
   ['xwayland-xsettings', ['unit/xwayland_xsettings.cpp'], []],
   ['presentation', ['unit/presentation.cpp'], [andromeda_core_dep]],
@@ -143,6 +144,12 @@ test(
   'validate-config',
   find_program('validate_config.sh'),
   args: [andromeda],
+)
+
+test(
+  'cli-debug',
+  find_program('python3'),
+  args: [files('cli_debug.py'), andromeda],
 )
 
 dbus_run_session = find_program('dbus-run-session', required: false)

@@ -1,3 +1,4 @@
+#include "cli/debug.h"
 #include "cli/ipc_client.h"
 #include "cli/update.h"
 #include "config/config.h"
@@ -13,6 +14,7 @@
 #include "server/ipc_commands.h"
 #include "server/greeter_mode.h"
 #include "server/server.h"
+#include "protocols/crash_capture.h"
 
 #include <algorithm>
 #include <csignal>
@@ -146,6 +148,12 @@ namespace {
       specRows(andromeda::IpcCommandGroup::Harness);
     }
 
+    heading("Debugging, without a running compositor");
+    row("debug crashes [--since 1h] [--json]", "list crash reports and core dumps");
+    row("debug log [component|all] [--since 15m]", "show warnings and errors from the journal");
+    row("  [--level warning] [--grep RE]", "components: compositor, shell, greeter, system, link");
+    row("debug report [--since 1h]", "summarize versions, units, errors, crashes, config");
+
     heading("Other");
     row("update", "check for and install updates");
     row("help | -h | --help", "show this help");
@@ -249,6 +257,11 @@ int main(int argc, char** argv) {
       const bool help = argc >= 3 && isHelpFlag(argv[2]);
       printHelp(help ? stdout : stderr);
       return help ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (std::strcmp(argv[1], "debug") == 0) {
+      return andromeda::runDebug(
+          argc - 1, argv + 1, std::format("{} ({})", andromeda::build_info::version(), andromeda::build_info::revision())
+      );
     }
     if (std::strcmp(argv[1], "update") == 0) {
       if (argc == 2) {
@@ -417,6 +430,10 @@ int main(int argc, char** argv) {
   }
 
   initLogFile();
+  andromeda::crash::install(
+      "andromeda", std::format("{} ({})", andromeda::build_info::version(), andromeda::build_info::revision())
+  );
+  initLogLevelFromEnvironment();
   // wlroots debug output is mostly per-frame scan-out and buffer chatter, so it stays opt-in.
   const char* wlrDebug = std::getenv("ANDROMEDA_WLR_DEBUG");
   const bool wlrDebugEnabled = wlrDebug != nullptr && std::strcmp(wlrDebug, "1") == 0;

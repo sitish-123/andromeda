@@ -1,3 +1,6 @@
 # The greeter user's home is /, so Mesa has nowhere to keep its shader cache; without one every boot builds the
 # greeter's GL programs cold (~150 ms more to its first frame).
 d /var/cache/andromeda-greeter 0700 greeter greeter -
+# Crash reports (protocol/crash_capture.h): the greeter has no writable home.
+d /var/lib/andromeda-greeter 0750 greeter greeter -
+d /var/lib/andromeda-greeter/crashes 0750 greeter greeter -

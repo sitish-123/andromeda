@@ -38,6 +38,7 @@ namespace andromeda {
     // The reply to clock-advance. The IPC server advances the clock and holds the reply until every output has drawn.
     static nlohmann::json clockAdvance(Server& server, std::string_view arg);
     static nlohmann::json clockResume(Server& server, std::string_view arg);
+    static nlohmann::json logLevel(Server& server, std::string_view arg);
 #ifdef ANDROMEDA_TEST_IPC
     static nlohmann::json rendererRecover(Server& server, std::string_view arg);
     static nlohmann::json outputCommits(Server& server, std::string_view arg);

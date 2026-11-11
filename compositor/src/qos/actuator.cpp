@@ -1,4 +1,5 @@
 #include "qos/actuator.h"
+#include "protocols/crash_capture.h"
 
 #include "core/log.h"
 #include "core/systemd_units.h"
@@ -139,6 +140,7 @@ namespace andromeda::qos {
   }
 
   void Actuator::slackLoop(const std::stop_token& stop) {
+    andromeda::crash::installThreadStack();
     std::unique_lock lock(m_slackMutex);
     for (;;) {
       m_slackWake.wait(lock, stop, [this] { return !m_slackQueue.empty(); });

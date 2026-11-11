@@ -1,5 +1,7 @@
 #include "core/log.h"
 
+#include "protocols/crash_capture.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -17,6 +19,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <utility>
 
@@ -159,6 +162,31 @@ namespace {
     return std::min(static_cast<std::size_t>(length), bufferSize - 1);
   }
 
+  // The sd-daemon level prefix when stderr is the journal stream ($JOURNAL_STREAM is its "dev:inode"), so journald
+  // stores the line's real priority instead of 6.
+  const char* journalLevelPrefix(LogLevel level) {
+    static const bool toJournal = [] {
+      const char* stream = std::getenv("JOURNAL_STREAM");
+      struct stat st{};
+      return stream != nullptr && fstat(STDERR_FILENO, &st) == 0
+          && std::format("{}:{}", st.st_dev, st.st_ino) == stream;
+    }();
+    if (!toJournal) {
+      return "";
+    }
+    switch (level) {
+    case LogLevel::Debug:
+      return "<7>";
+    case LogLevel::Info:
+      return "<6>";
+    case LogLevel::Warn:
+      return "<4>";
+    case LogLevel::Error:
+      return "<3>";
+    }
+    return "";
+  }
+
   std::string consolePrefix(const std::tm& tm, const std::timespec& ts, LogLevel level, const char* section) {
     char buffer[96];
     const int length = std::snprintf(
@@ -297,6 +325,7 @@ namespace {
   }
 
   void writerMain() {
+    andromeda::crash::installThreadStack();
     // Named: the idle-thread checks count unnamed threads as on-demand workers that should have exited.
     pthread_setname_np(pthread_self(), "dsk-log");
     std::unique_lock lock(gQueueMutex);
@@ -480,6 +509,7 @@ void flushLogs() {
 namespace detail {
 
   void logMessage(LogLevel level, const char* section, std::string_view msg) {
+    andromeda::crash::record("DIWE"[static_cast<int>(level)], section, msg);
     if (LogSink sink = gLogSink.load(std::memory_order_acquire); sink != nullptr) {
       if (level >= gMinLevel) {
         sink(level, section, msg);
@@ -502,7 +532,8 @@ namespace detail {
     if (level >= minLevel) {
       const std::string prefix = consolePrefix(tm, ts, level, section);
       const CappedLogMessage capped = capMessageForLine(msg, prefix.size());
-      line.console = prefix;
+      line.console = journalLevelPrefix(level);
+      line.console += prefix;
       line.console += capped.text();
       line.console += '\n';
     }

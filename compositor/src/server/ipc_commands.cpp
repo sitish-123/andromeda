@@ -2,6 +2,7 @@
 
 #include "config/change.h"
 #include "config/config.h"
+#include "core/log.h"
 #include "input/cursor.h"
 #include "input/input_capture.h"
 #include "overview/overview.h"
@@ -269,6 +270,8 @@ namespace andromeda {
     }
 
     void printOutputName(const nlohmann::json& ok) { std::println("{}", ok.get<std::string>()); }
+
+    void printLogLevel(const nlohmann::json& ok) { std::println("{}", ok.value("level", "")); }
 
     const char* transformName(wl_output_transform transform) {
       switch (transform) {
@@ -1304,6 +1307,17 @@ namespace andromeda {
     return nlohmann::json{{"ok", nullptr}};
   }
 
+  nlohmann::json IpcCommands::logLevel(Server& /*server*/, std::string_view arg) {
+    if (!arg.empty()) {
+      const auto level = parseLogLevel(arg);
+      if (!level.has_value()) {
+        return nlohmann::json{{"err", "usage: log-level [debug|info|warn|error]"}};
+      }
+      setLogLevel(*level);
+    }
+    return nlohmann::json{{"ok", {{"level", logLevelName(currentLogLevel())}}}};
+  }
+
 #ifdef ANDROMEDA_TEST_IPC
   nlohmann::json IpcCommands::pinchForTest(Server& server, std::string_view arg) {
     std::istringstream input{std::string(arg)};
@@ -1535,6 +1549,8 @@ namespace andromeda {
        &IpcCommands::outputDestroy, nullptr},
       {"config-replace", "<path>", "load and watch a different config file", IpcCommandGroup::Control, true,
        &IpcCommands::configReplace, nullptr},
+      {"log-level", "[debug|info|warn|error]", "show or set the journal log level", IpcCommandGroup::Control, true,
+       &IpcCommands::logLevel, &printLogLevel},
       {"effects", "", "inspect effect presets, pools, and owner selections", IpcCommandGroup::Inspect, false,
        &IpcCommands::effects, &printEffects},
       {"windows", "", "list windows (app id and title)", IpcCommandGroup::Inspect, false, &IpcCommands::windows,

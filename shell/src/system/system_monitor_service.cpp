@@ -1,4 +1,5 @@
 #include "system/system_monitor_service.h"
+#include "protocols/crash_capture.h"
 #include "util/thread_name.h"
 
 #include "core/log.h"
@@ -1278,6 +1279,7 @@ void SystemMonitorService::logDetectedSources() {
 }
 
 void SystemMonitorService::samplingLoop() {
+  andromeda::crash::installThreadStack();
   nameThisThread("dsk-sysmon");
   using Clock = std::chrono::steady_clock;
 

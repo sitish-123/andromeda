@@ -1,5 +1,7 @@
 #include "core/log.h"
 
+#include "protocols/crash_capture.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -20,6 +22,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace {
@@ -274,13 +277,39 @@ namespace {
   void writeQueuedLine(const QueuedLine& line);
   void queueLine(QueuedLine line);
 
+  // The sd-daemon level prefix when stderr is the journal stream ($JOURNAL_STREAM is its "dev:inode"), so journald
+  // stores the line's real priority instead of 6.
+  const char* journalLevelPrefix(LogLevel level) {
+    static const bool toJournal = [] {
+      const char* stream = std::getenv("JOURNAL_STREAM");
+      struct stat st{};
+      return stream != nullptr && fstat(STDERR_FILENO, &st) == 0
+          && std::format("{}:{}", st.st_dev, st.st_ino) == stream;
+    }();
+    if (!toJournal) {
+      return "";
+    }
+    switch (level) {
+    case LogLevel::Debug:
+      return "<7>";
+    case LogLevel::Info:
+      return "<6>";
+    case LogLevel::Warn:
+      return "<4>";
+    case LogLevel::Error:
+      return "<3>";
+    }
+    return "";
+  }
+
   void emitUnlocked(LogLevel level, const char* section, std::string_view msg, const std::tm& tm, long msec) {
     QueuedLine line;
     // Console: respects gMinLevel, ANSI colours, time only
     if (gConsoleEnabled && level >= gMinLevel) {
       const std::string prefix = consolePrefix(tm, msec, level, section);
       const CappedLogMessage capped = capMessageForLine(msg, prefix.size());
-      line.console = prefix;
+      line.console = journalLevelPrefix(level);
+      line.console += prefix;
       line.console += capped.text();
       line.console += '\n';
     }
@@ -343,6 +372,7 @@ namespace {
   }
 
   void writerMain() {
+    andromeda::crash::installThreadStack();
     std::unique_lock lock(gQueueMutex);
     while (true) {
       gQueueReady.wait(lock, [] { return gWriterStop || !gQueue.empty(); });
@@ -563,10 +593,58 @@ namespace detail {
       gRepeatWindowStart = now;
     }
 
+    andromeda::crash::record("DIWE"[static_cast<int>(level)], section, msg);
     emitUnlocked(level, section, msg, tm, msec);
   }
 
 } // namespace detail
+
+std::string_view logLevelName(LogLevel level) {
+  switch (level) {
+  case LogLevel::Debug:
+    return "debug";
+  case LogLevel::Info:
+    return "info";
+  case LogLevel::Warn:
+    return "warn";
+  case LogLevel::Error:
+    return "error";
+  }
+  return "unknown";
+}
+
+std::optional<LogLevel> parseLogLevel(std::string_view value) {
+  for (const LogLevel level : {LogLevel::Debug, LogLevel::Info, LogLevel::Warn, LogLevel::Error}) {
+    if (value == logLevelName(level)) {
+      return level;
+    }
+  }
+  return std::nullopt;
+}
+
+LogLevel currentLogLevel() {
+  std::scoped_lock lock(gStateMutex);
+  return gMinLevel;
+}
+
+void setLogLevel(LogLevel level) {
+  std::scoped_lock lock(gStateMutex);
+  gMinLevel = level;
+}
+
+void initLogLevelFromEnvironment() {
+  const char* value = std::getenv("ANDROMEDA_LOG_LEVEL");
+  if (value == nullptr) {
+    return;
+  }
+  const auto level = parseLogLevel(value);
+  if (!level.has_value()) {
+    logWarn("invalid ANDROMEDA_LOG_LEVEL '{}'; expected debug, info, warn, or error", value);
+    return;
+  }
+  setLogLevel(*level);
+  logInfo("log level set to {}", logLevelName(*level));
+}
 
 void setConsoleLogging(bool enabled) {
   std::scoped_lock lock(gStateMutex);

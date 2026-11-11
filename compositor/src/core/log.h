@@ -2,6 +2,7 @@
 
 #include <cstdarg>
 #include <format>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -54,6 +55,14 @@ public:
 private:
   const char* m_section;
 };
+
+// The console (journal) threshold; the log file takes every level. Names as the shell's: debug, info, warn, error.
+[[nodiscard]] std::string_view logLevelName(LogLevel level);
+[[nodiscard]] std::optional<LogLevel> parseLogLevel(std::string_view value);
+[[nodiscard]] LogLevel currentLogLevel();
+void setLogLevel(LogLevel level);
+// Reads ANDROMEDA_LOG_LEVEL.
+void initLogLevelFromEnvironment();
 
 // Opens (or rotates) ~/.cache/andromeda/andromeda.log. Also redirects fd 1/2 to ~/.cache/andromeda/andromeda-stderr.log (or
 // /dev/null) if either points at a TTY (greetd wires them to /dev/tty1), since synchronous VT writes on the compositor

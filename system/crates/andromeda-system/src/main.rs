@@ -3,6 +3,7 @@
 
 mod battery;
 mod bus;
+mod crash;
 mod crashes;
 mod display;
 mod drives;
@@ -41,8 +42,9 @@ pub const NAME: &str = "org.andromeda.System1";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    if std::env::args().nth(1).as_deref() == Some("--session") {
+    let session = std::env::args().nth(1).as_deref() == Some("--session");
+    crash::init(if session { "andromeda-system-session" } else { "andromeda-system" });
+    if session {
         return Box::pin(session::run()).await;
     }
     // systemd sets STATE_DIRECTORY from StateDirectory=; tests point it at a temp dir.
