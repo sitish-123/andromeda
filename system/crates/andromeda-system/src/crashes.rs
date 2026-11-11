@@ -33,6 +33,10 @@ pub fn exe_of(line: &str) -> Option<String> {
     if entry.get("MESSAGE_ID")?.as_str()? != COREDUMP_ID {
         return None;
     }
+    // si_code 0 is SI_USER: another process sent the signal with kill(), not a fault.
+    if entry.get("COREDUMP_CODE").and_then(serde_json::Value::as_str) == Some("0") {
+        return None;
+    }
     let field = |k: &str| entry.get(k).and_then(serde_json::Value::as_str).filter(|s| !s.is_empty());
     field("COREDUMP_EXE").or_else(|| field("COREDUMP_COMM")).map(str::to_owned)
 }
@@ -87,6 +91,13 @@ mod tests {
         let line = format!(r#"{{"MESSAGE_ID":"{COREDUMP_ID}","COREDUMP_EXE":"/usr/bin/foot","COREDUMP_COMM":"foot"}}"#);
         assert_eq!(exe_of(&line).as_deref(), Some("/usr/bin/foot"));
         assert_eq!(exe_of(r#"{"MESSAGE_ID":"x","COREDUMP_EXE":"/usr/bin/foot"}"#), None);
+    }
+
+    #[test]
+    fn a_signal_sent_by_kill_is_not_a_crash() {
+        let line = |code| format!(r#"{{"MESSAGE_ID":"{COREDUMP_ID}","COREDUMP_EXE":"/usr/bin/foot","COREDUMP_CODE":"{code}"}}"#);
+        assert_eq!(exe_of(&line(0)), None);
+        assert_eq!(exe_of(&line(1)).as_deref(), Some("/usr/bin/foot"));
     }
 
     #[test]
