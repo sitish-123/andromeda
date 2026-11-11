@@ -400,7 +400,9 @@ fn walk_zip(
         let entry = Entry { path: inner, kind, size: file.size(), mtime: zip_mtime(file.last_modified()) };
         let mode = file.unix_mode().unwrap_or(0);
         let mut decoded: Box<dyn Read + '_> = if raw_xz {
-            Box::new(lzma_rust2::XzReader::new_mem_limit(&mut file, false, DECODER_MEMORY_KIB))
+            let (left, want) = (file.size(), file.crc32());
+            let xz = lzma_rust2::XzReader::new_mem_limit(&mut file, false, DECODER_MEMORY_KIB);
+            Box::new(ZipChecked { inner: xz, left, crc: flate2::Crc::new(), want })
         } else {
             Box::new(&mut file)
         };
@@ -438,8 +440,35 @@ fn zip_raw_xz<R: Read>(raw: &mut zip::read::ZipFile<'_, R>) -> Result<bool, Arch
     // APPNOTE 5.8.8: 2-byte version, 2-byte properties size, then the LZMA properties byte and a 4-byte dictionary size.
     let mut header = [0; 9];
     raw.read_exact(&mut header)?;
-    let dict = u32::from_le_bytes([header[5], header[6], header[7], header[8]]);
-    if dict / 1024 > DECODER_MEMORY_KIB { Err(ArchiveError::TooMuchMemory) } else { Ok(false) }
+    let dict = u64::from(u32::from_le_bytes([header[5], header[6], header[7], header[8]]));
+    // zip passes the declared size to lzma-rust2, which shrinks the dictionary to it up to u64::MAX / 2.
+    let size = raw.size();
+    let dict = if size <= u64::MAX / 2 { dict.min(size) } else { dict };
+    if dict / 1024 > u64::from(DECODER_MEMORY_KIB) { Err(ArchiveError::TooMuchMemory) } else { Ok(false) }
+}
+
+/// The size cap and CRC-32 check that zip adds to the entries it decodes, for the xz data this module decodes itself.
+struct ZipChecked<R> {
+    inner: R,
+    left: u64,
+    crc: flate2::Crc,
+    want: u32,
+}
+
+impl<R: Read> Read for ZipChecked<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        let damaged = |why: &str| io::Error::new(io::ErrorKind::InvalidData, format!("damaged archive: {why}"));
+        if n == 0 && self.left > 0 {
+            return Err(damaged("entry shorter than its declared size"));
+        }
+        self.left = self.left.checked_sub(n as u64).ok_or_else(|| damaged("entry longer than its declared size"))?;
+        self.crc.update(&buf[..n]);
+        if n > 0 && self.left == 0 && self.crc.sum() != self.want {
+            return Err(damaged("entry checksum does not match"));
+        }
+        Ok(n)
+    }
 }
 
 fn walk_7z(
@@ -1224,8 +1253,8 @@ mod tests {
         ];
         // APPNOTE 5.8.8 LZMA header: version, properties size 5, properties byte, 1536 MiB dictionary.
         let lzma = [9, 20, 5, 0, 0x5d, 0, 0, 0, 0x60, 0, 0, 0, 0, 0, 0];
-        let zip_lzma = one_entry_zip(14, 1 << 30, &lzma);
-        let zip_xz = one_entry_zip(95, 10240, TAR_XZ);
+        let zip_lzma = one_entry_zip(14, 1 << 30, 0, &lzma);
+        let zip_xz = one_entry_zip(95, 10240, 0, TAR_XZ);
         let root = tempfile::tempdir().unwrap();
         for (name, bytes) in [
             ("big-dict.tar.xz", TAR_XZ),
@@ -1235,18 +1264,64 @@ mod tests {
         ] {
             let archive = root.path().join(name);
             fs::write(&archive, bytes).unwrap();
-            let limits = Limits { stop: &|| false, max_bytes: u64::MAX, deadline: None };
-            let result = walk(&archive, "", true, &limits, &mut |item| {
-                io::copy(item.data, &mut io::sink())?;
-                Ok(true)
-            });
+            let result = read_all(&archive);
             assert!(matches!(result, Err(ArchiveError::TooMuchMemory)), "{name}: {result:?}");
         }
     }
 
+    /// Reads every entry of `archive` to its end.
+    fn read_all(archive: &Path) -> Result<(), ArchiveError> {
+        let limits = Limits { stop: &|| false, max_bytes: u64::MAX, deadline: None };
+        walk(archive, "", true, &limits, &mut |item| {
+            io::copy(item.data, &mut io::sink())?;
+            Ok(true)
+        })
+    }
+
+    #[test]
+    fn a_zip_xz_entry_must_match_its_declared_size_and_checksum() {
+        let text = b"hello world";
+        let mut xz = lzma_rust2::XzWriter::new(Vec::new(), lzma_rust2::XzOptions::with_preset(0)).unwrap();
+        xz.write_all(text).unwrap();
+        let xz = xz.finish().unwrap();
+        let mut crc = flate2::Crc::new();
+        crc.update(text);
+        let (crc, size) = (crc.sum(), u32::try_from(text.len()).unwrap());
+        let root = tempfile::tempdir().unwrap();
+        for (name, size, crc, good) in
+            [("good", size, crc, true), ("crc", size, crc ^ 1, false), ("short", size - 6, crc, false)]
+        {
+            let archive = root.path().join(format!("{name}.zip"));
+            fs::write(&archive, one_entry_zip(95, size, crc, &xz)).unwrap();
+            let result = read_all(&archive);
+            assert_eq!(result.is_ok(), good, "{name}: {result:?}");
+        }
+    }
+
+    #[test]
+    fn a_zip_lzma_entry_with_a_big_dictionary_but_a_small_size_extracts() {
+        let text = b"hello world";
+        let mut lzma =
+            lzma_rust2::LzmaWriter::new_no_header(Vec::new(), &lzma_rust2::LzmaOptions::with_preset(0), false).unwrap();
+        let props = lzma.props();
+        lzma.write_all(text).unwrap();
+        // APPNOTE 5.8.8 LZMA header, then a declared 1536 MiB dictionary.
+        let mut data = vec![9, 20, 5, 0, props, 0, 0, 0, 0x60];
+        data.extend(lzma.finish().unwrap());
+        let mut crc = flate2::Crc::new();
+        crc.update(text);
+        let root = tempfile::tempdir().unwrap();
+        let archive = root.path().join("small.zip");
+        fs::write(&archive, one_entry_zip(14, u32::try_from(text.len()).unwrap(), crc.sum(), &data)).unwrap();
+        let dest = root.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        extract(&archive, &[], &dest, "", &Quietly).1.unwrap();
+        assert_eq!(fs::read(dest.join("a")).unwrap(), text);
+    }
+
     /// A zip with one file "a" whose data is already compressed with `method`.
-    fn one_entry_zip(method: u16, size: u32, data: &[u8]) -> Vec<u8> {
-        let (crc, packed, dos_date) = (0u32, u32::try_from(data.len()).unwrap(), 0x21u16);
+    fn one_entry_zip(method: u16, size: u32, crc: u32, data: &[u8]) -> Vec<u8> {
+        let (packed, dos_date) = (u32::try_from(data.len()).unwrap(), 0x21u16);
         let mut out = 0x0403_4b50u32.to_le_bytes().to_vec();
         for v in [20u16, 0, method, 0, dos_date] {
             out.extend(v.to_le_bytes());
