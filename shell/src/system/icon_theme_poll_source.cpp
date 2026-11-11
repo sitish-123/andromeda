@@ -30,16 +30,19 @@ namespace {
     WATCH_THEME_ROOT = 1U << 1U,
     WATCH_ICON_DIR = 1U << 2U,
     WATCH_SETTINGS_DIR = 1U << 3U,
+    WATCH_SETTINGS_ANCESTOR = 1U << 4U,
   };
 
   struct DesiredWatch {
     std::uint8_t roles = 0;
     std::unordered_set<std::string> settingsFiles;
+    std::unordered_set<std::string> missingChildren;
   };
 
   struct ActiveWatch {
     std::uint8_t roles = 0;
     std::unordered_set<std::string> settingsFiles;
+    std::unordered_set<std::string> missingChildren;
   };
 
   bool hasRole(std::uint8_t roles, WatchRole role) { return (roles & static_cast<std::uint8_t>(role)) != 0; }
@@ -87,9 +90,24 @@ struct IconThemePollSource::Impl {
     }
     for (const auto& path : paths.settingsFiles) {
       const fs::path settingsPath(path);
-      auto& watch = desired[settingsPath.parent_path().string()];
-      watch.roles |= WATCH_SETTINGS_DIR;
-      watch.settingsFiles.emplace(settingsPath.filename().string());
+      std::error_code ec;
+      if (fs::is_directory(settingsPath.parent_path(), ec)) {
+        auto& watch = desired[settingsPath.parent_path().string()];
+        watch.roles |= WATCH_SETTINGS_DIR;
+        watch.settingsFiles.emplace(settingsPath.filename().string());
+        continue;
+      }
+      // A missing settings dir (dconf creates ~/.config/dconf on its first write) is watched through its nearest
+      // existing ancestor, so the creation resets the watches without a periodic re-check.
+      fs::path child = settingsPath.parent_path();
+      fs::path ancestor = child.parent_path();
+      while (ancestor != child && !fs::is_directory(ancestor, ec)) {
+        child = ancestor;
+        ancestor = ancestor.parent_path();
+      }
+      auto& watch = desired[ancestor.string()];
+      watch.roles |= WATCH_SETTINGS_ANCESTOR;
+      watch.missingChildren.emplace(child.filename().string());
     }
 
     constexpr std::uint32_t mask =
@@ -105,6 +123,7 @@ struct IconThemePollSource::Impl {
         auto& active = watches[*wd];
         active.roles |= watch.roles;
         active.settingsFiles.insert(watch.settingsFiles.begin(), watch.settingsFiles.end());
+        active.missingChildren.insert(watch.missingChildren.begin(), watch.missingChildren.end());
       }
     }
   }
@@ -135,6 +154,11 @@ struct IconThemePollSource::Impl {
     if (hasRole(watch.roles, WATCH_SETTINGS_DIR)
         && completedFileChange
         && watch.settingsFiles.contains(std::string(name))) {
+      metadata = true;
+    }
+    if (hasRole(watch.roles, WATCH_SETTINGS_ANCESTOR)
+        && directoryChange
+        && watch.missingChildren.contains(std::string(name))) {
       metadata = true;
     }
     if (hasRole(watch.roles, WATCH_BASE_DIR) && directoryChange) {

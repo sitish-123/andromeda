@@ -2,6 +2,7 @@
 #include "util/parse_number.h"
 
 #include "core/log.h"
+#include "system/dconf_read.h"
 #include "system/freedesktop_key_file.h"
 #include "util/string_utils.h"
 
@@ -9,9 +10,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
-#include <gio/gio.h>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -241,50 +240,12 @@ namespace {
     return signature;
   }
 
-  struct GSettingsDeleter {
-    void operator()(GSettings* settings) const {
-      if (settings != nullptr) {
-        g_object_unref(settings);
-      }
-    }
-  };
-
-  GSettings* iconSettings() {
-    static std::unique_ptr<GSettings, GSettingsDeleter> settings = [] {
-      GSettingsSchemaSource* source = g_settings_schema_source_get_default();
-      if (source == nullptr) {
-        return std::unique_ptr<GSettings, GSettingsDeleter>{nullptr};
-      }
-
-      GSettingsSchema* schema = g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
-      if (schema == nullptr) {
-        return std::unique_ptr<GSettings, GSettingsDeleter>{nullptr};
-      }
-
-      const bool hasIconThemeKey = g_settings_schema_has_key(schema, "icon-theme") != FALSE;
-      g_settings_schema_unref(schema);
-      if (!hasIconThemeKey) {
-        return std::unique_ptr<GSettings, GSettingsDeleter>{nullptr};
-      }
-
-      return std::unique_ptr<GSettings, GSettingsDeleter>{g_settings_new("org.gnome.desktop.interface")};
-    }();
-    return settings.get();
-  }
-
-  std::optional<std::string> readGSettingsIconTheme() {
-    GSettings* settings = iconSettings();
-    if (settings == nullptr) {
+  std::optional<std::string> readDconfIconTheme() {
+    const auto raw = dconf::readString("/org/gnome/desktop/interface/icon-theme");
+    if (!raw.has_value()) {
       return std::nullopt;
     }
-
-    gchar* raw = g_settings_get_string(settings, "icon-theme");
-    if (raw == nullptr) {
-      return std::nullopt;
-    }
-
-    std::string value = trimAndUnquote(raw);
-    g_free(raw);
+    std::string value = trimAndUnquote(*raw);
     if (value.empty()) {
       return std::nullopt;
     }
@@ -292,13 +253,13 @@ namespace {
   }
 
   // Returns theme name candidates in priority order:
-  //   1. GSettings (the canonical source used by compositors and other launchers)
+  //   1. dconf org.gnome.desktop.interface icon-theme (the canonical source used by compositors and other launchers)
   //   2. GTK3 ini file (reliable fallback)
   //   3. GTK4 ini file (may be stale)
   std::vector<std::string> readGtkThemeCandidates() {
     std::vector<std::string> candidates;
 
-    if (auto value = readGSettingsIconTheme(); value.has_value()) {
+    if (auto value = readDconfIconTheme(); value.has_value()) {
       candidates.emplace_back(std::move(*value));
     }
 
@@ -610,6 +571,9 @@ IconThemeWatchPaths IconResolver::themeWatchPaths() {
   if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
     paths.settingsFiles.emplace_back(std::string(home) + "/.config/gtk-3.0/settings.ini");
     paths.settingsFiles.emplace_back(std::string(home) + "/.config/gtk-4.0/settings.ini");
+  }
+  if (auto dconfUser = dconf::userDatabasePath(); dconfUser.has_value()) {
+    paths.settingsFiles.emplace_back(dconfUser->string());
   }
   return paths;
 }
