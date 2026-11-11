@@ -20,9 +20,9 @@ docker image inspect "andromeda-build:ubuntu-$VERSION" > /dev/null 2>&1 || {
   echo "no andromeda-build:ubuntu-$VERSION image: run tools/ubuntu-build.sh $VERSION first" >&2
   exit 2
 }
-docker build -q -t "$IMAGE" - > /dev/null << EOF
+docker build --progress=plain -t "$IMAGE" - << EOF
 FROM andromeda-build:ubuntu-$VERSION
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 update && apt-get install -y -qq --no-install-recommends \
   libei-dev libxcb-xtest0-dev dbus dbus-bin libglib2.0-bin grim wtype jq wl-clipboard foot imagemagick ffmpeg pipewire pipewire-bin wireplumber \
   pulseaudio-utils gstreamer1.0-tools xdotool mpv flatpak libgl1-mesa-dri mesa-vulkan-drivers fonts-noto-core \
   fonts-noto-color-emoji python3-gi python3-dbus python3-pil gstreamer1.0-plugins-base gstreamer1.0-plugins-good \

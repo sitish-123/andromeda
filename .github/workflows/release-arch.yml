@@ -30,8 +30,12 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || env.TAG }}
-          # pkg/andromeda-link.install links into the Link submodule.
-          submodules: recursive
+      # Link is not critical: when its commit is not on its remote, the release builds without andromeda-link-git.
+      - name: Link
+        run: |
+          git submodule update --init --recursive link && exit 0
+          echo "::warning::Link $(git rev-parse HEAD:link) is not on its remote: this release ships without Link"
+          echo ANDROMEDA_NO_LINK=1 >> "$GITHUB_ENV"
       # makepkg's ccache option compiles through ccache; LTO objects cache too, only the final link reruns.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: ${{ !inputs.prebuilt }}
@@ -53,7 +57,7 @@ jobs:
         working-directory: pkg
         run: >
           sudo -u builder env HOME=/home/builder CARGO_HOME=/home/builder/.cargo ANDROMEDA_SOURCE="file://$GITHUB_WORKSPACE"
-          CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
+          ANDROMEDA_NO_LINK="${ANDROMEDA_NO_LINK:-}" CCACHE_DIR="$GITHUB_WORKSPACE/.ccache"
           makepkg --syncdeps --noconfirm --force
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always() && !inputs.prebuilt

@@ -47,12 +47,12 @@ git -C "$ROOT" describe --tags --always --dirty=-dirty --abbrev=12 > "$OUT/src/c
 CTX=$OUT/image
 mkdir -p "$CTX"
 cp "$ROOT/debian/control" "$CTX/control"
-docker build -q -t "$IMAGE" -f - "$CTX" > /dev/null << DOCKER
+docker build --progress=plain -t "$IMAGE" -f - "$CTX" << DOCKER
 FROM $BASE
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends devscripts equivs ca-certificates
+RUN apt-get -o Acquire::Retries=5 update && apt-get install -y -qq --no-install-recommends devscripts equivs ca-certificates
 COPY control /tmp/control
-RUN apt-get update -qq && mk-build-deps -i -r -t "apt-get -y -qq --no-install-recommends" /tmp/control
+RUN apt-get -o Acquire::Retries=5 update && mk-build-deps -i -r -t "apt-get -y -qq --no-install-recommends" /tmp/control
 RUN apt-get install -y -qq --no-install-recommends ccache
 DOCKER
 
@@ -74,7 +74,7 @@ docker run --rm --network host --cpus "${UBUNTU_BUILD_CPUS:-6}" -v "$OUT:/o" -v 
   done
   dpkg-buildpackage -b -nc -us -uc 2>&1 | tee /o/build.log || exit 11
   # andromeda-link comes from the Link release, not this source; install every other package.
-  apt-get update -qq
+  apt-get -o Acquire::Retries=5 update
   apt-get install -y -qq $(ls /o/*.deb /o/extra/*.deb 2> /dev/null | grep -v "/andromeda_\|/andromeda-dbgsym_") 2>&1 | tee /o/install.log || exit 12
 ' || status=$?
 docker run --rm -v "$OUT:/o" -v "$CCACHE:/ccache" -v "$CARGO_CACHE:/cargo" "$BASE" chown -R "$(id -u):$(id -g)" /o /ccache /cargo

@@ -69,7 +69,8 @@ jobs:
             gh release download "$TAG" -R sitish-123/andromeda-link -p '*_amd64.deb' -D "$RUNNER_TEMP/link" && exit 0
             sleep 60
           done
-          exit 1
+          # Link is not critical: the release ships without its debs and the apt repo keeps the last Link.
+          echo "::warning::no Link debs for $TAG: this release ships without them"
       - name: Repository
         env:
           RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
