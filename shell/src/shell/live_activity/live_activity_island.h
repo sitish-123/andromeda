@@ -341,6 +341,8 @@ private:
   [[nodiscard]] static bool laneGlass(const Instance& inst);
   // The activity rests as a compact face (LiveActivity::since and compact) on this island.
   [[nodiscard]] bool compactActivity(const Instance& inst) const;
+  // Runs the 1 s elapsed-time refresh while any island shows a compact activity; on every activity or island change.
+  void syncElapsedTimer();
   // The lane pill as a sheet's source, so the sheet sits beside the bar at the island's top; nullopt in a bar row.
   [[nodiscard]] std::optional<SheetSource> laneSheetSource(const Instance& inst) const;
   // The lane pill's glass shape: at the pill while `shown`, else no clip.

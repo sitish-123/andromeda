@@ -137,6 +137,14 @@ namespace {
     TEST_CHECK(queue.mode() == Mode::Banner && queue.banner()->id == 1);
   }
 
+  void testRecordingRestsCompactOnlyInALane() {
+    // timed, call, lane: a recording keeps its card in a bar row, so nothing ticks there.
+    TEST_CHECK(!activityRestsCompact(true, false, false));
+    TEST_CHECK(activityRestsCompact(true, false, true));
+    TEST_CHECK(activityRestsCompact(true, true, false));
+    TEST_CHECK(!activityRestsCompact(false, true, true));
+  }
+
 } // namespace
 
 int main() {
@@ -144,5 +152,6 @@ int main() {
   testBannerWaitsBehindActivity();
   testCompactTimedCallShowsAndExpiresTheBanner();
   testDroppedOsdDrainsTheQueue();
+  testRecordingRestsCompactOnlyInALane();
   return 0;
 }

@@ -5,6 +5,12 @@
 #include <optional>
 #include <utility>
 
+// A timed activity rests compact (its glyph and elapsed time, ticking each second): a call in any bar, a recording only
+// in a bar lane.
+[[nodiscard]] constexpr bool activityRestsCompact(bool timed, bool call, bool lane) noexcept {
+  return timed && (call || lane);
+}
+
 // A live activity hides the banner, except a timed call that sits compact (not hovered, not restless).
 [[nodiscard]] constexpr bool activityHidesBanner(bool active, bool timed, bool hovered, bool restless) noexcept {
   return active && (!timed || hovered || restless);

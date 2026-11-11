@@ -285,14 +285,7 @@ void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
   for (auto& inst : m_instances) {
     applyLayer(*inst);
   }
-  // The elapsed time ticks only where a compact face shows it.
-  if (std::ranges::any_of(m_instances, [this](const auto& inst) { return compactActivity(*inst); })) {
-    if (!m_callTimer.active()) {
-      m_callTimer.startRepeating(std::chrono::seconds(1), [this] { refresh(); });
-    }
-  } else {
-    m_callTimer.stop();
-  }
+  syncElapsedTimer();
   if (m_activity.has_value()) {
     m_shown = *m_activity;
   }
@@ -584,6 +577,7 @@ void LiveActivityIsland::ensureSurfaces() {
     m_instances.push_back(std::move(inst));
     updateFace(*m_instances.back());
   }
+  syncElapsedTimer();
   syncVisibility();
 }
 
@@ -593,6 +587,7 @@ void LiveActivityIsland::destroySurfaces() {
   }
   m_instances.clear();
   syncBars();
+  syncElapsedTimer();
 }
 
 
@@ -962,8 +957,19 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
 bool LiveActivityIsland::laneGlass(const Instance& inst) { return inst.pillShape != nullptr; }
 
 bool LiveActivityIsland::compactActivity(const Instance& inst) const {
-  return m_activity.has_value() && m_activity->since.has_value()
-      && (m_activity->compact == LiveActivity::Compact::Call || inLane(inst));
+  return m_activity.has_value()
+      && activityRestsCompact(m_activity->since.has_value(), m_activity->compact == LiveActivity::Compact::Call, inLane(inst));
+}
+
+void LiveActivityIsland::syncElapsedTimer() {
+  // The elapsed time ticks only where a compact face shows it.
+  if (std::ranges::any_of(m_instances, [this](const auto& inst) { return compactActivity(*inst); })) {
+    if (!m_callTimer.active()) {
+      m_callTimer.startRepeating(std::chrono::seconds(1), [this] { refresh(); });
+    }
+  } else {
+    m_callTimer.stop();
+  }
 }
 
 std::optional<LiveActivityIsland::SheetSource> LiveActivityIsland::laneSheetSource(const Instance& inst) const {
