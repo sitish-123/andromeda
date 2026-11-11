@@ -1384,7 +1384,7 @@ if build_tests
       args: ['--', secret_collection_probe_integration_exe.full_path()],
       depends: secret_collection_probe_integration_exe,
     )
-    foreach mode : ['registration', 'discovery']
+    foreach mode : ['registration', 'discovery', 'vanished']
       test('tray_' + mode + '_integration',
         dbus_run_session,
         args: ['--', tray_registration_integration_exe.full_path(), mode],

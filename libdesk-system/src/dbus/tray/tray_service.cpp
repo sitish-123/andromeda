@@ -2030,12 +2030,15 @@ void TrayService::refreshItemMetadata(const std::string& itemId) {
   }
 
   try {
+    const sdbus::IProxy* proxy = proxyIt->second.get();
     proxyIt->second->callMethodAsync("GetAll")
         .onInterface("org.freedesktop.DBus.Properties")
         .withTimeout(kItemPropertyTimeout)
         .withArguments(kItemInterface)
         .uponReplyInvoke(
-            [this, itemId](std::optional<sdbus::Error> error, const std::map<std::string, sdbus::Variant>& properties) {
+            [this, itemId, proxy](
+                std::optional<sdbus::Error> error, const std::map<std::string, sdbus::Variant>& properties
+            ) {
               auto currentItemIt = m_items.find(itemId);
               if (currentItemIt == m_items.end()) {
                 return;
@@ -2043,6 +2046,18 @@ void TrayService::refreshItemMetadata(const std::string& itemId) {
 
               if (error.has_value()) {
                 kLog.debug("metadata GetAll failed id={} err={}", itemId, error->what());
+                // The owner left before the registration was handled, so no NameOwnerChanged removes the item.
+                // Removal waits for the next loop turn: this reply runs inside the proxy it would destroy.
+                if (error->getName() == "org.freedesktop.DBus.Error.ServiceUnknown"
+                    || error->getName() == "org.freedesktop.DBus.Error.NameHasNoOwner") {
+                  DeferredCall::callLater([this, itemId, proxy] {
+                    const auto it = m_itemProxies.find(itemId);
+                    if (it != m_itemProxies.end() && it->second.get() == proxy) {
+                      removeItemById(itemId);
+                    }
+                  });
+                  return;
+                }
                 ensureMenuCache(itemId, currentItemIt->second.busName, currentItemIt->second.menuObjectPath);
                 emitChanged();
                 return;

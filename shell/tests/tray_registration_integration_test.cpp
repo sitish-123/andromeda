@@ -40,8 +40,29 @@ namespace {
 
 int main(int argc, char** argv) {
   TEST_CHECK(argc == 2);
-  TEST_CHECK(std::string{argv[1]} == "discovery" || std::string{argv[1]} == "registration");
-  const bool discovery = std::string{argv[1]} == "discovery";
+  const std::string mode{argv[1]};
+  TEST_CHECK(mode == "discovery" || mode == "registration" || mode == "vanished");
+  if (mode == "vanished") {
+    SessionBus bus;
+    TrayService tray(bus);
+    tray.start();
+    runDeferredCalls();
+    // The owner registers a path and exits: the shell handles the registration after NameOwnerChanged.
+    {
+      auto owner = sdbus::createSessionBusConnection();
+      auto watcher = sdbus::createProxy(
+          *owner, sdbus::ServiceName{kWatcherInterface}, sdbus::ObjectPath{"/StatusNotifierWatcher"}
+      );
+      watcher->callMethod("RegisterStatusNotifierItem")
+          .onInterface(kWatcherInterface)
+          .withArguments(std::string{"/StatusNotifierItem"})
+          .dontExpectReply();
+    }
+    TEST_CHECK(drainUntil(bus, [&]() { return tray.itemCount() == 1; }));
+    TEST_CHECK(drainUntil(bus, [&]() { return tray.itemCount() == 0; }));
+    return 0;
+  }
+  const bool discovery = mode == "discovery";
   auto itemConnection = sdbus::createSessionBusConnection();
   const sdbus::ServiceName itemName{"org.kde.StatusNotifierItem-4242-1"};
   if (discovery) {
