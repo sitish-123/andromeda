@@ -94,6 +94,14 @@ test('safe_regex', executable('safe_regex_test', 'tests/safe_regex_test.cpp', de
   cpp_args: _warnings))
 test('picker_match', executable('picker_match_test', 'tests/picker_match_test.cpp', 'src/picker_portal.cpp',
   dependencies: [_desk_app_dep, _gio_unix_dep], include_directories: include_directories('src'), cpp_args: _warnings))
+_dbus_run_session = find_program('dbus-run-session', required: false)
+if _dbus_run_session.found()
+  _picker_portal_dbus_exe = executable('picker_portal_dbus_test', 'tests/picker_portal_dbus_test.cpp',
+    'src/picker_portal.cpp', dependencies: [_desk_app_dep, _gio_unix_dep], include_directories: include_directories('src'),
+    cpp_args: _warnings)
+  test('picker_portal_dbus', _dbus_run_session, args: ['--', _picker_portal_dbus_exe.full_path()],
+    depends: _picker_portal_dbus_exe)
+endif
 test('trash', executable('trash_test', 'tests/trash_test.cpp', link_with: _files_lib, dependencies: _desk_app_dep,
   include_directories: include_directories('src'), cpp_args: _warnings))
 test('service_menus', executable('service_menus_test', 'tests/service_menus_test.cpp', 'src/service_menus.cpp',
