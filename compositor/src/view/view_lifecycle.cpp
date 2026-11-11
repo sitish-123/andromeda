@@ -266,6 +266,7 @@ namespace andromeda {
         m_server->uptimeMs()
     );
     m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, true);
+    m_server->applyXdgSessionPlacement(m_toplevel, rule, true);
     m_initialRules = rule;
     m_initialRuleHistory.clear();
     m_initialRuleHistory.push_back(rule);
@@ -851,6 +852,7 @@ namespace andromeda {
           config(), ruleText(appId()), ruleText(title()), m_xdgTag, m_contentType, openingState, m_server->uptimeMs()
       );
       m_server->applyRestorePlacement(appId() != nullptr ? appId() : "", rule, false);
+      m_server->applyXdgSessionPlacement(m_toplevel, rule, false);
       ScratchpadManager* scratchpadManager = m_server->scratchpadManager();
       const bool launchRuleOverride = m_launchPlacementPending
           && (rule.defaultOutput.has_value()

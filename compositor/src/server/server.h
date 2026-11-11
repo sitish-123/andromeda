@@ -151,6 +151,7 @@ namespace andromeda {
   class DesktopShell;
   class BackgroundEffectManager;
   class DskSurfaceManager;
+  class XdgSessionManager;
   class GreeterChild;
   class FifoManager;
   class AppMenuRegistry;
@@ -1069,6 +1070,8 @@ namespace andromeda {
   public:
     // Applies a pending pre-crash placement for `appId`; `consume` drops it once the view maps (docs/resilience.md §5).
     void applyRestorePlacement(std::string_view appId, ResolvedWindowRule& rule, bool consume);
+    // Applies the placement xdg_session_v1.restore_toplevel asked for `toplevel`; `consume` drops it once it maps.
+    void applyXdgSessionPlacement(wlr_xdg_toplevel* toplevel, ResolvedWindowRule& rule, bool consume);
 
   private:
     void saveSession();
@@ -1227,6 +1230,7 @@ namespace andromeda {
     std::unique_ptr<ColorManager> m_colorManager;
     std::unique_ptr<CommitTimingManager> m_commitTimingManager;
     std::unique_ptr<DskSurfaceManager> m_dskSurfaces;
+    std::unique_ptr<XdgSessionManager> m_xdgSessions;
     std::unique_ptr<BackgroundEffectManager> m_backgroundEffects;
     std::unique_ptr<FifoManager> m_fifoManager;
     std::unique_ptr<AppMenuRegistry> m_appMenus;

@@ -544,6 +544,7 @@ start_instance() {
     DBUS_SYSTEM_BUS_ADDRESS="unix:path=$RUNTIME_DIR/no-system-bus" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
     XDG_DATA_HOME="$RUNTIME_DIR/xdg-data" \
+    XDG_STATE_HOME="$RUNTIME_DIR/xdg-state" \
     WLR_BACKENDS=headless \
     WLR_LIBINPUT_NO_DEVICES=1 \
     WLR_HEADLESS_OUTPUTS="$outputs" \

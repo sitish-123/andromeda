@@ -40,6 +40,7 @@
 #include "core/async_file_writer.h"
 #include "core/screen_activity_recorder.h"
 #include "server/server_events_internal.h"
+#include "server/xdg_session.h"
 #include "view/popup.h"
 #include "view/view.h"
 #include "wlr.h"
@@ -882,6 +883,9 @@ namespace andromeda {
   void Server::scheduleIpcWindowsEvent(bool sessionChanged) {
     if (sessionChanged) {
       scheduleSessionSave();
+      if (m_xdgSessions != nullptr) {
+        m_xdgSessions->scheduleSnapshot();
+      }
     }
     if (m_ipc == nullptr || m_ipcWindowsIdle != nullptr) {
       return;

@@ -336,6 +336,26 @@ toplevel_drag_c = custom_target(
   command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
 )
 
+xdg_session_xml = wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'staging/xdg-session-management/xdg-session-management-v1.xml'
+xdg_session_server_h = custom_target(
+  'xdg-session-management-v1-protocol.h',
+  input: xdg_session_xml,
+  output: 'xdg-session-management-v1-protocol.h',
+  command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+)
+xdg_session_client_h = custom_target(
+  'xdg-session-management-v1-client-protocol.h',
+  input: xdg_session_xml,
+  output: 'xdg-session-management-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+)
+xdg_session_c = custom_target(
+  'xdg-session-management-v1-protocol.c',
+  input: xdg_session_xml,
+  output: 'xdg-session-management-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+)
+
 text_input_client_h = custom_target(
   'text-input-unstable-v3-client-protocol.h',
   input: wayland_protocols_dep.get_variable(pkgconfig: 'pkgdatadir') / 'unstable/text-input/text-input-unstable-v3.xml',
@@ -977,6 +997,7 @@ core_sources = files(
   'src/server/app_menu.cpp',
   'src/server/focus_grab.cpp',
   'src/server/fifo.cpp',
+  'src/server/xdg_session.cpp',
   'src/server/commit_timing.cpp',
   'src/server/allocator.cpp',
   'src/server/server.cpp',
@@ -1104,6 +1125,8 @@ andromeda_core = static_library(
     input_capture_protocol_c,
     toplevel_drag_server_h,
     toplevel_drag_c,
+    xdg_session_server_h,
+    xdg_session_c,
     xdg_shell_client_c,
     color_management_server_h,
     color_management_server_c,

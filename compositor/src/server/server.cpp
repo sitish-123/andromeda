@@ -53,6 +53,7 @@
 #include "server/app_menu.h"
 #include "server/focus_grab.h"
 #include "server/fifo.h"
+#include "server/xdg_session.h"
 #include "server/ipc.h"
 #include "server/syncobj_acquire_barrier.h"
 #include "server/syncobj_superseded_release.h"
@@ -757,6 +758,15 @@ namespace andromeda {
       setLaunchFrom(surface, box);
     });
     m_fifoManager = std::make_unique<FifoManager>(m_display);
+    {
+      const char* state = std::getenv("XDG_STATE_HOME");
+      const char* home = std::getenv("HOME");
+      const std::filesystem::path dir = state != nullptr && *state != '\0' ? std::filesystem::path(state) / "andromeda"
+          : home != nullptr ? std::filesystem::path(home) / ".local/state/andromeda"
+                            : std::filesystem::path();
+      m_xdgSessions =
+          std::make_unique<XdgSessionManager>(*this, m_display, dir.empty() ? dir : dir / "xdg-sessions.json");
+    }
     m_appMenus = std::make_unique<AppMenuRegistry>(m_display, [this] { scheduleIpcWindowsEvent(); });
     m_focusGrabs = std::make_unique<FocusGrabManager>(m_display);
     m_commitTimingManager = std::make_unique<CommitTimingManager>(m_display);
@@ -1430,28 +1440,28 @@ namespace andromeda {
     if (it == m_restorePlacements.end()) {
       return;
     }
-    if (!it->output.empty()) {
-      rule.defaultOutput = it->output;
-    }
-    // Workspace ids are "OUTPUT:NAME"; a numeric name is a position.
-    const std::string name = it->workspace.substr(it->workspace.rfind(':') + 1);
-    if (!name.empty()) {
-      size_t position = 0;
-      const auto [end, error] = std::from_chars(name.data(), name.data() + name.size(), position);
-      if (error == std::errc{} && end == name.data() + name.size() && position > 0) {
-        rule.defaultWorkspace = WorkspaceIndex{position};
-      } else {
-        rule.defaultWorkspace = WorkspaceName{name};
-      }
-    }
-    rule.defaultFloating = it->floating;
-    rule.defaultFullscreen = it->fullscreen;
-    if (it->floating && it->width > 0 && it->height > 0) {
-      rule.defaultFloatingWidthPx = it->width;
-      rule.defaultFloatingHeightPx = it->height;
-    }
+    applySessionPlacement(
+        SessionPlacement{
+            .output = it->output,
+            .workspace = it->workspace,
+            .floating = it->floating,
+            .fullscreen = it->fullscreen,
+            .width = it->width,
+            .height = it->height,
+        },
+        rule
+    );
     if (consume) {
       m_restorePlacements.erase(it);
+    }
+  }
+
+  void Server::applyXdgSessionPlacement(wlr_xdg_toplevel* toplevel, ResolvedWindowRule& rule, bool consume) {
+    if (toplevel == nullptr || m_xdgSessions == nullptr) {
+      return;
+    }
+    if (const std::optional<SessionPlacement> placement = m_xdgSessions->placementFor(toplevel, consume)) {
+      applySessionPlacement(*placement, rule);
     }
   }
 

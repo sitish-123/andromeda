@@ -415,6 +415,19 @@ surface_protocols_client = executable(
   dependencies: [wayland_client_dep],
 )
 
+# Harness helper for xdg-session-management-v1: maps a toplevel in a new or a restored session and prints the events.
+xdg_session_client = executable(
+  'xdg-session-client',
+  [
+    'harness/clients/xdg_session_client.cpp',
+    xdg_shell_client_h,
+    xdg_shell_client_c,
+    xdg_session_client_h,
+    xdg_session_c,
+  ],
+  dependencies: [wayland_client_dep],
+)
+
 idle_inhibit_client = executable(
   'idle-inhibit-client',
   [
@@ -650,6 +663,7 @@ harness_client_targets = [
   fractional_client,
   syncobj_client,
   idle_inhibit_client,
+  xdg_session_client,
   background_client,
   surface_protocols_client,
   lock_client,
