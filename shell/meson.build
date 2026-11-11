@@ -856,6 +856,8 @@ _noctalia_sources = files(
   'src/scripting/pixel_stream_view.cpp',
   'src/shell/settings/keybind_recorder.cpp',
   'src/scripting/ui_tree_reconciler.cpp',
+  'src/scripting/ui_tree_reconciler_pointer.cpp',
+  'src/scripting/ui_tree_reconciler_props.cpp',
   'src/config/app_icon_settings.cpp',
   'src/util/checksum.cpp',
   'src/clipboard/clipboard_service.cpp',
