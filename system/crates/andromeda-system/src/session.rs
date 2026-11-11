@@ -1087,8 +1087,8 @@ async fn follow_units(system: Connection, session: Connection, shared: Shared) {
             });
             names.extend(units::failed(&session, true).await.unwrap_or_default());
             victims.retain(|v| names.contains(v));
-            let fresh_crash = crashes::desktop_crashed_at()
-                .is_some_and(|at| at.elapsed() <= UNITS_EVERY + crashes::AFTERMATH);
+            let fresh_crash =
+                crashes::desktop_crashed_at().is_some_and(|at| at.elapsed() <= UNITS_EVERY + crashes::AFTERMATH);
             let rows = names
                 .into_iter()
                 .map(|n| {

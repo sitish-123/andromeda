@@ -63,7 +63,8 @@ impl Recent {
         let victim = |exe: &str, at: Instant| {
             !is_desktop(exe)
                 && desktop.iter().any(|d| {
-                    at.checked_duration_since(*d).map_or_else(|| d.duration_since(at) <= AFTERMATH_BEFORE, |after| after <= AFTERMATH)
+                    at.checked_duration_since(*d)
+                        .map_or_else(|| d.duration_since(at) <= AFTERMATH_BEFORE, |after| after <= AFTERMATH)
                 })
         };
         let mut counts: Vec<(String, usize, bool)> = Vec::new();
