@@ -59,6 +59,9 @@ namespace andromeda {
     void notifyOutputFrame(const Output& output);
     // A hidden window's commit draws no frame, yet it can answer the last configure a settle waits for.
     void notifyViewCommitted();
+    // A settle input cleared without a commit or a frame (the effect-selection idle): recheck once the loop is idle,
+    // so a waiter is not answered in the middle of the change that cleared it.
+    void notifySettleInputCleared();
 
   private:
     enum class FrameWait : uint8_t { None, Drawn, Settled };
@@ -84,6 +87,7 @@ namespace andromeda {
     static int onListenReadable(int fd, uint32_t mask, void* data);
     static int onConnectionEvent(int fd, uint32_t mask, void* data);
     static int onConnectionTimeout(void* data);
+    static void onSettleRecheck(void* data);
 
     void acceptConnections();
     void addConnection(int clientFd);
@@ -109,6 +113,7 @@ namespace andromeda {
     Connection* m_audio = nullptr;
     int m_listenFd = -1;
     wl_event_source* m_eventSource = nullptr;
+    wl_event_source* m_settleRecheck = nullptr;
     std::vector<std::unique_ptr<Connection>> m_connections;
     // Last payload broadcast per family, indexed by the bit position of the event. A family that recomputes to the
     // same JSON is dropped rather than woken through to every subscriber; a fresh subscriber gets its own initial

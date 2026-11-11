@@ -209,6 +209,10 @@ namespace andromeda {
   }
 
   Ipc::~Ipc() {
+    if (m_settleRecheck != nullptr) {
+      wl_event_source_remove(m_settleRecheck);
+      m_settleRecheck = nullptr;
+    }
     if (m_eventSource != nullptr) {
       wl_event_source_remove(m_eventSource);
       m_eventSource = nullptr;
@@ -478,6 +482,21 @@ namespace andromeda {
     for (Connection* connection : ready) {
       finishFrameWait(*connection, std::move(connection->waitReply));
     }
+  }
+
+  void Ipc::notifySettleInputCleared() {
+    if (m_settleRecheck != nullptr || std::ranges::none_of(m_connections, [](const auto& connection) {
+          return connection->frameWait == FrameWait::Settled;
+        })) {
+      return;
+    }
+    m_settleRecheck = wl_event_loop_add_idle(wl_display_get_event_loop(m_server->display()), onSettleRecheck, this);
+  }
+
+  void Ipc::onSettleRecheck(void* data) {
+    auto* ipc = static_cast<Ipc*>(data);
+    ipc->m_settleRecheck = nullptr;
+    ipc->notifyViewCommitted();
   }
 
   void Ipc::removeConnection(Connection* connection) {

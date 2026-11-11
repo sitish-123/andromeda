@@ -10,6 +10,7 @@
 #include "overview/overview.h"
 #include "scene/effect_registry.h"
 #include "scene/surface_blur.h"
+#include "server/ipc.h"
 #include "server/server.h"
 #include "view/size_hints.h"
 #include "view/view.h"
@@ -629,6 +630,9 @@ namespace andromeda {
     if (view->m_mapped) {
       view->refreshEffectSelection();
     }
+    if (Ipc* ipc = view->m_server->ipc()) {
+      ipc->notifySettleInputCleared();
+    }
   }
 
   void View::applyDynamicRules(const ResolvedWindowRule* resolved) {
@@ -636,6 +640,9 @@ namespace andromeda {
     if (!frame && m_effectSelectionIdle != nullptr) {
       wl_event_source_remove(m_effectSelectionIdle);
       m_effectSelectionIdle = nullptr;
+      if (Ipc* ipc = m_server->ipc()) {
+        ipc->notifySettleInputCleared();
+      }
     }
     const ResolvedWindowRule& rule = resolved != nullptr ? *resolved : resolvedRules();
     m_appliedRuleState = ruleState();
