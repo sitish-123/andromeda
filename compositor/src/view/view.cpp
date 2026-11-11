@@ -367,6 +367,16 @@ namespace andromeda {
 
   wlr_scene_tree* View::captureTree() const { return m_captureScene != nullptr ? &m_captureScene->tree : nullptr; }
 
+  void View::setCaptureHidden(bool hidden) {
+    if (m_captureScene == nullptr) {
+      return;
+    }
+    wlr_scene_node* child = nullptr;
+    wl_list_for_each(child, &m_captureScene->tree.children, link) {
+      wlr_scene_node_set_enabled(child, !hidden);
+    }
+  }
+
   void View::moveToWorkspace(Workspace* workspace, bool attachToLayout) {
     moveToWorkspace(workspace, attachToLayout, LayoutAttachOrigin::ExistingView);
   }

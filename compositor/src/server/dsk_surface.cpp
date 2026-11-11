@@ -10,7 +10,7 @@
 namespace andromeda {
 
   namespace {
-    constexpr int kVersion = 13;
+    constexpr int kVersion = 14;
     constexpr uint32_t kPropertyCount = 12;
     constexpr uint32_t kCurveCount = 16;
     constexpr uint32_t kElevationCount = 3;
@@ -52,6 +52,7 @@ namespace andromeda {
       .get_shape = handleGetShape,
       .launch_from = handleLaunchFrom,
       .set_glass_mask = handleSetGlassMask,
+      .set_secure = handleSetSecure,
   };
 
   const struct dsk_shape_v1_interface DskSurfaceManager::kShapeImplementation = {
@@ -98,6 +99,17 @@ namespace andromeda {
     }
     Surface* state = wl_container_of(addon, state, addon);
     return &state->current;
+  }
+
+  bool DskSurfaceManager::secureTree(wlr_surface* surface) const {
+    while (surface != nullptr) {
+      if (const State* current = state(surface); current != nullptr && current->secure) {
+        return true;
+      }
+      const wlr_subsurface* subsurface = wlr_subsurface_try_from_wlr_surface(surface);
+      surface = subsurface != nullptr ? subsurface->parent : nullptr;
+    }
+    return false;
   }
 
   bool DskSurfaceManager::tracks(const Tracker& tracker, wlr_surface* surface) {
@@ -348,6 +360,14 @@ namespace andromeda {
     state->pendingGlassMaskBox = {x, y, std::max(0, width), std::max(0, height)};
   }
 
+  void DskSurfaceManager::handleSetSecure(wl_client* /*client*/, wl_resource* resource, uint32_t secure) {
+    Surface* state = fromResource(resource);
+    if (state == nullptr) {
+      return;
+    }
+    state->pendingSecure = secure != 0;
+  }
+
   void DskSurfaceManager::handleLaunchFrom(
       wl_client* client, wl_resource* resource, int32_t x, int32_t y, int32_t width, int32_t height
   ) {
@@ -480,10 +500,16 @@ namespace andromeda {
     }
     // Animations stop at their current value: the state goes with the protocol object.
     wlr_addon_finish(&state->addon);
-    destroySurfaceState(state);
+    destroySurfaceState(state, true);
   }
 
-  void DskSurfaceManager::destroySurfaceState(Surface* state) {
+  void DskSurfaceManager::destroySurfaceState(Surface* state, bool surfaceAlive) {
+    if (state->current.secure) {
+      --state->manager->m_secureCount;
+      if (surfaceAlive && state->manager->m_secureHandler) {
+        state->manager->m_secureHandler(state->surface, false);
+      }
+    }
     for (Tracker* tracker : state->manager->m_trackers) {
       for (TrackerConfig* config : {&tracker->pending, &tracker->current}) {
         std::erase_if(config->bindings, [state](const Binding& binding) { return binding.target == state; });
@@ -542,6 +568,18 @@ namespace andromeda {
       state->pendingGlassMask = nullptr;
       state->pendingGlassMaskSet = false;
     }
+    if (state->pendingSecure && *state->pendingSecure != state->current.secure) {
+      state->current.secure = *state->pendingSecure;
+      if (state->current.secure) {
+        ++state->manager->m_secureCount;
+      } else {
+        --state->manager->m_secureCount;
+      }
+      if (state->manager->m_secureHandler) {
+        state->manager->m_secureHandler(state->surface, state->current.secure);
+      }
+    }
+    state->pendingSecure.reset();
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     const auto nowMs = static_cast<uint32_t>(now.tv_sec * 1000 + now.tv_nsec / 1000000);
@@ -555,7 +593,7 @@ namespace andromeda {
     Surface* state = wl_container_of(addon, state, addon);
     wlr_addon_finish(addon);
     wl_resource_set_user_data(state->resource, nullptr);
-    destroySurfaceState(state);
+    destroySurfaceState(state, false);
   }
 
 } // namespace andromeda

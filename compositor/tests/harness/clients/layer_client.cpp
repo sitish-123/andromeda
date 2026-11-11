@@ -454,6 +454,19 @@ namespace {
         dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
       }
       dsk_surface_v1_set_elevation(state.dskSurface, level);
+    } else if (action == "dsk-secure") {
+      // dsk-secure <label> <0|1>: needs LAYER_DSK_VERSION=14.
+      uint32_t secure = 0;
+      command >> secure;
+      if (state.dskManager == nullptr || command.fail()) {
+        state.failed = state.closed = true;
+        return;
+      }
+      if (state.dskSurface == nullptr) {
+        state.dskSurface = dsk_surface_manager_v1_get_surface(state.dskManager, state.surface);
+        dsk_surface_v1_add_listener(state.dskSurface, &kDskSurfaceListener, nullptr);
+      }
+      dsk_surface_v1_set_secure(state.dskSurface, secure);
     } else if (action == "dsk-track") {
       // dsk-track <label> <fingers> <min> <max> <snap>...: a vertical tracker bound to translate.y over min..max.
       if (state.dskManager == nullptr) {

@@ -175,8 +175,13 @@ namespace andromeda {
 
     private:
       static void onCommit(SceneCommit* self, void* data);
+      static void onRedact(wl_listener* listener, void* data);
       Output& m_output;
       wlr_buffer* m_buffer = nullptr;
+      // Capture listeners read the commit event's buffer. onRedact runs first in the commit signal and points the
+      // event at a redacted copy; onCommit runs last (connected just before the commit) and points it back.
+      wl_listener m_redact{};
+      wlr_buffer* m_redacted = nullptr;
       bool m_grouped = false;
       bool m_counted = false;
       std::shared_ptr<const DirectScanoutState> m_state;
@@ -287,6 +292,9 @@ namespace andromeda {
     void attachMirrorTarget();
     void detachMirrorTarget();
     void keepFrameForMirrors(wlr_buffer* frame);
+    // A locked copy of `frame` with every secure surface (dsk_surface_v1.set_secure) on this output painted black;
+    // null when no capture listens or no secure surface shows here.
+    wlr_buffer* redactedCaptureFrame(wlr_buffer* frame);
     void applyZoom(wlr_output_state& state);
     void updateHdrAvailability(bool activationRejected = false);
 
@@ -298,6 +306,7 @@ namespace andromeda {
     wlr_scene_output* m_sceneOutput = nullptr;
     double m_zoom = 1.0;
     wlr_swapchain* m_zoomSwapchain = nullptr;
+    wlr_swapchain* m_redactSwapchain = nullptr;
     wlr_scene_tree* m_layerTrees[kLayerCount]{};
     wlr_scene_tree* m_layerPopupTrees[kLayerCount]{};
     wlr_scene_tree* m_viewRoot = nullptr;

@@ -398,6 +398,9 @@ namespace andromeda {
     [[nodiscard]] bool viewRenderedOffscreen(const View& view) const;
     // True while a live image-copy session reads `view`'s toplevel capture source.
     [[nodiscard]] bool viewCaptured(const View& view) const;
+    // True while a client waits to read `output`'s next committed buffer: an image-copy session on the output, or a
+    // pending screencopy or export-dmabuf frame.
+    [[nodiscard]] bool outputCaptureListening(const wlr_output* output) const;
     // Lock the next group on one physical keyboard, then synchronize matching
     // named layouts across the remaining keyboards.
     bool cycleKeyboardLayout();
@@ -828,6 +831,7 @@ namespace andromeda {
     wlr_ext_foreign_toplevel_list_v1* m_extForeignToplevelList = nullptr;
     wlr_ext_foreign_toplevel_image_capture_source_manager_v1* m_toplevelCaptureSourceManager = nullptr;
     wlr_export_dmabuf_manager_v1* m_exportDmabufManager = nullptr;
+    wlr_screencopy_manager_v1* m_screencopyManager = nullptr;
     wlr_tearing_control_manager_v1* m_tearingControlManager = nullptr;
     wlr_ext_workspace_manager_v1* m_workspaceManager = nullptr;
     wlr_session_lock_manager_v1* m_sessionLockManager = nullptr;

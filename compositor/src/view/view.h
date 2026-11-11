@@ -152,6 +152,8 @@ namespace andromeda {
     [[nodiscard]] bool effectSelectionPending() const { return m_effectSelectionIdle != nullptr; }
     void refreshEffectSelection();
     [[nodiscard]] wlr_scene_tree* captureTree() const;
+    // A hidden capture tree draws nothing, so a window capture shows no content (dsk_surface_v1.set_secure).
+    void setCaptureHidden(bool hidden);
     [[nodiscard]] bool mapped() const { return m_lifecycle != Lifecycle::Unmapped; }
     // The pid of the application process, or -1 when it is unknown (an X11 client that sets no _NET_WM_PID).
     [[nodiscard]] pid_t pid() const;

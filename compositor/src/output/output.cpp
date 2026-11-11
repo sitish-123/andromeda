@@ -29,6 +29,7 @@
 #include "scene/quit_confirm.h"
 #include "server/color_manager.h"
 #include "server/desktop_output_manager.h"
+#include "server/dsk_surface.h"
 #include "server/fifo.h"
 #include "server/greeter_mode.h"
 #include "server/ipc.h"
@@ -1660,6 +1661,9 @@ namespace andromeda {
     if (m_awaitingFirstFrame) {
       scanout_keeper::firstFrameShown();
     }
+    if (m_redactSwapchain != nullptr) {
+      wlr_swapchain_destroy(m_redactSwapchain);
+    }
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
     }
@@ -2066,12 +2070,40 @@ namespace andromeda {
     m_buffer = state.buffer;
     m_state = output.builtDirectScanout();
     m_commit.connect(&output.m_output->events.commit, this, onCommit);
+    m_redact.notify = onRedact;
+    wl_list_insert(&output.m_output->events.commit.listener_list, &m_redact.link);
   }
 
-  Output::SceneCommit::~SceneCommit() = default;
+  Output::SceneCommit::~SceneCommit() {
+    if (m_redact.link.next != nullptr) {
+      wl_list_remove(&m_redact.link);
+    }
+    if (m_redacted != nullptr) {
+      wlr_buffer_unlock(m_redacted);
+    }
+  }
+
+  // The event's state is wlr_output_commit_state's own copy of the caller's state, read after the signal only to
+  // unlock a back buffer wlroots allocated itself; m_buffer equality rules that case out.
+  void Output::SceneCommit::onRedact(wl_listener* listener, void* data) {
+    SceneCommit* self = wl_container_of(listener, self, m_redact);
+    auto* state = const_cast<wlr_output_state*>(static_cast<wlr_output_event_commit*>(data)->state);
+    if ((state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || state->buffer != self->m_buffer
+        || self->m_redacted != nullptr || !self->m_commit.connected()) {
+      return;
+    }
+    self->m_redacted = self->m_output.redactedCaptureFrame(state->buffer);
+    if (self->m_redacted != nullptr) {
+      state->buffer = self->m_redacted;
+    }
+  }
 
   void Output::SceneCommit::onCommit(SceneCommit* self, void* data) {
     const auto* event = static_cast<wlr_output_event_commit*>(data);
+    if (self->m_redacted != nullptr && event->state->buffer == self->m_redacted) {
+      const_cast<wlr_output_state*>(event->state)->buffer = self->m_buffer;
+      wlr_buffer_unlock(std::exchange(self->m_redacted, nullptr));
+    }
     if ((event->state->committed & WLR_OUTPUT_STATE_BUFFER) == 0 || event->state->buffer != self->m_buffer) {
       return;
     }
@@ -2086,6 +2118,96 @@ namespace andromeda {
     }
     // A synchronous backend attempt can account for this built buffer only once.
     self->m_commit.disconnect();
+  }
+
+  wlr_buffer* Output::redactedCaptureFrame(wlr_buffer* frame) {
+    DskSurfaceManager* dsk = m_server->dskSurfaces();
+    if (dsk == nullptr || !dsk->anySecure() || !m_server->outputCaptureListening(m_output)) {
+      return nullptr;
+    }
+    struct Collect {
+      const DskSurfaceManager* dsk;
+      wlr_box output;
+      std::vector<wlr_box> boxes;
+    };
+    Collect collect{.dsk = dsk, .output = {.x = m_sceneOutput->x, .y = m_sceneOutput->y, .width = 0, .height = 0}, .boxes = {}};
+    wlr_scene_output_for_each_buffer(
+        m_sceneOutput,
+        [](wlr_scene_buffer* buffer, int lx, int ly, void* data) {
+          auto* collect = static_cast<Collect*>(data);
+          wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(buffer);
+          if (sceneSurface == nullptr || !collect->dsk->secureTree(sceneSurface->surface)) {
+            return;
+          }
+          const int width = buffer->dst_width > 0 ? buffer->dst_width : sceneSurface->surface->current.width;
+          const int height = buffer->dst_height > 0 ? buffer->dst_height : sceneSurface->surface->current.height;
+          collect->boxes.push_back({lx - collect->output.x, ly - collect->output.y, width, height});
+        },
+        &collect
+    );
+    if (collect.boxes.empty()) {
+      return nullptr;
+    }
+    if (m_output->swapchain == nullptr) {
+      kLog.error("output '{}': no swapchain to redact a secure surface from a capture", m_output->name);
+      return nullptr;
+    }
+    if (m_redactSwapchain != nullptr
+        && (m_redactSwapchain->width != frame->width || m_redactSwapchain->height != frame->height)) {
+      wlr_swapchain_destroy(std::exchange(m_redactSwapchain, nullptr));
+    }
+    if (m_redactSwapchain == nullptr) {
+      m_redactSwapchain =
+          wlr_swapchain_create(m_output->allocator, frame->width, frame->height, &m_output->swapchain->format);
+    }
+    wlr_buffer* copy = m_redactSwapchain != nullptr ? wlr_swapchain_acquire(m_redactSwapchain) : nullptr;
+    wlr_texture* texture = copy != nullptr ? wlr_texture_from_buffer(m_server->renderer(), frame) : nullptr;
+    wlr_render_pass* pass =
+        texture != nullptr ? wlr_renderer_begin_buffer_pass(m_server->renderer(), copy, nullptr) : nullptr;
+    if (pass == nullptr) {
+      kLog.error("output '{}': failed to redact a secure surface from a capture", m_output->name);
+      if (texture != nullptr) {
+        wlr_texture_destroy(texture);
+      }
+      if (copy != nullptr) {
+        wlr_buffer_unlock(copy);
+      }
+      return nullptr;
+    }
+    wlr_render_texture_options image{};
+    image.texture = texture;
+    image.dst_box = {.x = 0, .y = 0, .width = frame->width, .height = frame->height};
+    image.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
+    wlr_render_pass_add_texture(pass, &image);
+    int transformedWidth = 0;
+    int transformedHeight = 0;
+    wlr_output_transformed_resolution(m_output, &transformedWidth, &transformedHeight);
+    const double scale = m_output->scale;
+    for (const wlr_box& box : collect.boxes) {
+      const int x0 = static_cast<int>(std::floor(box.x * scale));
+      const int y0 = static_cast<int>(std::floor(box.y * scale));
+      const wlr_box scaled{
+          .x = x0,
+          .y = y0,
+          .width = static_cast<int>(std::ceil((box.x + box.width) * scale)) - x0,
+          .height = static_cast<int>(std::ceil((box.y + box.height) * scale)) - y0,
+      };
+      wlr_render_rect_options black{};
+      wlr_box_transform(
+          &black.box, &scaled, wlr_output_transform_invert(m_output->transform), transformedWidth, transformedHeight
+      );
+      black.color = {.r = 0.0F, .g = 0.0F, .b = 0.0F, .a = 1.0F};
+      black.blend_mode = WLR_RENDER_BLEND_MODE_NONE;
+      wlr_render_pass_add_rect(pass, &black);
+    }
+    const bool ok = wlr_render_pass_submit(pass);
+    wlr_texture_destroy(texture);
+    if (!ok) {
+      kLog.error("output '{}': failed to redact a secure surface from a capture", m_output->name);
+      wlr_buffer_unlock(copy);
+      return nullptr;
+    }
+    return copy;
   }
 
   std::shared_ptr<const DirectScanoutState> Output::builtDirectScanout() {

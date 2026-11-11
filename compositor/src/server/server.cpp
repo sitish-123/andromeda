@@ -748,6 +748,11 @@ namespace andromeda {
       wlr_scene_node_coords(&layer->scene()->tree->node, &x, &y);
       return std::pair{x, y};
     });
+    m_dskSurfaces->setSecureHandler([](wlr_surface* surface, bool secure) {
+      if (View* view = View::fromSurface(surface); view != nullptr && view->rootSurface() == surface) {
+        view->setCaptureHidden(secure);
+      }
+    });
     m_dskSurfaces->setLaunchFromHandler([this](wl_client* /*client*/, wlr_surface* surface, const wlr_box& box) {
       setLaunchFrom(surface, box);
     });
@@ -938,7 +943,7 @@ namespace andromeda {
     m_newShortcutsInhibitor.notify = onNewShortcutsInhibitor;
     wl_signal_add(&m_shortcutsInhibitManager->events.new_inhibitor, &m_newShortcutsInhibitor);
 
-    wlr_screencopy_manager_v1_create(m_display);
+    m_screencopyManager = wlr_screencopy_manager_v1_create(m_display);
     m_exportDmabufManager = wlr_export_dmabuf_manager_v1_create(m_display);
     wlr_ext_output_image_capture_source_manager_v1_create(m_display, 1);
     wlr_ext_image_copy_capture_manager_v1* imageCopyManager =

@@ -31,6 +31,7 @@
 #include "server/desktop_output_manager.h"
 #include "server/desktop_settings_manager.h"
 #include "server/desktop_shell.h"
+#include "server/dsk_surface.h"
 #include "server/ipc.h"
 #include "server/server.h"
 #include "server/server_events_internal.h"
@@ -813,6 +814,8 @@ namespace andromeda {
       andromedafx_scene_capture_source_set_scale(view->m_captureSource, output->wlr()->scale);
     }
 
+    const DskSurfaceManager::State* dsk = self->m_dskSurfaces->state(view->rootSurface());
+    view->setCaptureHidden(dsk != nullptr && dsk->secure);
     wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accept(request, view->m_captureSource);
   }
 

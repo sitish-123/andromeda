@@ -17,7 +17,7 @@
     Only unsandboxed clients see this global.
   </description>
 
-  <interface name="dsk_surface_manager_v1" version="13">
+  <interface name="dsk_surface_manager_v1" version="14">
     <request name="destroy" type="destructor"/>
 
     <request name="get_surface">
@@ -44,7 +44,7 @@
     </enum>
   </interface>
 
-  <interface name="dsk_surface_v1" version="13">
+  <interface name="dsk_surface_v1" version="14">
     <description summary="shape, elevation and animations of one surface">
       All requests are double-buffered and apply on the next wl_surface.commit,
       so new pixels and the motion that shows them start in the same frame.
@@ -265,6 +265,18 @@
       <arg name="y" type="int"/>
       <arg name="width" type="int"/>
       <arg name="height" type="int"/>
+    </request>
+
+    <request name="set_secure" since="14">
+      <description summary="keep the surface out of captures">
+        While secure is 1, screenshots, screen casts and recordings of an
+        output show this surface and its subsurfaces as an opaque black
+        rectangle, and a capture of a window whose main surface is secure
+        shows nothing. The screen
+        itself shows the surface as usual. Double-buffered: it applies on
+        the next wl_surface.commit.
+      </description>
+      <arg name="secure" type="uint" summary="1 secure, 0 not"/>
     </request>
   </interface>
 

@@ -43,6 +43,7 @@ namespace andromeda {
       wlr_buffer* glassMask = nullptr;
       wlr_box glassMaskBox{};
       uint32_t glassMaskSerial = 0;
+      bool secure = false; // dsk_surface_v1.set_secure (v14)
     };
 
     explicit DskSurfaceManager(wl_display* display);
@@ -60,6 +61,14 @@ namespace andromeda {
     void setLaunchFromHandler(std::function<void(wl_client*, wlr_surface*, const wlr_box&)> handler) {
       m_launchFromHandler = std::move(handler);
     }
+
+    // Called when a surface's committed secure flag changes, and with false when its dsk_surface_v1 goes while the
+    // surface lives.
+    void setSecureHandler(std::function<void(wlr_surface*, bool)> handler) { m_secureHandler = std::move(handler); }
+    // True while any surface is secure; a cheap gate for per-frame capture redaction.
+    [[nodiscard]] bool anySecure() const { return m_secureCount > 0; }
+    // True when `surface` or a surface it is a subsurface of is secure.
+    [[nodiscard]] bool secureTree(wlr_surface* surface) const;
 
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
     [[nodiscard]] State* state(wlr_surface* surface) const;
@@ -156,6 +165,7 @@ namespace andromeda {
       bool pendingGlassMaskSet = false;
       wlr_buffer* pendingGlassMask = nullptr;
       wlr_box pendingGlassMaskBox{};
+      std::optional<bool> pendingSecure{};
       State current{};
       std::vector<Shape*> shapes{}; // every live dsk_shape_v1, in creation order
     };
@@ -179,6 +189,7 @@ namespace andromeda {
         wl_client* client, wl_resource* resource, wl_resource* buffer, int32_t x, int32_t y, int32_t width,
         int32_t height
     );
+    static void handleSetSecure(wl_client* client, wl_resource* resource, uint32_t secure);
     static void
     handleSet(wl_client* client, wl_resource* resource, uint32_t property, int32_t a, int32_t b, int32_t c, int32_t d);
     static void handleAnimate(
@@ -212,7 +223,8 @@ namespace andromeda {
     static void handleAddonDestroy(wlr_addon* addon);
     // timeMs stamps started events: the frame time from tick(), or the commit time.
     static void sendEvents(Surface& state, uint32_t timeMs);
-    static void destroySurfaceState(Surface* state);
+    // `surfaceAlive`: the wl_surface outlives the state, so the secure handler may still see it.
+    static void destroySurfaceState(Surface* state, bool surfaceAlive);
     // The tracker sits on `surface` or writes a property of it.
     [[nodiscard]] static bool tracks(const Tracker& tracker, wlr_surface* surface);
 
@@ -241,6 +253,8 @@ namespace andromeda {
     wl_global* m_global = nullptr;
     std::function<std::optional<std::pair<int, int>>(wlr_surface*)> m_originLookup;
     std::function<void(wl_client*, wlr_surface*, const wlr_box&)> m_launchFromHandler;
+    std::function<void(wlr_surface*, bool)> m_secureHandler;
+    size_t m_secureCount = 0;
   };
 
 } // namespace andromeda

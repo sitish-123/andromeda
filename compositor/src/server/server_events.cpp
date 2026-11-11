@@ -465,6 +465,31 @@ namespace andromeda {
     return viewCaptured(view);
   }
 
+  bool Server::outputCaptureListening(const wlr_output* output) const {
+    if (std::ranges::any_of(m_imageCopySessions, [output](const std::unique_ptr<ImageCopySessionWatch>& watch) {
+          return watch->session != nullptr && watch->output == output;
+        })) {
+      return true;
+    }
+    if (m_screencopyManager != nullptr) {
+      wlr_screencopy_frame_v1* frame = nullptr;
+      wl_list_for_each(frame, &m_screencopyManager->frames, link) {
+        if (frame->output == output) {
+          return true;
+        }
+      }
+    }
+    if (m_exportDmabufManager != nullptr) {
+      wlr_export_dmabuf_frame_v1* frame = nullptr;
+      wl_list_for_each(frame, &m_exportDmabufManager->frames, link) {
+        if (frame->output == output) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   bool Server::viewCaptured(const View& view) const {
     return view.m_captureSource != nullptr
         && std::ranges::any_of(m_imageCopySessions, [&view](const std::unique_ptr<ImageCopySessionWatch>& watch) {
