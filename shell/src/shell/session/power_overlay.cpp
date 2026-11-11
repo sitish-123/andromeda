@@ -313,6 +313,13 @@ void PowerOverlay::onGuardChanged() {
   }
 }
 
+void PowerOverlay::onSessionActionFailed() {
+  // run() leaves Ending for Choices; any other mode is a newer session end that owns the portal state.
+  if (m_mode == Mode::Choices) {
+    setPortalState(static_cast<int>(InhibitPortal::SessionState::Running));
+  }
+}
+
 void PowerOverlay::hide() {
   watchGuard(false);
   if (m_mode != Mode::Choices && m_mode != Mode::Ending) {

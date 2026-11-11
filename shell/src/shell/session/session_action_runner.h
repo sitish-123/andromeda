@@ -18,6 +18,8 @@ struct SessionActionHooks {
   // Armed before Noctalia-initiated suspend so PrepareForSleep can skip lock-before-sleep.
   std::function<void()> onBeforePlainSuspend;
   std::function<void()> onPlainSuspendAborted;
+  // Runs on the main loop when an action could not start (logind or the command refused it).
+  std::function<void(std::string_view action)> onActionFailed;
 };
 
 class SessionActionRunner {

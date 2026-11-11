@@ -58,6 +58,8 @@ public:
   // Apps that asked the Inhibit portal to delay logout join the blocker list with their reason.
   void setInhibitPortal(InhibitPortal* portal) { m_portal = portal; }
   void onGuardChanged();
+  // The session-end action failed, so the session goes on: Inhibit portal monitors see Running again.
+  void onSessionActionFailed();
   // "Reopen windows when you log back in" (D3): the apps open when the last session ended with it checked. Returns
   // them once, then forgets them.
   [[nodiscard]] static std::vector<std::string> takeReopenApps();

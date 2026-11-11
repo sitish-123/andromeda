@@ -514,6 +514,7 @@ void Application::initLockScreenAndSession() {
       m_lockClient->skipLockOnNextSleep(false);
     }
   };
+  sessionActionHooks.onActionFailed = [this](std::string_view /*action*/) { m_powerOverlay.onSessionActionFailed(); };
   m_sessionActionRunner.setHooks(std::move(sessionActionHooks));
   m_sessionActionRunner.setPowerConfig(m_configService.config().shell.session.power);
   m_configService.addReloadCallback(

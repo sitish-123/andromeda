@@ -3,6 +3,7 @@
 
 #include "compositors/compositor_detect.h"
 #include "compositors/compositor_platform.h"
+#include "core/deferred_call.h"
 #include "core/log.h"
 #include "core/process/process.h"
 #include "i18n/i18n.h"
@@ -163,13 +164,21 @@ namespace {
   // finishes, on a worker thread because it may block on D-Bus or a command.
   void runPowerAction(
       const std::weak_ptr<void>& guard, SessionActionHooks::AsyncHook hook, std::function<bool()> action,
-      std::string_view actionName
+      std::string_view actionName, std::function<void(std::string_view)> failed
   ) {
-    auto runAction = [action = std::move(action), actionName = std::string(actionName)] {
-      std::thread([action, actionName] {
+    auto runAction = [guard, action = std::move(action), actionName = std::string(actionName),
+                      failed = std::move(failed)] {
+      std::thread([guard, action, actionName, failed] {
         nameThisThread("dsk-action");
         if (!action()) {
           kLog.warn("{} failed after hooks completed", actionName);
+          if (failed) {
+            DeferredCall::callLater([guard, actionName, failed] {
+              if (!guard.expired()) {
+                failed(actionName);
+              }
+            });
+          }
         }
       }).detach();
     };
@@ -191,11 +200,14 @@ namespace {
 
   void runShellCommand(
       const std::weak_ptr<void>& guard, SessionActionHooks::AsyncHook hook, std::string command,
-      std::string_view actionName
+      std::string_view actionName, std::function<void(std::string_view)> failed
   ) {
-    auto launch = [command = std::move(command), actionName = std::string(actionName)] {
+    auto launch = [command = std::move(command), actionName = std::string(actionName), failed = std::move(failed)] {
       if (!process::runAsync(command)) {
         kLog.warn("{}: command failed", actionName);
+        if (failed) {
+          failed(actionName);
+        }
       }
     };
     if (!hook) {
@@ -232,7 +244,7 @@ void SessionActionRunner::setPowerConfig(const ShellSessionConfig::ShellSessionP
 
 void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   if (cfg.command.has_value() && !StringUtils::trim(*cfg.command).empty()) {
-    runShellCommand(m_aliveGuard, hookFor(cfg.action), StringUtils::trim(*cfg.command), cfg.action);
+    runShellCommand(m_aliveGuard, hookFor(cfg.action), StringUtils::trim(*cfg.command), cfg.action, m_hooks.onActionFailed);
     return;
   }
 
@@ -242,11 +254,11 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
   }
 
   if (cfg.action == "logout") {
-    runPowerAction(m_aliveGuard, m_hooks.onLogout, [platform = &m_platform] { return platform->requestSessionExit(); }, "logout");
+    runPowerAction(m_aliveGuard, m_hooks.onLogout, [platform = &m_platform] { return platform->requestSessionExit(); }, "logout", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "suspend") {
-    runPowerAction(m_aliveGuard, {}, [this] { return requestSuspendDetached(); }, "suspend");
+    runPowerAction(m_aliveGuard, {}, [this] { return requestSuspendDetached(); }, "suspend", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "lock_and_suspend") {
@@ -256,28 +268,31 @@ void SessionActionRunner::invoke(const SessionPanelActionConfig& cfg) const {
     return;
   }
   if (cfg.action == "reboot") {
-    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot");
+    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootDetached(); }, "reboot", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "reboot_uefi") {
     // Check before the rebooting hook runs so an unsupported system doesn't fire it for nothing.
     if (!rebootUefiSupported()) {
       kLog.error("reboot_uefi: requires systemd and a UEFI boot");
+      if (m_hooks.onActionFailed) {
+        m_hooks.onActionFailed(cfg.action);
+      }
       return;
     }
-    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootUefiDetached(); }, "reboot_uefi");
+    runPowerAction(m_aliveGuard, m_hooks.onReboot, [this] { return requestRebootUefiDetached(); }, "reboot_uefi", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "shutdown") {
-    runPowerAction(m_aliveGuard, m_hooks.onShutdown, [this] { return requestShutdownDetached(); }, "shutdown");
+    runPowerAction(m_aliveGuard, m_hooks.onShutdown, [this] { return requestShutdownDetached(); }, "shutdown", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "hibernate") {
-    runPowerAction(m_aliveGuard, {}, [this]() { return requestHibernateDetached(); }, "hibernate");
+    runPowerAction(m_aliveGuard, {}, [this]() { return requestHibernateDetached(); }, "hibernate", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "suspend_then_hibernate") {
-    runPowerAction(m_aliveGuard, {}, [this]() { return requestSuspendThenHibernateDetached(); }, "suspend_then_hibernate");
+    runPowerAction(m_aliveGuard, {}, [this]() { return requestSuspendThenHibernateDetached(); }, "suspend_then_hibernate", m_hooks.onActionFailed);
     return;
   }
   if (cfg.action == "lock") {
