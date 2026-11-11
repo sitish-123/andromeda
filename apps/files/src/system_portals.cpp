@@ -145,6 +145,7 @@ SystemPortals::SystemPortals(SessionBus& bus, Handlers handlers) : m_bus(bus), m
                         pending->request = request;
                         const std::uint64_t id = track(handle, std::move(pending));
                         kLog.info("wallpaper {} from {} (preview {})", request.path, request.appId, request.showPreview);
+                        // Without a preview the frontend already asked consent (Access dialog, permission store).
                         if (request.showPreview) {
                           m_handlers.ask(id, request);
                         } else {
