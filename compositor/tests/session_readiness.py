@@ -118,6 +118,9 @@ def check(binary, abstract=False, fail_import=False, managed=True):
                 PATH=str(root / "bin") + ":" + os.environ["PATH"],
                 XDG_RUNTIME_DIR=str(root),
                 XDG_CACHE_HOME=str(root / "cache"),
+                # Mesa keeps its shader cache where the harness instances keep it: a cold one costs 2 s per start.
+                MESA_SHADER_CACHE_DIR=os.environ.get("MESA_SHADER_CACHE_DIR")
+                or os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")),
                 DBUS_SESSION_BUS_ADDRESS="unix:path=" + str(root / "no-session-bus"),
                 SYSTEMD_BUS_ADDRESS="unix:path=" + str(root / "no-manager-bus"),
                 DBUS_SYSTEM_BUS_ADDRESS="unix:path=" + str(root / "no-system-bus"),

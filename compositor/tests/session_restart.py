@@ -101,6 +101,9 @@ def main(binary, mode):
             PATH=str(root / "bin") + ":" + os.environ["PATH"],
             XDG_RUNTIME_DIR=str(root),
             XDG_CACHE_HOME=str(root / "cache"),
+            # Mesa keeps its shader cache where the harness instances keep it: a cold one costs 2 s per start.
+            MESA_SHADER_CACHE_DIR=os.environ.get("MESA_SHADER_CACHE_DIR")
+            or os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")),
             XDG_STATE_HOME=str(root / "state"),
             DBUS_SESSION_BUS_ADDRESS="unix:path=" + str(root / "no-session-bus"),
             SYSTEMD_BUS_ADDRESS="unix:path=" + str(root / "no-manager-bus"),
@@ -117,9 +120,10 @@ def main(binary, mode):
         )
         # systemd sets these per exec, so the shell sets them to the compositor's own PID.
         # Above 3, so the shell redirect "3<&fd fd<&-" never closes the socket it just moved.
+        # The test crashes the compositor on purpose: no core dump (about 1 s each for the debug binary).
         fd = fcntl.fcntl(listener.fileno(), fcntl.F_DUPFD_CLOEXEC, 10)
         command = ["/bin/sh", "-c",
-                   f'export SYSTEMD_EXEC_PID=$$ LISTEN_PID=$$ WATCHDOG_PID=$$; exec "$@" 3<&{fd} {fd}<&-',
+                   f'ulimit -c 0; export SYSTEMD_EXEC_PID=$$ LISTEN_PID=$$ WATCHDOG_PID=$$; exec "$@" 3<&{fd} {fd}<&-',
                    "session-restart", str(binary), "-c", str(config)]
 
         def start(log):
