@@ -1197,6 +1197,7 @@ if build_tests
     'inotify',
     'island_queue',
     'island_morph',
+    'island_lane_layout',
     'osd_reveal',
     'input_area',
     'input_bidi',

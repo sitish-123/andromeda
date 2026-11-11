@@ -140,6 +140,8 @@ private:
     std::optional<std::vector<InputRect>> sentBlur;
     std::optional<std::vector<InputRect>> sentInput;
     float restWidth = 0.0F;
+    float restLength = 0.0F; // lane pill height, hugging its stacked content
+    float restPadTop = 0.0F; // lane pill: rows above the stacked content
     float scale = 1.0F; // surface px per layout px
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
@@ -172,6 +174,7 @@ private:
     std::array<Box*, 3> barBox{};
     std::array<float, 3> barLevel{};
     Label* date = nullptr;
+    Label* weekday = nullptr; // lane pill caption above the day number
     Glyph* callGlyph = nullptr;
     Box* divider = nullptr;
     Label* count = nullptr;
@@ -291,9 +294,15 @@ private:
   [[nodiscard]] static bool mirrored(const Instance& inst);
   // The morph just settled: the layer, elevation and swipe offset of the shown face.
   void finishReveal(Instance& inst);
-  [[nodiscard]] float surfaceHeight(float scale) const;
+  [[nodiscard]] static bool inLane(const Instance& inst);
+  [[nodiscard]] static float surfaceWidth(const Instance& inst);
+  [[nodiscard]] static float surfaceHeight(const Instance& inst);
+  // The bars' box height: the art beside them in the row, the level group in the lane.
+  [[nodiscard]] static float barsHeight(const Instance& inst);
   [[nodiscard]] static std::int32_t surfaceMargin(const CenterIslandSpace& space);
   [[nodiscard]] static std::uint32_t islandAnchor(const CenterIslandSpace& space);
+  // Layer margins: top, right, bottom, left.
+  [[nodiscard]] static std::array<std::int32_t, 4> surfaceMargins(const CenterIslandSpace& space);
   [[nodiscard]] static std::int32_t endMargin();
   [[nodiscard]] static float endPad(const Instance& inst);
   [[nodiscard]] Rect faceRect(const Instance& inst, Face face) const;
@@ -306,6 +315,8 @@ private:
   void tickBars();
   void syncBarShapes(Instance& inst);
   [[nodiscard]] bool restUnderFullscreen(const Instance& inst) const;
+  // The settled rest pill faded out with the bar's auto-hide: nothing draws, loops or takes input.
+  [[nodiscard]] static bool restHidden(const Instance& inst);
   [[nodiscard]] bool realSpectrum() const;
   [[nodiscard]] bool barsNeedTimer() const;
   void syncHoverProgress(Instance& inst);

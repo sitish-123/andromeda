@@ -637,10 +637,10 @@ std::optional<CenterIslandSpace> Bar::centerIslandSpace(wl_output* output) const
         continue;
       }
       instance->centerSpace = CenterIslandSpace{
-          .edgeMargin = static_cast<std::int32_t>(Tokens::spaceChromeGap),
+          .edgeMargin = cfg.marginEdge,
           .height = instance->bg->width(),
           .width = std::max(0.0F, static_cast<float>(it->logicalWidth) - 4.0F * (instance->bg->width() + 2.0F * kGap)),
-          .restless = true,
+          .lane = cfg.position == "right" ? IslandLane::Right : IslandLane::Left,
           .scale = cfg.scale,
           .opacity = instance->hideOpacity,
           .backgroundOpacity = cfg.backgroundOpacity,

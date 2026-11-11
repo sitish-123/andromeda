@@ -14,6 +14,7 @@
 #include "notification/notification_manager.h"
 #include "notification/notification.h"
 #include "pipewire/pipewire_spectrum.h"
+#include "shell/live_activity/island_lane_layout.h"
 #include "ui/controls/image.h"
 #include "ui/surface_shadow.h"
 #include "ui/controls/progress_bar.h"
@@ -197,6 +198,31 @@ namespace {
   }
 
   float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+  constexpr float kLaneArt = 22.0F;
+  constexpr float kLaneArtRadius = 6.0F;
+  constexpr float kLaneBarsHeight = 16.0F;
+  float lanePillWidth(const CenterIslandSpace& space, float scale) {
+    return island_lane::pillWidth(space.height, scale, kHeight);
+  }
+
+  // Day number under the weekday caption (MON / 2) in the lane pill.
+  std::string laneDateText(const char* format) {
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);
+    std::array<char, 32> buffer{};
+    std::string out(buffer.data(), std::strftime(buffer.data(), buffer.size(), format, &local));
+    std::ranges::transform(out, out.begin(), [](char c) { return c >= 'a' && c <= 'z' ? static_cast<char>(c - 32) : c; });
+    return out;
+  }
+
+  // Minutes over seconds, stacked like the vertical bar clock.
+  std::string stackedElapsedText(std::chrono::steady_clock::time_point since) {
+    const auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - since).count();
+    const long long s = std::max<long long>(0, secs);
+    return std::format("{:02}\n{:02}", s / 60, s % 60);
+  }
 
   // m:ss, or h:mm:ss from one hour.
   std::string elapsedText(std::chrono::steady_clock::time_point since) {
@@ -434,7 +460,10 @@ void LiveActivityIsland::ensureSurfaces() {
     const bool outputGone = std::ranges::none_of(m_wayland->outputs(), [&inst](const auto& output) {
       return output.output == inst->output;
     });
-    if (outputGone || !space.has_value() || space->bottom != inst->space.bottom || space->end != inst->space.end || (space->height > 0.0F && std::abs(islandScale(*space) - inst->scale) > 0.001F)) {
+    if (outputGone || !space.has_value() || space->bottom != inst->space.bottom || space->end != inst->space.end
+        || space->lane != inst->space.lane
+        || (space->height > 0.0F
+            && (std::abs(islandScale(*space) - inst->scale) > 0.001F || (inLane(*inst) && space->height != inst->space.height)))) {
       inst->animations.cancelAll();
       return true;
     }
@@ -445,16 +474,21 @@ void LiveActivityIsland::ensureSurfaces() {
       kLog.info("center island surface width {} -> {} (logical output width {})", inst->width, width, output->logicalWidth);
       inst->width = width;
       inst->surface->setAnchorAndSize(
-          islandAnchor(*space), static_cast<std::uint32_t>(std::ceil(width * inst->scale)),
-          static_cast<std::uint32_t>(std::ceil(surfaceHeight(inst->scale) * inst->scale))
+          islandAnchor(*space), static_cast<std::uint32_t>(std::ceil(surfaceWidth(*inst) * inst->scale)),
+          static_cast<std::uint32_t>(std::ceil(surfaceHeight(*inst) * inst->scale))
       );
       inst->dskTarget.reset();
     }
     if (space->edgeMargin != inst->space.edgeMargin) {
-      inst->surface->setMargins(
-          space->bottom ? 0 : surfaceMargin(*space), space->end ? endMargin() : 0, space->bottom ? surfaceMargin(*space) : 0, 0
-      );
+      const auto m = surfaceMargins(*space);
+      inst->surface->setMargins(m[0], m[1], m[2], m[3]);
       inst->pad = static_cast<float>(std::min(space->edgeMargin, kShadowPad)) / inst->scale;
+      if (inLane(*inst)) {
+        inst->surface->setAnchorAndSize(
+            islandAnchor(*space), static_cast<std::uint32_t>(std::ceil(surfaceWidth(*inst) * inst->scale)),
+            static_cast<std::uint32_t>(std::ceil(surfaceHeight(*inst) * inst->scale))
+        );
+      }
       inst->dskTarget.reset();
     }
     if (space->height > 0.0F) {
@@ -481,22 +515,27 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->scale = islandScale(*space);
     inst->width = output.logicalWidth >= kWideOutput ? kWidth : kCompactWidth;
     kLog.info("center island surface width {} (logical output width {})", inst->width, output.logicalWidth);
+    inst->pad = static_cast<float>(std::min(space->edgeMargin, kShadowPad)) / inst->scale;
+    const auto surfaceW = static_cast<std::uint32_t>(std::ceil(surfaceWidth(*inst) * inst->scale));
+    const auto surfaceH = static_cast<std::uint32_t>(std::ceil(surfaceHeight(*inst) * inst->scale));
+    const auto margins = surfaceMargins(*space);
     inst->surface = std::make_unique<LayerSurface>(
         *m_wayland,
         LayerSurfaceConfig{
             .nameSpace = "noctalia-live-activity",
             .layer = LayerShellLayer::Overlay,
             .anchor = islandAnchor(*space),
-            .width = static_cast<std::uint32_t>(std::ceil(inst->width * inst->scale)),
-            .height = static_cast<std::uint32_t>(std::ceil(surfaceHeight(inst->scale) * inst->scale)),
+            .width = surfaceW,
+            .height = surfaceH,
             // -1: placed from the screen edge, over the bar's exclusive zone.
             .exclusiveZone = -1,
-            .marginTop = space->bottom ? 0 : surfaceMargin(*space),
-            .marginRight = space->end ? endMargin() : 0,
-            .marginBottom = space->bottom ? surfaceMargin(*space) : 0,
+            .marginTop = margins[0],
+            .marginRight = margins[1],
+            .marginBottom = margins[2],
+            .marginLeft = margins[3],
             .keyboard = LayerShellKeyboard::None,
-            .defaultWidth = static_cast<std::uint32_t>(std::ceil(inst->width * inst->scale)),
-            .defaultHeight = static_cast<std::uint32_t>(std::ceil(surfaceHeight(inst->scale) * inst->scale)),
+            .defaultWidth = surfaceW,
+            .defaultHeight = surfaceH,
             .prewarmBlur = true,
         }
     );
@@ -516,8 +555,9 @@ void LiveActivityIsland::ensureSurfaces() {
       inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
     }
     inst->liveWidth = std::min(inst->width, static_cast<float>(kExpandedWidth));
-    inst->restWidth = std::min(space->width / inst->scale, static_cast<float>(kRestWidth));
-    inst->pad = static_cast<float>(std::min(space->edgeMargin, kShadowPad)) / inst->scale;
+    inst->restWidth = inLane(*inst) ? lanePillWidth(*space, inst->scale)
+                                    : std::min(space->width / inst->scale, static_cast<float>(kRestWidth));
+    inst->restLength = inst->restWidth;
     inst->from = inst->to = inst->cur = faceRect(*inst, Face::Rest);
     syncDsk(*inst, false, false);
     inst->paletteConn = paletteChanged().connect([this, instPtr = inst.get()] {
@@ -549,8 +589,22 @@ void LiveActivityIsland::destroySurfaces() {
 }
 
 
-float LiveActivityIsland::surfaceHeight(float scale) const {
-  return maxCardHeight() + static_cast<float>(kShadowPad) / scale;
+bool LiveActivityIsland::inLane(const Instance& inst) { return inst.space.lane != IslandLane::Row; }
+
+// In the lane the card hangs from the top of the centred pill: twice the tallest card always holds it.
+float LiveActivityIsland::surfaceHeight(const Instance& inst) {
+  return inLane(inst) ? 2.0F * maxCardHeight() : maxCardHeight() + static_cast<float>(kShadowPad) / inst.scale;
+}
+
+// In the lane: the shadow pad, the pill, the gap and the widest card.
+float LiveActivityIsland::surfaceWidth(const Instance& inst) {
+  return inLane(inst) ? island_lane::surfaceWidth(inst.pad, lanePillWidth(inst.space, inst.scale), inst.width) : inst.width;
+}
+
+float LiveActivityIsland::barsHeight(const Instance& inst) { return inLane(inst) ? kLaneBarsHeight : kArt; }
+
+bool LiveActivityIsland::restHidden(const Instance& inst) {
+  return inst.morph.shown() == Face::Rest && inst.morph.settled() && (inst.space.restless || inst.space.opacity <= 0.01F);
 }
 
 // The layer margin leaves room for the shadow bleed inside the surface, so the island keeps its screen position.
@@ -563,7 +617,20 @@ namespace {
   std::int32_t endGap() { return static_cast<std::int32_t>(Tokens::spaceChromeGap); }
 } // namespace
 
+std::array<std::int32_t, 4> LiveActivityIsland::surfaceMargins(const CenterIslandSpace& space) {
+  switch (space.lane) {
+  case IslandLane::Left: return {0, 0, 0, surfaceMargin(space)};
+  case IslandLane::Right: return {0, surfaceMargin(space), 0, 0};
+  case IslandLane::Row: break;
+  }
+  return {space.bottom ? 0 : surfaceMargin(space), space.end ? endMargin() : 0, space.bottom ? surfaceMargin(space) : 0, 0};
+}
+
 std::uint32_t LiveActivityIsland::islandAnchor(const CenterIslandSpace& space) {
+  // One horizontal edge only: the compositor centres the lane surface on the output's height.
+  if (space.lane != IslandLane::Row) {
+    return space.lane == IslandLane::Left ? LayerShellAnchor::Left : LayerShellAnchor::Right;
+  }
   const std::uint32_t edge = space.bottom ? LayerShellAnchor::Bottom : LayerShellAnchor::Top;
   return space.end ? edge | LayerShellAnchor::Right : edge;
 }
@@ -584,6 +651,12 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
   float radius = kLiveRadius;
   switch (face) {
   case Face::Rest:
+    if (inLane(inst)) {
+      w = lanePillWidth(inst.space, inst.scale);
+      h = std::max(w, inst.restLength);
+      radius = w * 0.5F;
+      break;
+    }
     h = std::min(inst.space.height / inst.scale, static_cast<float>(kHeight));
     w = inst.restWidth;
     radius = h * 0.5F;
@@ -609,9 +682,19 @@ LiveActivityIsland::Rect LiveActivityIsland::faceRect(const Instance& inst, Face
     radius = h <= kMinCardHeight ? h * 0.5F : static_cast<float>(kBannerRadius);
     break;
   }
+  if (inLane(inst)) {
+    const bool right = inst.space.lane == IslandLane::Right;
+    const float sw = surfaceWidth(inst);
+    const float sh = surfaceHeight(inst);
+    const float pillW = lanePillWidth(inst.space, inst.scale);
+    const island_lane::Box pill =
+        island_lane::pill(sw, sh, inst.pad, pillW, std::max(pillW, inst.restLength), right);
+    const island_lane::Box b = face == Face::Rest ? pill : island_lane::card(pill, sh, w, h, right);
+    return Rect{.x = b.x, .y = b.y, .w = b.w, .h = b.h, .radius = radius};
+  }
   return Rect{
       .x = inst.space.end ? inst.width - endPad(inst) - w : std::round((inst.width - w) * 0.5F),
-      .y = inst.space.bottom ? surfaceHeight(inst.scale) - inst.pad - h : inst.pad,
+      .y = inst.space.bottom ? surfaceHeight(inst) - inst.pad - h : inst.pad,
       .w = w,
       .h = h,
       .radius = radius,
@@ -719,7 +802,9 @@ void LiveActivityIsland::updateFace(Instance& inst) {
 
 void LiveActivityIsland::hoverEnter(Instance& inst) {
   inst.collapse.stop();
-  if (inst.hovered) {
+  // In the lane the card's clip leaves the pill under the pointer outside the surface: the pointer would leave at
+  // once and the hover would open and close in a loop. The pill opens its sheet on click instead.
+  if (inst.hovered || inLane(inst)) {
     return;
   }
   const MprisService* mpris = m_mpris ? m_mpris() : nullptr;
@@ -968,69 +1053,86 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
     );
   };
 
-  auto bars = ui::node({.width = 3.0F * kBarWidth + 2.0F * kBarGap, .height = kArt});
+  // In a vertical bar's lane the rest content stacks top to bottom (DESIGN.md "Vertical-bar live island").
+  const bool lane = inLane(inst);
+  const FlexDirection restDirection = lane ? FlexDirection::Vertical : FlexDirection::Horizontal;
+  const float restArtSize = lane ? kLaneArt : kArt;
+  const float restArtRadius = lane ? kLaneArtRadius : kArtRadius;
+  const float barsH = barsHeight(inst);
+  auto bars = ui::node({.width = 3.0F * kBarWidth + 2.0F * kBarGap, .height = barsH});
   inst.bars = bars.get();
   for (std::size_t i = 0; i < inst.barBox.size(); ++i) {
     auto bar = ui::box({.out = &inst.barBox[i], .fill = colorSpecFromRole(ColorRole::Accent), .radius = 1.5F});
     bar->setSize(kBarWidth, 6.0F);
-    bar->setPosition(static_cast<float>(i) * (kBarWidth + kBarGap), (kArt - 6.0F) * 0.5F);
+    bar->setPosition(static_cast<float>(i) * (kBarWidth + kBarGap), (barsH - 6.0F) * 0.5F);
     bars->addChild(std::move(bar));
   }
-  auto restArt = artPlaceholder(kArt, kArtRadius, 14.0F);
+  auto restArt = artPlaceholder(restArtSize, restArtRadius, 14.0F);
   inst.artPlaceholder = restArt.get();
-  auto mediaGroup = ui::row(
-      {.align = FlexAlign::Center, .gap = Style::spaceSm, .visible = false},
-      std::move(restArt),
-      ui::image({.out = &inst.art, .fit = ImageFit::Cover, .radius = kArtRadius, .width = kArt, .height = kArt, .visible = false}),
-      ui::label({
-          .out = &inst.mediaTitle,
-          .fontSize = Tokens::typeFootnote.size,
-          .color = colorSpecFromRole(ColorRole::Label1),
-          .maxLines = 1,
-      }),
-      std::move(bars)
-  );
+  auto mediaGroup = ui::flex(restDirection, {.align = FlexAlign::Center, .gap = Style::spaceSm, .visible = false});
+  mediaGroup->addChild(std::move(restArt));
+  mediaGroup->addChild(ui::image(
+      {.out = &inst.art, .fit = ImageFit::Cover, .radius = restArtRadius, .width = restArtSize, .height = restArtSize, .visible = false}
+  ));
+  mediaGroup->addChild(ui::label({
+      .out = &inst.mediaTitle,
+      .fontSize = Tokens::typeFootnote.size,
+      .color = colorSpecFromRole(ColorRole::Label1),
+      .maxLines = 1,
+      .visible = !lane,
+  }));
+  mediaGroup->addChild(std::move(bars));
   inst.mediaGroup = mediaGroup.get();
   const float restFont = Tokens::typeBody.size;
   const auto restWeight = FontWeight::SemiBold;
-  auto restContent = ui::row(
-      {.align = FlexAlign::Center, .gap = Style::spaceSm},
-      std::move(mediaGroup),
-      ui::glyph({
-          .out = &inst.callGlyph,
-          .glyph = "phone-call",
-          .glyphSize = Tokens::componentIslandIcon,
-          .color = colorSpecFromRole(ColorRole::Success),
-          .visible = false,
-      }),
-      ui::label({
-          .out = &inst.date,
-          .fontSize = restFont,
-          .fontWeight = restWeight,
-          .color = colorSpecFromRole(ColorRole::Label1),
-          .maxLines = 1,
-      }),
-      ui::box({
-          .out = &inst.divider,
-          .fill = colorSpecFromRole(ColorRole::Label3),
-          .width = 1.0F,
-          .height = Tokens::componentIslandDividerHeight,
-          .visible = false,
-      }),
-      dot(&inst.micDot, colorSpecFromRole(ColorRole::Accent)),
-      dot(&inst.cameraDot, colorSpecFromRole(ColorRole::Accent)),
-      dot(&inst.screenDot, colorSpecFromRole(ColorRole::Danger)),
-      ui::label({
-          .out = &inst.count,
-          .fontSize = restFont,
-          .fontWeight = restWeight,
-          .color = colorSpecFromRole(ColorRole::Label1),
-          .maxLines = 1,
-          .visible = false,
-      })
-  );
+  auto restContent = ui::flex(restDirection, {.align = FlexAlign::Center, .gap = Style::spaceSm});
+  restContent->addChild(std::move(mediaGroup));
+  restContent->addChild(ui::glyph({
+      .out = &inst.callGlyph,
+      .glyph = "phone-call",
+      .glyphSize = Tokens::componentIslandIcon,
+      .color = colorSpecFromRole(ColorRole::Success),
+      .visible = false,
+  }));
+  restContent->addChild(ui::label({
+      .out = &inst.weekday,
+      .fontSize = Tokens::typeCaption.size,
+      .fontWeight = static_cast<FontWeight>(Tokens::typeCaption.weight),
+      .color = colorSpecFromRole(ColorRole::Label2),
+      .maxLines = 1,
+      .visible = false,
+  }));
+  // In the lane the day number, or minutes over seconds of a call: tabular, like the vertical bar clock.
+  restContent->addChild(ui::label({
+      .out = &inst.date,
+      .fontSize = restFont,
+      .fontWeight = restWeight,
+      .fontFeatures = lane ? std::optional<std::string>("tnum") : std::nullopt,
+      .color = colorSpecFromRole(ColorRole::Label1),
+      .maxLines = lane ? 2 : 1,
+      .textAlign = lane ? std::optional<TextAlign>(TextAlign::Center) : std::nullopt,
+  }));
+  restContent->addChild(ui::box({
+      .out = &inst.divider,
+      .fill = colorSpecFromRole(ColorRole::Label3),
+      .width = lane ? Tokens::componentIslandDividerHeight : 1.0F,
+      .height = lane ? 1.0F : Tokens::componentIslandDividerHeight,
+      .visible = false,
+  }));
+  restContent->addChild(dot(&inst.micDot, colorSpecFromRole(ColorRole::Accent)));
+  restContent->addChild(dot(&inst.cameraDot, colorSpecFromRole(ColorRole::Accent)));
+  restContent->addChild(dot(&inst.screenDot, colorSpecFromRole(ColorRole::Danger)));
+  restContent->addChild(ui::label({
+      .out = &inst.count,
+      .fontSize = lane ? Tokens::typeCaption.size : restFont,
+      .fontWeight = restWeight,
+      .color = colorSpecFromRole(ColorRole::Label1),
+      .maxLines = 1,
+      .visible = false,
+  }));
   inst.mediaTitle->setLineHeight(Tokens::typeFootnote.line);
-  inst.count->setLineHeight(Tokens::typeBody.line);
+  inst.weekday->setLineHeight(Tokens::typeCaption.line);
+  inst.count->setLineHeight(lane ? Tokens::typeCaption.line : Tokens::typeBody.line);
   inst.date->setLineHeight(Tokens::typeBody.line);
   inst.faceNode[static_cast<std::size_t>(Face::Rest)] = restContent.get();
   material->addChild(std::move(restContent));
@@ -1366,6 +1468,16 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
                 }
               }
             }
+            if (!fromBanner && inLane(*instPtr) && m_activity.has_value() && m_activity->since.has_value()) {
+              if (m_activity->open) {
+                m_activity->open(instPtr->output);
+              }
+              return;
+            }
+            if (!fromBanner && inLane(*instPtr) && instPtr->mediaGroup->visible() && m_open) {
+              m_open(instPtr->output, "detail-media");
+              return;
+            }
             // A banner opens the notification history; the resting date pill opens the calendar, as the clock does.
             if (m_open) {
               m_open(instPtr->output, fromBanner ? "detail-notifications" : "calendar");
@@ -1483,7 +1595,14 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   inst.mediaTitle->setMaxWidth(kRestMaxWidth);
   inst.callGlyph->setVisible(compactCall);
   inst.date->setVisible(!playing || compactCall);
-  inst.date->setText(compactCall ? elapsedText(*m_activity->since) : m_date);
+  const bool lane = inLane(inst);
+  inst.weekday->setVisible(lane && !playing && !compactCall);
+  if (lane) {
+    inst.weekday->setText(laneDateText("%a"));
+    inst.date->setText(compactCall ? stackedElapsedText(*m_activity->since) : laneDateText("%-d"));
+  } else {
+    inst.date->setText(compactCall ? elapsedText(*m_activity->since) : m_date);
+  }
   inst.divider->setVisible(mic || camera || screen || unread > 0);
   inst.micDot->setVisible(mic);
   inst.cameraDot->setVisible(camera);
@@ -1500,14 +1619,23 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   inst.hoverArtPlaceholder->setVisible(!inst.hoverArt->hasImage());
   Node* restNode = inst.faceNode[static_cast<std::size_t>(Face::Rest)];
   restNode->layout(renderer);
-  const float restCap = inst.space.width > 0.0F ? std::min(kRestMaxWidth, inst.space.width / inst.scale) : kRestMaxWidth;
-  if (playing && restNode->width() + 2.0F * kRestPadding > restCap) {
-    // The title takes what the art, the waveform and the privacy dots leave.
-    const float over = restNode->width() + 2.0F * kRestPadding - restCap;
-    inst.mediaTitle->setMaxWidth(std::max(24.0F, inst.mediaTitle->width() - over));
-    restNode->layout(renderer);
+  if (lane) {
+    const bool textFirst = !compactCall && !playing;
+    const bool textLast = unread > 0 || (!(mic || camera || screen) && (compactCall || !playing));
+    const island_lane::Length length = island_lane::pillLength(restNode->height(), textFirst, textLast);
+    inst.restLength = length.height;
+    inst.restPadTop = length.padTop;
+    inst.restWidth = lanePillWidth(inst.space, inst.scale);
+  } else {
+    const float restCap = inst.space.width > 0.0F ? std::min(kRestMaxWidth, inst.space.width / inst.scale) : kRestMaxWidth;
+    if (playing && restNode->width() + 2.0F * kRestPadding > restCap) {
+      // The title takes what the art, the waveform and the privacy dots leave.
+      const float over = restNode->width() + 2.0F * kRestPadding - restCap;
+      inst.mediaTitle->setMaxWidth(std::max(24.0F, inst.mediaTitle->width() - over));
+      restNode->layout(renderer);
+    }
+    inst.restWidth = std::min({restCap, std::max(static_cast<float>(kRestWidth), restNode->width() + 2.0F * kRestPadding)});
   }
-  inst.restWidth = std::min({restCap, std::max(static_cast<float>(kRestWidth), restNode->width() + 2.0F * kRestPadding)});
   inst.liveWidth = std::min(inst.width, static_cast<float>(kExpandedWidth));
 
   // Live card.
@@ -1764,8 +1892,8 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const float t = std::clamp(reveal, 0.0F, 1.0F);
   // Reduced motion: the size jumps and only the content cross-fades. The size follows the unclamped spring (overshoot).
   const float sizeT = MotionService::instance().enabled() ? reveal : 1.0F;
-  const float maxW = inst.width;
-  const float maxH = surfaceHeight(inst.scale);
+  const float maxW = surfaceWidth(inst);
+  const float maxH = surfaceHeight(inst);
   // Mirror on: the compositor's own clip curve; else a lerp on the shell's spring.
   const auto& ms = inst.morph.shape();
   const bool follow = inst.dsk != nullptr && !inst.morph.settled();
@@ -1785,7 +1913,7 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const Rect restR = faceRect(inst, Face::Rest);
 
   // With the compositor the fills span the surface and its clip morphs them; otherwise the fills are the island.
-  const Rect box = inst.dsk != nullptr ? Rect{0.0F, 0.0F, inst.width, surfaceHeight(inst.scale), cur.radius} : cur;
+  const Rect box = inst.dsk != nullptr ? Rect{0.0F, 0.0F, maxW, maxH, cur.radius} : cur;
   for (Box* fill : {inst.material, inst.tint}) {
     fill->setPosition(box.x, box.y);
     fill->setSize(box.w, box.h);
@@ -1834,7 +1962,7 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
     if (f == Face::Rest) {
       node->setPosition(
           std::round(restR.x + (restR.w - node->width()) * 0.5F - box.x),
-          std::round(restR.y + (restR.h - node->height()) * 0.5F - box.y)
+          std::round(restR.y + (inLane(inst) ? inst.restPadTop : (restR.h - node->height()) * 0.5F) - box.y)
       );
     } else {
       node->setPosition(r.x - box.x, r.y - box.y);
@@ -1844,6 +1972,8 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   // The pill follows the bar's auto-hide fade; an expanded face stays.
   const float shown = lerp(inst.space.restless ? 0.0F : inst.space.opacity, 1.0F, 1.0F - restMix);
   inst.sceneRoot->setOpacity(shown);
+  // A faded-out pill draws nothing at all; syncBarShapes and barsNeedTimer stop its loops (restHidden).
+  inst.sceneRoot->setVisible(!restHidden(inst));
   if (compositorShadow && inst.morph.shown() == Face::Rest && !follow && reveal >= 1.0F) {
     // At rest the pill follows the bar's auto-hide fade, and so does its shadow.
     const double level = kRestElevation * shown;
@@ -2131,7 +2261,8 @@ bool LiveActivityIsland::pressActivityButton(bool secondary) {
 void LiveActivityIsland::syncBars() {
   const MprisService* mpris = m_mpris ? m_mpris() : nullptr;
   const auto player = mpris != nullptr ? mpris->activePlayer() : std::nullopt;
-  const bool playing = !m_instances.empty() && player.has_value() && player->playbackStatus == "Playing";
+  const bool playing = player.has_value() && player->playbackStatus == "Playing"
+      && std::ranges::any_of(m_instances, [](const auto& inst) { return !restHidden(*inst); });
   PipeWireSpectrum* spectrum = m_spectrum ? m_spectrum() : nullptr;
   if (!playing) {
     if (spectrum != nullptr && m_spectrumListener != 0) {
@@ -2185,12 +2316,13 @@ void LiveActivityIsland::tickBars() {
         target = 0.5F + 0.5F * std::sin(m_barsPhase * (5.1F + n * 1.7F) + n * 2.1F) * (0.65F + 0.35F * std::sin(m_barsPhase * 2.3F + n));
       }
       inst->barLevel[i] += (std::clamp(target, 0.0F, 1.0F) - inst->barLevel[i]) * 0.4F;
-      const float h = 4.0F + inst->barLevel[i] * (kArt - 4.0F);
+      const float barsH = barsHeight(*inst);
+      const float h = 4.0F + inst->barLevel[i] * (barsH - 4.0F);
       // Paint-only resize: a layout pass here would rebuild the whole island content 30 times a second.
       inst->barBox[i]->setFrameSize(kBarWidth, h);
-      inst->barBox[i]->setPosition(n * (kBarWidth + kBarGap), std::round((kArt - h) * 0.5F));
+      inst->barBox[i]->setPosition(n * (kBarWidth + kBarGap), std::round((barsH - h) * 0.5F));
     }
-    if (inst->morph.shown() == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible()) {
+    if (inst->morph.shown() == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible() && !restHidden(*inst)) {
       inst->surface->requestRedraw();
     }
   }
@@ -2207,20 +2339,19 @@ bool LiveActivityIsland::realSpectrum() const {
 // The shell wakes every 33 ms only for a real spectrum, the hover progress, or client-drawn bars; the looping
 // compositor shapes need no wake-up.
 bool LiveActivityIsland::barsNeedTimer() const {
-  if (realSpectrum()) {
-    return true;
-  }
-  return std::ranges::any_of(m_instances, [this](const auto& inst) {
+  const bool real = realSpectrum();
+  return std::ranges::any_of(m_instances, [this, real](const auto& inst) {
     return inst->morph.shown() == Face::HoverMedia
-        || (inst->morph.shown() == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible() && !inst->barShapeKey
-            && !restUnderFullscreen(*inst));
+        || (inst->morph.shown() != Face::Rest && real)
+        || (inst->morph.shown() == Face::Rest && inst->mediaGroup != nullptr && inst->mediaGroup->visible()
+            && (real || !inst->barShapeKey) && !restUnderFullscreen(*inst) && !restHidden(*inst));
   });
 }
 
 void LiveActivityIsland::syncBarShapes(Instance& inst) {
   std::optional<std::array<float, 6>> key;
   if (inst.dsk != nullptr && inst.dsk->hasShapes() && inst.bars != nullptr && inst.morph.shown() == Face::Rest && inst.morph.settled()
-      && inst.mediaGroup->visible() && !realSpectrum() && !restUnderFullscreen(inst)
+      && inst.mediaGroup->visible() && !realSpectrum() && !restUnderFullscreen(inst) && !restHidden(inst)
       && MotionService::instance().enabled() && !MotionService::instance().reduced()) {
     float x = 0.0F;
     float y = 0.0F;
@@ -2243,9 +2374,10 @@ void LiveActivityIsland::syncBarShapes(Instance& inst) {
       const double y = (*key)[1];
       shape.set(DskShapeClient::Property::Fill, {(*key)[2], (*key)[3], (*key)[4], (*key)[5]});
       shape.set(DskShapeClient::Property::Radius, {1.5 * k, 0.0, 0.0, 0.0});
-      shape.set(DskShapeClient::Property::Clip, {x, y + (kArt - 4.0F) * 0.5F * k, kBarWidth * k, 4.0 * k});
+      const double barsH = barsHeight(inst);
+      shape.set(DskShapeClient::Property::Clip, {x, y + (barsH - 4.0) * 0.5 * k, kBarWidth * k, 4.0 * k});
       if (!shape.loop(DskShapeClient::Property::Clip, DskShapeClient::Wave::Noise, 1100, static_cast<std::uint32_t>(i + 1),
-                      {x, y, kBarWidth * k, kArt * k})) {
+                      {x, y, kBarWidth * k, barsH * k})) {
         kLog.debug("media bars: the compositor cannot loop");
         key.reset();
       }
