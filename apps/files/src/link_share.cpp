@@ -243,18 +243,24 @@ void LinkShare::send(const std::string& deviceId, const std::vector<std::filesys
                      std::function<void(const std::string& transferId, const std::string& error)> done) {
   std::vector<sdbus::Struct<sdbus::UnixFd, std::string>> sources;
   for (const auto& path : files) {
-    // O_NONBLOCK keeps open(2) from waiting on a FIFO or device on the UI thread.
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+    // An O_PATH fd is checked first, so no FIFO or device driver sees an open on the UI thread.
+    const int probe = ::open(path.c_str(), O_PATH | O_CLOEXEC);
+    if (probe < 0) {
+      done({}, path.filename().string() + ": cannot be read");
+      return;
+    }
+    sdbus::UnixFd probeOwned{probe, sdbus::adopt_fd};
+    struct stat st{};
+    if (::fstat(probe, &st) != 0 || !S_ISREG(st.st_mode)) {
+      done({}, path.filename().string() + ": not a regular file");
+      return;
+    }
+    const int fd = ::open(("/proc/self/fd/" + std::to_string(probe)).c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
       done({}, path.filename().string() + ": cannot be read");
       return;
     }
     sdbus::UnixFd owned{fd, sdbus::adopt_fd};
-    struct stat st{};
-    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
-      done({}, path.filename().string() + ": not a regular file");
-      return;
-    }
     sources.emplace_back(std::move(owned), path.filename().string());
   }
   kLog.debug("share {} files to {}", files.size(), deviceId);

@@ -2,6 +2,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -65,13 +66,13 @@ pub fn set_permissions(paths: &[PathBuf], mode: u32, mask: u32, recursive: bool,
     (undo, Ok(()))
 }
 
-/// Opens `path` for reading only if it is a regular file; `O_NONBLOCK` keeps open(2) from waiting on a FIFO or device.
+/// Opens `path` for reading only if it is a regular file. An `O_PATH` fd is checked first, so no FIFO or device driver sees an open.
 fn open_regular(path: &Path) -> io::Result<File> {
-    let file = OpenOptions::new().read(true).custom_flags(rustix::fs::OFlags::NONBLOCK.bits().cast_signed()).open(path)?;
-    if !file.metadata()?.is_file() {
+    let probe = OpenOptions::new().read(true).custom_flags(rustix::fs::OFlags::PATH.bits().cast_signed()).open(path)?;
+    if !probe.metadata()?.is_file() {
         return Err(io::Error::other("not a regular file"));
     }
-    Ok(file)
+    File::open(format!("/proc/self/fd/{}", probe.as_raw_fd()))
 }
 
 /// The lowercase hex digest of `path`; algorithm "sha256" or "md5". Reads in chunks, checks cancel per chunk.
