@@ -72,6 +72,9 @@ namespace andromeda {
 
   void Popup::onMap(wl_listener* listener, void* /*data*/) {
     Popup* self = wl_container_of(listener, self, m_map); // NOLINT(modernize-use-auto)
+    if (View* view = View::fromSurface(self->m_popup->parent)) {
+      view->watchPopupSurfaceTree(self->m_popup->base->surface);
+    }
     self->refreshWindowCapture();
     self->handleMap();
   }

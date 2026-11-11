@@ -11,7 +11,8 @@
 // hints Wine gives an X11 game window. CHILD_ON_STDIN reads commands: `h` attaches a null buffer to the child, `d` also
 // destroys its subsurface role while the surface lives on, and `s` maps it again, as a subsurface of the parent once
 // more after `d`. `p` maps an empty green popup of the window, and after `d`, `m` makes the child a subsurface of that
-// popup instead. Each prints child-hidden, child-detached, child-shown, popup-mapped or child-moved once applied.
+// popup instead; `n` maps a new secure blue surface as a subsurface of the popup. Each prints child-hidden,
+// child-detached, child-shown, popup-mapped, child-moved or popup-child-mapped once applied.
 // SECURE=child|parent makes that surface secure (dsk_surface_v1.set_secure) from its first commit.
 // Usage: subsurface-client [title [width height [animate]]]. The dimensions are a fallback: a configure adopts it.
 
@@ -480,6 +481,17 @@ int main(int argc, char** argv) {
     } else if (command == 'p' && state.popup == nullptr) {
       mapPopup(state);
       reply = "popup-mapped";
+    } else if (command == 'n' && state.popup != nullptr && state.dskManager != nullptr) {
+      // A new secure surface, blue, maps as a subsurface of the popup.
+      wl_surface* late = wl_compositor_create_surface(state.compositor);
+      dsk_surface_v1_set_secure(dsk_surface_manager_v1_get_surface(state.dskManager, late), 1);
+      wl_subsurface* lateSub = wl_subcompositor_get_subsurface(state.subcompositor, late, state.popup);
+      wl_subsurface_set_desync(lateSub);
+      wl_surface_attach(late, state.childBuffer.resource, 0, 0);
+      wl_surface_damage_buffer(late, 0, 0, state.width, state.height);
+      wl_surface_commit(late);
+      wl_surface_commit(state.popup);
+      reply = "popup-child-mapped";
     } else if (command == 'm' && state.subsurface == nullptr && state.popup != nullptr) {
       state.childHidden = false;
       moveChildToPopup(state);

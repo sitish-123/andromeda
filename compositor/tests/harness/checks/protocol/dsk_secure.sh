@@ -180,6 +180,32 @@ if ((late_blue != 0)); then
   echo "a running window capture shows a secure subsurface mapped after it started: $late_blue blue frames"
   exit 1
 fi
+
+# The same for a new secure subsurface of a popup: the window has no secure surface until it maps.
+POPUP_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-popup.log"
+POPUP_FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-secure-popup.fifo"
+POPUP_CAPTURE_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-popup-capture.log"
+mkfifo "$POPUP_FIFO"
+exec {popup_fd}<> "$POPUP_FIFO"
+CHILD_ON_STDIN=1 "$ANDROMEDA_SUBSURFACE_CLIENT" secure-popup <&"$popup_fd" > "$POPUP_LOG" 2>&1 &
+pids+=($!)
+await_lines "$POPUP_LOG" mapped 1
+printf p >&"$popup_fd"
+await_lines "$POPUP_LOG" popup-mapped 1
+"$ANDROMEDA" settle
+popup_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.app_id == "secure-popup") | .id')
+CAPTURE_PIXELS=1 "$ANDROMEDA_CAPTURE_CLIENT" --window "$popup_id" > "$POPUP_CAPTURE_LOG" 2>&1 &
+pids+=($!)
+if ! await_lines "$POPUP_CAPTURE_LOG" 'pixels .* color=ff0000ff' 1 > /dev/null; then
+  echo "a window capture never showed the window: $(grep '^pixels' "$POPUP_CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
+printf n >&"$popup_fd"
+await_lines "$POPUP_LOG" popup-child-mapped 1
+if ! await_lines "$POPUP_CAPTURE_LOG" 'pixels .* uniform=1 color=ff000000' 1 > /dev/null; then
+  echo "a window capture shows a secure subsurface of a popup: $(grep '^pixels' "$POPUP_CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
 echo "plain $blue blue/$black black; secure $hidden_blue/$hidden_black; cleared $shown_blue/$shown_black;" \
   "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue blue;" \
   "overview $overview_blue/$overview_black; late child $late_blue blue frames"

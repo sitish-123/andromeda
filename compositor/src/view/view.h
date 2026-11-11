@@ -155,6 +155,8 @@ namespace andromeda {
     // Hides the capture tree behind a black rectangle of the window's size, so a window capture shows no content,
     // while any mapped surface of the window (its subsurfaces and popups included) is secure (dsk_surface_v1.set_secure).
     void refreshCaptureHidden();
+    // Watches a popup's surface tree, so a subsurface that maps or unmaps in it refreshes the capture.
+    void watchPopupSurfaceTree(wlr_surface* popup) { watchViewSurfaceTree(popup); }
     [[nodiscard]] bool mapped() const { return m_lifecycle != Lifecycle::Unmapped; }
     // The pid of the application process, or -1 when it is unknown (an X11 client that sets no _NET_WM_PID).
     [[nodiscard]] pid_t pid() const;
