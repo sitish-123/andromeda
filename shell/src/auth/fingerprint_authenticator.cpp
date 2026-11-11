@@ -27,7 +27,6 @@ namespace {
   const sdbus::ObjectPath kLoginPath{"/org/freedesktop/login1"};
   constexpr auto kLoginManagerInterface = "org.freedesktop.login1.Manager";
 
-  constexpr int kMaxRetries = 3;
   constexpr auto kRetryDelay = std::chrono::milliseconds(250);
 
   enum class MatchResult {
@@ -64,23 +63,13 @@ namespace {
   }
 } // namespace
 
+using fingerprint_auth::Phase;
+
 FingerprintAuthenticator::FingerprintAuthenticator(SystemBus& bus) : m_bus(bus) {
   try {
     m_loginManager = sdbus::createProxy(m_bus.connection(), kLoginBusName, kLoginPath);
-    // on sleep, leave the device to fprintd; on resume, re-arm if still active
     m_loginManager->uponSignal("PrepareForSleep").onInterface(kLoginManagerInterface).call([this](bool sleeping) {
-      m_sleeping = sleeping;
-      if (sleeping) {
-        // Do not call into fprintd here. It handles PrepareForSleep itself and has
-        // already powered the sensor down; a call arriving after that never gets a
-        // reply and blocks until logind freezes the session mid-transfer, leaving
-        // the sensor with a stalled endpoint on resume. startVerify() already
-        // refuses to run while m_sleeping, so only the re-arm state needs clearing.
-        m_retryTimer.stop();
-        m_verifying = false;
-      } else if (m_active && !m_abort) {
-        startVerify(false);
-      }
+      run(sleeping ? m_machine.sleep() : m_machine.wake());
     });
   } catch (const sdbus::Error& e) {
     kLog.debug("could not monitor PrepareForSleep: {}", e.what());
@@ -96,64 +85,60 @@ void FingerprintAuthenticator::setAuthenticatedCallback(AuthenticatedCallback ca
 
 void FingerprintAuthenticator::setStatusCallback(StatusCallback callback) { m_onStatus = std::move(callback); }
 
-void FingerprintAuthenticator::start() {
-  if (m_active) {
-    return;
-  }
+void FingerprintAuthenticator::start() { run(m_machine.start()); }
 
-  m_active = true;
-  m_abort = false;
-  m_retries = 0;
-  m_reclaimAttempted = false;
-  if (m_sleeping) {
-    return;
-  }
-  startVerify(false);
-}
+// Release even after verify-disconnected: fprintd also reports libfprint's recoverable TOO_HOT
+// cutoff that way and keeps our claim until Release or until this long-lived connection closes.
+void FingerprintAuthenticator::stop() { run(m_machine.stop()); }
 
-void FingerprintAuthenticator::stop() {
-  m_retryTimer.stop();
-  m_active = false;
-  m_verifying = false;
-  m_claiming = false;
-  // Release even after verify-disconnected: fprintd also reports libfprint's recoverable TOO_HOT
-  // cutoff that way and keeps our claim until Release or until this long-lived connection closes.
-  releaseDevice();
+void FingerprintAuthenticator::run(fingerprint_auth::Commands commands) {
+  const std::uint64_t attempt = m_machine.attempt();
+  if ((commands & fingerprint_auth::VerifyStop) != 0) {
+    stopVerify();
+  }
+  if ((commands & fingerprint_auth::Release) != 0) {
+    releaseDevice();
+  }
+  if ((commands & fingerprint_auth::RequestDevice) != 0) {
+    requestDevice(attempt);
+  }
+  if ((commands & fingerprint_auth::Claim) != 0) {
+    claimDevice(attempt);
+  }
+  if ((commands & fingerprint_auth::VerifyStart) != 0) {
+    startVerify(attempt);
+  }
+  const Phase phase = m_machine.phase();
+  if (phase != Phase::RetryWait && phase != Phase::ReclaimWait) {
+    m_retryTimer.stop();
+  } else if (!m_retryTimer.active()) {
+    m_retryTimer.start(kRetryDelay, [this] { run(m_machine.retryDue()); });
+  }
 }
 
 // Async: GetDefaultDevice D-Bus-activates fprintd, which can take seconds; the lock screen must not wait for it.
-void FingerprintAuthenticator::requestDevice() {
-  if (m_requestingDevice) {
-    return;
-  }
+void FingerprintAuthenticator::requestDevice(std::uint64_t attempt) {
   try {
     m_manager = sdbus::createProxy(m_bus.connection(), kFprintBusName, kManagerPath);
-    m_requestingDevice = true;
     m_manager->callMethodAsync("GetDefaultDevice")
         .onInterface(kManagerInterface)
-        .uponReplyInvoke([this](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
-          m_requestingDevice = false;
+        .uponReplyInvoke([this, attempt](std::optional<sdbus::Error> e, sdbus::ObjectPath path) {
+          if (!m_machine.current(attempt, Phase::RequestingDevice)) {
+            return;
+          }
           if (e.has_value()) {
             kLog.info("no fprintd device available: {}", e->what());
-            m_verifying = false;
             setAvailable(false);
-            return;
           }
-          if (m_device != nullptr || !createDeviceProxy(path)) {
-            m_verifying = false;
-            return;
+          const bool ok = !e.has_value() && createDeviceProxy(path);
+          if (ok) {
+            emitStatus(i18n::tr("auth.fingerprint.ready"), false);
           }
-          if (!m_active || m_sleeping || m_abort) {
-            m_verifying = false;
-            return;
-          }
-          emitStatus(i18n::tr("auth.fingerprint.ready"), false);
-          claimDevice();
+          run(m_machine.deviceReply(attempt, ok));
         });
   } catch (const sdbus::Error& e) {
-    m_requestingDevice = false;
-    m_verifying = false;
     kLog.info("no fprintd device available: {}", e.what());
+    m_machine.callFailed(attempt);
     setAvailable(false);
   }
 }
@@ -200,74 +185,60 @@ bool FingerprintAuthenticator::createDeviceProxy(const std::string& path) {
   return true;
 }
 
-void FingerprintAuthenticator::claimDevice() {
-  if (m_device == nullptr || m_claiming) {
-    return;
+void FingerprintAuthenticator::claimDevice(std::uint64_t attempt) {
+  try {
+    m_device->callMethodAsync("Claim")
+        .onInterface(kDeviceInterface)
+        .withArguments(std::string{})
+        .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
+          const bool waiting = m_machine.phase() == Phase::Claiming;
+          if (e.has_value()) {
+            kLog.info("could not claim fingerprint device: {}", e->what());
+          } else {
+            kLog.info("claimed fingerprint device");
+          }
+          run(m_machine.claimReply(!e.has_value()));
+          if (e.has_value() && waiting) {
+            setAvailable(false);
+          }
+        });
+  } catch (const sdbus::Error& e) {
+    kLog.info("could not claim fingerprint device: {}", e.what());
+    m_machine.callFailed(attempt);
+    setAvailable(false);
   }
-  m_claiming = true;
-
-  m_device->callMethodAsync("Claim")
-      .onInterface(kDeviceInterface)
-      .withArguments(std::string{})
-      .uponReplyInvoke([this](std::optional<sdbus::Error> e) {
-        m_claiming = false;
-        if (e.has_value()) {
-          kLog.info("could not claim fingerprint device: {}", e->what());
-          m_verifying = false;
-          setAvailable(false);
-          return;
-        }
-        kLog.info("claimed fingerprint device");
-        if (m_active && !m_sleeping) {
-          startVerify(false);
-        }
-      });
 }
 
-void FingerprintAuthenticator::startVerify(bool isRetry) {
-  if (!m_active || m_sleeping || m_abort) {
-    return;
-  }
-  m_verifying = true;
-
-  if (m_device == nullptr) {
-    requestDevice();
-    return;
-  }
-  if (m_claiming) {
-    return;
-  }
-
-  m_device->callMethodAsync("VerifyStart")
-      .onInterface(kDeviceInterface)
-      .withArguments(std::string{"any"})
-      .uponReplyInvoke([this, isRetry](std::optional<sdbus::Error> e) {
-        if (e.has_value()) {
-          kLog.info("could not start fingerprint verification: {}", e->what());
-          m_verifying = false;
-          // A claim dropped across suspend/resume makes VerifyStart fail with ClaimDevice; drop the
-          // stale proxy and recreate+reclaim once. Destroying the proxy here would use-after-free
-          // the async reply handler, so defer the reset until after it returns.
-          if (!m_reclaimAttempted && m_active && !m_sleeping && !m_abort && isRecoverableVerifyStartError(*e)) {
-            m_reclaimAttempted = true;
-            m_retryTimer.start(kRetryDelay, [this] {
-              m_device.reset();
-              startVerify(false);
-            });
+void FingerprintAuthenticator::startVerify(std::uint64_t attempt) {
+  try {
+    m_device->callMethodAsync("VerifyStart")
+        .onInterface(kDeviceInterface)
+        .withArguments(std::string{"any"})
+        .uponReplyInvoke([this, attempt](std::optional<sdbus::Error> e) {
+          if (!m_machine.current(attempt, Phase::StartingVerify)) {
             return;
           }
-          setAvailable(false);
-          emitStatus({}, false); // issue loading: drop the status message
-          return;
-        }
-        kLog.debug("fingerprint verification started");
-        setAvailable(true);
-        m_reclaimAttempted = false;
-        if (isRetry) {
-          m_retries++;
-        }
-        emitStatus(i18n::tr("auth.fingerprint.ready"), false);
-      });
+          // A claim dropped across suspend/resume makes VerifyStart fail with ClaimDevice; the machine then
+          // requests and claims the device once more.
+          const bool claimLost = e.has_value() && isRecoverableVerifyStartError(*e);
+          if (e.has_value()) {
+            kLog.info("could not start fingerprint verification: {}", e->what());
+          }
+          run(m_machine.verifyStartReply(attempt, !e.has_value(), claimLost));
+          if (m_machine.phase() == Phase::Verifying) {
+            kLog.debug("fingerprint verification started");
+            setAvailable(true);
+            emitStatus(i18n::tr("auth.fingerprint.ready"), false);
+          } else if (m_machine.phase() == Phase::Idle) {
+            setAvailable(false);
+            emitStatus({}, false); // issue loading: drop the status message
+          }
+        });
+  } catch (const sdbus::Error& e) {
+    kLog.info("could not start fingerprint verification: {}", e.what());
+    m_machine.callFailed(attempt);
+    setAvailable(false);
+  }
 }
 
 void FingerprintAuthenticator::setAvailable(bool available) {
@@ -281,8 +252,6 @@ void FingerprintAuthenticator::setAvailable(bool available) {
 }
 
 void FingerprintAuthenticator::stopVerify() {
-  m_retryTimer.stop();
-  m_verifying = false;
   if (m_device == nullptr) {
     return;
   }
@@ -300,11 +269,8 @@ void FingerprintAuthenticator::stopVerify() {
   }
 }
 
+// The proxy stays until the next device reply replaces it: this can run inside one of its own reply handlers.
 void FingerprintAuthenticator::releaseDevice() {
-  if (m_device == nullptr) {
-    return;
-  }
-  // The call is sent at once; the proxy reset below only drops its reply.
   try {
     m_device->callMethodAsync("Release").onInterface(kDeviceInterface).uponReplyInvoke([](std::optional<sdbus::Error>) {
     });
@@ -312,91 +278,72 @@ void FingerprintAuthenticator::releaseDevice() {
   } catch (const sdbus::Error& e) {
     kLog.debug("could not release fingerprint device: {}", e.what());
   }
-  m_device.reset();
 }
 
 void FingerprintAuthenticator::handleVerifyStatus(const std::string& result, bool done) {
-  if (!m_active) {
-    return;
-  }
-  if (m_sleeping) {
-    stopVerify();
-    return;
-  }
-
+  const bool verifying = m_machine.phase() == Phase::Verifying;
   kLog.debug("verify status: {} (done={})", result, done);
   const MatchResult match = parseVerifyResult(result);
 
-  bool authenticated = false;
-  bool retryInPlace = false;
-  // Set when a branch fully owns the post-verify restart decision (capped rearm or deliberate stop),
-  // so the generic done-restart below does not also fire.
-  bool ownsRestart = false;
+  fingerprint_auth::Status status = fingerprint_auth::Status::InPlace;
+  switch (match) {
+  case MatchResult::Invalid:
+    status = fingerprint_auth::Status::Invalid;
+    break;
+  case MatchResult::Matched:
+    status = fingerprint_auth::Status::Match;
+    break;
+  case MatchResult::NoMatch:
+    status = fingerprint_auth::Status::NoMatch;
+    break;
+  case MatchResult::Disconnected:
+    status = fingerprint_auth::Status::Disconnected;
+    break;
+  case MatchResult::UnknownError:
+    status = fingerprint_auth::Status::Error;
+    break;
+  default:
+    break;
+  }
+  run(m_machine.verifyStatus(status, done));
+  if (!verifying) {
+    return;
+  }
 
+  const bool exhausted = m_machine.phase() == Phase::Idle;
   switch (match) {
   case MatchResult::Invalid:
     kLog.warn("unknown fingerprint verify status: {}", result);
     break;
   case MatchResult::Matched:
-    stopVerify();
-    authenticated = true;
-    break;
-  case MatchResult::NoMatch:
-    stopVerify();
-    ownsRestart = true;
-    if (m_retries >= kMaxRetries) {
-      emitStatus(i18n::tr("auth.fingerprint.too-many-attempts"), true);
-    } else {
-      emitStatus(i18n::tr("auth.fingerprint.no-match"), true);
-      // rearm after a short delay
-      m_retryTimer.start(kRetryDelay, [this] { startVerify(true); });
-    }
-    break;
-  case MatchResult::Retry:
-    retryInPlace = true;
-    emitStatus(i18n::tr("auth.fingerprint.retry"), false);
-    break;
-  case MatchResult::SwipeTooShort:
-    retryInPlace = true;
-    emitStatus(i18n::tr("auth.fingerprint.swipe-too-short"), false);
-    break;
-  case MatchResult::FingerNotCentered:
-    retryInPlace = true;
-    emitStatus(i18n::tr("auth.fingerprint.not-centered"), false);
-    break;
-  case MatchResult::RemoveAndRetry:
-    retryInPlace = true;
-    emitStatus(i18n::tr("auth.fingerprint.remove-and-retry"), false);
-    break;
-  case MatchResult::Disconnected:
-    stopVerify();
-    m_abort = true;
-    emitStatus(i18n::tr("auth.fingerprint.disconnected"), true);
-    break;
-  case MatchResult::UnknownError:
-    stopVerify();
-    ownsRestart = true;
-    if (m_retries >= kMaxRetries) {
-      emitStatus(i18n::tr("auth.fingerprint.too-many-attempts"), true);
-    } else {
-      emitStatus(i18n::tr("auth.fingerprint.error"), true);
-      m_retryTimer.start(kRetryDelay, [this] { startVerify(true); });
-    }
-    break;
-  }
-
-  if (authenticated) {
     if (m_onAuthenticated) {
       m_onAuthenticated();
     }
-    return;
-  }
-
-  // In-place retries keep verifying; otherwise restart only when fprintd reports done.
-  if (!retryInPlace && !ownsRestart && done && !m_abort && m_active && !m_sleeping) {
-    startVerify(true);
+    break;
+  case MatchResult::NoMatch:
+    emitStatus(i18n::tr(exhausted ? "auth.fingerprint.too-many-attempts" : "auth.fingerprint.no-match"), true);
+    break;
+  case MatchResult::Retry:
+    emitStatus(i18n::tr("auth.fingerprint.retry"), false);
+    break;
+  case MatchResult::SwipeTooShort:
+    emitStatus(i18n::tr("auth.fingerprint.swipe-too-short"), false);
+    break;
+  case MatchResult::FingerNotCentered:
+    emitStatus(i18n::tr("auth.fingerprint.not-centered"), false);
+    break;
+  case MatchResult::RemoveAndRetry:
+    emitStatus(i18n::tr("auth.fingerprint.remove-and-retry"), false);
+    break;
+  case MatchResult::Disconnected:
+    emitStatus(i18n::tr("auth.fingerprint.disconnected"), true);
+    break;
+  case MatchResult::UnknownError:
+    emitStatus(i18n::tr(exhausted ? "auth.fingerprint.too-many-attempts" : "auth.fingerprint.error"), true);
+    break;
   }
 }
+
 
 void FingerprintAuthenticator::emitStatus(const std::string& message, bool isError) {
   if (m_onStatus) {

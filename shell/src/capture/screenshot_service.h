@@ -1,6 +1,7 @@
 #pragma once
 
 #include "capture/annotation_overlay.h"
+#include "capture/freeze_sequence.h"
 #include "capture/screenshot_backdrop.h"
 #include "capture/screenshot_capture.h"
 #include "capture/screenshot_region_overlay.h"
@@ -153,9 +154,11 @@ private:
   void startRegionOverlay(RenderContext& renderContext);
   void startFullscreenOverlay(RenderContext& renderContext);
   void beginFreezeCapture();
-  void startNextFreezeCapture();
-  void
-  onFreezeFrameCaptured(FreezeRequest request, std::optional<capture::ScreenshotImage> image, const std::string& error);
+  void startNextFreezeCapture(std::uint64_t generation);
+  void onFreezeFrameCaptured(
+      std::uint64_t generation, FreezeRequest request, std::optional<capture::ScreenshotImage> image,
+      const std::string& error
+  );
   void finishFreezeCapture();
   void abortFreezeCapture(const std::string& message);
   void cancelRegionCapture();
@@ -228,10 +231,9 @@ private:
   bool m_regionFullscreenPick = false;
   std::vector<capture::FrozenScreenshot> m_frozenScreenshots;
   std::unique_ptr<capture::AnnotationOverlay> m_annotationOverlay;
-  std::vector<FreezeRequest> m_pendingFreezeCaptures;
+  freeze_capture::Sequence<FreezeRequest> m_freeze;
   std::optional<PendingDelivery> m_pendingDelivery;
   FreezeTarget m_freezeTarget = FreezeTarget::Region;
-  bool m_freezeCaptureActive = false;
   SoundPlayer* m_soundPlayer = nullptr;
 };
 

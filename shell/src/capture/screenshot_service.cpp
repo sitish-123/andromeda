@@ -773,7 +773,7 @@ bool ScreenshotService::onKeyboardEvent(const KeyboardEvent& event) {
     return false;
   }
   const bool regionActive = m_regionOverlay != nullptr && m_regionOverlay->isActive();
-  if (!m_freezeCaptureActive && !regionActive) {
+  if (!m_freeze.capturing() && !regionActive) {
     return false;
   }
   if (regionActive && m_regionOverlay->onKeyboardEvent(event)) {
@@ -795,7 +795,7 @@ void ScreenshotService::onModifiersChanged() {
 bool ScreenshotService::overlayBusy() const noexcept {
   return (m_regionOverlay != nullptr && m_regionOverlay->isActive())
       || (m_annotationOverlay != nullptr && m_annotationOverlay->isActive())
-      || m_freezeCaptureActive;
+      || m_freeze.capturing();
 }
 
 ScreenshotService::OutputOptions ScreenshotService::outputOptionsFromConfig(const Config& config) {
@@ -1103,7 +1103,7 @@ void ScreenshotService::beginRegionCapture(RenderContext& renderContext, const O
   if (m_regionOverlay != nullptr && m_regionOverlay->isActive()) {
     m_regionOverlay->cancel();
   }
-  if (m_freezeCaptureActive) {
+  if (m_freeze.capturing()) {
     abortFreezeCapture("Screenshot cancelled");
   }
 
@@ -1153,7 +1153,7 @@ void ScreenshotService::beginFullscreenCapture(RenderContext& renderContext, con
   if (m_regionOverlay != nullptr && m_regionOverlay->isActive()) {
     m_regionOverlay->cancel();
   }
-  if (m_freezeCaptureActive) {
+  if (m_freeze.capturing()) {
     abortFreezeCapture("Screenshot cancelled");
   }
 
@@ -1285,35 +1285,33 @@ void ScreenshotService::beginFreezeCapture() {
   }
 
   m_frozenScreenshots.clear();
-  m_pendingFreezeCaptures.clear();
+  std::vector<FreezeRequest> requests;
   for (const auto& output : m_wayland.outputs()) {
     if (output.output == nullptr || output.logicalWidth <= 0 || output.logicalHeight <= 0) {
       continue;
     }
-    m_pendingFreezeCaptures.push_back(FreezeRequest{.output = output.output});
+    requests.push_back(FreezeRequest{.output = output.output});
   }
-  if (m_pendingFreezeCaptures.empty()) {
+  if (requests.empty()) {
+    m_freeze.abort();
     notifyError("No outputs available");
     return;
   }
 
-  m_freezeCaptureActive = true;
-  startNextFreezeCapture();
+  startNextFreezeCapture(m_freeze.begin(std::move(requests)));
 }
 
-void ScreenshotService::startNextFreezeCapture() {
-  if (!m_freezeCaptureActive) {
+void ScreenshotService::startNextFreezeCapture(std::uint64_t generation) {
+  auto step = m_freeze.next(generation);
+  if (std::holds_alternative<freeze_capture::Stale>(step)) {
     return;
   }
-
-  if (m_pendingFreezeCaptures.empty()) {
-    m_freezeCaptureActive = false;
+  if (std::holds_alternative<freeze_capture::Finished>(step)) {
     finishFreezeCapture();
     return;
   }
 
-  const FreezeRequest request = m_pendingFreezeCaptures.front();
-  m_pendingFreezeCaptures.erase(m_pendingFreezeCaptures.begin());
+  const FreezeRequest request = std::get<freeze_capture::Capture<FreezeRequest>>(step).output;
   if (m_capture.busy()) {
     m_capture.cancelInFlight();
   }
@@ -1321,16 +1319,17 @@ void ScreenshotService::startNextFreezeCapture() {
   m_capture.capture(
       request.output, std::nullopt, m_regionOutputOptions.showCursor,
       m_freezeTarget == FreezeTarget::Annotation || m_regionOutputOptions.annotate,
-      [this, request](std::optional<capture::ScreenshotImage> image, const std::string& error) {
-        onFreezeFrameCaptured(request, std::move(image), error);
+      [this, generation, request](std::optional<capture::ScreenshotImage> image, const std::string& error) {
+        onFreezeFrameCaptured(generation, request, std::move(image), error);
       }
   );
 }
 
 void ScreenshotService::onFreezeFrameCaptured(
-    FreezeRequest request, std::optional<capture::ScreenshotImage> image, const std::string& error
+    std::uint64_t generation, FreezeRequest request, std::optional<capture::ScreenshotImage> image,
+    const std::string& error
 ) {
-  if (!m_freezeCaptureActive) {
+  if (!m_freeze.current(generation)) {
     return;
   }
 
@@ -1340,11 +1339,10 @@ void ScreenshotService::onFreezeFrameCaptured(
     m_frozenScreenshots.push_back(capture::FrozenScreenshot{.output = request.output, .image = std::move(*image)});
   }
 
-  DeferredCall::callLater([this] { startNextFreezeCapture(); });
+  DeferredCall::callLater([this, generation] { startNextFreezeCapture(generation); });
 }
 
 void ScreenshotService::finishFreezeCapture() {
-  m_freezeCaptureActive = false;
   const FreezeTarget target = std::exchange(m_freezeTarget, FreezeTarget::Region);
 
   if (m_regionRenderContext == nullptr) {
@@ -1388,8 +1386,7 @@ void ScreenshotService::finishFreezeCapture() {
 
 void ScreenshotService::abortFreezeCapture(const std::string& message) {
   cancelAllOutputsBatch();
-  m_freezeCaptureActive = false;
-  m_pendingFreezeCaptures.clear();
+  m_freeze.abort();
   m_freezeTarget = FreezeTarget::Region;
   m_frozenScreenshots.clear();
   m_capture.cancelInFlight();
@@ -1400,7 +1397,7 @@ void ScreenshotService::abortFreezeCapture(const std::string& message) {
 
 void ScreenshotService::cancelRegionCapture() {
   cancelAllOutputsBatch();
-  if (m_freezeCaptureActive) {
+  if (m_freeze.capturing()) {
     abortFreezeCapture({});
     return;
   }
