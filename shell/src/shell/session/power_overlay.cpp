@@ -14,6 +14,7 @@
 #include "render/scene/input_area.h"
 #include "render/scene/node.h"
 #include "shell/session/session_action_meta.h"
+#include "shell/session/session_action_runner.h"
 #include "shell/session/session_guard.h"
 #include "ui/builders.h"
 #include "compositors/andromeda/andromeda_runtime.h"
@@ -313,17 +314,13 @@ void PowerOverlay::onGuardChanged() {
   }
 }
 
-void PowerOverlay::onSessionActionFailed() {
-  // run() leaves Ending for Choices; any other mode is a newer session end that owns the portal state.
-  if (m_mode == Mode::Choices) {
-    setPortalState(static_cast<int>(InhibitPortal::SessionState::Running));
-  }
-}
-
 void PowerOverlay::hide() {
   watchGuard(false);
   if (m_mode != Mode::Choices && m_mode != Mode::Ending) {
-    setPortalState(static_cast<int>(InhibitPortal::SessionState::Running));
+    // A cancelled Query End goes back to what the session is: still Ending while an earlier end action runs.
+    setPortalState(static_cast<int>(
+        m_sessionEnd.ending() ? InhibitPortal::SessionState::Ending : InhibitPortal::SessionState::Running
+    ));
   }
   m_appBlockers.clear();
   m_closeTimer.stop();
@@ -448,6 +445,7 @@ void PowerOverlay::buildScene(float width, float height) {
     buildBlockers(*m_root, s);
     break;
   case Mode::Closing:
+  case Mode::Ending:
     break;
   }
   m_surface->setSceneRoot(m_root.get());
@@ -796,7 +794,7 @@ void PowerOverlay::startCountdown() {
     show(nullptr);
   }
   if (!isActive()) {
-    run(m_endAction.c_str());
+    finishEnd();
     return;
   }
   setMode(Mode::Countdown);
@@ -874,6 +872,8 @@ void PowerOverlay::finishEnd() {
     return;
   }
   m_mode = Mode::Ending;
+  (void)m_sessionEnd.apply(session_end::Run{.action = m_endAction});
+  const std::uint64_t generation = m_sessionEnd.generation();
   setPortalState(static_cast<int>(InhibitPortal::SessionState::Ending));
   saveReopen(m_reopenApps);
   const std::string action = m_endAction;
@@ -886,7 +886,23 @@ void PowerOverlay::finishEnd() {
       }
     }
   }
-  DeferredCall::callLater([this, action] { run(action.c_str()); });
+  DeferredCall::callLater([this, action, generation] { runEnd(action, generation); });
+}
+
+void PowerOverlay::runEnd(const std::string& action, std::uint64_t generation) {
+  hide();
+  const auto failed = [this, generation] {
+    if (m_sessionEnd.apply(session_end::Failed{.generation = generation})) {
+      setPortalState(static_cast<int>(InhibitPortal::SessionState::Running));
+    }
+  };
+  const auto canonical = session_action::canonicalActionName(action);
+  if (m_runner == nullptr || !canonical.has_value()) {
+    kLog.warn("session end {}: no session action runs it", action);
+    failed();
+    return;
+  }
+  m_runner->invoke({.action = std::string(*canonical)}, failed);
 }
 
 void PowerOverlay::readUnresponsive() {

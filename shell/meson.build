@@ -1264,6 +1264,7 @@ if build_tests
     'secret_store',
     'security_primitives',
     'service_host',
+    'session_end_phase',
     'settings_pages',
     'settings_rows_generated',
     'shared_worker',

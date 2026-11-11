@@ -4,6 +4,7 @@
 #include "compositors/wayland_toplevels.h"
 #include "core/timer_manager.h"
 #include "render/scene/input_dispatcher.h"
+#include "shell/session/session_end_phase.h"
 #include "wayland/layer_surface.h"
 
 #include <sdbus-c++/sdbus-c++.h>
@@ -26,6 +27,7 @@ class IpcService;
 class Label;
 class Node;
 class PowerConfigService;
+class SessionActionRunner;
 class SessionGuard;
 class InhibitPortal;
 class SystemBus;
@@ -58,8 +60,8 @@ public:
   // Apps that asked the Inhibit portal to delay logout join the blocker list with their reason.
   void setInhibitPortal(InhibitPortal* portal) { m_portal = portal; }
   void onGuardChanged();
-  // The session-end action failed, so the session goes on: Inhibit portal monitors see Running again.
-  void onSessionActionFailed();
+  // Runs the session-end action and reports its failure back, so the portal leaves Ending only for that run.
+  void setSessionActionRunner(SessionActionRunner* runner) { m_runner = runner; }
   // "Reopen windows when you log back in" (D3): the apps open when the last session ended with it checked. Returns
   // them once, then forgets them.
   [[nodiscard]] static std::vector<std::string> takeReopenApps();
@@ -105,12 +107,15 @@ private:
   void checkWindows();
   void tickCountdown();
   void finishEnd();
+  void runEnd(const std::string& action, std::uint64_t generation);
   [[nodiscard]] std::string endText(const char* kind) const;
 
   WaylandConnection* m_wayland = nullptr;
   RenderContext* m_renderContext = nullptr;
   ConfigService* m_config = nullptr;
   IpcService* m_ipc = nullptr;
+  SessionActionRunner* m_runner = nullptr;
+  session_end::Machine m_sessionEnd;
   CompositorPlatform* m_platform = nullptr;
   Mode m_mode = Mode::Choices;
   std::string m_endAction;
