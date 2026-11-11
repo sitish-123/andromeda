@@ -381,8 +381,7 @@ namespace andromeda {
     if (walk.dsk != nullptr && walk.dsk->anySecure()) {
       const auto visit = [](wlr_surface* surface, int /*sx*/, int /*sy*/, void* data) {
         auto* walk = static_cast<Walk*>(data);
-        const DskSurfaceManager::State* state = walk->dsk->state(surface);
-        walk->secure = walk->secure || (state != nullptr && state->secure);
+        walk->secure = walk->secure || walk->dsk->secure(surface);
       };
       if (m_toplevel != nullptr) {
         wlr_xdg_surface_for_each_surface(m_toplevel->base, visit, &walk);

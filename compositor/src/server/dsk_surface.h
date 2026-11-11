@@ -69,6 +69,8 @@ namespace andromeda {
     void setSecureHandler(std::function<void(wlr_surface*, bool)> handler) { m_secureHandler = std::move(handler); }
     // True while any surface is secure or a secure copy lives; a cheap gate for per-frame capture redaction.
     [[nodiscard]] bool anySecure() const { return m_secureCount > 0 || m_fixedCopies > 0; }
+    // True when `surface` itself is secure, or its dsk_surface_v1 went while secure and no later commit has applied.
+    [[nodiscard]] bool secure(wlr_surface* surface) const;
     // True when `surface` or a surface it is a subsurface or xdg_popup of is secure.
     [[nodiscard]] bool secureTree(wlr_surface* surface) const;
     // Output captures paint `copy`, a scene buffer that shows a secure surface's buffer (a thumbnail, a close
@@ -280,6 +282,17 @@ namespace andromeda {
       wl_listener sourceDestroy;
     };
     void addCopy(wlr_scene_buffer* copy, wlr_surface* source);
+    // A secure surface whose dsk_surface_v1 went: it stays secure until the state of its next commit applies.
+    struct SecureTail {
+      DskSurfaceManager* manager;
+      wlr_surface* surface;
+      uint32_t seq;
+      wl_listener commit;
+      wl_listener destroy;
+    };
+    void addSecureTail(wlr_surface* surface);
+    void endSecureTail(SecureTail* tail, bool surfaceAlive);
+    std::vector<std::unique_ptr<SecureTail>> m_secureTails;
     std::vector<std::unique_ptr<SecureCopy>> m_secureCopies;
     size_t m_fixedCopies = 0;
   };

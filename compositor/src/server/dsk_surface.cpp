@@ -72,6 +72,10 @@ namespace andromeda {
   }
 
   DskSurfaceManager::~DskSurfaceManager() {
+    for (const auto& tail : m_secureTails) {
+      wl_list_remove(&tail->commit.link);
+      wl_list_remove(&tail->destroy.link);
+    }
     for (const auto& entry : m_secureCopies) {
       wl_list_remove(&entry->destroy.link);
       if (entry->kind == SecureCopy::Kind::Mirror) {
@@ -107,9 +111,45 @@ namespace andromeda {
     return &state->current;
   }
 
+  void DskSurfaceManager::addSecureTail(wlr_surface* surface) {
+    auto tail = std::make_unique<SecureTail>(
+        SecureTail{.manager = this, .surface = surface, .seq = surface->pending.seq, .commit = {}, .destroy = {}}
+    );
+    tail->commit.notify = [](wl_listener* listener, void* /*data*/) {
+      SecureTail* self = wl_container_of(listener, self, commit);
+      if (static_cast<int32_t>(self->surface->current.seq - self->seq) >= 0) {
+        self->manager->endSecureTail(self, true);
+      }
+    };
+    wl_signal_add(&surface->events.commit, &tail->commit);
+    tail->destroy.notify = [](wl_listener* listener, void* /*data*/) {
+      SecureTail* self = wl_container_of(listener, self, destroy);
+      self->manager->endSecureTail(self, false);
+    };
+    wl_signal_add(&surface->events.destroy, &tail->destroy);
+    m_secureTails.push_back(std::move(tail));
+  }
+
+  void DskSurfaceManager::endSecureTail(SecureTail* tail, bool surfaceAlive) {
+    wlr_surface* surface = tail->surface;
+    wl_list_remove(&tail->commit.link);
+    wl_list_remove(&tail->destroy.link);
+    std::erase_if(m_secureTails, [tail](const auto& entry) { return entry.get() == tail; });
+    --m_secureCount;
+    if (surfaceAlive && m_secureHandler) {
+      m_secureHandler(surface, false);
+    }
+  }
+
+  bool DskSurfaceManager::secure(wlr_surface* surface) const {
+    const State* current = state(surface);
+    return (current != nullptr && current->secure)
+        || std::ranges::any_of(m_secureTails, [surface](const auto& tail) { return tail->surface == surface; });
+  }
+
   bool DskSurfaceManager::secureTree(wlr_surface* surface) const {
     while (surface != nullptr) {
-      if (const State* current = state(surface); current != nullptr && current->secure) {
+      if (secure(surface)) {
         return true;
       }
       if (const wlr_subsurface* subsurface = wlr_subsurface_try_from_wlr_surface(surface)) {
@@ -569,11 +609,11 @@ namespace andromeda {
   }
 
   void DskSurfaceManager::destroySurfaceState(Surface* state, bool surfaceAlive) {
-    if (state->current.secure) {
+    if (state->current.secure && surfaceAlive) {
+      // The secret buffer stays on screen until the client commits another one.
+      state->manager->addSecureTail(state->surface);
+    } else if (state->current.secure) {
       --state->manager->m_secureCount;
-      if (surfaceAlive && state->manager->m_secureHandler) {
-        state->manager->m_secureHandler(state->surface, false);
-      }
     }
     for (Tracker* tracker : state->manager->m_trackers) {
       for (TrackerConfig* config : {&tracker->pending, &tracker->current}) {
