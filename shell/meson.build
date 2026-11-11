@@ -1391,6 +1391,26 @@ if build_tests
         depends: tray_registration_integration_exe,
       )
     endforeach
+    gnome_keyring_daemon = find_program('gnome-keyring-daemon', required: false)
+    if gnome_keyring_daemon.found()
+      keyring_login_unlock_exe = executable('keyring_login_unlock_integration_test',
+        sources: files('tests/keyring_login_unlock_integration_test.cpp'),
+        dependencies: noctalia_core_dep,
+        override_options: ['b_ndebug=false'],
+      )
+      # Starts the daemon the way pam_gnome_keyring does at login: --login with the password on stdin, then --start.
+      test('keyring_login_unlock_integration',
+        dbus_run_session,
+        args: [
+          '--', 'sh', '-c',
+          'export HOME="$(mktemp -d)" && export XDG_DATA_HOME="$HOME/data" XDG_RUNTIME_DIR="$HOME/run" '
+          + '&& mkdir -m 700 "$XDG_RUNTIME_DIR" && printf pw | "$1" --daemonize --login >/dev/null '
+          + '&& "$1" --start --components=secrets >/dev/null && "$2"; rc=$?; rm -rf "$HOME"; exit $rc',
+          'sh', gnome_keyring_daemon.full_path(), keyring_login_unlock_exe.full_path(),
+        ],
+        depends: keyring_login_unlock_exe,
+      )
+    endif
     test('fingerprint_authenticator_integration',
       dbus_run_session,
       args: [
