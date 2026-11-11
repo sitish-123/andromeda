@@ -243,10 +243,7 @@ void LauncherPanel::create() {
       .surfaceOpacity = panelCardOpacity(),
       .onChange =
           [this](const std::string& text) {
-            if (m_launcherProviderViewId == kSessionProviderId) {
-              m_sessionReturnView.reset();
-            }
-            m_launcherProviderViewId.clear();
+            leaveProviderView();
             onInputChanged(text);
             if (m_input == nullptr) {
               return;
@@ -470,8 +467,8 @@ void LauncherPanel::create() {
           .fill = colorSpecFromRole(ColorRole::Fill1),
           .radius = Tokens::sizeControlS * 0.5F * scale,
           .minHeight = Tokens::sizeControlS * scale,
-          .visible = m_filesScope,
-          .participatesInLayout = m_filesScope,
+          .visible = filesScope(),
+          .participatesInLayout = filesScope(),
       });
       token->addChild(ui::label({
           .out = &m_filesTokenLabel,
@@ -840,7 +837,7 @@ bool LauncherPanel::supportsResultGrid() const {
   if (!m_launcherShowIcons || shouldUseDetailPresentation()) {
     return false;
   }
-  if (m_showingProviderOverview) {
+  if (showingProviderOverview()) {
     return true;
   }
   const auto providerSupportsGrid = [this](std::string_view id) {
@@ -997,9 +994,10 @@ void LauncherPanel::onOpen(std::string_view context) {
   m_hasPinnedApplications = false;
   m_categoryFilterRebuildPending = true;
   m_applyDefaultViewPending = m_browserMode;
-  m_showingProviderOverview = false;
-  m_launcherProviderViewId.clear();
-  m_sessionReturnView.reset();
+  if (filesScope()) {
+    setFilesScope(false);
+  }
+  m_view.set(launcher_view::Default{});
 
   // "mode:<provider>" or a mode provider's prefix (Mod+Period sends "/emo") opens that mode with an empty field.
   std::string initialValue(context);
@@ -1063,7 +1061,7 @@ void LauncherPanel::onClose() {
   m_allResults.clear();
   m_scopedProviderId.clear();
   m_scopedPlaceholder.clear();
-  m_filesScope = false;
+  m_view.set(launcher_view::Default{});
   m_kindIndex = 0;
   m_packIndex = 0;
   if (auto* stickers = stickersProvider()) {
@@ -1082,9 +1080,6 @@ void LauncherPanel::onClose() {
   m_categoryFilterRebuildPending = false;
   m_applyDefaultViewPending = false;
   m_syncingLauncherNavigation = false;
-  m_showingProviderOverview = false;
-  m_launcherProviderViewId.clear();
-  m_sessionReturnView.reset();
   m_pendingResultsTransition = ResultsTransition::None;
   m_resultsTransitionActive = false;
   m_resultsTransitionBaseX = 0.0F;
@@ -1169,10 +1164,7 @@ void LauncherPanel::setQuery(const std::string& query) {
   if (m_input == nullptr) {
     return;
   }
-  if (m_launcherProviderViewId == kSessionProviderId) {
-    m_sessionReturnView.reset();
-  }
-  m_launcherProviderViewId.clear();
+  leaveProviderView();
   m_input->setValue(singleLinePreview(query));
   if (m_grid != nullptr) {
     m_grid->scrollView().setScrollOffset(0.0F);
@@ -1207,7 +1199,9 @@ void LauncherPanel::onInputChanged(const std::string& text) {
 
   m_query = text;
   m_resultProviderId.clear();
-  m_showingProviderOverview = false;
+  if (showingProviderOverview()) {
+    m_view.set(launcher_view::Default{});
+  }
   if (m_browserMode && !text.empty() && m_activeCategoryType != All) {
     m_activeCategoryType = All;
     const auto allSlot = std::ranges::find(m_categoryFilterSlots, All, &CategoryFilterSlot::type);
@@ -1221,16 +1215,16 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   auto outcome = m_searchBroker.search({
       .text = m_browserMode && isAppsQuery(text) ? std::string() : text,
       .scopedProviderId = m_scopedProviderId,
-      .providerViewId = m_filesScope ? std::string("Files")
+      .providerViewId = filesScope() ? std::string("Files")
           : !m_modeProviderId.empty()
           ? m_modeProviderId
-          : (m_scopedProviderId.empty() ? m_launcherProviderViewId : std::string()),
+          : (m_scopedProviderId.empty() ? std::string(m_view.providerViewId()) : std::string()),
       .applicationsOnly = m_browserMode && m_modeProviderId.empty() && (text.empty() || isAppsQuery(text)),
       .trackUsage = trackUsage,
       .sortByUsage = trackUsage && m_config != nullptr && launcher.sortByUsage,
   });
   if (outcome.providerViewMissing) {
-    m_launcherProviderViewId.clear();
+    leaveProviderView();
   }
   m_allResults = std::move(outcome.results);
   m_resultProviderId = std::move(outcome.resultProviderId);
@@ -1239,7 +1233,7 @@ void LauncherPanel::onInputChanged(const std::string& text) {
   const bool anyProviderLoading = outcome.loading;
   if (outcome.providerOverview) {
     m_allResults = providerOverviewResults(text);
-    m_showingProviderOverview = true;
+    m_view.set(launcher_view::ProviderOverview{});
   }
 
   if (m_browserMode) {
@@ -1392,14 +1386,14 @@ void LauncherPanel::applyEmptyState() {
     m_pillFooter->setVisible(footer);
     m_pillFooter->setParticipatesInLayout(footer);
     m_pillCount->setText(
-        m_filesScope ? i18n::trp("launcher.files.count", static_cast<long>(m_results.size()))
+        filesScope() ? i18n::trp("launcher.files.count", static_cast<long>(m_results.size()))
                      : i18n::tr("launcher.pill.result-count", "count",
                                 std::ranges::count_if(m_results, [](const LauncherResult& r) { return r.id != FilesProvider::kShowAllId; }))
     );
-    m_pillBackHint->setVisible(m_filesScope);
-    m_pillBackHint->setParticipatesInLayout(m_filesScope);
-    m_pillKindHint->setVisible(m_filesScope);
-    m_pillKindHint->setParticipatesInLayout(m_filesScope);
+    m_pillBackHint->setVisible(filesScope());
+    m_pillBackHint->setParticipatesInLayout(filesScope());
+    m_pillKindHint->setVisible(filesScope());
+    m_pillKindHint->setParticipatesInLayout(filesScope());
     syncKindTabs();
     if (m_filesToken != nullptr) {
       if (auto* area = dynamic_cast<InputArea*>(m_filesToken->children().back().get())) {

@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 class WaylandConnection;
@@ -73,9 +74,7 @@ private:
   [[nodiscard]] double effectiveTimeoutSeconds(const IdleBehaviorConfig& config) const;
   [[nodiscard]] std::uint32_t effectiveTimeoutMilliseconds(const IdleBehaviorConfig& config) const;
   /// True while media holds an inhibit, including the debounce that absorbs inhibit renewals.
-  [[nodiscard]] bool screenSaverInhibited() const noexcept {
-    return m_screenSaverInhibitLocks > 0 || m_inhibitReleasePending;
-  }
+  [[nodiscard]] bool screenSaverInhibited() const noexcept { return !std::holds_alternative<InhibitReleased>(m_inhibit); }
   void applyScreenSaverInhibitRelease();
   void clearBehaviors();
   void syncHeartbeat();
@@ -91,7 +90,36 @@ private:
   void cancelActiveGrace(bool userCancelled);
   void graceFadeComplete();
   void joinActiveGrace(BehaviorState& behavior);
-  [[nodiscard]] bool hasActiveGrace() const noexcept { return !m_graceBehaviors.empty(); }
+  [[nodiscard]] bool hasActiveGrace() const noexcept { return std::holds_alternative<GraceFading>(m_grace); }
+  [[nodiscard]] bool isGrace(std::uint64_t generation) const noexcept {
+    const auto* fading = std::get_if<GraceFading>(&m_grace);
+    return fading != nullptr && fading->generation == generation;
+  }
+
+  struct GraceIdle {};
+  // The pre-action fade runs for these behaviors; generation tells stale fade callbacks apart.
+  struct GraceFading {
+    std::vector<BehaviorState*> behaviors;
+    bool willLock = false;
+    std::uint64_t generation = 0;
+  };
+  using Grace = std::variant<GraceIdle, GraceFading>;
+  // Idle -> Fading starts a fade; Fading -> Idle ends it and stops the fallback timer.
+  bool setGrace(Grace next);
+
+  struct InhibitReleased {};
+  struct InhibitHeld {
+    std::int64_t locks = 0;
+  };
+  // The last lock is gone; the release applies after a debounce that absorbs inhibit renewals.
+  struct InhibitReleasePending {};
+  using Inhibit = std::variant<InhibitReleased, InhibitHeld, InhibitReleasePending>;
+  // Released -> Held -> ReleasePending -> Released; a renewal returns ReleasePending to Held.
+  bool setInhibit(Inhibit next);
+  [[nodiscard]] std::int64_t inhibitLocks() const noexcept {
+    const auto* held = std::get_if<InhibitHeld>(&m_inhibit);
+    return held == nullptr ? 0 : held->locks;
+  }
 
   WaylandConnection* m_wayland = nullptr;
   ActionRunner m_actionRunner;
@@ -101,15 +129,13 @@ private:
   IdleConfig m_idleConfig;
   Timer m_graceFallbackTimer;
   Timer m_inhibitReleaseTimer;
-  std::vector<BehaviorState*> m_graceBehaviors;
-  bool m_activeGraceWillLock = false;
+  Grace m_grace;
   std::uint64_t m_graceGeneration = 0;
   std::vector<std::unique_ptr<BehaviorState>> m_behaviors;
   ext_idle_notification_v1* m_heartbeatNotification = nullptr;
   bool m_heartbeatCompositorIdle = false;
   std::chrono::steady_clock::time_point m_heartbeatIdleSince;
-  std::int64_t m_screenSaverInhibitLocks = 0;
-  bool m_inhibitReleasePending = false;
+  Inhibit m_inhibit;
   bool m_sessionLocked = false;
   bool m_onBattery = false;
 };

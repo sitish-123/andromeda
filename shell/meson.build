@@ -1301,6 +1301,7 @@ if build_tests
     'workspace_alert_service',
     'workspaces_widget',
     'xdg_autostart',
+    'launcher_view',
   ]
 
   foreach test_name : _cpp_test_names

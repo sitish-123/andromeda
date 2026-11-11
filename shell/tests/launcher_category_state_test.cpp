@@ -63,10 +63,10 @@ public:
     panel.m_launcherShowIcons = true;
 
     // A selected provider and an explicit scope use the same policy as its prefix.
-    panel.m_launcherProviderViewId = "Grid";
+    TEST_CHECK(panel.m_view.set(launcher_view::Browser<LauncherPanel::BrowserViewState>{.providerViewId = "Grid"}));
     panel.onInputChanged("");
     TEST_CHECK(panel.supportsResultGrid());
-    panel.m_launcherProviderViewId.clear();
+    panel.leaveProviderView();
     panel.setScopedProvider("List");
     panel.onInputChanged("/grid");
     TEST_CHECK(!panel.supportsResultGrid());

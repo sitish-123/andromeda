@@ -331,7 +331,7 @@ bool LauncherPanel::isContextActive(std::string_view context) const {
   return provider != m_providers.end() && StringUtils::trim(context) == (*provider)->prefix();
 }
 
-bool LauncherPanel::pillExpanded() const { return !m_query.empty() || !m_modeProviderId.empty() || m_filesScope; }
+bool LauncherPanel::pillExpanded() const { return !m_query.empty() || !m_modeProviderId.empty() || filesScope(); }
 
 void LauncherPanel::showProviderOverview() {
   const std::string prefix = m_config != nullptr ? m_config->config().shell.launcher.providerPrefix : "/";
@@ -342,13 +342,20 @@ void LauncherPanel::showProviderOverview() {
 }
 
 void LauncherPanel::showSessionActions() {
-  if (m_launcherProviderViewId == kSessionProviderId && m_sessionReturnView.has_value()) {
-    BrowserViewState previous = std::move(*m_sessionReturnView);
-    m_sessionReturnView.reset();
+  std::optional<BrowserViewState> returnView;
+  if (m_view.providerViewId() == kSessionProviderId) {
+    returnView = m_view.takeReturnView();
+  }
+  if (returnView.has_value()) {
+    BrowserViewState previous = std::move(*returnView);
     m_activeCategoryType = previous.categoryType;
     m_activeCategorySlotIndex = previous.categorySlotIndex;
     m_activeCategory = std::move(previous.category);
-    m_launcherProviderViewId = std::move(previous.providerViewId);
+    if (previous.providerViewId.empty()) {
+      m_view.set(launcher_view::Default{});
+    } else {
+      m_view.set(launcher_view::Browser<BrowserViewState>{.providerViewId = std::move(previous.providerViewId)});
+    }
     queueResultsTransition(ResultsTransition::NavigationBackward);
     if (m_input != nullptr) {
       m_input->setValue(singleLinePreview(previous.query));
@@ -368,15 +375,21 @@ void LauncherPanel::showSessionActions() {
   if (provider == m_providers.end() || (*provider)->prefix().empty()) {
     return;
   }
-  m_sessionReturnView = BrowserViewState{
-      .categoryType = m_activeCategoryType,
-      .categorySlotIndex = m_activeCategorySlotIndex,
-      .category = m_activeCategory,
-      .query = m_query,
-      .providerViewId = m_launcherProviderViewId,
-  };
+  const bool entered = m_view.set(launcher_view::Browser<BrowserViewState>{
+      .providerViewId = std::string((*provider)->id()),
+      .returnView =
+          BrowserViewState{
+              .categoryType = m_activeCategoryType,
+              .categorySlotIndex = m_activeCategorySlotIndex,
+              .category = m_activeCategory,
+              .query = m_query,
+              .providerViewId = std::string(m_view.providerViewId()),
+          },
+  });
+  if (!entered) {
+    return;
+  }
   queueResultsTransition(ResultsTransition::NavigationForward);
-  m_launcherProviderViewId = std::string((*provider)->id());
   if (m_input != nullptr) {
     m_input->setValue("");
   }
@@ -633,7 +646,7 @@ void LauncherPanel::rebuildLauncherNavigation() {
   m_launcherNavigation->addOption(iconOnly ? "" : providersLabel, "sparkles");
   m_launcherNavigation->setOptionTooltip(navigationIndex, providersLabel);
   const std::size_t selectedIndex =
-      m_showingProviderOverview ? m_categoryFilterSlots.size() : m_activeCategorySlotIndex;
+      showingProviderOverview() ? m_categoryFilterSlots.size() : m_activeCategorySlotIndex;
   m_launcherNavigation->setSelectedIndex(selectedIndex);
   m_launcherNavigation->setOnChange([this](std::size_t index) {
     if (m_syncingLauncherNavigation) {
@@ -688,10 +701,8 @@ void LauncherPanel::applyDefaultView() {
 }
 
 void LauncherPanel::setActiveCategorySlot(std::size_t slotIndex) {
-  if (m_launcherProviderViewId == kSessionProviderId) {
-    m_sessionReturnView.reset();
-  }
-  const bool leavingProvider = m_browserMode && (!m_query.empty() || !m_launcherProviderViewId.empty());
+  m_view.takeReturnView();
+  const bool leavingProvider = m_browserMode && (!m_query.empty() || !m_view.providerViewId().empty());
   const std::size_t previousSlotIndex = m_activeCategorySlotIndex;
   if (leavingProvider) {
     setQuery("");
@@ -752,7 +763,7 @@ void LauncherPanel::setActiveBrowserCategory(std::size_t categoryIndex) {
 void LauncherPanel::updateCategorySelectionChrome() {
   if (m_launcherNavigation != nullptr && !m_categoryFilterSlots.empty()) {
     const std::size_t selectedIndex =
-        m_showingProviderOverview ? m_categoryFilterSlots.size() : m_activeCategorySlotIndex;
+        showingProviderOverview() ? m_categoryFilterSlots.size() : m_activeCategorySlotIndex;
     if (m_launcherNavigation->selectedIndex() != selectedIndex) {
       m_syncingLauncherNavigation = true;
       m_launcherNavigation->setSelectedIndex(selectedIndex);
@@ -760,7 +771,7 @@ void LauncherPanel::updateCategorySelectionChrome() {
     }
   }
   if (m_launcherPowerButton != nullptr) {
-    m_launcherPowerButton->setSelected(m_launcherProviderViewId == kSessionProviderId);
+    m_launcherPowerButton->setSelected(m_view.providerViewId() == kSessionProviderId);
   }
   setCategoryFilterVisible(true);
 }
@@ -772,8 +783,8 @@ void LauncherPanel::updateLauncherOptionButtons() {
   const auto& launcher = m_config->config().shell.launcher;
   if (m_launcherUsageButton != nullptr) {
     const bool orderingAvailable = launcher.trackUsage
-        && !m_showingProviderOverview
-        && m_launcherProviderViewId.empty()
+        && !showingProviderOverview()
+        && m_view.providerViewId().empty()
         && (m_activeCategoryType == All || m_activeCategoryType == Category);
     m_launcherUsageButton->setVisible(orderingAvailable);
     m_launcherUsageButton->setParticipatesInLayout(orderingAvailable);
@@ -807,7 +818,7 @@ void LauncherPanel::setCategoryFilterVisible(bool visible) {
   const bool show = m_browserMode ? visible
           && m_activeCategoryType == Category
           && m_query.empty()
-          && m_launcherProviderViewId.empty()
+          && m_view.providerViewId().empty()
           && !m_currentCategories.empty()
                                   : visible
           && !m_categoryFilterSlots.empty()
@@ -865,7 +876,7 @@ std::vector<LauncherResult> LauncherPanel::providerOverviewResults(std::string_v
 
 void LauncherPanel::applyActiveCategory() {
   m_results.clear();
-  if (m_launcherProviderViewId == kSessionProviderId) {
+  if (m_view.providerViewId() == kSessionProviderId) {
     m_results = m_allResults;
     m_selectedIndex = 0;
     updateCategorySelectionChrome();

@@ -43,6 +43,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <type_traits>
 
 namespace {
 
@@ -835,13 +836,8 @@ bool PipeWireService::connectRemote(bool waitForSync) {
     return m_core != nullptr;
   }
 
-  m_connectionLossPending = false;
   m_serverVersion.clear();
   m_serverSupportsPassiveFollow = false;
-  m_initialSyncSequence = -1;
-  m_initialSyncPending = false;
-  m_reconnecting = m_hasConnected;
-  m_connectionAnnouncementPending = true;
 
   m_core = pw_context_connect(m_context, nullptr, 0);
   if (m_core == nullptr) {
@@ -862,15 +858,15 @@ bool PipeWireService::connectRemote(bool waitForSync) {
   spa_zero(*m_registryListener);
   pw_registry_add_listener(m_registry, m_registryListener, &kRegistryEvents, this);
 
-  m_initialSyncSequence = pw_core_sync(m_core, PW_ID_CORE, 0);
-  m_initialSyncPending = m_initialSyncSequence >= 0;
-  if (m_initialSyncSequence < 0) {
-    m_connectionLossPending = true;
+  const int syncSequence = pw_core_sync(m_core, PW_ID_CORE, 0);
+  setConnection(Syncing{.sequence = syncSequence});
+  if (syncSequence < 0) {
+    setConnection(Lost{});
   }
 
-  if (waitForSync && m_initialSyncPending) {
+  if (waitForSync && syncing()) {
     const auto syncDeadline = std::chrono::steady_clock::now() + kInitialSyncTimeout;
-    while (m_initialSyncPending && !m_connectionLossPending) {
+    while (syncing()) {
       const auto remaining =
           std::chrono::duration_cast<std::chrono::milliseconds>(syncDeadline - std::chrono::steady_clock::now());
       if (remaining <= std::chrono::milliseconds::zero()) {
@@ -882,11 +878,11 @@ bool PipeWireService::connectRemote(bool waitForSync) {
       }
       if (result < 0) {
         kLog.warn("initial daemon sync failed: {}", spa_strerror(result));
-        m_connectionLossPending = true;
+        setConnection(Lost{});
         break;
       }
     }
-    if (m_initialSyncPending && !m_connectionLossPending) {
+    if (syncing()) {
       kLog.warn(
           "initial daemon sync did not complete within {}ms",
           std::chrono::duration_cast<std::chrono::milliseconds>(kInitialSyncTimeout).count()
@@ -894,23 +890,22 @@ bool PipeWireService::connectRemote(bool waitForSync) {
     }
   }
 
-  if (m_connectionLossPending) {
+  if (connectionLost()) {
     disconnectRemote(true);
     return false;
   }
 
-  m_reconnectAt = {};
   m_reconnectDelay = kReconnectInitialDelay;
 
-  if (!m_initialSyncPending) {
+  if (auto* sync = std::get_if<Syncing>(&m_connection); sync == nullptr) {
     enumDefaultAudioDeviceParams();
-    announceConnection();
   } else if (waitForSync) {
+    sync->announced = true;
     announceConnection();
   }
   while (pw_loop_iterate(m_loop, 0) > 0) {
   }
-  if (m_connectionLossPending) {
+  if (connectionLost()) {
     disconnectRemote(true);
     return false;
   }
@@ -925,8 +920,7 @@ bool PipeWireService::connectRemote(bool waitForSync) {
 
 void PipeWireService::disconnectRemote(bool notifyState) {
   m_pendingDefaultAudioDevicePropsEnum = false;
-  m_initialSyncSequence = -1;
-  m_initialSyncPending = false;
+  setConnection(Disconnected{});
 
   // Destroy node proxies and their listeners.
   for (auto& [id, nd] : m_nodes) {
@@ -1004,8 +998,27 @@ void PipeWireService::disconnectRemote(bool notifyState) {
 
   m_serverVersion.clear();
   m_serverSupportsPassiveFollow = false;
-  m_connectionLossPending = false;
-  m_connectionAnnouncementPending = false;
+}
+
+bool PipeWireService::setConnection(Connection next) {
+  const bool valid = std::visit(
+      []<typename From, typename To>(const From&, const To&) {
+        if constexpr (std::is_same_v<To, Disconnected>) {
+          return true;
+        } else if constexpr (std::is_same_v<To, Syncing>) {
+          return std::is_same_v<From, Disconnected>;
+        } else if constexpr (std::is_same_v<To, Connected>) {
+          return std::is_same_v<From, Syncing>;
+        } else {
+          return !std::is_same_v<From, Disconnected>;
+        }
+      },
+      m_connection, next
+  );
+  if (valid) {
+    m_connection = std::move(next);
+  }
+  return valid;
 }
 
 void PipeWireService::onCoreInfo(const pw_core_info* info) {
@@ -1018,23 +1031,24 @@ void PipeWireService::onCoreInfo(const pw_core_info* info) {
 }
 
 void PipeWireService::onCoreDone(std::uint32_t id, int sequence) {
-  if (id == PW_ID_CORE && sequence == m_initialSyncSequence) {
-    m_initialSyncPending = false;
+  const auto* sync = std::get_if<Syncing>(&m_connection);
+  if (id == PW_ID_CORE && sync != nullptr && sequence == sync->sequence) {
+    const bool announced = sync->announced;
+    setConnection(Connected{});
     enumDefaultAudioDeviceParams();
-    announceConnection();
+    if (!announced) {
+      announceConnection();
+    }
   }
 }
 
 void PipeWireService::announceConnection() {
-  if (!m_connectionAnnouncementPending) {
-    return;
-  }
-  m_connectionAnnouncementPending = false;
+  const bool reconnected = m_hasConnected;
   m_hasConnected = true;
 
   if (m_serverVersion.empty()) {
     kLog.warn("daemon version unavailable; using node.passive=true for the spectrum stream");
-  } else if (m_reconnecting) {
+  } else if (reconnected) {
     kLog.info("reconnected to daemon {}", m_serverVersion);
   } else {
     kLog.info("connected to daemon {} (client library {})", m_serverVersion, pw_get_library_version());
@@ -1046,7 +1060,7 @@ void PipeWireService::onCoreError(std::uint32_t id, int sequence, int result, co
   switch (noctalia::pipewire::classifyError(id, result)) {
   case noctalia::pipewire::ErrorDisposition::Reconnect:
     kLog.warn("core connection error seq={} result={} ({}): {}", sequence, result, spa_strerror(result), detail);
-    m_connectionLossPending = true;
+    setConnection(Lost{});
     return;
   case noctalia::pipewire::ErrorDisposition::StaleObject:
     kLog.debug("request target {} seq={} no longer available: {}", id, sequence, detail);
@@ -1067,11 +1081,13 @@ int PipeWireService::fd() const noexcept {
 }
 
 int PipeWireService::pollTimeoutMs() const noexcept {
-  if (m_core != nullptr || m_reconnectAt.time_since_epoch().count() == 0) {
+  const auto* disconnected = std::get_if<Disconnected>(&m_connection);
+  if (m_core != nullptr || disconnected == nullptr || !disconnected->retryAt.has_value()) {
     return -1;
   }
 
-  const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(m_reconnectAt - std::chrono::steady_clock::now());
+  const auto remaining =
+      std::chrono::ceil<std::chrono::milliseconds>(*disconnected->retryAt - std::chrono::steady_clock::now());
   if (remaining <= std::chrono::milliseconds::zero()) {
     return 0;
   }
@@ -1084,8 +1100,10 @@ void PipeWireService::dispatch() {
   }
 
   if (m_core == nullptr) {
-    if (m_reconnectAt.time_since_epoch().count() != 0
-        && std::chrono::steady_clock::now() >= m_reconnectAt
+    const auto* disconnected = std::get_if<Disconnected>(&m_connection);
+    if (disconnected != nullptr
+        && disconnected->retryAt.has_value()
+        && std::chrono::steady_clock::now() >= *disconnected->retryAt
         && !connectRemote(false)) {
       scheduleReconnect();
     }
@@ -1096,12 +1114,12 @@ void PipeWireService::dispatch() {
   int result = 0;
   do {
     result = pw_loop_iterate(m_loop, 0);
-  } while (result > 0 && !m_connectionLossPending);
+  } while (result > 0 && !connectionLost());
   if (result < 0 && result != -EINTR) {
     kLog.warn("PipeWire dispatch failed: {}", spa_strerror(result));
-    m_connectionLossPending = true;
+    setConnection(Lost{});
   }
-  if (m_connectionLossPending) {
+  if (connectionLost()) {
     handleConnectionLoss();
     return;
   }
@@ -1111,19 +1129,19 @@ void PipeWireService::dispatch() {
     enumDefaultAudioDeviceParams();
     do {
       result = pw_loop_iterate(m_loop, 0);
-    } while (result > 0 && !m_connectionLossPending);
+    } while (result > 0 && !connectionLost());
     if (result < 0 && result != -EINTR) {
       kLog.warn("PipeWire parameter dispatch failed: {}", spa_strerror(result));
-      m_connectionLossPending = true;
+      setConnection(Lost{});
     }
-    if (m_connectionLossPending) {
+    if (connectionLost()) {
       handleConnectionLoss();
     }
   }
 }
 
 void PipeWireService::scheduleReconnect() {
-  m_reconnectAt = std::chrono::steady_clock::now() + m_reconnectDelay;
+  setConnection(Disconnected{.retryAt = std::chrono::steady_clock::now() + m_reconnectDelay});
   kLog.info("retrying PipeWire connection in {}ms", m_reconnectDelay.count());
   m_reconnectDelay =
       std::min(m_reconnectDelay * 2, std::chrono::duration_cast<std::chrono::milliseconds>(kReconnectMaxDelay));

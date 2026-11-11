@@ -47,7 +47,7 @@ public:
   void onToplevelChange();
   void show(wl_output* output);
 
-  [[nodiscard]] bool isActive() const noexcept { return m_active; }
+  [[nodiscard]] bool isActive() const noexcept { return m_mode != Mode::Hidden; }
   [[nodiscard]] bool onPointerEvent(const PointerEvent& event);
   [[nodiscard]] bool onKeyboardEvent(const KeyboardEvent& event);
   void onKeyboardModifiers(std::uint32_t modifiers);
@@ -110,6 +110,9 @@ private:
   WindowSwitcherShortcutState m_shortcutState;
   std::uint64_t m_shortcutSessionGeneration = 0;
   WindowSwitcherScope m_scopeOverride = WindowSwitcherScope::None;
-  bool m_active = false;
-  bool m_shortcutSession = false;
+  // Pointer: opened without a held shortcut. Shortcut: releasing the shortcut modifier confirms the selection.
+  enum class Mode : std::uint8_t { Hidden, Pointer, Shortcut };
+  // Hidden opens as Pointer, a shortcut turns Pointer into Shortcut, and every mode can hide.
+  bool setMode(Mode next);
+  Mode m_mode = Mode::Hidden;
 };

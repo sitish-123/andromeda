@@ -298,7 +298,7 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
   const bool sectionNav =
       shouldUseLauncherSections() && m_launcherSectionsAdapter != nullptr && m_launcherSections != nullptr;
   const bool gridNav = !sectionNav && m_usingAppGrid && m_grid != nullptr;
-  if (m_filesScope && sym == XKB_KEY_BackSpace && m_query.empty()) {
+  if (filesScope() && sym == XKB_KEY_BackSpace && m_query.empty()) {
     setFilesScope(false);
     return true;
   }
@@ -328,7 +328,7 @@ bool LauncherPanel::handleKeyEvent(std::uint32_t sym, std::uint32_t modifiers) {
     }
   };
 
-  if (m_filesScope && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
+  if (filesScope() && (sym == XKB_KEY_Tab || sym == XKB_KEY_ISO_Left_Tab)) {
     const bool back = sym == XKB_KEY_ISO_Left_Tab || (modifiers & KeyMod::Shift) != 0;
     setFilesKind(m_kindIndex + (back ? kFileKinds.size() - 1 : 1));
     return true;

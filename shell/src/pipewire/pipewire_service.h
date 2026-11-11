@@ -6,9 +6,11 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <spa/param/param.h>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 struct pw_context;
@@ -302,13 +304,25 @@ private:
 
   std::string m_serverVersion;
   bool m_serverSupportsPassiveFollow = false;
-  int m_initialSyncSequence = -1;
-  bool m_initialSyncPending = false;
-  bool m_connectionLossPending = false;
-  bool m_connectionAnnouncementPending = false;
-  bool m_reconnecting = false;
+  // No core; retryAt is when dispatch() connects again.
+  struct Disconnected {
+    std::optional<std::chrono::steady_clock::time_point> retryAt;
+  };
+  // Core connected; waits for the reply to the initial core sync.
+  struct Syncing {
+    int sequence = -1;
+    bool announced = false;
+  };
+  struct Connected {};
+  // The core failed; the next dispatch step disconnects it.
+  struct Lost {};
+  using Connection = std::variant<Disconnected, Syncing, Connected, Lost>;
+  // Disconnected -> Syncing -> Connected; Syncing and Connected can become Lost; every state can disconnect.
+  bool setConnection(Connection next);
+  [[nodiscard]] bool connectionLost() const noexcept { return std::holds_alternative<Lost>(m_connection); }
+  [[nodiscard]] bool syncing() const noexcept { return std::holds_alternative<Syncing>(m_connection); }
+  Connection m_connection;
   bool m_hasConnected = false;
-  std::chrono::steady_clock::time_point m_reconnectAt;
   std::chrono::milliseconds m_reconnectDelay{250};
 
   std::unordered_map<std::uint32_t, std::unique_ptr<NodeData>> m_nodes;

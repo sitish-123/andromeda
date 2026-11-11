@@ -126,8 +126,18 @@ void LauncherPanel::setMode(std::string_view providerId) {
   onInputChanged("");
 }
 
+void LauncherPanel::leaveProviderView() {
+  if (m_view.is<launcher_view::Browser<BrowserViewState>>()) {
+    m_view.set(launcher_view::Default{});
+  }
+}
+
 void LauncherPanel::setFilesScope(bool on) {
-  m_filesScope = on;
+  if (on) {
+    m_view.set(launcher_view::Files{});
+  } else if (filesScope()) {
+    m_view.set(launcher_view::Default{});
+  }
   m_selectedIndex = 0;
   if (!on) {
     m_kindIndex = 0;
@@ -210,7 +220,7 @@ void LauncherPanel::syncKindTabs() {
       m_kindTabItems.push_back(tabPtr);
     }
   }
-  const bool show = m_browserMode && m_filesScope;
+  const bool show = m_browserMode && filesScope();
   m_kindTabs->setVisible(show);
   m_kindTabs->setParticipatesInLayout(show);
   m_kindTabsLine->setVisible(show);

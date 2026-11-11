@@ -642,7 +642,7 @@ void WindowSwitcher::registerIpc(IpcService& ipc) {
     }
 
     if (action == "close" || action == "hide") {
-      if (m_active) {
+      if (isActive()) {
         hide();
       }
       return "ok\n";
@@ -658,10 +658,10 @@ void WindowSwitcher::registerIpc(IpcService& ipc) {
       return "error: no output available\n";
     }
     m_scopeOverride = scope.value_or(WindowSwitcherScope::None);
-    const bool wasActive = m_active;
-    const std::uint32_t modifiers = m_active && m_wayland != nullptr ? m_wayland->keyboardModifiers() : 0;
+    const bool wasActive = isActive();
+    const std::uint32_t modifiers = isActive() && m_wayland != nullptr ? m_wayland->keyboardModifiers() : 0;
     showFromShortcut(output, modifiers);
-    if (action == "hold" && !wasActive && m_active) {
+    if (action == "hold" && !wasActive && isActive()) {
       m_shortcutState.expectHeldModifier();
     }
     return "ok\n";
@@ -669,7 +669,7 @@ void WindowSwitcher::registerIpc(IpcService& ipc) {
 }
 
 void WindowSwitcher::onConfigReload() {
-  if (!m_active) {
+  if (!isActive()) {
     return;
   }
   refreshWindows();
@@ -680,7 +680,7 @@ void WindowSwitcher::onConfigReload() {
 }
 
 void WindowSwitcher::onOutputChange() {
-  if (!m_active) {
+  if (!isActive()) {
     m_windows.clear();
     m_selectedIndex = 0;
     destroySurface();
@@ -722,7 +722,7 @@ void WindowSwitcher::promoteMruKey(const std::string& key) {
 }
 
 void WindowSwitcher::onToplevelChange() {
-  if (!m_active) {
+  if (!isActive()) {
     recordFocusedWindow();
     return;
   }
@@ -741,10 +741,9 @@ void WindowSwitcher::show(wl_output* output) { showWithDirection(output, 1); }
 
 void WindowSwitcher::showFromShortcut(wl_output* output, std::uint32_t modifiers) {
   showWithDirection(output, (modifiers & KeyMod::Shift) != 0 ? -1 : 1);
-  if (!m_active) {
+  if (!setMode(Mode::Shortcut)) {
     return;
   }
-  m_shortcutSession = true;
   captureShortcutModifiers(modifiers);
 }
 
@@ -753,14 +752,13 @@ void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
     return;
   }
 
-  const bool wasActive = m_active;
+  const bool wasActive = isActive();
   const bool outputChanged = output != m_output;
   if (!wasActive) {
     recordFocusedWindow();
     cancelShortcutModifierReleaseCheck();
     m_shortcutState.reset();
     ++m_shortcutSessionGeneration;
-    m_shortcutSession = false;
   }
   m_output = output;
   const std::string focusedKey = currentFocusedWindowKey(*m_platform);
@@ -779,7 +777,9 @@ void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
       m_selectedIndex = direction < 0 ? m_windows.size() - 1 : 1;
     }
   }
-  m_active = true;
+  if (!wasActive) {
+    setMode(Mode::Pointer);
+  }
 
   ensureSurface();
   if (m_instance == nullptr) {
@@ -794,14 +794,24 @@ void WindowSwitcher::showWithDirection(wl_output* output, int direction) {
   }
 }
 
+bool WindowSwitcher::setMode(Mode next) {
+  const bool valid = next == Mode::Hidden
+      || (m_mode == Mode::Hidden && next == Mode::Pointer)
+      || (m_mode != Mode::Hidden && next == Mode::Shortcut);
+  if (valid) {
+    m_mode = next;
+  }
+  return valid;
+}
+
 void WindowSwitcher::captureShortcutModifiers(std::uint32_t modifiers) { m_shortcutState.capture(modifiers); }
 
 void WindowSwitcher::hide() {
-  if (!m_active && m_instance == nullptr) {
+  if (m_mode == Mode::Hidden && m_instance == nullptr) {
     return;
   }
 
-  m_active = false;
+  setMode(Mode::Hidden);
   m_output = nullptr;
   m_windows.clear();
   m_selectedIndex = 0;
@@ -809,7 +819,6 @@ void WindowSwitcher::hide() {
   cancelShortcutModifierReleaseCheck();
   m_shortcutState.reset();
   ++m_shortcutSessionGeneration;
-  m_shortcutSession = false;
   cancelThumbnailCaptures();
   destroySurface();
 }
@@ -830,7 +839,7 @@ void WindowSwitcher::refreshWindows() {
       }
     }
   }
-  if (m_active && m_selectedIndex < m_windows.size()) {
+  if (isActive() && m_selectedIndex < m_windows.size()) {
     selectedKey = identityKeyForEntry(m_windows[m_selectedIndex]);
     if (selectedKey->empty()) {
       selectedKey.reset();
@@ -893,7 +902,7 @@ void WindowSwitcher::startThumbnailCaptures() {
 }
 
 void WindowSwitcher::enqueueMissingThumbnailCaptures() {
-  if (!m_active || m_wayland == nullptr || m_thumbnailCapture == nullptr || !m_thumbnailCapture->available()) {
+  if (!isActive() || m_wayland == nullptr || m_thumbnailCapture == nullptr || !m_thumbnailCapture->available()) {
     return;
   }
 
@@ -936,7 +945,7 @@ void WindowSwitcher::enqueueMissingThumbnailCaptures() {
 }
 
 void WindowSwitcher::captureNextThumbnail() {
-  if (!m_active || m_wayland == nullptr || m_thumbnailCapture == nullptr || m_thumbnailCapture->busy()) {
+  if (!isActive() || m_wayland == nullptr || m_thumbnailCapture == nullptr || m_thumbnailCapture->busy()) {
     return;
   }
 
@@ -963,7 +972,7 @@ void WindowSwitcher::captureNextThumbnail() {
         [this, windowKey = std::move(request.windowKey)](std::optional<ScreencopyImage> image, std::string error) {
           if (!error.empty()) {
             kLog.debug("thumbnail capture skipped for {}: {}", windowKey, error);
-          } else if (m_active && image.has_value()) {
+          } else if (isActive() && image.has_value()) {
             auto thumbnail = std::make_shared<ScreencopyImage>(std::move(*image));
             for (auto& entry : m_windows) {
               if (identityKeyForEntry(entry) == windowKey) {
@@ -1047,7 +1056,7 @@ void WindowSwitcher::activateSelected() {
 }
 
 void WindowSwitcher::closeWindowAt(std::size_t index) {
-  if (!m_active || m_platform == nullptr || index >= m_windows.size()) {
+  if (!isActive() || m_platform == nullptr || index >= m_windows.size()) {
     return;
   }
   const WindowSwitcherEntry& entry = m_windows[index];
@@ -1326,7 +1335,7 @@ bool WindowSwitcher::isModifierRelease(const KeyboardEvent& event) const noexcep
 }
 
 void WindowSwitcher::onKeyboardModifiers(std::uint32_t modifiers) {
-  if (!m_active || !m_shortcutSession) {
+  if (m_mode != Mode::Shortcut) {
     return;
   }
   if (!m_shortcutState.hasPendingRelease()) {
@@ -1372,7 +1381,7 @@ void WindowSwitcher::scheduleShortcutModifierReleaseCheck() {
 }
 
 void WindowSwitcher::completeShortcutModifierReleaseCheck() {
-  if (!m_active || !m_shortcutSession || m_wayland == nullptr) {
+  if (m_mode != Mode::Shortcut || m_wayland == nullptr) {
     return;
   }
   if (!m_shortcutState.completeReleaseCheck(m_wayland->keyboardModifiers())) {
@@ -1403,12 +1412,12 @@ void WindowSwitcher::handleShortcutModifierReleaseSync(
 }
 
 bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
-  if (m_active && m_instance == nullptr) {
+  if (isActive() && m_instance == nullptr) {
     hide();
     return false;
   }
 
-  if (!m_active) {
+  if (!isActive()) {
     if (matchesTrigger(event)) {
       if (m_platform == nullptr) {
         return false;
@@ -1426,7 +1435,7 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
     return false;
   }
 
-  if (m_shortcutSession) {
+  if (m_mode == Mode::Shortcut) {
     captureShortcutModifiers(event.modifiers);
     if (!event.pressed) {
       captureShortcutModifiers(KeySymbol::modifierMask(event.sym));
@@ -1494,7 +1503,7 @@ bool WindowSwitcher::onKeyboardEvent(const KeyboardEvent& event) {
 }
 
 bool WindowSwitcher::onPointerEvent(const PointerEvent& event) {
-  if (!m_active || m_instance == nullptr || m_instance->surface == nullptr) {
+  if (!isActive() || m_instance == nullptr || m_instance->surface == nullptr) {
     return false;
   }
 
@@ -1603,13 +1612,13 @@ void WindowSwitcher::ensureSurface() {
     }
   });
   inst->surface->setPrepareFrameCallback([this, instPtr](bool needsUpdate, bool needsLayout) {
-    if (!m_active || m_instance != instPtr) {
+    if (!isActive() || m_instance != instPtr) {
       return;
     }
     prepareFrame(*instPtr, needsUpdate, needsLayout);
   });
   inst->surface->setFrameTickCallback([this, instPtr](float /*deltaMs*/) {
-    if (!m_active || m_instance != instPtr || instPtr->surface == nullptr) {
+    if (!isActive() || m_instance != instPtr || instPtr->surface == nullptr) {
       return;
     }
     positionPanel(
@@ -1645,7 +1654,7 @@ void WindowSwitcher::destroySurface() {
 }
 
 void WindowSwitcher::prepareFrame(Instance& instance, bool /*needsUpdate*/, bool /*needsLayout*/) {
-  if (!m_active || m_renderContext == nullptr || instance.surface == nullptr) {
+  if (!isActive() || m_renderContext == nullptr || instance.surface == nullptr) {
     return;
   }
 

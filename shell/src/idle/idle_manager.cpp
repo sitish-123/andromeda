@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -74,18 +75,16 @@ void IdleManager::notifyLiveIdleChanged() {
 
 void IdleManager::setScreenSaverInhibitLocks(std::int64_t locks) {
   const std::int64_t next = std::max<std::int64_t>(0, locks);
-  if (m_screenSaverInhibitLocks == next) {
+  if (inhibitLocks() == next) {
     return;
   }
   const bool wasInhibited = screenSaverInhibited();
-  m_screenSaverInhibitLocks = next;
 
-  if (m_screenSaverInhibitLocks > 0) {
-    if (m_inhibitReleasePending) {
+  if (next > 0) {
+    if (std::holds_alternative<InhibitReleasePending>(m_inhibit)) {
       kLog.debug("screensaver inhibit renewed within debounce; idle countdowns kept running");
-      m_inhibitReleasePending = false;
-      m_inhibitReleaseTimer.stop();
     }
+    setInhibit(InhibitHeld{.locks = next});
     if (!wasInhibited) {
       // Playback started mid-fade: abort it rather than blanking the screen over a fresh video. The
       // cancelled behaviors return to Waiting and are re-armed when the inhibit is released.
@@ -97,19 +96,37 @@ void IdleManager::setScreenSaverInhibitLocks(std::int64_t locks) {
     return;
   }
 
-  if (!wasInhibited || m_inhibitReleasePending) {
-    return;
+  setInhibit(InhibitReleasePending{});
+}
+
+bool IdleManager::setInhibit(Inhibit next) {
+  const bool pending = std::holds_alternative<InhibitReleasePending>(m_inhibit);
+  const bool valid = std::visit(
+      [&]<typename To>(const To&) {
+        if constexpr (std::is_same_v<To, InhibitHeld>) {
+          return true;
+        } else if constexpr (std::is_same_v<To, InhibitReleasePending>) {
+          return std::holds_alternative<InhibitHeld>(m_inhibit);
+        } else {
+          return pending;
+        }
+      },
+      next
+  );
+  if (!valid) {
+    return false;
   }
-  m_inhibitReleasePending = true;
-  m_inhibitReleaseTimer.start(kInhibitReleaseDebounce, [this] { applyScreenSaverInhibitRelease(); });
+  m_inhibit = std::move(next);
+  if (std::holds_alternative<InhibitReleasePending>(m_inhibit)) {
+    m_inhibitReleaseTimer.start(kInhibitReleaseDebounce, [this] { applyScreenSaverInhibitRelease(); });
+  } else if (pending && std::holds_alternative<InhibitHeld>(m_inhibit)) {
+    m_inhibitReleaseTimer.stop();
+  }
+  return true;
 }
 
 void IdleManager::applyScreenSaverInhibitRelease() {
-  if (!m_inhibitReleasePending) {
-    return;
-  }
-  m_inhibitReleasePending = false;
-  if (m_screenSaverInhibitLocks > 0) {
+  if (!setInhibit(InhibitReleased{})) {
     return;
   }
 
@@ -357,31 +374,29 @@ bool IdleManager::runAction(const IdleBehaviorConfig& behavior, const IdleAction
 }
 
 void IdleManager::cancelActiveGrace(bool userCancelled) {
-  if (!hasActiveGrace()) {
+  auto* fading = std::get_if<GraceFading>(&m_grace);
+  if (fading == nullptr) {
     return;
   }
-  const bool willLockSession = m_activeGraceWillLock;
-  for (auto* behavior : m_graceBehaviors) {
+  const bool willLockSession = fading->willLock;
+  for (auto* behavior : fading->behaviors) {
     if (behavior != nullptr) {
       behavior->phase = BehaviorPhase::Waiting;
     }
   }
-  m_graceBehaviors.clear();
-  m_activeGraceWillLock = false;
-  m_graceFallbackTimer.stop();
-  ++m_graceGeneration;
+  setGrace(GraceIdle{});
   if (m_onGraceEnd) {
     m_onGraceEnd(userCancelled, willLockSession);
   }
 }
 
 void IdleManager::graceFadeComplete() {
-  if (!hasActiveGrace()) {
+  auto* fading = std::get_if<GraceFading>(&m_grace);
+  if (fading == nullptr) {
     return;
   }
-  auto behaviors = std::move(m_graceBehaviors);
-  m_graceBehaviors.clear();
-  m_graceFallbackTimer.stop();
+  auto behaviors = std::move(fading->behaviors);
+  setGrace(GraceIdle{});
 
   // End grace (and tear down the overlay) before idle actions. Suspend can freeze the process
   // before a deferred hide runs, leaving the opaque layer surface stuck after resume.
@@ -395,7 +410,6 @@ void IdleManager::graceFadeComplete() {
       willDispatchLockAction = true;
     }
   }
-  m_activeGraceWillLock = false;
   if (m_onGraceEnd) {
     m_onGraceEnd(false, willDispatchLockAction);
   }
@@ -410,16 +424,28 @@ void IdleManager::graceFadeComplete() {
   }
 }
 
+bool IdleManager::setGrace(Grace next) {
+  if (m_grace.index() == next.index()) {
+    return false;
+  }
+  m_grace = std::move(next);
+  if (std::holds_alternative<GraceIdle>(m_grace)) {
+    m_graceFallbackTimer.stop();
+  }
+  return true;
+}
+
 void IdleManager::joinActiveGrace(BehaviorState& behavior) {
-  if (std::ranges::contains(m_graceBehaviors, &behavior)) {
+  auto* fading = std::get_if<GraceFading>(&m_grace);
+  if (fading == nullptr || std::ranges::contains(fading->behaviors, &behavior)) {
     return;
   }
   const IdleActionKind idleKind = resolveIdleBehaviorActions(behavior.config).idleAction.kind;
   if (idleKind == IdleActionKind::Lock || idleKind == IdleActionKind::LockAndSuspend) {
-    m_activeGraceWillLock = true;
+    fading->willLock = true;
   }
   behavior.phase = BehaviorPhase::Fading;
-  m_graceBehaviors.push_back(&behavior);
+  fading->behaviors.push_back(&behavior);
 }
 
 void IdleManager::handleIdled(void* data, ext_idle_notification_v1* /*notification*/) {
@@ -435,7 +461,7 @@ void IdleManager::handleIdled(void* data, ext_idle_notification_v1* /*notificati
   if (self.screenSaverInhibited()) {
     kLog.info(
         "idle behavior '{}' suppressed (screensaver inhibit locks={}{})", behavior->config.name,
-        self.m_screenSaverInhibitLocks, self.m_inhibitReleasePending ? ", release pending" : ""
+        self.inhibitLocks(), std::holds_alternative<InhibitReleasePending>(self.m_inhibit) ? ", release pending" : ""
     );
     // Leave the notification idled: real input re-arms it in the compositor, and the inhibit release
     // restarts it. Recreating it here would restart the countdown on every inhibit renewal.
@@ -462,10 +488,11 @@ void IdleManager::handleIdled(void* data, ext_idle_notification_v1* /*notificati
     const auto fade = std::chrono::milliseconds(std::clamp(fadeMs, 1, 600000));
     kLog.info("idle behavior '{}' pre-action fade {}ms", behavior->config.name, fade.count());
     const bool willLockSession = idleKind == IdleActionKind::Lock || idleKind == IdleActionKind::LockAndSuspend;
-    self.joinActiveGrace(*behavior);
     const std::uint64_t generation = ++self.m_graceGeneration;
+    self.setGrace(GraceFading{.generation = generation});
+    self.joinActiveGrace(*behavior);
     self.m_graceFallbackTimer.start(fade + std::chrono::milliseconds(250), [&self, generation] {
-      if (self.m_graceGeneration != generation || !self.hasActiveGrace()) {
+      if (!self.isGrace(generation)) {
         return;
       }
       kLog.debug("idle pre-action fade fallback completed");
@@ -473,7 +500,7 @@ void IdleManager::handleIdled(void* data, ext_idle_notification_v1* /*notificati
     });
     self.m_onGraceBegin(behavior->config.name, fade, willLockSession, [ptr = &self, generation] {
       DeferredCall::callLater([ptr, generation] {
-        if (ptr->m_graceGeneration != generation || !ptr->hasActiveGrace()) {
+        if (!ptr->isGrace(generation)) {
           return;
         }
         ptr->graceFadeComplete();

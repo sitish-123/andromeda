@@ -5,6 +5,7 @@
 #include "launcher/search_broker.h"
 #include "launcher/usage_tracker.h"
 #include "render/core/texture_handle.h"
+#include "shell/launcher/launcher_view.h"
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
 #include "ui/signal.h"
@@ -288,8 +289,7 @@ private:
   Label* m_pillCount = nullptr;
   Label* m_pillOpenHint = nullptr;
   Flex* m_pillBackHint = nullptr;
-  // "Show all files" scope: a "Files" token in the field; every query goes to Files only (50 rows, newest first).
-  bool m_filesScope = false;
+  // Files view ("Show all files"): a "Files" token in the field; every query goes to Files only (50 rows, newest first).
   Flex* m_filesToken = nullptr;
   Label* m_filesTokenLabel = nullptr;
   // Kind chips of the Files scope (DESIGN.md "Show all" B, kind filter A); index into kFileKinds.
@@ -299,9 +299,11 @@ private:
   std::size_t m_kindIndex = 0;
   std::size_t m_packIndex = 0;
   Flex* m_pillKindHint = nullptr;
-  bool m_showingProviderOverview = false;
-  std::string m_launcherProviderViewId;
-  std::optional<BrowserViewState> m_sessionReturnView;
+  launcher_view::State<BrowserViewState> m_view;
+  [[nodiscard]] bool filesScope() const noexcept { return m_view.is<launcher_view::Files>(); }
+  [[nodiscard]] bool showingProviderOverview() const noexcept { return m_view.is<launcher_view::ProviderOverview>(); }
+  // Leaves a provider view for plain search; the Files and overview views stay.
+  void leaveProviderView();
   bool m_launcherShowIcons = true;
   bool m_launcherShowAppOriginIndicator = true;
   bool m_launcherCompact = false;
