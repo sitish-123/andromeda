@@ -11,6 +11,7 @@
 #include "view/floating.h"
 #include "view/presentation.h"
 #include "view/snap.h"
+#include "view/view_visibility.h"
 
 #include <algorithm>
 #include <array>
@@ -110,7 +111,7 @@ namespace andromeda {
     // schedule it through Server::scheduleSuspensionSync.
     void syncSuspendedState();
     // The hidden state syncSuspendedState last found, for X11 windows too; it tells QoS when it changes.
-    [[nodiscard]] bool hiddenFromUser() const { return m_mapped && m_hiddenFromUser; }
+    [[nodiscard]] bool hiddenFromUser() const { return mapped() && m_hiddenFromUser; }
     [[nodiscard]] qos::Rule qosRule() const { return m_qosRule; }
     void setFullscreenState(bool fullscreen);
     void setMaximizedState(bool maximized);
@@ -149,7 +150,7 @@ namespace andromeda {
     [[nodiscard]] bool effectSelectionPending() const { return m_effectSelectionIdle != nullptr; }
     void refreshEffectSelection();
     [[nodiscard]] wlr_scene_tree* captureTree() const;
-    [[nodiscard]] bool mapped() const { return m_mapped; }
+    [[nodiscard]] bool mapped() const { return m_lifecycle != Lifecycle::Unmapped; }
     // The pid of the application process, or -1 when it is unknown (an X11 client that sets no _NET_WM_PID).
     [[nodiscard]] pid_t pid() const;
     // An attached dialog reports its placement root's workspace, output, visibility, and pinned state.
@@ -330,7 +331,12 @@ namespace andromeda {
     [[nodiscard]] uint64_t minimizeSerial() const { return m_minimizeSerial; }
     // True while nothing may show the frame: a tiled opener waiting for the arrange that places it, a hidden tab, or a
     // minimized window.
-    [[nodiscard]] bool presentationSuppressed() const { return m_tiledOpeningDeferred || m_tabHidden || m_minimized; }
+    [[nodiscard]] bool presentationSuppressed() const {
+      return m_lifecycle == Lifecycle::OpeningDeferred || m_tabHidden || m_minimized;
+    }
+    [[nodiscard]] Lifecycle lifecycle() const { return m_lifecycle; }
+    // Whether the frame draws; the node is enabled exactly when this holds.
+    [[nodiscard]] bool shown() const { return visibility().shown(); }
     // Chrome carried beside the borders, its scene nodes under chromeParent(). Replacing it destroys the previous one.
     void setChromeAttachment(std::unique_ptr<ViewChromeAttachment> attachment);
     [[nodiscard]] ViewChromeAttachment* chromeAttachment() const { return m_chromeAttachment.get(); }
@@ -354,7 +360,7 @@ namespace andromeda {
     // windows_in at that slot.
     void deferTiledOpening();
     void resumeTiledOpening();
-    [[nodiscard]] bool tiledOpeningDeferred() const { return m_tiledOpeningDeferred; }
+    [[nodiscard]] bool tiledOpeningDeferred() const { return m_lifecycle == Lifecycle::OpeningDeferred; }
     // windows_move owns this established view's box until endLayoutMotion. `direction` feeds its custom shader.
     void beginLayoutMotion(float direction);
     // Finish at the workspace target without falling back to an older committed client buffer. If the configure that
@@ -505,8 +511,15 @@ namespace andromeda {
     void restorePinnedSceneParent();
     // Apply the pinned state: reparent to the global pinned layer, resync presentation, and notify the overview.
     void applyPinnedState();
-    // Enable/disable the view's frame, and its shadow when a tile has lent it to the workspace.
-    void setNodeEnabled(bool enabled);
+    // Records whether the window's place shows it; the frame, and its shadow when a tile has lent it to the workspace,
+    // then follow shown().
+    void setNodeEnabled(bool placeShows);
+    // Applies one lifecycle event; false when the transition is rejected.
+    bool transitionLifecycle(LifecycleEvent event);
+    void syncShown();
+    [[nodiscard]] WindowVisibility visibility() const {
+      return {.lifecycle = m_lifecycle, .tabHidden = m_tabHidden, .minimized = m_minimized, .placeShows = m_placeShows};
+    }
     void raiseToTop();
     // The only way to move the frame to another tree: a tile's shadow joins the workspace's tile shadow layer, and
     // any other window's shadow stays in the frame.
@@ -1009,7 +1022,8 @@ namespace andromeda {
     std::vector<View*> m_attachments;
     std::optional<DisplacedHome> m_displacedHome;
 
-    bool m_mapped = false;
+    Lifecycle m_lifecycle = Lifecycle::Unmapped;
+    bool m_placeShows = false;
     bool m_hasEverMapped = false;
     bool m_launchPlacementPending = false;
     std::shared_ptr<WorkspaceLaunchAnchor> m_launchWorkspace;
@@ -1045,7 +1059,6 @@ namespace andromeda {
     };
     std::optional<TiledSizeRequest> m_tiledSizeRequest;
     float m_layoutMotionDirection = 1.0F;
-    bool m_tiledOpeningDeferred = false;
     // Inset a built-in windows_in style starts an opener at, interpolated to rest by the fade: a popin or zoom scale
     // (1.0 = none) and a slide offset in logical pixels (0 = none).
     double m_openingScale = 1.0;

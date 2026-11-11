@@ -111,7 +111,7 @@ namespace andromeda {
 
   void View::syncSuspendedState() {
     // A tiled opener waits hidden only until the arrange that places it, so it is about to show, not hidden.
-    if (!m_mapped || m_tiledOpeningDeferred) {
+    if (m_lifecycle != Lifecycle::Mapped) {
       return;
     }
     const bool hidden = !seen() && !m_server->viewRenderedOffscreen(*this);
@@ -440,7 +440,7 @@ namespace andromeda {
   }
 
   void View::resyncXwaylandGeometry() {
-    if (!m_mapped || m_xsurface == nullptr) {
+    if (!mapped() || m_xsurface == nullptr) {
       return;
     }
     m_xConfigured.x = INT_MIN;
@@ -463,7 +463,7 @@ namespace andromeda {
   }
 
   void View::handleXwaylandRequestConfigure(const wlr_xwayland_surface_configure_event* event) {
-    if (!m_mapped) {
+    if (!mapped()) {
       // Before map the client owns its geometry; the opening configure at map replaces it.
       grantConfigureRequest(m_xsurface, event);
       return;
@@ -513,7 +513,7 @@ namespace andromeda {
       setUrgent(false);
       return;
     }
-    if (!m_mapped) {
+    if (!mapped()) {
       deferActivation(false);
       return;
     }

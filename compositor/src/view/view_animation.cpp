@@ -123,7 +123,7 @@ namespace andromeda {
   }
 
   bool View::tiledOpeningActive() const {
-    return m_mapped
+    return mapped()
         && !m_inScratchpad
         && m_tiled
         && !layoutFullscreen()
@@ -134,7 +134,7 @@ namespace andromeda {
   }
 
   bool View::fullscreenOpeningActive() const {
-    return m_mapped && !m_inScratchpad && layoutFullscreen() && m_fade.animating() && m_fade.target() > m_fade.from();
+    return mapped() && !m_inScratchpad && layoutFullscreen() && m_fade.animating() && m_fade.target() > m_fade.from();
   }
 
   // A fullscreen window covers what a fade would reveal, so it opens with the scale alone: no offscreen capture,
@@ -181,7 +181,7 @@ namespace andromeda {
     }
     m_openingScale = 1.0;
     m_openingSlide = 0;
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     // The inset moved the node off its resting origin; the caller settles the size.
@@ -492,12 +492,12 @@ namespace andromeda {
 
     setSceneParent(homeTree());
     if (m_workspace == nullptr) {
-      setNodeEnabled(m_mapped && m_onActiveWorkspace);
+      setNodeEnabled(m_onActiveWorkspace);
       return;
     }
-    setNodeEnabled(m_mapped && m_onActiveWorkspace);
+    setNodeEnabled(m_onActiveWorkspace);
     m_workspace->restackFloatingViews();
-    if (m_mapped) {
+    if (mapped()) {
       m_workspace->syncViewPresentation(this);
     }
   }
@@ -507,7 +507,7 @@ namespace andromeda {
     const bool presentedInOverview = overview != nullptr && overview->active() && m_workspace != nullptr;
     const ScratchpadManager* scratchpad = m_server->scratchpadManager();
     const bool presentedInScratchpad = scratchpad != nullptr && scratchpad->contains(this);
-    if (!m_mapped
+    if (!mapped()
         || (!m_onActiveWorkspace && !presentedInOverview)
         || (m_workspace == nullptr && !presentedInScratchpad && !allowFullscreen)
         || (!allowFullscreen && (scheduledFullscreen() || currentFullscreen()))
@@ -549,7 +549,7 @@ namespace andromeda {
     m_posX.snap(x);
     m_posY.snap(y);
     m_positioned = true;
-    if (m_mapped && !m_tiled && changed) {
+    if (mapped() && !m_tiled && changed) {
       m_server->scheduleIpcWindowsEvent();
     }
   }
@@ -580,22 +580,16 @@ namespace andromeda {
   }
 
   void View::deferTiledOpening() {
-    if (m_tiledOpeningDeferred || !m_mapped) {
+    if (!transitionLifecycle(LifecycleEvent::DeferOpening)) {
       return;
     }
-    m_tiledOpeningDeferred = true;
     m_fade.snap(0.0);
     setFadeAlpha(0.0F);
-    setNodeEnabled(false);
     syncAnimationEffects();
   }
 
   void View::resumeTiledOpening() {
-    if (!m_tiledOpeningDeferred) {
-      return;
-    }
-    m_tiledOpeningDeferred = false;
-    if (!m_mapped) {
+    if (!transitionLifecycle(LifecycleEvent::ResumeOpening)) {
       return;
     }
     startOpenAnimation();
@@ -717,20 +711,20 @@ namespace andromeda {
     }
     const bool changed = layoutX() != x || layoutY() != y;
     setScenePosition(x, y);
-    if (m_mapped && (!m_tiled || m_server->cursor()->toplevelDragView() == this) && changed) {
+    if (mapped() && (!m_tiled || m_server->cursor()->toplevelDragView() == this) && changed) {
       m_server->scheduleIpcWindowsEvent();
     }
   }
 
   void View::animateTo(int x, int y) {
-    if (m_mapped && !m_tiled && (layoutTargetX() != x || layoutTargetY() != y)) {
+    if (mapped() && !m_tiled && (layoutTargetX() != x || layoutTargetY() != y)) {
       m_server->scheduleIpcWindowsEvent();
     }
     // First placement snaps: the node starts at the default (0,0) world origin, so animating would fly the window
     // across the layout on open. The fade-in covers the appear instead.
     const Overview* overview = m_server->overview();
     const bool presentedInOverview = overview != nullptr && overview->active() && m_workspace != nullptr;
-    if (!m_mapped || (!m_onActiveWorkspace && !presentedInOverview) || !m_positioned) {
+    if (!mapped() || (!m_onActiveWorkspace && !presentedInOverview) || !m_positioned) {
       setPosition(x, y);
       return;
     }
@@ -774,7 +768,7 @@ namespace andromeda {
     if (target == nullptr) {
       return;
     }
-    if (!m_mapped) {
+    if (!mapped()) {
       wlr_scene_node_clear_animations(&target->node);
       if (ownTrees) {
         m_dragSlotBound = false;
@@ -921,7 +915,7 @@ namespace andromeda {
       // A fresh tiled opener owns its final slot while the fade runs. After a later admission, an already positioned
       // opener can instead receive intermediate logical boxes from windows_move. Popin/zoom applies its inset to either
       // box, and a custom shader stays composed over the lifecycle presentation.
-      const bool finishingTiledOpen = m_mapped
+      const bool finishingTiledOpen = mapped()
           && !m_inScratchpad
           && m_tiled
           && !layoutFullscreen()
@@ -931,7 +925,7 @@ namespace andromeda {
       // A fullscreen opener is presented inside the output box its layout assigned, which the arrange that follows
       // its map owns. Styles without an inset leave the node where that arrange put it.
       const bool insetFullscreenOpen =
-          openingInsetPending() && m_mapped && !m_inScratchpad && layoutFullscreen() && m_fade.target() > m_fade.from();
+          openingInsetPending() && mapped() && !m_inScratchpad && layoutFullscreen() && m_fade.target() > m_fade.from();
       if (insetFullscreenOpen) {
         if (fullscreenOpeningActive()) {
           presentBox(fullscreenLayoutBox());
@@ -979,7 +973,7 @@ namespace andromeda {
       }
     }
     syncAnimationEffects();
-    if (!active && m_mapped && m_xsurface != nullptr) {
+    if (!active && mapped() && m_xsurface != nullptr) {
       syncXwaylandConfigure();
     }
     return active;
@@ -1025,7 +1019,7 @@ namespace andromeda {
 
   CloseSnapshotId View::beginCloseAnimation() {
     const auto& animation = config().animation;
-    if (!m_mapped
+    if (!mapped()
         || presentationSuppressed()
         || !m_onActiveWorkspace
         || !animation.enabled

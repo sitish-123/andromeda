@@ -58,7 +58,7 @@ namespace andromeda {
   }
 
   void View::refreshTitleBar() {
-    if (!m_mapped)
+    if (!mapped())
       return;
     updateBorderGeometry();
     applyCornerRadius();
@@ -113,7 +113,7 @@ namespace andromeda {
   }
 
   void View::syncSsdFrame() {
-    if (!m_mapped)
+    if (!mapped())
       return;
     const int previousHeight = m_ssdFrame != nullptr ? m_ssdFrame->titleBarHeight() : 0;
     if (previousHeight != titleBarHeight()) {
@@ -183,8 +183,8 @@ namespace andromeda {
     const auto& dim = animation.dimUnfocused;
     if (focusChanged || !m_focusDimInitialized) {
       m_focusDimInitialized = true;
-      const double target = focused || !m_mapped || !animation.enabled || !dim.enabled ? 1.0 : 1.0 - dim.dim;
-      if (m_mapped && focusChanged && animation.enabled && dim.enabled) {
+      const double target = focused || !mapped() || !animation.enabled || !dim.enabled ? 1.0 : 1.0 - dim.dim;
+      if (mapped() && focusChanged && animation.enabled && dim.enabled) {
         m_focusDim.retarget(target, dim.durationMs, dim.curve);
         scheduleFrame();
       } else {
@@ -200,7 +200,7 @@ namespace andromeda {
     const auto& border = animation.border;
     // A window that still fades in takes its focus color at once: a transition would outlast the fade by ~250 ms.
     const bool opening = m_fade.animating() && m_fade.target() > m_fade.from();
-    const bool borderAnimates = m_mapped && animation.enabled && border.enabled && borderInset() > 0 && !opening;
+    const bool borderAnimates = mapped() && animation.enabled && border.enabled && borderInset() > 0 && !opening;
     if (borderAnimates && focusChanged) {
       m_borderColorAnim.retarget(targetBase, border.durationMs, border.curve);
       scheduleFrame();
@@ -216,7 +216,7 @@ namespace andromeda {
       m_decoration.setBorderColor(focused, effectiveOpacity());
     }
 
-    if (focusChanged && m_mapped) {
+    if (focusChanged && mapped()) {
       applyDynamicRules();
     }
   }
@@ -406,7 +406,7 @@ namespace andromeda {
         .cornerRadius = m_maximizedToEdges ? 0 : decorationCornerRadius(),
         .titleBarHeight = titleBarHeight(),
         .scale = output != nullptr ? output->wlr()->scale : 1.0F,
-        .suppressed = !m_mapped || scheduledFullscreen() || currentFullscreen(),
+        .suppressed = !mapped() || scheduledFullscreen() || currentFullscreen(),
     };
     if (m_ssdFrame != nullptr)
       m_ssdFrame->layout(geometry);

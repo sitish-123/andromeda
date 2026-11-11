@@ -117,7 +117,7 @@ namespace andromeda {
       applyDynamicRules();
     }
     // A rule may opt this dialog, or the dialogs of this window, out of attaching by title.
-    if (m_mapped) {
+    if (mapped()) {
       reconcileAttachment();
       reconcileDialogAttachments();
     }
@@ -144,7 +144,7 @@ namespace andromeda {
     } else {
       applyDynamicRules();
     }
-    if (m_mapped) {
+    if (mapped()) {
       reconcileAttachment();
       reconcileDialogAttachments();
       if (Output* output = currentOutput()) {
@@ -154,13 +154,13 @@ namespace andromeda {
   }
 
   void View::handleForeignActivate() {
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     Workspace* workspace = m_workspace;
     kLog.debug(
         "foreign-toplevel activate app_id='{}' mapped={} visible={} workspace='{}' other_workspace={}",
-        appId() != nullptr ? appId() : "", m_mapped, m_onActiveWorkspace, workspace != nullptr ? workspace->name() : "",
+        appId() != nullptr ? appId() : "", mapped(), m_onActiveWorkspace, workspace != nullptr ? workspace->name() : "",
         workspace != nullptr && !workspace->active()
     );
     // A click on the dock, a bar or their popups activated the window: the pointer is already where the user wants it.
@@ -178,7 +178,7 @@ namespace andromeda {
   void View::handleForeignClose() { requestClose(); }
 
   void View::handleForeignMinimize(void* data) {
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     // Unminimizing shows the window where it was without focusing it; a taskbar activates separately.

@@ -71,7 +71,7 @@ namespace andromeda {
   }
 
   bool View::wantsAttach() {
-    if (!m_mapped || m_toplevel == nullptr || !config().general.attachModalDialogs) {
+    if (!mapped() || m_toplevel == nullptr || !config().general.attachModalDialogs) {
       return false;
     }
     View* parent = shellParent();
@@ -287,7 +287,7 @@ namespace andromeda {
     }
     const double target = blocked() ? 1.0 : 0.0;
     const auto& animation = config().animation;
-    if (animation.enabled && animation.dialogs.enabled && m_mapped) {
+    if (animation.enabled && animation.dialogs.enabled && mapped()) {
       m_modalShadeAlpha.retarget(target, animation.dialogs.durationMs, animation.dialogs.curve);
       scheduleFrame();
     } else {

@@ -5,6 +5,7 @@
 #include "layout/layout_motion.h"
 #include "util/tracked.h"
 #include "workspace/displaced_workspace.h"
+#include "workspace/slide_mode.h"
 #include "workspace/tab_presenter.h"
 
 #include <array>
@@ -15,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 struct wlr_ext_workspace_group_handle_v1;
@@ -437,14 +439,15 @@ namespace andromeda {
     // showing, and that workspace still owes it a configure at the right size.
     void flushArrange();
 
-    [[nodiscard]] bool slideActive() const { return m_slide.base != nullptr; }
+    [[nodiscard]] bool slideActive() const { return m_slide.active(); }
     // The running slide can show this workspace: its source, its target, or a neighbour during a swipe.
     [[nodiscard]] bool slideShows(const Workspace* workspace) const {
-      return slideActive() && (workspace == m_slide.base || workspace == m_slide.previous || workspace == m_slide.next);
+      const Slide* slide = m_slide.data();
+      return slide != nullptr && (workspace == slide->base || workspace == slide->previous || workspace == slide->next);
     }
     // Where the slide sits between its steps right now. A gesture that starts mid-settle picks the slide up here
     // instead of snapping it to an end first.
-    [[nodiscard]] double slideProgress() const { return m_slide.base != nullptr ? m_slide.progress : 0.0; }
+    [[nodiscard]] double slideProgress() const { return m_slide.active() ? m_slide.data()->progress : 0.0; }
     bool slideBegin(bool includePrev, bool includeNext);
     void slideApply(double progress);
     // Settle onto `delta` steps from the base. `velocity` is what the gesture still had when it was released, in steps
@@ -455,7 +458,9 @@ namespace andromeda {
     // Refresh the native pair bindings and shader inputs before output composition.
     void refreshReveal();
     [[nodiscard]] wlr_scene_node* revealRoot(bool incoming) const;
-    [[nodiscard]] bool revealActive() const { return m_slide.reveal != nullptr; }
+    [[nodiscard]] bool revealActive() const { return m_slide.active() && m_slide.data()->reveal != nullptr; }
+    // Workspaces that carry the reveal binding but are no longer in the slide; 0 unless a binding leaked.
+    [[nodiscard]] size_t revealBoundOutsideSlide() const;
     void abandonReveal();
     void cancelReveal();
     // Advances the workspace slide; returns true while it is still running.
@@ -473,7 +478,6 @@ namespace andromeda {
     void refreshWorkspaceMetadata();
     bool pruneDisplacedWorkspaces();
 
-    void beginReveal();
     // The workspace a reveal at `progress` shows coming in; the previous one when progress is held at the base.
     [[nodiscard]] Workspace* revealIncoming(double progress) const;
 
@@ -486,7 +490,24 @@ namespace andromeda {
       fx_effect_shader* reveal = nullptr;
       std::optional<EffectPreset> revealPreset;
       AnimationTransition transition{};
+      // Every workspace refreshReveal bound; only unbindReveal takes one off.
+      std::vector<Workspace*> revealBound;
     };
+    // A workspace slide shows the neighbours' windows: frozen apps thaw while one runs.
+    class ThawHold {
+    public:
+      explicit ThawHold(Server* server);
+      ThawHold(ThawHold&& other) noexcept : m_server(std::exchange(other.m_server, nullptr)) {}
+      ThawHold& operator=(ThawHold&&) = delete;
+      ThawHold(const ThawHold&) = delete;
+      ThawHold& operator=(const ThawHold&) = delete;
+      ~ThawHold();
+
+    private:
+      Server* m_server = nullptr;
+    };
+    void beginReveal(Slide& slide);
+    static void unbindReveal(Slide& slide, Workspace* workspace);
 
     Server* m_server = nullptr;
     Output* m_output = nullptr;
@@ -499,7 +520,7 @@ namespace andromeda {
     uint32_t m_nextHandleSerial = 1;
     std::vector<std::unique_ptr<Workspace>> m_workspaces;
     AnimatedValue m_slideAnim;
-    Slide m_slide;
+    SlideMode<Slide, ThawHold> m_slide;
   };
 
 } // namespace andromeda

@@ -230,9 +230,8 @@ namespace andromeda {
       // committedContentBox() until the client redraws at the configured size.
       handleCommit(true);
     }
-    m_mapped = true;
+    transitionLifecycle(LifecycleEvent::Map);
     m_effects.resetSlots();
-    m_tiledOpeningDeferred = false;
     m_presentedTiledBox = {};
     m_acceptClientMaximizeRequests = honorsRestoredMaximize();
     // Firefox often re-assert session maximize after map. With honor off, consume that one request so
@@ -697,7 +696,7 @@ namespace andromeda {
     }
     const bool hadRuntimeEffects = m_effects.slot(EffectKind::Border).runtimeSelector.has_value()
         || m_effects.slot(EffectKind::Window).runtimeSelector.has_value();
-    m_mapped = false;
+    transitionLifecycle(LifecycleEvent::Unmap);
     m_layoutFloated = false;
     if (m_workspace != nullptr) {
       m_workspace->syncFloatingStack(this);
@@ -819,7 +818,7 @@ namespace andromeda {
     }
     m_contentType = next;
     m_server->scheduleIpcWindowsEvent();
-    if (m_mapped) {
+    if (mapped()) {
       if (!m_initialContentTypeRulesSettled && next != ContentType::None) {
         m_initialContentTypeRulesSettled = true;
         m_initialRulesContentType = next;
@@ -833,7 +832,7 @@ namespace andromeda {
   void View::handleCommit(bool reconfigureOpeningState) {
     ANDROMEDA_ZONE("View::handleCommit");
     // Client transparency can change on any commit. An unmap commit reaches here after handleUnmap hid the backdrop.
-    if (m_mapped) {
+    if (mapped()) {
       m_presentation.setFullscreenOpaque(fullscreenOpaque());
     }
     if (m_captureScene != nullptr) {
@@ -1058,7 +1057,7 @@ namespace andromeda {
     // Layout-assigned size changes start their presentation animation in Workspace::arrange. Client commits are not
     // resize requests: Chromium can change its geometry while keeping the same configure, and retargeting to that
     // geometry lets a tiled surface escape its assigned box.
-    if (m_mapped
+    if (mapped()
         && m_tiled
         && m_onActiveWorkspace
         && m_workspace != nullptr
@@ -1079,9 +1078,9 @@ namespace andromeda {
     }
     // Re-apply output clip after configure ack so Super+F / resize sizes show
     // without needing a workspace switch (clip boxes are copied, not live).
-    if (m_mapped && m_tiled && m_workspace != nullptr && m_workspace->active()) {
+    if (mapped() && m_tiled && m_workspace != nullptr && m_workspace->active()) {
       m_workspace->syncViewPresentation(this);
-    } else if (m_mapped && !m_tiled) {
+    } else if (mapped() && !m_tiled) {
       if (scheduledFullscreen() && m_onActiveWorkspace) {
         // Keep fullscreen placement authoritative; the xdg scene helper just
         // reset the surface offset for this commit.
@@ -1104,29 +1103,29 @@ namespace andromeda {
       output->updateHdr();
     }
     // The commit that leaves fullscreen uncovers top-layer surfaces, so an exclusive one takes the seat back.
-    if (m_committedFullscreen && !currentFullscreen() && m_mapped) {
+    if (m_committedFullscreen && !currentFullscreen() && mapped()) {
       if (LayerSurface* layer = m_server->exclusiveKeyboardLayer()) {
         layer->focus();
       }
     }
     m_committedFullscreen = currentFullscreen();
-    if (m_mapped && m_acceptClientMaximizeSerial && configureSettled(*m_acceptClientMaximizeSerial)) {
+    if (mapped() && m_acceptClientMaximizeSerial && configureSettled(*m_acceptClientMaximizeSerial)) {
       m_acceptClientMaximizeSerial.reset();
       m_acceptClientMaximizeRequests = true;
     }
     // The first root commit after the opening gate settles the restore sequence.
     // A later maximize request is client intent and must not be consumed.
-    if (m_mapped && m_acceptClientMaximizeRequests) {
+    if (mapped() && m_acceptClientMaximizeRequests) {
       m_consumeRestoredMaximizeRequest = false;
     }
     // Parent trees can move the window without a setScenePosition; keep the X server's idea of it current.
-    if (m_mapped && m_xsurface != nullptr) {
+    if (mapped() && m_xsurface != nullptr) {
       syncXwaylandConfigure();
     }
     const wlr_box content = committedContentBox();
     if (content.width != m_ipcContentSize.width || content.height != m_ipcContentSize.height) {
       m_ipcContentSize = {.width = content.width, .height = content.height};
-      if (m_mapped) {
+      if (mapped()) {
         m_server->scheduleIpcWindowsEvent();
       }
     }

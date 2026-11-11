@@ -1386,6 +1386,7 @@ namespace andromeda {
         {"ok",
          {{"progress", group != nullptr ? group->slideProgress() : 0.0},
           {"reveal", group != nullptr && group->revealActive()},
+          {"revealBoundOutside", group != nullptr ? group->revealBoundOutsideSlide() : 0},
           {"overview", server.overview() != nullptr && server.overview()->active()}}}
     };
   }

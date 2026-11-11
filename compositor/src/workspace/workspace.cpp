@@ -3223,32 +3223,45 @@ namespace andromeda {
     return nullptr;
   }
 
-  void WorkspaceGroup::beginReveal() {
+  WorkspaceGroup::ThawHold::ThawHold(Server* server) : m_server(server) { m_server->holdQosThawIntent(true); }
+
+  WorkspaceGroup::ThawHold::~ThawHold() {
+    if (m_server != nullptr) {
+      m_server->holdQosThawIntent(false);
+    }
+  }
+
+  void WorkspaceGroup::beginReveal(Slide& slide) {
     if (config().animation.workspaces.style != "reveal") {
       return;
     }
     auto& registry = effectRegistry();
     if (auto* shader = registry.lifecycleEffect(AnimationEvent::Workspaces)) {
-      m_slide.reveal = fx_effect_shader_ref(shader);
-      m_slide.transition = beginAnimationTransition();
+      slide.reveal = fx_effect_shader_ref(shader);
+      slide.transition = beginAnimationTransition();
       if (const auto* preset = registry.animationPreset(AnimationEvent::Workspaces)) {
-        m_slide.revealPreset = *preset;
+        slide.revealPreset = *preset;
       }
     }
   }
 
   Workspace* WorkspaceGroup::revealIncoming(double progress) const {
-    Workspace* incoming = progress < 0 ? m_slide.previous : m_slide.next;
-    return progress == 0 && incoming == nullptr ? m_slide.previous : incoming;
+    const Slide& slide = *m_slide.data();
+    Workspace* incoming = progress < 0 ? slide.previous : slide.next;
+    return progress == 0 && incoming == nullptr ? slide.previous : incoming;
   }
 
   wlr_scene_node* WorkspaceGroup::revealRoot(bool incoming) const {
-    auto* workspace = incoming ? revealIncoming(m_slide.progress) : m_slide.base;
-    return revealActive() && workspace != nullptr ? &workspace->tileShadowLayer()->node.parent->node : nullptr;
+    if (!revealActive()) {
+      return nullptr;
+    }
+    const Slide& slide = *m_slide.data();
+    auto* workspace = incoming ? revealIncoming(slide.progress) : slide.base;
+    return workspace != nullptr ? &workspace->tileShadowLayer()->node.parent->node : nullptr;
   }
 
   void WorkspaceGroup::refreshReveal() {
-    if (m_slide.reveal == nullptr) {
+    if (!revealActive()) {
       return;
     }
     const auto& animation = config().animation;
@@ -3256,10 +3269,11 @@ namespace andromeda {
       slideFinish();
       return;
     }
-    const double progress = m_slide.progress;
+    Slide& slide = *m_slide.data();
+    const double progress = slide.progress;
     Workspace* incoming = revealIncoming(progress);
-    const float axis = incoming == m_slide.previous ? -1.0F : 1.0F;
-    for (Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+    const float axis = incoming == slide.previous ? -1.0F : 1.0F;
+    for (Workspace* workspace : {slide.base, slide.previous, slide.next}) {
       if (workspace == nullptr) {
         continue;
       }
@@ -3267,18 +3281,21 @@ namespace andromeda {
         fx_animation_parameters parameters{};
         parameters.progress = static_cast<float>(std::clamp(std::abs(progress), 0.0, 1.0));
         parameters.linear_progress = parameters.progress;
-        parameters.direction = workspace == m_slide.base ? -1.0F : 1.0F;
-        parameters.transition_id = m_slide.transition.id;
-        std::ranges::copy(m_slide.transition.seed, parameters.random_seed);
-        if (m_slide.revealPreset) {
+        parameters.direction = workspace == slide.base ? -1.0F : 1.0F;
+        parameters.transition_id = slide.transition.id;
+        std::ranges::copy(slide.transition.seed, parameters.random_seed);
+        if (slide.revealPreset) {
           auto& registry = effectRegistry();
-          registry.fillTimeUniforms(parameters, registry.clockSeconds(), *m_slide.revealPreset, m_slide.reveal);
+          registry.fillTimeUniforms(parameters, registry.clockSeconds(), *slide.revealPreset, slide.reveal);
         }
         if (auto* direction = fx_parameters_add_uniform(&parameters, "andromeda_workspace_axis", FX_UNIFORM_VEC2, 1)) {
           direction->floats[0] = m_workspaceAxis == WorkspaceAxis::Horizontal ? axis : 0.0F;
           direction->floats[1] = m_workspaceAxis == WorkspaceAxis::Vertical ? axis : 0.0F;
         }
-        wlr_scene_node_set_animation(&tree->node, FX_SLOT_WORKSPACES, m_slide.reveal, &parameters);
+        wlr_scene_node_set_animation(&tree->node, FX_SLOT_WORKSPACES, slide.reveal, &parameters);
+        if (std::ranges::find(slide.revealBound, workspace) == slide.revealBound.end()) {
+          slide.revealBound.push_back(workspace);
+        }
         if (!wlr_scene_node_set_animation_isolation(&tree->node, FX_SLOT_WORKSPACES, workspace)) {
           abandonReveal();
           return;
@@ -3288,30 +3305,51 @@ namespace andromeda {
   }
 
   void WorkspaceGroup::cancelReveal() {
-    if (m_slide.reveal != nullptr) {
+    if (revealActive()) {
       slideFinish();
     }
   }
 
   void WorkspaceGroup::abandonReveal() {
-    if (m_slide.reveal != nullptr) {
-      for (Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
-        if (workspace != nullptr) {
-          wlr_scene_node_set_animation(
-              &workspace->tileShadowLayer()->node.parent->node, FX_SLOT_WORKSPACES, nullptr, nullptr
-          );
-          wlr_scene_node_set_animation(&workspace->fullscreenTree()->node, FX_SLOT_WORKSPACES, nullptr, nullptr);
-        }
-      }
-      fx_effect_shader_unref(m_slide.reveal);
-      m_slide.reveal = nullptr;
-      m_slide.revealPreset.reset();
-      slideApply(m_slide.progress);
+    if (!revealActive()) {
+      return;
     }
+    Slide& slide = *m_slide.data();
+    while (!slide.revealBound.empty()) {
+      unbindReveal(slide, slide.revealBound.back());
+    }
+    fx_effect_shader_unref(slide.reveal);
+    slide.reveal = nullptr;
+    slide.revealPreset.reset();
+    slideApply(slide.progress);
+  }
+
+  void WorkspaceGroup::unbindReveal(Slide& slide, Workspace* workspace) {
+    const auto bound = std::ranges::find(slide.revealBound, workspace);
+    if (bound == slide.revealBound.end()) {
+      return;
+    }
+    slide.revealBound.erase(bound);
+    wlr_scene_node_set_animation(&workspace->tileShadowLayer()->node.parent->node, FX_SLOT_WORKSPACES, nullptr, nullptr);
+    wlr_scene_node_set_animation(&workspace->fullscreenTree()->node, FX_SLOT_WORKSPACES, nullptr, nullptr);
+  }
+
+  size_t WorkspaceGroup::revealBoundOutsideSlide() const {
+    const Slide* slide = m_slide.data();
+    if (slide == nullptr) {
+      return 0;
+    }
+    return static_cast<size_t>(std::ranges::count_if(slide->revealBound, [slide](const Workspace* workspace) {
+      return workspace != slide->base && workspace != slide->previous && workspace != slide->next;
+    }));
   }
 
   void WorkspaceGroup::sendSlideFrameDone(timespec* now) const {
-    for (const Workspace* workspace : {m_slide.base, m_slide.previous, m_slide.next}) {
+    const Slide* slide = m_slide.data();
+    if (slide == nullptr) {
+      return;
+    }
+    for (const Workspace* workspace : {slide->base, slide->previous, slide->next}) {
       if (workspace != nullptr && workspace->switchTransitionActive()) {
         workspace->sendSwitchFrameDone(now);
       }
@@ -3321,20 +3359,16 @@ namespace andromeda {
   void WorkspaceGroup::slideFinish() {
     abandonReveal();
     m_slideAnim.snap(0.0);
-    if (m_slide.base != nullptr) {
-      m_slide.base->endSwitchTransition();
-      m_server->holdQosThawIntent(false);
-    }
-    if (m_slide.previous != nullptr) {
-      m_slide.previous->endSwitchTransition();
-    }
-    if (m_slide.next != nullptr) {
-      m_slide.next->endSwitchTransition();
+    if (const std::optional<Slide> ended = m_slide.finish()) {
+      for (Workspace* workspace : {ended->base, ended->previous, ended->next}) {
+        if (workspace != nullptr) {
+          workspace->endSwitchTransition();
+        }
+      }
     }
     if (m_active != nullptr && m_active->switchTransitionActive()) {
       m_active->endSwitchTransition();
     }
-    m_slide = {};
   }
 
   bool WorkspaceGroup::slideBegin(bool includePrev, bool includeNext) {
@@ -3351,67 +3385,70 @@ namespace andromeda {
     // is where it sits relative to the workspace that is now active. A gesture that starts now carries on from there
     // rather than snapping the slide to the end of the animation first. A jump across several workspaces has a
     // non-neighbour on screen that the gesture cannot show, so that one snaps.
-    const bool carry = m_slide.base != nullptr
-        && std::max(m_slide.base->index(), m_active->index()) - std::min(m_slide.base->index(), m_active->index()) <= 1;
+    const Slide* running = m_slide.data();
+    const bool carry = running != nullptr
+        && std::max(running->base->index(), m_active->index()) - std::min(running->base->index(), m_active->index()) <= 1;
     const double start = carry ? m_slideAnim.current() - m_slideAnim.target() : 0.0;
     slideFinish();
-    m_slide.base = m_active;
-    // A workspace swipe or slide shows the neighbours' windows: they thaw before they come into view.
-    m_server->holdQosThawIntent(true);
-    beginReveal();
-    m_slide.extent = extent;
-    m_slide.progress = start;
     const size_t idx = m_active->index();
-    m_slide.previous = (includePrev && idx > 0) ? workspaceAt(idx - 1) : nullptr;
-    m_slide.next = includeNext ? workspaceAt(idx + 1) : nullptr;
-    m_slide.base->beginSwitchTransition();
-    if (m_slide.previous != nullptr) {
-      m_slide.previous->beginSwitchTransition();
-      m_slide.previous->showSwitchViews();
-      m_slide.previous->arrange(false);
-    }
-    if (m_slide.next != nullptr) {
-      m_slide.next->beginSwitchTransition();
-      m_slide.next->showSwitchViews();
-      m_slide.next->arrange(false);
+    Slide slide;
+    slide.base = m_active;
+    slide.previous = (includePrev && idx > 0) ? workspaceAt(idx - 1) : nullptr;
+    slide.next = includeNext ? workspaceAt(idx + 1) : nullptr;
+    slide.extent = extent;
+    slide.progress = start;
+    beginReveal(slide);
+    m_slide.track(slide, ThawHold(m_server));
+    slide.base->beginSwitchTransition();
+    for (Workspace* neighbour : {slide.previous, slide.next}) {
+      if (neighbour != nullptr) {
+        neighbour->beginSwitchTransition();
+        neighbour->showSwitchViews();
+        neighbour->arrange(false);
+      }
     }
     slideApply(start);
     return true;
   }
 
   void WorkspaceGroup::slideApply(double progress) {
-    m_slide.progress = progress;
-    const double extent = m_slide.extent;
+    Slide* slide = m_slide.data();
+    slide->progress = progress;
+    const double extent = slide->extent;
     // Increasing workspace index moves outgoing content toward negative coordinates
     // on the group's axis; the other coordinate stays at rest.
     const bool horizontal = m_workspaceAxis == WorkspaceAxis::Horizontal;
-    const Workspace* incoming = m_slide.reveal != nullptr ? revealIncoming(progress) : nullptr;
+    const Workspace* incoming = slide->reveal != nullptr ? revealIncoming(progress) : nullptr;
     const auto offset = [&](Workspace* workspace, double displacement) {
-      if (m_slide.reveal != nullptr && (workspace == m_slide.base || workspace == incoming)) {
+      if (slide->reveal != nullptr && (workspace == slide->base || workspace == incoming)) {
         displacement = 0.0;
       }
       workspace->setSlideOffset(horizontal ? displacement : 0.0, horizontal ? 0.0 : displacement);
     };
-    offset(m_slide.base, -progress * extent);
-    if (m_slide.next != nullptr) {
-      offset(m_slide.next, (1.0 - progress) * extent);
+    offset(slide->base, -progress * extent);
+    if (slide->next != nullptr) {
+      offset(slide->next, (1.0 - progress) * extent);
     }
-    if (m_slide.previous != nullptr) {
-      offset(m_slide.previous, (-1.0 - progress) * extent);
+    if (slide->previous != nullptr) {
+      offset(slide->previous, (-1.0 - progress) * extent);
     }
     wlr_output_schedule_frame(m_output->wlr());
   }
 
   void WorkspaceGroup::slideSettle(int delta, double velocity) {
+    if (!m_slide.settle()) {
+      return;
+    }
+    Slide& slide = *m_slide.data();
     Workspace* target = nullptr;
     if (delta < 0) {
-      target = m_slide.previous;
+      target = slide.previous;
     } else if (delta > 0) {
-      target = m_slide.next;
+      target = slide.next;
     }
     if (target == nullptr) {
       delta = 0;
-      target = m_slide.base;
+      target = slide.base;
     }
     if (target != m_active) {
       m_previous = m_active;
@@ -3421,12 +3458,15 @@ namespace andromeda {
       if (m_previous != nullptr) {
         m_previous->showSwitchViews();
       }
-      Workspace* unused = (delta > 0) ? m_slide.previous : m_slide.next;
+      // The neighbour on the other side leaves the slide: it no longer moves with it.
+      Workspace*& unused = (delta > 0) ? slide.previous : slide.next;
       if (unused != nullptr) {
-        unused->endSwitchTransition();
+        Workspace* left = std::exchange(unused, nullptr);
+        unbindReveal(slide, left);
+        left->endSwitchTransition();
       }
     }
-    kLog.debug("slide workspace {} → {} on {}", m_slide.base->name(), target->name(), m_output->wlr()->name);
+    kLog.debug("slide workspace {} → {} on {}", slide.base->name(), target->name(), m_output->wlr()->name);
     const auto& animation = config().animation;
     const auto& workspaces = animation.workspaces;
     if (!animation.enabled || !workspaces.enabled) {
@@ -3436,7 +3476,7 @@ namespace andromeda {
       reconcileDynamic();
       return;
     }
-    m_slideAnim.snap(m_slide.progress);
+    m_slideAnim.snap(slide.progress);
     if (workspaces.curve.easing == Easing::Spring) {
       // A spring carries the release speed, so the slide keeps moving the way the fingers were instead of stopping
       // dead at the release and starting over from rest.
@@ -3452,7 +3492,7 @@ namespace andromeda {
     if (ticked && m_slideAnim.animating() && m_slideAnim.curve().easing == Easing::Spring) {
       // One step is `extent` pixels, so a spring that can no longer move a pixel has already landed there: end it
       // now rather than letting it creep at amplitudes the pixel grid rounds away.
-      static_cast<void>(m_slideAnim.finishSpringTail(m_slide.extent));
+      static_cast<void>(m_slideAnim.finishSpringTail(m_slide.data() != nullptr ? m_slide.data()->extent : 0.0));
     }
     if (config().animation.workspaces.style == "slide") {
       bindAnimationEffect(&m_output->viewRoot()->node, AnimationEvent::Workspaces, m_slideAnim);
@@ -3525,17 +3565,14 @@ namespace andromeda {
       return;
     }
     const int sign = workspace->index() > m_active->index() ? 1 : -1;
-    m_slide.base = m_active;
-    m_server->holdQosThawIntent(true);
-    beginReveal();
-    m_slide.extent = extent;
-    m_slide.progress = 0;
-    if (sign > 0) {
-      m_slide.next = workspace;
-    } else {
-      m_slide.previous = workspace;
-    }
-    m_slide.base->beginSwitchTransition();
+    Slide slide;
+    slide.base = m_active;
+    slide.previous = sign < 0 ? workspace : nullptr;
+    slide.next = sign > 0 ? workspace : nullptr;
+    slide.extent = extent;
+    beginReveal(slide);
+    m_slide.track(slide, ThawHold(m_server));
+    slide.base->beginSwitchTransition();
     workspace->beginSwitchTransition();
     slideApply(0.0);
     slideSettle(sign);

@@ -427,7 +427,7 @@ namespace andromeda {
       setOnActiveWorkspace(true);
     }
     notifyOutputScale();
-    if (m_mapped
+    if (mapped()
         && !m_tiled
         && m_workspace != nullptr
         && (m_pendingFloatingWidthPx
@@ -466,7 +466,7 @@ namespace andromeda {
         }
       }
     }
-    if (m_mapped) {
+    if (mapped()) {
       if (m_workspace != nullptr) {
         enterForeignOutput();
       } else {
@@ -476,7 +476,7 @@ namespace andromeda {
         leaveForeignOutput();
       }
     }
-    if (m_mapped) {
+    if (mapped()) {
       m_server->scheduleIpcWindowsEvent();
       syncMinimizeEligibility();
       if (previousOutput != nullptr) {
@@ -517,7 +517,7 @@ namespace andromeda {
     Workspace* target = workspace != nullptr ? workspace->workspace : nullptr;
     if (token.empty()
         || target == nullptr
-        || m_mapped
+        || mapped()
         || m_hasEverMapped
         || m_launchPlacementPending
         || m_launchToken.has_value()) {
@@ -546,7 +546,7 @@ namespace andromeda {
     if (!m_launchToken || *m_launchToken != token) {
       return false;
     }
-    if (m_hasEverMapped && !m_mapped) {
+    if (m_hasEverMapped && !mapped()) {
       m_launchToken.reset();
       return false;
     }
@@ -599,14 +599,9 @@ namespace andromeda {
       return;
     }
     m_onActiveWorkspace = active;
-    // A hidden tab or a minimized window stays hidden when its workspace comes back.
-    const bool shown = active && !m_tabHidden && !m_minimized;
-    if (m_sceneTree != nullptr) {
-      wlr_scene_node_set_enabled(&m_sceneTree->node, shown);
-    }
-    m_decoration.setShadowEnabled(shown);
-    m_server->scheduleSuspensionSync();
-    if (!m_mapped) {
+    m_placeShows = active;
+    syncShown();
+    if (!mapped()) {
       return;
     }
     // The IPC window listing reports visibility.
@@ -635,20 +630,35 @@ namespace andromeda {
       return;
     }
     m_tabHidden = hidden;
-    if (m_sceneTree != nullptr) {
-      // A revealed tab shows exactly when its workspace does.
-      setNodeEnabled(!hidden && m_mapped && m_onActiveWorkspace);
-    }
+    syncShown();
     if (Overview* overview = m_server->overview(); overview != nullptr && overview->active()) {
       overview->onViewPresentationChanged(this);
     }
     m_server->scheduleIpcWindowsEvent();
   }
 
-  void View::setNodeEnabled(bool enabled) {
-    enabled = enabled && !presentationSuppressed();
-    wlr_scene_node_set_enabled(&m_sceneTree->node, enabled);
-    m_decoration.setShadowEnabled(enabled);
+  void View::setNodeEnabled(bool placeShows) {
+    m_placeShows = placeShows;
+    syncShown();
+  }
+
+  bool View::transitionLifecycle(LifecycleEvent event) {
+    const std::optional<Lifecycle> next = lifecycleAfter(m_lifecycle, event);
+    if (!next) {
+      return false;
+    }
+    m_lifecycle = *next;
+    syncShown();
+    return true;
+  }
+
+  void View::syncShown() {
+    if (m_sceneTree == nullptr) {
+      return;
+    }
+    const bool shown = this->shown();
+    wlr_scene_node_set_enabled(&m_sceneTree->node, shown);
+    m_decoration.setShadowEnabled(shown);
     m_server->updateIdleInhibit();
     m_server->scheduleSuspensionSync();
   }
@@ -683,14 +693,14 @@ namespace andromeda {
       return nullptr;
     }
     View* parent = fromSurface(parentSurface);
-    if (parent == this || parent == nullptr || !parent->m_mapped) {
+    if (parent == this || parent == nullptr || !parent->mapped()) {
       return nullptr;
     }
     return parent;
   }
 
   View* View::transientParent() const {
-    if (!m_mapped) {
+    if (!mapped()) {
       return nullptr;
     }
     if (m_attachedTo != nullptr) {
@@ -713,7 +723,7 @@ namespace andromeda {
 
   bool View::inheritScratchpadFromParent(bool restoreTiled) {
     ScratchpadManager* scratchpad = m_server->scratchpadManager();
-    if (!m_mapped
+    if (!mapped()
         || scratchpad == nullptr
         || scratchpad->contains(this)
         || m_initialRules.defaultScratchpad
@@ -742,7 +752,7 @@ namespace andromeda {
   }
 
   void View::syncTransientSceneParent() {
-    if (!m_mapped || m_workspace == nullptr || m_pinned || m_server->cursor()->isDraggingView(this)) {
+    if (!mapped() || m_workspace == nullptr || m_pinned || m_server->cursor()->isDraggingView(this)) {
       return;
     }
 
@@ -795,7 +805,7 @@ namespace andromeda {
     wlr_scene_node_reparent(&m_sceneTree->node, parent);
     syncShadowPool();
     // Another parent can put the window elsewhere in layout coordinates.
-    if (m_xsurface != nullptr && m_mapped) {
+    if (m_xsurface != nullptr && mapped()) {
       syncXwaylandConfigure();
     }
   }
@@ -1085,7 +1095,7 @@ namespace andromeda {
     }
     m_xdgTag = std::string(tag);
     m_server->scheduleIpcWindowsEvent();
-    if (m_mapped) {
+    if (mapped()) {
       applyDynamicRules();
     }
   }

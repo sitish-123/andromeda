@@ -103,7 +103,7 @@ namespace andromeda {
   }
 
   std::optional<FloatingPoint> View::floatingClampTarget(FloatingPoint origin, int width, int height, bool resize) {
-    if (m_tiled || !m_mapped || attached() || scheduledFullscreen() || scheduledMaximized() || sizeGrabActive()) {
+    if (m_tiled || !mapped() || attached() || scheduledFullscreen() || scheduledMaximized() || sizeGrabActive()) {
       return std::nullopt;
     }
     if (Cursor* cursor = m_server->cursor(); cursor != nullptr && cursor->isDraggingView(this)) {
@@ -178,7 +178,7 @@ namespace andromeda {
   }
 
   bool View::centerFloating() {
-    if (!m_mapped || m_tiled || scheduledFullscreen() || currentFullscreen()) {
+    if (!mapped() || m_tiled || scheduledFullscreen() || currentFullscreen()) {
       return false;
     }
     const wlr_box usable = floatingUsableArea();
@@ -195,7 +195,7 @@ namespace andromeda {
   }
 
   bool View::moveFloatingTo(const WindowPosition& position) {
-    if (!m_mapped || m_tiled || scheduledFullscreen() || currentFullscreen()) {
+    if (!mapped() || m_tiled || scheduledFullscreen() || currentFullscreen()) {
       return false;
     }
 
@@ -212,7 +212,7 @@ namespace andromeda {
   }
 
   bool View::moveFloatingBy(int deltaX, int deltaY) {
-    if (!m_mapped || m_tiled || scheduledFullscreen() || currentFullscreen()) {
+    if (!mapped() || m_tiled || scheduledFullscreen() || currentFullscreen()) {
       return false;
     }
     const wlr_box& geo = geometryBox();
@@ -229,7 +229,7 @@ namespace andromeda {
   }
 
   bool View::moveFloatingToEdge(wlr_edges edge) {
-    if (!m_mapped || m_tiled || scheduledFullscreen() || currentFullscreen()) {
+    if (!mapped() || m_tiled || scheduledFullscreen() || currentFullscreen()) {
       return false;
     }
     const wlr_box& geo = geometryBox();
@@ -428,7 +428,7 @@ namespace andromeda {
   }
 
   std::optional<std::array<int, 2>> View::floatingAxisBasis(bool width) const {
-    if (!m_mapped || m_tiled) {
+    if (!mapped() || m_tiled) {
       return std::nullopt;
     }
     const wlr_box usable = floatingUsableArea();
@@ -452,7 +452,7 @@ namespace andromeda {
   bool View::resizeFloatingFractions(
       const std::optional<double>& widthFraction, const std::optional<double>& heightFraction
   ) {
-    if (!m_mapped || m_tiled || currentFullscreen() || scheduledFullscreen()) {
+    if (!mapped() || m_tiled || currentFullscreen() || scheduledFullscreen()) {
       return false;
     }
     const wlr_box usable = floatingUsableArea();
@@ -522,7 +522,7 @@ namespace andromeda {
     // Mirror the guard set of resizeFloatingFractions: a fullscreen view owns its
     // size, a tiled one has no floating box, and a view with no usable area has
     // nothing to size against.
-    if (!m_mapped || m_tiled || currentFullscreen() || scheduledFullscreen()) {
+    if (!mapped() || m_tiled || currentFullscreen() || scheduledFullscreen()) {
       return;
     }
     const wlr_box usable = floatingUsableArea();
@@ -596,7 +596,7 @@ namespace andromeda {
   }
 
   void View::adoptFloatingClientSize() {
-    if (m_tiled || !m_mapped || scheduledFullscreen() || scheduledMaximized() || m_snap) {
+    if (m_tiled || !mapped() || scheduledFullscreen() || scheduledMaximized() || m_snap) {
       return;
     }
     if (!retireFloatingSizeRequest()) {

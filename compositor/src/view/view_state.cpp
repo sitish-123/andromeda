@@ -59,7 +59,7 @@ namespace andromeda {
   void View::onAcceptClientMaximizeRequests(void* data) {
     auto* self = static_cast<View*>(data);
     self->m_acceptClientMaximizeIdle = nullptr;
-    if (!self->m_mapped || self->m_acceptClientMaximizeRequests) {
+    if (!self->mapped() || self->m_acceptClientMaximizeRequests) {
       return;
     }
     // Clients such as kitty restore maximize just after their first frame. Keep the gate closed until the client
@@ -188,7 +188,7 @@ namespace andromeda {
 
   void View::refitFloatingMaximized() {
     // A scratchpad window has no workspace: its manager refits it with the box this view computes.
-    if (m_tiled || !m_mapped || !m_floatingMaximized || m_workspace == nullptr || scheduledFullscreen()) {
+    if (m_tiled || !mapped() || !m_floatingMaximized || m_workspace == nullptr || scheduledFullscreen()) {
       return;
     }
     if (m_server->cursor()->isDraggingView(this)) {
@@ -214,7 +214,7 @@ namespace andromeda {
       reassertRoleState();
       return;
     }
-    if (!m_mapped) {
+    if (!mapped()) {
       if (honorsRestoredMaximize() && requestedMaximized()) {
         // Some clients restore maximization only after acknowledging the first
         // configure. Reconfigure before they map a buffer so their first visible
@@ -257,7 +257,7 @@ namespace andromeda {
   }
 
   void View::handleRequestMinimize(void* data) {
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     // xdg-shell only ever asks to minimize; X11 WM_CHANGE_STATE can also ask for NormalState.
@@ -270,7 +270,7 @@ namespace andromeda {
   }
 
   bool View::minimizable() const {
-    return m_mapped && m_attachedTo == nullptr && !m_tiled && !m_pinned && !m_inScratchpad && m_workspace != nullptr;
+    return mapped() && m_attachedTo == nullptr && !m_tiled && !m_pinned && !m_inScratchpad && m_workspace != nullptr;
   }
 
   bool View::requestMinimize() {
@@ -307,12 +307,10 @@ namespace andromeda {
         mate->setMinimized(false);
       }
     }
-    if (m_sceneTree != nullptr) {
-      setNodeEnabled(!minimized && m_mapped && m_onActiveWorkspace);
-      if (!minimized && m_mapped && m_onActiveWorkspace) {
-        startOpenAnimation();
-        syncAnimationEffects();
-      }
+    syncShown();
+    if (shown()) {
+      startOpenAnimation();
+      syncAnimationEffects();
     }
     if (m_foreign != nullptr) {
       wlr_foreign_toplevel_handle_v1_set_minimized(m_foreign, minimized);
@@ -350,7 +348,7 @@ namespace andromeda {
   }
 
   void View::syncMinimizeEligibility() {
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     const bool eligible = minimizable();
@@ -521,12 +519,12 @@ namespace andromeda {
     if (m_xsurface != nullptr) {
       m_server->xwaylandHintsChanged(this);
     }
-    if (m_mapped) {
+    if (mapped()) {
       reconcileAttachment();
       // `match.is_dialog` follows the parent.
       refreshStateRuleEffects();
     }
-    if (m_mapped && !attached()) {
+    if (mapped() && !attached()) {
       if (inheritScratchpadFromParent(m_tiled)) {
         placeInUsableArea(m_initialRules.defaultPosition);
         if (ScratchpadManager* scratchpad = m_server->scratchpadManager()) {
@@ -542,7 +540,7 @@ namespace andromeda {
   void View::recordOpeningParentRequest(bool parentRequested) {
     // Once mapped, wlroots' normal parent state is authoritative. Retire the
     // opening hint on any later request, especially an explicit null parent.
-    m_openingParentRequested = !m_mapped && parentRequested;
+    m_openingParentRequested = !mapped() && parentRequested;
   }
 
   bool View::honorsRestoredMaximize() const {
@@ -572,7 +570,7 @@ namespace andromeda {
   }
 
   void View::toggleFloating(bool focus) {
-    if (!m_mapped || !roleInitialized()) {
+    if (!mapped() || !roleInitialized()) {
       return;
     }
     const bool wasTiled = m_tiled;
@@ -666,7 +664,7 @@ namespace andromeda {
 
   void View::setPinned(bool pinned, bool focus) {
     assert(!attached());
-    if (!m_mapped
+    if (!mapped()
         || !roleInitialized()
         || (pinned && (scheduledFullscreen() || currentFullscreen()))
         || pinned == m_pinned) {
@@ -751,7 +749,7 @@ namespace andromeda {
       return;
     }
     assert(!attached());
-    if (!m_mapped || !roleInitialized()) {
+    if (!mapped() || !roleInitialized()) {
       return;
     }
     kLog.debug(
@@ -977,7 +975,7 @@ namespace andromeda {
     assert(!attached());
     m_deferredUnfullscreen.clear();
     const bool refreshHoverFocus = !fullscreen
-        && m_mapped
+        && mapped()
         && m_onActiveWorkspace
         && (scheduledFullscreen() || currentFullscreen())
         && config().input.focus.followsMouse;
@@ -1108,7 +1106,7 @@ namespace andromeda {
         overview->onViewPinnedChanged(this);
       }
     }
-    if (fullscreen && m_mapped && m_onActiveWorkspace) {
+    if (fullscreen && mapped() && m_onActiveWorkspace) {
       LayerSurface* layer = LayerSurface::fromSurface(m_server->seat()->wlr()->keyboard_state.focused_surface);
       if (layer != nullptr && layer->output() == currentOutput() && !layer->acceptsKeyboard()) {
         m_server->focusView(this, FocusReason::Startup);

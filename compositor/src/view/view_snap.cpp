@@ -10,7 +10,7 @@
 namespace andromeda {
   bool View::canSnap() const {
     const ScratchpadManager* scratchpad = m_server->scratchpadManager();
-    return m_mapped
+    return mapped()
         && !m_tiled
         && !attached()
         && !m_pinned

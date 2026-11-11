@@ -210,7 +210,7 @@ namespace andromeda {
   // `match.is_only_window` lands with them. If the window is no longer alone, the applied effect is undone. While
   // alone, the four settings are only re-applied when they changed.
   bool View::notifyAloneStateChanged() {
-    if (!m_mapped || m_workspace == nullptr) {
+    if (!mapped() || m_workspace == nullptr) {
       return false;
     }
     refreshStateRuleEffects();
@@ -272,7 +272,7 @@ namespace andromeda {
   std::optional<bool> View::tearingRuleOverride() { return resolvedRules().allowTearing; }
 
   void View::applyWindowRules() {
-    if (!m_mapped) {
+    if (!mapped()) {
       return;
     }
     // Late app ID or title settlement may select opening rules, but identity hints changed after map must not select
@@ -565,14 +565,14 @@ namespace andromeda {
 
   void View::refreshStartupRuleEffects() {
     m_rulesGeneration = 0;
-    if (m_mapped) {
+    if (mapped()) {
       applyDynamicRules();
     }
   }
 
   void View::refreshStateRuleEffects() {
     syncMinimizeEligibility();
-    if (m_mapped && m_appliedRuleState != ruleState()) {
+    if (mapped() && m_appliedRuleState != ruleState()) {
       applyDynamicRules();
     }
   }
@@ -627,7 +627,7 @@ namespace andromeda {
   void View::onEffectSelectionIdle(void* data) {
     auto* view = static_cast<View*>(data);
     view->m_effectSelectionIdle = nullptr;
-    if (view->m_mapped) {
+    if (view->mapped()) {
       view->refreshEffectSelection();
     }
     if (Ipc* ipc = view->m_server->ipc()) {
@@ -685,9 +685,9 @@ namespace andromeda {
       slot.configuredSelector = selector;
       slot.configuredSource = source;
       if (!frame) {
-        m_server->resolveEffectSlot(slot, kind, m_mapped);
+        m_server->resolveEffectSlot(slot, kind, mapped());
       }
-      if (m_mapped && before != std::tuple(slot.name, slot.pool, slot.source(), slot.suppressed)) {
+      if (mapped() && before != std::tuple(slot.name, slot.pool, slot.source(), slot.suppressed)) {
         scheduleFrame();
         m_server->scheduleIpcWindowsEvent();
       }
@@ -711,7 +711,7 @@ namespace andromeda {
     const Config::Colors::Border& colors = m_decoration.borderColors();
     const std::array<float, 4>& targetBorder = m_borderFocusedState ? colors.focused : colors.unfocused;
     const auto& borderAnimation = config().animation.border;
-    if (m_mapped && m_borderColorAnim.animating() && borderAnimation.enabled) {
+    if (mapped() && m_borderColorAnim.animating() && borderAnimation.enabled) {
       if (m_borderColorAnim.target() != targetBorder) {
         m_borderColorAnim.retarget(targetBorder, borderAnimation.durationMs, borderAnimation.curve);
         scheduleFrame();
@@ -744,7 +744,7 @@ namespace andromeda {
     if (m_workspace != nullptr) {
       m_workspace->syncViewPresentation(this);
     }
-    if (m_mapped) {
+    if (mapped()) {
       // Static effects and frozen clocks may never trigger another animation tick.
       syncAnimationEffects();
       m_server->refreshOutputPolicies();

@@ -11,6 +11,7 @@
 #include <wayland-server-core.h>
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -179,7 +180,13 @@ namespace andromeda::qos {
   }
 
   void Controller::holdThawIntent(bool held) {
-    m_thawHolds = std::max(0, m_thawHolds + (held ? 1 : -1));
+    // Every holder releases what it took; an unmatched release is a holder bug, and release builds keep the count at 0.
+    assert(held || m_thawHolds > 0);
+    if (!held && m_thawHolds == 0) {
+      kLog.warn("thaw intent released with no hold");
+      return;
+    }
+    m_thawHolds += held ? 1 : -1;
     schedule();
   }
 
