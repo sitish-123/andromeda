@@ -10,7 +10,7 @@
 #include "shell/settings/settings_window.h"
 #include "system/app_permissions.h"
 
-#include <gio/gio.h>
+#include <systemd/sd-bus.h>
 #include <pwd.h>
 #include <unistd.h>
 
@@ -78,27 +78,31 @@ namespace {
 } // namespace
 
 void SettingsWindow::authorizeBiometrics(std::function<void()> then) {
-  GVariantBuilder subject;
-  g_variant_builder_init(&subject, G_VARIANT_TYPE("a{sv}"));
-  g_variant_builder_add(&subject, "{sv}", "pid", g_variant_new_uint32(static_cast<std::uint32_t>(getpid())));
-  g_variant_builder_add(&subject, "{sv}", "start-time", g_variant_new_uint64(processStartTime()));
-  GVariantBuilder details;
-  g_variant_builder_init(&details, G_VARIANT_TYPE("a{ss}"));
+  if (m_systemBus == nullptr) {
+    return;
+  }
   constexpr std::uint32_t kAllowUserInteraction = 1;
   dbus::callInteractive(
-      "org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority", "org.freedesktop.PolicyKit1.Authority",
-      "CheckAuthorization",
-      g_variant_new("((sa{sv})sa{ss}us)", "unix-process", &subject, kBiometricsAction, &details,
-                    kAllowUserInteraction, ""),
-      [this, alive = std::weak_ptr<void>(m_aliveGuard), then = std::move(then)](GVariant* result, std::string error) {
+      *m_systemBus, "org.freedesktop.PolicyKit1", "/org/freedesktop/PolicyKit1/Authority",
+      "org.freedesktop.PolicyKit1.Authority", "CheckAuthorization",
+      [](sd_bus_message* m) {
+        return sd_bus_message_append(
+            m, "(sa{sv})sa{ss}us", "unix-process", 2, "pid", "u", static_cast<std::uint32_t>(getpid()), "start-time",
+            "t", static_cast<std::uint64_t>(processStartTime()), kBiometricsAction, 0, kAllowUserInteraction, ""
+        );
+      },
+      [this, alive = std::weak_ptr<void>(m_aliveGuard), then = std::move(then)](sd_bus_message* result, std::string error) {
         if (alive.expired()) {
           return;
         }
-        gboolean authorized = FALSE;
-        if (result != nullptr) {
-          g_variant_get(result, "((bb@a{ss}))", &authorized, nullptr, nullptr);
+        int authorized = 0;
+        if (result != nullptr && sd_bus_message_enter_container(result, 'r', "bba{ss}") < 0) {
+          result = nullptr;
         }
-        if (authorized == FALSE) {
+        if (result != nullptr) {
+          sd_bus_message_read(result, "b", &authorized);
+        }
+        if (authorized == 0) {
           m_privacyStatus = error.empty() ? i18n::tr("settings.privacy.not-allowed") : error;
           if (isOpen()) {
             requestContentRebuild();

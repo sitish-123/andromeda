@@ -22,6 +22,7 @@
 #include <vector>
 
 class SettingsControl;
+class SystemBus;
 
 namespace settings {
 
@@ -350,6 +351,7 @@ namespace settings {
     std::string shellAvatarPath;
     std::vector<std::string> keyboardLayoutNames;
     std::string wallpaperAccent; // "#rrggbb" picked from the wallpaper; empty before the pick
+    SystemBus* systemBus = nullptr;
   };
 
   [[nodiscard]] const BarConfig* findBar(const Config& cfg, std::string_view name);

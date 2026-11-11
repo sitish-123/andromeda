@@ -10,6 +10,8 @@
 #include <optional>
 #include <string>
 
+class SystemBus;
+
 namespace sdbus {
   class IConnection;
   class IProxy;
@@ -34,7 +36,7 @@ public:
   using Reply = std::function<void(ActivityActionResult)>;
 
   // systemBus may be null: system-unit reads (on-demand check) then report false.
-  ActivityActions(sdbus::IConnection& userBus, sdbus::IConnection* systemBus);
+  ActivityActions(sdbus::IConnection& userBus, SystemBus* systemBus);
   ~ActivityActions();
 
   ActivityActions(const ActivityActions&) = delete;
@@ -61,6 +63,7 @@ private:
   sdbus::IProxy& proxyFor(const SystemdUnit& unit, const std::string& path);
 
   sdbus::IConnection& m_userBus;
+  SystemBus* m_interactiveBus;
   sdbus::IConnection* m_systemBus;
   std::map<std::string, std::unique_ptr<sdbus::IProxy>> m_proxies; // by "u:" or "s:" + object path
 };

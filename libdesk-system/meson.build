@@ -34,9 +34,7 @@ _desk_ui_dep = subproject('libdesk-ui').get_variable('desk_ui_dep')
 _deps = [
   _desk_ui_dep,
   dependency('sdbus-c++'),
-  dependency('gio-2.0'),
-  dependency('polkit-agent-1'),
-  dependency('polkit-gobject-1'),
+  dependency('libsystemd'),
 ]
 
 _sources = files(

@@ -1560,7 +1560,7 @@ void SetupWizardPanel::switchLogin() {
   // The polkit password panel replaces this one; the reply opens the wizard again where it was.
   m_awaitingAuth = true;
   syncPages();
-  display_manager::switchTo("greetd.service", [this, alive = std::weak_ptr<bool>(m_alive)](bool ok, bool denied, std::string error) {
+  display_manager::switchTo(m_systemBus, "greetd.service", [this, alive = std::weak_ptr<bool>(m_alive)](bool ok, bool denied, std::string error) {
     if (alive.expired()) {
       return;
     }

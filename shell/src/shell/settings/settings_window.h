@@ -35,6 +35,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <sdbus-c++/IProxy.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -574,7 +575,7 @@ private:
   // About: hostname1 properties (async GetAll, kept current by PropertiesChanged) and hardware read on the worker.
   settings::AboutFacts m_aboutFacts;
   bool m_aboutRequested = false;
-  unsigned m_hostnameSignal = 0;
+  std::unique_ptr<sdbus::IProxy> m_hostnameProxy;
   // Apps and Services: Background portal grants (via m_permissions) and MPRIS players, reloaded when the page opens.
   std::vector<AppPermissions::Grant> m_backgroundGrants;
   bool m_backgroundLoaded = false;

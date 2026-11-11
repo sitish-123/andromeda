@@ -12,7 +12,12 @@
 #include "core/process/process.h"
 #include "dbus/system_interactive_call.h"
 
-#include <gio/gio.h>
+#include "dbus/system_bus.h"
+
+#include <optional>
+#include <sdbus-c++/IProxy.h>
+#include <sdbus-c++/Types.h>
+#include <systemd/sd-bus.h>
 
 #include <algorithm>
 #include <chrono>
@@ -37,42 +42,18 @@
 
 namespace {
 
-  using HostnameProps = std::map<std::string, std::string>;
+  constexpr auto kHostnameInterface = "org.freedesktop.hostname1";
+  constexpr auto kPropertiesInterface = "org.freedesktop.DBus.Properties";
+  using VariantMap = std::map<std::string, sdbus::Variant>;
 
-  // GLib user data: the reply reaches the window only while it lives.
-  struct HostnameRequest {
-    std::weak_ptr<void> alive;
-    std::function<void(HostnameProps)> done;
-  };
-
-  void hostnameGetAll(GDBusConnection* bus, std::weak_ptr<void> alive, std::function<void(HostnameProps)> done) {
-    g_dbus_connection_call(
-        bus, "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.DBus.Properties", "GetAll",
-        g_variant_new("(s)", "org.freedesktop.hostname1"), G_VARIANT_TYPE("(a{sv})"), G_DBUS_CALL_FLAGS_NONE, 2000,
-        nullptr,
-        [](GObject* source, GAsyncResult* result, gpointer data) {
-          std::unique_ptr<HostnameRequest> request(static_cast<HostnameRequest*>(data));
-          GVariant* reply = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, nullptr);
-          HostnameProps props;
-          if (reply != nullptr) {
-            GVariantIter* iter = nullptr;
-            g_variant_get(reply, "(a{sv})", &iter);
-            const char* key = nullptr;
-            GVariant* value = nullptr;
-            while (g_variant_iter_loop(iter, "{&sv}", &key, &value)) {
-              if (g_variant_is_of_type(value, G_VARIANT_TYPE_STRING)) {
-                props[key] = g_variant_get_string(value, nullptr);
-              }
-            }
-            g_variant_iter_free(iter);
-            g_variant_unref(reply);
-          }
-          if (!request->alive.expired()) {
-            request->done(std::move(props));
-          }
-        },
-        new HostnameRequest{.alive = std::move(alive), .done = std::move(done)}
-    );
+  std::map<std::string, std::string> stringProperties(const VariantMap& properties) {
+    std::map<std::string, std::string> out;
+    for (const auto& [key, value] : properties) {
+      if (value.containsValueOfType<std::string>()) {
+        out[key] = value.get<std::string>();
+      }
+    }
+    return out;
   }
 
 } // namespace
@@ -276,7 +257,7 @@ void SettingsWindow::addUsersContent(float scale) {
             m_loginScreenStatus = i18n::tr("settings.users.login-screen-switching");
             m_loginScreenError = false;
             requestContentRebuild();
-            display_manager::switchTo(unit, [this, alive = std::weak_ptr<void>(m_aliveGuard)](bool ok, bool denied, std::string error) {
+            display_manager::switchTo(m_systemBus, unit, [this, alive = std::weak_ptr<void>(m_aliveGuard)](bool ok, bool denied, std::string error) {
               if (alive.expired()) {
                 return;
               }
@@ -383,12 +364,7 @@ void SettingsWindow::addWorkspacesContent(float scale) {
 
 void SettingsWindow::addAboutContent(float scale) {
   if (m_selectedSection != "about") {
-    if (m_hostnameSignal != 0) {
-      if (GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, nullptr); bus != nullptr) {
-        g_dbus_connection_signal_unsubscribe(bus, std::exchange(m_hostnameSignal, 0));
-        g_object_unref(bus);
-      }
-    }
+    m_hostnameProxy.reset();
     m_aboutRequested = false;
     return;
   }
@@ -406,35 +382,33 @@ void SettingsWindow::addAboutContent(float scale) {
           }
         }
     );
-    if (GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, nullptr); bus != nullptr) {
-      const auto refresh = [this] {
-        GDBusConnection* system = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, nullptr);
-        if (system == nullptr) {
-          return;
-        }
-        hostnameGetAll(system, m_aliveGuard, [this](HostnameProps props) {
-          m_aboutFacts.hostname = std::move(props);
-          if (isOpen() && m_selectedSection == "about") {
-            requestContentRebuild();
-          }
-        });
-        g_object_unref(system);
+    if (m_systemBus != nullptr) {
+      m_hostnameProxy = sdbus::createProxy(
+          m_systemBus->connection(), sdbus::ServiceName{kHostnameInterface}, sdbus::ObjectPath{"/org/freedesktop/hostname1"}
+      );
+      const auto refresh = [this, alive = std::weak_ptr<void>(m_aliveGuard)] {
+        m_hostnameProxy->callMethodAsync("GetAll")
+            .onInterface(kPropertiesInterface)
+            .withArguments(std::string{kHostnameInterface})
+            .uponReplyInvoke([this, alive](std::optional<sdbus::Error> err, const VariantMap& properties) {
+              if (alive.expired() || err.has_value()) {
+                return;
+              }
+              m_aboutFacts.hostname = stringProperties(properties);
+              if (isOpen() && m_selectedSection == "about") {
+                requestContentRebuild();
+              }
+            });
       };
       refresh();
       // Keeps the name current after a rename here or with hostnamectl.
-      m_hostnameSignal = g_dbus_connection_signal_subscribe(
-          bus, "org.freedesktop.hostname1", "org.freedesktop.DBus.Properties", "PropertiesChanged",
-          "/org/freedesktop/hostname1", nullptr, G_DBUS_SIGNAL_FLAGS_NONE,
-          [](GDBusConnection*, const gchar*, const gchar*, const gchar*, const gchar*, GVariant*, gpointer data) {
-            auto* request = static_cast<HostnameRequest*>(data);
-            if (!request->alive.expired()) {
-              request->done({});
+      m_hostnameProxy->uponSignal("PropertiesChanged")
+          .onInterface(kPropertiesInterface)
+          .call([refresh](const std::string& interfaceName, const VariantMap&, const std::vector<std::string>&) {
+            if (interfaceName == kHostnameInterface) {
+              refresh();
             }
-          },
-          new HostnameRequest{.alive = m_aliveGuard, .done = [refresh](HostnameProps) { refresh(); }},
-          [](gpointer data) { delete static_cast<HostnameRequest*>(data); }
-      );
-      g_object_unref(bus);
+          });
     }
   }
   const auto rename = [this](std::string name) {
@@ -450,18 +424,23 @@ void SettingsWindow::addAboutContent(float scale) {
       }
     };
     // The pretty name keeps the user's spelling; the static hostname is its DNS-safe form.
+    if (m_systemBus == nullptr) {
+      finish("no system bus");
+      return;
+    }
     dbus::callInteractive(
-        "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1", "SetPrettyHostname",
-        g_variant_new("(sb)", name.c_str(), TRUE),
-        [finish, hostname](GVariant* done, std::string error) {
+        *m_systemBus, "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1",
+        "SetPrettyHostname", [&name](sd_bus_message* m) { return sd_bus_message_append(m, "sb", name.c_str(), 1); },
+        [bus = m_systemBus, finish, hostname](sd_bus_message* done, std::string error) {
           if (done == nullptr || hostname.empty()) {
             finish(std::move(error));
             return;
           }
           dbus::callInteractive(
-              "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1",
-              "SetStaticHostname", g_variant_new("(sb)", hostname.c_str(), TRUE),
-              [finish](GVariant*, std::string staticError) { finish(std::move(staticError)); }
+              *bus, "org.freedesktop.hostname1", "/org/freedesktop/hostname1", "org.freedesktop.hostname1",
+              "SetStaticHostname",
+              [&hostname](sd_bus_message* m) { return sd_bus_message_append(m, "sb", hostname.c_str(), 1); },
+              [finish](sd_bus_message*, std::string staticError) { finish(std::move(staticError)); }
           );
         }
     );

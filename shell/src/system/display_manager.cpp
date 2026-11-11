@@ -4,7 +4,7 @@
 
 #include <algorithm>
 #include <filesystem>
-#include <glib.h>
+#include <systemd/sd-bus.h>
 #include <utility>
 
 namespace display_manager {
@@ -68,12 +68,18 @@ namespace display_manager {
     return ec ? std::string{} : target.filename().string();
   }
 
-  void switchTo(const std::string& unit, std::function<void(bool ok, bool denied, std::string error)> reply) {
-    const char* names[] = {unit.c_str(), nullptr};
+  void switchTo(
+      SystemBus* bus, const std::string& unit, std::function<void(bool ok, bool denied, std::string error)> reply
+  ) {
+    if (bus == nullptr) {
+      reply(false, false, "no system bus");
+      return;
+    }
     dbus::callInteractive(
+        *bus,
         "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "EnableUnitFiles",
-        g_variant_new("(^asbb)", names, FALSE, TRUE),
-        [reply = std::move(reply)](GVariant* result, std::string error) {
+        [&unit](sd_bus_message* m) { return sd_bus_message_append(m, "asbb", 1, unit.c_str(), 0, 1); },
+        [reply = std::move(reply)](sd_bus_message* result, std::string error) {
           const bool denied = error.contains("AccessDenied") || error.contains("NotAuthorized")
                               || error.contains("Dismissed") || error.contains("InteractiveAuthorizationRequired");
           reply(result != nullptr, denied, std::move(error));

@@ -24,7 +24,7 @@ void Application::initActivity() {
   if (ensureActivityMonitor() == nullptr) {
     return;
   }
-  m_activityActions = std::make_unique<ActivityActions>(m_bus->connection(), m_systemBus != nullptr ? &m_systemBus->connection() : nullptr);
+  m_activityActions = std::make_unique<ActivityActions>(m_bus->connection(), m_systemBus.get());
   m_backgroundWarningState = std::make_unique<BackgroundWarningState>(FileUtils::stateDir() + "/activity.json");
   m_activityWindow.initialize(m_wayland, &m_configService, &m_renderContext, m_activityMonitor.get(), m_activityActions.get());
 

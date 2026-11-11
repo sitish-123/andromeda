@@ -214,6 +214,7 @@
       "authenticating": "Authenticating…",
       "default-message": "Authentication required",
       "invalid-password": "Invalid password",
+      "password-for": "Password for {name}",
       "password-or-face": "Password, or press Enter for Face Unlock",
       "password-placeholder": "Password",
       "title": "Authentication Required"

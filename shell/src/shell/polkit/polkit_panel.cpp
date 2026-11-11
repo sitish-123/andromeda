@@ -14,12 +14,15 @@
 #include "ui/builders.h"
 #include "ui/controls/glyph.h"
 #include "ui/controls/image.h"
+#include "ui/controls/select.h"
 #include "ui/palette.h"
 #include "ui/style.h"
+#include "util/secure_wipe.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <format>
 #include <memory>
 #include <string>
 
@@ -122,6 +125,27 @@ void PolkitPanel::create() {
 
   auto bottomContent = ui::column(
       {.align = FlexAlign::Stretch, .gap = Style::spaceSm * scale},
+      ui::label({
+          .out = &m_identityLabel,
+          .fontSize = Style::fontSizeBody * scale,
+          .fontWeight = FontWeight::SemiBold,
+          .color = colorSpecFromRole(ColorRole::Label1),
+          .maxLines = 2,
+      }),
+      ui::select({
+          .out = &m_identitySelect,
+          .fontSize = Style::fontSizeBody * scale,
+          .controlHeight = Tokens::sizeControlM * scale,
+          .surfaceOpacity = panelCardOpacity(),
+          .visible = false,
+          .onSelectionChanged =
+              [this](std::size_t index, std::string_view /*label*/) {
+                PolkitAgent* agent = m_agentProvider != nullptr ? m_agentProvider() : nullptr;
+                if (agent != nullptr && index < m_identityUids.size()) {
+                  agent->selectIdentity(m_identityUids[index]);
+                }
+              },
+      }),
       ui::row(
           {.align = FlexAlign::Center, .gap = Style::spaceSm * scale},
           ui::glyph({
@@ -237,6 +261,9 @@ void PolkitPanel::onClose() {
   m_titleLabel = nullptr;
   m_messageLabel = nullptr;
   m_promptLabel = nullptr;
+  m_identityLabel = nullptr;
+  m_identitySelect = nullptr;
+  m_identityUids.clear();
   m_faceGlyph = nullptr;
   m_supplementaryLabel = nullptr;
   m_input = nullptr;
@@ -323,6 +350,7 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
     supplementaryText.clear();
   }
   m_messageLabel->setText(wrapLongRuns(request.message.empty() ? request.actionId : request.message));
+  updateIdentity(request);
   m_promptLabel->setText(promptText);
   m_promptLabel->setColor(
       isInvalidPassword ? colorSpecFromRole(ColorRole::Danger) : colorSpecFromRole(ColorRole::Label1)
@@ -354,6 +382,39 @@ void PolkitPanel::doUpdate(Renderer& renderer) {
     m_lastIconName = request.iconName;
     m_iconResolved = true;
     resolveIcon(renderer, request);
+  }
+}
+
+void PolkitPanel::updateIdentity(const PolkitRequest& request) {
+  if (m_identityLabel == nullptr || m_identitySelect == nullptr) {
+    return;
+  }
+  std::vector<std::uint32_t> uids;
+  std::vector<std::string> options;
+  std::string activeName;
+  std::size_t activeIndex = 0;
+  for (const PolkitRequestIdentity& identity : request.identities) {
+    if (identity.kind != "unix-user") {
+      continue;
+    }
+    const std::string name = identity.realName.empty() ? identity.userName : identity.realName;
+    if (request.activeUid == identity.uid) {
+      activeName = name;
+      activeIndex = uids.size();
+    }
+    uids.push_back(identity.uid);
+    options.push_back(identity.realName.empty() ? identity.userName
+                                                : std::format("{} ({})", identity.realName, identity.userName));
+  }
+  m_identityLabel->setText(activeName.empty() ? std::string() : i18n::tr("auth.polkit.password-for", "name", activeName));
+  m_identityLabel->setVisible(!activeName.empty());
+  m_identitySelect->setVisible(uids.size() > 1);
+  if (uids != m_identityUids) {
+    m_identityUids = std::move(uids);
+    m_identitySelect->setOptions(std::move(options));
+  }
+  if (!m_identityUids.empty()) {
+    m_identitySelect->setSelectedIndexSilently(activeIndex);
   }
 }
 
@@ -393,7 +454,7 @@ void PolkitPanel::submit(std::string_view response) {
   if (agent == nullptr || m_input == nullptr) {
     return;
   }
-  const std::string password = response.empty() ? m_input->value() : std::string(response);
+  std::string password = response.empty() ? m_input->value() : std::string(response);
   if (password.empty()) {
     if (agent->faceConfirmPending()) {
       agent->confirmFace();
@@ -403,6 +464,7 @@ void PolkitPanel::submit(std::string_view response) {
     return;
   }
   agent->submitResponse(password);
+  util::secureWipe(password);
   m_input->setValue("");
 }
 

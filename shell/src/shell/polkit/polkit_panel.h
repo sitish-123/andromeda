@@ -4,8 +4,10 @@
 #include "shell/panel/panel.h"
 #include "system/icon_resolver.h"
 
+#include <cstdint>
 #include <functional>
 #include <string_view>
+#include <vector>
 
 class Button;
 class Flex;
@@ -18,6 +20,7 @@ class Node;
 class PolkitAgent;
 struct PolkitRequest;
 class Renderer;
+class Select;
 class ConfigService;
 
 class PolkitPanel : public Panel {
@@ -48,6 +51,7 @@ private:
   void cancelAuth();
   bool handleInputKeyEvent(std::uint32_t sym, std::uint32_t modifiers);
   void resolveIcon(Renderer& renderer, const PolkitRequest& request);
+  void updateIdentity(const PolkitRequest& request);
 
   ConfigService* m_config = nullptr;
   std::function<PolkitAgent*()> m_agentProvider;
@@ -56,6 +60,10 @@ private:
   Label* m_titleLabel = nullptr;
   Label* m_messageLabel = nullptr;
   Label* m_promptLabel = nullptr;
+  Label* m_identityLabel = nullptr;
+  Select* m_identitySelect = nullptr;
+  // Offered unix-user uids, in m_identitySelect option order.
+  std::vector<std::uint32_t> m_identityUids;
   Glyph* m_faceGlyph = nullptr;
   Label* m_supplementaryLabel = nullptr;
   Input* m_input = nullptr;

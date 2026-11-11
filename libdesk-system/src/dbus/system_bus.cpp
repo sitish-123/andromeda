@@ -2,6 +2,8 @@
 
 #include "core/log.h"
 
+#include <systemd/sd-bus.h>
+
 #include <chrono>
 #include <string>
 
@@ -29,7 +31,12 @@ namespace {
   }
 } // namespace
 
-SystemBus::SystemBus() : m_connection(sdbus::createSystemBusConnection()) {}
+SystemBus::SystemBus() {
+  if (const int r = sd_bus_open_system(&m_raw); r < 0) {
+    throw sdbus::createError(-r, "Failed to open system bus");
+  }
+  m_connection = sdbus::createBusConnection(m_raw);
+}
 
 sdbus::IConnection::PollData SystemBus::getPollData() const { return m_connection->getEventLoopPollData(); }
 

@@ -25,7 +25,7 @@
 #include "util/string_utils.h"
 #include "compositors/settings_control.h"
 
-#include <gio/gio.h>
+#include <systemd/sd-bus.h>
 
 #include <algorithm>
 #include <array>
@@ -595,11 +595,16 @@ namespace settings {
               .checked = line == "LOCAL",
               .id = "datetime.local_rtc",
               .onChange =
-                  [](bool on, std::function<void()> done) {
+                  [bus = env.systemBus](bool on, std::function<void()> done) {
+                    if (bus == nullptr) {
+                      done();
+                      return;
+                    }
                     dbus::callInteractive(
-                        "org.freedesktop.timedate1", "/org/freedesktop/timedate1", "org.freedesktop.timedate1",
-                        "SetLocalRTC", g_variant_new("(bbb)", on, TRUE, TRUE),
-                        [done = std::move(done)](GVariant*, std::string) { done(); }
+                        *bus, "org.freedesktop.timedate1", "/org/freedesktop/timedate1", "org.freedesktop.timedate1",
+                        "SetLocalRTC",
+                        [on](sd_bus_message* m) { return sd_bus_message_append(m, "bbb", on ? 1 : 0, 1, 1); },
+                        [done = std::move(done)](sd_bus_message*, std::string) { done(); }
                     );
                   },
           },

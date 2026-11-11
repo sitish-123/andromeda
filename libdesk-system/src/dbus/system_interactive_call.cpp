@@ -1,45 +1,66 @@
 #include "dbus/system_interactive_call.h"
 
-#include <gio/gio.h>
+#include "core/log.h"
+#include "dbus/system_bus.h"
 
-#include <memory>
+#include <cstdint>
+#include <cstring>
+#include <exception>
+#include <systemd/sd-bus.h>
 #include <utility>
 
 namespace dbus {
 
-  void callInteractive(const std::string& service, const std::string& path, const char* iface, const char* method,
-                       GVariant* args, InteractiveReply reply) {
+  namespace {
+
+    constexpr Logger kLog("system_bus");
+
+    void deleteReply(void* userdata) { delete static_cast<InteractiveReply*>(userdata); }
+
+    int onReply(sd_bus_message* message, void* userdata, sd_bus_error* /*error*/) {
+      auto& reply = *static_cast<InteractiveReply*>(userdata);
+      // sd-bus calls this from C; nothing may unwind through it.
+      try {
+        if (const sd_bus_error* error = sd_bus_message_get_error(message); error != nullptr) {
+          reply(nullptr, error->message != nullptr ? error->message : error->name);
+        } else {
+          reply(message, {});
+        }
+      } catch (const std::exception& e) {
+        kLog.warn("interactive call reply threw: {}", e.what());
+      }
+      return 0;
+    }
+
+  } // namespace
+
+  void callInteractive(SystemBus& bus, const char* service, const char* path, const char* iface, const char* method,
+                       const InteractiveArgs& args, InteractiveReply reply) {
     // A polkit prompt waits for the user; the D-Bus default of 25 s is too short.
-    constexpr int kAuthTimeoutMs = 5 * 60 * 1000;
-    GError* error = nullptr;
-    GDBusConnection* bus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, nullptr, &error);
-    if (bus == nullptr) {
-      std::string message = error->message;
-      g_error_free(error);
-      g_variant_unref(g_variant_ref_sink(args));
-      reply(nullptr, std::move(message));
+    constexpr std::uint64_t kAuthTimeoutUsec = 5ULL * 60 * 1000 * 1000;
+    sd_bus_message* call = nullptr;
+    int r = sd_bus_message_new_method_call(bus.rawBus(), &call, service, path, iface, method);
+    if (r >= 0) {
+      r = sd_bus_message_set_allow_interactive_authorization(call, 1);
+    }
+    if (r >= 0) {
+      r = args(call);
+    }
+    sd_bus_slot* slot = nullptr;
+    auto* owned = new InteractiveReply(std::move(reply));
+    if (r >= 0) {
+      r = sd_bus_call_async(bus.rawBus(), &slot, call, onReply, owned, kAuthTimeoutUsec);
+    }
+    sd_bus_message_unref(call);
+    if (r < 0) {
+      const std::string message = std::strerror(-r);
+      (*owned)(nullptr, message);
+      delete owned;
       return;
     }
-    g_dbus_connection_call(
-        bus, service.c_str(), path.c_str(), iface, method, args, nullptr,
-        G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION, kAuthTimeoutMs, nullptr,
-        [](GObject* source, GAsyncResult* result, gpointer data) {
-          std::unique_ptr<InteractiveReply> callback(static_cast<InteractiveReply*>(data));
-          GError* callError = nullptr;
-          GVariant* value = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source), result, &callError);
-          if (value == nullptr) {
-            g_dbus_error_strip_remote_error(callError);
-            std::string message = callError->message;
-            g_error_free(callError);
-            (*callback)(nullptr, std::move(message));
-            return;
-          }
-          (*callback)(value, {});
-          g_variant_unref(value);
-        },
-        new InteractiveReply(std::move(reply))
-    );
-    g_object_unref(bus);
+    sd_bus_slot_set_destroy_callback(slot, deleteReply);
+    sd_bus_slot_set_floating(slot, 1);
+    sd_bus_slot_unref(slot);
   }
 
 } // namespace dbus

@@ -89,8 +89,6 @@ gstreamer_allocators_dep = dependency('gstreamer-allocators-1.0')
 libsecret_dep       = dependency('libsecret-1', version: '>=0.20')
 libsodium_dep       = dependency('libsodium', version: '>=1.0.18')
 libxcrypt_dep       = dependency('libxcrypt')
-polkit_agent_dep    = dependency('polkit-agent-1')
-polkit_gobject_dep  = dependency('polkit-gobject-1')
 # PipeWire/SPA headers use GCC extensions that trigger -Wpedantic/-Wconversion;
 # mark as system so the compiler suppresses those warnings.
 pipewire_dep        = dependency('libpipewire-0.3', include_type: 'system')
@@ -964,8 +962,6 @@ _noctalia_system_dependencies = [
   libsecret_dep,
   libsodium_dep,
   libxcrypt_dep,
-  polkit_agent_dep,
-  polkit_gobject_dep,
   pipewire_dep,
   wireplumber_dep,
   curl_dep,

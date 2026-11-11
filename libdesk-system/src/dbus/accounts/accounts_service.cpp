@@ -4,7 +4,7 @@
 #include "dbus/system_bus.h"
 #include "dbus/system_interactive_call.h"
 
-#include <gio/gio.h>
+#include <systemd/sd-bus.h>
 #include <pwd.h>
 #include <crypt.h>
 #include <cstdint>
@@ -183,20 +183,30 @@ void AccountsService::createUser(
     done("could not hash the password");
     return;
   }
+  SystemBus& bus = m_bus;
   callInteractive(
-      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "CreateUser",
-      g_variant_new("(ssi)", login.c_str(), realName.c_str(), admin ? 1 : 0),
-      [hash, login, done = std::move(done)](GVariant* created, std::string error) {
+      bus,
+      "org.freedesktop.Accounts", kAccountsObjectPath.c_str(), kAccountsInterface, "CreateUser",
+      [&](sd_bus_message* m) {
+        return sd_bus_message_append(m, "ssi", login.c_str(), realName.c_str(), static_cast<std::int32_t>(admin ? 1 : 0));
+      },
+      [&bus, hash, login, done = std::move(done)](sd_bus_message* created, std::string error) {
         if (created == nullptr) {
           kLog.warn("CreateUser failed: {}", error);
           done(std::move(error));
           return;
         }
         const char* userPath = nullptr;
-        g_variant_get(created, "(&o)", &userPath);
+        if (sd_bus_message_read(created, "o", &userPath) < 0 || userPath == nullptr) {
+          done("CreateUser returned no user path");
+          return;
+        }
+        const std::string userObject = userPath;
         callInteractive(
-            "org.freedesktop.Accounts", userPath, kUserInterface, "SetPassword",
-            g_variant_new("(ss)", hash.c_str(), ""), [login, done](GVariant* set, std::string passwordError) {
+            bus,
+            "org.freedesktop.Accounts", userObject.c_str(), kUserInterface, "SetPassword",
+            [&hash](sd_bus_message* m) { return sd_bus_message_append(m, "ss", hash.c_str(), ""); },
+            [&bus, login, done](sd_bus_message* set, std::string passwordError) {
               if (set != nullptr) {
                 done({});
                 return;
@@ -209,9 +219,12 @@ void AccountsService::createUser(
                 return;
               }
               callInteractive(
-                  "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser",
-                  g_variant_new("(xb)", static_cast<gint64>(pw->pw_uid), TRUE),
-                  [done, passwordError](GVariant* deleted, std::string deleteError) {
+                  bus,
+                  "org.freedesktop.Accounts", kAccountsObjectPath.c_str(), kAccountsInterface, "DeleteUser",
+                  [pw](sd_bus_message* m) {
+                    return sd_bus_message_append(m, "xb", static_cast<std::int64_t>(pw->pw_uid), 1);
+                  },
+                  [done, passwordError](sd_bus_message* deleted, std::string deleteError) {
                     if (deleted == nullptr) {
                       kLog.warn("DeleteUser after a failed SetPassword failed: {}", deleteError);
                     }
@@ -226,9 +239,10 @@ void AccountsService::createUser(
 
 void AccountsService::deleteUser(uid_t uid, std::function<void(std::string)> done) {
   callInteractive(
-      "org.freedesktop.Accounts", kAccountsObjectPath, kAccountsInterface, "DeleteUser",
-      g_variant_new("(xb)", static_cast<gint64>(uid), TRUE),
-      [done = std::move(done)](GVariant* deleted, std::string error) {
+      m_bus,
+      "org.freedesktop.Accounts", kAccountsObjectPath.c_str(), kAccountsInterface, "DeleteUser",
+      [uid](sd_bus_message* m) { return sd_bus_message_append(m, "xb", static_cast<std::int64_t>(uid), 1); },
+      [done = std::move(done)](sd_bus_message* deleted, std::string error) {
         if (deleted == nullptr) {
           kLog.warn("DeleteUser failed: {}", error);
         }

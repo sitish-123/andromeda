@@ -6,6 +6,8 @@
 
 // The system login screen: which display managers are installed, which one display-manager.service points at, and
 // the polkit switch (systemctl enable -f) between them. The change applies at the next start.
+class SystemBus;
+
 namespace display_manager {
 
   struct Entry {
@@ -19,6 +21,8 @@ namespace display_manager {
   [[nodiscard]] std::string activeUnit();
   [[nodiscard]] std::string nameOf(const std::string& unit);
   // EnableUnitFiles(unit, force) through the shell's polkit agent. `denied`: polkit refused or the user cancelled.
-  void switchTo(const std::string& unit, std::function<void(bool ok, bool denied, std::string error)> reply);
+  void switchTo(
+      SystemBus* bus, const std::string& unit, std::function<void(bool ok, bool denied, std::string error)> reply
+  );
 
 } // namespace display_manager

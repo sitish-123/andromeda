@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <poll.h>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@ struct PolkitRequestIdentity {
   std::string kind;
   std::uint32_t uid = 0;
   std::string userName;
+  std::string realName;
 };
 
 struct PolkitRequest {
@@ -26,6 +28,8 @@ struct PolkitRequest {
   std::string cookie;
   bool isInternal = false;
   std::vector<PolkitRequestIdentity> identities;
+  // The unix-user whose password the helper asks for.
+  std::optional<std::uint32_t> activeUid;
 };
 
 // What pam_gaze last reported for the pending request (docs/face.md, P1-P6).
@@ -49,6 +53,8 @@ public:
   void setStateCallback(StateCallback callback);
   void setReadyCallback(ReadyCallback callback);
   void submitResponse(const std::string& response);
+  // Restarts the conversation as another offered unix-user.
+  void selectIdentity(std::uint32_t uid);
   // Answers pam_gaze's confirmation request after a face match.
   void confirmFace();
   void cancelRequest();

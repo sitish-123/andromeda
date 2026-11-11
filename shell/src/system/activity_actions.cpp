@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <glib.h>
+#include "dbus/system_bus.h"
+
+#include <systemd/sd-bus.h>
 #include <optional>
 #include <sdbus-c++/sdbus-c++.h>
 #include <sstream>
@@ -70,10 +72,17 @@ namespace {
     return out;
   }
 
-  void callSystemInteractive(const char* method, GVariant* args, ActivityActions::Reply reply) {
+  void callSystemInteractive(
+      SystemBus* bus, const char* method, const dbus::InteractiveArgs& args, ActivityActions::Reply reply
+  ) {
+    if (bus == nullptr) {
+      reply(fromError("no system bus"));
+      return;
+    }
     dbus::callInteractive(
+        *bus,
         "org.freedesktop.systemd1", "/org/freedesktop/systemd1", kManager, method, args,
-        [reply = std::move(reply)](GVariant* result, std::string error) {
+        [reply = std::move(reply)](sd_bus_message* result, std::string error) {
           if (result == nullptr) {
             reply(fromError(std::move(error)));
             return;
@@ -83,9 +92,11 @@ namespace {
     );
   }
 
-  GVariant* unitFilesArgs(const std::string& name, bool withForce) {
-    const char* names[] = {name.c_str(), nullptr};
-    return withForce ? g_variant_new("(^asbb)", names, FALSE, FALSE) : g_variant_new("(^asb)", names, FALSE);
+  dbus::InteractiveArgs unitFilesArgs(const std::string& name, bool withForce) {
+    return [name, withForce](sd_bus_message* m) {
+      return withForce ? sd_bus_message_append(m, "asbb", 1, name.c_str(), 0, 0)
+                       : sd_bus_message_append(m, "asb", 1, name.c_str(), 0);
+    };
   }
 
 } // namespace
@@ -119,8 +130,9 @@ bool setAutostartHidden(const std::string& userDir, const AutostartEntry& entry,
   return true;
 }
 
-ActivityActions::ActivityActions(sdbus::IConnection& userBus, sdbus::IConnection* systemBus)
-    : m_userBus(userBus), m_systemBus(systemBus) {}
+ActivityActions::ActivityActions(sdbus::IConnection& userBus, SystemBus* systemBus)
+    : m_userBus(userBus), m_interactiveBus(systemBus),
+      m_systemBus(systemBus != nullptr ? &systemBus->connection() : nullptr) {}
 
 ActivityActions::~ActivityActions() = default;
 
@@ -135,7 +147,9 @@ sdbus::IProxy& ActivityActions::proxyFor(const SystemdUnit& unit, const std::str
 
 void ActivityActions::stop(const SystemdUnit& unit, Reply reply) {
   if (unit.systemManager) {
-    callSystemInteractive("StopUnit", g_variant_new("(ss)", unit.name.c_str(), "replace"), std::move(reply));
+    callSystemInteractive(
+        m_interactiveBus, "StopUnit",
+        [&unit](sd_bus_message* m) { return sd_bus_message_append(m, "ss", unit.name.c_str(), "replace"); }, std::move(reply));
     return;
   }
   try {
@@ -152,7 +166,10 @@ void ActivityActions::stop(const SystemdUnit& unit, Reply reply) {
 void ActivityActions::forceQuit(const SystemdUnit& unit, Reply reply) {
   constexpr std::int32_t kSigKill = 9;
   if (unit.systemManager) {
-    callSystemInteractive("KillUnit", g_variant_new("(ssi)", unit.name.c_str(), "all", kSigKill), std::move(reply));
+    callSystemInteractive(
+        m_interactiveBus, "KillUnit",
+        [&unit](sd_bus_message* m) { return sd_bus_message_append(m, "ssi", unit.name.c_str(), "all", kSigKill); },
+        std::move(reply));
     return;
   }
   try {
@@ -171,7 +188,9 @@ void ActivityActions::forceQuit(const SystemdUnit& unit, Reply reply) {
 void ActivityActions::setFrozen(const SystemdUnit& unit, bool frozen, Reply reply) {
   const char* method = frozen ? "FreezeUnit" : "ThawUnit";
   if (unit.systemManager) {
-    callSystemInteractive(method, g_variant_new("(s)", unit.name.c_str()), std::move(reply));
+    callSystemInteractive(
+        m_interactiveBus, method, [&unit](sd_bus_message* m) { return sd_bus_message_append(m, "s", unit.name.c_str()); },
+        std::move(reply));
     return;
   }
   try {
@@ -189,11 +208,16 @@ void ActivityActions::setFrozen(const SystemdUnit& unit, bool frozen, Reply repl
 
 void ActivityActions::setLimits(const SystemdUnit& unit, std::uint64_t cpuQuotaPerSecUsec, std::uint64_t memoryHighBytes, Reply reply) {
   if (unit.systemManager) {
-    GVariantBuilder props;
-    g_variant_builder_init(&props, G_VARIANT_TYPE("a(sv)"));
-    g_variant_builder_add(&props, "(sv)", "CPUQuotaPerSecUSec", g_variant_new_uint64(cpuQuotaPerSecUsec));
-    g_variant_builder_add(&props, "(sv)", "MemoryHigh", g_variant_new_uint64(memoryHighBytes));
-    callSystemInteractive("SetUnitProperties", g_variant_new("(sba(sv))", unit.name.c_str(), TRUE, &props), std::move(reply));
+    callSystemInteractive(
+        m_interactiveBus, "SetUnitProperties",
+        [&](sd_bus_message* m) {
+          return sd_bus_message_append(
+              m, "sba(sv)", unit.name.c_str(), 1, 2, "CPUQuotaPerSecUSec", "t", cpuQuotaPerSecUsec, "MemoryHigh", "t",
+              memoryHighBytes
+          );
+        },
+        std::move(reply)
+    );
     return;
   }
   const std::vector<sdbus::Struct<std::string, sdbus::Variant>> props{
@@ -282,7 +306,7 @@ void ActivityActions::disableAtLogin(
     return;
   }
   if (unit.systemManager) {
-    callSystemInteractive("DisableUnitFiles", unitFilesArgs(unit.name, false), [this, unit, reply](ActivityActionResult result) {
+    callSystemInteractive(m_interactiveBus, "DisableUnitFiles", unitFilesArgs(unit.name, false), [this, unit, reply](ActivityActionResult result) {
       if (result.ok) {
         checkOnDemand(unit, std::move(result), reply);
       } else {
@@ -326,7 +350,7 @@ void ActivityActions::enableAtLogin(
     return;
   }
   if (unit.systemManager) {
-    callSystemInteractive("EnableUnitFiles", unitFilesArgs(unit.name, true), std::move(reply));
+    callSystemInteractive(m_interactiveBus, "EnableUnitFiles", unitFilesArgs(unit.name, true), std::move(reply));
     return;
   }
   using Change = sdbus::Struct<std::string, std::string, std::string>;
