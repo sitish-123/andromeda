@@ -145,6 +145,8 @@ package_andromeda-system-git() {
   install -Dm644 desktop/system/data/org.andromeda.files.policy "$pkgdir/usr/share/polkit-1/actions/org.andromeda.files.policy"
   install -Dm644 desktop/system/data/org.andromeda.FileOps1.service \
     "$pkgdir/usr/share/dbus-1/services/org.andromeda.FileOps1.service"
+  install -Dm644 desktop/system/data/andromeda-fileops.service \
+    "$pkgdir/usr/lib/systemd/user/andromeda-fileops.service"
   install -Dm644 desktop/system/data/org.andromeda.FileOps1.xml \
     "$pkgdir/usr/share/dbus-1/interfaces/org.andromeda.FileOps1.xml"
   install -Dm755 desktop/system/target/release/andromeda-update "$pkgdir/usr/lib/andromeda/andromeda-update"

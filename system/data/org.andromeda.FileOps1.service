@@ -1,3 +1,4 @@
 [D-BUS Service]
 Name=org.andromeda.FileOps1
 Exec=/usr/lib/andromeda/andromeda-fileops
+SystemdService=andromeda-fileops.service

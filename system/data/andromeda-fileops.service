@@ -1,0 +1,10 @@
+[Unit]
+Description=Andromeda file operations (copy, move, trash, archives)
+
+[Service]
+Type=dbus
+BusName=org.andromeda.FileOps1
+ExecStart=/usr/lib/andromeda/andromeda-fileops
+# Each archive decoder stops at 256 MiB and jobs run in parallel: three such jobs fit; a flood of them stops here.
+MemoryHigh=768M
+MemoryMax=1G
