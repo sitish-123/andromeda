@@ -92,7 +92,7 @@ private:
   void signalMain();
 
   int m_eventFd = -1;
-  IdleWorkerSlots m_worker{1};
+  IdleWorkerSlots m_worker{1, "dsk-wpscan"};
   std::atomic<bool> m_shutdown{false};
 
   std::mutex m_queueMutex;

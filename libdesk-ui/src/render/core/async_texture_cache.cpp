@@ -72,7 +72,7 @@ AsyncTextureCache::AsyncTextureCache() {
   const unsigned hc = std::thread::hardware_concurrency();
   const std::size_t suggested = hc == 0U ? kMinWorkers : std::max<std::size_t>(kMinWorkers, hc / 2U);
   const std::size_t workerCount = std::clamp<std::size_t>(suggested, kMinWorkers, kMaxWorkers);
-  m_workers = std::make_unique<IdleWorkerSlots>(workerCount);
+  m_workers = std::make_unique<IdleWorkerSlots>(workerCount, "dsk-texture");
 }
 
 AsyncTextureCache::~AsyncTextureCache() {

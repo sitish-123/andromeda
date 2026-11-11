@@ -70,7 +70,7 @@ ThumbnailService::ThumbnailService(Resolver resolver, std::size_t workers)
   const unsigned hc = std::thread::hardware_concurrency();
   const std::size_t suggested = (hc == 0) ? kMinWorkers : std::max<std::size_t>(kMinWorkers, hc / 2);
   const std::size_t n = workers > 0 ? workers : std::clamp<std::size_t>(suggested, kMinWorkers, kMaxWorkers);
-  m_workers = std::make_unique<IdleWorkerSlots>(n);
+  m_workers = std::make_unique<IdleWorkerSlots>(n, "dsk-thumb");
 }
 
 ThumbnailService::~ThumbnailService() {

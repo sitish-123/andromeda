@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <pthread.h>
 #include <cstddef>
 #include <thread>
 #include <vector>
@@ -11,7 +12,8 @@ class IdleWorkerSlots {
 public:
   static constexpr auto kIdleExit = std::chrono::seconds(30);
 
-  explicit IdleWorkerSlots(std::size_t count) : m_threads(count), m_alive(count, false) {}
+  // name: thread name, at most 15 characters.
+  IdleWorkerSlots(std::size_t count, const char* name) : m_threads(count), m_alive(count, false), m_name(name) {}
 
   // Starts loop(slot) in a free slot, if any; call after queueing work. A slot freed by exited() has already
   // released the mutex, so joining it here is immediate.
@@ -21,7 +23,10 @@ public:
         if (m_threads[slot].joinable()) {
           m_threads[slot].join();
         }
-        m_threads[slot] = std::thread(loop, slot);
+        m_threads[slot] = std::thread([loop, slot, name = m_name]() mutable {
+          pthread_setname_np(pthread_self(), name);
+          loop(slot);
+        });
         m_alive[slot] = true;
         return;
       }
@@ -43,4 +48,5 @@ public:
 private:
   std::vector<std::thread> m_threads;
   std::vector<bool> m_alive;
+  const char* m_name;
 };

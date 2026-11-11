@@ -283,7 +283,7 @@ private:
   std::deque<Request> requests;
   bool stopping = false;
   std::stop_source stopSource;
-  IdleWorkerSlots slots{1};
+  IdleWorkerSlots slots{1, "dsk-calendar"};
 };
 
 CalendarService::CalendarService(

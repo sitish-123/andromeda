@@ -187,7 +187,7 @@ private:
   GlSharedContext* m_sharedGl = nullptr;
   std::unique_ptr<TextureManager> m_textureManager;
   int m_eventFd = -1;
-  IdleWorkerSlots m_workers{1}; // guarded by m_queueMutex
+  IdleWorkerSlots m_workers{1, "dsk-decode"}; // guarded by m_queueMutex
   std::atomic<bool> m_shutdown{false};
 
   mutable std::mutex m_queueMutex;

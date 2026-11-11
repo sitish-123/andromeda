@@ -245,7 +245,7 @@ namespace calendar {
     std::deque<ParseRequest> requests;
     bool stopping = false;
     std::stop_source stopSource;
-    IdleWorkerSlots slots{1};
+    IdleWorkerSlots slots{1, "dsk-caldav"};
   };
 
   CalDavClient::CalDavClient(HttpClient& http)
