@@ -111,6 +111,17 @@ namespace {
       .finished = &LockScreen::handleFinished,
   };
 
+  // PAM denies a service without a stack file, so a build run before the package installs andromeda-lock uses login.
+  std::string lockPamService() {
+    std::error_code ec;
+    for (const char* dir : {"/etc/pam.d/", "/usr/lib/pam.d/"}) {
+      if (std::filesystem::exists(std::string(dir) + "andromeda-lock", ec)) {
+        return "andromeda-lock";
+      }
+    }
+    return "login";
+  }
+
 } // namespace
 
 LockScreen::LockScreen() = default;
@@ -1776,9 +1787,9 @@ void LockScreen::tryAuthenticate() {
   updatePromptOnSurfaces();
 
   const PamAuthenticator authenticator = m_authenticator;
-  // The "login" stack checks the password only: the lock screen runs fingerprint itself over fprintd D-Bus. A distro
-  // stack that lists pam_fprintd makes PAM wait for a finger first; stopFingerprint() above has freed the reader.
-  const std::string pamService = "login";
+  // The andromeda-lock stack checks the password only, without pam_fprintd: the lock screen runs fingerprint itself
+  // over fprintd D-Bus. The login fallback can list pam_fprintd and wait for a finger; stopFingerprint() freed the reader.
+  const std::string pamService = lockPamService();
   const std::string pamLanguage(i18n::Service::instance().language());
   const std::string pamStartFailure = i18n::tr("auth.pam.start-failed");
   // The thread never touches `this`; the result hops back to the main loop and is dropped if the lock screen is gone.

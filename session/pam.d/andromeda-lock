@@ -1,0 +1,5 @@
+#%PAM-1.0
+# Lock screen unlock: the system auth stack (pam_faillock, pam_unix, systemd-homed) without pam_nologin or a
+# session. No pam_fprintd: the lock screen runs fingerprint itself over fprintd D-Bus.
+auth       include      system-auth
+account    include      system-auth
