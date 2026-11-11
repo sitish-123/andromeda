@@ -186,7 +186,7 @@ namespace andromeda {
       if (!bind.modifierOnly) {
         continue;
       }
-      if (m_sessionLocked && !bind.allowWhenLocked) {
+      if (sessionLocked() && !bind.allowWhenLocked) {
         continue;
       }
       if (keyboardShortcutsInhibited() && !bind.allowWhenInhibited) {
@@ -207,7 +207,7 @@ namespace andromeda {
 
   std::optional<Keybind> Server::releaseModifierTap(const void* source, uint32_t keycode) {
     std::optional<Keybind> bind = m_modifierTap.release(source, keycode);
-    if (bind && m_sessionLocked && !bind->allowWhenLocked) {
+    if (bind && sessionLocked() && !bind->allowWhenLocked) {
       return std::nullopt;
     }
     if (bind && keyboardShortcutsInhibited() && !bind->allowWhenInhibited) {
@@ -222,7 +222,7 @@ namespace andromeda {
     }
     wlr_seat* seat = m_seat->wlr();
     wlr_surface* focused = seat->keyboard_state.focused_surface;
-    if (!m_sessionLocked && m_manualShortcutsInhibit.enabled(focused)) {
+    if (!sessionLocked() && m_manualShortcutsInhibit.enabled(focused)) {
       return true;
     }
     return focused != nullptr
@@ -251,7 +251,7 @@ namespace andromeda {
   }
 
   bool Server::toggleKeyboardShortcutsInhibit() {
-    if (m_seat == nullptr || m_sessionLocked) {
+    if (m_seat == nullptr || sessionLocked()) {
       return false;
     }
     wlr_seat* seat = m_seat->wlr();
@@ -295,7 +295,7 @@ namespace andromeda {
           continue;
         }
       }
-      if (m_sessionLocked && !bind.allowWhenLocked) {
+      if (sessionLocked() && !bind.allowWhenLocked) {
         continue;
       }
       if (keyboardShortcutsInhibited() && !bind.allowWhenInhibited) {
@@ -362,7 +362,7 @@ namespace andromeda {
       if (bind.submap != currentSubmap) {
         continue;
       }
-      if (m_sessionLocked && !bind.allowWhenLocked) {
+      if (sessionLocked() && !bind.allowWhenLocked) {
         continue;
       }
       if (bind.wheel != direction) {
@@ -389,7 +389,7 @@ namespace andromeda {
       if (bind.submap != currentSubmap) {
         continue;
       }
-      if (m_sessionLocked && !bind.allowWhenLocked) {
+      if (sessionLocked() && !bind.allowWhenLocked) {
         continue;
       }
       // Non-mouse binds carry 0 here, which never equals a BTN_* code.

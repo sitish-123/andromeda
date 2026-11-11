@@ -365,7 +365,7 @@ namespace andromeda {
         target != nullptr && target->mapped(), target != nullptr && target->onActiveWorkspace(), targetKeyboardFocused,
         targetPointerFocused, targetWorkspace != nullptr ? targetWorkspace->name() : "",
         targetWorkspace != nullptr && targetWorkspace->active(),
-        targetWorkspace != nullptr && !targetWorkspace->active(), self->m_sessionLocked
+        targetWorkspace != nullptr && !targetWorkspace->active(), self->sessionLocked()
     );
     if (target != nullptr && target->mapped() && tokenName != nullptr) {
       self->endLaunchBusy(std::string(tokenName)); // the launch raised a running app
@@ -384,7 +384,7 @@ namespace andromeda {
       );
       return;
     }
-    if (self->m_sessionLocked) {
+    if (self->sessionLocked()) {
       return;
     }
 

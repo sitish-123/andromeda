@@ -329,7 +329,7 @@ namespace andromeda {
     void hideInsertHint();
     [[nodiscard]] uint64_t uptimeMs() const;
     [[nodiscard]] SessionLock* sessionLock() const { return m_sessionLock.get(); }
-    [[nodiscard]] bool sessionLocked() const { return m_sessionLocked; }
+    [[nodiscard]] bool sessionLocked() const { return m_lockState != LockState::Unlocked; }
     [[nodiscard]] const std::string& activeSubmap() const {
       static const std::string empty;
       return m_activeSubmaps.empty() ? empty : m_activeSubmaps.back();
@@ -865,7 +865,11 @@ namespace andromeda {
     wlr_scene_tree* m_heldFrameTree = nullptr;
     wlr_scene_rect* m_lockBlank = nullptr;
     wlr_scene_rect* m_backdrop = nullptr;
-    bool m_sessionLocked = false;
+    // RestartLocked: the previous compositor stopped locked and no lock client has taken over; it owns the escape timer.
+    enum class LockState : uint8_t { Unlocked, RestartLocked, Locked };
+    LockState m_lockState = LockState::Unlocked;
+    void setLockState(LockState next);
+    void leaveLock();
     // Name of the output that held keyboard focus when the session locked, so
     // unlocking restores focus there instead of wherever the cursor rests.
     // Empty when no window was focused or that output is gone.

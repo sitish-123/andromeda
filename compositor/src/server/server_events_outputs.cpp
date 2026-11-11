@@ -109,7 +109,7 @@ namespace andromeda {
     applyConfiguredMirrors();
     scheduleDisplacedViewRestore();
     markDirty(Dirty::Backdrop | Dirty::Banner | Dirty::QuitConfirm);
-    if (m_sessionLocked) {
+    if (sessionLocked()) {
       updateLockBlank();
       raiseLockTree();
     }
@@ -174,7 +174,7 @@ namespace andromeda {
       m_effects.prepare(m_renderer);
     }
     markDirty(Dirty::Banner | Dirty::QuitConfirm);
-    if (m_sessionLocked) {
+    if (sessionLocked()) {
       updateLockBlank();
     }
     if (m_sessionLock != nullptr) {
@@ -1113,7 +1113,7 @@ namespace andromeda {
         const bool enabled = (pending[i].base.committed & WLR_OUTPUT_STATE_ENABLED) != 0 ? pending[i].base.enabled
                                                                                          : pending[i].output->enabled;
         const bool unbound = wlr_output_layout_get(m_outputLayout, pending[i].output) == nullptr;
-        if (enabled && (m_sessionLocked || unbound)) {
+        if (enabled && (sessionLocked() || unbound)) {
           wlr_scene_rect* mask = output->createConfiguredFrameMask(pending[i].base);
           if (mask == nullptr) {
             return false;
@@ -1382,7 +1382,7 @@ namespace andromeda {
       }
       scheduleDisplacedViewRestore();
       markDirty(Dirty::Banner | Dirty::QuitConfirm);
-      if (m_sessionLocked) {
+      if (sessionLocked()) {
         updateLockBlank();
       }
       updateIdleInhibit();

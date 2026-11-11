@@ -197,7 +197,7 @@ namespace andromeda {
       // Screen and cursor presets take their palette from [colors] too.
       m_effects.applyOutputEffects();
       markDirty(Dirty::Backdrop);
-      if (m_sessionLocked) {
+      if (sessionLocked()) {
         updateLockBlank();
       }
     }
@@ -771,7 +771,7 @@ namespace andromeda {
         continue;
       }
 
-      if (m_sessionLocked) {
+      if (sessionLocked()) {
         wlr_session_lock_surface_v1* lockSurface = wlr_session_lock_surface_v1_try_from_wlr_surface(root);
         inhibited =
             lockSurface != nullptr && root->mapped && lockSurface->output != nullptr && lockSurface->output->enabled;

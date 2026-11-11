@@ -1459,30 +1459,13 @@ namespace andromeda {
   // (a failed start, SIGTERM, a lost DRM backend) keeps the lock file, so the next start is locked too.
   void Server::enterRestartLock() {
     kLog.warn("the session was locked when the compositor stopped; it stays locked until a lock client unlocks");
-    m_sessionLocked = true;
-    dismissSnapChrome();
-    m_effects.setSuspended(true);
+    setLockState(LockState::RestartLocked);
     // No layout exists yet; until updateLockBlank sizes the blank to it, cover any position an output can take.
     constexpr int kCover = 1 << 25;
     wlr_scene_rect_set_size(m_lockBlank, kCover, kCover);
     wlr_scene_node_set_position(&m_lockBlank->node, -kCover / 2, -kCover / 2);
     setLockBlankEnabled(true);
     m_desktopShell->sendRelock();
-    m_restartLockEscape = wl_event_loop_add_timer(
-        wl_display_get_event_loop(m_display),
-        [](void* data) {
-          auto* server = static_cast<Server*>(data);
-          kLog.error("no lock client in time after a restart; ending the session");
-          // The session ends here, so the next login starts unlocked at the greeter.
-          unlink(lockFilePath().c_str());
-          server->requestSessionExit();
-          return 0;
-        },
-        this
-    );
-    // ANDROMEDA_LOCK_ESCAPE_MS shortens the 10 s for the harness check.
-    const char* escape = std::getenv("ANDROMEDA_LOCK_ESCAPE_MS");
-    wl_event_source_timer_update(m_restartLockEscape, escape != nullptr ? std::atoi(escape) : 10000);
   }
 
   bool Server::start(const char* startupCmd) {
@@ -1722,7 +1705,7 @@ namespace andromeda {
     // now, and Xwayland itself spawns when the first X client connects.
     if (config().general.xwayland) {
       m_eisInput = std::make_unique<EisInput>(*this);
-      if (m_sessionLocked) {
+      if (sessionLocked()) {
         m_eisInput->setSessionLocked(true);
       }
       m_eisInput->setAuthenticate([this](pid_t peer) {
