@@ -2,7 +2,7 @@
 # Usage: tools/build.sh <command...>   e.g. tools/build.sh just build, tools/build.sh ninja -C shell/build-debug
 # Runs heavy builds and tests machine-wide in two slots (P-cores 0-5, E-cores 6-11; 12-15 stay free for the desktop and
 # the sessions), each in its own memory-capped systemd scope, so systemd-oomd kills a build under memory pressure, not
-# the terminal hosting the sessions. ninja sizes its job count from the slot's CPU affinity.
+# the terminal hosting the sessions. ninja runs 4 jobs per slot unless the caller passes -j.
 # Sessions share build dirs: a `-C <dir>` command also holds a lock on that dir, so two ninjas never run in one dir, and
 # a caller whose identical command was run and passed after it asked exits 0 at once (that run covered its request).
 # --close keeps the locks off child processes, so an orphaned test helper cannot hold them.
@@ -11,6 +11,8 @@ set -uo pipefail
 if [ -n "${DESKTOP_BUILD_LOCKED:-}" ]; then
   exec "$@"
 fi
+# Eight cc1plus jobs fill MemoryHigh=6G with anon memory and the slot re-reads its evicted page cache: cap ninja at 4.
+if [ "${1:-}" = ninja ] && [[ " $* " != *" -j"* ]]; then set -- ninja -j4 "${@:2}"; fi
 # build.ninja calls bare cc/c++, so the ccache wrappers in PATH cache every build dir with no meson re-setup.
 [ -d /usr/lib/ccache/bin ] && export PATH=/usr/lib/ccache/bin:$PATH
 state=/tmp/desktop-build-state
