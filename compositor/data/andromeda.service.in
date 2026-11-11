@@ -29,6 +29,6 @@ WatchdogSec=5
 # A clean exit (log out) stops the socket at once, so a client that reconnects in the gap cannot start a second
 # compositor. --no-block: the stop job must not wait for this unit, which is still stopping.
 ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" != success ] || systemctl --user --no-block stop andromeda.socket'
-# Under build load the kernel must not swap out the compositor's working set (RSS about 130 MB): a page fault
-# stalls a frame even at real-time priority. The parent slices carry a floor too (session/memory).
-MemoryMin=256M
+# Under build load the kernel must not swap out the compositor's working set (memory.current about 270 MB with
+# shmem): a page fault stalls a frame even at real-time priority. The parent slices carry a floor too (session/memory).
+MemoryMin=384M
