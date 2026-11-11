@@ -4,6 +4,7 @@
 #include "core/animation.h"
 #include "layout/drop_target.h"
 #include "overview/app_icons.h"
+#include "overview/card_pointer.h"
 #include "overview/chrome.h"
 #include "overview/navigation.h"
 #include "overview/style.h"
@@ -154,7 +155,7 @@ namespace andromeda {
     // How much smaller than on the desktop `workspace` shows in the overview, so a pointer pan over it moves its
     // content under the pointer. 1 when it is not shown.
     [[nodiscard]] double workspaceScale(const Workspace* workspace) const;
-    [[nodiscard]] bool dragging() const { return m_dragCard != nullptr || m_middlePressed; }
+    [[nodiscard]] bool dragging() const { return dragCard() != nullptr || m_middlePressed; }
 
   private:
     static void onNavigationDeviceDestroyed(Overview* self, void* data);
@@ -198,7 +199,7 @@ namespace andromeda {
       Listener frameDone;
     };
 
-    struct Card {
+    struct Card : Trackable {
       Overview* overview = nullptr;
       OutputState* owner = nullptr;
       View* view = nullptr;
@@ -549,7 +550,9 @@ namespace andromeda {
     // Output under the pointer, which is the output the live target resolves against.
     Ref<Output> m_pointerOutput;
 
-    Card* m_pressCard = nullptr;
+    ov::CardPointer<Card> m_pointer;
+    [[nodiscard]] Card* pressCard() const { return m_pointer.pressed(); }
+    [[nodiscard]] Card* dragCard() const { return m_pointer.dragged(); }
     Ref<Workspace> m_pressWorkspace;
     bool m_pressThumb = false;    // the press landed on a thumb, so travel reorders workspaces
     bool m_thumbDragging = false; // that press has moved past kDragThreshold
@@ -570,7 +573,7 @@ namespace andromeda {
     uint32_t m_titlePressMsec = 0; // the last press on the title name, for a double-click
     double m_pressX = 0;
     double m_pressY = 0;
-    Card* m_middlePressCard = nullptr;
+    Ref<Card> m_middlePressCard;
     Ref<Output> m_middleOutput;
     double m_middlePressX = 0;
     double m_middlePressY = 0;
@@ -582,7 +585,6 @@ namespace andromeda {
     bool m_middlePanning = false;
     bool m_middleScrolling = false;
 
-    Card* m_dragCard = nullptr;
     double m_dragOffsetX = 0;
     double m_dragOffsetY = 0;
     Ref<Workspace> m_dragSourceWorkspace;

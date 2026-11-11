@@ -145,7 +145,7 @@ namespace andromeda {
     const wlr_box& world = view->presentedBox();
     // Not laid out yet (a tiled opener waiting for its arrange, a hidden tab sharing the shown tab's box), or faded
     // out by the placement: nothing to draw, nothing to hit.
-    if (!laidOut(view) || (card.opacity < kHiddenOpacity && &card != m_dragCard)) {
+    if (!laidOut(view) || (card.opacity < kHiddenOpacity && &card != dragCard())) {
       card.blur.hide();
       wlr_scene_node_set_enabled(&card.tree->node, false);
       syncCardEffects(card);
@@ -160,7 +160,7 @@ namespace andromeda {
     // dragged card's origin.
     const int scaledW = std::max(1, static_cast<int>(std::lround(world.width * z)));
     const int scaledH = std::max(1, static_cast<int>(std::lround(world.height * z)));
-    if (&card == m_dragCard || std::abs(scaledW - card.box.width) > 1 || std::abs(scaledH - card.box.height) > 1) {
+    if (&card == dragCard() || std::abs(scaledW - card.box.width) > 1 || std::abs(scaledH - card.box.height) > 1) {
       card.box.width = scaledW;
       card.box.height = scaledH;
     }
@@ -169,7 +169,7 @@ namespace andromeda {
     wlr_scene_node_set_position(&card.tree->node, card.box.x, card.box.y);
     wlr_scene_tree_set_clip(card.tree, card.clip.width > 0 && card.clip.height > 0 ? &card.clip : nullptr);
     layoutCardShadow(card, desktopChromeAlpha() * card.opacity);
-    const float cardOpacity = (&card == m_dragCard ? config().appearance.dragOpacity : 1.0F) * card.opacity;
+    const float cardOpacity = (&card == dragCard() ? config().appearance.dragOpacity : 1.0F) * card.opacity;
     const float presentedOpacity = view->presentedOpacity() * cardOpacity;
 
     const int borderWidth = view->decorationBorderWidth();
@@ -331,7 +331,7 @@ namespace andromeda {
   void Overview::layoutCardShadow(Card& card, float alpha) const {
     const double zoom = card.scale;
     const wlr_scene_shadow* source = card.view->shadowNode();
-    if (alpha <= 0.0F || source == nullptr || !source->node.enabled || &card == m_dragCard) {
+    if (alpha <= 0.0F || source == nullptr || !source->node.enabled || &card == dragCard()) {
       return;
     }
     wlr_scene_tree* parent = card.view->shadowPooled() ? card.owner->tileShadows : card.tree;
@@ -574,7 +574,7 @@ namespace andromeda {
       const ov::Rect desk = ov::deskRect(in, localRect(world, outputBox), place->workspace, row);
       const ov::Rect placed = toLocal(reflowRect(card.view, toLayout(place->rect), reflowed));
       const ov::Rect rect = ov::lerpRect(desk, placed, p);
-      if (&card != m_dragCard) {
+      if (&card != dragCard()) {
         card.box = layoutBox(rect, outputBox);
       } else {
         // The pointer owns a dragged card: a drop reflows it from where it was let go.
@@ -659,7 +659,7 @@ namespace andromeda {
           .within = within,
           .opacity = card.opacity,
           .selected = card.view == liveTarget,
-          .dragged = &card == m_dragCard,
+          .dragged = &card == dragCard(),
       });
     };
     // Capsules stack the way their cards do: walk the output tree bottom to top. A dragged card lives outside it.
@@ -672,8 +672,8 @@ namespace andromeda {
         }
       }
     }
-    if (m_dragCard != nullptr && m_dragCard->owner == &state) {
-      addWindow(*m_dragCard);
+    if (dragCard() != nullptr && dragCard()->owner == &state) {
+      addWindow(*dragCard());
     }
     std::optional<ov::ChromeMenu> menu;
     if (m_menu.has_value() && m_menu->output == state.output && group != nullptr) {
@@ -787,7 +787,7 @@ namespace andromeda {
     View* view = card.view;
     Workspace* workspace = view->workspace();
     const BorderEffectGate cardGate{
-        .focused = workspace != nullptr && workspace->focusedView() == view && &card != m_dragCard,
+        .focused = workspace != nullptr && workspace->focusedView() == view && &card != dragCard(),
         .decorated = card.border != nullptr && card.border->node.enabled && card.tree->node.enabled,
         .urgent = view->urgent(),
         .fullscreen = view->scheduledFullscreen(),
@@ -815,7 +815,7 @@ namespace andromeda {
   std::array<float, 4> Overview::cardBorderColor(const Card& card, const View* liveTarget) const {
     const auto& border = card.view != nullptr ? card.view->borderColors() : config().colors.border;
     const Workspace* workspace = card.view != nullptr ? card.view->workspace() : nullptr;
-    if (workspace == nullptr || workspace->focusedView() != card.view || &card == m_dragCard) {
+    if (workspace == nullptr || workspace->focusedView() != card.view || &card == dragCard()) {
       return border.unfocused;
     }
     // No window holds the seat while the overview is up, so exactly one card wears the focused color: the one a focus
@@ -1035,12 +1035,12 @@ namespace andromeda {
     // A close releases any navigation mid-gesture. Input events carry monotonic milliseconds, so the release sample
     // shares their clock and bleeds the speed of fingers that came to rest before the close.
     endNavigation(false, monotonicMsec(), m_navigationSource);
-    if (m_dragCard != nullptr) {
+    if (dragCard() != nullptr) {
       endDrag(false);
     }
     endThumbDrag(false, 0, 0);
     hideDropHint();
-    m_pressCard = nullptr;
+    m_pointer.release();
     m_pressWorkspace = nullptr;
     m_hoverView = nullptr;
     m_closeHover = false;
@@ -1067,7 +1067,7 @@ namespace andromeda {
     for (const auto& state : m_outputs) {
       state->rowScroll.snap(state->rowScroll.current());
     }
-    if (m_dragCard != nullptr) {
+    if (dragCard() != nullptr) {
       endDrag(false);
     }
     m_pendingFocus = nullptr;
@@ -1142,7 +1142,7 @@ namespace andromeda {
   bool Overview::tickEdgePan(double nowMsec) {
     Workspace* workspace = m_edgePan != 0 ? m_edgeWorkspace.get() : nullptr;
     ScrollingLayout* scrolling = workspace != nullptr ? workspace->scrollingLayout() : nullptr;
-    if (scrolling == nullptr || (m_dragCard == nullptr && !m_thumbDragging)) {
+    if (scrolling == nullptr || (dragCard() == nullptr && !m_thumbDragging)) {
       return false;
     }
     const double elapsed = m_edgePanLastMsec < 0 ? 0.0 : nowMsec - m_edgePanLastMsec;
@@ -1152,7 +1152,7 @@ namespace andromeda {
     if (next != scrolling->scroll()) {
       scrolling->setScroll(next);
       workspace->markArrange(false);
-      if (m_dragCard != nullptr) {
+      if (dragCard() != nullptr) {
         retargetDrop(m_dragX, m_dragY);
       }
     }
@@ -1198,7 +1198,7 @@ namespace andromeda {
     if (zoomTicked || rowTicked || m_cardPresentationDirty) {
       applyProgress();
     }
-    if (rowTicked && m_dragCard != nullptr) {
+    if (rowTicked && dragCard() != nullptr) {
       // Rows slide under a held card while the edge steps them; the target follows what is under it.
       retargetDrop(m_dragX, m_dragY);
     }
@@ -1332,14 +1332,13 @@ namespace andromeda {
     m_pointerOutput = nullptr;
     m_server->notifyOverviewChanged();
     endThumbDrag(false, 0, 0);
-    m_pressCard = nullptr;
+    m_pointer.release();
     m_pressWorkspace = nullptr;
     m_hoverView = nullptr;
     m_closeHover = false;
     m_closePress = nullptr;
     m_menu.reset();
     m_rename.reset();
-    m_dragCard = nullptr;
     m_dragSourceWorkspace = nullptr;
     m_dragSourceWidth.reset();
     m_drop = {};
@@ -1484,26 +1483,13 @@ namespace andromeda {
       if (card == nullptr) {
         return;
       }
-      if (m_pressCard == card) {
-        m_pressCard = nullptr;
-      }
-      if (m_middlePressCard == card) {
+      if (m_middlePressCard.get() == card) {
         clearMiddlePress();
       }
       if (m_drop.view == view) {
         m_drop.view = nullptr;
         m_drop.edge = 0;
         hideDropHint();
-      }
-      if (m_dragCard == card) {
-        hideDropHint();
-        stopEdgeScroll();
-        m_dragCard = nullptr;
-        m_dragSourceWorkspace = nullptr;
-        m_dragSourceWidth.reset();
-        m_drop = {};
-        m_dropWorkspaceGroup = nullptr;
-        m_server->cursor()->overrideCursor(nullptr);
       }
       dropCard(view);
     } else if (card == nullptr && state != nullptr && view->workspace() != nullptr) {
@@ -1533,9 +1519,6 @@ namespace andromeda {
     if (m_pendingFocus == view) {
       m_pendingFocus = nullptr;
     }
-    if (m_pressCard != nullptr && m_pressCard->view == view) {
-      m_pressCard = nullptr;
-    }
     if (m_hoverView == view) {
       m_hoverView = nullptr;
       m_closeHover = false;
@@ -1543,22 +1526,10 @@ namespace andromeda {
     if (m_closePress == view) {
       m_closePress = nullptr;
     }
-    if (m_middlePressCard != nullptr && m_middlePressCard->view == view) {
-      m_middlePressCard = nullptr;
-    }
     if (m_drop.view == view) {
       m_drop.view = nullptr;
       m_drop.edge = 0;
       hideDropHint();
-    }
-    if (m_dragCard != nullptr && m_dragCard->view == view) {
-      hideDropHint();
-      stopEdgeScroll();
-      m_dragCard = nullptr;
-      m_dragSourceWorkspace = nullptr;
-      m_drop = {};
-      m_dropWorkspaceGroup = nullptr;
-      m_server->cursor()->overrideCursor(nullptr);
     }
     Workspace* workspace = view->workspace();
     OutputState* state = stateForWorkspace(workspace);
@@ -1614,12 +1585,6 @@ namespace andromeda {
 
     OutputState* source = card->owner;
     if (target == nullptr) {
-      if (m_pressCard == card) {
-        m_pressCard = nullptr;
-      }
-      if (m_middlePressCard == card) {
-        m_middlePressCard = nullptr;
-      }
       dropCard(view);
       if (source != nullptr) {
         layoutOutput(*source);
@@ -1771,18 +1736,6 @@ namespace andromeda {
     if (m_dropWorkspaceGroup != nullptr && m_dropWorkspaceGroup->output() == output) {
       hideDropHint();
       m_dropWorkspaceGroup = nullptr;
-    }
-    if (m_dragCard != nullptr && m_dragCard->owner == it->get()) {
-      hideDropHint();
-      stopEdgeScroll();
-      m_dragCard = nullptr;
-      m_dragSourceWorkspace = nullptr;
-      m_drop = {};
-      m_dropWorkspaceGroup = nullptr;
-      m_server->cursor()->overrideCursor(nullptr);
-    }
-    if (m_pressCard != nullptr && m_pressCard->owner == it->get()) {
-      m_pressCard = nullptr;
     }
     if (m_middleOutput == output) {
       clearMiddlePress();

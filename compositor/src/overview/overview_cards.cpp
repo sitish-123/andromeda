@@ -339,6 +339,15 @@ namespace andromeda {
   }
 
   void Overview::destroyCard(Card* card) {
+    if (m_pointer.forget(*card)) {
+      hideDropHint();
+      stopEdgeScroll();
+      m_dragSourceWorkspace = nullptr;
+      m_dragSourceWidth.reset();
+      m_drop = {};
+      m_dropWorkspaceGroup = nullptr;
+      m_server->cursor()->overrideCursor(nullptr);
+    }
     card->view->effects().detachNodes(
         card->surfaceTree != nullptr ? &card->surfaceTree->node : nullptr,
         card->border != nullptr ? &card->border->node : nullptr

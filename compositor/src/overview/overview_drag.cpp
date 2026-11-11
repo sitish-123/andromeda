@@ -7,14 +7,13 @@ namespace andromeda {
   // -: drag
 
   void Overview::beginDrag() {
-    Card* card = m_pressCard;
-    m_pressCard = nullptr;
+    Card* card = m_pointer.beginDrag();
     m_pressWorkspace = nullptr;
     if (card == nullptr || card->view == nullptr || !card->view->mapped()) {
+      m_pointer.release();
       return;
     }
     View* view = card->view;
-    m_dragCard = card;
     m_dragOffsetX = m_pressX - card->box.x;
     m_dragOffsetY = m_pressY - card->box.y;
     m_dragSourceWorkspace = view->workspace();
@@ -46,7 +45,7 @@ namespace andromeda {
   }
 
   void Overview::updateDrag(double lx, double ly) {
-    Card* card = m_dragCard;
+    Card* card = dragCard();
     card->box.x = static_cast<int>(std::lround(lx - m_dragOffsetX));
     card->box.y = static_cast<int>(std::lround(ly - m_dragOffsetY));
     wlr_scene_node_set_position(&card->tree->node, card->box.x, card->box.y);
@@ -57,7 +56,7 @@ namespace andromeda {
   }
 
   void Overview::retargetDrop(double lx, double ly) {
-    Card* card = m_dragCard;
+    Card* card = dragCard();
     OutputState* state = nullptr;
     size_t workspaceIndex = 0;
     wlr_box workspaceHint{};
@@ -141,7 +140,7 @@ namespace andromeda {
   }
 
   void Overview::endDrag(bool drop) {
-    Card* card = m_dragCard;
+    Card* card = dragCard();
     if (card == nullptr) {
       return;
     }
@@ -153,7 +152,7 @@ namespace andromeda {
     const wlr_box cardBox = card->box;
     OutputState* dropState = target != nullptr ? stateForWorkspace(target) : nullptr;
 
-    m_dragCard = nullptr;
+    m_pointer.release();
     m_drop = {};
     m_dropWorkspaceGroup = nullptr;
     hideDropHint();
@@ -260,10 +259,10 @@ namespace andromeda {
   }
 
   View* Overview::swapTargetAt(double lx, double ly) {
-    if (m_dragCard == nullptr || m_dragSourceWorkspace == nullptr || m_dragSourceColumn < 0) {
+    if (dragCard() == nullptr || m_dragSourceWorkspace == nullptr || m_dragSourceColumn < 0) {
       return nullptr;
     }
-    const Card* card = cardAt(lx, ly, m_dragCard);
+    const Card* card = cardAt(lx, ly, dragCard());
     if (card == nullptr
         || card->view == nullptr
         || !card->view->mapped()
@@ -443,8 +442,8 @@ namespace andromeda {
     m_dropHint->show(
         output, visibleBox, static_cast<int>(std::lround(config().appearance.cornerRadius * z)), HintLook::Ring
     );
-    if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
-      wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
+    if (dragCard() != nullptr && dragCard()->tree != nullptr) {
+      wlr_scene_node_raise_to_top(&dragCard()->tree->node);
     }
   }
 
@@ -457,8 +456,8 @@ namespace andromeda {
       m_dropHint = std::make_unique<HintRect>(*m_server, m_tree);
     }
     m_dropHint->show(output, box, std::min(box.width, box.height) / 2, HintLook::Glow);
-    if (m_dragCard != nullptr && m_dragCard->tree != nullptr) {
-      wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
+    if (dragCard() != nullptr && dragCard()->tree != nullptr) {
+      wlr_scene_node_raise_to_top(&dragCard()->tree->node);
     }
   }
 
@@ -584,8 +583,8 @@ namespace andromeda {
       // A new edge fades in afresh, as in the prototype: the gradient must not morph across the output.
       m_edgeHint->hideImmediate();
       m_edgeHint->show(output, edge, 0, HintLook::Edge, strong);
-      if (m_dragCard != nullptr) {
-        wlr_scene_node_raise_to_top(&m_dragCard->tree->node);
+      if (dragCard() != nullptr) {
+        wlr_scene_node_raise_to_top(&dragCard()->tree->node);
       }
     }
     scheduleFrames();
@@ -614,7 +613,7 @@ namespace andromeda {
   int Overview::onEdgeTimer(void* data) {
     auto* self = static_cast<Overview*>(data);
     OutputState* state = self->m_edgeOutput != nullptr ? self->stateFor(self->m_edgeOutput) : nullptr;
-    if ((self->m_dragCard == nullptr && !self->m_thumbDragging) || state == nullptr || !self->interactive()) {
+    if ((self->dragCard() == nullptr && !self->m_thumbDragging) || state == nullptr || !self->interactive()) {
       self->stopEdgeScroll();
       return 0;
     }

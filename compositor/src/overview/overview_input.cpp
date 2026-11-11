@@ -20,7 +20,7 @@ namespace andromeda {
           shown = {card->box.x + card->clip.x, card->box.y + card->clip.y, card->clip.width, card->clip.height};
         }
         wlr_box hit = shown;
-        if (card.get() != m_dragCard && !wlr_box_intersection(&hit, &shown, &state->outputBox)) {
+        if (card.get() != dragCard() && !wlr_box_intersection(&hit, &shown, &state->outputBox)) {
           continue;
         }
         if (boxContains(hit, lx, ly)) {
@@ -188,7 +188,7 @@ namespace andromeda {
 
     if (!pressed) {
       if (button == BTN_MIDDLE) {
-        Card* card = m_middlePressCard;
+        Card* card = m_middlePressCard.get();
         const bool closeCard = m_middlePressed && !m_middleDragging;
         if (m_middleScrolling) {
           // A release settles the strip; clearMiddlePress() cancels whatever is still running.
@@ -214,7 +214,7 @@ namespace andromeda {
         }
         return true;
       }
-      if (m_dragCard != nullptr) {
+      if (dragCard() != nullptr) {
         endDrag(true);
         return true;
       }
@@ -222,9 +222,9 @@ namespace andromeda {
         endThumbDrag(true, lx, ly);
         return true;
       }
-      Card* card = m_pressCard;
+      Card* card = pressCard();
       Workspace* workspace = m_pressWorkspace.get();
-      m_pressCard = nullptr;
+      m_pointer.release();
       m_pressWorkspace = nullptr;
       // A tap on another desktop's thumbnail switches the shown desktop and keeps the overview open.
       WorkspaceGroup* thumbGroup = m_pressThumb && workspace != nullptr ? workspace->group() : nullptr;
@@ -260,7 +260,7 @@ namespace andromeda {
       return true;
     }
     if (windowMenuPress(lx, ly)) {
-      m_pressCard = nullptr;
+      m_pointer.press(nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -281,7 +281,7 @@ namespace andromeda {
       return true;
     }
     if (menuPress(lx, ly)) {
-      m_pressCard = nullptr;
+      m_pointer.press(nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -300,7 +300,7 @@ namespace andromeda {
       if (workspace != nullptr) {
         group->select(workspace);
       }
-      m_pressCard = nullptr;
+      m_pointer.press(nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -313,13 +313,13 @@ namespace andromeda {
       if (second) {
         startRename();
       }
-      m_pressCard = nullptr;
+      m_pointer.press(nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
     if (const View* close = closeButtonAt(lx, ly)) {
       m_closePress = close;
-      m_pressCard = nullptr;
+      m_pointer.press(nullptr);
       m_pressWorkspace = nullptr;
       return true;
     }
@@ -327,7 +327,7 @@ namespace andromeda {
     if (card != nullptr && cardInThumb(*card)) {
       card = nullptr;
     }
-    m_pressCard = card;
+    m_pointer.press(card);
     m_pressWorkspace = nullptr;
     m_pressX = lx;
     m_pressY = ly;
@@ -394,7 +394,7 @@ namespace andromeda {
       }
       return;
     }
-    if (m_dragCard != nullptr) {
+    if (dragCard() != nullptr) {
       updateDrag(lx, ly);
       return;
     }
@@ -411,7 +411,7 @@ namespace andromeda {
       updateThumbDrag(lx, ly);
       return;
     }
-    if (m_pressCard == nullptr) {
+    if (pressCard() == nullptr) {
       updateHover(lx, ly);
       return;
     }
