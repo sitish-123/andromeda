@@ -287,6 +287,8 @@ void Application::syncLiveActivity() {
         .title = i18n::tr("live-activity.recording"),
         .actionGlyph = "player-stop",
         .action = [this] { (void)m_screenRecorder->toggle(); },
+        .since = m_screenRecorder->recordingSince(),
+        .compact = LiveActivity::Compact::Recording,
     });
     return;
   }

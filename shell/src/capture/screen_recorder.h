@@ -39,7 +39,9 @@ public:
   ScreenRecorder& operator=(const ScreenRecorder&) = delete;
 
   [[nodiscard]] bool active() const { return m_state != State::Idle; }
-  // Runs when active() changes.
+  // When the pipeline started to record; nullopt until then and while idle.
+  [[nodiscard]] std::optional<std::chrono::steady_clock::time_point> recordingSince() const { return m_since; }
+  // Runs when active() changes and when the recording starts.
   void setActiveCallback(std::function<void()> callback) { m_activeCallback = std::move(callback); }
   // Starts a recording of the whole display, or of region (global logical coordinates) on it, or stops and saves the
   // current one. Returns an error message, empty on success.
@@ -82,6 +84,7 @@ private:
   std::string m_restoreToken;
   std::uint64_t m_tokenSeq = 0;
   State m_state = State::Idle;
+  std::optional<std::chrono::steady_clock::time_point> m_since; // set from Recording until Idle
   std::function<void()> m_activeCallback;
   void setState(State state);
   GstElement* m_pipeline = nullptr;

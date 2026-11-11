@@ -47,6 +47,7 @@ class RenderContext;
 class WaylandConnection;
 struct PointerEvent;
 struct wl_output;
+struct wl_surface;
 
 // One running task shown in the top-center island: a file transfer, a call, a recording, or media.
 struct LiveActivity {
@@ -63,8 +64,12 @@ struct LiveActivity {
   std::function<void()> secondaryAction;
   // A click on the island body; unset ignores it.
   std::function<void(wl_output*)> open;
-  // Set for an answered call: the island rests in the bar row with the glyph and the elapsed time; hover shows the card.
+  // Set for an answered call or a running recording: the island rests with the glyph and the elapsed time; hover shows
+  // the card.
   std::optional<std::chrono::steady_clock::time_point> since;
+  // The rest face of a timed activity: Call rests in every bar; Recording rests only in a bar lane, a row keeps its card.
+  enum class Compact : std::uint8_t { Call, Recording };
+  Compact compact = Compact::Call;
 };
 
 // The center island of the top or bottom islands bar. At rest it is a pill in the bar row with the privacy dots and the
@@ -84,10 +89,20 @@ public:
   // Runs per output with true when its island shows and false when it is gone, so the bar can hide that center section.
   void setVisibilityCallback(VisibilityCallback callback);
   void setSpaceProvider(SpaceProvider provider);
+  // The lane pill a sheet grows out of: its surface, its x, y, width, height there, and its centre on the output.
+  struct SheetSource {
+    wl_surface* surface = nullptr;
+    std::array<float, 4> rect{};
+    float anchorX = 0.0F;
+    float anchorY = 0.0F;
+  };
+  using OpenCallback = std::function<void(wl_output*, std::string_view, std::optional<SheetSource>)>;
+  // False while hover cards must stay closed: a sheet is open beside the island.
+  void setHoverGate(std::function<bool()> gate) { m_hoverGate = std::move(gate); }
   // Sources of the rest content, and the click on the rest pill.
   void setRestSources(
       std::function<PipeWireService*()> pipewire, std::function<MprisService*()> mpris, NotificationManager* notifications,
-      std::function<void(wl_output*, std::string_view)> open
+      OpenCallback open
   );
   // Album art download, audio levels for the media bars, and the next event of the idle hover face.
   void setExtraSources(HttpClient* http, std::function<PipeWireSpectrum*()> spectrum, CalendarService* calendar);
@@ -146,6 +161,12 @@ private:
     std::unique_ptr<LayerSurface> surface;
     // Our compositor morphs the island (clip and radius) and draws its shadow; null on other compositors.
     std::unique_ptr<DskSurfaceClient> dsk;
+    // In a bar lane on our compositor the pill and the card are two glass shapes, so the pill stays beside its card
+    // and the surface clip spans the surface; null elsewhere. After `dsk`, so destroyed first.
+    std::unique_ptr<DskShapeClient> pillShape;
+    std::unique_ptr<DskShapeClient> cardShape;
+    std::optional<DskSurfaceClient::Value> pillClip; // last clip sent to pillShape; nullopt = none yet
+    bool cardOpen = false;                           // cardShape has a clip, so it draws glass
     // Rest-face waveform drawn by the compositor as flat looping shapes; after `dsk`, so destroyed first.
     std::array<std::unique_ptr<DskShapeClient>, 3> barShape;
     std::optional<std::array<float, 6>> barShapeKey; // x, y, r, g, b, a of the looping bars; empty = client bars
@@ -176,6 +197,7 @@ private:
     Label* date = nullptr;
     Label* weekday = nullptr; // lane pill caption above the day number
     Glyph* callGlyph = nullptr;
+    Box* recordDot = nullptr; // lane pill: the red dot of a compact recording
     Box* divider = nullptr;
     Label* count = nullptr;
     Glyph* icon = nullptr;
@@ -310,10 +332,21 @@ private:
   [[nodiscard]] Rect cardRect(const Instance& inst, Face face) const;
   void hoverEnter(Instance& inst);
   void hoverLeave(Instance& inst);
+  // Closes the hover card now, without the collapse delay.
+  void endHover(Instance& inst);
   void loadArt(Instance& inst, Renderer& renderer, const std::string& artUrl);
   void syncBars();
   void tickBars();
   void syncBarShapes(Instance& inst);
+  [[nodiscard]] static bool laneGlass(const Instance& inst);
+  // The activity rests as a compact face (LiveActivity::since and compact) on this island.
+  [[nodiscard]] bool compactActivity(const Instance& inst) const;
+  // The lane pill as a sheet's source, so the sheet sits beside the bar at the island's top; nullopt in a bar row.
+  [[nodiscard]] std::optional<SheetSource> laneSheetSource(const Instance& inst) const;
+  // The lane pill's glass shape: at the pill while `shown`, else no clip.
+  void syncLanePill(Instance& inst, bool shown) const;
+  // The card shape follows `face`: grown from the pill to its card, or shrunk back into the pill and then cleared.
+  void syncLaneCard(Instance& inst, Face face, bool jump, bool continueMirror);
   [[nodiscard]] bool restUnderFullscreen(const Instance& inst) const;
   // The settled rest pill faded out with the bar's auto-hide: nothing draws, loops or takes input.
   [[nodiscard]] static bool restHidden(const Instance& inst);
@@ -335,7 +368,8 @@ private:
   std::function<MprisService*()> m_mpris;
   std::string m_date;
   NotificationManager* m_notifications = nullptr;
-  std::function<void(wl_output*, std::string_view)> m_open;
+  OpenCallback m_open;
+  std::function<bool()> m_hoverGate;
   PrivacyFilter m_micFilter;
   PrivacyFilter m_camFilter;
   PrivacyFilter m_screenFilter;

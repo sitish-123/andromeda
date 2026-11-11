@@ -44,6 +44,19 @@ namespace {
     TEST_CHECK(rightCard.x >= 0.0F);
   }
 
+  void testGapJoinsPillAndCard() {
+    for (const bool right : {false, true}) {
+      const auto pill = island_lane::pill(410.0F, 280.0F, 10.0F, 32.0F, 62.0F, right);
+      const auto card = island_lane::card(pill, 280.0F, 360.0F, 136.0F, right);
+      const auto gap = island_lane::gap(pill, right);
+      const float pillEdge = right ? pill.x : pill.x + pill.w;
+      const float cardEdge = right ? card.x + card.w : card.x;
+      TEST_CHECK(std::min(gap.x, gap.x + gap.w) == std::min(pillEdge, cardEdge));
+      TEST_CHECK(std::max(gap.x, gap.x + gap.w) == std::max(pillEdge, cardEdge));
+      TEST_CHECK(gap.y == pill.y && gap.h == pill.h);
+    }
+  }
+
 } // namespace
 
 int main() {
@@ -51,5 +64,6 @@ int main() {
   testPillHugsItsContent();
   testPillIsCentredInTheLane();
   testCardGrowsSidewaysTopEdgesEqual();
+  testGapJoinsPillAndCard();
   return 0;
 }

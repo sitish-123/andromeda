@@ -202,6 +202,7 @@ namespace {
   constexpr float kLaneArt = 22.0F;
   constexpr float kLaneArtRadius = 6.0F;
   constexpr float kLaneBarsHeight = 16.0F;
+  constexpr float kRecordDot = 8.0F;
   float lanePillWidth(const CenterIslandSpace& space, float scale) {
     return island_lane::pillWidth(space.height, scale, kHeight);
   }
@@ -257,7 +258,7 @@ void LiveActivityIsland::setSpaceProvider(SpaceProvider provider) { m_spaceProvi
 
 void LiveActivityIsland::setRestSources(
     std::function<PipeWireService*()> pipewire, std::function<MprisService*()> mpris, NotificationManager* notifications,
-    std::function<void(wl_output*, std::string_view)> open
+    OpenCallback open
 ) {
   m_pipewire = std::move(pipewire);
   m_mpris = std::move(mpris);
@@ -284,7 +285,8 @@ void LiveActivityIsland::setActivity(std::optional<LiveActivity> activity) {
   for (auto& inst : m_instances) {
     applyLayer(*inst);
   }
-  if (m_activity.has_value() && m_activity->since.has_value()) {
+  // The elapsed time ticks only where a compact face shows it.
+  if (std::ranges::any_of(m_instances, [this](const auto& inst) { return compactActivity(*inst); })) {
     if (!m_callTimer.active()) {
       m_callTimer.startRepeating(std::chrono::seconds(1), [this] { refresh(); });
     }
@@ -553,6 +555,11 @@ void LiveActivityIsland::ensureSurfaces() {
     inst->surface->setInputRegion({});
     if (auto* manager = m_wayland->dskSurfaceManager(); manager != nullptr) {
       inst->dsk = std::make_unique<DskSurfaceClient>(manager, inst->surface->wlSurface());
+      if (inLane(*inst) && inst->dsk->hasShapes()) {
+        // Created first, so the media bars' flat shapes draw over the pill.
+        inst->pillShape = std::make_unique<DskShapeClient>(*inst->dsk);
+        inst->cardShape = std::make_unique<DskShapeClient>(*inst->dsk);
+      }
     }
     inst->liveWidth = std::min(inst->width, static_cast<float>(kExpandedWidth));
     inst->restWidth = inLane(*inst) ? lanePillWidth(*space, inst->scale)
@@ -752,10 +759,7 @@ LiveActivityIsland::Face LiveActivityIsland::desiredFace(const Instance& inst) c
 }
 
 bool LiveActivityIsland::hidesBanner(const Instance& inst) const {
-  return activityHidesBanner(
-      m_activity.has_value(), m_activity.has_value() && m_activity->since.has_value(), inst.hovered,
-      inst.space.restless
-  );
+  return activityHidesBanner(m_activity.has_value(), compactActivity(inst), inst.hovered, inst.space.restless);
 }
 
 bool LiveActivityIsland::bannerCovered() const {
@@ -802,21 +806,30 @@ void LiveActivityIsland::updateFace(Instance& inst) {
 
 void LiveActivityIsland::hoverEnter(Instance& inst) {
   inst.collapse.stop();
-  // In the lane the card's clip leaves the pill under the pointer outside the surface: the pointer would leave at
-  // once and the hover would open and close in a loop. The pill opens its sheet on click instead.
-  if (inst.hovered || inLane(inst)) {
+  // A lane without glass shapes clips the pill away under its card: the pointer would leave at once and the hover
+  // would open and close in a loop. That pill opens its sheet on click instead.
+  if (inst.hovered || (inLane(inst) && !laneGlass(inst)) || (m_hoverGate && !m_hoverGate())) {
     return;
   }
   const MprisService* mpris = m_mpris ? m_mpris() : nullptr;
   const auto player = mpris != nullptr ? mpris->activePlayer() : std::nullopt;
   const bool playing = player.has_value() && player->playbackStatus == "Playing";
-  const bool compactCall = m_activity.has_value() && m_activity->since.has_value();
+  const bool compactCall = compactActivity(inst);
   // The date pill has no hover face; an expanded activity is already the card.
   if (m_activity.has_value() ? !compactCall : !playing) {
     return;
   }
   inst.hoverMedia = !m_activity.has_value();
   inst.hovered = true;
+  updateFace(inst);
+  apply(m_queue.setActivity(bannerCovered()));
+}
+
+void LiveActivityIsland::endHover(Instance& inst) {
+  inst.collapse.stop();
+  if (!std::exchange(inst.hovered, false)) {
+    return;
+  }
   updateFace(inst);
   apply(m_queue.setActivity(bannerCovered()));
 }
@@ -891,7 +904,9 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
   const bool level = inst.dsk->hasElevationProperty();
   const double elevation = expanded ? kExpandedElevation : kRestElevation * (inst.space.restless ? 0.0F : inst.space.opacity);
   const bool jump = !inst.dskTarget.has_value() || !animate || !MotionService::instance().enabled();
-  if (jump) {
+  if (laneGlass(inst)) {
+    syncLaneCard(inst, face, jump, continueMirror);
+  } else if (jump) {
     inst.dsk->set(DskSurfaceClient::Property::Clip, clip);
     inst.dsk->set(DskSurfaceClient::Property::Radius, radius);
     if (inst.dsk->hasTintProperty()) {
@@ -918,7 +933,9 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
       inst.dsk->animate(DskSurfaceClient::Property::Elevation, curve, {elevation, 0.0, 0.0, 0.0});
     }
   }
-  if (level) {
+  if (laneGlass(inst)) {
+    // The shapes carry the elevation; syncLanePill sets the pill's.
+  } else if (level) {
     if (jump) {
       inst.dsk->set(DskSurfaceClient::Property::Elevation, {elevation, 0.0, 0.0, 0.0});
     }
@@ -940,6 +957,122 @@ bool LiveActivityIsland::syncDsk(Instance& inst, bool animate, bool continueMirr
   }
   inst.surface->requestRedraw();
   return true;
+}
+
+bool LiveActivityIsland::laneGlass(const Instance& inst) { return inst.pillShape != nullptr; }
+
+bool LiveActivityIsland::compactActivity(const Instance& inst) const {
+  return m_activity.has_value() && m_activity->since.has_value()
+      && (m_activity->compact == LiveActivity::Compact::Call || inLane(inst));
+}
+
+std::optional<LiveActivityIsland::SheetSource> LiveActivityIsland::laneSheetSource(const Instance& inst) const {
+  if (!inLane(inst) || inst.surface == nullptr) {
+    return std::nullopt;
+  }
+  const auto& outputs = m_wayland->outputs();
+  const auto output = std::ranges::find_if(outputs, [&inst](const auto& o) { return o.output == inst.output; });
+  if (output == outputs.end()) {
+    return std::nullopt;
+  }
+  const Rect p = faceRect(inst, Face::Rest);
+  const float k = inst.scale;
+  const auto w = static_cast<float>(inst.surface->width());
+  const auto h = static_cast<float>(inst.surface->height());
+  const auto margin = static_cast<float>(surfaceMargin(inst.space));
+  // islandAnchor: the compositor centres the lane surface on the output's height.
+  const float x0 =
+      inst.space.lane == IslandLane::Right ? static_cast<float>(output->effectiveLogicalWidth()) - margin - w : margin;
+  const float y0 = std::floor((static_cast<float>(output->effectiveLogicalHeight()) - h) * 0.5F);
+  const std::array<float, 4> rect{p.x * k, p.y * k, p.w * k, p.h * k};
+  return SheetSource{
+      .surface = inst.surface->wlSurface(),
+      .rect = rect,
+      .anchorX = x0 + rect[0] + rect[2] * 0.5F,
+      .anchorY = y0 + rect[1] + rect[3] * 0.5F,
+  };
+}
+
+void LiveActivityIsland::syncLanePill(Instance& inst, bool shown) const {
+  if (!laneGlass(inst)) {
+    return;
+  }
+  const Rect p = faceRect(inst, Face::Rest);
+  const double k = inst.scale;
+  const DskSurfaceClient::Value clip = shown ? DskSurfaceClient::Value{p.x * k, p.y * k, p.w * k, p.h * k} : DskSurfaceClient::Value{};
+  if (inst.pillClip == clip) {
+    return;
+  }
+  inst.pillShape->set(DskSurfaceClient::Property::Clip, clip);
+  inst.pillShape->set(DskSurfaceClient::Property::Radius, {p.radius * k, 0.0, 0.0, 0.0});
+  inst.pillClip = clip;
+  inst.surface->requestRedraw();
+}
+
+void LiveActivityIsland::syncLaneCard(Instance& inst, Face face, bool jump, bool continueMirror) {
+  const double k = inst.scale;
+  const bool expanded = face != Face::Rest;
+  // The surface clip spans the surface, so it cuts neither shape and draws no glass of its own.
+  inst.dsk->set(DskSurfaceClient::Property::Clip, {0.0, 0.0, surfaceWidth(inst) * k, surfaceHeight(inst) * k});
+  inst.dsk->set(DskSurfaceClient::Property::Radius, {});
+  if (inst.dsk->hasElevationProperty()) {
+    inst.dsk->set(DskSurfaceClient::Property::Elevation, {});
+  } else {
+    inst.dsk->setElevation(DskSurfaceClient::Elevation::None);
+  }
+  const Rect r = faceRect(inst, face);
+  const Rect pill = faceRect(inst, Face::Rest);
+  const DskSurfaceClient::Value clip{r.x * k, r.y * k, r.w * k, r.h * k};
+  const DskSurfaceClient::Value radius{r.radius * k, 0.0, 0.0, 0.0};
+  const DskSurfaceClient::Value elevation{expanded ? kExpandedElevation : 0.0, 0.0, 0.0, 0.0};
+  const bool level = inst.dsk->hasElevationProperty();
+  const bool tinted = inst.dsk->hasTintProperty();
+  DskShapeClient& card = *inst.cardShape;
+  if (jump) {
+    card.set(DskSurfaceClient::Property::Clip, expanded ? clip : DskSurfaceClient::Value{});
+    card.set(DskSurfaceClient::Property::Radius, radius);
+    if (tinted) {
+      card.set(DskSurfaceClient::Property::Tint, islandTint(inst, face));
+    }
+    if (level) {
+      card.set(DskSurfaceClient::Property::Elevation, elevation);
+    }
+    inst.cardOpen = expanded;
+    return;
+  }
+  if (expanded && !inst.cardOpen) {
+    // The card grows out of the pill.
+    card.set(DskSurfaceClient::Property::Clip, {pill.x * k, pill.y * k, pill.w * k, pill.h * k});
+    card.set(DskSurfaceClient::Property::Radius, {pill.radius * k, 0.0, 0.0, 0.0});
+    if (tinted) {
+      card.set(DskSurfaceClient::Property::Tint, islandTint(inst, Face::Rest));
+    }
+    inst.cardOpen = true;
+  }
+  const auto curve = expanded ? DskSurfaceClient::Curve::SpringIslandExpand : DskSurfaceClient::Curve::SpringIslandCollapse;
+  startMirror(inst, r, expanded, continueMirror);
+  MorphHost host{*this, inst};
+  const std::uint32_t generation = inst.morph.retarget(host, clipSpring(*inst.dsk, expanded));
+  if (inst.cardOpen) {
+    auto* instPtr = &inst;
+    card.animate(DskSurfaceClient::Property::Clip, curve, clip, [instPtr](DskSurfaceClient::EndReason reason) {
+      // Shrunk into the pill: the card stops drawing a second glass there.
+      if (reason == DskSurfaceClient::EndReason::Finished && instPtr->morph.shown() == Face::Rest && instPtr->cardOpen) {
+        instPtr->cardShape->set(DskSurfaceClient::Property::Clip, {});
+        instPtr->cardOpen = false;
+        instPtr->surface->requestRedraw();
+      }
+    });
+    card.animate(DskSurfaceClient::Property::Radius, curve, radius);
+    if (tinted) {
+      card.animate(DskSurfaceClient::Property::Tint, curve, islandTint(inst, face));
+    }
+    if (level) {
+      card.animate(DskSurfaceClient::Property::Elevation, curve, elevation);
+    }
+  }
+  // A shape sends no `started`: the mirror starts with the request, a frame before the compositor.
+  inst.morph.started(host, generation, monotonicMs(), continueMirror);
 }
 
 bool LiveActivityIsland::mirrored(const Instance& inst) { return inst.dsk != nullptr && MotionService::instance().enabled(); }
@@ -1092,6 +1225,14 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
       .glyph = "phone-call",
       .glyphSize = Tokens::componentIslandIcon,
       .color = colorSpecFromRole(ColorRole::Success),
+      .visible = false,
+  }));
+  restContent->addChild(ui::box({
+      .out = &inst.recordDot,
+      .fill = colorSpecFromRole(ColorRole::Danger),
+      .radius = kRecordDot * 0.5F,
+      .width = kRecordDot,
+      .height = kRecordDot,
       .visible = false,
   }));
   restContent->addChild(ui::label({
@@ -1458,6 +1599,10 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
               return;
             }
             const bool fromBanner = instPtr->morph.shown() == Face::Banner;
+            if (inLane(*instPtr)) {
+              // The sheet opens beside the pill, where a hover card would lie.
+              endHover(*instPtr);
+            }
             if (fromBanner && m_banner.has_value()) {
               const BannerItem banner = *m_banner;
               endBanner();
@@ -1468,19 +1613,19 @@ void LiveActivityIsland::buildScene(Instance& inst, float width, float height) {
                 }
               }
             }
-            if (!fromBanner && inLane(*instPtr) && m_activity.has_value() && m_activity->since.has_value()) {
+            if (!fromBanner && inLane(*instPtr) && compactActivity(*instPtr)) {
               if (m_activity->open) {
                 m_activity->open(instPtr->output);
               }
               return;
             }
             if (!fromBanner && inLane(*instPtr) && instPtr->mediaGroup->visible() && m_open) {
-              m_open(instPtr->output, "detail-media");
+              m_open(instPtr->output, "detail-media", laneSheetSource(*instPtr));
               return;
             }
             // A banner opens the notification history; the resting date pill opens the calendar, as the clock does.
             if (m_open) {
-              m_open(instPtr->output, fromBanner ? "detail-notifications" : "calendar");
+              m_open(instPtr->output, fromBanner ? "detail-notifications" : "calendar", laneSheetSource(*instPtr));
             }
           },
   });
@@ -1548,6 +1693,15 @@ void LiveActivityIsland::applyContent(Instance& inst) {
     if (inst.dsk->hasTintProperty()) {
       inst.dsk->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.morph.shown()));
     }
+    if (laneGlass(inst)) {
+      for (DskShapeClient* shape : {inst.pillShape.get(), inst.cardShape.get()}) {
+        shape->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
+      }
+      if (inst.dsk->hasTintProperty()) {
+        inst.pillShape->set(DskSurfaceClient::Property::Tint, islandTint(inst, Face::Rest));
+        inst.cardShape->set(DskSurfaceClient::Property::Tint, islandTint(inst, inst.morph.shown()));
+      }
+    }
   }
   inst.material->setFill(
       inst.compositorTint ? colorSpecFromRole(materialRole(), 0.0F)
@@ -1589,13 +1743,21 @@ void LiveActivityIsland::applyContent(Instance& inst) {
   const auto player = mpris != nullptr ? mpris->activePlayer() : std::nullopt;
   const bool playing = player.has_value() && player->playbackStatus == "Playing";
   m_date = dateText();
-  const bool compactCall = m_activity.has_value() && m_activity->since.has_value();
+  const bool compactCall = compactActivity(inst);
   inst.mediaGroup->setVisible(playing && !compactCall);
   inst.mediaTitle->setText(playing ? (!player->title.empty() ? player->title : player->identity) : std::string{});
   inst.mediaTitle->setMaxWidth(kRestMaxWidth);
-  inst.callGlyph->setVisible(compactCall);
+  const bool recording = compactCall && m_activity->compact == LiveActivity::Compact::Recording;
+  inst.callGlyph->setVisible(compactCall && !recording);
+  inst.recordDot->setVisible(recording);
   inst.date->setVisible(!playing || compactCall);
   const bool lane = inLane(inst);
+  // In the lane the elapsed time takes the activity's colour: green for a call, red for a recording.
+  inst.date->setColor(colorSpecFromRole(
+      !lane || !compactCall ? ColorRole::Label1
+          : recording       ? ColorRole::Danger
+                            : ColorRole::Success
+  ));
   inst.weekday->setVisible(lane && !playing && !compactCall);
   if (lane) {
     inst.weekday->setText(laneDateText("%a"));
@@ -1913,31 +2075,36 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   const Rect restR = faceRect(inst, Face::Rest);
 
   // With the compositor the fills span the surface and its clip morphs them; otherwise the fills are the island.
-  const Rect box = inst.dsk != nullptr ? Rect{0.0F, 0.0F, maxW, maxH, cur.radius} : cur;
-  for (Box* fill : {inst.material, inst.tint}) {
-    fill->setPosition(box.x, box.y);
-    fill->setSize(box.w, box.h);
-    fill->setRadius(box.radius);
+  // Lane glass: the compositor clips nothing, so the pill fill is the pill and the card fill is the card.
+  const bool lane = laneGlass(inst);
+  const Rect box = inst.dsk != nullptr && !lane ? Rect{0.0F, 0.0F, maxW, maxH, cur.radius} : cur;
+  const Rect pillBox = lane ? restR : box;
+  for (const auto& [fill, b] : {std::pair{inst.material, pillBox}, std::pair{inst.tint, box}}) {
+    fill->setPosition(b.x, b.y);
+    fill->setSize(b.w, b.h);
+    fill->setRadius(b.radius);
   }
-  // The pill material shows at rest; every other face sits on the live tint.
+  // The pill material shows at rest; every other face sits on the live tint. In the lane the pill stays beside its card.
   const float restMix =
       lerp(inst.morph.from() == Face::Rest ? 1.0F : 0.0F, inst.morph.shown() == Face::Rest ? 1.0F : 0.0F, t);
-  inst.material->setOpacity(restMix);
+  const float pillMix = lane ? 1.0F : restMix;
+  inst.material->setOpacity(pillMix);
   inst.tint->setOpacity(1.0F - restMix);
-  inst.ring->setPosition(cur.x, cur.y);
-  inst.ring->setSize(cur.w, cur.h);
-  inst.ring->setRadius(cur.radius);
-  inst.ring->setOpacity(restMix);
+  const Rect ringR = lane ? restR : cur;
+  inst.ring->setPosition(ringR.x, ringR.y);
+  inst.ring->setSize(ringR.w, ringR.h);
+  inst.ring->setRadius(ringR.radius);
+  inst.ring->setOpacity(pillMix);
   {
     // The style cuts the pill out at +offset, so the shadow node sits at the pill + offset.
     const auto offset = shadowDirectionOffset(m_config->config().shell.shadow.direction);
-    inst.shadow->setPosition(cur.x + static_cast<float>(offset.x), cur.y + static_cast<float>(offset.y));
+    inst.shadow->setPosition(ringR.x + static_cast<float>(offset.x), ringR.y + static_cast<float>(offset.y));
   }
-  inst.shadow->setSize(cur.w, cur.h);
-  inst.shadow->setRadius(cur.radius);
+  inst.shadow->setSize(ringR.w, ringR.h);
+  inst.shadow->setRadius(ringR.radius);
   // With the elevation property the compositor draws the one shadow along the clip; the shell box is the fallback.
   const bool compositorShadow = inst.dsk != nullptr && inst.dsk->hasElevationProperty();
-  inst.shadow->setOpacity(compositorShadow ? 0.0F : restMix);
+  inst.shadow->setOpacity(compositorShadow ? 0.0F : pillMix);
 
   for (std::size_t i = 0; i < kFaceCount; ++i) {
     const auto f = static_cast<Face>(i);
@@ -1954,6 +2121,10 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
       opacity = 1.0F - out;
       scale = 1.0F - (1.0F - kFaceScale) * out;
     }
+    if (lane && f == Face::Rest) {
+      opacity = 1.0F;
+      scale = 1.0F;
+    }
     node->setVisible(opacity > 0.0F);
     node->setOpacity(opacity);
     node->setTransformOrigin(node->width() * 0.5F, node->height() * 0.5F);
@@ -1961,8 +2132,8 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
     const Rect r = cardRect(inst, f);
     if (f == Face::Rest) {
       node->setPosition(
-          std::round(restR.x + (restR.w - node->width()) * 0.5F - box.x),
-          std::round(restR.y + (inLane(inst) ? inst.restPadTop : (restR.h - node->height()) * 0.5F) - box.y)
+          std::round(restR.x + (restR.w - node->width()) * 0.5F - pillBox.x),
+          std::round(restR.y + (inLane(inst) ? inst.restPadTop : (restR.h - node->height()) * 0.5F) - pillBox.y)
       );
     } else {
       node->setPosition(r.x - box.x, r.y - box.y);
@@ -1974,11 +2145,18 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   inst.sceneRoot->setOpacity(shown);
   // A faded-out pill draws nothing at all; syncBarShapes and barsNeedTimer stop its loops (restHidden).
   inst.sceneRoot->setVisible(!restHidden(inst));
-  if (compositorShadow && inst.morph.shown() == Face::Rest && !follow && reveal >= 1.0F) {
+  if (lane) {
+    syncLanePill(inst, shown > 0.01F && !restHidden(inst));
+  }
+  if (compositorShadow && (lane || (inst.morph.shown() == Face::Rest && !follow && reveal >= 1.0F))) {
     // At rest the pill follows the bar's auto-hide fade, and so does its shadow.
     const double level = kRestElevation * shown;
     if (std::abs(level - inst.dskLevel) > 0.004) {
-      inst.dsk->set(DskSurfaceClient::Property::Elevation, {level, 0.0, 0.0, 0.0});
+      if (lane) {
+        inst.pillShape->set(DskSurfaceClient::Property::Elevation, {level, 0.0, 0.0, 0.0});
+      } else {
+        inst.dsk->set(DskSurfaceClient::Property::Elevation, {level, 0.0, 0.0, 0.0});
+      }
       inst.dskLevel = level;
     }
   }
@@ -2003,10 +2181,24 @@ void LiveActivityIsland::applyReveal(Instance& inst, float reveal) {
   }
   // A morph on the compositor clip takes input at its target box, so the region changes once per morph.
   const Rect hit = mirrored(inst) ? inst.to : cur;
-  std::vector<InputRect> input = shown >= 0.5F
-      ? std::vector<InputRect>{InputRect{static_cast<int>(hit.x * k), static_cast<int>(hit.y * k),
-                                         std::max(1, static_cast<int>(hit.w * k)), std::max(1, static_cast<int>(hit.h * k))}}
-      : std::vector<InputRect>{};
+  const auto inputRect = [k](const Rect& r) {
+    return InputRect{static_cast<int>(r.x * k), static_cast<int>(r.y * k), std::max(1, static_cast<int>(r.w * k)),
+                     std::max(1, static_cast<int>(r.h * k))};
+  };
+  std::vector<InputRect> input;
+  if (shown >= 0.5F && lane) {
+    input.push_back(inputRect(restR));
+    if (inst.morph.shown() != Face::Rest) {
+      // The gap between the pill and its card keeps the hover while the pointer crosses it.
+      const island_lane::Box gap = island_lane::gap(
+          {.x = restR.x, .y = restR.y, .w = restR.w, .h = restR.h}, inst.space.lane == IslandLane::Right
+      );
+      input.push_back(inputRect(Rect{.x = gap.x, .y = gap.y, .w = gap.w, .h = gap.h}));
+      input.push_back(inputRect(hit));
+    }
+  } else if (shown >= 0.5F) {
+    input.push_back(inputRect(hit));
+  }
   if (input != inst.sentInput) {
     inst.surface->setInputRegion(input);
     inst.sentInput = std::move(input);

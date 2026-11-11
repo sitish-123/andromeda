@@ -1009,9 +1009,22 @@ void Application::initNotificationAndOsd() {
   m_liveActivity.initialize(m_wayland, &m_configService, &m_renderContext);
   m_liveActivity.setVisibilityCallback([this](wl_output* output, bool visible) { m_bar.setCenterIslandHidden(output, visible); });
   m_liveActivity.setSpaceProvider([this](wl_output* output) { return m_bar.centerIslandSpace(output); });
-  m_liveActivity.setRestSources([this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager, [this](wl_output* output, std::string_view context) {
-    m_panelManager.togglePanel("control-center", PanelOpenRequest{.output = output, .context = context});
-  });
+  m_liveActivity.setRestSources(
+      [this] { return pipewire(); }, [this] { return mpris(); }, &m_notificationManager,
+      [this](wl_output* output, std::string_view context, std::optional<LiveActivityIsland::SheetSource> source) {
+        PanelOpenRequest request{.output = output, .context = context};
+        if (source.has_value()) {
+          // A lane island: the sheet grows out of the pill and keeps its top edge.
+          request.anchorX = source->anchorX;
+          request.anchorY = source->anchorY;
+          request.hasAnchorPosition = true;
+          request.sourceSurface = source->surface;
+          request.sourceRect = source->rect;
+        }
+        m_panelManager.togglePanel("control-center", request);
+      }
+  );
+  m_liveActivity.setHoverGate([this] { return !m_panelManager.isOpen(); });
   m_liveActivity.setExtraSources(&m_httpClient, [this] { return m_pipewireSpectrum.get(); }, &m_calendarService);
   (void)m_calendarService.addChangeCallback(m_liveActivity.refresher());
   m_osdOverlay.setIsland(

@@ -552,7 +552,12 @@ void ScreenRecorder::setState(State state) {
   if (state != State::Starting) {
     m_portalOwnerWatch.reset();
   }
-  if (wasActive != active() && m_activeCallback) {
+  if (state == State::Recording) {
+    m_since = std::chrono::steady_clock::now();
+  } else if (state == State::Idle) {
+    m_since.reset();
+  }
+  if ((wasActive != active() || state == State::Recording) && m_activeCallback) {
     m_activeCallback();
   }
 }

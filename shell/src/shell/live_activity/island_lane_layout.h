@@ -48,6 +48,11 @@ namespace island_lane {
     };
   }
 
+  // The gap between the pill and its card, on the pill's rows: input there keeps the hover while the pointer crosses.
+  [[nodiscard]] constexpr Box gap(const Box& pill, bool right) noexcept {
+    return {.x = right ? pill.x - kCardGap : pill.x + pill.w, .y = pill.y, .w = kCardGap, .h = pill.h};
+  }
+
   [[nodiscard]] constexpr float surfaceWidth(float pad, float pillW, float cardW) noexcept {
     return pad + pillW + kCardGap + cardW;
   }
