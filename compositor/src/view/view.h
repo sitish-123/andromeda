@@ -152,8 +152,8 @@ namespace andromeda {
     [[nodiscard]] bool effectSelectionPending() const { return m_effectSelectionIdle != nullptr; }
     void refreshEffectSelection();
     [[nodiscard]] wlr_scene_tree* captureTree() const;
-    // Hides the capture tree, so a window capture shows no content, while any mapped surface of the window (its
-    // subsurfaces and popups included) is secure (dsk_surface_v1.set_secure).
+    // Hides the capture tree behind a black rectangle of the window's size, so a window capture shows no content,
+    // while any mapped surface of the window (its subsurfaces and popups included) is secure (dsk_surface_v1.set_secure).
     void refreshCaptureHidden();
     [[nodiscard]] bool mapped() const { return m_lifecycle != Lifecycle::Unmapped; }
     // The pid of the application process, or -1 when it is unknown (an X11 client that sets no _NET_WM_PID).
@@ -619,6 +619,8 @@ namespace andromeda {
       wl_listener commit{};
       wl_listener newSubsurface{};
       wl_listener subsurfaceDestroy{};
+      wl_listener map{};
+      wl_listener unmap{};
       wl_listener destroy{};
     };
 
@@ -648,6 +650,8 @@ namespace andromeda {
     static void onForeignDestroy(wl_listener* listener, void* data);
     static void onExtForeignDestroy(wl_listener* listener, void* data);
     static void onViewSurfaceCommit(wl_listener* listener, void* data);
+    static void onViewSurfaceMap(wl_listener* listener, void* data);
+    static void onViewSurfaceUnmap(wl_listener* listener, void* data);
     static void onViewSurfaceNewSubsurface(wl_listener* listener, void* data);
     static void onViewSubsurfaceDestroy(wl_listener* listener, void* data);
     static void onViewSurfaceDestroy(wl_listener* listener, void* data);
@@ -994,6 +998,8 @@ namespace andromeda {
     // A separate scene containing only client-owned surfaces. Window capture
     // must never sample the composited desktop behind translucent content.
     wlr_scene* m_captureScene = nullptr;
+    // In m_captureScene; enabled while refreshCaptureHidden hides the window's surfaces.
+    wlr_scene_rect* m_captureBlank = nullptr;
     ViewDecoration m_decoration;
     std::unique_ptr<ViewChromeAttachment> m_chromeAttachment;
     std::unique_ptr<SsdFrame> m_ssdFrame;

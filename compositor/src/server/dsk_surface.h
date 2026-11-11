@@ -68,12 +68,15 @@ namespace andromeda {
     // surface lives.
     void setSecureHandler(std::function<void(wlr_surface*, bool)> handler) { m_secureHandler = std::move(handler); }
     // True while any surface is secure or a secure copy lives; a cheap gate for per-frame capture redaction.
-    [[nodiscard]] bool anySecure() const { return m_secureCount > 0 || !m_secureCopies.empty(); }
+    [[nodiscard]] bool anySecure() const { return m_secureCount > 0 || m_fixedCopies > 0; }
     // True when `surface` or a surface it is a subsurface or xdg_popup of is secure.
     [[nodiscard]] bool secureTree(wlr_surface* surface) const;
     // Output captures paint `copy`, a scene buffer that shows a secure surface's buffer (a thumbnail, a close
     // snapshot), black until the node is destroyed.
     void markSecureCopy(wlr_scene_buffer* copy);
+    // Output captures paint `copy`, a scene buffer that follows `source`'s buffers, black while secureTree(source);
+    // when `source` goes first, the copy keeps the state `source` had.
+    void markMirror(wlr_scene_buffer* copy, wlr_surface* source);
     [[nodiscard]] bool secureCopy(const wlr_scene_buffer* buffer) const;
 
     // The committed state of `surface`; nullptr when it has no dsk_surface_v1.
@@ -172,6 +175,10 @@ namespace andromeda {
       wlr_buffer* pendingGlassMask = nullptr;
       wlr_box pendingGlassMaskBox{};
       std::optional<bool> pendingSecure{};
+      // The wl_surface state seq whose application clears current.secure; a cached commit (sync subsurface, fifo,
+      // syncobj) applies later, and its old buffer stays on screen until then.
+      std::optional<uint32_t> secureClearSeq{};
+      wl_listener commit{};
       State current{};
       std::vector<Shape*> shapes{}; // every live dsk_shape_v1, in creation order
     };
@@ -226,6 +233,8 @@ namespace andromeda {
     static void applyOps(const std::vector<Op>& ops, SurfaceMotion& motion);
     static void sendShapeEvents(Shape& shape, uint32_t timeMs);
     static void handleClientCommit(wl_listener* listener, void* data);
+    static void handleCommit(wl_listener* listener, void* data);
+    static void setSecure(Surface* state, bool secure);
     static void handleAddonDestroy(wlr_addon* addon);
     // timeMs stamps started events: the frame time from tick(), or the commit time.
     static void sendEvents(Surface& state, uint32_t timeMs);
@@ -262,11 +271,17 @@ namespace andromeda {
     std::function<void(wlr_surface*, bool)> m_secureHandler;
     size_t m_secureCount = 0;
     struct SecureCopy {
+      enum class Kind : uint8_t { Fixed, Mirror };
       DskSurfaceManager* manager;
       wlr_scene_buffer* buffer;
+      Kind kind;
+      wlr_surface* source; // valid while kind is Mirror
       wl_listener destroy;
+      wl_listener sourceDestroy;
     };
+    void addCopy(wlr_scene_buffer* copy, wlr_surface* source);
     std::vector<std::unique_ptr<SecureCopy>> m_secureCopies;
+    size_t m_fixedCopies = 0;
   };
 
 } // namespace andromeda

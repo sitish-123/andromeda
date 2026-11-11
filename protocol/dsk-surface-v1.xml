@@ -273,8 +273,12 @@
         output show this surface and its subsurfaces as an opaque black
         rectangle, and a capture of a window whose main surface is secure
         shows nothing. The screen
-        itself shows the surface as usual. Double-buffered: it applies on
-        the next wl_surface.commit.
+        itself shows the surface as usual. A surface with the wl_pointer
+        cursor role is not covered: captures show the cursor the client
+        sets. Double-buffered: setting 1 applies on the next
+        wl_surface.commit; setting 0 applies when the state of that commit
+        applies, so a buffer held back by a synchronized subsurface or a
+        fence stays covered until it replaces the old one.
       </description>
       <arg name="secure" type="uint" summary="1 secure, 0 not"/>
     </request>

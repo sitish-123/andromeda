@@ -644,8 +644,9 @@ namespace andromeda {
       int rootX;
       int rootY;
       int buffersCopied;
+      DskSurfaceManager* dsk;
     };
-    CopyCtx ctx{snap, tree->node.x, tree->node.y, 0};
+    CopyCtx ctx{snap, tree->node.x, tree->node.y, 0, m_server->dskSurfaces()};
     wlr_scene_node_for_each_buffer(
         &tree->node,
         [](wlr_scene_buffer* src, int sx, int sy, void* data) {
@@ -669,6 +670,12 @@ namespace andromeda {
           wlr_scene_buffer_set_corner_box(copy, &src->corner_box);
           wlr_scene_buffer_set_opacity(copy, src->opacity);
           wlr_scene_buffer_copy_color(copy, src);
+          if (c->dsk != nullptr) {
+            const wlr_scene_surface* sceneSurface = wlr_scene_surface_try_from_buffer(src);
+            if (sceneSurface != nullptr ? c->dsk->secureTree(sceneSurface->surface) : c->dsk->secureCopy(src)) {
+              c->dsk->markSecureCopy(copy);
+            }
+          }
           ++c->buffersCopied;
         },
         &ctx

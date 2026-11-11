@@ -130,6 +130,11 @@ namespace andromeda {
     wl_signal_add(&surface->events.commit, &watch->commit);
     watch->newSubsurface.notify = onViewSurfaceNewSubsurface;
     wl_signal_add(&surface->events.new_subsurface, &watch->newSubsurface);
+    // A secure subsurface that maps after its secure commit, or shows again, hides the window capture only here.
+    watch->map.notify = onViewSurfaceMap;
+    wl_signal_add(&surface->events.map, &watch->map);
+    watch->unmap.notify = onViewSurfaceUnmap;
+    wl_signal_add(&surface->events.unmap, &watch->unmap);
     if (watch->subsurface != nullptr) {
       watch->subsurfaceDestroy.notify = onViewSubsurfaceDestroy;
       wl_signal_add(&watch->subsurface->events.destroy, &watch->subsurfaceDestroy);
@@ -143,6 +148,8 @@ namespace andromeda {
     for (const auto& watch : m_viewSurfaceWatches) {
       wl_list_remove(&watch->commit.link);
       wl_list_remove(&watch->newSubsurface.link);
+      wl_list_remove(&watch->map.link);
+      wl_list_remove(&watch->unmap.link);
       if (watch->subsurface != nullptr) {
         wl_list_remove(&watch->subsurfaceDestroy.link);
       }
@@ -171,6 +178,10 @@ namespace andromeda {
   void View::onCommit(wl_listener* listener, void* /*data*/) {
     View* self = wl_container_of(listener, self, m_commit);
     self->handleCommit();
+    if (self->m_captureBlank != nullptr && self->m_captureBlank->node.enabled) {
+      // The blank follows the window's size.
+      self->refreshCaptureHidden();
+    }
     self->transitionConfigure(ConfigureEvent::Commit);
     if (Ipc* ipc = self->m_server->ipc()) {
       ipc->notifyViewCommitted();
@@ -181,6 +192,18 @@ namespace andromeda {
     ViewSurfaceWatch* watch;
     watch = wl_container_of(listener, watch, commit);
     watch->view->syncContentType(watch->surface);
+  }
+
+  void View::onViewSurfaceMap(wl_listener* listener, void* /*data*/) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, map);
+    watch->view->refreshCaptureHidden();
+  }
+
+  void View::onViewSurfaceUnmap(wl_listener* listener, void* /*data*/) {
+    ViewSurfaceWatch* watch;
+    watch = wl_container_of(listener, watch, unmap);
+    watch->view->refreshCaptureHidden();
   }
 
   void View::onViewSurfaceNewSubsurface(wl_listener* listener, void* data) {
@@ -205,6 +228,8 @@ namespace andromeda {
     View* view = watch->view;
     wl_list_remove(&watch->commit.link);
     wl_list_remove(&watch->newSubsurface.link);
+    wl_list_remove(&watch->map.link);
+    wl_list_remove(&watch->unmap.link);
     if (watch->subsurface != nullptr) {
       wl_list_remove(&watch->subsurfaceDestroy.link);
     }

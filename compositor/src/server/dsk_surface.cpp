@@ -74,6 +74,9 @@ namespace andromeda {
   DskSurfaceManager::~DskSurfaceManager() {
     for (const auto& entry : m_secureCopies) {
       wl_list_remove(&entry->destroy.link);
+      if (entry->kind == SecureCopy::Kind::Mirror) {
+        wl_list_remove(&entry->sourceDestroy.link);
+      }
     }
     if (m_global != nullptr) {
       wl_global_destroy(m_global);
@@ -120,19 +123,56 @@ namespace andromeda {
     return false;
   }
 
-  void DskSurfaceManager::markSecureCopy(wlr_scene_buffer* copy) {
-    auto entry = std::make_unique<SecureCopy>(SecureCopy{.manager = this, .buffer = copy, .destroy = {}});
+  void DskSurfaceManager::markSecureCopy(wlr_scene_buffer* copy) { addCopy(copy, nullptr); }
+
+  void DskSurfaceManager::markMirror(wlr_scene_buffer* copy, wlr_surface* source) { addCopy(copy, source); }
+
+  void DskSurfaceManager::addCopy(wlr_scene_buffer* copy, wlr_surface* source) {
+    using Kind = SecureCopy::Kind;
+    auto entry = std::make_unique<SecureCopy>(SecureCopy{
+        .manager = this,
+        .buffer = copy,
+        .kind = source != nullptr ? Kind::Mirror : Kind::Fixed,
+        .source = source,
+        .destroy = {},
+        .sourceDestroy = {},
+    });
     entry->destroy.notify = [](wl_listener* listener, void* /*data*/) {
       SecureCopy* self = wl_container_of(listener, self, destroy);
       wl_list_remove(&self->destroy.link);
+      if (self->kind == Kind::Mirror) {
+        wl_list_remove(&self->sourceDestroy.link);
+      } else {
+        --self->manager->m_fixedCopies;
+      }
       std::erase_if(self->manager->m_secureCopies, [self](const auto& entry) { return entry.get() == self; });
     };
     wl_signal_add(&copy->node.events.destroy, &entry->destroy);
+    if (source != nullptr) {
+      // The dsk_surface_v1 state goes after the surface's destroy signal, so secureTree still answers here.
+      entry->sourceDestroy.notify = [](wl_listener* listener, void* /*data*/) {
+        SecureCopy* self = wl_container_of(listener, self, sourceDestroy);
+        wl_list_remove(&self->sourceDestroy.link);
+        DskSurfaceManager* manager = self->manager;
+        if (manager->secureTree(self->source)) {
+          self->kind = Kind::Fixed;
+          self->source = nullptr;
+          ++manager->m_fixedCopies;
+          return;
+        }
+        wl_list_remove(&self->destroy.link);
+        std::erase_if(manager->m_secureCopies, [self](const auto& entry) { return entry.get() == self; });
+      };
+      wl_signal_add(&source->events.destroy, &entry->sourceDestroy);
+    } else {
+      ++m_fixedCopies;
+    }
     m_secureCopies.push_back(std::move(entry));
   }
 
   bool DskSurfaceManager::secureCopy(const wlr_scene_buffer* buffer) const {
-    return std::ranges::any_of(m_secureCopies, [buffer](const auto& entry) { return entry->buffer == buffer; });
+    const auto it = std::ranges::find_if(m_secureCopies, [buffer](const auto& entry) { return entry->buffer == buffer; });
+    return it != m_secureCopies.end() && ((*it)->kind == SecureCopy::Kind::Fixed || secureTree((*it)->source));
   }
 
   bool DskSurfaceManager::tracks(const Tracker& tracker, wlr_surface* surface) {
@@ -234,6 +274,8 @@ namespace andromeda {
     wlr_addon_init(&state->addon, &surface->addons, self, &kAddonInterface);
     state->clientCommit.notify = handleClientCommit;
     wl_signal_add(&surface->events.client_commit, &state->clientCommit);
+    state->commit.notify = handleCommit;
+    wl_signal_add(&surface->events.commit, &state->commit);
     wl_resource_set_implementation(object, &kSurfaceImplementation, state, handleSurfaceResourceDestroyed);
   }
 
@@ -547,6 +589,7 @@ namespace andromeda {
       }
     }
     wl_list_remove(&state->clientCommit.link);
+    wl_list_remove(&state->commit.link);
     delete state;
   }
 
@@ -591,16 +634,12 @@ namespace andromeda {
       state->pendingGlassMask = nullptr;
       state->pendingGlassMaskSet = false;
     }
-    if (state->pendingSecure && *state->pendingSecure != state->current.secure) {
-      state->current.secure = *state->pendingSecure;
-      if (state->current.secure) {
-        ++state->manager->m_secureCount;
-      } else {
-        --state->manager->m_secureCount;
-      }
-      if (state->manager->m_secureHandler) {
-        state->manager->m_secureHandler(state->surface, state->current.secure);
-      }
+    // Secure applies at once and fails safe; clearing waits until this commit's buffer is the one on screen.
+    if (state->pendingSecure == true) {
+      state->secureClearSeq.reset();
+      setSecure(state, true);
+    } else if (state->pendingSecure == false && state->current.secure) {
+      state->secureClearSeq = state->surface->pending.seq;
     }
     state->pendingSecure.reset();
     timespec now{};
@@ -609,6 +648,29 @@ namespace andromeda {
     sendEvents(*state, nowMs);
     for (Shape* shape : state->shapes) {
       sendShapeEvents(*shape, nowMs);
+    }
+  }
+
+  void DskSurfaceManager::handleCommit(wl_listener* listener, void* /*data*/) {
+    Surface* state = wl_container_of(listener, state, commit);
+    if (state->secureClearSeq && static_cast<int32_t>(state->surface->current.seq - *state->secureClearSeq) >= 0) {
+      state->secureClearSeq.reset();
+      setSecure(state, false);
+    }
+  }
+
+  void DskSurfaceManager::setSecure(Surface* state, bool secure) {
+    if (state->current.secure == secure) {
+      return;
+    }
+    state->current.secure = secure;
+    if (secure) {
+      ++state->manager->m_secureCount;
+    } else {
+      --state->manager->m_secureCount;
+    }
+    if (state->manager->m_secureHandler) {
+      state->manager->m_secureHandler(state->surface, secure);
     }
   }
 

@@ -1,4 +1,5 @@
 #include "overview/overview_internal.h"
+#include "server/dsk_surface.h"
 
 namespace andromeda {
 
@@ -98,6 +99,9 @@ namespace andromeda {
       wlr_scene_buffer* buffer = wlr_scene_buffer_create(background.tree, nullptr);
       if (buffer == nullptr) {
         continue;
+      }
+      if (DskSurfaceManager* dsk = m_server->dskSurfaces()) {
+        dsk->markMirror(buffer, source->surface);
       }
       wlr_scene_buffer_set_filter_mode(buffer, WLR_SCALE_FILTER_BILINEAR);
       buffer->point_accepts_input = rejectInput;

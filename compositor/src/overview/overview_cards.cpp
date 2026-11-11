@@ -1,4 +1,5 @@
 #include "overview/overview_internal.h"
+#include "server/dsk_surface.h"
 
 namespace andromeda {
 
@@ -111,6 +112,9 @@ namespace andromeda {
     wlr_scene_buffer* buffer = wlr_scene_buffer_create(card->surfaceTree, nullptr);
     if (buffer == nullptr) {
       return;
+    }
+    if (DskSurfaceManager* dsk = card->overview->m_server->dskSurfaces()) {
+      dsk->markMirror(buffer, surface);
     }
     auto entry = std::make_unique<CardSurface>();
     entry->card = card;
@@ -270,6 +274,7 @@ namespace andromeda {
         &surfaces->node, card.tree->node.x + card.surfaceTree->node.x, card.tree->node.y + card.surfaceTree->node.y
     );
     int buffersCopied = 0;
+    DskSurfaceManager* dsk = m_server->dskSurfaces();
     for (const auto& entry : card.surfaces) {
       wlr_scene_buffer* source = entry->buffer;
       if (source == nullptr || source->buffer == nullptr || !source->node.enabled) {
@@ -278,6 +283,9 @@ namespace andromeda {
       wlr_scene_buffer* copy = wlr_scene_buffer_create(surfaces, source->buffer);
       if (copy == nullptr) {
         continue;
+      }
+      if (dsk != nullptr && dsk->secureCopy(source)) {
+        dsk->markSecureCopy(copy);
       }
       wlr_scene_node_set_position(&copy->node, source->node.x, source->node.y);
       if (source->dst_width > 0 && source->dst_height > 0) {

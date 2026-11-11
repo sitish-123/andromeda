@@ -15,6 +15,7 @@ readonly CAPTURE_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-capture.log"
 readonly CAPTURE_FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-secure-capture.fifo"
 readonly WINDOW_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-window.log"
 readonly REGION="400x20+100+10"
+readonly OUTPUT_REGION="1280x720+0+0"
 readonly BLUE='b > 0.5 && r < 0.3'
 readonly BLACK='r < 0.05 && g < 0.05 && b < 0.05'
 
@@ -129,13 +130,56 @@ pids+=($!)
 await_lines "$WINDOW_LOG" mapped 1
 "$ANDROMEDA" settle
 window_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.app_id == "secure-child") | .id')
-window_blue=0
-if timeout 10 grim -T "$window_id" "$WINDOW_SHOT" 2> /dev/null; then
-  read -r window_blue < <("$ANDROMEDA_PIXEL_PROBE" "$WINDOW_SHOT" count "$BLUE")
+if ! timeout 10 grim -T "$window_id" "$WINDOW_SHOT" 2> "$WINDOW_LOG.grim"; then
+  echo "grim cannot capture the window with a secure subsurface: $(tail -1 "$WINDOW_LOG.grim")"
+  exit 1
 fi
+read -r window_blue < <("$ANDROMEDA_PIXEL_PROBE" "$WINDOW_SHOT" count "$BLUE")
 if ((window_blue != 0)); then
   echo "a window capture shows a secure subsurface: $window_blue blue pixels"
   exit 1
 fi
+
+# Overview: the cards copy the window's buffers, and an output capture must paint them black too.
+"$ANDROMEDA" msg overview-open > /dev/null
+read -r overview_blue overview_black < <(probe "$OUTPUT_REGION")
+"$ANDROMEDA" msg overview-close > /dev/null
+if ((overview_blue != 0)); then
+  echo "an overview card shows a secure subsurface in a screenshot: $overview_blue blue pixels"
+  exit 1
+fi
+
+# A window capture that runs while a secure subsurface maps: the child hides, the capture starts, the child shows.
+LATE_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-late.log"
+LATE_FIFO="$ANDROMEDA_RUNTIME_DIR/dsk-secure-late.fifo"
+LATE_CAPTURE_LOG="$ANDROMEDA_RUNTIME_DIR/dsk-secure-late-capture.log"
+mkfifo "$LATE_FIFO"
+exec {late_fd}<> "$LATE_FIFO"
+SECURE=child CHILD_ON_STDIN=1 "$ANDROMEDA_SUBSURFACE_CLIENT" secure-late <&"$late_fd" > "$LATE_LOG" 2>&1 &
+pids+=($!)
+await_lines "$LATE_LOG" mapped 1
+printf h >&"$late_fd"
+await_lines "$LATE_LOG" child-hidden 1
+"$ANDROMEDA" settle
+late_id=$("$ANDROMEDA" windows --json | jq -r '.[] | select(.app_id == "secure-late") | .id')
+CAPTURE_PIXELS=1 "$ANDROMEDA_CAPTURE_CLIENT" --window "$late_id" > "$LATE_CAPTURE_LOG" 2>&1 &
+pids+=($!)
+if ! await_lines "$LATE_CAPTURE_LOG" 'pixels .* color=ffff0000' 1 > /dev/null; then
+  echo "a window capture never showed the red parent: $(grep '^pixels' "$LATE_CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
+printf s >&"$late_fd"
+await_lines "$LATE_LOG" child-shown 1
+# The frame after the child shows: black when redacted, blue when it leaks.
+if ! await_lines "$LATE_CAPTURE_LOG" 'pixels .* color=ff0000\(00\|ff\)' 1 > /dev/null; then
+  echo "a window capture got no frame after the secure child showed: $(grep '^pixels' "$LATE_CAPTURE_LOG" | tail -3 | tr '\n' '|')"
+  exit 1
+fi
+late_blue=$(grep -c '^pixels .* color=ff0000ff' "$LATE_CAPTURE_LOG" || true)
+if ((late_blue != 0)); then
+  echo "a running window capture shows a secure subsurface mapped after it started: $late_blue blue frames"
+  exit 1
+fi
 echo "plain $blue blue/$black black; secure $hidden_blue/$hidden_black; cleared $shown_blue/$shown_black;" \
-  "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue blue"
+  "zoomed $zoomed_blue/$zoomed_black; popup $popup_blue/$popup_black; window capture $window_blue blue;" \
+  "overview $overview_blue/$overview_black; late child $late_blue blue frames"

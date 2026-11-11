@@ -355,6 +355,7 @@ namespace andromeda {
     if (m_captureScene != nullptr) {
       wlr_scene_node_destroy(&m_captureScene->tree.node);
       m_captureScene = nullptr;
+      m_captureBlank = nullptr;
     }
     if (m_sceneTree != nullptr) {
       // The attachment's nodes hang under the frame: release them first so their owner never destroys a freed node.
@@ -392,8 +393,35 @@ namespace andromeda {
     const bool hidden = walk.secure;
     wlr_scene_node* child = nullptr;
     wl_list_for_each(child, &m_captureScene->tree.children, link) {
-      wlr_scene_node_set_enabled(child, !hidden);
+      if (m_captureBlank == nullptr || child != &m_captureBlank->node) {
+        wlr_scene_node_set_enabled(child, !hidden);
+      }
     }
+    if (!hidden) {
+      if (m_captureBlank != nullptr) {
+        wlr_scene_node_set_enabled(&m_captureBlank->node, false);
+      }
+      return;
+    }
+    // A capture of an empty scene has no size, so the client gets no frame; the blank keeps a black one.
+    int width = 0;
+    int height = 0;
+    if (m_toplevel != nullptr) {
+      width = m_toplevel->base->geometry.width;
+      height = m_toplevel->base->geometry.height;
+    } else if (const wlr_surface* root = rootSurface()) {
+      width = root->current.width;
+      height = root->current.height;
+    }
+    static constexpr float kBlack[4] = {0.0F, 0.0F, 0.0F, 1.0F};
+    if (m_captureBlank == nullptr) {
+      m_captureBlank = wlr_scene_rect_create(&m_captureScene->tree, std::max(1, width), std::max(1, height), kBlack);
+      if (m_captureBlank == nullptr) {
+        return;
+      }
+    }
+    wlr_scene_rect_set_size(m_captureBlank, std::max(1, width), std::max(1, height));
+    wlr_scene_node_set_enabled(&m_captureBlank->node, true);
   }
 
   void View::moveToWorkspace(Workspace* workspace, bool attachToLayout) {

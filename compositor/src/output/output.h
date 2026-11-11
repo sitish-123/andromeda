@@ -322,6 +322,8 @@ namespace andromeda {
     ) const;
     // A locked buffer of this output's format for a redacted capture frame; null on failure.
     [[nodiscard]] wlr_buffer* acquireRedactBuffer(int width, int height);
+    // A locked opaque black buffer of `width` x `height`.
+    [[nodiscard]] wlr_buffer* lockedBlackBuffer(int width, int height);
     // A locked copy of `frame` with `boxes` painted black, or a locked all-black buffer when drawing it fails.
     [[nodiscard]] wlr_buffer* redactFrame(wlr_buffer* frame, const std::vector<wlr_box>& boxes);
     // A locked copy of this output's `frame` for captures, with every secure surface painted black; null when no
@@ -400,7 +402,10 @@ namespace andromeda {
     // Last committed frame, held only while other outputs mirror this one.
     wlr_buffer* m_lastFrame = nullptr;
     // The buffer-pixel boxes of the secure surfaces m_lastFrame shows; mirror targets redact their captures with them.
-    std::vector<wlr_box> m_lastFrameSecure;
+    // Measured only while a capture listens on a mirror target and a surface is secure; nullopt: not measured.
+    std::optional<std::vector<wlr_box>> m_lastFrameSecure;
+    // One opaque black frame, reused while redaction fails; this output holds one lock on it.
+    wlr_buffer* m_blackFrame = nullptr;
     wl_event_source* m_effectFrameTimer = nullptr;
     wl_event_source* m_directScanoutTimer = nullptr;
     // Login cross (output/held_frame.h): the greeter's frame until the shell's wallpaper commits (+300 ms for the bar)

@@ -1667,6 +1667,9 @@ namespace andromeda {
     if (m_redactSwapchain != nullptr) {
       wlr_swapchain_destroy(m_redactSwapchain);
     }
+    if (m_blackFrame != nullptr) {
+      wlr_buffer_unlock(m_blackFrame);
+    }
     if (m_zoomSwapchain != nullptr) {
       wlr_swapchain_destroy(m_zoomSwapchain);
     }
@@ -2094,7 +2097,13 @@ namespace andromeda {
         .end_data_ptr_access = blackBufferEndAccess,
     };
 
-    wlr_buffer* lockedBlackBuffer(int width, int height) {
+  } // namespace
+
+  wlr_buffer* Output::lockedBlackBuffer(int width, int height) {
+    if (m_blackFrame != nullptr && (m_blackFrame->width != width || m_blackFrame->height != height)) {
+      wlr_buffer_unlock(std::exchange(m_blackFrame, nullptr));
+    }
+    if (m_blackFrame == nullptr) {
       constexpr uint32_t kOpaqueBlack = 0xFF000000U;
       auto* buffer = new BlackBuffer{
           .base = {},
@@ -2103,9 +2112,10 @@ namespace andromeda {
       wlr_buffer_init(&buffer->base, &kBlackBufferImpl, width, height);
       wlr_buffer_lock(&buffer->base);
       wlr_buffer_drop(&buffer->base);
-      return &buffer->base;
+      m_blackFrame = &buffer->base;
     }
-  } // namespace
+    return wlr_buffer_lock(m_blackFrame);
+  }
 
   Output::CaptureRedaction::CaptureRedaction(Output& output, const wlr_output_state& state, std::optional<wlr_fbox> zoom)
       : m_output(output), m_zoom(zoom) {
@@ -2311,12 +2321,20 @@ namespace andromeda {
       const std::vector<wlr_box> boxes = secureFrameBoxes(*dsk, zoom);
       return boxes.empty() ? nullptr : redactFrame(frame, boxes);
     }
-    const Output& source = *m_mirrorSource;
-    if (source.m_lastFrame == nullptr || source.m_lastFrameSecure.empty()) {
+    Output& source = *m_mirrorSource;
+    if (source.m_lastFrame == nullptr) {
+      return nullptr;
+    }
+    if (!source.m_lastFrameSecure) {
+      // The source frame came before this capture listened, so nobody measured its secure boxes: redraw the source.
+      source.scheduleFullFrame();
+      return lockedBlackBuffer(frame->width, frame->height);
+    }
+    if (source.m_lastFrameSecure->empty()) {
       return nullptr;
     }
     // Draw the redacted source frame the way the mirror drew the real one.
-    wlr_buffer* redactedSource = m_mirrorSource->redactFrame(source.m_lastFrame, source.m_lastFrameSecure);
+    wlr_buffer* redactedSource = source.redactFrame(source.m_lastFrame, *source.m_lastFrameSecure);
     wlr_buffer* copy = acquireRedactBuffer(frame->width, frame->height);
     wlr_render_pass* pass =
         copy != nullptr ? wlr_renderer_begin_buffer_pass(m_server->renderer(), copy, nullptr) : nullptr;
@@ -3111,18 +3129,20 @@ namespace andromeda {
       wlr_buffer_unlock(m_lastFrame);
     }
     m_lastFrame = frame;
-    m_lastFrameSecure.clear();
+    m_lastFrameSecure.reset();
     if (frame == nullptr) {
       return;
     }
-    if (const DskSurfaceManager* dsk = m_server->dskSurfaces(); dsk != nullptr && dsk->anySecure()) {
-      m_lastFrameSecure = secureFrameBoxes(*dsk, zoom);
-    }
+    bool captured = false;
     for (const auto& output : m_server->outputs()) {
       if (output->m_mirrorSource == this) {
         output->m_mirrorDirty = true;
         wlr_output_schedule_frame(output->m_output);
+        captured = captured || m_server->outputCaptureListening(output->m_output);
       }
+    }
+    if (const DskSurfaceManager* dsk = m_server->dskSurfaces(); captured && dsk != nullptr && dsk->anySecure()) {
+      m_lastFrameSecure = secureFrameBoxes(*dsk, zoom);
     }
   }
 
