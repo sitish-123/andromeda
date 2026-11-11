@@ -9,6 +9,7 @@
 #include "shell/desktop/desktop_widgets_controller.h"
 #include "shell/desktop/wallpaper_mask.h"
 #include "wayland/layer_surface.h"
+#include "ui/signal.h"
 
 #include <memory>
 #include <string>
@@ -55,6 +56,7 @@ private:
     AnimationManager animations;
     InputDispatcher inputDispatcher;
     std::unique_ptr<Node> sceneRoot;
+    Signal<>::ScopedConnection glassConn;
     Node* transformNode = nullptr;
     std::unique_ptr<DesktopWidget> widget;
     float intrinsicWidth = 0.0F;

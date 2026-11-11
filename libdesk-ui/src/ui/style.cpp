@@ -1,6 +1,7 @@
 #include "ui/style.h"
 
 #include "design_tokens.h"
+#include "render/scene/node.h"
 #include "ui/palette.h"
 
 #include <algorithm>
@@ -69,10 +70,20 @@ namespace Style {
   bool popupShadowsEnabled() noexcept { return g_popupShadowsEnabled; }
   void setPopupShadowsEnabled(bool enabled) { g_popupShadowsEnabled = enabled; }
 
-  void setGlass(float glass, bool reduceTransparency, bool compositorBlur) noexcept {
-    g_glass = std::clamp(glass, 0.0F, 1.0F);
+  void setGlass(float glass, bool reduceTransparency, bool compositorBlur) {
+    const float clamped = std::clamp(glass, 0.0F, 1.0F);
+    const bool changed = clamped != g_glass || reduceTransparency != g_reduceTransparency;
+    g_glass = clamped;
     g_reduceTransparency = reduceTransparency;
     g_compositorBlur = compositorBlur;
+    if (changed) {
+      glassChanged().emit();
+    }
+  }
+
+  Signal<>& glassChanged() {
+    static Signal<> signal;
+    return signal;
   }
 
   bool compositorDrawsTint() noexcept { return g_compositorBlur && !g_reduceTransparency; }
@@ -81,12 +92,15 @@ namespace Style {
 
   bool reduceTransparency() noexcept { return g_reduceTransparency; }
 
-  glass::Material glassMaterial(glass::Kind kind) noexcept {
-    return glass::material(kind, g_glass, g_reduceTransparency, isLightPalette());
+  glass::Material glassMaterial(glass::Kind kind) noexcept { return glassMaterial(kind, glassTone(kind)); }
+
+  glass::Material glassMaterial(glass::Kind kind, PaletteTone tone) noexcept {
+    return glass::material(kind, g_glass, g_reduceTransparency, isLightPalette() && tone == PaletteTone::Scheme);
   }
 
   float glassTint(glass::Kind kind, float opacity) noexcept {
-    return glass::tintFor(glassMaterial(kind), kind, isLightPalette(), opacity);
+    const bool light = isLightPalette() && glassTone(kind) == PaletteTone::Scheme;
+    return glass::tintFor(glassMaterial(kind), kind, light, opacity);
   }
 
   bool closeButtonsEnabled() noexcept { return g_closeButtonsEnabled; }

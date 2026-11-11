@@ -25,6 +25,7 @@ public:
 
 private:
   void syncPalette();
+  void onPaletteToneChanged() override { syncPalette(); }
   void doLayout(Renderer& renderer) override;
 
   std::vector<float> m_targetValues;

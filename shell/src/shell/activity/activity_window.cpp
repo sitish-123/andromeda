@@ -448,7 +448,7 @@ void ActivityWindow::buildScene(Renderer& renderer, float width, float height) {
   if (m_glass) {
     // The Settings window glass: never thinner than the Tinted recipe.
     const float tinted = glass::material(glass::Kind::Sheet, 0.5F, false, isLightPalette()).tint;
-    fill = colorSpecFromRole(panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet).tint, tinted));
+    fill = colorSpecFromRole(panelMaterialRole(), std::max(Style::glassMaterial(glass::Kind::Sheet, PaletteTone::Scheme).tint, tinted));
   }
   auto body = ui::column({.align = FlexAlign::Stretch, .fill = fill, .width = width, .height = height});
   body->addChild(buildToolbar(scale));

@@ -9,6 +9,7 @@
 #include "ui/popup_chrome.h"
 #include "wayland/hyprland/focus_grab_service.h"
 #include "wayland/popup_surface.h"
+#include "ui/signal.h"
 
 #include <chrono>
 #include <cstddef>
@@ -49,6 +50,7 @@ private:
     wl_output* output = nullptr;
     std::unique_ptr<PopupSurface> surface;
     std::unique_ptr<Node> sceneRoot;
+    Signal<>::ScopedConnection glassConn;
     popup_chrome::Geometry chrome;
     InputDispatcher inputDispatcher;
     wl_surface* wlSurface = nullptr;

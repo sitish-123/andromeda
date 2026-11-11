@@ -113,17 +113,17 @@ void ProgressBar::setMarkerWidth(float width) {
 
 void ProgressBar::applyPalette() {
   auto trackStyle = m_track->style();
-  trackStyle.fill = resolveColorSpec(m_trackColor);
+  trackStyle.fill = resolveColorSpec(m_trackColor, this);
   trackStyle.fillMode = FillMode::Solid;
   m_track->setStyle(trackStyle);
 
   auto fillStyle = m_fill->style();
-  fillStyle.fill = resolveColorSpec(m_fillColor);
+  fillStyle.fill = resolveColorSpec(m_fillColor, this);
   fillStyle.fillMode = FillMode::Solid;
   m_fill->setStyle(fillStyle);
 
   auto markerStyle = m_marker->style();
-  markerStyle.fill = resolveColorSpec(m_markerColor);
+  markerStyle.fill = resolveColorSpec(m_markerColor, this);
   markerStyle.fillMode = FillMode::Solid;
   m_marker->setStyle(markerStyle);
 }

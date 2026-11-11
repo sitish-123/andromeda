@@ -7,6 +7,7 @@
 #include "system/icon_resolver.h"
 #include "ui/popup_chrome.h"
 #include "ui/popup_parent.h"
+#include "ui/signal.h"
 
 #include <array>
 #include <functional>
@@ -107,6 +108,7 @@ private:
   std::unique_ptr<ToplevelThumbnailCapture> m_capture;
   std::unique_ptr<PopupSurface> m_surface;
   std::unique_ptr<Node> m_sceneRoot;
+  Signal<>::ScopedConnection m_glassConn;
   popup_chrome::Geometry m_chrome;
   InputDispatcher m_input;
   Request m_request;

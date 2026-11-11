@@ -51,6 +51,7 @@ public:
 
 private:
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void resolveGlassFill();
   void syncStyle();
 

@@ -13,13 +13,14 @@ struct wl_surface;
 
 // The dsk_surface_v1 liquid value of a material: {level, rim, lens}.
 [[nodiscard]] inline DskSurfaceClient::Value glassLiquid(const glass::Material& material) noexcept {
-  return {material.level, material.rim, material.lens, 0.0};
+  return {material.level, material.rim, material.lens, material.dense};
 }
 
 // The dsk_surface_v1 tint value (v9): the tint the compositor draws over the blur, `role` at `alpha`; 0 with reduce
-// transparency. A surface that sends alpha > 0 paints no material fill of its own.
-[[nodiscard]] inline DskSurfaceClient::Value glassTintValue(ColorRole role, float alpha) noexcept {
-  const Color& c = colorForRole(role);
+// transparency. A surface that sends alpha > 0 paints no material fill of its own. `node` picks the palette tone.
+[[nodiscard]] inline DskSurfaceClient::Value
+glassTintValue(ColorRole role, float alpha, const Node* node = nullptr) noexcept {
+  const Color& c = colorForRole(role, node);
   return {c.r, c.g, c.b, Style::reduceTransparency() ? 0.0 : alpha};
 }
 

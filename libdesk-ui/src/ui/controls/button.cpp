@@ -582,9 +582,9 @@ void Button::applyVariant() {
   // button has been painted, applyVisualState() must compare against the
   // previous targets so variant/palette changes actually propagate.
   if (!m_visualStateInitialized) {
-    m_targetBg = resolveColorSpec(m_palette.normal.bg);
-    m_targetBorder = resolveColorSpec(m_palette.normal.border);
-    m_targetLabel = resolveColorSpec(m_palette.normal.label);
+    m_targetBg = resolveColorSpec(m_palette.normal.bg, this);
+    m_targetBorder = resolveColorSpec(m_palette.normal.border, this);
+    m_targetLabel = resolveColorSpec(m_palette.normal.label, this);
   }
   applyVisualState();
 }
@@ -698,33 +698,33 @@ void Button::resolveVisualStateColors(Color& targetBg, Color& targetBorder, Colo
   bool isSelected = m_enabled && m_selected;
 
   if (!m_enabled) {
-    targetBg = resolveColorSpec(m_palette.disabled.bg);
-    targetBorder = resolveColorSpec(m_palette.disabled.border);
-    targetLabel = resolveColorSpec(m_palette.disabled.label);
+    targetBg = resolveColorSpec(m_palette.disabled.bg, this);
+    targetBorder = resolveColorSpec(m_palette.disabled.border, this);
+    targetLabel = resolveColorSpec(m_palette.disabled.label, this);
   } else if (isPressed) {
-    targetBg = resolveColorSpec(m_palette.pressed.bg);
-    targetBorder = resolveColorSpec(m_palette.pressed.border);
-    targetLabel = resolveColorSpec(m_palette.pressed.label);
+    targetBg = resolveColorSpec(m_palette.pressed.bg, this);
+    targetBorder = resolveColorSpec(m_palette.pressed.border, this);
+    targetLabel = resolveColorSpec(m_palette.pressed.label, this);
   } else if (isSelected && m_palette.selected.has_value()) {
-    targetBg = resolveColorSpec(m_palette.selected->bg);
-    targetBorder = resolveColorSpec(m_palette.selected->border);
-    targetLabel = resolveColorSpec(m_palette.selected->label);
+    targetBg = resolveColorSpec(m_palette.selected->bg, this);
+    targetBorder = resolveColorSpec(m_palette.selected->border, this);
+    targetLabel = resolveColorSpec(m_palette.selected->label, this);
   } else if (keyboardNavFocus) {
-    targetBg = resolveColorSpec(colorSpecFromRole(ColorRole::Accent));
-    targetBorder = resolveColorSpec(clearColorSpec());
-    targetLabel = resolveColorSpec(colorSpecFromRole(ColorRole::OnAccent));
+    targetBg = resolveColorSpec(colorSpecFromRole(ColorRole::Accent), this);
+    targetBorder = resolveColorSpec(clearColorSpec(), this);
+    targetLabel = resolveColorSpec(colorSpecFromRole(ColorRole::OnAccent), this);
   } else if (isHovered || isSelected) {
-    targetBg = resolveColorSpec(m_palette.hover.bg);
-    targetBorder = resolveColorSpec(m_palette.hover.border);
-    targetLabel = resolveColorSpec(m_palette.hover.label);
+    targetBg = resolveColorSpec(m_palette.hover.bg, this);
+    targetBorder = resolveColorSpec(m_palette.hover.border, this);
+    targetLabel = resolveColorSpec(m_palette.hover.label, this);
   } else {
-    targetBg = resolveColorSpec(m_palette.normal.bg);
-    targetBorder = resolveColorSpec(m_palette.normal.border);
-    targetLabel = resolveColorSpec(m_palette.normal.label);
+    targetBg = resolveColorSpec(m_palette.normal.bg, this);
+    targetBorder = resolveColorSpec(m_palette.normal.border, this);
+    targetLabel = resolveColorSpec(m_palette.normal.label, this);
   }
   if (m_statefillless && m_enabled) {
-    targetBg = resolveColorSpec(m_palette.normal.bg);
-    targetBorder = resolveColorSpec(m_palette.normal.border);
+    targetBg = resolveColorSpec(m_palette.normal.bg, this);
+    targetBorder = resolveColorSpec(m_palette.normal.border, this);
   }
 }
 

@@ -5,7 +5,10 @@
 #include "protocols/glass_material.h"
 #include "ui/signal.h"
 
+#include <cstdint>
 #include <optional>
+
+enum class PaletteTone : std::uint8_t;
 
 namespace Style {
 
@@ -126,12 +129,18 @@ namespace Style {
   // The glass slider (appearance.glass): 0 Clear, 0.5 Tinted (the design values), 1 Frosted; reduce transparency
   // makes every glass surface solid.
   // compositorBlur: the compositor blurs and draws glass tints (Andromeda appearance.blur.enabled).
-  void setGlass(float glass, bool reduceTransparency, bool compositorBlur = false) noexcept;
+  void setGlass(float glass, bool reduceTransparency, bool compositorBlur = false);
+  // Emitted by setGlass when the slider or reduce transparency changes, before the palette change that follows it:
+  // surfaces set their glass::tone here so no paletteChanged handler reads a stale tone.
+  Signal<>& glassChanged();
   // True when the compositor draws the glass tint a surface sends (dsk v9): the client then paints no material fill.
   [[nodiscard]] bool compositorDrawsTint() noexcept;
   [[nodiscard]] float glass() noexcept;
   // The one glass mapping (protocols/glass_material.h) for the current slider, scheme and reduce transparency.
+  // Shell glass: the tone of glass::tone.
   [[nodiscard]] glass::Material glassMaterial(glass::Kind kind) noexcept;
+  // Glass of a surface in `tone` (app windows: PaletteTone::Scheme).
+  [[nodiscard]] glass::Material glassMaterial(glass::Kind kind, PaletteTone tone) noexcept;
   // Tint alpha for a configured `opacity` relative to glass::referenceOpacity (1 = solid).
   [[nodiscard]] float glassTint(glass::Kind kind, float opacity) noexcept;
   [[nodiscard]] bool reduceTransparency() noexcept;

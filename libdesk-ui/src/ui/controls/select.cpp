@@ -27,7 +27,7 @@ namespace {
   constexpr float kMaxVisibleOptions = 6;
   constexpr float kPlaceholderAlpha = 0.68F;
 
-  Color resolved(ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha); }
+  Color resolved(const Node* node, ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha, node); }
 
 } // namespace
 
@@ -338,20 +338,20 @@ void Select::applyVisualState() {
   const bool triggerPressed = m_triggerArea != nullptr && m_triggerArea->pressed();
   const bool triggerFocused = m_triggerArea != nullptr && m_triggerArea->focused();
 
-  Color triggerBg = resolved(ColorRole::Fill2, m_surfaceOpacity);
-  Color triggerBorder = resolved(ColorRole::Stroke);
+  Color triggerBg = resolved(this, ColorRole::Fill2, m_surfaceOpacity);
+  Color triggerBorder = resolved(this, ColorRole::Stroke);
   ColorSpec triggerText = selectedText().empty() ? colorSpecFromRole(ColorRole::Label2, kPlaceholderAlpha)
                                                  : colorSpecFromRole(ColorRole::Label1);
 
   if (!m_enabled) {
-    triggerBg = resolved(ColorRole::Fill2, m_surfaceOpacity * 0.75F);
-    triggerBorder = resolved(ColorRole::Stroke, Style::disabledOutlineAlpha);
+    triggerBg = resolved(this, ColorRole::Fill2, m_surfaceOpacity * 0.75F);
+    triggerBorder = resolved(this, ColorRole::Stroke, Style::disabledOutlineAlpha);
     triggerText = colorSpecFromRole(ColorRole::Label1, 0.55F);
   } else if (triggerHovered || triggerPressed) {
-    triggerBg = resolved(ColorRole::Fill2, m_surfaceOpacity);
-    triggerBorder = resolved(ColorRole::Fill3);
+    triggerBg = resolved(this, ColorRole::Fill2, m_surfaceOpacity);
+    triggerBorder = resolved(this, ColorRole::Fill3);
   } else if (triggerFocused) {
-    triggerBorder = resolveColorSpec(focusRingColorSpec());
+    triggerBorder = resolveColorSpec(focusRingColorSpec(), this);
   }
 
   m_triggerLabel->setColor(triggerText);

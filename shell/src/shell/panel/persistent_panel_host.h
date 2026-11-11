@@ -4,6 +4,7 @@
 #include "render/scene/input_dispatcher.h"
 #include "ui/dialogs/layer_popup_host.h"
 #include "wayland/layer_surface.h"
+#include "ui/signal.h"
 
 #include <cstdint>
 #include <functional>
@@ -77,6 +78,7 @@ private:
     InputDispatcher inputDispatcher;
     std::unique_ptr<LayerSurface> surface;
     std::unique_ptr<Node> sceneRoot;
+    Signal<>::ScopedConnection glassConn;
     Node* contentNode = nullptr;
     Box* bgNode = nullptr;
     Box* shadowNode = nullptr;

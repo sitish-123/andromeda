@@ -50,6 +50,7 @@ private:
   [[nodiscard]] float currentOffset() const noexcept;
   [[nodiscard]] float thickness() const noexcept;
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void applyThumbPosition(float scrollOffset, float maxScroll);
   void applyGeometry();
   void updateExpanded();

@@ -903,15 +903,18 @@ namespace andromeda {
   void LayerSurface::applyDensity() {
     // The compositor draws the client's tint over the blur, raised by the density.
     const float t = m_tint[3];
-    const float amount = t <= 0.0F ? 0.0F : glass::denser(t, static_cast<float>(m_density.current())) * m_tintFade;
+    const float amount =
+        t <= 0.0F ? 0.0F : glass::denser(t, static_cast<float>(m_density.current()), m_dense) * m_tintFade;
     const std::array<float, 3> rgb{m_tint[0], m_tint[1], m_tint[2]};
     m_blur.setTintMix(rgb, amount);
     for (std::size_t i = 0; i < m_shapeBlurs.size(); ++i) {
       if (i + 1 < m_shapeMaterials.size()) {
         // A shape's own tint, raised by the density the first shape measured.
         const auto& own = m_shapeMaterials[i + 1].tint;
-        const float ownAmount =
-            own[3] <= 0.0F ? 0.0F : glass::denser(own[3], static_cast<float>(m_density.current())) * m_tintFade;
+        const float ownDense = m_shapeMaterials[i + 1].dense;
+        const float ownAmount = own[3] <= 0.0F
+            ? 0.0F
+            : glass::denser(own[3], static_cast<float>(m_density.current()), ownDense) * m_tintFade;
         m_shapeBlurs[i].setTintMix({own[0], own[1], own[2]}, ownAmount);
       } else {
         m_shapeBlurs[i].setTintMix(rgb, amount);
@@ -948,6 +951,9 @@ namespace andromeda {
         : state->version >= 9
         ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[2], 0.0, 1.0))
         : m_liquid;
+    m_dense = state != nullptr
+        ? static_cast<float>(std::clamp(state->motion.value(SurfaceMotion::Property::Liquid)[3], 0.0, 1.0))
+        : 0.0F;
     if (state != nullptr) {
       const auto& tint = state->motion.value(SurfaceMotion::Property::Tint);
       m_tint = {static_cast<float>(tint[0]), static_cast<float>(tint[1]), static_cast<float>(tint[2]),
@@ -1028,6 +1034,7 @@ namespace andromeda {
             .liquid = static_cast<float>(std::clamp(liquid[0], 0.0, 1.0)),
             .rim = static_cast<float>(std::clamp(liquid[1], 0.0, 1.0)),
             .lens = static_cast<float>(std::clamp(liquid[2], 0.0, 1.0)),
+            .dense = static_cast<float>(std::clamp(liquid[3], 0.0, 1.0)),
             .tint = {static_cast<float>(tint[0]), static_cast<float>(tint[1]), static_cast<float>(tint[2]),
                      static_cast<float>(std::clamp(tint[3], 0.0, 1.0))},
         });
@@ -1056,6 +1063,7 @@ namespace andromeda {
       m_liquid = first.liquid;
       m_rim = first.rim;
       m_lens = first.lens;
+      m_dense = first.dense;
       m_tint = first.tint;
       m_blur.setLiquid(m_liquid);
       m_blur.setRim(m_rim);

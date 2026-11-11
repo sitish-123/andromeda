@@ -29,6 +29,7 @@ public:
 
 private:
   void syncPalette();
+  void onPaletteToneChanged() override { syncPalette(); }
   void doLayout(Renderer& renderer) override;
 
   ColorSpec m_primaryColor = colorSpecFromRole(ColorRole::Accent);

@@ -529,6 +529,12 @@ void LiveActivityIsland::ensureSurfaces() {
       applyContent(*instPtr);
       instPtr->surface->requestRedraw();
     });
+    inst->glassConn = Style::glassChanged().connect([instPtr = inst.get()] {
+      if (instPtr->material != nullptr) {
+        instPtr->material->setPaletteTone(glassTone(glass::Kind::Shape));
+        instPtr->tint->setPaletteTone(glassTone(glass::Kind::Sheet));
+      }
+    });
     m_instances.push_back(std::move(inst));
     updateFace(*m_instances.back());
   }
@@ -744,10 +750,10 @@ void LiveActivityIsland::hoverLeave(Instance& inst) {
 
 DskSurfaceClient::Value LiveActivityIsland::islandTint(const Instance& inst, Face face) {
   if (!inst.compositorTint) {
-    return glassTintValue(materialRole(), 0.0F);
+    return glassTintValue(materialRole(), 0.0F, inst.material);
   }
-  return face == Face::Rest ? glassTintValue(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint)
-                            : glassTintValue(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint);
+  return face == Face::Rest ? glassTintValue(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint, inst.material)
+                            : glassTintValue(panelMaterialRole(), Style::glassMaterial(glass::Kind::Sheet).tint, inst.tint);
 }
 
 void LiveActivityIsland::syncDsk(Instance& inst, bool animate) {
@@ -1471,6 +1477,9 @@ void LiveActivityIsland::applyContent(Instance& inst) {
 
   // A small shape: liquid glass with the launcher pill's clear tint.
   const bool liquid = inst.dsk != nullptr && inst.dsk->hasLiquidProperty() && !Style::reduceTransparency();
+  // The resting pill is a shape; the other faces sit on the sheet tint, a sibling, so it takes its own tone.
+  inst.material->setPaletteTone(glassTone(glass::Kind::Shape));
+  inst.tint->setPaletteTone(glassTone(glass::Kind::Sheet));
   if (inst.dsk != nullptr && inst.dsk->hasLiquidProperty()) {
     const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
     inst.dsk->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
@@ -2274,7 +2283,7 @@ void LiveActivityIsland::syncBarShapes(Instance& inst) {
     float x = 0.0F;
     float y = 0.0F;
     Node::absolutePosition(inst.bars, x, y);
-    const Color c = colorForRole(ColorRole::Accent, 1.0F);
+    const Color c = colorForRole(ColorRole::Accent, 1.0F, inst.bars);
     key = std::array<float, 6>{x, y, c.r, c.g, c.b, c.a};
   }
   if (key == inst.barShapeKey) {

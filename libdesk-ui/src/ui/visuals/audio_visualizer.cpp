@@ -102,8 +102,8 @@ void AudioVisualizer::setWave(bool wave) {
 
 void AudioVisualizer::syncPalette() {
   auto next = style();
-  next.color1 = resolveColorSpec(m_color1);
-  next.color2 = resolveColorSpec(m_color2);
+  next.color1 = resolveColorSpec(m_color1, this);
+  next.color2 = resolveColorSpec(m_color2, this);
   setStyle(next);
 }
 

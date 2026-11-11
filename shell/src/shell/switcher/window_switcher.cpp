@@ -586,6 +586,7 @@ struct WindowSwitcher::Instance {
   GlassSurface glass; // after surface: destroyed first
   AnimationManager animations;
   std::unique_ptr<Node> sceneRoot;
+  Signal<>::ScopedConnection glassConn;
   InputArea* input = nullptr;
   InputArea* panel = nullptr;
   Box* panelBackground = nullptr;
@@ -1787,6 +1788,12 @@ void WindowSwitcher::buildScene(Instance& instance, std::uint32_t width, std::ui
 
   Renderer& renderer = instance.surface->renderTarget().renderer();
   instance.sceneRoot = ui::node({});
+  instance.sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+  instance.glassConn = Style::glassChanged().connect([inst = &instance] {
+    if (inst->sceneRoot != nullptr) {
+      inst->sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+    }
+  });
   instance.sceneRoot->setAnimationManager(&instance.animations);
   instance.sceneRoot->setSize(w, h);
 

@@ -1234,6 +1234,7 @@ if build_tests
     'notification_inline_reply',
     'notification_settings_page',
     'notification_internal_history',
+    'palette_tone',
     'path_browse',
     'pipewire_error',
     'andromeda_audio_provider',

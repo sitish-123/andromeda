@@ -275,6 +275,8 @@ private:
   [[nodiscard]] float sheetTintAlpha(float liquid) const;
   // Sends the sheet tint to the compositor; `animate` runs it on the open spring with the liquid value.
   void sendSheetTint(bool animate = false);
+  // The sheet and its content take the sheet's glass::tone.
+  void syncPanelTone();
   [[nodiscard]] float densityCardOpacity(float opacity) const;
   // Attached panels keep the bar-joined radius; floating panels are sheets (component.sheet.radius).
   [[nodiscard]] float panelRadius() const;
@@ -358,11 +360,12 @@ private:
   float m_liquidTarget = 0.0F;
   bool m_backdropDark = false;
   bool m_backdropMeasured = false;
-  bool m_glassToneLight = false; // scheme of the last updateGlassTone
+  bool m_glassToneLight = false; // sheetLight() of the last updateGlassTone
   float m_glassTarget = 0.0F;    // last m_glassDark target, for the rise-only rule
   float m_glassDark = 0.0F; // 0..1, see updateGlassTone
   AnimationManager::Id m_glassDarkAnimation = 0;
   Signal<>::ScopedConnection m_glassPaletteConn;
+  Signal<>::ScopedConnection m_glassToneConn;
   LayerSurface* m_layerSurface = nullptr;
   LayerShellLayer m_panelLayer = LayerShellLayer::Top;
   // m_sceneRoot must be destroyed before m_animations — ~Node() calls cancelForOwner().

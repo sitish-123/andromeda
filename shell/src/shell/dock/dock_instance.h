@@ -106,6 +106,7 @@ namespace shell::dock {
     bool overviewFollowing = false;
     float overviewFollowRest = 1.0F;
     Signal<>::ScopedConnection paletteConn;
+    Signal<>::ScopedConnection glassConn;
     bool suppressItemClick = false; // set on press-release when a hold/drag consumed the gesture
     Node* clickedItem = nullptr;    // the item cell during its click handler: a launch starts from it
 

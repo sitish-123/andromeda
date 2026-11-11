@@ -71,7 +71,7 @@ void Spinner::stop() {
 
 void Spinner::applyPalette() {
   if (m_spinnerNode != nullptr) {
-    m_spinnerNode->setColor(resolveColorSpec(m_color));
+    m_spinnerNode->setColor(resolveColorSpec(m_color, this));
   }
 }
 

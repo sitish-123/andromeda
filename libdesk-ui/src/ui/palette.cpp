@@ -2,6 +2,7 @@
 
 #include "core/log.h"
 #include "render/core/color.h"
+#include "render/scene/node.h"
 #include "design_tokens.h"
 #include "util/string_utils.h"
 
@@ -62,77 +63,109 @@ namespace {
                  static_cast<float>((rgba >> 8) & 0xffU) / 255.0F, static_cast<float>(rgba & 0xffU) / 255.0F};
   }
 
-} // namespace
+  Palette g_darkPalette = tokenPalette(false);
 
-const Color& colorForRole(ColorRole role) noexcept {
-  switch (role) {
-  case ColorRole::Label1:
-    return palette.label1;
-  case ColorRole::Label2:
-    return palette.label2;
-  case ColorRole::Fill1:
-    return palette.fill1;
-  case ColorRole::Fill2:
-    return palette.fill2;
-  case ColorRole::Fill3:
-    return palette.fill3;
-  case ColorRole::SolidThin:
-    return palette.solidThin;
-  case ColorRole::SolidRegular:
-    return palette.solidRegular;
-  case ColorRole::Stroke:
-    return palette.stroke;
-  case ColorRole::Accent:
-    return palette.accent;
-  case ColorRole::OnAccent:
-    return palette.onAccent;
-  case ColorRole::Danger:
-    return palette.danger;
-  case ColorRole::Shadow:
-    return palette.shadow;
-  case ColorRole::TintRegular:
-    return palette.tintRegular;
-  case ColorRole::TintThick:
-    return palette.tintThick;
-  case ColorRole::Label3:
-    return palette.label3;
-  case ColorRole::AccentText:
-    return palette.accentText;
-  case ColorRole::DangerText:
-    return palette.dangerText;
-  case ColorRole::Separator:
-    return palette.separator;
-  case ColorRole::Lens:
-    return palette.lens;
-  case ColorRole::LensEdge:
-    return palette.lensEdge;
-  case ColorRole::Warning:
-    return palette.warning;
-  case ColorRole::Success:
-    return palette.success;
-  case ColorRole::SliderFill:
-    return palette.sliderFill;
-  case ColorRole::OnSliderFill:
-    return palette.onSliderFill;
-  case ColorRole::SliderTrack:
-    return palette.sliderTrack;
-  case ColorRole::SliderEdge:
-    return palette.sliderEdge;
-  case ColorRole::GlassCard:
-    return palette.glassCard;
-  case ColorRole::GlassCardEdge:
-    return palette.glassCardEdge;
-  case ColorRole::Popover:
-    return palette.popover;
-  case ColorRole::Scrim:
-    return palette.scrim;
+  const Color& roleIn(const Palette& p, ColorRole role) noexcept {
+    switch (role) {
+    case ColorRole::Label1:
+      return p.label1;
+    case ColorRole::Label2:
+      return p.label2;
+    case ColorRole::Fill1:
+      return p.fill1;
+    case ColorRole::Fill2:
+      return p.fill2;
+    case ColorRole::Fill3:
+      return p.fill3;
+    case ColorRole::SolidThin:
+      return p.solidThin;
+    case ColorRole::SolidRegular:
+      return p.solidRegular;
+    case ColorRole::Stroke:
+      return p.stroke;
+    case ColorRole::Accent:
+      return p.accent;
+    case ColorRole::OnAccent:
+      return p.onAccent;
+    case ColorRole::Danger:
+      return p.danger;
+    case ColorRole::Shadow:
+      return p.shadow;
+    case ColorRole::TintRegular:
+      return p.tintRegular;
+    case ColorRole::TintThick:
+      return p.tintThick;
+    case ColorRole::Label3:
+      return p.label3;
+    case ColorRole::AccentText:
+      return p.accentText;
+    case ColorRole::DangerText:
+      return p.dangerText;
+    case ColorRole::Separator:
+      return p.separator;
+    case ColorRole::Lens:
+      return p.lens;
+    case ColorRole::LensEdge:
+      return p.lensEdge;
+    case ColorRole::Warning:
+      return p.warning;
+    case ColorRole::Success:
+      return p.success;
+    case ColorRole::SliderFill:
+      return p.sliderFill;
+    case ColorRole::OnSliderFill:
+      return p.onSliderFill;
+    case ColorRole::SliderTrack:
+      return p.sliderTrack;
+    case ColorRole::SliderEdge:
+      return p.sliderEdge;
+    case ColorRole::GlassCard:
+      return p.glassCard;
+    case ColorRole::GlassCardEdge:
+      return p.glassCardEdge;
+    case ColorRole::Popover:
+      return p.popover;
+    case ColorRole::Scrim:
+      return p.scrim;
+    }
+
+    return p.label1;
   }
 
-  return palette.label1;
-}
+} // namespace
+
+const Color& colorForRole(ColorRole role) noexcept { return roleIn(palette, role); }
 
 Color colorForRole(ColorRole role, float alpha) noexcept {
   Color color = colorForRole(role);
+  color.a *= alpha;
+  return color;
+}
+
+const Palette& paletteForTone(PaletteTone tone) noexcept {
+  switch (tone) {
+  case PaletteTone::Scheme:
+    return palette;
+  case PaletteTone::Dark:
+    return g_darkPalette;
+  }
+  return palette;
+}
+
+void setDarkPalette(const Palette& p) { g_darkPalette = p; }
+
+const Color& colorForRole(ColorRole role, PaletteTone tone) noexcept { return roleIn(paletteForTone(tone), role); }
+
+PaletteTone glassTone(glass::Kind kind) noexcept {
+  return glass::tone(kind, Style::glass()) == glass::Tone::Dark ? PaletteTone::Dark : PaletteTone::Scheme;
+}
+
+const Color& colorForRole(ColorRole role, const Node* node) noexcept {
+  return roleIn(node != nullptr ? paletteForTone(node->paletteTone()) : palette, role);
+}
+
+Color colorForRole(ColorRole role, float alpha, const Node* node) noexcept {
+  Color color = colorForRole(role, node);
   color.a *= alpha;
   return color;
 }
@@ -191,6 +224,12 @@ ColorSpec fixedColorSpec(const Color& color) noexcept {
 
 Color resolveColorSpec(const ColorSpec& color) noexcept {
   Color resolved = color.role.has_value() ? colorForRole(*color.role) : color.fixed;
+  resolved.a *= color.alpha;
+  return resolved;
+}
+
+Color resolveColorSpec(const ColorSpec& color, const Node* node) noexcept {
+  Color resolved = color.role.has_value() ? colorForRole(*color.role, node) : color.fixed;
   resolved.a *= color.alpha;
   return resolved;
 }

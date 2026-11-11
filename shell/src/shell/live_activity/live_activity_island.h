@@ -129,6 +129,7 @@ private:
     wl_output* output = nullptr;
     // Theme, palette and glass-slider changes re-apply the material, as on the bar and dock.
     Signal<>::ScopedConnection paletteConn;
+    Signal<>::ScopedConnection glassConn;
     float width = 0.0F; // surface width: the widest card
     CenterIslandSpace space;
     float liveWidth = 0.0F; // widest card the free center space allows

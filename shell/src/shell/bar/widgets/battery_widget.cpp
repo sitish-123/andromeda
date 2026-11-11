@@ -19,6 +19,21 @@
 
 namespace {
 
+  // An empty node that runs `onChange` when its effective palette tone changes.
+  class PaletteToneWatch final : public Node {
+  public:
+    explicit PaletteToneWatch(std::function<void()> onChange) : m_onChange(std::move(onChange)) {
+      setParticipatesInLayout(false);
+      setHitTestVisible(false);
+    }
+
+  protected:
+    void onPaletteToneChanged() override { m_onChange(); }
+
+  private:
+    std::function<void()> m_onChange;
+  };
+
   // Upright body for vertical bars; horizontal bars use a slightly larger body so a Caption-size number stays legible.
   constexpr float kGraphicBodyWidth = 22.0F;
   constexpr float kGraphicBodyHeight = 14.0F;
@@ -165,6 +180,12 @@ void BatteryWidget::createGraphicMode() {
       })
   );
 
+  // syncPalette() bakes resolved colours, so a tone change (attach under the bar, glass slider) re-runs it.
+  auto toneWatch = std::make_unique<PaletteToneWatch>([this] {
+    syncPalette();
+    requestRedraw();
+  });
+  root()->addChild(std::move(toneWatch));
   syncPalette();
   m_paletteConn = paletteChanged().connect([this] {
     syncPalette();
@@ -443,8 +464,8 @@ void BatteryWidget::syncPalette() {
   } else if (m_showLabel) {
     // Same light-on-dark body as the unlabelled battery, so it matches neighbouring glyphs. The track stays opaque and
     // light enough that surface-colored text reads on both sides of the moving fill boundary.
-    const Color fg = resolveColorSpec(foreground);
-    const Color track = lerpColor(fg, colorForRole(ColorRole::SolidRegular), 0.35F);
+    const Color fg = resolveColorSpec(foreground, root());
+    const Color track = lerpColor(fg, colorForRole(ColorRole::SolidRegular, root()), 0.35F);
     m_bodyBg->setFill(track);
     m_fillRect->setFill(foreground);
     m_terminalNub->setFill(foreground);

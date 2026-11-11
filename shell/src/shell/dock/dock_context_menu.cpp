@@ -380,6 +380,12 @@ namespace shell::dock {
       const auto fh = static_cast<float>(height);
 
       menuPtr->sceneRoot = ui::node({});
+      menuPtr->sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+      menuPtr->glassConn = Style::glassChanged().connect([menuPtr] {
+        if (menuPtr->sceneRoot != nullptr) {
+          menuPtr->sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+        }
+      });
       menuPtr->sceneRoot->setSize(fw, fh);
       if (Style::popupShadowsEnabled()) {
         (void)popup_chrome::addShadow(

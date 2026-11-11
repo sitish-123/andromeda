@@ -24,12 +24,29 @@ namespace glass {
     float lens = 0.0F;
     // Blur size, 0 to 1.
     float blurStrength = 1.0F;
+    // dsk_surface_v1 liquid [3]: how far a full density raises the tint to kDenseTint, 0 halfway, 1 all the way.
+    float dense = 0.0F;
 
     bool operator==(const Material&) const = default;
   };
 
-  // Low-contrast backdrops raise the tint halfway to this alpha, so the slider still shows; the colour never changes.
+  // Low-contrast backdrops raise the tint to this alpha (Material::dense), so the slider still shows; the colour never
+  // changes.
   inline constexpr float kDenseTint = 0.84F;
+
+  // The palette a kind's glass and content take. Dark: dark glass with white content in both schemes.
+  enum class Tone : std::uint8_t { Scheme, Dark };
+
+  // Shell glass below Frosted is dark glass in both schemes (docs/design/deviations.md "Shape glass tone"); app
+  // windows keep the scheme (Style::glassMaterial with PaletteTone::Scheme).
+  [[nodiscard]] constexpr Tone tone(Kind kind, float slider) noexcept {
+    (void)kind;
+    return slider < 0.75F ? Tone::Dark : Tone::Scheme;
+  }
+
+  // Material::dense of a kind: tooltips rise halfway over a low-contrast backdrop, other kinds all the way, so white
+  // text on a Clear sheet over white keeps 4.5:1 (halfway gives 4.2:1).
+  [[nodiscard]] constexpr float denseTarget(Kind kind) noexcept { return kind == Kind::Tooltip ? 0.0F : 1.0F; }
 
   // Clear blurs at 30 %, Tinted at 65 %, so the rim refraction bends shapes, not a smear.
   [[nodiscard]] constexpr float blurStrength(float level) noexcept { return 1.0F - 0.7F * level; }
@@ -39,7 +56,8 @@ namespace glass {
     return kind == Kind::Shape ? 0.70F : light ? 0.88F : 0.92F;
   }
 
-  // slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted.
+  // slider: 0 Clear, 0.5 Tinted (the design values), 1 Frosted. light: the glass takes the light curve (a light
+  // scheme surface whose tone is Scheme).
   [[nodiscard]] inline Material material(Kind kind, float slider, bool reduceTransparency, bool light) noexcept {
     if (reduceTransparency) {
       return {};
@@ -63,7 +81,10 @@ namespace glass {
     }
     // Sheets blur a step denser than shapes: half the shapes' clarity.
     const float level = (kind == Kind::Shape ? 1.0F : 0.5F) * (1.0F - g);
-    return {.tint = tint, .level = level, .rim = 1.0F, .lens = level, .blurStrength = blurStrength(level)};
+    return {
+        .tint = tint, .level = level, .rim = 1.0F, .lens = level, .blurStrength = blurStrength(level),
+        .dense = denseTarget(kind)
+    };
   }
 
   // `t` of the way from a to b (a sheet that morphs from a shape).
@@ -72,7 +93,7 @@ namespace glass {
     const float level = std::lerp(a.level, b.level, t);
     return {
         .tint = std::lerp(a.tint, b.tint, t), .level = level, .rim = std::lerp(a.rim, b.rim, t),
-        .lens = std::lerp(a.lens, b.lens, t), .blurStrength = blurStrength(level)
+        .lens = std::lerp(a.lens, b.lens, t), .blurStrength = blurStrength(level), .dense = std::lerp(a.dense, b.dense, t)
     };
   }
 
@@ -86,9 +107,11 @@ namespace glass {
     return opacity >= 1.0F ? 1.0F : std::min(1.0F, opacity * (0.92F / 0.70F));
   }
 
-  // The tint for a backdrop of the tint's own tone, `density` (0 to 1) of the way to the dense tint.
-  [[nodiscard]] inline float denser(float tint, float density) noexcept {
-    return tint + 0.5F * (std::max(tint, kDenseTint) - tint) * std::clamp(density, 0.0F, 1.0F);
+  // The tint for a backdrop of the tint's own tone, `density` (0 to 1) of the way to the dense tint; `dense` is
+  // Material::dense.
+  [[nodiscard]] inline float denser(float tint, float density, float dense) noexcept {
+    const float reach = 0.5F + 0.5F * std::clamp(dense, 0.0F, 1.0F);
+    return tint + reach * (std::max(tint, kDenseTint) - tint) * std::clamp(density, 0.0F, 1.0F);
   }
 
 } // namespace glass

@@ -2,6 +2,7 @@
 
 #include "render/scene/input_dispatcher.h"
 #include "ui/popup_chrome.h"
+#include "ui/signal.h"
 
 #include <functional>
 #include <memory>
@@ -30,6 +31,7 @@ namespace shell::dock {
 
     std::unique_ptr<PopupSurface> surface;
     std::unique_ptr<Node> sceneRoot;
+    Signal<>::ScopedConnection glassConn;
     popup_chrome::Geometry chrome;
     InputDispatcher inputDispatcher;
     wl_surface* wlSurface = nullptr;

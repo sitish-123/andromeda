@@ -490,6 +490,11 @@ namespace shell::dock {
       if (inst->surface)
         inst->surface->requestRedraw();
     });
+    instance.glassConn = Style::glassChanged().connect([inst = &instance] {
+      if (inst->sceneRoot != nullptr) {
+        inst->sceneRoot->setPaletteTone(glassTone(glass::Kind::Shape));
+      }
+    });
 
     if (callbacks.updateVisuals) {
       callbacks.updateVisuals(instance);
@@ -499,6 +504,9 @@ namespace shell::dock {
   void applyPanelPalette(DockInstance& instance, const DockConfig& cfg) {
     if (instance.panel == nullptr)
       return;
+    if (instance.sceneRoot != nullptr) {
+      instance.sceneRoot->setPaletteTone(glassTone(glass::Kind::Shape));
+    }
     // A small shape: liquid glass with the launcher pill's clear tint.
     const bool liquid = instance.dsk != nullptr && instance.dsk->hasLiquidProperty() && !Style::reduceTransparency();
     bool compositorTint = false;
@@ -508,7 +516,7 @@ namespace shell::dock {
       compositorTint = liquid && cfg.compositorBlur && Style::compositorDrawsTint();
       instance.shape->set(DskSurfaceClient::Property::Liquid, liquid ? glassLiquid(material) : DskSurfaceClient::Value{});
       instance.shape->set(
-          DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F)
+          DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F, instance.sceneRoot.get())
       );
     } else if (instance.dsk != nullptr && instance.dsk->hasLiquidProperty()) {
       const glass::Material material = Style::glassMaterial(glass::Kind::Shape);
@@ -516,7 +524,7 @@ namespace shell::dock {
       if (instance.dsk->hasTintProperty()) {
         compositorTint = liquid && cfg.compositorBlur && Style::compositorDrawsTint();
         instance.dsk->set(
-            DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F)
+            DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), compositorTint ? material.tint : 0.0F, instance.sceneRoot.get())
         );
       }
     }

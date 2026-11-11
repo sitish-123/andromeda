@@ -31,7 +31,7 @@ namespace {
     };
   }
 
-  Color resolved(ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha); }
+  Color resolved(const Node* node, ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha, node); }
 
 } // namespace
 
@@ -155,6 +155,10 @@ Slider::Slider() {
   m_inputArea = static_cast<InputArea*>(addChild(std::move(area)));
   m_inputArea->setCursorShape(WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_POINTER);
 
+  m_paletteConn = paletteChanged().connect([this] {
+    applyVisualState();
+    markPaintDirty();
+  });
   applyVisualState();
 }
 
@@ -325,28 +329,28 @@ void Slider::applyVisualState() {
   const bool pressing = m_inputArea != nullptr && m_inputArea->pressed();
   const bool focused = m_inputArea != nullptr && m_inputArea->focused();
 
-  Color trackColor = resolved(ColorRole::Stroke);
-  Color fillColor = resolved(ColorRole::Accent);
-  Color thumbColor = resolved(ColorRole::OnAccent);
-  Color thumbBorder = resolved(ColorRole::Stroke);
+  Color trackColor = resolved(this, ColorRole::Stroke);
+  Color fillColor = resolved(this, ColorRole::Accent);
+  Color thumbColor = resolved(this, ColorRole::OnAccent);
+  Color thumbBorder = resolved(this, ColorRole::Stroke);
 
   m_thumb->setVisible(m_enabled);
 
   if (!m_enabled) {
-    trackColor = resolved(ColorRole::Stroke, Style::disabledOutlineAlpha);
-    fillColor = resolved(ColorRole::Accent, 0.5F);
+    trackColor = resolved(this, ColorRole::Stroke, Style::disabledOutlineAlpha);
+    fillColor = resolved(this, ColorRole::Accent, 0.5F);
   } else if (pressing) {
-    fillColor = resolved(ColorRole::Accent);
+    fillColor = resolved(this, ColorRole::Accent);
   } else if (focused) {
-    thumbBorder = resolveColorSpec(focusRingColorSpec());
+    thumbBorder = resolveColorSpec(focusRingColorSpec(), this);
   } else if (hovering) {
-    thumbBorder = resolved(ColorRole::Fill3);
+    thumbBorder = resolved(this, ColorRole::Fill3);
   }
 
   if (m_filled) {
     // The parent pill draws the track (slider_track); the level is slider_fill with a 1 px slider_edge inside.
     trackColor = Color{.a = 0.0F};
-    fillColor = resolved(ColorRole::SliderFill);
+    fillColor = resolved(this, ColorRole::SliderFill);
     fillColor.a *= m_enabled ? 1.0F : 0.45F;
     m_thumb->setVisible(false);
   }
@@ -359,7 +363,7 @@ void Slider::applyVisualState() {
   auto fillStyle = solidStyle(fillColor, radius);
   if (m_filled) {
     // No edge on an empty level: a 0-wide fill would draw a stray hairline.
-    fillStyle.border = resolved(ColorRole::SliderEdge, m_enabled ? 1.0F : 0.45F);
+    fillStyle.border = resolved(this, ColorRole::SliderEdge, m_enabled ? 1.0F : 0.45F);
     fillStyle.borderWidth = normalizedValue() > 0.0F ? Style::borderWidth : 0.0F;
   }
   m_fill->setStyle(fillStyle);

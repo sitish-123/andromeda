@@ -408,6 +408,12 @@ void TaskbarPreview::build() {
   Renderer& renderer = m_surface->renderTarget().renderer();
   const float s = m_request.contentScale;
   m_sceneRoot = ui::node({});
+  m_sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+  m_glassConn = Style::glassChanged().connect([this] {
+    if (m_sceneRoot != nullptr) {
+      m_sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+    }
+  });
   m_sceneRoot->setSize(static_cast<float>(m_surface->width()), static_cast<float>(m_surface->height()));
   // Grow and Return pivot on the card edge that faces the bar.
   {

@@ -4,6 +4,7 @@
 #include "render/animation/animation_manager.h"
 #include "shell/osd/osd_reveal.h"
 #include "wayland/layer_surface.h"
+#include "ui/signal.h"
 
 #include <cstdint>
 #include <functional>
@@ -103,6 +104,7 @@ private:
     // sceneRoot must be destroyed before `animations` — ~Node() calls cancelForOwner().
     AnimationManager animations;
     std::unique_ptr<Node> sceneRoot;
+    Signal<>::ScopedConnection glassConn;
     wl_surface* wlSurface = nullptr;
 
     Node* card = nullptr;

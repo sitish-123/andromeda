@@ -10,6 +10,9 @@
 #include <optional>
 #include <string_view>
 
+class Node;
+enum class PaletteTone : std::uint8_t;
+
 // Shell color roles: the [scheme.*] roles of protocol/design-tokens.toml that the shell draws with.
 enum class ColorRole : std::uint8_t {
   Label1,
@@ -151,6 +154,15 @@ extern Palette palette;
 // Plugin-facing lookup. Also accepts the retired `surface_variant` and `outline` roles, warning once per name.
 [[nodiscard]] std::optional<ColorRole> colorRoleFromPluginToken(std::string_view token);
 [[nodiscard]] std::string_view colorRoleToken(ColorRole role) noexcept;
+// The role in the palette of `node`'s tone (Node::paletteTone); a null node uses the scheme palette.
+[[nodiscard]] const Color& colorForRole(ColorRole role, const Node* node) noexcept;
+[[nodiscard]] Color colorForRole(ColorRole role, float alpha, const Node* node) noexcept;
+[[nodiscard]] const Palette& paletteForTone(PaletteTone tone) noexcept;
+[[nodiscard]] const Color& colorForRole(ColorRole role, PaletteTone tone) noexcept;
+// The tone of `kind` at the current glass slider (glass::tone).
+[[nodiscard]] PaletteTone glassTone(glass::Kind kind) noexcept;
+// The palette of PaletteTone::Dark. ThemeService sets it before setPalette(), which re-resolves every control.
+void setDarkPalette(const Palette& p);
 [[nodiscard]] ColorSpec colorSpecFromRole(ColorRole role, float alpha = 1.0F) noexcept;
 // Glass material fill: the tint over the compositor blur, or the opaque solid when transparency is reduced.
 // The palette color is opaque, so a caller's opacity (Style::glassTint) replaces its alpha, never multiplies it.
@@ -163,6 +175,7 @@ extern Palette palette;
 }
 [[nodiscard]] ColorSpec fixedColorSpec(const Color& color) noexcept;
 [[nodiscard]] Color resolveColorSpec(const ColorSpec& color) noexcept;
+[[nodiscard]] Color resolveColorSpec(const ColorSpec& color, const Node* node) noexcept;
 [[nodiscard]] bool isLightPalette() noexcept;
 // Set by ThemeService from resolved light/dark mode (not inferred from palette colors).
 [[nodiscard]] bool isResolvedLightTheme() noexcept;

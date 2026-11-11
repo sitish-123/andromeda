@@ -843,7 +843,7 @@ void Image::reloadUncolorizedSource() {
 }
 
 void Image::applyPalette() {
-  const Color border = resolveColorSpec(m_border);
+  const Color border = resolveColorSpec(m_border, this);
   if (m_image == nullptr) {
     return;
   }
@@ -861,7 +861,7 @@ void Image::applyPalette() {
   }
 
   if (m_foregroundTint.has_value()) {
-    m_image->setTint(resolveColorSpec(*m_foregroundTint));
+    m_image->setTint(resolveColorSpec(*m_foregroundTint, this));
     m_image->setMonochromeTint(true);
     m_image->setAlphaMaskTint(true);
     return;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/controls/flex.h"
+#include "ui/signal.h"
 #include "ui/style.h"
 
 #include <functional>
@@ -44,6 +45,7 @@ private:
   void updateFromLocalX(float x);
   void updateGeometry();
   void applyVisualState();
+  void onPaletteToneChanged() override { applyVisualState(); }
   [[nodiscard]] double snapped(double value) const noexcept;
 
   RectNode* m_track = nullptr;
@@ -54,6 +56,7 @@ private:
   std::function<void(double)> m_onValueChanged;
   std::function<void()> m_onLevelChanged;
   std::function<void()> m_onDragEnd;
+  Signal<>::ScopedConnection m_paletteConn;
 
   double m_min = 0.0;
   double m_max = 100.0;

@@ -132,6 +132,7 @@ private:
   bool removePreeditText();
   bool deleteSurroundingText(std::uint32_t beforeLength, std::uint32_t afterLength);
   void applyVisualState();
+  void onPaletteToneChanged() override { applyVisualState(); }
   void updateDisplayText();
   void requestCaretUpdate();
   void syncAccessibleText();

@@ -9,6 +9,7 @@
 #include "render/render_target.h"
 #include "render/scene/node.h"
 #include "ui/controls/scroll_view.h"
+#include "ui/palette.h"
 #include "ui/popup_chrome.h"
 #include "ui/style.h"
 #include "wayland/layer_surface.h"
@@ -73,6 +74,9 @@ void ContextMenuPopup::open(ContextMenuPopupRequest request) {
   m_contentY = chrome.contentY();
   m_contentWidth = chrome.contentWidth;
   m_output = request.parent.output;
+  m_tone = m_parentMenu != nullptr               ? m_parentMenu->m_tone
+      : request.parent.xdgSurface != nullptr ? PaletteTone::Scheme
+                                             : glassTone(glass::Kind::Menu);
   m_scrollState = {};
   m_scrollView = nullptr;
   m_menu = nullptr;
@@ -182,6 +186,7 @@ void ContextMenuPopup::open(ContextMenuPopupRequest request) {
     const auto fh = static_cast<float>(height);
 
     self->m_sceneRoot = std::make_unique<Node>();
+    self->m_sceneRoot->setPaletteTone(self->m_tone);
     self->m_sceneRoot->setSize(fw, fh);
     self->m_sceneRoot->setTransformOrigin(self->m_originX, self->m_originY);
     self->m_sceneRoot->setScale(self->m_scale);

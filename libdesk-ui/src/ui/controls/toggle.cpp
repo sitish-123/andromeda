@@ -222,8 +222,8 @@ void Toggle::updatePressWiden() {
 void Toggle::applyAnimatedState(float t) {
   m_animationProgress = t;
   const float mixT = std::clamp(m_colorProgress, 0.0F, 1.0F);
-  const Color trackColor = lerpColor(colorForRole(ColorRole::Stroke), colorForRole(ColorRole::Accent), mixT);
-  const Color thumbColor = lerpColor(colorForRole(ColorRole::OnAccent), colorForRole(ColorRole::OnAccent), mixT);
+  const Color trackColor = lerpColor(colorForRole(ColorRole::Stroke, this), colorForRole(ColorRole::Accent, this), mixT);
+  const Color thumbColor = lerpColor(colorForRole(ColorRole::OnAccent, this), colorForRole(ColorRole::OnAccent, this), mixT);
   const float along = Style::rtl() ? 1.0F - t : t;
   const float extra = Tokens::componentTogglePressWiden * m_scale * m_widen;
   const float thumbX = m_inset + m_travel * along - extra * along;

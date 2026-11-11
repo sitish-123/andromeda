@@ -101,6 +101,7 @@ private:
   LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints) override;
   void doArrange(Renderer& renderer, const LayoutRect& rect) override;
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void applyScrollOffset();
   void applyScrollOffsetValue(float offset, bool allowOverscroll = false);
   void releaseDrag();

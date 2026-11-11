@@ -90,8 +90,8 @@ void FancyAudioVisualizer::setTime(float time) {
 
 void FancyAudioVisualizer::syncPalette() {
   auto next = style();
-  next.primaryColor = resolveColorSpec(m_primaryColor);
-  next.secondaryColor = resolveColorSpec(m_secondaryColor);
+  next.primaryColor = resolveColorSpec(m_primaryColor, this);
+  next.secondaryColor = resolveColorSpec(m_secondaryColor, this);
   setStyle(next);
 }
 

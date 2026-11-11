@@ -287,10 +287,10 @@ void Scrollbar::applyExpansion(float expansion) {
 void Scrollbar::applyPalette() {
   const float radius = thickness() * 0.5F;
   if (m_track != nullptr) {
-    m_track->setStyle(makeSolid(resolveColorSpec(scrollbarTrackColor()), radius));
+    m_track->setStyle(makeSolid(resolveColorSpec(scrollbarTrackColor(), this), radius));
   }
   if (m_thumb != nullptr) {
-    m_thumb->setStyle(makeSolid(resolveColorSpec(scrollbarThumbColor()), radius));
+    m_thumb->setStyle(makeSolid(resolveColorSpec(scrollbarThumbColor(), this), radius));
   }
 }
 

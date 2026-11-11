@@ -119,7 +119,7 @@ void Separator::doLayout(Renderer& /*renderer*/) {
 void Separator::applyPalette() {
   const bool horiz = ruleIsHorizontal();
 
-  const Color opaque = resolveColorSpec(m_color);
+  const Color opaque = resolveColorSpec(m_color, this);
   const Color startEdge = m_gradientEdges ? Color{opaque.r, opaque.g, opaque.b, 0.0F} : opaque;
   const Color endEdge = startEdge;
   const GradientDirection dir = horiz ? GradientDirection::Horizontal : GradientDirection::Vertical;

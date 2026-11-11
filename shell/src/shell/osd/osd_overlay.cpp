@@ -737,6 +737,12 @@ void OsdOverlay::buildScene(Instance& inst, std::uint32_t width, std::uint32_t h
   const float gap = innerGap(s);
 
   inst.sceneRoot = ui::node({});
+  inst.sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+  inst.glassConn = Style::glassChanged().connect([instPtr = &inst] {
+    if (instPtr->sceneRoot != nullptr) {
+      instPtr->sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+    }
+  });
   inst.sceneRoot->setSize(w, h);
   inst.sceneRoot->setOpacity(1.0F);
   inst.surface->setSceneRoot(inst.sceneRoot.get());

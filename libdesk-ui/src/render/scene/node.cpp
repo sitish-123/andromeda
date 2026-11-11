@@ -364,8 +364,8 @@ void Node::setInvalidationCallback(std::function<void(NodeInvalidation)> callbac
   m_invalidationCallback = std::move(callback);
 }
 
-Node* Node::addChild(std::unique_ptr<Node> child) {
-  uiAssertSceneMutationAllowed("Node::addChild");
+void Node::attachChild(Node* child) {
+  const PaletteTone detachedTone = child->paletteTone();
   child->m_parent = this;
   if (m_animationManager != nullptr && child->m_animationManager == nullptr) {
     child->setAnimationManager(m_animationManager);
@@ -373,7 +373,45 @@ Node* Node::addChild(std::unique_ptr<Node> child) {
   if (m_popupContext != nullptr && child->m_popupContext == nullptr) {
     child->setPopupContext(m_popupContext);
   }
+  // Controls resolve colours before they are attached; a subtree that lands under another tone resolves again.
+  if (child->paletteTone() != detachedTone) {
+    child->notifyPaletteTone();
+  }
+}
+
+void Node::setPaletteTone(std::optional<PaletteTone> tone) {
+  if (m_paletteTone == tone) {
+    return;
+  }
+  const PaletteTone before = paletteTone();
+  m_paletteTone = tone;
+  if (paletteTone() != before) {
+    notifyPaletteTone();
+  }
+}
+
+PaletteTone Node::paletteTone() const noexcept {
+  for (const Node* node = this; node != nullptr; node = node->m_parent) {
+    if (node->m_paletteTone.has_value()) {
+      return *node->m_paletteTone;
+    }
+  }
+  return PaletteTone::Scheme;
+}
+
+void Node::notifyPaletteTone() {
+  onPaletteToneChanged();
+  for (auto& child : m_children) {
+    if (!child->m_paletteTone.has_value()) {
+      child->notifyPaletteTone();
+    }
+  }
+}
+
+Node* Node::addChild(std::unique_ptr<Node> child) {
+  uiAssertSceneMutationAllowed("Node::addChild");
   auto* raw = child.get();
+  attachChild(raw);
   m_children.push_back(std::move(child));
   markLayoutDirty();
   raw->markPaintDirty();
@@ -382,14 +420,8 @@ Node* Node::addChild(std::unique_ptr<Node> child) {
 
 Node* Node::insertChildAt(std::size_t index, std::unique_ptr<Node> child) {
   uiAssertSceneMutationAllowed("Node::insertChildAt");
-  child->m_parent = this;
-  if (m_animationManager != nullptr && child->m_animationManager == nullptr) {
-    child->setAnimationManager(m_animationManager);
-  }
-  if (m_popupContext != nullptr && child->m_popupContext == nullptr) {
-    child->setPopupContext(m_popupContext);
-  }
   auto* raw = child.get();
+  attachChild(raw);
   if (index >= m_children.size()) {
     m_children.push_back(std::move(child));
   } else {

@@ -148,6 +148,7 @@ private:
   std::unique_ptr<ContextMenuPopup> m_child;
   std::size_t m_childIndex = static_cast<std::size_t>(-1);
   ContextMenuPopup* m_parentMenu = nullptr;
+  PaletteTone m_tone = PaletteTone::Scheme;
 
   static ContextMenuPopup* s_openMenu;
 };

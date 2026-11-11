@@ -123,7 +123,7 @@ namespace {
     glyph.setTransformOrigin((metrics.left + metrics.right) * 0.5F, inkCenterY);
   }
 
-  Color resolved(ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha); }
+  Color resolved(const Node* node, ColorRole role, float alpha = 1.0F) { return colorForRole(role, alpha, node); }
 
   bool isUtf8ContinuationByte(unsigned char value) noexcept { return (value & 0xC0U) == 0x80U; }
 
@@ -168,7 +168,7 @@ Input::Input() {
   auto sel = std::make_unique<RectNode>();
   sel->setStyle(
       RoundedRectStyle{
-          .fill = resolved(ColorRole::Accent),
+          .fill = resolved(this, ColorRole::Accent),
           .fillMode = FillMode::Solid,
           .radius = 2.0F,
       }
@@ -188,7 +188,7 @@ Input::Input() {
   auto cursor = std::make_unique<RectNode>();
   cursor->setStyle(
       RoundedRectStyle{
-          .fill = resolved(ColorRole::Accent),
+          .fill = resolved(this, ColorRole::Accent),
           .fillMode = FillMode::Solid,
           .radius = 1.0F,
       }
@@ -1685,12 +1685,12 @@ void Input::applyVisualState() {
 
   if (m_frameVisible) {
     m_background->setVisible(true);
-    const Color fill = focused && !m_capsule ? resolved(ColorRole::SolidRegular, m_surfaceOpacity)
-                                             : resolved(m_surfaceRole, m_surfaceOpacity);
+    const Color fill = focused && !m_capsule ? resolved(this, ColorRole::SolidRegular, m_surfaceOpacity)
+                                             : resolved(this, m_surfaceRole, m_surfaceOpacity);
     const Color border = m_invalid
-        ? resolved(ColorRole::Danger)
-        : (focused ? resolveColorSpec(focusRingColorSpec())
-                   : (inputHovered ? resolved(ColorRole::Fill3) : resolved(ColorRole::Stroke)));
+        ? resolved(this, ColorRole::Danger)
+        : (focused ? resolveColorSpec(focusRingColorSpec(), this)
+                   : (inputHovered ? resolved(this, ColorRole::Fill3) : resolved(this, ColorRole::Stroke)));
 
     float resolvedBorderWidth = 0.0F;
     if (m_capsule) {
@@ -1717,7 +1717,7 @@ void Input::applyVisualState() {
 
   if (m_embeddedOnSolidPrimary && !m_frameVisible) {
     auto selectionStyleEmb = m_selectionRect->style();
-    selectionStyleEmb.fill = resolved(ColorRole::SolidRegular, 0.4F);
+    selectionStyleEmb.fill = resolved(this, ColorRole::SolidRegular, 0.4F);
     selectionStyleEmb.fillMode = FillMode::Solid;
     selectionStyleEmb.radius = 2.0F;
     m_selectionRect->setStyle(selectionStyleEmb);
@@ -1726,7 +1726,7 @@ void Input::applyVisualState() {
     }
 
     auto cursorStyleEmb = m_cursor->style();
-    cursorStyleEmb.fill = resolved(ColorRole::SolidRegular);
+    cursorStyleEmb.fill = resolved(this, ColorRole::SolidRegular);
     cursorStyleEmb.fillMode = FillMode::Solid;
     cursorStyleEmb.radius = 1.0F;
     m_cursor->setStyle(cursorStyleEmb);
@@ -1742,20 +1742,20 @@ void Input::applyVisualState() {
       m_label->setColor(colorSpecFromRole(ColorRole::OnAccent));
     }
     const Color passwordGlyphEmb = m_invalid
-        ? resolved(ColorRole::Danger)
-        : (showingPlaceholder ? resolved(ColorRole::OnAccent, kPrimaryPlaceholderAlpha)
-                              : (readOnly ? resolved(ColorRole::OnAccent, 0.65F) : resolved(ColorRole::OnAccent)));
+        ? resolved(this, ColorRole::Danger)
+        : (showingPlaceholder ? resolved(this, ColorRole::OnAccent, kPrimaryPlaceholderAlpha)
+                              : (readOnly ? resolved(this, ColorRole::OnAccent, 0.65F) : resolved(this, ColorRole::OnAccent)));
     for (auto* glyph : m_passwordGlyphs) {
       glyph->setColor(passwordGlyphEmb);
     }
     if (m_clearButtonGlyph != nullptr) {
-      m_clearButtonGlyph->setColor(resolved(ColorRole::OnAccent, clearButtonHovered ? 1.0F : 0.72F));
+      m_clearButtonGlyph->setColor(resolved(this, ColorRole::OnAccent, clearButtonHovered ? 1.0F : 0.72F));
     }
     return;
   }
 
   auto selectionStyle = m_selectionRect->style();
-  selectionStyle.fill = resolved(ColorRole::Accent);
+  selectionStyle.fill = resolved(this, ColorRole::Accent);
   selectionStyle.fillMode = FillMode::Solid;
   selectionStyle.radius = 2.0F;
   m_selectionRect->setStyle(selectionStyle);
@@ -1764,7 +1764,7 @@ void Input::applyVisualState() {
   }
 
   auto cursorStyle = m_cursor->style();
-  cursorStyle.fill = resolved(ColorRole::Accent);
+  cursorStyle.fill = resolved(this, ColorRole::Accent);
   cursorStyle.fillMode = FillMode::Solid;
   cursorStyle.radius = 1.0F;
   m_cursor->setStyle(cursorStyle);
@@ -1781,12 +1781,12 @@ void Input::applyVisualState() {
     textColor = fixedColorSpec(*m_textOverride);
   }
   m_label->setColor(textColor);
-  const Color passwordGlyphColor = resolveColorSpec(textColor);
+  const Color passwordGlyphColor = resolveColorSpec(textColor, this);
   for (auto* glyph : m_passwordGlyphs) {
     glyph->setColor(passwordGlyphColor);
   }
   if (m_clearButtonGlyph != nullptr) {
-    m_clearButtonGlyph->setColor(resolved(clearButtonHovered ? ColorRole::Label1 : ColorRole::Label2));
+    m_clearButtonGlyph->setColor(resolved(this, clearButtonHovered ? ColorRole::Label1 : ColorRole::Label2));
   }
 }
 

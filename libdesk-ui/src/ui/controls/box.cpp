@@ -101,18 +101,18 @@ void Box::setFrameSize(float w, float h) {
 void Box::resolveGlassFill() {
   if (m_glassKind.has_value()) {
     const ColorRole role = *m_glassKind == glass::Kind::Shape ? materialRole() : panelMaterialRole();
-    m_fill = colorSpecFromRole(role, Style::glassMaterial(*m_glassKind).tint);
+    m_fill = colorSpecFromRole(role, Style::glassMaterial(*m_glassKind, paletteTone()).tint);
   }
 }
 
 void Box::applyPalette() {
   resolveGlassFill();
   if (m_resolveFill) {
-    m_style.fill = resolveColorSpec(m_fill);
+    m_style.fill = resolveColorSpec(m_fill, this);
     m_style.fillMode = FillMode::Solid;
   }
   if (m_resolveBorder) {
-    m_style.border = resolveColorSpec(m_border);
+    m_style.border = resolveColorSpec(m_border, this);
     m_style.borderWidth = m_borderWidth;
   }
   syncStyle();
@@ -125,8 +125,8 @@ void Box::setFlatStyle() {
   m_borderWidth = 0.0F;
   m_resolveFill = true;
   m_resolveBorder = true;
-  m_style.fill = resolveColorSpec(m_fill);
-  m_style.border = resolveColorSpec(m_border);
+  m_style.fill = resolveColorSpec(m_fill, this);
+  m_style.border = resolveColorSpec(m_border, this);
   m_style.borderWidth = m_borderWidth;
   m_style.fillMode = FillMode::Solid;
   m_style.corners = {};
@@ -148,8 +148,8 @@ void Box::setPanelStyle(bool showBorder) {
   }
   m_resolveFill = true;
   m_resolveBorder = true;
-  m_style.fill = resolveColorSpec(m_fill);
-  m_style.border = resolveColorSpec(m_border);
+  m_style.fill = resolveColorSpec(m_fill, this);
+  m_style.border = resolveColorSpec(m_border, this);
   m_style.borderWidth = m_borderWidth;
   m_style.fillMode = FillMode::Solid;
   m_style.corners = {};
@@ -166,8 +166,8 @@ void Box::setDialogStyle() {
   m_borderWidth = Style::borderWidth;
   m_resolveFill = true;
   m_resolveBorder = true;
-  m_style.fill = resolveColorSpec(m_fill);
-  m_style.border = resolveColorSpec(m_border);
+  m_style.fill = resolveColorSpec(m_fill, this);
+  m_style.border = resolveColorSpec(m_border, this);
   m_style.borderWidth = m_borderWidth;
   m_style.fillMode = FillMode::Solid;
   m_style.corners = {};

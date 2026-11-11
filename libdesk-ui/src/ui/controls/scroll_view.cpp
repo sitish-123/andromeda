@@ -473,8 +473,8 @@ void ScrollView::applyPalette() {
   if (m_background != nullptr) {
     m_background->setStyle(
         RoundedRectStyle{
-            .fill = resolveColorSpec(m_backgroundFill),
-            .border = resolveColorSpec(m_backgroundBorder),
+            .fill = resolveColorSpec(m_backgroundFill, this),
+            .border = resolveColorSpec(m_backgroundBorder, this),
             .fillMode = FillMode::Solid,
             .radius = m_backgroundRadius,
             .softness = m_backgroundSoftness,

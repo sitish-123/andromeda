@@ -121,6 +121,8 @@ namespace andromeda {
     float m_liquid = 0.0F;
     float m_rim = 0.0F;
     float m_lens = 0.0F;
+    // Liquid value [3]: glass::Material::dense.
+    float m_dense = 0.0F;
     bool m_backdropDark = false;
     // dsk_surface_v1 tint (v9): the client's tint over the blur, rgba; the compositor adds the density to it.
     std::array<float, 4> m_tint{};
@@ -129,6 +131,7 @@ namespace andromeda {
       float liquid = 0.0F;
       float rim = 0.0F;
       float lens = 0.0F;
+      float dense = 0.0F;
       std::array<float, 4> tint{};
     };
     std::vector<ShapeMaterial> m_shapeMaterials;

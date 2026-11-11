@@ -263,8 +263,8 @@ void Flex::applyPalette() {
     return;
   }
   auto style = m_background->style();
-  style.fill = resolveColorSpec(m_fill);
-  style.border = resolveColorSpec(m_border);
+  style.fill = resolveColorSpec(m_fill, this);
+  style.border = resolveColorSpec(m_border, this);
   style.fillMode = FillMode::Solid;
   if (m_fillGradient.has_value()) {
     style.fillMode = FillMode::LinearGradient;

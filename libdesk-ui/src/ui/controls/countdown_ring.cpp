@@ -84,7 +84,7 @@ void CountdownRing::setColor(const ColorSpec& color) {
 void CountdownRing::setColor(const Color& color) { setColor(fixedColorSpec(color)); }
 
 void CountdownRing::applyPalette() {
-  const Color resolved = resolveColorSpec(m_color);
+  const Color resolved = resolveColorSpec(m_color, this);
   if (m_ringNode != nullptr) {
     m_ringNode->setColor(resolved);
   }

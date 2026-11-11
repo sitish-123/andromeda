@@ -162,5 +162,6 @@ struct BarInstance {
   Widget* hoverHighlightWidget = nullptr;
 
   Signal<>::ScopedConnection paletteConn;
+  Signal<>::ScopedConnection glassConn;
   std::optional<AttachedPanelGeometry> attachedPanelGeometry;
 };

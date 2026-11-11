@@ -885,6 +885,12 @@ void TrayMenu::buildScene(MenuInstance& inst, uint32_t width, uint32_t height) {
   const auto h = static_cast<float>(height);
 
   inst.sceneRoot = ui::node({});
+  inst.sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+  inst.glassConn = Style::glassChanged().connect([instPtr = &inst] {
+    if (instPtr->sceneRoot != nullptr) {
+      instPtr->sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+    }
+  });
   inst.sceneRoot->setSize(w, h);
   if (Style::popupShadowsEnabled()) {
     (void)popup_chrome::addShadow(
@@ -1243,6 +1249,12 @@ void TrayMenu::buildSubmenuScene(std::size_t levelIndex, MenuInstance& inst, uin
   const auto h = static_cast<float>(height);
 
   inst.sceneRoot = ui::node({});
+  inst.sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+  inst.glassConn = Style::glassChanged().connect([instPtr = &inst] {
+    if (instPtr->sceneRoot != nullptr) {
+      instPtr->sceneRoot->setPaletteTone(glassTone(glass::Kind::Menu));
+    }
+  });
   inst.sceneRoot->setSize(w, h);
   if (Style::popupShadowsEnabled()) {
     (void)popup_chrome::addShadow(

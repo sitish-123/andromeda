@@ -323,6 +323,12 @@ void PersistentPanelHost::buildScene(Instance& instance, std::uint32_t width, st
 
   const bool hasDecoration = instance.panel->hasDecoration();
   instance.sceneRoot = ui::node({});
+  instance.sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+  instance.glassConn = Style::glassChanged().connect([inst = &instance] {
+    if (inst->sceneRoot != nullptr) {
+      inst->sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+    }
+  });
   instance.sceneRoot->setAnimationManager(&instance.animations);
   instance.sceneRoot->setSize(static_cast<float>(width), static_cast<float>(height));
 

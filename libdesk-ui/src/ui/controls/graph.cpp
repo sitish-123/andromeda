@@ -87,9 +87,9 @@ void Graph::applyPalette() {
   if (m_node == nullptr) {
     return;
   }
-  m_node->setLineColor1(resolveColorSpec(m_colors[0]));
-  m_node->setLineColor2(resolveColorSpec(m_colors[1]));
-  m_node->setLineColor3(resolveColorSpec(m_colors[2]));
+  m_node->setLineColor1(resolveColorSpec(m_colors[0], this));
+  m_node->setLineColor2(resolveColorSpec(m_colors[1], this));
+  m_node->setLineColor3(resolveColorSpec(m_colors[2], this));
 }
 
 void Graph::doLayout(Renderer& renderer) {

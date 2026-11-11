@@ -36,6 +36,7 @@ private:
   void applySize();
   void applyState();
   void applyAnimatedState(float t);
+  void onPaletteToneChanged() override { applyAnimatedState(m_animationProgress); }
   void updatePressWiden();
   void doLayout(Renderer& renderer) override;
   LayoutSize doMeasure(Renderer& renderer, const LayoutConstraints& constraints) override;

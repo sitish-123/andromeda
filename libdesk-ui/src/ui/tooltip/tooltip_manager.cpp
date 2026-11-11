@@ -695,6 +695,7 @@ void TooltipManager::buildScene(const TooltipContent& content, float w, float h,
   Renderer& renderer = m_surface->renderTarget().renderer();
 
   m_sceneRoot = ui::node({});
+  m_sceneRoot->setPaletteTone(m_activeXdgParent != nullptr ? PaletteTone::Scheme : glassTone(glass::Kind::Tooltip));
   m_sceneRoot->setSize(w, h);
   m_sceneRoot->setOpacity(opacity);
   m_sceneRoot->setHitTestVisible(false);

@@ -47,6 +47,7 @@ public:
 
 private:
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void updateGeometry();
 
   RectNode* m_track = nullptr;

@@ -90,6 +90,7 @@ private:
   void doRebindRenderer(Renderer& renderer) override { bindRenderer(renderer); }
   void bindRenderer(Renderer& renderer);
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void updateLayout();
   void clearAsyncSource();
   void storeOwnedRgbaSource(const std::uint8_t* rgba, int width, int height);

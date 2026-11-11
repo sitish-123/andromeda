@@ -51,6 +51,7 @@ public:
 private:
   void doLayout(Renderer& renderer) override;
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
 
   GraphNode* m_node = nullptr;
   std::array<std::vector<float>, 3> m_series;

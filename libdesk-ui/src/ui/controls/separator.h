@@ -36,6 +36,7 @@ protected:
 private:
   [[nodiscard]] bool ruleIsHorizontal() const;
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
 
   RectNode* m_rectStart = nullptr;
   RectNode* m_rectEnd = nullptr;

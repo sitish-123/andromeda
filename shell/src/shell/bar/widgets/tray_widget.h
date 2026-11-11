@@ -106,6 +106,7 @@ private:
   bool m_matchAdjacentSpacing = false;
   std::optional<float> m_customItemSize;
   bool m_appIconColorizeDirty = false;
+  // Rasterised white and tinted, so a palette or tone change recolours them without a rebuild.
   InputArea* m_drawerTrigger = nullptr;
   Glyph* m_drawerChevron = nullptr;
   std::string m_drawerChevronGlyph;

@@ -68,9 +68,9 @@ void Glyph::clearShadow() {
 }
 
 void Glyph::applyPalette() {
-  m_glyphNode->setColor(resolveColorSpec(m_color));
+  m_glyphNode->setColor(resolveColorSpec(m_color, this));
   if (m_shadowColor.has_value()) {
-    m_glyphNode->setShadow(resolveColorSpec(*m_shadowColor), m_shadowOffsetX, m_shadowOffsetY);
+    m_glyphNode->setShadow(resolveColorSpec(*m_shadowColor, this), m_shadowOffsetX, m_shadowOffsetY);
   }
 }
 

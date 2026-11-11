@@ -81,6 +81,10 @@ struct LayoutConstraints {
 
 struct Accessible;
 
+// The palette a subtree resolves colour roles from. Scheme: the light or dark scheme. Dark: the dark palette in either
+// scheme (small liquid shapes, glass::tone).
+enum class PaletteTone : std::uint8_t { Scheme, Dark };
+
 class Node {
 public:
   explicit Node(NodeType type = NodeType::Base);
@@ -145,6 +149,9 @@ public:
   void setHitTestOutset(const HitTestOutset& outset);
   void setZIndex(std::int32_t zIndex);
   void setExcludeSubtreeFromTabOrder(bool exclude) noexcept;
+  // nullopt inherits the parent's tone; a root without one uses Scheme. A change re-resolves the subtree's colours.
+  void setPaletteTone(std::optional<PaletteTone> tone);
+  [[nodiscard]] PaletteTone paletteTone() const noexcept;
   [[nodiscard]] bool excludeSubtreeFromTabOrder() const noexcept { return m_excludeSubtreeFromTabOrder; }
 
   virtual Node* addChild(std::unique_ptr<Node> child);
@@ -207,6 +214,8 @@ protected:
   // Refreshes any Renderer pointer this node retains; no layout side effects.
   virtual void doRebindRenderer(Renderer& renderer) { (void)renderer; }
   [[nodiscard]] virtual bool containsLocalPoint(float localX, float localY, bool includeHitOutset) const;
+  // The effective palette tone changed: re-resolve colour roles.
+  virtual void onPaletteToneChanged() {}
 
 private:
   static bool
@@ -248,10 +257,13 @@ private:
   Node* m_parent = nullptr;
   std::vector<std::unique_ptr<Node>> m_children;
   std::unique_ptr<Accessible> m_accessible;
+  std::optional<PaletteTone> m_paletteTone;
 
   void propagatePaintDirty();
   void propagateLayoutDirty();
   void notifyInvalidated(NodeInvalidation invalidation);
+  void attachChild(Node* child);
+  void notifyPaletteTone();
 };
 
 // Paints an existing retained subtree a second time at this node's transform.

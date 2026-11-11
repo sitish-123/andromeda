@@ -27,6 +27,7 @@ protected:
 
 private:
   void applyPalette();
+  void onPaletteToneChanged() override { applyPalette(); }
   void syncGeometry();
 
   CountdownRingNode* m_ringNode = nullptr;

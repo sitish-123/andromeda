@@ -127,8 +127,8 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
     m_panel->setSize(panelWidth, panelHeight);
     m_panel->setStyle(
         RoundedRectStyle{
-            .fill = resolveColorSpec(style.panelFill),
-            .border = colorForRole(ColorRole::Stroke, style.panelOpacity),
+            .fill = resolveColorSpec(style.panelFill, m_panel),
+            .border = colorForRole(ColorRole::Stroke, style.panelOpacity, m_panel),
             .fillMode = FillMode::Solid,
             .radius = Style::scaledRadius(style.panelRadius),
             .softness = 1.0F,
@@ -156,7 +156,7 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
         m_infoGhost->setSize(panelWidth - padH * 2.0F, rows.info);
         m_infoGhost->setStyle(
             RoundedRectStyle{
-                .fill = colorForRole(ColorRole::SolidRegular, 0.35F),
+                .fill = colorForRole(ColorRole::SolidRegular, 0.35F, m_infoGhost),
                 .fillMode = FillMode::Solid,
                 .radius = Style::scaledRadius(style.inputRadius),
             }
@@ -180,7 +180,7 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
         m_mediaGhost->setSize(ghostWidth, ghostHeight);
         m_mediaGhost->setStyle(
             RoundedRectStyle{
-                .fill = colorForRole(ColorRole::Accent, 0.18F),
+                .fill = colorForRole(ColorRole::Accent, 0.18F, m_mediaGhost),
                 .fillMode = FillMode::Solid,
                 .radius = Style::scaledRadius(style.inputRadius),
             }
@@ -199,7 +199,7 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
         m_weatherGhost->setSize(ghostWidth, ghostHeight);
         m_weatherGhost->setStyle(
             RoundedRectStyle{
-                .fill = colorForRole(ColorRole::Accent, 0.18F),
+                .fill = colorForRole(ColorRole::Accent, 0.18F, m_weatherGhost),
                 .fillMode = FillMode::Solid,
                 .radius = Style::scaledRadius(style.inputRadius),
             }
@@ -240,8 +240,8 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
       m_statusGhost->setZIndex(2);
       m_statusGhost->setStyle(
           RoundedRectStyle{
-              .fill = resolveColorSpec(style.panelFill),
-              .border = colorForRole(ColorRole::Stroke, style.panelOpacity),
+              .fill = resolveColorSpec(style.panelFill, m_statusGhost),
+              .border = colorForRole(ColorRole::Stroke, style.panelOpacity, m_statusGhost),
               .fillMode = FillMode::Solid,
               .radius = Style::scaledRadius(style.panelRadius),
               .softness = 1.0F,
@@ -280,8 +280,8 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
     m_passwordGhost->setSize(inputWidth, passwordHeight);
     m_passwordGhost->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SolidRegular, style.inputOpacity),
-            .border = colorForRole(ColorRole::Stroke),
+            .fill = colorForRole(ColorRole::SolidRegular, style.inputOpacity, m_passwordGhost),
+            .border = colorForRole(ColorRole::Stroke, m_passwordGhost),
             .fillMode = FillMode::Solid,
             .radius = Style::scaledRadius(style.inputRadius),
             .borderWidth = Style::borderWidth,
@@ -296,7 +296,7 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
       m_loginButtonGhost->setSize(passwordHeight, passwordHeight);
       m_loginButtonGhost->setStyle(
           RoundedRectStyle{
-              .fill = colorForRole(ColorRole::Accent, 0.9F),
+              .fill = colorForRole(ColorRole::Accent, 0.9F, m_loginButtonGhost),
               .fillMode = FillMode::Solid,
               .radius = Style::scaledRadius(style.inputRadius),
           }
@@ -331,7 +331,7 @@ void DesktopLoginBoxWidget::doLayout(Renderer& renderer) {
     ghost->setSize(sessionWidth, rows.session);
     ghost->setStyle(
         RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SolidRegular, 0.55F),
+            .fill = colorForRole(ColorRole::SolidRegular, 0.55F, ghost),
             .fillMode = FillMode::Solid,
             .radius = Style::scaledRadius(style.inputRadius),
         }

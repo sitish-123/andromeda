@@ -123,6 +123,7 @@ protected:
   // later measure can still re-derive the size from content/min instead of being pinned to a stale
   // value.
   void setSizeFromLayout(float width, float height);
+  void onPaletteToneChanged() override { applyPalette(); }
 
 public:
   struct ChildLayout;

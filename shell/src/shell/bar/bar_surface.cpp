@@ -1195,9 +1195,9 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     // In islands mode the island pills carry the material; the bar body stays unpainted.
     const bool paintBody = !instance.barConfig.islands;
     const RoundedRectStyle bgStyle{
-        .fill = paintBody ? colorForRole(materialRole(), barBodyTint(instance.barConfig))
+        .fill = paintBody ? colorForRole(materialRole(), barBodyTint(instance.barConfig), instance.sceneRoot.get())
                           : rgba(0.0F, 0.0F, 0.0F, 0.0F),
-        .border = resolveColorSpec(instance.barConfig.border),
+        .border = resolveColorSpec(instance.barConfig.border, instance.sceneRoot.get()),
         .fillMode = FillMode::Solid,
         .corners = concave.corners,
         .logicalInset = concave.logicalInset,
@@ -1233,6 +1233,11 @@ void Bar::buildScene(BarInstance& instance, std::uint32_t width, std::uint32_t h
     applyBackgroundPalette(*inst);
     if (inst->surface != nullptr) {
       inst->surface->requestRedraw();
+    }
+  });
+  instance.glassConn = Style::glassChanged().connect([inst = &instance] {
+    if (inst->sceneRoot != nullptr) {
+      inst->sceneRoot->setPaletteTone(glassTone(glass::Kind::Shape));
     }
   });
   applyBackgroundPalette(instance);

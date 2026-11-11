@@ -613,9 +613,9 @@ void TrayWidget::rebuild(Renderer& renderer) {
         image->setAppIconColorization(appIconTint);
       }
       bool loadedFromFile = false;
-      const Color symbolicColor = resolveColorSpec(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
+      const Color white{.r = 1.0F, .g = 1.0F, .b = 1.0F, .a = 1.0F};
       if (symbolicPath && isSvgPath(iconPath)) {
-        if (auto symbolic = loadSymbolicTrayIcon(iconPath, iconRequestSize, symbolicColor)) {
+        if (auto symbolic = loadSymbolicTrayIcon(iconPath, iconRequestSize, white)) {
           loadedFromFile = image->setSourceRaw(
               renderer, symbolic->rgba.data(), symbolic->rgba.size(), symbolic->width, symbolic->height, 0,
               PixmapFormat::RGBA, true
@@ -641,8 +641,8 @@ void TrayWidget::rebuild(Renderer& renderer) {
       }
 
       if (loadedFromFile) {
-        if (symbolicPath && !isSvgPath(iconPath)) {
-          image->setTint(symbolicColor);
+        if (symbolicPath) {
+          image->setForegroundTint(widgetIconColorOr(colorSpecFromRole(ColorRole::Label1)));
         }
         iconW = iconSize;
         iconH = iconSize;

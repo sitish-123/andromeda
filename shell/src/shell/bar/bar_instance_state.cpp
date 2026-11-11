@@ -327,7 +327,8 @@ bool Bar::syncIslandLiquid(BarInstance& instance) {
   if (instance.dsk->hasTintProperty()) {
     instance.compositorTint = want && instance.barConfig.compositorBlur && Style::compositorDrawsTint();
     instance.dsk->set(
-        DskSurfaceClient::Property::Tint, glassTintValue(materialRole(), instance.compositorTint ? material.tint : 0.0F)
+        DskSurfaceClient::Property::Tint,
+        glassTintValue(materialRole(), instance.compositorTint ? material.tint : 0.0F, instance.sceneRoot.get())
     );
   }
   syncIslandShapes(instance, true);
@@ -377,7 +378,7 @@ bool Bar::syncIslandShapes(BarInstance& instance, bool material) const {
       shape.set(DskSurfaceClient::Property::Liquid, want ? glassLiquid(shapeGlass) : DskSurfaceClient::Value{});
       shape.set(
           DskSurfaceClient::Property::Tint,
-          glassTintValue(materialRole(), instance.compositorTint ? shapeGlass.tint : 0.0F)
+          glassTintValue(materialRole(), instance.compositorTint ? shapeGlass.tint : 0.0F, instance.sceneRoot.get())
       );
     }
   }
@@ -388,16 +389,20 @@ void Bar::applyBackgroundPalette(BarInstance& instance) {
   if (instance.bg == nullptr) {
     return;
   }
-  const Color material = colorForRole(materialRole(), barBodyTint(instance.barConfig));
+  const Node* tone = instance.sceneRoot.get();
+  if (instance.sceneRoot != nullptr) {
+    instance.sceneRoot->setPaletteTone(glassTone(glass::Kind::Shape));
+  }
+  const Color material = colorForRole(materialRole(), barBodyTint(instance.barConfig), tone);
   // Islands are small shapes: liquid glass with the launcher pill's clear tint.
   const bool liquid = syncIslandLiquid(instance);
   const Color islandMaterial = instance.compositorTint ? rgba(0.0F, 0.0F, 0.0F, 0.0F)
-      : liquid                                        ? colorForRole(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint)
+      : liquid                                        ? colorForRole(materialRole(), Style::glassMaterial(glass::Kind::Shape).tint, tone)
                                                       : material;
   const auto applyMaterial = [&](Box* box, bool painted) {
     auto style = box->style();
     style.fill = painted ? (box == instance.bg ? material : islandMaterial) : rgba(0.0F, 0.0F, 0.0F, 0.0F);
-    style.border = resolveColorSpec(instance.barConfig.border);
+    style.border = resolveColorSpec(instance.barConfig.border, tone);
     style.borderWidth = painted ? instance.barConfig.borderWidth : 0.0F;
     if (painted && instance.barConfig.islands) {
       style.borderWidth = islandStrokeWidth(style.borderWidth);

@@ -113,6 +113,10 @@ private:
   void ensureLabel();
   void ensureGlyph();
   void applyVariant();
+  void onPaletteToneChanged() override {
+    Flex::onPaletteToneChanged();
+    applyVariant();
+  }
   void applyVisualState();
   [[nodiscard]] float effectiveBorderWidth() const noexcept;
   void resolveVisualStateColors(Color& bg, Color& border, Color& label) const;

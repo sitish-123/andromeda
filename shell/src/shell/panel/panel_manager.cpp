@@ -49,6 +49,9 @@
 PanelManager* PanelManager::s_instance = nullptr;
 
 namespace {
+  // The sheet takes the light glass curve and light-scheme rules (glass::tone Scheme in the light scheme).
+  bool sheetLight() { return isLightPalette() && glassTone(glass::Kind::Sheet) == PaletteTone::Scheme; }
+
   constexpr double kScaleOpenFrom = 0.92;
   constexpr float kMorphMarginRatio = 0.08F;
 
@@ -430,6 +433,14 @@ void PanelManager::initialize(CompositorPlatform& platform, ConfigService* confi
         m_dsk->set(DskSurfaceClient::Property::Liquid, sheetLiquid(m_panelLiquid));
       }
       sendSheetTint();
+    }
+  });
+  m_glassToneConn = Style::glassChanged().connect([this] {
+    syncPanelTone();
+    if (isOpen()) {
+      updateGlassTone();
+      sendSheetTint();
+      sendSheetStroke();
     }
   });
   m_platform = &platform;
@@ -2576,7 +2587,7 @@ void PanelManager::sendSheetStroke() {
     return;
   }
   const bool borders = m_config != nullptr && m_config->config().shell.panel.borders;
-  const Color c = borders ? resolveColorSpec(detachedBorder(detachedBackgroundOpacity()))
+  const Color c = borders ? resolveColorSpec(detachedBorder(detachedBackgroundOpacity()), m_sceneRoot.get())
                           : Color{};
   m_dsk->set(DskSurfaceClient::Property::Stroke, {c.r, c.g, c.b, c.a});
 }
@@ -2584,13 +2595,19 @@ void PanelManager::sendSheetStroke() {
 // Liquid shapes get the compositor's specular rim instead of the sheet hairline, so the hairline fades with liquid.
 // In light mode the rim adds white light, which shows nothing over a white backdrop, so the hairline stays.
 ColorSpec PanelManager::detachedBorder(float backgroundOpacity) const {
-  const float keep = isResolvedLightTheme() ? 1.0F : 1.0F - m_panelLiquid;
+  const float keep = sheetLight() ? 1.0F : 1.0F - m_panelLiquid;
   return scaleAlpha(shell::panel_surface::borderColor(m_config, backgroundOpacity), keep);
 }
 
 ColorSpec PanelManager::detachedFill() const {
   // The compositor draws the tint and its density (dsk v9); without it the sheet paints the slider tint.
   return compositorTint() ? clearColorSpec() : colorSpecFromRole(panelMaterialRole(), detachedFillAlpha());
+}
+
+void PanelManager::syncPanelTone() {
+  if (m_sceneRoot != nullptr) {
+    m_sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
+  }
 }
 
 void PanelManager::bindBackdrop() {
@@ -2629,8 +2646,9 @@ void PanelManager::sendSheetTint(bool animate) {
   if (m_dsk == nullptr || !m_dsk->hasTintProperty()) {
     return;
   }
-  const DskSurfaceClient::Value tint =
-      glassTintValue(panelMaterialRole(), compositorTint() ? sheetTintAlpha(m_liquidTarget) : 0.0F);
+  const DskSurfaceClient::Value tint = glassTintValue(
+      panelMaterialRole(), compositorTint() ? sheetTintAlpha(m_liquidTarget) : 0.0F, m_sceneRoot.get()
+  );
   if (animate) {
     m_dsk->animate(DskSurfaceClient::Property::Tint, openCurve(), tint);
   } else {
@@ -2645,15 +2663,15 @@ DskSurfaceClient::Value PanelManager::sheetLiquid(float liquid) {
 
 float PanelManager::densityCardOpacity(float opacity) const {
   // Light cards are black fill_1 (4 %) x opacity: on the denser white sheet they need up to 8 % to stay visible.
-  return !m_attachedToBar && isLightPalette() ? std::lerp(opacity, 2.0F, m_glassDark) : opacity;
+  return !m_attachedToBar && sheetLight() ? std::lerp(opacity, 2.0F, m_glassDark) : opacity;
 }
 
 void PanelManager::updateGlassTone(bool instant) {
   // Glass whose backdrop is the same tone as its tint (light on dark, dark on bright) loses contrast: make it denser.
-  const bool contrastLow = isLightPalette() ? m_backdropDark : !m_backdropDark;
+  const bool contrastLow = sheetLight() ? m_backdropDark : !m_backdropDark;
   float target = m_backdropMeasured && !Style::reduceTransparency() && contrastLow ? 1.0F : 0.0F;
-  // While open, density only rises (user: no pulsing over a changing backdrop); a light/dark switch resets it.
-  const bool light = isLightPalette();
+  // While open, density only rises (user: no pulsing over a changing backdrop); a light/dark sheet switch resets it.
+  const bool light = sheetLight();
   const bool sameScheme = m_glassToneLight == light;
   m_glassToneLight = light;
   // Against the last target, not the animated m_glassDark: a palette cross-fade calls this every frame and would
@@ -3485,6 +3503,7 @@ void PanelManager::buildScene(std::uint32_t width, std::uint32_t height) {
 
   if (m_sceneRoot == nullptr) {
     m_sceneRoot = ui::node({});
+    m_sceneRoot->setPaletteTone(glassTone(glass::Kind::Sheet));
     m_sceneRoot->setAnimationManager(&m_animations);
     if (m_layerSurface != nullptr && m_renderContext != nullptr) {
       m_selectPopup = std::make_unique<SelectDropdownPopup>(m_platform->wayland(), *m_renderContext);

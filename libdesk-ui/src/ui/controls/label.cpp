@@ -145,9 +145,9 @@ void Label::setColor(const ColorSpec& color) {
 void Label::setColor(const Color& color) { setColor(fixedColorSpec(color)); }
 
 void Label::applyPalette() {
-  m_textNode->setColor(resolveColorSpec(m_color));
+  m_textNode->setColor(resolveColorSpec(m_color, this));
   if (m_shadowColor.has_value()) {
-    m_textNode->setShadow(resolveColorSpec(*m_shadowColor), m_shadowOffsetX, m_shadowOffsetY);
+    m_textNode->setShadow(resolveColorSpec(*m_shadowColor, this), m_shadowOffsetX, m_shadowOffsetY);
   }
 }
 
