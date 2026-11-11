@@ -24,6 +24,7 @@
 #include "ui/controls/slider.h"
 #include "ui/controls/stepper.h"
 #include "ui/controls/toggle.h"
+#include "ui/dialogs/color_picker_dialog.h"
 #include "ui/dialogs/file_dialog.h"
 #include "ui/palette.h"
 #include "ui/style.h"
@@ -560,6 +561,62 @@ namespace settings {
             .disabled = state
         };
       };
+      if (path == std::vector<std::string>{"andromeda", "appearance", "accent"}) {
+        // Accent Color: one circle per option, the chosen one ringed; Custom opens the colour picker.
+        auto strip = ui::row({.align = FlexAlign::Center, .gap = Style::focusRingGap * scale});
+        const float circle = metrics::kSwatchSize * scale;
+        const float cell = circle + 2.0F * (Style::focusRingWidth + Style::focusRingGap) * scale;
+        for (const auto& opt : setting.options) {
+          const bool selected = opt.value == setting.selectedValue;
+          const ColorSpec none = clearColorSpec();
+          const ColorSpec ring = selected ? colorSpecFromRole(ColorRole::Label3) : none;
+          const auto state = [&](const ColorSpec& bg) {
+            return Button::ButtonStateColors{.bg = bg, .border = ring, .label = none};
+          };
+          const bool custom = opt.value == "custom";
+          std::function<void()> onClick = [commit, value = opt.value] { commit(value); };
+          if (custom) {
+            onClick = [commit, preview = opt.preview] {
+              ColorPickerDialogOptions options{.title = i18n::tr("settings.dialogs.color-picker.title")};
+              if (!preview.swatches.empty()) {
+                options.initialColor = resolveColorSpec(preview.swatches.front());
+              }
+              (void)ColorPickerDialog::open(std::move(options), [commit](std::optional<Color> result) {
+                if (result.has_value()) {
+                  commit(StringUtils::toLower(formatRgbHex(*result)));
+                }
+              });
+            };
+          }
+          const bool filled = !opt.preview.swatches.empty();
+          const ColorSpec fill = filled ? opt.preview.swatches.front() : colorSpecFromRole(ColorRole::Fill2);
+          const char* glyph = filled ? nullptr : custom ? "plus" : "photo";
+          strip->addChild(ui::button({
+              .variant = ButtonVariant::Ghost,
+              .customPalette = Button::ButtonPalette{
+                  .borderWidth = Style::focusRingWidth * scale, .normal = state(none),
+                  .hover = state(colorSpecFromRole(ColorRole::Fill1)),
+                  .pressed = state(colorSpecFromRole(ColorRole::Fill2)), .disabled = state(none)
+              },
+              .tooltip = opt.label,
+              .minWidth = cell,
+              .minHeight = cell,
+              .padding = Style::focusRingGap * scale,
+              .radius = cell * 0.5F,
+              .onClick = std::move(onClick),
+              .configure = [fill, circle, glyph, scale](Button& button) {
+                auto dot = ui::row({.align = FlexAlign::Center, .justify = FlexJustify::Center, .fill = fill,
+                                    .radius = circle * 0.5F, .width = circle, .height = circle});
+                if (glyph != nullptr) {
+                  dot->addChild(ui::glyph({.glyph = glyph, .glyphSize = Style::fontSizeCaption * scale,
+                                           .color = colorSpecFromRole(ColorRole::Label2)}));
+                }
+                button.addChild(std::move(dot));
+              },
+          }));
+        }
+        return strip;
+      }
       if (swatches) {
         // The first palettes as 20 px circles; the last circle opens the whole catalog.
         constexpr std::size_t kShown = 5;

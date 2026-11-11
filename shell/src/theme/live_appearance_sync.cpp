@@ -54,6 +54,11 @@ void LiveAppearanceSync::publish(std::string_view scheme, std::string_view accen
   flush();
 }
 
+void LiveAppearanceSync::setAccent(std::string_view accent) {
+  m_chosenAccent = normalizeColor(accent);
+  flush();
+}
+
 void LiveAppearanceSync::flush() {
   if (m_control == nullptr || !m_control->ready()) {
     return;
@@ -61,8 +66,15 @@ void LiveAppearanceSync::flush() {
   if (!m_scheme.empty()) {
     push("appearance.scheme", m_scheme, m_control->value("appearance.scheme") != m_scheme);
   }
-  if (!m_accent.empty()) {
-    push("appearance.accent", m_accent, normalizeColor(m_control->value("appearance.accent")) != m_accent);
+  // The user's accent choice lives in the compositor; the shell fills it in only while it is unset.
+  if (!m_chosenAccent.empty()) {
+    const bool differs = normalizeColor(m_control->value("appearance.accent")) != m_chosenAccent;
+    push("appearance.accent", m_chosenAccent, differs);
+    if (!differs) {
+      m_chosenAccent.clear();
+    }
+  } else if (!m_accent.empty()) {
+    push("appearance.accent", m_accent, m_control->value("appearance.accent").empty());
   }
   if (!m_scheme.empty()) {
     const bool light = m_scheme == "light";

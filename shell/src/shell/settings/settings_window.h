@@ -148,6 +148,8 @@ public:
   void setOpenWallpaperPanel(std::function<void()> callback) { m_openWallpaperPanel = std::move(callback); }
   void setPluginManager(scripting::PluginManager* manager) { m_pluginManager = manager; }
   void setSyncGreeterAppearance(std::function<void()> callback) { m_syncGreeterAppearance = std::move(callback); }
+  // The From Wallpaper accent ("#rrggbb"), or empty before it is picked.
+  void setWallpaperAccent(std::function<std::string()> provider) { m_wallpaperAccent = std::move(provider); }
   void setResetLauncherUsage(std::function<void()> callback) { m_resetLauncherUsage = std::move(callback); }
   void setResetScreenTime(std::function<void()> callback) { m_resetScreenTime = std::move(callback); }
   void setResetEncryptedStorage(std::function<void()> callback) { m_resetEncryptedStorage = std::move(callback); }
@@ -615,6 +617,7 @@ private:
   [[nodiscard]] bool stackShowsPage() const noexcept { return m_stackShowsPage || !m_searchQuery.empty(); }
   std::function<void()> m_openWallpaperPanel;
   std::function<void()> m_syncGreeterAppearance;
+  std::function<std::string()> m_wallpaperAccent;
   std::function<void()> m_resetLauncherUsage;
   std::function<void()> m_resetScreenTime;
   std::function<std::optional<std::size_t>()> m_activityFlaggedCount;

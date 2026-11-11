@@ -1504,6 +1504,7 @@ namespace noctalia::config::schema {
                 .tags = "gtk qt kde fcitx5 libadwaita apps colors accent theme",
             }
         ),
+        enumField(&ThemeConfig::accentSource, "accent_source", kAccentSources),
     };
     return s;
   }

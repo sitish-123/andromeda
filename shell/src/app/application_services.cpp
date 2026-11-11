@@ -9,6 +9,9 @@
 #include "config/config_types.h"
 #include "core/build_info.h"
 #include "core/deferred_call.h"
+#include "core/shared_worker.h"
+#include "render/core/image_file_loader.h"
+#include "theme/accent_pick.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "core/process/process.h"
@@ -759,6 +762,44 @@ void Application::initServices() {
   initActivity();
 }
 
+void Application::refreshWallpaperAccent(bool forSettingsRow) {
+  const bool fromWallpaper = m_configService.config().theme.accentSource == AccentSource::Wallpaper;
+  const std::string path = m_configService.getPaletteWallpaperPath();
+  if (path.empty() || path == m_wallpaperAccentPath) {
+    if (fromWallpaper && !forSettingsRow && !m_wallpaperAccent.empty()) {
+      m_liveAppearance.setAccent(m_wallpaperAccent);
+    }
+    return;
+  }
+  if (!fromWallpaper && !forSettingsRow) {
+    return;
+  }
+  m_wallpaperAccentPath = path;
+  m_wallpaperAccent.clear();
+  SharedWorker::instance().post<std::string>(
+      m_wallpaperAccentAlive,
+      [path]() -> std::string {
+        const auto image = loadImageFile(path, 96);
+        if (!image) {
+          return {};
+        }
+        const auto picked = noctalia::theme::pickImageAccent(image->rgba);
+        return picked ? noctalia::theme::accentForWhiteText(*picked).toHex() : std::string{};
+      },
+      [this, path](std::string accent) {
+        if (path != m_wallpaperAccentPath) {
+          return;
+        }
+        m_wallpaperAccent = std::move(accent);
+        kLog.info("wallpaper accent: {} from {}", m_wallpaperAccent.empty() ? "none" : m_wallpaperAccent, path);
+        if (!m_wallpaperAccent.empty() && m_configService.config().theme.accentSource == AccentSource::Wallpaper) {
+          m_liveAppearance.setAccent(m_wallpaperAccent);
+        }
+        m_settingsWindow.onExternalOptionsChanged();
+      }
+  );
+}
+
 void Application::initStyleThemeAndWayland() {
   std::signal(SIGTERM, signal_handler);
   std::signal(SIGINT, signal_handler);
@@ -1276,7 +1317,17 @@ void Application::initAuxServicesAndHooks() {
   });
 
   // Register all wallpaper consumers in the single-callback slot.
+  refreshWallpaperAccent();
+  m_configService.addReloadCallback(
+      [this] {
+        if (m_configService.lastChange().theme) {
+          refreshWallpaperAccent();
+        }
+      },
+      "wallpaper-accent"
+  );
   m_configService.setWallpaperChangeCallback([this] {
+    refreshWallpaperAccent();
     const auto wallpaperChanges = m_wallpaper.onStateChange();
     if (m_syncScriptApiOutputs) {
       m_syncScriptApiOutputs();

@@ -275,6 +275,7 @@ private:
   void syncScreenTimeService();
   void performGreeterSync(bool quiet = false);
   void scheduleGreeterAutoSync();
+  void refreshWallpaperAccent(bool forSettingsRow = false);
   bool runShellCommandBlocking(const std::string& command);
   bool runIdleAction(const IdleActionRequest& action);
   bool setOutputPower(bool on);
@@ -340,6 +341,10 @@ private:
   FileWatcher m_fileWatcher;
   noctalia::theme::ThemeService m_themeService{m_configService, m_httpClient};
   LiveAppearanceSync m_liveAppearance;
+  // The From Wallpaper accent of m_wallpaperAccentPath, picked on the SharedWorker; empty until then.
+  std::string m_wallpaperAccentPath;
+  std::string m_wallpaperAccent;
+  std::shared_ptr<int> m_wallpaperAccentAlive = std::make_shared<int>(0);
   scripting::ScriptApiContext m_scriptApi;
   std::function<void()> m_syncScriptApiOutputs;
   scripting::PluginManager m_pluginManager{m_configService};

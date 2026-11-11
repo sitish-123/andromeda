@@ -689,6 +689,9 @@ settings::RegistryEnvironment SettingsWindow::buildRegistryEnvironment() const {
   if (m_compositorSettings != nullptr && m_compositorSettings->ready()) {
     env.compositorSettings = m_compositorSettings.get();
   }
+  if (m_wallpaperAccent) {
+    env.wallpaperAccent = m_wallpaperAccent();
+  }
   env.screencopySupported = m_wayland != nullptr && m_wayland->hasScreencopy();
   env.backgroundEffectBlurSupported = m_wayland != nullptr && m_wayland->hasBackgroundEffectBlur();
   env.andromedaOverviewTypeToLaunchSupported = (m_wayland != nullptr && compositors::isAndromeda());

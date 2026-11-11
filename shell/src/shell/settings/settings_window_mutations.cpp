@@ -1,5 +1,6 @@
 #include "config/config_service.h"
 #include "core/deferred_call.h"
+#include "core/log.h"
 #include "i18n/i18n.h"
 #include "render/text/font_weight_catalog.h"
 #include "shell/profile/avatar_path.h"
@@ -107,6 +108,8 @@ void SettingsWindow::showTransientStatus(std::string message, bool isError) {
 
 namespace {
 
+  constexpr Logger kLog("settings");
+
   std::string compositorSettingText(const ConfigOverrideValue& value) {
     return std::visit(
         []<typename T>(const T& v) -> std::string {
@@ -178,29 +181,46 @@ void SettingsWindow::setSettingOverride(std::vector<std::string> path, ConfigOve
 void SettingsWindow::setSettingOverrides(
     std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> overrides
 ) {
-  std::erase_if(overrides, [this](const auto& overrideEntry) {
-    return commitCompositorSetting(overrideEntry.first, compositorSettingText(overrideEntry.second));
+  std::vector<std::pair<std::string, std::string>> compositorWrites;
+  std::erase_if(overrides, [&compositorWrites](const auto& overrideEntry) {
+    const auto key = settings::compositorSettingKey(overrideEntry.first);
+    if (key.has_value()) {
+      compositorWrites.emplace_back(*key, compositorSettingText(overrideEntry.second));
+    }
+    return key.has_value();
   });
-  DeferredCall::callLater([this, overrides = std::move(overrides)]() mutable {
-    if (m_config == nullptr) {
-      return;
-    }
-    if (overrides.empty()) {
-      markSettingsWriteSuccess(!m_statusMessage.empty());
-      return;
-    }
-    bool changed = false;
-    const bool needsSceneRebuild = std::ranges::any_of(overrides, [](const auto& overrideEntry) {
+  if (m_config == nullptr) {
+    return;
+  }
+  // The config part (e.g. theme.accent_source) commits first and synchronously, so a failed write leaves the
+  // compositor untouched and no async reader sees the old config next to the new compositor value.
+  bool changed = false;
+  bool needsSceneRebuild = false;
+  bool resetPathsChanged = false;
+  bool registryPatched = false;
+  if (!overrides.empty()) {
+    needsSceneRebuild = std::ranges::any_of(overrides, [](const auto& overrideEntry) {
       return settingPathNeedsSceneRebuild(overrideEntry.first);
     });
     const auto patchOverrides = overrides;
     const auto previousResetPaths = currentPageResetPaths();
-    if (m_config->setOverrides(overrides, &changed)) {
-      const bool registryPatched = changed && !needsSceneRebuild && tryPatchSettingsRegistryOverrides(patchOverrides);
-      finishSettingsWrite(changed, needsSceneRebuild, previousResetPaths != currentPageResetPaths(), registryPatched);
+    if (!m_config->setOverrides(overrides, &changed)) {
+      kLog.warn("settings: batch write failed; {} compositor setting(s) not written", compositorWrites.size());
+      markSettingsWriteError(settingsMutationError(*m_config, i18n::tr("settings.errors.batch-write")));
       return;
     }
-    markSettingsWriteError(settingsMutationError(*m_config, i18n::tr("settings.errors.batch-write")));
+    registryPatched = changed && !needsSceneRebuild && tryPatchSettingsRegistryOverrides(patchOverrides);
+    resetPathsChanged = previousResetPaths != currentPageResetPaths();
+  }
+  for (const auto& [key, value] : compositorWrites) {
+    setCompositorSetting(key, value);
+  }
+  if (overrides.empty()) {
+    DeferredCall::callLater([this] { markSettingsWriteSuccess(!m_statusMessage.empty()); });
+    return;
+  }
+  DeferredCall::callLater([this, changed, needsSceneRebuild, resetPathsChanged, registryPatched] {
+    finishSettingsWrite(changed, needsSceneRebuild, resetPathsChanged, registryPatched);
   });
 }
 

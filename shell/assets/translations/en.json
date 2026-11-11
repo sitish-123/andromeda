@@ -2938,6 +2938,10 @@
         },
         "shell-mode": {
           "follow": "Follow"
+        },
+        "accent-source": {
+          "color": "Color",
+          "wallpaper": "Wallpaper"
         }
       },
       "theme-role": {
@@ -5178,6 +5182,22 @@
         "appearance-increase-contrast": {
           "label": "Increase Contrast",
           "description": "Stronger text and borders in the shell and in apps"
+        },
+        "appearance-accent": {
+          "label": "Accent Color",
+          "description": "Toggles, the focus ring and selected items in the shell and in apps",
+          "swatches": {
+            "indigo": "Indigo",
+            "blue": "Blue",
+            "teal": "Teal",
+            "green": "Green",
+            "yellow": "Yellow",
+            "orange": "Orange",
+            "red": "Red",
+            "pink": "Pink",
+            "wallpaper": "From Wallpaper",
+            "custom": "Custom"
+          }
         },
         "appearance-reduce-transparency": {
           "label": "Reduce Transparency",

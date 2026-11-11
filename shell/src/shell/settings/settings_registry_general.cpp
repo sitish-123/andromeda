@@ -175,6 +175,60 @@ namespace settings {
     // Wallpaper
     if (env.compositorSettings != nullptr) {
       addCompositorEntries(entries, *env.compositorSettings, env.openDetail);
+      // Accent Color: presets that hold 4.5:1 under white text, the wallpaper's accent, or a custom colour.
+      constexpr std::array<std::pair<std::string_view, std::uint32_t>, 8> kAccentPresets{{
+          {"indigo", 0x6159f5},
+          {"blue", 0x0a6cdb},
+          {"teal", 0x00807a},
+          {"green", 0x2b7d34},
+          {"yellow", 0x8a6a00},
+          {"orange", 0xb95000},
+          {"red", 0xd1242f},
+          {"pink", 0xc4307a},
+      }};
+      const std::string swatchKey = "settings.schema.andromeda.appearance-accent.swatches.";
+      std::string current = StringUtils::toLower(env.compositorSettings->value("appearance.accent")).substr(0, 7);
+      std::vector<SelectOption> options;
+      for (const auto& [name, rgb] : kAccentPresets) {
+        const Color color = rgbHex(rgb);
+        options.push_back(SelectOption{
+            .value = StringUtils::toLower(formatRgbHex(color)),
+            .label = tr(swatchKey + std::string(name)),
+            .preview = {.swatches = {fixedColorSpec(color)}},
+        });
+      }
+      const bool fromWallpaper = cfg.theme.accentSource == AccentSource::Wallpaper;
+      const bool preset = std::ranges::any_of(options, [&](const SelectOption& o) { return o.value == current; });
+      SelectOption wallpaper{.value = "wallpaper", .label = tr(swatchKey + "wallpaper")};
+      if (Color picked; tryParseHexColor(env.wallpaperAccent, picked)) {
+        wallpaper.preview.swatches.push_back(fixedColorSpec(picked));
+      }
+      options.push_back(std::move(wallpaper));
+      SelectOption custom{.value = "custom", .label = tr(swatchKey + "custom")};
+      if (Color chosen; !fromWallpaper && !preset && tryParseHexColor(current, chosen)) {
+        custom.preview.swatches.push_back(fixedColorSpec(chosen));
+      }
+      options.push_back(std::move(custom));
+      SelectSetting select{std::move(options), fromWallpaper ? "wallpaper" : preset ? current : "custom"};
+      select.tiles = true;
+      select.groupedCommit = [wallpaperAccent = env.wallpaperAccent](
+                                 std::string_view value, const std::vector<std::string>& primaryPath
+                             ) {
+        std::vector<std::pair<std::vector<std::string>, ConfigOverrideValue>> writes;
+        const bool wallpaperPick = value == "wallpaper";
+        writes.emplace_back(
+            std::vector<std::string>{"theme", "accent_source"}, std::string(wallpaperPick ? "wallpaper" : "color")
+        );
+        if (const std::string accent = wallpaperPick ? wallpaperAccent : std::string(value); !accent.empty()) {
+          writes.emplace_back(primaryPath, accent);
+        }
+        return writes;
+      };
+      entries.push_back(makeEntry(
+          SettingsSection::Appearance, "~colour", tr("settings.schema.andromeda.appearance-accent.label"),
+          tr("settings.schema.andromeda.appearance-accent.description"), {"andromeda", "appearance", "accent"},
+          std::move(select), "accent color colour highlight tint wallpaper custom"
+      ));
     }
     entries.push_back(makeEntry(
         SettingsSection::Wallpaper, "general", tr("settings.schema.shared.enabled.label"),

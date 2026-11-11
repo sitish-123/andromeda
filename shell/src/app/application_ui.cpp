@@ -257,6 +257,10 @@ void Application::initUiRenderSurfacesAndSettings() {
     m_lockscreenWidgetsController.toggleEdit();
   });
   m_settingsWindow.setSyncGreeterAppearance([this] { performGreeterSync(); });
+  m_settingsWindow.setWallpaperAccent([this] {
+    refreshWallpaperAccent(true);
+    return m_wallpaperAccent;
+  });
 }
 
 void Application::performGreeterSync(bool quiet) {
