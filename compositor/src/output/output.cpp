@@ -206,6 +206,7 @@ namespace andromeda {
       m_heldFrame = HeldFrame::capture(m_output, m_server->heldFrameTree());
     }
     if (m_heldFrame != nullptr) {
+      m_heldFramePhase = HeldFramePhase::Holding;
       m_heldFrameTimer = wl_event_loop_add_timer(wl_display_get_event_loop(m_server->display()), onHeldFrameTimer, this);
       wl_event_source_timer_update(m_heldFrameTimer, 3000);
     }
@@ -237,11 +238,9 @@ namespace andromeda {
           static_cast<int>(std::lround(m_heldFrame->bufferHeight() / scale))
       );
     }
-    if (!applyConfiguredState()) {
-      // Do not advertise a logical output whose initial backend enable failed.
-      // Keeping it disabled lets a later output-enable action retry the commit.
-      m_desktopEnabled = false;
-    }
+    // Do not advertise a logical output whose initial backend enable failed.
+    // Keeping it disabled lets a later output-enable action retry the commit.
+    (void)applyConfiguredState({.desktopEnabled = false, .dpmsOff = m_dpmsOff});
     updateSceneSdrWhite();
     if (desktopEnabled()) {
       wlr_output_layout_output* layoutOutput = addToLayout();
@@ -677,27 +676,42 @@ namespace andromeda {
     return m_mirrorSource != nullptr ? !m_mirrorSource->m_dpmsOff : desktopEnabled() && !m_dpmsOff;
   }
 
-  bool Output::applyConfiguredState(bool stageGeometry) {
+  CommitResult Output::applyConfiguredState(PowerState restore, bool stageGeometry) {
     // wlroots fails a nonblocking commit while a page flip is pending, and the live-mode fallback would then force a
     // modeset (a black blink). An apply that keeps a lit output lit runs at the next frame event instead.
-    if (m_mirrorSource == nullptr && m_output->enabled && m_output->frame_pending && configuredPowered()) {
-      m_deferredConfiguredApply = stageGeometry || m_deferredConfiguredApply.value_or(false);
-      return true;
-    }
+    const bool flipPending =
+        m_mirrorSource == nullptr && m_output->enabled && m_output->frame_pending && configuredPowered();
+    const std::optional<ConfiguredRun> run = m_configuredCommit.request(stageGeometry, restore, flipPending);
+    return run.has_value() ? runConfiguredState(*run) : CommitResult::Pending;
+  }
+
+  CommitResult Output::runConfiguredState(const ConfiguredRun& run) {
     // With libliftoff, wlroots silently rejects a commit whose visible cursor layer did not get a plane, which
     // happens on modesets (eDP-1, xe): the cursor is drawn in software until the next frame.
     wlr_output_lock_software_cursors(m_output, true);
-    const bool committed = commitConfiguredState(stageGeometry);
+    std::string_view failure;
+    const CommitOutcome outcome = commitConfiguredState(run.stageGeometry, failure);
     wlr_output_lock_software_cursors(m_output, false);
     // A disabled output never presents; the next compositor's release must not wait for it.
     if (m_awaitingFirstFrame && !m_output->enabled) {
       m_awaitingFirstFrame = false;
       scanout_keeper::firstFrameShown();
     }
-    return committed;
+    const ConfiguredFinish finished = m_configuredCommit.finish(run, outcome);
+    if (finished.result == CommitResult::Pending) {
+      armFrameRetry(kFrameRetryDelayMs);
+    } else if (finished.restore.has_value()) {
+      m_desktopEnabled = finished.restore->desktopEnabled;
+      m_dpmsOff = finished.restore->dpmsOff;
+    } else if (finished.result == CommitResult::Failed) {
+      kLog.error(
+          "output '{}': deferred configured state failed ({}); keeping the requested state", m_output->name, failure
+      );
+    }
+    return finished.result;
   }
 
-  bool Output::commitConfiguredState(bool stageGeometry) {
+  CommitOutcome Output::commitConfiguredState(bool stageGeometry, std::string_view& failure) {
     if (m_workspaceGroup != nullptr) {
       m_workspaceGroup->abandonReveal();
     }
@@ -706,7 +720,8 @@ namespace andromeda {
                                                                           : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
     if (!wlr_scene_output_set_sdr_transfer_function(m_sceneOutput, sdrTransfer)) {
       kLog.error("output '{}': failed to apply SDR transfer function", m_output->name);
-      return false;
+      failure = "SDR transfer function rejected";
+      return CommitOutcome::Failed;
     }
     const std::optional<double> configuredScale = rule != nullptr ? rule->scale : std::nullopt;
     const bool enabled = configuredPowered();
@@ -1066,16 +1081,15 @@ namespace andromeda {
       markBlurBackgroundDirty();
       m_server->updateColorPreferences();
       if (commitBusy && m_mirrorSource == nullptr) {
-        m_deferredConfiguredApply = stageGeometry;
-        armFrameRetry(kFrameRetryDelayMs);
-        return true;
+        return CommitOutcome::Busy;
       }
       kLog.error("output '{}': failed to commit configured state", m_output->name);
+      failure = "backend rejected the commit";
       // A rejected modeset leaves no frame scheduled; without one the cursor plane stays put until a client damages.
       if (enabled) {
         scheduleFullFrame();
       }
-      return false;
+      return CommitOutcome::Failed;
     }
     if (stageGeometry && !usedModeFallback) {
       m_modeFallbackWarned = false;
@@ -1134,7 +1148,7 @@ namespace andromeda {
       updateHdrAvailability(hdrRejected);
     }
     m_server->updateColorPreferences();
-    return true;
+    return CommitOutcome::Ok;
   }
 
   bool Output::configuredVrrEnabled() const {
@@ -1310,9 +1324,8 @@ namespace andromeda {
       m_autoHdrOwner = nullptr;
       m_fullscreenHdrRequested = false;
     }
-    if (!applyConfiguredState()) {
-      m_desktopEnabled = previousDesktopEnabled;
-      m_dpmsOff = previousDpmsOff;
+    if (applyConfiguredState({.desktopEnabled = previousDesktopEnabled, .dpmsOff = previousDpmsOff})
+        == CommitResult::Failed) {
       return false;
     }
     if (desktopEnabled()) {
@@ -1378,15 +1391,14 @@ namespace andromeda {
       return true;
     }
 
-    const bool previous = m_dpmsOff;
+    const PowerState previous = powerState();
     m_dpmsOff = dpmsOff;
-    if (!applyConfiguredState()) {
-      m_dpmsOff = previous;
+    if (applyConfiguredState(previous) == CommitResult::Failed) {
       return false;
     }
     for (const auto& output : m_server->outputs()) {
       if (output->m_mirrorSource == this) {
-        (void)output->applyConfiguredState();
+        (void)output->applyConfiguredState(output->powerState());
       }
     }
     applyOutputEffects();
@@ -1948,36 +1960,46 @@ namespace andromeda {
   void Output::backgroundMapped() {
     // The wallpaper maps with its first decoded frame (an unmapped surface already updates the background tree): give
     // the bar 300 ms to join, then cross.
-    if (m_heldFrame != nullptr && !m_heldFrameGated) {
-      m_heldFrameGated = true;
-      wl_event_source_timer_update(m_heldFrameTimer, 300);
-    }
+    advanceHeldFrame(HeldFrameEvent::WallpaperMapped);
   }
 
   int Output::onHeldFrameTimer(void* data) {
-    static_cast<Output*>(data)->releaseHeldFrame();
+    auto* self = static_cast<Output*>(data);
+    self->advanceHeldFrame(
+        self->greeterShowsNothing() ? HeldFrameEvent::TimerFiredGreeterEmpty : HeldFrameEvent::TimerFired
+    );
     return 0;
   }
 
-  void Output::releaseHeldFrame() {
-    if (m_heldFrame == nullptr || m_heldFrame->released()) {
-      return;
-    }
-    m_heldFrame->release(config().appearance.reduceMotion);
-    m_heldFrameLastStep = std::chrono::steady_clock::now();
-    wlr_output_schedule_frame(m_output);
+  bool Output::greeterShowsNothing() const {
+    return greeterMode()
+        && std::ranges::none_of(m_server->layerSurfaces(), [](const auto& layer) { return layer->mapped(); })
+        && std::ranges::none_of(m_server->views(), [](const auto& view) { return view->mapped(); });
   }
 
-  void Output::dropHeldFrame() {
-    if (m_heldFrameTimer != nullptr) {
+  void Output::advanceHeldFrame(HeldFrameEvent event) {
+    const std::optional<HeldFrameStep> next = heldFrameNext(m_heldFramePhase, event);
+    if (!next.has_value()) {
+      return;
+    }
+    m_heldFramePhase = next->phase;
+    if (next->timer == HeldFrameTimer::Rearm) {
+      wl_event_source_timer_update(m_heldFrameTimer, 300);
+    } else if (next->timer == HeldFrameTimer::Remove) {
       wl_event_source_remove(m_heldFrameTimer);
       m_heldFrameTimer = nullptr;
     }
-    m_heldFrame.reset();
+    if (m_heldFramePhase == HeldFramePhase::Crossing) {
+      m_heldFrame->release(config().appearance.reduceMotion);
+      m_heldFrameLastStep = std::chrono::steady_clock::now();
+      wlr_output_schedule_frame(m_output);
+    } else if (m_heldFramePhase == HeldFramePhase::Gone) {
+      m_heldFrame.reset();
+    }
   }
 
   void Output::stepHeldFrame() {
-    if (m_heldFrame == nullptr || !m_heldFrame->released()) {
+    if (m_heldFramePhase != HeldFramePhase::Crossing) {
       return;
     }
     const auto now = std::chrono::steady_clock::now();
@@ -1986,7 +2008,7 @@ namespace andromeda {
     if (m_heldFrame->step(seconds)) {
       wlr_output_schedule_frame(m_output);
     } else {
-      m_heldFrame.reset();
+      advanceHeldFrame(HeldFrameEvent::CrossSettled);
     }
   }
 
@@ -2242,11 +2264,11 @@ namespace andromeda {
     // The login screen is the greeter client alone. Its surfaces vanish the moment it exits, before the compositor
     // sees the child exit: a frame without them is black with a cursor, and the next session would hold that frame.
     // Keep the last greeter frame on screen instead.
-    if (greeterMode()
-        && std::ranges::none_of(m_server->layerSurfaces(), [](const auto& layer) { return layer->mapped(); })
-        && std::ranges::none_of(m_server->views(), [](const auto& view) { return view->mapped(); })) {
+    // A held frame covers the output, so it stays too and starts its cross only once the greeter shows something.
+    if (m_heldFramePhase != HeldFramePhase::Crossing && greeterShowsNothing()) {
       return;
     }
+    advanceHeldFrame(HeldFrameEvent::GreeterShown);
     const OutputFrameScope frameScope(*m_server);
     stepHeldFrame();
     // A disarm is a timerfd_settime syscall: only when armed.
@@ -2257,10 +2279,6 @@ namespace andromeda {
     m_handlingFrame = true;
 
     flushDirty();
-    if (m_hasDeferredMode) {
-      m_hasDeferredMode = false;
-      applyMode(m_deferredWidth, m_deferredHeight, m_deferredRefresh);
-    }
     timespec now{};
     clock_gettime(CLOCK_MONOTONIC, &now);
     const uint64_t nowMsec = static_cast<uint64_t>(now.tv_sec) * 1000 + static_cast<uint64_t>(now.tv_nsec) / 1'000'000;
@@ -2405,18 +2423,18 @@ namespace andromeda {
         m_pointerSceneSerial = serial;
       }
     }
-    const std::optional<bool> deferredApply = std::exchange(m_deferredConfiguredApply, std::nullopt);
+    (void)m_configuredCommit.beginFrame();
+    const std::optional<ConfiguredRun> dueApply = m_configuredCommit.takeDue();
     const bool hdrTransitionPending =
-        deferredApply.has_value() || m_hdrTransition.pending(m_output->enabled, hdrRequested());
+        dueApply.has_value() || m_hdrTransition.pending(m_output->enabled, hdrRequested());
     if (hdrTransitionPending) {
       // Run at the frame boundary, after the previous page flip completed. The
       // configured-state commit builds the scene into the same state as the
       // image-description and render-format switch.
-      m_inFrame = true;
-      const bool committed = applyConfiguredState(deferredApply.value_or(false));
-      m_inFrame = false;
-      commitFailed = !committed;
-      if (committed) {
+      const CommitResult result =
+          dueApply.has_value() ? runConfiguredState(*dueApply) : applyConfiguredState(powerState(), false);
+      commitFailed = result != CommitResult::Applied;
+      if (result == CommitResult::Applied) {
         if (effectFrame) {
           ++m_effectFrames;
         }
@@ -2424,7 +2442,6 @@ namespace andromeda {
       }
     }
     if (!hdrTransitionPending && (sceneChanged || m_gammaDirty)) {
-      m_inFrame = true;
       if (effectFrame) {
         ++m_effectFrames;
       }
@@ -2590,7 +2607,6 @@ namespace andromeda {
       }
 
       wlr_output_state_finish(&state);
-      m_inFrame = false;
       commitFailed = !commitOk;
     }
 
@@ -2600,9 +2616,8 @@ namespace andromeda {
     }
 
     // A request_state that arrived mid-commit is applied now that we're out of it.
-    if (m_hasDeferredMode) {
-      m_hasDeferredMode = false;
-      applyMode(m_deferredWidth, m_deferredHeight, m_deferredRefresh);
+    if (const std::optional<RequestedMode> mode = m_configuredCommit.endFrame()) {
+      applyMode(mode->width, mode->height, mode->refreshMHz);
     }
 
     if (commitFailed && m_output->idle_frame != nullptr) {
@@ -2657,13 +2672,12 @@ namespace andromeda {
 
     // Parent configure can arrive while we are flushing a frame commit. Applying a
     // mode change mid-frame makes the wayland backend reject the primary buffer.
-    if (m_inFrame
-        && (event->state->committed & WLR_OUTPUT_STATE_MODE) != 0
-        && event->state->mode_type == WLR_OUTPUT_STATE_MODE_CUSTOM) {
-      m_deferredWidth = event->state->custom_mode.width;
-      m_deferredHeight = event->state->custom_mode.height;
-      m_deferredRefresh = event->state->custom_mode.refresh;
-      m_hasDeferredMode = true;
+    if ((event->state->committed & WLR_OUTPUT_STATE_MODE) != 0
+        && event->state->mode_type == WLR_OUTPUT_STATE_MODE_CUSTOM
+        && m_configuredCommit.requestMode(
+            {.width = event->state->custom_mode.width, .height = event->state->custom_mode.height,
+             .refreshMHz = event->state->custom_mode.refresh}
+        )) {
       return;
     }
 

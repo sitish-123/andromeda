@@ -1,10 +1,12 @@
 #pragma once
 
 #include "output/held_frame.h"
+#include "output/held_frame_phase.h"
 
 #include <chrono>
 
 #include "core/dirty.h"
+#include "output/configured_commit.h"
 #include "output/cursor_plane_pace.h"
 #include "output/direct_scanout.h"
 #include "output/frame_schedule.h"
@@ -253,8 +255,11 @@ namespace andromeda {
     void handleDestroy();
     // Full configuration stages geometry. Frame-bound HDR transitions reuse
     // the live geometry and carry a freshly rendered scene buffer.
-    [[nodiscard]] bool applyConfiguredState(bool stageGeometry = true);
-    [[nodiscard]] bool commitConfiguredState(bool stageGeometry);
+    // `restore` is the power state a failed commit returns to.
+    [[nodiscard]] CommitResult applyConfiguredState(PowerState restore, bool stageGeometry = true);
+    [[nodiscard]] CommitResult runConfiguredState(const ConfiguredRun& run);
+    [[nodiscard]] CommitOutcome commitConfiguredState(bool stageGeometry, std::string_view& failure);
+    [[nodiscard]] PowerState powerState() const { return {.desktopEnabled = m_desktopEnabled, .dpmsOff = m_dpmsOff}; }
     [[nodiscard]] bool configuredPowered() const;
     [[nodiscard]] bool autoHdrEligible(const View* view) const;
     [[nodiscard]] View* findAutoHdrCandidate() const;
@@ -306,11 +311,8 @@ namespace andromeda {
     int m_arrangedLayoutX = 0;
     int m_arrangedLayoutY = 0;
 
-    bool m_inFrame = false;
     bool m_handlingFrame = false;
-    bool m_hasDeferredMode = false;
-    // stageGeometry of a configured-state apply that waits for the pending page flip.
-    std::optional<bool> m_deferredConfiguredApply;
+    ConfiguredCommit m_configuredCommit;
     bool m_gammaDirty = false;
     bool m_softwareCursorLocked = false;
     bool m_animationRenderLocked = false;
@@ -363,10 +365,11 @@ namespace andromeda {
     std::vector<ForeignPlane> m_foreignPlanes; // until the first present
     bool m_awaitingFirstFrame = false;
     wl_event_source* m_heldFrameTimer = nullptr;
-    bool m_heldFrameGated = false;
+    HeldFramePhase m_heldFramePhase = HeldFramePhase::Gone;
     std::chrono::steady_clock::time_point m_heldFrameLastStep{};
-    void releaseHeldFrame();
-    void dropHeldFrame();
+    void advanceHeldFrame(HeldFrameEvent event);
+    [[nodiscard]] bool greeterShowsNothing() const;
+    void dropHeldFrame() { advanceHeldFrame(HeldFrameEvent::Dropped); }
     void stepHeldFrame();
     static int onHeldFrameTimer(void* data);
     DirectScanoutTracker m_directScanout;
@@ -409,9 +412,6 @@ namespace andromeda {
       bool operator==(const TearingTest&) const = default;
     };
     std::optional<TearingTest> m_tearingTest;
-    int m_deferredWidth = 0;
-    int m_deferredHeight = 0;
-    int m_deferredRefresh = 0;
 
     Listener m_frame;
     Listener m_requestState;

@@ -50,6 +50,7 @@ unit_tests = [
   ['output-hdr-transition', ['unit/output_hdr_transition.cpp'], []],
   ['output-format-sequence', ['unit/output_format_sequence.cpp'], []],
   ['output-gamma-transition', ['unit/output_gamma_transition.cpp'], []],
+  ['output-commit-state', ['unit/output_commit_state.cpp'], []],
   ['hdr-metadata', ['unit/hdr_metadata.cpp'], [andromeda_core_dep]],
   ['color-description', ['unit/color_description.cpp'], [andromeda_core_dep]],
   ['hdr-format', ['unit/hdr_format.cpp'], []],
